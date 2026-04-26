@@ -102,26 +102,47 @@ pub fn execute(module: &IrModule) -> Result<(), String> {
             Op::Ge => cmp_num(&mut stack, |a, b| a >= b)?,
             Op::Eq3 => strict_eq(&mut stack, false)?,
             Op::Neq3 => strict_eq(&mut stack, true)?,
-            Op::StrLen => {
-                let v = stack.pop().ok_or("stack underflow on str_len")?;
-                let Value::String(s) = v else {
-                    return Err(format!("str_len expects string, got {v:?}"));
+            Op::Length => {
+                let v = stack.pop().ok_or("stack underflow on length")?;
+                let n = match v {
+                    Value::String(s) => s.chars().count() as f64,
+                    Value::Array(a) => a.len() as f64,
+                    other => return Err(format!("length expects string or array, got {other:?}")),
                 };
-                stack.push(Value::Number(s.chars().count() as f64));
+                stack.push(Value::Number(n));
             }
-            Op::StrIndex => {
-                let i = stack.pop().ok_or("stack underflow on str_index (idx)")?;
-                let s = stack.pop().ok_or("stack underflow on str_index (s)")?;
-                let (Value::String(s), Value::Number(i)) = (s, i) else {
-                    return Err("str_index requires (string, number)".into());
+            Op::IndexAccess => {
+                let i = stack.pop().ok_or("stack underflow on index (idx)")?;
+                let v = stack.pop().ok_or("stack underflow on index (val)")?;
+                let Value::Number(i) = i else {
+                    return Err(format!("index must be number, got {i:?}"));
                 };
                 let idx = i as usize;
-                let ch = s
-                    .chars()
-                    .nth(idx)
-                    .ok_or_else(|| format!("string index {idx} out of range"))?;
+                let result = match v {
+                    Value::String(s) => {
+                        let ch = s
+                            .chars()
+                            .nth(idx)
+                            .ok_or_else(|| format!("string index {idx} out of range"))?;
+                        use std::rc::Rc;
+                        Value::String(Rc::new(ch.to_string()))
+                    }
+                    Value::Array(a) => a
+                        .get(idx)
+                        .cloned()
+                        .ok_or_else(|| format!("array index {idx} out of range"))?,
+                    other => return Err(format!("can't index into {other:?}")),
+                };
+                stack.push(result);
+            }
+            Op::ArrayNew(n) => {
+                let n = n as usize;
+                if stack.len() < n {
+                    return Err("stack underflow on array_new".into());
+                }
+                let values: Vec<Value> = stack.drain(stack.len() - n..).collect();
                 use std::rc::Rc;
-                stack.push(Value::String(Rc::new(ch.to_string())));
+                stack.push(Value::Array(Rc::new(values)));
             }
             Op::Jump(target) => pc = target as usize,
             Op::BrFalse(target) => {
@@ -205,6 +226,21 @@ fn call_host(name: &str, args: &[Value]) -> Result<Value, String> {
                     Value::Number(n) => print!("{n}"),
                     Value::Bool(b) => print!("{b}"),
                     Value::Undefined => print!("undefined"),
+                    Value::Array(arr) => {
+                        // simple JS-ish format: comma-joined elements
+                        let parts: Vec<String> = arr
+                            .iter()
+                            .map(|v| match v {
+                                Value::String(s) => s.to_string(),
+                                Value::Number(n) => n.to_string(),
+                                Value::Bool(b) => b.to_string(),
+                                Value::Undefined => "undefined".into(),
+                                Value::Array(_) => "[…]".into(),
+                                Value::HostFn(_) | Value::Function(_) => "<fn>".into(),
+                            })
+                            .collect();
+                        print!("{}", parts.join(","));
+                    }
                     Value::HostFn(_) | Value::Function(_) => {
                         return Err("cannot console.log a function".into());
                     }

@@ -20,9 +20,14 @@ pub enum Type {
     Function(Vec<Type>, Box<Type>),
     /// Object stand-in for hardcoded globals like `console`. Real object types come in P2.
     Object(&'static str),
+    /// Homogeneous array. Owned by `Rc<Vec<Value>>` at runtime in v0.
+    Array(Box<Type>),
 }
 
 fn resolve_type_ann(name: &str) -> Option<Type> {
+    if let Some(rest) = name.strip_suffix("[]") {
+        return resolve_type_ann(rest).map(|inner| Type::Array(Box::new(inner)));
+    }
     match name {
         "number" => Some(Type::Number),
         "string" => Some(Type::String),
@@ -302,20 +307,40 @@ impl Checker {
                     (Type::Object("console"), "log") => {
                         Ok(Type::Function(vec![Type::Any], Box::new(Type::Void)))
                     }
-                    (Type::String, "length") => Ok(Type::Number),
+                    (Type::String, "length") | (Type::Array(_), "length") => Ok(Type::Number),
                     _ => Err(format!("no member `.{name}` on type {obj_ty:?}")),
                 }
             }
             Expr::Index { obj, index } => {
                 let obj_ty = self.type_of(ast, *obj)?;
                 let idx_ty = self.type_of(ast, *index)?;
-                if obj_ty != Type::String {
-                    return Err(format!("can't index into {obj_ty:?}"));
-                }
                 if idx_ty != Type::Number {
                     return Err(format!("index must be number, got {idx_ty:?}"));
                 }
-                Ok(Type::String)
+                match obj_ty {
+                    Type::String => Ok(Type::String),
+                    Type::Array(elem) => Ok(*elem),
+                    other => Err(format!("can't index into {other:?}")),
+                }
+            }
+            Expr::Array(elements) => {
+                if elements.is_empty() {
+                    return Err(
+                        "empty array literal needs a type annotation (not yet supported in v0)"
+                            .into(),
+                    );
+                }
+                let ids: Vec<ExprId> = elements.clone();
+                let first_ty = self.type_of(ast, ids[0])?;
+                for &eid in ids.iter().skip(1) {
+                    let ty = self.type_of(ast, eid)?;
+                    if ty != first_ty {
+                        return Err(format!(
+                            "array element type mismatch: expected {first_ty:?}, got {ty:?}"
+                        ));
+                    }
+                }
+                Ok(Type::Array(Box::new(first_ty)))
             }
             Expr::Call { callee, args } => {
                 let callee_ty = self.type_of(ast, *callee)?;

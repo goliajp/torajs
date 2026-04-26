@@ -18,8 +18,10 @@
 //! mul      := postfix (( `*` | `/` ) postfix)*
 //! postfix  := primary ( `.` ident | `(` args `)` | `[` expr `]` )*
 //! args     := (expr (`,` expr)*)?
-//! primary  := ident | string | number | `true` | `false` | arrow_fn
+//! primary  := ident | string | number | `true` | `false` | arrow_fn | array_lit
 //! arrow_fn := `(` params? `)` (`:` IDENT)? `=>` (block | expr)
+//! array_lit := `[` (expr (`,` expr)*)? `]`
+//! type_ann := IDENT (`[` `]`)*
 
 use crate::ast::{Ast, BinOp, Expr, ExprId, Param, Stmt};
 use crate::lexer::{Spanned, Token};
@@ -47,6 +49,33 @@ impl Parser<'_> {
 
     fn at(&self) -> u32 {
         self.tokens[self.pos].span.start
+    }
+
+    /// Parse a type annotation. Currently supports `IDENT` and array suffixes
+    /// (`IDENT[]`, `IDENT[][]`, …). Returns the annotation as a flat string
+    /// (e.g. `"number[][]"`); the type checker resolves it.
+    fn parse_type_ann(&mut self) -> Result<String, String> {
+        let mut name = match self.peek() {
+            Token::Ident(n) => n.clone(),
+            t => {
+                return Err(format!("expected type name, got {t:?} at {}", self.at()));
+            }
+        };
+        self.pos += 1;
+        while matches!(self.peek(), Token::LBracket) {
+            self.pos += 1;
+            match self.peek() {
+                Token::RBracket => self.pos += 1,
+                t => {
+                    return Err(format!(
+                        "expected `]` in array type, got {t:?} at {}",
+                        self.at()
+                    ));
+                }
+            }
+            name.push_str("[]");
+        }
+        Ok(name)
     }
 
     fn parse_program(&mut self) -> Result<(), String> {
@@ -93,17 +122,7 @@ impl Parser<'_> {
             self.pos += 1;
             let type_ann = if matches!(self.peek(), Token::Colon) {
                 self.pos += 1;
-                let ann = match self.peek() {
-                    Token::Ident(n) => n.clone(),
-                    t => {
-                        return Err(format!(
-                            "expected type name after `:`, got {t:?} at {}",
-                            self.at()
-                        ));
-                    }
-                };
-                self.pos += 1;
-                Some(ann)
+                Some(self.parse_type_ann()?)
             } else {
                 None
             };
@@ -208,14 +227,7 @@ impl Parser<'_> {
                 self.pos += 1;
                 let type_ann = if matches!(self.peek(), Token::Colon) {
                     self.pos += 1;
-                    let ann = match self.peek() {
-                        Token::Ident(n) => n.clone(),
-                        t => {
-                            return Err(format!("expected type name, got {t:?} at {}", self.at()));
-                        }
-                    };
-                    self.pos += 1;
-                    Some(ann)
+                    Some(self.parse_type_ann()?)
                 } else {
                     None
                 };
@@ -236,17 +248,7 @@ impl Parser<'_> {
         }
         let return_type = if matches!(self.peek(), Token::Colon) {
             self.pos += 1;
-            let ann = match self.peek() {
-                Token::Ident(n) => n.clone(),
-                t => {
-                    return Err(format!(
-                        "expected return type after `:`, got {t:?} at {}",
-                        self.at()
-                    ));
-                }
-            };
-            self.pos += 1;
-            Some(ann)
+            Some(self.parse_type_ann()?)
         } else {
             None
         };
@@ -437,6 +439,9 @@ impl Parser<'_> {
         if matches!(self.peek(), Token::LParen) {
             return self.parse_arrow_fn();
         }
+        if matches!(self.peek(), Token::LBracket) {
+            return self.parse_array_literal();
+        }
         let pos = self.pos;
         match &self.tokens[pos].token {
             Token::Ident(n) => {
@@ -469,6 +474,32 @@ impl Parser<'_> {
         }
     }
 
+    fn parse_array_literal(&mut self) -> Result<ExprId, String> {
+        // assumes current token is `[`
+        self.pos += 1;
+        let mut elements = Vec::new();
+        if !matches!(self.peek(), Token::RBracket) {
+            elements.push(self.parse_expr()?);
+            while matches!(self.peek(), Token::Comma) {
+                self.pos += 1;
+                if matches!(self.peek(), Token::RBracket) {
+                    break; // trailing comma allowed
+                }
+                elements.push(self.parse_expr()?);
+            }
+        }
+        match self.peek() {
+            Token::RBracket => self.pos += 1,
+            t => {
+                return Err(format!(
+                    "expected `]` in array literal, got {t:?} at {}",
+                    self.at()
+                ));
+            }
+        }
+        Ok(self.ast.add_expr(Expr::Array(elements)))
+    }
+
     fn parse_arrow_fn(&mut self) -> Result<ExprId, String> {
         // assumes current token is `(`
         self.pos += 1;
@@ -487,14 +518,7 @@ impl Parser<'_> {
                 self.pos += 1;
                 let type_ann = if matches!(self.peek(), Token::Colon) {
                     self.pos += 1;
-                    let ann = match self.peek() {
-                        Token::Ident(n) => n.clone(),
-                        t => {
-                            return Err(format!("expected type name, got {t:?} at {}", self.at()));
-                        }
-                    };
-                    self.pos += 1;
-                    Some(ann)
+                    Some(self.parse_type_ann()?)
                 } else {
                     None
                 };
@@ -515,17 +539,7 @@ impl Parser<'_> {
         }
         let return_type = if matches!(self.peek(), Token::Colon) {
             self.pos += 1;
-            let ann = match self.peek() {
-                Token::Ident(n) => n.clone(),
-                t => {
-                    return Err(format!(
-                        "expected return type after `:`, got {t:?} at {}",
-                        self.at()
-                    ));
-                }
-            };
-            self.pos += 1;
-            Some(ann)
+            Some(self.parse_type_ann()?)
         } else {
             None
         };

@@ -11,6 +11,9 @@ pub enum Value {
     Number(f64),
     Bool(bool),
     String(Rc<String>),
+    /// v0 array — shared, immutable. Mutation via `a[i] = x` lands at P2 with
+    /// proper ownership rules.
+    Array(Rc<Vec<Value>>),
     /// Reference to a host function by index into `IrModule.host_fns`.
     HostFn(u32),
     /// Reference to a user function by index into `IrModule.functions`.

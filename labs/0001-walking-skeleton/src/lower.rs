@@ -295,7 +295,7 @@ impl<'a, 'b> FnLowering<'a, 'b> {
                 if name == "length" {
                     let obj_id = *obj;
                     self.lower_expr(obj_id);
-                    self.code.push(Op::StrLen);
+                    self.code.push(Op::Length);
                     return;
                 }
                 unreachable!("lower: unsupported member access slipped past type-check");
@@ -348,7 +348,15 @@ impl<'a, 'b> FnLowering<'a, 'b> {
                 let i = *index;
                 self.lower_expr(o);
                 self.lower_expr(i);
-                self.code.push(Op::StrIndex);
+                self.code.push(Op::IndexAccess);
+            }
+            Expr::Array(elements) => {
+                let ids: Vec<ExprId> = elements.clone();
+                let n = ids.len() as u32;
+                for eid in ids {
+                    self.lower_expr(eid);
+                }
+                self.code.push(Op::ArrayNew(n));
             }
         }
     }

@@ -26,8 +26,12 @@ pub enum Op {
     Ge,
     Eq3,  // === strict equality
     Neq3, // !==
-    StrLen,
-    StrIndex,
+    /// Polymorphic `.length` — works on string and array.
+    Length,
+    /// Polymorphic `obj[i]` — works on string (returns 1-char string) and array (returns element).
+    IndexAccess,
+    /// Pop `n` values, build `Value::Array` over them, push the array.
+    ArrayNew(u32),
     Jump(u32),
     BrFalse(u32),
 }
@@ -59,6 +63,7 @@ impl IrModule {
                 Value::Undefined => println!("  const{i}: undefined"),
                 Value::HostFn(h) => println!("  const{i}: <host {h}>"),
                 Value::Function(f) => println!("  const{i}: <fn {f}>"),
+                Value::Array(_) => println!("  const{i}: <array>"),
             }
         }
         println!(".host");
@@ -99,8 +104,9 @@ fn print_op(i: usize, op: &Op) {
         Op::Ge => println!("  {i:>3}: ge"),
         Op::Eq3 => println!("  {i:>3}: eq3"),
         Op::Neq3 => println!("  {i:>3}: neq3"),
-        Op::StrLen => println!("  {i:>3}: str_len"),
-        Op::StrIndex => println!("  {i:>3}: str_index"),
+        Op::Length => println!("  {i:>3}: length"),
+        Op::IndexAccess => println!("  {i:>3}: index"),
+        Op::ArrayNew(n) => println!("  {i:>3}: array_new   {n}"),
         Op::Jump(t) => println!("  {i:>3}: jump        @{t}"),
         Op::BrFalse(t) => println!("  {i:>3}: br_false    @{t}"),
     }

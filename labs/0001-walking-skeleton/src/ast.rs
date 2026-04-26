@@ -44,6 +44,7 @@ pub enum Expr {
         obj: ExprId,
         index: ExprId,
     },
+    Array(Vec<ExprId>),
     ArrowFn {
         params: Vec<Param>,
         return_type: Option<String>,
@@ -222,6 +223,12 @@ impl Ast {
                 println!("{pad}  [");
                 self.print_expr(*index, indent + 1);
                 println!("{pad}  ]");
+            }
+            Expr::Array(elements) => {
+                println!("{pad}Array [{}]", elements.len());
+                for e in elements {
+                    self.print_expr(*e, indent + 1);
+                }
             }
             Expr::ArrowFn {
                 params,
