@@ -79,6 +79,16 @@ impl Checker {
                     self.check_stmt(ast, eb);
                 }
             }
+            Stmt::While { cond, body } => {
+                match self.type_of(ast, *cond) {
+                    Ok(Type::Boolean) => {}
+                    Ok(other) => self
+                        .errors
+                        .push(format!("while condition must be boolean, got {other:?}")),
+                    Err(e) => self.errors.push(e),
+                }
+                self.check_stmt(ast, body);
+            }
             Stmt::Block(stmts) => {
                 for s in stmts {
                     self.check_stmt(ast, s);

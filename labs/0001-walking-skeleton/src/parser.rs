@@ -1,9 +1,10 @@
 //! Recursive descent parser. Grammar:
 //!
 //! program  := stmt*
-//! stmt     := decl | if | block | expr `;`?
+//! stmt     := decl | if | while | block | expr `;`?
 //! decl     := (`let` | `const`) IDENT (`:` IDENT)? `=` expr `;`?
 //! if       := `if` `(` expr `)` stmt (`else` stmt)?
+//! while    := `while` `(` expr `)` stmt
 //! block    := `{` stmt* `}`
 //! expr     := assign
 //! assign   := equality (`=` assign)?               (* right-associative *)
@@ -57,6 +58,9 @@ impl Parser<'_> {
         }
         if matches!(self.peek(), Token::If) {
             return self.parse_if();
+        }
+        if matches!(self.peek(), Token::While) {
+            return self.parse_while();
         }
         let mutable = match self.peek() {
             Token::Let => Some(true),
@@ -160,6 +164,31 @@ impl Parser<'_> {
             then_branch,
             else_branch,
         })
+    }
+
+    fn parse_while(&mut self) -> Result<Stmt, String> {
+        self.pos += 1; // consume `while`
+        match self.peek() {
+            Token::LParen => self.pos += 1,
+            t => {
+                return Err(format!(
+                    "expected `(` after `while`, got {t:?} at {}",
+                    self.at()
+                ));
+            }
+        }
+        let cond = self.parse_expr()?;
+        match self.peek() {
+            Token::RParen => self.pos += 1,
+            t => {
+                return Err(format!(
+                    "expected `)` after while condition, got {t:?} at {}",
+                    self.at()
+                ));
+            }
+        }
+        let body = Box::new(self.parse_stmt()?);
+        Ok(Stmt::While { cond, body })
     }
 
     fn parse_expr(&mut self) -> Result<ExprId, String> {

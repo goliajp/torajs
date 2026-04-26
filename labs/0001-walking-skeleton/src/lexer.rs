@@ -12,6 +12,7 @@ pub enum Token {
     Else,
     True,
     False,
+    While,
     // punctuation
     Dot,
     Comma,
@@ -152,6 +153,7 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                     "else" => Token::Else,
                     "true" => Token::True,
                     "false" => Token::False,
+                    "while" => Token::While,
                     _ => Token::Ident(name.to_string()),
                 };
                 emit(&mut out, token, start, i);

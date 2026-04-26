@@ -56,6 +56,10 @@ pub enum Stmt {
         then_branch: Box<Stmt>,
         else_branch: Option<Box<Stmt>>,
     },
+    While {
+        cond: ExprId,
+        body: Box<Stmt>,
+    },
     Block(Vec<Stmt>),
 }
 
@@ -116,6 +120,13 @@ impl Ast {
                     println!("{pad}  else:");
                     self.print_stmt(eb, indent + 2);
                 }
+            }
+            Stmt::While { cond, body } => {
+                println!("{pad}While");
+                println!("{pad}  cond:");
+                self.print_expr(*cond, indent + 2);
+                println!("{pad}  body:");
+                self.print_stmt(body, indent + 2);
             }
             Stmt::Block(stmts) => {
                 println!("{pad}Block");

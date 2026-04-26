@@ -61,6 +61,16 @@ fn lower_stmt(ast: &Ast, m: &mut IrModule, locals: &mut HashMap<String, u8>, stm
                 m.code[br_pos] = Op::BrFalse(end_target);
             }
         }
+        Stmt::While { cond, body } => {
+            let loop_start = m.code.len() as u32;
+            lower_expr(ast, m, locals, *cond);
+            let br_pos = m.code.len();
+            m.code.push(Op::BrFalse(0));
+            lower_stmt(ast, m, locals, body);
+            m.code.push(Op::Jump(loop_start));
+            let loop_end = m.code.len() as u32;
+            m.code[br_pos] = Op::BrFalse(loop_end);
+        }
     }
 }
 
