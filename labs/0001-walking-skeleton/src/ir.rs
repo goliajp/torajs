@@ -26,6 +26,8 @@ pub enum Op {
     Ge,
     Eq3,  // === strict equality
     Neq3, // !==
+    StrLen,
+    StrIndex,
     Jump(u32),
     BrFalse(u32),
 }
@@ -97,6 +99,8 @@ fn print_op(i: usize, op: &Op) {
         Op::Ge => println!("  {i:>3}: ge"),
         Op::Eq3 => println!("  {i:>3}: eq3"),
         Op::Neq3 => println!("  {i:>3}: neq3"),
+        Op::StrLen => println!("  {i:>3}: str_len"),
+        Op::StrIndex => println!("  {i:>3}: str_index"),
         Op::Jump(t) => println!("  {i:>3}: jump        @{t}"),
         Op::BrFalse(t) => println!("  {i:>3}: br_false    @{t}"),
     }

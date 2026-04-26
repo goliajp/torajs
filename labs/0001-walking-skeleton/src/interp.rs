@@ -92,7 +92,7 @@ pub fn execute(module: &IrModule) -> Result<(), String> {
                     break; // returning from main → done
                 }
             }
-            Op::Add => binop(&mut stack, |a, b| a + b)?,
+            Op::Add => add_polymorphic(&mut stack)?,
             Op::Sub => binop(&mut stack, |a, b| a - b)?,
             Op::Mul => binop(&mut stack, |a, b| a * b)?,
             Op::Div => binop(&mut stack, |a, b| a / b)?,
@@ -102,6 +102,27 @@ pub fn execute(module: &IrModule) -> Result<(), String> {
             Op::Ge => cmp_num(&mut stack, |a, b| a >= b)?,
             Op::Eq3 => strict_eq(&mut stack, false)?,
             Op::Neq3 => strict_eq(&mut stack, true)?,
+            Op::StrLen => {
+                let v = stack.pop().ok_or("stack underflow on str_len")?;
+                let Value::String(s) = v else {
+                    return Err(format!("str_len expects string, got {v:?}"));
+                };
+                stack.push(Value::Number(s.chars().count() as f64));
+            }
+            Op::StrIndex => {
+                let i = stack.pop().ok_or("stack underflow on str_index (idx)")?;
+                let s = stack.pop().ok_or("stack underflow on str_index (s)")?;
+                let (Value::String(s), Value::Number(i)) = (s, i) else {
+                    return Err("str_index requires (string, number)".into());
+                };
+                let idx = i as usize;
+                let ch = s
+                    .chars()
+                    .nth(idx)
+                    .ok_or_else(|| format!("string index {idx} out of range"))?;
+                use std::rc::Rc;
+                stack.push(Value::String(Rc::new(ch.to_string())));
+            }
             Op::Jump(target) => pc = target as usize,
             Op::BrFalse(target) => {
                 let v = stack.pop().ok_or("stack underflow on br_false")?;
@@ -151,6 +172,24 @@ fn binop(stack: &mut Vec<Value>, f: impl FnOnce(f64, f64) -> f64) -> Result<(), 
         return Err("arithmetic on non-number value".into());
     };
     stack.push(Value::Number(f(l, r)));
+    Ok(())
+}
+
+fn add_polymorphic(stack: &mut Vec<Value>) -> Result<(), String> {
+    let r = stack.pop().ok_or("stack underflow popping rhs")?;
+    let l = stack.pop().ok_or("stack underflow popping lhs")?;
+    let result = match (l, r) {
+        (Value::Number(a), Value::Number(b)) => Value::Number(a + b),
+        (Value::String(a), Value::String(b)) => {
+            let mut out = String::with_capacity(a.len() + b.len());
+            out.push_str(&a);
+            out.push_str(&b);
+            use std::rc::Rc;
+            Value::String(Rc::new(out))
+        }
+        (l, r) => return Err(format!("`+` got incompatible types: {l:?} and {r:?}")),
+    };
+    stack.push(result);
     Ok(())
 }
 

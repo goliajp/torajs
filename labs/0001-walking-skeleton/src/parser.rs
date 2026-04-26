@@ -16,7 +16,7 @@
 //! comparison := additive ((`<`|`>`|`<=`|`>=`) additive)*
 //! additive := mul (( `+` | `-` ) mul)*
 //! mul      := postfix (( `*` | `/` ) postfix)*
-//! postfix  := primary ( `.` ident | `(` args `)` )*
+//! postfix  := primary ( `.` ident | `(` args `)` | `[` expr `]` )*
 //! args     := (expr (`,` expr)*)?
 //! primary  := ident | string | number | `true` | `false` | arrow_fn
 //! arrow_fn := `(` params? `)` (`:` IDENT)? `=>` (block | expr)
@@ -418,6 +418,15 @@ impl Parser<'_> {
                         t => return Err(format!("expected `)`, got {t:?} at {}", self.at())),
                     }
                     node = self.ast.add_expr(Expr::Call { callee: node, args });
+                }
+                Token::LBracket => {
+                    self.pos += 1;
+                    let index = self.parse_expr()?;
+                    match self.peek() {
+                        Token::RBracket => self.pos += 1,
+                        t => return Err(format!("expected `]`, got {t:?} at {}", self.at())),
+                    }
+                    node = self.ast.add_expr(Expr::Index { obj: node, index });
                 }
                 _ => return Ok(node),
             }

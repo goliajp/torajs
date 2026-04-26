@@ -40,6 +40,10 @@ pub enum Expr {
         target: ExprId,
         value: ExprId,
     },
+    Index {
+        obj: ExprId,
+        index: ExprId,
+    },
     ArrowFn {
         params: Vec<Param>,
         return_type: Option<String>,
@@ -211,6 +215,13 @@ impl Ast {
                 self.print_expr(*target, indent + 1);
                 println!("{pad}  =");
                 self.print_expr(*value, indent + 1);
+            }
+            Expr::Index { obj, index } => {
+                println!("{pad}Index");
+                self.print_expr(*obj, indent + 1);
+                println!("{pad}  [");
+                self.print_expr(*index, indent + 1);
+                println!("{pad}  ]");
             }
             Expr::ArrowFn {
                 params,

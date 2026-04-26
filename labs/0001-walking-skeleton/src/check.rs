@@ -302,8 +302,20 @@ impl Checker {
                     (Type::Object("console"), "log") => {
                         Ok(Type::Function(vec![Type::Any], Box::new(Type::Void)))
                     }
+                    (Type::String, "length") => Ok(Type::Number),
                     _ => Err(format!("no member `.{name}` on type {obj_ty:?}")),
                 }
+            }
+            Expr::Index { obj, index } => {
+                let obj_ty = self.type_of(ast, *obj)?;
+                let idx_ty = self.type_of(ast, *index)?;
+                if obj_ty != Type::String {
+                    return Err(format!("can't index into {obj_ty:?}"));
+                }
+                if idx_ty != Type::Number {
+                    return Err(format!("index must be number, got {idx_ty:?}"));
+                }
+                Ok(Type::String)
             }
             Expr::Call { callee, args } => {
                 let callee_ty = self.type_of(ast, *callee)?;
@@ -331,7 +343,18 @@ impl Checker {
                 let l = self.type_of(ast, *left)?;
                 let r = self.type_of(ast, *right)?;
                 match op {
-                    BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div => {
+                    BinOp::Add => {
+                        if l == Type::Number && r == Type::Number {
+                            Ok(Type::Number)
+                        } else if l == Type::String && r == Type::String {
+                            Ok(Type::String)
+                        } else {
+                            Err(format!(
+                                "`+` requires both number or both string, got {l:?} and {r:?}"
+                            ))
+                        }
+                    }
+                    BinOp::Sub | BinOp::Mul | BinOp::Div => {
                         if l == Type::Number && r == Type::Number {
                             Ok(Type::Number)
                         } else {

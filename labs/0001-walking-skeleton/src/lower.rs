@@ -292,6 +292,12 @@ impl<'a, 'b> FnLowering<'a, 'b> {
                     self.code.push(Op::LoadHost(hid));
                     return;
                 }
+                if name == "length" {
+                    let obj_id = *obj;
+                    self.lower_expr(obj_id);
+                    self.code.push(Op::StrLen);
+                    return;
+                }
                 unreachable!("lower: unsupported member access slipped past type-check");
             }
             Expr::Call { callee, args } => {
@@ -336,6 +342,13 @@ impl<'a, 'b> FnLowering<'a, 'b> {
                 let new_id = self.lower_arrow_fn(&params, &body);
                 let cid = self.intern_const(Value::Function(new_id));
                 self.code.push(Op::LoadConst(cid));
+            }
+            Expr::Index { obj, index } => {
+                let o = *obj;
+                let i = *index;
+                self.lower_expr(o);
+                self.lower_expr(i);
+                self.code.push(Op::StrIndex);
             }
         }
     }
