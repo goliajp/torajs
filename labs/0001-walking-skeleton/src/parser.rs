@@ -46,6 +46,28 @@ impl Parser<'_> {
     }
 
     fn parse_stmt(&mut self) -> Result<Stmt, String> {
+        if matches!(self.peek(), Token::Let) {
+            self.pos += 1;
+            let name = match self.peek() {
+                Token::Ident(n) => n.clone(),
+                t => {
+                    return Err(format!(
+                        "expected identifier after `let`, got {t:?} at {}",
+                        self.at()
+                    ));
+                }
+            };
+            self.pos += 1;
+            match self.peek() {
+                Token::Eq => self.pos += 1,
+                t => return Err(format!("expected `=`, got {t:?} at {}", self.at())),
+            }
+            let init = self.parse_expr()?;
+            if matches!(self.peek(), Token::Semi) {
+                self.pos += 1;
+            }
+            return Ok(Stmt::LetDecl { name, init });
+        }
         let expr = self.parse_expr()?;
         if matches!(self.peek(), Token::Semi) {
             self.pos += 1;

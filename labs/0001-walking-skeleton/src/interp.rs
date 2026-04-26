@@ -5,6 +5,7 @@ use crate::value::Value;
 
 pub fn execute(module: &IrModule) -> Result<(), String> {
     let mut stack: Vec<Value> = Vec::new();
+    let mut locals: Vec<Value> = vec![Value::Undefined; module.locals_count as usize];
     let mut pc = 0;
 
     while pc < module.code.len() {
@@ -13,6 +14,10 @@ pub fn execute(module: &IrModule) -> Result<(), String> {
         match op {
             Op::LoadConst(c) => stack.push(module.consts[c as usize].clone()),
             Op::LoadHost(h) => stack.push(Value::HostFn(h)),
+            Op::LoadLocal(i) => stack.push(locals[i as usize].clone()),
+            Op::StoreLocal(i) => {
+                locals[i as usize] = stack.pop().ok_or("stack underflow on store_local")?;
+            }
             Op::Call(arity) => {
                 let mut args = Vec::with_capacity(arity as usize);
                 for _ in 0..arity {

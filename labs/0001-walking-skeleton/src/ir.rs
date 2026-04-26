@@ -6,6 +6,8 @@ use crate::value::Value;
 pub enum Op {
     LoadConst(u32),
     LoadHost(u32),
+    LoadLocal(u8),
+    StoreLocal(u8),
     Call(u8),
     Pop,
     Ret,
@@ -20,6 +22,7 @@ pub struct IrModule {
     pub consts: Vec<Value>,
     pub host_fns: Vec<String>,
     pub code: Vec<Op>,
+    pub locals_count: u8,
 }
 
 impl IrModule {
@@ -37,12 +40,17 @@ impl IrModule {
         for (i, n) in self.host_fns.iter().enumerate() {
             println!("  host{i}: {n}");
         }
+        if self.locals_count > 0 {
+            println!(".locals {} slots", self.locals_count);
+        }
         println!(".code");
         for op in &self.code {
             match op {
-                Op::LoadConst(c) => println!("  load_const const{c}"),
-                Op::LoadHost(h) => println!("  load_host  host{h}"),
-                Op::Call(arity) => println!("  call       {arity}"),
+                Op::LoadConst(c) => println!("  load_const  const{c}"),
+                Op::LoadHost(h) => println!("  load_host   host{h}"),
+                Op::LoadLocal(i) => println!("  load_local  local{i}"),
+                Op::StoreLocal(i) => println!("  store_local local{i}"),
+                Op::Call(arity) => println!("  call        {arity}"),
                 Op::Pop => println!("  pop"),
                 Op::Ret => println!("  ret"),
                 Op::Add => println!("  add"),

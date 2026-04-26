@@ -5,6 +5,9 @@ pub enum Token {
     Ident(String),
     String(String),
     Number(f64),
+    // keywords
+    Let,
+    // punctuation
     Dot,
     Comma,
     Semi,
@@ -110,9 +113,12 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                     i += 1;
                 }
                 let name = std::str::from_utf8(&bytes[start as usize..i as usize])
-                    .expect("ascii ident slice is valid utf-8")
-                    .to_string();
-                emit(&mut out, Token::Ident(name), start, i);
+                    .expect("ascii ident slice is valid utf-8");
+                let token = match name {
+                    "let" => Token::Let,
+                    _ => Token::Ident(name.to_string()),
+                };
+                emit(&mut out, token, start, i);
             }
             b if b.is_ascii_digit() => {
                 while i < len && bytes[i as usize].is_ascii_digit() {

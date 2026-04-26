@@ -34,6 +34,7 @@ pub enum Expr {
 #[derive(Debug, Clone)]
 pub enum Stmt {
     Expr(ExprId),
+    LetDecl { name: String, init: ExprId },
 }
 
 #[derive(Debug, Default)]
@@ -59,6 +60,10 @@ impl Ast {
                 Stmt::Expr(eid) => {
                     println!("ExprStmt");
                     self.print_expr(*eid, 1);
+                }
+                Stmt::LetDecl { name, init } => {
+                    println!("LetDecl({name})");
+                    self.print_expr(*init, 1);
                 }
             }
         }
