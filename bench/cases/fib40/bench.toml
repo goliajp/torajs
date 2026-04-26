@@ -1,0 +1,5 @@
+# tr's tree-walk interpreter takes ~17s on fib(40); a default warmup=3/runs=10
+# would push tr's row to ~3.7 minutes. Tune the budget down for this case until
+# AOT (P3) lands and tr is competitive on raw cpu work.
+runs = 3
+warmup = 1

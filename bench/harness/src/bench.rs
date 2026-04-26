@@ -100,7 +100,7 @@ pub fn run_one(
             outcome.error = Some(format!("compile failed: {e:#}"));
             return Ok(outcome);
         }
-        match hyperfine_one(&compile_cmd, 1, 5) {
+        match hyperfine_one(&compile_cmd, case.compile_warmup, case.compile_runs) {
             Ok(stats) => outcome.compile_ms = Some(stats.median_ms),
             Err(e) => {
                 outcome.status = Status::Failed;
@@ -131,7 +131,7 @@ pub fn run_one(
         return Ok(outcome);
     }
 
-    match hyperfine_one(&run_cmd, 3, 10) {
+    match hyperfine_one(&run_cmd, case.run_warmup, case.run_runs) {
         Ok(stats) => {
             outcome.run_ms = Some(stats.median_ms);
             outcome.run_stddev_ms = Some(stats.stddev_ms);
