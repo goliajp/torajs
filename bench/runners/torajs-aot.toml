@@ -1,0 +1,14 @@
+# torajs AOT mode — `tr build main.tora.ts -o main.wasm` then run the artifact.
+#
+# Pre-P3: `tr build` is not yet implemented, so `detect` fails and this row
+# auto-skips on every case. The row's presence is intentional — it makes the
+# AOT vs interpreter delta visible in the scoreboard the moment P3 lands.
+#
+# Post-P3 TODO: pick a wasm runtime. `wasmtime` is the placeholder; we may
+# switch to wasmer, an embedded wasmi, or a native Cranelift target. Update
+# `run` here when the choice is made.
+name = "torajs-aot"
+detect = "{workspace}/target/release/tr build --help"
+src_filename = "main.tora.ts"
+compile = "{workspace}/target/release/tr build {src} -o {out}"
+run = "wasmtime {out}"

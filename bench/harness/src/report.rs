@@ -30,10 +30,10 @@ impl Report {
     pub fn print_table(&self) {
         println!();
         println!(
-            "{:<22} {:<10} {:>12} {:>12} {:>10} {:<8}",
+            "{:<22} {:<14} {:>12} {:>12} {:>10} {:<8}",
             "case", "runtime", "compile_ms", "run_ms", "stddev", "status"
         );
-        println!("{}", "-".repeat(76));
+        println!("{}", "-".repeat(80));
         for r in &self.rows {
             let cms = r
                 .compile_ms
@@ -53,7 +53,7 @@ impl Report {
                 Status::Failed => "fail",
             };
             println!(
-                "{:<22} {:<10} {:>12} {:>12} {:>10} {:<8}",
+                "{:<22} {:<14} {:>12} {:>12} {:>10} {:<8}",
                 r.case, r.runtime, cms, rms, std, status
             );
         }

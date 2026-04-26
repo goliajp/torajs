@@ -1,6 +1,6 @@
 # bench/
 
-Cross-runtime perf benchmark module for torajs. Compares idiomatic, equivalent programs across **Bun, Node.js, Rust, Go, Python**, and (later) torajs itself.
+Cross-runtime perf benchmark module for torajs. Compares idiomatic, equivalent programs across **Bun, Node.js, Rust, Go, Python**, and torajs (in two modes — interpreter today, AOT once P3 lands).
 
 > See `.claude/rfcs/20260426-bench-harness.md` for the design rationale.
 
@@ -25,7 +25,8 @@ bench/
 │   ├── main.py
 │   ├── main.rs
 │   ├── main.go
-│   └── (later) main.tora.ts
+│   ├── main.tora.ts        ← used by both torajs-interp and torajs-aot
+│   └── bench.toml          ← optional per-case hyperfine overrides
 ├── runners/<runtime>.toml  ← declarative: how to detect / compile / run
 ├── harness/                ← Rust binary that orchestrates everything
 └── results/                ← committed JSON history (one file per run)
@@ -54,11 +55,21 @@ Templates `{src}`, `{out}`, `{case}` are substituted before each invocation.
 
 ## Methodology notes
 
-- Wall-clock timing comes from **hyperfine** (`--warmup 3 --runs 10`, median reported).
+- Wall-clock timing comes from **hyperfine** (defaults: `--warmup 3 --runs 10` for the run command, `--warmup 1 --runs 5` for compile).
+- A case directory may contain an optional `bench.toml` overriding those budgets per case (used by `fib40` since tr's interpreter is slow).
 - Stdout is verified once per (case, runtime) before timing — this catches "we benchmarked the wrong program" silently.
 - Compile time and run time are measured **separately** for compiled languages.
 - Each result row carries the runtime version string — old result files stay interpretable later.
 - Numbers are valid only for `(case, machine, runtime version, git SHA)` — never quote a number without all four.
+
+## torajs has two rows, always
+
+There are two permanent torajs runner descriptors. Both are present in every benchmark run; their cells will or won't have numbers depending on what `tr` can currently do.
+
+- **`torajs-interp`** — `tr run main.tora.ts`. Lex/parse/check/lower/interp through the dev-only tree-walker. Available now. `compile_ms` is always blank (the front-end work is bundled into `run_ms`).
+- **`torajs-aot`** — `tr build main.tora.ts -o out.wasm` + a wasm runtime. Pre-P3 the row auto-skips because `tr build` doesn't exist yet. Post-P3 it produces both `compile_ms` and `run_ms`. This row is the canonical apples-to-apples comparison against rust / go / bun / node — it's the perf claim the project is built on.
+
+The interp row stays even after AOT lands; it's the dev cycle's measurement and a useful baseline for "how much did AOT save".
 
 ## What's NOT in scope here
 
