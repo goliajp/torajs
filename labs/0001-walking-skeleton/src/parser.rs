@@ -1,8 +1,10 @@
 //! Recursive descent parser. Grammar:
 //!
 //! program  := stmt*
-//! stmt     := expr `;`?
-//! expr     := additive
+//! stmt     := decl | expr `;`?
+//! decl     := (`let` | `const`) IDENT (`:` IDENT)? `=` expr `;`?
+//! expr     := assign
+//! assign   := additive (`=` assign)?       (* right-associative *)
 //! additive := mul (( `+` | `-` ) mul)*
 //! mul      := postfix (( `*` | `/` ) postfix)*
 //! postfix  := primary ( `.` ident | `(` args `)` )*
@@ -46,13 +48,19 @@ impl Parser<'_> {
     }
 
     fn parse_stmt(&mut self) -> Result<Stmt, String> {
-        if matches!(self.peek(), Token::Let) {
+        let mutable = match self.peek() {
+            Token::Let => Some(true),
+            Token::Const => Some(false),
+            _ => None,
+        };
+        if let Some(mutable) = mutable {
+            let kw = if mutable { "let" } else { "const" };
             self.pos += 1;
             let name = match self.peek() {
                 Token::Ident(n) => n.clone(),
                 t => {
                     return Err(format!(
-                        "expected identifier after `let`, got {t:?} at {}",
+                        "expected identifier after `{kw}`, got {t:?} at {}",
                         self.at()
                     ));
                 }
@@ -83,6 +91,7 @@ impl Parser<'_> {
                 self.pos += 1;
             }
             return Ok(Stmt::LetDecl {
+                mutable,
                 name,
                 type_ann,
                 init,
@@ -96,7 +105,17 @@ impl Parser<'_> {
     }
 
     fn parse_expr(&mut self) -> Result<ExprId, String> {
-        self.parse_additive()
+        self.parse_assign()
+    }
+
+    fn parse_assign(&mut self) -> Result<ExprId, String> {
+        let target = self.parse_additive()?;
+        if matches!(self.peek(), Token::Eq) {
+            self.pos += 1;
+            let value = self.parse_assign()?; // right-associative
+            return Ok(self.ast.add_expr(Expr::Assign { target, value }));
+        }
+        Ok(target)
     }
 
     fn parse_additive(&mut self) -> Result<ExprId, String> {

@@ -43,8 +43,14 @@ pub fn check(ast: &Ast) -> Result<(), String> {
     }
 }
 
+#[derive(Debug, Clone)]
+struct LocalInfo {
+    ty: Type,
+    mutable: bool,
+}
+
 struct Checker {
-    locals: HashMap<String, Type>,
+    locals: HashMap<String, LocalInfo>,
     errors: Vec<String>,
 }
 
@@ -57,6 +63,7 @@ impl Checker {
                 }
             }
             Stmt::LetDecl {
+                mutable,
                 name,
                 type_ann,
                 init,
@@ -88,7 +95,13 @@ impl Checker {
                         ann_ty
                     }
                 };
-                self.locals.insert(name.clone(), final_ty);
+                self.locals.insert(
+                    name.clone(),
+                    LocalInfo {
+                        ty: final_ty,
+                        mutable: *mutable,
+                    },
+                );
             }
         }
     }
@@ -98,8 +111,8 @@ impl Checker {
             Expr::String(_) => Ok(Type::String),
             Expr::Number(_) => Ok(Type::Number),
             Expr::Ident(name) => {
-                if let Some(ty) = self.locals.get(name) {
-                    return Ok(ty.clone());
+                if let Some(info) = self.locals.get(name) {
+                    return Ok(info.ty.clone());
                 }
                 match name.as_str() {
                     "console" => Ok(Type::Object("console")),
@@ -146,6 +159,25 @@ impl Checker {
                         "arithmetic requires number operands, got {l:?} and {r:?}"
                     )),
                 }
+            }
+            Expr::Assign { target, value } => {
+                let Expr::Ident(name) = ast.get_expr(*target) else {
+                    return Err("invalid assignment target".into());
+                };
+                let Some(info) = self.locals.get(name) else {
+                    return Err(format!("assignment to undeclared `{name}`"));
+                };
+                if !info.mutable {
+                    return Err(format!("cannot assign to const `{name}`"));
+                }
+                let target_ty = info.ty.clone();
+                let value_ty = self.type_of(ast, *value)?;
+                if value_ty != target_ty {
+                    return Err(format!(
+                        "type mismatch assigning to `{name}`: declared {target_ty:?}, value is {value_ty:?}"
+                    ));
+                }
+                Ok(target_ty)
             }
         }
     }

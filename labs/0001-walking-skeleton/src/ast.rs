@@ -29,12 +29,17 @@ pub enum Expr {
         callee: ExprId,
         args: Vec<ExprId>,
     },
+    Assign {
+        target: ExprId,
+        value: ExprId,
+    },
 }
 
 #[derive(Debug, Clone)]
 pub enum Stmt {
     Expr(ExprId),
     LetDecl {
+        mutable: bool,
         name: String,
         type_ann: Option<String>,
         init: ExprId,
@@ -66,13 +71,15 @@ impl Ast {
                     self.print_expr(*eid, 1);
                 }
                 Stmt::LetDecl {
+                    mutable,
                     name,
                     type_ann,
                     init,
                 } => {
+                    let kw = if *mutable { "let" } else { "const" };
                     match type_ann {
-                        Some(ann) => println!("LetDecl({name}: {ann})"),
-                        None => println!("LetDecl({name})"),
+                        Some(ann) => println!("{kw} {name}: {ann}"),
+                        None => println!("{kw} {name}"),
                     }
                     self.print_expr(*init, 1);
                 }
@@ -103,6 +110,12 @@ impl Ast {
                 for a in args {
                     self.print_expr(*a, indent + 2);
                 }
+            }
+            Expr::Assign { target, value } => {
+                println!("{pad}Assign");
+                self.print_expr(*target, indent + 1);
+                println!("{pad}  =");
+                self.print_expr(*value, indent + 1);
             }
         }
     }

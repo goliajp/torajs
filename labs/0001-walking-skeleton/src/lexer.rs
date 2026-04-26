@@ -7,6 +7,7 @@ pub enum Token {
     Number(f64),
     // keywords
     Let,
+    Const,
     // punctuation
     Dot,
     Comma,
@@ -118,6 +119,7 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                     .expect("ascii ident slice is valid utf-8");
                 let token = match name {
                     "let" => Token::Let,
+                    "const" => Token::Const,
                     _ => Token::Ident(name.to_string()),
                 };
                 emit(&mut out, token, start, i);

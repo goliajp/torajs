@@ -83,6 +83,18 @@ fn lower_expr(ast: &Ast, m: &mut IrModule, locals: &mut HashMap<String, u8>, eid
                 BinOp::Div => Op::Div,
             });
         }
+        Expr::Assign { target, value } => {
+            let Expr::Ident(name) = ast.get_expr(*target) else {
+                unreachable!("lower: non-ident assignment target slipped past type-check");
+            };
+            let slot = *locals
+                .get(name)
+                .unwrap_or_else(|| panic!("lower: assign to undeclared `{name}`"));
+            lower_expr(ast, m, locals, *value);
+            m.code.push(Op::StoreLocal(slot));
+            // assignment expression evaluates to the assigned value
+            m.code.push(Op::LoadLocal(slot));
+        }
     }
 }
 
