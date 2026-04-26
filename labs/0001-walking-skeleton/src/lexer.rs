@@ -31,6 +31,7 @@ pub enum Token {
     Eq,
     EqEqEq,
     BangEqEq,
+    FatArrow,
     Lt,
     Gt,
     LtEq,
@@ -106,6 +107,9 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                             "`==` is not supported, use `===` (strict equality) at {start}"
                         ));
                     }
+                } else if peek(bytes, i) == Some(b'>') {
+                    i += 1;
+                    emit(&mut out, Token::FatArrow, start, i);
                 } else {
                     emit(&mut out, Token::Eq, start, i);
                 }

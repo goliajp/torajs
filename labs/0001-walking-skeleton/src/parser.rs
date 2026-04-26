@@ -18,7 +18,8 @@
 //! mul      := postfix (( `*` | `/` ) postfix)*
 //! postfix  := primary ( `.` ident | `(` args `)` )*
 //! args     := (expr (`,` expr)*)?
-//! primary  := ident | string | number | `true` | `false`
+//! primary  := ident | string | number | `true` | `false` | arrow_fn
+//! arrow_fn := `(` params? `)` (`:` IDENT)? `=>` (block | expr)
 
 use crate::ast::{Ast, BinOp, Expr, ExprId, Param, Stmt};
 use crate::lexer::{Spanned, Token};
@@ -424,6 +425,9 @@ impl Parser<'_> {
     }
 
     fn parse_primary(&mut self) -> Result<ExprId, String> {
+        if matches!(self.peek(), Token::LParen) {
+            return self.parse_arrow_fn();
+        }
         let pos = self.pos;
         match &self.tokens[pos].token {
             Token::Ident(n) => {
@@ -454,5 +458,97 @@ impl Parser<'_> {
                 self.tokens[pos].span.start
             )),
         }
+    }
+
+    fn parse_arrow_fn(&mut self) -> Result<ExprId, String> {
+        // assumes current token is `(`
+        self.pos += 1;
+        let mut params = Vec::new();
+        if !matches!(self.peek(), Token::RParen) {
+            loop {
+                let pname = match self.peek() {
+                    Token::Ident(n) => n.clone(),
+                    t => {
+                        return Err(format!(
+                            "expected parameter name, got {t:?} at {}",
+                            self.at()
+                        ));
+                    }
+                };
+                self.pos += 1;
+                let type_ann = if matches!(self.peek(), Token::Colon) {
+                    self.pos += 1;
+                    let ann = match self.peek() {
+                        Token::Ident(n) => n.clone(),
+                        t => {
+                            return Err(format!("expected type name, got {t:?} at {}", self.at()));
+                        }
+                    };
+                    self.pos += 1;
+                    Some(ann)
+                } else {
+                    None
+                };
+                params.push(Param {
+                    name: pname,
+                    type_ann,
+                });
+                match self.peek() {
+                    Token::Comma => self.pos += 1,
+                    Token::RParen => break,
+                    t => return Err(format!("expected `,` or `)`, got {t:?} at {}", self.at())),
+                }
+            }
+        }
+        match self.peek() {
+            Token::RParen => self.pos += 1,
+            t => return Err(format!("expected `)`, got {t:?} at {}", self.at())),
+        }
+        let return_type = if matches!(self.peek(), Token::Colon) {
+            self.pos += 1;
+            let ann = match self.peek() {
+                Token::Ident(n) => n.clone(),
+                t => {
+                    return Err(format!(
+                        "expected return type after `:`, got {t:?} at {}",
+                        self.at()
+                    ));
+                }
+            };
+            self.pos += 1;
+            Some(ann)
+        } else {
+            None
+        };
+        match self.peek() {
+            Token::FatArrow => self.pos += 1,
+            t => return Err(format!("expected `=>`, got {t:?} at {}", self.at())),
+        }
+        let body = if matches!(self.peek(), Token::LBrace) {
+            self.pos += 1;
+            let mut stmts = Vec::new();
+            while !matches!(self.peek(), Token::RBrace | Token::Eof) {
+                stmts.push(self.parse_stmt()?);
+            }
+            match self.peek() {
+                Token::RBrace => self.pos += 1,
+                t => {
+                    return Err(format!(
+                        "expected `}}` after arrow fn body, got {t:?} at {}",
+                        self.at()
+                    ));
+                }
+            }
+            stmts
+        } else {
+            // expression body — desugar to single Return
+            let e = self.parse_expr()?;
+            vec![Stmt::Return(Some(e))]
+        };
+        Ok(self.ast.add_expr(Expr::ArrowFn {
+            params,
+            return_type,
+            body,
+        }))
     }
 }

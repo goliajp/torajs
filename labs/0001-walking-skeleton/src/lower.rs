@@ -45,26 +45,28 @@ pub fn lower(ast: &Ast) -> IrModule {
             name, params, body, ..
         } = stmt
         {
-            let mut l = FnLowering::new(ast, &mut consts, &mut host_fns, &fn_names);
-            for p in params {
-                l.declare_local(p.name.clone());
-            }
-            for s in body {
-                l.lower_stmt(s);
-            }
-            // implicit terminator
-            l.code.push(Op::LoadUndef);
-            l.code.push(Op::Ret);
-
+            let (code, locals) = {
+                let mut l =
+                    FnLowering::new(ast, &mut consts, &mut host_fns, &mut functions, &fn_names);
+                for p in params {
+                    l.declare_local(p.name.clone());
+                }
+                for s in body {
+                    l.lower_stmt(s);
+                }
+                l.code.push(Op::LoadUndef);
+                l.code.push(Op::Ret);
+                (std::mem::take(&mut l.code), l.next_slot)
+            };
             let fn_id = fn_names[name];
-            functions[fn_id as usize].locals_count = l.next_slot;
-            functions[fn_id as usize].code = l.code;
+            functions[fn_id as usize].code = code;
+            functions[fn_id as usize].locals_count = locals;
         }
     }
 
     // 3. Lower main (top-level non-FnDecl stmts).
-    {
-        let mut l = FnLowering::new(ast, &mut consts, &mut host_fns, &fn_names);
+    let (main_code, main_locals) = {
+        let mut l = FnLowering::new(ast, &mut consts, &mut host_fns, &mut functions, &fn_names);
         for stmt in &ast.stmts {
             if !matches!(stmt, Stmt::FnDecl { .. }) {
                 l.lower_stmt(stmt);
@@ -72,9 +74,10 @@ pub fn lower(ast: &Ast) -> IrModule {
         }
         l.code.push(Op::LoadUndef);
         l.code.push(Op::Ret);
-        functions[0].locals_count = l.next_slot;
-        functions[0].code = l.code;
-    }
+        (std::mem::take(&mut l.code), l.next_slot)
+    };
+    functions[0].code = main_code;
+    functions[0].locals_count = main_locals;
 
     IrModule {
         consts,
@@ -87,6 +90,7 @@ struct FnLowering<'a, 'b> {
     ast: &'a Ast,
     consts: &'b mut Vec<Value>,
     host_fns: &'b mut Vec<String>,
+    functions: &'b mut Vec<IrFunction>,
     fn_names: &'b HashMap<String, u32>,
     code: Vec<Op>,
     scopes: Vec<HashMap<String, u8>>,
@@ -98,17 +102,60 @@ impl<'a, 'b> FnLowering<'a, 'b> {
         ast: &'a Ast,
         consts: &'b mut Vec<Value>,
         host_fns: &'b mut Vec<String>,
+        functions: &'b mut Vec<IrFunction>,
         fn_names: &'b HashMap<String, u32>,
     ) -> Self {
         Self {
             ast,
             consts,
             host_fns,
+            functions,
             fn_names,
             code: Vec::new(),
             scopes: vec![HashMap::new()],
             next_slot: 0,
         }
+    }
+
+    /// Lower an inline arrow-fn body into a fresh `IrFunction` slot.
+    /// Returns the new fn_id. Outer per-function state (code/scopes/next_slot)
+    /// is saved, replaced with fresh state for the inner body, then restored.
+    fn lower_arrow_fn(&mut self, params: &[crate::ast::Param], body: &[Stmt]) -> u32 {
+        let new_id = self.functions.len() as u32;
+        self.functions.push(IrFunction {
+            name: format!("__arrow_{new_id}"),
+            arity: params.len() as u8,
+            locals_count: 0,
+            code: Vec::new(),
+        });
+
+        let saved_code = std::mem::take(&mut self.code);
+        let saved_scopes = std::mem::take(&mut self.scopes);
+        let saved_next_slot = self.next_slot;
+
+        self.scopes = vec![HashMap::new()];
+        self.next_slot = 0;
+        // self.code is already empty after the take
+
+        for p in params {
+            self.declare_local(p.name.clone());
+        }
+        for s in body {
+            self.lower_stmt(s);
+        }
+        self.code.push(Op::LoadUndef);
+        self.code.push(Op::Ret);
+
+        let new_code = std::mem::take(&mut self.code);
+        let new_locals = self.next_slot;
+        self.functions[new_id as usize].code = new_code;
+        self.functions[new_id as usize].locals_count = new_locals;
+
+        self.code = saved_code;
+        self.scopes = saved_scopes;
+        self.next_slot = saved_next_slot;
+
+        new_id
     }
 
     fn declare_local(&mut self, name: String) -> u8 {
@@ -280,6 +327,15 @@ impl<'a, 'b> FnLowering<'a, 'b> {
                 self.lower_expr(*value);
                 self.code.push(Op::StoreLocal(slot));
                 self.code.push(Op::LoadLocal(slot));
+            }
+            Expr::ArrowFn { params, body, .. } => {
+                // Clone so we can call &mut self methods without holding a
+                // borrow on ast.exprs[eid].
+                let params = params.clone();
+                let body = body.clone();
+                let new_id = self.lower_arrow_fn(&params, &body);
+                let cid = self.intern_const(Value::Function(new_id));
+                self.code.push(Op::LoadConst(cid));
             }
         }
     }

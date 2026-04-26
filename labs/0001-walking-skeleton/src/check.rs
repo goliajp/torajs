@@ -233,9 +233,11 @@ impl Checker {
                     // First pass had an error; skip body to avoid cascading.
                     return;
                 };
-                self.scopes.push(HashMap::new());
-                let saved = self.expected_return.take();
-                self.expected_return = Some(*ret_ty);
+                // Top-level FnDecl bodies see no outer locals (none exist) but do
+                // see globals via lookup-fallback. We use a fresh scope stack to
+                // mirror the arrow-fn rule (no captures).
+                let saved_scopes = std::mem::replace(&mut self.scopes, vec![HashMap::new()]);
+                let saved_return = self.expected_return.replace(*ret_ty);
                 for (p, ty) in params.iter().zip(param_tys.iter()) {
                     if let Err(e) = self.declare(
                         p.name.clone(),
@@ -250,8 +252,8 @@ impl Checker {
                 for s in body {
                     self.check_stmt(ast, s);
                 }
-                self.expected_return = saved;
-                self.scopes.pop();
+                self.expected_return = saved_return;
+                self.scopes = saved_scopes;
             }
             Stmt::Return(maybe_expr) => {
                 let Some(expected) = self.expected_return.clone() else {
@@ -277,7 +279,7 @@ impl Checker {
         }
     }
 
-    fn type_of(&self, ast: &Ast, eid: ExprId) -> Result<Type, String> {
+    fn type_of(&mut self, ast: &Ast, eid: ExprId) -> Result<Type, String> {
         match ast.get_expr(eid) {
             Expr::String(_) => Ok(Type::String),
             Expr::Number(_) => Ok(Type::Number),
@@ -377,6 +379,41 @@ impl Checker {
                     ));
                 }
                 Ok(target_ty)
+            }
+            Expr::ArrowFn {
+                params,
+                return_type,
+                body,
+            } => {
+                // Clone the body so we don't keep borrowing ast.exprs[eid] while
+                // re-entering check_stmt below.
+                let params = params.clone();
+                let return_type = return_type.clone();
+                let body = body.clone();
+                let fn_ty = build_fn_type("<arrow>", &params, &return_type)?;
+                let Type::Function(param_tys, ret_ty) = fn_ty.clone() else {
+                    unreachable!("build_fn_type returned non-Function");
+                };
+                // Arrow fn body does NOT see outer locals — captures land in P4.
+                let saved_scopes = std::mem::replace(&mut self.scopes, vec![HashMap::new()]);
+                let saved_return = self.expected_return.replace(*ret_ty);
+                for (p, ty) in params.iter().zip(param_tys.iter()) {
+                    if let Err(e) = self.declare(
+                        p.name.clone(),
+                        LocalInfo {
+                            ty: ty.clone(),
+                            mutable: true,
+                        },
+                    ) {
+                        self.errors.push(e);
+                    }
+                }
+                for s in &body {
+                    self.check_stmt(ast, s);
+                }
+                self.expected_return = saved_return;
+                self.scopes = saved_scopes;
+                Ok(fn_ty)
             }
         }
     }

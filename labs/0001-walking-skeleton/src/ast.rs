@@ -40,6 +40,11 @@ pub enum Expr {
         target: ExprId,
         value: ExprId,
     },
+    ArrowFn {
+        params: Vec<Param>,
+        return_type: Option<String>,
+        body: Vec<Stmt>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -206,6 +211,24 @@ impl Ast {
                 self.print_expr(*target, indent + 1);
                 println!("{pad}  =");
                 self.print_expr(*value, indent + 1);
+            }
+            Expr::ArrowFn {
+                params,
+                return_type,
+                body,
+            } => {
+                let plist: Vec<String> = params
+                    .iter()
+                    .map(|p| match &p.type_ann {
+                        Some(t) => format!("{}: {t}", p.name),
+                        None => p.name.clone(),
+                    })
+                    .collect();
+                let ret = return_type.clone().unwrap_or_else(|| "void".into());
+                println!("{pad}ArrowFn ({}) -> {ret}", plist.join(", "));
+                for s in body {
+                    self.print_stmt(s, indent + 1);
+                }
             }
         }
     }
