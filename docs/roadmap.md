@@ -245,6 +245,8 @@ cargo run -- run /tmp/hello.ts
 
 ## P1 — Core language
 
+**Status (2026-04-27): ✓ done.** All 10 sub-steps landed with per-step commits in `labs/0001-walking-skeleton/`. The dialect now covers arithmetic, variables (let/const + type annotations + mutability rules), boolean comparisons + control flow (if/else/while/blocks), named functions + recursion + arrow fns, strings (concat/length/indexing) and homogeneous arrays. fib40 runs end-to-end through the tree-walking interpreter — slowly (17s — the cost AOT will reclaim), but correctly.
+
 Each step expands the language by a small, demoable feature. Order chosen so each step's demo is testable in isolation (no big-bang dependencies).
 
 ### P1.1 — Number arithmetic
