@@ -1,0 +1,5 @@
+name = "rust"
+detect = "rustc --version"
+src_filename = "main.rs"
+compile = "rustc -C opt-level=3 {src} -o {out}"
+run = "{out}"

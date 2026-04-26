@@ -1,0 +1,5 @@
+name = "go"
+detect = "go version"
+src_filename = "main.go"
+compile = "go build -o {out} {src}"
+run = "{out}"

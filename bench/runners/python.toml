@@ -1,0 +1,4 @@
+name = "python"
+detect = "python3 --version"
+src_filename = "main.py"
+run = "python3 {src}"

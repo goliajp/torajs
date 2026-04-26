@@ -1,0 +1,4 @@
+name = "node"
+detect = "node --version"
+src_filename = "main.ts"
+run = "node {src}"

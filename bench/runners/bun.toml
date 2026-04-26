@@ -1,0 +1,4 @@
+name = "bun"
+detect = "bun --version"
+src_filename = "main.ts"
+run = "bun run {src}"

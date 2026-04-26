@@ -36,6 +36,7 @@ Build torajs from scratch in Rust: a statically-typed, AOT-compiled language wit
 | Compiler backend (initial) | Direct wasm-bytes encoder in v0; Cranelift from v1+; LLVM as opt-in `--release` much later | 0002, 0004 |
 | Concurrency | Built-in multi-threaded work-stealing executor in std; `Send`/`Sync` traits enforced statically | 0004 |
 | Compat with `tsc`/Bun | Not a design driver. Compat layer is downstream future work. | 0004 |
+| TS spec / version conformance | None — we pick our own TS-shaped dialect; not aligned to TS6 or any TS version. Re-confirmed 2026-04-26 against a "follow TS6 rules" alternative. | session 2026-04-26 |
 | Test262 conformance | Not a goal | 0001 |
 | First-class WASM target | Yes — torajs.com playground depends on it | 0001 |
 | Project repository home | `crates/` (Rust workspace), `web/`, `labs/`, `examples/`, `docs/` | 0001 |
@@ -85,6 +86,8 @@ Total time-to-mature: 18-36 months. Multi-year. Acknowledged.
 ---
 
 ## P0 — Walking skeleton
+
+**Status (2026-04-26): ✓ done.** P0.1 → P0.6 all landed; `tr run hello.ts` end-to-end executes `console.log("x")` via lex → parse → check → IR → tree interpreter, all sharing the IR that the future AOT path will consume. Lives at `labs/0001-walking-skeleton/`.
 
 **End state**: `cd labs/0001-walking-skeleton && cargo run -- run hello.ts` prints `hello` to stdout, where `hello.ts` contains `console.log("hello")`.
 
@@ -546,6 +549,11 @@ Tokens / AST / IR / Wasm bytes — for the educational angle.
 ### P11.1 — LSP server for editor support (diagnostics, hover, go-to-def)
 ### P11.2 — Formatter
 ### P11.3 — Test runner (`tr test foo.test.ts`)
+### P11.4 — Self-hosted linter
+
+ESLint targets ECMAScript and assumes a JS-grammar AST; our dialect adds `Rc<T>` / `move` / `Send` / `Sync` / affine types and drops `var` / `==` / `null` / decorators / `eval` / sloppy mode. ESLint cannot represent any of that. We need a linter built on our own AST + type checker — likely sharing the `check.rs` infrastructure with the type checker, the way clippy shares rustc internals.
+
+Decision recorded 2026-04-26.
 
 ---
 
@@ -564,6 +572,26 @@ Open-ended; profile-driven. Examples of likely wins:
 ## P13 — LLVM `--release` mode
 
 Optional. Cranelift may stay good enough.
+
+---
+
+## BENCH — cross-runtime perf benchmark (cross-cutting track)
+
+A horizontal track running alongside P0 → P13, not numbered as a phase. Lives at `bench/` (top-level), implemented as a Rust harness crate that drives **bun, node, rust, go, python**, and torajs through a uniform per-case workload.
+
+**Why it exists**: hard requirement #1 ("极致 perf — beat Bun/Node/etc on important benchmarks") is unmeasurable without a scoreboard. This track *is* the scoreboard. Every committed case must have tr passing — a permanently-failing tr would defeat the point. tr's language capability and the case set grow in lockstep.
+
+**Status (2026-04-26): ✓ checkpoint A.** Workspace + harness skeleton + 5 runner descriptors + 1 case (`startup`) live; tr compiled into a Rust binary clears `console.log("x")` in ~1.3 ms, statistically tied with rust-native and ahead of bun/python/node on the same machine. First result snapshot committed at `bench/results/2026-04-26-mini-296b8aa.json`.
+
+**Open follow-ups (deferred from RFC):**
+
+- 4 more cases — `fib40`, `mandelbrot`, `json-parse-1mb`, `string-concat-1m`. Adding them is **gated by tr capability**: `fib40` needs P1.7 (functions), `mandelbrot` needs P1.1+P1.7+P1.6, etc. We will not commit a case tr can't pass.
+- Peak RSS metric (`/usr/bin/time -l` parse) — deferred from checkpoint A.
+- Binary-size metric for compiled targets — deferred.
+- AOT-mode `compile_ms` for tr — populated only at P3+ when `tr build` produces a real artifact. Until then tr's `compile_ms` stays empty by design (the front-end work is microseconds, lost in process-startup noise — see RFC + `bench/cases/startup/README.md`).
+- `/bench` Claude Code skill in dotclaude (out-of-repo). Wraps `cargo run -p bench-harness`.
+
+RFC: `.claude/rfcs/20260426-bench-harness.md` (gitignored — populated locally via `devops dotclaude sync torajs`).
 
 ---
 

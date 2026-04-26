@@ -1,0 +1,6 @@
+[workspace]
+resolver = "3"
+members = [
+    "labs/0001-walking-skeleton",
+    "bench/harness",
+]
