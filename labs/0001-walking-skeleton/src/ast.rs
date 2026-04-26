@@ -1,17 +1,34 @@
 //! AST — arena-allocated. Children referenced by `ExprId(u32)`, not Box.
-//!
-//! P0 only models the subset needed for `console.log("hello")`.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ExprId(pub u32);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BinOp {
+    Add,
+    Sub,
+    Mul,
+    Div,
+}
 
 #[derive(Debug, Clone)]
 pub enum Expr {
     Ident(String),
     String(String),
     Number(f64),
-    Member { obj: ExprId, name: String },
-    Call { callee: ExprId, args: Vec<ExprId> },
+    BinOp {
+        op: BinOp,
+        left: ExprId,
+        right: ExprId,
+    },
+    Member {
+        obj: ExprId,
+        name: String,
+    },
+    Call {
+        callee: ExprId,
+        args: Vec<ExprId>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -53,6 +70,11 @@ impl Ast {
             Expr::Ident(n) => println!("{pad}Ident({n:?})"),
             Expr::String(s) => println!("{pad}String({s:?})"),
             Expr::Number(n) => println!("{pad}Number({n})"),
+            Expr::BinOp { op, left, right } => {
+                println!("{pad}BinOp({op:?})");
+                self.print_expr(*left, indent + 1);
+                self.print_expr(*right, indent + 1);
+            }
             Expr::Member { obj, name } => {
                 println!("{pad}Member");
                 self.print_expr(*obj, indent + 1);

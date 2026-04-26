@@ -4,11 +4,13 @@
 use crate::ast::{Ast, Expr, ExprId, Stmt};
 
 #[derive(Debug, Clone, PartialEq)]
-#[allow(dead_code)] // Number is reserved for P1.1 arithmetic; not yet exercised in P0.
 pub enum Type {
     Number,
     String,
     Void,
+    /// v0 hack — used for `console.log`'s parameter so it accepts any printable type.
+    /// Replace with proper sum/union types once we have them.
+    Any,
     Function(Vec<Type>, Box<Type>),
     /// Object stand-in for hardcoded globals like `console`. Real object types come in P2.
     Object(&'static str),
@@ -41,7 +43,7 @@ fn type_of(ast: &Ast, eid: ExprId) -> Result<Type, String> {
             let obj_ty = type_of(ast, *obj)?;
             match (&obj_ty, name.as_str()) {
                 (Type::Object("console"), "log") => {
-                    Ok(Type::Function(vec![Type::String], Box::new(Type::Void)))
+                    Ok(Type::Function(vec![Type::Any], Box::new(Type::Void)))
                 }
                 _ => Err(format!("no member `.{name}` on type {obj_ty:?}")),
             }
@@ -60,13 +62,23 @@ fn type_of(ast: &Ast, eid: ExprId) -> Result<Type, String> {
             }
             for (i, (param_ty, arg_id)) in params.iter().zip(args.iter()).enumerate() {
                 let arg_ty = type_of(ast, *arg_id)?;
-                if &arg_ty != param_ty {
+                if param_ty != &Type::Any && &arg_ty != param_ty {
                     return Err(format!(
                         "argument {i}: expected {param_ty:?}, got {arg_ty:?}"
                     ));
                 }
             }
             Ok(*ret)
+        }
+        Expr::BinOp { op: _, left, right } => {
+            let l = type_of(ast, *left)?;
+            let r = type_of(ast, *right)?;
+            match (&l, &r) {
+                (Type::Number, Type::Number) => Ok(Type::Number),
+                _ => Err(format!(
+                    "arithmetic requires number operands, got {l:?} and {r:?}"
+                )),
+            }
         }
     }
 }

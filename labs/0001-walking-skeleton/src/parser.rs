@@ -1,13 +1,15 @@
-//! Recursive descent parser. P0 grammar:
+//! Recursive descent parser. Grammar:
 //!
 //! program  := stmt*
 //! stmt     := expr `;`?
-//! expr     := postfix
+//! expr     := additive
+//! additive := mul (( `+` | `-` ) mul)*
+//! mul      := postfix (( `*` | `/` ) postfix)*
 //! postfix  := primary ( `.` ident | `(` args `)` )*
 //! args     := (expr (`,` expr)*)?
 //! primary  := ident | string | number
 
-use crate::ast::{Ast, Expr, ExprId, Stmt};
+use crate::ast::{Ast, BinOp, Expr, ExprId, Stmt};
 use crate::lexer::{Spanned, Token};
 
 pub fn parse(tokens: &[Spanned]) -> Result<Ast, String> {
@@ -52,7 +54,35 @@ impl Parser<'_> {
     }
 
     fn parse_expr(&mut self) -> Result<ExprId, String> {
-        self.parse_postfix()
+        self.parse_additive()
+    }
+
+    fn parse_additive(&mut self) -> Result<ExprId, String> {
+        let mut left = self.parse_multiplicative()?;
+        loop {
+            let op = match self.peek() {
+                Token::Plus => BinOp::Add,
+                Token::Minus => BinOp::Sub,
+                _ => return Ok(left),
+            };
+            self.pos += 1;
+            let right = self.parse_multiplicative()?;
+            left = self.ast.add_expr(Expr::BinOp { op, left, right });
+        }
+    }
+
+    fn parse_multiplicative(&mut self) -> Result<ExprId, String> {
+        let mut left = self.parse_postfix()?;
+        loop {
+            let op = match self.peek() {
+                Token::Star => BinOp::Mul,
+                Token::Slash => BinOp::Div,
+                _ => return Ok(left),
+            };
+            self.pos += 1;
+            let right = self.parse_postfix()?;
+            left = self.ast.add_expr(Expr::BinOp { op, left, right });
+        }
     }
 
     fn parse_postfix(&mut self) -> Result<ExprId, String> {

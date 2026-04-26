@@ -5,7 +5,7 @@
 
 use std::rc::Rc;
 
-use crate::ast::{Ast, Expr, ExprId, Stmt};
+use crate::ast::{Ast, BinOp, Expr, ExprId, Stmt};
 use crate::ir::{IrModule, Op};
 use crate::value::Value;
 
@@ -49,6 +49,16 @@ fn lower_expr(ast: &Ast, m: &mut IrModule, eid: ExprId) {
                 lower_expr(ast, m, *a);
             }
             m.code.push(Op::Call(args.len() as u8));
+        }
+        Expr::BinOp { op, left, right } => {
+            lower_expr(ast, m, *left);
+            lower_expr(ast, m, *right);
+            m.code.push(match op {
+                BinOp::Add => Op::Add,
+                BinOp::Sub => Op::Sub,
+                BinOp::Mul => Op::Mul,
+                BinOp::Div => Op::Div,
+            });
         }
         Expr::Ident(_) => {
             unreachable!("P0 lower: bare ident slipped past type-check");

@@ -33,8 +33,22 @@ pub fn execute(module: &IrModule) -> Result<(), String> {
                 stack.pop();
             }
             Op::Ret => break,
+            Op::Add => binop(&mut stack, |a, b| a + b)?,
+            Op::Sub => binop(&mut stack, |a, b| a - b)?,
+            Op::Mul => binop(&mut stack, |a, b| a * b)?,
+            Op::Div => binop(&mut stack, |a, b| a / b)?,
         }
     }
+    Ok(())
+}
+
+fn binop(stack: &mut Vec<Value>, f: impl FnOnce(f64, f64) -> f64) -> Result<(), String> {
+    let r = stack.pop().ok_or("stack underflow popping rhs")?;
+    let l = stack.pop().ok_or("stack underflow popping lhs")?;
+    let (Value::Number(l), Value::Number(r)) = (l, r) else {
+        return Err("arithmetic on non-number value".into());
+    };
+    stack.push(Value::Number(f(l, r)));
     Ok(())
 }
 

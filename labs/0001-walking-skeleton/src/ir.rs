@@ -9,6 +9,10 @@ pub enum Op {
     Call(u8),
     Pop,
     Ret,
+    Add,
+    Sub,
+    Mul,
+    Div,
 }
 
 #[derive(Debug, Default)]
@@ -41,6 +45,10 @@ impl IrModule {
                 Op::Call(arity) => println!("  call       {arity}"),
                 Op::Pop => println!("  pop"),
                 Op::Ret => println!("  ret"),
+                Op::Add => println!("  add"),
+                Op::Sub => println!("  sub"),
+                Op::Mul => println!("  mul"),
+                Op::Div => println!("  div"),
             }
         }
     }
