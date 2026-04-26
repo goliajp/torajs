@@ -9,6 +9,12 @@ pub enum BinOp {
     Sub,
     Mul,
     Div,
+    Lt,
+    Gt,
+    Le,
+    Ge,
+    Eq,  // ===
+    Neq, // !==
 }
 
 #[derive(Debug, Clone)]
@@ -16,6 +22,7 @@ pub enum Expr {
     Ident(String),
     String(String),
     Number(f64),
+    Bool(bool),
     BinOp {
         op: BinOp,
         left: ExprId,
@@ -44,6 +51,12 @@ pub enum Stmt {
         type_ann: Option<String>,
         init: ExprId,
     },
+    If {
+        cond: ExprId,
+        then_branch: Box<Stmt>,
+        else_branch: Option<Box<Stmt>>,
+    },
+    Block(Vec<Stmt>),
 }
 
 #[derive(Debug, Default)]
@@ -65,23 +78,49 @@ impl Ast {
 
     pub fn print(&self) {
         for s in &self.stmts {
-            match s {
-                Stmt::Expr(eid) => {
-                    println!("ExprStmt");
-                    self.print_expr(*eid, 1);
+            self.print_stmt(s, 0);
+        }
+    }
+
+    fn print_stmt(&self, s: &Stmt, indent: usize) {
+        let pad = "  ".repeat(indent);
+        match s {
+            Stmt::Expr(eid) => {
+                println!("{pad}ExprStmt");
+                self.print_expr(*eid, indent + 1);
+            }
+            Stmt::LetDecl {
+                mutable,
+                name,
+                type_ann,
+                init,
+            } => {
+                let kw = if *mutable { "let" } else { "const" };
+                match type_ann {
+                    Some(ann) => println!("{pad}{kw} {name}: {ann}"),
+                    None => println!("{pad}{kw} {name}"),
                 }
-                Stmt::LetDecl {
-                    mutable,
-                    name,
-                    type_ann,
-                    init,
-                } => {
-                    let kw = if *mutable { "let" } else { "const" };
-                    match type_ann {
-                        Some(ann) => println!("{kw} {name}: {ann}"),
-                        None => println!("{kw} {name}"),
-                    }
-                    self.print_expr(*init, 1);
+                self.print_expr(*init, indent + 1);
+            }
+            Stmt::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
+                println!("{pad}If");
+                println!("{pad}  cond:");
+                self.print_expr(*cond, indent + 2);
+                println!("{pad}  then:");
+                self.print_stmt(then_branch, indent + 2);
+                if let Some(eb) = else_branch {
+                    println!("{pad}  else:");
+                    self.print_stmt(eb, indent + 2);
+                }
+            }
+            Stmt::Block(stmts) => {
+                println!("{pad}Block");
+                for s in stmts {
+                    self.print_stmt(s, indent + 1);
                 }
             }
         }
@@ -93,6 +132,7 @@ impl Ast {
             Expr::Ident(n) => println!("{pad}Ident({n:?})"),
             Expr::String(s) => println!("{pad}String({s:?})"),
             Expr::Number(n) => println!("{pad}Number({n})"),
+            Expr::Bool(b) => println!("{pad}Bool({b})"),
             Expr::BinOp { op, left, right } => {
                 println!("{pad}BinOp({op:?})");
                 self.print_expr(*left, indent + 1);

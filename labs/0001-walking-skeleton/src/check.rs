@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 
-use crate::ast::{Ast, Expr, ExprId, Stmt};
+use crate::ast::{Ast, BinOp, Expr, ExprId, Stmt};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Type {
@@ -62,6 +62,28 @@ impl Checker {
                     self.errors.push(e);
                 }
             }
+            Stmt::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
+                match self.type_of(ast, *cond) {
+                    Ok(Type::Boolean) => {}
+                    Ok(other) => self
+                        .errors
+                        .push(format!("if condition must be boolean, got {other:?}")),
+                    Err(e) => self.errors.push(e),
+                }
+                self.check_stmt(ast, then_branch);
+                if let Some(eb) = else_branch {
+                    self.check_stmt(ast, eb);
+                }
+            }
+            Stmt::Block(stmts) => {
+                for s in stmts {
+                    self.check_stmt(ast, s);
+                }
+            }
             Stmt::LetDecl {
                 mutable,
                 name,
@@ -110,6 +132,7 @@ impl Checker {
         match ast.get_expr(eid) {
             Expr::String(_) => Ok(Type::String),
             Expr::Number(_) => Ok(Type::Number),
+            Expr::Bool(_) => Ok(Type::Boolean),
             Expr::Ident(name) => {
                 if let Some(info) = self.locals.get(name) {
                     return Ok(info.ty.clone());
@@ -150,14 +173,37 @@ impl Checker {
                 }
                 Ok(*ret)
             }
-            Expr::BinOp { op: _, left, right } => {
+            Expr::BinOp { op, left, right } => {
                 let l = self.type_of(ast, *left)?;
                 let r = self.type_of(ast, *right)?;
-                match (&l, &r) {
-                    (Type::Number, Type::Number) => Ok(Type::Number),
-                    _ => Err(format!(
-                        "arithmetic requires number operands, got {l:?} and {r:?}"
-                    )),
+                match op {
+                    BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div => {
+                        if l == Type::Number && r == Type::Number {
+                            Ok(Type::Number)
+                        } else {
+                            Err(format!(
+                                "arithmetic requires number operands, got {l:?} and {r:?}"
+                            ))
+                        }
+                    }
+                    BinOp::Lt | BinOp::Gt | BinOp::Le | BinOp::Ge => {
+                        if l == Type::Number && r == Type::Number {
+                            Ok(Type::Boolean)
+                        } else {
+                            Err(format!(
+                                "ordering comparison requires number operands, got {l:?} and {r:?}"
+                            ))
+                        }
+                    }
+                    BinOp::Eq | BinOp::Neq => {
+                        if l == r && matches!(l, Type::Number | Type::String | Type::Boolean) {
+                            Ok(Type::Boolean)
+                        } else {
+                            Err(format!(
+                                "strict equality requires same primitive type, got {l:?} and {r:?}"
+                            ))
+                        }
+                    }
                 }
             }
             Expr::Assign { target, value } => {

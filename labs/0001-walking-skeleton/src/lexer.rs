@@ -8,6 +8,10 @@ pub enum Token {
     // keywords
     Let,
     Const,
+    If,
+    Else,
+    True,
+    False,
     // punctuation
     Dot,
     Comma,
@@ -23,6 +27,7 @@ pub enum Token {
     Slash,
     Eq,
     EqEqEq,
+    BangEqEq,
     Lt,
     Gt,
     LtEq,
@@ -88,11 +93,34 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
             }
             b'=' => {
                 i += 1;
-                if peek(bytes, i) == Some(b'=') && peek(bytes, i + 1) == Some(b'=') {
-                    i += 2;
-                    emit(&mut out, Token::EqEqEq, start, i);
+                if peek(bytes, i) == Some(b'=') {
+                    i += 1;
+                    if peek(bytes, i) == Some(b'=') {
+                        i += 1;
+                        emit(&mut out, Token::EqEqEq, start, i);
+                    } else {
+                        return Err(format!(
+                            "`==` is not supported, use `===` (strict equality) at {start}"
+                        ));
+                    }
                 } else {
                     emit(&mut out, Token::Eq, start, i);
+                }
+            }
+            b'!' => {
+                i += 1;
+                if peek(bytes, i) == Some(b'=') {
+                    i += 1;
+                    if peek(bytes, i) == Some(b'=') {
+                        i += 1;
+                        emit(&mut out, Token::BangEqEq, start, i);
+                    } else {
+                        return Err(format!(
+                            "`!=` is not supported, use `!==` (strict inequality) at {start}"
+                        ));
+                    }
+                } else {
+                    return Err(format!("`!` (logical not) is not yet supported at {start}"));
                 }
             }
             b'"' => {
@@ -120,6 +148,10 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                 let token = match name {
                     "let" => Token::Let,
                     "const" => Token::Const,
+                    "if" => Token::If,
+                    "else" => Token::Else,
+                    "true" => Token::True,
+                    "false" => Token::False,
                     _ => Token::Ident(name.to_string()),
                 };
                 emit(&mut out, token, start, i);

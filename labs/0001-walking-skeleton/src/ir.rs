@@ -8,6 +8,7 @@ pub enum Op {
     LoadHost(u32),
     LoadLocal(u8),
     StoreLocal(u8),
+    LoadBool(bool),
     Call(u8),
     Pop,
     Ret,
@@ -15,6 +16,14 @@ pub enum Op {
     Sub,
     Mul,
     Div,
+    Lt,
+    Gt,
+    Le,
+    Ge,
+    Eq3,  // === strict equality
+    Neq3, // !==
+    Jump(u32),
+    BrFalse(u32),
 }
 
 #[derive(Debug, Default)]
@@ -32,6 +41,7 @@ impl IrModule {
             match c {
                 Value::String(s) => println!("  const{i}: {:?}", s.as_str()),
                 Value::Number(n) => println!("  const{i}: {n}"),
+                Value::Bool(b) => println!("  const{i}: {b}"),
                 Value::Undefined => println!("  const{i}: undefined"),
                 Value::HostFn(h) => println!("  const{i}: <host {h}>"),
             }
@@ -50,6 +60,7 @@ impl IrModule {
                 Op::LoadHost(h) => println!("  load_host   host{h}"),
                 Op::LoadLocal(i) => println!("  load_local  local{i}"),
                 Op::StoreLocal(i) => println!("  store_local local{i}"),
+                Op::LoadBool(b) => println!("  load_bool   {b}"),
                 Op::Call(arity) => println!("  call        {arity}"),
                 Op::Pop => println!("  pop"),
                 Op::Ret => println!("  ret"),
@@ -57,6 +68,14 @@ impl IrModule {
                 Op::Sub => println!("  sub"),
                 Op::Mul => println!("  mul"),
                 Op::Div => println!("  div"),
+                Op::Lt => println!("  lt"),
+                Op::Gt => println!("  gt"),
+                Op::Le => println!("  le"),
+                Op::Ge => println!("  ge"),
+                Op::Eq3 => println!("  eq3"),
+                Op::Neq3 => println!("  neq3"),
+                Op::Jump(t) => println!("  jump        @{t}"),
+                Op::BrFalse(t) => println!("  br_false    @{t}"),
             }
         }
     }

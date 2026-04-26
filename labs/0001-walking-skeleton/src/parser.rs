@@ -1,15 +1,19 @@
 //! Recursive descent parser. Grammar:
 //!
 //! program  := stmt*
-//! stmt     := decl | expr `;`?
+//! stmt     := decl | if | block | expr `;`?
 //! decl     := (`let` | `const`) IDENT (`:` IDENT)? `=` expr `;`?
+//! if       := `if` `(` expr `)` stmt (`else` stmt)?
+//! block    := `{` stmt* `}`
 //! expr     := assign
-//! assign   := additive (`=` assign)?       (* right-associative *)
+//! assign   := equality (`=` assign)?               (* right-associative *)
+//! equality := comparison ((`===` | `!==`) comparison)*
+//! comparison := additive ((`<`|`>`|`<=`|`>=`) additive)*
 //! additive := mul (( `+` | `-` ) mul)*
 //! mul      := postfix (( `*` | `/` ) postfix)*
 //! postfix  := primary ( `.` ident | `(` args `)` )*
 //! args     := (expr (`,` expr)*)?
-//! primary  := ident | string | number
+//! primary  := ident | string | number | `true` | `false`
 
 use crate::ast::{Ast, BinOp, Expr, ExprId, Stmt};
 use crate::lexer::{Spanned, Token};
@@ -48,6 +52,12 @@ impl Parser<'_> {
     }
 
     fn parse_stmt(&mut self) -> Result<Stmt, String> {
+        if matches!(self.peek(), Token::LBrace) {
+            return self.parse_block();
+        }
+        if matches!(self.peek(), Token::If) {
+            return self.parse_if();
+        }
         let mutable = match self.peek() {
             Token::Let => Some(true),
             Token::Const => Some(false),
@@ -104,18 +114,96 @@ impl Parser<'_> {
         Ok(Stmt::Expr(expr))
     }
 
+    fn parse_block(&mut self) -> Result<Stmt, String> {
+        self.pos += 1; // consume `{`
+        let mut stmts = Vec::new();
+        while !matches!(self.peek(), Token::RBrace | Token::Eof) {
+            stmts.push(self.parse_stmt()?);
+        }
+        match self.peek() {
+            Token::RBrace => self.pos += 1,
+            t => return Err(format!("expected `}}`, got {t:?} at {}", self.at())),
+        }
+        Ok(Stmt::Block(stmts))
+    }
+
+    fn parse_if(&mut self) -> Result<Stmt, String> {
+        self.pos += 1; // consume `if`
+        match self.peek() {
+            Token::LParen => self.pos += 1,
+            t => {
+                return Err(format!(
+                    "expected `(` after `if`, got {t:?} at {}",
+                    self.at()
+                ));
+            }
+        }
+        let cond = self.parse_expr()?;
+        match self.peek() {
+            Token::RParen => self.pos += 1,
+            t => {
+                return Err(format!(
+                    "expected `)` after if condition, got {t:?} at {}",
+                    self.at()
+                ));
+            }
+        }
+        let then_branch = Box::new(self.parse_stmt()?);
+        let else_branch = if matches!(self.peek(), Token::Else) {
+            self.pos += 1;
+            Some(Box::new(self.parse_stmt()?))
+        } else {
+            None
+        };
+        Ok(Stmt::If {
+            cond,
+            then_branch,
+            else_branch,
+        })
+    }
+
     fn parse_expr(&mut self) -> Result<ExprId, String> {
         self.parse_assign()
     }
 
     fn parse_assign(&mut self) -> Result<ExprId, String> {
-        let target = self.parse_additive()?;
+        let target = self.parse_equality()?;
         if matches!(self.peek(), Token::Eq) {
             self.pos += 1;
             let value = self.parse_assign()?; // right-associative
             return Ok(self.ast.add_expr(Expr::Assign { target, value }));
         }
         Ok(target)
+    }
+
+    fn parse_equality(&mut self) -> Result<ExprId, String> {
+        let mut left = self.parse_comparison()?;
+        loop {
+            let op = match self.peek() {
+                Token::EqEqEq => BinOp::Eq,
+                Token::BangEqEq => BinOp::Neq,
+                _ => return Ok(left),
+            };
+            self.pos += 1;
+            let right = self.parse_comparison()?;
+            left = self.ast.add_expr(Expr::BinOp { op, left, right });
+        }
+    }
+
+    fn parse_comparison(&mut self) -> Result<ExprId, String> {
+        let mut left = self.parse_additive()?;
+        loop {
+            let op = match self.peek() {
+                Token::Lt => BinOp::Lt,
+                Token::Gt => BinOp::Gt,
+                Token::LtEq => BinOp::Le,
+                Token::GtEq => BinOp::Ge,
+                _ => return Ok(left),
+            };
+            self.pos += 1;
+            let right = self.parse_additive()?;
+            left = self.ast.add_expr(Expr::BinOp { op, left, right });
+        }
     }
 
     fn parse_additive(&mut self) -> Result<ExprId, String> {
@@ -202,6 +290,14 @@ impl Parser<'_> {
                 let n = *n;
                 self.pos += 1;
                 Ok(self.ast.add_expr(Expr::Number(n)))
+            }
+            Token::True => {
+                self.pos += 1;
+                Ok(self.ast.add_expr(Expr::Bool(true)))
+            }
+            Token::False => {
+                self.pos += 1;
+                Ok(self.ast.add_expr(Expr::Bool(false)))
             }
             t => Err(format!(
                 "expected expression, got {t:?} at {}",

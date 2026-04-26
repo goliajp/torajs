@@ -34,6 +34,33 @@ fn lower_stmt(ast: &Ast, m: &mut IrModule, locals: &mut HashMap<String, u8>, stm
             locals.insert(name.clone(), slot);
             m.code.push(Op::StoreLocal(slot));
         }
+        Stmt::Block(stmts) => {
+            for s in stmts {
+                lower_stmt(ast, m, locals, s);
+            }
+        }
+        Stmt::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            lower_expr(ast, m, locals, *cond);
+            let br_pos = m.code.len();
+            m.code.push(Op::BrFalse(0)); // patched after we know else target
+            lower_stmt(ast, m, locals, then_branch);
+            if let Some(eb) = else_branch {
+                let jump_pos = m.code.len();
+                m.code.push(Op::Jump(0));
+                let else_target = m.code.len() as u32;
+                m.code[br_pos] = Op::BrFalse(else_target);
+                lower_stmt(ast, m, locals, eb);
+                let end_target = m.code.len() as u32;
+                m.code[jump_pos] = Op::Jump(end_target);
+            } else {
+                let end_target = m.code.len() as u32;
+                m.code[br_pos] = Op::BrFalse(end_target);
+            }
+        }
     }
 }
 
@@ -46,6 +73,9 @@ fn lower_expr(ast: &Ast, m: &mut IrModule, locals: &mut HashMap<String, u8>, eid
         Expr::Number(n) => {
             let cid = intern_const(m, Value::Number(*n));
             m.code.push(Op::LoadConst(cid));
+        }
+        Expr::Bool(b) => {
+            m.code.push(Op::LoadBool(*b));
         }
         Expr::Ident(name) => {
             let slot = *locals
@@ -81,6 +111,12 @@ fn lower_expr(ast: &Ast, m: &mut IrModule, locals: &mut HashMap<String, u8>, eid
                 BinOp::Sub => Op::Sub,
                 BinOp::Mul => Op::Mul,
                 BinOp::Div => Op::Div,
+                BinOp::Lt => Op::Lt,
+                BinOp::Gt => Op::Gt,
+                BinOp::Le => Op::Le,
+                BinOp::Ge => Op::Ge,
+                BinOp::Eq => Op::Eq3,
+                BinOp::Neq => Op::Neq3,
             });
         }
         Expr::Assign { target, value } => {
