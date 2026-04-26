@@ -1,160 +1,286 @@
 //! AST → IR.
 //!
-//! Each statement-position expression leaves its value on the stack;
-//! the lowering emits `Pop` after each expr-stmt and `Ret` at end of program.
-//! `let` bindings reserve a local slot and consume the init value via `StoreLocal`.
+//! - Top-level `FnDecl`s are hoisted: each gets its own `IrFunction`.
+//! - Top-level non-fn stmts are lowered into `functions[0]` (`main`, arity 0).
+//! - Each function ends with an implicit `LoadUndef; Ret` so the call stack
+//!   always has a clean way to pop the frame even if the user forgot a `return`.
+//! - Block scope: entering `{ ... }` pushes a fresh scope; declarations inside
+//!   are visible only within. Slots are monotonically allocated (no reuse).
 
 use std::collections::HashMap;
 use std::rc::Rc;
 
 use crate::ast::{Ast, BinOp, Expr, ExprId, Stmt};
-use crate::ir::{IrModule, Op};
+use crate::ir::{IrFunction, IrModule, Op};
 use crate::value::Value;
 
 pub fn lower(ast: &Ast) -> IrModule {
-    let mut m = IrModule::default();
-    let mut locals: HashMap<String, u8> = HashMap::new();
+    // 1. Pre-allocate `functions[0] = main`, then one slot per top-level FnDecl.
+    let mut functions: Vec<IrFunction> = vec![IrFunction {
+        name: "main".into(),
+        arity: 0,
+        locals_count: 0,
+        code: Vec::new(),
+    }];
+    let mut fn_names: HashMap<String, u32> = HashMap::new();
     for stmt in &ast.stmts {
-        lower_stmt(ast, &mut m, &mut locals, stmt);
-    }
-    m.code.push(Op::Ret);
-    m.locals_count = locals.len() as u8;
-    m
-}
-
-fn lower_stmt(ast: &Ast, m: &mut IrModule, locals: &mut HashMap<String, u8>, stmt: &Stmt) {
-    match stmt {
-        Stmt::Expr(eid) => {
-            lower_expr(ast, m, locals, *eid);
-            m.code.push(Op::Pop);
-        }
-        Stmt::LetDecl { name, init, .. } => {
-            lower_expr(ast, m, locals, *init);
-            let slot = locals.len() as u8;
-            locals.insert(name.clone(), slot);
-            m.code.push(Op::StoreLocal(slot));
-        }
-        Stmt::Block(stmts) => {
-            for s in stmts {
-                lower_stmt(ast, m, locals, s);
-            }
-        }
-        Stmt::If {
-            cond,
-            then_branch,
-            else_branch,
-        } => {
-            lower_expr(ast, m, locals, *cond);
-            let br_pos = m.code.len();
-            m.code.push(Op::BrFalse(0)); // patched after we know else target
-            lower_stmt(ast, m, locals, then_branch);
-            if let Some(eb) = else_branch {
-                let jump_pos = m.code.len();
-                m.code.push(Op::Jump(0));
-                let else_target = m.code.len() as u32;
-                m.code[br_pos] = Op::BrFalse(else_target);
-                lower_stmt(ast, m, locals, eb);
-                let end_target = m.code.len() as u32;
-                m.code[jump_pos] = Op::Jump(end_target);
-            } else {
-                let end_target = m.code.len() as u32;
-                m.code[br_pos] = Op::BrFalse(end_target);
-            }
-        }
-        Stmt::While { cond, body } => {
-            let loop_start = m.code.len() as u32;
-            lower_expr(ast, m, locals, *cond);
-            let br_pos = m.code.len();
-            m.code.push(Op::BrFalse(0));
-            lower_stmt(ast, m, locals, body);
-            m.code.push(Op::Jump(loop_start));
-            let loop_end = m.code.len() as u32;
-            m.code[br_pos] = Op::BrFalse(loop_end);
-        }
-    }
-}
-
-fn lower_expr(ast: &Ast, m: &mut IrModule, locals: &mut HashMap<String, u8>, eid: ExprId) {
-    match ast.get_expr(eid) {
-        Expr::String(s) => {
-            let cid = intern_const(m, Value::String(Rc::new(s.clone())));
-            m.code.push(Op::LoadConst(cid));
-        }
-        Expr::Number(n) => {
-            let cid = intern_const(m, Value::Number(*n));
-            m.code.push(Op::LoadConst(cid));
-        }
-        Expr::Bool(b) => {
-            m.code.push(Op::LoadBool(*b));
-        }
-        Expr::Ident(name) => {
-            let slot = *locals
-                .get(name)
-                .unwrap_or_else(|| panic!("lower: unknown identifier `{name}`"));
-            m.code.push(Op::LoadLocal(slot));
-        }
-        Expr::Member { obj, name } => {
-            // P0/P1: only Ident("console").log → host fn slot.
-            // Type checker has already rejected anything else.
-            if let Expr::Ident(obj_name) = ast.get_expr(*obj)
-                && obj_name == "console"
-                && name == "log"
-            {
-                let hid = intern_host(m, "console.log");
-                m.code.push(Op::LoadHost(hid));
-                return;
-            }
-            unreachable!("lower: unsupported member access slipped past type-check");
-        }
-        Expr::Call { callee, args } => {
-            lower_expr(ast, m, locals, *callee);
-            for a in args {
-                lower_expr(ast, m, locals, *a);
-            }
-            m.code.push(Op::Call(args.len() as u8));
-        }
-        Expr::BinOp { op, left, right } => {
-            lower_expr(ast, m, locals, *left);
-            lower_expr(ast, m, locals, *right);
-            m.code.push(match op {
-                BinOp::Add => Op::Add,
-                BinOp::Sub => Op::Sub,
-                BinOp::Mul => Op::Mul,
-                BinOp::Div => Op::Div,
-                BinOp::Lt => Op::Lt,
-                BinOp::Gt => Op::Gt,
-                BinOp::Le => Op::Le,
-                BinOp::Ge => Op::Ge,
-                BinOp::Eq => Op::Eq3,
-                BinOp::Neq => Op::Neq3,
+        if let Stmt::FnDecl { name, params, .. } = stmt {
+            let id = functions.len() as u32;
+            fn_names.insert(name.clone(), id);
+            functions.push(IrFunction {
+                name: name.clone(),
+                arity: params.len() as u8,
+                locals_count: 0, // patched after lowering body
+                code: Vec::new(),
             });
         }
-        Expr::Assign { target, value } => {
-            let Expr::Ident(name) = ast.get_expr(*target) else {
-                unreachable!("lower: non-ident assignment target slipped past type-check");
-            };
-            let slot = *locals
-                .get(name)
-                .unwrap_or_else(|| panic!("lower: assign to undeclared `{name}`"));
-            lower_expr(ast, m, locals, *value);
-            m.code.push(Op::StoreLocal(slot));
-            // assignment expression evaluates to the assigned value
-            m.code.push(Op::LoadLocal(slot));
+    }
+
+    let mut consts: Vec<Value> = Vec::new();
+    let mut host_fns: Vec<String> = Vec::new();
+
+    // 2. Lower each function body.
+    for stmt in &ast.stmts {
+        if let Stmt::FnDecl {
+            name, params, body, ..
+        } = stmt
+        {
+            let mut l = FnLowering::new(ast, &mut consts, &mut host_fns, &fn_names);
+            for p in params {
+                l.declare_local(p.name.clone());
+            }
+            for s in body {
+                l.lower_stmt(s);
+            }
+            // implicit terminator
+            l.code.push(Op::LoadUndef);
+            l.code.push(Op::Ret);
+
+            let fn_id = fn_names[name];
+            functions[fn_id as usize].locals_count = l.next_slot;
+            functions[fn_id as usize].code = l.code;
         }
     }
-}
 
-fn intern_const(m: &mut IrModule, v: Value) -> u32 {
-    let id = m.consts.len() as u32;
-    m.consts.push(v);
-    id
-}
-
-fn intern_host(m: &mut IrModule, name: &str) -> u32 {
-    if let Some(i) = m.host_fns.iter().position(|n| n == name) {
-        return i as u32;
+    // 3. Lower main (top-level non-FnDecl stmts).
+    {
+        let mut l = FnLowering::new(ast, &mut consts, &mut host_fns, &fn_names);
+        for stmt in &ast.stmts {
+            if !matches!(stmt, Stmt::FnDecl { .. }) {
+                l.lower_stmt(stmt);
+            }
+        }
+        l.code.push(Op::LoadUndef);
+        l.code.push(Op::Ret);
+        functions[0].locals_count = l.next_slot;
+        functions[0].code = l.code;
     }
-    let id = m.host_fns.len() as u32;
-    m.host_fns.push(name.into());
-    id
+
+    IrModule {
+        consts,
+        host_fns,
+        functions,
+    }
+}
+
+struct FnLowering<'a, 'b> {
+    ast: &'a Ast,
+    consts: &'b mut Vec<Value>,
+    host_fns: &'b mut Vec<String>,
+    fn_names: &'b HashMap<String, u32>,
+    code: Vec<Op>,
+    scopes: Vec<HashMap<String, u8>>,
+    next_slot: u8,
+}
+
+impl<'a, 'b> FnLowering<'a, 'b> {
+    fn new(
+        ast: &'a Ast,
+        consts: &'b mut Vec<Value>,
+        host_fns: &'b mut Vec<String>,
+        fn_names: &'b HashMap<String, u32>,
+    ) -> Self {
+        Self {
+            ast,
+            consts,
+            host_fns,
+            fn_names,
+            code: Vec::new(),
+            scopes: vec![HashMap::new()],
+            next_slot: 0,
+        }
+    }
+
+    fn declare_local(&mut self, name: String) -> u8 {
+        let slot = self.next_slot;
+        self.next_slot += 1;
+        self.scopes
+            .last_mut()
+            .expect("at least one scope")
+            .insert(name, slot);
+        slot
+    }
+
+    fn lookup_local(&self, name: &str) -> Option<u8> {
+        for s in self.scopes.iter().rev() {
+            if let Some(&slot) = s.get(name) {
+                return Some(slot);
+            }
+        }
+        None
+    }
+
+    fn intern_const(&mut self, v: Value) -> u32 {
+        let id = self.consts.len() as u32;
+        self.consts.push(v);
+        id
+    }
+
+    fn intern_host(&mut self, name: &str) -> u32 {
+        if let Some(i) = self.host_fns.iter().position(|n| n == name) {
+            return i as u32;
+        }
+        let id = self.host_fns.len() as u32;
+        self.host_fns.push(name.into());
+        id
+    }
+
+    fn lower_stmt(&mut self, stmt: &Stmt) {
+        match stmt {
+            Stmt::Expr(eid) => {
+                self.lower_expr(*eid);
+                self.code.push(Op::Pop);
+            }
+            Stmt::LetDecl { name, init, .. } => {
+                self.lower_expr(*init);
+                let slot = self.declare_local(name.clone());
+                self.code.push(Op::StoreLocal(slot));
+            }
+            Stmt::Block(stmts) => {
+                self.scopes.push(HashMap::new());
+                for s in stmts {
+                    self.lower_stmt(s);
+                }
+                self.scopes.pop();
+            }
+            Stmt::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
+                self.lower_expr(*cond);
+                let br_pos = self.code.len();
+                self.code.push(Op::BrFalse(0));
+                self.lower_stmt(then_branch);
+                if let Some(eb) = else_branch {
+                    let jump_pos = self.code.len();
+                    self.code.push(Op::Jump(0));
+                    let else_target = self.code.len() as u32;
+                    self.code[br_pos] = Op::BrFalse(else_target);
+                    self.lower_stmt(eb);
+                    let end_target = self.code.len() as u32;
+                    self.code[jump_pos] = Op::Jump(end_target);
+                } else {
+                    let end_target = self.code.len() as u32;
+                    self.code[br_pos] = Op::BrFalse(end_target);
+                }
+            }
+            Stmt::While { cond, body } => {
+                let loop_start = self.code.len() as u32;
+                self.lower_expr(*cond);
+                let br_pos = self.code.len();
+                self.code.push(Op::BrFalse(0));
+                self.lower_stmt(body);
+                self.code.push(Op::Jump(loop_start));
+                let loop_end = self.code.len() as u32;
+                self.code[br_pos] = Op::BrFalse(loop_end);
+            }
+            Stmt::Return(maybe_expr) => {
+                match maybe_expr {
+                    Some(eid) => self.lower_expr(*eid),
+                    None => self.code.push(Op::LoadUndef),
+                }
+                self.code.push(Op::Ret);
+            }
+            Stmt::FnDecl { .. } => {
+                // Type checker only allows top-level FnDecls; the program
+                // walks them at the top level. Reaching here means the AST
+                // contains a nested FnDecl, which we don't yet support.
+                unreachable!("nested FnDecl reached lower_stmt");
+            }
+        }
+    }
+
+    fn lower_expr(&mut self, eid: ExprId) {
+        match self.ast.get_expr(eid) {
+            Expr::String(s) => {
+                let cid = self.intern_const(Value::String(Rc::new(s.clone())));
+                self.code.push(Op::LoadConst(cid));
+            }
+            Expr::Number(n) => {
+                let cid = self.intern_const(Value::Number(*n));
+                self.code.push(Op::LoadConst(cid));
+            }
+            Expr::Bool(b) => {
+                self.code.push(Op::LoadBool(*b));
+            }
+            Expr::Ident(name) => {
+                if let Some(slot) = self.lookup_local(name) {
+                    self.code.push(Op::LoadLocal(slot));
+                    return;
+                }
+                if let Some(&fn_id) = self.fn_names.get(name) {
+                    let cid = self.intern_const(Value::Function(fn_id));
+                    self.code.push(Op::LoadConst(cid));
+                    return;
+                }
+                unreachable!("lower: unknown identifier `{name}` slipped past type-check");
+            }
+            Expr::Member { obj, name } => {
+                if let Expr::Ident(obj_name) = self.ast.get_expr(*obj)
+                    && obj_name == "console"
+                    && name == "log"
+                {
+                    let hid = self.intern_host("console.log");
+                    self.code.push(Op::LoadHost(hid));
+                    return;
+                }
+                unreachable!("lower: unsupported member access slipped past type-check");
+            }
+            Expr::Call { callee, args } => {
+                self.lower_expr(*callee);
+                for a in args {
+                    self.lower_expr(*a);
+                }
+                self.code.push(Op::Call(args.len() as u8));
+            }
+            Expr::BinOp { op, left, right } => {
+                self.lower_expr(*left);
+                self.lower_expr(*right);
+                self.code.push(match op {
+                    BinOp::Add => Op::Add,
+                    BinOp::Sub => Op::Sub,
+                    BinOp::Mul => Op::Mul,
+                    BinOp::Div => Op::Div,
+                    BinOp::Lt => Op::Lt,
+                    BinOp::Gt => Op::Gt,
+                    BinOp::Le => Op::Le,
+                    BinOp::Ge => Op::Ge,
+                    BinOp::Eq => Op::Eq3,
+                    BinOp::Neq => Op::Neq3,
+                });
+            }
+            Expr::Assign { target, value } => {
+                let Expr::Ident(name) = self.ast.get_expr(*target) else {
+                    unreachable!("lower: non-ident assignment target slipped past type-check");
+                };
+                let slot = self
+                    .lookup_local(name)
+                    .unwrap_or_else(|| panic!("lower: assign to undeclared `{name}`"));
+                self.lower_expr(*value);
+                self.code.push(Op::StoreLocal(slot));
+                self.code.push(Op::LoadLocal(slot));
+            }
+        }
+    }
 }

@@ -1,11 +1,15 @@
 //! Recursive descent parser. Grammar:
 //!
 //! program  := stmt*
-//! stmt     := decl | if | while | block | expr `;`?
+//! stmt     := decl | if | while | block | fndecl | return | expr `;`?
 //! decl     := (`let` | `const`) IDENT (`:` IDENT)? `=` expr `;`?
 //! if       := `if` `(` expr `)` stmt (`else` stmt)?
 //! while    := `while` `(` expr `)` stmt
 //! block    := `{` stmt* `}`
+//! fndecl   := `function` IDENT `(` params? `)` (`:` IDENT)? `{` stmt* `}`
+//! params   := param (`,` param)*
+//! param    := IDENT (`:` IDENT)?
+//! return   := `return` expr? `;`?
 //! expr     := assign
 //! assign   := equality (`=` assign)?               (* right-associative *)
 //! equality := comparison ((`===` | `!==`) comparison)*
@@ -16,7 +20,7 @@
 //! args     := (expr (`,` expr)*)?
 //! primary  := ident | string | number | `true` | `false`
 
-use crate::ast::{Ast, BinOp, Expr, ExprId, Stmt};
+use crate::ast::{Ast, BinOp, Expr, ExprId, Param, Stmt};
 use crate::lexer::{Spanned, Token};
 
 pub fn parse(tokens: &[Spanned]) -> Result<Ast, String> {
@@ -61,6 +65,12 @@ impl Parser<'_> {
         }
         if matches!(self.peek(), Token::While) {
             return self.parse_while();
+        }
+        if matches!(self.peek(), Token::Function) {
+            return self.parse_fn();
+        }
+        if matches!(self.peek(), Token::Return) {
+            return self.parse_return();
         }
         let mutable = match self.peek() {
             Token::Let => Some(true),
@@ -164,6 +174,117 @@ impl Parser<'_> {
             then_branch,
             else_branch,
         })
+    }
+
+    fn parse_fn(&mut self) -> Result<Stmt, String> {
+        self.pos += 1; // consume `function`
+        let name = match self.peek() {
+            Token::Ident(n) => n.clone(),
+            t => {
+                return Err(format!(
+                    "expected function name, got {t:?} at {}",
+                    self.at()
+                ));
+            }
+        };
+        self.pos += 1;
+        match self.peek() {
+            Token::LParen => self.pos += 1,
+            t => return Err(format!("expected `(`, got {t:?} at {}", self.at())),
+        }
+        let mut params = Vec::new();
+        if !matches!(self.peek(), Token::RParen) {
+            loop {
+                let pname = match self.peek() {
+                    Token::Ident(n) => n.clone(),
+                    t => {
+                        return Err(format!(
+                            "expected parameter name, got {t:?} at {}",
+                            self.at()
+                        ));
+                    }
+                };
+                self.pos += 1;
+                let type_ann = if matches!(self.peek(), Token::Colon) {
+                    self.pos += 1;
+                    let ann = match self.peek() {
+                        Token::Ident(n) => n.clone(),
+                        t => {
+                            return Err(format!("expected type name, got {t:?} at {}", self.at()));
+                        }
+                    };
+                    self.pos += 1;
+                    Some(ann)
+                } else {
+                    None
+                };
+                params.push(Param {
+                    name: pname,
+                    type_ann,
+                });
+                match self.peek() {
+                    Token::Comma => self.pos += 1,
+                    Token::RParen => break,
+                    t => return Err(format!("expected `,` or `)`, got {t:?} at {}", self.at())),
+                }
+            }
+        }
+        match self.peek() {
+            Token::RParen => self.pos += 1,
+            t => return Err(format!("expected `)`, got {t:?} at {}", self.at())),
+        }
+        let return_type = if matches!(self.peek(), Token::Colon) {
+            self.pos += 1;
+            let ann = match self.peek() {
+                Token::Ident(n) => n.clone(),
+                t => {
+                    return Err(format!(
+                        "expected return type after `:`, got {t:?} at {}",
+                        self.at()
+                    ));
+                }
+            };
+            self.pos += 1;
+            Some(ann)
+        } else {
+            None
+        };
+        // body must be a block
+        match self.peek() {
+            Token::LBrace => self.pos += 1,
+            t => {
+                return Err(format!(
+                    "expected `{{` (function body), got {t:?} at {}",
+                    self.at()
+                ));
+            }
+        }
+        let mut body = Vec::new();
+        while !matches!(self.peek(), Token::RBrace | Token::Eof) {
+            body.push(self.parse_stmt()?);
+        }
+        match self.peek() {
+            Token::RBrace => self.pos += 1,
+            t => return Err(format!("expected `}}`, got {t:?} at {}", self.at())),
+        }
+        Ok(Stmt::FnDecl {
+            name,
+            params,
+            return_type,
+            body,
+        })
+    }
+
+    fn parse_return(&mut self) -> Result<Stmt, String> {
+        self.pos += 1; // consume `return`
+        let expr = match self.peek() {
+            Token::Semi | Token::RBrace | Token::Eof => None,
+            _ => Some(self.parse_expr()?),
+        };
+        if matches!(self.peek(), Token::Semi) {
+            self.pos += 1;
+        }
+        Ok(Stmt::Return(expr))
     }
 
     fn parse_while(&mut self) -> Result<Stmt, String> {

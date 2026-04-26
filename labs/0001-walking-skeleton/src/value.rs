@@ -13,4 +13,6 @@ pub enum Value {
     String(Rc<String>),
     /// Reference to a host function by index into `IrModule.host_fns`.
     HostFn(u32),
+    /// Reference to a user function by index into `IrModule.functions`.
+    Function(u32),
 }

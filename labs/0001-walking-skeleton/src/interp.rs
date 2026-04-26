@@ -3,13 +3,33 @@
 use crate::ir::{IrModule, Op};
 use crate::value::Value;
 
-pub fn execute(module: &IrModule) -> Result<(), String> {
-    let mut stack: Vec<Value> = Vec::new();
-    let mut locals: Vec<Value> = vec![Value::Undefined; module.locals_count as usize];
-    let mut pc = 0;
+struct SavedFrame {
+    fn_id: u32,
+    pc: usize,
+    locals: Vec<Value>,
+}
 
-    while pc < module.code.len() {
-        let op = module.code[pc];
+pub fn execute(module: &IrModule) -> Result<(), String> {
+    let main = module
+        .functions
+        .first()
+        .ok_or("module has no functions; lower bug")?;
+    let mut stack: Vec<Value> = Vec::new();
+    let mut current_fn: u32 = 0;
+    let mut pc: usize = 0;
+    let mut locals: Vec<Value> = vec![Value::Undefined; main.locals_count as usize];
+    let mut call_stack: Vec<SavedFrame> = Vec::new();
+
+    loop {
+        let func = &module.functions[current_fn as usize];
+        if pc >= func.code.len() {
+            // missing terminator — lower always emits Ret, so this is a bug
+            return Err(format!(
+                "ran off end of function `{}` without a terminator",
+                func.name
+            ));
+        }
+        let op = func.code[pc];
         pc += 1;
         match op {
             Op::LoadConst(c) => stack.push(module.consts[c as usize].clone()),
@@ -18,6 +38,8 @@ pub fn execute(module: &IrModule) -> Result<(), String> {
             Op::StoreLocal(i) => {
                 locals[i as usize] = stack.pop().ok_or("stack underflow on store_local")?;
             }
+            Op::LoadBool(b) => stack.push(Value::Bool(b)),
+            Op::LoadUndef => stack.push(Value::Undefined),
             Op::Call(arity) => {
                 let mut args = Vec::with_capacity(arity as usize);
                 for _ in 0..arity {
@@ -25,20 +47,51 @@ pub fn execute(module: &IrModule) -> Result<(), String> {
                 }
                 args.reverse();
                 let callee = stack.pop().ok_or("stack underflow popping callee")?;
-                let result = match callee {
+                match callee {
                     Value::HostFn(hid) => {
                         let name = &module.host_fns[hid as usize];
-                        call_host(name, &args)?
+                        let result = call_host(name, &args)?;
+                        stack.push(result);
+                    }
+                    Value::Function(fid) => {
+                        let target = &module.functions[fid as usize];
+                        if target.arity as usize != args.len() {
+                            return Err(format!(
+                                "arity mismatch calling `{}`: expected {}, got {}",
+                                target.name,
+                                target.arity,
+                                args.len()
+                            ));
+                        }
+                        call_stack.push(SavedFrame {
+                            fn_id: current_fn,
+                            pc,
+                            locals: std::mem::take(&mut locals),
+                        });
+                        let mut new_locals = vec![Value::Undefined; target.locals_count as usize];
+                        for (i, a) in args.into_iter().enumerate() {
+                            new_locals[i] = a;
+                        }
+                        locals = new_locals;
+                        current_fn = fid;
+                        pc = 0;
                     }
                     other => return Err(format!("not callable: {other:?}")),
-                };
-                stack.push(result);
+                }
             }
-            Op::LoadBool(b) => stack.push(Value::Bool(b)),
             Op::Pop => {
                 stack.pop();
             }
-            Op::Ret => break,
+            Op::Ret => {
+                if let Some(saved) = call_stack.pop() {
+                    current_fn = saved.fn_id;
+                    pc = saved.pc;
+                    locals = saved.locals;
+                    // return value remains on stack for caller to consume
+                } else {
+                    break; // returning from main → done
+                }
+            }
             Op::Add => binop(&mut stack, |a, b| a + b)?,
             Op::Sub => binop(&mut stack, |a, b| a - b)?,
             Op::Mul => binop(&mut stack, |a, b| a * b)?,
@@ -113,7 +166,9 @@ fn call_host(name: &str, args: &[Value]) -> Result<Value, String> {
                     Value::Number(n) => print!("{n}"),
                     Value::Bool(b) => print!("{b}"),
                     Value::Undefined => print!("undefined"),
-                    Value::HostFn(_) => return Err("cannot console.log a host function".into()),
+                    Value::HostFn(_) | Value::Function(_) => {
+                        return Err("cannot console.log a function".into());
+                    }
                 }
             }
             println!();

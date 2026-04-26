@@ -43,6 +43,12 @@ pub enum Expr {
 }
 
 #[derive(Debug, Clone)]
+pub struct Param {
+    pub name: String,
+    pub type_ann: Option<String>,
+}
+
+#[derive(Debug, Clone)]
 pub enum Stmt {
     Expr(ExprId),
     LetDecl {
@@ -61,6 +67,13 @@ pub enum Stmt {
         body: Box<Stmt>,
     },
     Block(Vec<Stmt>),
+    FnDecl {
+        name: String,
+        params: Vec<Param>,
+        return_type: Option<String>,
+        body: Vec<Stmt>,
+    },
+    Return(Option<ExprId>),
 }
 
 #[derive(Debug, Default)]
@@ -134,6 +147,32 @@ impl Ast {
                     self.print_stmt(s, indent + 1);
                 }
             }
+            Stmt::FnDecl {
+                name,
+                params,
+                return_type,
+                body,
+            } => {
+                let plist: Vec<String> = params
+                    .iter()
+                    .map(|p| match &p.type_ann {
+                        Some(t) => format!("{}: {t}", p.name),
+                        None => p.name.clone(),
+                    })
+                    .collect();
+                let ret = return_type.clone().unwrap_or_else(|| "void".into());
+                println!("{pad}FnDecl {name}({}): {ret}", plist.join(", "));
+                for s in body {
+                    self.print_stmt(s, indent + 1);
+                }
+            }
+            Stmt::Return(maybe) => match maybe {
+                Some(eid) => {
+                    println!("{pad}Return");
+                    self.print_expr(*eid, indent + 1);
+                }
+                None => println!("{pad}Return"),
+            },
         }
     }
 
