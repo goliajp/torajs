@@ -1,0 +1,26 @@
+# Claude Code — synced per-machine via `devops dotclaude sync torajs`
+.claude/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+
+# Node / bun
+node_modules/
+*.tsbuildinfo
+.eslintcache
+
+# Build output
+dist/
+out/
+target/
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+logs/
