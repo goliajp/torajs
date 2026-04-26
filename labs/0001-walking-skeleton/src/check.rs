@@ -9,6 +9,7 @@ use crate::ast::{Ast, Expr, ExprId, Stmt};
 pub enum Type {
     Number,
     String,
+    Boolean,
     Void,
     /// v0 hack — `console.log` parameter so it accepts any printable type.
     /// Replace with proper sum/union types once we have them.
@@ -16,6 +17,15 @@ pub enum Type {
     Function(Vec<Type>, Box<Type>),
     /// Object stand-in for hardcoded globals like `console`. Real object types come in P2.
     Object(&'static str),
+}
+
+fn resolve_type_ann(name: &str) -> Option<Type> {
+    match name {
+        "number" => Some(Type::Number),
+        "string" => Some(Type::String),
+        "boolean" => Some(Type::Boolean),
+        _ => None,
+    }
 }
 
 pub fn check(ast: &Ast) -> Result<(), String> {
@@ -46,17 +56,39 @@ impl Checker {
                     self.errors.push(e);
                 }
             }
-            Stmt::LetDecl { name, init } => {
+            Stmt::LetDecl {
+                name,
+                type_ann,
+                init,
+            } => {
                 if self.locals.contains_key(name) {
                     self.errors.push(format!("redeclaration of `{name}`"));
                     return;
                 }
-                match self.type_of(ast, *init) {
-                    Ok(ty) => {
-                        self.locals.insert(name.clone(), ty);
+                let init_ty = match self.type_of(ast, *init) {
+                    Ok(t) => t,
+                    Err(e) => {
+                        self.errors.push(e);
+                        return;
                     }
-                    Err(e) => self.errors.push(e),
-                }
+                };
+                let final_ty = match type_ann {
+                    None => init_ty,
+                    Some(ann) => {
+                        let Some(ann_ty) = resolve_type_ann(ann) else {
+                            self.errors.push(format!("unknown type `{ann}`"));
+                            return;
+                        };
+                        if ann_ty != init_ty {
+                            self.errors.push(format!(
+                                "type mismatch on `{name}`: declared {ann_ty:?}, init has {init_ty:?}"
+                            ));
+                            return;
+                        }
+                        ann_ty
+                    }
+                };
+                self.locals.insert(name.clone(), final_ty);
             }
         }
     }

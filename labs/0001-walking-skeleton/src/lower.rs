@@ -28,7 +28,7 @@ fn lower_stmt(ast: &Ast, m: &mut IrModule, locals: &mut HashMap<String, u8>, stm
             lower_expr(ast, m, locals, *eid);
             m.code.push(Op::Pop);
         }
-        Stmt::LetDecl { name, init } => {
+        Stmt::LetDecl { name, init, .. } => {
             lower_expr(ast, m, locals, *init);
             let slot = locals.len() as u8;
             locals.insert(name.clone(), slot);

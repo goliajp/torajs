@@ -58,6 +58,22 @@ impl Parser<'_> {
                 }
             };
             self.pos += 1;
+            let type_ann = if matches!(self.peek(), Token::Colon) {
+                self.pos += 1;
+                let ann = match self.peek() {
+                    Token::Ident(n) => n.clone(),
+                    t => {
+                        return Err(format!(
+                            "expected type name after `:`, got {t:?} at {}",
+                            self.at()
+                        ));
+                    }
+                };
+                self.pos += 1;
+                Some(ann)
+            } else {
+                None
+            };
             match self.peek() {
                 Token::Eq => self.pos += 1,
                 t => return Err(format!("expected `=`, got {t:?} at {}", self.at())),
@@ -66,7 +82,11 @@ impl Parser<'_> {
             if matches!(self.peek(), Token::Semi) {
                 self.pos += 1;
             }
-            return Ok(Stmt::LetDecl { name, init });
+            return Ok(Stmt::LetDecl {
+                name,
+                type_ann,
+                init,
+            });
         }
         let expr = self.parse_expr()?;
         if matches!(self.peek(), Token::Semi) {

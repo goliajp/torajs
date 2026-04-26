@@ -10,6 +10,7 @@ pub enum Token {
     // punctuation
     Dot,
     Comma,
+    Colon,
     Semi,
     LParen,
     RParen,
@@ -56,6 +57,7 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
             }
             b'.' => emit(&mut out, Token::Dot, start, advance(&mut i)),
             b',' => emit(&mut out, Token::Comma, start, advance(&mut i)),
+            b':' => emit(&mut out, Token::Colon, start, advance(&mut i)),
             b';' => emit(&mut out, Token::Semi, start, advance(&mut i)),
             b'(' => emit(&mut out, Token::LParen, start, advance(&mut i)),
             b')' => emit(&mut out, Token::RParen, start, advance(&mut i)),
