@@ -6,25 +6,22 @@
 #   $2 = input .tora.ts file
 #   $3 = output binary path
 #
-# We do NOT do PGO.  Empirical finding (2026-04-28): PGO's instrumented profile
-# run can push branch-frequency data that makes clang -O3 disable certain loop
-# idiom recognitions (notably Brian Kernighan's popcount → ARM NEON `cnt.16b`).
-# Net across the current bench cases:
+# Per-build cost is minimized by **precompiling the runtime once** into
+# `target/aot-cache/libtorart.a`. The archive contains:
+#   - wabt's wasm-rt-impl.o + wasm-rt-mem-impl.o (the WASI sandbox runtime)
+#   - our bench/aot-host/main.o (the host glue: fd_write impl + main())
+# These are identical for every program we compile, so amortizing them saves
+# ~120 ms per build on this hardware. Per-build only compiles the user's
+# wasm2c-generated tora.c + links against the cached archive.
 #
-#   workload     run_ms with PGO    run_ms without PGO    delta
-#   fib40        ~160               ~165                  +5  (PGO win)
-#   gcd1m        ~40                ~40                    0
-#   mandelbrot   ~35                ~35                    0
-#   popcount     ~5.6               ~2.8                  -2.8 (PGO loss, 2x)
-#   startup      ~1.3               ~1.3                   0
+# Cache invalidation: bump (or rm) the cache directory whenever wabt is
+# updated, clang is updated, or `bench/aot-host/main.c` changes. We check
+# none of these automatically — keep it simple, document the rule.
 #
-# popcount's 50% regression outweighs fib40's 3% gain, so the net effect of
-# PGO across the bench is negative on this hardware. The right principle is
-# perf-priority (run_ms first); if a single optimization regresses ANY case
-# substantially, it doesn't belong in the default pipeline.
-#
-# We may add an opt-in per-case PGO knob later (`bench.toml: pgo = true`),
-# but the default stays clang -O3 only.
+# We do NOT do PGO. See the comment block in this script's git history;
+# PGO regressed popcount 2× because clang's loop-idiom recognition for
+# Brian Kernighan's popcount → ARM `cnt.16b` got disabled by PGO's branch
+# data. fib40's modest PGO gain didn't justify popcount's loss.
 #
 # Exits 3 (not-yet-implemented) when tr's AOT pass refuses the program shape.
 
@@ -42,6 +39,39 @@ if [ ! -d "$WABT_DIR" ]; then
     exit 1
 fi
 
+CACHE_DIR="$WORKSPACE/target/aot-cache"
+LIBTORART="$CACHE_DIR/libtorart.a"
+
+# Build the runtime archive once.  Uses a tiny sentinel program to extract
+# the canonical tora.h that wasm2c always emits for our (fixed) wasm shape:
+# imports `wasi_snapshot_preview1.fd_write`, exports `memory` + `_start`.
+# main.c's struct-layout assumptions about `w2c_tora` are baked into main.o
+# at this point; subsequent user programs that fit the same shape link
+# against it and get matching offsets.
+if [ ! -f "$LIBTORART" ]; then
+    mkdir -p "$CACHE_DIR"
+    SENTINEL_TS="$CACHE_DIR/sentinel.tora.ts"
+    echo 'console.log("x")' > "$SENTINEL_TS"
+    "$WORKSPACE/target/release/tr" build "$SENTINEL_TS" -o "$CACHE_DIR/sentinel.wasm"
+    wasm2c --module-name=tora "$CACHE_DIR/sentinel.wasm" -o "$CACHE_DIR/tora.c"
+
+    clang -O3 -c -I"$CACHE_DIR" -I"$WABT_DIR" -I"$WABT_INC" \
+        "$WORKSPACE/bench/aot-host/main.c" -o "$CACHE_DIR/main.o"
+    clang -O3 -c -I"$WABT_DIR" -I"$WABT_INC" \
+        "$WABT_DIR/wasm-rt-impl.c" -o "$CACHE_DIR/wasm-rt-impl.o"
+    clang -O3 -c -I"$WABT_DIR" -I"$WABT_INC" \
+        "$WABT_DIR/wasm-rt-mem-impl.c" -o "$CACHE_DIR/wasm-rt-mem-impl.o"
+
+    ar rcs "$LIBTORART" \
+        "$CACHE_DIR/main.o" \
+        "$CACHE_DIR/wasm-rt-impl.o" \
+        "$CACHE_DIR/wasm-rt-mem-impl.o"
+    rm "$CACHE_DIR/main.o" "$CACHE_DIR/wasm-rt-impl.o" \
+       "$CACHE_DIR/wasm-rt-mem-impl.o" \
+       "$CACHE_DIR/sentinel.wasm" "$CACHE_DIR/tora.c" \
+       "$CACHE_DIR/tora.h" "$SENTINEL_TS"
+fi
+
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
@@ -57,11 +87,8 @@ fi
 # 2. wasm2c with a fixed module name so the generated symbols match main.c.
 wasm2c --module-name=tora "$WASM" -o "$TMP/tora.c"
 
-# 3. clang -O3 — single pass. wasm-rt-impl + tora.c + our main.c → native.
-clang -O3 \
-    -I"$TMP" -I"$WABT_DIR" -I"$WABT_INC" \
-    "$TMP/tora.c" \
-    "$WORKSPACE/bench/aot-host/main.c" \
-    "$WABT_DIR/wasm-rt-impl.c" \
-    "$WABT_DIR/wasm-rt-mem-impl.c" \
+# 3. clang -O3: compile only the user's tora.c, link against the precompiled
+#    archive (main.o + wasm-rt + wasm-rt-mem).
+clang -O3 -I"$TMP" -I"$WABT_DIR" -I"$WABT_INC" \
+    "$TMP/tora.c" "$LIBTORART" \
     -o "$OUT"
