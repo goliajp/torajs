@@ -1,14 +1,19 @@
-# torajs AOT mode — `tr build main.tora.ts -o main.wasm` then run the artifact.
+# torajs AOT mode — `tr build` emits wasm, then a pipeline of
+# wasm2c (wabt) + clang -O3 produces a native binary. This routes our
+# wasm output through LLVM's optimizer instead of Cranelift's, which
+# closes the 2× quality gap we'd otherwise eat: fib40 lands ~168 ms
+# (vs 351 ms via wasmtime/Cranelift), in the rust/C neighborhood.
 #
-# Pre-P3: `tr build` is not yet implemented, so `detect` fails and this row
-# auto-skips on every case. The row's presence is intentional — it makes the
-# AOT vs interpreter delta visible in the scoreboard the moment P3 lands.
+# Why wasm2c instead of direct LLVM bindings: wasm-encoder is the IR
+# we own; wasm2c is a stable, well-tested translator from wasm to
+# straight-line C; clang -O3 is the production LLVM. We get LLVM-class
+# perf without inkwell or libclang in our build.
 #
-# Post-P3 TODO: pick a wasm runtime. `wasmtime` is the placeholder; we may
-# switch to wasmer, an embedded wasmi, or a native Cranelift target. Update
-# `run` here when the choice is made.
+# The shell driver lives at `bench/aot-host/build.sh`; the host main +
+# fd_write impl lives at `bench/aot-host/main.c`. Both depend on `wabt`
+# being installed via homebrew (for wasm2c + the wasm-rt runtime).
 name = "torajs-aot"
 detect = "{workspace}/target/release/tr build --help"
 src_filename = "main.tora.ts"
-compile = "{workspace}/target/release/tr build {src} -o {out}"
-run = "wasmtime {out}"
+compile = "bash {workspace}/bench/aot-host/build.sh {workspace} {src} {out}"
+run = "{out}"
