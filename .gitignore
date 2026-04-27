@@ -2,6 +2,11 @@ target/
 node_modules/
 *.swp
 .DS_Store
+
+# .claude/ is per-developer (synced via `devops dotclaude sync torajs`),
+# never committed.  Per CLAUDE.md: dotclaude policy for sibling projects.
+.claude/
+
 # Ad-hoc binaries from go run / probe scripts in repo root
 /main
 /mandel_split2
