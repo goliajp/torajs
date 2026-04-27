@@ -83,17 +83,36 @@ pub fn build(ast: &Ast, out_path: &Path) -> Result<(), BuildError> {
     Ok(())
 }
 
+/// Module-wide numeric mode. Set once during `Compiler::new` by walking the
+/// AST: if no division and no fractional number literals appear anywhere,
+/// every `number` lowers as `i64` (faster integer pipeline + no f64→i64
+/// truncation at print). Otherwise we keep `f64` (correct JS semantics).
+///
+/// This is the cheap-and-correct version of type narrowing — the static
+/// type system says `number = f64`, but when the AST proves the program
+/// only does integer-preserving arithmetic, the wasm path can stay in i64.
+/// fib40 trips into i64 mode; anything with `/` or `1.5` stays in f64.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum NumericMode {
+    F64,
+    I64,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum WasmTy {
     F64,
+    I64,
     I32,
     Void,
 }
 
 impl WasmTy {
-    fn from_ann(ann: &str) -> Option<WasmTy> {
+    fn from_ann(ann: &str, mode: NumericMode) -> Option<WasmTy> {
         match ann {
-            "number" => Some(WasmTy::F64),
+            "number" => Some(match mode {
+                NumericMode::F64 => WasmTy::F64,
+                NumericMode::I64 => WasmTy::I64,
+            }),
             "boolean" => Some(WasmTy::I32),
             "void" => Some(WasmTy::Void),
             _ => None,
@@ -103,6 +122,7 @@ impl WasmTy {
     fn val_type(self) -> Option<ValType> {
         match self {
             WasmTy::F64 => Some(ValType::F64),
+            WasmTy::I64 => Some(ValType::I64),
             WasmTy::I32 => Some(ValType::I32),
             WasmTy::Void => None,
         }
@@ -131,10 +151,13 @@ struct Compiler<'a> {
     user_fns: HashMap<String, UserFn>,
     /// Order in which user fns were declared (so we emit code in matching order).
     user_fn_order: Vec<String>,
+    /// Resolved at construction by walking the AST.
+    numeric_mode: NumericMode,
 }
 
 impl<'a> Compiler<'a> {
     fn new(ast: &'a Ast) -> Self {
+        let numeric_mode = detect_numeric_mode(ast);
         Self {
             ast,
             module: Module::new(),
@@ -142,6 +165,7 @@ impl<'a> Compiler<'a> {
             static_cursor: MEM_STATIC_START,
             user_fns: HashMap::new(),
             user_fn_order: Vec::new(),
+            numeric_mode,
         }
     }
 
@@ -163,7 +187,7 @@ impl<'a> Compiler<'a> {
                             p.name
                         ))
                     })?;
-                    let ty = WasmTy::from_ann(ann).ok_or_else(|| {
+                    let ty = WasmTy::from_ann(ann, self.numeric_mode).ok_or_else(|| {
                         BuildError::NotYetImplemented(format!(
                             "fn `{name}` param `{}` has type `{ann}` — AOT only supports number/boolean/void today",
                             p.name
@@ -179,7 +203,7 @@ impl<'a> Compiler<'a> {
                 }
                 let ret = match return_type {
                     None => WasmTy::Void,
-                    Some(ann) => WasmTy::from_ann(ann).ok_or_else(|| {
+                    Some(ann) => WasmTy::from_ann(ann, self.numeric_mode).ok_or_else(|| {
                         BuildError::NotYetImplemented(format!(
                             "fn `{name}` return type `{ann}` — AOT only supports number/boolean/void today"
                         ))
@@ -211,7 +235,11 @@ impl<'a> Compiler<'a> {
             [ValType::I32],
         );
         types.ty().function([], []);
-        types.ty().function([ValType::F64], []);
+        let print_param = match self.numeric_mode {
+            NumericMode::F64 => ValType::F64,
+            NumericMode::I64 => ValType::I64,
+        };
+        types.ty().function([print_param], []);
         types.ty().function([ValType::I32, ValType::I32], []);
         for name in &self.user_fn_order {
             let f = &self.user_fns[name];
@@ -264,7 +292,7 @@ impl<'a> Compiler<'a> {
 
         // .code — print_i64, print_static, user fns, _start
         let mut code = CodeSection::new();
-        code.function(&emit_print_i64());
+        code.function(&emit_print_i64(self.numeric_mode));
         code.function(&emit_print_static());
         for name in &self.user_fn_order.clone() {
             let f = self.compile_user_fn(name)?;
@@ -469,10 +497,16 @@ impl FnBuilder {
 
     fn lower_expr(&mut self, c: &mut Compiler, eid: ExprId) -> Result<WasmTy, BuildError> {
         match c.ast.get_expr(eid) {
-            Expr::Number(n) => {
-                self.function.instructions().f64_const((*n).into());
-                Ok(WasmTy::F64)
-            }
+            Expr::Number(n) => match c.numeric_mode {
+                NumericMode::F64 => {
+                    self.function.instructions().f64_const((*n).into());
+                    Ok(WasmTy::F64)
+                }
+                NumericMode::I64 => {
+                    self.function.instructions().i64_const(*n as i64);
+                    Ok(WasmTy::I64)
+                }
+            },
             Expr::Bool(b) => {
                 self.function
                     .instructions()
@@ -496,53 +530,92 @@ impl FnBuilder {
                         "binop type mismatch slipped past check: {lt:?} vs {rt:?}"
                     )));
                 }
+                let mut s = self.function.instructions();
                 match (lt, op) {
+                    // f64 arithmetic + comparison
                     (WasmTy::F64, BinOp::Add) => {
-                        self.function.instructions().f64_add();
+                        s.f64_add();
                         Ok(WasmTy::F64)
                     }
                     (WasmTy::F64, BinOp::Sub) => {
-                        self.function.instructions().f64_sub();
+                        s.f64_sub();
                         Ok(WasmTy::F64)
                     }
                     (WasmTy::F64, BinOp::Mul) => {
-                        self.function.instructions().f64_mul();
+                        s.f64_mul();
                         Ok(WasmTy::F64)
                     }
                     (WasmTy::F64, BinOp::Div) => {
-                        self.function.instructions().f64_div();
+                        s.f64_div();
                         Ok(WasmTy::F64)
                     }
                     (WasmTy::F64, BinOp::Lt) => {
-                        self.function.instructions().f64_lt();
+                        s.f64_lt();
                         Ok(WasmTy::I32)
                     }
                     (WasmTy::F64, BinOp::Gt) => {
-                        self.function.instructions().f64_gt();
+                        s.f64_gt();
                         Ok(WasmTy::I32)
                     }
                     (WasmTy::F64, BinOp::Le) => {
-                        self.function.instructions().f64_le();
+                        s.f64_le();
                         Ok(WasmTy::I32)
                     }
                     (WasmTy::F64, BinOp::Ge) => {
-                        self.function.instructions().f64_ge();
+                        s.f64_ge();
                         Ok(WasmTy::I32)
                     }
                     (WasmTy::F64, BinOp::Eq) => {
-                        self.function.instructions().f64_eq();
+                        s.f64_eq();
                         Ok(WasmTy::I32)
                     }
                     (WasmTy::F64, BinOp::Neq) => {
-                        self.function.instructions().f64_ne();
+                        s.f64_ne();
+                        Ok(WasmTy::I32)
+                    }
+                    // i64 arithmetic + comparison (type-narrowed integer mode)
+                    (WasmTy::I64, BinOp::Add) => {
+                        s.i64_add();
+                        Ok(WasmTy::I64)
+                    }
+                    (WasmTy::I64, BinOp::Sub) => {
+                        s.i64_sub();
+                        Ok(WasmTy::I64)
+                    }
+                    (WasmTy::I64, BinOp::Mul) => {
+                        s.i64_mul();
+                        Ok(WasmTy::I64)
+                    }
+                    (WasmTy::I64, BinOp::Lt) => {
+                        s.i64_lt_s();
+                        Ok(WasmTy::I32)
+                    }
+                    (WasmTy::I64, BinOp::Gt) => {
+                        s.i64_gt_s();
+                        Ok(WasmTy::I32)
+                    }
+                    (WasmTy::I64, BinOp::Le) => {
+                        s.i64_le_s();
+                        Ok(WasmTy::I32)
+                    }
+                    (WasmTy::I64, BinOp::Ge) => {
+                        s.i64_ge_s();
+                        Ok(WasmTy::I32)
+                    }
+                    (WasmTy::I64, BinOp::Eq) => {
+                        s.i64_eq();
+                        Ok(WasmTy::I32)
+                    }
+                    (WasmTy::I64, BinOp::Neq) => {
+                        s.i64_ne();
                         Ok(WasmTy::I32)
                     }
                     (WasmTy::I32, BinOp::Eq) => {
-                        self.function.instructions().i32_eq();
+                        s.i32_eq();
                         Ok(WasmTy::I32)
                     }
                     (WasmTy::I32, BinOp::Neq) => {
-                        self.function.instructions().i32_ne();
+                        s.i32_ne();
                         Ok(WasmTy::I32)
                     }
                     (other, op) => Err(BuildError::NotYetImplemented(format!(
@@ -603,7 +676,7 @@ impl FnBuilder {
             // Otherwise lower the expression and dispatch on its wasm type.
             let arg_ty = self.lower_expr(c, args[0])?;
             match arg_ty {
-                WasmTy::F64 => {
+                WasmTy::F64 | WasmTy::I64 => {
                     self.function.instructions().call(FN_PRINT_I64);
                     Ok(WasmTy::Void)
                 }
@@ -662,19 +735,70 @@ impl Clone for UserFn {
     }
 }
 
-/// Helper `(func $print_i64 (param $n f64))`. Truncates to i64 (saturating)
-/// and writes ASCII decimal digits + newline to fd 1 via fd_write.
-fn emit_print_i64() -> Function {
-    let locals = vec![
-        (1, ValType::I64), // $i — the integer being formatted
-        (1, ValType::I32), // $p — current write pointer
-        (1, ValType::I32), // $digit — temp
-    ];
+/// Walk the AST and decide whether the whole module can be lowered with
+/// `number = i64`. Returns `I64` only if there is no `/` operator and every
+/// numeric literal is integer-valued (and finite). Otherwise `F64`.
+fn detect_numeric_mode(ast: &Ast) -> NumericMode {
+    fn pure_stmt(ast: &Ast, s: &Stmt) -> bool {
+        match s {
+            Stmt::Expr(e) => pure_expr(ast, *e),
+            Stmt::Return(maybe) => maybe.map_or(true, |e| pure_expr(ast, e)),
+            Stmt::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
+                pure_expr(ast, *cond)
+                    && pure_stmt(ast, then_branch)
+                    && else_branch.as_ref().is_none_or(|b| pure_stmt(ast, b))
+            }
+            Stmt::While { cond, body } => pure_expr(ast, *cond) && pure_stmt(ast, body),
+            Stmt::Block(ss) => ss.iter().all(|s| pure_stmt(ast, s)),
+            Stmt::FnDecl { body, .. } => body.iter().all(|s| pure_stmt(ast, s)),
+            Stmt::LetDecl { init, .. } => pure_expr(ast, *init),
+        }
+    }
+    fn pure_expr(ast: &Ast, eid: ExprId) -> bool {
+        match ast.get_expr(eid) {
+            Expr::Number(n) => n.is_finite() && n.fract() == 0.0,
+            Expr::Bool(_) | Expr::Ident(_) | Expr::String(_) => true,
+            Expr::BinOp { op, left, right } => {
+                !matches!(op, BinOp::Div) && pure_expr(ast, *left) && pure_expr(ast, *right)
+            }
+            Expr::Call { callee, args } => {
+                pure_expr(ast, *callee) && args.iter().all(|a| pure_expr(ast, *a))
+            }
+            Expr::Member { obj, .. } => pure_expr(ast, *obj),
+            Expr::Assign { value, .. } => pure_expr(ast, *value),
+            Expr::Index { obj, index } => pure_expr(ast, *obj) && pure_expr(ast, *index),
+            Expr::Array(els) => els.iter().all(|e| pure_expr(ast, *e)),
+            Expr::ArrowFn { body, .. } => body.iter().all(|s| pure_stmt(ast, s)),
+        }
+    }
+    if ast.stmts.iter().all(|s| pure_stmt(ast, s)) {
+        NumericMode::I64
+    } else {
+        NumericMode::F64
+    }
+}
+
+/// Helper `(func $print_i64 (param $n <f64|i64>))`.
+///
+/// In F64 mode: param is f64, truncated (saturating) to i64 first.
+/// In I64 mode: param is i64 directly — the trunc step is skipped.
+/// Then writes ASCII decimal digits + newline to fd 1 via fd_write.
+fn emit_print_i64(mode: NumericMode) -> Function {
+    let mut locals = Vec::new();
+    // In I64 mode the param is already i64, so $i isn't a separate slot —
+    // we still keep one for symmetry (and to avoid renumbering everything).
+    locals.push((1, ValType::I64)); // $i
+    locals.push((1, ValType::I32)); // $p
+    locals.push((1, ValType::I32)); // $digit
     let mut f = Function::new(locals);
-    let n_param: u32 = 0; // f64
-    let i_local: u32 = 1; // i64
-    let p_local: u32 = 2; // i32
-    let d_local: u32 = 3; // i32
+    let n_param: u32 = 0;
+    let i_local: u32 = 1;
+    let p_local: u32 = 2;
+    let d_local: u32 = 3;
     let mut s = f.instructions();
 
     // newline at byte 39
@@ -686,9 +810,11 @@ fn emit_print_i64() -> Function {
         memory_index: 0,
     });
 
-    // i = trunc_sat_f64_s(n)
+    // i = (mode==f64 ? trunc_sat_f64_s(n) : n)
     s.local_get(n_param);
-    s.i64_trunc_sat_f64_s();
+    if matches!(mode, NumericMode::F64) {
+        s.i64_trunc_sat_f64_s();
+    }
     s.local_set(i_local);
 
     // p = 38 (write digits backward starting here)
