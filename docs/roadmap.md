@@ -409,6 +409,9 @@ The interpreter still works for dev, but now we add a parallel backend that emit
 
 ### P3.2 — Number arithmetic in wasm
 
+**Status (2026-04-28): ✓ done as part of P3.3 push.** Number BinOps lower to `f64.add/sub/mul/div`, comparisons to `f64.lt/gt/le/ge` producing i32 booleans, strict equality to `f64.eq/ne`. `console.log(<number-expr>)` routes through a baked-in `print_i64` helper (truncates to i64 sat, formats decimal digits, fd_writes via WASI).
+
+
 **Demo**: `tr build` of `console.log(1 + 2)` emits wasm that prints `3`.
 
 **Adds**: lower IR arithmetic ops to wasm `i64.add` / `f64.add` / etc. based on type info attached to IR
@@ -416,6 +419,9 @@ The interpreter still works for dev, but now we add a parallel backend that emit
 **Size**: ~150 LOC
 
 ### P3.3 — Functions and locals in wasm
+
+**Status (2026-04-28): ✓ done.** Top-level FnDecls become wasm functions with type-specialized signatures (number → f64, boolean → i32). `if`/`return`/recursion lower to structured wasm. fib40 AOT lands at ~500 ms — ~3× rust-native, ahead of node/python, in V8's neighborhood. `let`/`const` inside fn bodies are deferred (a follow-up adds them; current path uses fn params as the only locals).
+
 
 **Adds**: each torajs function becomes a wasm function; wasm locals; wasm calling convention
 
