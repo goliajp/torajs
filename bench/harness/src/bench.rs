@@ -95,11 +95,18 @@ pub fn run_one(
 
     if let Some(compile_template) = &runner.compile {
         let compile_cmd = ctx.substitute(compile_template);
-        match exec_capture_status(&compile_cmd) {
+        // Per-case env overrides for the compile step (e.g. clang flags
+        // tuned per case). Empty vec for runners/cases without overrides.
+        let compile_env: Vec<(String, String)> = case
+            .aot_clang_flags
+            .as_ref()
+            .filter(|_| runner.name == "torajs-aot")
+            .map(|f| vec![("TORAJS_AOT_CLANG_FLAGS".to_string(), f.clone())])
+            .unwrap_or_default();
+
+        match exec_capture_status(&compile_cmd, &compile_env) {
             Ok(()) => {}
             Err(CompileError::NotYetImplemented(stderr)) => {
-                // Runner exists but doesn't support this case yet (e.g. tr's
-                // AOT pass during P3.x ramp). Treat as skip, not fail.
                 outcome.status = Status::Skipped;
                 outcome.error = Some(stderr);
                 return Ok(outcome);
@@ -110,7 +117,12 @@ pub fn run_one(
                 return Ok(outcome);
             }
         }
-        match hyperfine_one(&compile_cmd, case.compile_warmup, case.compile_runs) {
+        match hyperfine_one(
+            &compile_cmd,
+            case.compile_warmup,
+            case.compile_runs,
+            &compile_env,
+        ) {
             Ok(stats) => outcome.compile_ms = Some(stats.median_ms),
             Err(e) => {
                 outcome.status = Status::Failed;
@@ -142,7 +154,7 @@ pub fn run_one(
         return Ok(outcome);
     }
 
-    match hyperfine_one(&run_cmd, case.run_warmup, case.run_runs) {
+    match hyperfine_one(&run_cmd, case.run_warmup, case.run_runs, &[]) {
         Ok(stats) => {
             outcome.run_ms = Some(stats.median_ms);
             outcome.run_stddev_ms = Some(stats.stddev_ms);
@@ -168,12 +180,20 @@ enum CompileError {
     Real(String),
 }
 
-fn exec_capture_status(cmd: &str) -> std::result::Result<(), CompileError> {
+fn exec_capture_status(
+    cmd: &str,
+    env: &[(String, String)],
+) -> std::result::Result<(), CompileError> {
     let parts = split_cmd(cmd);
     if parts.is_empty() {
         return Err(CompileError::Real("empty command".into()));
     }
-    let output = match Command::new(&parts[0]).args(&parts[1..]).output() {
+    let mut command = Command::new(&parts[0]);
+    command.args(&parts[1..]);
+    for (k, v) in env {
+        command.env(k, v);
+    }
+    let output = match command.output() {
         Ok(o) => o,
         Err(e) => return Err(CompileError::Real(format!("spawning `{cmd}`: {e}"))),
     };
@@ -225,14 +245,14 @@ struct HyperfineRun {
     stddev: f64, // seconds
 }
 
-fn hyperfine_one(cmd: &str, warmup: u32, runs: u32) -> Result<Stats> {
+fn hyperfine_one(cmd: &str, warmup: u32, runs: u32, env: &[(String, String)]) -> Result<Stats> {
     let tmp = std::env::temp_dir().join(format!(
         "hyperfine-{}-{}.json",
         std::process::id(),
         rand_suffix()
     ));
-    let status = Command::new("hyperfine")
-        .arg("--warmup")
+    let mut hf = Command::new("hyperfine");
+    hf.arg("--warmup")
         .arg(warmup.to_string())
         .arg("--runs")
         .arg(runs.to_string())
@@ -242,9 +262,11 @@ fn hyperfine_one(cmd: &str, warmup: u32, runs: u32) -> Result<Stats> {
         .arg("none")
         .arg("--shell=none")
         .arg("--")
-        .arg(cmd)
-        .status()
-        .context("spawning hyperfine")?;
+        .arg(cmd);
+    for (k, v) in env {
+        hf.env(k, v);
+    }
+    let status = hf.status().context("spawning hyperfine")?;
     anyhow::ensure!(status.success(), "hyperfine exited {status}");
     let text =
         std::fs::read_to_string(&tmp).with_context(|| format!("reading {}", tmp.display()))?;

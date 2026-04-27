@@ -87,8 +87,16 @@ fi
 # 2. wasm2c with a fixed module name so the generated symbols match main.c.
 wasm2c --module-name=tora "$WASM" -o "$TMP/tora.c"
 
-# 3. clang -O3: compile only the user's tora.c, link against the precompiled
+# 3. clang: compile only the user's tora.c, link against the precompiled
 #    archive (main.o + wasm-rt + wasm-rt-mem).
-clang -O3 -I"$TMP" -I"$WABT_DIR" -I"$WABT_INC" \
+#
+# Optimization level is per-case configurable via TORAJS_AOT_CLANG_FLAGS
+# (set by the bench harness from each case's `bench.toml: aot_clang_flags`).
+# Default is `-O3`. Empirically the optimal level is workload-dependent:
+#   fib40, startup        — `-O1`  (-O2/3's loop transforms hurt these)
+#   popcount              — `-O3`  (needs LLVM's loop-idiom → ARM `cnt.16b`)
+#   mandelbrot, gcd1m     — any   (within noise across -O1..-O3)
+CLANG_FLAGS="${TORAJS_AOT_CLANG_FLAGS:--O3}"
+clang $CLANG_FLAGS -I"$TMP" -I"$WABT_DIR" -I"$WABT_INC" \
     "$TMP/tora.c" "$LIBTORART" \
     -o "$OUT"
