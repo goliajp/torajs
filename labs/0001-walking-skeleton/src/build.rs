@@ -742,7 +742,7 @@ fn detect_numeric_mode(ast: &Ast) -> NumericMode {
     fn pure_stmt(ast: &Ast, s: &Stmt) -> bool {
         match s {
             Stmt::Expr(e) => pure_expr(ast, *e),
-            Stmt::Return(maybe) => maybe.map_or(true, |e| pure_expr(ast, e)),
+            Stmt::Return(maybe) => maybe.is_none_or(|e| pure_expr(ast, e)),
             Stmt::If {
                 cond,
                 then_branch,
@@ -788,12 +788,13 @@ fn detect_numeric_mode(ast: &Ast) -> NumericMode {
 /// In I64 mode: param is i64 directly — the trunc step is skipped.
 /// Then writes ASCII decimal digits + newline to fd 1 via fd_write.
 fn emit_print_i64(mode: NumericMode) -> Function {
-    let mut locals = Vec::new();
     // In I64 mode the param is already i64, so $i isn't a separate slot —
     // we still keep one for symmetry (and to avoid renumbering everything).
-    locals.push((1, ValType::I64)); // $i
-    locals.push((1, ValType::I32)); // $p
-    locals.push((1, ValType::I32)); // $digit
+    let locals = vec![
+        (1, ValType::I64), // $i
+        (1, ValType::I32), // $p
+        (1, ValType::I32), // $digit
+    ];
     let mut f = Function::new(locals);
     let n_param: u32 = 0;
     let i_local: u32 = 1;
