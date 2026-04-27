@@ -97,6 +97,11 @@ pub fn execute(module: &IrModule) -> Result<(), String> {
             Op::Mul => binop(&mut stack, |a, b| a * b)?,
             Op::Div => binop(&mut stack, |a, b| a / b)?,
             Op::Mod => binop(&mut stack, |a, b| a % b)?,
+            Op::BitAnd => bitop(&mut stack, |a, b| (a & b) as f64)?,
+            Op::BitOr => bitop(&mut stack, |a, b| (a | b) as f64)?,
+            Op::BitXor => bitop(&mut stack, |a, b| (a ^ b) as f64)?,
+            Op::Shl => bitop(&mut stack, |a, b| (a.wrapping_shl((b & 63) as u32)) as f64)?,
+            Op::Shr => bitop(&mut stack, |a, b| (a.wrapping_shr((b & 63) as u32)) as f64)?,
             Op::Lt => cmp_num(&mut stack, |a, b| a < b)?,
             Op::Gt => cmp_num(&mut stack, |a, b| a > b)?,
             Op::Le => cmp_num(&mut stack, |a, b| a <= b)?,
@@ -194,6 +199,21 @@ fn binop(stack: &mut Vec<Value>, f: impl FnOnce(f64, f64) -> f64) -> Result<(), 
         return Err("arithmetic on non-number value".into());
     };
     stack.push(Value::Number(f(l, r)));
+    Ok(())
+}
+
+/// Bitwise op: cast both number-typed values to i64 (matching the AOT's i64
+/// representation), apply the bit op, return as f64. JS would normally cast
+/// to i32 first; we go i64 to match our wasm i64-narrowed AOT path. For
+/// values inside [-2^53, 2^53] the result is identical between i32-cast and
+/// i64-cast for `&|^` (mod 2^64).
+fn bitop(stack: &mut Vec<Value>, f: impl FnOnce(i64, i64) -> f64) -> Result<(), String> {
+    let r = stack.pop().ok_or("stack underflow popping rhs")?;
+    let l = stack.pop().ok_or("stack underflow popping lhs")?;
+    let (Value::Number(l), Value::Number(r)) = (l, r) else {
+        return Err("bitwise on non-number value".into());
+    };
+    stack.push(Value::Number(f(l as i64, r as i64)));
     Ok(())
 }
 

@@ -388,6 +388,15 @@ impl Checker {
                             ))
                         }
                     }
+                    BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor | BinOp::Shl | BinOp::Shr => {
+                        if l == Type::Number && r == Type::Number {
+                            Ok(Type::Number)
+                        } else {
+                            Err(format!(
+                                "bitwise op requires number operands, got {l:?} and {r:?}"
+                            ))
+                        }
+                    }
                     BinOp::Lt | BinOp::Gt | BinOp::Le | BinOp::Ge => {
                         if l == Type::Number && r == Type::Number {
                             Ok(Type::Boolean)

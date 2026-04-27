@@ -11,11 +11,15 @@
 //! param    := IDENT (`:` IDENT)?
 //! return   := `return` expr? `;`?
 //! expr     := assign
-//! assign   := equality (`=` assign)?               (* right-associative *)
+//! assign   := bit_or (`=` assign)?                 (* right-associative *)
+//! bit_or   := bit_xor (`|` bit_xor)*
+//! bit_xor  := bit_and (`^` bit_and)*
+//! bit_and  := equality (`&` equality)*
 //! equality := comparison ((`===` | `!==`) comparison)*
-//! comparison := additive ((`<`|`>`|`<=`|`>=`) additive)*
+//! comparison := shift ((`<`|`>`|`<=`|`>=`) shift)*
+//! shift    := additive ((`<<`|`>>`) additive)*
 //! additive := mul (( `+` | `-` ) mul)*
-//! mul      := postfix (( `*` | `/` ) postfix)*
+//! mul      := postfix (( `*` | `/` | `%` ) postfix)*
 //! postfix  := primary ( `.` ident | `(` args `)` | `[` expr `]` )*
 //! args     := (expr (`,` expr)*)?
 //! primary  := ident | string | number | `true` | `false` | arrow_fn | array_lit
@@ -320,13 +324,55 @@ impl Parser<'_> {
     }
 
     fn parse_assign(&mut self) -> Result<ExprId, String> {
-        let target = self.parse_equality()?;
+        let target = self.parse_bit_or()?;
         if matches!(self.peek(), Token::Eq) {
             self.pos += 1;
             let value = self.parse_assign()?; // right-associative
             return Ok(self.ast.add_expr(Expr::Assign { target, value }));
         }
         Ok(target)
+    }
+
+    fn parse_bit_or(&mut self) -> Result<ExprId, String> {
+        let mut left = self.parse_bit_xor()?;
+        while matches!(self.peek(), Token::Pipe) {
+            self.pos += 1;
+            let right = self.parse_bit_xor()?;
+            left = self.ast.add_expr(Expr::BinOp {
+                op: BinOp::BitOr,
+                left,
+                right,
+            });
+        }
+        Ok(left)
+    }
+
+    fn parse_bit_xor(&mut self) -> Result<ExprId, String> {
+        let mut left = self.parse_bit_and()?;
+        while matches!(self.peek(), Token::Caret) {
+            self.pos += 1;
+            let right = self.parse_bit_and()?;
+            left = self.ast.add_expr(Expr::BinOp {
+                op: BinOp::BitXor,
+                left,
+                right,
+            });
+        }
+        Ok(left)
+    }
+
+    fn parse_bit_and(&mut self) -> Result<ExprId, String> {
+        let mut left = self.parse_equality()?;
+        while matches!(self.peek(), Token::Amp) {
+            self.pos += 1;
+            let right = self.parse_equality()?;
+            left = self.ast.add_expr(Expr::BinOp {
+                op: BinOp::BitAnd,
+                left,
+                right,
+            });
+        }
+        Ok(left)
     }
 
     fn parse_equality(&mut self) -> Result<ExprId, String> {
@@ -344,13 +390,27 @@ impl Parser<'_> {
     }
 
     fn parse_comparison(&mut self) -> Result<ExprId, String> {
-        let mut left = self.parse_additive()?;
+        let mut left = self.parse_shift()?;
         loop {
             let op = match self.peek() {
                 Token::Lt => BinOp::Lt,
                 Token::Gt => BinOp::Gt,
                 Token::LtEq => BinOp::Le,
                 Token::GtEq => BinOp::Ge,
+                _ => return Ok(left),
+            };
+            self.pos += 1;
+            let right = self.parse_shift()?;
+            left = self.ast.add_expr(Expr::BinOp { op, left, right });
+        }
+    }
+
+    fn parse_shift(&mut self) -> Result<ExprId, String> {
+        let mut left = self.parse_additive()?;
+        loop {
+            let op = match self.peek() {
+                Token::ShlShl => BinOp::Shl,
+                Token::ShrShr => BinOp::Shr,
                 _ => return Ok(left),
             };
             self.pos += 1;
@@ -438,7 +498,24 @@ impl Parser<'_> {
 
     fn parse_primary(&mut self) -> Result<ExprId, String> {
         if matches!(self.peek(), Token::LParen) {
-            return self.parse_arrow_fn();
+            // `(` could start either a parenthesized expression `(e)` or an
+            // arrow fn `(params) =>`. Disambiguate by scanning forward to the
+            // matching `)` and peeking for `=>`.
+            if self.is_arrow_fn_at_lparen() {
+                return self.parse_arrow_fn();
+            }
+            self.pos += 1; // consume `(`
+            let e = self.parse_expr()?;
+            match self.peek() {
+                Token::RParen => self.pos += 1,
+                t => {
+                    return Err(format!(
+                        "expected `)` after parenthesized expression, got {t:?} at {}",
+                        self.at()
+                    ));
+                }
+            }
+            return Ok(e);
         }
         if matches!(self.peek(), Token::LBracket) {
             return self.parse_array_literal();
@@ -473,6 +550,33 @@ impl Parser<'_> {
                 self.tokens[pos].span.start
             )),
         }
+    }
+
+    /// Lookahead: from a `(` at `self.pos`, find the matching `)` and peek
+    /// for `=>` to decide arrow-fn vs parenthesized expression. Handles
+    /// nested parens correctly.
+    fn is_arrow_fn_at_lparen(&self) -> bool {
+        debug_assert!(matches!(self.peek(), Token::LParen));
+        let mut depth: i32 = 1;
+        let mut i = self.pos + 1;
+        while i < self.tokens.len() {
+            match &self.tokens[i].token {
+                Token::LParen => depth += 1,
+                Token::RParen => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return matches!(
+                            self.tokens.get(i + 1).map(|s| &s.token),
+                            Some(Token::FatArrow)
+                        );
+                    }
+                }
+                Token::Eof => return false,
+                _ => {}
+            }
+            i += 1;
+        }
+        false
     }
 
     fn parse_array_literal(&mut self) -> Result<ExprId, String> {

@@ -31,6 +31,11 @@ pub enum Token {
     Star,
     Slash,
     Percent,
+    Amp,
+    Pipe,
+    Caret,
+    ShlShl,
+    ShrShr,
     Eq,
     EqEqEq,
     BangEqEq,
@@ -83,11 +88,17 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
             b'*' => emit(&mut out, Token::Star, start, advance(&mut i)),
             b'/' => emit(&mut out, Token::Slash, start, advance(&mut i)),
             b'%' => emit(&mut out, Token::Percent, start, advance(&mut i)),
+            b'&' => emit(&mut out, Token::Amp, start, advance(&mut i)),
+            b'|' => emit(&mut out, Token::Pipe, start, advance(&mut i)),
+            b'^' => emit(&mut out, Token::Caret, start, advance(&mut i)),
             b'<' => {
                 i += 1;
                 if peek(bytes, i) == Some(b'=') {
                     i += 1;
                     emit(&mut out, Token::LtEq, start, i);
+                } else if peek(bytes, i) == Some(b'<') {
+                    i += 1;
+                    emit(&mut out, Token::ShlShl, start, i);
                 } else {
                     emit(&mut out, Token::Lt, start, i);
                 }
@@ -97,6 +108,9 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                 if peek(bytes, i) == Some(b'=') {
                     i += 1;
                     emit(&mut out, Token::GtEq, start, i);
+                } else if peek(bytes, i) == Some(b'>') {
+                    i += 1;
+                    emit(&mut out, Token::ShrShr, start, i);
                 } else {
                     emit(&mut out, Token::Gt, start, i);
                 }

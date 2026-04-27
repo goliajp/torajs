@@ -480,7 +480,16 @@ impl<'a> Compiler<'a> {
             Expr::BinOp { op, left, .. } => {
                 let lt = self.infer_wasm_type(*left, params, lets)?;
                 match op {
-                    BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod => Ok(lt),
+                    BinOp::Add
+                    | BinOp::Sub
+                    | BinOp::Mul
+                    | BinOp::Div
+                    | BinOp::Mod
+                    | BinOp::BitAnd
+                    | BinOp::BitOr
+                    | BinOp::BitXor
+                    | BinOp::Shl
+                    | BinOp::Shr => Ok(lt),
                     BinOp::Lt | BinOp::Gt | BinOp::Le | BinOp::Ge | BinOp::Eq | BinOp::Neq => {
                         Ok(WasmTy::I32)
                     }
@@ -775,6 +784,11 @@ impl FnBuilder {
                         s.i64_rem_s();
                         Ok(WasmTy::I64)
                     }
+                    (WasmTy::I64, BinOp::BitAnd) => { s.i64_and(); Ok(WasmTy::I64) }
+                    (WasmTy::I64, BinOp::BitOr)  => { s.i64_or();  Ok(WasmTy::I64) }
+                    (WasmTy::I64, BinOp::BitXor) => { s.i64_xor(); Ok(WasmTy::I64) }
+                    (WasmTy::I64, BinOp::Shl)    => { s.i64_shl(); Ok(WasmTy::I64) }
+                    (WasmTy::I64, BinOp::Shr)    => { s.i64_shr_s(); Ok(WasmTy::I64) }
                     (WasmTy::I64, BinOp::Lt) => {
                         s.i64_lt_s();
                         Ok(WasmTy::I32)
@@ -974,6 +988,9 @@ fn detect_numeric_mode(ast: &Ast) -> NumericMode {
             Expr::Number(n) => n.is_finite() && n.fract() == 0.0,
             Expr::Bool(_) | Expr::Ident(_) | Expr::String(_) => true,
             Expr::BinOp { op, left, right } => {
+                // `/` keeps us in F64 mode (integer div would discard remainder
+                // — JS spec says number/number → number, never integer).
+                // Bit ops + `%` are integer-only and stay in I64 mode.
                 !matches!(op, BinOp::Div) && pure_expr(ast, *left) && pure_expr(ast, *right)
             }
             Expr::Call { callee, args } => {

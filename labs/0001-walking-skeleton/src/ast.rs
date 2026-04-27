@@ -16,6 +16,11 @@ pub enum BinOp {
     Ge,
     Eq,  // ===
     Neq, // !==
+    BitAnd,
+    BitOr,
+    BitXor,
+    Shl,
+    Shr, // signed; JS `>>`
 }
 
 #[derive(Debug, Clone)]

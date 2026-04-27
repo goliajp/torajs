@@ -322,6 +322,11 @@ impl<'a, 'b> FnLowering<'a, 'b> {
                     BinOp::Ge => Op::Ge,
                     BinOp::Eq => Op::Eq3,
                     BinOp::Neq => Op::Neq3,
+                    BinOp::BitAnd => Op::BitAnd,
+                    BinOp::BitOr => Op::BitOr,
+                    BinOp::BitXor => Op::BitXor,
+                    BinOp::Shl => Op::Shl,
+                    BinOp::Shr => Op::Shr,
                 });
             }
             Expr::Assign { target, value } => {
