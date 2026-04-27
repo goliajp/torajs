@@ -1,0 +1,161 @@
+{
+  "started_at": "2026-04-27T20:19:49Z",
+  "host": "mini.local",
+  "git_sha": "499a00c7b4af8de67b1e518eccbcbd05dadf6f65",
+  "rows": [
+    {
+      "case": "fib40",
+      "runtime": "bun",
+      "runtime_version": "1.3.13",
+      "status": "ok",
+      "compile_ms": null,
+      "run_ms": 382.306583,
+      "run_stddev_ms": 5.1155682140865375,
+      "stdout_match": true,
+      "error": null
+    },
+    {
+      "case": "fib40",
+      "runtime": "go",
+      "runtime_version": "go version go1.25.6 darwin/arm64",
+      "status": "ok",
+      "compile_ms": 37.500625,
+      "run_ms": 223.075916,
+      "run_stddev_ms": 2.5847309775990803,
+      "stdout_match": true,
+      "error": null
+    },
+    {
+      "case": "fib40",
+      "runtime": "node",
+      "runtime_version": "v25.9.0",
+      "status": "ok",
+      "compile_ms": null,
+      "run_ms": 629.7006670000001,
+      "run_stddev_ms": 17.738817444439192,
+      "stdout_match": true,
+      "error": null
+    },
+    {
+      "case": "fib40",
+      "runtime": "python",
+      "runtime_version": "Python 3.14.4",
+      "status": "ok",
+      "compile_ms": null,
+      "run_ms": 6454.619959000001,
+      "run_stddev_ms": 32.428295954266915,
+      "stdout_match": true,
+      "error": null
+    },
+    {
+      "case": "fib40",
+      "runtime": "rust",
+      "runtime_version": "rustc 1.95.0 (59807616e 2026-04-14)",
+      "status": "ok",
+      "compile_ms": 72.637958,
+      "run_ms": 175.037833,
+      "run_stddev_ms": 3.837682985225334,
+      "stdout_match": true,
+      "error": null
+    },
+    {
+      "case": "fib40",
+      "runtime": "torajs-aot",
+      "runtime_version": "tr build 0.1.0 (AOT to wasm — P3.1 stub)",
+      "status": "ok",
+      "compile_ms": 690.351583,
+      "run_ms": 160.24525,
+      "run_stddev_ms": 5.079327659785594,
+      "stdout_match": true,
+      "error": null
+    },
+    {
+      "case": "fib40",
+      "runtime": "torajs-interp",
+      "runtime_version": "tr 0.1.0",
+      "status": "ok",
+      "compile_ms": null,
+      "run_ms": 18239.832374999998,
+      "run_stddev_ms": 237.1889277536167,
+      "stdout_match": true,
+      "error": null
+    },
+    {
+      "case": "startup",
+      "runtime": "bun",
+      "runtime_version": "1.3.13",
+      "status": "ok",
+      "compile_ms": null,
+      "run_ms": 7.142062500000001,
+      "run_stddev_ms": 0.37788452570911146,
+      "stdout_match": true,
+      "error": null
+    },
+    {
+      "case": "startup",
+      "runtime": "go",
+      "runtime_version": "go version go1.25.6 darwin/arm64",
+      "status": "ok",
+      "compile_ms": 38.50754200000001,
+      "run_ms": 1.859042,
+      "run_stddev_ms": 0.07502734122297612,
+      "stdout_match": true,
+      "error": null
+    },
+    {
+      "case": "startup",
+      "runtime": "node",
+      "runtime_version": "v25.9.0",
+      "status": "ok",
+      "compile_ms": null,
+      "run_ms": 80.76433300000001,
+      "run_stddev_ms": 5.359253560900754,
+      "stdout_match": true,
+      "error": null
+    },
+    {
+      "case": "startup",
+      "runtime": "python",
+      "runtime_version": "Python 3.14.4",
+      "status": "ok",
+      "compile_ms": null,
+      "run_ms": 17.6453745,
+      "run_stddev_ms": 0.5945621028109213,
+      "stdout_match": true,
+      "error": null
+    },
+    {
+      "case": "startup",
+      "runtime": "rust",
+      "runtime_version": "rustc 1.95.0 (59807616e 2026-04-14)",
+      "status": "ok",
+      "compile_ms": 69.63404200000001,
+      "run_ms": 1.27875,
+      "run_stddev_ms": 0.04959038174171365,
+      "stdout_match": true,
+      "error": null
+    },
+    {
+      "case": "startup",
+      "runtime": "torajs-aot",
+      "runtime_version": "tr build 0.1.0 (AOT to wasm — P3.1 stub)",
+      "status": "ok",
+      "compile_ms": 319.81241700000004,
+      "run_ms": 1.2590415,
+      "run_stddev_ms": 0.06918939277856592,
+      "stdout_match": true,
+      "error": null
+    },
+    {
+      "case": "startup",
+      "runtime": "torajs-interp",
+      "runtime_version": "tr 0.1.0",
+      "status": "ok",
+      "compile_ms": null,
+      "run_ms": 1.3286665000000002,
+      "run_stddev_ms": 0.02876017555366756,
+      "stdout_match": true,
+      "error": null
+    }
+  ]
+}
