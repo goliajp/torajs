@@ -1,0 +1,10 @@
+# Bun's AOT mode: bundles the script + a full Bun runtime (JavaScriptCore +
+# stdlib + GC) into a single ~60 MB native binary. Apples-to-apples vs
+# torajs-aot — both produce a standalone executable, both are timed end-to-end.
+# Bun "wins" execution by carrying the JIT inside the binary; torajs-aot wins
+# size by ~1000× and avoids the JIT warmup tax.
+name = "bun-aot"
+detect = "bun --version"
+src_filename = "main.ts"
+compile = "bun build --compile {src} --outfile {out}"
+run = "{out}"

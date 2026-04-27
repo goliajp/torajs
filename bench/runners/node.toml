@@ -1,4 +1,6 @@
-name = "node"
+# Node uses V8 (the Chrome JS engine). Labeled `node-v8` to make the engine
+# visible in the bench scoreboard — bun is JSC, deno is V8, all matter.
+name = "node-v8"
 detect = "node --version"
 src_filename = "main.ts"
 run = "node {src}"

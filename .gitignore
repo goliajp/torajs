@@ -10,3 +10,7 @@ node_modules/
 # Ad-hoc binaries from go run / probe scripts in repo root
 /main
 /mandel_split2
+
+# Bun's `bun build --compile` leaves these cache files wherever it ran.
+# Bench harness invokes it from the workspace root, so they land here.
+.*.bun-build

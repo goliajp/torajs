@@ -1,4 +1,6 @@
-name = "bun"
+# Bun uses JavaScriptCore (Apple's Safari engine). Labeled `bun-jsc` for
+# symmetry with `node-v8` and `bun-aot` so the scoreboard shows engine choices.
+name = "bun-jsc"
 detect = "bun --version"
 src_filename = "main.ts"
 run = "bun run {src}"
