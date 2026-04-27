@@ -15,6 +15,9 @@ pub struct RunOutcome {
     pub compile_ms: Option<f64>,
     pub run_ms: Option<f64>,
     pub run_stddev_ms: Option<f64>,
+    /// Size in bytes of the compiled artifact, for runners that produce one.
+    /// `None` for interpreted runners (bun/node/python; tr-interp).
+    pub artifact_bytes: Option<u64>,
     pub stdout_match: Option<bool>,
     pub error: Option<String>,
 }
@@ -37,6 +40,7 @@ impl RunOutcome {
             compile_ms: None,
             run_ms: None,
             run_stddev_ms: None,
+            artifact_bytes: None,
             stdout_match: None,
             error: Some(reason),
         }
@@ -89,6 +93,7 @@ pub fn run_one(
         compile_ms: None,
         run_ms: None,
         run_stddev_ms: None,
+        artifact_bytes: None,
         stdout_match: None,
         error: None,
     };
@@ -129,6 +134,10 @@ pub fn run_one(
                 outcome.error = Some(format!("hyperfine compile: {e:#}"));
                 return Ok(outcome);
             }
+        }
+        // Compile produced an artifact at {out}; capture its byte size.
+        if let Ok(meta) = std::fs::metadata(&out_path) {
+            outcome.artifact_bytes = Some(meta.len());
         }
     }
 

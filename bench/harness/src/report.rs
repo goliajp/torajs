@@ -30,10 +30,10 @@ impl Report {
     pub fn print_table(&self) {
         println!();
         println!(
-            "{:<22} {:<14} {:>12} {:>12} {:>10} {:<8}",
-            "case", "runtime", "compile_ms", "run_ms", "stddev", "status"
+            "{:<22} {:<14} {:>12} {:>12} {:>10} {:>11} {:<8}",
+            "case", "runtime", "compile_ms", "run_ms", "stddev", "size", "status"
         );
-        println!("{}", "-".repeat(80));
+        println!("{}", "-".repeat(92));
         for r in &self.rows {
             let cms = r
                 .compile_ms
@@ -47,14 +47,18 @@ impl Report {
                 .run_stddev_ms
                 .map(|v| format!("{v:.2}"))
                 .unwrap_or_else(|| "—".into());
+            let size = r
+                .artifact_bytes
+                .map(format_bytes)
+                .unwrap_or_else(|| "—".into());
             let status = match r.status {
                 Status::Ok => "ok",
                 Status::Skipped => "skip",
                 Status::Failed => "fail",
             };
             println!(
-                "{:<22} {:<14} {:>12} {:>12} {:>10} {:<8}",
-                r.case, r.runtime, cms, rms, std, status
+                "{:<22} {:<14} {:>12} {:>12} {:>10} {:>11} {:<8}",
+                r.case, r.runtime, cms, rms, std, size, status
             );
         }
         // print errors / skip reasons below the table
@@ -85,6 +89,16 @@ impl Report {
         let json = serde_json::to_string_pretty(self)?;
         std::fs::write(&path, json).with_context(|| format!("writing {}", path.display()))?;
         Ok(path)
+    }
+}
+
+fn format_bytes(b: u64) -> String {
+    if b >= 1_000_000 {
+        format!("{:.2} MB", b as f64 / 1_000_000.0)
+    } else if b >= 1_000 {
+        format!("{:.1} KB", b as f64 / 1_000.0)
+    } else {
+        format!("{b} B")
     }
 }
 
