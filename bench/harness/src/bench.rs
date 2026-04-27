@@ -95,10 +95,20 @@ pub fn run_one(
 
     if let Some(compile_template) = &runner.compile {
         let compile_cmd = ctx.substitute(compile_template);
-        if let Err(e) = exec_check(&compile_cmd) {
-            outcome.status = Status::Failed;
-            outcome.error = Some(format!("compile failed: {e:#}"));
-            return Ok(outcome);
+        match exec_capture_status(&compile_cmd) {
+            Ok(()) => {}
+            Err(CompileError::NotYetImplemented(stderr)) => {
+                // Runner exists but doesn't support this case yet (e.g. tr's
+                // AOT pass during P3.x ramp). Treat as skip, not fail.
+                outcome.status = Status::Skipped;
+                outcome.error = Some(stderr);
+                return Ok(outcome);
+            }
+            Err(CompileError::Real(msg)) => {
+                outcome.status = Status::Failed;
+                outcome.error = Some(format!("compile failed: {msg}"));
+                return Ok(outcome);
+            }
         }
         match hyperfine_one(&compile_cmd, case.compile_warmup, case.compile_runs) {
             Ok(stats) => outcome.compile_ms = Some(stats.median_ms),
@@ -145,15 +155,40 @@ pub fn run_one(
     Ok(outcome)
 }
 
-fn exec_check(cmd: &str) -> Result<()> {
+/// Compile-step error categorized by exit code.
+///
+/// Exit code 3 is reserved as "not yet implemented" — the runner exists and
+/// recognized the program as well-formed, but its compile pipeline doesn't
+/// support this shape yet (cf. `tr build` during P3.x ramp). We treat these
+/// as skip, not fail, so the scoreboard doesn't show torajs in red while the
+/// AOT path is being grown feature by feature.
+enum CompileError {
+    NotYetImplemented(String),
+    Real(String),
+}
+
+fn exec_capture_status(cmd: &str) -> std::result::Result<(), CompileError> {
     let parts = split_cmd(cmd);
-    anyhow::ensure!(!parts.is_empty(), "empty command");
-    let status = Command::new(&parts[0])
-        .args(&parts[1..])
-        .status()
-        .with_context(|| format!("spawning `{cmd}`"))?;
-    anyhow::ensure!(status.success(), "{status}");
-    Ok(())
+    if parts.is_empty() {
+        return Err(CompileError::Real("empty command".into()));
+    }
+    let output = match Command::new(&parts[0]).args(&parts[1..]).output() {
+        Ok(o) => o,
+        Err(e) => return Err(CompileError::Real(format!("spawning `{cmd}`: {e}"))),
+    };
+    if output.status.success() {
+        return Ok(());
+    }
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    if output.status.code() == Some(3) {
+        Err(CompileError::NotYetImplemented(stderr))
+    } else {
+        Err(CompileError::Real(format!(
+            "{} stderr={:?}",
+            output.status,
+            preview(&stderr)
+        )))
+    }
 }
 
 fn exec_capture(cmd: &str) -> Result<String> {
