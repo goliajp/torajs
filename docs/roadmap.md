@@ -395,7 +395,11 @@ The language has a real heap now (strings, arrays). Time to make ownership real.
 
 The interpreter still works for dev, but now we add a parallel backend that emits wasm.
 
+**Wasm runtime decision (2026-04-28):** the bench harness uses **wasmtime** (homebrew, version pinned to 44+) to run the produced `.wasm` artifact. Choosing an external runtime now keeps the tr binary small; embedding wasmi for a single-binary distribution is a follow-up if/when distribution ergonomics matter.
+
 ### P3.1 — Wasm encoder, stub module
+
+**Status (2026-04-28): ✓ done.** `tr build main.tora.ts -o main.wasm` produces a WASI module that prints the literal via `wasi_snapshot_preview1.fd_write`. Bench `torajs-aot` row produces real numbers on `startup`; pre-P3.2/3.3 cases (anything beyond a single string-printing statement) are reported as "skip" with a clear "not yet supported" message via tr's exit-code-3 convention. Lives at `labs/0001-walking-skeleton/src/build.rs`.
 
 **Demo**: `tr build hello.ts -o hello.wasm` produces a wasm binary that, when run via `wasmtime hello.wasm` (or the bundled `wasmi` host), prints `hello`.
 
