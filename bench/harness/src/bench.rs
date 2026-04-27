@@ -130,13 +130,14 @@ pub fn run_one(
             return Ok(outcome);
         }
     };
-    outcome.stdout_match = Some(actual_stdout == case.expected_stdout);
+    outcome.stdout_match = Some(crate::case::stdout_matches(case, &actual_stdout));
     if !outcome.stdout_match.unwrap() {
         outcome.status = Status::Failed;
         outcome.error = Some(format!(
-            "stdout mismatch: got {:?}, want {:?}",
+            "stdout mismatch: got {:?}, want {:?} (tolerance={})",
             preview(&actual_stdout),
-            preview(&case.expected_stdout)
+            preview(&case.expected_stdout),
+            case.tolerance
         ));
         return Ok(outcome);
     }

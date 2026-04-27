@@ -328,15 +328,7 @@ impl<'a> Compiler<'a> {
         };
         let info = self.user_fns[name].clone_signature();
         let body_clone = body.clone();
-        let mut fb = FnBuilder::new(info.clone());
-        for (i, (pname, ty)) in info.params.iter().enumerate() {
-            fb.add_param(pname.clone(), *ty, i as u32);
-        }
-        for s in &body_clone {
-            fb.lower_stmt(self, s)?;
-        }
-        fb.function.instructions().end();
-        Ok(fb.into_function())
+        self.compile_function_body(info, body_clone)
     }
 
     fn compile_main(&mut self) -> Result<Function, BuildError> {
@@ -344,7 +336,6 @@ impl<'a> Compiler<'a> {
             params: Vec::new(),
             ret: WasmTy::Void,
         };
-        let mut fb = FnBuilder::new(info);
         let stmts: Vec<Stmt> = self
             .ast
             .stmts
@@ -352,11 +343,164 @@ impl<'a> Compiler<'a> {
             .filter(|s| !matches!(s, Stmt::FnDecl { .. }))
             .cloned()
             .collect();
-        for s in &stmts {
+        self.compile_function_body(info, stmts)
+    }
+
+    /// Walks a function body (or main) twice:
+    ///   pass 1 — discover top-level `let`/`const` bindings and their wasm
+    ///            types so all locals can be declared upfront in the wasm
+    ///            function header (wasm-encoder requires it).
+    ///   pass 2 — actually lower statements; `LetDecl` looks up the slot
+    ///            already reserved.
+    /// Lets nested inside `if`/`while`/`block` bodies are not supported yet
+    /// (would need proper scope-stack-with-slot-reuse). Detected during
+    /// pass 1 and rejected as `NotYetImplemented`.
+    fn compile_function_body(
+        &mut self,
+        info: SignatureRef,
+        body: Vec<Stmt>,
+    ) -> Result<Function, BuildError> {
+        // Pass 1: collect top-level lets.
+        let arity = info.params.len() as u32;
+        let mut params_map: HashMap<String, WasmTy> = HashMap::new();
+        for (n, t) in &info.params {
+            params_map.insert(n.clone(), *t);
+        }
+        let mut declared_lets: Vec<(String, WasmTy)> = Vec::new();
+        for stmt in &body {
+            // detect any nested let; reject early with a clear message
+            self.check_no_nested_let(stmt)?;
+            if let Stmt::LetDecl {
+                name,
+                type_ann,
+                init,
+                ..
+            } = stmt
+            {
+                let ty = match type_ann {
+                    Some(ann) => WasmTy::from_ann(ann, self.numeric_mode).ok_or_else(|| {
+                        BuildError::NotYetImplemented(format!(
+                            "let `{name}` has unsupported type annotation `{ann}`"
+                        ))
+                    })?,
+                    None => self.infer_wasm_type(*init, &params_map, &declared_lets)?,
+                };
+                if matches!(ty, WasmTy::Void) {
+                    return Err(BuildError::Real(format!("let `{name}` is void")));
+                }
+                declared_lets.push((name.clone(), ty));
+            }
+        }
+
+        // Wasm function header: one (count=1, type) per let.
+        let local_decls: Vec<(u32, ValType)> = declared_lets
+            .iter()
+            .map(|(_, ty)| (1u32, ty.val_type().expect("non-void let")))
+            .collect();
+        let mut fb = FnBuilder::new(info.clone(), &local_decls);
+
+        // Bind params (slots 0..arity) and lets (slots arity..arity+lets.len()).
+        for (i, (pname, ty)) in info.params.iter().enumerate() {
+            fb.add_binding(pname.clone(), *ty, i as u32);
+        }
+        for (i, (lname, lty)) in declared_lets.iter().enumerate() {
+            fb.add_binding(lname.clone(), *lty, arity + i as u32);
+        }
+
+        // Pass 2: real lowering.
+        for s in &body {
             fb.lower_stmt(self, s)?;
         }
         fb.function.instructions().end();
         Ok(fb.into_function())
+    }
+
+    /// Recursively checks that no `let`/`const` decl appears inside a nested
+    /// block, if-branch, or while-body. Top-level lets in the function body
+    /// are fine. Returns `NotYetImplemented` if a nested let is found.
+    fn check_no_nested_let(&self, stmt: &Stmt) -> Result<(), BuildError> {
+        fn rec(s: &Stmt, depth: u32) -> Result<(), BuildError> {
+            match s {
+                Stmt::LetDecl { name, .. } if depth > 0 => {
+                    Err(BuildError::NotYetImplemented(format!(
+                        "nested `let`/`const` binding `{name}` inside block — AOT only supports lets at the top of a function body for now (hoist them out)"
+                    )))
+                }
+                Stmt::Block(ss) => {
+                    for s in ss {
+                        rec(s, depth + 1)?;
+                    }
+                    Ok(())
+                }
+                Stmt::If {
+                    then_branch,
+                    else_branch,
+                    ..
+                } => {
+                    rec(then_branch, depth + 1)?;
+                    if let Some(eb) = else_branch {
+                        rec(eb, depth + 1)?;
+                    }
+                    Ok(())
+                }
+                Stmt::While { body, .. } => rec(body, depth + 1),
+                _ => Ok(()),
+            }
+        }
+        // Top-level lets are fine; only nested ones are rejected.
+        match stmt {
+            Stmt::LetDecl { .. } => Ok(()),
+            _ => rec(stmt, 0),
+        }
+    }
+
+    fn infer_wasm_type(
+        &self,
+        eid: ExprId,
+        params: &HashMap<String, WasmTy>,
+        lets: &[(String, WasmTy)],
+    ) -> Result<WasmTy, BuildError> {
+        match self.ast.get_expr(eid) {
+            Expr::Number(_) => Ok(match self.numeric_mode {
+                NumericMode::F64 => WasmTy::F64,
+                NumericMode::I64 => WasmTy::I64,
+            }),
+            Expr::Bool(_) => Ok(WasmTy::I32),
+            Expr::Ident(name) => {
+                if let Some(t) = params.get(name) {
+                    return Ok(*t);
+                }
+                if let Some((_, t)) = lets.iter().find(|(n, _)| n == name) {
+                    return Ok(*t);
+                }
+                Err(BuildError::NotYetImplemented(format!(
+                    "ident `{name}` for let-init type inference"
+                )))
+            }
+            Expr::BinOp { op, left, .. } => {
+                let lt = self.infer_wasm_type(*left, params, lets)?;
+                match op {
+                    BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div => Ok(lt),
+                    BinOp::Lt | BinOp::Gt | BinOp::Le | BinOp::Ge | BinOp::Eq | BinOp::Neq => {
+                        Ok(WasmTy::I32)
+                    }
+                }
+            }
+            Expr::Call { callee, .. } => {
+                if let Expr::Ident(fname) = self.ast.get_expr(*callee)
+                    && let Some(uf) = self.user_fns.get(fname)
+                {
+                    return Ok(uf.ret);
+                }
+                Err(BuildError::NotYetImplemented(
+                    "call return type for let-init inference".into(),
+                ))
+            }
+            Expr::Assign { value, .. } => self.infer_wasm_type(*value, params, lets),
+            _ => Err(BuildError::NotYetImplemented(
+                "expression shape for let-init type inference".into(),
+            )),
+        }
     }
 
     /// Intern a literal string (with newline) into the static data section,
@@ -402,15 +546,15 @@ struct FnBuilder {
 }
 
 impl FnBuilder {
-    fn new(sig: SignatureRef) -> Self {
+    fn new(sig: SignatureRef, locals: &[(u32, ValType)]) -> Self {
         Self {
             sig,
-            function: Function::new([]),
+            function: Function::new(locals.iter().copied()),
             scopes: vec![HashMap::new()],
         }
     }
 
-    fn add_param(&mut self, name: String, ty: WasmTy, idx: u32) {
+    fn add_binding(&mut self, name: String, ty: WasmTy, idx: u32) {
         self.scopes
             .last_mut()
             .expect("scope")
@@ -486,12 +630,50 @@ impl FnBuilder {
             Stmt::FnDecl { name, .. } => Err(BuildError::NotYetImplemented(format!(
                 "nested fn `{name}` — AOT only handles top-level functions"
             ))),
-            Stmt::LetDecl { name, .. } => Err(BuildError::NotYetImplemented(format!(
-                "`let`/`const` binding `{name}` inside fn body — AOT P3.3 only supports fn parameters as locals (P3.3+ adds let)"
-            ))),
-            Stmt::While { .. } => Err(BuildError::NotYetImplemented(
-                "`while` — AOT will add this in a follow-up step".into(),
-            )),
+            Stmt::LetDecl { name, init, .. } => {
+                // Slot was reserved during pass 1; just emit init + local.set.
+                let init_eid = *init;
+                let init_ty = self.lower_expr(c, init_eid)?;
+                let (slot, ty) = self.lookup(name).ok_or_else(|| {
+                    BuildError::Real(format!("let `{name}` slot not pre-allocated"))
+                })?;
+                if init_ty != ty {
+                    return Err(BuildError::Real(format!(
+                        "let `{name}` init type {init_ty:?} != declared {ty:?}"
+                    )));
+                }
+                self.function.instructions().local_set(slot);
+                Ok(())
+            }
+            Stmt::While { cond, body } => {
+                // wasm structured loop:
+                //
+                //   block $exit
+                //     loop $top
+                //       cond → i32
+                //       i32.eqz       ; invert
+                //       br_if $exit   ; if !cond, leave
+                //       <body>
+                //       br $top       ; repeat
+                //     end
+                //   end
+                self.function.instructions().block(BlockType::Empty);
+                self.function.instructions().loop_(BlockType::Empty);
+                let ct = self.lower_expr(c, *cond)?;
+                if !matches!(ct, WasmTy::I32) {
+                    return Err(BuildError::Real(format!(
+                        "while condition has wasm type {ct:?}, expected I32 (boolean)"
+                    )));
+                }
+                self.function.instructions().i32_eqz();
+                // br relative depth: 0 = current loop, 1 = enclosing block ($exit)
+                self.function.instructions().br_if(1);
+                self.lower_stmt(c, body)?;
+                self.function.instructions().br(0); // continue loop
+                self.function.instructions().end(); // close loop
+                self.function.instructions().end(); // close block
+                Ok(())
+            }
         }
     }
 
@@ -630,9 +812,31 @@ impl FnBuilder {
             Expr::String(_) => Err(BuildError::NotYetImplemented(
                 "string in non-`console.log` position — AOT defers strings (P3.4)".into(),
             )),
-            Expr::Assign { .. } => Err(BuildError::NotYetImplemented(
-                "assignment expression — AOT will add when locals land".into(),
-            )),
+            Expr::Assign { target, value } => {
+                let target_eid = *target;
+                let value_eid = *value;
+                let Expr::Ident(tname_ref) = c.ast.get_expr(target_eid) else {
+                    return Err(BuildError::NotYetImplemented(
+                        "assignment to non-ident target".into(),
+                    ));
+                };
+                let tname = tname_ref.clone();
+                let (slot, ty) = self.lookup(&tname).ok_or_else(|| {
+                    BuildError::Real(format!("assignment to undeclared `{tname}`"))
+                })?;
+                let vt = self.lower_expr(c, value_eid)?;
+                if vt != ty {
+                    return Err(BuildError::Real(format!(
+                        "assignment type mismatch on `{tname}`: target {ty:?}, value {vt:?}"
+                    )));
+                }
+                // Use local.tee: stores top of stack into local AND leaves
+                // the value on the stack — that's the assignment expression's
+                // result, which subsequent ops (or the surrounding stmt's
+                // drop) consumes.
+                self.function.instructions().local_tee(slot);
+                Ok(ty)
+            }
             Expr::Index { .. } => Err(BuildError::NotYetImplemented(
                 "indexing — AOT defers strings/arrays".into(),
             )),

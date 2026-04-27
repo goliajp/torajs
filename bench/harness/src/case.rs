@@ -17,6 +17,14 @@ pub struct Case {
     pub run_runs: u32,
     pub compile_warmup: u32,
     pub compile_runs: u32,
+    /// 0 = byte-exact stdout match. Anything else activates tolerance mode:
+    /// the last non-empty line of stdout is parsed as an integer and compared
+    /// against the matching line of `expected.txt`; the run passes if the
+    /// difference is within `tolerance`. Earlier lines, if any, still need
+    /// to match byte-for-byte. This exists for FP-heavy cases like
+    /// mandelbrot, where compiler FMA choices produce different bit-exact
+    /// answers on the same algorithm.
+    pub tolerance: u64,
 }
 
 /// Optional per-case `bench.toml` overrides.
@@ -26,6 +34,7 @@ pub struct Case {
 /// warmup = 1            # hyperfine --warmup for the run command
 /// compile_runs = 5
 /// compile_warmup = 1
+/// tolerance = 500       # absolute int diff allowed on stdout's last line
 /// ```
 #[derive(Debug, Default, Deserialize)]
 struct CaseConfig {
@@ -33,6 +42,7 @@ struct CaseConfig {
     warmup: Option<u32>,
     compile_runs: Option<u32>,
     compile_warmup: Option<u32>,
+    tolerance: Option<u64>,
 }
 
 pub fn discover_all(cases_dir: &Path) -> Result<Vec<Case>> {
@@ -83,7 +93,38 @@ pub fn discover_all(cases_dir: &Path) -> Result<Vec<Case>> {
             run_runs: cfg.runs.unwrap_or(DEFAULT_RUN_RUNS),
             compile_warmup: cfg.compile_warmup.unwrap_or(DEFAULT_COMPILE_WARMUP),
             compile_runs: cfg.compile_runs.unwrap_or(DEFAULT_COMPILE_RUNS),
+            tolerance: cfg.tolerance.unwrap_or(0),
         });
     }
     Ok(out)
+}
+
+/// Compare actual stdout against `case.expected_stdout`. In exact mode
+/// (`tolerance == 0`) requires byte-for-byte equality. In tolerance mode,
+/// every line except the last must still be byte-equal; the last non-empty
+/// line is parsed as an integer in both and compared with `|a - b| <= tol`.
+pub fn stdout_matches(case: &Case, actual: &str) -> bool {
+    if case.tolerance == 0 {
+        return actual == case.expected_stdout;
+    }
+    // Strip exactly one trailing newline if present, so "x\n" → "x".
+    let actual = actual.strip_suffix('\n').unwrap_or(actual);
+    let expected = case
+        .expected_stdout
+        .strip_suffix('\n')
+        .unwrap_or(&case.expected_stdout);
+    let mut a_lines: Vec<&str> = actual.split('\n').collect();
+    let mut e_lines: Vec<&str> = expected.split('\n').collect();
+    if a_lines.len() != e_lines.len() {
+        return false;
+    }
+    let a_last = a_lines.pop().unwrap_or("");
+    let e_last = e_lines.pop().unwrap_or("");
+    if a_lines != e_lines {
+        return false;
+    }
+    let (Ok(a_n), Ok(e_n)) = (a_last.trim().parse::<i64>(), e_last.trim().parse::<i64>()) else {
+        return false;
+    };
+    a_n.abs_diff(e_n) <= case.tolerance
 }
