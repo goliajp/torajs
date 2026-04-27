@@ -480,7 +480,7 @@ impl<'a> Compiler<'a> {
             Expr::BinOp { op, left, .. } => {
                 let lt = self.infer_wasm_type(*left, params, lets)?;
                 match op {
-                    BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div => Ok(lt),
+                    BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod => Ok(lt),
                     BinOp::Lt | BinOp::Gt | BinOp::Le | BinOp::Ge | BinOp::Eq | BinOp::Neq => {
                         Ok(WasmTy::I32)
                     }
@@ -731,6 +731,9 @@ impl FnBuilder {
                         s.f64_div();
                         Ok(WasmTy::F64)
                     }
+                    (WasmTy::F64, BinOp::Mod) => Err(BuildError::NotYetImplemented(
+                        "`%` on f64 — AOT only supports `%` in integer-narrowed mode today (would need libm fmod)".into(),
+                    )),
                     (WasmTy::F64, BinOp::Lt) => {
                         s.f64_lt();
                         Ok(WasmTy::I32)
@@ -766,6 +769,10 @@ impl FnBuilder {
                     }
                     (WasmTy::I64, BinOp::Mul) => {
                         s.i64_mul();
+                        Ok(WasmTy::I64)
+                    }
+                    (WasmTy::I64, BinOp::Mod) => {
+                        s.i64_rem_s();
                         Ok(WasmTy::I64)
                     }
                     (WasmTy::I64, BinOp::Lt) => {

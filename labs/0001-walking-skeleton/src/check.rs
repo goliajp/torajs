@@ -379,7 +379,7 @@ impl Checker {
                             ))
                         }
                     }
-                    BinOp::Sub | BinOp::Mul | BinOp::Div => {
+                    BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod => {
                         if l == Type::Number && r == Type::Number {
                             Ok(Type::Number)
                         } else {

@@ -96,6 +96,7 @@ pub fn execute(module: &IrModule) -> Result<(), String> {
             Op::Sub => binop(&mut stack, |a, b| a - b)?,
             Op::Mul => binop(&mut stack, |a, b| a * b)?,
             Op::Div => binop(&mut stack, |a, b| a / b)?,
+            Op::Mod => binop(&mut stack, |a, b| a % b)?,
             Op::Lt => cmp_num(&mut stack, |a, b| a < b)?,
             Op::Gt => cmp_num(&mut stack, |a, b| a > b)?,
             Op::Le => cmp_num(&mut stack, |a, b| a <= b)?,

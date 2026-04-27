@@ -315,6 +315,7 @@ impl<'a, 'b> FnLowering<'a, 'b> {
                     BinOp::Sub => Op::Sub,
                     BinOp::Mul => Op::Mul,
                     BinOp::Div => Op::Div,
+                    BinOp::Mod => Op::Mod,
                     BinOp::Lt => Op::Lt,
                     BinOp::Gt => Op::Gt,
                     BinOp::Le => Op::Le,

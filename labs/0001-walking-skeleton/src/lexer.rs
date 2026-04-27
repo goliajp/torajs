@@ -30,6 +30,7 @@ pub enum Token {
     Minus,
     Star,
     Slash,
+    Percent,
     Eq,
     EqEqEq,
     BangEqEq,
@@ -81,6 +82,7 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
             b'-' => emit(&mut out, Token::Minus, start, advance(&mut i)),
             b'*' => emit(&mut out, Token::Star, start, advance(&mut i)),
             b'/' => emit(&mut out, Token::Slash, start, advance(&mut i)),
+            b'%' => emit(&mut out, Token::Percent, start, advance(&mut i)),
             b'<' => {
                 i += 1;
                 if peek(bytes, i) == Some(b'=') {
