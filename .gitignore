@@ -1,26 +1,7 @@
-# Claude Code — synced per-machine via `devops dotclaude sync torajs`
-.claude/
-
-# OS / editor
-.DS_Store
-.idea/
-.vscode/
-
-# Node / bun
-node_modules/
-*.tsbuildinfo
-.eslintcache
-
-# Build output
-dist/
-out/
 target/
-
-# Env
-.env
-.env.local
-.env.*.local
-
-# Logs
-*.log
-logs/
+node_modules/
+*.swp
+.DS_Store
+# Ad-hoc binaries from go run / probe scripts in repo root
+/main
+/mandel_split2
