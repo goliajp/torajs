@@ -1,4 +1,4 @@
-# `-O1` beats `-O3` slightly on startup because the program is one
+# `O1` beats `O3` slightly on startup because the program is one
 # `console.log("x")` and lower opt levels skip useless transforms.
-#   -O1 → 2.6 ms, -O2 → 3.0 ms, -O3 → 3.1 ms (sha 72cbb6e).
-aot_clang_flags = "-O1"
+#   O1 → 2.6 ms, O2 → 3.0 ms, O3 → 3.1 ms.
+torajs_opt = "O1"

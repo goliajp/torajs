@@ -1,11 +1,8 @@
-# tr's tree-walk interpreter takes ~17s on fib(40); a default warmup=3/runs=10
-# would push tr's row to ~3.7 minutes. Tune the budget down for this case until
-# AOT (P3) lands and tr is competitive on raw cpu work.
 runs = 3
 warmup = 1
 
-# `-O1` beats `-O3` by ~12% on fib40 because LLVM's higher opt levels do loop
+# `O1` beats `O3` by ~12% on fib40 because LLVM's higher opt levels do loop
 # transforms (unroll / vectorize attempts) that don't help recursive integer
-# code and cost code-locality. Confirmed empirically (sha 72cbb6e):
+# code and cost code-locality. Confirmed empirically:
 #   -O1 → 150 ms, -O2 → 181 ms, -O3 → 169 ms.
-aot_clang_flags = "-O1"
+torajs_opt = "O1"

@@ -160,9 +160,10 @@ fn run_build_llvm(args: &[String]) -> ExitCode {
 
     let mut input: Option<&str> = None;
     let mut output: Option<&str> = None;
-    // Default O3, matching the wasm-via-C path's clang fallback. Per-case
-    // override (e.g. fib40 prefers -O1) flows in via TORAJS_AOT_CLANG_FLAGS
-    // below; explicit `--opt` on the CLI wins over both.
+    // Default O3 (LLVM's most aggressive non-experimental level). Per-case
+    // override flows in via the `TORAJS_OPT` env var (set by the bench
+    // harness from `bench.toml: torajs_opt`); explicit `--opt` on the CLI
+    // wins over both.
     let mut opt: String = "O3".into();
     let mut explicit_opt = false;
     let mut i = 0;
@@ -198,19 +199,13 @@ fn run_build_llvm(args: &[String]) -> ExitCode {
         }
     }
 
-    // The bench harness sets TORAJS_AOT_CLANG_FLAGS for per-case opt tuning
-    // (e.g. fib40's `-O1` win over `-O3` because LLVM's loop transforms hurt
-    // recursive int code). Env var name is legacy from the wasm-via-C era —
-    // rename to TORAJS_OPT in a follow-up cleanup.
+    // Bench harness sets `TORAJS_OPT` for per-case opt tuning (e.g.
+    // fib40's `O1` win over `O3` because LLVM's loop transforms hurt
+    // recursive int code).
     if !explicit_opt
-        && let Ok(flags) = std::env::var("TORAJS_AOT_CLANG_FLAGS")
+        && let Ok(level) = std::env::var("TORAJS_OPT")
     {
-        for tok in flags.split_whitespace() {
-            if let Some(level) = tok.strip_prefix("-O") {
-                opt = format!("O{level}");
-                break;
-            }
-        }
+        opt = level;
     }
 
     let Some(input) = input else {

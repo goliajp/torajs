@@ -100,17 +100,15 @@ pub fn run_one(
 
     if let Some(compile_template) = &runner.compile {
         let compile_cmd = ctx.substitute(compile_template);
-        // Per-case env overrides for the compile step. Sets
-        // TORAJS_AOT_CLANG_FLAGS on the `torajs` runner only — `tr build`
-        // parses the `-OX` token out of it to pick the LLVM new-pass-manager
-        // pipeline (fib40 favors -O1, popcount favors -O3, etc.). The env
-        // var name is legacy from the wasm-via-C era — keep it for now;
-        // rename to TORAJS_OPT in a follow-up.
+        // Per-case env overrides for the compile step. Sets `TORAJS_OPT`
+        // on the `torajs` runner only — `tr build` reads it as the LLVM
+        // new-pass-manager opt level (fib40 favors O1, popcount favors O3,
+        // etc.). Default O3 if unset.
         let compile_env: Vec<(String, String)> = case
-            .aot_clang_flags
+            .torajs_opt
             .as_ref()
             .filter(|_| runner.name == "torajs")
-            .map(|f| vec![("TORAJS_AOT_CLANG_FLAGS".to_string(), f.clone())])
+            .map(|f| vec![("TORAJS_OPT".to_string(), f.clone())])
             .unwrap_or_default();
 
         match exec_capture_status(&compile_cmd, &compile_env) {

@@ -26,26 +26,23 @@ pub struct Case {
     /// answers on the same algorithm.
     pub tolerance: u64,
     /// Optional override for the LLVM new-pass-manager opt level used by
-    /// the `torajs` runner's compile step. When set, the harness exports
-    /// `TORAJS_AOT_CLANG_FLAGS=<value>` and `tr build` parses out the
-    /// `-OX` token. Empirically `-O1` beats `-O3` on some shapes (fib40,
-    /// startup) while `-O3` beats `-O1` on others (popcount needs LLVM's
-    /// loop-idiom recognition for `cnt.16b`). Default `-O3`.
-    ///
-    /// Field name is legacy from the wasm-via-C era; rename to `torajs_opt`
-    /// in a follow-up cleanup.
-    pub aot_clang_flags: Option<String>,
+    /// the `torajs` runner's compile step. Value is just the level —
+    /// `"O1"`, `"O3"`, etc. — passed through to `tr build` via the
+    /// `TORAJS_OPT` env var. Empirically `-O1` beats `-O3` on some shapes
+    /// (fib40, startup) while `-O3` beats `-O1` on others (popcount
+    /// needs LLVM's loop-idiom recognition for `cnt.16b`). Default `O3`.
+    pub torajs_opt: Option<String>,
 }
 
 /// Optional per-case `bench.toml` overrides.
 ///
 /// ```toml
-/// runs = 3                   # hyperfine --runs for the run command
-/// warmup = 1                 # hyperfine --warmup for the run command
+/// runs = 3                # hyperfine --runs for the run command
+/// warmup = 1              # hyperfine --warmup for the run command
 /// compile_runs = 5
 /// compile_warmup = 1
-/// tolerance = 500            # absolute int diff allowed on stdout's last line
-/// aot_clang_flags = "-O1"    # override LLVM opt level for `torajs` runner
+/// tolerance = 500         # absolute int diff allowed on stdout's last line
+/// torajs_opt = "O1"       # override LLVM opt level for `torajs` runner
 /// ```
 #[derive(Debug, Default, Deserialize)]
 struct CaseConfig {
@@ -54,7 +51,7 @@ struct CaseConfig {
     compile_runs: Option<u32>,
     compile_warmup: Option<u32>,
     tolerance: Option<u64>,
-    aot_clang_flags: Option<String>,
+    torajs_opt: Option<String>,
 }
 
 pub fn discover_all(cases_dir: &Path) -> Result<Vec<Case>> {
@@ -106,7 +103,7 @@ pub fn discover_all(cases_dir: &Path) -> Result<Vec<Case>> {
             compile_warmup: cfg.compile_warmup.unwrap_or(DEFAULT_COMPILE_WARMUP),
             compile_runs: cfg.compile_runs.unwrap_or(DEFAULT_COMPILE_RUNS),
             tolerance: cfg.tolerance.unwrap_or(0),
-            aot_clang_flags: cfg.aot_clang_flags,
+            torajs_opt: cfg.torajs_opt,
         });
     }
     Ok(out)
