@@ -87,6 +87,20 @@ extern "C" fn str_alloc_runtime(src: *const u8, len: u64) -> *mut u8 {
     }
 }
 
+/// `__torajs_str_drop(*StrRepr s) -> void` — release the heap StrRepr.
+/// Layout must match what `str_alloc_runtime` produced: total size = 8+len.
+extern "C" fn str_drop_runtime(s: *mut u8) {
+    if s.is_null() {
+        return;
+    }
+    unsafe {
+        let len = std::ptr::read(s as *const u64) as usize;
+        let total = 8 + len;
+        let layout = std::alloc::Layout::from_size_align(total, 8).expect("layout");
+        std::alloc::dealloc(s, layout);
+    }
+}
+
 /// `__torajs_str_print(*StrRepr s) -> void` — load len from offset 0,
 /// write the bytes plus a trailing newline. Uses Rust's println! for
 /// portability; the bench JIT code path is rarely the bottleneck.
@@ -125,6 +139,7 @@ pub fn execute(ssa_module: &Module) -> Result<i32, JitError> {
     jit_builder.symbol("print_i64", print_i64_runtime as *const u8);
     jit_builder.symbol("__torajs_str_alloc", str_alloc_runtime as *const u8);
     jit_builder.symbol("__torajs_str_print", str_print_runtime as *const u8);
+    jit_builder.symbol("__torajs_str_drop", str_drop_runtime as *const u8);
 
     let mut module = JITModule::new(jit_builder);
     let ptr_ty = module.target_config().pointer_type();

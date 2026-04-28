@@ -74,6 +74,17 @@ impl Type {
             Type::Str => "str",
         }
     }
+
+    /// Cheap-to-duplicate. Used by the lowerer to decide whether a binding
+    /// read needs ownership tracking + Drop emission. Mirrors check.rs's
+    /// `Type::is_copy()`. Today only `Str` is heap-owned at the SSA layer;
+    /// arrays / objects join the non-Copy side as they land.
+    pub fn is_copy(self) -> bool {
+        matches!(
+            self,
+            Type::I64 | Type::F64 | Type::I32 | Type::Bool | Type::Void
+        )
+    }
 }
 
 #[derive(Debug, Clone, Copy)]

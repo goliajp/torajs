@@ -76,6 +76,7 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
     // Pass C: walk every SSA function and create a corresponding LLVM
     // FunctionValue. Backend-owned intrinsics get a body here; everything
     // else gets a declaration that pass D fills in.
+    let free = declare_free(&ctx, &llvm_module);
     let mut fn_map: Vec<FunctionValue> = Vec::with_capacity(ssa_module.funcs.len());
     for f in &ssa_module.funcs {
         let llvm_fn = match f.name.as_str() {
@@ -84,6 +85,7 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
                 define_str_alloc(&ctx, &llvm_module, malloc, memcpy)
             }
             "__torajs_str_print" => define_str_print(&ctx, &llvm_module, write),
+            "__torajs_str_drop" => define_str_drop(&ctx, &llvm_module, free),
             _ => declare_ssa_fn(&ctx, &llvm_module, f),
         };
         fn_map.push(llvm_fn);
@@ -91,7 +93,12 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
 
     // Pass D: lower bodies for every SSA function that has blocks AND isn't
     // a backend-owned intrinsic.
-    let intrinsics = ["print_i64", "__torajs_str_alloc", "__torajs_str_print"];
+    let intrinsics = [
+        "print_i64",
+        "__torajs_str_alloc",
+        "__torajs_str_print",
+        "__torajs_str_drop",
+    ];
     for (i, f) in ssa_module.funcs.iter().enumerate() {
         if f.is_declaration() || intrinsics.contains(&f.name.as_str()) {
             continue;
@@ -178,6 +185,13 @@ fn declare_memcpy<'ctx>(ctx: &'ctx Context, m: &LlvmModule<'ctx>) -> FunctionVal
     m.add_function("memcpy", fn_t, None)
 }
 
+fn declare_free<'ctx>(ctx: &'ctx Context, m: &LlvmModule<'ctx>) -> FunctionValue<'ctx> {
+    let void_t = ctx.void_type();
+    let ptr_t = ctx.ptr_type(AddressSpace::default());
+    let fn_t = void_t.fn_type(&[ptr_t.into()], false);
+    m.add_function("free", fn_t, None)
+}
+
 fn declare_write<'ctx>(ctx: &'ctx Context, m: &LlvmModule<'ctx>) -> FunctionValue<'ctx> {
     let i32_t = ctx.i32_type();
     let i64_t = ctx.i64_type();
@@ -258,6 +272,27 @@ fn define_str_alloc<'ctx>(
         .unwrap();
 
     builder.build_return(Some(&p)).unwrap();
+    f
+}
+
+/// `__torajs_str_drop(*StrRepr s) -> void` — `free(s)`. The runtime owns
+/// the layout decision (see __torajs_str_alloc); free works because alloc
+/// used libc malloc.
+fn define_str_drop<'ctx>(
+    ctx: &'ctx Context,
+    m: &LlvmModule<'ctx>,
+    free: FunctionValue<'ctx>,
+) -> FunctionValue<'ctx> {
+    let builder = ctx.create_builder();
+    let ptr_t = ctx.ptr_type(AddressSpace::default());
+    let void_t = ctx.void_type();
+    let fn_t = void_t.fn_type(&[ptr_t.into()], false);
+    let f = m.add_function("__torajs_str_drop", fn_t, None);
+    let entry = ctx.append_basic_block(f, "entry");
+    builder.position_at_end(entry);
+    let arg = f.get_nth_param(0).unwrap().into_pointer_value();
+    builder.build_call(free, &[arg.into()], "_f").unwrap();
+    builder.build_return(None).unwrap();
     f
 }
 

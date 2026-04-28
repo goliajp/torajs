@@ -58,6 +58,13 @@ pub fn lower(ast: &Ast) -> Module {
         &[Type::Str],
         Type::Void,
     );
+    let str_drop_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_str_drop",
+        &[Type::Str],
+        Type::Void,
+    );
 
     // Pass 1: pre-allocate FuncIds + record correct return types for every
     // user FnDecl. The placeholder body is empty; pass 2 fills it in. Setting
@@ -93,6 +100,7 @@ pub fn lower(ast: &Ast) -> Module {
         print_i64: print_i64_id,
         str_alloc: str_alloc_id,
         str_print: str_print_id,
+        str_drop: str_drop_id,
     };
 
     // Pass 2: lower user FnDecl bodies. Each call returns the lowered
@@ -158,6 +166,18 @@ struct Intrinsics {
     print_i64: FuncId,
     str_alloc: FuncId,
     str_print: FuncId,
+    str_drop: FuncId,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct LocalInfo {
+    /// Pointer to the alloca slot — Type::Ptr.
+    slot: ValueId,
+    /// Type of the slot's *contents* (what Load returns).
+    ty: Type,
+    /// True after the binding's value has been consumed. Drop emission at
+    /// fn-end skips moved locals.
+    moved: bool,
 }
 
 fn declare_intrinsic(
@@ -205,6 +225,7 @@ fn synthesize_main(
             ctx.lower_top_stmt(s);
         }
         if ctx.cur_open() {
+            ctx.emit_drops_for_owned_locals();
             let cb = ctx.cur_block;
             ctx.f
                 .set_term(cb, Terminator::Ret(Some(Operand::ConstI32(0))));
@@ -282,11 +303,28 @@ fn lower_fn(
             ctx.cur_block,
             InstKind::Store(Operand::Value(pid), Operand::Value(slot)),
         );
-        ctx.locals.insert(name, (slot, ty));
+        ctx.locals.insert(
+            name,
+            LocalInfo {
+                slot,
+                ty,
+                moved: false,
+            },
+        );
     }
 
     for s in body {
         ctx.lower_stmt(s);
+    }
+    // Function fall-through (no explicit return). Emit drops + an implicit
+    // void/zero return — applies to any block still open at body end.
+    if ctx.cur_open() {
+        ctx.emit_drops_for_owned_locals();
+        let cb = ctx.cur_block;
+        match ctx.f.ret {
+            Type::Void => ctx.f.set_term(cb, Terminator::Ret(None)),
+            _ => ctx.f.set_term(cb, Terminator::Unreachable),
+        }
     }
 
     (f, new_strings)
@@ -304,10 +342,18 @@ struct LowerCtx<'a> {
     /// emits a runtime call — string-literal lowering needs `str_alloc`,
     /// `console.log` needs `print_i64` / `str_print`, etc.
     intrinsics: Intrinsics,
-    /// name → (alloca-ptr value, contents type). Every local — including the
-    /// function's own parameters — sits behind an alloca. mem2reg lifts them
-    /// to SSA values at -O1+.
-    locals: HashMap<String, (ValueId, Type)>,
+    /// name → (alloca-ptr value, contents type, moved flag). Every local —
+    /// including the function's own parameters — sits behind an alloca.
+    /// mem2reg lifts them to SSA values at -O1+.
+    ///
+    /// `moved` mirrors check.rs's affine pass: when a binding's value is
+    /// consumed (let-rhs, assign-rhs, non-Copy call-arg, return), the
+    /// flag flips to true and Drop emission at fn-end skips that local.
+    /// Insertion order preserved (LinkedHashMap-style) so multi-Ret
+    /// drops fire in deterministic order — using IndexMap-equivalent
+    /// behavior would be cleaner but a plain HashMap is fine for the
+    /// number of locals our cases have.
+    locals: HashMap<String, LocalInfo>,
     cur_block: BlockId,
     /// New string literals encountered during this lowering pass (currently
     /// only main collects them). Caller appends these to the module's
@@ -340,13 +386,28 @@ impl<'a> LowerCtx<'a> {
             && self.is_console_log_member(*callee)
             && args.len() == 1
         {
+            // `console.log` is borrow-style: doesn't consume its arg, so we
+            // don't mark the source binding moved. But for *temp* args
+            // (literal strings, BinOp results, Call returns), the Type::Str
+            // value is owned-by-nobody after the call — drop it on the
+            // spot to keep the heap from leaking.
+            let is_borrow = matches!(self.ast.get_expr(args[0]), Expr::Ident(_));
             let arg = self.lower_expr(args[0]);
-            let target = if self.operand_ty(&arg) == Type::Str {
+            let is_str = self.operand_ty(&arg) == Type::Str;
+            let target = if is_str {
                 self.intrinsics.str_print
             } else {
                 self.intrinsics.print_i64
             };
-            self.f.append_void(self.cur_block, InstKind::Call(target, vec![arg]));
+            self.f
+                .append_void(self.cur_block, InstKind::Call(target, vec![arg]));
+            if is_str && !is_borrow {
+                let drop_fid = self.intrinsics.str_drop;
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Call(drop_fid, vec![arg]),
+                );
+            }
             return;
         }
         self.lower_stmt(s);
@@ -368,6 +429,49 @@ impl<'a> LowerCtx<'a> {
     fn alloca(&mut self, ty: Type, name: Option<&str>) -> ValueId {
         self.f
             .append_inst(self.cur_block, InstKind::Alloca(ty), Type::Ptr, name)
+    }
+
+    /// If `eid` resolves to a non-Copy `Ident(name)` binding, mark that
+    /// binding as moved. No-op for Copy types (number/bool/etc) and for
+    /// non-Ident expressions (literals, BinOp results, Call results).
+    /// Mirrors check.rs's affine consume pass.
+    fn consume_if_ident(&mut self, eid: ExprId) {
+        if let Expr::Ident(name) = self.ast.get_expr(eid) {
+            let name = name.clone();
+            if let Some(info) = self.locals.get_mut(&name)
+                && !info.ty.is_copy()
+            {
+                info.moved = true;
+            }
+        }
+    }
+
+    /// Emit Drop calls for every owned non-Copy local in the current block.
+    /// Called immediately before terminators that exit the function (Ret,
+    /// fall-through). Skips `moved` bindings — those have transferred
+    /// ownership elsewhere and the receiver is responsible for the drop.
+    fn emit_drops_for_owned_locals(&mut self) {
+        // Snapshot to avoid borrowing self.locals while we emit instructions
+        // (which need &mut self.f). Cheap: bench cases have <10 locals each.
+        let to_drop: Vec<(ValueId, Type)> = self
+            .locals
+            .values()
+            .filter(|info| !info.moved && !info.ty.is_copy())
+            .map(|info| (info.slot, info.ty))
+            .collect();
+        let drop_fid = self.intrinsics.str_drop;
+        for (slot, ty) in to_drop {
+            let val = self.f.append_inst(
+                self.cur_block,
+                InstKind::Load(ty, Operand::Value(slot)),
+                ty,
+                None,
+            );
+            self.f.append_void(
+                self.cur_block,
+                InstKind::Call(drop_fid, vec![Operand::Value(val)]),
+            );
+        }
     }
 
     fn lower_stmt(&mut self, s: &Stmt) {
@@ -394,12 +498,20 @@ impl<'a> LowerCtx<'a> {
                 // check.rs); the SSA layer doesn't care.
                 let ty = parse_type(type_ann.as_deref());
                 let init_val = self.lower_expr(*init);
+                self.consume_if_ident(*init);
                 let slot = self.alloca(ty, Some(name));
                 self.f.append_void(
                     self.cur_block,
                     InstKind::Store(init_val, Operand::Value(slot)),
                 );
-                self.locals.insert(name.clone(), (slot, ty));
+                self.locals.insert(
+                    name.clone(),
+                    LocalInfo {
+                        slot,
+                        ty,
+                        moved: false,
+                    },
+                );
             }
             Stmt::While { cond, body } => {
                 let header = self.f.add_block();
@@ -470,11 +582,19 @@ impl<'a> LowerCtx<'a> {
                 self.cur_block = after_blk;
             }
             Stmt::Return(maybe) => {
-                let term = match maybe {
-                    Some(eid) => Terminator::Ret(Some(self.lower_expr(*eid))),
-                    None => Terminator::Ret(None),
-                };
-                self.f.set_term(self.cur_block, term);
+                // Lower the return value (if any) FIRST, then mark the
+                // returned binding as moved so end-of-fn drop skips it,
+                // THEN emit drops for everything still owned, THEN set
+                // the Ret terminator. The order matters: we want the drop
+                // calls to land in the same block as the Ret, before it.
+                let ret_operand = maybe.map(|eid| {
+                    let v = self.lower_expr(eid);
+                    self.consume_if_ident(eid);
+                    v
+                });
+                self.emit_drops_for_owned_locals();
+                let cb = self.cur_block;
+                self.f.set_term(cb, Terminator::Ret(ret_operand));
             }
             Stmt::Expr(eid) => {
                 // Result discarded. Expression may still produce SSA insts as
@@ -540,14 +660,14 @@ impl<'a> LowerCtx<'a> {
                 Operand::Value(self.intern_string_literal(&s))
             }
             Expr::Ident(name) => {
-                let (slot, ty) = match self.locals.get(name) {
-                    Some(s) => *s,
+                let info = match self.locals.get(name) {
+                    Some(i) => *i,
                     None => panic!("ssa-lower: unknown ident `{name}`"),
                 };
                 let v = self.f.append_inst(
                     self.cur_block,
-                    InstKind::Load(ty, Operand::Value(slot)),
-                    ty,
+                    InstKind::Load(info.ty, Operand::Value(info.slot)),
+                    info.ty,
                     None,
                 );
                 Operand::Value(v)
@@ -559,14 +679,40 @@ impl<'a> LowerCtx<'a> {
                     Expr::Ident(n) => n.clone(),
                     other => panic!("ssa-lower: unsupported assign target: {other:?}"),
                 };
-                let (slot, _ty) = match self.locals.get(&name) {
-                    Some(s) => *s,
+                let info = match self.locals.get(&name) {
+                    Some(i) => *i,
                     None => panic!("ssa-lower: assign to unknown ident `{name}`"),
                 };
+                // Drop the previous value held in the slot before overwriting
+                // — for non-Copy types only. Skipping this would leak the
+                // old heap allocation. (For freshly let-decl'd locals this
+                // path doesn't trigger because the let-init went through
+                // Store directly without re-assigning.)
+                if !info.ty.is_copy() && !info.moved {
+                    let old = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Load(info.ty, Operand::Value(info.slot)),
+                        info.ty,
+                        None,
+                    );
+                    let drop_fid = self.intrinsics.str_drop;
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Call(drop_fid, vec![Operand::Value(old)]),
+                    );
+                }
                 let v = self.lower_expr(*value);
-                self.f
-                    .append_void(self.cur_block, InstKind::Store(v, Operand::Value(slot)));
-                // Assignment expression evaluates to the assigned value.
+                self.consume_if_ident(*value);
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Store(v, Operand::Value(info.slot)),
+                );
+                // After Assign, the slot owns a fresh value — flip moved
+                // back to false so subsequent reads work and end-of-fn
+                // drop fires.
+                if let Some(info) = self.locals.get_mut(&name) {
+                    info.moved = false;
+                }
                 v
             }
             Expr::BinOp { op, left, right } => {
@@ -577,6 +723,12 @@ impl<'a> LowerCtx<'a> {
             Expr::Call { callee, args } => {
                 let target = self.resolve_callee(*callee);
                 let argv: Vec<Operand> = args.iter().map(|a| self.lower_expr(*a)).collect();
+                // Consume non-Copy ident args. Mirrors check.rs's pass; the
+                // SSA layer needs the same flag so end-of-fn drops skip
+                // moved bindings.
+                for a in args {
+                    self.consume_if_ident(*a);
+                }
                 let ret_ty = self.f_ret_type_hint(target);
                 let v = self
                     .f
