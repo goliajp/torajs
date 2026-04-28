@@ -15,6 +15,8 @@ pub enum Token {
     While,
     Function,
     Return,
+    /// `type Foo = { x: number }` declares a structural type alias.
+    Type,
     // punctuation
     Dot,
     Comma,
@@ -182,6 +184,7 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                     "while" => Token::While,
                     "function" => Token::Function,
                     "return" => Token::Return,
+                    "type" => Token::Type,
                     _ => Token::Ident(name.to_string()),
                 };
                 emit(&mut out, token, start, i);

@@ -18,10 +18,16 @@ pub enum Type {
     /// Replace with a sum/union type later.
     Any,
     Function(Vec<Type>, Box<Type>),
-    /// Object stand-in for hardcoded globals like `console`. Real object types come in P2.
+    /// Hardcoded global stand-ins (currently only `console`). Real
+    /// user-defined object types use `Type::Struct`.
     Object(&'static str),
     /// Homogeneous array. Owned by `Rc<Vec<Value>>` at runtime in v0.
     Array(Box<Type>),
+    /// Structural object type — fields in declaration order. Two
+    /// `Type::Struct` are equal iff they share field names + types in
+    /// matching order. (TS-style structural compatibility, not nominal.)
+    /// P2.4 introduced this; backed by heap allocation in P2.4.c.
+    Struct(Vec<(String, Type)>),
 }
 
 impl Type {
@@ -36,12 +42,13 @@ impl Type {
             self,
             Type::Number | Type::Boolean | Type::Void | Type::Any
         )
+        // Struct, String, Function, Array — all heap-owned, all affine.
     }
 }
 
-fn resolve_type_ann(name: &str) -> Option<Type> {
+fn resolve_type_ann(name: &str, aliases: &HashMap<String, Type>) -> Option<Type> {
     if let Some(rest) = name.strip_suffix("[]") {
-        return resolve_type_ann(rest).map(|inner| Type::Array(Box::new(inner)));
+        return resolve_type_ann(rest, aliases).map(|inner| Type::Array(Box::new(inner)));
     }
     match name {
         // `number` is the JS-spelled umbrella; `i64` and `f64` are explicit
@@ -52,7 +59,10 @@ fn resolve_type_ann(name: &str) -> Option<Type> {
         "string" => Some(Type::String),
         "boolean" => Some(Type::Boolean),
         "void" => Some(Type::Void),
-        _ => None,
+        // User-declared struct alias (P2.4): `type Point = { x: number, y: number }`
+        // adds `Point` to the aliases map. Resolution returns the
+        // structural Type::Struct directly — no nominal layer above.
+        other => aliases.get(other).cloned(),
     }
 }
 
@@ -60,6 +70,7 @@ fn build_fn_type(
     fn_name: &str,
     params: &[Param],
     return_type: &Option<String>,
+    aliases: &HashMap<String, Type>,
 ) -> Result<Type, String> {
     let mut param_tys = Vec::new();
     for p in params {
@@ -69,7 +80,7 @@ fn build_fn_type(
                 p.name
             ));
         };
-        let Some(ty) = resolve_type_ann(ann) else {
+        let Some(ty) = resolve_type_ann(ann, aliases) else {
             return Err(format!(
                 "unknown type `{ann}` for parameter `{}` of function `{fn_name}`",
                 p.name
@@ -79,7 +90,7 @@ fn build_fn_type(
     }
     let ret_ty = match return_type {
         None => Type::Void,
-        Some(t) => match resolve_type_ann(t) {
+        Some(t) => match resolve_type_ann(t, aliases) {
             Some(ty) => ty,
             None => {
                 return Err(format!(
@@ -106,11 +117,41 @@ pub fn check(ast: &Ast) -> Result<(), String> {
     let mut c = Checker {
         globals: HashMap::new(),
         scopes: vec![HashMap::new()],
+        aliases: HashMap::new(),
         errors: Vec::new(),
         expected_return: None,
     };
 
-    // First pass: hoist top-level function signatures.
+    // Pass 0: register type aliases first so fn signatures + let
+    // annotations can reference them. `type Point = { x: number, y: number }`
+    // adds `Point → Type::Struct(...)` to `c.aliases`.
+    for stmt in &ast.stmts {
+        if let Stmt::TypeDecl { name, fields } = stmt {
+            if c.aliases.contains_key(name) {
+                c.errors.push(format!("redeclaration of type `{name}`"));
+                continue;
+            }
+            let mut field_tys: Vec<(String, Type)> = Vec::new();
+            let mut had_err = false;
+            for (fname, fty_ann) in fields {
+                match resolve_type_ann(fty_ann, &c.aliases) {
+                    Some(ty) => field_tys.push((fname.clone(), ty)),
+                    None => {
+                        c.errors.push(format!(
+                            "unknown type `{fty_ann}` for field `{fname}` of `{name}`"
+                        ));
+                        had_err = true;
+                        break;
+                    }
+                }
+            }
+            if !had_err {
+                c.aliases.insert(name.clone(), Type::Struct(field_tys));
+            }
+        }
+    }
+
+    // Pass 1: hoist top-level function signatures (uses aliases).
     for stmt in &ast.stmts {
         if let Stmt::FnDecl {
             name,
@@ -119,7 +160,7 @@ pub fn check(ast: &Ast) -> Result<(), String> {
             ..
         } = stmt
         {
-            match build_fn_type(name, params, return_type) {
+            match build_fn_type(name, params, return_type, &c.aliases) {
                 Ok(ty) => {
                     if c.globals.contains_key(name) {
                         c.errors.push(format!("redeclaration of function `{name}`"));
@@ -132,7 +173,7 @@ pub fn check(ast: &Ast) -> Result<(), String> {
         }
     }
 
-    // Second pass: check each statement.
+    // Pass 2: check each statement.
     for stmt in &ast.stmts {
         c.check_stmt(ast, stmt);
     }
@@ -147,6 +188,9 @@ pub fn check(ast: &Ast) -> Result<(), String> {
 struct Checker {
     globals: HashMap<String, Type>,
     scopes: Vec<HashMap<String, LocalInfo>>,
+    /// User-declared type aliases — populated in pass 0 from
+    /// `Stmt::TypeDecl`. `Point → Type::Struct(...)`.
+    aliases: HashMap<String, Type>,
     errors: Vec<String>,
     expected_return: Option<Type>,
 }
@@ -274,7 +318,7 @@ impl Checker {
                 let final_ty = match type_ann {
                     None => init_ty,
                     Some(ann) => {
-                        let Some(ann_ty) = resolve_type_ann(ann) else {
+                        let Some(ann_ty) = resolve_type_ann(ann, &self.aliases) else {
                             self.errors.push(format!("unknown type `{ann}`"));
                             return;
                         };
@@ -334,6 +378,11 @@ impl Checker {
                 self.expected_return = saved_return;
                 self.scopes = saved_scopes;
             }
+            Stmt::TypeDecl { .. } => {
+                // Already handled in pass 0; re-encountering it during the
+                // body walk is a no-op. (No nested type decls — top-level
+                // only — but the AST shape allows them anywhere.)
+            }
             Stmt::Return(maybe_expr) => {
                 let Some(expected) = self.expected_return.clone() else {
                     self.errors.push("`return` outside of a function".into());
@@ -386,6 +435,13 @@ impl Checker {
             }
             Expr::Member { obj, name } => {
                 let obj_ty = self.type_of(ast, *obj)?;
+                // Struct field access is the most general path — look up
+                // the named field; type is whatever it was declared as.
+                if let Type::Struct(fields) = &obj_ty
+                    && let Some((_, ty)) = fields.iter().find(|(fname, _)| fname == name)
+                {
+                    return Ok(ty.clone());
+                }
                 match (&obj_ty, name.as_str()) {
                     (Type::Object("console"), "log") => {
                         Ok(Type::Function(vec![Type::Any], Box::new(Type::Void)))
@@ -424,6 +480,28 @@ impl Checker {
                     }
                 }
                 Ok(Type::Array(Box::new(first_ty)))
+            }
+            Expr::ObjectLit { fields } => {
+                // Infer a structural type from the literal's field types.
+                // Order is preserved (matters for struct equality and
+                // memory layout in the SSA layer). LetDecl downstream
+                // compares this inferred type to its `: Point` annotation
+                // — they match iff fields are listed in the same order
+                // with matching types.
+                //
+                // Each non-Copy field expression also gets `consume()`d
+                // since the literal takes ownership (e.g. `{ name: s }`
+                // moves `s` into the struct).
+                let entries: Vec<(String, ExprId)> = fields.clone();
+                let mut field_tys: Vec<(String, Type)> = Vec::new();
+                for (n, eid) in &entries {
+                    let ty = self.type_of(ast, *eid)?;
+                    if !ty.is_copy() {
+                        self.consume(ast, *eid);
+                    }
+                    field_tys.push((n.clone(), ty));
+                }
+                Ok(Type::Struct(field_tys))
             }
             Expr::Call { callee, args } => {
                 let callee_ty = self.type_of(ast, *callee)?;
@@ -558,7 +636,7 @@ impl Checker {
                 let params = params.clone();
                 let return_type = return_type.clone();
                 let body = body.clone();
-                let fn_ty = build_fn_type("<arrow>", &params, &return_type)?;
+                let fn_ty = build_fn_type("<arrow>", &params, &return_type, &self.aliases)?;
                 let Type::Function(param_tys, ret_ty) = fn_ty.clone() else {
                     unreachable!("build_fn_type returned non-Function");
                 };
@@ -676,5 +754,61 @@ mod tests {
             let r: number = n + m;
         "#;
         assert!(check_src(src).is_ok(), "got {:?}", check_src(src));
+    }
+
+    #[test]
+    fn struct_field_access_works() {
+        let src = r#"
+            type Point = { x: number, y: number };
+            let p: Point = { x: 3, y: 4 };
+            let n: number = p.x;
+        "#;
+        assert!(check_src(src).is_ok(), "got {:?}", check_src(src));
+    }
+
+    #[test]
+    fn struct_is_affine_move_then_use_errors() {
+        // Struct is non-Copy — `let q = p` moves p, subsequent p.x should error.
+        let src = r#"
+            type Point = { x: number, y: number };
+            let p: Point = { x: 3, y: 4 };
+            let q: Point = p;
+            let n: number = p.x;
+        "#;
+        let r = check_src(src);
+        assert!(
+            r.as_ref()
+                .err()
+                .map(|s| s.contains("moved"))
+                .unwrap_or(false),
+            "expected 'moved' error, got {r:?}"
+        );
+    }
+
+    #[test]
+    fn struct_field_type_must_resolve() {
+        // Unknown type in field position errors at type-decl time.
+        let src = "type Bad = { x: nope };";
+        let r = check_src(src);
+        assert!(
+            r.as_ref()
+                .err()
+                .map(|s| s.contains("unknown type"))
+                .unwrap_or(false),
+            "expected 'unknown type' error, got {r:?}"
+        );
+    }
+
+    #[test]
+    fn struct_self_reference_unsupported() {
+        // Forward reference in field — sibling alias must be declared first.
+        // (We could relax to allow forward refs in pass 0; deferred. For
+        // now this test pins the current behavior.)
+        let src = r#"
+            type A = { other: B };
+            type B = { x: number };
+        "#;
+        let r = check_src(src);
+        assert!(r.is_err(), "expected error from forward reference, got {r:?}");
     }
 }

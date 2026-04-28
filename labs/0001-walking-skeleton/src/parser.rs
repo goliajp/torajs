@@ -103,6 +103,9 @@ impl Parser<'_> {
         if matches!(self.peek(), Token::Function) {
             return self.parse_fn();
         }
+        if matches!(self.peek(), Token::Type) {
+            return self.parse_type_decl();
+        }
         if matches!(self.peek(), Token::Return) {
             return self.parse_return();
         }
@@ -520,6 +523,14 @@ impl Parser<'_> {
         if matches!(self.peek(), Token::LBracket) {
             return self.parse_array_literal();
         }
+        if matches!(self.peek(), Token::LBrace) {
+            // `{` in expression position is an object literal. Block
+            // statements are caught by `parse_stmt`'s LBrace check before
+            // reaching here, so the only path that lands at LBrace in
+            // primary is an expression context (let-init, fn arg, return
+            // value, etc.).
+            return self.parse_object_literal();
+        }
         let pos = self.pos;
         match &self.tokens[pos].token {
             Token::Ident(n) => {
@@ -577,6 +588,133 @@ impl Parser<'_> {
             i += 1;
         }
         false
+    }
+
+    /// `{ name: expr, ... }` — assumes current token is `{`.
+    fn parse_object_literal(&mut self) -> Result<ExprId, String> {
+        self.pos += 1; // consume `{`
+        let mut fields: Vec<(String, ExprId)> = Vec::new();
+        if !matches!(self.peek(), Token::RBrace) {
+            fields.push(self.parse_object_field()?);
+            while matches!(self.peek(), Token::Comma) {
+                self.pos += 1;
+                if matches!(self.peek(), Token::RBrace) {
+                    break; // trailing comma
+                }
+                fields.push(self.parse_object_field()?);
+            }
+        }
+        match self.peek() {
+            Token::RBrace => self.pos += 1,
+            t => {
+                return Err(format!(
+                    "expected `}}` in object literal, got {t:?} at {}",
+                    self.at()
+                ));
+            }
+        }
+        Ok(self.ast.add_expr(Expr::ObjectLit { fields }))
+    }
+
+    /// One `name: expr` pair inside an object literal.
+    fn parse_object_field(&mut self) -> Result<(String, ExprId), String> {
+        let name = match self.peek() {
+            Token::Ident(n) => n.clone(),
+            t => {
+                return Err(format!(
+                    "expected field name in object literal, got {t:?} at {}",
+                    self.at()
+                ));
+            }
+        };
+        self.pos += 1;
+        match self.peek() {
+            Token::Colon => self.pos += 1,
+            t => {
+                return Err(format!(
+                    "expected `:` after field name `{name}`, got {t:?} at {}",
+                    self.at()
+                ));
+            }
+        }
+        let value = self.parse_expr()?;
+        Ok((name, value))
+    }
+
+    /// `type Name = { f1: T1, f2: T2 };`
+    fn parse_type_decl(&mut self) -> Result<Stmt, String> {
+        self.pos += 1; // consume `type`
+        let name = match self.peek() {
+            Token::Ident(n) => n.clone(),
+            t => {
+                return Err(format!(
+                    "expected type name after `type`, got {t:?} at {}",
+                    self.at()
+                ));
+            }
+        };
+        self.pos += 1;
+        match self.peek() {
+            Token::Eq => self.pos += 1,
+            t => return Err(format!("expected `=` after type name, got {t:?} at {}", self.at())),
+        }
+        match self.peek() {
+            Token::LBrace => self.pos += 1,
+            t => {
+                return Err(format!(
+                    "expected `{{` to begin type body, got {t:?} at {}",
+                    self.at()
+                ));
+            }
+        }
+        let mut fields: Vec<(String, String)> = Vec::new();
+        if !matches!(self.peek(), Token::RBrace) {
+            fields.push(self.parse_type_decl_field()?);
+            while matches!(self.peek(), Token::Comma) {
+                self.pos += 1;
+                if matches!(self.peek(), Token::RBrace) {
+                    break;
+                }
+                fields.push(self.parse_type_decl_field()?);
+            }
+        }
+        match self.peek() {
+            Token::RBrace => self.pos += 1,
+            t => {
+                return Err(format!(
+                    "expected `}}` to end type body, got {t:?} at {}",
+                    self.at()
+                ));
+            }
+        }
+        if matches!(self.peek(), Token::Semi) {
+            self.pos += 1;
+        }
+        Ok(Stmt::TypeDecl { name, fields })
+    }
+
+    fn parse_type_decl_field(&mut self) -> Result<(String, String), String> {
+        let name = match self.peek() {
+            Token::Ident(n) => n.clone(),
+            t => {
+                return Err(format!(
+                    "expected field name in type body, got {t:?} at {}",
+                    self.at()
+                ));
+            }
+        };
+        self.pos += 1;
+        match self.peek() {
+            Token::Colon => self.pos += 1,
+            t => {
+                return Err(format!(
+                    "expected `:` after field name `{name}`, got {t:?} at {}",
+                    self.at()
+                ));
+            }
+        }
+        let ty = self.parse_type_ann()?;
+        Ok((name, ty))
     }
 
     fn parse_array_literal(&mut self) -> Result<ExprId, String> {

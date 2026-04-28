@@ -51,6 +51,11 @@ pub enum Expr {
         index: ExprId,
     },
     Array(Vec<ExprId>),
+    /// Object literal: `{ x: 1, y: 2 }`. Field order is preserved as written
+    /// (matters for struct layout decisions in P2.4.c).
+    ObjectLit {
+        fields: Vec<(String, ExprId)>,
+    },
     ArrowFn {
         params: Vec<Param>,
         return_type: Option<String>,
@@ -88,6 +93,13 @@ pub enum Stmt {
         params: Vec<Param>,
         return_type: Option<String>,
         body: Vec<Stmt>,
+    },
+    /// `type Foo = { x: number, y: number };` — structural type alias.
+    /// Field types are stored as raw annotation strings; `check.rs` is
+    /// where they get resolved to `Type` values.
+    TypeDecl {
+        name: String,
+        fields: Vec<(String, String)>,
     },
     Return(Option<ExprId>),
 }
@@ -182,6 +194,13 @@ impl Ast {
                     self.print_stmt(s, indent + 1);
                 }
             }
+            Stmt::TypeDecl { name, fields } => {
+                let parts: Vec<String> = fields
+                    .iter()
+                    .map(|(n, t)| format!("{n}: {t}"))
+                    .collect();
+                println!("{pad}TypeDecl {name} = {{ {} }}", parts.join(", "));
+            }
             Stmt::Return(maybe) => match maybe {
                 Some(eid) => {
                     println!("{pad}Return");
@@ -235,6 +254,14 @@ impl Ast {
                 for e in elements {
                     self.print_expr(*e, indent + 1);
                 }
+            }
+            Expr::ObjectLit { fields } => {
+                println!("{pad}ObjectLit {{");
+                for (n, eid) in fields {
+                    println!("{pad}  {n}:");
+                    self.print_expr(*eid, indent + 2);
+                }
+                println!("{pad}}}");
             }
             Expr::ArrowFn {
                 params,
