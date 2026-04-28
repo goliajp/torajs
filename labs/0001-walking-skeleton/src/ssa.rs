@@ -41,6 +41,10 @@ pub enum Type {
     I32,
     Bool,
     Void,
+    /// LLVM 22 uses opaque pointers — no need to track what's pointed at.
+    /// The Load instruction carries the loaded type explicitly; Store
+    /// derives it from the value operand's type.
+    Ptr,
 }
 
 impl Type {
@@ -51,6 +55,7 @@ impl Type {
             Type::I32 => "i32",
             Type::Bool => "bool",
             Type::Void => "void",
+            Type::Ptr => "ptr",
         }
     }
 }
@@ -160,6 +165,14 @@ pub enum InstKind {
     ICmp(IPred, Operand, Operand),
     FCmp(FPred, Operand, Operand),
     Call(FuncId, Vec<Operand>),
+    /// `%p = alloca <ty>` — stack-allocate a slot of `ty`. Result type is Ptr.
+    /// Used for mutable locals; mem2reg lifts these to SSA values at -O1+.
+    Alloca(Type),
+    /// `%v = load <ty>, <ptr>` — load a value of `ty` from a pointer operand.
+    Load(Type, Operand),
+    /// `store <value>, <ptr>` — void result; value's type determines the
+    /// store width.
+    Store(Operand, Operand),
 }
 
 #[derive(Debug, Clone)]
@@ -391,6 +404,19 @@ impl Function {
                     self.write_operand(w, a)?;
                 }
                 write!(w, ")")?;
+            }
+            InstKind::Alloca(t) => {
+                write!(w, "alloca {}", t.as_str())?;
+            }
+            InstKind::Load(t, ptr) => {
+                write!(w, "load {}, ", t.as_str())?;
+                self.write_operand(w, ptr)?;
+            }
+            InstKind::Store(val, ptr) => {
+                write!(w, "store ")?;
+                self.write_operand(w, val)?;
+                write!(w, ", ")?;
+                self.write_operand(w, ptr)?;
             }
         }
         writeln!(w)

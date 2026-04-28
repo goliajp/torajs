@@ -262,7 +262,11 @@ fn run_build_llvm(args: &[String]) -> ExitCode {
 
     let mut input: Option<&str> = None;
     let mut output: Option<&str> = None;
-    let mut opt: String = "O1".into();
+    // Default O3, matching the wasm-via-C path's clang fallback. Per-case
+    // override (e.g. fib40 prefers -O1) flows in via TORAJS_AOT_CLANG_FLAGS
+    // below; explicit `--opt` on the CLI wins over both.
+    let mut opt: String = "O3".into();
+    let mut explicit_opt = false;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
@@ -282,6 +286,7 @@ fn run_build_llvm(args: &[String]) -> ExitCode {
                     return ExitCode::from(2);
                 };
                 opt = level.clone();
+                explicit_opt = true;
                 i += 1;
             }
             other if !other.starts_with('-') && input.is_none() => {
@@ -291,6 +296,21 @@ fn run_build_llvm(args: &[String]) -> ExitCode {
             other => {
                 eprintln!("error: unexpected argument `{other}`");
                 return ExitCode::from(2);
+            }
+        }
+    }
+
+    // The bench harness sets TORAJS_AOT_CLANG_FLAGS for per-case opt tuning
+    // (e.g. fib40's `-O1` win over `-O3` because LLVM's loop transforms hurt
+    // recursive int code). Parse it out so torajs-llvm honors the same case
+    // config that torajs-aot already does.
+    if !explicit_opt
+        && let Ok(flags) = std::env::var("TORAJS_AOT_CLANG_FLAGS")
+    {
+        for tok in flags.split_whitespace() {
+            if let Some(level) = tok.strip_prefix("-O") {
+                opt = format!("O{level}");
+                break;
             }
         }
     }

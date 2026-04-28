@@ -102,10 +102,14 @@ pub fn run_one(
         let compile_cmd = ctx.substitute(compile_template);
         // Per-case env overrides for the compile step (e.g. clang flags
         // tuned per case). Empty vec for runners/cases without overrides.
+        // Both `torajs-aot` (wasm-via-C, reads via build.sh) and the new
+        // `torajs-llvm` (Inkwell, reads inside `tr build-llvm`) honor the
+        // same TORAJS_AOT_CLANG_FLAGS env so per-case `-O1`/`-O3` tuning
+        // applies symmetrically to both backends.
         let compile_env: Vec<(String, String)> = case
             .aot_clang_flags
             .as_ref()
-            .filter(|_| runner.name == "torajs-aot")
+            .filter(|_| runner.name == "torajs-aot" || runner.name == "torajs-llvm")
             .map(|f| vec![("TORAJS_AOT_CLANG_FLAGS".to_string(), f.clone())])
             .unwrap_or_default();
 

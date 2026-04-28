@@ -154,12 +154,17 @@ fn lower_fn(
 ) -> ssa::Function {
     let ret_ty = parse_type(return_type);
     let mut f = ssa::Function::new(name, ret_ty);
-    let mut locals: HashMap<String, ValueId> = HashMap::new();
 
+    // Capture param SSA values + types BEFORE creating the entry block; we'll
+    // alloca-and-store each one inside entry below so the lowerer can treat
+    // params and let-locals uniformly (both read via Load, both writable via
+    // Store; params just happen to be initialized from the function's
+    // SSA-arg values).
+    let mut param_setup: Vec<(String, ValueId, Type)> = Vec::with_capacity(params.len());
     for p in params {
         let pty = parse_type(p.type_ann.as_deref());
         let pid = f.add_param(pty, &p.name);
-        locals.insert(p.name.clone(), pid);
+        param_setup.push((p.name.clone(), pid, pty));
     }
 
     let entry = f.add_block();
@@ -167,9 +172,21 @@ fn lower_fn(
         f: &mut f,
         ast,
         fn_table,
-        locals,
+        locals: HashMap::new(),
         cur_block: entry,
     };
+
+    // Materialize each param as an alloca-backed local. mem2reg at -O1+
+    // collapses these straight back to the SSA arg values, so there is no
+    // perf cost; we still get fib40 at 150 ms.
+    for (name, pid, ty) in param_setup {
+        let slot = ctx.alloca(ty, Some(&name));
+        ctx.f.append_void(
+            ctx.cur_block,
+            InstKind::Store(Operand::Value(pid), Operand::Value(slot)),
+        );
+        ctx.locals.insert(name, (slot, ty));
+    }
 
     for s in body {
         ctx.lower_stmt(s);
@@ -182,7 +199,10 @@ struct LowerCtx<'a> {
     f: &'a mut ssa::Function,
     ast: &'a Ast,
     fn_table: &'a HashMap<String, FuncId>,
-    locals: HashMap<String, ValueId>,
+    /// name → (alloca-ptr value, contents type). Every local — including the
+    /// function's own parameters — sits behind an alloca. mem2reg lifts them
+    /// to SSA values at -O1+.
+    locals: HashMap<String, (ValueId, Type)>,
     cur_block: BlockId,
 }
 
@@ -198,28 +218,22 @@ impl<'a> LowerCtx<'a> {
     }
 
     /// Top-level statement lowering inside the synthesized `main` function.
-    /// Step 3 only recognizes `console.log(<numeric expr>)` and routes it
-    /// through the `print_i64` intrinsic. Step 4 generalizes this to support
-    /// `let` / `while` / `Assign` at top level (mostly relevant for the
-    /// `gcd1m` / `popcount` cases that have a top-level loop).
+    /// Recognizes `console.log(<numeric expr>)` and routes it through the
+    /// `print_i64` intrinsic. Everything else (let / while / Assign / If /
+    /// regular Expr) flows through `lower_stmt` — same code paths as inside
+    /// user functions, since main() is just another function.
     fn lower_top_stmt(&mut self, s: &Stmt, print_i64: FuncId) {
-        match s {
-            Stmt::Expr(eid) => {
-                if let Expr::Call { callee, args } = self.ast.get_expr(*eid)
-                    && self.is_console_log_member(*callee)
-                    && args.len() == 1
-                {
-                    let arg = self.lower_expr(args[0]);
-                    self.f.append_void(self.cur_block, InstKind::Call(print_i64, vec![arg]));
-                    return;
-                }
-                panic!(
-                    "ssa-lower: top-level stmt must be `console.log(<num>)` for now: {:?}",
-                    self.ast.get_expr(*eid)
-                );
-            }
-            other => panic!("ssa-lower: top-level stmt unsupported: {other:?}"),
+        if let Stmt::Expr(eid) = s
+            && let Expr::Call { callee, args } = self.ast.get_expr(*eid)
+            && self.is_console_log_member(*callee)
+            && args.len() == 1
+        {
+            let arg = self.lower_expr(args[0]);
+            self.f
+                .append_void(self.cur_block, InstKind::Call(print_i64, vec![arg]));
+            return;
         }
+        self.lower_stmt(s);
     }
 
     /// `console.log` recognized as an Ident("console") + Member.name == "log".
@@ -230,6 +244,14 @@ impl<'a> LowerCtx<'a> {
             }
             _ => false,
         }
+    }
+
+    /// Allocate a stack slot of `ty` in the current block. Returns the
+    /// alloca's pointer ValueId. Used for `let`-decl locals + parameter
+    /// home-slots (see lower_fn).
+    fn alloca(&mut self, ty: Type, name: Option<&str>) -> ValueId {
+        self.f
+            .append_inst(self.cur_block, InstKind::Alloca(ty), Type::Ptr, name)
     }
 
     fn lower_stmt(&mut self, s: &Stmt) {
@@ -244,6 +266,50 @@ impl<'a> LowerCtx<'a> {
                         break;
                     }
                 }
+            }
+            Stmt::LetDecl {
+                mutable: _,
+                name,
+                type_ann,
+                init,
+            } => {
+                // Step 4.1: every let goes through alloca regardless of `mutable`.
+                // const-correctness check is the type-checker's job (already done in
+                // check.rs); the SSA layer doesn't care.
+                let ty = parse_type(type_ann.as_deref());
+                let init_val = self.lower_expr(*init);
+                let slot = self.alloca(ty, Some(name));
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Store(init_val, Operand::Value(slot)),
+                );
+                self.locals.insert(name.clone(), (slot, ty));
+            }
+            Stmt::While { cond, body } => {
+                let header = self.f.add_block();
+                let body_blk = self.f.add_block();
+                let after = self.f.add_block();
+
+                self.f.set_term(self.cur_block, Terminator::Br(header));
+
+                self.cur_block = header;
+                let c = self.lower_expr(*cond);
+                self.f.set_term(
+                    self.cur_block,
+                    Terminator::CondBr {
+                        cond: c,
+                        then_blk: body_blk,
+                        else_blk: after,
+                    },
+                );
+
+                self.cur_block = body_blk;
+                self.lower_stmt(body);
+                if self.cur_open() {
+                    self.f.set_term(self.cur_block, Terminator::Br(header));
+                }
+
+                self.cur_block = after;
             }
             Stmt::If {
                 cond,
@@ -310,10 +376,36 @@ impl<'a> LowerCtx<'a> {
             // f64 once we wire numeric-mode detection into the lowerer.
             Expr::Number(n) => Operand::ConstI64(*n as i64),
             Expr::Bool(b) => Operand::ConstBool(*b),
-            Expr::Ident(name) => match self.locals.get(name) {
-                Some(v) => Operand::Value(*v),
-                None => panic!("ssa-lower: unknown ident `{name}`"),
-            },
+            Expr::Ident(name) => {
+                let (slot, ty) = match self.locals.get(name) {
+                    Some(s) => *s,
+                    None => panic!("ssa-lower: unknown ident `{name}`"),
+                };
+                let v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Load(ty, Operand::Value(slot)),
+                    ty,
+                    None,
+                );
+                Operand::Value(v)
+            }
+            Expr::Assign { target, value } => {
+                // Only `Ident` on the lhs is supported in step 4.1. Member /
+                // index assignments need objects and arrays (not in scope).
+                let name = match self.ast.get_expr(*target) {
+                    Expr::Ident(n) => n.clone(),
+                    other => panic!("ssa-lower: unsupported assign target: {other:?}"),
+                };
+                let (slot, _ty) = match self.locals.get(&name) {
+                    Some(s) => *s,
+                    None => panic!("ssa-lower: assign to unknown ident `{name}`"),
+                };
+                let v = self.lower_expr(*value);
+                self.f
+                    .append_void(self.cur_block, InstKind::Store(v, Operand::Value(slot)));
+                // Assignment expression evaluates to the assigned value.
+                v
+            }
             Expr::BinOp { op, left, right } => {
                 let a = self.lower_expr(*left);
                 let b = self.lower_expr(*right);

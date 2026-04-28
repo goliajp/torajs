@@ -25,7 +25,8 @@ use inkwell::passes::PassBuilderOptions;
 use inkwell::targets::{
     CodeModel, FileType, InitializationConfig, RelocMode, Target, TargetMachine,
 };
-use inkwell::types::{BasicMetadataTypeEnum, FunctionType};
+use inkwell::AddressSpace;
+use inkwell::types::{BasicMetadataTypeEnum, BasicTypeEnum, FunctionType};
 use inkwell::values::{BasicMetadataValueEnum, BasicValueEnum, FunctionValue, IntValue};
 
 use crate::ssa::{self as s, BinOp, IPred, InstKind, Module, Operand, Terminator, Type};
@@ -280,6 +281,7 @@ fn build_fn_type<'ctx>(ctx: &'ctx Context, params: &[Type], ret: Type) -> Functi
         Type::I32 => ctx.i32_type().fn_type(&param_metas, false),
         Type::F64 => ctx.f64_type().fn_type(&param_metas, false),
         Type::Bool => ctx.bool_type().fn_type(&param_metas, false),
+        Type::Ptr => ctx.ptr_type(AddressSpace::default()).fn_type(&param_metas, false),
     }
 }
 
@@ -289,7 +291,21 @@ fn basic_meta_type<'ctx>(ctx: &'ctx Context, t: Type) -> BasicMetadataTypeEnum<'
         Type::I32 => ctx.i32_type().into(),
         Type::F64 => ctx.f64_type().into(),
         Type::Bool => ctx.bool_type().into(),
+        Type::Ptr => ctx.ptr_type(AddressSpace::default()).into(),
         Type::Void => panic!("void cannot be a parameter type"),
+    }
+}
+
+/// SSA Type → Inkwell BasicTypeEnum. Used by alloca / load to specify the
+/// stack slot or load width. Void is intentionally not representable here.
+fn basic_type<'ctx>(ctx: &'ctx Context, t: Type) -> BasicTypeEnum<'ctx> {
+    match t {
+        Type::I64 => ctx.i64_type().into(),
+        Type::I32 => ctx.i32_type().into(),
+        Type::F64 => ctx.f64_type().into(),
+        Type::Bool => ctx.bool_type().into(),
+        Type::Ptr => ctx.ptr_type(AddressSpace::default()).into(),
+        Type::Void => panic!("void cannot be a basic type (alloca/load/store)"),
     }
 }
 
@@ -383,6 +399,23 @@ impl<'a, 'ctx> FnLower<'a, 'ctx> {
                 } else {
                     None // void call
                 }
+            }
+            InstKind::Alloca(t) => {
+                let bt = basic_type(self.ctx, *t);
+                let p = self.builder.build_alloca(bt, "").unwrap();
+                Some(BasicValueEnum::PointerValue(p))
+            }
+            InstKind::Load(t, ptr) => {
+                let bt = basic_type(self.ctx, *t);
+                let p = self.operand(ptr).into_pointer_value();
+                let v = self.builder.build_load(bt, p, "").unwrap();
+                Some(v)
+            }
+            InstKind::Store(val, ptr) => {
+                let v = self.operand(val);
+                let p = self.operand(ptr).into_pointer_value();
+                self.builder.build_store(p, v).unwrap();
+                None
             }
         };
 
