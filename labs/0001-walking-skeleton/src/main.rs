@@ -1,5 +1,4 @@
 mod ast;
-mod build;
 mod check;
 mod interp;
 mod ir;
@@ -46,8 +45,7 @@ fn main() -> ExitCode {
         Some("ir") => run_pipeline(args.get(1), Stage::Ir),
         Some("ssa") => run_pipeline(args.get(1), Stage::Ssa),
         Some("run") => run_pipeline(args.get(1), Stage::Run),
-        Some("build") => run_build(&args[1..]),
-        Some("build-llvm") => run_build_llvm(&args[1..]),
+        Some("build") => run_build_llvm(&args[1..]),
         Some("ssa-demo") => {
             ssa::demo_fib40().print();
             ExitCode::SUCCESS
@@ -72,13 +70,12 @@ fn print_usage() {
     println!("    parse <file>         print the parsed AST");
     println!("    check <file>         type-check, exit nonzero on error");
     println!("    ir <file>            print the lowered (stack-machine) IR");
-    println!("    ssa <file>           print the lowered SSA IR (P3.5 — fns only, fib40 shape)");
-    println!("    build <in> -o <out>  AOT-compile to wasm (P3.1, very limited)");
+    println!("    ssa <file>           print the lowered SSA IR");
     println!(
-        "    build-llvm <in> -o <out> [--opt O0|O1|O2|O3]"
+        "    build <in> -o <out> [--opt O0|O1|O2|O3]"
     );
-    println!("                         AOT-compile via LLVM (P3.5; fib40 shape only for now)");
-    println!("    ssa-demo             print a hand-built SSA fib40 (P3.5 step 1)");
+    println!("                         AOT-compile via LLVM 22 → native binary");
+    println!("    ssa-demo             print a hand-built SSA fib40 (P3.5 step 1 leftover)");
     println!();
     println!("    --version, -V        print version");
     println!("    --help, -h           print this help");
@@ -158,105 +155,18 @@ fn pipeline(src: &str, stage: Stage) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-fn run_build(args: &[String]) -> ExitCode {
-    if matches!(
-        args.first().map(String::as_str),
-        Some("--help") | Some("-h")
-    ) {
-        println!("tr build {VERSION} (AOT to wasm — P3.1 stub)");
-        println!();
-        println!("USAGE: tr build <input.ts> -o <output.wasm>");
-        println!();
-        println!("Currently only programs of the form `console.log(\"<string>\")`");
-        println!("compile. P3.2/3.3 will extend this to arithmetic and functions.");
-        return ExitCode::SUCCESS;
-    }
-
-    let mut input: Option<&str> = None;
-    let mut output: Option<&str> = None;
-    let mut i = 0;
-    while i < args.len() {
-        match args[i].as_str() {
-            "-o" => {
-                i += 1;
-                let Some(path) = args.get(i) else {
-                    eprintln!("error: `-o` requires a path");
-                    return ExitCode::from(2);
-                };
-                output = Some(path.as_str());
-                i += 1;
-            }
-            other if !other.starts_with('-') && input.is_none() => {
-                input = Some(other);
-                i += 1;
-            }
-            other => {
-                eprintln!("error: unexpected argument `{other}`");
-                return ExitCode::from(2);
-            }
-        }
-    }
-
-    let Some(input) = input else {
-        eprintln!("error: missing input file (use `-` for stdin)");
-        return ExitCode::from(2);
-    };
-    let Some(output) = output else {
-        eprintln!("error: missing `-o <output>`");
-        return ExitCode::from(2);
-    };
-
-    let src = match read_source(input) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("error: {e}");
-            return ExitCode::from(2);
-        }
-    };
-    let tokens = match lexer::tokenize(&src) {
-        Ok(t) => t,
-        Err(e) => {
-            eprintln!("lex error: {e}");
-            return ExitCode::from(1);
-        }
-    };
-    let ast = match parser::parse(&tokens) {
-        Ok(a) => a,
-        Err(e) => {
-            eprintln!("parse error: {e}");
-            return ExitCode::from(1);
-        }
-    };
-    if let Err(e) = check::check(&ast) {
-        eprintln!("type error: {e}");
-        return ExitCode::from(1);
-    }
-    match build::build(&ast, std::path::Path::new(output)) {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(build::BuildError::NotYetImplemented(msg)) => {
-            // Exit 3 is the bench harness's signal for "feature not yet
-            // implemented" — distinct from real failures (exit 1).
-            eprintln!("not yet supported: {msg}");
-            ExitCode::from(3)
-        }
-        Err(build::BuildError::Real(msg)) => {
-            eprintln!("build error: {msg}");
-            ExitCode::from(1)
-        }
-    }
-}
-
-/// `tr build-llvm <in> -o <out> [--opt O0|O1|O2|O3]`. Pipeline: lex → parse →
-/// check → ssa_lower → ssa_inkwell → cc. Bench harness's "torajs-llvm" runner
-/// calls this. Step 3 only: handles fib40 shape; richer cases need step 4.
+/// `tr build <in> -o <out> [--opt O0|O1|O2|O3]`. Pipeline: lex → parse →
+/// check → ssa_lower → ssa_inkwell → cc. Bench harness's `torajs` runner
+/// calls this. P3.7 retired the previous wasm-via-C `tr build`; this is the
+/// canonical AOT entry point now.
 fn run_build_llvm(args: &[String]) -> ExitCode {
     if matches!(
         args.first().map(String::as_str),
         Some("--help") | Some("-h")
     ) {
-        println!("tr build-llvm — AOT compile via LLVM");
+        println!("tr build — AOT compile via LLVM 22 → native binary");
         println!();
-        println!("USAGE: tr build-llvm <input.ts> -o <output> [--opt O0|O1|O2|O3]");
+        println!("USAGE: tr build <input.ts> -o <output> [--opt O0|O1|O2|O3]");
         return ExitCode::SUCCESS;
     }
 
@@ -302,8 +212,8 @@ fn run_build_llvm(args: &[String]) -> ExitCode {
 
     // The bench harness sets TORAJS_AOT_CLANG_FLAGS for per-case opt tuning
     // (e.g. fib40's `-O1` win over `-O3` because LLVM's loop transforms hurt
-    // recursive int code). Parse it out so torajs-llvm honors the same case
-    // config that torajs-aot already does.
+    // recursive int code). Env var name is legacy from the wasm-via-C era —
+    // rename to TORAJS_OPT in a follow-up cleanup.
     if !explicit_opt
         && let Ok(flags) = std::env::var("TORAJS_AOT_CLANG_FLAGS")
     {
@@ -378,7 +288,7 @@ fn run_build_llvm(args: &[String]) -> ExitCode {
     match ssa_inkwell::compile(&ssa_module, std::path::Path::new(output), &opt) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
-            eprintln!("build-llvm error: {e}");
+            eprintln!("build error: {e}");
             ExitCode::from(1)
         }
     }

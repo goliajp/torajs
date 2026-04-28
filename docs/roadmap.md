@@ -4,7 +4,7 @@
 >
 > Provenance: synthesized from `.claude/researches/0001-direction.md` through `0005-roadmap.md` (research / discussion logs, kept for audit trail).
 >
-> Last revised: 2026-04-28
+> Last revised: 2026-04-28 (P3.7 closeout)
 
 ---
 
@@ -503,13 +503,11 @@ P3.1–P3.3 landed the **wasm-via-C** path (tr → wasm-encoder → wasm2c → c
 
 ### P3.7 — Retire wasm-via-C path
 
-**Goal**: delete the wasm pipeline once both new backends are at parity or better.
+**Status (2026-04-28): ✓ done.** Deleted: `wasm-encoder` dep, `bench/aot-host/` (build.sh + main.c), `bench/runners/torajs-aot.toml`, `labs/0001/src/build.rs`, the libtorart.a cache logic, the legacy `tr build` wasm-via-C subcommand. `bench/runners/torajs-llvm.toml` renamed to `torajs.toml`; the runner's name field is now just `torajs` — the canonical AOT identity on the bench scoreboard. ~1300 LOC of code + 350 KB of cache machinery gone.
 
-**Removes**: `wasm-encoder` dep, `bench/aot-host/` directory, libtorart.a cache logic, `bench/runners/torajs-wasm.toml`, the `build.rs` (wasm-encoder version), all wabt/clang dependencies.
+Cranelift JIT (P3.6) is the next piece. Until it lands, the `torajs-interp` row (tree-walk) is still live as the dev-loop measurement; it will be replaced when Cranelift's `tr run` ships.
 
-**Bench scoreboard ends with**: `torajs-llvm` (AOT) + `torajs-cranelift` (JIT) + bun-jsc/aot, node-v8, rust, go, python.
-
-**Size**: deletion, <100 LOC remaining.
+**Bench scoreboard now**: `torajs` (AOT) + `torajs-interp` (tree-walk, retiring in P3.6) + bun-jsc, bun-aot, node-v8, rust, go, python.
 
 ### P3 deliverables
 

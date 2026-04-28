@@ -25,12 +25,15 @@ pub struct Case {
     /// mandelbrot, where compiler FMA choices produce different bit-exact
     /// answers on the same algorithm.
     pub tolerance: u64,
-    /// Optional override for the `torajs-aot` clang invocation. When set,
-    /// the harness exports `TORAJS_AOT_CLANG_FLAGS=<value>` for the compile
-    /// step and `bench/aot-host/build.sh` reads it. Empirically `-O1` beats
-    /// `-O3` on some shapes (fib40, startup) while `-O3` beats `-O1` on
-    /// others (popcount needs LLVM's loop-idiom recognition for
-    /// `cnt.16b`). Default `-O3` works for the median case.
+    /// Optional override for the LLVM new-pass-manager opt level used by
+    /// the `torajs` runner's compile step. When set, the harness exports
+    /// `TORAJS_AOT_CLANG_FLAGS=<value>` and `tr build` parses out the
+    /// `-OX` token. Empirically `-O1` beats `-O3` on some shapes (fib40,
+    /// startup) while `-O3` beats `-O1` on others (popcount needs LLVM's
+    /// loop-idiom recognition for `cnt.16b`). Default `-O3`.
+    ///
+    /// Field name is legacy from the wasm-via-C era; rename to `torajs_opt`
+    /// in a follow-up cleanup.
     pub aot_clang_flags: Option<String>,
 }
 
@@ -42,7 +45,7 @@ pub struct Case {
 /// compile_runs = 5
 /// compile_warmup = 1
 /// tolerance = 500            # absolute int diff allowed on stdout's last line
-/// aot_clang_flags = "-O1"    # override clang flags for torajs-aot compile
+/// aot_clang_flags = "-O1"    # override LLVM opt level for `torajs` runner
 /// ```
 #[derive(Debug, Default, Deserialize)]
 struct CaseConfig {

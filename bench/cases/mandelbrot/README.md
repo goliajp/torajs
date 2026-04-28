@@ -23,7 +23,7 @@ All implementations write the textbook escape-time algorithm directly. f64 throu
 
 Mandelbrot is genuinely FP-precision sensitive — cells right on the set's fractal boundary will flip "escapes / doesn't escape" under any change to operation order, precision, or rounding. Compiler choices about **fused multiply-add (FMA)** are the dominant source of drift here:
 
-- **rust / bun / node / python / torajs-aot via clang**: all give `15383188`. None auto-fuses `a*b + c` into a single rounded FMA without explicit instruction.
+- **rust / bun / node / python / torajs via clang**: all give `15383188`. None auto-fuses `a*b + c` into a single rounded FMA without explicit instruction.
 - **Go on ARM64**: gives `15382891`. The gc compiler emits `FMADDD` / `FMSUBD` aggressively for any `a*b ± c` pattern — there's no `-ffp-contract=off` knob in Go, and forcing it off via `//go:noinline` barriers slows Go ~2.5× (87 ms vs 35 ms), which would distort the perf comparison.
 - **Tora-AOT with `-ffp-contract=fast`**: gives yet a third value (~15383012) because LLVM picks slightly different fusion sites than gc.
 

@@ -21,7 +21,7 @@
 //
 // On unsupported shapes we panic with a clear message — labs material, not a
 // user-facing tool yet. Will switch to a Result<_, LowerError> path when this
-// is wired into a full `tr build-llvm` driver.
+// is wired into a full `tr build` driver.
 
 use std::collections::HashMap;
 
