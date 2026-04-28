@@ -7,6 +7,7 @@ mod lexer;
 mod lower;
 mod parser;
 mod ssa;
+mod ssa_lower;
 mod value;
 
 use std::env;
@@ -21,6 +22,7 @@ enum Stage {
     Parse,
     Check,
     Ir,
+    Ssa,
     Run,
 }
 
@@ -41,6 +43,7 @@ fn main() -> ExitCode {
         Some("parse") => run_pipeline(args.get(1), Stage::Parse),
         Some("check") => run_pipeline(args.get(1), Stage::Check),
         Some("ir") => run_pipeline(args.get(1), Stage::Ir),
+        Some("ssa") => run_pipeline(args.get(1), Stage::Ssa),
         Some("run") => run_pipeline(args.get(1), Stage::Run),
         Some("build") => run_build(&args[1..]),
         Some("ssa-demo") => {
@@ -67,6 +70,7 @@ fn print_usage() {
     println!("    parse <file>         print the parsed AST");
     println!("    check <file>         type-check, exit nonzero on error");
     println!("    ir <file>            print the lowered (stack-machine) IR");
+    println!("    ssa <file>           print the lowered SSA IR (P3.5 — fns only, fib40 shape)");
     println!("    build <in> -o <out>  AOT-compile to wasm (P3.1, very limited)");
     println!("    ssa-demo             print a hand-built SSA fib40 (P3.5 step 1)");
     println!();
@@ -126,6 +130,12 @@ fn pipeline(src: &str, stage: Stage) -> ExitCode {
         return ExitCode::from(1);
     }
     if matches!(stage, Stage::Check) {
+        return ExitCode::SUCCESS;
+    }
+
+    if matches!(stage, Stage::Ssa) {
+        let m = ssa_lower::lower(&ast);
+        m.print();
         return ExitCode::SUCCESS;
     }
 
