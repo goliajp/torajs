@@ -692,20 +692,27 @@ impl<'a> LowerCtx<'a> {
                     Expr::Ident(n) => n.clone(),
                     other => panic!("ssa-lower: unsupported assign target: {other:?}"),
                 };
-                let info = match self.locals.get(&name) {
+                let snapshot = match self.locals.get(&name) {
                     Some(i) => *i,
                     None => panic!("ssa-lower: assign to unknown ident `{name}`"),
                 };
-                // Drop the previous value held in the slot before overwriting
-                // — for non-Copy types only. Skipping this would leak the
-                // old heap allocation. (For freshly let-decl'd locals this
-                // path doesn't trigger because the let-init went through
-                // Store directly without re-assigning.)
-                if !info.ty.is_copy() && !info.moved {
+                // Lower the rhs FIRST. The rhs might internally consume the
+                // lhs binding (e.g. `s = s + "x"` — concat takes ownership
+                // of s, freeing its heap). Once consumed, the slot's
+                // pointer is dangling — we must NOT load+drop it as the
+                // "old value" at that point.
+                let v = self.lower_expr(*value);
+                self.consume_if_ident(*value);
+                // Now check if the lhs binding is *still* owned (rhs didn't
+                // consume it). If yes, the slot still holds a live heap
+                // pointer that needs freeing before we overwrite. If
+                // moved, the rhs's flow already disposed of the heap.
+                let post_rhs = *self.locals.get(&name).unwrap_or(&snapshot);
+                if !snapshot.ty.is_copy() && !post_rhs.moved {
                     let old = self.f.append_inst(
                         self.cur_block,
-                        InstKind::Load(info.ty, Operand::Value(info.slot)),
-                        info.ty,
+                        InstKind::Load(snapshot.ty, Operand::Value(snapshot.slot)),
+                        snapshot.ty,
                         None,
                     );
                     let drop_fid = self.intrinsics.str_drop;
@@ -714,15 +721,12 @@ impl<'a> LowerCtx<'a> {
                         InstKind::Call(drop_fid, vec![Operand::Value(old)]),
                     );
                 }
-                let v = self.lower_expr(*value);
-                self.consume_if_ident(*value);
                 self.f.append_void(
                     self.cur_block,
-                    InstKind::Store(v, Operand::Value(info.slot)),
+                    InstKind::Store(v, Operand::Value(snapshot.slot)),
                 );
-                // After Assign, the slot owns a fresh value — flip moved
-                // back to false so subsequent reads work and end-of-fn
-                // drop fires.
+                // The slot now owns a fresh value — clear `moved` so
+                // subsequent reads work and end-of-fn drop fires.
                 if let Some(info) = self.locals.get_mut(&name) {
                     info.moved = false;
                 }

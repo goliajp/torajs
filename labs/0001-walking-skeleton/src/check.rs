@@ -185,6 +185,20 @@ impl Checker {
         }
     }
 
+    /// Inverse of `mark_moved` — the binding's slot now owns a fresh value
+    /// (Assign rebound it). Used to clear any transient `moved` state set
+    /// during rhs evaluation. Lets `s = s + "x"` work: the BinOp internally
+    /// consumes s (because str+str consumes both), then Assign rebinds s
+    /// with the concat result, so subsequent reads of s are fine.
+    fn mark_unmoved(&mut self, name: &str) {
+        for s in self.scopes.iter_mut().rev() {
+            if let Some(info) = s.get_mut(name) {
+                info.moved = false;
+                return;
+            }
+        }
+    }
+
     /// Consume an expression: if it resolves to a non-Copy binding-read
     /// (`Ident(name)`), mark that binding as moved. Other expression shapes
     /// produce fresh values (BinOp, Call return, literal, Index, etc.) —
@@ -518,11 +532,20 @@ impl Checker {
                         "type mismatch assigning to `{name}`: declared {target_ty:?}, value is {value_ty:?}"
                     ));
                 }
-                // Re-assignment moves the rhs into the binding's slot. The
-                // PREVIOUS value held by `name` would be dropped here in a
-                // full implementation (P2.2 emits Drop in SSA); for the
-                // type-check pass we just record the rhs consumption.
+                // Re-assignment moves the rhs into the binding's slot.
+                // Two flag updates happen here:
+                //   1. consume(value) — if the rhs is an Ident, mark that
+                //      source binding moved.
+                //   2. mark_unmoved(target) — clear any transient `moved`
+                //      that fired during rhs evaluation (e.g. `s = s + "x"`
+                //      consumes s inside the BinOp; the Assign re-binds
+                //      it, so post-Assign reads of s are valid again).
+                let target_name = match ast.get_expr(*target) {
+                    Expr::Ident(n) => n.clone(),
+                    _ => unreachable!("target was Ident — checked above"),
+                };
                 self.consume(ast, *value);
+                self.mark_unmoved(&target_name);
                 Ok(target_ty)
             }
             Expr::ArrowFn {
