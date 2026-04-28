@@ -6,6 +6,7 @@ mod ir;
 mod lexer;
 mod lower;
 mod parser;
+mod ssa;
 mod value;
 
 use std::env;
@@ -42,6 +43,10 @@ fn main() -> ExitCode {
         Some("ir") => run_pipeline(args.get(1), Stage::Ir),
         Some("run") => run_pipeline(args.get(1), Stage::Run),
         Some("build") => run_build(&args[1..]),
+        Some("ssa-demo") => {
+            ssa::demo_fib40().print();
+            ExitCode::SUCCESS
+        }
         Some(other) => {
             eprintln!("error: unknown command `{other}`");
             print_usage();
@@ -61,8 +66,9 @@ fn print_usage() {
     println!("    tokenize <file>      print the token stream");
     println!("    parse <file>         print the parsed AST");
     println!("    check <file>         type-check, exit nonzero on error");
-    println!("    ir <file>            print the lowered IR");
+    println!("    ir <file>            print the lowered (stack-machine) IR");
     println!("    build <in> -o <out>  AOT-compile to wasm (P3.1, very limited)");
+    println!("    ssa-demo             print a hand-built SSA fib40 (P3.5 step 1)");
     println!();
     println!("    --version, -V        print version");
     println!("    --help, -h           print this help");
