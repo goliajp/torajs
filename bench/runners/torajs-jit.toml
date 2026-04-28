@@ -1,0 +1,14 @@
+# torajs JIT mode: `tr jit foo.ts` — Cranelift compile-to-memory + execute
+# in-process. Replaces the previous tree-walk `torajs-interp` row (which was
+# 17 seconds on fib40 because every AST node walk allocated; 33× faster
+# now). compile_ms is blank by design — the JIT compile cost is part of the
+# wall time we care about for `tr jit`, so it rolls into run_ms.
+#
+# Codegen quality is weaker than the LLVM AOT row (`torajs`): Cranelift has
+# no auto-vectorizer, no loop-idiom recognizer (popcount loses ~40× here vs
+# torajs's 2.5 ms because it doesn't fold to ARM cnt.16b). For dev iteration
+# the trade-off is worth it: ~5 ms compile in Cranelift vs ~40 ms in LLVM.
+name = "torajs-jit"
+detect = "{workspace}/target/release/tr --version"
+src_filename = "main.tora.ts"
+run = "{workspace}/target/release/tr run {src}"

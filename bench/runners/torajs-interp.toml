@@ -1,7 +1,0 @@
-# torajs interpreter mode — `tr run main.tora.ts` lex/parse/check/lower/interp.
-# Always available. Pre-P3 (no AOT) this is the only torajs row that produces
-# numbers; post-P3 it stays as the dev-time path next to `torajs`.
-name = "torajs-interp"
-detect = "{workspace}/target/release/tr --version"
-src_filename = "main.tora.ts"
-run = "{workspace}/target/release/tr run {src}"

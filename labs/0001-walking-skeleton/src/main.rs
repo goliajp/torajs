@@ -1,14 +1,11 @@
 mod ast;
 mod check;
-mod interp;
-mod ir;
 mod lexer;
-mod lower;
 mod parser;
 mod ssa;
+mod ssa_cranelift;
 mod ssa_inkwell;
 mod ssa_lower;
-mod value;
 
 use std::env;
 use std::io::Read;
@@ -21,9 +18,7 @@ enum Stage {
     Tokenize,
     Parse,
     Check,
-    Ir,
     Ssa,
-    Run,
 }
 
 fn main() -> ExitCode {
@@ -42,9 +37,13 @@ fn main() -> ExitCode {
         Some("tokenize") => run_pipeline(args.get(1), Stage::Tokenize),
         Some("parse") => run_pipeline(args.get(1), Stage::Parse),
         Some("check") => run_pipeline(args.get(1), Stage::Check),
-        Some("ir") => run_pipeline(args.get(1), Stage::Ir),
         Some("ssa") => run_pipeline(args.get(1), Stage::Ssa),
-        Some("run") => run_pipeline(args.get(1), Stage::Run),
+        // `tr run` is now Cranelift-JIT-backed (P3.6) — same code path as
+        // `tr jit`, kept under both names for ergonomics. The tree-walk
+        // interpreter via `lower → interp` was deleted along with
+        // `torajs-interp`; Go-shape "compile to memory + execute" is the
+        // canonical dev-loop semantics.
+        Some("run") | Some("jit") => run_jit(args.get(1)),
         Some("build") => run_build_llvm(&args[1..]),
         Some("ssa-demo") => {
             ssa::demo_fib40().print();
@@ -65,11 +64,11 @@ fn print_usage() {
     println!("    tr <COMMAND> <file|->");
     println!();
     println!("COMMANDS:");
-    println!("    run <file>           lex, parse, check, lower, and execute");
+    println!("    run <file>           lex/parse/check, JIT-compile via Cranelift, execute");
+    println!("    jit <file>           alias for `run`");
     println!("    tokenize <file>      print the token stream");
     println!("    parse <file>         print the parsed AST");
     println!("    check <file>         type-check, exit nonzero on error");
-    println!("    ir <file>            print the lowered (stack-machine) IR");
     println!("    ssa <file>           print the lowered SSA IR");
     println!(
         "    build <in> -o <out> [--opt O0|O1|O2|O3]"
@@ -140,17 +139,6 @@ fn pipeline(src: &str, stage: Stage) -> ExitCode {
         let m = ssa_lower::lower(&ast);
         m.print();
         return ExitCode::SUCCESS;
-    }
-
-    let module = lower::lower(&ast);
-    if matches!(stage, Stage::Ir) {
-        module.print();
-        return ExitCode::SUCCESS;
-    }
-
-    if let Err(e) = interp::execute(&module) {
-        eprintln!("runtime error: {e}");
-        return ExitCode::from(1);
     }
     ExitCode::SUCCESS
 }
@@ -289,6 +277,77 @@ fn run_build_llvm(args: &[String]) -> ExitCode {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("build error: {e}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+/// `tr jit <file>` — Cranelift JIT pipeline: lex → parse → check →
+/// ssa_lower → ssa_cranelift::execute. The SSA module's `main` function is
+/// JIT-compiled in-process and called immediately. Total wall time =
+/// compile + run, all in this process. Long-term replaces `tr run`'s
+/// tree-walk interpreter once the perf signal comes back clean.
+fn run_jit(file_arg: Option<&String>) -> ExitCode {
+    let path = match file_arg {
+        Some(p) => p,
+        None => {
+            eprintln!("error: missing file argument (use `-` for stdin)");
+            return ExitCode::from(2);
+        }
+    };
+    let src = match read_source(path) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("error: {e}");
+            return ExitCode::from(2);
+        }
+    };
+    let tokens = match lexer::tokenize(&src) {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("lex error: {e}");
+            return ExitCode::from(1);
+        }
+    };
+    let ast = match parser::parse(&tokens) {
+        Ok(a) => a,
+        Err(e) => {
+            eprintln!("parse error: {e}");
+            return ExitCode::from(1);
+        }
+    };
+    if let Err(e) = check::check(&ast) {
+        eprintln!("type error: {e}");
+        return ExitCode::from(1);
+    }
+
+    // Same panic-to-exit-3 dance as run_build_llvm — ssa_lower panics on
+    // unsupported AST shapes; bench harness reads exit 3 as "skip".
+    let prev_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(|_| {}));
+    let lower_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        ssa_lower::lower(&ast)
+    }));
+    std::panic::set_hook(prev_hook);
+    let ssa_module = match lower_result {
+        Ok(m) => m,
+        Err(payload) => {
+            let msg = if let Some(s) = payload.downcast_ref::<&str>() {
+                s.to_string()
+            } else if let Some(s) = payload.downcast_ref::<String>() {
+                s.clone()
+            } else {
+                "ssa_lower panicked".to_string()
+            };
+            eprintln!("not yet supported: {msg}");
+            return ExitCode::from(3);
+        }
+    };
+
+    match ssa_cranelift::execute(&ssa_module) {
+        Ok(rc) => ExitCode::from(rc as u8),
+        Err(e) => {
+            eprintln!("jit error: {e}");
             ExitCode::from(1)
         }
     }
