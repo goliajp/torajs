@@ -24,6 +24,21 @@ pub enum Type {
     Array(Box<Type>),
 }
 
+impl Type {
+    /// Cheap-to-duplicate types live entirely in registers / stack — using
+    /// the binding twice just produces two independent copies with no
+    /// runtime cost. Affine types own heap storage and follow Rust-shaped
+    /// move semantics: each binding is the unique owner; consuming the
+    /// binding (let-rhs / assign-rhs / call-arg / return) transfers
+    /// ownership and the source name is marked moved.
+    pub fn is_copy(&self) -> bool {
+        matches!(
+            self,
+            Type::Number | Type::Boolean | Type::Void | Type::Any
+        )
+    }
+}
+
 fn resolve_type_ann(name: &str) -> Option<Type> {
     if let Some(rest) = name.strip_suffix("[]") {
         return resolve_type_ann(rest).map(|inner| Type::Array(Box::new(inner)));
@@ -80,6 +95,11 @@ fn build_fn_type(
 struct LocalInfo {
     ty: Type,
     mutable: bool,
+    /// Affine ownership flag. False until the binding's value is consumed
+    /// (let-rhs, assign-rhs, non-Copy call-arg, return). After move, any
+    /// further read of this binding is a type error. Copy-typed bindings
+    /// never get marked.
+    moved: bool,
 }
 
 pub fn check(ast: &Ast) -> Result<(), String> {
@@ -151,6 +171,36 @@ impl Checker {
             }
         }
         None
+    }
+
+    /// Walk the scope stack from innermost outward and flip `moved=true`
+    /// on the first matching binding. Caller must already have verified
+    /// the binding exists.
+    fn mark_moved(&mut self, name: &str) {
+        for s in self.scopes.iter_mut().rev() {
+            if let Some(info) = s.get_mut(name) {
+                info.moved = true;
+                return;
+            }
+        }
+    }
+
+    /// Consume an expression: if it resolves to a non-Copy binding-read
+    /// (`Ident(name)`), mark that binding as moved. Other expression shapes
+    /// produce fresh values (BinOp, Call return, literal, Index, etc.) —
+    /// no source binding to flag. This is the move-detection hook called
+    /// at the four consumption sites: let-rhs, assign-rhs, non-Copy call
+    /// arg, return value.
+    fn consume(&mut self, ast: &Ast, eid: ExprId) {
+        if let Expr::Ident(name) = ast.get_expr(eid) {
+            let name = name.clone();
+            if let Some(info) = self.lookup(&name)
+                && !info.ty.is_copy()
+                && !info.moved
+            {
+                self.mark_moved(&name);
+            }
+        }
     }
 
     fn check_stmt(&mut self, ast: &Ast, stmt: &Stmt) {
@@ -228,10 +278,15 @@ impl Checker {
                     LocalInfo {
                         ty: final_ty,
                         mutable: *mutable,
+                        moved: false,
                     },
                 ) {
                     self.errors.push(e);
                 }
+                // Consume the rhs after recording the new binding (so that
+                // `let a = x` correctly moves out of x — but only after x's
+                // type-of read succeeded, which the lookup above implies).
+                self.consume(ast, *init);
             }
             Stmt::FnDecl {
                 name, params, body, ..
@@ -253,6 +308,7 @@ impl Checker {
                         LocalInfo {
                             ty: ty.clone(),
                             mutable: true,
+                            moved: false,
                         },
                     ) {
                         self.errors.push(e);
@@ -284,6 +340,12 @@ impl Checker {
                         "return type mismatch: function expects {expected:?}, got {actual:?}"
                     ));
                 }
+                // Returning a non-Copy ident moves it out to the caller.
+                if let Some(eid) = maybe_expr
+                    && !expected.is_copy()
+                {
+                    self.consume(ast, *eid);
+                }
             }
         }
     }
@@ -295,6 +357,9 @@ impl Checker {
             Expr::Bool(_) => Ok(Type::Boolean),
             Expr::Ident(name) => {
                 if let Some(info) = self.lookup(name) {
+                    if info.moved {
+                        return Err(format!("use of moved value `{name}`"));
+                    }
                     return Ok(info.ty);
                 }
                 if let Some(ty) = self.globals.get(name) {
@@ -365,6 +430,15 @@ impl Checker {
                             "argument {i}: expected {param_ty:?}, got {arg_ty:?}"
                         ));
                     }
+                    // Non-Copy params consume the arg binding (Rust-shaped
+                    // move-on-pass). `Any` params (currently only
+                    // `console.log`) borrow instead — the printer is a
+                    // viewer, not an owner. Consuming an Any param would
+                    // make `console.log(s); console.log(s)` an error,
+                    // which we don't want for the most common shape.
+                    if !param_ty.is_copy() && param_ty != &Type::Any {
+                        self.consume(ast, *arg_id);
+                    }
                 }
                 Ok(*ret)
             }
@@ -376,6 +450,11 @@ impl Checker {
                         if l == Type::Number && r == Type::Number {
                             Ok(Type::Number)
                         } else if l == Type::String && r == Type::String {
+                            // String concat consumes both operands — the
+                            // result is a fresh heap allocation, the inputs
+                            // are folded into it.
+                            self.consume(ast, *left);
+                            self.consume(ast, *right);
                             Ok(Type::String)
                         } else {
                             Err(format!(
@@ -439,6 +518,11 @@ impl Checker {
                         "type mismatch assigning to `{name}`: declared {target_ty:?}, value is {value_ty:?}"
                     ));
                 }
+                // Re-assignment moves the rhs into the binding's slot. The
+                // PREVIOUS value held by `name` would be dropped here in a
+                // full implementation (P2.2 emits Drop in SSA); for the
+                // type-check pass we just record the rhs consumption.
+                self.consume(ast, *value);
                 Ok(target_ty)
             }
             Expr::ArrowFn {
@@ -464,6 +548,7 @@ impl Checker {
                         LocalInfo {
                             ty: ty.clone(),
                             mutable: true,
+                            moved: false,
                         },
                     ) {
                         self.errors.push(e);
@@ -477,5 +562,96 @@ impl Checker {
                 Ok(fn_ty)
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::lexer;
+    use crate::parser;
+
+    fn check_src(src: &str) -> Result<(), String> {
+        let tokens = lexer::tokenize(src).map_err(|e| format!("lex: {e}"))?;
+        let ast = parser::parse(&tokens).map_err(|e| format!("parse: {e}"))?;
+        super::check(&ast)
+    }
+
+    #[test]
+    fn copy_types_can_be_used_repeatedly() {
+        // number is Copy — using `n` after `let m = n` is fine.
+        let src = "let n: number = 5; let m: number = n; let r: number = n + m;";
+        assert!(check_src(src).is_ok(), "expected ok, got {:?}", check_src(src));
+    }
+
+    #[test]
+    fn move_then_use_errors() {
+        // Move a string into b, then read a — should error.
+        let src = r#"let a: string = "hello"; let b: string = a; let n: number = a.length;"#;
+        let r = check_src(src);
+        assert!(r.is_err(), "expected use-of-moved error, got {r:?}");
+        assert!(
+            r.as_ref().unwrap_err().contains("moved"),
+            "expected 'moved' in error, got {r:?}"
+        );
+    }
+
+    #[test]
+    fn move_into_assign_then_use_errors() {
+        let src = r#"
+            let a: string = "x";
+            let b: string = "y";
+            b = a;
+            let n: number = a.length;
+        "#;
+        let r = check_src(src);
+        assert!(
+            r.as_ref()
+                .err()
+                .map(|s| s.contains("moved"))
+                .unwrap_or(false),
+            "expected 'moved' in error, got {r:?}"
+        );
+    }
+
+    #[test]
+    fn string_concat_consumes_both() {
+        let src = r#"
+            let a: string = "x";
+            let b: string = "y";
+            let c: string = a + b;
+            let n: number = a.length;
+        "#;
+        let r = check_src(src);
+        assert!(
+            r.as_ref()
+                .err()
+                .map(|s| s.contains("moved"))
+                .unwrap_or(false),
+            "expected 'moved' in error, got {r:?}"
+        );
+    }
+
+    #[test]
+    fn console_log_does_not_move() {
+        // `console.log` is special: it's a borrow-style viewer (Any param
+        // sidesteps move-on-pass). Calling twice is fine.
+        let src = r#"
+            let a: string = "x";
+            console.log(a);
+            console.log(a);
+        "#;
+        assert!(check_src(src).is_ok(), "got {:?}", check_src(src));
+    }
+
+    #[test]
+    fn copy_args_are_borrowed() {
+        // number args don't get moved; the caller can still read after the call.
+        let src = r#"
+            function id(x: number): number { return x; }
+            let n: number = 5;
+            let m: number = id(n);
+            let r: number = n + m;
+        "#;
+        assert!(check_src(src).is_ok(), "got {:?}", check_src(src));
     }
 }
