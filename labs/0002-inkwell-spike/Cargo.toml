@@ -1,0 +1,14 @@
+[package]
+name = "inkwell-spike"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+# Spike: validate that Inkwell-driven LLVM 22 matches or beats clang -O1 on
+# fib40, before sinking weeks into a real LLVM backend (P3.5).
+#
+# Linking strategy: prefer-dynamic against brew's libLLVM (/opt/homebrew/opt/llvm).
+# Set LLVM_SYS_221_PREFIX=/opt/homebrew/opt/llvm in the environment before build.
+
+[dependencies]
+inkwell = { version = "0.9", features = ["llvm22-1-prefer-dynamic"] }
