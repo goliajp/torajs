@@ -63,22 +63,41 @@ extern "C" fn print_i64_runtime(n: i64) {
     println!("{n}");
 }
 
-/// Runtime print of a NUL-terminated string + newline. Used by
-/// `console.log("…")`. We lift Rust's `&str` semantics manually because
-/// the JIT'd code only knows raw `*const u8`.
-extern "C" fn print_str_runtime(ptr: *const u8) {
-    if ptr.is_null() {
+/// `__torajs_str_alloc(*const u8 src, u64 len) -> *StrRepr` — copy `len`
+/// bytes from `src` into a fresh heap StrRepr `{u64 len; u8 data[]}`.
+/// Returns the pointer to the StrRepr (which is also the pointer to the
+/// length prefix). Layout matches what the Inkwell backend emits, so a
+/// program JIT'd via Cranelift produces the same heap representation as
+/// when AOT-compiled — interoperable should we ever pass strings across.
+extern "C" fn str_alloc_runtime(src: *const u8, len: u64) -> *mut u8 {
+    let total = 8 + len as usize;
+    let layout = std::alloc::Layout::from_size_align(total, 8).expect("layout");
+    unsafe {
+        let p = std::alloc::alloc(layout);
+        if p.is_null() {
+            std::alloc::handle_alloc_error(layout);
+        }
+        // Write len at offset 0
+        std::ptr::write(p as *mut u64, len);
+        // Copy bytes to offset 8
+        if len > 0 {
+            std::ptr::copy_nonoverlapping(src, p.add(8), len as usize);
+        }
+        p
+    }
+}
+
+/// `__torajs_str_print(*StrRepr s) -> void` — load len from offset 0,
+/// write the bytes plus a trailing newline. Uses Rust's println! for
+/// portability; the bench JIT code path is rarely the bottleneck.
+extern "C" fn str_print_runtime(s: *const u8) {
+    if s.is_null() {
         println!();
         return;
     }
-    let mut len = 0usize;
     unsafe {
-        while *ptr.add(len) != 0 {
-            len += 1;
-        }
-        let bytes = std::slice::from_raw_parts(ptr, len);
-        // Lossy is fine for our bench cases (ASCII only); when we add real
-        // UTF-8 handling this widens.
+        let len = std::ptr::read(s as *const u64) as usize;
+        let bytes = std::slice::from_raw_parts(s.add(8), len);
         println!("{}", String::from_utf8_lossy(bytes));
     }
 }
@@ -104,7 +123,8 @@ pub fn execute(ssa_module: &Module) -> Result<i32, JitError> {
     let mut jit_builder =
         JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
     jit_builder.symbol("print_i64", print_i64_runtime as *const u8);
-    jit_builder.symbol("print_str", print_str_runtime as *const u8);
+    jit_builder.symbol("__torajs_str_alloc", str_alloc_runtime as *const u8);
+    jit_builder.symbol("__torajs_str_print", str_print_runtime as *const u8);
 
     let mut module = JITModule::new(jit_builder);
     let ptr_ty = module.target_config().pointer_type();

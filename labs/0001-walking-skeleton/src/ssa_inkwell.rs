@@ -60,7 +60,9 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
 
     // Pass A: declare libc decls + the intrinsics whose body the backend owns.
     let putchar = declare_putchar(&ctx, &llvm_module);
-    let puts = declare_puts(&ctx, &llvm_module);
+    let malloc = declare_malloc(&ctx, &llvm_module);
+    let memcpy = declare_memcpy(&ctx, &llvm_module);
+    let write = declare_write(&ctx, &llvm_module);
 
     // Pass B: emit string-literal globals (LLVM `[N x i8]` private constants).
     // Indexed by StringId so callsites resolve via slice indexing.
@@ -78,7 +80,10 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
     for f in &ssa_module.funcs {
         let llvm_fn = match f.name.as_str() {
             "print_i64" => define_print_i64(&ctx, &llvm_module, putchar),
-            "print_str" => define_print_str(&ctx, &llvm_module, puts),
+            "__torajs_str_alloc" => {
+                define_str_alloc(&ctx, &llvm_module, malloc, memcpy)
+            }
+            "__torajs_str_print" => define_str_print(&ctx, &llvm_module, write),
             _ => declare_ssa_fn(&ctx, &llvm_module, f),
         };
         fn_map.push(llvm_fn);
@@ -86,7 +91,7 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
 
     // Pass D: lower bodies for every SSA function that has blocks AND isn't
     // a backend-owned intrinsic.
-    let intrinsics = ["print_i64", "print_str"];
+    let intrinsics = ["print_i64", "__torajs_str_alloc", "__torajs_str_print"];
     for (i, f) in ssa_module.funcs.iter().enumerate() {
         if f.is_declaration() || intrinsics.contains(&f.name.as_str()) {
             continue;
@@ -158,17 +163,33 @@ fn declare_putchar<'ctx>(ctx: &'ctx Context, m: &LlvmModule<'ctx>) -> FunctionVa
     m.add_function("putchar", fn_t, None)
 }
 
-fn declare_puts<'ctx>(ctx: &'ctx Context, m: &LlvmModule<'ctx>) -> FunctionValue<'ctx> {
-    let i32_t = ctx.i32_type();
+fn declare_malloc<'ctx>(ctx: &'ctx Context, m: &LlvmModule<'ctx>) -> FunctionValue<'ctx> {
+    let i64_t = ctx.i64_type();
     let ptr_t = ctx.ptr_type(AddressSpace::default());
-    let fn_t = i32_t.fn_type(&[ptr_t.into()], false);
-    m.add_function("puts", fn_t, None)
+    let fn_t = ptr_t.fn_type(&[i64_t.into()], false);
+    m.add_function("malloc", fn_t, None)
 }
 
-/// Emit one `[N x i8]` private constant per interned string. The bytes
-/// already include a NUL terminator (ssa_lower appends one when interning),
-/// so libc puts() works directly. Returns the GlobalValue so callsites can
-/// take its address.
+fn declare_memcpy<'ctx>(ctx: &'ctx Context, m: &LlvmModule<'ctx>) -> FunctionValue<'ctx> {
+    let i64_t = ctx.i64_type();
+    let ptr_t = ctx.ptr_type(AddressSpace::default());
+    // void* memcpy(void *dst, const void *src, size_t n)  — return ignored
+    let fn_t = ptr_t.fn_type(&[ptr_t.into(), ptr_t.into(), i64_t.into()], false);
+    m.add_function("memcpy", fn_t, None)
+}
+
+fn declare_write<'ctx>(ctx: &'ctx Context, m: &LlvmModule<'ctx>) -> FunctionValue<'ctx> {
+    let i32_t = ctx.i32_type();
+    let i64_t = ctx.i64_type();
+    let ptr_t = ctx.ptr_type(AddressSpace::default());
+    // ssize_t write(int fd, const void *buf, size_t count) — return ignored
+    let fn_t = i64_t.fn_type(&[i32_t.into(), ptr_t.into(), i64_t.into()], false);
+    m.add_function("write", fn_t, None)
+}
+
+/// Emit one `[N x i8]` private constant per interned string. Just the raw
+/// bytes — no NUL terminator. The string runtime carries length explicitly
+/// in the heap StrRepr's first 8 bytes.
 fn emit_string_global<'ctx>(
     ctx: &'ctx Context,
     m: &LlvmModule<'ctx>,
@@ -186,22 +207,118 @@ fn emit_string_global<'ctx>(
     g
 }
 
-/// `print_str(ptr)` — backend impl: `puts(ptr); return;`. puts() appends
-/// the trailing newline so callsites don't need to encode it.
-fn define_print_str<'ctx>(
+/// `__torajs_str_alloc(*const u8 src, u64 len) -> *StrRepr`
+///
+/// Build:
+///     p = malloc(8 + len)
+///     *(u64*)p = len
+///     memcpy(p + 8, src, len)
+///     return p
+///
+/// The returned pointer is a heap StrRepr. Caller's drop frees it.
+fn define_str_alloc<'ctx>(
     ctx: &'ctx Context,
     m: &LlvmModule<'ctx>,
-    puts: FunctionValue<'ctx>,
+    malloc: FunctionValue<'ctx>,
+    memcpy: FunctionValue<'ctx>,
 ) -> FunctionValue<'ctx> {
     let builder = ctx.create_builder();
+    let i64_t = ctx.i64_type();
+    let i8_t = ctx.i8_type();
+    let ptr_t = ctx.ptr_type(AddressSpace::default());
+    let fn_t = ptr_t.fn_type(&[ptr_t.into(), i64_t.into()], false);
+    let f = m.add_function("__torajs_str_alloc", fn_t, None);
+    let entry = ctx.append_basic_block(f, "entry");
+    builder.position_at_end(entry);
+
+    let src = f.get_nth_param(0).unwrap().into_pointer_value();
+    let len = f.get_nth_param(1).unwrap().into_int_value();
+
+    let total = builder
+        .build_int_add(len, i64_t.const_int(8, false), "total")
+        .unwrap();
+    let p = builder
+        .build_call(malloc, &[total.into()], "p")
+        .unwrap()
+        .try_as_basic_value()
+        .unwrap_basic()
+        .into_pointer_value();
+
+    // Store len at offset 0
+    builder.build_store(p, len).unwrap();
+
+    // Compute data pointer = p + 8 (byte offset)
+    let data = unsafe {
+        builder
+            .build_in_bounds_gep(i8_t, p, &[i64_t.const_int(8, false)], "data")
+            .unwrap()
+    };
+    builder
+        .build_call(memcpy, &[data.into(), src.into(), len.into()], "_cp")
+        .unwrap();
+
+    builder.build_return(Some(&p)).unwrap();
+    f
+}
+
+/// `__torajs_str_print(*StrRepr s) -> void`
+///
+///     len = *(u64*)s
+///     write(1 /*stdout*/, s + 8, len)
+///     write(1, "\n", 1)
+///
+/// Two write(2) syscalls. Should fold to a single in LLVM with a small
+/// stack-buffer prep, but we keep it simple — the perf impact on bench
+/// is in the noise (no string-heavy case yet).
+fn define_str_print<'ctx>(
+    ctx: &'ctx Context,
+    m: &LlvmModule<'ctx>,
+    write: FunctionValue<'ctx>,
+) -> FunctionValue<'ctx> {
+    let builder = ctx.create_builder();
+    let i64_t = ctx.i64_type();
+    let i32_t = ctx.i32_type();
+    let i8_t = ctx.i8_type();
     let ptr_t = ctx.ptr_type(AddressSpace::default());
     let void_t = ctx.void_type();
     let fn_t = void_t.fn_type(&[ptr_t.into()], false);
-    let f = m.add_function("print_str", fn_t, None);
+    let f = m.add_function("__torajs_str_print", fn_t, None);
     let entry = ctx.append_basic_block(f, "entry");
     builder.position_at_end(entry);
-    let arg = f.get_nth_param(0).unwrap().into_pointer_value();
-    builder.build_call(puts, &[arg.into()], "_p").unwrap();
+
+    let s = f.get_nth_param(0).unwrap().into_pointer_value();
+
+    // load len from offset 0
+    let len = builder
+        .build_load(i64_t, s, "len")
+        .unwrap()
+        .into_int_value();
+
+    // data = s + 8
+    let data = unsafe {
+        builder
+            .build_in_bounds_gep(i8_t, s, &[i64_t.const_int(8, false)], "data")
+            .unwrap()
+    };
+
+    let stdout_fd = i32_t.const_int(1, false);
+    builder
+        .build_call(write, &[stdout_fd.into(), data.into(), len.into()], "_w")
+        .unwrap();
+
+    // Trailing newline. A 1-byte stack alloca holding '\n'.
+    let nl_slot = builder.build_alloca(i8_t, "nl").unwrap();
+    builder
+        .build_store(nl_slot, i8_t.const_int(b'\n' as u64, false))
+        .unwrap();
+    builder
+        .build_call(
+            write,
+            &[stdout_fd.into(), nl_slot.into(), i64_t.const_int(1, false).into()],
+            "_wn",
+        )
+        .unwrap();
+
     builder.build_return(None).unwrap();
     f
 }

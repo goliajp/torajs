@@ -36,11 +36,28 @@ pub fn lower(ast: &Ast) -> Module {
     let mut fn_table: HashMap<String, FuncId> = HashMap::new();
 
     // Pass 0: declare runtime intrinsics that the backend will implement.
-    // print_i64: integer console.log fast-path
-    // print_str: NUL-terminated string (backend wires to libc puts, which
-    //            already appends a newline)
+    //   print_i64                — integer console.log fast-path
+    //   __torajs_str_alloc       — copy `len` bytes from `src` into a fresh
+    //                              heap StrRepr `{u64 len; u8 data[]}`.
+    //                              Used for every string literal ever lowered.
+    //   __torajs_str_print       — write StrRepr's bytes + trailing newline
+    //                              to stdout. Replaces the old NUL-terminated
+    //                              `print_str` (deleted in P2.2.b).
     let print_i64_id = declare_intrinsic(&mut module, &mut fn_table, "print_i64", &[Type::I64], Type::Void);
-    let print_str_id = declare_intrinsic(&mut module, &mut fn_table, "print_str", &[Type::Ptr], Type::Void);
+    let str_alloc_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_str_alloc",
+        &[Type::Ptr, Type::I64],
+        Type::Str,
+    );
+    let str_print_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_str_print",
+        &[Type::Str],
+        Type::Void,
+    );
 
     // Pass 1: pre-allocate FuncIds + record correct return types for every
     // user FnDecl. The placeholder body is empty; pass 2 fills it in. Setting
@@ -72,7 +89,16 @@ pub fn lower(ast: &Ast) -> Module {
         .map(|(i, f)| (FuncId(i as u32), f.ret))
         .collect();
 
-    // Pass 2: lower user FnDecl bodies.
+    let intrinsics = Intrinsics {
+        print_i64: print_i64_id,
+        str_alloc: str_alloc_id,
+        str_print: str_print_id,
+    };
+
+    // Pass 2: lower user FnDecl bodies. Each call returns the lowered
+    // function plus any string literals interned during its body; we
+    // append those into module.strings before the next call so the
+    // StringId counter stays in lockstep with module.strings.len().
     for (stmt_idx, fid) in decl_indices {
         if let Stmt::FnDecl {
             name,
@@ -81,7 +107,7 @@ pub fn lower(ast: &Ast) -> Module {
             body,
         } = &ast.stmts[stmt_idx]
         {
-            let f = lower_fn(
+            let (f, new_strings) = lower_fn(
                 name,
                 params,
                 return_type.as_deref(),
@@ -89,8 +115,13 @@ pub fn lower(ast: &Ast) -> Module {
                 ast,
                 &fn_table,
                 &signatures,
+                &intrinsics,
+                module.strings.len(),
             );
             module.funcs[fid.0 as usize] = f;
+            for s in new_strings {
+                module.strings.push(s);
+            }
         }
     }
 
@@ -106,8 +137,7 @@ pub fn lower(ast: &Ast) -> Module {
             ast,
             &fn_table,
             &signatures,
-            print_i64_id,
-            print_str_id,
+            &intrinsics,
             module.strings.len(),
         );
         for s in new_strings {
@@ -117,6 +147,17 @@ pub fn lower(ast: &Ast) -> Module {
     }
 
     module
+}
+
+/// FuncIds of every backend-provided runtime entry point. Threaded through
+/// every lowering site that needs to emit a runtime call. Single struct so
+/// adding a new intrinsic later (e.g. `__torajs_str_concat` for P2.2.c)
+/// only touches one type signature.
+#[derive(Debug, Clone, Copy)]
+struct Intrinsics {
+    print_i64: FuncId,
+    str_alloc: FuncId,
+    str_print: FuncId,
 }
 
 fn declare_intrinsic(
@@ -142,8 +183,7 @@ fn synthesize_main(
     ast: &Ast,
     fn_table: &HashMap<String, FuncId>,
     signatures: &HashMap<FuncId, Type>,
-    print_i64_id: FuncId,
-    print_str_id: FuncId,
+    intrinsics: &Intrinsics,
     string_id_base: usize,
 ) -> (ssa::Function, Vec<Vec<u8>>) {
     let mut f = ssa::Function::new("main", Type::I32);
@@ -155,13 +195,14 @@ fn synthesize_main(
             ast,
             fn_table,
             signatures,
+            intrinsics: *intrinsics,
             locals: HashMap::new(),
             cur_block: entry,
             new_strings: &mut new_strings,
             string_id_base,
         };
         for s in stmts {
-            ctx.lower_top_stmt(s, print_i64_id, print_str_id);
+            ctx.lower_top_stmt(s);
         }
         if ctx.cur_open() {
             let cb = ctx.cur_block;
@@ -196,7 +237,9 @@ fn lower_fn(
     ast: &Ast,
     fn_table: &HashMap<String, FuncId>,
     signatures: &HashMap<FuncId, Type>,
-) -> ssa::Function {
+    intrinsics: &Intrinsics,
+    string_id_base: usize,
+) -> (ssa::Function, Vec<Vec<u8>>) {
     let ret_ty = parse_type(return_type);
     let mut f = ssa::Function::new(name, ret_ty);
 
@@ -213,18 +256,21 @@ fn lower_fn(
     }
 
     let entry = f.add_block();
-    // User function bodies don't synthesize string literals (only main does
-    // for top-level `console.log("…")`), so use empty placeholders here.
+    // User function bodies can intern string literals (any `Expr::String`
+    // routes through intern_string_literal). The base offset has the
+    // current global string count — caller appends new_strings to
+    // module.strings after this returns, so StringIds stay unique.
     let mut new_strings: Vec<Vec<u8>> = Vec::new();
     let mut ctx = LowerCtx {
         f: &mut f,
         ast,
         fn_table,
         signatures,
+        intrinsics: *intrinsics,
         locals: HashMap::new(),
         cur_block: entry,
         new_strings: &mut new_strings,
-        string_id_base: 0,
+        string_id_base,
     };
 
     // Materialize each param as an alloca-backed local. mem2reg at -O1+
@@ -243,7 +289,7 @@ fn lower_fn(
         ctx.lower_stmt(s);
     }
 
-    f
+    (f, new_strings)
 }
 
 struct LowerCtx<'a> {
@@ -254,6 +300,10 @@ struct LowerCtx<'a> {
     /// lowering pick the right SSA result type even when the callee hasn't
     /// been body-lowered yet (forward refs, mutual recursion, bool returns).
     signatures: &'a HashMap<FuncId, Type>,
+    /// Resolved FuncIds for the runtime intrinsics. Read at every site that
+    /// emits a runtime call — string-literal lowering needs `str_alloc`,
+    /// `console.log` needs `print_i64` / `str_print`, etc.
+    intrinsics: Intrinsics,
     /// name → (alloca-ptr value, contents type). Every local — including the
     /// function's own parameters — sits behind an alloca. mem2reg lifts them
     /// to SSA values at -O1+.
@@ -284,7 +334,7 @@ impl<'a> LowerCtx<'a> {
     /// Same dispatch handles literal strings (`Expr::String`) and string
     /// bindings — the literal path interns through `lower_expr`'s general
     /// `Expr::String` arm and gets the same Type::Str operand.
-    fn lower_top_stmt(&mut self, s: &Stmt, print_i64: FuncId, print_str: FuncId) {
+    fn lower_top_stmt(&mut self, s: &Stmt) {
         if let Stmt::Expr(eid) = s
             && let Expr::Call { callee, args } = self.ast.get_expr(*eid)
             && self.is_console_log_member(*callee)
@@ -292,9 +342,9 @@ impl<'a> LowerCtx<'a> {
         {
             let arg = self.lower_expr(args[0]);
             let target = if self.operand_ty(&arg) == Type::Str {
-                print_str
+                self.intrinsics.str_print
             } else {
-                print_i64
+                self.intrinsics.print_i64
             };
             self.f.append_void(self.cur_block, InstKind::Call(target, vec![arg]));
             return;
@@ -435,20 +485,32 @@ impl<'a> LowerCtx<'a> {
         }
     }
 
-    /// Intern a string literal into the new_strings buffer and return the
-    /// SSA Value holding a pointer to it. Same machinery the top-level
-    /// `console.log("...")` shortcut already uses; pulled into a helper so
-    /// generic `Expr::String` (let-init, fn-arg, return value) routes
-    /// through it.
+    /// Intern a string literal and return a Type::Str SSA value pointing at
+    /// a fresh heap-allocated `{u64 len; u8 data[]}` copy. The static bytes
+    /// live as a `[N x i8]` global (no NUL, len is explicit); `__torajs_str_alloc`
+    /// copies them into a heap StrRepr at runtime. Every literal use does
+    /// one alloc — caller is responsible for emitting Drop at scope end
+    /// (P2.2.b.2 wires that up; this sub-step intentionally leaks one
+    /// alloc per literal use, which is fine for one-shot bench programs).
     fn intern_string_literal(&mut self, s: &str) -> ValueId {
-        let mut bytes = s.as_bytes().to_vec();
-        bytes.push(0); // NUL — backend's print_str routes through libc puts
+        let bytes = s.as_bytes().to_vec();
+        let len = bytes.len() as i64;
         let sid =
             ssa::StringId((self.string_id_base + self.new_strings.len()) as u32);
         self.new_strings.push(bytes);
-        self.f.append_inst(
+        let static_ptr = self.f.append_inst(
             self.cur_block,
             InstKind::StringRef(sid),
+            Type::Ptr,
+            None,
+        );
+        let alloc = self.intrinsics.str_alloc;
+        self.f.append_inst(
+            self.cur_block,
+            InstKind::Call(
+                alloc,
+                vec![Operand::Value(static_ptr), Operand::ConstI64(len)],
+            ),
             Type::Str,
             None,
         )
