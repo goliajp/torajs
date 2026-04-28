@@ -1,0 +1,9 @@
+# Find the maximum collatz hailstone-sequence length for n in [1, 1_000_000].
+# Result: 524 (achieved by n = 837799). Different shape from popcount/gcd1m:
+# outer for-loop + inner while-loop with branch (parity test → halve or
+# `3n+1`), tests int bit-and / shift / mul / add / branch in tight CFG.
+#
+# Uses `n >> 1` instead of `n / 2` because `/` would force the function into
+# f64 mode under our static type narrowing rules. Bit shift stays in i64.
+runs = 5
+warmup = 1

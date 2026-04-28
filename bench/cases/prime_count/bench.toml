@@ -1,0 +1,9 @@
+# Count primes in [0, 1_000_000) by trial division. Result: 78498.
+#
+# Different shape from gcd1m: nested function call inside the outer loop +
+# early-return-from-inside-while when a divisor is found. Tests bool return
+# typing through the SSA layer (is_prime → bool, sites cast / use in if).
+# Trial division up to sqrt(n) costs roughly O(n * sqrt(n)) = ~3e9 ops; native
+# rust ~150 ms, python ~30s. Cap warmup/runs accordingly.
+runs = 3
+warmup = 1

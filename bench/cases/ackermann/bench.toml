@@ -1,0 +1,9 @@
+# ack(3, 8) = 2045. Recursion shape distinct from fib40: ackermann does
+# *nested* recursion (the outer call's argument IS another ackermann call),
+# which exercises a different stack/argument-evaluation pattern than fib's
+# left-linear `fib(n-1) + fib(n-2)`.  Roughly 2.7M recursive invocations.
+#
+# python's call overhead dominates this case (~30s); cap runs+warmup low so
+# the bench iteration cost stays sane.
+runs = 3
+warmup = 1

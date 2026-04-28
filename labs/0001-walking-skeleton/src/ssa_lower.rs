@@ -40,19 +40,35 @@ pub fn lower(ast: &Ast) -> Module {
     // (print_f64, print_str, abort, etc.) land here as we extend cases.
     let print_i64_id = declare_intrinsic(&mut module, &mut fn_table, "print_i64", &[Type::I64], Type::Void);
 
-    // Pass 1: pre-allocate FuncIds so callsites in any FnDecl body can resolve
-    // forward references (mutual recursion, callee-defined-below).
+    // Pass 1: pre-allocate FuncIds + record correct return types for every
+    // user FnDecl. The placeholder body is empty; pass 2 fills it in. Setting
+    // the right ret type up front lets callsites resolve `f_ret_type_hint`
+    // even before the callee's body has been lowered (mutual recursion,
+    // forward refs, return-type-bool functions like is_prime).
     let mut decl_indices: Vec<(usize, FuncId)> = Vec::new();
     for (i, stmt) in ast.stmts.iter().enumerate() {
-        if let Stmt::FnDecl { name, .. } = stmt {
+        if let Stmt::FnDecl {
+            name, return_type, ..
+        } = stmt
+        {
             let fid = FuncId(module.funcs.len() as u32);
             fn_table.insert(name.clone(), fid);
-            module
-                .funcs
-                .push(ssa::Function::new(name.clone(), Type::Void)); // placeholder, overwritten below
+            module.funcs.push(ssa::Function::new(
+                name.clone(),
+                parse_type(return_type.as_deref()),
+            ));
             decl_indices.push((i, fid));
         }
     }
+
+    // Snapshot every callable's return type — used inside lower_fn to type
+    // call-site results correctly.
+    let signatures: HashMap<FuncId, Type> = module
+        .funcs
+        .iter()
+        .enumerate()
+        .map(|(i, f)| (FuncId(i as u32), f.ret))
+        .collect();
 
     // Pass 2: lower user FnDecl bodies.
     for (stmt_idx, fid) in decl_indices {
@@ -63,22 +79,27 @@ pub fn lower(ast: &Ast) -> Module {
             body,
         } = &ast.stmts[stmt_idx]
         {
-            let f = lower_fn(name, params, return_type.as_deref(), body, ast, &fn_table);
+            let f = lower_fn(
+                name,
+                params,
+                return_type.as_deref(),
+                body,
+                ast,
+                &fn_table,
+                &signatures,
+            );
             module.funcs[fid.0 as usize] = f;
         }
     }
 
-    // Pass 3: synthesize `main` from top-level non-FnDecl statements. Maps
-    // `console.log(<numeric expr>)` → `call print_i64(<lowered expr>)`. Other
-    // top-level statement shapes panic. This is enough for fib40; gcd1m /
-    // popcount / mandelbrot / startup land in step 4.
+    // Pass 3: synthesize `main` from top-level non-FnDecl statements.
     let top_level: Vec<&Stmt> = ast
         .stmts
         .iter()
         .filter(|s| !matches!(s, Stmt::FnDecl { .. }))
         .collect();
     if !top_level.is_empty() {
-        let main_fn = synthesize_main(&top_level, ast, &fn_table, print_i64_id);
+        let main_fn = synthesize_main(&top_level, ast, &fn_table, &signatures, print_i64_id);
         module.funcs.push(main_fn);
     }
 
@@ -107,6 +128,7 @@ fn synthesize_main(
     stmts: &[&Stmt],
     ast: &Ast,
     fn_table: &HashMap<String, FuncId>,
+    signatures: &HashMap<FuncId, Type>,
     print_i64_id: FuncId,
 ) -> ssa::Function {
     let mut f = ssa::Function::new("main", Type::I32);
@@ -116,13 +138,13 @@ fn synthesize_main(
             f: &mut f,
             ast,
             fn_table,
+            signatures,
             locals: HashMap::new(),
             cur_block: entry,
         };
         for s in stmts {
             ctx.lower_top_stmt(s, print_i64_id);
         }
-        // Close out main with `ret 0` if execution flows off the end.
         if ctx.cur_open() {
             let cb = ctx.cur_block;
             ctx.f
@@ -151,6 +173,7 @@ fn lower_fn(
     body: &[Stmt],
     ast: &Ast,
     fn_table: &HashMap<String, FuncId>,
+    signatures: &HashMap<FuncId, Type>,
 ) -> ssa::Function {
     let ret_ty = parse_type(return_type);
     let mut f = ssa::Function::new(name, ret_ty);
@@ -172,6 +195,7 @@ fn lower_fn(
         f: &mut f,
         ast,
         fn_table,
+        signatures,
         locals: HashMap::new(),
         cur_block: entry,
     };
@@ -199,6 +223,10 @@ struct LowerCtx<'a> {
     f: &'a mut ssa::Function,
     ast: &'a Ast,
     fn_table: &'a HashMap<String, FuncId>,
+    /// FuncId → return type, populated in pass 1 of `lower`. Lets call-site
+    /// lowering pick the right SSA result type even when the callee hasn't
+    /// been body-lowered yet (forward refs, mutual recursion, bool returns).
+    signatures: &'a HashMap<FuncId, Type>,
     /// name → (alloca-ptr value, contents type). Every local — including the
     /// function's own parameters — sits behind an alloca. mem2reg lifts them
     /// to SSA values at -O1+.
@@ -467,19 +495,11 @@ impl<'a> LowerCtx<'a> {
         }
     }
 
-    /// Looks up the (already-lowered) callee's return type. We can do this
-    /// because pass 1 above pre-populated `module.funcs` with placeholders;
-    /// by the time any callsite lowers, the target Function's `ret` field
-    /// has been overwritten with the real return type during pass 2 IF the
-    /// target was lowered earlier in source order. For mutual / forward
-    /// recursion, the placeholder still has Type::Void — fix up in step 2.x
-    /// by doing a separate "collect signatures" pre-pass.
-    ///
-    /// fib40 only self-recurses, and the self-call sees its own already-set
-    /// return type, so this works for the demo.
-    fn f_ret_type_hint(&self, _fid: FuncId) -> Type {
-        // For now: assume i64 (matches every numeric function we lower today).
-        // Fixed properly in step 2.x with a signature pre-pass.
-        Type::I64
+    /// Look up the callee's return type from the signatures map populated
+    /// in pass 1 of `lower`. Defaults to I64 for unknown FuncIds (intrinsics
+    /// or forward refs we haven't catalogued yet — print_i64 returns void
+    /// and is called via `append_void`, so its callsites never reach here).
+    fn f_ret_type_hint(&self, fid: FuncId) -> Type {
+        self.signatures.get(&fid).copied().unwrap_or(Type::I64)
     }
 }
