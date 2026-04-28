@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use inkwell::IntPredicate;
+use inkwell::{FloatPredicate, IntPredicate};
 use inkwell::OptimizationLevel;
 use inkwell::context::Context;
 use inkwell::module::Module as LlvmModule;
@@ -29,7 +29,7 @@ use inkwell::AddressSpace;
 use inkwell::types::{BasicMetadataTypeEnum, BasicTypeEnum, FunctionType};
 use inkwell::values::{BasicMetadataValueEnum, BasicValueEnum, FunctionValue, IntValue};
 
-use crate::ssa::{self as s, BinOp, IPred, InstKind, Module, Operand, Terminator, Type};
+use crate::ssa::{self as s, BinOp, FPred, IPred, InstKind, Module, Operand, Terminator, Type};
 
 #[derive(Debug)]
 pub enum CompileError {
@@ -60,25 +60,35 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
 
     // Pass A: declare libc decls + the intrinsics whose body the backend owns.
     let putchar = declare_putchar(&ctx, &llvm_module);
+    let puts = declare_puts(&ctx, &llvm_module);
 
-    // Pass B: walk every SSA function and create a corresponding LLVM
-    // FunctionValue. Intrinsics get a body here; everything else gets a
-    // declaration that pass D fills in. Build fn_map indexed by ssa::FuncId.
+    // Pass B: emit string-literal globals (LLVM `[N x i8]` private constants).
+    // Indexed by StringId so callsites resolve via slice indexing.
+    let string_globals: Vec<inkwell::values::GlobalValue> = ssa_module
+        .strings
+        .iter()
+        .enumerate()
+        .map(|(i, bytes)| emit_string_global(&ctx, &llvm_module, i, bytes))
+        .collect();
+
+    // Pass C: walk every SSA function and create a corresponding LLVM
+    // FunctionValue. Backend-owned intrinsics get a body here; everything
+    // else gets a declaration that pass D fills in.
     let mut fn_map: Vec<FunctionValue> = Vec::with_capacity(ssa_module.funcs.len());
     for f in &ssa_module.funcs {
-        if f.name == "print_i64" {
-            let llvm_fn = define_print_i64(&ctx, &llvm_module, putchar);
-            fn_map.push(llvm_fn);
-            continue;
-        }
-        let llvm_fn = declare_ssa_fn(&ctx, &llvm_module, f);
+        let llvm_fn = match f.name.as_str() {
+            "print_i64" => define_print_i64(&ctx, &llvm_module, putchar),
+            "print_str" => define_print_str(&ctx, &llvm_module, puts),
+            _ => declare_ssa_fn(&ctx, &llvm_module, f),
+        };
         fn_map.push(llvm_fn);
     }
 
-    // Pass C: lower bodies for every SSA function that has blocks AND isn't
+    // Pass D: lower bodies for every SSA function that has blocks AND isn't
     // a backend-owned intrinsic.
+    let intrinsics = ["print_i64", "print_str"];
     for (i, f) in ssa_module.funcs.iter().enumerate() {
-        if f.is_declaration() || f.name == "print_i64" {
+        if f.is_declaration() || intrinsics.contains(&f.name.as_str()) {
             continue;
         }
         let lower = FnLower {
@@ -87,6 +97,7 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
             ssa_fn: f,
             llvm_fn: fn_map[i],
             fn_map: &fn_map,
+            string_globals: &string_globals,
             block_map: HashMap::new(),
             value_map: HashMap::new(),
         };
@@ -145,6 +156,54 @@ fn declare_putchar<'ctx>(ctx: &'ctx Context, m: &LlvmModule<'ctx>) -> FunctionVa
     let i32_t = ctx.i32_type();
     let fn_t = i32_t.fn_type(&[i32_t.into()], false);
     m.add_function("putchar", fn_t, None)
+}
+
+fn declare_puts<'ctx>(ctx: &'ctx Context, m: &LlvmModule<'ctx>) -> FunctionValue<'ctx> {
+    let i32_t = ctx.i32_type();
+    let ptr_t = ctx.ptr_type(AddressSpace::default());
+    let fn_t = i32_t.fn_type(&[ptr_t.into()], false);
+    m.add_function("puts", fn_t, None)
+}
+
+/// Emit one `[N x i8]` private constant per interned string. The bytes
+/// already include a NUL terminator (ssa_lower appends one when interning),
+/// so libc puts() works directly. Returns the GlobalValue so callsites can
+/// take its address.
+fn emit_string_global<'ctx>(
+    ctx: &'ctx Context,
+    m: &LlvmModule<'ctx>,
+    idx: usize,
+    bytes: &[u8],
+) -> inkwell::values::GlobalValue<'ctx> {
+    let i8_t = ctx.i8_type();
+    let arr_t = i8_t.array_type(bytes.len() as u32);
+    let arr = ctx.const_string(bytes, false);
+    let g = m.add_global(arr_t, None, &format!(".str{idx}"));
+    g.set_initializer(&arr);
+    g.set_constant(true);
+    g.set_linkage(inkwell::module::Linkage::Private);
+    g.set_unnamed_addr(true);
+    g
+}
+
+/// `print_str(ptr)` — backend impl: `puts(ptr); return;`. puts() appends
+/// the trailing newline so callsites don't need to encode it.
+fn define_print_str<'ctx>(
+    ctx: &'ctx Context,
+    m: &LlvmModule<'ctx>,
+    puts: FunctionValue<'ctx>,
+) -> FunctionValue<'ctx> {
+    let builder = ctx.create_builder();
+    let ptr_t = ctx.ptr_type(AddressSpace::default());
+    let void_t = ctx.void_type();
+    let fn_t = void_t.fn_type(&[ptr_t.into()], false);
+    let f = m.add_function("print_str", fn_t, None);
+    let entry = ctx.append_basic_block(f, "entry");
+    builder.position_at_end(entry);
+    let arg = f.get_nth_param(0).unwrap().into_pointer_value();
+    builder.build_call(puts, &[arg.into()], "_p").unwrap();
+    builder.build_return(None).unwrap();
+    f
 }
 
 /// Build the body of `print_i64(i64 n)` directly in LLVM IR. Same shape as
@@ -315,6 +374,7 @@ struct FnLower<'a, 'ctx> {
     ssa_fn: &'a s::Function,
     llvm_fn: FunctionValue<'ctx>,
     fn_map: &'a [FunctionValue<'ctx>],
+    string_globals: &'a [inkwell::values::GlobalValue<'ctx>],
     block_map: HashMap<u32, inkwell::basic_block::BasicBlock<'ctx>>,
     value_map: HashMap<u32, BasicValueEnum<'ctx>>,
 }
@@ -351,25 +411,41 @@ impl<'a, 'ctx> FnLower<'a, 'ctx> {
     fn lower_inst(&mut self, inst: &s::Inst) {
         let result_val = match &inst.kind {
             InstKind::BinOp(op, a, b) => {
-                let av = self.operand_int(a);
-                let bv = self.operand_int(b);
-                let r = match op {
-                    BinOp::Add => self.builder.build_int_add(av, bv, "").unwrap(),
-                    BinOp::Sub => self.builder.build_int_sub(av, bv, "").unwrap(),
-                    BinOp::Mul => self.builder.build_int_mul(av, bv, "").unwrap(),
-                    BinOp::SDiv => self.builder.build_int_signed_div(av, bv, "").unwrap(),
-                    BinOp::SRem => self.builder.build_int_signed_rem(av, bv, "").unwrap(),
-                    BinOp::And => self.builder.build_and(av, bv, "").unwrap(),
-                    BinOp::Or => self.builder.build_or(av, bv, "").unwrap(),
-                    BinOp::Xor => self.builder.build_xor(av, bv, "").unwrap(),
-                    BinOp::Shl => self.builder.build_left_shift(av, bv, "").unwrap(),
-                    BinOp::AShr => self.builder.build_right_shift(av, bv, true, "").unwrap(),
-                    BinOp::LShr => self.builder.build_right_shift(av, bv, false, "").unwrap(),
+                let r: BasicValueEnum = match op {
+                    BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::SDiv | BinOp::SRem
+                    | BinOp::And | BinOp::Or | BinOp::Xor | BinOp::Shl | BinOp::AShr | BinOp::LShr => {
+                        let av = self.operand_int(a);
+                        let bv = self.operand_int(b);
+                        let r = match op {
+                            BinOp::Add => self.builder.build_int_add(av, bv, "").unwrap(),
+                            BinOp::Sub => self.builder.build_int_sub(av, bv, "").unwrap(),
+                            BinOp::Mul => self.builder.build_int_mul(av, bv, "").unwrap(),
+                            BinOp::SDiv => self.builder.build_int_signed_div(av, bv, "").unwrap(),
+                            BinOp::SRem => self.builder.build_int_signed_rem(av, bv, "").unwrap(),
+                            BinOp::And => self.builder.build_and(av, bv, "").unwrap(),
+                            BinOp::Or => self.builder.build_or(av, bv, "").unwrap(),
+                            BinOp::Xor => self.builder.build_xor(av, bv, "").unwrap(),
+                            BinOp::Shl => self.builder.build_left_shift(av, bv, "").unwrap(),
+                            BinOp::AShr => self.builder.build_right_shift(av, bv, true, "").unwrap(),
+                            BinOp::LShr => self.builder.build_right_shift(av, bv, false, "").unwrap(),
+                            _ => unreachable!(),
+                        };
+                        BasicValueEnum::IntValue(r)
+                    }
                     BinOp::FAdd | BinOp::FSub | BinOp::FMul | BinOp::FDiv => {
-                        panic!("ssa-inkwell: float ops land in step 4 (mandelbrot)")
+                        let av = self.operand(a).into_float_value();
+                        let bv = self.operand(b).into_float_value();
+                        let r = match op {
+                            BinOp::FAdd => self.builder.build_float_add(av, bv, "").unwrap(),
+                            BinOp::FSub => self.builder.build_float_sub(av, bv, "").unwrap(),
+                            BinOp::FMul => self.builder.build_float_mul(av, bv, "").unwrap(),
+                            BinOp::FDiv => self.builder.build_float_div(av, bv, "").unwrap(),
+                            _ => unreachable!(),
+                        };
+                        BasicValueEnum::FloatValue(r)
                     }
                 };
-                Some(BasicValueEnum::IntValue(r))
+                Some(r)
             }
             InstKind::ICmp(p, a, b) => {
                 let av = self.operand_int(a);
@@ -385,8 +461,32 @@ impl<'a, 'ctx> FnLower<'a, 'ctx> {
                 let r = self.builder.build_int_compare(pred, av, bv, "").unwrap();
                 Some(BasicValueEnum::IntValue(r))
             }
-            InstKind::FCmp(_, _, _) => {
-                panic!("ssa-inkwell: fcmp lands in step 4 (mandelbrot)")
+            InstKind::FCmp(p, a, b) => {
+                let av = self.operand(a).into_float_value();
+                let bv = self.operand(b).into_float_value();
+                let pred = match p {
+                    FPred::Oeq => FloatPredicate::OEQ,
+                    FPred::One => FloatPredicate::ONE,
+                    FPred::Olt => FloatPredicate::OLT,
+                    FPred::Ogt => FloatPredicate::OGT,
+                    FPred::Ole => FloatPredicate::OLE,
+                    FPred::Oge => FloatPredicate::OGE,
+                };
+                let r = self.builder.build_float_compare(pred, av, bv, "").unwrap();
+                Some(BasicValueEnum::IntValue(r))
+            }
+            InstKind::SiToFp(op) => {
+                let v = self.operand_int(op);
+                let f = ctx_f64(self.ctx);
+                let r = self
+                    .builder
+                    .build_signed_int_to_float(v, f, "")
+                    .unwrap();
+                Some(BasicValueEnum::FloatValue(r))
+            }
+            InstKind::StringRef(sid) => {
+                let g = self.string_globals[sid.0 as usize];
+                Some(BasicValueEnum::PointerValue(g.as_pointer_value()))
             }
             InstKind::Call(fid, args) => {
                 let callee = self.fn_map[fid.0 as usize];
@@ -479,6 +579,10 @@ impl<'a, 'ctx> FnLower<'a, 'ctx> {
     fn operand_int(&self, o: &Operand) -> IntValue<'ctx> {
         self.operand(o).into_int_value()
     }
+}
+
+fn ctx_f64<'ctx>(ctx: &'ctx Context) -> inkwell::types::FloatType<'ctx> {
+    ctx.f64_type()
 }
 
 fn rand_suffix() -> String {

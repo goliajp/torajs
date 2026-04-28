@@ -27,8 +27,8 @@ use std::collections::HashMap;
 
 use crate::ast::{self, Ast, BinOp as AstBinOp, Expr, ExprId, Stmt};
 use crate::ssa::{
-    self, BinOp as SsaBinOp, BlockId, FuncId, IPred, InstKind, Module, Operand, Terminator, Type,
-    ValueId,
+    self, BinOp as SsaBinOp, BlockId, FPred, FuncId, IPred, InstKind, Module, Operand, Terminator,
+    Type, ValueId,
 };
 
 pub fn lower(ast: &Ast) -> Module {
@@ -36,9 +36,11 @@ pub fn lower(ast: &Ast) -> Module {
     let mut fn_table: HashMap<String, FuncId> = HashMap::new();
 
     // Pass 0: declare runtime intrinsics that the backend will implement.
-    // For step 3 we only need `print_i64(i64) -> void`; future intrinsics
-    // (print_f64, print_str, abort, etc.) land here as we extend cases.
+    // print_i64: integer console.log fast-path
+    // print_str: NUL-terminated string (backend wires to libc puts, which
+    //            already appends a newline)
     let print_i64_id = declare_intrinsic(&mut module, &mut fn_table, "print_i64", &[Type::I64], Type::Void);
+    let print_str_id = declare_intrinsic(&mut module, &mut fn_table, "print_str", &[Type::Ptr], Type::Void);
 
     // Pass 1: pre-allocate FuncIds + record correct return types for every
     // user FnDecl. The placeholder body is empty; pass 2 fills it in. Setting
@@ -99,7 +101,18 @@ pub fn lower(ast: &Ast) -> Module {
         .filter(|s| !matches!(s, Stmt::FnDecl { .. }))
         .collect();
     if !top_level.is_empty() {
-        let main_fn = synthesize_main(&top_level, ast, &fn_table, &signatures, print_i64_id);
+        let (main_fn, new_strings) = synthesize_main(
+            &top_level,
+            ast,
+            &fn_table,
+            &signatures,
+            print_i64_id,
+            print_str_id,
+            module.strings.len(),
+        );
+        for s in new_strings {
+            module.strings.push(s);
+        }
         module.funcs.push(main_fn);
     }
 
@@ -130,9 +143,12 @@ fn synthesize_main(
     fn_table: &HashMap<String, FuncId>,
     signatures: &HashMap<FuncId, Type>,
     print_i64_id: FuncId,
-) -> ssa::Function {
+    print_str_id: FuncId,
+    string_id_base: usize,
+) -> (ssa::Function, Vec<Vec<u8>>) {
     let mut f = ssa::Function::new("main", Type::I32);
     let entry = f.add_block();
+    let mut new_strings: Vec<Vec<u8>> = Vec::new();
     {
         let mut ctx = LowerCtx {
             f: &mut f,
@@ -141,9 +157,11 @@ fn synthesize_main(
             signatures,
             locals: HashMap::new(),
             cur_block: entry,
+            new_strings: &mut new_strings,
+            string_id_base,
         };
         for s in stmts {
-            ctx.lower_top_stmt(s, print_i64_id);
+            ctx.lower_top_stmt(s, print_i64_id, print_str_id);
         }
         if ctx.cur_open() {
             let cb = ctx.cur_block;
@@ -151,15 +169,18 @@ fn synthesize_main(
                 .set_term(cb, Terminator::Ret(Some(Operand::ConstI32(0))));
         }
     }
-    f
+    (f, new_strings)
 }
 
 fn parse_type(ann: Option<&str>) -> Type {
     match ann {
-        // Step 2 intentionally hard-codes `number → i64`. f64 narrowing comes
-        // in step 2.x once we propagate the same `detect_numeric_mode` logic
-        // that `build.rs` already implements for the wasm-via-C path.
-        Some("number") => Type::I64,
+        // `number` defaults to i64 — best for the integer-heavy cases
+        // (popcount/fib40/gcd1m). When a function actually needs floating-
+        // point semantics, the user annotates with the explicit `f64` type
+        // (Rust-shaped). The dialect lets you opt in; you don't pay the
+        // f64 tax just because TS spells everything `number`.
+        Some("number") | Some("i64") => Type::I64,
+        Some("f64") => Type::F64,
         Some("boolean") => Type::Bool,
         Some("void") | None => Type::Void,
         Some(other) => panic!("ssa-lower: unsupported type annotation `{other}`"),
@@ -191,6 +212,9 @@ fn lower_fn(
     }
 
     let entry = f.add_block();
+    // User function bodies don't synthesize string literals (only main does
+    // for top-level `console.log("…")`), so use empty placeholders here.
+    let mut new_strings: Vec<Vec<u8>> = Vec::new();
     let mut ctx = LowerCtx {
         f: &mut f,
         ast,
@@ -198,6 +222,8 @@ fn lower_fn(
         signatures,
         locals: HashMap::new(),
         cur_block: entry,
+        new_strings: &mut new_strings,
+        string_id_base: 0,
     };
 
     // Materialize each param as an alloca-backed local. mem2reg at -O1+
@@ -232,6 +258,11 @@ struct LowerCtx<'a> {
     /// to SSA values at -O1+.
     locals: HashMap<String, (ValueId, Type)>,
     cur_block: BlockId,
+    /// New string literals encountered during this lowering pass (currently
+    /// only main collects them). Caller appends these to the module's
+    /// strings table; StringId offsets are pre-assigned via string_id_base.
+    new_strings: &'a mut Vec<Vec<u8>>,
+    string_id_base: usize,
 }
 
 impl<'a> LowerCtx<'a> {
@@ -246,16 +277,37 @@ impl<'a> LowerCtx<'a> {
     }
 
     /// Top-level statement lowering inside the synthesized `main` function.
-    /// Recognizes `console.log(<numeric expr>)` and routes it through the
-    /// `print_i64` intrinsic. Everything else (let / while / Assign / If /
-    /// regular Expr) flows through `lower_stmt` — same code paths as inside
-    /// user functions, since main() is just another function.
-    fn lower_top_stmt(&mut self, s: &Stmt, print_i64: FuncId) {
+    /// Two `console.log(...)` shapes are recognized:
+    ///   - numeric arg → `call print_i64(<lowered>)`
+    ///   - string literal → intern the bytes, `call print_str(<ptr>)`
+    /// Everything else flows through `lower_stmt`.
+    fn lower_top_stmt(&mut self, s: &Stmt, print_i64: FuncId, print_str: FuncId) {
         if let Stmt::Expr(eid) = s
             && let Expr::Call { callee, args } = self.ast.get_expr(*eid)
             && self.is_console_log_member(*callee)
             && args.len() == 1
         {
+            // console.log("literal") → print_str
+            if let Expr::String(s) = self.ast.get_expr(args[0]) {
+                let mut bytes = s.as_bytes().to_vec();
+                bytes.push(0); // NUL terminator — backend's print_str routes through libc puts
+                let sid = ssa::StringId(
+                    (self.string_id_base + self.new_strings.len()) as u32,
+                );
+                self.new_strings.push(bytes);
+                let ptr_val = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::StringRef(sid),
+                    Type::Ptr,
+                    None,
+                );
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Call(print_str, vec![Operand::Value(ptr_val)]),
+                );
+                return;
+            }
+            // console.log(<numeric>) → print_i64
             let arg = self.lower_expr(args[0]);
             self.f
                 .append_void(self.cur_block, InstKind::Call(print_i64, vec![arg]));
@@ -402,7 +454,19 @@ impl<'a> LowerCtx<'a> {
         match e {
             // Number literals coerce to i64 — type inference lifts them to
             // f64 once we wire numeric-mode detection into the lowerer.
-            Expr::Number(n) => Operand::ConstI64(*n as i64),
+            Expr::Number(n) => {
+                // Integer-valued literals stay as i64; only literals with a
+                // genuine fractional part become f64. `1.0` collapses to i64
+                // here — but that's fine: when used in an f64 context, the
+                // BinOp lowering below promotes ConstI64 → ConstF64 by
+                // rewriting the operand. No SItoFP instruction is needed
+                // for constants.
+                if n.fract() != 0.0 {
+                    Operand::ConstF64(*n)
+                } else {
+                    Operand::ConstI64(*n as i64)
+                }
+            }
             Expr::Bool(b) => Operand::ConstBool(*b),
             Expr::Ident(name) => {
                 let (slot, ty) = match self.locals.get(name) {
@@ -437,24 +501,7 @@ impl<'a> LowerCtx<'a> {
             Expr::BinOp { op, left, right } => {
                 let a = self.lower_expr(*left);
                 let b = self.lower_expr(*right);
-                match op {
-                    AstBinOp::Add => self.bin(SsaBinOp::Add, a, b, Type::I64),
-                    AstBinOp::Sub => self.bin(SsaBinOp::Sub, a, b, Type::I64),
-                    AstBinOp::Mul => self.bin(SsaBinOp::Mul, a, b, Type::I64),
-                    AstBinOp::Div => self.bin(SsaBinOp::SDiv, a, b, Type::I64),
-                    AstBinOp::Mod => self.bin(SsaBinOp::SRem, a, b, Type::I64),
-                    AstBinOp::BitAnd => self.bin(SsaBinOp::And, a, b, Type::I64),
-                    AstBinOp::BitOr => self.bin(SsaBinOp::Or, a, b, Type::I64),
-                    AstBinOp::BitXor => self.bin(SsaBinOp::Xor, a, b, Type::I64),
-                    AstBinOp::Shl => self.bin(SsaBinOp::Shl, a, b, Type::I64),
-                    AstBinOp::Shr => self.bin(SsaBinOp::AShr, a, b, Type::I64),
-                    AstBinOp::Lt => self.cmp(IPred::Slt, a, b),
-                    AstBinOp::Gt => self.cmp(IPred::Sgt, a, b),
-                    AstBinOp::Le => self.cmp(IPred::Sle, a, b),
-                    AstBinOp::Ge => self.cmp(IPred::Sge, a, b),
-                    AstBinOp::Eq => self.cmp(IPred::Eq, a, b),
-                    AstBinOp::Neq => self.cmp(IPred::Ne, a, b),
-                }
+                self.lower_binop(*op, a, b)
             }
             Expr::Call { callee, args } => {
                 let target = self.resolve_callee(*callee);
@@ -469,6 +516,113 @@ impl<'a> LowerCtx<'a> {
         }
     }
 
+    /// Type of the value produced by an operand. For SSA-Value operands this
+    /// is the function's value-table lookup; for constants it's implied by
+    /// the constant flavor.
+    fn operand_ty(&self, op: &Operand) -> Type {
+        match op {
+            Operand::Value(v) => self.f.value_type(*v),
+            Operand::ConstI64(_) => Type::I64,
+            Operand::ConstI32(_) => Type::I32,
+            Operand::ConstF64(_) => Type::F64,
+            Operand::ConstBool(_) => Type::Bool,
+        }
+    }
+
+    /// Promote an i64 operand to f64. Constants are rewritten in place
+    /// (cheaper than emitting a sitofp instruction LLVM would constant-fold
+    /// anyway). Value operands emit an explicit InstKind::SiToFp.
+    fn coerce_to_f64(&mut self, op: Operand) -> Operand {
+        match self.operand_ty(&op) {
+            Type::F64 => op,
+            Type::I64 => match op {
+                Operand::ConstI64(n) => Operand::ConstF64(n as f64),
+                Operand::Value(_) => {
+                    let v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::SiToFp(op),
+                        Type::F64,
+                        None,
+                    );
+                    Operand::Value(v)
+                }
+                _ => op,
+            },
+            other => panic!("ssa-lower: cannot coerce {other:?} to f64"),
+        }
+    }
+
+    /// Type-aware BinOp lowering. Decision rule:
+    ///   - `/` always produces f64. Both operands coerced to f64. (Use `>>`
+    ///     or explicit conversion for integer division — see collatz.tora.ts
+    ///     for the convention.)
+    ///   - Otherwise: if either operand is f64, both coerced to f64 and
+    ///     a float-flavored op is emitted (FAdd/FSub/FMul, FCmp).
+    ///   - Bitwise ops + Mod stay integer-only; mixing them with f64 is a
+    ///     type error (caught at lower-time, not tolerated).
+    fn lower_binop(&mut self, op: AstBinOp, a: Operand, b: Operand) -> Operand {
+        let force_float = matches!(op, AstBinOp::Div);
+        let either_float =
+            self.operand_ty(&a) == Type::F64 || self.operand_ty(&b) == Type::F64;
+        let is_float = force_float || either_float;
+
+        if is_float {
+            // Bitwise + Mod don't have an f64 equivalent in our IR; reject
+            // explicitly rather than silently casting.
+            match op {
+                AstBinOp::Mod
+                | AstBinOp::BitAnd
+                | AstBinOp::BitOr
+                | AstBinOp::BitXor
+                | AstBinOp::Shl
+                | AstBinOp::Shr => {
+                    panic!("ssa-lower: bitwise/mod op `{op:?}` requires i64 operands")
+                }
+                _ => {}
+            }
+            let af = self.coerce_to_f64(a);
+            let bf = self.coerce_to_f64(b);
+            return match op {
+                AstBinOp::Add => self.bin(SsaBinOp::FAdd, af, bf, Type::F64),
+                AstBinOp::Sub => self.bin(SsaBinOp::FSub, af, bf, Type::F64),
+                AstBinOp::Mul => self.bin(SsaBinOp::FMul, af, bf, Type::F64),
+                AstBinOp::Div => self.bin(SsaBinOp::FDiv, af, bf, Type::F64),
+                AstBinOp::Lt => self.fcmp(FPred::Olt, af, bf),
+                AstBinOp::Gt => self.fcmp(FPred::Ogt, af, bf),
+                AstBinOp::Le => self.fcmp(FPred::Ole, af, bf),
+                AstBinOp::Ge => self.fcmp(FPred::Oge, af, bf),
+                AstBinOp::Eq => self.fcmp(FPred::Oeq, af, bf),
+                AstBinOp::Neq => self.fcmp(FPred::One, af, bf),
+                AstBinOp::Mod
+                | AstBinOp::BitAnd
+                | AstBinOp::BitOr
+                | AstBinOp::BitXor
+                | AstBinOp::Shl
+                | AstBinOp::Shr => unreachable!(),
+            };
+        }
+
+        // i64 path (unchanged from step 4.1).
+        match op {
+            AstBinOp::Add => self.bin(SsaBinOp::Add, a, b, Type::I64),
+            AstBinOp::Sub => self.bin(SsaBinOp::Sub, a, b, Type::I64),
+            AstBinOp::Mul => self.bin(SsaBinOp::Mul, a, b, Type::I64),
+            AstBinOp::Div => unreachable!("Div forced into float path above"),
+            AstBinOp::Mod => self.bin(SsaBinOp::SRem, a, b, Type::I64),
+            AstBinOp::BitAnd => self.bin(SsaBinOp::And, a, b, Type::I64),
+            AstBinOp::BitOr => self.bin(SsaBinOp::Or, a, b, Type::I64),
+            AstBinOp::BitXor => self.bin(SsaBinOp::Xor, a, b, Type::I64),
+            AstBinOp::Shl => self.bin(SsaBinOp::Shl, a, b, Type::I64),
+            AstBinOp::Shr => self.bin(SsaBinOp::AShr, a, b, Type::I64),
+            AstBinOp::Lt => self.cmp(IPred::Slt, a, b),
+            AstBinOp::Gt => self.cmp(IPred::Sgt, a, b),
+            AstBinOp::Le => self.cmp(IPred::Sle, a, b),
+            AstBinOp::Ge => self.cmp(IPred::Sge, a, b),
+            AstBinOp::Eq => self.cmp(IPred::Eq, a, b),
+            AstBinOp::Neq => self.cmp(IPred::Ne, a, b),
+        }
+    }
+
     fn bin(&mut self, op: SsaBinOp, a: Operand, b: Operand, ty: Type) -> Operand {
         let v = self
             .f
@@ -480,6 +634,13 @@ impl<'a> LowerCtx<'a> {
         let v = self
             .f
             .append_inst(self.cur_block, InstKind::ICmp(pred, a, b), Type::Bool, None);
+        Operand::Value(v)
+    }
+
+    fn fcmp(&mut self, pred: FPred, a: Operand, b: Operand) -> Operand {
+        let v = self
+            .f
+            .append_inst(self.cur_block, InstKind::FCmp(pred, a, b), Type::Bool, None);
         Operand::Value(v)
     }
 

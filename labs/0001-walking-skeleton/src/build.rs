@@ -109,10 +109,18 @@ enum WasmTy {
 impl WasmTy {
     fn from_ann(ann: &str, mode: NumericMode) -> Option<WasmTy> {
         match ann {
+            // `number` flexes with the program-wide numeric mode (set by
+            // `detect_numeric_mode` from the AST). `i64` and `f64` are the
+            // explicit Rust-shaped aliases — `f64` always wins over the
+            // detected mode for that specific binding, but the wasm-via-C
+            // path is global-mode, so accepting `f64` here is enough only
+            // when the whole module is already in F64 mode (mandelbrot is).
             "number" => Some(match mode {
                 NumericMode::F64 => WasmTy::F64,
                 NumericMode::I64 => WasmTy::I64,
             }),
+            "f64" => Some(WasmTy::F64),
+            "i64" => Some(WasmTy::I64),
             "boolean" => Some(WasmTy::I32),
             "void" => Some(WasmTy::Void),
             _ => None,

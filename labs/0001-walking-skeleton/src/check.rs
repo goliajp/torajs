@@ -29,7 +29,11 @@ fn resolve_type_ann(name: &str) -> Option<Type> {
         return resolve_type_ann(rest).map(|inner| Type::Array(Box::new(inner)));
     }
     match name {
-        "number" => Some(Type::Number),
+        // `number` is the JS-spelled umbrella; `i64` and `f64` are explicit
+        // Rust-shaped aliases. The typechecker treats all three as the same
+        // numeric category — the SSA lowerer is what actually distinguishes
+        // i64 vs f64 representation per `parse_type` in ssa_lower.rs.
+        "number" | "i64" | "f64" => Some(Type::Number),
         "string" => Some(Type::String),
         "boolean" => Some(Type::Boolean),
         "void" => Some(Type::Void),

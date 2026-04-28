@@ -34,6 +34,9 @@ pub struct BlockId(pub u32);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FuncId(pub u32);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct StringId(pub u32);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Type {
     I64,
@@ -173,6 +176,13 @@ pub enum InstKind {
     /// `store <value>, <ptr>` — void result; value's type determines the
     /// store width.
     Store(Operand, Operand),
+    /// `%v = sitofp <i64-operand>` — signed integer to f64 cast. Used to
+    /// promote i64 operands when mixed with f64 in arithmetic / comparisons.
+    SiToFp(Operand),
+    /// `%v = string_ref <id>` — yields a (ptr, len) pair to a global string
+    /// constant. Result type is Ptr; the length lives in the module's
+    /// `strings` table alongside the bytes.
+    StringRef(StringId),
 }
 
 #[derive(Debug, Clone)]
@@ -302,6 +312,9 @@ impl Function {
 #[derive(Debug, Clone, Default)]
 pub struct Module {
     pub funcs: Vec<Function>,
+    /// Interned string literals. StringId = index. Backend emits each as a
+    /// global `[N x i8]` constant.
+    pub strings: Vec<Vec<u8>>,
 }
 
 impl Module {
@@ -313,6 +326,16 @@ impl Module {
 
     pub fn func_name(&self, id: FuncId) -> &str {
         &self.funcs[id.0 as usize].name
+    }
+
+    pub fn intern_string(&mut self, bytes: Vec<u8>) -> StringId {
+        let id = StringId(self.strings.len() as u32);
+        self.strings.push(bytes);
+        id
+    }
+
+    pub fn string_bytes(&self, id: StringId) -> &[u8] {
+        &self.strings[id.0 as usize]
     }
 
     /// Pretty-print to stdout. Format is intentionally LLVM-IR-shaped so a
@@ -417,6 +440,13 @@ impl Function {
                 self.write_operand(w, val)?;
                 write!(w, ", ")?;
                 self.write_operand(w, ptr)?;
+            }
+            InstKind::SiToFp(op) => {
+                write!(w, "sitofp ")?;
+                self.write_operand(w, op)?;
+            }
+            InstKind::StringRef(s) => {
+                write!(w, "string_ref @str{}", s.0)?;
             }
         }
         writeln!(w)
