@@ -182,6 +182,7 @@ fn parse_type(ann: Option<&str>) -> Type {
         Some("number") | Some("i64") => Type::I64,
         Some("f64") => Type::F64,
         Some("boolean") => Type::Bool,
+        Some("string") => Type::Str,
         Some("void") | None => Type::Void,
         Some(other) => panic!("ssa-lower: unsupported type annotation `{other}`"),
     }
@@ -277,40 +278,25 @@ impl<'a> LowerCtx<'a> {
     }
 
     /// Top-level statement lowering inside the synthesized `main` function.
-    /// Two `console.log(...)` shapes are recognized:
-    ///   - numeric arg → `call print_i64(<lowered>)`
-    ///   - string literal → intern the bytes, `call print_str(<ptr>)`
-    /// Everything else flows through `lower_stmt`.
+    /// `console.log(<expr>)` dispatches on the lowered operand's type:
+    ///   - Type::Str → `call print_str(<ptr>)`
+    ///   - Type::I64 / others → `call print_i64(<value>)`
+    /// Same dispatch handles literal strings (`Expr::String`) and string
+    /// bindings — the literal path interns through `lower_expr`'s general
+    /// `Expr::String` arm and gets the same Type::Str operand.
     fn lower_top_stmt(&mut self, s: &Stmt, print_i64: FuncId, print_str: FuncId) {
         if let Stmt::Expr(eid) = s
             && let Expr::Call { callee, args } = self.ast.get_expr(*eid)
             && self.is_console_log_member(*callee)
             && args.len() == 1
         {
-            // console.log("literal") → print_str
-            if let Expr::String(s) = self.ast.get_expr(args[0]) {
-                let mut bytes = s.as_bytes().to_vec();
-                bytes.push(0); // NUL terminator — backend's print_str routes through libc puts
-                let sid = ssa::StringId(
-                    (self.string_id_base + self.new_strings.len()) as u32,
-                );
-                self.new_strings.push(bytes);
-                let ptr_val = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::StringRef(sid),
-                    Type::Ptr,
-                    None,
-                );
-                self.f.append_void(
-                    self.cur_block,
-                    InstKind::Call(print_str, vec![Operand::Value(ptr_val)]),
-                );
-                return;
-            }
-            // console.log(<numeric>) → print_i64
             let arg = self.lower_expr(args[0]);
-            self.f
-                .append_void(self.cur_block, InstKind::Call(print_i64, vec![arg]));
+            let target = if self.operand_ty(&arg) == Type::Str {
+                print_str
+            } else {
+                print_i64
+            };
+            self.f.append_void(self.cur_block, InstKind::Call(target, vec![arg]));
             return;
         }
         self.lower_stmt(s);
@@ -449,6 +435,25 @@ impl<'a> LowerCtx<'a> {
         }
     }
 
+    /// Intern a string literal into the new_strings buffer and return the
+    /// SSA Value holding a pointer to it. Same machinery the top-level
+    /// `console.log("...")` shortcut already uses; pulled into a helper so
+    /// generic `Expr::String` (let-init, fn-arg, return value) routes
+    /// through it.
+    fn intern_string_literal(&mut self, s: &str) -> ValueId {
+        let mut bytes = s.as_bytes().to_vec();
+        bytes.push(0); // NUL — backend's print_str routes through libc puts
+        let sid =
+            ssa::StringId((self.string_id_base + self.new_strings.len()) as u32);
+        self.new_strings.push(bytes);
+        self.f.append_inst(
+            self.cur_block,
+            InstKind::StringRef(sid),
+            Type::Str,
+            None,
+        )
+    }
+
     fn lower_expr(&mut self, eid: ExprId) -> Operand {
         let e = self.ast.get_expr(eid);
         match e {
@@ -468,6 +473,10 @@ impl<'a> LowerCtx<'a> {
                 }
             }
             Expr::Bool(b) => Operand::ConstBool(*b),
+            Expr::String(s) => {
+                let s = s.clone();
+                Operand::Value(self.intern_string_literal(&s))
+            }
             Expr::Ident(name) => {
                 let (slot, ty) = match self.locals.get(name) {
                     Some(s) => *s,

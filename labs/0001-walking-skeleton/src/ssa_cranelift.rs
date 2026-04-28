@@ -185,7 +185,8 @@ fn clif_type<M: CfModule>(module: &M, t: Type) -> ir::Type {
         // Cranelift represents booleans as `i8`; this matches what icmp /
         // fcmp produce.
         Type::Bool => ctypes::I8,
-        Type::Ptr => module.target_config().pointer_type(),
+        // Both opaque pointer + Str lower to host pointer width.
+        Type::Ptr | Type::Str => module.target_config().pointer_type(),
         Type::Void => panic!("Type::Void has no CLIF representation"),
     }
 }
@@ -345,7 +346,7 @@ fn lower_inst(
         }
         InstKind::Alloca(t) => {
             let bytes = match t {
-                Type::I64 | Type::F64 | Type::Ptr => 8,
+                Type::I64 | Type::F64 | Type::Ptr | Type::Str => 8,
                 Type::I32 => 4,
                 Type::Bool => 1,
                 Type::Void => panic!("alloca of void"),

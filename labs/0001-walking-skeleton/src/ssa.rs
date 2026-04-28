@@ -48,6 +48,18 @@ pub enum Type {
     /// The Load instruction carries the loaded type explicitly; Store
     /// derives it from the value operand's type.
     Ptr,
+    /// Owned heap-string handle. At codegen this lowers to the same
+    /// machine type as Ptr (a single pointer), but at the SSA layer it
+    /// stays distinct from a generic alloca pointer so that:
+    ///   - `console.log(s)` can dispatch to print_str vs print_i64 by
+    ///     reading the operand's SSA type
+    ///   - drop emission (P2.2.b) knows which slots need free()
+    ///   - future inline-small-string layout can change the codegen
+    ///     without touching the SSA shape
+    /// Step 2.2.a: only static-pointer (literal) backed strings — the
+    /// pointer is a `[N x i8]` global; drop is a no-op. Concat + true
+    /// heap allocation lands in 2.2.b/c.
+    Str,
 }
 
 impl Type {
@@ -59,6 +71,7 @@ impl Type {
             Type::Bool => "bool",
             Type::Void => "void",
             Type::Ptr => "ptr",
+            Type::Str => "str",
         }
     }
 }
