@@ -86,6 +86,9 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
             }
             "__torajs_str_print" => define_str_print(&ctx, &llvm_module, write),
             "__torajs_str_drop" => define_str_drop(&ctx, &llvm_module, free),
+            "__torajs_str_concat" => {
+                define_str_concat(&ctx, &llvm_module, malloc, memcpy, free)
+            }
             _ => declare_ssa_fn(&ctx, &llvm_module, f),
         };
         fn_map.push(llvm_fn);
@@ -98,6 +101,7 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
         "__torajs_str_alloc",
         "__torajs_str_print",
         "__torajs_str_drop",
+        "__torajs_str_concat",
     ];
     for (i, f) in ssa_module.funcs.iter().enumerate() {
         if f.is_declaration() || intrinsics.contains(&f.name.as_str()) {
@@ -270,6 +274,100 @@ fn define_str_alloc<'ctx>(
     builder
         .build_call(memcpy, &[data.into(), src.into(), len.into()], "_cp")
         .unwrap();
+
+    builder.build_return(Some(&p)).unwrap();
+    f
+}
+
+/// `__torajs_str_concat(*StrRepr a, *StrRepr b) -> *StrRepr`
+///
+/// Build:
+///     a_len = *(u64*)a
+///     b_len = *(u64*)b
+///     total = a_len + b_len
+///     p = malloc(8 + total)
+///     *(u64*)p = total
+///     memcpy(p + 8, a + 8, a_len)
+///     memcpy(p + 8 + a_len, b + 8, b_len)
+///     free(a)
+///     free(b)
+///     return p
+///
+/// Consumes both operands (Rust-shaped move-on-pass) — caller must NOT
+/// drop a or b separately. The lowerer marks the source bindings moved
+/// so end-of-fn drop emission skips them.
+fn define_str_concat<'ctx>(
+    ctx: &'ctx Context,
+    m: &LlvmModule<'ctx>,
+    malloc: FunctionValue<'ctx>,
+    memcpy: FunctionValue<'ctx>,
+    free: FunctionValue<'ctx>,
+) -> FunctionValue<'ctx> {
+    let builder = ctx.create_builder();
+    let i64_t = ctx.i64_type();
+    let i8_t = ctx.i8_type();
+    let ptr_t = ctx.ptr_type(AddressSpace::default());
+    let fn_t = ptr_t.fn_type(&[ptr_t.into(), ptr_t.into()], false);
+    let f = m.add_function("__torajs_str_concat", fn_t, None);
+    let entry = ctx.append_basic_block(f, "entry");
+    builder.position_at_end(entry);
+
+    let a = f.get_nth_param(0).unwrap().into_pointer_value();
+    let b = f.get_nth_param(1).unwrap().into_pointer_value();
+
+    let a_len = builder.build_load(i64_t, a, "a_len").unwrap().into_int_value();
+    let b_len = builder.build_load(i64_t, b, "b_len").unwrap().into_int_value();
+    let total = builder.build_int_add(a_len, b_len, "total").unwrap();
+
+    let alloc_size = builder
+        .build_int_add(total, i64_t.const_int(8, false), "alloc_size")
+        .unwrap();
+    let p = builder
+        .build_call(malloc, &[alloc_size.into()], "p")
+        .unwrap()
+        .try_as_basic_value()
+        .unwrap_basic()
+        .into_pointer_value();
+
+    // Store total len at offset 0
+    builder.build_store(p, total).unwrap();
+
+    // p_data = p + 8
+    let p_data = unsafe {
+        builder
+            .build_in_bounds_gep(i8_t, p, &[i64_t.const_int(8, false)], "p_data")
+            .unwrap()
+    };
+    // a_data = a + 8
+    let a_data = unsafe {
+        builder
+            .build_in_bounds_gep(i8_t, a, &[i64_t.const_int(8, false)], "a_data")
+            .unwrap()
+    };
+    // memcpy(p_data, a_data, a_len)
+    builder
+        .build_call(memcpy, &[p_data.into(), a_data.into(), a_len.into()], "_cp_a")
+        .unwrap();
+    // p_data2 = p_data + a_len
+    let p_data2 = unsafe {
+        builder
+            .build_in_bounds_gep(i8_t, p_data, &[a_len], "p_data2")
+            .unwrap()
+    };
+    // b_data = b + 8
+    let b_data = unsafe {
+        builder
+            .build_in_bounds_gep(i8_t, b, &[i64_t.const_int(8, false)], "b_data")
+            .unwrap()
+    };
+    // memcpy(p_data2, b_data, b_len)
+    builder
+        .build_call(memcpy, &[p_data2.into(), b_data.into(), b_len.into()], "_cp_b")
+        .unwrap();
+
+    // free(a); free(b)
+    builder.build_call(free, &[a.into()], "_fa").unwrap();
+    builder.build_call(free, &[b.into()], "_fb").unwrap();
 
     builder.build_return(Some(&p)).unwrap();
     f

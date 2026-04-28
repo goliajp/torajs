@@ -87,6 +87,40 @@ extern "C" fn str_alloc_runtime(src: *const u8, len: u64) -> *mut u8 {
     }
 }
 
+/// `__torajs_str_concat(*StrRepr a, *StrRepr b) -> *StrRepr` — allocates a
+/// fresh heap StrRepr holding `a.bytes ++ b.bytes`, then frees both inputs.
+/// Caller transfers ownership of a and b to this fn (lowerer marks the
+/// source bindings moved so end-of-fn drop skips them).
+extern "C" fn str_concat_runtime(a: *mut u8, b: *mut u8) -> *mut u8 {
+    unsafe {
+        let a_len = std::ptr::read(a as *const u64) as usize;
+        let b_len = std::ptr::read(b as *const u64) as usize;
+        let total = a_len + b_len;
+        let alloc_size = 8 + total;
+        let layout =
+            std::alloc::Layout::from_size_align(alloc_size, 8).expect("layout");
+        let p = std::alloc::alloc(layout);
+        if p.is_null() {
+            std::alloc::handle_alloc_error(layout);
+        }
+        std::ptr::write(p as *mut u64, total as u64);
+        if a_len > 0 {
+            std::ptr::copy_nonoverlapping(a.add(8), p.add(8), a_len);
+        }
+        if b_len > 0 {
+            std::ptr::copy_nonoverlapping(b.add(8), p.add(8 + a_len), b_len);
+        }
+        // Free a and b — using their original layouts.
+        let a_layout =
+            std::alloc::Layout::from_size_align(8 + a_len, 8).expect("a layout");
+        std::alloc::dealloc(a, a_layout);
+        let b_layout =
+            std::alloc::Layout::from_size_align(8 + b_len, 8).expect("b layout");
+        std::alloc::dealloc(b, b_layout);
+        p
+    }
+}
+
 /// `__torajs_str_drop(*StrRepr s) -> void` — release the heap StrRepr.
 /// Layout must match what `str_alloc_runtime` produced: total size = 8+len.
 extern "C" fn str_drop_runtime(s: *mut u8) {
@@ -140,6 +174,7 @@ pub fn execute(ssa_module: &Module) -> Result<i32, JitError> {
     jit_builder.symbol("__torajs_str_alloc", str_alloc_runtime as *const u8);
     jit_builder.symbol("__torajs_str_print", str_print_runtime as *const u8);
     jit_builder.symbol("__torajs_str_drop", str_drop_runtime as *const u8);
+    jit_builder.symbol("__torajs_str_concat", str_concat_runtime as *const u8);
 
     let mut module = JITModule::new(jit_builder);
     let ptr_ty = module.target_config().pointer_type();

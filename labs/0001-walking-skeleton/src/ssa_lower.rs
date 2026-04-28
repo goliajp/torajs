@@ -65,6 +65,17 @@ pub fn lower(ast: &Ast) -> Module {
         &[Type::Str],
         Type::Void,
     );
+    // `__torajs_str_concat(a, b) -> StrRepr*` — consumes both operands
+    // (frees their backing heap), returns a freshly allocated StrRepr
+    // holding `a.bytes ++ b.bytes`. ssa_lower routes `Expr::BinOp(Add,
+    // str, str)` here.
+    let str_concat_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_str_concat",
+        &[Type::Str, Type::Str],
+        Type::Str,
+    );
 
     // Pass 1: pre-allocate FuncIds + record correct return types for every
     // user FnDecl. The placeholder body is empty; pass 2 fills it in. Setting
@@ -101,6 +112,7 @@ pub fn lower(ast: &Ast) -> Module {
         str_alloc: str_alloc_id,
         str_print: str_print_id,
         str_drop: str_drop_id,
+        str_concat: str_concat_id,
     };
 
     // Pass 2: lower user FnDecl bodies. Each call returns the lowered
@@ -167,6 +179,7 @@ struct Intrinsics {
     str_alloc: FuncId,
     str_print: FuncId,
     str_drop: FuncId,
+    str_concat: FuncId,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -718,6 +731,17 @@ impl<'a> LowerCtx<'a> {
             Expr::BinOp { op, left, right } => {
                 let a = self.lower_expr(*left);
                 let b = self.lower_expr(*right);
+                // String concat consumes both operands — `let z = a + b`
+                // moves both. Mark moved so end-of-fn drops skip them
+                // (the concat runtime frees their backing heap when it
+                // builds the result).
+                if matches!(*op, AstBinOp::Add)
+                    && self.operand_ty(&a) == Type::Str
+                    && self.operand_ty(&b) == Type::Str
+                {
+                    self.consume_if_ident(*left);
+                    self.consume_if_ident(*right);
+                }
                 self.lower_binop(*op, a, b)
             }
             Expr::Call { callee, args } => {
@@ -784,6 +808,22 @@ impl<'a> LowerCtx<'a> {
     ///   - Bitwise ops + Mod stay integer-only; mixing them with f64 is a
     ///     type error (caught at lower-time, not tolerated).
     fn lower_binop(&mut self, op: AstBinOp, a: Operand, b: Operand) -> Operand {
+        // String concat short-circuit. Routes `str + str` to the runtime
+        // concat intrinsic, which takes ownership of both operands.
+        if matches!(op, AstBinOp::Add)
+            && self.operand_ty(&a) == Type::Str
+            && self.operand_ty(&b) == Type::Str
+        {
+            let concat = self.intrinsics.str_concat;
+            let v = self.f.append_inst(
+                self.cur_block,
+                InstKind::Call(concat, vec![a, b]),
+                Type::Str,
+                None,
+            );
+            return Operand::Value(v);
+        }
+
         let force_float = matches!(op, AstBinOp::Div);
         let either_float =
             self.operand_ty(&a) == Type::F64 || self.operand_ty(&b) == Type::F64;
