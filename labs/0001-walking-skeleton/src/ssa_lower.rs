@@ -35,6 +35,11 @@ pub fn lower(ast: &Ast) -> Module {
     let mut module = Module::default();
     let mut fn_table: HashMap<String, FuncId> = HashMap::new();
 
+    // Pass 0: declare runtime intrinsics that the backend will implement.
+    // For step 3 we only need `print_i64(i64) -> void`; future intrinsics
+    // (print_f64, print_str, abort, etc.) land here as we extend cases.
+    let print_i64_id = declare_intrinsic(&mut module, &mut fn_table, "print_i64", &[Type::I64], Type::Void);
+
     // Pass 1: pre-allocate FuncIds so callsites in any FnDecl body can resolve
     // forward references (mutual recursion, callee-defined-below).
     let mut decl_indices: Vec<(usize, FuncId)> = Vec::new();
@@ -49,7 +54,7 @@ pub fn lower(ast: &Ast) -> Module {
         }
     }
 
-    // Pass 2: lower bodies. Drop placeholders and write real functions in place.
+    // Pass 2: lower user FnDecl bodies.
     for (stmt_idx, fid) in decl_indices {
         if let Stmt::FnDecl {
             name,
@@ -63,7 +68,68 @@ pub fn lower(ast: &Ast) -> Module {
         }
     }
 
+    // Pass 3: synthesize `main` from top-level non-FnDecl statements. Maps
+    // `console.log(<numeric expr>)` → `call print_i64(<lowered expr>)`. Other
+    // top-level statement shapes panic. This is enough for fib40; gcd1m /
+    // popcount / mandelbrot / startup land in step 4.
+    let top_level: Vec<&Stmt> = ast
+        .stmts
+        .iter()
+        .filter(|s| !matches!(s, Stmt::FnDecl { .. }))
+        .collect();
+    if !top_level.is_empty() {
+        let main_fn = synthesize_main(&top_level, ast, &fn_table, print_i64_id);
+        module.funcs.push(main_fn);
+    }
+
     module
+}
+
+fn declare_intrinsic(
+    module: &mut Module,
+    fn_table: &mut HashMap<String, FuncId>,
+    name: &str,
+    param_tys: &[Type],
+    ret_ty: Type,
+) -> FuncId {
+    let mut f = ssa::Function::new(name, ret_ty);
+    for (i, &t) in param_tys.iter().enumerate() {
+        f.add_param(t, &format!("a{i}"));
+    }
+    // No blocks → declaration only; backend supplies the body.
+    let id = FuncId(module.funcs.len() as u32);
+    fn_table.insert(name.to_string(), id);
+    module.funcs.push(f);
+    id
+}
+
+fn synthesize_main(
+    stmts: &[&Stmt],
+    ast: &Ast,
+    fn_table: &HashMap<String, FuncId>,
+    print_i64_id: FuncId,
+) -> ssa::Function {
+    let mut f = ssa::Function::new("main", Type::I32);
+    let entry = f.add_block();
+    {
+        let mut ctx = LowerCtx {
+            f: &mut f,
+            ast,
+            fn_table,
+            locals: HashMap::new(),
+            cur_block: entry,
+        };
+        for s in stmts {
+            ctx.lower_top_stmt(s, print_i64_id);
+        }
+        // Close out main with `ret 0` if execution flows off the end.
+        if ctx.cur_open() {
+            let cb = ctx.cur_block;
+            ctx.f
+                .set_term(cb, Terminator::Ret(Some(Operand::ConstI32(0))));
+        }
+    }
+    f
 }
 
 fn parse_type(ann: Option<&str>) -> Type {
@@ -129,6 +195,41 @@ impl<'a> LowerCtx<'a> {
             self.f.blocks[self.cur_block.0 as usize].term,
             Terminator::Unreachable
         )
+    }
+
+    /// Top-level statement lowering inside the synthesized `main` function.
+    /// Step 3 only recognizes `console.log(<numeric expr>)` and routes it
+    /// through the `print_i64` intrinsic. Step 4 generalizes this to support
+    /// `let` / `while` / `Assign` at top level (mostly relevant for the
+    /// `gcd1m` / `popcount` cases that have a top-level loop).
+    fn lower_top_stmt(&mut self, s: &Stmt, print_i64: FuncId) {
+        match s {
+            Stmt::Expr(eid) => {
+                if let Expr::Call { callee, args } = self.ast.get_expr(*eid)
+                    && self.is_console_log_member(*callee)
+                    && args.len() == 1
+                {
+                    let arg = self.lower_expr(args[0]);
+                    self.f.append_void(self.cur_block, InstKind::Call(print_i64, vec![arg]));
+                    return;
+                }
+                panic!(
+                    "ssa-lower: top-level stmt must be `console.log(<num>)` for now: {:?}",
+                    self.ast.get_expr(*eid)
+                );
+            }
+            other => panic!("ssa-lower: top-level stmt unsupported: {other:?}"),
+        }
+    }
+
+    /// `console.log` recognized as an Ident("console") + Member.name == "log".
+    fn is_console_log_member(&self, eid: ExprId) -> bool {
+        match self.ast.get_expr(eid) {
+            Expr::Member { obj, name } if name == "log" => {
+                matches!(self.ast.get_expr(*obj), Expr::Ident(s) if s == "console")
+            }
+            _ => false,
+        }
     }
 
     fn lower_stmt(&mut self, s: &Stmt) {

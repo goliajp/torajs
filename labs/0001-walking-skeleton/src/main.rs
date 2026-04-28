@@ -7,6 +7,7 @@ mod lexer;
 mod lower;
 mod parser;
 mod ssa;
+mod ssa_inkwell;
 mod ssa_lower;
 mod value;
 
@@ -46,6 +47,7 @@ fn main() -> ExitCode {
         Some("ssa") => run_pipeline(args.get(1), Stage::Ssa),
         Some("run") => run_pipeline(args.get(1), Stage::Run),
         Some("build") => run_build(&args[1..]),
+        Some("build-llvm") => run_build_llvm(&args[1..]),
         Some("ssa-demo") => {
             ssa::demo_fib40().print();
             ExitCode::SUCCESS
@@ -72,6 +74,10 @@ fn print_usage() {
     println!("    ir <file>            print the lowered (stack-machine) IR");
     println!("    ssa <file>           print the lowered SSA IR (P3.5 — fns only, fib40 shape)");
     println!("    build <in> -o <out>  AOT-compile to wasm (P3.1, very limited)");
+    println!(
+        "    build-llvm <in> -o <out> [--opt O0|O1|O2|O3]"
+    );
+    println!("                         AOT-compile via LLVM (P3.5; fib40 shape only for now)");
     println!("    ssa-demo             print a hand-built SSA fib40 (P3.5 step 1)");
     println!();
     println!("    --version, -V        print version");
@@ -235,6 +241,124 @@ fn run_build(args: &[String]) -> ExitCode {
         }
         Err(build::BuildError::Real(msg)) => {
             eprintln!("build error: {msg}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+/// `tr build-llvm <in> -o <out> [--opt O0|O1|O2|O3]`. Pipeline: lex → parse →
+/// check → ssa_lower → ssa_inkwell → cc. Bench harness's "torajs-llvm" runner
+/// calls this. Step 3 only: handles fib40 shape; richer cases need step 4.
+fn run_build_llvm(args: &[String]) -> ExitCode {
+    if matches!(
+        args.first().map(String::as_str),
+        Some("--help") | Some("-h")
+    ) {
+        println!("tr build-llvm — AOT compile via LLVM");
+        println!();
+        println!("USAGE: tr build-llvm <input.ts> -o <output> [--opt O0|O1|O2|O3]");
+        return ExitCode::SUCCESS;
+    }
+
+    let mut input: Option<&str> = None;
+    let mut output: Option<&str> = None;
+    let mut opt: String = "O1".into();
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "-o" => {
+                i += 1;
+                let Some(path) = args.get(i) else {
+                    eprintln!("error: `-o` requires a path");
+                    return ExitCode::from(2);
+                };
+                output = Some(path.as_str());
+                i += 1;
+            }
+            "--opt" => {
+                i += 1;
+                let Some(level) = args.get(i) else {
+                    eprintln!("error: `--opt` requires a level (O0|O1|O2|O3)");
+                    return ExitCode::from(2);
+                };
+                opt = level.clone();
+                i += 1;
+            }
+            other if !other.starts_with('-') && input.is_none() => {
+                input = Some(other);
+                i += 1;
+            }
+            other => {
+                eprintln!("error: unexpected argument `{other}`");
+                return ExitCode::from(2);
+            }
+        }
+    }
+
+    let Some(input) = input else {
+        eprintln!("error: missing input file");
+        return ExitCode::from(2);
+    };
+    let Some(output) = output else {
+        eprintln!("error: missing `-o <output>`");
+        return ExitCode::from(2);
+    };
+
+    let src = match read_source(input) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("error: {e}");
+            return ExitCode::from(2);
+        }
+    };
+    let tokens = match lexer::tokenize(&src) {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("lex error: {e}");
+            return ExitCode::from(1);
+        }
+    };
+    let ast = match parser::parse(&tokens) {
+        Ok(a) => a,
+        Err(e) => {
+            eprintln!("parse error: {e}");
+            return ExitCode::from(1);
+        }
+    };
+    if let Err(e) = check::check(&ast) {
+        eprintln!("type error: {e}");
+        return ExitCode::from(1);
+    }
+
+    // ssa_lower currently panics on unsupported AST shapes. Catch the panic
+    // and report as exit-code-3 (bench harness's "not yet implemented" skip).
+    // Silence the default panic hook so the bench harness's stderr stays
+    // clean — we report the message ourselves below.
+    let prev_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(|_| {}));
+    let lower_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        ssa_lower::lower(&ast)
+    }));
+    std::panic::set_hook(prev_hook);
+    let ssa_module = match lower_result {
+        Ok(m) => m,
+        Err(payload) => {
+            let msg = if let Some(s) = payload.downcast_ref::<&str>() {
+                s.to_string()
+            } else if let Some(s) = payload.downcast_ref::<String>() {
+                s.clone()
+            } else {
+                "ssa_lower panicked".to_string()
+            };
+            eprintln!("not yet supported: {msg}");
+            return ExitCode::from(3);
+        }
+    };
+
+    match ssa_inkwell::compile(&ssa_module, std::path::Path::new(output), &opt) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("build-llvm error: {e}");
             ExitCode::from(1)
         }
     }

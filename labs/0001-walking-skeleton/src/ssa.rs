@@ -59,6 +59,8 @@ impl Type {
 pub enum Operand {
     Value(ValueId),
     ConstI64(i64),
+    /// i32 constants only ever come up as `main`'s `ret 0` for now.
+    ConstI32(i32),
     ConstF64(f64),
     ConstBool(bool),
 }
@@ -275,6 +277,13 @@ impl Function {
             None => format!("%{}", v.0),
         }
     }
+
+    /// True when the function is a forward declaration only — no blocks, no
+    /// body. The codegen backend supplies the implementation (e.g. for
+    /// runtime intrinsics like `print_i64`).
+    pub fn is_declaration(&self) -> bool {
+        self.blocks.is_empty()
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -314,14 +323,20 @@ impl Module {
 
 impl Function {
     fn write_to(&self, w: &mut String, m: &Module) -> std::fmt::Result {
-        write!(w, "fn {}(", self.name)?;
+        let kw = if self.is_declaration() { "extern fn" } else { "fn" };
+        write!(w, "{kw} {}(", self.name)?;
         for (i, &p) in self.params.iter().enumerate() {
             if i > 0 {
                 write!(w, ", ")?;
             }
             write!(w, "{}: {}", self.value_name(p), self.value_type(p).as_str())?;
         }
-        writeln!(w, ") -> {} {{", self.ret.as_str())?;
+        write!(w, ") -> {}", self.ret.as_str())?;
+        if self.is_declaration() {
+            writeln!(w, ";")?;
+            return Ok(());
+        }
+        writeln!(w, " {{")?;
         for block in &self.blocks {
             writeln!(w, "  bb{}:", block.id.0)?;
             for inst in &block.insts {
@@ -337,6 +352,7 @@ impl Function {
         match o {
             Operand::Value(v) => write!(w, "{}", self.value_name(*v)),
             Operand::ConstI64(n) => write!(w, "{n}"),
+            Operand::ConstI32(n) => write!(w, "{n}"),
             Operand::ConstF64(n) => write!(w, "{n}"),
             Operand::ConstBool(b) => write!(w, "{b}"),
         }

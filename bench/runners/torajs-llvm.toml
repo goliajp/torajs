@@ -1,0 +1,17 @@
+# torajs LLVM-direct AOT (P3.5+).  Replaces wasm-via-C path step by step:
+#   tr → SSA IR → Inkwell → LLVM 22 → object → cc → native binary.
+#
+# Compared to torajs-aot (wasm-via-C), this drops the wasm2c round-trip:
+# LLVM sees our SSA-derived IR directly, which lets it auto-vectorize
+# loops that wasm2c's switch-case lowering hides (see popcount in the
+# inkwell-spike bench).
+#
+# Step 3 of P3.5.a only handles fib40 shape; other cases hit ssa_lower's
+# unsupported-shape panic and exit 3 (skip), reported alongside the row.
+# Step 4 lifts that constraint by adding alloca-based locals + member
+# callee resolution + numeric-mode detection.
+name = "torajs-llvm"
+detect = "{workspace}/target/release/tr --version"
+src_filename = "main.tora.ts"
+compile = "{workspace}/target/release/tr build-llvm {src} -o {out}"
+run = "{out}"

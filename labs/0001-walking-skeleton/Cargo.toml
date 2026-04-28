@@ -5,3 +5,7 @@ edition = "2024"
 
 [dependencies]
 wasm-encoder = "0.247.0"
+# Inkwell drives LLVM 22 (brew). Build needs LLVM_SYS_221_PREFIX=/opt/homebrew/opt/llvm
+# in the environment. wasm-encoder + inkwell coexist through P3.7 when the
+# wasm-via-C path retires.
+inkwell = { version = "0.9", features = ["llvm22-1-prefer-dynamic"] }
