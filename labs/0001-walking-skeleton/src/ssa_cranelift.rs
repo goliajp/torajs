@@ -121,6 +121,34 @@ extern "C" fn str_concat_runtime(a: *mut u8, b: *mut u8) -> *mut u8 {
     }
 }
 
+// Object alloc/drop go through libc directly so we don't have to track
+// per-pointer Layouts (unlike strings, where the length is in the
+// StrRepr header). Inkwell backend uses the same libc pair, so AOT
+// and JIT produce equivalent heap layouts.
+unsafe extern "C" {
+    fn malloc(size: usize) -> *mut u8;
+    fn free(p: *mut u8);
+}
+
+extern "C" fn obj_alloc_runtime(size: u64) -> *mut u8 {
+    if size == 0 {
+        return std::ptr::null_mut();
+    }
+    let p = unsafe { malloc(size as usize) };
+    if p.is_null() {
+        eprintln!("obj_alloc: out of memory");
+        std::process::abort();
+    }
+    p
+}
+
+extern "C" fn obj_drop_runtime(p: *mut u8) {
+    if p.is_null() {
+        return;
+    }
+    unsafe { free(p) }
+}
+
 /// `__torajs_str_drop(*StrRepr s) -> void` — release the heap StrRepr.
 /// Layout must match what `str_alloc_runtime` produced: total size = 8+len.
 extern "C" fn str_drop_runtime(s: *mut u8) {
@@ -175,6 +203,8 @@ pub fn execute(ssa_module: &Module) -> Result<i32, JitError> {
     jit_builder.symbol("__torajs_str_print", str_print_runtime as *const u8);
     jit_builder.symbol("__torajs_str_drop", str_drop_runtime as *const u8);
     jit_builder.symbol("__torajs_str_concat", str_concat_runtime as *const u8);
+    jit_builder.symbol("__torajs_obj_alloc", obj_alloc_runtime as *const u8);
+    jit_builder.symbol("__torajs_obj_drop", obj_drop_runtime as *const u8);
 
     let mut module = JITModule::new(jit_builder);
     let ptr_ty = module.target_config().pointer_type();
@@ -256,7 +286,7 @@ fn clif_type<M: CfModule>(module: &M, t: Type) -> ir::Type {
         // fcmp produce.
         Type::Bool => ctypes::I8,
         // Both opaque pointer + Str lower to host pointer width.
-        Type::Ptr | Type::Str => module.target_config().pointer_type(),
+        Type::Ptr | Type::Str | Type::Obj(_) => module.target_config().pointer_type(),
         Type::Void => panic!("Type::Void has no CLIF representation"),
     }
 }
@@ -416,7 +446,7 @@ fn lower_inst(
         }
         InstKind::Alloca(t) => {
             let bytes = match t {
-                Type::I64 | Type::F64 | Type::Ptr | Type::Str => 8,
+                Type::I64 | Type::F64 | Type::Ptr | Type::Str | Type::Obj(_) => 8,
                 Type::I32 => 4,
                 Type::Bool => 1,
                 Type::Void => panic!("alloca of void"),
@@ -428,15 +458,18 @@ fn lower_inst(
             ));
             Some(bcx.ins().stack_addr(ptr_ty, slot, 0))
         }
-        InstKind::Load(t, ptr) => {
+        InstKind::Load(t, ptr, offset) => {
             let p = operand(bcx, ptr_ty, value_map, data_refs, module, data_map, f, ptr);
             let ty = clif_type(module, *t);
-            Some(bcx.ins().load(ty, MemFlags::new(), p, 0))
+            // Cranelift's load takes an i32 offset directly. Cast u64 → i32
+            // (offsets are always small for our object layouts; clamp at
+            // i32::MAX would be silly for >2 GB structs).
+            Some(bcx.ins().load(ty, MemFlags::new(), p, *offset as i32))
         }
-        InstKind::Store(val, ptr) => {
+        InstKind::Store(val, ptr, offset) => {
             let v = operand(bcx, ptr_ty, value_map, data_refs, module, data_map, f, val);
             let p = operand(bcx, ptr_ty, value_map, data_refs, module, data_map, f, ptr);
-            bcx.ins().store(MemFlags::new(), v, p, 0);
+            bcx.ins().store(MemFlags::new(), v, p, *offset as i32);
             None
         }
         InstKind::SiToFp(op) => {

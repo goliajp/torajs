@@ -76,6 +76,41 @@ pub fn lower(ast: &Ast) -> Module {
         &[Type::Str, Type::Str],
         Type::Str,
     );
+    // P2.4.c: object heap alloc + drop. Layout is the lowerer's call —
+    // pass the byte size as i64. The runtime is just malloc/free.
+    let obj_alloc_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_obj_alloc",
+        &[Type::I64],
+        Type::Ptr,
+    );
+    let obj_drop_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_obj_drop",
+        &[Type::Ptr],
+        Type::Void,
+    );
+
+    // Pass 0.5: register user-declared type aliases. `type Point = { x:
+    // number, y: number }` interns the layout in `module.struct_layouts`
+    // and adds `Point → Type::Obj(StructId)` to `aliases`. Order matters:
+    // forward references between aliases aren't supported (matches
+    // check.rs's behavior — would error there before reaching here).
+    let mut aliases: HashMap<String, Type> = HashMap::new();
+    for stmt in &ast.stmts {
+        if let Stmt::TypeDecl { name, fields } = stmt {
+            let layout: Vec<(String, Type)> = fields
+                .iter()
+                .map(|(fname, fty_ann)| {
+                    (fname.clone(), parse_type(Some(fty_ann.as_str()), &aliases))
+                })
+                .collect();
+            let sid = module.intern_struct(layout);
+            aliases.insert(name.clone(), Type::Obj(sid));
+        }
+    }
 
     // Pass 1: pre-allocate FuncIds + record correct return types for every
     // user FnDecl. The placeholder body is empty; pass 2 fills it in. Setting
@@ -92,7 +127,7 @@ pub fn lower(ast: &Ast) -> Module {
             fn_table.insert(name.clone(), fid);
             module.funcs.push(ssa::Function::new(
                 name.clone(),
-                parse_type(return_type.as_deref()),
+                parse_type(return_type.as_deref(), &aliases),
             ));
             decl_indices.push((i, fid));
         }
@@ -113,7 +148,15 @@ pub fn lower(ast: &Ast) -> Module {
         str_print: str_print_id,
         str_drop: str_drop_id,
         str_concat: str_concat_id,
+        obj_alloc: obj_alloc_id,
+        obj_drop: obj_drop_id,
     };
+
+    // Snapshot struct layouts BEFORE entering pass 2 (which mutates
+    // module.funcs). Pass 2 only reads layouts (for object-lit field
+    // sizes / member-access offsets), so a clone is safe and simpler
+    // than fighting the borrow checker.
+    let struct_layouts_snapshot = module.struct_layouts.clone();
 
     // Pass 2: lower user FnDecl bodies. Each call returns the lowered
     // function plus any string literals interned during its body; we
@@ -136,6 +179,8 @@ pub fn lower(ast: &Ast) -> Module {
                 &fn_table,
                 &signatures,
                 &intrinsics,
+                &aliases,
+                &struct_layouts_snapshot,
                 module.strings.len(),
             );
             module.funcs[fid.0 as usize] = f;
@@ -158,6 +203,8 @@ pub fn lower(ast: &Ast) -> Module {
             &fn_table,
             &signatures,
             &intrinsics,
+            &aliases,
+            &struct_layouts_snapshot,
             module.strings.len(),
         );
         for s in new_strings {
@@ -180,6 +227,8 @@ struct Intrinsics {
     str_print: FuncId,
     str_drop: FuncId,
     str_concat: FuncId,
+    obj_alloc: FuncId,
+    obj_drop: FuncId,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -217,6 +266,8 @@ fn synthesize_main(
     fn_table: &HashMap<String, FuncId>,
     signatures: &HashMap<FuncId, Type>,
     intrinsics: &Intrinsics,
+    aliases: &HashMap<String, Type>,
+    struct_layouts: &[Vec<(String, Type)>],
     string_id_base: usize,
 ) -> (ssa::Function, Vec<Vec<u8>>) {
     let mut f = ssa::Function::new("main", Type::I32);
@@ -229,6 +280,8 @@ fn synthesize_main(
             fn_table,
             signatures,
             intrinsics: *intrinsics,
+            aliases,
+            struct_layouts,
             locals: HashMap::new(),
             cur_block: entry,
             new_strings: &mut new_strings,
@@ -247,7 +300,7 @@ fn synthesize_main(
     (f, new_strings)
 }
 
-fn parse_type(ann: Option<&str>) -> Type {
+fn parse_type(ann: Option<&str>, aliases: &HashMap<String, Type>) -> Type {
     match ann {
         // `number` defaults to i64 — best for the integer-heavy cases
         // (popcount/fib40/gcd1m). When a function actually needs floating-
@@ -259,7 +312,10 @@ fn parse_type(ann: Option<&str>) -> Type {
         Some("boolean") => Type::Bool,
         Some("string") => Type::Str,
         Some("void") | None => Type::Void,
-        Some(other) => panic!("ssa-lower: unsupported type annotation `{other}`"),
+        Some(other) => match aliases.get(other) {
+            Some(ty) => *ty,
+            None => panic!("ssa-lower: unsupported type annotation `{other}`"),
+        },
     }
 }
 
@@ -272,9 +328,11 @@ fn lower_fn(
     fn_table: &HashMap<String, FuncId>,
     signatures: &HashMap<FuncId, Type>,
     intrinsics: &Intrinsics,
+    aliases: &HashMap<String, Type>,
+    struct_layouts: &[Vec<(String, Type)>],
     string_id_base: usize,
 ) -> (ssa::Function, Vec<Vec<u8>>) {
-    let ret_ty = parse_type(return_type);
+    let ret_ty = parse_type(return_type, aliases);
     let mut f = ssa::Function::new(name, ret_ty);
 
     // Capture param SSA values + types BEFORE creating the entry block; we'll
@@ -284,7 +342,7 @@ fn lower_fn(
     // SSA-arg values).
     let mut param_setup: Vec<(String, ValueId, Type)> = Vec::with_capacity(params.len());
     for p in params {
-        let pty = parse_type(p.type_ann.as_deref());
+        let pty = parse_type(p.type_ann.as_deref(), aliases);
         let pid = f.add_param(pty, &p.name);
         param_setup.push((p.name.clone(), pid, pty));
     }
@@ -301,6 +359,8 @@ fn lower_fn(
         fn_table,
         signatures,
         intrinsics: *intrinsics,
+        aliases,
+        struct_layouts,
         locals: HashMap::new(),
         cur_block: entry,
         new_strings: &mut new_strings,
@@ -314,7 +374,7 @@ fn lower_fn(
         let slot = ctx.alloca(ty, Some(&name));
         ctx.f.append_void(
             ctx.cur_block,
-            InstKind::Store(Operand::Value(pid), Operand::Value(slot)),
+            InstKind::Store(Operand::Value(pid), Operand::Value(slot), 0),
         );
         ctx.locals.insert(
             name,
@@ -355,6 +415,16 @@ struct LowerCtx<'a> {
     /// emits a runtime call — string-literal lowering needs `str_alloc`,
     /// `console.log` needs `print_i64` / `str_print`, etc.
     intrinsics: Intrinsics,
+    /// User-declared type aliases (`type Point = { ... }` → Type::Obj).
+    /// Threaded through so `parse_type("Point", ...)` resolves at let-decl
+    /// + function-signature sites.
+    aliases: &'a HashMap<String, Type>,
+    /// Read-only view of all interned struct layouts. Object-lit + member
+    /// access need field-offset info, which is `field_index * 8` in MVP.
+    /// This is a snapshot — passing `&module.struct_layouts` directly
+    /// would conflict with the `&mut module.funcs` borrow during body
+    /// lowering, so we clone the Vec at the start of pass 2.
+    struct_layouts: &'a [Vec<(String, Type)>],
     /// name → (alloca-ptr value, contents type, moved flag). Every local —
     /// including the function's own parameters — sits behind an alloca.
     /// mem2reg lifts them to SSA values at -O1+.
@@ -421,6 +491,9 @@ impl<'a> LowerCtx<'a> {
                     InstKind::Call(drop_fid, vec![arg]),
                 );
             }
+            // (object temps in console.log don't apply yet — `console.log`
+            // doesn't accept structs in this MVP — but if a non-binding
+            // Type::Obj reached here, we'd drop it via `obj_drop` similarly.)
             return;
         }
         self.lower_stmt(s);
@@ -459,6 +532,17 @@ impl<'a> LowerCtx<'a> {
         }
     }
 
+    /// Returns the drop intrinsic FuncId for a given non-Copy type. Panics
+    /// for Copy types (caller should filter first) and for types we
+    /// don't yet have a drop runtime for.
+    fn drop_fid_for(&self, ty: Type) -> FuncId {
+        match ty {
+            Type::Str => self.intrinsics.str_drop,
+            Type::Obj(_) => self.intrinsics.obj_drop,
+            other => panic!("ssa-lower: no drop intrinsic for type {other:?}"),
+        }
+    }
+
     /// Emit Drop calls for every owned non-Copy local in the current block.
     /// Called immediately before terminators that exit the function (Ret,
     /// fall-through). Skips `moved` bindings — those have transferred
@@ -472,14 +556,14 @@ impl<'a> LowerCtx<'a> {
             .filter(|info| !info.moved && !info.ty.is_copy())
             .map(|info| (info.slot, info.ty))
             .collect();
-        let drop_fid = self.intrinsics.str_drop;
         for (slot, ty) in to_drop {
             let val = self.f.append_inst(
                 self.cur_block,
-                InstKind::Load(ty, Operand::Value(slot)),
+                InstKind::Load(ty, Operand::Value(slot), 0),
                 ty,
                 None,
             );
+            let drop_fid = self.drop_fid_for(ty);
             self.f.append_void(
                 self.cur_block,
                 InstKind::Call(drop_fid, vec![Operand::Value(val)]),
@@ -509,13 +593,13 @@ impl<'a> LowerCtx<'a> {
                 // Step 4.1: every let goes through alloca regardless of `mutable`.
                 // const-correctness check is the type-checker's job (already done in
                 // check.rs); the SSA layer doesn't care.
-                let ty = parse_type(type_ann.as_deref());
+                let ty = parse_type(type_ann.as_deref(), self.aliases);
                 let init_val = self.lower_expr(*init);
                 self.consume_if_ident(*init);
                 let slot = self.alloca(ty, Some(name));
                 self.f.append_void(
                     self.cur_block,
-                    InstKind::Store(init_val, Operand::Value(slot)),
+                    InstKind::Store(init_val, Operand::Value(slot), 0),
                 );
                 self.locals.insert(
                     name.clone(),
@@ -614,6 +698,11 @@ impl<'a> LowerCtx<'a> {
                 // side effects (its own value), e.g. nested Calls.
                 let _ = self.lower_expr(*eid);
             }
+            Stmt::TypeDecl { .. } => {
+                // Pass 0 of `lower()` already registered the alias and
+                // interned the layout. Re-encountering during the body
+                // walk is a no-op.
+            }
             other => panic!("ssa-lower: unsupported stmt: {other:?}"),
         }
     }
@@ -679,7 +768,7 @@ impl<'a> LowerCtx<'a> {
                 };
                 let v = self.f.append_inst(
                     self.cur_block,
-                    InstKind::Load(info.ty, Operand::Value(info.slot)),
+                    InstKind::Load(info.ty, Operand::Value(info.slot), 0),
                     info.ty,
                     None,
                 );
@@ -711,11 +800,11 @@ impl<'a> LowerCtx<'a> {
                 if !snapshot.ty.is_copy() && !post_rhs.moved {
                     let old = self.f.append_inst(
                         self.cur_block,
-                        InstKind::Load(snapshot.ty, Operand::Value(snapshot.slot)),
+                        InstKind::Load(snapshot.ty, Operand::Value(snapshot.slot), 0),
                         snapshot.ty,
                         None,
                     );
-                    let drop_fid = self.intrinsics.str_drop;
+                    let drop_fid = self.drop_fid_for(snapshot.ty);
                     self.f.append_void(
                         self.cur_block,
                         InstKind::Call(drop_fid, vec![Operand::Value(old)]),
@@ -723,7 +812,7 @@ impl<'a> LowerCtx<'a> {
                 }
                 self.f.append_void(
                     self.cur_block,
-                    InstKind::Store(v, Operand::Value(snapshot.slot)),
+                    InstKind::Store(v, Operand::Value(snapshot.slot), 0),
                 );
                 // The slot now owns a fresh value — clear `moved` so
                 // subsequent reads work and end-of-fn drop fires.
@@ -761,6 +850,97 @@ impl<'a> LowerCtx<'a> {
                 let v = self
                     .f
                     .append_inst(self.cur_block, InstKind::Call(target, argv), ret_ty, None);
+                Operand::Value(v)
+            }
+            Expr::ObjectLit { fields } => {
+                // Lower each field. Field types determine struct layout
+                // (8-byte slots in declaration order for MVP). Match the
+                // already-interned StructId by structural equality on
+                // the layout — this is what `intern_struct` did in pass
+                // 0.5 for `type` aliases. For object literals appearing
+                // without a `type` declaration in scope, the layout is
+                // inferred and would intern as a fresh struct (but we
+                // don't have a way to register new structs into the
+                // module post-pass-0 — the layout snapshot is read-only).
+                //
+                // For MVP we require: every object literal must match the
+                // layout of an already-declared `type`. The check.rs
+                // pass infers structurally; the SSA lowerer matches
+                // against `struct_layouts` registered in pass 0.5.
+                let entries: Vec<(String, ExprId)> = fields.clone();
+                let mut field_tys: Vec<(String, Type)> = Vec::new();
+                let mut field_vals: Vec<Operand> = Vec::new();
+                for (n, eid) in &entries {
+                    let v = self.lower_expr(*eid);
+                    self.consume_if_ident(*eid);
+                    let ty = self.operand_ty(&v);
+                    if !ty.is_copy() && !matches!(ty, Type::Str) {
+                        panic!(
+                            "ssa-lower: P2.4.c MVP supports object fields of Copy types or Str only, got {ty:?}"
+                        );
+                    }
+                    field_tys.push((n.clone(), ty));
+                    field_vals.push(v);
+                }
+                let sid = self
+                    .struct_layouts
+                    .iter()
+                    .position(|layout| *layout == field_tys)
+                    .map(|i| ssa::StructId(i as u32))
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "ssa-lower: object literal layout {field_tys:?} not registered as a `type` — anonymous struct types not yet supported (P2.4.c MVP)"
+                        )
+                    });
+                let size = field_tys.len() as i64 * 8;
+                let alloc_fid = self.intrinsics.obj_alloc;
+                let obj_ptr = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(alloc_fid, vec![Operand::ConstI64(size)]),
+                    Type::Obj(sid),
+                    None,
+                );
+                for (i, val) in field_vals.iter().enumerate() {
+                    let offset = i as u64 * 8;
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Store(*val, Operand::Value(obj_ptr), offset),
+                    );
+                }
+                Operand::Value(obj_ptr)
+            }
+            Expr::Member { obj, name } => {
+                let obj_val = self.lower_expr(*obj);
+                let obj_ty = self.operand_ty(&obj_val);
+                let sid = match obj_ty {
+                    Type::Obj(sid) => sid,
+                    _ => panic!(
+                        "ssa-lower: member access on non-object {obj_ty:?} (.{name})"
+                    ),
+                };
+                let layout = &self.struct_layouts[sid.0 as usize];
+                let (idx, field_ty) = layout
+                    .iter()
+                    .enumerate()
+                    .find_map(|(i, (fname, fty))| {
+                        if fname == name {
+                            Some((i, *fty))
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "ssa-lower: struct {sid:?} has no field `{name}` (layout: {layout:?})"
+                        )
+                    });
+                let offset = idx as u64 * 8;
+                let v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Load(field_ty, obj_val, offset),
+                    field_ty,
+                    None,
+                );
                 Operand::Value(v)
             }
             other => panic!("ssa-lower: unsupported expr: {other:?}"),

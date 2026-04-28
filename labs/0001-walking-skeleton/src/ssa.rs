@@ -37,6 +37,11 @@ pub struct FuncId(pub u32);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct StringId(pub u32);
 
+/// Index into `Module.struct_layouts`. Two `StructId`s compare equal iff
+/// they refer to the same interned layout (i.e. structurally equal types).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct StructId(pub u32);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Type {
     I64,
@@ -60,6 +65,14 @@ pub enum Type {
     /// pointer is a `[N x i8]` global; drop is a no-op. Concat + true
     /// heap allocation lands in 2.2.b/c.
     Str,
+    /// Owned heap object handle pointing at a struct with the layout
+    /// stored at `module.struct_layouts[id]`. Like Str, lowers to a
+    /// single pointer at codegen — the SSA-level distinction lets
+    /// drop emission look up which fields are non-Copy and (in P2.4.d)
+    /// recursively drop them before freeing the outer struct.
+    /// P2.4.c MVP: layout is N×8-byte slots in field declaration order;
+    /// only Copy fields supported (recursive drop comes in P2.4.d).
+    Obj(StructId),
 }
 
 impl Type {
@@ -72,6 +85,7 @@ impl Type {
             Type::Void => "void",
             Type::Ptr => "ptr",
             Type::Str => "str",
+            Type::Obj(_) => "obj",
         }
     }
 
@@ -84,6 +98,7 @@ impl Type {
             self,
             Type::I64 | Type::F64 | Type::I32 | Type::Bool | Type::Void
         )
+        // Str + Obj are heap-owned, affine.
     }
 }
 
@@ -195,11 +210,14 @@ pub enum InstKind {
     /// `%p = alloca <ty>` — stack-allocate a slot of `ty`. Result type is Ptr.
     /// Used for mutable locals; mem2reg lifts these to SSA values at -O1+.
     Alloca(Type),
-    /// `%v = load <ty>, <ptr>` — load a value of `ty` from a pointer operand.
-    Load(Type, Operand),
-    /// `store <value>, <ptr>` — void result; value's type determines the
-    /// store width.
-    Store(Operand, Operand),
+    /// `%v = load <ty>, <ptr>+<offset>` — load a value of `ty` from
+    /// pointer + byte_offset. Offset is 0 for plain alloca-slot loads;
+    /// non-zero for object field reads (offset = field_index * 8 in the
+    /// MVP layout).
+    Load(Type, Operand, u64),
+    /// `store <value>, <ptr>+<offset>` — void result; value's type
+    /// determines the store width. Same offset convention as Load.
+    Store(Operand, Operand, u64),
     /// `%v = sitofp <i64-operand>` — signed integer to f64 cast. Used to
     /// promote i64 operands when mixed with f64 in arithmetic / comparisons.
     SiToFp(Operand),
@@ -339,6 +357,11 @@ pub struct Module {
     /// Interned string literals. StringId = index. Backend emits each as a
     /// global `[N x i8]` constant.
     pub strings: Vec<Vec<u8>>,
+    /// Interned struct layouts — `Vec<(field_name, field_type)>`. Field
+    /// order matters (it's the layout). Two structurally-equal types
+    /// share a single StructId via `intern_struct`. Layouts can recurse
+    /// (a struct field of type `Obj(_)` references back into this Vec).
+    pub struct_layouts: Vec<Vec<(String, Type)>>,
 }
 
 impl Module {
@@ -360,6 +383,32 @@ impl Module {
 
     pub fn string_bytes(&self, id: StringId) -> &[u8] {
         &self.strings[id.0 as usize]
+    }
+
+    /// Intern a struct layout. Returns an existing StructId if a
+    /// structurally-equal layout was already registered, else allocates
+    /// a fresh one. Field-name order matters — `{x, y}` ≠ `{y, x}`.
+    pub fn intern_struct(&mut self, layout: Vec<(String, Type)>) -> StructId {
+        for (i, existing) in self.struct_layouts.iter().enumerate() {
+            if *existing == layout {
+                return StructId(i as u32);
+            }
+        }
+        let id = StructId(self.struct_layouts.len() as u32);
+        self.struct_layouts.push(layout);
+        id
+    }
+
+    pub fn struct_layout(&self, id: StructId) -> &[(String, Type)] {
+        &self.struct_layouts[id.0 as usize]
+    }
+
+    /// Byte size of a struct, given the MVP's flat 8-byte-per-field rule.
+    /// (P2.4.c restriction: only Copy fields, all stored in 8-byte slots
+    /// regardless of actual field type. P2.4.d will reduce padding for
+    /// smaller types.)
+    pub fn struct_size(&self, id: StructId) -> u64 {
+        self.struct_layout(id).len() as u64 * 8
     }
 
     /// Pretty-print to stdout. Format is intentionally LLVM-IR-shaped so a
@@ -455,15 +504,21 @@ impl Function {
             InstKind::Alloca(t) => {
                 write!(w, "alloca {}", t.as_str())?;
             }
-            InstKind::Load(t, ptr) => {
+            InstKind::Load(t, ptr, offset) => {
                 write!(w, "load {}, ", t.as_str())?;
                 self.write_operand(w, ptr)?;
+                if *offset != 0 {
+                    write!(w, " +{offset}")?;
+                }
             }
-            InstKind::Store(val, ptr) => {
+            InstKind::Store(val, ptr, offset) => {
                 write!(w, "store ")?;
                 self.write_operand(w, val)?;
                 write!(w, ", ")?;
                 self.write_operand(w, ptr)?;
+                if *offset != 0 {
+                    write!(w, " +{offset}")?;
+                }
             }
             InstKind::SiToFp(op) => {
                 write!(w, "sitofp ")?;
