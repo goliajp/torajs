@@ -474,7 +474,15 @@ impl<'a> LowerCtx<'a> {
             // (literal strings, BinOp results, Call returns), the Type::Str
             // value is owned-by-nobody after the call — drop it on the
             // spot to keep the heap from leaking.
-            let is_borrow = matches!(self.ast.get_expr(args[0]), Expr::Ident(_));
+            //
+            // Both `Ident(s)` and `Member { obj, name }` are borrows — the
+            // Ident reads a binding's heap pointer; the Member reads a
+            // field whose backing heap is still owned by the parent
+            // struct. Dropping either would double-free.
+            let is_borrow = matches!(
+                self.ast.get_expr(args[0]),
+                Expr::Ident(_) | Expr::Member { .. }
+            );
             let arg = self.lower_expr(args[0]);
             let is_str = self.operand_ty(&arg) == Type::Str;
             let target = if is_str {
@@ -485,15 +493,8 @@ impl<'a> LowerCtx<'a> {
             self.f
                 .append_void(self.cur_block, InstKind::Call(target, vec![arg]));
             if is_str && !is_borrow {
-                let drop_fid = self.intrinsics.str_drop;
-                self.f.append_void(
-                    self.cur_block,
-                    InstKind::Call(drop_fid, vec![arg]),
-                );
+                self.emit_drop_value(arg, Type::Str);
             }
-            // (object temps in console.log don't apply yet — `console.log`
-            // doesn't accept structs in this MVP — but if a non-binding
-            // Type::Obj reached here, we'd drop it via `obj_drop` similarly.)
             return;
         }
         self.lower_stmt(s);
@@ -532,20 +533,60 @@ impl<'a> LowerCtx<'a> {
         }
     }
 
-    /// Returns the drop intrinsic FuncId for a given non-Copy type. Panics
-    /// for Copy types (caller should filter first) and for types we
-    /// don't yet have a drop runtime for.
-    fn drop_fid_for(&self, ty: Type) -> FuncId {
+    /// Drop a single Operand of non-Copy type. Recurses into struct fields:
+    ///
+    ///   Str       → call str_drop(val)
+    ///   Obj(sid)  → for each non-Copy field at offset i*8:
+    ///                  load field, recursively drop its value;
+    ///               call obj_drop(val)  // free the outer struct after
+    ///                                   // its non-Copy children are gone
+    ///
+    /// Copy fields don't show up here — they don't own anything heap.
+    /// Recursion bottoms out at Str (the leaves) or at Obj with all-Copy
+    /// fields (just free, no inner drops). Cycles aren't possible because
+    /// our type aliases are declaration-ordered and forward refs are
+    /// rejected at the type-decl pass — there's no way to build a
+    /// recursive struct.
+    fn emit_drop_value(&mut self, val: Operand, ty: Type) {
         match ty {
-            Type::Str => self.intrinsics.str_drop,
-            Type::Obj(_) => self.intrinsics.obj_drop,
-            other => panic!("ssa-lower: no drop intrinsic for type {other:?}"),
+            Type::Str => {
+                let drop_fid = self.intrinsics.str_drop;
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Call(drop_fid, vec![val]),
+                );
+            }
+            Type::Obj(sid) => {
+                let layout = self.struct_layouts[sid.0 as usize].clone();
+                for (i, (_, fty)) in layout.iter().enumerate() {
+                    if fty.is_copy() {
+                        continue;
+                    }
+                    let offset = i as u64 * 8;
+                    let field_val = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Load(*fty, val, offset),
+                        *fty,
+                        None,
+                    );
+                    self.emit_drop_value(Operand::Value(field_val), *fty);
+                }
+                let drop_fid = self.intrinsics.obj_drop;
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Call(drop_fid, vec![val]),
+                );
+            }
+            other if other.is_copy() => {
+                // Nothing to drop — caller filtered, but be defensive.
+            }
+            other => panic!("ssa-lower: no drop sequence for type {other:?}"),
         }
     }
 
-    /// Emit Drop calls for every owned non-Copy local in the current block.
-    /// Called immediately before terminators that exit the function (Ret,
-    /// fall-through). Skips `moved` bindings — those have transferred
+    /// Emit drop sequences for every owned non-Copy local in the current
+    /// block. Called immediately before terminators that exit the function
+    /// (Ret, fall-through). Skips `moved` bindings — those have transferred
     /// ownership elsewhere and the receiver is responsible for the drop.
     fn emit_drops_for_owned_locals(&mut self) {
         // Snapshot to avoid borrowing self.locals while we emit instructions
@@ -563,11 +604,7 @@ impl<'a> LowerCtx<'a> {
                 ty,
                 None,
             );
-            let drop_fid = self.drop_fid_for(ty);
-            self.f.append_void(
-                self.cur_block,
-                InstKind::Call(drop_fid, vec![Operand::Value(val)]),
-            );
+            self.emit_drop_value(Operand::Value(val), ty);
         }
     }
 
@@ -804,11 +841,7 @@ impl<'a> LowerCtx<'a> {
                         snapshot.ty,
                         None,
                     );
-                    let drop_fid = self.drop_fid_for(snapshot.ty);
-                    self.f.append_void(
-                        self.cur_block,
-                        InstKind::Call(drop_fid, vec![Operand::Value(old)]),
-                    );
+                    self.emit_drop_value(Operand::Value(old), snapshot.ty);
                 }
                 self.f.append_void(
                     self.cur_block,
@@ -874,11 +907,6 @@ impl<'a> LowerCtx<'a> {
                     let v = self.lower_expr(*eid);
                     self.consume_if_ident(*eid);
                     let ty = self.operand_ty(&v);
-                    if !ty.is_copy() && !matches!(ty, Type::Str) {
-                        panic!(
-                            "ssa-lower: P2.4.c MVP supports object fields of Copy types or Str only, got {ty:?}"
-                        );
-                    }
                     field_tys.push((n.clone(), ty));
                     field_vals.push(v);
                 }
