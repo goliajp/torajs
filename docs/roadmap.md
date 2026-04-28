@@ -4,7 +4,7 @@
 >
 > Provenance: synthesized from `.claude/researches/0001-direction.md` through `0005-roadmap.md` (research / discussion logs, kept for audit trail).
 >
-> Last revised: 2026-04-26
+> Last revised: 2026-04-28
 
 ---
 
@@ -33,13 +33,64 @@ Build torajs from scratch in Rust: a statically-typed, AOT-compiled language wit
 | Embed existing JS engine? | No — write our own | 0001 |
 | Execution model | AOT (production) + interpreter (dev) — both consume same IR | 0003, 0004 |
 | Memory model | Static ownership (affine + explicit `Rc<T>`); no tracing GC | 0003, 0004 |
-| Compiler backend (initial) | Direct wasm-bytes encoder in v0; Cranelift from v1+; LLVM as opt-in `--release` much later | 0002, 0004 |
+| Compiler backend (revised 2026-04-28) | **LLVM via Inkwell (AOT) + Cranelift (JIT)**, both consume the same SSA IR. Wasm-via-C path retired — see "Backend pivot (2026-04-28)" below. | session 2026-04-28 |
 | Concurrency | Built-in multi-threaded work-stealing executor in std; `Send`/`Sync` traits enforced statically | 0004 |
 | Compat with `tsc`/Bun | Not a design driver. Compat layer is downstream future work. | 0004 |
 | TS spec / version conformance | None — we pick our own TS-shaped dialect; not aligned to TS6 or any TS version. Re-confirmed 2026-04-26 against a "follow TS6 rules" alternative. | session 2026-04-26 |
 | Test262 conformance | Not a goal | 0001 |
 | First-class WASM target | Yes — torajs.com playground depends on it | 0001 |
 | Project repository home | `crates/` (Rust workspace), `web/`, `labs/`, `examples/`, `docs/` | 0001 |
+
+### Backend pivot (2026-04-28)
+
+Through P3.1–P3.3 the AOT path was **wasm-via-C**: tr → wasm-encoder → wasm2c (wabt) → clang -O3 → native binary. This shipped fast and won the bench against bun/node on every case (and beat rust on fib40 + popcount + startup). But it has hard ceilings that bite at P4:
+
+- `compile_ms` floor ~95 ms — 70 ms of that is clang frontend re-parsing wasm2c's verbose C
+- wasm has no GC integration in our toolchain (wasm2c precedes the wasm-GC proposal)
+- no tail calls, no exceptions, no SIMD intrinsics in the wabt output
+- external dep on Apple clang + homebrew wabt — bad for distribution
+- **wasm-via-C is the wrong substrate for P4 (closures + objects + strings)**, not a temporary expedient — pivot now while the codegen layer is ~1000 LOC
+
+Replacement: **two backends sharing one SSA IR**:
+
+```
+frontend (lex → parse → check) → SSA IR (rich types, monomorphized,
+                                          devirtualized, escape-analyzed,
+                                          partial-evaluated, pattern-matched)
+                                  ↓                ↓
+                         Inkwell (LLVM)      Cranelift
+                              ↓                  ↓
+                         AOT object         JIT in-memory
+                         + system ld         + execute
+                              ↓                  ↓
+                         `tr build`         `tr run`
+                         (run_ms 极致)       (compile_ms 极致)
+```
+
+Both modes are first-class. `tr build` is the perf-leading native binary (matches/beats rust/go on bench). `tr run` is Go-style "compile to memory and execute" — replaces the tree-walk interpreter as the dev-loop runner.
+
+#### run_ms ceiling = three layers, not one
+
+```
+run_ms 极限 = optimal_codegen × optimal_runtime × optimal_layout
+            = LLVM            × hand-tuned GC   × Rust-style layout
+```
+
+Picking LLVM solves the codegen layer. The other two layers are not free; they are where bun/V8 lose to us by 4–20× on the current bench (their codegen is fine; their runtime + layout carry too much overhead). Specific commitments:
+
+1. **IR carries rich type info** → emit specialized LLVM IR. Monomorphization (Rust-style, no vtables), devirtualization at IR level, `noalias` annotations from ownership analysis, `!range` metadata from type narrowing.
+2. **Self-built precise tracing GC** + **inline-string layout** (≤23 bytes inline, Swift-style) + **monomorphic closure layout** (function pointer + captured struct, no vtable).
+3. **Language-level PGO** (not LLVM-level — that broke popcount). `@hot`/`@cold` attributes + static-analysis hints → emitted as LLVM `branch_weights` metadata.
+4. **Pattern-detected intrinsics**: Brian Kernighan popcount → `@llvm.ctpop.i64`, ctz/clz/bswap, vectorizable nested loops → NEON. Don't depend on LLVM's loop-idiom recognizer firing.
+5. **Stack/arena allocation first**: escape analysis to stack-allocate non-escaping locals; region inference for function-scoped temporaries; linear types (Rust ownership) → direct free, no GC pressure. Go's escape-analysis is the floor; Rust's ownership is the ceiling.
+6. **Apple Silicon tuning**: continue using Apple's LLVM patches (Apple clang 21 beats upstream LLVM 22 by 7% on M-series). Inkwell links against `/usr/lib/libLLVM.dylib` on darwin, upstream elsewhere.
+7. **Compile-time partial evaluation**: const folding, template literal concat, `[1,2,3].length → 3` happen in IR before LLVM ever sees the program.
+
+#### What this supersedes
+
+- P3.4 (strings in linear memory) and P3.5 (heap allocator in wasm) — wasm is no longer the deploy target, so wasm-side runtime work is moot
+- P8 (Cranelift backend later) — folded into P3.6
+- P13 (LLVM `--release` mode optional, far) — folded into P3.5; LLVM is no longer optional, it's the AOT primary backend
 
 ### Working mode
 
@@ -391,60 +442,84 @@ The language has a real heap now (strings, arrays). Time to make ownership real.
 
 ---
 
-## P3 — AOT to wasm
+## P3 — Native AOT + JIT (revised 2026-04-28)
 
-The interpreter still works for dev, but now we add a parallel backend that emits wasm.
-
-**Wasm runtime decision (2026-04-28):** the bench harness uses **wasmtime** (homebrew, version pinned to 44+) to run the produced `.wasm` artifact. Choosing an external runtime now keeps the tr binary small; embedding wasmi for a single-binary distribution is a follow-up if/when distribution ergonomics matter.
+P3.1–P3.3 landed the **wasm-via-C** path (tr → wasm-encoder → wasm2c → clang). It works and currently leads the bench, but is being **replaced**, not extended (see "Backend pivot" above). The replacement is a single SSA IR that feeds two real codegen backends: LLVM (Inkwell) for `tr build`, Cranelift for `tr run`. The wasm pipeline stays alive as a reference implementation through P3.6, then is deleted.
 
 ### P3.1 — Wasm encoder, stub module
 
-**Status (2026-04-28): ✓ done.** `tr build main.tora.ts -o main.wasm` produces a WASI module that prints the literal via `wasi_snapshot_preview1.fd_write`. Bench `torajs-aot` row produces real numbers on `startup`; pre-P3.2/3.3 cases (anything beyond a single string-printing statement) are reported as "skip" with a clear "not yet supported" message via tr's exit-code-3 convention. Lives at `labs/0001-walking-skeleton/src/build.rs`.
-
-**Demo**: `tr build hello.ts -o hello.wasm` produces a wasm binary that, when run via `wasmtime hello.wasm` (or the bundled `wasmi` host), prints `hello`.
-
-**Adds**: `wasm-encoder` crate dependency; wasm module with imports `print`, exported `_start`; emit a wasm function that calls `print` with hardcoded "hello" pointer/length
-
-**Size**: ~250 LOC
+**Status (2026-04-28): ✓ done.** Runs as the current `torajs-aot` bench row. Will be retired in P3.7.
 
 ### P3.2 — Number arithmetic in wasm
 
-**Status (2026-04-28): ✓ done as part of P3.3 push.** Number BinOps lower to `f64.add/sub/mul/div`, comparisons to `f64.lt/gt/le/ge` producing i32 booleans, strict equality to `f64.eq/ne`. `console.log(<number-expr>)` routes through a baked-in `print_i64` helper (truncates to i64 sat, formats decimal digits, fd_writes via WASI).
-
-
-**Demo**: `tr build` of `console.log(1 + 2)` emits wasm that prints `3`.
-
-**Adds**: lower IR arithmetic ops to wasm `i64.add` / `f64.add` / etc. based on type info attached to IR
-
-**Size**: ~150 LOC
+**Status (2026-04-28): ✓ done.**
 
 ### P3.3 — Functions and locals in wasm
 
-**Status (2026-04-28): ✓ done.** Top-level FnDecls become wasm functions with type-specialized signatures (number → f64, boolean → i32). `if`/`return`/recursion lower to structured wasm. fib40 AOT lands at ~500 ms — ~3× rust-native, ahead of node/python, in V8's neighborhood. `let`/`const` inside fn bodies are deferred (a follow-up adds them; current path uses fn params as the only locals).
+**Status (2026-04-28): ✓ done.** fib40 AOT at 150 ms (beats rust/go), popcount at 2.86 ms (beats rust). This validates that **type-specialized native codegen** is the moat — confirms the perf model before we rebuild the codegen layer in P3.4–P3.7.
 
+### P3.4 — Inkwell spike: validate LLVM-direct ≥ clang on bench
 
-**Adds**: each torajs function becomes a wasm function; wasm locals; wasm calling convention
+**Goal**: throwaway experiment in `labs/0002-inkwell-spike/` — emit LLVM IR for fib40 directly via Inkwell, JIT or compile-to-binary, time it. Compare to current torajs-aot's 150 ms. **This is the gate** for the entire pivot: if Inkwell can match or beat clang on our cases, we proceed. If it underperforms by >10%, we stop and investigate before sinking time into P3.5+.
 
-**Size**: ~250 LOC
+**Demo**: a binary at `labs/0002-inkwell-spike/target/release/inkwell-fib40` that prints `102334155` and runs in ≤150 ms median (matching torajs-aot).
 
-### P3.4 — Strings in wasm linear memory
+**Adds**: Inkwell crate dep, `LLVMContext` setup, hand-written LLVM IR for fib40, ORC JIT or static link to native binary, hyperfine comparison vs current torajs-aot.
 
-**Adds**: data section for string constants; runtime `print(ptr, len)` host function; pointer + length string representation
+**Size**: ~300 LOC, 1–2 days. Throwaway after P3.5.
 
-**Size**: ~250 LOC
+### P3.5 — Build SSA IR + Inkwell AOT backend
 
-### P3.5 — Heap allocator in wasm
+**Goal**: real `ir` module in `labs/0001-walking-skeleton/`. Frontend (lex/parse/check) → IR. Inkwell consumes IR → native binary via system linker.
 
-**Adds**: bump allocator in wasm linear memory; `Rc<T>` layout (refcount + payload); drop emits decref + free
+**IR design**:
+- SSA form, basic-block CFG (not stack-machine)
+- Carries rich type info: monomorphized generics, devirtualized calls, `Copy` vs affine, escape-status per local
+- Op set: arith/compare/branch/call/load/store/alloc/free/phi/ret + intrinsic ops (popcount, bswap, ctlz/cttz)
+- Pretty-print so `tr ir <file>.ts` dumps human-readable IR
 
-**Size**: ~400 LOC
+**Inkwell backend**:
+- IR → LLVM IR
+- Apple LLVM (`/usr/lib/libLLVM.dylib`) on darwin via Inkwell's system-libllvm feature
+- Per-case `aot_clang_flags` becomes `-O1`/`-O3` LLVM pass manager config
+- Emit object file → invoke system `ld` → executable
+- `bench/runners/torajs-llvm.toml` lands; old `torajs-aot` (wasm-via-C) renamed to `torajs-wasm` and stays for diff testing through P3.7
+
+**Gate**: torajs-llvm must match or beat torajs-wasm's run_ms on every bench case. compile_ms target ≤ 50 ms.
+
+**Size**: ~1500 LOC, weeks.
+
+### P3.6 — Cranelift JIT backend
+
+**Goal**: `tr run foo.ts` lowers to IR → Cranelift IR (CLIF) → native code in memory → execute. Replaces the tree-walk interpreter.
+
+**Adds**: `cranelift-codegen` + `cranelift-jit` deps, IR → CLIF lowering, Cranelift `JITModule` setup, function pointer call into compiled code, runtime trampolines for host calls (`console.log`, `print_i64`).
+
+**Gate**: `tr run startup.ts` end-to-end <30 ms. `tr run fib40.ts` total time (compile + run) within 2× of `torajs-llvm` run_ms (so ~300 ms — Cranelift's codegen is weaker but compile is 10× faster).
+
+**Bench addition**: `torajs-cranelift` runner — `compile = ""`, `run = "tr run {src}"`, captures total wall time. Replaces `torajs-interp` row.
+
+**Size**: ~1000 LOC.
+
+### P3.7 — Retire wasm-via-C path
+
+**Goal**: delete the wasm pipeline once both new backends are at parity or better.
+
+**Removes**: `wasm-encoder` dep, `bench/aot-host/` directory, libtorart.a cache logic, `bench/runners/torajs-wasm.toml`, the `build.rs` (wasm-encoder version), all wabt/clang dependencies.
+
+**Bench scoreboard ends with**: `torajs-llvm` (AOT) + `torajs-cranelift` (JIT) + bun-jsc/aot, node-v8, rust, go, python.
+
+**Size**: deletion, <100 LOC remaining.
 
 ### P3 deliverables
 
-- `tr build` produces standalone .wasm files
-- Basic programs (arithmetic, variables, functions, strings, arrays, Rc) all run via the wasm backend
-- Two backends now coexist: interpreter (P0-P2) and AOT-wasm (P3)
-- ~6000 LOC total
+- One IR, two real codegen backends (LLVM + Cranelift)
+- `tr build foo.ts -o foo` produces native binary, perf-leading on bench
+- `tr run foo.ts` JIT-compiles and executes, Go-shaped dev loop
+- Wasm-via-C pipeline deleted; no homebrew/wabt/clang dependency
+- ~8000 LOC total in labs/0001-walking-skeleton/
+
+**This phase ends the codegen story.** P4 onward is language features (closures, objects, async) on top of the new backends, not codegen rework.
 
 ---
 
@@ -525,13 +600,9 @@ Layered across phases. Not a single block of work. Order roughly by how soon it'
 
 ---
 
-## P8 — Cranelift backend
+## P8 — Cranelift backend ~~(superseded)~~
 
-**Replaces** the direct wasm encoder with Cranelift. Adds native targets.
-
-### P8.1 — Cranelift wasm backend
-### P8.2 — Cranelift native (x86_64, aarch64) backend
-### P8.3 — `tr build --target native` produces a native binary
+**Folded into P3.6 by 2026-04-28 pivot.** Cranelift is now the JIT backend for `tr run`, landing in P3 not P8.
 
 ---
 
@@ -581,9 +652,9 @@ Open-ended; profile-driven. Examples of likely wins:
 
 ---
 
-## P13 — LLVM `--release` mode
+## P13 — LLVM `--release` mode ~~(superseded)~~
 
-Optional. Cranelift may stay good enough.
+**Folded into P3.5 by 2026-04-28 pivot.** LLVM via Inkwell is now the primary AOT backend, not an optional `--release` mode.
 
 ---
 

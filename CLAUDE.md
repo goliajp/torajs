@@ -1,6 +1,6 @@
 # torajs
 
-Research project (closed-source, internal). Working hypothesis: an embeddable TS/JS runtime in Rust, positioned as a Lua-replacement scripting layer for Rust hosts. Public site: https://torajs.com
+Research project (closed-source, internal). Working hypothesis: a statically-typed language in Rust with **TypeScript syntax** + **Rust-shaped semantics**, two execution modes — **AOT to native binary** (`tr build`) and **JIT-style compile-and-run** (`tr run`), the Go shape. Public site: https://torajs.com
 
 ## Anti-Hallucination (NON-NEGOTIABLE)
 
