@@ -1,0 +1,7 @@
+runs = 5
+warmup = 2
+
+# Higher-order fn pattern: tight loop calls a fn through a fn pointer.
+# Workload is 10M iterations (case-name "1m" is the family identifier;
+# 1M finishes inside hyperfine's startup-noise floor).
+torajs_opt = "O3"

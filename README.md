@@ -23,23 +23,24 @@ bun is the oracle: when behavior is unclear, write the equivalent in TS, run it 
 
 Cross-runtime perf, M4 Pro, hyperfine n=3-10. Run times in ms (lower better). [Full data](bench/results/).
 
-| case             | torajs (AOT) | torajs-jit |       rust |         go |    bun-jsc |    bun-aot |    node-v8 |
-| ---------------- | -----------: | ---------: | ---------: | ---------: | ---------: | ---------: | ---------: |
-| ackermann        |     **8.41** |      19.06 |       8.36 |      10.79 |      15.93 |      15.33 |     100.72 |
-| array-sum-1m     |    **12.06** |      44.23 |      14.28 |      30.47 |      50.70 |      47.56 |     171.97 |
-| collatz          |       104.40 |     208.71 | **104.05** |     137.56 |     320.28 |     320.93 |    1392.06 |
-| fib40            |   **148.26** |     515.69 |     177.26 |     227.74 |     374.20 |     376.04 |     652.07 |
-| gcd1m            |    **39.91** |      50.83 |      40.37 |      41.17 |      48.32 |      47.93 |     128.18 |
-| mandelbrot       |    **34.52** |      85.25 |      34.63 |      36.85 |      50.56 |      50.59 |     123.45 |
-| popcount         |     **3.05** |     103.54 |       3.12 |      54.91 |      56.48 |      55.88 |     127.63 |
-| prime_count      |        47.64 |      54.21 |      47.93 |  **39.72** |      52.95 |      51.07 |     157.85 |
-| startup          |     **1.22** |       8.50 |       1.40 |       2.24 |       8.32 |       7.65 |      85.94 |
+| case                  | torajs (AOT) | torajs-jit |       rust |         go |    bun-jsc |    bun-aot |    node-v8 |
+| --------------------- | -----------: | ---------: | ---------: | ---------: | ---------: | ---------: | ---------: |
+| ackermann             |     **8.41** |      19.06 |       8.36 |      10.79 |      15.93 |      15.33 |     100.72 |
+| array-sum-1m          |    **12.06** |      44.23 |      14.28 |      30.47 |      50.70 |      47.56 |     171.97 |
+| **closure-pipeline-1m** | **12.98**  |      52.45 |      19.45 |      36.94 |      46.70 |      46.23 |     173.07 |
+| collatz               |       104.40 |     208.71 | **104.05** |     137.56 |     320.28 |     320.93 |    1392.06 |
+| fib40                 |   **148.26** |     515.69 |     177.26 |     227.74 |     374.20 |     376.04 |     652.07 |
+| gcd1m                 |    **39.91** |      50.83 |      40.37 |      41.17 |      48.32 |      47.93 |     128.18 |
+| mandelbrot            |    **34.52** |      85.25 |      34.63 |      36.85 |      50.56 |      50.59 |     123.45 |
+| popcount              |     **3.05** |     103.54 |       3.12 |      54.91 |      56.48 |      55.88 |     127.63 |
+| prime_count           |        47.64 |      54.21 |      47.93 |  **39.72** |      52.95 |      51.07 |     157.85 |
+| startup               |     **1.22** |       8.50 |       1.40 |       2.24 |       8.32 |       7.65 |      85.94 |
 
 Measured 2026-04-30 post-M1 (TS subset core: comments / Array runtime / block drops / mutable field+index write / boolean ops / for-loop / break+continue).
 
-torajs (AOT) **vs rust**: 7 wins, 2 ties (collatz +0.3%, mandelbrot −0.3%, both within stddev), 0 losses. **`array-sum-1m`: torajs 12.06 ms vs rust's `Vec<i64>` 14.28 ms = 1.18× faster**.
-torajs (AOT) **vs go**: 8 wins, 1 loss (prime_count's trial division — go's GC backend is fast on tight int loops).
-torajs (AOT) **vs bun/node**: **9/9 wins** on every case. `popcount 3.05 ms vs bun-jsc's 56.48 ms = 18.5× faster`. `startup 1.22 ms vs node-v8's 85.94 ms = 70× faster`. `array-sum-1m vs bun-jsc: 4.2×`. `fib40 vs bun-jsc: 2.52×`. `collatz vs bun-jsc: 3.07×`.
+torajs (AOT) **vs rust**: 8 wins, 2 ties (collatz +0.3%, mandelbrot −0.3%, both within stddev), 0 losses. **`array-sum-1m`: 12.06 ms vs rust's `Vec<i64>` 14.28 ms = 1.18× faster**. **`closure-pipeline-1m`: 12.98 ms vs rust's fn-pointer indirect call 19.45 ms = 1.50× faster**.
+torajs (AOT) **vs go**: 9 wins, 1 loss (prime_count's trial division — go's GC backend is fast on tight int loops).
+torajs (AOT) **vs bun/node**: **10/10 wins** on every case. `popcount 3.05 ms vs bun-jsc's 56.48 ms = 18.5× faster`. `startup 1.22 ms vs node-v8's 85.94 ms = 70× faster`. `array-sum-1m vs bun-jsc: 4.2×`. `closure-pipeline-1m vs bun-jsc: 3.60×`. `fib40 vs bun-jsc: 2.52×`. `collatz vs bun-jsc: 3.07×`.
 
 Compile time + binary size:
 
@@ -142,6 +143,7 @@ Each case has a `main.tora.ts` + 5 sibling implementations (`main.ts`, `main.rs`
 | **collatz**      | bit ops + hailstone trajectory + outer/inner loop                               |
 | **prime_count**  | trial division, bool return, early-return-from-while                            |
 | **array-sum-1m** | 10M `Array<T>::push` + index sum — heap alloc, amortized realloc, tight loop   |
+| **closure-pipeline-1m** | 10M indirect calls through fn-pointer arg — `reduce(xs, f)` higher-order pattern |
 
 Add a case: drop a directory under `bench/cases/<name>/` with `main.<lang>` files, an `expected.txt`, and an optional `bench.toml`.
 
