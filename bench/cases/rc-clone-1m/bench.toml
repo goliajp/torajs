@@ -1,6 +1,0 @@
-runs = 5
-warmup = 1
-
-# rc-clone-1m is a tight refcount loop — pick the smallest LLVM passes that
-# don't leave the inc/dec on the slow path. -O1 vs -O3 to be measured.
-torajs_opt = "O3"
