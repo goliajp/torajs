@@ -172,6 +172,21 @@ extern "C" fn math_floor_runtime(x: f64) -> f64 {
 extern "C" fn math_ceil_runtime(x: f64) -> f64 {
     x.ceil()
 }
+extern "C" fn math_log_runtime(x: f64) -> f64 {
+    x.ln()
+}
+extern "C" fn math_exp_runtime(x: f64) -> f64 {
+    x.exp()
+}
+extern "C" fn math_pow_runtime(x: f64, y: f64) -> f64 {
+    x.powf(y)
+}
+extern "C" fn math_min_runtime(x: f64, y: f64) -> f64 {
+    x.min(y)
+}
+extern "C" fn math_max_runtime(x: f64, y: f64) -> f64 {
+    x.max(y)
+}
 
 /// `__torajs_str_drop(*StrRepr s) -> void` — release the heap StrRepr.
 /// Layout must match what `str_alloc_runtime` produced: total size = 8+len.
@@ -234,6 +249,11 @@ pub fn execute(ssa_module: &Module) -> Result<i32, JitError> {
     jit_builder.symbol("__torajs_math_abs", math_abs_runtime as *const u8);
     jit_builder.symbol("__torajs_math_floor", math_floor_runtime as *const u8);
     jit_builder.symbol("__torajs_math_ceil", math_ceil_runtime as *const u8);
+    jit_builder.symbol("__torajs_math_log", math_log_runtime as *const u8);
+    jit_builder.symbol("__torajs_math_exp", math_exp_runtime as *const u8);
+    jit_builder.symbol("__torajs_math_pow", math_pow_runtime as *const u8);
+    jit_builder.symbol("__torajs_math_min", math_min_runtime as *const u8);
+    jit_builder.symbol("__torajs_math_max", math_max_runtime as *const u8);
 
     let mut module = JITModule::new(jit_builder);
     let ptr_ty = module.target_config().pointer_type();

@@ -452,9 +452,25 @@ impl Checker {
                     // (the lowerer auto-promotes integer args), but
                     // check.rs uses the umbrella Type::Number.
                     (Type::Object("Math"), m)
-                        if matches!(m, "sqrt" | "abs" | "floor" | "ceil") =>
+                        if matches!(
+                            m,
+                            "sqrt" | "abs" | "floor" | "ceil" | "log" | "exp"
+                        ) =>
                     {
                         Ok(Type::Function(vec![Type::Number], Box::new(Type::Number)))
+                    }
+                    // Two-arg methods: pow(x, y), min(a, b), max(a, b).
+                    (Type::Object("Math"), m)
+                        if matches!(m, "pow" | "min" | "max") =>
+                    {
+                        Ok(Type::Function(
+                            vec![Type::Number, Type::Number],
+                            Box::new(Type::Number),
+                        ))
+                    }
+                    // Constants — read directly without parens.
+                    (Type::Object("Math"), m) if matches!(m, "PI" | "E") => {
+                        Ok(Type::Number)
                     }
                     (Type::String, "length") | (Type::Array(_), "length") => Ok(Type::Number),
                     _ => Err(format!("no member `.{name}` on type {obj_ty:?}")),

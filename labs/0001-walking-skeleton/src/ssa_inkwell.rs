@@ -104,6 +104,21 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
             "__torajs_math_ceil" => {
                 define_math_unary(&ctx, &llvm_module, "__torajs_math_ceil", "ceil")
             }
+            "__torajs_math_log" => {
+                define_math_unary(&ctx, &llvm_module, "__torajs_math_log", "log")
+            }
+            "__torajs_math_exp" => {
+                define_math_unary(&ctx, &llvm_module, "__torajs_math_exp", "exp")
+            }
+            "__torajs_math_pow" => {
+                define_math_binary(&ctx, &llvm_module, "__torajs_math_pow", "pow")
+            }
+            "__torajs_math_min" => {
+                define_math_binary(&ctx, &llvm_module, "__torajs_math_min", "fmin")
+            }
+            "__torajs_math_max" => {
+                define_math_binary(&ctx, &llvm_module, "__torajs_math_max", "fmax")
+            }
             _ => declare_ssa_fn(&ctx, &llvm_module, f),
         };
         fn_map.push(llvm_fn);
@@ -124,6 +139,11 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
         "__torajs_math_abs",
         "__torajs_math_floor",
         "__torajs_math_ceil",
+        "__torajs_math_log",
+        "__torajs_math_exp",
+        "__torajs_math_pow",
+        "__torajs_math_min",
+        "__torajs_math_max",
     ];
     for (i, f) in ssa_module.funcs.iter().enumerate() {
         if f.is_declaration() || intrinsics.contains(&f.name.as_str()) {
@@ -470,6 +490,36 @@ fn define_math_unary<'ctx>(
     let arg = f.get_nth_param(0).unwrap().into_float_value();
     let r = builder
         .build_call(libc_fn, &[arg.into()], "r")
+        .unwrap()
+        .try_as_basic_value()
+        .unwrap_basic()
+        .into_float_value();
+    builder.build_return(Some(&r)).unwrap();
+    f
+}
+
+/// Two-arg f64×f64→f64 wrapper. `Math.pow`, `Math.min`, `Math.max`.
+fn define_math_binary<'ctx>(
+    ctx: &'ctx Context,
+    m: &LlvmModule<'ctx>,
+    fn_name: &str,
+    libc_name: &str,
+) -> FunctionValue<'ctx> {
+    let f64_t = ctx.f64_type();
+    let libc_t = f64_t.fn_type(&[f64_t.into(), f64_t.into()], false);
+    let libc_fn = m
+        .get_function(libc_name)
+        .unwrap_or_else(|| m.add_function(libc_name, libc_t, None));
+
+    let fn_t = f64_t.fn_type(&[f64_t.into(), f64_t.into()], false);
+    let f = m.add_function(fn_name, fn_t, None);
+    let entry = ctx.append_basic_block(f, "entry");
+    let builder = ctx.create_builder();
+    builder.position_at_end(entry);
+    let a = f.get_nth_param(0).unwrap().into_float_value();
+    let b = f.get_nth_param(1).unwrap().into_float_value();
+    let r = builder
+        .build_call(libc_fn, &[a.into(), b.into()], "r")
         .unwrap()
         .try_as_basic_value()
         .unwrap_basic()

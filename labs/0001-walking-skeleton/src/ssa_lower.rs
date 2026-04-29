@@ -125,6 +125,41 @@ pub fn lower(ast: &Ast) -> Module {
         &[Type::F64],
         Type::F64,
     );
+    let math_log_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_math_log",
+        &[Type::F64],
+        Type::F64,
+    );
+    let math_exp_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_math_exp",
+        &[Type::F64],
+        Type::F64,
+    );
+    let math_pow_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_math_pow",
+        &[Type::F64, Type::F64],
+        Type::F64,
+    );
+    let math_min_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_math_min",
+        &[Type::F64, Type::F64],
+        Type::F64,
+    );
+    let math_max_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_math_max",
+        &[Type::F64, Type::F64],
+        Type::F64,
+    );
 
     // Pass 0.5: register user-declared type aliases. `type Point = { x:
     // number, y: number }` interns the layout in `module.struct_layouts`
@@ -188,6 +223,11 @@ pub fn lower(ast: &Ast) -> Module {
         math_abs: math_abs_id,
         math_floor: math_floor_id,
         math_ceil: math_ceil_id,
+        math_log: math_log_id,
+        math_exp: math_exp_id,
+        math_pow: math_pow_id,
+        math_min: math_min_id,
+        math_max: math_max_id,
     };
 
     // Snapshot struct layouts BEFORE entering pass 2 (which mutates
@@ -272,6 +312,11 @@ struct Intrinsics {
     math_abs: FuncId,
     math_floor: FuncId,
     math_ceil: FuncId,
+    math_log: FuncId,
+    math_exp: FuncId,
+    math_pow: FuncId,
+    math_min: FuncId,
+    math_max: FuncId,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -942,13 +987,13 @@ impl<'a> LowerCtx<'a> {
                 // time. For now, the only intrinsic with non-Any non-self-
                 // type params that needs coercion is Math.*; treat them
                 // specially by FuncId.
-                if target == self.intrinsics.math_sqrt
-                    || target == self.intrinsics.math_abs
-                    || target == self.intrinsics.math_floor
-                    || target == self.intrinsics.math_ceil
-                {
-                    debug_assert_eq!(argv.len(), 1, "Math.* takes 1 arg");
+                if self.is_math_unary(target) {
+                    debug_assert_eq!(argv.len(), 1, "Math.* unary takes 1 arg");
                     argv[0] = self.coerce_to_f64(argv[0]);
+                } else if self.is_math_binary(target) {
+                    debug_assert_eq!(argv.len(), 2, "Math.* binary takes 2 args");
+                    argv[0] = self.coerce_to_f64(argv[0]);
+                    argv[1] = self.coerce_to_f64(argv[1]);
                 }
                 let ret_ty = self.f_ret_type_hint(target);
                 let v = self
@@ -1009,8 +1054,30 @@ impl<'a> LowerCtx<'a> {
                 Operand::Value(obj_ptr)
             }
             Expr::Member { obj, name } => {
+                // `Math.PI` and `Math.E` are compile-time constants — no
+                // SSA value at all, just synthesize a ConstF64 operand.
+                if let Expr::Ident(n) = self.ast.get_expr(*obj)
+                    && n == "Math"
+                {
+                    return match name.as_str() {
+                        "PI" => Operand::ConstF64(std::f64::consts::PI),
+                        "E" => Operand::ConstF64(std::f64::consts::E),
+                        other => panic!("ssa-lower: unknown Math constant `{other}`"),
+                    };
+                }
                 let obj_val = self.lower_expr(*obj);
                 let obj_ty = self.operand_ty(&obj_val);
+                // `s.length` for Type::Str — read the u64 length stored
+                // at offset 0 of the StrRepr.
+                if obj_ty == Type::Str && name == "length" {
+                    let v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Load(Type::I64, obj_val, 0),
+                        Type::I64,
+                        None,
+                    );
+                    return Operand::Value(v);
+                }
                 let sid = match obj_ty {
                     Type::Obj(sid) => sid,
                     _ => panic!(
@@ -1207,6 +1274,11 @@ impl<'a> LowerCtx<'a> {
                         "abs" => self.intrinsics.math_abs,
                         "floor" => self.intrinsics.math_floor,
                         "ceil" => self.intrinsics.math_ceil,
+                        "log" => self.intrinsics.math_log,
+                        "exp" => self.intrinsics.math_exp,
+                        "pow" => self.intrinsics.math_pow,
+                        "min" => self.intrinsics.math_min,
+                        "max" => self.intrinsics.math_max,
                         other => {
                             panic!("ssa-lower: unknown Math method `{other}`")
                         }
@@ -1216,6 +1288,21 @@ impl<'a> LowerCtx<'a> {
             }
             other => panic!("ssa-lower: unsupported callee form: {other:?}"),
         }
+    }
+
+    fn is_math_unary(&self, fid: FuncId) -> bool {
+        fid == self.intrinsics.math_sqrt
+            || fid == self.intrinsics.math_abs
+            || fid == self.intrinsics.math_floor
+            || fid == self.intrinsics.math_ceil
+            || fid == self.intrinsics.math_log
+            || fid == self.intrinsics.math_exp
+    }
+
+    fn is_math_binary(&self, fid: FuncId) -> bool {
+        fid == self.intrinsics.math_pow
+            || fid == self.intrinsics.math_min
+            || fid == self.intrinsics.math_max
     }
 
     /// Look up the callee's return type from the signatures map populated
