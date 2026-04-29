@@ -1,6 +1,6 @@
 # torajs
 
-Research project (closed-source, internal). Working hypothesis: a statically-typed language in Rust with **TypeScript syntax** + **Rust-shaped semantics**, two execution modes — **AOT to native binary** (`tr build`) and **JIT-style compile-and-run** (`tr run`), the Go shape. Public site: https://torajs.com
+Research project (closed-source, internal). Working hypothesis: a **subset of TypeScript** — TS syntax, TS semantics, but only part of TS's surface is implemented. Features outside the subset are simply not there; we don't import foreign concepts (e.g. Rust ownership / borrow checking / RAII) unless takagi explicitly authorizes them. Two execution modes: **AOT to native binary** (`tr build`) and **JIT-style compile-and-run** (`tr run`), the Go shape. Implementation language is Rust. Public site: https://torajs.com
 
 ## Anti-Hallucination (NON-NEGOTIABLE)
 
