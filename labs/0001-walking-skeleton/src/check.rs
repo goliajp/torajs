@@ -430,6 +430,7 @@ impl Checker {
                 }
                 match name.as_str() {
                     "console" => Ok(Type::Object("console")),
+                    "Math" => Ok(Type::Object("Math")),
                     other => Err(format!("unknown identifier `{other}`")),
                 }
             }
@@ -445,6 +446,15 @@ impl Checker {
                 match (&obj_ty, name.as_str()) {
                     (Type::Object("console"), "log") => {
                         Ok(Type::Function(vec![Type::Any], Box::new(Type::Void)))
+                    }
+                    // `Math` global — every method takes one number and
+                    // returns a number. f64-flavored at the SSA level
+                    // (the lowerer auto-promotes integer args), but
+                    // check.rs uses the umbrella Type::Number.
+                    (Type::Object("Math"), m)
+                        if matches!(m, "sqrt" | "abs" | "floor" | "ceil") =>
+                    {
+                        Ok(Type::Function(vec![Type::Number], Box::new(Type::Number)))
                     }
                     (Type::String, "length") | (Type::Array(_), "length") => Ok(Type::Number),
                     _ => Err(format!("no member `.{name}` on type {obj_ty:?}")),

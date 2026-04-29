@@ -81,6 +81,7 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
     for f in &ssa_module.funcs {
         let llvm_fn = match f.name.as_str() {
             "print_i64" => define_print_i64(&ctx, &llvm_module, putchar),
+            "print_f64" => define_print_f64(&ctx, &llvm_module),
             "__torajs_str_alloc" => {
                 define_str_alloc(&ctx, &llvm_module, malloc, memcpy)
             }
@@ -91,6 +92,18 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
             }
             "__torajs_obj_alloc" => define_obj_alloc(&ctx, &llvm_module, malloc),
             "__torajs_obj_drop" => define_obj_drop(&ctx, &llvm_module, free),
+            "__torajs_math_sqrt" => {
+                define_math_unary(&ctx, &llvm_module, "__torajs_math_sqrt", "sqrt")
+            }
+            "__torajs_math_abs" => {
+                define_math_unary(&ctx, &llvm_module, "__torajs_math_abs", "fabs")
+            }
+            "__torajs_math_floor" => {
+                define_math_unary(&ctx, &llvm_module, "__torajs_math_floor", "floor")
+            }
+            "__torajs_math_ceil" => {
+                define_math_unary(&ctx, &llvm_module, "__torajs_math_ceil", "ceil")
+            }
             _ => declare_ssa_fn(&ctx, &llvm_module, f),
         };
         fn_map.push(llvm_fn);
@@ -100,12 +113,17 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
     // a backend-owned intrinsic.
     let intrinsics = [
         "print_i64",
+        "print_f64",
         "__torajs_str_alloc",
         "__torajs_str_print",
         "__torajs_str_drop",
         "__torajs_str_concat",
         "__torajs_obj_alloc",
         "__torajs_obj_drop",
+        "__torajs_math_sqrt",
+        "__torajs_math_abs",
+        "__torajs_math_floor",
+        "__torajs_math_ceil",
     ];
     for (i, f) in ssa_module.funcs.iter().enumerate() {
         if f.is_declaration() || intrinsics.contains(&f.name.as_str()) {
@@ -374,6 +392,89 @@ fn define_str_concat<'ctx>(
     builder.build_call(free, &[b.into()], "_fb").unwrap();
 
     builder.build_return(Some(&p)).unwrap();
+    f
+}
+
+/// `print_f64(f64) -> void` — printf("%g\n", x). Uses libc printf for
+/// formatting since Rust's float formatter would require recursive lib
+/// calls we don't want at AOT time. `%g` matches Rust's `{}` formatter
+/// for most values; minor edge-case divergence (-0 vs 0, NaN sign) is
+/// acceptable for bench output.
+fn define_print_f64<'ctx>(
+    ctx: &'ctx Context,
+    m: &LlvmModule<'ctx>,
+) -> FunctionValue<'ctx> {
+    let i32_t = ctx.i32_type();
+    let f64_t = ctx.f64_type();
+    let void_t = ctx.void_type();
+    let ptr_t = ctx.ptr_type(AddressSpace::default());
+    // printf is variadic; declare with a single ptr param + variadic.
+    let printf_t = i32_t.fn_type(&[ptr_t.into()], true);
+    let printf = m
+        .get_function("printf")
+        .unwrap_or_else(|| m.add_function("printf", printf_t, None));
+
+    // Format string global "%g\n\0".
+    let fmt_bytes = b"%g\n\0";
+    let arr_t = ctx.i8_type().array_type(fmt_bytes.len() as u32);
+    let arr = ctx.const_string(fmt_bytes, false);
+    let g = m.add_global(arr_t, None, ".f64fmt");
+    g.set_initializer(&arr);
+    g.set_constant(true);
+    g.set_linkage(inkwell::module::Linkage::Private);
+    g.set_unnamed_addr(true);
+
+    let fn_t = void_t.fn_type(&[f64_t.into()], false);
+    let f = m.add_function("print_f64", fn_t, None);
+    let entry = ctx.append_basic_block(f, "entry");
+    let builder = ctx.create_builder();
+    builder.position_at_end(entry);
+    let arg = f.get_nth_param(0).unwrap().into_float_value();
+    builder
+        .build_call(
+            printf,
+            &[g.as_pointer_value().into(), arg.into()],
+            "_p",
+        )
+        .unwrap();
+    builder.build_return(None).unwrap();
+    f
+}
+
+/// One-arg f64→f64 wrapper around a libc math function. Used to expose
+/// `Math.sqrt`, `Math.abs`, `Math.floor`, `Math.ceil` etc. — all share
+/// the same shape:
+///     fn __torajs_math_<op>(x: f64) -> f64 {
+///         <libc_name>(x)
+///     }
+/// Constructed in three lines of LLVM IR. Saves us writing a separate
+/// `define_*` for each method and centralizes the dispatch.
+fn define_math_unary<'ctx>(
+    ctx: &'ctx Context,
+    m: &LlvmModule<'ctx>,
+    fn_name: &str,
+    libc_name: &str,
+) -> FunctionValue<'ctx> {
+    let f64_t = ctx.f64_type();
+    // Re-declare libc fn (idempotent — LLVM dedupes by name).
+    let libc_t = f64_t.fn_type(&[f64_t.into()], false);
+    let libc_fn = m
+        .get_function(libc_name)
+        .unwrap_or_else(|| m.add_function(libc_name, libc_t, None));
+
+    let fn_t = f64_t.fn_type(&[f64_t.into()], false);
+    let f = m.add_function(fn_name, fn_t, None);
+    let entry = ctx.append_basic_block(f, "entry");
+    let builder = ctx.create_builder();
+    builder.position_at_end(entry);
+    let arg = f.get_nth_param(0).unwrap().into_float_value();
+    let r = builder
+        .build_call(libc_fn, &[arg.into()], "r")
+        .unwrap()
+        .try_as_basic_value()
+        .unwrap_basic()
+        .into_float_value();
+    builder.build_return(Some(&r)).unwrap();
     f
 }
 

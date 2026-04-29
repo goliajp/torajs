@@ -63,6 +63,14 @@ extern "C" fn print_i64_runtime(n: i64) {
     println!("{n}");
 }
 
+/// Float counterpart — `console.log(<f64>)` routes here. Uses Rust's
+/// default `{}` formatter; we rely on libc `%g` matching for the AOT
+/// path. Minor edge-case divergence (NaN sign, -0) is acceptable for
+/// bench output.
+extern "C" fn print_f64_runtime(x: f64) {
+    println!("{x}");
+}
+
 /// `__torajs_str_alloc(*const u8 src, u64 len) -> *StrRepr` — copy `len`
 /// bytes from `src` into a fresh heap StrRepr `{u64 len; u8 data[]}`.
 /// Returns the pointer to the StrRepr (which is also the pointer to the
@@ -149,6 +157,22 @@ extern "C" fn obj_drop_runtime(p: *mut u8) {
     unsafe { free(p) }
 }
 
+// Math.* wrappers — each routes to the corresponding f64 method on Rust's
+// std float ops. The AOT path uses libc via Inkwell-emitted IR; both paths
+// produce identical results since libm and Rust's stdlib agree on these.
+extern "C" fn math_sqrt_runtime(x: f64) -> f64 {
+    x.sqrt()
+}
+extern "C" fn math_abs_runtime(x: f64) -> f64 {
+    x.abs()
+}
+extern "C" fn math_floor_runtime(x: f64) -> f64 {
+    x.floor()
+}
+extern "C" fn math_ceil_runtime(x: f64) -> f64 {
+    x.ceil()
+}
+
 /// `__torajs_str_drop(*StrRepr s) -> void` — release the heap StrRepr.
 /// Layout must match what `str_alloc_runtime` produced: total size = 8+len.
 extern "C" fn str_drop_runtime(s: *mut u8) {
@@ -199,12 +223,17 @@ pub fn execute(ssa_module: &Module) -> Result<i32, JitError> {
     let mut jit_builder =
         JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
     jit_builder.symbol("print_i64", print_i64_runtime as *const u8);
+    jit_builder.symbol("print_f64", print_f64_runtime as *const u8);
     jit_builder.symbol("__torajs_str_alloc", str_alloc_runtime as *const u8);
     jit_builder.symbol("__torajs_str_print", str_print_runtime as *const u8);
     jit_builder.symbol("__torajs_str_drop", str_drop_runtime as *const u8);
     jit_builder.symbol("__torajs_str_concat", str_concat_runtime as *const u8);
     jit_builder.symbol("__torajs_obj_alloc", obj_alloc_runtime as *const u8);
     jit_builder.symbol("__torajs_obj_drop", obj_drop_runtime as *const u8);
+    jit_builder.symbol("__torajs_math_sqrt", math_sqrt_runtime as *const u8);
+    jit_builder.symbol("__torajs_math_abs", math_abs_runtime as *const u8);
+    jit_builder.symbol("__torajs_math_floor", math_floor_runtime as *const u8);
+    jit_builder.symbol("__torajs_math_ceil", math_ceil_runtime as *const u8);
 
     let mut module = JITModule::new(jit_builder);
     let ptr_ty = module.target_config().pointer_type();

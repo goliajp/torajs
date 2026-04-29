@@ -44,6 +44,7 @@ pub fn lower(ast: &Ast) -> Module {
     //                              to stdout. Replaces the old NUL-terminated
     //                              `print_str` (deleted in P2.2.b).
     let print_i64_id = declare_intrinsic(&mut module, &mut fn_table, "print_i64", &[Type::I64], Type::Void);
+    let print_f64_id = declare_intrinsic(&mut module, &mut fn_table, "print_f64", &[Type::F64], Type::Void);
     let str_alloc_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -91,6 +92,38 @@ pub fn lower(ast: &Ast) -> Module {
         "__torajs_obj_drop",
         &[Type::Ptr],
         Type::Void,
+    );
+    // stdlib `Math` namespace — first slice. All take an f64 and return
+    // an f64; the lowerer auto-promotes integer args via SiToFp at the
+    // call site. Backed by libc sqrt / fabs / floor / ceil via thin
+    // wrappers in each backend.
+    let math_sqrt_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_math_sqrt",
+        &[Type::F64],
+        Type::F64,
+    );
+    let math_abs_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_math_abs",
+        &[Type::F64],
+        Type::F64,
+    );
+    let math_floor_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_math_floor",
+        &[Type::F64],
+        Type::F64,
+    );
+    let math_ceil_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_math_ceil",
+        &[Type::F64],
+        Type::F64,
     );
 
     // Pass 0.5: register user-declared type aliases. `type Point = { x:
@@ -144,12 +177,17 @@ pub fn lower(ast: &Ast) -> Module {
 
     let intrinsics = Intrinsics {
         print_i64: print_i64_id,
+        print_f64: print_f64_id,
         str_alloc: str_alloc_id,
         str_print: str_print_id,
         str_drop: str_drop_id,
         str_concat: str_concat_id,
         obj_alloc: obj_alloc_id,
         obj_drop: obj_drop_id,
+        math_sqrt: math_sqrt_id,
+        math_abs: math_abs_id,
+        math_floor: math_floor_id,
+        math_ceil: math_ceil_id,
     };
 
     // Snapshot struct layouts BEFORE entering pass 2 (which mutates
@@ -223,12 +261,17 @@ pub fn lower(ast: &Ast) -> Module {
 #[derive(Debug, Clone, Copy)]
 struct Intrinsics {
     print_i64: FuncId,
+    print_f64: FuncId,
     str_alloc: FuncId,
     str_print: FuncId,
     str_drop: FuncId,
     str_concat: FuncId,
     obj_alloc: FuncId,
     obj_drop: FuncId,
+    math_sqrt: FuncId,
+    math_abs: FuncId,
+    math_floor: FuncId,
+    math_ceil: FuncId,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -484,11 +527,12 @@ impl<'a> LowerCtx<'a> {
                 Expr::Ident(_) | Expr::Member { .. }
             );
             let arg = self.lower_expr(args[0]);
-            let is_str = self.operand_ty(&arg) == Type::Str;
-            let target = if is_str {
-                self.intrinsics.str_print
-            } else {
-                self.intrinsics.print_i64
+            let arg_ty = self.operand_ty(&arg);
+            let is_str = arg_ty == Type::Str;
+            let target = match arg_ty {
+                Type::Str => self.intrinsics.str_print,
+                Type::F64 => self.intrinsics.print_f64,
+                _ => self.intrinsics.print_i64,
             };
             self.f
                 .append_void(self.cur_block, InstKind::Call(target, vec![arg]));
@@ -633,6 +677,15 @@ impl<'a> LowerCtx<'a> {
                 let ty = parse_type(type_ann.as_deref(), self.aliases);
                 let init_val = self.lower_expr(*init);
                 self.consume_if_ident(*init);
+                // Coerce init to the declared slot type if needed.
+                // Currently only i64 → f64 promotion shows up (literals like
+                // `2.0` lower as ConstI64 because they have no fractional
+                // part; the slot annotation `f64` then forces the cast).
+                let init_val = if ty == Type::F64 && self.operand_ty(&init_val) == Type::I64 {
+                    self.coerce_to_f64(init_val)
+                } else {
+                    init_val
+                };
                 let slot = self.alloca(ty, Some(name));
                 self.f.append_void(
                     self.cur_block,
@@ -872,12 +925,30 @@ impl<'a> LowerCtx<'a> {
             }
             Expr::Call { callee, args } => {
                 let target = self.resolve_callee(*callee);
-                let argv: Vec<Operand> = args.iter().map(|a| self.lower_expr(*a)).collect();
+                let mut argv: Vec<Operand> =
+                    args.iter().map(|a| self.lower_expr(*a)).collect();
                 // Consume non-Copy ident args. Mirrors check.rs's pass; the
                 // SSA layer needs the same flag so end-of-fn drops skip
                 // moved bindings.
                 for a in args {
                     self.consume_if_ident(*a);
+                }
+                // Coerce arguments to the callee's expected param types.
+                // Currently only f64-promotion is needed (Math.* takes
+                // f64; users may pass integer expressions like `Math.sqrt(2)`).
+                // Look up callee's param types from `module.funcs[target]`'s
+                // signature — but we don't have a Module borrow here.
+                // Instead, snapshot the callee's params at signature-build
+                // time. For now, the only intrinsic with non-Any non-self-
+                // type params that needs coercion is Math.*; treat them
+                // specially by FuncId.
+                if target == self.intrinsics.math_sqrt
+                    || target == self.intrinsics.math_abs
+                    || target == self.intrinsics.math_floor
+                    || target == self.intrinsics.math_ceil
+                {
+                    debug_assert_eq!(argv.len(), 1, "Math.* takes 1 arg");
+                    argv[0] = self.coerce_to_f64(argv[0]);
                 }
                 let ret_ty = self.f_ret_type_hint(target);
                 let v = self
@@ -1125,8 +1196,24 @@ impl<'a> LowerCtx<'a> {
                 Some(f) => *f,
                 None => panic!("ssa-lower: unknown function `{name}`"),
             },
-            // `console.log(...)` and other Member callees land here; deferred
-            // to step 3 when the Inkwell backend wires up host imports.
+            // Member call — currently only `Math.<method>` resolves here.
+            // `console.log(...)` is handled by the top-level shortcut in
+            // `lower_top_stmt`, so it never reaches here as a regular Call.
+            Expr::Member { obj, name } => {
+                let is_math = matches!(self.ast.get_expr(*obj), Expr::Ident(n) if n == "Math");
+                if is_math {
+                    return match name.as_str() {
+                        "sqrt" => self.intrinsics.math_sqrt,
+                        "abs" => self.intrinsics.math_abs,
+                        "floor" => self.intrinsics.math_floor,
+                        "ceil" => self.intrinsics.math_ceil,
+                        other => {
+                            panic!("ssa-lower: unknown Math method `{other}`")
+                        }
+                    };
+                }
+                panic!("ssa-lower: unsupported member call shape: {name}")
+            }
             other => panic!("ssa-lower: unsupported callee form: {other:?}"),
         }
     }
