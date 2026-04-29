@@ -351,6 +351,35 @@ impl Checker {
                 }
                 self.check_stmt(ast, body);
             }
+            Stmt::For { init, cond, step, body } => {
+                // Init runs in a fresh scope so `let i = 0; ...; for () i;`
+                // doesn't bleed `i` into the surrounding fn scope. Push
+                // a scope before init, pop after body.
+                self.scopes.push(HashMap::new());
+                if let Some(i) = init {
+                    self.check_stmt(ast, i);
+                }
+                if let Some(c) = cond {
+                    match self.type_of(ast, *c) {
+                        Ok(Type::Boolean) => {}
+                        Ok(other) => self.errors.push(format!(
+                            "for condition must be boolean, got {other:?}"
+                        )),
+                        Err(e) => self.errors.push(e),
+                    }
+                }
+                if let Some(st) = step {
+                    if let Err(e) = self.type_of(ast, *st) {
+                        self.errors.push(e);
+                    }
+                }
+                self.check_stmt(ast, body);
+                self.scopes.pop();
+            }
+            Stmt::Break | Stmt::Continue => {
+                // No type-side state to track; the lowerer enforces that
+                // these only appear inside loops.
+            }
             Stmt::Block(stmts) => {
                 self.scopes.push(HashMap::new());
                 for s in stmts {
@@ -1033,6 +1062,53 @@ mod tests {
                 .unwrap_or(false),
             "expected 'unknown type' error, got {r:?}"
         );
+    }
+
+    // ----- M1.6 / M1.7 — for-loop + break/continue -----
+
+    #[test]
+    fn for_loop_typecheck_and_init_scope() {
+        let src = r#"
+            let total: number = 0;
+            for (let i: number = 0; i < 10; i = i + 1) {
+                total = total + i;
+            }
+            // i is out of scope here.
+        "#;
+        assert!(check_src(src).is_ok(), "got {:?}", check_src(src));
+    }
+
+    #[test]
+    fn for_init_var_doesnt_leak_outer_scope() {
+        let src = r#"
+            for (let i: number = 0; i < 10; i = i + 1) {
+            }
+            let n: number = i;
+        "#;
+        let r = check_src(src);
+        assert!(
+            r.as_ref()
+                .err()
+                .map(|s| s.contains("unknown identifier `i`"))
+                .unwrap_or(false),
+            "expected scope-leak error, got {r:?}"
+        );
+    }
+
+    #[test]
+    fn break_continue_typecheck() {
+        let src = r#"
+            for (let i: number = 0; i < 100; i = i + 1) {
+                if (i === 50) break;
+                if (i % 2 === 0) continue;
+            }
+            let n: number = 0;
+            while (n < 10) {
+                n = n + 1;
+                if (n === 5) break;
+            }
+        "#;
+        assert!(check_src(src).is_ok(), "got {:?}", check_src(src));
     }
 
     // ----- M1.5 — boolean ops -----

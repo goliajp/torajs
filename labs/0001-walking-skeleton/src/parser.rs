@@ -103,6 +103,23 @@ impl Parser<'_> {
         if matches!(self.peek(), Token::While) {
             return self.parse_while();
         }
+        if matches!(self.peek(), Token::For) {
+            return self.parse_for();
+        }
+        if matches!(self.peek(), Token::Break) {
+            self.pos += 1;
+            if matches!(self.peek(), Token::Semi) {
+                self.pos += 1;
+            }
+            return Ok(Stmt::Break);
+        }
+        if matches!(self.peek(), Token::Continue) {
+            self.pos += 1;
+            if matches!(self.peek(), Token::Semi) {
+                self.pos += 1;
+            }
+            return Ok(Stmt::Continue);
+        }
         if matches!(self.peek(), Token::Function) {
             return self.parse_fn();
         }
@@ -323,6 +340,64 @@ impl Parser<'_> {
         }
         let body = Box::new(self.parse_stmt()?);
         Ok(Stmt::While { cond, body })
+    }
+
+    /// `for (init?; cond?; step?) body`. Each clause is optional but the
+    /// two `;` separators are required (matches TS / C). Init is parsed
+    /// as a stmt (typically a `let` decl or expr-stmt). Cond is an expr.
+    /// Step is an expr (we don't have post-increment yet — use
+    /// `i = i + 1`).
+    fn parse_for(&mut self) -> Result<Stmt, String> {
+        self.pos += 1; // consume `for`
+        match self.peek() {
+            Token::LParen => self.pos += 1,
+            t => {
+                return Err(format!(
+                    "expected `(` after `for`, got {t:?} at {}",
+                    self.at()
+                ));
+            }
+        }
+        // init clause — empty (just `;`) or any stmt that ends with `;`.
+        let init = if matches!(self.peek(), Token::Semi) {
+            self.pos += 1;
+            None
+        } else {
+            // parse_stmt eats its own trailing `;` for let / expr stmts.
+            Some(Box::new(self.parse_stmt()?))
+        };
+        // cond clause — empty means infinite-loop (true). Empty is `;`.
+        let cond = if matches!(self.peek(), Token::Semi) {
+            None
+        } else {
+            Some(self.parse_expr()?)
+        };
+        match self.peek() {
+            Token::Semi => self.pos += 1,
+            t => {
+                return Err(format!(
+                    "expected `;` after `for` condition, got {t:?} at {}",
+                    self.at()
+                ));
+            }
+        }
+        // step clause — empty means no step.
+        let step = if matches!(self.peek(), Token::RParen) {
+            None
+        } else {
+            Some(self.parse_expr()?)
+        };
+        match self.peek() {
+            Token::RParen => self.pos += 1,
+            t => {
+                return Err(format!(
+                    "expected `)` after `for` step, got {t:?} at {}",
+                    self.at()
+                ));
+            }
+        }
+        let body = Box::new(self.parse_stmt()?);
+        Ok(Stmt::For { init, cond, step, body })
     }
 
     fn parse_expr(&mut self) -> Result<ExprId, String> {

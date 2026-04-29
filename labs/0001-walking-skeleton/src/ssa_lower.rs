@@ -423,6 +423,7 @@ fn synthesize_main(
             struct_layouts,
             locals: HashMap::new(),
             scope_stack: vec![Vec::new()],
+            loop_stack: Vec::new(),
             cur_block: entry,
             new_strings: &mut new_strings,
             string_id_base,
@@ -533,6 +534,7 @@ fn lower_fn(
         struct_layouts,
         locals: HashMap::new(),
         scope_stack: vec![Vec::new()],
+        loop_stack: Vec::new(),
         cur_block: entry,
         new_strings: &mut new_strings,
         string_id_base,
@@ -623,6 +625,13 @@ struct LowerCtx<'a> {
     /// remove them from `locals`. Cross-scope `let n = s` looks at this
     /// stack to detect that s lives in an outer scope (alias-only rule).
     scope_stack: Vec<Vec<String>>,
+    /// Loop control-flow stack — innermost loop on top. M1.7. Each entry
+    /// is `(continue_target, break_target)`: a `break` inside the loop
+    /// body branches to break_target; a `continue` branches to
+    /// continue_target. For while-loops, continue_target = loop header
+    /// (re-evaluates cond). For for-loops, continue_target = step block
+    /// (so the step still runs on continue, then back to header).
+    loop_stack: Vec<(BlockId, BlockId)>,
     cur_block: BlockId,
     /// New string literals encountered during this lowering pass (currently
     /// only main collects them). Caller appends these to the module's
@@ -965,13 +974,105 @@ impl<'a> LowerCtx<'a> {
                     },
                 );
 
+                // M1.7 — `break` jumps to `after`, `continue` jumps to
+                // `header` (which re-evaluates cond). Push the loop ctx
+                // before lowering body so nested break/continue resolve
+                // correctly.
+                self.loop_stack.push((header, after));
                 self.cur_block = body_blk;
                 self.lower_stmt(body);
                 if self.cur_open() {
                     self.f.set_term(self.cur_block, Terminator::Br(header));
                 }
+                self.loop_stack.pop();
 
                 self.cur_block = after;
+            }
+            Stmt::For { init, cond, step, body } => {
+                // M1.6 — `for (init; cond; step) body`. Create blocks for
+                // header (cond), body, step, after. continue_target is
+                // step (so step runs on continue too).
+                self.scope_stack.push(Vec::new());
+                if let Some(i) = init {
+                    self.lower_stmt(i);
+                }
+                let header = self.f.add_block();
+                let body_blk = self.f.add_block();
+                let step_blk = self.f.add_block();
+                let after = self.f.add_block();
+
+                self.f.set_term(self.cur_block, Terminator::Br(header));
+
+                // header: evaluate cond (or always-true if none).
+                self.cur_block = header;
+                let c = match cond {
+                    Some(eid) => self.lower_expr(*eid),
+                    None => Operand::ConstBool(true),
+                };
+                self.f.set_term(
+                    self.cur_block,
+                    Terminator::CondBr {
+                        cond: c,
+                        then_blk: body_blk,
+                        else_blk: after,
+                    },
+                );
+
+                // body — push loop ctx; continue → step, break → after.
+                self.loop_stack.push((step_blk, after));
+                self.cur_block = body_blk;
+                self.lower_stmt(body);
+                if self.cur_open() {
+                    self.f.set_term(self.cur_block, Terminator::Br(step_blk));
+                }
+                self.loop_stack.pop();
+
+                // step block — runs the step expr (if any) then loops back.
+                self.cur_block = step_blk;
+                if let Some(eid) = step {
+                    let _ = self.lower_expr(*eid);
+                }
+                if self.cur_open() {
+                    self.f.set_term(self.cur_block, Terminator::Br(header));
+                }
+
+                self.cur_block = after;
+                // Drop init-scope locals (e.g. the `i` in `for (let i = 0;`).
+                let frame = self.scope_stack.pop().expect("for-init scope");
+                for name in &frame {
+                    let info = match self.locals.get(name) {
+                        Some(i) => *i,
+                        None => continue,
+                    };
+                    if info.moved || info.ty.is_copy() {
+                        continue;
+                    }
+                    let val = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Load(info.ty, Operand::Value(info.slot), 0),
+                        info.ty,
+                        None,
+                    );
+                    self.emit_drop_value(Operand::Value(val), info.ty);
+                }
+                for name in frame {
+                    self.locals.remove(&name);
+                }
+            }
+            Stmt::Break => {
+                // M1.7 — branch to the enclosing loop's break target.
+                let (_, after) = *self
+                    .loop_stack
+                    .last()
+                    .expect("ssa-lower: `break` outside of any loop");
+                self.f.set_term(self.cur_block, Terminator::Br(after));
+            }
+            Stmt::Continue => {
+                let (cont_target, _) = *self
+                    .loop_stack
+                    .last()
+                    .expect("ssa-lower: `continue` outside of any loop");
+                self.f.set_term(self.cur_block, Terminator::Br(cont_target));
             }
             Stmt::If {
                 cond,

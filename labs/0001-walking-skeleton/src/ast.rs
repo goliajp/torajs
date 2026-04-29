@@ -99,6 +99,21 @@ pub enum Stmt {
         cond: ExprId,
         body: Box<Stmt>,
     },
+    /// `for (init; cond; step) body` — C-style for-loop. M1.6.
+    /// `init` is typically a LetDecl but can also be an Expr stmt or
+    /// empty. `cond` is the loop condition (Boolean). `step` runs at
+    /// the end of each iteration AND on `continue`. `body` is any stmt.
+    For {
+        init: Option<Box<Stmt>>,
+        cond: Option<ExprId>,
+        step: Option<ExprId>,
+        body: Box<Stmt>,
+    },
+    /// `break;` — exits the innermost enclosing loop. M1.7.
+    Break,
+    /// `continue;` — jumps to the innermost loop's step (for) or
+    /// header (while). M1.7.
+    Continue,
     Block(Vec<Stmt>),
     FnDecl {
         name: String,
@@ -181,6 +196,25 @@ impl Ast {
                 println!("{pad}  body:");
                 self.print_stmt(body, indent + 2);
             }
+            Stmt::For { init, cond, step, body } => {
+                println!("{pad}For");
+                if let Some(i) = init {
+                    println!("{pad}  init:");
+                    self.print_stmt(i, indent + 2);
+                }
+                if let Some(c) = cond {
+                    println!("{pad}  cond:");
+                    self.print_expr(*c, indent + 2);
+                }
+                if let Some(st) = step {
+                    println!("{pad}  step:");
+                    self.print_expr(*st, indent + 2);
+                }
+                println!("{pad}  body:");
+                self.print_stmt(body, indent + 2);
+            }
+            Stmt::Break => println!("{pad}Break"),
+            Stmt::Continue => println!("{pad}Continue"),
             Stmt::Block(stmts) => {
                 println!("{pad}Block");
                 for s in stmts {
