@@ -371,6 +371,12 @@ struct LocalInfo {
     /// True after the binding's value has been consumed. Drop emission at
     /// fn-end skips moved locals.
     moved: bool,
+    /// Lexical scope depth this binding was declared at. 0 = fn-root,
+    /// each enclosing `Block` increments. Used by M1.3 to (a) drop
+    /// inner-block locals at the closing `}` and (b) prevent cross-
+    /// scope `let n = s` from transferring ownership (would dangle the
+    /// outer-scope reference); see LetDecl in lower_stmt for the rule.
+    scope_depth: usize,
 }
 
 fn declare_intrinsic(
@@ -416,6 +422,7 @@ fn synthesize_main(
             arr_layouts,
             struct_layouts,
             locals: HashMap::new(),
+            scope_stack: vec![Vec::new()],
             cur_block: entry,
             new_strings: &mut new_strings,
             string_id_base,
@@ -525,6 +532,7 @@ fn lower_fn(
         arr_layouts,
         struct_layouts,
         locals: HashMap::new(),
+        scope_stack: vec![Vec::new()],
         cur_block: entry,
         new_strings: &mut new_strings,
         string_id_base,
@@ -540,13 +548,17 @@ fn lower_fn(
             InstKind::Store(Operand::Value(pid), Operand::Value(slot), 0),
         );
         ctx.locals.insert(
-            name,
+            name.clone(),
             LocalInfo {
                 slot,
                 ty,
                 moved: false,
+                scope_depth: 0,
             },
         );
+        // Track param in fn-root scope frame so it doesn't get
+        // accidentally drop-walked at any inner-block close.
+        ctx.scope_stack[0].push(name);
     }
 
     for s in body {
@@ -605,6 +617,12 @@ struct LowerCtx<'a> {
     /// behavior would be cleaner but a plain HashMap is fine for the
     /// number of locals our cases have.
     locals: HashMap<String, LocalInfo>,
+    /// Stack of names declared in each enclosing lexical scope, with the
+    /// fn-root scope as `scope_stack[0]`. M1.3 — at `}` close we pop the
+    /// top frame and emit drops for owners declared at that depth, then
+    /// remove them from `locals`. Cross-scope `let n = s` looks at this
+    /// stack to detect that s lives in an outer scope (alias-only rule).
+    scope_stack: Vec<Vec<String>>,
     cur_block: BlockId,
     /// New string literals encountered during this lowering pass (currently
     /// only main collects them). Caller appends these to the module's
@@ -796,14 +814,49 @@ impl<'a> LowerCtx<'a> {
     fn lower_stmt(&mut self, s: &Stmt) {
         match s {
             Stmt::Block(stmts) => {
+                // M1.3 — push a fresh scope frame, lower stmts, drop
+                // anything declared in this block that's still owned at
+                // close. Bindings inserted into `self.locals` are also
+                // appended to the current scope_stack frame so the close
+                // step can find them. Closes that fall through emit
+                // drops; closes via early return / if-both-return skip
+                // the inner drops (the return path's emit_drops_for_owned_locals
+                // walks the full locals map).
+                self.scope_stack.push(Vec::new());
+                let mut early_exit = false;
                 for s in stmts {
                     self.lower_stmt(s);
                     if !self.cur_open() {
-                        // Block already terminated by an inner return/if-else-both-return;
-                        // skip remaining stmts (they're unreachable). Real diagnostic
-                        // would warn, deferred.
+                        early_exit = true;
                         break;
                     }
+                }
+                let frame = self.scope_stack.pop().expect("scope frame");
+                if !early_exit {
+                    // Drop owners declared at this depth in declaration
+                    // order. Skip moved (transferred) and Copy types.
+                    for name in &frame {
+                        let info = match self.locals.get(name) {
+                            Some(i) => *i,
+                            None => continue,
+                        };
+                        if info.moved || info.ty.is_copy() {
+                            continue;
+                        }
+                        let val = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(info.ty, Operand::Value(info.slot), 0),
+                            info.ty,
+                            None,
+                        );
+                        self.emit_drop_value(Operand::Value(val), info.ty);
+                    }
+                }
+                // Remove this block's bindings from `locals` so outer
+                // code can't reference them and so end-of-fn drop emission
+                // doesn't double-drop.
+                for name in frame {
+                    self.locals.remove(&name);
                 }
             }
             Stmt::LetDecl {
@@ -816,17 +869,26 @@ impl<'a> LowerCtx<'a> {
                 // const-correctness check is the type-checker's job (already done in
                 // check.rs); the SSA layer doesn't care.
                 let ty = parse_type(type_ann.as_deref(), self.aliases, self.arr_layouts);
-                // TS-shape ownership: Member / Index init aliases the
-                // obj/array's field — the new binding doesn't own its
-                // heap, just borrows for shared-read access. Mirrors
-                // check.rs's `classify_init_alias` so end-of-scope drop
-                // emission skips alias slots (the obj's drop walk frees
-                // the heap). All other init shapes (Ident-transfer, Call
-                // return, BinOp, literal, ObjectLit) produce an owner.
-                let is_alias_init = matches!(
-                    self.ast.get_expr(*init),
-                    Expr::Member { .. } | Expr::Index { .. }
-                );
+                // TS-shape ownership: alias-init bindings get moved=true
+                // so end-of-scope drop emission skips them (the underlying
+                // owner — outer-scope binding or struct/array — is the one
+                // that drops). Three alias triggers:
+                //   1. Member init  (`let n = obj.field`) — n borrows the field.
+                //   2. Index init   (`let x = arr[i]`)    — x borrows the slot.
+                //   3. Cross-scope Ident init (`let n = s` where s is in
+                //      an outer scope) — taking ownership would dangle
+                //      the outer reference at this block's close, so we
+                //      treat it as alias-only and leave s as the owner.
+                let cur_depth = self.scope_stack.len() - 1;
+                let is_alias_init = match self.ast.get_expr(*init) {
+                    Expr::Member { .. } | Expr::Index { .. } => true,
+                    Expr::Ident(src) => self
+                        .locals
+                        .get(src)
+                        .map(|info| info.scope_depth < cur_depth)
+                        .unwrap_or(false),
+                    _ => false,
+                };
                 // M1.2 — empty array literal `[]` has no elements to
                 // infer the element type from. Use the let's annotation
                 // to pick the right ArrId and emit `arr_alloc(0)` directly.
@@ -851,7 +913,12 @@ impl<'a> LowerCtx<'a> {
                 } else {
                     self.lower_expr(*init)
                 };
-                self.consume_if_ident(*init);
+                // Skip consume for alias-init: the source binding stays
+                // the owner (cross-scope case) or there's no Ident source
+                // to mark moved (Member / Index / literal init).
+                if !is_alias_init {
+                    self.consume_if_ident(*init);
+                }
                 // Coerce init to the declared slot type if needed.
                 // Currently only i64 → f64 promotion shows up (literals like
                 // `2.0` lower as ConstI64 because they have no fractional
@@ -872,8 +939,13 @@ impl<'a> LowerCtx<'a> {
                         slot,
                         ty,
                         moved: is_alias_init,
+                        scope_depth: cur_depth,
                     },
                 );
+                // Track the new binding in the current scope frame so
+                // block-close can find it for drop emission.
+                let top = self.scope_stack.last_mut().expect("scope frame");
+                top.push(name.clone());
             }
             Stmt::While { cond, body } => {
                 let header = self.f.add_block();

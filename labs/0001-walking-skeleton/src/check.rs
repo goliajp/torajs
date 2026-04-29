@@ -217,6 +217,21 @@ impl Checker {
         None
     }
 
+    /// Like `lookup` but also returns the scope depth at which the binding
+    /// was found (0 = outermost / fn-root, `scopes.len() - 1` = innermost).
+    /// M1.3 uses this to detect cross-scope `let n = s` cases — an Ident
+    /// init from an outer scope is treated as alias-only (n borrows s's
+    /// heap, both stay readable; no ownership transfer that would dangle
+    /// the outer reference at this block's close).
+    fn lookup_with_depth(&self, name: &str) -> Option<(LocalInfo, usize)> {
+        for (i, s) in self.scopes.iter().enumerate().rev() {
+            if let Some(info) = s.get(name) {
+                return Some((info.clone(), i));
+            }
+        }
+        None
+    }
+
     /// Walk the scope stack from innermost outward and flip `moved=true`
     /// on the first matching binding. Caller must already have verified
     /// the binding exists.
@@ -280,14 +295,26 @@ impl Checker {
     /// produces a fresh-owned value or aliases an existing one. Member
     /// and Index reads (`obj.field`, `arr[i]`) yield aliases — the heap
     /// is still owned by obj/arr; the new binding just holds a pointer
-    /// for shared-read access. All other init shapes produce fresh
-    /// owned values (literal, Call return, BinOp, ObjectLit, Array,
-    /// Ident — Ident is handled by `consume` above which transfers).
+    /// for shared-read access. M1.3 extends this to cross-scope Ident
+    /// init: when `s` lives in an outer scope, `let n = s` becomes an
+    /// alias (otherwise transferring would dangle the outer reference
+    /// when the inner block's drop fires). Same-scope Ident init is
+    /// still a transfer — handled by `consume` at the let-decl site.
+    /// Fresh-value init (literal, Call return, BinOp, ObjectLit, Array)
+    /// produces a new owner; not an alias.
     fn classify_init_alias(&self, ast: &Ast, eid: ExprId) -> bool {
-        matches!(
-            ast.get_expr(eid),
-            Expr::Member { .. } | Expr::Index { .. }
-        )
+        match ast.get_expr(eid) {
+            Expr::Member { .. } | Expr::Index { .. } => true,
+            Expr::Ident(name) => {
+                if let Some((_, src_depth)) = self.lookup_with_depth(name) {
+                    let cur_depth = self.scopes.len() - 1;
+                    src_depth < cur_depth
+                } else {
+                    false
+                }
+            }
+            _ => false,
+        }
     }
 
     fn check_stmt(&mut self, ast: &Ast, stmt: &Stmt) {
@@ -404,11 +431,14 @@ impl Checker {
                 ) {
                     self.errors.push(e);
                 }
-                // Transfer ownership from the rhs (Ident only — other shapes
-                // either produce fresh values or alias). After the new
-                // binding is declared, so that `let a = x` errors cleanly
-                // at the consume step if x was already aliased.
-                self.consume(ast, *init);
+                // Transfer ownership from the rhs only on owner-init
+                // (alias-init keeps the source as owner). M1.3: this
+                // catches the cross-scope Ident case — `let n = s` where
+                // s is in an outer scope skips the consume so s remains
+                // the owner; the alias n's slot drops as a no-op.
+                if !is_alias_init {
+                    self.consume(ast, *init);
+                }
             }
             Stmt::FnDecl {
                 name, params, body, ..
@@ -924,6 +954,65 @@ mod tests {
                 .map(|s| s.contains("unknown type"))
                 .unwrap_or(false),
             "expected 'unknown type' error, got {r:?}"
+        );
+    }
+
+    // ----- M1.3 — block-scope drops + cross-scope alias -----
+
+    #[test]
+    fn cross_scope_let_is_alias_outer_still_readable() {
+        // `let n = s` where s is in outer scope: under M1.3 this is
+        // alias-only — n borrows s's heap, both readable, only one
+        // drop fires (s at fn-end; n's slot is alias and skipped).
+        let src = r#"
+            function f(): number {
+                let s: string = "outer";
+                {
+                    let n: string = s;
+                    let m: number = n.length;
+                }
+                let len: number = s.length;
+                return len;
+            }
+            console.log(f());
+        "#;
+        assert!(check_src(src).is_ok(), "got {:?}", check_src(src));
+    }
+
+    #[test]
+    fn cross_scope_alias_does_not_consume_source() {
+        // After cross-scope `let n = s; ...`, s should still be usable
+        // via assign target without a "moved" error.
+        let src = r#"
+            function f(): number {
+                let s: string = "x";
+                {
+                    let n: string = s;
+                    let len: number = n.length;
+                }
+                let len2: number = s.length;
+                return len2;
+            }
+        "#;
+        assert!(check_src(src).is_ok(), "got {:?}", check_src(src));
+    }
+
+    #[test]
+    fn same_scope_let_is_still_transfer() {
+        // Same-scope `let n = s` is a transfer (current behavior); a
+        // subsequent transfer of s errors. This pins the rule edge.
+        let src = r#"
+            let s: string = "x";
+            let n: string = s;
+            let m: string = s;
+        "#;
+        let r = check_src(src);
+        assert!(
+            r.as_ref()
+                .err()
+                .map(|s| s.contains("cannot transfer"))
+                .unwrap_or(false),
+            "expected re-transfer error, got {r:?}"
         );
     }
 
