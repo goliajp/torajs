@@ -20,7 +20,14 @@ pub enum BinOp {
     BitOr,
     BitXor,
     Shl,
-    Shr, // signed; JS `>>`
+    Shr,  // signed; JS `>>`
+    LAnd, // logical &&  — short-circuits
+    LOr,  // logical ||  — short-circuits
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UnaryOp {
+    Not, // logical !
 }
 
 #[derive(Debug, Clone)]
@@ -33,6 +40,11 @@ pub enum Expr {
         op: BinOp,
         left: ExprId,
         right: ExprId,
+    },
+    /// Unary prefix op — currently just `!` (logical not). M1.5.
+    Unary {
+        op: UnaryOp,
+        expr: ExprId,
     },
     Member {
         obj: ExprId,
@@ -222,6 +234,10 @@ impl Ast {
                 println!("{pad}BinOp({op:?})");
                 self.print_expr(*left, indent + 1);
                 self.print_expr(*right, indent + 1);
+            }
+            Expr::Unary { op, expr } => {
+                println!("{pad}Unary({op:?})");
+                self.print_expr(*expr, indent + 1);
             }
             Expr::Member { obj, name } => {
                 println!("{pad}Member");

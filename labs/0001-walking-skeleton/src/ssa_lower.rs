@@ -1286,6 +1286,16 @@ impl<'a> LowerCtx<'a> {
                 }
             }
             Expr::BinOp { op, left, right } => {
+                // M1.5 — short-circuit `&&` / `||` need control flow,
+                // not eager evaluation. Route through their own lowering
+                // before calling lower_binop (which assumes both
+                // operands are already lowered).
+                if matches!(*op, AstBinOp::LAnd) {
+                    return self.lower_logical_and(*left, *right);
+                }
+                if matches!(*op, AstBinOp::LOr) {
+                    return self.lower_logical_or(*left, *right);
+                }
                 let a = self.lower_expr(*left);
                 let b = self.lower_expr(*right);
                 // TS-shape: `a + b` (string concat) does NOT consume the
@@ -1295,6 +1305,27 @@ impl<'a> LowerCtx<'a> {
                 // see ssa_inkwell::define_str_concat / ssa_cranelift::
                 // str_concat_runtime for the matching change.
                 self.lower_binop(*op, a, b)
+            }
+            Expr::Unary { op, expr } => {
+                // M1.5 — `!a` lowers to `xor a, true`. Operand is bool,
+                // result is bool. (BinOp::Xor on i1/i8 flips the low bit;
+                // since bools only carry 0 or 1, this is logical not.)
+                let v = self.lower_expr(*expr);
+                match op {
+                    crate::ast::UnaryOp::Not => {
+                        let r = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::BinOp(
+                                SsaBinOp::Xor,
+                                v,
+                                Operand::ConstBool(true),
+                            ),
+                            Type::Bool,
+                            None,
+                        );
+                        Operand::Value(r)
+                    }
+                }
             }
             Expr::Call { callee, args } => {
                 // M1.2 — `xs.push(v)` special-case. Receiver must be an
@@ -1699,7 +1730,9 @@ impl<'a> LowerCtx<'a> {
                 | AstBinOp::BitOr
                 | AstBinOp::BitXor
                 | AstBinOp::Shl
-                | AstBinOp::Shr => unreachable!(),
+                | AstBinOp::Shr
+                | AstBinOp::LAnd
+                | AstBinOp::LOr => unreachable!(),
             };
         }
 
@@ -1721,7 +1754,102 @@ impl<'a> LowerCtx<'a> {
             AstBinOp::Ge => self.cmp(IPred::Sge, a, b),
             AstBinOp::Eq => self.cmp(IPred::Eq, a, b),
             AstBinOp::Neq => self.cmp(IPred::Ne, a, b),
+            AstBinOp::LAnd | AstBinOp::LOr => {
+                unreachable!("logical && / || handled before lower_binop")
+            }
         }
+    }
+
+    /// M1.5 — `a && b` with short-circuit. Layout:
+    ///
+    /// ```text
+    ///   <slot> = alloca bool
+    ///   av = lower(a)
+    ///   cond_br av, eval_b, false_blk
+    /// eval_b:
+    ///   bv = lower(b)
+    ///   store bv → slot
+    ///   br merge
+    /// false_blk:
+    ///   store false → slot
+    ///   br merge
+    /// merge:
+    ///   load slot
+    /// ```
+    fn lower_logical_and(&mut self, left: ExprId, right: ExprId) -> Operand {
+        let slot = self.alloca(Type::Bool, None);
+        let a = self.lower_expr(left);
+        let eval_b = self.f.add_block();
+        let false_blk = self.f.add_block();
+        let merge = self.f.add_block();
+        self.f.set_term(
+            self.cur_block,
+            Terminator::CondBr {
+                cond: a,
+                then_blk: eval_b,
+                else_blk: false_blk,
+            },
+        );
+        self.cur_block = eval_b;
+        let b = self.lower_expr(right);
+        self.f.append_void(
+            self.cur_block,
+            InstKind::Store(b, Operand::Value(slot), 0),
+        );
+        self.f.set_term(self.cur_block, Terminator::Br(merge));
+        self.cur_block = false_blk;
+        self.f.append_void(
+            self.cur_block,
+            InstKind::Store(Operand::ConstBool(false), Operand::Value(slot), 0),
+        );
+        self.f.set_term(self.cur_block, Terminator::Br(merge));
+        self.cur_block = merge;
+        let v = self.f.append_inst(
+            self.cur_block,
+            InstKind::Load(Type::Bool, Operand::Value(slot), 0),
+            Type::Bool,
+            None,
+        );
+        Operand::Value(v)
+    }
+
+    /// M1.5 — `a || b` with short-circuit. Mirror of and: if `a` is true,
+    /// skip evaluating b and use true; else use b's value.
+    fn lower_logical_or(&mut self, left: ExprId, right: ExprId) -> Operand {
+        let slot = self.alloca(Type::Bool, None);
+        let a = self.lower_expr(left);
+        let true_blk = self.f.add_block();
+        let eval_b = self.f.add_block();
+        let merge = self.f.add_block();
+        self.f.set_term(
+            self.cur_block,
+            Terminator::CondBr {
+                cond: a,
+                then_blk: true_blk,
+                else_blk: eval_b,
+            },
+        );
+        self.cur_block = true_blk;
+        self.f.append_void(
+            self.cur_block,
+            InstKind::Store(Operand::ConstBool(true), Operand::Value(slot), 0),
+        );
+        self.f.set_term(self.cur_block, Terminator::Br(merge));
+        self.cur_block = eval_b;
+        let b = self.lower_expr(right);
+        self.f.append_void(
+            self.cur_block,
+            InstKind::Store(b, Operand::Value(slot), 0),
+        );
+        self.f.set_term(self.cur_block, Terminator::Br(merge));
+        self.cur_block = merge;
+        let v = self.f.append_inst(
+            self.cur_block,
+            InstKind::Load(Type::Bool, Operand::Value(slot), 0),
+            Type::Bool,
+            None,
+        );
+        Operand::Value(v)
     }
 
     fn bin(&mut self, op: SsaBinOp, a: Operand, b: Operand, ty: Type) -> Operand {

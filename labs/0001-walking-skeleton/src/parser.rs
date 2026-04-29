@@ -11,7 +11,9 @@
 //! param    := IDENT (`:` IDENT)?
 //! return   := `return` expr? `;`?
 //! expr     := assign
-//! assign   := bit_or (`=` assign)?                 (* right-associative *)
+//! assign   := lor (`=` assign)?                    (* right-associative *)
+//! lor      := land (`||` land)*
+//! land     := bit_or (`&&` bit_or)*
 //! bit_or   := bit_xor (`|` bit_xor)*
 //! bit_xor  := bit_and (`^` bit_and)*
 //! bit_and  := equality (`&` equality)*
@@ -19,7 +21,8 @@
 //! comparison := shift ((`<`|`>`|`<=`|`>=`) shift)*
 //! shift    := additive ((`<<`|`>>`) additive)*
 //! additive := mul (( `+` | `-` ) mul)*
-//! mul      := postfix (( `*` | `/` | `%` ) postfix)*
+//! mul      := unary (( `*` | `/` | `%` ) unary)*
+//! unary    := `!` unary | postfix
 //! postfix  := primary ( `.` ident | `(` args `)` | `[` expr `]` )*
 //! args     := (expr (`,` expr)*)?
 //! primary  := ident | string | number | `true` | `false` | arrow_fn | array_lit
@@ -27,7 +30,7 @@
 //! array_lit := `[` (expr (`,` expr)*)? `]`
 //! type_ann := IDENT (`[` `]`)*
 
-use crate::ast::{Ast, BinOp, Expr, ExprId, Param, Stmt};
+use crate::ast::{self, Ast, BinOp, Expr, ExprId, Param, Stmt};
 use crate::lexer::{Spanned, Token};
 
 pub fn parse(tokens: &[Spanned]) -> Result<Ast, String> {
@@ -327,13 +330,41 @@ impl Parser<'_> {
     }
 
     fn parse_assign(&mut self) -> Result<ExprId, String> {
-        let target = self.parse_bit_or()?;
+        let target = self.parse_logical_or()?;
         if matches!(self.peek(), Token::Eq) {
             self.pos += 1;
             let value = self.parse_assign()?; // right-associative
             return Ok(self.ast.add_expr(Expr::Assign { target, value }));
         }
         Ok(target)
+    }
+
+    fn parse_logical_or(&mut self) -> Result<ExprId, String> {
+        let mut left = self.parse_logical_and()?;
+        while matches!(self.peek(), Token::PipePipe) {
+            self.pos += 1;
+            let right = self.parse_logical_and()?;
+            left = self.ast.add_expr(Expr::BinOp {
+                op: BinOp::LOr,
+                left,
+                right,
+            });
+        }
+        Ok(left)
+    }
+
+    fn parse_logical_and(&mut self) -> Result<ExprId, String> {
+        let mut left = self.parse_bit_or()?;
+        while matches!(self.peek(), Token::AmpAmp) {
+            self.pos += 1;
+            let right = self.parse_bit_or()?;
+            left = self.ast.add_expr(Expr::BinOp {
+                op: BinOp::LAnd,
+                left,
+                right,
+            });
+        }
+        Ok(left)
     }
 
     fn parse_bit_or(&mut self) -> Result<ExprId, String> {
@@ -437,7 +468,7 @@ impl Parser<'_> {
     }
 
     fn parse_multiplicative(&mut self) -> Result<ExprId, String> {
-        let mut left = self.parse_postfix()?;
+        let mut left = self.parse_unary()?;
         loop {
             let op = match self.peek() {
                 Token::Star => BinOp::Mul,
@@ -446,9 +477,22 @@ impl Parser<'_> {
                 _ => return Ok(left),
             };
             self.pos += 1;
-            let right = self.parse_postfix()?;
+            let right = self.parse_unary()?;
             left = self.ast.add_expr(Expr::BinOp { op, left, right });
         }
+    }
+
+    fn parse_unary(&mut self) -> Result<ExprId, String> {
+        if matches!(self.peek(), Token::Bang) {
+            self.pos += 1;
+            // Right-associative: `!!a` = !(!a).
+            let inner = self.parse_unary()?;
+            return Ok(self.ast.add_expr(Expr::Unary {
+                op: ast::UnaryOp::Not,
+                expr: inner,
+            }));
+        }
+        self.parse_postfix()
     }
 
     fn parse_postfix(&mut self) -> Result<ExprId, String> {

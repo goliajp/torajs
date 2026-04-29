@@ -34,10 +34,13 @@ pub enum Token {
     Slash,
     Percent,
     Amp,
+    AmpAmp,
     Pipe,
+    PipePipe,
     Caret,
     ShlShl,
     ShrShr,
+    Bang,
     Eq,
     EqEqEq,
     BangEqEq,
@@ -126,8 +129,24 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                 }
             }
             b'%' => emit(&mut out, Token::Percent, start, advance(&mut i)),
-            b'&' => emit(&mut out, Token::Amp, start, advance(&mut i)),
-            b'|' => emit(&mut out, Token::Pipe, start, advance(&mut i)),
+            b'&' => {
+                i += 1;
+                if peek(bytes, i) == Some(b'&') {
+                    i += 1;
+                    emit(&mut out, Token::AmpAmp, start, i);
+                } else {
+                    emit(&mut out, Token::Amp, start, i);
+                }
+            }
+            b'|' => {
+                i += 1;
+                if peek(bytes, i) == Some(b'|') {
+                    i += 1;
+                    emit(&mut out, Token::PipePipe, start, i);
+                } else {
+                    emit(&mut out, Token::Pipe, start, i);
+                }
+            }
             b'^' => emit(&mut out, Token::Caret, start, advance(&mut i)),
             b'<' => {
                 i += 1;
@@ -185,7 +204,8 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                         ));
                     }
                 } else {
-                    return Err(format!("`!` (logical not) is not yet supported at {start}"));
+                    // Unary logical not — used as `!cond`. M1.5.
+                    emit(&mut out, Token::Bang, start, i);
                 }
             }
             b'"' => {

@@ -717,6 +717,31 @@ impl Checker {
                             ))
                         }
                     }
+                    BinOp::LAnd | BinOp::LOr => {
+                        // M1.5 — boolean ops are bool-only in the subset
+                        // (no truthy coercion). Both operands must be bool;
+                        // result is bool. Short-circuit semantics is
+                        // observable at runtime via the lowerer's CFG split.
+                        if l == Type::Boolean && r == Type::Boolean {
+                            Ok(Type::Boolean)
+                        } else {
+                            Err(format!(
+                                "`&&` / `||` require boolean operands, got {l:?} and {r:?}"
+                            ))
+                        }
+                    }
+                }
+            }
+            Expr::Unary { op, expr } => {
+                let t = self.type_of(ast, *expr)?;
+                match op {
+                    crate::ast::UnaryOp::Not => {
+                        if t == Type::Boolean {
+                            Ok(Type::Boolean)
+                        } else {
+                            Err(format!("`!` requires boolean operand, got {t:?}"))
+                        }
+                    }
                 }
             }
             Expr::Assign { target, value } => {
@@ -1007,6 +1032,48 @@ mod tests {
                 .map(|s| s.contains("unknown type"))
                 .unwrap_or(false),
             "expected 'unknown type' error, got {r:?}"
+        );
+    }
+
+    // ----- M1.5 — boolean ops -----
+
+    #[test]
+    fn logical_and_or_not_typecheck() {
+        let src = r#"
+            let a: boolean = true;
+            let b: boolean = false;
+            let r1: boolean = a && b;
+            let r2: boolean = a || b;
+            let r3: boolean = !a;
+            let r4: boolean = a && !b;
+            let r5: boolean = (a || b) && !a;
+        "#;
+        assert!(check_src(src).is_ok(), "got {:?}", check_src(src));
+    }
+
+    #[test]
+    fn logical_op_on_non_bool_errors() {
+        let src = "let n: number = 1; let r: boolean = n && true;";
+        let r = check_src(src);
+        assert!(
+            r.as_ref()
+                .err()
+                .map(|s| s.contains("`&&` / `||`") || s.contains("boolean"))
+                .unwrap_or(false),
+            "expected boolean-required error, got {r:?}"
+        );
+    }
+
+    #[test]
+    fn not_on_non_bool_errors() {
+        let src = "let n: number = 1; let r: boolean = !n;";
+        let r = check_src(src);
+        assert!(
+            r.as_ref()
+                .err()
+                .map(|s| s.contains("`!`") || s.contains("boolean"))
+                .unwrap_or(false),
+            "expected boolean-required error, got {r:?}"
         );
     }
 
