@@ -243,22 +243,51 @@ impl Checker {
         }
     }
 
-    /// Consume an expression: if it resolves to a non-Copy binding-read
-    /// (`Ident(name)`), mark that binding as moved. Other expression shapes
-    /// produce fresh values (BinOp, Call return, literal, Index, etc.) —
-    /// no source binding to flag. This is the move-detection hook called
-    /// at the four consumption sites: let-rhs, assign-rhs, non-Copy call
-    /// arg, return value.
+    /// Try to transfer ownership FROM the given expression. Called at the
+    /// four transfer sites: let-rhs, assign-rhs, non-Copy fn arg, return
+    /// value, struct field write.
+    ///
+    /// TS-shape semantics: `let n = s; console.log(s);` works — both
+    /// bindings read the same heap. But ambiguous multi-rooted ownership
+    /// (`let n = s; let c = { name: s };` — s aliased AND moved into struct)
+    /// can't be statically resolved without a runtime mechanism we don't
+    /// have, so we **reject at compile time**: the second transfer of an
+    /// already-aliased binding is an error. The user restructures (e.g.
+    /// transfers from `n` instead of `s`).
+    ///
+    /// Member / Index reads of obj's field are NOT transfers — the field's
+    /// heap is owned by obj, and the new binding is an alias (handled at
+    /// the LetDecl site via `classify_init_alias`, not here).
     fn consume(&mut self, ast: &Ast, eid: ExprId) {
         if let Expr::Ident(name) = ast.get_expr(eid) {
             let name = name.clone();
-            if let Some(info) = self.lookup(&name)
-                && !info.ty.is_copy()
-                && !info.moved
-            {
+            if let Some(info) = self.lookup(&name) {
+                if info.ty.is_copy() {
+                    return;
+                }
+                if info.moved {
+                    self.errors.push(format!(
+                        "cannot transfer `{name}` — value was already aliased or moved earlier; transfer from the most recent binding instead"
+                    ));
+                    return;
+                }
                 self.mark_moved(&name);
             }
         }
+    }
+
+    /// Decide whether a let-bound or struct-field's init expression
+    /// produces a fresh-owned value or aliases an existing one. Member
+    /// and Index reads (`obj.field`, `arr[i]`) yield aliases — the heap
+    /// is still owned by obj/arr; the new binding just holds a pointer
+    /// for shared-read access. All other init shapes produce fresh
+    /// owned values (literal, Call return, BinOp, ObjectLit, Array,
+    /// Ident — Ident is handled by `consume` above which transfers).
+    fn classify_init_alias(&self, ast: &Ast, eid: ExprId) -> bool {
+        matches!(
+            ast.get_expr(eid),
+            Expr::Member { .. } | Expr::Index { .. }
+        )
     }
 
     fn check_stmt(&mut self, ast: &Ast, stmt: &Stmt) {
@@ -331,19 +360,28 @@ impl Checker {
                         ann_ty
                     }
                 };
+                // Member / Index init aliases obj's field — the new binding
+                // doesn't own its heap, just borrows the obj's. Mark `moved`
+                // so end-of-scope drop emission skips it (the obj's drop
+                // walk handles the field's heap). For all other init shapes
+                // (Ident, Call, BinOp, literal, ObjectLit), the new binding
+                // owns: either it took transfer from a source (Ident → see
+                // `consume` below), or the value is fresh.
+                let is_alias_init = self.classify_init_alias(ast, *init);
                 if let Err(e) = self.declare(
                     name.clone(),
                     LocalInfo {
                         ty: final_ty,
                         mutable: *mutable,
-                        moved: false,
+                        moved: is_alias_init,
                     },
                 ) {
                     self.errors.push(e);
                 }
-                // Consume the rhs after recording the new binding (so that
-                // `let a = x` correctly moves out of x — but only after x's
-                // type-of read succeeded, which the lookup above implies).
+                // Transfer ownership from the rhs (Ident only — other shapes
+                // either produce fresh values or alias). After the new
+                // binding is declared, so that `let a = x` errors cleanly
+                // at the consume step if x was already aliased.
                 self.consume(ast, *init);
             }
             Stmt::FnDecl {
@@ -420,9 +458,10 @@ impl Checker {
             Expr::Bool(_) => Ok(Type::Boolean),
             Expr::Ident(name) => {
                 if let Some(info) = self.lookup(name) {
-                    if info.moved {
-                        return Err(format!("use of moved value `{name}`"));
-                    }
+                    // TS-shape: reads of an aliased / moved binding succeed
+                    // (both `s` and `n` after `let n = s` reference the same
+                    // heap and read the same value). Errors only fire at
+                    // transfer sites — see `consume` above for the rule.
                     return Ok(info.ty);
                 }
                 if let Some(ty) = self.globals.get(name) {
@@ -568,11 +607,10 @@ impl Checker {
                         if l == Type::Number && r == Type::Number {
                             Ok(Type::Number)
                         } else if l == Type::String && r == Type::String {
-                            // String concat consumes both operands — the
-                            // result is a fresh heap allocation, the inputs
-                            // are folded into it.
-                            self.consume(ast, *left);
-                            self.consume(ast, *right);
+                            // TS-shape: `a + b` reads both operands, returns
+                            // a fresh string. Operands keep their heaps —
+                            // `a` and `b` are still readable + droppable
+                            // afterwards (matches bun / standard TS).
                             Ok(Type::String)
                         } else {
                             Err(format!(
@@ -711,51 +749,66 @@ mod tests {
     }
 
     #[test]
-    fn move_then_use_errors() {
-        // Move a string into b, then read a — should error.
-        let src = r#"let a: string = "hello"; let b: string = a; let n: number = a.length;"#;
-        let r = check_src(src);
-        assert!(r.is_err(), "expected use-of-moved error, got {r:?}");
-        assert!(
-            r.as_ref().unwrap_err().contains("moved"),
-            "expected 'moved' in error, got {r:?}"
-        );
+    fn shared_reads_after_let_alias_succeed() {
+        // TS-shape: `let b = a` aliases the heap. Both `a` and `b` are
+        // readable afterwards — the underlying string is the same value,
+        // and end-of-scope drops it once via the b binding (a transferred
+        // ownership at the let).
+        let src = r#"
+            let a: string = "hello";
+            let b: string = a;
+            let n: number = a.length;
+            let m: number = b.length;
+        "#;
+        assert!(check_src(src).is_ok(), "got {:?}", check_src(src));
     }
 
     #[test]
-    fn move_into_assign_then_use_errors() {
+    fn shared_reads_after_assign_succeed() {
+        // TS-shape: after `b = a`, both names alias the same heap.
+        // a is still readable.
         let src = r#"
             let a: string = "x";
             let b: string = "y";
             b = a;
             let n: number = a.length;
         "#;
-        let r = check_src(src);
-        assert!(
-            r.as_ref()
-                .err()
-                .map(|s| s.contains("moved"))
-                .unwrap_or(false),
-            "expected 'moved' in error, got {r:?}"
-        );
+        assert!(check_src(src).is_ok(), "got {:?}", check_src(src));
     }
 
     #[test]
-    fn string_concat_consumes_both() {
+    fn re_transfer_of_aliased_binding_errors() {
+        // Multi-rooted ownership can't be statically resolved without a
+        // runtime mechanism (refcount / GC). Rejecting at compile-time:
+        // after `let b = a`, transferring `a` again into `c` is the
+        // ambiguous case. User restructures to transfer from `b` instead.
         let src = r#"
             let a: string = "x";
-            let b: string = "y";
-            let c: string = a + b;
-            let n: number = a.length;
+            let b: string = a;
+            let c: string = a;
         "#;
         let r = check_src(src);
         assert!(
             r.as_ref()
                 .err()
-                .map(|s| s.contains("moved"))
+                .map(|s| s.contains("cannot transfer"))
                 .unwrap_or(false),
-            "expected 'moved' in error, got {r:?}"
+            "expected transfer-after-aliased error, got {r:?}"
         );
+    }
+
+    #[test]
+    fn string_concat_does_not_consume_operands() {
+        // TS-shape: `a + b` reads bytes from both, returns a fresh string.
+        // Operands keep their heaps (matches bun) and remain readable.
+        let src = r#"
+            let a: string = "x";
+            let b: string = "y";
+            let c: string = a + b;
+            let n: number = a.length;
+            let m: number = b.length;
+        "#;
+        assert!(check_src(src).is_ok(), "got {:?}", check_src(src));
     }
 
     #[test]
@@ -793,21 +846,37 @@ mod tests {
     }
 
     #[test]
-    fn struct_is_affine_move_then_use_errors() {
-        // Struct is non-Copy — `let q = p` moves p, subsequent p.x should error.
+    fn struct_alias_reads_succeed() {
+        // TS-shape: `let q = p` aliases the same struct. Reading p's
+        // fields after still works; one drop fires at end of scope (via q,
+        // the current owner; p transferred).
         let src = r#"
             type Point = { x: number, y: number };
             let p: Point = { x: 3, y: 4 };
             let q: Point = p;
             let n: number = p.x;
+            let m: number = q.y;
+        "#;
+        assert!(check_src(src).is_ok(), "got {:?}", check_src(src));
+    }
+
+    #[test]
+    fn struct_re_transfer_errors() {
+        // Multi-rooted struct: `let q = p; let r = p` would alias p twice
+        // AND claim two owners — rejected.
+        let src = r#"
+            type Point = { x: number, y: number };
+            let p: Point = { x: 3, y: 4 };
+            let q: Point = p;
+            let r: Point = p;
         "#;
         let r = check_src(src);
         assert!(
             r.as_ref()
                 .err()
-                .map(|s| s.contains("moved"))
+                .map(|s| s.contains("cannot transfer"))
                 .unwrap_or(false),
-            "expected 'moved' error, got {r:?}"
+            "expected transfer-after-aliased error, got {r:?}"
         );
     }
 

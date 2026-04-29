@@ -720,6 +720,17 @@ impl<'a> LowerCtx<'a> {
                 // const-correctness check is the type-checker's job (already done in
                 // check.rs); the SSA layer doesn't care.
                 let ty = parse_type(type_ann.as_deref(), self.aliases);
+                // TS-shape ownership: Member / Index init aliases the
+                // obj/array's field — the new binding doesn't own its
+                // heap, just borrows for shared-read access. Mirrors
+                // check.rs's `classify_init_alias` so end-of-scope drop
+                // emission skips alias slots (the obj's drop walk frees
+                // the heap). All other init shapes (Ident-transfer, Call
+                // return, BinOp, literal, ObjectLit) produce an owner.
+                let is_alias_init = matches!(
+                    self.ast.get_expr(*init),
+                    Expr::Member { .. } | Expr::Index { .. }
+                );
                 let init_val = self.lower_expr(*init);
                 self.consume_if_ident(*init);
                 // Coerce init to the declared slot type if needed.
@@ -741,7 +752,7 @@ impl<'a> LowerCtx<'a> {
                     LocalInfo {
                         slot,
                         ty,
-                        moved: false,
+                        moved: is_alias_init,
                     },
                 );
             }
@@ -955,17 +966,12 @@ impl<'a> LowerCtx<'a> {
             Expr::BinOp { op, left, right } => {
                 let a = self.lower_expr(*left);
                 let b = self.lower_expr(*right);
-                // String concat consumes both operands — `let z = a + b`
-                // moves both. Mark moved so end-of-fn drops skip them
-                // (the concat runtime frees their backing heap when it
-                // builds the result).
-                if matches!(*op, AstBinOp::Add)
-                    && self.operand_ty(&a) == Type::Str
-                    && self.operand_ty(&b) == Type::Str
-                {
-                    self.consume_if_ident(*left);
-                    self.consume_if_ident(*right);
-                }
+                // TS-shape: `a + b` (string concat) does NOT consume the
+                // operands — both `a` and `b` keep their heaps and remain
+                // readable + droppable afterwards. The concat runtime
+                // produces a fresh allocation without freeing inputs;
+                // see ssa_inkwell::define_str_concat / ssa_cranelift::
+                // str_concat_runtime for the matching change.
                 self.lower_binop(*op, a, b)
             }
             Expr::Call { callee, args } => {

@@ -88,7 +88,7 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
             "__torajs_str_print" => define_str_print(&ctx, &llvm_module, write),
             "__torajs_str_drop" => define_str_drop(&ctx, &llvm_module, free),
             "__torajs_str_concat" => {
-                define_str_concat(&ctx, &llvm_module, malloc, memcpy, free)
+                define_str_concat(&ctx, &llvm_module, malloc, memcpy)
             }
             "__torajs_obj_alloc" => define_obj_alloc(&ctx, &llvm_module, malloc),
             "__torajs_obj_drop" => define_obj_drop(&ctx, &llvm_module, free),
@@ -331,19 +331,15 @@ fn define_str_alloc<'ctx>(
 ///     *(u64*)p = total
 ///     memcpy(p + 8, a + 8, a_len)
 ///     memcpy(p + 8 + a_len, b + 8, b_len)
-///     free(a)
-///     free(b)
 ///     return p
 ///
-/// Consumes both operands (Rust-shaped move-on-pass) — caller must NOT
-/// drop a or b separately. The lowerer marks the source bindings moved
-/// so end-of-fn drop emission skips them.
+/// TS-shape: read-only on operands. `a` and `b` keep their heaps —
+/// caller's drops still fire normally on them.
 fn define_str_concat<'ctx>(
     ctx: &'ctx Context,
     m: &LlvmModule<'ctx>,
     malloc: FunctionValue<'ctx>,
     memcpy: FunctionValue<'ctx>,
-    free: FunctionValue<'ctx>,
 ) -> FunctionValue<'ctx> {
     let builder = ctx.create_builder();
     let i64_t = ctx.i64_type();
@@ -406,10 +402,6 @@ fn define_str_concat<'ctx>(
     builder
         .build_call(memcpy, &[p_data2.into(), b_data.into(), b_len.into()], "_cp_b")
         .unwrap();
-
-    // free(a); free(b)
-    builder.build_call(free, &[a.into()], "_fa").unwrap();
-    builder.build_call(free, &[b.into()], "_fb").unwrap();
 
     builder.build_return(Some(&p)).unwrap();
     f

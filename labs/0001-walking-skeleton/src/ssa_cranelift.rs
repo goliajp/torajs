@@ -96,9 +96,9 @@ extern "C" fn str_alloc_runtime(src: *const u8, len: u64) -> *mut u8 {
 }
 
 /// `__torajs_str_concat(*StrRepr a, *StrRepr b) -> *StrRepr` — allocates a
-/// fresh heap StrRepr holding `a.bytes ++ b.bytes`, then frees both inputs.
-/// Caller transfers ownership of a and b to this fn (lowerer marks the
-/// source bindings moved so end-of-fn drop skips them).
+/// fresh heap StrRepr holding `a.bytes ++ b.bytes`. Inputs are read-only —
+/// `a` and `b` keep their heaps and remain droppable. Matches TS semantics
+/// (`a + b` doesn't modify the operands).
 extern "C" fn str_concat_runtime(a: *mut u8, b: *mut u8) -> *mut u8 {
     unsafe {
         let a_len = std::ptr::read(a as *const u64) as usize;
@@ -118,13 +118,6 @@ extern "C" fn str_concat_runtime(a: *mut u8, b: *mut u8) -> *mut u8 {
         if b_len > 0 {
             std::ptr::copy_nonoverlapping(b.add(8), p.add(8 + a_len), b_len);
         }
-        // Free a and b — using their original layouts.
-        let a_layout =
-            std::alloc::Layout::from_size_align(8 + a_len, 8).expect("a layout");
-        std::alloc::dealloc(a, a_layout);
-        let b_layout =
-            std::alloc::Layout::from_size_align(8 + b_len, 8).expect("b layout");
-        std::alloc::dealloc(b, b_layout);
         p
     }
 }
