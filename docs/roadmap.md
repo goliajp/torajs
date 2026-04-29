@@ -4,7 +4,7 @@
 >
 > Provenance: synthesized from `.claude/researches/0001-direction.md` through `0005-roadmap.md` (research / discussion logs, kept for audit trail).
 >
-> Last revised: 2026-04-29 (post P2 + stdlib-slice-1 closeout — full industrial rewrite of post-P3 phases)
+> Last revised: 2026-04-30 (committed M1→M9 execution path — agent drives the path without per-step ask)
 
 ---
 
@@ -178,18 +178,125 @@ docs/                              roadmap.md + stdlib.md
 bench/                             8 cases × 5 langs + harness + runners + results
 ```
 
-### What's next, in dependency order
+### Execution path — committed order, no per-step ask
 
-1. **P2.3 — `Rc<T>` first-class** — explicit shared ownership, prereq for P4.4 (closures with shared captures).
-2. **Array<T> runtime** — type system has it, codegen doesn't. Biggest stdlib gap. Required for any data-processing bench cases.
-3. **P14 — Generics** — needed before more stdlib (`Map<K, V>` / `Promise<T>`) and before user-side polymorphism.
-4. **P15 — Error model decision** — Result/Option vs throw. Affects every subsequent stdlib API and async design.
-5. **P4 — Closures with captures** — the actual major language milestone (callback / iterator / functional style).
-6. **P9 — Module system** — multi-file compilation; lets stdlib graduate from hardcoded globals to imported modules.
-7. **P5 — Async/await** + **P6 — Send/Sync, multi-core** — concurrency story.
-8. **P10 — Playground**, **P11 — LSP / tooling**, **P16 — Embedding API**, **P17 — Source maps + debug** — parallel UX/integration tracks.
+This is the **single committed path** through the next 18-36 months. Steps execute in order. The agent runs each step end-to-end (code + tests + commit) without checkpointing back to takagi unless a real fork appears (a design question not in this doc, an irreversible decision, or a failure with ambiguous recovery). After a step lands, the next step starts immediately.
 
-The detailed industrial-grade plans for P2.3 onward are in this file's per-phase sections below. **Each phase from this point forward is treated as production work** — full design, sub-step decomposition, test plan, open questions. No "MVP minimum" shortcuts.
+Format: each row is one shipped commit. Sub-steps roll up into milestones. The "exit" column is the literal acceptance gate — when it's green, that step is done, regardless of polish.
+
+#### Milestone M1 — finish ownership (P2.3) → graduate from "ownership-incomplete"
+
+| step | what | exit |
+|---|---|---|
+| **P2.3.a** ✓ | parser + check.rs for `Rc<T>` | typecheck-only programs accepted; bench unaffected |
+| **P2.3.b** | SSA `Type::Rc(Box<Type>)`, lower as i64 ptr; declare `__torajs_rc_alloc/_clone/_drop`; `Rc.new` lowers to alloc + N stores; auto-clone elision | `tr run` and `tr build` execute `let u = Rc.new({x:1,y:2}); console.log(u.x);` end-to-end; libc heap accounting clean |
+| **P2.3.c** | drop emission: `Type::Rc(inner)` arm in `emit_drop_value`; per-T drop_payload thunk for recursive inner-drop | refcount=0 frees inner string/object correctly; valgrind-style leak check on `Rc<{name:string}>` clean |
+| **P2.3.d** | both backends (Inkwell + Cranelift) implement the three intrinsics | bench `rc-clone-1m` passes on both backends; result within 1.2× of Rust's `Rc::clone` |
+| **P2.3.e** | `Rc<RefCell<T>>` interior mutability; `.borrow_mut()` guard; runtime panic on aliased borrows | shared mutable counter pattern works; double-borrow panics with clean message |
+
+#### Milestone M2 — the next big stdlib gap (Array runtime)
+
+| step | what | exit |
+|---|---|---|
+| **P7.Array.a** | `Array<T>` heap layout (`{u64 len, u64 cap, T data[]}`); `__torajs_arr_{alloc, push, get, set, len, drop}` intrinsics | `let xs = [1,2,3]; console.log(xs[0]);` round-trips through SSA on both backends |
+| **P7.Array.b** | typecheck + lower `xs.push(v)`, `xs.length`, `xs[i] = v`; affine consume of `v` on push | `let xs: number[] = []; xs.push(1); xs.push(2); console.log(xs.length);` works |
+| **P7.Array.c** | recursive drop: `Array<T>` of non-Copy frees each element | `Array<string>` going out of scope frees all element strings; leak check clean |
+| **P7.Array.d** | bench cases: `array-sum-1m`, `array-map-square`, `array-filter-evens` (no closures yet — pass fn name) | 3 new bench rows green, results vs Rust within 1.5× on AOT |
+
+#### Milestone M3 — generics (P14)
+
+`Rc<T>` and `Array<T>` shipped as compiler-baked generics. M3 generalizes the mechanism to user code so we can build `Map<K,V>` / `Result<T,E>` / `Option<T>` / `Promise<T>` without compiler changes.
+
+| step | what | exit |
+|---|---|---|
+| **P14.1** | parser/AST: type params on fn decls, type aliases, struct types | `function id<T>(x: T): T { return x; }` parses + typechecks |
+| **P14.2** | monomorphization pass: per-instantiation specialization at the SSA boundary | `id<number>(5)` and `id<string>("x")` both lower to distinct concrete fns |
+| **P14.3** | generic structs: `type Pair<A,B> = { fst: A, snd: B }`; field access through generic | `Pair<number,string>` round-trips |
+| **P14.4** | trait-style bounds (start: `T: Eq`, `T: Display`); for now, hand-baked predicates | `function eq<T: Eq>(a: T, b: T): boolean` works for number/string |
+| **P14.5** | rewrite `Rc<T>` and `Array<T>` to use the generic mechanism (was: hand-coded) | no behavioral change; LOC drops; M2 bench unchanged |
+
+#### Milestone M4 — error model (P15)
+
+The first decision that affects every subsequent stdlib API. Defer no longer.
+
+| step | what | exit |
+|---|---|---|
+| **P15.0** | RFC: Result/Option vs throw vs both. **Default decision (committed): Result/Option only, no throw.** Panic remains for invariant violations; user code uses `Result<T, E>` for recoverable errors. | RFC merged at `.claude/rfcs/<date>-error-model.md` |
+| **P15.1** | `Option<T>` and `Result<T,E>` as stdlib generic enums; `.is_some()`, `.unwrap()`, `.map()` | `Option<number>` round-trips; unwrap on None panics with source-mapped message |
+| **P15.2** | `?` operator desugars to early-return on `Err`/`None` | `function f(): Result<number, string> { let x = g()?; return Ok(x + 1); }` works |
+| **P15.3** | retire panic for user-recoverable errors in stdlib (`Rc.borrow_mut` → `Result`, etc.) | every stdlib fn returning a fallible result returns `Result`/`Option`, not panic |
+
+#### Milestone M5 — closures (P4)
+
+The major language milestone. Required before iterators / functional stdlib.
+
+| step | what | exit |
+|---|---|---|
+| **P4.2** | capture analysis: classify each free var as `Move` / `Borrow` / `BorrowMut` | analysis output dumpable via `tr capture <file>` |
+| **P4.3** | closure environment lowering: heap-allocated env struct, fn ptr + env pair | non-capturing closure unchanged; capturing closure runs |
+| **P4.4** | `Rc<RefCell<T>>`-shared mutable captures (gates on M1.P2.3.e) | shared counter across two closures, mutated correctly |
+| **P4.5** | `Fn` / `FnMut` / `FnOnce` distinction; one-shot closure consumes captures | passing a closure to a fn that takes `Fn` rejects an `FnMut`-shaped closure |
+| **P4.6** | bench cases: `closure-sum`, `closure-counter`, `closure-iter-fold` | 3 new bench rows green |
+
+#### Milestone M6 — modules (P9)
+
+Multi-file compilation. Lets stdlib graduate from hardcoded globals.
+
+| step | what | exit |
+|---|---|---|
+| **P9.1** | parser/AST: `import { foo } from "./bar.ts"` and `export` keywords | parses; AST carries module identity |
+| **P9.2** | path resolution: relative imports + project-root anchor (`tora.toml`) | `tr build src/main.tora.ts` resolves cross-file references |
+| **P9.3** | per-module typecheck + cross-module type unification | type defined in `a.ts`, used in `b.ts`, structurally equal |
+| **P9.4** | incremental compilation: cache per-module SSA; rebuild only changed modules + dependents | second `tr build` of unchanged code finishes < 50ms |
+| **P9.5** | stdlib reorganization: move `Math.*`, `console.*`, `String.*` from hardcoded to `import { ... } from "@torajs/std"` | bench cases use imports; behavior unchanged |
+| **P9.6** | `tora.toml` project file + dep manifest shape (no registry yet) | empty `tora.toml` accepted; deps section declared but unused |
+
+**Graduation point:** end of M6, `labs/0001-walking-skeleton/` is promoted to `crates/torajs-core/` + `crates/tr-cli/`. `v0.1` tag.
+
+#### Milestone M7 — concurrency (P5 + P6)
+
+Async + multi-core, in that order.
+
+| step | what | exit |
+|---|---|---|
+| **P5.1** | parser/AST/typecheck for `async fn` and `await` | async fn signatures typecheck; await on non-Future errors |
+| **P5.2** | state machine lowering: each `await` yields control to the executor | runtime can poll a state machine to completion |
+| **P5.3** | single-threaded executor (Tokio-shape, no thread pool) | `tr run` of an async program executes to completion |
+| **P5.4** | combinators: `Future.all`, `Future.race`, `join`, `select` | bench `async-fanout-100` runs |
+| **P5.5** | async closures (gates on M5) | works |
+| **P5.6** | cancellation via drop | dropping a Future mid-await cleans up |
+| **P6.1** | `Send` / `Sync` in the type system | non-Send value rejected when crossing thread boundary |
+| **P6.2** | `Arc<T>` (atomic refcount); identical surface to `Rc<T>` | swap-in works; `rc-clone-1m` runs on Arc with < 5% overhead |
+| **P6.3** | thread spawn + join | 4 threads computing fib in parallel; result correct |
+| **P6.4** | `Mutex<T>` / `RwLock<T>` / atomics | concurrent counter, no UB |
+| **P6.5** | channels: `mpsc`, `oneshot` | producer-consumer bench |
+| **P6.6** | multi-threaded work-stealing executor | async + multi-core; bench `mandelbrot-parallel` shows linear scale |
+
+#### Milestone M8 — playground (P10) + tooling (P11)
+
+Parallel UX tracks. M7 must land first because the playground needs the runtime feature-complete.
+
+| step | what | exit |
+|---|---|---|
+| **P10.1-3** | wasm target for the engine; browser-side host; CodeMirror integration | torajs.com/playground compiles + runs hello world |
+| **P10.4-5** | bench scoreboard auto-rendered from `bench/results/`; share-link encodes program | scoreboard live |
+| **P11.1-3** | LSP server: hover, goto-def, diagnostics | VS Code extension shows hovers + jumps |
+| **P11.4-6** | formatter, linter, test runner | `tr fmt`, `tr lint`, `tr test` work |
+
+#### Milestone M9 — polish + integration (P16, P17)
+
+Final shipping mile.
+
+| step | what | exit |
+|---|---|---|
+| **P16.1-4** | `libtora.a` + `tora_eval()` for Rust hosts; sandboxing knobs | embed in a Rust app, run a script, exit cleanly |
+| **P17.1-4** | DWARF debug info on AOT; source-mapped panics; step debugger via Cranelift JIT; REPL | crash backtrace points at `.tora.ts` line; `tr debug` steps a program |
+
+`v1.0` tag.
+
+#### Currently executing
+
+The agent is **in M1, sub-step P2.3.b**. After P2.3.b lands, P2.3.c starts automatically. Stop only on a real fork (see top of section).
 
 ---
 
