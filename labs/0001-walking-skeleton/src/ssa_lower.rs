@@ -1429,6 +1429,34 @@ impl<'a> LowerCtx<'a> {
                 }
             }
             Expr::Call { callee, args } => {
+                // `console.log(arg)` — works in any expression context
+                // (top-level stmt, inside a block, inside an if-body).
+                // Dispatches by arg's SSA type to print_str / print_f64
+                // / print_i64. Result is the console.log return (Void
+                // → ConstI64(0) sentinel since the result is discarded
+                // by all call sites).
+                if self.is_console_log_member(*callee) && args.len() == 1 {
+                    let is_borrow = matches!(
+                        self.ast.get_expr(args[0]),
+                        Expr::Ident(_) | Expr::Member { .. }
+                    );
+                    let arg = self.lower_expr(args[0]);
+                    let arg_ty = self.operand_ty(&arg);
+                    let is_str = arg_ty == Type::Str;
+                    let target = match arg_ty {
+                        Type::Str => self.intrinsics.str_print,
+                        Type::F64 => self.intrinsics.print_f64,
+                        _ => self.intrinsics.print_i64,
+                    };
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Call(target, vec![arg]),
+                    );
+                    if is_str && !is_borrow {
+                        self.emit_drop_value(arg, Type::Str);
+                    }
+                    return Operand::ConstI64(0);
+                }
                 // M1.2 — `xs.push(v)` special-case. Receiver must be an
                 // Ident bound to a mutable Type::Arr local; we load the
                 // current pointer, call arr_push (which may realloc and

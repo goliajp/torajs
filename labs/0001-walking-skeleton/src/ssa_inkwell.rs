@@ -864,6 +864,7 @@ fn define_print_i64<'ctx>(
     let fn_t = void_t.fn_type(&[i64_t.into()], false);
     let f = m.add_function("print_i64", fn_t, None);
     let entry = ctx.append_basic_block(f, "entry");
+    let zero_blk = ctx.append_basic_block(f, "zero");
     let loop1 = ctx.append_basic_block(f, "loop1");
     let dump = ctx.append_basic_block(f, "dump");
     let loop2 = ctx.append_basic_block(f, "loop2");
@@ -879,7 +880,24 @@ fn define_print_i64<'ctx>(
     let n_a = builder.build_alloca(i64_t, "n").unwrap();
     let arg = f.get_nth_param(0).unwrap().into_int_value();
     builder.build_store(n_a, arg).unwrap();
-    builder.build_unconditional_branch(loop1).unwrap();
+    // Special-case `arg == 0`: the digit-extraction loop terminates
+    // when `n_cur == 0`, so without this branch a 0 input prints
+    // nothing.
+    let is_zero = builder
+        .build_int_compare(IntPredicate::EQ, arg, i64_t.const_int(0, false), "is_zero")
+        .unwrap();
+    builder
+        .build_conditional_branch(is_zero, zero_blk, loop1)
+        .unwrap();
+
+    builder.position_at_end(zero_blk);
+    let zero_ch = i32_t.const_int(b'0' as u64, false);
+    builder.build_call(putchar, &[zero_ch.into()], "_z").unwrap();
+    let newline_ch = i32_t.const_int(b'\n' as u64, false);
+    builder
+        .build_call(putchar, &[newline_ch.into()], "_nl_z")
+        .unwrap();
+    builder.build_return(None).unwrap();
 
     builder.position_at_end(loop1);
     let n_cur = builder
