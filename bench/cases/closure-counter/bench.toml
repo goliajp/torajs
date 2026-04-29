@@ -1,0 +1,8 @@
+runs = 5
+warmup = 2
+
+# 10M-iteration tight loop calling a CAPTURING arrow fn through its
+# fat-pointer env. Stresses M2's capture path: each call loads the
+# fn pointer from env+0 then indirect-calls with env as arg 0.
+# Distinct from closure-pipeline-1m (bare fn pointer, no env).
+torajs_opt = "O3"
