@@ -303,6 +303,15 @@ pub fn lower(ast: &Ast) -> Module {
     // than fighting the borrow checker.
     let struct_layouts_snapshot = module.struct_layouts.clone();
 
+    // M2 — capture-types side channel. The construction site of
+    // `Expr::Closure` populates this map (lifted-fn-name → ordered
+    // capture types) using the outer scope's local types; the lifted
+    // FnDecl's body lowering reads the map to emit env-load preamble
+    // instructions for each capture. Construction site always runs
+    // before its lifted body in ast.stmts ordering: user FnDecls come
+    // first, lifted `__closure_N` decls are appended to the end.
+    let mut closure_captures: HashMap<String, Vec<Type>> = HashMap::new();
+
     // Pass 2: lower user FnDecl bodies. Each call returns the lowered
     // function plus any string literals interned during its body; we
     // append those into module.strings before the next call so the
@@ -331,6 +340,7 @@ pub fn lower(ast: &Ast) -> Module {
                 &mut fn_sigs,
                 &struct_layouts_snapshot,
                 string_id_base,
+                &mut closure_captures,
             );
             module.funcs[fid.0 as usize] = f;
             for s in new_strings {
@@ -359,6 +369,7 @@ pub fn lower(ast: &Ast) -> Module {
             &mut fn_sigs,
             &struct_layouts_snapshot,
             string_id_base,
+            &mut closure_captures,
         );
         for s in new_strings {
             module.strings.push(s);
@@ -446,6 +457,7 @@ fn synthesize_main(
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
     struct_layouts: &[Vec<(String, Type)>],
     string_id_base: usize,
+    closure_captures: &mut HashMap<String, Vec<Type>>,
 ) -> (ssa::Function, Vec<Vec<u8>>) {
     let mut f = ssa::Function::new("main", Type::I32);
     let entry = f.add_block();
@@ -468,6 +480,7 @@ fn synthesize_main(
             cur_block: entry,
             new_strings: &mut new_strings,
             string_id_base,
+            closure_captures,
         };
         for s in stmts {
             ctx.lower_top_stmt(s);
@@ -506,6 +519,13 @@ fn parse_type(
     // produced by parser::parse_type_ann; same depth-aware decoding as
     // check.rs's resolve_type_ann (so SSA + check agree on the signature
     // structure).
+    // M2 — closure env marker `__env(cap0|cap1|...)` injected by
+    // `lift_arrow_fns` on the hidden first param of capturing arrows. At
+    // SSA the env is just an opaque pointer; the capture names are
+    // re-decoded by `lower_fn` below to emit the env-load preamble.
+    if s.starts_with("__env(") && s.ends_with(')') {
+        return Type::Ptr;
+    }
     if let Some(rest) = s.strip_prefix("__fn(") {
         let bytes = rest.as_bytes();
         let mut depth: i32 = 1;
@@ -581,6 +601,17 @@ fn parse_type(
     }
 }
 
+/// Decode the `__env(name1|name2|...)` annotation lift_arrow_fns put on
+/// a capturing closure's hidden first param. Returns the ordered capture
+/// names. Returns `None` for anything that doesn't match the form.
+fn decode_env_ann(ann: &str) -> Option<Vec<String>> {
+    let inner = ann.strip_prefix("__env(")?.strip_suffix(')')?;
+    if inner.is_empty() {
+        return Some(Vec::new());
+    }
+    Some(inner.split('|').map(|s| s.to_string()).collect())
+}
+
 fn intern_arr_layout(arr_layouts: &mut Vec<Type>, elem: Type) -> ssa::ArrId {
     for (i, ex) in arr_layouts.iter().enumerate() {
         if *ex == elem {
@@ -622,6 +653,7 @@ fn lower_fn(
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
     struct_layouts: &[Vec<(String, Type)>],
     string_id_base: usize,
+    closure_captures: &mut HashMap<String, Vec<Type>>,
 ) -> (ssa::Function, Vec<Vec<u8>>) {
     let ret_ty = parse_type(return_type, aliases, arr_layouts, fn_sigs);
     let mut f = ssa::Function::new(name, ret_ty);
@@ -661,29 +693,108 @@ fn lower_fn(
         cur_block: entry,
         new_strings: &mut new_strings,
         string_id_base,
+        closure_captures,
     };
 
     // Materialize each param as an alloca-backed local. mem2reg at -O1+
     // collapses these straight back to the SSA arg values, so there is no
     // perf cost; we still get fib40 at 150 ms.
-    for (name, pid, ty) in param_setup {
-        let slot = ctx.alloca(ty, Some(&name));
+    for (pname, pid, ty) in param_setup {
+        let slot = ctx.alloca(ty, Some(&pname));
         ctx.f.append_void(
             ctx.cur_block,
             InstKind::Store(Operand::Value(pid), Operand::Value(slot), 0),
         );
+        // The hidden `__env` first-param of a lifted closure is not
+        // owned by the callee — the closure value (and its env) are
+        // owned by the construction site / its enclosing scope. Mark
+        // moved so end-of-fn drop walk skips it.
+        let is_env_param = pname == "__env";
         ctx.locals.insert(
-            name.clone(),
+            pname.clone(),
             LocalInfo {
                 slot,
                 ty,
-                moved: false,
+                moved: is_env_param,
                 scope_depth: 0,
             },
         );
         // Track param in fn-root scope frame so it doesn't get
         // accidentally drop-walked at any inner-block close.
-        ctx.scope_stack[0].push(name);
+        ctx.scope_stack[0].push(pname);
+    }
+
+    // M2 — closure body env preamble. If first param is `__env`, decode
+    // capture names from its `__env(c1|c2|...)` annotation and emit a
+    // load-from-env at offset 8, 16, ... for each capture, then bind it
+    // as a regular local under the capture's name. The body's
+    // `Expr::Ident(c1)` then resolves to this loaded slot rather than
+    // erroring as "unknown ident". Capture types come from the
+    // `closure_captures` side channel, populated by the construction
+    // site.
+    if let Some(first) = params.first()
+        && first.name == "__env"
+        && let Some(ann) = &first.type_ann
+        && let Some(cap_names) = decode_env_ann(ann)
+    {
+        let cap_tys: Vec<Type> = ctx
+            .closure_captures
+            .get(name)
+            .cloned()
+            .unwrap_or_else(|| {
+                panic!(
+                    "ssa-lower: lifted closure `{name}` has no capture types — \
+                     construction site must run before body lowering"
+                )
+            });
+        if cap_tys.len() != cap_names.len() {
+            panic!(
+                "ssa-lower: closure `{name}` capture-name count {} != type count {}",
+                cap_names.len(),
+                cap_tys.len()
+            );
+        }
+        let env_slot = ctx
+            .locals
+            .get("__env")
+            .copied()
+            .expect("__env param materialized as local")
+            .slot;
+        for (i, (cap_name, cap_ty)) in cap_names.iter().zip(cap_tys.iter()).enumerate() {
+            let env_ptr = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Load(Type::Ptr, Operand::Value(env_slot), 0),
+                Type::Ptr,
+                None,
+            );
+            let offset = 8 + (i as u64) * 8;
+            let v = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Load(*cap_ty, Operand::Value(env_ptr), offset),
+                *cap_ty,
+                None,
+            );
+            let cap_slot = ctx.alloca(*cap_ty, Some(cap_name));
+            ctx.f.append_void(
+                ctx.cur_block,
+                InstKind::Store(Operand::Value(v), Operand::Value(cap_slot), 0),
+            );
+            ctx.locals.insert(
+                cap_name.clone(),
+                LocalInfo {
+                    slot: cap_slot,
+                    ty: *cap_ty,
+                    // Captures are aliases of outer-scope bindings — we
+                    // borrow the heap, never own it. Mark `moved` so the
+                    // closure body's end-of-fn drop walk skips them
+                    // (the env block holds the canonical pointer; freeing
+                    // the env later cleans up).
+                    moved: true,
+                    scope_depth: 0,
+                },
+            );
+            ctx.scope_stack[0].push(cap_name.clone());
+        }
     }
 
     for s in body {
@@ -769,6 +880,11 @@ struct LowerCtx<'a> {
     /// strings table; StringId offsets are pre-assigned via string_id_base.
     new_strings: &'a mut Vec<Vec<u8>>,
     string_id_base: usize,
+    /// M2 — capture-types side channel shared across all fn lowerings.
+    /// Construction site (`Expr::Closure`) populates the entry for the
+    /// lifted FnDecl name; the lifted body's `lower_fn` reads it to emit
+    /// env-load preambles. Outliving any individual lower_fn call.
+    closure_captures: &'a mut HashMap<String, Vec<Type>>,
 }
 
 impl<'a> LowerCtx<'a> {
@@ -915,6 +1031,18 @@ impl<'a> LowerCtx<'a> {
                     "ssa-lower MVP: only Copy element types supported in Array<T>; got {elem:?}"
                 );
                 let drop_fid = self.intrinsics.arr_drop;
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Call(drop_fid, vec![val]),
+                );
+            }
+            Type::Closure(_) => {
+                // M2 — closure env block is plain heap memory. MVP only
+                // supports Copy captures (number / boolean / fn ptr), so
+                // a single `free(env_ptr)` is enough; non-Copy captures
+                // (Str / Obj / Arr) would require a per-closure recursive
+                // drop walk, deferred until we have a use case.
+                let drop_fid = self.intrinsics.obj_drop;
                 self.f.append_void(
                     self.cur_block,
                     InstKind::Call(drop_fid, vec![val]),
@@ -1714,6 +1842,69 @@ impl<'a> LowerCtx<'a> {
                     let _ = recv_name;
                     return Operand::ConstI64(0);
                 }
+                // M2 — call a Closure-typed local. Load env_ptr from
+                // slot, load fn_ptr from env+0, indirect-call with env
+                // prepended to the user args. The underlying signature
+                // has Ptr as its first param (the env); we synthesize it
+                // here from the user-facing signature stored on
+                // `Type::Closure(sig)`.
+                if let Expr::Ident(callee_name) = self.ast.get_expr(*callee)
+                    && let Some(info) = self.locals.get(callee_name).copied()
+                    && let Type::Closure(user_sig_id) = info.ty
+                {
+                    let env_ptr = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Load(info.ty, Operand::Value(info.slot), 0),
+                        info.ty,
+                        None,
+                    );
+                    let fn_ptr = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Load(Type::Ptr, Operand::Value(env_ptr), 0),
+                        Type::Ptr,
+                        None,
+                    );
+                    // Prepend Type::Ptr to the user-facing param list to
+                    // get the underlying signature with the env first.
+                    let (user_params, ret_ty) =
+                        self.fn_sigs[user_sig_id.0 as usize].clone();
+                    let mut env_first_params = Vec::with_capacity(user_params.len() + 1);
+                    env_first_params.push(Type::Ptr);
+                    env_first_params.extend(user_params);
+                    let env_first_sig =
+                        intern_fn_sig(self.fn_sigs, env_first_params, ret_ty);
+
+                    let mut argv: Vec<Operand> = Vec::with_capacity(args.len() + 1);
+                    argv.push(Operand::Value(env_ptr));
+                    for a in args {
+                        argv.push(self.lower_expr(*a));
+                    }
+                    for a in args {
+                        self.consume_if_ident(*a);
+                    }
+                    if ret_ty == Type::Void {
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::CallIndirect(
+                                env_first_sig,
+                                Operand::Value(fn_ptr),
+                                argv,
+                            ),
+                        );
+                        return Operand::ConstI64(0);
+                    }
+                    let v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::CallIndirect(
+                            env_first_sig,
+                            Operand::Value(fn_ptr),
+                            argv,
+                        ),
+                        ret_ty,
+                        None,
+                    );
+                    return Operand::Value(v);
+                }
                 // M2 Phase B Stage 4 — call through a fn-typed local
                 // (`let f = global_fn; f(args);` or fn-typed param).
                 // Load the slot, look up the signature, emit CallIndirect.
@@ -2010,6 +2201,122 @@ impl<'a> LowerCtx<'a> {
                     None,
                 );
                 Operand::Value(v)
+            }
+            Expr::Closure { fn_name, captures } => {
+                // M2 — closure construction. Allocate a heap env block of
+                // size `8 + 8 * captures.len()`, store fn_addr at offset 0,
+                // store each capture at 8 + i*8. Yield the env pointer
+                // typed as `Type::Closure(user_sig)`.
+                let fn_name = fn_name.clone();
+                let captures = captures.clone();
+                let fid = self
+                    .fn_table
+                    .get(&fn_name)
+                    .copied()
+                    .unwrap_or_else(|| panic!("ssa-lower: closure target `{fn_name}` not in fn table"));
+                // Build the user-facing signature (without env first param)
+                // by reading the lifted FnDecl's params from the AST and
+                // skipping the `__env` first param. Ret type matches the
+                // SSA function's ret slot.
+                let (user_param_tys, user_ret_ty) = {
+                    let mut params_v: Vec<Type> = Vec::new();
+                    let mut ret_v = Type::Void;
+                    for s in &self.ast.stmts {
+                        if let Stmt::FnDecl {
+                            name,
+                            params: ps,
+                            return_type,
+                            ..
+                        } = s
+                            && name == &fn_name
+                        {
+                            for p in ps.iter().skip(1) {
+                                params_v.push(parse_type(
+                                    p.type_ann.as_deref(),
+                                    self.aliases,
+                                    self.arr_layouts,
+                                    self.fn_sigs,
+                                ));
+                            }
+                            ret_v = parse_type(
+                                return_type.as_deref(),
+                                self.aliases,
+                                self.arr_layouts,
+                                self.fn_sigs,
+                            );
+                            break;
+                        }
+                    }
+                    (params_v, ret_v)
+                };
+                let user_sig =
+                    intern_fn_sig(self.fn_sigs, user_param_tys, user_ret_ty);
+                let closure_ty = Type::Closure(user_sig);
+
+                // Resolve capture types from current locals + record on the
+                // side channel so the lifted body's lower_fn knows them.
+                let cap_tys: Vec<Type> = captures
+                    .iter()
+                    .map(|c| {
+                        self.locals
+                            .get(c)
+                            .map(|l| l.ty)
+                            .unwrap_or_else(|| {
+                                panic!(
+                                    "ssa-lower: closure capture `{c}` not in scope"
+                                )
+                            })
+                    })
+                    .collect();
+                self.closure_captures
+                    .insert(fn_name.clone(), cap_tys.clone());
+
+                // Allocate env block via __torajs_obj_alloc (just malloc).
+                let alloc_size = 8 + 8 * (captures.len() as i64);
+                let env_v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(
+                        self.intrinsics.obj_alloc,
+                        vec![Operand::ConstI64(alloc_size)],
+                    ),
+                    closure_ty,
+                    None,
+                );
+                // Store fn_addr at offset 0. fn_addr's natural type is
+                // FnSig but at the SSA layer it's just an i64 / ptr.
+                let lifted_sig_id = self
+                    .fn_sig_ids
+                    .get(&fid)
+                    .copied()
+                    .expect("lifted closure has interned signature");
+                let fn_addr_v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::FnAddr(fid),
+                    Type::FnSig(lifted_sig_id),
+                    None,
+                );
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Store(Operand::Value(fn_addr_v), Operand::Value(env_v), 0),
+                );
+                // Store each capture by value at the right offset.
+                for (i, (cap_name, cap_ty)) in
+                    captures.iter().zip(cap_tys.iter()).enumerate()
+                {
+                    let info = *self.locals.get(cap_name).expect("capture in scope");
+                    let v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Load(*cap_ty, Operand::Value(info.slot), 0),
+                        *cap_ty,
+                        None,
+                    );
+                    let offset = 8 + (i as u64) * 8;
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Store(Operand::Value(v), Operand::Value(env_v), offset),
+                    );
+                }
+                Operand::Value(env_v)
             }
             other => panic!("ssa-lower: unsupported expr: {other:?}"),
         }

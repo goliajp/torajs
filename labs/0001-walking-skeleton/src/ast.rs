@@ -73,6 +73,17 @@ pub enum Expr {
         return_type: Option<String>,
         body: Vec<Stmt>,
     },
+    /// Lifted closure with implicit captures (M2). After `lift_arrow_fns`,
+    /// each capturing arrow becomes this expression: `fn_name` references
+    /// the lifted top-level FnDecl (which expects an extra hidden first
+    /// param `__env`); `captures` lists the outer-scope binding names that
+    /// must be packed into the env at construction time, in the same order
+    /// as the lifted FnDecl reads them. Non-capturing arrows still lower
+    /// to `Expr::Ident` (FnAddr) — only capturing ones use this variant.
+    Closure {
+        fn_name: String,
+        captures: Vec<String>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -137,22 +148,26 @@ pub struct Ast {
     pub exprs: Vec<Expr>,
 }
 
-/// M2 Phase A — lambda-lift arrow fns. Walks `ast.exprs` in index order;
-/// each `Expr::ArrowFn` is replaced in-place with `Expr::Ident("__closure_N")`,
-/// and a corresponding `Stmt::FnDecl` is appended to `ast.stmts`. The new
-/// FnDecls are then hoisted as globals by `check.rs`'s pass-1.
+/// M2 — lambda-lift arrow fns. Walks `ast.exprs` in index order; each
+/// `Expr::ArrowFn` is replaced in-place and a corresponding `Stmt::FnDecl`
+/// is appended to `ast.stmts`.
 ///
-/// Non-capturing only — captures are deferred to Phase B (closures with
-/// implicit capture via env struct). For Phase A, the lifted FnDecl's
-/// body sees only its own params + globals; references to outer-scope
-/// vars from inside the arrow body would resolve as "unknown ident" at
-/// type-check time. That matches the existing arrow-fn behavior (which
-/// also rejected captures).
+/// Non-capturing arrows: the source-site expression becomes
+/// `Expr::Ident("__closure_N")`, lowering to a plain `FnAddr` in SSA. This
+/// is the original M2 Phase A path.
+///
+/// Capturing arrows (M2 Phase C): the source-site becomes
+/// `Expr::Closure { fn_name, captures }`. The lifted FnDecl is given a
+/// hidden first parameter named `__env` (typed at the SSA layer); the
+/// lowerer reads each capture out of `__env` and binds it as a local at
+/// the top of the body, so the body's `Ident(name)` references resolve
+/// against the captured value rather than the (now out-of-scope) outer
+/// binding.
 ///
 /// Iteration order: parser emits inner expressions before outer, so a
 /// nested arrow fn sits at a lower `ExprId` than its enclosing arrow fn.
 /// We walk indices low→high; the inner arrow gets lifted first and the
-/// outer arrow's body still references it via the (now Ident) ExprId.
+/// outer arrow's body still references it via the (now Ident/Closure) ExprId.
 pub fn lift_arrow_fns(ast: &mut Ast) {
     let mut counter = 0u32;
     let mut new_decls: Vec<Stmt> = Vec::new();
@@ -163,18 +178,197 @@ pub fn lift_arrow_fns(ast: &mut Ast) {
         }
         let name = format!("__closure_{counter}");
         counter += 1;
-        let placeholder = Expr::Ident(name.clone());
+        // Compute captures BEFORE moving the arrow body out — collect free
+        // vars (idents referenced inside the body that are neither one of
+        // the arrow's params nor declared by an inner let).
+        let captures = match &ast.exprs[i] {
+            Expr::ArrowFn { params, body, .. } => free_vars_of_arrow(ast, params, body),
+            _ => Vec::new(),
+        };
+        let placeholder = if captures.is_empty() {
+            Expr::Ident(name.clone())
+        } else {
+            Expr::Closure {
+                fn_name: name.clone(),
+                captures: captures.clone(),
+            }
+        };
         let arrow = std::mem::replace(&mut ast.exprs[i], placeholder);
-        if let Expr::ArrowFn { params, return_type, body } = arrow {
+        if let Expr::ArrowFn {
+            params,
+            return_type,
+            body,
+        } = arrow
+        {
+            // For capturing arrows, prepend a hidden `__env` parameter so
+            // the lowerer can recognize a closure body and emit env loads
+            // for the captures at the top of the function. The capture
+            // names are smuggled to the lowerer via the param's type_ann
+            // string (encoded as `__env(cap0|cap1|...)`).
+            let mut final_params = params;
+            if !captures.is_empty() {
+                let env_ann = format!("__env({})", captures.join("|"));
+                final_params.insert(
+                    0,
+                    Param {
+                        name: "__env".into(),
+                        type_ann: Some(env_ann),
+                    },
+                );
+            }
             new_decls.push(Stmt::FnDecl {
                 name,
-                params,
+                params: final_params,
                 return_type,
                 body,
             });
         }
     }
     ast.stmts.extend(new_decls);
+}
+
+/// Free-variable analysis for an arrow fn body. Returns a deterministic,
+/// de-duplicated list of identifier names referenced in the body that are
+/// NOT bound by the arrow's params and NOT declared by any inner let/for
+/// in the body itself. The ordering matches first-use order in the body
+/// (deterministic across runs).
+///
+/// Limitations: this is a conservative name-only analysis — it does not
+/// distinguish global FnDecls from outer locals (the lowerer filters
+/// global fn names out of the capture set when it has the symbol table).
+/// Inner ArrowFn bodies are walked too; their inner-arrow params shadow
+/// matching names inside their body.
+fn free_vars_of_arrow(ast: &Ast, params: &[Param], body: &[Stmt]) -> Vec<String> {
+    let mut bound: Vec<String> = params.iter().map(|p| p.name.clone()).collect();
+    let mut out: Vec<String> = Vec::new();
+    for s in body {
+        walk_stmt(ast, s, &mut bound, &mut out);
+    }
+    out
+}
+
+fn walk_stmt(ast: &Ast, s: &Stmt, bound: &mut Vec<String>, out: &mut Vec<String>) {
+    match s {
+        Stmt::Expr(eid) | Stmt::Return(Some(eid)) => walk_expr(ast, *eid, bound, out),
+        Stmt::Return(None) => {}
+        Stmt::LetDecl { name, init, .. } => {
+            walk_expr(ast, *init, bound, out);
+            bound.push(name.clone());
+        }
+        Stmt::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            walk_expr(ast, *cond, bound, out);
+            let saved = bound.len();
+            walk_stmt(ast, then_branch, bound, out);
+            bound.truncate(saved);
+            if let Some(eb) = else_branch {
+                walk_stmt(ast, eb, bound, out);
+                bound.truncate(saved);
+            }
+        }
+        Stmt::While { cond, body } => {
+            walk_expr(ast, *cond, bound, out);
+            let saved = bound.len();
+            walk_stmt(ast, body, bound, out);
+            bound.truncate(saved);
+        }
+        Stmt::For {
+            init,
+            cond,
+            step,
+            body,
+        } => {
+            let saved = bound.len();
+            if let Some(i) = init {
+                walk_stmt(ast, i, bound, out);
+            }
+            if let Some(c) = cond {
+                walk_expr(ast, *c, bound, out);
+            }
+            if let Some(st) = step {
+                walk_expr(ast, *st, bound, out);
+            }
+            walk_stmt(ast, body, bound, out);
+            bound.truncate(saved);
+        }
+        Stmt::Block(stmts) => {
+            let saved = bound.len();
+            for st in stmts {
+                walk_stmt(ast, st, bound, out);
+            }
+            bound.truncate(saved);
+        }
+        Stmt::Break | Stmt::Continue => {}
+        Stmt::FnDecl { .. } | Stmt::TypeDecl { .. } => {
+            // FnDecl inside an arrow body would be unusual; conservatively
+            // ignore since check.rs hoists these out anyway.
+        }
+    }
+}
+
+fn walk_expr(ast: &Ast, eid: ExprId, bound: &mut Vec<String>, out: &mut Vec<String>) {
+    match ast.get_expr(eid) {
+        Expr::Ident(name) => {
+            if !bound.contains(name) && !out.contains(name) {
+                out.push(name.clone());
+            }
+        }
+        Expr::String(_) | Expr::Number(_) | Expr::Bool(_) => {}
+        Expr::BinOp { left, right, .. } => {
+            walk_expr(ast, *left, bound, out);
+            walk_expr(ast, *right, bound, out);
+        }
+        Expr::Unary { expr, .. } => walk_expr(ast, *expr, bound, out),
+        Expr::Member { obj, .. } => walk_expr(ast, *obj, bound, out),
+        Expr::Call { callee, args } => {
+            walk_expr(ast, *callee, bound, out);
+            for a in args {
+                walk_expr(ast, *a, bound, out);
+            }
+        }
+        Expr::Assign { target, value } => {
+            walk_expr(ast, *target, bound, out);
+            walk_expr(ast, *value, bound, out);
+        }
+        Expr::Index { obj, index } => {
+            walk_expr(ast, *obj, bound, out);
+            walk_expr(ast, *index, bound, out);
+        }
+        Expr::Array(elems) => {
+            for e in elems {
+                walk_expr(ast, *e, bound, out);
+            }
+        }
+        Expr::ObjectLit { fields } => {
+            for (_, e) in fields {
+                walk_expr(ast, *e, bound, out);
+            }
+        }
+        Expr::ArrowFn { params, body, .. } => {
+            let saved = bound.len();
+            for p in params {
+                bound.push(p.name.clone());
+            }
+            for s in body {
+                walk_stmt(ast, s, bound, out);
+            }
+            bound.truncate(saved);
+        }
+        Expr::Closure { captures, .. } => {
+            // Already lifted (shouldn't normally happen during this pass,
+            // but guard for nested-lift cases): the captures referenced
+            // by an already-lifted closure are themselves free in the
+            // current arrow body if not bound here.
+            for c in captures {
+                if !bound.contains(c) && !out.contains(c) {
+                    out.push(c.clone());
+                }
+            }
+        }
+    }
 }
 
 impl Ast {
@@ -370,6 +564,9 @@ impl Ast {
                 for s in body {
                     self.print_stmt(s, indent + 1);
                 }
+            }
+            Expr::Closure { fn_name, captures } => {
+                println!("{pad}Closure {fn_name} captures=[{}]", captures.join(", "));
             }
         }
     }

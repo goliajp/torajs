@@ -397,7 +397,7 @@ fn clif_type<M: CfModule>(module: &M, t: Type) -> ir::Type {
         // fcmp produce.
         Type::Bool => ctypes::I8,
         // Pointer-shaped types all lower to host pointer width.
-        Type::Ptr | Type::Str | Type::Obj(_) | Type::Arr(_) | Type::FnSig(_) => {
+        Type::Ptr | Type::Str | Type::Obj(_) | Type::Arr(_) | Type::FnSig(_) | Type::Closure(_) => {
             module.target_config().pointer_type()
         }
         Type::Void => panic!("Type::Void has no CLIF representation"),
@@ -565,7 +565,8 @@ fn lower_inst(
                 | Type::Str
                 | Type::Obj(_)
                 | Type::Arr(_)
-                | Type::FnSig(_) => 8,
+                | Type::FnSig(_)
+                | Type::Closure(_) => 8,
                 Type::I32 => 4,
                 Type::Bool => 1,
                 Type::Void => panic!("alloca of void"),

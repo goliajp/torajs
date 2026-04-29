@@ -1000,7 +1000,7 @@ fn build_fn_type<'ctx>(ctx: &'ctx Context, params: &[Type], ret: Type) -> Functi
         Type::I32 => ctx.i32_type().fn_type(&param_metas, false),
         Type::F64 => ctx.f64_type().fn_type(&param_metas, false),
         Type::Bool => ctx.bool_type().fn_type(&param_metas, false),
-        Type::Ptr | Type::Str | Type::Obj(_) | Type::Arr(_) | Type::FnSig(_) => {
+        Type::Ptr | Type::Str | Type::Obj(_) | Type::Arr(_) | Type::FnSig(_) | Type::Closure(_) => {
             ctx.ptr_type(AddressSpace::default()).fn_type(&param_metas, false)
         }
     }
@@ -1015,7 +1015,7 @@ fn basic_meta_type<'ctx>(ctx: &'ctx Context, t: Type) -> BasicMetadataTypeEnum<'
         // Str + Ptr both lower to a single opaque pointer. The SSA-level
         // distinction matters for the lowerer's dispatch decisions, not for
         // codegen.
-        Type::Ptr | Type::Str | Type::Obj(_) | Type::Arr(_) | Type::FnSig(_) => {
+        Type::Ptr | Type::Str | Type::Obj(_) | Type::Arr(_) | Type::FnSig(_) | Type::Closure(_) => {
             ctx.ptr_type(AddressSpace::default()).into()
         }
         Type::Void => panic!("void cannot be a parameter type"),
@@ -1030,7 +1030,7 @@ fn basic_type<'ctx>(ctx: &'ctx Context, t: Type) -> BasicTypeEnum<'ctx> {
         Type::I32 => ctx.i32_type().into(),
         Type::F64 => ctx.f64_type().into(),
         Type::Bool => ctx.bool_type().into(),
-        Type::Ptr | Type::Str | Type::Obj(_) | Type::Arr(_) | Type::FnSig(_) => {
+        Type::Ptr | Type::Str | Type::Obj(_) | Type::Arr(_) | Type::FnSig(_) | Type::Closure(_) => {
             ctx.ptr_type(AddressSpace::default()).into()
         }
         Type::Void => panic!("void cannot be a basic type (alloca/load/store)"),

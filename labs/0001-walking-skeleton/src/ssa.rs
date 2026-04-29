@@ -96,6 +96,14 @@ pub enum Type {
     /// calls (`InstKind::CallIndirect`) so backends can build the
     /// right calling convention. M2 Phase B Stage 2.
     FnSig(SigId),
+    /// Closure value — a heap pointer to an env block whose layout is
+    /// `[i64 fn_ptr, capture_0, capture_1, ...]`. SigId is the
+    /// **user-visible** signature (without the env first param).
+    /// Codegen lowers to a single pointer; calling a closure loads the
+    /// fn pointer from env+0 and indirect-calls with env as the first
+    /// argument. Heap-owned, non-Copy (the env block is freed when the
+    /// last owner of the closure binding goes out of scope).
+    Closure(SigId),
 }
 
 impl Type {
@@ -111,6 +119,7 @@ impl Type {
             Type::Obj(_) => "obj",
             Type::Arr(_) => "arr",
             Type::FnSig(_) => "fnsig",
+            Type::Closure(_) => "closure",
         }
     }
 
@@ -130,6 +139,7 @@ impl Type {
         )
         // Str + Obj + Arr are heap-owned, affine.
         // FnSig is just a fn pointer — Copy semantics, no drop.
+        // Closure is heap-owned (env block) — non-Copy.
     }
 }
 

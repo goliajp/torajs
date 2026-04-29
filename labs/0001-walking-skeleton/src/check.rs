@@ -50,6 +50,15 @@ fn resolve_type_ann(name: &str, aliases: &HashMap<String, Type>) -> Option<Type>
     if let Some(rest) = name.strip_suffix("[]") {
         return resolve_type_ann(rest, aliases).map(|inner| Type::Array(Box::new(inner)));
     }
+    // M2 — closure env marker `__env(cap0|cap1|...)` injected by
+    // `lift_arrow_fns` on the hidden first param of capturing arrows. At
+    // the typechecker layer the env is just a printable opaque value
+    // (capture types are tracked separately in `Checker.closure_captures`),
+    // so we resolve it to `Any`. The SSA lowerer recognizes the same
+    // marker string and emits the actual env load preamble.
+    if name.starts_with("__env(") && name.ends_with(')') {
+        return Some(Type::Any);
+    }
     // M2 Phase B Stage 1 — fn type annotations encoded as
     // `__fn(P1|P2|...)->R`. Param `|` separator is depth-aware so nested
     // fn types parse correctly: `__fn(__fn(A)->B|C)->D`.
@@ -170,6 +179,8 @@ pub fn check(ast: &Ast) -> Result<(), String> {
         aliases: HashMap::new(),
         errors: Vec::new(),
         expected_return: None,
+        closure_captures: HashMap::new(),
+        closure_fn_names: std::collections::HashSet::new(),
     };
 
     // Pass 0: register type aliases first so fn signatures + let
@@ -202,6 +213,9 @@ pub fn check(ast: &Ast) -> Result<(), String> {
     }
 
     // Pass 1: hoist top-level function signatures (uses aliases).
+    // For lifted-closure FnDecls (first param `__env`), the user-visible
+    // signature drops the env: callers see `(real_params...) -> ret`.
+    // The full signature including __env stays implicit at the SSA layer.
     for stmt in &ast.stmts {
         if let Stmt::FnDecl {
             name,
@@ -210,12 +224,17 @@ pub fn check(ast: &Ast) -> Result<(), String> {
             ..
         } = stmt
         {
-            match build_fn_type(name, params, return_type, &c.aliases) {
+            let is_closure = params.first().is_some_and(|p| p.name == "__env");
+            let user_params: &[Param] = if is_closure { &params[1..] } else { params };
+            match build_fn_type(name, user_params, return_type, &c.aliases) {
                 Ok(ty) => {
                     if c.globals.contains_key(name) {
                         c.errors.push(format!("redeclaration of function `{name}`"));
                     } else {
                         c.globals.insert(name.clone(), ty);
+                        if is_closure {
+                            c.closure_fn_names.insert(name.clone());
+                        }
                     }
                 }
                 Err(e) => c.errors.push(e),
@@ -223,8 +242,15 @@ pub fn check(ast: &Ast) -> Result<(), String> {
         }
     }
 
-    // Pass 2: check each statement.
+    // Pass 2: check each statement. Closure-lifted FnDecls are skipped
+    // here — their bodies are checked lazily by the `Expr::Closure` arm
+    // of `type_of`, with captures injected as locals.
     for stmt in &ast.stmts {
+        if let Stmt::FnDecl { name, .. } = stmt
+            && c.closure_fn_names.contains(name)
+        {
+            continue;
+        }
         c.check_stmt(ast, stmt);
     }
 
@@ -243,6 +269,17 @@ struct Checker {
     aliases: HashMap<String, Type>,
     errors: Vec<String>,
     expected_return: Option<Type>,
+    /// M2 — captures for each lifted closure FnDecl. Populated by the
+    /// `Expr::Closure` arm of `type_of` (which resolves capture types in
+    /// the OUTER scope at the construction site) and consumed by the
+    /// closure-FnDecl body walker below. Maps lifted-fn-name → ordered
+    /// list of (capture_name, captured_type).
+    closure_captures: HashMap<String, Vec<(String, Type)>>,
+    /// Names of FnDecls that are lifted closures (first param is
+    /// `__env`). Pass-2 skips these — their bodies are checked lazily
+    /// when an `Expr::Closure` references them, so the captures are in
+    /// scope.
+    closure_fn_names: std::collections::HashSet<String>,
 }
 
 impl Checker {
@@ -924,7 +961,9 @@ impl Checker {
                 let Type::Function(param_tys, ret_ty) = fn_ty.clone() else {
                     unreachable!("build_fn_type returned non-Function");
                 };
-                // Arrow fn body does NOT see outer locals — captures land in P4.
+                // Bare ArrowFn that survived `lift_arrow_fns` — should only
+                // happen for non-capturing arrows that didn't get lifted
+                // (legacy path). Body sees its own params only.
                 let saved_scopes = std::mem::replace(&mut self.scopes, vec![HashMap::new()]);
                 let saved_return = self.expected_return.replace(*ret_ty);
                 for (p, ty) in params.iter().zip(param_tys.iter()) {
@@ -945,6 +984,80 @@ impl Checker {
                 self.expected_return = saved_return;
                 self.scopes = saved_scopes;
                 Ok(fn_ty)
+            }
+            Expr::Closure { fn_name, captures } => {
+                // Resolve capture types in the OUTER scope (current
+                // self.scopes), record them in the captures table for the
+                // lowerer, then lazily walk the lifted FnDecl body with
+                // those captures injected as locals.
+                let fn_name = fn_name.clone();
+                let captures = captures.clone();
+                let mut cap_tys: Vec<(String, Type)> = Vec::with_capacity(captures.len());
+                for cap in &captures {
+                    let Some(info) = self.lookup(cap) else {
+                        return Err(format!(
+                            "closure `{fn_name}` references unknown identifier `{cap}`"
+                        ));
+                    };
+                    cap_tys.push((cap.clone(), info.ty));
+                }
+                self.closure_captures.insert(fn_name.clone(), cap_tys.clone());
+
+                // Walk the lifted FnDecl's body once, lazily, with captures
+                // and real params bound in a fresh scope. Find the FnDecl
+                // by name in ast.stmts.
+                let fn_decl = ast.stmts.iter().find_map(|s| match s {
+                    Stmt::FnDecl {
+                        name,
+                        params,
+                        return_type,
+                        body,
+                    } if name == &fn_name => Some((params.clone(), return_type.clone(), body.clone())),
+                    _ => None,
+                });
+                if let Some((params, return_type, body)) = fn_decl {
+                    // Skip the leading `__env` param — captures replace it.
+                    let real_params: Vec<Param> = params.iter().skip(1).cloned().collect();
+                    let user_fn_ty =
+                        build_fn_type(&fn_name, &real_params, &return_type, &self.aliases)?;
+                    let Type::Function(param_tys, ret_ty) = user_fn_ty.clone() else {
+                        unreachable!();
+                    };
+
+                    // Lazily walk the body in a fresh scope with captures
+                    // + params bound. Errors get pushed onto self.errors
+                    // like normal.
+                    let saved_scopes = std::mem::replace(&mut self.scopes, vec![HashMap::new()]);
+                    let saved_return = self.expected_return.replace(*ret_ty);
+                    for (cap_name, cap_ty) in &cap_tys {
+                        let _ = self.declare(
+                            cap_name.clone(),
+                            LocalInfo {
+                                ty: cap_ty.clone(),
+                                mutable: true,
+                                moved: false,
+                            },
+                        );
+                    }
+                    for (p, ty) in real_params.iter().zip(param_tys.iter()) {
+                        let _ = self.declare(
+                            p.name.clone(),
+                            LocalInfo {
+                                ty: ty.clone(),
+                                mutable: true,
+                                moved: false,
+                            },
+                        );
+                    }
+                    for s in &body {
+                        self.check_stmt(ast, &s.clone());
+                    }
+                    self.expected_return = saved_return;
+                    self.scopes = saved_scopes;
+                    Ok(user_fn_ty)
+                } else {
+                    Err(format!("closure target `{fn_name}` has no FnDecl"))
+                }
             }
         }
     }
