@@ -28,6 +28,14 @@ pub enum Type {
     /// matching order. (TS-style structural compatibility, not nominal.)
     /// P2.4 introduced this; backed by heap allocation in P2.4.c.
     Struct(Vec<(String, Type)>),
+    /// `Rc<T>` — reference-counted shared ownership. Move-by-default; never
+    /// `Copy`. Member access on `Rc<Struct>` auto-derefs to the inner field
+    /// without consuming the receiver (read borrow). `.clone()` returns a
+    /// fresh `Rc<T>` and also doesn't consume. Field-write through bare
+    /// `Rc` is rejected (the existing Assign check requires Ident targets,
+    /// which already excludes `u.x = ...`). P2.3.a is typecheck-only; SSA
+    /// codegen + `__torajs_rc_*` intrinsics land in P2.3.b.
+    Rc(Box<Type>),
 }
 
 impl Type {
@@ -49,6 +57,25 @@ impl Type {
 fn resolve_type_ann(name: &str, aliases: &HashMap<String, Type>) -> Option<Type> {
     if let Some(rest) = name.strip_suffix("[]") {
         return resolve_type_ann(rest, aliases).map(|inner| Type::Array(Box::new(inner)));
+    }
+    // `Rc<T>` — strict 1-arg generic. The flat string is produced by
+    // parse_type_ann, so the outermost angle brackets bracket exactly one
+    // inner type unless the user wrote `Rc<A,B>` — in which case we reject
+    // (top-level commas at depth 0). Inner types may contain their own
+    // `<...>`; the depth counter handles that.
+    if let Some(rest) = name.strip_prefix("Rc<")
+        && let Some(inner) = rest.strip_suffix('>')
+    {
+        let mut depth: i32 = 0;
+        for ch in inner.chars() {
+            match ch {
+                '<' => depth += 1,
+                '>' => depth -= 1,
+                ',' if depth == 0 => return None,
+                _ => {}
+            }
+        }
+        return resolve_type_ann(inner.trim(), aliases).map(|t| Type::Rc(Box::new(t)));
     }
     match name {
         // `number` is the JS-spelled umbrella; `i64` and `f64` are explicit
@@ -431,11 +458,26 @@ impl Checker {
                 match name.as_str() {
                     "console" => Ok(Type::Object("console")),
                     "Math" => Ok(Type::Object("Math")),
+                    // `Rc` is a pseudo-namespace for `Rc.new(...)`. The
+                    // value can also flow through Any-typed slots like
+                    // `console.log(Rc)` without erroring (matches the
+                    // Math/console shape) — odd but consistent.
+                    "Rc" => Ok(Type::Object("Rc")),
                     other => Err(format!("unknown identifier `{other}`")),
                 }
             }
             Expr::Member { obj, name } => {
                 let obj_ty = self.type_of(ast, *obj)?;
+                // Auto-deref `Rc<Struct>` for field access: the receiver is
+                // read-borrowed (NOT consumed), so `let n = u.x; let m = u.y;`
+                // is fine even though Rc is non-Copy. Matches Rust's
+                // implicit `(*u).x` behavior.
+                if let Type::Rc(inner) = &obj_ty
+                    && let Type::Struct(fields) = inner.as_ref()
+                    && let Some((_, ty)) = fields.iter().find(|(fname, _)| fname == name)
+                {
+                    return Ok(ty.clone());
+                }
                 // Struct field access is the most general path — look up
                 // the named field; type is whatever it was declared as.
                 if let Type::Struct(fields) = &obj_ty
@@ -444,6 +486,13 @@ impl Checker {
                     return Ok(ty.clone());
                 }
                 match (&obj_ty, name.as_str()) {
+                    // `.clone()` on `Rc<T>` — 0-arg method returning a fresh
+                    // `Rc<T>`. Receiver is not consumed: the standard Call
+                    // arg-loop sees zero args, leaves obj alone, so reads
+                    // of the source binding remain valid post-clone.
+                    (Type::Rc(_), "clone") => {
+                        Ok(Type::Function(vec![], Box::new(obj_ty.clone())))
+                    }
                     (Type::Object("console"), "log") => {
                         Ok(Type::Function(vec![Type::Any], Box::new(Type::Void)))
                     }
@@ -530,6 +579,31 @@ impl Checker {
                 Ok(Type::Struct(field_tys))
             }
             Expr::Call { callee, args } => {
+                // `Rc.new(value)` — the result type `Rc<T>` depends on the
+                // arg's type, which the existing `Type::Function` model
+                // can't express (no generics yet). Pattern-match the syntax
+                // `Rc.new(...)` and synthesize the result here. Only fires
+                // when the literal identifier `Rc` resolves to the
+                // namespace (i.e. not shadowed by a local or top-level fn).
+                if let Expr::Member { obj, name: callee_name } =
+                    ast.get_expr(*callee).clone()
+                    && callee_name == "new"
+                    && matches!(ast.get_expr(obj), Expr::Ident(n) if n == "Rc")
+                    && self.lookup("Rc").is_none()
+                    && !self.globals.contains_key("Rc")
+                {
+                    if args.len() != 1 {
+                        return Err(format!(
+                            "Rc.new takes 1 argument, got {}",
+                            args.len()
+                        ));
+                    }
+                    let arg_ty = self.type_of(ast, args[0])?;
+                    if !arg_ty.is_copy() {
+                        self.consume(ast, args[0]);
+                    }
+                    return Ok(Type::Rc(Box::new(arg_ty)));
+                }
                 let callee_ty = self.type_of(ast, *callee)?;
                 let Type::Function(params, ret) = callee_ty else {
                     return Err(format!("not callable: type {callee_ty:?}"));
@@ -822,6 +896,213 @@ mod tests {
                 .map(|s| s.contains("unknown type"))
                 .unwrap_or(false),
             "expected 'unknown type' error, got {r:?}"
+        );
+    }
+
+    // ----- P2.3.a — Rc<T> typecheck -----
+
+    #[test]
+    fn rc_new_with_number_typechecks() {
+        // Rc<number> with the smallest payload. number is Copy, so the
+        // arg-side affine question is trivial — we only verify the
+        // generic-result inference + annotation matching.
+        let src = r#"
+            let u: Rc<number> = Rc.new(5);
+        "#;
+        let r = check_src(src);
+        assert!(r.is_ok(), "got {r:?}");
+    }
+
+    #[test]
+    fn rc_new_with_struct_typechecks() {
+        let src = r#"
+            type Point = { x: number, y: number };
+            let p: Point = { x: 1, y: 2 };
+            let u: Rc<Point> = Rc.new(p);
+        "#;
+        let r = check_src(src);
+        assert!(r.is_ok(), "got {r:?}");
+    }
+
+    #[test]
+    fn rc_struct_field_auto_derefs() {
+        let src = r#"
+            type Point = { x: number, y: number };
+            let p: Point = { x: 3, y: 4 };
+            let u: Rc<Point> = Rc.new(p);
+            let n: number = u.x;
+            let m: number = u.y;
+        "#;
+        let r = check_src(src);
+        assert!(r.is_ok(), "expected auto-deref to work, got {r:?}");
+    }
+
+    #[test]
+    fn rc_clone_does_not_consume_receiver() {
+        let src = r#"
+            type Point = { x: number, y: number };
+            let p: Point = { x: 1, y: 2 };
+            let u: Rc<Point> = Rc.new(p);
+            let v: Rc<Point> = u.clone();
+            let n: number = u.x;
+        "#;
+        let r = check_src(src);
+        assert!(
+            r.is_ok(),
+            "expected clone to read-borrow receiver, got {r:?}"
+        );
+    }
+
+    #[test]
+    fn rc_move_into_new_binding_consumes_source() {
+        // Bare assignment moves the Rc — like any non-Copy type.
+        let src = r#"
+            type Point = { x: number, y: number };
+            let p: Point = { x: 1, y: 2 };
+            let u: Rc<Point> = Rc.new(p);
+            let v: Rc<Point> = u;
+            let n: number = u.x;
+        "#;
+        let r = check_src(src);
+        assert!(
+            r.as_ref()
+                .err()
+                .map(|s| s.contains("moved"))
+                .unwrap_or(false),
+            "expected use-of-moved error, got {r:?}"
+        );
+    }
+
+    #[test]
+    fn rc_field_write_is_rejected() {
+        // Bare Rc<T> is read-only; field-write is rejected by the existing
+        // Assign rule (target must be an Ident — `u.x` is a Member, not
+        // an Ident). This pins the behavior; once Rc<RefCell<T>> lands
+        // in P2.3.e, mutation goes through `.borrow_mut()` not direct
+        // field-write.
+        let src = r#"
+            type Point = { x: number, y: number };
+            let p: Point = { x: 1, y: 2 };
+            let u: Rc<Point> = Rc.new(p);
+            u.x = 5;
+        "#;
+        let r = check_src(src);
+        assert!(
+            r.as_ref()
+                .err()
+                .map(|s| s.contains("invalid assignment target"))
+                .unwrap_or(false),
+            "expected 'invalid assignment target', got {r:?}"
+        );
+    }
+
+    #[test]
+    fn rc_new_arity_is_one() {
+        let zero = check_src("let u: Rc<number> = Rc.new();");
+        assert!(
+            zero.as_ref()
+                .err()
+                .map(|s| s.contains("Rc.new takes 1 argument"))
+                .unwrap_or(false),
+            "expected arity error for 0 args, got {zero:?}"
+        );
+        let two = check_src("let u: Rc<number> = Rc.new(1, 2);");
+        assert!(
+            two.as_ref()
+                .err()
+                .map(|s| s.contains("Rc.new takes 1 argument"))
+                .unwrap_or(false),
+            "expected arity error for 2 args, got {two:?}"
+        );
+    }
+
+    #[test]
+    fn rc_clone_arity_is_zero() {
+        let src = r#"
+            let u: Rc<number> = Rc.new(5);
+            let v: Rc<number> = u.clone(99);
+        "#;
+        let r = check_src(src);
+        assert!(
+            r.is_err(),
+            "expected error for non-zero clone arity, got {r:?}"
+        );
+    }
+
+    #[test]
+    fn rc_typecheck_rejects_two_type_params() {
+        // `Rc<A, B>` — Rc is unary; resolve_type_ann scans for top-level
+        // commas at depth 0 and rejects.
+        let src = "let u: Rc<number, string> = Rc.new(5);";
+        let r = check_src(src);
+        assert!(
+            r.as_ref()
+                .err()
+                .map(|s| s.contains("unknown type"))
+                .unwrap_or(false),
+            "expected unknown-type error, got {r:?}"
+        );
+    }
+
+    #[test]
+    fn rc_nested_generic_with_whitespace_workaround_typechecks() {
+        // `Rc<Rc<i64> >` — manual whitespace splits the `>>` until P2.3.b
+        // teaches the parser to do it. Verifies the parser/check path
+        // handles 2-level Rc nesting end-to-end.
+        let src = r#"
+            let inner: Rc<i64> = Rc.new(5);
+            let outer: Rc<Rc<i64> > = Rc.new(inner);
+        "#;
+        let r = check_src(src);
+        assert!(r.is_ok(), "got {r:?}");
+    }
+
+    #[test]
+    fn rc_nested_generic_without_whitespace_errors_with_hint() {
+        // `Rc<Rc<i64>>` — closing `>>` is lexed as `ShrShr`. Parser must
+        // emit a clear pointer to the workaround.
+        let src = "let outer: Rc<Rc<i64>> = Rc.new(Rc.new(5));";
+        let r = check_src(src);
+        assert!(
+            r.as_ref()
+                .err()
+                .map(|s| s.contains("ambiguous `>>`") && s.contains("whitespace"))
+                .unwrap_or(false),
+            "expected hint error for nested `>>`, got {r:?}"
+        );
+    }
+
+    #[test]
+    fn rc_namespace_is_not_callable() {
+        // `Rc(...)` (without `.new`) — Rc itself is a namespace, not a fn.
+        let src = "let u = Rc(5);";
+        let r = check_src(src);
+        assert!(
+            r.as_ref()
+                .err()
+                .map(|s| s.contains("not callable"))
+                .unwrap_or(false),
+            "expected not-callable error, got {r:?}"
+        );
+    }
+
+    #[test]
+    fn rc_namespace_can_be_shadowed() {
+        // A local `Rc` shadows the namespace — `.new` then dispatches as
+        // a normal member call on the local's type, which fails because
+        // numbers don't have a `.new` member. This is the right behavior:
+        // we don't want the namespace to override user bindings.
+        let src = r#"
+            let Rc: number = 5;
+            let u = Rc.new(99);
+        "#;
+        let r = check_src(src);
+        assert!(
+            r.as_ref()
+                .err()
+                .map(|s| s.contains("no member"))
+                .unwrap_or(false),
+            "expected no-member error after shadowing, got {r:?}"
         );
     }
 

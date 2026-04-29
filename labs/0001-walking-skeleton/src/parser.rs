@@ -25,7 +25,8 @@
 //! primary  := ident | string | number | `true` | `false` | arrow_fn | array_lit
 //! arrow_fn := `(` params? `)` (`:` IDENT)? `=>` (block | expr)
 //! array_lit := `[` (expr (`,` expr)*)? `]`
-//! type_ann := IDENT (`[` `]`)*
+//! type_ann := IDENT generic? (`[` `]`)*
+//! generic  := `<` type_ann (`,` type_ann)* `>`
 
 use crate::ast::{Ast, BinOp, Expr, ExprId, Param, Stmt};
 use crate::lexer::{Spanned, Token};
@@ -55,9 +56,15 @@ impl Parser<'_> {
         self.tokens[self.pos].span.start
     }
 
-    /// Parse a type annotation. Currently supports `IDENT` and array suffixes
-    /// (`IDENT[]`, `IDENT[][]`, …). Returns the annotation as a flat string
-    /// (e.g. `"number[][]"`); the type checker resolves it.
+    /// Parse a type annotation. Supports `IDENT`, array suffixes
+    /// (`IDENT[]`), and one level of generic params (`Name<T1, T2, ...>`).
+    /// Returns the annotation as a flat string (e.g. `"number[][]"` or
+    /// `"Rc<User>"`); the type checker resolves it.
+    ///
+    /// Limitation: generics that close with `>>` (e.g. `Rc<Rc<i64>>`) hit
+    /// the lexer's `ShrShr` token and report an explicit error pointing at
+    /// the workaround (insert whitespace: `Rc<Rc<i64> >`). Splitting `>>`
+    /// for nested generics lands in P2.3.b.
     fn parse_type_ann(&mut self) -> Result<String, String> {
         let mut name = match self.peek() {
             Token::Ident(n) => n.clone(),
@@ -66,6 +73,30 @@ impl Parser<'_> {
             }
         };
         self.pos += 1;
+        if matches!(self.peek(), Token::Lt) {
+            self.pos += 1;
+            let mut params: Vec<String> = vec![self.parse_type_ann()?];
+            while matches!(self.peek(), Token::Comma) {
+                self.pos += 1;
+                params.push(self.parse_type_ann()?);
+            }
+            match self.peek() {
+                Token::Gt => self.pos += 1,
+                Token::ShrShr => {
+                    return Err(format!(
+                        "ambiguous `>>` closing nested generic at {}: insert whitespace, e.g. `Rc<Rc<i64> >` (full `>>` splitting lands in P2.3.b)",
+                        self.at()
+                    ));
+                }
+                t => {
+                    return Err(format!(
+                        "expected `>` to close generic, got {t:?} at {}",
+                        self.at()
+                    ));
+                }
+            }
+            name = format!("{name}<{}>", params.join(","));
+        }
         while matches!(self.peek(), Token::LBracket) {
             self.pos += 1;
             match self.peek() {
