@@ -1,20 +1,22 @@
 # torajs
 
-A statically-typed TS-shaped language with Rust-shaped semantics — AOT-compiled to native binaries via LLVM, JIT-executed via Cranelift, no tracing GC.
+A TypeScript runtime that runs a subset of TS programs with **TS semantics**, AOT-compiled to small native binaries via LLVM or JIT-executed via Cranelift. **No GC**, no refcount — the compiler infers ownership at compile time.
 
 > Closed-source research project. Public site: https://torajs.com
 
 ## What it is
 
 ```
-TS-shaped surface              Rust-shaped semantics              Two real codegens
-──────────────────             ─────────────────────              ─────────────────
-function fib(n: number)        affine types, no tracing GC        tr build  → LLVM 22
-  : number { ... }             explicit Rc<T> for shared          tr run    → Cranelift JIT
-let s: string = "..."          deterministic drop                 same SSA IR feeds both
+TS subset surface              TS semantics, no GC                Two real codegens
+──────────────────             ───────────────────────────        ─────────────────
+function fib(n: number)        let n = s; console.log(s);         tr build  → LLVM 22
+  : number { ... }             // both work, one drop fires        tr run    → Cranelift JIT
+let s: string = "..."          // (compile-time ownership)         same SSA IR feeds both
 ```
 
-`number` is `i64` by default; `f64` is opt-in. `string` is heap-owned with affine ownership — `let b = a` moves `a`, subsequent reads error at compile time. No `null`, no `==`, no `var`, no decorators, no `eval`, no Test262 conformance.
+bun is the oracle. When behavior is unclear, write the equivalent in TS, run it in `bun`, and match.
+
+`number` is `i64` by default; `f64` is opt-in. Strings, objects, and arrays follow TS reference semantics — multiple bindings can alias the same heap, the compiler picks the owner statically and emits one drop. No `null`, no `==`, no `var`, no decorators, no `eval`. Differentiator from bun is the runtime: 30-something-KB native binary, ~1.2 ms startup, no GC pauses. See [`docs/ts-subset.md`](docs/ts-subset.md) for the supported subset boundary.
 
 ## Bench scoreboard
 
@@ -56,8 +58,8 @@ torajs binary is **14× smaller** than rust, **70× smaller** than go, **1860× 
                            lex / parse / check
                                   │
                        ┌─────────────────────┐
-                       │  SSA IR             │ ← rich type info, affine ownership
-                       │  (ssa.rs, ssa_lower)│   tracking, intrinsic calls
+                       │  SSA IR             │ ← rich type info, alias-aware
+                       │  (ssa.rs, ssa_lower)│   ownership inference, intrinsics
                        └──────────┬──────────┘
                                   │
                   ┌───────────────┴───────────────┐
@@ -99,22 +101,27 @@ echo 'console.log("hello");' > hi.tora.ts
 ./target/release/bench-harness run
 ```
 
-## Status — P3 closed, P2 in progress
+## Status — TS subset core in progress (M1)
 
-| phase | what | status |
+| milestone | what | status |
 |---|---|---|
-| **P0** | walking skeleton: `tr run hello.ts` prints `hello` | ✓ |
-| **P1** | core language (arithmetic, vars, control flow, fns, strings, arrays) | ✓ |
-| **P2.1** | affine types — use-after-move is a type error | ✓ |
-| **P2.2** | strings as values: alloc, print, drop, concat | ✓ |
-| **P2.3** | `Rc<T>` first-class | — |
-| **P2.4** | object literals + structural types | — |
+| **P0/P1** | walking skeleton + core language (arithmetic, control flow, fns, strings, arrays) | ✓ |
+| **P2.1+** | alias-aware ownership inference (no GC, TS-shape shared reads) | ✓ |
+| **P2.2** | string runtime + drop emission (concat doesn't consume) | ✓ |
+| **P2.4** | object literals + structural types | ✓ |
 | **P3** | LLVM AOT + Cranelift JIT, two backends sharing one SSA IR | ✓ |
-| **P4** | closures with ownership analysis | — |
-| **P5** | async/await | — |
-| **P6** | Send/Sync, multi-core executor | — |
+| **stdlib slice 1** | `console.log`, `Math.*`, `String.length`, `print_f64` | ✓ |
+| **M1** | TS subset core completeness (comments, Array runtime, block-scope drops, mutable struct fields, bool ops, for/break/continue) | in progress |
+| **M2** | closures with implicit captures | next |
+| **M3** | generics in user code | — |
+| **M4** | error model: try/catch/throw | — |
+| **M5** | module system + graduation to `crates/` (v0.1) | — |
+| **M6** | bun-shape stdlib expansion (String/Array methods, Date, JSON, fs, Bun.*) | — |
+| **M7** | async/await + single-threaded executor | — |
+| **M8** | playground (wasm) + LSP + tooling | — |
+| **M9** | source maps + debugger + embedding API + multi-thread → v1.0 | — |
 
-[Full roadmap](docs/roadmap.md). Phase P3 went through a mid-project pivot from wasm-via-C → LLVM-direct + Cranelift — see commits `0f84fb8` (decision) and `61ae24a` / `5aa9c96` (P3.7 + P3.6 closeout).
+[Full roadmap](docs/roadmap.md). Phase P3 went through a mid-project pivot from wasm-via-C → LLVM-direct + Cranelift. The P2 ownership story was framing-corrected on 2026-04-30 (TS subset, not Rust dialect; see [`docs/ts-subset.md`](docs/ts-subset.md)).
 
 ## Bench cases
 
@@ -140,7 +147,7 @@ torajs/
 ├── labs/0001-walking-skeleton/  ← the compiler (~4500 LOC of Rust)
 │   ├── src/lexer.rs
 │   ├── src/parser.rs
-│   ├── src/check.rs              ← typechecker + affine pass
+│   ├── src/check.rs              ← typechecker + alias-aware ownership inference
 │   ├── src/ssa.rs                ← SSA IR types + pretty printer
 │   ├── src/ssa_lower.rs          ← AST → SSA
 │   ├── src/ssa_inkwell.rs        ← SSA → LLVM 22 (Inkwell)
