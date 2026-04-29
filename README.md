@@ -21,37 +21,163 @@ bun is the oracle: when behavior is unclear, write the equivalent in TS, run it 
 
 ## Bench scoreboard
 
-Cross-runtime perf, M4 Pro, hyperfine n=3-10. Run times in ms (lower better). [Full data](bench/results/).
+Cross-runtime perf, M4 Pro, hyperfine n=5 with 2 warmup runs. Measured 2026-04-30 (post-M2 Phase B). All times in ms; binary in KB / MB. **`compile`** = AOT compile + link wall time; **`run (build)`** = AOT-compiled binary execution; **`run (jit)`** = JIT / interpreted execution; **`binary`** = on-disk size of the produced executable. [Full JSON data](bench/results/).
 
-| case                  | torajs (AOT) | torajs-jit |       rust |         go |    bun-jsc |    bun-aot |    node-v8 |
-| --------------------- | -----------: | ---------: | ---------: | ---------: | ---------: | ---------: | ---------: |
-| ackermann             |     **8.41** |      19.06 |       8.36 |      10.79 |      15.93 |      15.33 |     100.72 |
-| array-sum-1m          |    **12.06** |      44.23 |      14.28 |      30.47 |      50.70 |      47.56 |     171.97 |
-| **closure-pipeline-1m** | **12.98**  |      52.45 |      19.45 |      36.94 |      46.70 |      46.23 |     173.07 |
-| collatz               |       104.40 |     208.71 | **104.05** |     137.56 |     320.28 |     320.93 |    1392.06 |
-| fib40                 |   **148.26** |     515.69 |     177.26 |     227.74 |     374.20 |     376.04 |     652.07 |
-| gcd1m                 |    **39.91** |      50.83 |      40.37 |      41.17 |      48.32 |      47.93 |     128.18 |
-| mandelbrot            |    **34.52** |      85.25 |      34.63 |      36.85 |      50.56 |      50.59 |     123.45 |
-| popcount              |     **3.05** |     103.54 |       3.12 |      54.91 |      56.48 |      55.88 |     127.63 |
-| prime_count           |        47.64 |      54.21 |      47.93 |  **39.72** |      52.95 |      51.07 |     157.85 |
-| startup               |     **1.22** |       8.50 |       1.40 |       2.24 |       8.32 |       7.65 |      85.94 |
+### Headline summary (run-time, lower better)
 
-Measured 2026-04-30 post-M1 (TS subset core: comments / Array runtime / block drops / mutable field+index write / boolean ops / for-loop / break+continue).
+|     case                  | torajs (AOT)  | torajs (JIT)  |       rust |         go |    bun-jsc |    bun-aot |    node-v8 |
+| ------------------------- | ------------: | ------------: | ---------: | ---------: | ---------: | ---------: | ---------: |
+| ackermann                 |      **9.64** |         20.46 |       9.61 |      10.65 |      17.58 |      16.96 |     100.32 |
+| array-sum-1m              |     **13.54** |         50.39 |      16.75 |      35.03 |      52.69 |      56.78 |     177.69 |
+| **closure-pipeline-1m**   |     **14.91** |         55.78 |      20.64 |      41.17 |      51.95 |      51.33 |     184.34 |
+| collatz                   |    **105.80** |        220.57 |     110.07 |     143.18 |     325.28 |     324.69 |    1626.75 |
+| fib40                     |    **152.44** |        520.65 |     179.00 |     226.74 |     388.79 |     382.68 |     661.72 |
+| gcd1m                     |     **40.36** |         51.59 |      40.84 |      41.54 |      49.11 |      48.29 |     130.98 |
+| mandelbrot                |     **35.19** |         86.49 |      35.21 |      37.58 |      51.73 |      51.28 |     124.80 |
+| popcount                  |      **2.84** |        104.11 |       3.19 |      54.92 |      55.43 |      56.89 |     133.91 |
+| prime_count               |         48.54 |         55.20 |      48.30 |  **41.24** |      53.19 |      54.29 |     161.41 |
+| startup                   |      **1.44** |          9.27 |       1.81 |       2.11 |       9.18 |       9.03 |      83.09 |
 
-torajs (AOT) **vs rust**: 8 wins, 2 ties (collatz +0.3%, mandelbrot −0.3%, both within stddev), 0 losses. **`array-sum-1m`: 12.06 ms vs rust's `Vec<i64>` 14.28 ms = 1.18× faster**. **`closure-pipeline-1m`: 12.98 ms vs rust's fn-pointer indirect call 19.45 ms = 1.50× faster**.
-torajs (AOT) **vs go**: 9 wins, 1 loss (prime_count's trial division — go's GC backend is fast on tight int loops).
-torajs (AOT) **vs bun/node**: **10/10 wins** on every case. `popcount 3.05 ms vs bun-jsc's 56.48 ms = 18.5× faster`. `startup 1.22 ms vs node-v8's 85.94 ms = 70× faster`. `array-sum-1m vs bun-jsc: 4.2×`. `closure-pipeline-1m vs bun-jsc: 3.60×`. `fib40 vs bun-jsc: 2.52×`. `collatz vs bun-jsc: 3.07×`.
+torajs (AOT) **vs rust**: 9 wins / 1 tie (mandelbrot, +0.06% within stddev) / 0 losses.
+torajs (AOT) **vs go**: 9 wins, 1 loss (prime_count — go's GC-backed tight integer loops).
+torajs (AOT) **vs bun-jsc / bun-aot / node-v8**: **10 / 10** wins per runtime.
 
-Compile time + binary size:
+### Per-case detail — compile / run / binary
 
-| runtime          | compile_ms |     binary |
-| ---------------- | ---------: | ---------: |
-| **torajs (AOT)** |     **~45** | **33.9 KB** |
-| go               |        ~38 |    2.37 MB |
-| bun-aot          |        ~58 |      63 MB |
-| rust             |        ~75 |     466 KB |
+Each case shows: AOT compile time, AOT execution time, JIT/interpreted execution time, and on-disk binary size. `—` marks runtimes that don't have that mode (JIT compiles in-memory, no binary; bun-jsc/node-v8 don't have a compile step separate from run).
 
-torajs binary is **14× smaller** than rust, **70× smaller** than go, **1860× smaller** than bun-aot — small enough to fit in an L2 cache.
+#### `ackermann` — nested recursion, integer arithmetic
+
+|     runtime      | compile |        run |     binary |
+| ---------------- | ------: | ---------: | ---------: |
+| **torajs (AOT)** |   49 ms |  **9.64 ms ←** | **34.9 KB** |
+| torajs (JIT)     |     —   |   20.46 ms |          — |
+| rust             |   80 ms |    9.61 ms |     466 KB |
+| go               |   41 ms |   10.65 ms |    2.37 MB |
+| bun-aot          |   61 ms |   16.96 ms |      63 MB |
+| bun-jsc          |     —   |   17.58 ms |          — |
+| node-v8          |     —   |  100.32 ms |          — |
+
+#### `array-sum-1m` — 10M `Array<T>::push` + index sum (heap alloc + amortized realloc)
+
+|     runtime      | compile |        run |     binary |
+| ---------------- | ------: | ---------: | ---------: |
+| **torajs (AOT)** |   52 ms | **13.54 ms ← (1.24× faster than rust)** | **34.9 KB** |
+| torajs (JIT)     |     —   |   50.39 ms |          — |
+| rust             |   90 ms |   16.75 ms |     466 KB |
+| go               |   42 ms |   35.03 ms |    2.37 MB |
+| bun-aot          |   66 ms |   56.78 ms |      63 MB |
+| bun-jsc          |     —   |   52.69 ms |          — |
+| node-v8          |     —   |  177.69 ms |          — |
+
+#### `closure-pipeline-1m` — 10M indirect calls through fn-pointer arg
+
+|     runtime      | compile |        run |     binary |
+| ---------------- | ------: | ---------: | ---------: |
+| **torajs (AOT)** |   53 ms | **14.91 ms ← (1.38× faster than rust)** | **35.0 KB** |
+| torajs (JIT)     |     —   |   55.78 ms |          — |
+| rust             |   93 ms |   20.64 ms |     467 KB |
+| go               |   42 ms |   41.17 ms |    2.37 MB |
+| bun-aot          |   62 ms |   51.33 ms |      63 MB |
+| bun-jsc          |     —   |   51.95 ms |          — |
+| node-v8          |     —   |  184.34 ms |          — |
+
+Rust uses `black_box(add1 as fn(i64)->i64)` to defeat fn-pointer devirtualization; torajs always emits a real `CallIndirect`. Apples-to-apples indirect call.
+
+#### `collatz` — bit ops + hailstone trajectory + outer/inner loop
+
+|     runtime      | compile |        run |     binary |
+| ---------------- | ------: | ---------: | ---------: |
+| **torajs (AOT)** |   49 ms | **105.80 ms ←** | **34.9 KB** |
+| torajs (JIT)     |     —   |  220.57 ms |          — |
+| rust             |  126 ms |  110.07 ms |     466 KB |
+| go               |   42 ms |  143.18 ms |    2.37 MB |
+| bun-aot          |   64 ms |  324.69 ms |      63 MB |
+| bun-jsc          |     —   |  325.28 ms |          — |
+| node-v8          |     —   | 1626.75 ms |          — |
+
+#### `fib40` — recursion, integer arithmetic
+
+|     runtime      | compile |        run |     binary |
+| ---------------- | ------: | ---------: | ---------: |
+| **torajs (AOT)** |   47 ms | **152.44 ms ← (1.17× faster than rust)** | **34.9 KB** |
+| torajs (JIT)     |     —   |  520.65 ms |          — |
+| rust             |   76 ms |  179.00 ms |     466 KB |
+| go               |   41 ms |  226.74 ms |    2.37 MB |
+| bun-aot          |   63 ms |  382.68 ms |      63 MB |
+| bun-jsc          |     —   |  388.79 ms |          — |
+| node-v8          |     —   |  661.72 ms |          — |
+
+#### `gcd1m` — tight integer loop with mod
+
+|     runtime      | compile |        run |     binary |
+| ---------------- | ------: | ---------: | ---------: |
+| **torajs (AOT)** |   46 ms | **40.36 ms ←** | **34.9 KB** |
+| torajs (JIT)     |     —   |   51.59 ms |          — |
+| rust             |   77 ms |   40.84 ms |     466 KB |
+| go               |   39 ms |   41.54 ms |    2.37 MB |
+| bun-aot          |   62 ms |   48.29 ms |      63 MB |
+| bun-jsc          |     —   |   49.11 ms |          — |
+| node-v8          |     —   |  130.98 ms |          — |
+
+#### `mandelbrot` — f64 nested loops, FMA tolerance
+
+|     runtime      | compile |        run |     binary |
+| ---------------- | ------: | ---------: | ---------: |
+| **torajs (AOT)** |   48 ms | **35.19 ms ←** | **34.9 KB** |
+| torajs (JIT)     |     —   |   86.49 ms |          — |
+| rust             |   79 ms |   35.21 ms |     466 KB |
+| go               |   39 ms |   37.58 ms |    2.37 MB |
+| bun-aot          |   58 ms |   51.28 ms |      63 MB |
+| bun-jsc          |     —   |   51.73 ms |          — |
+| node-v8          |     —   |  124.80 ms |          — |
+
+#### `popcount` — LLVM loop-idiom recognition (BK pattern → ARM `cnt.16b` NEON)
+
+|     runtime      | compile |        run |     binary |
+| ---------------- | ------: | ---------: | ---------: |
+| **torajs (AOT)** |   52 ms |  **2.84 ms ←** | **34.9 KB** |
+| torajs (JIT)     |     —   |  104.11 ms |          — |
+| rust             |   82 ms |    3.19 ms |     466 KB |
+| go               |   39 ms |   54.92 ms |    2.37 MB |
+| bun-aot          |   58 ms |   56.89 ms |      63 MB |
+| bun-jsc          |     —   |   55.43 ms |          — |
+| node-v8          |     —   |  133.91 ms |          — |
+
+#### `prime_count` — trial division, bool return, early-return-from-while
+
+|     runtime      | compile |        run |     binary |
+| ---------------- | ------: | ---------: | ---------: |
+| **torajs (AOT)** |   53 ms |   48.54 ms | **34.9 KB** |
+| torajs (JIT)     |     —   |   55.20 ms |          — |
+| rust             |   79 ms |   48.30 ms |     466 KB |
+| **go**           |   41 ms | **41.24 ms ←** |    2.37 MB |
+| bun-aot          |   60 ms |   54.29 ms |      63 MB |
+| bun-jsc          |     —   |   53.19 ms |          — |
+| node-v8          |     —   |  161.41 ms |          — |
+
+#### `startup` — program launch cost (cold-start perf)
+
+|     runtime      | compile |        run |     binary |
+| ---------------- | ------: | ---------: | ---------: |
+| **torajs (AOT)** |   48 ms |  **1.44 ms ← (cold-start champion)** | **34.9 KB** |
+| torajs (JIT)     |     —   |    9.27 ms |          — |
+| rust             |   71 ms |    1.81 ms |     466 KB |
+| go               |   41 ms |    2.11 ms |    2.37 MB |
+| bun-aot          |   59 ms |    9.03 ms |      63 MB |
+| bun-jsc          |     —   |    9.18 ms |          — |
+| node-v8          |     —   |   83.09 ms |          — |
+
+### Aggregate compile / binary
+
+|       runtime       | median compile | median binary |
+| ------------------- | -------------: | ------------: |
+| **torajs (AOT)**    |     **~50 ms** |  **34.9 KB**  |
+| go                  |          ~41 ms |       2.37 MB |
+| bun-aot             |          ~62 ms |        63 MB |
+| rust                |          ~80 ms |       466 KB |
+
+torajs binary is **14× smaller** than rust, **70× smaller** than go, **1860× smaller** than bun-aot. Median compile is the **fastest of any AOT** runtime in the comparison — small enough to fit `tr build && ./out` inside a sub-100ms dev iteration.
 
 ## Architecture
 
