@@ -48,6 +48,12 @@ pub struct StructId(pub u32);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ArrId(pub u32);
 
+/// Index into `Module.signatures`. Each entry holds one fn-pointer
+/// signature `(Vec<param_types>, ret_type)`. Two `SigId`s compare equal
+/// iff their signatures are identical. M2 Phase B Stage 2.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct SigId(pub u32);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Type {
     I64,
@@ -85,6 +91,11 @@ pub enum Type {
     /// store a pointer. M1.2 MVP. The element type interns into
     /// `module.arr_layouts[id]`.
     Arr(ArrId),
+    /// Function-pointer value, typed by interned signature. Lowers to
+    /// pointer-width at codegen; the signature info routes indirect
+    /// calls (`InstKind::CallIndirect`) so backends can build the
+    /// right calling convention. M2 Phase B Stage 2.
+    FnSig(SigId),
 }
 
 impl Type {
@@ -99,6 +110,7 @@ impl Type {
             Type::Str => "str",
             Type::Obj(_) => "obj",
             Type::Arr(_) => "arr",
+            Type::FnSig(_) => "fnsig",
         }
     }
 
@@ -109,9 +121,15 @@ impl Type {
     pub fn is_copy(self) -> bool {
         matches!(
             self,
-            Type::I64 | Type::F64 | Type::I32 | Type::Bool | Type::Void
+            Type::I64
+                | Type::F64
+                | Type::I32
+                | Type::Bool
+                | Type::Void
+                | Type::FnSig(_)
         )
-        // Str + Obj are heap-owned, affine.
+        // Str + Obj + Arr are heap-owned, affine.
+        // FnSig is just a fn pointer — Copy semantics, no drop.
     }
 }
 
@@ -386,6 +404,10 @@ pub struct Module {
     /// Interned `Array<T>` element types. ArrId = index. Two arrays of
     /// the same element type share one ArrId via `intern_arr`.
     pub arr_layouts: Vec<Type>,
+    /// Interned fn-pointer signatures `(Vec<param_types>, ret_type)`.
+    /// SigId = index. Used by `InstKind::CallIndirect` to look up the
+    /// calling convention at codegen. M2 Phase B Stage 2.
+    pub signatures: Vec<(Vec<Type>, Type)>,
 }
 
 impl Module {
@@ -450,6 +472,22 @@ impl Module {
 
     pub fn arr_elem(&self, id: ArrId) -> Type {
         self.arr_layouts[id.0 as usize]
+    }
+
+    /// Intern a fn-pointer signature. M2 Phase B Stage 2.
+    pub fn intern_signature(&mut self, params: Vec<Type>, ret: Type) -> SigId {
+        for (i, existing) in self.signatures.iter().enumerate() {
+            if existing.0 == params && existing.1 == ret {
+                return SigId(i as u32);
+            }
+        }
+        let id = SigId(self.signatures.len() as u32);
+        self.signatures.push((params, ret));
+        id
+    }
+
+    pub fn signature(&self, id: SigId) -> &(Vec<Type>, Type) {
+        &self.signatures[id.0 as usize]
     }
 
     /// Pretty-print to stdout. Format is intentionally LLVM-IR-shaped so a

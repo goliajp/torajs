@@ -202,11 +202,20 @@ pub fn lower(ast: &Ast) -> Module {
     // struct fields / fn params / fn returns all share one table.
     // Written into module.arr_layouts at the very end of `lower()`.
     let mut arr_layouts: Vec<Type> = Vec::new();
+    // M2 Phase B Stage 2 — fn-pointer signature interner. Same threading
+    // pattern as arr_layouts: collected during pass 0.5 / 1 / 2 and
+    // written into `module.signatures` at the end.
+    let mut fn_sigs: Vec<(Vec<Type>, Type)> = Vec::new();
     for stmt in &ast.stmts {
         if let Stmt::TypeDecl { name, fields } = stmt {
             let mut layout: Vec<(String, Type)> = Vec::with_capacity(fields.len());
             for (fname, fty_ann) in fields {
-                let ty = parse_type(Some(fty_ann.as_str()), &aliases, &mut arr_layouts);
+                let ty = parse_type(
+                    Some(fty_ann.as_str()),
+                    &aliases,
+                    &mut arr_layouts,
+                    &mut fn_sigs,
+                );
                 layout.push((fname.clone(), ty));
             }
             let sid = module.intern_struct(layout);
@@ -225,7 +234,12 @@ pub fn lower(ast: &Ast) -> Module {
             name, return_type, ..
         } = stmt
         {
-            let ret_ty = parse_type(return_type.as_deref(), &aliases, &mut arr_layouts);
+            let ret_ty = parse_type(
+                return_type.as_deref(),
+                &aliases,
+                &mut arr_layouts,
+                &mut fn_sigs,
+            );
             let fid = FuncId(module.funcs.len() as u32);
             fn_table.insert(name.clone(), fid);
             module.funcs.push(ssa::Function::new(name.clone(), ret_ty));
@@ -295,6 +309,7 @@ pub fn lower(ast: &Ast) -> Module {
                 &intrinsics,
                 &aliases,
                 &mut arr_layouts,
+                &mut fn_sigs,
                 &struct_layouts_snapshot,
                 string_id_base,
             );
@@ -321,6 +336,7 @@ pub fn lower(ast: &Ast) -> Module {
             &intrinsics,
             &aliases,
             &mut arr_layouts,
+            &mut fn_sigs,
             &struct_layouts_snapshot,
             string_id_base,
         );
@@ -331,6 +347,7 @@ pub fn lower(ast: &Ast) -> Module {
     }
 
     module.arr_layouts = arr_layouts;
+    module.signatures = fn_sigs;
     module
 }
 
@@ -405,6 +422,7 @@ fn synthesize_main(
     intrinsics: &Intrinsics,
     aliases: &HashMap<String, Type>,
     arr_layouts: &mut Vec<Type>,
+    fn_sigs: &mut Vec<(Vec<Type>, Type)>,
     struct_layouts: &[Vec<(String, Type)>],
     string_id_base: usize,
 ) -> (ssa::Function, Vec<Vec<u8>>) {
@@ -420,6 +438,7 @@ fn synthesize_main(
             intrinsics: *intrinsics,
             aliases,
             arr_layouts,
+            fn_sigs,
             struct_layouts,
             locals: HashMap::new(),
             scope_stack: vec![Vec::new()],
@@ -446,6 +465,7 @@ fn parse_type(
     ann: Option<&str>,
     aliases: &HashMap<String, Type>,
     arr_layouts: &mut Vec<Type>,
+    fn_sigs: &mut Vec<(Vec<Type>, Type)>,
 ) -> Type {
     let s = match ann {
         Some(s) => s,
@@ -457,9 +477,71 @@ fn parse_type(
     // (`T[][]`) work via the recursion: `number[][]` → strip to
     // `number[]` → strip to `number` → I64; intern outer-to-inner.
     if let Some(rest) = s.strip_suffix("[]") {
-        let elem = parse_type(Some(rest), aliases, arr_layouts);
+        let elem = parse_type(Some(rest), aliases, arr_layouts, fn_sigs);
         let id = intern_arr_layout(arr_layouts, elem);
         return Type::Arr(id);
+    }
+    // M2 Phase B Stage 2 — fn type `__fn(P1|P2|...)->R`. Same encoding
+    // produced by parser::parse_type_ann; same depth-aware decoding as
+    // check.rs's resolve_type_ann (so SSA + check agree on the signature
+    // structure).
+    if let Some(rest) = s.strip_prefix("__fn(") {
+        let bytes = rest.as_bytes();
+        let mut depth: i32 = 1;
+        let mut close_idx = None;
+        for (i, &b) in bytes.iter().enumerate() {
+            match b {
+                b'(' => depth += 1,
+                b')' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        close_idx = Some(i);
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        let close = close_idx
+            .unwrap_or_else(|| panic!("ssa-lower: malformed fn-type `{s}`"));
+        let params_str = &rest[..close];
+        let after = &rest[close + 1..];
+        let ret_str = after
+            .strip_prefix("->")
+            .unwrap_or_else(|| panic!("ssa-lower: malformed fn-type ret `{s}`"));
+
+        // Split params at depth-0 `|`.
+        let mut params: Vec<Type> = Vec::new();
+        let mut depth2: i32 = 0;
+        let mut last = 0usize;
+        let pb = params_str.as_bytes();
+        for (i, &b) in pb.iter().enumerate() {
+            match b {
+                b'(' => depth2 += 1,
+                b')' => depth2 -= 1,
+                b'|' if depth2 == 0 => {
+                    params.push(parse_type(
+                        Some(&params_str[last..i]),
+                        aliases,
+                        arr_layouts,
+                        fn_sigs,
+                    ));
+                    last = i + 1;
+                }
+                _ => {}
+            }
+        }
+        if !params_str.is_empty() {
+            params.push(parse_type(
+                Some(&params_str[last..]),
+                aliases,
+                arr_layouts,
+                fn_sigs,
+            ));
+        }
+        let ret = parse_type(Some(ret_str), aliases, arr_layouts, fn_sigs);
+        let id = intern_fn_sig(fn_sigs, params, ret);
+        return Type::FnSig(id);
     }
     match s {
         // `number` defaults to i64 — best for the integer-heavy cases
@@ -489,6 +571,21 @@ fn intern_arr_layout(arr_layouts: &mut Vec<Type>, elem: Type) -> ssa::ArrId {
     id
 }
 
+fn intern_fn_sig(
+    fn_sigs: &mut Vec<(Vec<Type>, Type)>,
+    params: Vec<Type>,
+    ret: Type,
+) -> ssa::SigId {
+    for (i, ex) in fn_sigs.iter().enumerate() {
+        if ex.0 == params && ex.1 == ret {
+            return ssa::SigId(i as u32);
+        }
+    }
+    let id = ssa::SigId(fn_sigs.len() as u32);
+    fn_sigs.push((params, ret));
+    id
+}
+
 fn lower_fn(
     name: &str,
     params: &[ast::Param],
@@ -500,10 +597,11 @@ fn lower_fn(
     intrinsics: &Intrinsics,
     aliases: &HashMap<String, Type>,
     arr_layouts: &mut Vec<Type>,
+    fn_sigs: &mut Vec<(Vec<Type>, Type)>,
     struct_layouts: &[Vec<(String, Type)>],
     string_id_base: usize,
 ) -> (ssa::Function, Vec<Vec<u8>>) {
-    let ret_ty = parse_type(return_type, aliases, arr_layouts);
+    let ret_ty = parse_type(return_type, aliases, arr_layouts, fn_sigs);
     let mut f = ssa::Function::new(name, ret_ty);
 
     // Capture param SSA values + types BEFORE creating the entry block; we'll
@@ -513,7 +611,7 @@ fn lower_fn(
     // SSA-arg values).
     let mut param_setup: Vec<(String, ValueId, Type)> = Vec::with_capacity(params.len());
     for p in params {
-        let pty = parse_type(p.type_ann.as_deref(), aliases, arr_layouts);
+        let pty = parse_type(p.type_ann.as_deref(), aliases, arr_layouts, fn_sigs);
         let pid = f.add_param(pty, &p.name);
         param_setup.push((p.name.clone(), pid, pty));
     }
@@ -532,6 +630,7 @@ fn lower_fn(
         intrinsics: *intrinsics,
         aliases,
         arr_layouts,
+        fn_sigs,
         struct_layouts,
         locals: HashMap::new(),
         scope_stack: vec![Vec::new()],
@@ -603,6 +702,10 @@ struct LowerCtx<'a> {
     /// introduce new `T[]` instantiations; they intern lazily here.
     /// Written into `module.arr_layouts` at the end of `lower()`.
     arr_layouts: &'a mut Vec<Type>,
+    /// Mutable view of the lowering-phase fn-pointer signature interner.
+    /// `__fn(P1|P2)->R` annotations intern lazily; written into
+    /// `module.signatures` at the end of `lower()`. M2 Phase B Stage 2.
+    fn_sigs: &'a mut Vec<(Vec<Type>, Type)>,
     /// Read-only view of all interned struct layouts. Object-lit + member
     /// access need field-offset info, which is `field_index * 8` in MVP.
     /// This is a snapshot — passing `&module.struct_layouts` directly
@@ -897,7 +1000,12 @@ impl<'a> LowerCtx<'a> {
                 // Step 4.1: every let goes through alloca regardless of `mutable`.
                 // const-correctness check is the type-checker's job (already done in
                 // check.rs); the SSA layer doesn't care.
-                let ty = parse_type(type_ann.as_deref(), self.aliases, self.arr_layouts);
+                let ty = parse_type(
+                    type_ann.as_deref(),
+                    self.aliases,
+                    self.arr_layouts,
+                    self.fn_sigs,
+                );
                 // TS-shape ownership: alias-init bindings get moved=true
                 // so end-of-scope drop emission skips them (the underlying
                 // owner — outer-scope binding or struct/array — is the one
