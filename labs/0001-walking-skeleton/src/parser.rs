@@ -58,10 +58,19 @@ impl Parser<'_> {
         self.tokens[self.pos].span.start
     }
 
-    /// Parse a type annotation. Currently supports `IDENT` and array suffixes
-    /// (`IDENT[]`, `IDENT[][]`, …). Returns the annotation as a flat string
-    /// (e.g. `"number[][]"`); the type checker resolves it.
+    /// Parse a type annotation. Supports IDENT, array suffixes (`T[]`,
+    /// `T[][]`), and function types (`(p1: T1, p2: T2) => R`). Returns the
+    /// annotation as a flat string. Encoding for fn types: `__fn(T1|T2)->R`
+    /// (param types separated by `|`, return after `->`). Param names are
+    /// parsed but discarded — only types matter at the type-system level,
+    /// matching TS's own treatment of fn-type annotations.
+    ///
+    /// M2 Phase B Stage 1.
     fn parse_type_ann(&mut self) -> Result<String, String> {
+        // Function type: `(p: T, ...) => R`.
+        if matches!(self.peek(), Token::LParen) {
+            return self.parse_fn_type_ann();
+        }
         let mut name = match self.peek() {
             Token::Ident(n) => n.clone(),
             t => {
@@ -83,6 +92,55 @@ impl Parser<'_> {
             name.push_str("[]");
         }
         Ok(name)
+    }
+
+    fn parse_fn_type_ann(&mut self) -> Result<String, String> {
+        // current token = `(`
+        self.pos += 1;
+        let mut params: Vec<String> = Vec::new();
+        if !matches!(self.peek(), Token::RParen) {
+            loop {
+                // Optional `name:` prefix on each param. Name is discarded;
+                // we keep only the type. Two shapes accepted:
+                //   `name: T` — TS standard fn-type form.
+                //   `T`       — bare type, no name (fallback).
+                let name_then_colon = matches!(self.peek(), Token::Ident(_))
+                    && matches!(
+                        self.tokens.get(self.pos + 1).map(|s| &s.token),
+                        Some(Token::Colon)
+                    );
+                if name_then_colon {
+                    self.pos += 2;
+                }
+                let pty = self.parse_type_ann()?;
+                params.push(pty);
+                match self.peek() {
+                    Token::Comma => self.pos += 1,
+                    Token::RParen => break,
+                    t => {
+                        return Err(format!(
+                            "expected `,` or `)` in fn-type params, got {t:?} at {}",
+                            self.at()
+                        ));
+                    }
+                }
+            }
+        }
+        match self.peek() {
+            Token::RParen => self.pos += 1,
+            t => return Err(format!("expected `)`, got {t:?} at {}", self.at())),
+        }
+        match self.peek() {
+            Token::FatArrow => self.pos += 1,
+            t => {
+                return Err(format!(
+                    "expected `=>` in fn-type, got {t:?} at {}",
+                    self.at()
+                ));
+            }
+        }
+        let ret = self.parse_type_ann()?;
+        Ok(format!("__fn({})->{}", params.join("|"), ret))
     }
 
     fn parse_program(&mut self) -> Result<(), String> {

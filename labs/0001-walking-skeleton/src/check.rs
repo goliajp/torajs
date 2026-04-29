@@ -50,6 +50,56 @@ fn resolve_type_ann(name: &str, aliases: &HashMap<String, Type>) -> Option<Type>
     if let Some(rest) = name.strip_suffix("[]") {
         return resolve_type_ann(rest, aliases).map(|inner| Type::Array(Box::new(inner)));
     }
+    // M2 Phase B Stage 1 — fn type annotations encoded as
+    // `__fn(P1|P2|...)->R`. Param `|` separator is depth-aware so nested
+    // fn types parse correctly: `__fn(__fn(A)->B|C)->D`.
+    if let Some(rest) = name.strip_prefix("__fn(") {
+        let bytes = rest.as_bytes();
+        let mut depth: i32 = 1;
+        let mut close_idx = None;
+        for (i, &b) in bytes.iter().enumerate() {
+            match b {
+                b'(' => depth += 1,
+                b')' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        close_idx = Some(i);
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        let close = close_idx?;
+        let params_str = &rest[..close];
+        let after = &rest[close + 1..];
+        let ret_str = after.strip_prefix("->")?;
+
+        let mut params = Vec::new();
+        let mut depth2: i32 = 0;
+        let mut last = 0usize;
+        for (i, &b) in params_str.as_bytes().iter().enumerate() {
+            match b {
+                b'(' => depth2 += 1,
+                b')' => depth2 -= 1,
+                b'|' if depth2 == 0 => {
+                    params.push(&params_str[last..i]);
+                    last = i + 1;
+                }
+                _ => {}
+            }
+        }
+        if !params_str.is_empty() {
+            params.push(&params_str[last..]);
+        }
+
+        let mut param_tys = Vec::with_capacity(params.len());
+        for p in params {
+            param_tys.push(resolve_type_ann(p, aliases)?);
+        }
+        let ret_ty = resolve_type_ann(ret_str, aliases)?;
+        return Some(Type::Function(param_tys, Box::new(ret_ty)));
+    }
     match name {
         // `number` is the JS-spelled umbrella; `i64` and `f64` are explicit
         // Rust-shaped aliases. The typechecker treats all three as the same
@@ -1062,6 +1112,43 @@ mod tests {
                 .unwrap_or(false),
             "expected 'unknown type' error, got {r:?}"
         );
+    }
+
+    // ----- M2 Phase B Stage 1 — fn type annotation -----
+
+    #[test]
+    fn fn_type_annotation_typechecks() {
+        let src = r#"
+            function callFn(f: (n: number) => number, x: number): number {
+              return f(x);
+            }
+            function double(x: number): number { return x * 2; }
+            let n: number = callFn(double, 21);
+        "#;
+        // ssa_lower can't lower fn-type params yet (Stage 4 work);
+        // we only verify check.rs accepts the annotation.
+        assert!(check_src(src).is_ok(), "got {:?}", check_src(src));
+    }
+
+    #[test]
+    fn nested_fn_type_annotation_typechecks() {
+        // (T) => U) => V — fn type can recurse.
+        let src = r#"
+            function apply(f: ((n: number) => number) => number, g: (m: number) => number): number {
+              return f(g);
+            }
+        "#;
+        assert!(check_src(src).is_ok(), "got {:?}", check_src(src));
+    }
+
+    #[test]
+    fn fn_type_annotation_void_return_typechecks() {
+        let src = r#"
+            function each(xs: number[], f: (n: number) => void): void {
+              return;
+            }
+        "#;
+        assert!(check_src(src).is_ok(), "got {:?}", check_src(src));
     }
 
     // ----- M2 Phase A — non-capturing arrow fn -----
