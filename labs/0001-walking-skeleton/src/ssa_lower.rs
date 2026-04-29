@@ -1112,47 +1112,178 @@ impl<'a> LowerCtx<'a> {
                 Operand::Value(v)
             }
             Expr::Assign { target, value } => {
-                // Only `Ident` on the lhs is supported in step 4.1. Member /
-                // index assignments need objects and arrays (not in scope).
-                let name = match self.ast.get_expr(*target) {
-                    Expr::Ident(n) => n.clone(),
-                    other => panic!("ssa-lower: unsupported assign target: {other:?}"),
-                };
-                let snapshot = match self.locals.get(&name) {
-                    Some(i) => *i,
-                    None => panic!("ssa-lower: assign to unknown ident `{name}`"),
-                };
-                // Lower the rhs FIRST. The rhs might internally consume the
-                // lhs binding (e.g. `s = s + "x"` — concat takes ownership
-                // of s, freeing its heap). Once consumed, the slot's
-                // pointer is dangling — we must NOT load+drop it as the
-                // "old value" at that point.
-                let v = self.lower_expr(*value);
-                self.consume_if_ident(*value);
-                // Now check if the lhs binding is *still* owned (rhs didn't
-                // consume it). If yes, the slot still holds a live heap
-                // pointer that needs freeing before we overwrite. If
-                // moved, the rhs's flow already disposed of the heap.
-                let post_rhs = *self.locals.get(&name).unwrap_or(&snapshot);
-                if !snapshot.ty.is_copy() && !post_rhs.moved {
-                    let old = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Load(snapshot.ty, Operand::Value(snapshot.slot), 0),
-                        snapshot.ty,
-                        None,
-                    );
-                    self.emit_drop_value(Operand::Value(old), snapshot.ty);
+                match self.ast.get_expr(*target).clone() {
+                    Expr::Ident(name) => {
+                        let snapshot = match self.locals.get(&name) {
+                            Some(i) => *i,
+                            None => panic!(
+                                "ssa-lower: assign to unknown ident `{name}`"
+                            ),
+                        };
+                        // Lower rhs FIRST — it might internally consume the
+                        // lhs binding (e.g. `s = s + "x"` — concat takes
+                        // ownership of s, freeing its heap). After consume
+                        // the slot's pointer is dangling so we must NOT
+                        // load+drop it as the "old value".
+                        let v = self.lower_expr(*value);
+                        self.consume_if_ident(*value);
+                        let post_rhs =
+                            *self.locals.get(&name).unwrap_or(&snapshot);
+                        if !snapshot.ty.is_copy() && !post_rhs.moved {
+                            let old = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Load(
+                                    snapshot.ty,
+                                    Operand::Value(snapshot.slot),
+                                    0,
+                                ),
+                                snapshot.ty,
+                                None,
+                            );
+                            self.emit_drop_value(
+                                Operand::Value(old),
+                                snapshot.ty,
+                            );
+                        }
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Store(
+                                v,
+                                Operand::Value(snapshot.slot),
+                                0,
+                            ),
+                        );
+                        // The slot now owns a fresh value — clear `moved`
+                        // so subsequent reads work and end-of-fn drop fires.
+                        if let Some(info) = self.locals.get_mut(&name) {
+                            info.moved = false;
+                        }
+                        v
+                    }
+                    Expr::Member { obj, name: field } => {
+                        // M1.4 — `obj.field = value`. Lower obj first to
+                        // get the struct pointer, then locate the field's
+                        // offset, drop the old field value if non-Copy,
+                        // and store the new value. Field offset is
+                        // `idx*8` per the P2.4 layout.
+                        let obj_val = self.lower_expr(obj);
+                        let obj_ty = self.operand_ty(&obj_val);
+                        let sid = match obj_ty {
+                            Type::Obj(sid) => sid,
+                            other => panic!(
+                                "ssa-lower: field assign on non-obj {other:?}"
+                            ),
+                        };
+                        let layout =
+                            self.struct_layouts[sid.0 as usize].clone();
+                        let (idx, field_ty) = layout
+                            .iter()
+                            .enumerate()
+                            .find_map(|(i, (fname, fty))| {
+                                if fname == &field {
+                                    Some((i, *fty))
+                                } else {
+                                    None
+                                }
+                            })
+                            .unwrap_or_else(|| {
+                                panic!(
+                                    "ssa-lower: struct {sid:?} has no field `{field}`"
+                                )
+                            });
+                        let offset = (idx as u64) * 8;
+                        let v = self.lower_expr(*value);
+                        self.consume_if_ident(*value);
+                        // Drop the old field value if non-Copy.
+                        if !field_ty.is_copy() {
+                            let old = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Load(field_ty, obj_val, offset),
+                                field_ty,
+                                None,
+                            );
+                            self.emit_drop_value(
+                                Operand::Value(old),
+                                field_ty,
+                            );
+                        }
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Store(v, obj_val, offset),
+                        );
+                        v
+                    }
+                    Expr::Index { obj, index } => {
+                        // M1.4 — `arr[i] = value`. Compute `addr = arr +
+                        // 16 + idx*8`, drop old elem if non-Copy, store
+                        // new value via StoreDyn.
+                        let arr_val = self.lower_expr(obj);
+                        let arr_ty = self.operand_ty(&arr_val);
+                        let elem_ty = match arr_ty {
+                            Type::Arr(arr_id) => {
+                                self.arr_layouts[arr_id.0 as usize]
+                            }
+                            other => panic!(
+                                "ssa-lower: index assign on non-array {other:?}"
+                            ),
+                        };
+                        let idx_val = self.lower_expr(index);
+                        let scaled = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::BinOp(
+                                SsaBinOp::Shl,
+                                idx_val,
+                                Operand::ConstI64(3),
+                            ),
+                            Type::I64,
+                            None,
+                        );
+                        let offset = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::BinOp(
+                                SsaBinOp::Add,
+                                Operand::Value(scaled),
+                                Operand::ConstI64(16),
+                            ),
+                            Type::I64,
+                            None,
+                        );
+                        let v = self.lower_expr(*value);
+                        self.consume_if_ident(*value);
+                        // Drop old elem if non-Copy. M1.2 MVP only ships
+                        // i64 elements (Copy), so this branch currently
+                        // never fires; lays groundwork for non-Copy
+                        // element types in a follow-up.
+                        if !elem_ty.is_copy() {
+                            let old = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::LoadDyn(
+                                    elem_ty,
+                                    arr_val,
+                                    Operand::Value(offset),
+                                ),
+                                elem_ty,
+                                None,
+                            );
+                            self.emit_drop_value(
+                                Operand::Value(old),
+                                elem_ty,
+                            );
+                        }
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::StoreDyn(
+                                v,
+                                arr_val,
+                                Operand::Value(offset),
+                            ),
+                        );
+                        v
+                    }
+                    other => panic!(
+                        "ssa-lower: unsupported assign target: {other:?}"
+                    ),
                 }
-                self.f.append_void(
-                    self.cur_block,
-                    InstKind::Store(v, Operand::Value(snapshot.slot), 0),
-                );
-                // The slot now owns a fresh value — clear `moved` so
-                // subsequent reads work and end-of-fn drop fires.
-                if let Some(info) = self.locals.get_mut(&name) {
-                    info.moved = false;
-                }
-                v
             }
             Expr::BinOp { op, left, right } => {
                 let a = self.lower_expr(*left);

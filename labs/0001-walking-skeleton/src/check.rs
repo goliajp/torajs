@@ -720,38 +720,91 @@ impl Checker {
                 }
             }
             Expr::Assign { target, value } => {
-                let Expr::Ident(name) = ast.get_expr(*target) else {
-                    return Err("invalid assignment target".into());
-                };
-                let info = match self.lookup(name) {
-                    Some(i) => i,
-                    None => return Err(format!("assignment to undeclared `{name}`")),
-                };
-                if !info.mutable {
-                    return Err(format!("cannot assign to const `{name}`"));
+                match ast.get_expr(*target).clone() {
+                    Expr::Ident(name) => {
+                        let info = match self.lookup(&name) {
+                            Some(i) => i,
+                            None => {
+                                return Err(format!(
+                                    "assignment to undeclared `{name}`"
+                                ));
+                            }
+                        };
+                        if !info.mutable {
+                            return Err(format!("cannot assign to const `{name}`"));
+                        }
+                        let target_ty = info.ty.clone();
+                        let value_ty = self.type_of(ast, *value)?;
+                        if value_ty != target_ty {
+                            return Err(format!(
+                                "type mismatch assigning to `{name}`: declared {target_ty:?}, value is {value_ty:?}"
+                            ));
+                        }
+                        // Reassign moves rhs in. consume marks Ident sources
+                        // moved; mark_unmoved clears the target's transient
+                        // moved if rhs was `target + ...` (e.g. string concat).
+                        self.consume(ast, *value);
+                        self.mark_unmoved(&name);
+                        Ok(target_ty)
+                    }
+                    Expr::Member { obj, name: field } => {
+                        // M1.4 — `obj.field = value`. Type-check the field
+                        // write: obj must be a Struct with `field`, value
+                        // type matches the field's declared type. For
+                        // non-Copy fields the old value's heap is dropped
+                        // by the lowerer; we only typecheck here.
+                        let obj_ty = self.type_of(ast, obj)?;
+                        let Type::Struct(fields) = &obj_ty else {
+                            return Err(format!(
+                                "field assignment target must be a struct, got {obj_ty:?}"
+                            ));
+                        };
+                        let Some((_, field_ty)) =
+                            fields.iter().find(|(n, _)| n == &field)
+                        else {
+                            return Err(format!(
+                                "no field `{field}` on type {obj_ty:?}"
+                            ));
+                        };
+                        let field_ty = field_ty.clone();
+                        let value_ty = self.type_of(ast, *value)?;
+                        if value_ty != field_ty {
+                            return Err(format!(
+                                "type mismatch assigning to `{field}`: field is {field_ty:?}, value is {value_ty:?}"
+                            ));
+                        }
+                        // Value transfers into the struct field — Ident
+                        // sources get marked moved.
+                        self.consume(ast, *value);
+                        Ok(field_ty)
+                    }
+                    Expr::Index { obj, index } => {
+                        // M1.4 — `arr[i] = value`. obj must be Array<T>;
+                        // index must be number; value type must match elem.
+                        let obj_ty = self.type_of(ast, obj)?;
+                        let idx_ty = self.type_of(ast, index)?;
+                        if idx_ty != Type::Number {
+                            return Err(format!(
+                                "index must be number, got {idx_ty:?}"
+                            ));
+                        }
+                        let Type::Array(elem) = &obj_ty else {
+                            return Err(format!(
+                                "index assignment target must be an array, got {obj_ty:?}"
+                            ));
+                        };
+                        let elem_ty = (**elem).clone();
+                        let value_ty = self.type_of(ast, *value)?;
+                        if value_ty != elem_ty {
+                            return Err(format!(
+                                "type mismatch on element assignment: array of {elem_ty:?}, value is {value_ty:?}"
+                            ));
+                        }
+                        self.consume(ast, *value);
+                        Ok(elem_ty)
+                    }
+                    _ => Err("invalid assignment target".into()),
                 }
-                let target_ty = info.ty.clone();
-                let value_ty = self.type_of(ast, *value)?;
-                if value_ty != target_ty {
-                    return Err(format!(
-                        "type mismatch assigning to `{name}`: declared {target_ty:?}, value is {value_ty:?}"
-                    ));
-                }
-                // Re-assignment moves the rhs into the binding's slot.
-                // Two flag updates happen here:
-                //   1. consume(value) — if the rhs is an Ident, mark that
-                //      source binding moved.
-                //   2. mark_unmoved(target) — clear any transient `moved`
-                //      that fired during rhs evaluation (e.g. `s = s + "x"`
-                //      consumes s inside the BinOp; the Assign re-binds
-                //      it, so post-Assign reads of s are valid again).
-                let target_name = match ast.get_expr(*target) {
-                    Expr::Ident(n) => n.clone(),
-                    _ => unreachable!("target was Ident — checked above"),
-                };
-                self.consume(ast, *value);
-                self.mark_unmoved(&target_name);
-                Ok(target_ty)
             }
             Expr::ArrowFn {
                 params,
@@ -954,6 +1007,65 @@ mod tests {
                 .map(|s| s.contains("unknown type"))
                 .unwrap_or(false),
             "expected 'unknown type' error, got {r:?}"
+        );
+    }
+
+    // ----- M1.4 — mutable struct field write + array index write -----
+
+    #[test]
+    fn struct_field_write_typechecks() {
+        let src = r#"
+            type Point = { x: number, y: number };
+            let p: Point = { x: 1, y: 2 };
+            p.x = 10;
+            p.y = 20;
+            let n: number = p.x;
+        "#;
+        assert!(check_src(src).is_ok(), "got {:?}", check_src(src));
+    }
+
+    #[test]
+    fn struct_field_write_type_mismatch_errors() {
+        let src = r#"
+            type Point = { x: number, y: number };
+            let p: Point = { x: 1, y: 2 };
+            p.x = "hello";
+        "#;
+        let r = check_src(src);
+        assert!(
+            r.as_ref()
+                .err()
+                .map(|s| s.contains("type mismatch"))
+                .unwrap_or(false),
+            "expected type-mismatch error, got {r:?}"
+        );
+    }
+
+    #[test]
+    fn array_index_write_typechecks() {
+        let src = r#"
+            let xs: number[] = [];
+            xs.push(0);
+            xs[0] = 42;
+            let n: number = xs[0];
+        "#;
+        assert!(check_src(src).is_ok(), "got {:?}", check_src(src));
+    }
+
+    #[test]
+    fn array_index_write_type_mismatch_errors() {
+        let src = r#"
+            let xs: number[] = [];
+            xs.push(0);
+            xs[0] = "hello";
+        "#;
+        let r = check_src(src);
+        assert!(
+            r.as_ref()
+                .err()
+                .map(|s| s.contains("type mismatch"))
+                .unwrap_or(false),
+            "expected type-mismatch error, got {r:?}"
         );
     }
 
