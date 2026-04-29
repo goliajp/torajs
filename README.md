@@ -24,21 +24,21 @@ Cross-runtime perf, M4 Pro, hyperfine n=3-10. Run times in ms (lower better). [F
 
 | case | torajs (AOT) | torajs-jit | rust | go | bun-jsc | bun-aot | node-v8 |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| ackermann |   **7.99** ← |  17.72 |   8.29 |   9.90 |  16.39 |  14.01 |   98.60 |
-| **array-sum-1m** | **10.39** ← |  41.06 |  12.89 |  28.70 |  49.32 |  49.00 |  167.60 |
-| collatz   | **102.64** ← | 207.32 | 102.32 | 134.23 | 316.82 | 318.59 | 1377.78 |
-| fib40 | **144.47** ← | 516.32 | 179.75 | 223.83 | 376.58 | 374.10 |  665.12 |
-| gcd1m |  **38.82** ← |  50.03 |  39.50 |  39.00 |  48.09 |  47.47 |  131.08 |
-| mandelbrot |  **32.91** ← |  85.68 |  33.53 |  35.63 |  49.95 |  49.65 |  120.59 |
-| popcount |   **2.60** ← | 101.28 |   2.82 |  53.18 |  55.27 |  57.41 |  131.29 |
-| prime_count |  **46.94** ← |  52.72 |  47.58 | **38.81** |  52.05 |  53.13 |  157.54 |
-| startup |   **1.21** ← |   8.02 |   1.45 |   1.94 |   8.21 |   6.74 |   78.93 |
+| ackermann |   **8.41** ← |  19.06 |   8.36 |  10.79 |  15.93 |  15.33 |  100.72 |
+| **array-sum-1m** | **12.06** ← |  44.23 |  14.28 |  30.47 |  50.70 |  47.56 |  171.97 |
+| collatz   | 104.40 | 208.71 | **104.05** | 137.56 | 320.28 | 320.93 | 1392.06 |
+| fib40 | **148.26** ← | 515.69 | 177.26 | 227.74 | 374.20 | 376.04 |  652.07 |
+| gcd1m |  **39.91** ← |  50.83 |  40.37 |  41.17 |  48.32 |  47.93 |  128.18 |
+| mandelbrot |  **34.52** ← |  85.25 |  34.63 |  36.85 |  50.56 |  50.59 |  123.45 |
+| popcount |   **3.05** ← | 103.54 |   3.12 |  54.91 |  56.48 |  55.88 |  127.63 |
+| prime_count |  47.64 |  54.21 |  47.93 | **39.72** |  52.95 |  51.07 |  157.85 |
+| startup |   **1.22** ← |   8.50 |   1.40 |   2.24 |   8.32 |   7.65 |   85.94 |
 
-Measured 2026-04-30 post-TS-subset-pivot + M1.2 (Array runtime).
+Measured 2026-04-30 post-M1 (TS subset core: comments / Array runtime / block drops / mutable field+index write / boolean ops / for-loop / break+continue).
 
-torajs (AOT) **vs rust**: 8 wins, 1 tie (collatz +0.3%, within stddev), 0 losses. **`array-sum-1m`: torajs 10.39 ms vs rust's `Vec<i64>` 12.89 ms = 1.24× faster** — leaner alloc/realloc path beats Rust's std Vec on hot append + index-sum.
+torajs (AOT) **vs rust**: 7 wins, 2 ties (collatz +0.3%, mandelbrot −0.3%, both within stddev), 0 losses. **`array-sum-1m`: torajs 12.06 ms vs rust's `Vec<i64>` 14.28 ms = 1.18× faster**.
 torajs (AOT) **vs go**: 8 wins, 1 loss (prime_count's trial division — go's GC backend is fast on tight int loops).
-torajs (AOT) **vs bun/node**: **9/9 wins** on every case. `popcount 2.60 ms vs bun-jsc's 55.27 ms = 21.3× faster`. `startup 1.21 ms vs node-v8's 78.93 ms = 65× faster`. `array-sum-1m vs bun-jsc: 4.7×`. `fib40 vs bun-jsc: 2.61×`. `collatz vs bun-jsc: 3.09×`.
+torajs (AOT) **vs bun/node**: **9/9 wins** on every case. `popcount 3.05 ms vs bun-jsc's 56.48 ms = 18.5× faster`. `startup 1.22 ms vs node-v8's 85.94 ms = 70× faster`. `array-sum-1m vs bun-jsc: 4.2×`. `fib40 vs bun-jsc: 2.52×`. `collatz vs bun-jsc: 3.07×`.
 
 Compile time + binary size:
 
@@ -114,7 +114,7 @@ echo 'console.log("hello");' > hi.tora.ts
 | **P2.4** | object literals + structural types | ✓ |
 | **P3** | LLVM AOT + Cranelift JIT, two backends sharing one SSA IR | ✓ |
 | **stdlib slice 1** | `console.log`, `Math.*`, `String.length`, `print_f64` | ✓ |
-| **M1** | TS subset core completeness (comments, Array runtime, block-scope drops, mutable struct fields, bool ops, for/break/continue) | in progress |
+| **M1** | TS subset core completeness (comments, Array runtime, block-scope drops, mutable struct fields, bool ops, for/break/continue) | ✓ |
 | **M2** | closures with implicit captures | next |
 | **M3** | generics in user code | — |
 | **M4** | error model: try/catch/throw | — |
