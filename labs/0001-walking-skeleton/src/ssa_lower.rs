@@ -93,6 +93,33 @@ pub fn lower(ast: &Ast) -> Module {
         &[Type::Ptr],
         Type::Void,
     );
+    // P2.3.b: Rc<T> runtime. Layout `{u64 strong, u64 weak, payload}` — 16
+    // byte header, payload at offset 16. Rc.new lowers to alloc + N stores
+    // at offset 16+i*8. Clone bumps strong_count and returns the same ptr.
+    // Drop emission for Rc bindings is deferred to P2.3.c (where the
+    // per-T drop_payload thunk lands); the rc_drop intrinsic is declared
+    // now so the runtime symbol table is stable across P2.3.b → c.
+    let rc_alloc_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_rc_alloc",
+        &[Type::I64],
+        Type::Ptr,
+    );
+    let rc_clone_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_rc_clone",
+        &[Type::Ptr],
+        Type::Ptr,
+    );
+    let rc_drop_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_rc_drop",
+        &[Type::Ptr],
+        Type::Void,
+    );
     // stdlib `Math` namespace — first slice. All take an f64 and return
     // an f64; the lowerer auto-promotes integer args via SiToFp at the
     // call site. Backed by libc sqrt / fabs / floor / ceil via thin
@@ -166,15 +193,21 @@ pub fn lower(ast: &Ast) -> Module {
     // and adds `Point → Type::Obj(StructId)` to `aliases`. Order matters:
     // forward references between aliases aren't supported (matches
     // check.rs's behavior — would error there before reaching here).
+    //
+    // `rc_layouts` lives outside `module` during lowering — it's a `&mut
+    // Vec<Type>` threaded through every parse_type call site so any
+    // `Rc<X>` annotation encountered during a let-decl, fn param, or
+    // type-decl field interns lazily into one shared store. Written into
+    // `module.rc_layouts` at end of `lower()`.
     let mut aliases: HashMap<String, Type> = HashMap::new();
+    let mut rc_layouts: Vec<Type> = Vec::new();
     for stmt in &ast.stmts {
         if let Stmt::TypeDecl { name, fields } = stmt {
-            let layout: Vec<(String, Type)> = fields
-                .iter()
-                .map(|(fname, fty_ann)| {
-                    (fname.clone(), parse_type(Some(fty_ann.as_str()), &aliases))
-                })
-                .collect();
+            let mut layout: Vec<(String, Type)> = Vec::with_capacity(fields.len());
+            for (fname, fty_ann) in fields {
+                let ty = parse_type(Some(fty_ann.as_str()), &aliases, &mut rc_layouts);
+                layout.push((fname.clone(), ty));
+            }
             let sid = module.intern_struct(layout);
             aliases.insert(name.clone(), Type::Obj(sid));
         }
@@ -191,12 +224,10 @@ pub fn lower(ast: &Ast) -> Module {
             name, return_type, ..
         } = stmt
         {
+            let ret_ty = parse_type(return_type.as_deref(), &aliases, &mut rc_layouts);
             let fid = FuncId(module.funcs.len() as u32);
             fn_table.insert(name.clone(), fid);
-            module.funcs.push(ssa::Function::new(
-                name.clone(),
-                parse_type(return_type.as_deref(), &aliases),
-            ));
+            module.funcs.push(ssa::Function::new(name.clone(), ret_ty));
             decl_indices.push((i, fid));
         }
     }
@@ -219,6 +250,9 @@ pub fn lower(ast: &Ast) -> Module {
         str_concat: str_concat_id,
         obj_alloc: obj_alloc_id,
         obj_drop: obj_drop_id,
+        rc_alloc: rc_alloc_id,
+        rc_clone: rc_clone_id,
+        rc_drop: rc_drop_id,
         math_sqrt: math_sqrt_id,
         math_abs: math_abs_id,
         math_floor: math_floor_id,
@@ -248,6 +282,7 @@ pub fn lower(ast: &Ast) -> Module {
             body,
         } = &ast.stmts[stmt_idx]
         {
+            let string_id_base = module.strings.len();
             let (f, new_strings) = lower_fn(
                 name,
                 params,
@@ -258,8 +293,9 @@ pub fn lower(ast: &Ast) -> Module {
                 &signatures,
                 &intrinsics,
                 &aliases,
+                &mut rc_layouts,
                 &struct_layouts_snapshot,
-                module.strings.len(),
+                string_id_base,
             );
             module.funcs[fid.0 as usize] = f;
             for s in new_strings {
@@ -275,6 +311,7 @@ pub fn lower(ast: &Ast) -> Module {
         .filter(|s| !matches!(s, Stmt::FnDecl { .. }))
         .collect();
     if !top_level.is_empty() {
+        let string_id_base = module.strings.len();
         let (main_fn, new_strings) = synthesize_main(
             &top_level,
             ast,
@@ -282,8 +319,9 @@ pub fn lower(ast: &Ast) -> Module {
             &signatures,
             &intrinsics,
             &aliases,
+            &mut rc_layouts,
             &struct_layouts_snapshot,
-            module.strings.len(),
+            string_id_base,
         );
         for s in new_strings {
             module.strings.push(s);
@@ -291,6 +329,7 @@ pub fn lower(ast: &Ast) -> Module {
         module.funcs.push(main_fn);
     }
 
+    module.rc_layouts = rc_layouts;
     module
 }
 
@@ -308,6 +347,9 @@ struct Intrinsics {
     str_concat: FuncId,
     obj_alloc: FuncId,
     obj_drop: FuncId,
+    rc_alloc: FuncId,
+    rc_clone: FuncId,
+    rc_drop: FuncId,
     math_sqrt: FuncId,
     math_abs: FuncId,
     math_floor: FuncId,
@@ -355,6 +397,7 @@ fn synthesize_main(
     signatures: &HashMap<FuncId, Type>,
     intrinsics: &Intrinsics,
     aliases: &HashMap<String, Type>,
+    rc_layouts: &mut Vec<Type>,
     struct_layouts: &[Vec<(String, Type)>],
     string_id_base: usize,
 ) -> (ssa::Function, Vec<Vec<u8>>) {
@@ -369,6 +412,7 @@ fn synthesize_main(
             signatures,
             intrinsics: *intrinsics,
             aliases,
+            rc_layouts,
             struct_layouts,
             locals: HashMap::new(),
             cur_block: entry,
@@ -388,23 +432,52 @@ fn synthesize_main(
     (f, new_strings)
 }
 
-fn parse_type(ann: Option<&str>, aliases: &HashMap<String, Type>) -> Type {
-    match ann {
+fn parse_type(
+    ann: Option<&str>,
+    aliases: &HashMap<String, Type>,
+    rc_layouts: &mut Vec<Type>,
+) -> Type {
+    let s = match ann {
+        Some(s) => s,
         // `number` defaults to i64 — best for the integer-heavy cases
         // (popcount/fib40/gcd1m). When a function actually needs floating-
         // point semantics, the user annotates with the explicit `f64` type
         // (Rust-shaped). The dialect lets you opt in; you don't pay the
         // f64 tax just because TS spells everything `number`.
-        Some("number") | Some("i64") => Type::I64,
-        Some("f64") => Type::F64,
-        Some("boolean") => Type::Bool,
-        Some("string") => Type::Str,
-        Some("void") | None => Type::Void,
-        Some(other) => match aliases.get(other) {
+        None => return Type::Void,
+    };
+    // `Rc<X>` — strip outer wrapper, recurse on inner, intern. The flat
+    // string was produced by parser::parse_type_ann so the outer brackets
+    // bracket exactly one inner type.
+    if let Some(rest) = s.strip_prefix("Rc<")
+        && let Some(inner) = rest.strip_suffix('>')
+    {
+        let inner_ty = parse_type(Some(inner.trim()), aliases, rc_layouts);
+        let id = intern_rc_layout(rc_layouts, inner_ty);
+        return Type::Rc(id);
+    }
+    match s {
+        "number" | "i64" => Type::I64,
+        "f64" => Type::F64,
+        "boolean" => Type::Bool,
+        "string" => Type::Str,
+        "void" => Type::Void,
+        other => match aliases.get(other) {
             Some(ty) => *ty,
             None => panic!("ssa-lower: unsupported type annotation `{other}`"),
         },
     }
+}
+
+fn intern_rc_layout(rc_layouts: &mut Vec<Type>, payload: Type) -> ssa::RcId {
+    for (i, existing) in rc_layouts.iter().enumerate() {
+        if *existing == payload {
+            return ssa::RcId(i as u32);
+        }
+    }
+    let id = ssa::RcId(rc_layouts.len() as u32);
+    rc_layouts.push(payload);
+    id
 }
 
 fn lower_fn(
@@ -417,10 +490,11 @@ fn lower_fn(
     signatures: &HashMap<FuncId, Type>,
     intrinsics: &Intrinsics,
     aliases: &HashMap<String, Type>,
+    rc_layouts: &mut Vec<Type>,
     struct_layouts: &[Vec<(String, Type)>],
     string_id_base: usize,
 ) -> (ssa::Function, Vec<Vec<u8>>) {
-    let ret_ty = parse_type(return_type, aliases);
+    let ret_ty = parse_type(return_type, aliases, rc_layouts);
     let mut f = ssa::Function::new(name, ret_ty);
 
     // Capture param SSA values + types BEFORE creating the entry block; we'll
@@ -430,7 +504,7 @@ fn lower_fn(
     // SSA-arg values).
     let mut param_setup: Vec<(String, ValueId, Type)> = Vec::with_capacity(params.len());
     for p in params {
-        let pty = parse_type(p.type_ann.as_deref(), aliases);
+        let pty = parse_type(p.type_ann.as_deref(), aliases, rc_layouts);
         let pid = f.add_param(pty, &p.name);
         param_setup.push((p.name.clone(), pid, pty));
     }
@@ -448,6 +522,7 @@ fn lower_fn(
         signatures,
         intrinsics: *intrinsics,
         aliases,
+        rc_layouts,
         struct_layouts,
         locals: HashMap::new(),
         cur_block: entry,
@@ -507,6 +582,11 @@ struct LowerCtx<'a> {
     /// Threaded through so `parse_type("Point", ...)` resolves at let-decl
     /// + function-signature sites.
     aliases: &'a HashMap<String, Type>,
+    /// Mutable view of the lowering-phase Rc payload interner. let-decl
+    /// annotations encountered during body lowering may introduce new
+    /// `Rc<X>` instantiations; they intern lazily here. Written into
+    /// `module.rc_layouts` at the very end of `lower()`.
+    rc_layouts: &'a mut Vec<Type>,
     /// Read-only view of all interned struct layouts. Object-lit + member
     /// access need field-offset info, which is `field_index * 8` in MVP.
     /// This is a snapshot — passing `&module.struct_layouts` directly
@@ -666,11 +746,86 @@ impl<'a> LowerCtx<'a> {
                     InstKind::Call(drop_fid, vec![val]),
                 );
             }
+            Type::Rc(_) => {
+                // P2.3.b — Rc drop emission deferred to P2.3.c. The per-T
+                // drop_payload thunk synthesis lives there; until then,
+                // Rc bindings leak at end-of-scope. Smoke tests treat
+                // this as documented behavior.
+            }
             other if other.is_copy() => {
                 // Nothing to drop — caller filtered, but be defensive.
             }
             other => panic!("ssa-lower: no drop sequence for type {other:?}"),
         }
+    }
+
+    /// P2.3.b — lower `Rc.new(value)`. Allocates `16 + payload_size` bytes
+    /// via `__torajs_rc_alloc` (init strong=1 weak=0 inside the runtime),
+    /// stores the payload at byte offset 16, returns a Type::Rc operand.
+    ///
+    /// For Obj payloads the source struct's fields are copied into the Rc
+    /// inline (no extra indirection); the temporary Obj heap is freed via
+    /// shallow `__torajs_obj_drop` since its non-Copy fields have moved
+    /// into the Rc payload. The source binding (if any) is marked moved.
+    fn lower_rc_new(&mut self, value_eid: ExprId) -> Operand {
+        let val = self.lower_expr(value_eid);
+        let val_ty = self.operand_ty(&val);
+        let rc_id = intern_rc_layout(self.rc_layouts, val_ty);
+        let payload_size: i64 = match val_ty {
+            Type::Obj(sid) => self.struct_layouts[sid.0 as usize].len() as i64 * 8,
+            _ => 8,
+        };
+        // Runtime adds the 16-byte strong+weak header internally — caller
+        // hands it the payload size only (matches roadmap contract).
+        let rc_ptr = self.f.append_inst(
+            self.cur_block,
+            InstKind::Call(
+                self.intrinsics.rc_alloc,
+                vec![Operand::ConstI64(payload_size)],
+            ),
+            Type::Rc(rc_id),
+            None,
+        );
+        match val_ty {
+            Type::Obj(sid) => {
+                // Field-by-field copy from source obj into Rc payload.
+                let layout = self.struct_layouts[sid.0 as usize].clone();
+                for (i, (_, fty)) in layout.iter().enumerate() {
+                    let field_offset = i as u64 * 8;
+                    let field_v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Load(*fty, val, field_offset),
+                        *fty,
+                        None,
+                    );
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Store(
+                            Operand::Value(field_v),
+                            Operand::Value(rc_ptr),
+                            16 + field_offset,
+                        ),
+                    );
+                }
+                // Free the source obj's outer struct shallowly — its
+                // non-Copy field heaps have transferred ownership to the
+                // Rc payload via the field copies above.
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.obj_drop, vec![val]),
+                );
+            }
+            _ => {
+                // Primitive / Str / Rc — single 8-byte slot at offset 16.
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Store(val, Operand::Value(rc_ptr), 16),
+                );
+            }
+        }
+        // Mark source binding moved (no-op for literals / Copy types).
+        self.consume_if_ident(value_eid);
+        Operand::Value(rc_ptr)
     }
 
     /// Emit drop sequences for every owned non-Copy local in the current
@@ -719,7 +874,7 @@ impl<'a> LowerCtx<'a> {
                 // Step 4.1: every let goes through alloca regardless of `mutable`.
                 // const-correctness check is the type-checker's job (already done in
                 // check.rs); the SSA layer doesn't care.
-                let ty = parse_type(type_ann.as_deref(), self.aliases);
+                let ty = parse_type(type_ann.as_deref(), self.aliases, self.rc_layouts);
                 let init_val = self.lower_expr(*init);
                 self.consume_if_ident(*init);
                 // Coerce init to the declared slot type if needed.
@@ -969,6 +1124,38 @@ impl<'a> LowerCtx<'a> {
                 self.lower_binop(*op, a, b)
             }
             Expr::Call { callee, args } => {
+                // P2.3.b — Rc.new(value): result type is Rc<T> where T is
+                // the arg's type. Special-cased here because the callee
+                // resolver can't synthesize a generic FuncId.
+                if let Expr::Member { obj, name } = self.ast.get_expr(*callee).clone()
+                    && name == "new"
+                    && matches!(self.ast.get_expr(obj), Expr::Ident(n) if n == "Rc")
+                    && !self.locals.contains_key("Rc")
+                {
+                    debug_assert_eq!(args.len(), 1, "check.rs guarantees Rc.new arity");
+                    return self.lower_rc_new(args[0]);
+                }
+                // P2.3.b — receiver.clone() on Rc<T>: emit __torajs_rc_clone,
+                // do NOT consume the receiver (read borrow).
+                if let Expr::Member { obj, name } = self.ast.get_expr(*callee).clone()
+                    && name == "clone"
+                    && args.is_empty()
+                {
+                    let recv = self.lower_expr(obj);
+                    let recv_ty = self.operand_ty(&recv);
+                    if matches!(recv_ty, Type::Rc(_)) {
+                        let cloned = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(self.intrinsics.rc_clone, vec![recv]),
+                            recv_ty,
+                            None,
+                        );
+                        return Operand::Value(cloned);
+                    }
+                    panic!(
+                        "ssa-lower: .clone() on non-Rc type {recv_ty:?} not supported (check.rs should have rejected)"
+                    );
+                }
                 let target = self.resolve_callee(*callee);
                 let mut argv: Vec<Operand> =
                     args.iter().map(|a| self.lower_expr(*a)).collect();
@@ -1077,6 +1264,41 @@ impl<'a> LowerCtx<'a> {
                         None,
                     );
                     return Operand::Value(v);
+                }
+                // P2.3.b — auto-deref `Rc<Obj>` for field access. The
+                // payload sits at byte offset 16 (past the strong+weak
+                // header), so each field's offset is 16 + idx*8.
+                if let Type::Rc(rc_id) = obj_ty {
+                    let payload = self.rc_layouts[rc_id.0 as usize];
+                    if let Type::Obj(sid) = payload {
+                        let layout = &self.struct_layouts[sid.0 as usize];
+                        let (idx, fty) = layout
+                            .iter()
+                            .enumerate()
+                            .find_map(|(i, (fname, ft))| {
+                                if fname == name {
+                                    Some((i, *ft))
+                                } else {
+                                    None
+                                }
+                            })
+                            .unwrap_or_else(|| {
+                                panic!(
+                                    "ssa-lower: Rc<Obj({sid:?})> has no field `{name}`"
+                                )
+                            });
+                        let offset = 16 + idx as u64 * 8;
+                        let v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(fty, obj_val, offset),
+                            fty,
+                            None,
+                        );
+                        return Operand::Value(v);
+                    }
+                    panic!(
+                        "ssa-lower: member access on Rc<{payload:?}> — only Rc<Obj> supports field access in P2.3.b"
+                    );
                 }
                 let sid = match obj_ty {
                     Type::Obj(sid) => sid,

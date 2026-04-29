@@ -157,6 +157,54 @@ extern "C" fn obj_drop_runtime(p: *mut u8) {
     unsafe { free(p) }
 }
 
+// `Rc<T>` runtime — header layout `{u64 strong, u64 weak}` followed by the
+// payload. Single-threaded for P2.3.b; non-atomic count operations. Atomic
+// `Arc<T>` (P6.2) will swap in `AtomicU64::fetch_add`. Identical layout
+// across both backends.
+extern "C" fn rc_alloc_runtime(payload_size: u64) -> *mut u8 {
+    let total = 16usize + payload_size as usize;
+    let p = unsafe { malloc(total) };
+    if p.is_null() {
+        eprintln!("rc_alloc: out of memory");
+        std::process::abort();
+    }
+    unsafe {
+        let header = p as *mut u64;
+        *header = 1; // strong_count = 1
+        *header.add(1) = 0; // weak_count reserved (P15+)
+    }
+    p
+}
+
+extern "C" fn rc_clone_runtime(p: *mut u8) -> *mut u8 {
+    if p.is_null() {
+        return p;
+    }
+    unsafe {
+        let strong = p as *mut u64;
+        *strong = (*strong).wrapping_add(1);
+    }
+    p
+}
+
+extern "C" fn rc_drop_runtime(p: *mut u8) {
+    if p.is_null() {
+        return;
+    }
+    unsafe {
+        let strong = p as *mut u64;
+        *strong = (*strong).wrapping_sub(1);
+        if *strong == 0 {
+            // Per-T payload drop is the lowerer's job in P2.3.c (it
+            // synthesizes a thunk and threads it through this call). For
+            // P2.3.b the lowerer never emits rc_drop calls, so this branch
+            // is unreachable in practice; if it does fire, free the
+            // header+payload conservatively.
+            free(p);
+        }
+    }
+}
+
 // Math.* wrappers — each routes to the corresponding f64 method on Rust's
 // std float ops. The AOT path uses libc via Inkwell-emitted IR; both paths
 // produce identical results since libm and Rust's stdlib agree on these.
@@ -245,6 +293,9 @@ pub fn execute(ssa_module: &Module) -> Result<i32, JitError> {
     jit_builder.symbol("__torajs_str_concat", str_concat_runtime as *const u8);
     jit_builder.symbol("__torajs_obj_alloc", obj_alloc_runtime as *const u8);
     jit_builder.symbol("__torajs_obj_drop", obj_drop_runtime as *const u8);
+    jit_builder.symbol("__torajs_rc_alloc", rc_alloc_runtime as *const u8);
+    jit_builder.symbol("__torajs_rc_clone", rc_clone_runtime as *const u8);
+    jit_builder.symbol("__torajs_rc_drop", rc_drop_runtime as *const u8);
     jit_builder.symbol("__torajs_math_sqrt", math_sqrt_runtime as *const u8);
     jit_builder.symbol("__torajs_math_abs", math_abs_runtime as *const u8);
     jit_builder.symbol("__torajs_math_floor", math_floor_runtime as *const u8);
@@ -334,8 +385,13 @@ fn clif_type<M: CfModule>(module: &M, t: Type) -> ir::Type {
         // Cranelift represents booleans as `i8`; this matches what icmp /
         // fcmp produce.
         Type::Bool => ctypes::I8,
-        // Both opaque pointer + Str lower to host pointer width.
-        Type::Ptr | Type::Str | Type::Obj(_) => module.target_config().pointer_type(),
+        // Pointer-shaped types all lower to host pointer width: opaque
+        // pointers, heap strings, owned objects, and `Rc<T>` shared
+        // pointers (the SSA-level distinction matters for drop / clone
+        // dispatch, not for codegen size).
+        Type::Ptr | Type::Str | Type::Obj(_) | Type::Rc(_) => {
+            module.target_config().pointer_type()
+        }
         Type::Void => panic!("Type::Void has no CLIF representation"),
     }
 }
@@ -495,7 +551,12 @@ fn lower_inst(
         }
         InstKind::Alloca(t) => {
             let bytes = match t {
-                Type::I64 | Type::F64 | Type::Ptr | Type::Str | Type::Obj(_) => 8,
+                Type::I64
+                | Type::F64
+                | Type::Ptr
+                | Type::Str
+                | Type::Obj(_)
+                | Type::Rc(_) => 8,
                 Type::I32 => 4,
                 Type::Bool => 1,
                 Type::Void => panic!("alloca of void"),

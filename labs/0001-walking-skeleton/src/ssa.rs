@@ -42,6 +42,11 @@ pub struct StringId(pub u32);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct StructId(pub u32);
 
+/// Index into `Module.rc_layouts`. Two `RcId`s compare equal iff they
+/// share the same interned payload type. P2.3.b — see `Type::Rc` doc.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct RcId(pub u32);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Type {
     I64,
@@ -73,6 +78,14 @@ pub enum Type {
     /// P2.4.c MVP: layout is N×8-byte slots in field declaration order;
     /// only Copy fields supported (recursive drop comes in P2.4.d).
     Obj(StructId),
+    /// `Rc<T>` — reference-counted shared pointer. Lowers to the same
+    /// machine type as Ptr; the SSA distinction lets `.clone()` emit
+    /// `__torajs_rc_clone` and drop emission (P2.3.c) emit
+    /// `__torajs_rc_drop` with the right per-T inner-drop callback.
+    /// Heap layout is `{u64 strong, u64 weak, payload}` — payload at
+    /// byte offset 16. Member access on `Rc<Obj>` adds 16 to the
+    /// struct's normal field offsets.
+    Rc(RcId),
 }
 
 impl Type {
@@ -86,6 +99,7 @@ impl Type {
             Type::Ptr => "ptr",
             Type::Str => "str",
             Type::Obj(_) => "obj",
+            Type::Rc(_) => "rc",
         }
     }
 
@@ -362,6 +376,11 @@ pub struct Module {
     /// share a single StructId via `intern_struct`. Layouts can recurse
     /// (a struct field of type `Obj(_)` references back into this Vec).
     pub struct_layouts: Vec<Vec<(String, Type)>>,
+    /// Interned `Rc<T>` payload types. RcId = index. Two `Rc`s with
+    /// equal payloads share a single RcId. Used by drop emission
+    /// (P2.3.c) to look up the inner type and synthesize the per-T
+    /// drop_payload thunk.
+    pub rc_layouts: Vec<Type>,
 }
 
 impl Module {
@@ -409,6 +428,34 @@ impl Module {
     /// smaller types.)
     pub fn struct_size(&self, id: StructId) -> u64 {
         self.struct_layout(id).len() as u64 * 8
+    }
+
+    /// Intern an `Rc<T>` payload type. Returns the existing RcId if a
+    /// structurally-equal payload was already registered.
+    pub fn intern_rc(&mut self, payload: Type) -> RcId {
+        for (i, existing) in self.rc_layouts.iter().enumerate() {
+            if *existing == payload {
+                return RcId(i as u32);
+            }
+        }
+        let id = RcId(self.rc_layouts.len() as u32);
+        self.rc_layouts.push(payload);
+        id
+    }
+
+    pub fn rc_payload(&self, id: RcId) -> Type {
+        self.rc_layouts[id.0 as usize]
+    }
+
+    /// Byte size of an `Rc<T>`'s payload (the bytes after the 16-byte
+    /// strong+weak header). All payload types currently fit in 8-byte
+    /// slots except `Obj`, which uses the struct's flat layout size.
+    /// Same MVP padding rule as P2.4.c.
+    pub fn rc_payload_size(&self, id: RcId) -> u64 {
+        match self.rc_payload(id) {
+            Type::Obj(sid) => self.struct_size(sid),
+            _ => 8,
+        }
     }
 
     /// Pretty-print to stdout. Format is intentionally LLVM-IR-shaped so a

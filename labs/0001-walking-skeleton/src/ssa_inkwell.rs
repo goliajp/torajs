@@ -92,6 +92,9 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
             }
             "__torajs_obj_alloc" => define_obj_alloc(&ctx, &llvm_module, malloc),
             "__torajs_obj_drop" => define_obj_drop(&ctx, &llvm_module, free),
+            "__torajs_rc_alloc" => define_rc_alloc(&ctx, &llvm_module, malloc),
+            "__torajs_rc_clone" => define_rc_clone(&ctx, &llvm_module),
+            "__torajs_rc_drop" => define_rc_drop(&ctx, &llvm_module, free),
             "__torajs_math_sqrt" => {
                 define_math_unary(&ctx, &llvm_module, "__torajs_math_sqrt", "sqrt")
             }
@@ -135,6 +138,9 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
         "__torajs_str_concat",
         "__torajs_obj_alloc",
         "__torajs_obj_drop",
+        "__torajs_rc_alloc",
+        "__torajs_rc_clone",
+        "__torajs_rc_drop",
         "__torajs_math_sqrt",
         "__torajs_math_abs",
         "__torajs_math_floor",
@@ -575,6 +581,133 @@ fn define_obj_drop<'ctx>(
     f
 }
 
+/// `__torajs_rc_alloc(u64 payload_size) -> *RcInner`
+///
+///     total = 16 + payload_size       // header is { u64 strong, u64 weak }
+///     p = malloc(total)
+///     *(u64*)p       = 1              // strong_count = 1
+///     *((u64*)p + 1) = 0              // weak_count reserved (P15+)
+///     return p
+fn define_rc_alloc<'ctx>(
+    ctx: &'ctx Context,
+    m: &LlvmModule<'ctx>,
+    malloc: FunctionValue<'ctx>,
+) -> FunctionValue<'ctx> {
+    let builder = ctx.create_builder();
+    let i64_t = ctx.i64_type();
+    let ptr_t = ctx.ptr_type(AddressSpace::default());
+    let fn_t = ptr_t.fn_type(&[i64_t.into()], false);
+    let f = m.add_function("__torajs_rc_alloc", fn_t, None);
+    let entry = ctx.append_basic_block(f, "entry");
+    builder.position_at_end(entry);
+
+    let payload_size = f.get_nth_param(0).unwrap().into_int_value();
+    let total = builder
+        .build_int_add(payload_size, i64_t.const_int(16, false), "total")
+        .unwrap();
+    let p = builder
+        .build_call(malloc, &[total.into()], "p")
+        .unwrap()
+        .try_as_basic_value()
+        .unwrap_basic()
+        .into_pointer_value();
+    // strong_count = 1
+    builder.build_store(p, i64_t.const_int(1, false)).unwrap();
+    // weak_count = 0 at p + 8
+    let weak_ptr = unsafe {
+        builder
+            .build_in_bounds_gep(i64_t, p, &[i64_t.const_int(1, false)], "weak_p")
+            .unwrap()
+    };
+    builder
+        .build_store(weak_ptr, i64_t.const_int(0, false))
+        .unwrap();
+    builder.build_return(Some(&p)).unwrap();
+    f
+}
+
+/// `__torajs_rc_clone(*RcInner p) -> *RcInner`
+///
+///     *(u64*)p += 1
+///     return p
+///
+/// Single-threaded for P2.3; non-atomic. Atomic equivalent ships as
+/// `__torajs_arc_clone` in P6.2 with the same surface.
+fn define_rc_clone<'ctx>(
+    ctx: &'ctx Context,
+    m: &LlvmModule<'ctx>,
+) -> FunctionValue<'ctx> {
+    let builder = ctx.create_builder();
+    let i64_t = ctx.i64_type();
+    let ptr_t = ctx.ptr_type(AddressSpace::default());
+    let fn_t = ptr_t.fn_type(&[ptr_t.into()], false);
+    let f = m.add_function("__torajs_rc_clone", fn_t, None);
+    let entry = ctx.append_basic_block(f, "entry");
+    builder.position_at_end(entry);
+
+    let p = f.get_nth_param(0).unwrap().into_pointer_value();
+    let cur = builder
+        .build_load(i64_t, p, "strong")
+        .unwrap()
+        .into_int_value();
+    let next = builder
+        .build_int_add(cur, i64_t.const_int(1, false), "strong_inc")
+        .unwrap();
+    builder.build_store(p, next).unwrap();
+    builder.build_return(Some(&p)).unwrap();
+    f
+}
+
+/// `__torajs_rc_drop(*RcInner p) -> void`
+///
+///     *(u64*)p -= 1
+///     if *(u64*)p == 0 { free(p) }
+///
+/// P2.3.b: payload-drop callback isn't threaded yet (the lowerer never
+/// emits rc_drop calls — Rc bindings leak by design). P2.3.c grows the
+/// signature to take a per-T drop_payload fn ptr and invokes it before
+/// `free`.
+fn define_rc_drop<'ctx>(
+    ctx: &'ctx Context,
+    m: &LlvmModule<'ctx>,
+    free: FunctionValue<'ctx>,
+) -> FunctionValue<'ctx> {
+    let builder = ctx.create_builder();
+    let i64_t = ctx.i64_type();
+    let ptr_t = ctx.ptr_type(AddressSpace::default());
+    let void_t = ctx.void_type();
+    let fn_t = void_t.fn_type(&[ptr_t.into()], false);
+    let f = m.add_function("__torajs_rc_drop", fn_t, None);
+    let entry = ctx.append_basic_block(f, "entry");
+    let free_blk = ctx.append_basic_block(f, "free");
+    let done_blk = ctx.append_basic_block(f, "done");
+    builder.position_at_end(entry);
+
+    let p = f.get_nth_param(0).unwrap().into_pointer_value();
+    let cur = builder
+        .build_load(i64_t, p, "strong")
+        .unwrap()
+        .into_int_value();
+    let next = builder
+        .build_int_sub(cur, i64_t.const_int(1, false), "strong_dec")
+        .unwrap();
+    builder.build_store(p, next).unwrap();
+    let zero = builder
+        .build_int_compare(IntPredicate::EQ, next, i64_t.const_int(0, false), "is_zero")
+        .unwrap();
+    builder
+        .build_conditional_branch(zero, free_blk, done_blk)
+        .unwrap();
+
+    builder.position_at_end(free_blk);
+    builder.build_call(free, &[p.into()], "_f").unwrap();
+    builder.build_unconditional_branch(done_blk).unwrap();
+
+    builder.position_at_end(done_blk);
+    builder.build_return(None).unwrap();
+    f
+}
+
 /// `__torajs_str_drop(*StrRepr s) -> void` — `free(s)`. The runtime owns
 /// the layout decision (see __torajs_str_alloc); free works because alloc
 /// used libc malloc.
@@ -792,7 +925,9 @@ fn build_fn_type<'ctx>(ctx: &'ctx Context, params: &[Type], ret: Type) -> Functi
         Type::I32 => ctx.i32_type().fn_type(&param_metas, false),
         Type::F64 => ctx.f64_type().fn_type(&param_metas, false),
         Type::Bool => ctx.bool_type().fn_type(&param_metas, false),
-        Type::Ptr | Type::Str | Type::Obj(_) => ctx.ptr_type(AddressSpace::default()).fn_type(&param_metas, false),
+        Type::Ptr | Type::Str | Type::Obj(_) | Type::Rc(_) => {
+            ctx.ptr_type(AddressSpace::default()).fn_type(&param_metas, false)
+        }
     }
 }
 
@@ -805,7 +940,9 @@ fn basic_meta_type<'ctx>(ctx: &'ctx Context, t: Type) -> BasicMetadataTypeEnum<'
         // Str + Ptr both lower to a single opaque pointer. The SSA-level
         // distinction matters for the lowerer's dispatch decisions, not for
         // codegen.
-        Type::Ptr | Type::Str | Type::Obj(_) => ctx.ptr_type(AddressSpace::default()).into(),
+        Type::Ptr | Type::Str | Type::Obj(_) | Type::Rc(_) => {
+            ctx.ptr_type(AddressSpace::default()).into()
+        }
         Type::Void => panic!("void cannot be a parameter type"),
     }
 }
@@ -818,7 +955,9 @@ fn basic_type<'ctx>(ctx: &'ctx Context, t: Type) -> BasicTypeEnum<'ctx> {
         Type::I32 => ctx.i32_type().into(),
         Type::F64 => ctx.f64_type().into(),
         Type::Bool => ctx.bool_type().into(),
-        Type::Ptr | Type::Str | Type::Obj(_) => ctx.ptr_type(AddressSpace::default()).into(),
+        Type::Ptr | Type::Str | Type::Obj(_) | Type::Rc(_) => {
+            ctx.ptr_type(AddressSpace::default()).into()
+        }
         Type::Void => panic!("void cannot be a basic type (alloca/load/store)"),
     }
 }
