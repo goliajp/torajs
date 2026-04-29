@@ -229,11 +229,24 @@ pub fn lower(ast: &Ast) -> Module {
     // even before the callee's body has been lowered (mutual recursion,
     // forward refs, return-type-bool functions like is_prime).
     let mut decl_indices: Vec<(usize, FuncId)> = Vec::new();
+    let mut fn_sig_ids: HashMap<FuncId, ssa::SigId> = HashMap::new();
     for (i, stmt) in ast.stmts.iter().enumerate() {
         if let Stmt::FnDecl {
-            name, return_type, ..
+            name,
+            return_type,
+            params,
+            ..
         } = stmt
         {
+            let mut param_tys = Vec::with_capacity(params.len());
+            for p in params {
+                param_tys.push(parse_type(
+                    p.type_ann.as_deref(),
+                    &aliases,
+                    &mut arr_layouts,
+                    &mut fn_sigs,
+                ));
+            }
             let ret_ty = parse_type(
                 return_type.as_deref(),
                 &aliases,
@@ -242,6 +255,11 @@ pub fn lower(ast: &Ast) -> Module {
             );
             let fid = FuncId(module.funcs.len() as u32);
             fn_table.insert(name.clone(), fid);
+            // Intern this user fn's signature — needed for `let f = name`
+            // (allocate FnSig slot of the right type) and for emitting
+            // FnAddr's result type. M2 Phase B Stage 4.
+            let sig_id = intern_fn_sig(&mut fn_sigs, param_tys, ret_ty);
+            fn_sig_ids.insert(fid, sig_id);
             module.funcs.push(ssa::Function::new(name.clone(), ret_ty));
             decl_indices.push((i, fid));
         }
@@ -306,6 +324,7 @@ pub fn lower(ast: &Ast) -> Module {
                 ast,
                 &fn_table,
                 &signatures,
+                &fn_sig_ids,
                 &intrinsics,
                 &aliases,
                 &mut arr_layouts,
@@ -333,6 +352,7 @@ pub fn lower(ast: &Ast) -> Module {
             ast,
             &fn_table,
             &signatures,
+            &fn_sig_ids,
             &intrinsics,
             &aliases,
             &mut arr_layouts,
@@ -419,6 +439,7 @@ fn synthesize_main(
     ast: &Ast,
     fn_table: &HashMap<String, FuncId>,
     signatures: &HashMap<FuncId, Type>,
+    fn_sig_ids: &HashMap<FuncId, ssa::SigId>,
     intrinsics: &Intrinsics,
     aliases: &HashMap<String, Type>,
     arr_layouts: &mut Vec<Type>,
@@ -435,6 +456,7 @@ fn synthesize_main(
             ast,
             fn_table,
             signatures,
+            fn_sig_ids,
             intrinsics: *intrinsics,
             aliases,
             arr_layouts,
@@ -443,7 +465,6 @@ fn synthesize_main(
             locals: HashMap::new(),
             scope_stack: vec![Vec::new()],
             loop_stack: Vec::new(),
-            fn_aliases: HashMap::new(),
             cur_block: entry,
             new_strings: &mut new_strings,
             string_id_base,
@@ -594,6 +615,7 @@ fn lower_fn(
     ast: &Ast,
     fn_table: &HashMap<String, FuncId>,
     signatures: &HashMap<FuncId, Type>,
+    fn_sig_ids: &HashMap<FuncId, ssa::SigId>,
     intrinsics: &Intrinsics,
     aliases: &HashMap<String, Type>,
     arr_layouts: &mut Vec<Type>,
@@ -627,6 +649,7 @@ fn lower_fn(
         ast,
         fn_table,
         signatures,
+        fn_sig_ids,
         intrinsics: *intrinsics,
         aliases,
         arr_layouts,
@@ -635,7 +658,6 @@ fn lower_fn(
         locals: HashMap::new(),
         scope_stack: vec![Vec::new()],
         loop_stack: Vec::new(),
-        fn_aliases: HashMap::new(),
         cur_block: entry,
         new_strings: &mut new_strings,
         string_id_base,
@@ -689,6 +711,10 @@ struct LowerCtx<'a> {
     /// lowering pick the right SSA result type even when the callee hasn't
     /// been body-lowered yet (forward refs, mutual recursion, bool returns).
     signatures: &'a HashMap<FuncId, Type>,
+    /// FuncId → SigId for every user FnDecl, populated in pass 1. Used by
+    /// `let f = global_fn` to allocate the right FnSig slot type and by
+    /// `FnAddr(fid)` to type its result. M2 Phase B Stage 4.
+    fn_sig_ids: &'a HashMap<FuncId, ssa::SigId>,
     /// Resolved FuncIds for the runtime intrinsics. Read at every site that
     /// emits a runtime call — string-literal lowering needs `str_alloc`,
     /// `console.log` needs `print_i64` / `str_print`, etc.
@@ -737,13 +763,6 @@ struct LowerCtx<'a> {
     /// (re-evaluates cond). For for-loops, continue_target = step block
     /// (so the step still runs on continue, then back to header).
     loop_stack: Vec<(BlockId, BlockId)>,
-    /// M2 Phase A — `let f = __closure_0` (where __closure_0 is a
-    /// lambda-lifted top-level fn) records `f → FuncId(closure_0)` here
-    /// instead of allocating a slot. Subsequent `f(args)` resolves
-    /// through `resolve_callee` as a direct Call. Higher-order patterns
-    /// (passing the closure as an arg, storing in struct/array) error
-    /// with a clear message — first-class fn pointers come in Phase B.
-    fn_aliases: HashMap<String, FuncId>,
     cur_block: BlockId,
     /// New string literals encountered during this lowering pass (currently
     /// only main collects them). Caller appends these to the module's
@@ -986,26 +1005,63 @@ impl<'a> LowerCtx<'a> {
                 type_ann,
                 init,
             } => {
-                // M2 Phase A — `let f = __closure_N` (lambda-lifted arrow
-                // fn) records `f → FuncId` and skips slot allocation.
-                // The fn binding is alias-only; usage is restricted to
-                // direct call (`f(args)`). Other uses error.
+                // M2 Phase B Stage 4 — `let f = global_fn`. Allocate a
+                // Type::FnSig slot, store FnAddr in it. Subsequent use
+                // either loads the slot for indirect call / passing as
+                // arg, or — for direct call — the Call lowering still
+                // resolves to the FuncId via the slot's stored value.
                 if let Expr::Ident(src_name) = self.ast.get_expr(*init)
                     && self.locals.get(src_name).is_none()
-                    && let Some(fid) = self.fn_table.get(src_name)
+                    && let Some(fid) = self.fn_table.get(src_name).copied()
+                    && let Some(sig_id) = self.fn_sig_ids.get(&fid).copied()
                 {
-                    self.fn_aliases.insert(name.clone(), *fid);
+                    let ty = Type::FnSig(sig_id);
+                    let slot = self.alloca(ty, Some(name));
+                    let v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::FnAddr(fid),
+                        ty,
+                        None,
+                    );
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Store(Operand::Value(v), Operand::Value(slot), 0),
+                    );
+                    let cur_depth = self.scope_stack.len() - 1;
+                    self.locals.insert(
+                        name.clone(),
+                        LocalInfo {
+                            slot,
+                            ty,
+                            moved: false,
+                            scope_depth: cur_depth,
+                        },
+                    );
+                    let top = self.scope_stack.last_mut().expect("scope frame");
+                    top.push(name.clone());
                     return;
                 }
                 // Step 4.1: every let goes through alloca regardless of `mutable`.
                 // const-correctness check is the type-checker's job (already done in
                 // check.rs); the SSA layer doesn't care.
-                let ty = parse_type(
-                    type_ann.as_deref(),
-                    self.aliases,
-                    self.arr_layouts,
-                    self.fn_sigs,
-                );
+                //
+                // Type resolution:
+                //   - With explicit annotation: parse_type from string.
+                //   - Without annotation: marker (Type::Void) — replaced
+                //     post-init-lower by the operand's type. Lets us
+                //     declare `let g = double;` (FnSig from FnAddr) and
+                //     `let h = pick(true);` (FnSig from Call return)
+                //     without needing the user to spell the fn type.
+                let mut ty = if type_ann.is_some() {
+                    parse_type(
+                        type_ann.as_deref(),
+                        self.aliases,
+                        self.arr_layouts,
+                        self.fn_sigs,
+                    )
+                } else {
+                    Type::Void
+                };
                 // TS-shape ownership: alias-init bindings get moved=true
                 // so end-of-scope drop emission skips them (the underlying
                 // owner — outer-scope binding or struct/array — is the one
@@ -1065,6 +1121,12 @@ impl<'a> LowerCtx<'a> {
                 } else {
                     init_val
                 };
+                // No-annotation inference: promote ty to the lowered
+                // operand's type. Done here so the alloca below uses
+                // the right slot type.
+                if type_ann.is_none() {
+                    ty = self.operand_ty(&init_val);
+                }
                 let slot = self.alloca(ty, Some(name));
                 self.f.append_void(
                     self.cur_block,
@@ -1328,10 +1390,22 @@ impl<'a> LowerCtx<'a> {
                 Operand::Value(self.intern_string_literal(&s))
             }
             Expr::Ident(name) => {
-                if self.fn_aliases.contains_key(name) {
-                    panic!(
-                        "ssa-lower: closure binding `{name}` can only be called directly (M2 Phase A — first-class fn pointers come in Phase B)"
+                // M2 Phase B Stage 4 — bare Ident referring to a global
+                // fn (no local shadow) yields the fn's address as a
+                // FnSig value. Used when passing a fn name directly as
+                // an arg or returning it.
+                if self.locals.get(name).is_none()
+                    && let Some(fid) = self.fn_table.get(name).copied()
+                    && let Some(sig_id) = self.fn_sig_ids.get(&fid).copied()
+                {
+                    let ty = Type::FnSig(sig_id);
+                    let v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::FnAddr(fid),
+                        ty,
+                        None,
                     );
+                    return Operand::Value(v);
                 }
                 let info = match self.locals.get(name) {
                     Some(i) => *i,
@@ -1639,6 +1713,53 @@ impl<'a> LowerCtx<'a> {
                     // result.
                     let _ = recv_name;
                     return Operand::ConstI64(0);
+                }
+                // M2 Phase B Stage 4 — call through a fn-typed local
+                // (`let f = global_fn; f(args);` or fn-typed param).
+                // Load the slot, look up the signature, emit CallIndirect.
+                if let Expr::Ident(callee_name) = self.ast.get_expr(*callee)
+                    && let Some(info) = self.locals.get(callee_name).copied()
+                    && let Type::FnSig(sig_id) = info.ty
+                {
+                    let fn_ptr = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Load(info.ty, Operand::Value(info.slot), 0),
+                        info.ty,
+                        None,
+                    );
+                    let argv: Vec<Operand> =
+                        args.iter().map(|a| self.lower_expr(*a)).collect();
+                    for a in args {
+                        self.consume_if_ident(*a);
+                    }
+                    let ret_ty = self.fn_sigs[sig_id.0 as usize].1;
+                    let result_ty = if ret_ty == Type::Void {
+                        Type::I64 // sentinel; the result is always discarded for void calls
+                    } else {
+                        ret_ty
+                    };
+                    if ret_ty == Type::Void {
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::CallIndirect(
+                                sig_id,
+                                Operand::Value(fn_ptr),
+                                argv,
+                            ),
+                        );
+                        return Operand::ConstI64(0);
+                    }
+                    let v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::CallIndirect(
+                            sig_id,
+                            Operand::Value(fn_ptr),
+                            argv,
+                        ),
+                        result_ty,
+                        None,
+                    );
+                    return Operand::Value(v);
                 }
                 let target = self.resolve_callee(*callee);
                 let mut argv: Vec<Operand> =
@@ -2138,12 +2259,9 @@ impl<'a> LowerCtx<'a> {
     fn resolve_callee(&self, eid: ExprId) -> FuncId {
         match self.ast.get_expr(eid) {
             Expr::Ident(name) => {
-                // M2 Phase A — `let f = __closure_N; f(args)`. Resolve f
-                // through fn_aliases first (set up at let-decl time when
-                // init is an Ident-to-global-fn).
-                if let Some(fid) = self.fn_aliases.get(name) {
-                    return *fid;
-                }
+                // Resolve direct fn calls: callee Ident matches a global
+                // FnDecl. Fn-typed locals are handled BEFORE this in
+                // `lower_expr`'s Call arm (CallIndirect path).
                 match self.fn_table.get(name) {
                     Some(f) => *f,
                     None => panic!("ssa-lower: unknown function `{name}`"),
