@@ -22,20 +22,22 @@ bun is the oracle. When behavior is unclear, write the equivalent in TS, run it 
 
 Cross-runtime perf, M4 Pro, hyperfine n=3-10. Run times in ms (lower better). [Full data](bench/results/).
 
-| case | torajs (AOT) | torajs-jit | rust | go | bun-jsc | bun-aot | node-v8 | python |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| ackermann |  **8.58** ← |  17.60 |  8.75 |  9.62 | 15.06 | 15.58 |  101.35 |   96.80 |
-| collatz   | 99.11 | 202.05 | **98.43** | 128.99 | 304.42 | 306.36 | 1354.36 | 4742.57 |
-| fib40 | **150.32** ← | 514.15 | 178.56 | 227.26 | 382.48 | 383.44 |  641.08 | 6465.04 |
-| gcd1m |  **38.05** ← |  50.06 | 39.37 |  38.78 |  46.06 |  47.69 |  128.78 |  307.36 |
-| mandelbrot |  34.21 |  88.25 | **33.61** | 35.40 | 49.20 | 48.45 |  121.45 | 1081.11 |
-| popcount |   **2.65** ← | 105.13 |  2.89 |  51.97 |  56.41 |  55.27 |  129.74 | 2808.20 |
-| prime_count | 47.74 |  55.45 | 47.67 | **40.32** |  54.51 |  52.37 |  159.45 | 1784.70 |
-| startup |   **1.15** ← |   8.02 |  1.34 |   1.82 |   7.86 |   7.64 |   81.50 |   16.59 |
+| case | torajs (AOT) | torajs-jit | rust | go | bun-jsc | bun-aot | node-v8 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| ackermann |  **8.67** ← |  18.31 |  8.85 |  10.55 | 15.84 | 16.23 |  91.23 |
+| collatz   | 104.77 | 207.68 | **103.82** | 136.68 | 320.88 | 321.34 | 1397.41 |
+| fib40 | **147.18** ← | 519.17 | 178.82 | 224.77 | 378.72 | 372.81 |  644.28 |
+| gcd1m |  **39.05** ← |  50.54 | 39.93 |  40.60 |  48.41 |  48.18 |  126.69 |
+| mandelbrot |  34.30 |  86.44 | **33.80** | 36.18 | 49.98 | 50.57 |  125.97 |
+| popcount |   **2.60** ← | 100.75 |  2.79 |  55.04 |  55.57 |  57.16 |  129.53 |
+| prime_count | 48.01 |  55.40 | 48.13 | **39.94** |  54.01 |  56.53 |  162.36 |
+| startup |   **1.21** ← |   7.70 |  1.56 |   1.84 |   8.01 |   8.19 |   81.44 |
 
-torajs (AOT) **vs rust**: 5 wins, 3 ties, 0 losses (largest "loss" = 1.8% on mandelbrot, within stddev).
-torajs (AOT) **vs go**: 7 wins, 1 loss (prime_count's trial division — go's gc backend is fast on tight int loops).
-torajs (AOT) **vs bun/node**: 8/8 wins on every case. `popcount 2.65 ms vs node-v8's 129.74 ms = 49× faster`. `startup 1.15 ms vs 81.50 ms = 71×`.
+Measured 2026-04-30 post-TS-subset-pivot. No regression vs pre-pivot (within ±6% noise).
+
+torajs (AOT) **vs rust**: 5 wins, 3 ties, 0 losses (largest "loss" = 1.5% on mandelbrot, within stddev).
+torajs (AOT) **vs go**: 7 wins, 1 loss (prime_count's trial division — go's GC backend is fast on tight int loops).
+torajs (AOT) **vs bun/node**: 8/8 wins on every case. `popcount 2.60 ms vs bun-jsc's 55.57 ms = 21.4× faster`. `startup 1.21 ms vs node-v8's 81.44 ms = 67× faster`. fib40 vs bun-jsc: **2.57×**. collatz vs bun-jsc: **3.06×**.
 
 Compile time + binary size:
 
