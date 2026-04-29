@@ -29,11 +29,14 @@ Cross-runtime perf, M4 Pro, hyperfine n=3-10. Run times in ms (lower better). [F
 | mandelbrot |  34.21 |  88.25 | **33.61** | 35.40 | 49.20 | 48.45 |  121.45 | 1081.11 |
 | popcount |   **2.65** ← | 105.13 |  2.89 |  51.97 |  56.41 |  55.27 |  129.74 | 2808.20 |
 | prime_count | 47.74 |  55.45 | 47.67 | **40.32** |  54.51 |  52.37 |  159.45 | 1784.70 |
+| rc-clone-1m |   **4.06** ← |  35.75 |  4.43 |    — |    — |    — |      — |       — |
 | startup |   **1.15** ← |   8.02 |  1.34 |   1.82 |   7.86 |   7.64 |   81.50 |   16.59 |
 
-torajs (AOT) **vs rust**: 5 wins, 3 ties, 0 losses (largest "loss" = 1.8% on mandelbrot, within stddev).
+torajs (AOT) **vs rust**: 6 wins, 3 ties, 0 losses (largest "loss" = 1.8% on mandelbrot, within stddev).
 torajs (AOT) **vs go**: 7 wins, 1 loss (prime_count's trial division — go's gc backend is fast on tight int loops).
-torajs (AOT) **vs bun/node**: 8/8 wins on every case. `popcount 2.65 ms vs node-v8's 129.74 ms = 49× faster`. `startup 1.15 ms vs 81.50 ms = 71×`.
+torajs (AOT) **vs bun/node**: 8/8 wins on every case where they have an entry. `popcount 2.65 ms vs node-v8's 129.74 ms = 49× faster`. `startup 1.15 ms vs 81.50 ms = 71×`.
+
+`rc-clone-1m` is Rc-specific: bun/node/go/python don't have explicit refcount primitives, only torajs and rust ship a runner. torajs's foreign-call dispatch to `__torajs_rc_clone` keeps the inc/dec from being cancelled by LLVM, while Rust inlines `Rc::clone` and re-introduces the cost via `black_box` — both end up doing the same physical work. Result: torajs **0.92× of rust**, well inside the P2.3.d gate (within 1.2×).
 
 Compile time + binary size:
 
@@ -130,6 +133,7 @@ Each case has a `main.tora.ts` + 5 sibling implementations (`main.ts`, `main.rs`
 | **ackermann** | nested recursion (recursive call as another's argument) |
 | **collatz** | bit ops + hailstone trajectory + outer/inner loop |
 | **prime_count** | trial division, bool return, early-return-from-while |
+| **rc-clone-1m** | `Rc<T>::clone` + drop hot path; refcount cost vs Rust's `Rc::clone` (torajs-only + rust; other rows skip) |
 
 Add a case: drop a directory under `bench/cases/<name>/` with `main.<lang>` files, an `expected.txt`, and an optional `bench.toml`.
 
