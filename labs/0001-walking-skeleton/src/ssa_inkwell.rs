@@ -163,6 +163,7 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
             llvm_fn: fn_map[i],
             fn_map: &fn_map,
             string_globals: &string_globals,
+            ssa_module,
             block_map: HashMap::new(),
             value_map: HashMap::new(),
         };
@@ -1043,6 +1044,9 @@ struct FnLower<'a, 'ctx> {
     llvm_fn: FunctionValue<'ctx>,
     fn_map: &'a [FunctionValue<'ctx>],
     string_globals: &'a [inkwell::values::GlobalValue<'ctx>],
+    /// Whole SSA module — needed by `InstKind::CallIndirect` to look up
+    /// the signature interner. Read-only; no mutation. M2 Phase B Stage 3.
+    ssa_module: &'a s::Module,
     block_map: HashMap<u32, inkwell::basic_block::BasicBlock<'ctx>>,
     value_map: HashMap<u32, BasicValueEnum<'ctx>>,
 }
@@ -1242,6 +1246,33 @@ impl<'a, 'ctx> FnLower<'a, 'ctx> {
                 };
                 self.builder.build_store(addr, v).unwrap();
                 None
+            }
+            InstKind::FnAddr(fid) => {
+                // Take the address of an imported fn — Inkwell's
+                // FunctionValue exposes its global address via
+                // `as_global_value().as_pointer_value()`.
+                let target = self.fn_map[fid.0 as usize];
+                let p = target.as_global_value().as_pointer_value();
+                Some(BasicValueEnum::PointerValue(p))
+            }
+            InstKind::CallIndirect(sig_id, ptr, args) => {
+                // Look up the interned signature, build the LLVM
+                // FunctionType, then build_indirect_call.
+                let (params, ret) = self.ssa_module.signature(*sig_id).clone();
+                let fn_t = build_fn_type(self.ctx, &params, ret);
+                let p = self.operand(ptr).into_pointer_value();
+                let argv: Vec<BasicMetadataValueEnum> =
+                    args.iter().map(|a| self.operand(a).into()).collect();
+                let call = self
+                    .builder
+                    .build_indirect_call(fn_t, p, &argv, "")
+                    .unwrap();
+                let kind = call.try_as_basic_value();
+                if kind.is_basic() {
+                    Some(kind.unwrap_basic())
+                } else {
+                    None
+                }
             }
         };
 

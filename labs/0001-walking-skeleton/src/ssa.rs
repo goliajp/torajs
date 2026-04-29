@@ -264,6 +264,15 @@ pub enum InstKind {
     /// constant. Result type is Ptr; the length lives in the module's
     /// `strings` table alongside the bytes.
     StringRef(StringId),
+    /// `%v = fn_addr <fid>` — take the address of a known function.
+    /// Result type is `Type::FnSig(sig_id)` matching the function's
+    /// signature. M2 Phase B Stage 3.
+    FnAddr(FuncId),
+    /// `%v = call_indirect <sig_id>, <ptr>, <args>` — call through a
+    /// function pointer. The signature is looked up via `module.signature(sig_id)`
+    /// at codegen so the backend can build the right calling convention.
+    /// M2 Phase B Stage 3.
+    CallIndirect(SigId, Operand, Vec<Operand>),
 }
 
 #[derive(Debug, Clone)]
@@ -619,6 +628,21 @@ impl Function {
             }
             InstKind::StringRef(s) => {
                 write!(w, "string_ref @str{}", s.0)?;
+            }
+            InstKind::FnAddr(fid) => {
+                write!(w, "fn_addr {}", m.func_name(*fid))?;
+            }
+            InstKind::CallIndirect(sig, ptr, args) => {
+                write!(w, "call_indirect <sig{}> ", sig.0)?;
+                self.write_operand(w, ptr)?;
+                write!(w, "(")?;
+                for (i, a) in args.iter().enumerate() {
+                    if i > 0 {
+                        write!(w, ", ")?;
+                    }
+                    self.write_operand(w, a)?;
+                }
+                write!(w, ")")?;
             }
         }
         writeln!(w)

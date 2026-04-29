@@ -484,7 +484,7 @@ fn lower_inst(
     bcx: &mut FunctionBuilder<'_>,
     module: &mut JITModule,
     ptr_ty: ir::Type,
-    _ssa_module: &Module,
+    ssa_module: &Module,
     f: &s::Function,
     inst: &s::Inst,
     value_map: &mut HashMap<u32, ir::Value>,
@@ -618,6 +618,36 @@ fn lower_inst(
                 .entry(sid.0)
                 .or_insert_with(|| module.declare_data_in_func(did, bcx.func));
             Some(bcx.ins().symbol_value(ptr_ty, gv))
+        }
+        InstKind::FnAddr(fid) => {
+            // Take the address of an imported fn. M2 Phase B Stage 3.
+            let target = fn_map[fid.0 as usize];
+            let func_ref = *func_refs
+                .entry(fid.0)
+                .or_insert_with(|| module.declare_func_in_func(target, bcx.func));
+            Some(bcx.ins().func_addr(ptr_ty, func_ref))
+        }
+        InstKind::CallIndirect(sig_id, ptr, args) => {
+            // Build a CLIF Signature from the SSA signature interner.
+            let (params, ret) = ssa_module.signature(*sig_id).clone();
+            let mut sig = Signature::new(module.target_config().default_call_conv);
+            for p in &params {
+                sig.params.push(AbiParam::new(clif_type(module, *p)));
+            }
+            if ret != Type::Void {
+                sig.returns.push(AbiParam::new(clif_type(module, ret)));
+            }
+            let sig_ref = bcx.import_signature(sig);
+            let p = operand(bcx, ptr_ty, value_map, data_refs, module, data_map, f, ptr);
+            let argv: Vec<ir::Value> = args
+                .iter()
+                .map(|a| {
+                    operand(bcx, ptr_ty, value_map, data_refs, module, data_map, f, a)
+                })
+                .collect();
+            let call = bcx.ins().call_indirect(sig_ref, p, &argv);
+            let results = bcx.inst_results(call);
+            results.first().copied()
         }
     };
 
