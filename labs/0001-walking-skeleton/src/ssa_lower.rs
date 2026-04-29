@@ -424,6 +424,7 @@ fn synthesize_main(
             locals: HashMap::new(),
             scope_stack: vec![Vec::new()],
             loop_stack: Vec::new(),
+            fn_aliases: HashMap::new(),
             cur_block: entry,
             new_strings: &mut new_strings,
             string_id_base,
@@ -535,6 +536,7 @@ fn lower_fn(
         locals: HashMap::new(),
         scope_stack: vec![Vec::new()],
         loop_stack: Vec::new(),
+        fn_aliases: HashMap::new(),
         cur_block: entry,
         new_strings: &mut new_strings,
         string_id_base,
@@ -632,6 +634,13 @@ struct LowerCtx<'a> {
     /// (re-evaluates cond). For for-loops, continue_target = step block
     /// (so the step still runs on continue, then back to header).
     loop_stack: Vec<(BlockId, BlockId)>,
+    /// M2 Phase A — `let f = __closure_0` (where __closure_0 is a
+    /// lambda-lifted top-level fn) records `f → FuncId(closure_0)` here
+    /// instead of allocating a slot. Subsequent `f(args)` resolves
+    /// through `resolve_callee` as a direct Call. Higher-order patterns
+    /// (passing the closure as an arg, storing in struct/array) error
+    /// with a clear message — first-class fn pointers come in Phase B.
+    fn_aliases: HashMap<String, FuncId>,
     cur_block: BlockId,
     /// New string literals encountered during this lowering pass (currently
     /// only main collects them). Caller appends these to the module's
@@ -874,6 +883,17 @@ impl<'a> LowerCtx<'a> {
                 type_ann,
                 init,
             } => {
+                // M2 Phase A — `let f = __closure_N` (lambda-lifted arrow
+                // fn) records `f → FuncId` and skips slot allocation.
+                // The fn binding is alias-only; usage is restricted to
+                // direct call (`f(args)`). Other uses error.
+                if let Expr::Ident(src_name) = self.ast.get_expr(*init)
+                    && self.locals.get(src_name).is_none()
+                    && let Some(fid) = self.fn_table.get(src_name)
+                {
+                    self.fn_aliases.insert(name.clone(), *fid);
+                    return;
+                }
                 // Step 4.1: every let goes through alloca regardless of `mutable`.
                 // const-correctness check is the type-checker's job (already done in
                 // check.rs); the SSA layer doesn't care.
@@ -1200,6 +1220,11 @@ impl<'a> LowerCtx<'a> {
                 Operand::Value(self.intern_string_literal(&s))
             }
             Expr::Ident(name) => {
+                if self.fn_aliases.contains_key(name) {
+                    panic!(
+                        "ssa-lower: closure binding `{name}` can only be called directly (M2 Phase A — first-class fn pointers come in Phase B)"
+                    );
+                }
                 let info = match self.locals.get(name) {
                     Some(i) => *i,
                     None => panic!("ssa-lower: unknown ident `{name}`"),
@@ -2004,10 +2029,18 @@ impl<'a> LowerCtx<'a> {
 
     fn resolve_callee(&self, eid: ExprId) -> FuncId {
         match self.ast.get_expr(eid) {
-            Expr::Ident(name) => match self.fn_table.get(name) {
-                Some(f) => *f,
-                None => panic!("ssa-lower: unknown function `{name}`"),
-            },
+            Expr::Ident(name) => {
+                // M2 Phase A — `let f = __closure_N; f(args)`. Resolve f
+                // through fn_aliases first (set up at let-decl time when
+                // init is an Ident-to-global-fn).
+                if let Some(fid) = self.fn_aliases.get(name) {
+                    return *fid;
+                }
+                match self.fn_table.get(name) {
+                    Some(f) => *f,
+                    None => panic!("ssa-lower: unknown function `{name}`"),
+                }
+            }
             // Member call — currently only `Math.<method>` resolves here.
             // `console.log(...)` is handled by the top-level shortcut in
             // `lower_top_stmt`, so it never reaches here as a regular Call.

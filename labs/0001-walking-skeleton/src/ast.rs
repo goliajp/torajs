@@ -137,6 +137,46 @@ pub struct Ast {
     pub exprs: Vec<Expr>,
 }
 
+/// M2 Phase A — lambda-lift arrow fns. Walks `ast.exprs` in index order;
+/// each `Expr::ArrowFn` is replaced in-place with `Expr::Ident("__closure_N")`,
+/// and a corresponding `Stmt::FnDecl` is appended to `ast.stmts`. The new
+/// FnDecls are then hoisted as globals by `check.rs`'s pass-1.
+///
+/// Non-capturing only — captures are deferred to Phase B (closures with
+/// implicit capture via env struct). For Phase A, the lifted FnDecl's
+/// body sees only its own params + globals; references to outer-scope
+/// vars from inside the arrow body would resolve as "unknown ident" at
+/// type-check time. That matches the existing arrow-fn behavior (which
+/// also rejected captures).
+///
+/// Iteration order: parser emits inner expressions before outer, so a
+/// nested arrow fn sits at a lower `ExprId` than its enclosing arrow fn.
+/// We walk indices low→high; the inner arrow gets lifted first and the
+/// outer arrow's body still references it via the (now Ident) ExprId.
+pub fn lift_arrow_fns(ast: &mut Ast) {
+    let mut counter = 0u32;
+    let mut new_decls: Vec<Stmt> = Vec::new();
+    let n = ast.exprs.len();
+    for i in 0..n {
+        if !matches!(ast.exprs[i], Expr::ArrowFn { .. }) {
+            continue;
+        }
+        let name = format!("__closure_{counter}");
+        counter += 1;
+        let placeholder = Expr::Ident(name.clone());
+        let arrow = std::mem::replace(&mut ast.exprs[i], placeholder);
+        if let Expr::ArrowFn { params, return_type, body } = arrow {
+            new_decls.push(Stmt::FnDecl {
+                name,
+                params,
+                return_type,
+                body,
+            });
+        }
+    }
+    ast.stmts.extend(new_decls);
+}
+
 impl Ast {
     pub fn add_expr(&mut self, e: Expr) -> ExprId {
         let id = ExprId(self.exprs.len() as u32);

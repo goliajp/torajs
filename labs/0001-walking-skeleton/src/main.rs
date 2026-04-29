@@ -115,13 +115,17 @@ fn pipeline(src: &str, stage: Stage) -> ExitCode {
         return ExitCode::SUCCESS;
     }
 
-    let ast = match parser::parse(&tokens) {
+    let mut ast = match parser::parse(&tokens) {
         Ok(a) => a,
         Err(e) => {
             eprintln!("parse error: {e}");
             return ExitCode::from(1);
         }
     };
+    // M2 Phase A — lift arrow fns to top-level FnDecls so check.rs's
+    // global-fn machinery resolves them. Non-capturing closures only;
+    // captures land in Phase B.
+    ast::lift_arrow_fns(&mut ast);
     if matches!(stage, Stage::Parse) {
         ast.print();
         return ExitCode::SUCCESS;
@@ -231,13 +235,17 @@ fn run_build_llvm(args: &[String]) -> ExitCode {
             return ExitCode::from(1);
         }
     };
-    let ast = match parser::parse(&tokens) {
+    let mut ast = match parser::parse(&tokens) {
         Ok(a) => a,
         Err(e) => {
             eprintln!("parse error: {e}");
             return ExitCode::from(1);
         }
     };
+    // M2 Phase A — lift arrow fns to top-level FnDecls so check.rs's
+    // global-fn machinery resolves them. Non-capturing closures only;
+    // captures land in Phase B.
+    ast::lift_arrow_fns(&mut ast);
     if let Err(e) = check::check(&ast) {
         eprintln!("type error: {e}");
         return ExitCode::from(1);
@@ -304,13 +312,17 @@ fn run_jit(file_arg: Option<&String>) -> ExitCode {
             return ExitCode::from(1);
         }
     };
-    let ast = match parser::parse(&tokens) {
+    let mut ast = match parser::parse(&tokens) {
         Ok(a) => a,
         Err(e) => {
             eprintln!("parse error: {e}");
             return ExitCode::from(1);
         }
     };
+    // M2 Phase A — lift arrow fns to top-level FnDecls so check.rs's
+    // global-fn machinery resolves them. Non-capturing closures only;
+    // captures land in Phase B.
+    ast::lift_arrow_fns(&mut ast);
     if let Err(e) = check::check(&ast) {
         eprintln!("type error: {e}");
         return ExitCode::from(1);

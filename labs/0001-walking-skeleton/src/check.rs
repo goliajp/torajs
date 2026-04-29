@@ -1064,6 +1064,49 @@ mod tests {
         );
     }
 
+    // ----- M2 Phase A — non-capturing arrow fn -----
+
+    #[test]
+    fn arrow_fn_let_typechecks() {
+        let src = r#"
+            let double: number = 0;
+            let f = (x: number): number => x * 2;
+            let n: number = f(21);
+        "#;
+        assert!(check_src(src).is_ok(), "got {:?}", check_src(src));
+    }
+
+    #[test]
+    fn arrow_fn_with_block_body_typechecks() {
+        let src = r#"
+            let f = (a: number, b: number): number => {
+                return a + b;
+            };
+            let n: number = f(3, 4);
+        "#;
+        assert!(check_src(src).is_ok(), "got {:?}", check_src(src));
+    }
+
+    #[test]
+    fn arrow_fn_capture_unsupported() {
+        // Phase A: closures don't capture outer scope. References to
+        // outer-scope idents from inside an arrow fn body fail with
+        // "unknown identifier" since the lifted FnDecl sees only its
+        // own params + globals.
+        let src = r#"
+            let s: string = "outer";
+            let f = (): number => s.length;
+        "#;
+        let r = check_src(src);
+        assert!(
+            r.as_ref()
+                .err()
+                .map(|m| m.contains("unknown identifier `s`"))
+                .unwrap_or(false),
+            "expected capture-unsupported error, got {r:?}"
+        );
+    }
+
     // ----- M1.6 / M1.7 — for-loop + break/continue -----
 
     #[test]

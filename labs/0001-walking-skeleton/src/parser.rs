@@ -683,8 +683,8 @@ impl Parser<'_> {
     }
 
     /// Lookahead: from a `(` at `self.pos`, find the matching `)` and peek
-    /// for `=>` to decide arrow-fn vs parenthesized expression. Handles
-    /// nested parens correctly.
+    /// for `=>` (or `: T => ...`) to decide arrow-fn vs parenthesized expression.
+    /// Handles nested parens correctly.
     fn is_arrow_fn_at_lparen(&self) -> bool {
         debug_assert!(matches!(self.peek(), Token::LParen));
         let mut depth: i32 = 1;
@@ -695,10 +695,68 @@ impl Parser<'_> {
                 Token::RParen => {
                     depth -= 1;
                     if depth == 0 {
-                        return matches!(
+                        // Direct arrow: `() => ...`
+                        if matches!(
                             self.tokens.get(i + 1).map(|s| &s.token),
                             Some(Token::FatArrow)
-                        );
+                        ) {
+                            return true;
+                        }
+                        // Arrow with explicit return type: `() : T => ...`
+                        // — skip past the `: TypeAnnotation` and look for
+                        // `=>`. Type annotation is IDENT followed by
+                        // optional `<...>` generics + `[]` array suffixes.
+                        if matches!(
+                            self.tokens.get(i + 1).map(|s| &s.token),
+                            Some(Token::Colon)
+                        ) {
+                            // Scan past the type ann to look for `=>`.
+                            let mut j = i + 2;
+                            // Type starts with an identifier.
+                            if !matches!(
+                                self.tokens.get(j).map(|s| &s.token),
+                                Some(Token::Ident(_))
+                            ) {
+                                return false;
+                            }
+                            j += 1;
+                            // Optional generic args `<T1, T2, ...>` —
+                            // very rough scan; if we hit a stray `>`
+                            // before the next plausible `=>`, fall back
+                            // to "not arrow".
+                            if matches!(
+                                self.tokens.get(j).map(|s| &s.token),
+                                Some(Token::Lt)
+                            ) {
+                                let mut g = 1;
+                                j += 1;
+                                while j < self.tokens.len() && g > 0 {
+                                    match self.tokens[j].token {
+                                        Token::Lt => g += 1,
+                                        Token::Gt => g -= 1,
+                                        Token::ShrShr => g -= 2,
+                                        Token::Eof => return false,
+                                        _ => {}
+                                    }
+                                    j += 1;
+                                }
+                            }
+                            // Optional `[]` array suffixes.
+                            while matches!(
+                                self.tokens.get(j).map(|s| &s.token),
+                                Some(Token::LBracket)
+                            ) && matches!(
+                                self.tokens.get(j + 1).map(|s| &s.token),
+                                Some(Token::RBracket)
+                            ) {
+                                j += 2;
+                            }
+                            return matches!(
+                                self.tokens.get(j).map(|s| &s.token),
+                                Some(Token::FatArrow)
+                            );
+                        }
+                        return false;
                     }
                 }
                 Token::Eof => return false,
