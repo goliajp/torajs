@@ -895,6 +895,51 @@ mod tests {
     }
 
     #[test]
+    fn line_comment_skipped() {
+        let src = r#"
+            // a comment at top
+            let n: number = 5;  // a trailing comment
+            // another full-line comment
+            let m: number = n + 1;
+        "#;
+        assert!(check_src(src).is_ok(), "got {:?}", check_src(src));
+    }
+
+    #[test]
+    fn block_comment_skipped() {
+        let src = r#"
+            /* leading block */
+            let n: number = 5;
+            /* multi
+             * line
+             * block */
+            let m: number = n + 1;
+            let s: string = "hi"; /* trailing on same line */
+        "#;
+        assert!(check_src(src).is_ok(), "got {:?}", check_src(src));
+    }
+
+    #[test]
+    fn unterminated_block_comment_errors() {
+        let src = r#"let n: number = 5; /* unterminated"#;
+        let r = check_src(src);
+        assert!(
+            r.as_ref()
+                .err()
+                .map(|s| s.contains("unterminated block comment"))
+                .unwrap_or(false),
+            "expected unterminated-block-comment error, got {r:?}"
+        );
+    }
+
+    #[test]
+    fn slash_as_division_still_works() {
+        // `/` not followed by `/` or `*` is still the division operator.
+        let src = "let n: number = 10 / 2;";
+        assert!(check_src(src).is_ok(), "got {:?}", check_src(src));
+    }
+
+    #[test]
     fn struct_self_reference_unsupported() {
         // Forward reference in field — sibling alias must be declared first.
         // (We could relax to allow forward refs in pass 0; deferred. For

@@ -88,7 +88,43 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
             b'+' => emit(&mut out, Token::Plus, start, advance(&mut i)),
             b'-' => emit(&mut out, Token::Minus, start, advance(&mut i)),
             b'*' => emit(&mut out, Token::Star, start, advance(&mut i)),
-            b'/' => emit(&mut out, Token::Slash, start, advance(&mut i)),
+            b'/' => {
+                // `//` line comment, `/* */` block comment, or division.
+                // TS grammar puts comments at the lexer level (whitespace-
+                // equivalent); we skip past them without emitting a token.
+                match peek(bytes, i + 1) {
+                    Some(b'/') => {
+                        // Line comment — consume to end-of-line / EOF.
+                        i += 2;
+                        while i < len && bytes[i as usize] != b'\n' {
+                            i += 1;
+                        }
+                        // Don't consume the newline itself — outer loop's
+                        // whitespace branch handles it (and any trailing
+                        // \r\n line ending).
+                    }
+                    Some(b'*') => {
+                        // Block comment — consume to first `*/`. Nested
+                        // block comments are NOT supported (TS doesn't
+                        // support them either; matches `tsc` / `bun`).
+                        i += 2;
+                        let comment_start = start;
+                        loop {
+                            if i + 1 >= len {
+                                return Err(format!(
+                                    "unterminated block comment starting at {comment_start}"
+                                ));
+                            }
+                            if bytes[i as usize] == b'*' && bytes[(i + 1) as usize] == b'/' {
+                                i += 2;
+                                break;
+                            }
+                            i += 1;
+                        }
+                    }
+                    _ => emit(&mut out, Token::Slash, start, advance(&mut i)),
+                }
+            }
             b'%' => emit(&mut out, Token::Percent, start, advance(&mut i)),
             b'&' => emit(&mut out, Token::Amp, start, advance(&mut i)),
             b'|' => emit(&mut out, Token::Pipe, start, advance(&mut i)),
