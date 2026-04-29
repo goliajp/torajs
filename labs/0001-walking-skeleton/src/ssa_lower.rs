@@ -746,11 +746,138 @@ impl<'a> LowerCtx<'a> {
                     InstKind::Call(drop_fid, vec![val]),
                 );
             }
-            Type::Rc(_) => {
-                // P2.3.b — Rc drop emission deferred to P2.3.c. The per-T
-                // drop_payload thunk synthesis lives there; until then,
-                // Rc bindings leak at end-of-scope. Smoke tests treat
-                // this as documented behavior.
+            Type::Rc(rc_id) => {
+                // P2.3.c — Rc drop emission. Two paths:
+                //   1. Copy payload (Rc<i64> / Rc<f64> / Rc<bool>): the
+                //      payload owns nothing heap, so a single
+                //      `__torajs_rc_drop(p)` call (dec + free if zero)
+                //      is enough. Smaller code at the drop site.
+                //   2. Non-Copy payload (Rc<Str> / Rc<Obj> / Rc<Rc<T>>):
+                //      we need an inline branch — only walk inner contents
+                //      when the count reaches zero. Layout is `dec ; if 0
+                //      { drop inner ; free }`. obj_drop is reused for the
+                //      shallow free of the rc allocation since it's just
+                //      `free(p)` underneath.
+                //
+                // Cycles in `Rc<T>` graphs leak by design (no weak refs
+                // until P15+). Forward-ref-rejection at type-decl time
+                // means the cycles can't form via static type aliases —
+                // only via dynamic mutation, which we don't support yet.
+                let payload = self.rc_layouts[rc_id.0 as usize];
+                if payload.is_copy() {
+                    let drop_fid = self.intrinsics.rc_drop;
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Call(drop_fid, vec![val]),
+                    );
+                    return;
+                }
+                // Non-Copy: emit inline dec + branch + inner drop + free.
+                let strong = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Load(Type::I64, val, 0),
+                    Type::I64,
+                    None,
+                );
+                let strong_dec = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::BinOp(
+                        SsaBinOp::Sub,
+                        Operand::Value(strong),
+                        Operand::ConstI64(1),
+                    ),
+                    Type::I64,
+                    None,
+                );
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Store(Operand::Value(strong_dec), val, 0),
+                );
+                let is_zero = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::ICmp(
+                        IPred::Eq,
+                        Operand::Value(strong_dec),
+                        Operand::ConstI64(0),
+                    ),
+                    Type::Bool,
+                    None,
+                );
+                let then_blk = self.f.add_block();
+                let after_blk = self.f.add_block();
+                self.f.set_term(
+                    self.cur_block,
+                    Terminator::CondBr {
+                        cond: Operand::Value(is_zero),
+                        then_blk,
+                        else_blk: after_blk,
+                    },
+                );
+
+                self.cur_block = then_blk;
+                // Drop the payload's inner non-Copy contents. The payload
+                // sits at byte offset 16; for Obj fields each non-Copy
+                // field is at 16 + i*8. For Str / nested Rc the single
+                // pointer lives at offset 16.
+                match payload {
+                    Type::Str => {
+                        let inner = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(Type::Str, val, 16),
+                            Type::Str,
+                            None,
+                        );
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.str_drop,
+                                vec![Operand::Value(inner)],
+                            ),
+                        );
+                    }
+                    Type::Obj(sid) => {
+                        let layout = self.struct_layouts[sid.0 as usize].clone();
+                        for (i, (_, fty)) in layout.iter().enumerate() {
+                            if fty.is_copy() {
+                                continue;
+                            }
+                            let offset = 16 + i as u64 * 8;
+                            let inner_val = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Load(*fty, val, offset),
+                                *fty,
+                                None,
+                            );
+                            self.emit_drop_value(Operand::Value(inner_val), *fty);
+                        }
+                        // Do NOT call obj_drop on the inline struct — its
+                        // memory is part of the Rc allocation (freed below).
+                    }
+                    Type::Rc(_) => {
+                        let inner_rc = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(payload, val, 16),
+                            payload,
+                            None,
+                        );
+                        self.emit_drop_value(Operand::Value(inner_rc), payload);
+                    }
+                    _ => {
+                        // Should be unreachable since we already checked
+                        // is_copy above. Defensive panic.
+                        panic!(
+                            "ssa-lower: unexpected non-Copy Rc payload {payload:?}"
+                        );
+                    }
+                }
+                // Free the rc allocation (header + inline payload). obj_drop
+                // is just libc free underneath — same heap as rc_alloc used.
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.obj_drop, vec![val]),
+                );
+                self.f.set_term(self.cur_block, Terminator::Br(after_blk));
+                self.cur_block = after_blk;
             }
             other if other.is_copy() => {
                 // Nothing to drop — caller filtered, but be defensive.
