@@ -106,23 +106,26 @@ console.log(Math.floor(Math.sqrt(alice.age * alice.age)));
 | **P2.4**   | object literals + structural types | ✓ |
 | **P3**     | LLVM AOT + Cranelift JIT (one SSA IR, two backends) | ✓ |
 | **stdlib slice 1** | `console.log`, `Math.{sqrt,abs,floor,ceil,log,exp,pow,min,max,PI,E}`, `String.length`, `print_f64` | ✓ |
+| **M1**     | TS subset core (comments / Array runtime / block drops / `p.x = v` / `&&` `\|\|` `!` / for-loop / break+continue) | ✓ |
+| **M2 Phase A/B** | non-capturing arrow fns + first-class fn pointers (`__fn(P)->R` annotation, FnSig, FnAddr+CallIndirect) | ✓ |
+| **M2 Phase C** | closures with **implicit captures** — heap env block `[fn_ptr, cap_0, cap_1, ...]`, env-load preamble in lifted body, `Type::Closure(SigId)` | ✓ 2026-04-30 |
 | ~~P2.3~~ | ~~`Rc<T>` first-class~~ | **REMOVED** — incompatible with TS-subset framing |
 
-### Bench position (M4 Pro, hyperfine n=3-10)
+### Bench position (M4 Pro, hyperfine n=5)
 
-8 of 8 cases green on `torajs` (AOT) + `torajs-jit`. Vs **rust**: 5 wins / 3 ties / 0 losses on AOT. Vs **bun**: 8/8 wins on every case. Vs **node-v8**: 8/8 wins (4-71×). See `README.md` for the full table.
+11 of 11 cases green on `torajs` (AOT) + `torajs-jit`. Vs **rust**: 9 wins / 1 tie / 1 loss (closure-counter, ~17%) on AOT. Vs **bun**: 11/11 wins on every case. Vs **node-v8**: 11/11 wins (4-71×). See `README.md` for the full table.
 
 ### Code size
 
 ```
-labs/0001-walking-skeleton/src/   ~5500 LOC across 9 files
+labs/0001-walking-skeleton/src/   ~6000 LOC across 9 files
 docs/                              roadmap.md + stdlib.md + ts-subset.md
-bench/                             8 cases × 5 langs + harness + runners + results
+bench/                             11 cases × 5 langs + harness + runners + results
 ```
 
 ### Currently executing
 
-The TS-subset pivot just landed (commits `d391a8d` revert + `26f74e2` alias-aware + `cbaa360` subset docs). Next up: **M1.1 — line/block comments in lexer**, then chain through M1 (TS subset core completeness).
+M2 Phase C (closures with implicit captures) just shipped (commits `c7f866b` + `c225876`). Next up: **M3 — generics in user code**, starting with `function id<T>(x: T): T { return x; }`.
 
 ---
 
@@ -150,10 +153,13 @@ Exit gate for M1: a non-trivial TS program (linked-list traversal, fibonacci wit
 
 | step | what | exit gate |
 |---|---|---|
-| **M2.1** | capture analysis: classify each free var as Move / Borrow / BorrowMut at compile time | analysis output dumpable via `tr capture <file>` |
-| **M2.2** | closure environment lowering: heap-allocated env struct, fn ptr + env pair | non-capturing closures unchanged; capturing closure runs end-to-end |
-| **M2.3** | shared captures across two closures (compiler resolves via alias inference) | shared-counter pattern works |
-| **M2.4** | bench cases: `closure-sum`, `closure-counter`, `closure-iter-fold` | 3 new bench rows green |
+| **M2.1** ✓ | free-variable analysis in `lift_arrow_fns` (TS-shape: name-only — no Move/Borrow distinction) | each capturing arrow becomes `Expr::Closure { fn_name, captures }` |
+| **M2.2** ✓ | closure environment lowering: heap env block `[i64 fn_ptr, cap_0, cap_1, ...]`, `Type::Closure(SigId)`, env-first call dispatch | capturing closure (single + multi capture, primitive types) runs end-to-end on JIT + AOT |
+| **M2.3** | non-Copy captures (string / Array / struct) — capture-by-alias semantics, env-side recursive drop walk | a closure that captures a string runs without leaking |
+| **M2.4** | mutable captures: `let count = 0; let inc = () => { count = count + 1; };` — boxed-cell lowering for write-shared bindings | shared-counter pattern works on JIT + AOT |
+| **M2.5** | additional bench cases: `closure-iter-fold` | row green |
+| ✓ shipped |  |  |
+| ✓ closure-counter bench (10M-iter capturing-closure tight loop) lands at torajs 20.83 ms vs rust 17.85 ms (1.17× behind), vs go 32 ms (1.55× faster), vs bun 46 ms (2.2× faster), vs node-v8 164 ms (7.9× faster) |  |  |
 
 ### M3 — Generics in user code
 
