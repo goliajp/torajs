@@ -24,20 +24,21 @@ Cross-runtime perf, M4 Pro, hyperfine n=3-10. Run times in ms (lower better). [F
 
 | case | torajs (AOT) | torajs-jit | rust | go | bun-jsc | bun-aot | node-v8 |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| ackermann |  **8.67** ← |  18.31 |  8.85 |  10.55 | 15.84 | 16.23 |  91.23 |
-| collatz   | 104.77 | 207.68 | **103.82** | 136.68 | 320.88 | 321.34 | 1397.41 |
-| fib40 | **147.18** ← | 519.17 | 178.82 | 224.77 | 378.72 | 372.81 |  644.28 |
-| gcd1m |  **39.05** ← |  50.54 | 39.93 |  40.60 |  48.41 |  48.18 |  126.69 |
-| mandelbrot |  34.30 |  86.44 | **33.80** | 36.18 | 49.98 | 50.57 |  125.97 |
-| popcount |   **2.60** ← | 100.75 |  2.79 |  55.04 |  55.57 |  57.16 |  129.53 |
-| prime_count | 48.01 |  55.40 | 48.13 | **39.94** |  54.01 |  56.53 |  162.36 |
-| startup |   **1.21** ← |   7.70 |  1.56 |   1.84 |   8.01 |   8.19 |   81.44 |
+| ackermann |   **7.99** ← |  17.72 |   8.29 |   9.90 |  16.39 |  14.01 |   98.60 |
+| **array-sum-1m** | **10.39** ← |  41.06 |  12.89 |  28.70 |  49.32 |  49.00 |  167.60 |
+| collatz   | **102.64** ← | 207.32 | 102.32 | 134.23 | 316.82 | 318.59 | 1377.78 |
+| fib40 | **144.47** ← | 516.32 | 179.75 | 223.83 | 376.58 | 374.10 |  665.12 |
+| gcd1m |  **38.82** ← |  50.03 |  39.50 |  39.00 |  48.09 |  47.47 |  131.08 |
+| mandelbrot |  **32.91** ← |  85.68 |  33.53 |  35.63 |  49.95 |  49.65 |  120.59 |
+| popcount |   **2.60** ← | 101.28 |   2.82 |  53.18 |  55.27 |  57.41 |  131.29 |
+| prime_count |  **46.94** ← |  52.72 |  47.58 | **38.81** |  52.05 |  53.13 |  157.54 |
+| startup |   **1.21** ← |   8.02 |   1.45 |   1.94 |   8.21 |   6.74 |   78.93 |
 
-Measured 2026-04-30 post-TS-subset-pivot. No regression vs pre-pivot (within ±6% noise).
+Measured 2026-04-30 post-TS-subset-pivot + M1.2 (Array runtime).
 
-torajs (AOT) **vs rust**: 5 wins, 3 ties, 0 losses (largest "loss" = 1.5% on mandelbrot, within stddev).
-torajs (AOT) **vs go**: 7 wins, 1 loss (prime_count's trial division — go's GC backend is fast on tight int loops).
-torajs (AOT) **vs bun/node**: 8/8 wins on every case. `popcount 2.60 ms vs bun-jsc's 55.57 ms = 21.4× faster`. `startup 1.21 ms vs node-v8's 81.44 ms = 67× faster`. fib40 vs bun-jsc: **2.57×**. collatz vs bun-jsc: **3.06×**.
+torajs (AOT) **vs rust**: 8 wins, 1 tie (collatz +0.3%, within stddev), 0 losses. **`array-sum-1m`: torajs 10.39 ms vs rust's `Vec<i64>` 12.89 ms = 1.24× faster** — leaner alloc/realloc path beats Rust's std Vec on hot append + index-sum.
+torajs (AOT) **vs go**: 8 wins, 1 loss (prime_count's trial division — go's GC backend is fast on tight int loops).
+torajs (AOT) **vs bun/node**: **9/9 wins** on every case. `popcount 2.60 ms vs bun-jsc's 55.27 ms = 21.3× faster`. `startup 1.21 ms vs node-v8's 78.93 ms = 65× faster`. `array-sum-1m vs bun-jsc: 4.7×`. `fib40 vs bun-jsc: 2.61×`. `collatz vs bun-jsc: 3.09×`.
 
 Compile time + binary size:
 
@@ -139,6 +140,7 @@ Each case has a `main.tora.ts` + 5 sibling implementations (`main.ts`, `main.rs`
 | **ackermann** | nested recursion (recursive call as another's argument) |
 | **collatz** | bit ops + hailstone trajectory + outer/inner loop |
 | **prime_count** | trial division, bool return, early-return-from-while |
+| **array-sum-1m** | 10M `Array<T>::push` + index sum — heap alloc, amortized realloc, tight load loop |
 
 Add a case: drop a directory under `bench/cases/<name>/` with `main.<lang>` files, an `expected.txt`, and an optional `bench.toml`.
 

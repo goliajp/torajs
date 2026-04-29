@@ -337,11 +337,37 @@ impl Checker {
                 type_ann,
                 init,
             } => {
-                let init_ty = match self.type_of(ast, *init) {
-                    Ok(t) => t,
-                    Err(e) => {
-                        self.errors.push(e);
+                // M1.2 — empty array literal `[]` carries no element-type
+                // info; the annotation must provide it. Special-case to
+                // skip type_of (which would error) and use the annotation
+                // directly. Matches TS / bun: `let xs: number[] = [];`.
+                let is_empty_array =
+                    matches!(ast.get_expr(*init), Expr::Array(els) if els.is_empty());
+                let init_ty = if is_empty_array {
+                    let Some(ann) = type_ann else {
+                        self.errors.push(format!(
+                            "empty array literal `{name}` needs an explicit type annotation, e.g. `let {name}: number[] = []`"
+                        ));
                         return;
+                    };
+                    let Some(ann_ty) = resolve_type_ann(ann, &self.aliases) else {
+                        self.errors.push(format!("unknown type `{ann}`"));
+                        return;
+                    };
+                    if !matches!(ann_ty, Type::Array(_)) {
+                        self.errors.push(format!(
+                            "empty array literal `{name}` needs an array type annotation, got `{ann}`"
+                        ));
+                        return;
+                    }
+                    ann_ty
+                } else {
+                    match self.type_of(ast, *init) {
+                        Ok(t) => t,
+                        Err(e) => {
+                            self.errors.push(e);
+                            return;
+                        }
                     }
                 };
                 let final_ty = match type_ann {
@@ -512,6 +538,13 @@ impl Checker {
                         Ok(Type::Number)
                     }
                     (Type::String, "length") | (Type::Array(_), "length") => Ok(Type::Number),
+                    // M1.2 — `xs.push(v)`: takes one element-typed arg,
+                    // returns void (TS doesn't surface push's "new length"
+                    // return value in our subset since it's rarely useful).
+                    (Type::Array(elem), "push") => {
+                        let inner = (**elem).clone();
+                        Ok(Type::Function(vec![inner], Box::new(Type::Void)))
+                    }
                     _ => Err(format!("no member `.{name}` on type {obj_ty:?}")),
                 }
             }

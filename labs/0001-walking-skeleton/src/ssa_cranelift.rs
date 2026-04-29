@@ -150,6 +150,72 @@ extern "C" fn obj_drop_runtime(p: *mut u8) {
     unsafe { free(p) }
 }
 
+// M1.2 — `Array<T>` runtime. Layout: `{u64 len, u64 cap, T data[cap]}`
+// with uniform 8-byte slots. Identical layout in both backends.
+//
+// MVP: only i64 element type. Extension to f64/ptr/etc. comes in
+// follow-up subsection by adding push variants per element type.
+
+extern "C" fn arr_alloc_runtime(initial_cap: u64) -> *mut u8 {
+    let total = 16usize + (initial_cap as usize) * 8;
+    let p = unsafe { malloc(total) };
+    if p.is_null() {
+        eprintln!("arr_alloc: out of memory");
+        std::process::abort();
+    }
+    unsafe {
+        let header = p as *mut u64;
+        *header = 0; // len = 0
+        *header.add(1) = initial_cap; // cap = initial_cap
+    }
+    p
+}
+
+extern "C" fn arr_push_runtime(arr: *mut u8, val: i64) -> *mut u8 {
+    let mut p = arr;
+    unsafe {
+        let header = p as *mut u64;
+        let len = *header;
+        let cap = *header.add(1);
+        if len == cap {
+            let new_cap = if cap == 0 { 4 } else { cap * 2 };
+            let new_total = 16usize + (new_cap as usize) * 8;
+            // Use libc realloc to preserve existing data.
+            let np = libc_realloc(p, new_total);
+            if np.is_null() {
+                eprintln!("arr_push: realloc out of memory");
+                std::process::abort();
+            }
+            p = np;
+            let header = p as *mut u64;
+            *header.add(1) = new_cap;
+        }
+        // Store val at offset 16 + len*8.
+        let header = p as *mut u64;
+        let slot_off = 16 + (len as usize) * 8;
+        let slot = (p as *mut u8).add(slot_off) as *mut i64;
+        *slot = val;
+        *header = len + 1;
+    }
+    p
+}
+
+extern "C" fn arr_drop_runtime(p: *mut u8) {
+    if p.is_null() {
+        return;
+    }
+    unsafe { free(p) }
+}
+
+unsafe extern "C" {
+    fn realloc(p: *mut u8, size: usize) -> *mut u8;
+}
+
+#[inline]
+fn libc_realloc(p: *mut u8, size: usize) -> *mut u8 {
+    unsafe { realloc(p, size) }
+}
+
 // Math.* wrappers — each routes to the corresponding f64 method on Rust's
 // std float ops. The AOT path uses libc via Inkwell-emitted IR; both paths
 // produce identical results since libm and Rust's stdlib agree on these.
@@ -238,6 +304,9 @@ pub fn execute(ssa_module: &Module) -> Result<i32, JitError> {
     jit_builder.symbol("__torajs_str_concat", str_concat_runtime as *const u8);
     jit_builder.symbol("__torajs_obj_alloc", obj_alloc_runtime as *const u8);
     jit_builder.symbol("__torajs_obj_drop", obj_drop_runtime as *const u8);
+    jit_builder.symbol("__torajs_arr_alloc", arr_alloc_runtime as *const u8);
+    jit_builder.symbol("__torajs_arr_push", arr_push_runtime as *const u8);
+    jit_builder.symbol("__torajs_arr_drop", arr_drop_runtime as *const u8);
     jit_builder.symbol("__torajs_math_sqrt", math_sqrt_runtime as *const u8);
     jit_builder.symbol("__torajs_math_abs", math_abs_runtime as *const u8);
     jit_builder.symbol("__torajs_math_floor", math_floor_runtime as *const u8);
@@ -327,8 +396,10 @@ fn clif_type<M: CfModule>(module: &M, t: Type) -> ir::Type {
         // Cranelift represents booleans as `i8`; this matches what icmp /
         // fcmp produce.
         Type::Bool => ctypes::I8,
-        // Both opaque pointer + Str lower to host pointer width.
-        Type::Ptr | Type::Str | Type::Obj(_) => module.target_config().pointer_type(),
+        // Pointer-shaped types all lower to host pointer width.
+        Type::Ptr | Type::Str | Type::Obj(_) | Type::Arr(_) => {
+            module.target_config().pointer_type()
+        }
         Type::Void => panic!("Type::Void has no CLIF representation"),
     }
 }
@@ -488,7 +559,12 @@ fn lower_inst(
         }
         InstKind::Alloca(t) => {
             let bytes = match t {
-                Type::I64 | Type::F64 | Type::Ptr | Type::Str | Type::Obj(_) => 8,
+                Type::I64
+                | Type::F64
+                | Type::Ptr
+                | Type::Str
+                | Type::Obj(_)
+                | Type::Arr(_) => 8,
                 Type::I32 => 4,
                 Type::Bool => 1,
                 Type::Void => panic!("alloca of void"),
@@ -512,6 +588,23 @@ fn lower_inst(
             let v = operand(bcx, ptr_ty, value_map, data_refs, module, data_map, f, val);
             let p = operand(bcx, ptr_ty, value_map, data_refs, module, data_map, f, ptr);
             bcx.ins().store(MemFlags::new(), v, p, *offset as i32);
+            None
+        }
+        InstKind::LoadDyn(t, base, off) => {
+            // Dynamic offset — compute `addr = base + off` then load.
+            // Both base and off are i64 / pointer-sized at the SSA layer.
+            let p = operand(bcx, ptr_ty, value_map, data_refs, module, data_map, f, base);
+            let o = operand(bcx, ptr_ty, value_map, data_refs, module, data_map, f, off);
+            let addr = bcx.ins().iadd(p, o);
+            let ty = clif_type(module, *t);
+            Some(bcx.ins().load(ty, MemFlags::new(), addr, 0))
+        }
+        InstKind::StoreDyn(val, base, off) => {
+            let v = operand(bcx, ptr_ty, value_map, data_refs, module, data_map, f, val);
+            let p = operand(bcx, ptr_ty, value_map, data_refs, module, data_map, f, base);
+            let o = operand(bcx, ptr_ty, value_map, data_refs, module, data_map, f, off);
+            let addr = bcx.ins().iadd(p, o);
+            bcx.ins().store(MemFlags::new(), v, addr, 0);
             None
         }
         InstKind::SiToFp(op) => {

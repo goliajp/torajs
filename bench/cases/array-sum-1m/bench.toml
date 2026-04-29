@@ -1,0 +1,7 @@
+runs = 5
+warmup = 2
+
+# Array push + index sum stresses heap alloc + amortized realloc + tight
+# index loop. Workload is 10M iterations (despite the case name "1m" —
+# the family identifier; 1M finishes inside hyperfine's 5ms noise floor).
+torajs_opt = "O3"

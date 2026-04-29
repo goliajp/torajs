@@ -42,6 +42,12 @@ pub struct StringId(pub u32);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct StructId(pub u32);
 
+/// Index into `Module.arr_layouts`. Each entry holds one `Array<T>`
+/// instantiation's element type. Two `ArrId`s compare equal iff they
+/// refer to the same element type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ArrId(pub u32);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Type {
     I64,
@@ -73,6 +79,12 @@ pub enum Type {
     /// P2.4.c MVP: layout is N×8-byte slots in field declaration order;
     /// only Copy fields supported (recursive drop comes in P2.4.d).
     Obj(StructId),
+    /// Owned heap array of `T`. Layout: `{u64 len, u64 cap, T data[cap]}`
+    /// with uniform 8-byte slots regardless of element type — primitives
+    /// store directly, heap-typed elements (Str / Obj / nested Arr)
+    /// store a pointer. M1.2 MVP. The element type interns into
+    /// `module.arr_layouts[id]`.
+    Arr(ArrId),
 }
 
 impl Type {
@@ -86,6 +98,7 @@ impl Type {
             Type::Ptr => "ptr",
             Type::Str => "str",
             Type::Obj(_) => "obj",
+            Type::Arr(_) => "arr",
         }
     }
 
@@ -218,6 +231,14 @@ pub enum InstKind {
     /// `store <value>, <ptr>+<offset>` — void result; value's type
     /// determines the store width. Same offset convention as Load.
     Store(Operand, Operand, u64),
+    /// `%v = load_dyn <ty>, <ptr>+<dyn_byte_offset>` — like Load but the
+    /// byte offset is an SSA value instead of a constant. Used for
+    /// dynamic array indexing `xs[i]` where `i` isn't statically known.
+    /// Backends compute `addr = base + offset` then load.
+    LoadDyn(Type, Operand, Operand),
+    /// `store_dyn <value>, <ptr>+<dyn_byte_offset>` — symmetric for the
+    /// load. Used for `xs[i] = v`.
+    StoreDyn(Operand, Operand, Operand),
     /// `%v = sitofp <i64-operand>` — signed integer to f64 cast. Used to
     /// promote i64 operands when mixed with f64 in arithmetic / comparisons.
     SiToFp(Operand),
@@ -362,6 +383,9 @@ pub struct Module {
     /// share a single StructId via `intern_struct`. Layouts can recurse
     /// (a struct field of type `Obj(_)` references back into this Vec).
     pub struct_layouts: Vec<Vec<(String, Type)>>,
+    /// Interned `Array<T>` element types. ArrId = index. Two arrays of
+    /// the same element type share one ArrId via `intern_arr`.
+    pub arr_layouts: Vec<Type>,
 }
 
 impl Module {
@@ -409,6 +433,23 @@ impl Module {
     /// smaller types.)
     pub fn struct_size(&self, id: StructId) -> u64 {
         self.struct_layout(id).len() as u64 * 8
+    }
+
+    /// Intern an `Array<T>` element type. Returns the existing ArrId if
+    /// the same element type was already registered.
+    pub fn intern_arr(&mut self, elem: Type) -> ArrId {
+        for (i, existing) in self.arr_layouts.iter().enumerate() {
+            if *existing == elem {
+                return ArrId(i as u32);
+            }
+        }
+        let id = ArrId(self.arr_layouts.len() as u32);
+        self.arr_layouts.push(elem);
+        id
+    }
+
+    pub fn arr_elem(&self, id: ArrId) -> Type {
+        self.arr_layouts[id.0 as usize]
     }
 
     /// Pretty-print to stdout. Format is intentionally LLVM-IR-shaped so a
@@ -519,6 +560,20 @@ impl Function {
                 if *offset != 0 {
                     write!(w, " +{offset}")?;
                 }
+            }
+            InstKind::LoadDyn(t, ptr, offset) => {
+                write!(w, "load_dyn {}, ", t.as_str())?;
+                self.write_operand(w, ptr)?;
+                write!(w, " +")?;
+                self.write_operand(w, offset)?;
+            }
+            InstKind::StoreDyn(val, ptr, offset) => {
+                write!(w, "store_dyn ")?;
+                self.write_operand(w, val)?;
+                write!(w, ", ")?;
+                self.write_operand(w, ptr)?;
+                write!(w, " +")?;
+                self.write_operand(w, offset)?;
             }
             InstKind::SiToFp(op) => {
                 write!(w, "sitofp ")?;
