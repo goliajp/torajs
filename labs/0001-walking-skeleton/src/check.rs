@@ -80,6 +80,32 @@ pub fn is_class_method_name(name: &str) -> bool {
     name.starts_with("__cm_")
 }
 
+/// M5.2 — structural-prefix subtyping for class-method receiver arguments.
+/// `Dog` (fields: name, bark_count) is a valid receiver for an
+/// `Animal`-typed method (fields: name) because the `name` field sits at
+/// the same offset in both layouts. We accept `arg` as a subtype of
+/// `param` iff `param` is a `Struct` whose entire field list is a prefix
+/// (in order, by name + type) of `arg`'s field list. Anything else falls
+/// back to strict equality. Layout compatibility at the SSA / LLVM level
+/// is the same — both are ptr to the heap-allocated obj header.
+fn struct_is_prefix_subtype(arg: &Type, param: &Type) -> bool {
+    match (arg, param) {
+        (Type::Struct(arg_fields), Type::Struct(param_fields)) => {
+            if param_fields.len() > arg_fields.len() {
+                return false;
+            }
+            for (i, (pn, pt)) in param_fields.iter().enumerate() {
+                let (an, at) = &arg_fields[i];
+                if an != pn || at != pt {
+                    return false;
+                }
+            }
+            true
+        }
+        _ => false,
+    }
+}
+
 #[allow(dead_code)]
 fn resolve_type_ann(name: &str, aliases: &HashMap<String, Type>) -> Option<Type> {
     resolve_type_ann_full(name, aliases, &[], &HashMap::new())
@@ -1337,7 +1363,19 @@ impl Checker {
                 );
                 for (i, (param_ty, arg_id)) in params.iter().zip(args.iter()).enumerate() {
                     let arg_ty = self.type_of(ast, *arg_id)?;
-                    if param_ty != &Type::Any && &arg_ty != param_ty {
+                    // M5.2 — class-method dispatch: arg[0] is the receiver
+                    // and may be a SUBCLASS of the declared param type
+                    // (structural super-set: subclass struct's fields are
+                    // a prefix-extension of the parent's). The SSA / LLVM
+                    // layer treats both as ptr, so the call is correct as
+                    // long as the layout prefix matches. We just skip the
+                    // strict equality here.
+                    let skip_type_check = is_class_method && i == 0
+                        && struct_is_prefix_subtype(&arg_ty, param_ty);
+                    if !skip_type_check
+                        && param_ty != &Type::Any
+                        && &arg_ty != param_ty
+                    {
                         return Err(format!(
                             "argument {i}: expected {param_ty:?}, got {arg_ty:?}"
                         ));
@@ -1650,6 +1688,9 @@ impl Checker {
             Expr::This => panic!("internal: bare `this` reached check.rs (desugar didn't run?)"),
             Expr::New { class_name, .. } => {
                 panic!("internal: `new {class_name}` reached check.rs (desugar didn't run?)")
+            }
+            Expr::Super { .. } => {
+                panic!("internal: `super(...)` reached check.rs (desugar didn't run?)")
             }
         }
     }

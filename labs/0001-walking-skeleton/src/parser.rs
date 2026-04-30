@@ -941,6 +941,35 @@ impl Parser<'_> {
                 self.pos += 1;
                 Ok(self.ast.add_expr(Expr::This))
             }
+            Token::Super => {
+                // `super(args)` — only valid inside a subclass ctor; the
+                // desugar pass enforces that and rewrites to a Call to
+                // `__cm_<Parent>__ctor(__this, args)`. `super.method(args)`
+                // (explicit parent-method call) is M5.3.
+                self.pos += 1;
+                match self.peek() {
+                    Token::LParen => self.pos += 1,
+                    t => {
+                        return Err(format!(
+                            "expected `(` after `super`, got {t:?} at {}",
+                            self.at()
+                        ));
+                    }
+                }
+                let mut args: Vec<ExprId> = Vec::new();
+                if !matches!(self.peek(), Token::RParen) {
+                    args.push(self.parse_expr()?);
+                    while matches!(self.peek(), Token::Comma) {
+                        self.pos += 1;
+                        args.push(self.parse_expr()?);
+                    }
+                }
+                match self.peek() {
+                    Token::RParen => self.pos += 1,
+                    t => return Err(format!("expected `)`, got {t:?} at {}", self.at())),
+                }
+                Ok(self.ast.add_expr(Expr::Super { args }))
+            }
             Token::New => {
                 // `new ClassName(args)` — type args / generic ctors not yet
                 // supported; that's M5.2 alongside extends.
@@ -1233,6 +1262,25 @@ impl Parser<'_> {
             }
         };
         self.pos += 1;
+        // M5.2 — optional `extends BaseName` clause.
+        let parent: Option<String> = if matches!(self.peek(), Token::Extends) {
+            self.pos += 1;
+            match self.peek() {
+                Token::Ident(n) => {
+                    let n = n.clone();
+                    self.pos += 1;
+                    Some(n)
+                }
+                t => {
+                    return Err(format!(
+                        "expected parent class name after `extends`, got {t:?} at {}",
+                        self.at()
+                    ));
+                }
+            }
+        } else {
+            None
+        };
         match self.peek() {
             Token::LBrace => self.pos += 1,
             t => {
@@ -1342,6 +1390,7 @@ impl Parser<'_> {
         }
         Ok(Stmt::ClassDecl {
             name,
+            parent,
             fields,
             ctor,
             methods,

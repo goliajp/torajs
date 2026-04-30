@@ -32,6 +32,11 @@ pub enum Token {
     Class,
     New,
     This,
+    /// M5.2 — single inheritance: `class Sub extends Base { ... }`.
+    /// `super(args)` is only valid inside a subclass constructor; it
+    /// desugars to a call to the parent's `__cm_Parent__ctor`.
+    Extends,
+    Super,
     // punctuation
     Dot,
     Comma,
@@ -266,6 +271,8 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                     "class" => Token::Class,
                     "new" => Token::New,
                     "this" => Token::This,
+                    "extends" => Token::Extends,
+                    "super" => Token::Super,
                     _ => Token::Ident(name.to_string()),
                 };
                 emit(&mut out, token, start, i);

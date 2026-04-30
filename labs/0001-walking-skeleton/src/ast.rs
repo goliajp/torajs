@@ -95,6 +95,12 @@ pub enum Expr {
         class_name: String,
         args: Vec<ExprId>,
     },
+    /// M5.2 — `super(args)` inside a subclass constructor. Rewritten by
+    /// `desugar_classes` into `__cm_<Parent>__ctor(__this, args)` once
+    /// the surrounding class's parent is known.
+    Super {
+        args: Vec<ExprId>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -187,6 +193,11 @@ pub enum Stmt {
     /// SSA layer never sees `ClassDecl`.
     ClassDecl {
         name: String,
+        /// M5.2 — `class Sub extends Base { ... }`. None for root classes.
+        /// Multi-level inheritance is supported (Sub extends Mid extends Root)
+        /// as long as the chain is acyclic and every ancestor is declared
+        /// before the descendant in source order.
+        parent: Option<String>,
         fields: Vec<(String, String)>,
         ctor: Option<ClassCtor>,
         methods: Vec<ClassMethod>,
@@ -258,58 +269,178 @@ pub fn desugar_classes(ast: &mut Ast) {
     let mut appended: Vec<Stmt> = Vec::new();
 
     // Snapshot the class metadata first (cloned out so we can mutate
-    // ast.stmts in-place without aliasing).
-    let class_index: Vec<(usize, String, Vec<(String, String)>, Option<ClassCtor>, Vec<ClassMethod>)> =
-        ast.stmts
-            .iter()
-            .enumerate()
-            .filter_map(|(i, s)| match s {
-                Stmt::ClassDecl {
-                    name,
-                    fields,
-                    ctor,
-                    methods,
-                } => Some((
-                    i,
-                    name.clone(),
-                    fields.clone(),
-                    ctor.clone(),
-                    methods.clone(),
-                )),
-                _ => None,
-            })
-            .collect();
+    // ast.stmts in-place without aliasing). M5.2 adds `parent` to the
+    // tuple — for inheritance flattening + super(args) rewriting.
+    let class_index: Vec<(
+        usize,
+        String,
+        Option<String>,
+        Vec<(String, String)>,
+        Option<ClassCtor>,
+        Vec<ClassMethod>,
+    )> = ast
+        .stmts
+        .iter()
+        .enumerate()
+        .filter_map(|(i, s)| match s {
+            Stmt::ClassDecl {
+                name,
+                parent,
+                fields,
+                ctor,
+                methods,
+            } => Some((
+                i,
+                name.clone(),
+                parent.clone(),
+                fields.clone(),
+                ctor.clone(),
+                methods.clone(),
+            )),
+            _ => None,
+        })
+        .collect();
 
     if class_index.is_empty() {
         return;
     }
 
-    // Build the method dispatch table. Duplicate method names across
-    // classes are rejected — M5.1 has no virtual dispatch / interfaces.
-    for (_, cname, _, _, methods) in &class_index {
+    // Build the parent map and validate the inheritance graph.
+    let mut parent_map: std::collections::HashMap<String, Option<String>> =
+        std::collections::HashMap::new();
+    for (_, cname, parent, _, _, _) in &class_index {
+        parent_map.insert(cname.clone(), parent.clone());
+    }
+    // Detect missing-parent and cycle errors. We don't allow forward
+    // references to classes that come later in source order — every
+    // ancestor must be declared before its descendants. This keeps
+    // field-flattening + factory-emission order trivially correct.
+    let mut declared_so_far: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for (_, cname, parent, _, _, _) in &class_index {
+        if let Some(p) = parent {
+            if !declared_so_far.contains(p) {
+                panic!(
+                    "M5.2: `{cname} extends {p}` — parent class `{p}` must be declared \
+                     before `{cname}` (and must exist as a class, not a type alias)"
+                );
+            }
+        }
+        declared_so_far.insert(cname.clone());
+    }
+
+    // Compute the flattened (full) field list for each class along the
+    // inheritance chain: parent's fields followed by self's. This is the
+    // layout that `type C = { ... }` will declare and the factory will
+    // default-initialize.
+    let mut full_fields: std::collections::HashMap<String, Vec<(String, String)>> =
+        std::collections::HashMap::new();
+    for (_, cname, parent, fields, _, _) in &class_index {
+        let mut combined: Vec<(String, String)> = Vec::new();
+        if let Some(p) = parent {
+            // Parent must be in full_fields by now (declaration order check
+            // above guarantees this).
+            let pfields = full_fields.get(p).unwrap_or_else(|| {
+                panic!("internal: parent `{p}` of `{cname}` had no flattened fields")
+            });
+            combined.extend(pfields.iter().cloned());
+        }
+        for (fn_, ft) in fields {
+            // Subclass fields must not collide with parent fields. (TS
+            // allows shadowing with the same type, but M5.2.a keeps this
+            // simple — disallow.)
+            if combined.iter().any(|(n, _)| n == fn_) {
+                panic!(
+                    "M5.2: subclass `{cname}` redeclares parent field `{fn_}` — \
+                     not yet supported"
+                );
+            }
+            combined.push((fn_.clone(), ft.clone()));
+        }
+        full_fields.insert(cname.clone(), combined);
+    }
+
+    // Build the method dispatch table. Each method name resolves to the
+    // class that declares it; subclass redeclaration of an inherited
+    // method (override) is rejected for M5.2.a — virtual dispatch is M5.3.
+    for (_, cname, _, _, _, methods) in &class_index {
+        // Walk up the chain to detect overrides.
         for m in methods {
+            // Check ancestors.
+            let mut cur = parent_map.get(cname).cloned().flatten();
+            while let Some(anc) = cur {
+                if let Some(owner) = method_to_class.get(&m.name)
+                    && (owner == &anc || method_owner_is_in_chain(&parent_map, owner, &anc))
+                {
+                    panic!(
+                        "M5.2.a: subclass `{cname}` overrides parent method `{}` \
+                         (declared on `{owner}`) — virtual dispatch is M5.3, \
+                         rename for now",
+                        m.name
+                    );
+                }
+                cur = parent_map.get(&anc).cloned().flatten();
+            }
+            // Check siblings (any other class).
             if let Some(prev) = method_to_class.get(&m.name) {
                 panic!(
-                    "M5.1: method name `{}` is declared on both `{prev}` and `{cname}` — \
-                     M5.1 has no virtual dispatch (rename one, or wait for M5.2)",
+                    "M5.2: method name `{}` is declared on both `{prev}` and `{cname}` — \
+                     no virtual dispatch yet (rename one, or wait for M5.3)",
                     m.name
                 );
             }
             method_to_class.insert(m.name.clone(), cname.clone());
         }
     }
+    // Inherited methods: subclass instances should resolve a parent's
+    // method too. Walk each class's chain and add (parent_method →
+    // declaring_class) entries as additional resolution hints.
+    // Implementation: when handling `c.method()` rewriting, the dispatch
+    // table is keyed only by method name. If a method is declared on
+    // class A and class B extends A, then `b.someParentMethod()` works
+    // because `someParentMethod` is in `method_to_class` mapped to A.
+    // No extra work needed here.
 
     // For each class, build the list of typed default-initializer expressions
-    // that the factory will use to seed the `__this` object literal. We add
-    // these to ast.exprs once and reuse the ExprIds.
-    for (_, cname, fields, _, _) in &class_index {
-        let mut init_pairs: Vec<(String, ExprId)> = Vec::with_capacity(fields.len());
-        for (fname, fty) in fields {
+    // that the factory will use to seed the `__this` object literal. We use
+    // the FLATTENED field list (parent fields + self fields) so subclass
+    // factories produce a fully-initialized object.
+    for (_, cname, _, _, _, _) in &class_index {
+        let combined = full_fields.get(cname).unwrap();
+        let mut init_pairs: Vec<(String, ExprId)> = Vec::with_capacity(combined.len());
+        for (fname, fty) in combined {
             let init_expr = default_init_for_type(fty);
             let id = ast.add_expr(init_expr);
             init_pairs.push((fname.clone(), id));
         }
         class_field_inits.insert(cname.clone(), init_pairs);
+    }
+
+    // Pass 1.5 — rewrite `super(args)` inside each subclass's ctor body
+    // into a Call to `__cm_<Parent>__ctor(__this, args)`. Must run before
+    // pass 2 (which rewrites `Expr::This` and method-call shapes).
+    for (_, cname, parent, _, ctor, _) in &class_index {
+        let Some(c) = ctor.as_ref() else { continue };
+        let mut super_sites: Vec<(ExprId, Vec<ExprId>)> = Vec::new();
+        for s in &c.body {
+            collect_super_in_stmt(ast, s, &mut super_sites);
+        }
+        for (eid, args) in super_sites {
+            let parent_name = parent.as_ref().unwrap_or_else(|| {
+                panic!(
+                    "M5.2: `super(...)` used in `{cname}.constructor` but `{cname}` \
+                     has no `extends` clause"
+                )
+            });
+            let callee = ast.add_expr(Expr::Ident(format!("__cm_{parent_name}__ctor")));
+            let this_id = ast.add_expr(Expr::This);
+            let mut new_args = Vec::with_capacity(args.len() + 1);
+            new_args.push(this_id);
+            new_args.extend(args);
+            ast.exprs[eid.0 as usize] = Expr::Call {
+                callee,
+                args: new_args,
+            };
+        }
     }
 
     // Pass 2 — rewrite the expression arena. Walking by index is safe
@@ -356,12 +487,13 @@ pub fn desugar_classes(ast: &mut Ast) {
     }
 
     // Pass 3 — rewrite the stmt list. Replace each ClassDecl in-place
-    // with its TypeDecl, and accumulate the generated FnDecls.
-    for (idx, cname, fields, ctor, methods) in class_index {
+    // with its TypeDecl (using the flattened field list so subclasses
+    // carry parent fields too), and accumulate the generated FnDecls.
+    for (idx, cname, _parent, _own_fields, ctor, methods) in class_index {
         let type_decl = Stmt::TypeDecl {
             name: cname.clone(),
             type_params: Vec::new(),
-            fields: fields.clone(),
+            fields: full_fields[&cname].clone(),
         };
         ast.stmts[idx] = type_decl;
 
@@ -442,6 +574,162 @@ fn default_init_for_type(ann: &str) -> Expr {
         _ if ann.ends_with("[]") => Expr::Array(Vec::new()),
         _ => Expr::Number(0.0),
     }
+}
+
+/// Walk a stmt list and collect every `Expr::Super { args }` site, with
+/// the original args slice preserved so the caller can build the
+/// rewritten Call. Walks into nested blocks / control flow.
+fn collect_super_in_stmt(
+    ast: &Ast,
+    s: &Stmt,
+    out: &mut Vec<(ExprId, Vec<ExprId>)>,
+) {
+    match s {
+        Stmt::Expr(eid) | Stmt::Throw(eid) => collect_super_in_expr(ast, *eid, out),
+        Stmt::Return(maybe) => {
+            if let Some(eid) = maybe {
+                collect_super_in_expr(ast, *eid, out);
+            }
+        }
+        Stmt::LetDecl { init, .. } => collect_super_in_expr(ast, *init, out),
+        Stmt::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            collect_super_in_expr(ast, *cond, out);
+            collect_super_in_stmt(ast, then_branch, out);
+            if let Some(eb) = else_branch {
+                collect_super_in_stmt(ast, eb, out);
+            }
+        }
+        Stmt::While { cond, body } => {
+            collect_super_in_expr(ast, *cond, out);
+            collect_super_in_stmt(ast, body, out);
+        }
+        Stmt::For {
+            init,
+            cond,
+            step,
+            body,
+        } => {
+            if let Some(i) = init {
+                collect_super_in_stmt(ast, i, out);
+            }
+            if let Some(c) = cond {
+                collect_super_in_expr(ast, *c, out);
+            }
+            if let Some(st) = step {
+                collect_super_in_expr(ast, *st, out);
+            }
+            collect_super_in_stmt(ast, body, out);
+        }
+        Stmt::Block(stmts) => {
+            for st in stmts {
+                collect_super_in_stmt(ast, st, out);
+            }
+        }
+        Stmt::Try {
+            body,
+            catch_body,
+            finally_body,
+            ..
+        } => {
+            for st in body {
+                collect_super_in_stmt(ast, st, out);
+            }
+            for st in catch_body {
+                collect_super_in_stmt(ast, st, out);
+            }
+            if let Some(fb) = finally_body {
+                for st in fb {
+                    collect_super_in_stmt(ast, st, out);
+                }
+            }
+        }
+        Stmt::Break | Stmt::Continue => {}
+        Stmt::FnDecl { .. } | Stmt::TypeDecl { .. } | Stmt::ClassDecl { .. } => {}
+    }
+}
+
+fn collect_super_in_expr(
+    ast: &Ast,
+    eid: ExprId,
+    out: &mut Vec<(ExprId, Vec<ExprId>)>,
+) {
+    match ast.get_expr(eid) {
+        Expr::Super { args } => {
+            // Record the site, then descend into args (super itself
+            // probably doesn't nest super(args), but be safe).
+            let args_clone = args.clone();
+            for a in &args_clone {
+                collect_super_in_expr(ast, *a, out);
+            }
+            out.push((eid, args_clone));
+        }
+        Expr::Call { callee, args } => {
+            collect_super_in_expr(ast, *callee, out);
+            for a in args {
+                collect_super_in_expr(ast, *a, out);
+            }
+        }
+        Expr::BinOp { left, right, .. } => {
+            collect_super_in_expr(ast, *left, out);
+            collect_super_in_expr(ast, *right, out);
+        }
+        Expr::Unary { expr, .. } => collect_super_in_expr(ast, *expr, out),
+        Expr::Member { obj, .. } => collect_super_in_expr(ast, *obj, out),
+        Expr::Assign { target, value } => {
+            collect_super_in_expr(ast, *target, out);
+            collect_super_in_expr(ast, *value, out);
+        }
+        Expr::Index { obj, index } => {
+            collect_super_in_expr(ast, *obj, out);
+            collect_super_in_expr(ast, *index, out);
+        }
+        Expr::Array(elems) => {
+            for e in elems {
+                collect_super_in_expr(ast, *e, out);
+            }
+        }
+        Expr::ObjectLit { fields } => {
+            for (_, e) in fields {
+                collect_super_in_expr(ast, *e, out);
+            }
+        }
+        Expr::ArrowFn { body, .. } => {
+            for s in body {
+                collect_super_in_stmt(ast, s, out);
+            }
+        }
+        Expr::Closure { .. } => {}
+        Expr::New { args, .. } => {
+            for a in args {
+                collect_super_in_expr(ast, *a, out);
+            }
+        }
+        Expr::This | Expr::Ident(_) | Expr::String(_) | Expr::Number(_) | Expr::Bool(_) => {}
+    }
+}
+
+/// True iff `owner` is `target_ancestor` or any ancestor of `target_ancestor`.
+/// Used by the override-detection check.
+fn method_owner_is_in_chain(
+    parent_map: &std::collections::HashMap<String, Option<String>>,
+    owner: &str,
+    target_ancestor: &str,
+) -> bool {
+    if owner == target_ancestor {
+        return true;
+    }
+    let mut cur = parent_map.get(target_ancestor).cloned().flatten();
+    while let Some(p) = cur {
+        if p == owner {
+            return true;
+        }
+        cur = parent_map.get(&p).cloned().flatten();
+    }
+    false
 }
 
 fn build_factory_body(
@@ -840,7 +1128,7 @@ fn scan_expr_for_calls(ast: &Ast, eid: ExprId, out: &mut Vec<String>) {
         // outer fn's may_throw bit until the outer fn actually invokes
         // the closure (which is itself a Call → tracked above).
         Expr::ArrowFn { .. } | Expr::Closure { .. } => {}
-        Expr::New { args, .. } => {
+        Expr::New { args, .. } | Expr::Super { args } => {
             for a in args {
                 scan_expr_for_calls(ast, *a, out);
             }
@@ -918,7 +1206,7 @@ fn walk_expr(ast: &Ast, eid: ExprId, bound: &mut Vec<String>, out: &mut Vec<Stri
         // class method whose desugar hasn't completed; in practice we
         // run desugar_classes before lift_arrow_fns, so they're inert.
         Expr::This => {}
-        Expr::New { args, .. } => {
+        Expr::New { args, .. } | Expr::Super { args } => {
             for a in args {
                 walk_expr(ast, *a, bound, out);
             }
@@ -1092,6 +1380,7 @@ impl Ast {
             },
             Stmt::ClassDecl {
                 name,
+                parent,
                 fields,
                 ctor,
                 methods,
@@ -1100,7 +1389,14 @@ impl Ast {
                     .iter()
                     .map(|(n, t)| format!("{n}: {t}"))
                     .collect();
-                println!("{pad}ClassDecl {name} fields={{ {} }}", parts.join(", "));
+                let ext = match parent {
+                    Some(p) => format!(" extends {p}"),
+                    None => String::new(),
+                };
+                println!(
+                    "{pad}ClassDecl {name}{ext} fields={{ {} }}",
+                    parts.join(", ")
+                );
                 if let Some(c) = ctor {
                     let plist: Vec<String> = c
                         .params
@@ -1214,6 +1510,12 @@ impl Ast {
             Expr::This => println!("{pad}This"),
             Expr::New { class_name, args } => {
                 println!("{pad}New {class_name}");
+                for a in args {
+                    self.print_expr(*a, indent + 1);
+                }
+            }
+            Expr::Super { args } => {
+                println!("{pad}Super");
                 for a in args {
                     self.print_expr(*a, indent + 1);
                 }
