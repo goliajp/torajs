@@ -407,6 +407,32 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         &[Type::F64, Type::F64],
         Type::F64,
     );
+    // M4 — exception state runtime. Three intrinsics around two
+    // module-level i64 globals (`throw_active`, `throw_value`) that
+    // the backend implements. Lowering uses set/check/take to thread
+    // the throw state through the call path; user code never touches
+    // these symbols directly.
+    let throw_set_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_throw_set",
+        &[Type::I64],
+        Type::Void,
+    );
+    let throw_check_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_throw_check",
+        &[],
+        Type::I64,
+    );
+    let throw_take_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_throw_take",
+        &[],
+        Type::I64,
+    );
 
     // Pass 0.5: register user-declared type aliases. `type Point = { x:
     // number, y: number }` interns the layout in `module.struct_layouts`
@@ -561,6 +587,9 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         math_pow: math_pow_id,
         math_min: math_min_id,
         math_max: math_max_id,
+        throw_set: throw_set_id,
+        throw_check: throw_check_id,
+        throw_take: throw_take_id,
     };
 
     // (struct_layouts already detached from module at top of lower(),
@@ -677,6 +706,13 @@ struct Intrinsics {
     math_pow: FuncId,
     math_min: FuncId,
     math_max: FuncId,
+    /// M4 — exception state. `throw_set(value)` writes to module-level
+    /// throw_active=1 + throw_value; `throw_check()` returns active flag;
+    /// `throw_take()` reads value + clears flag. The backend defines the
+    /// underlying globals.
+    throw_set: FuncId,
+    throw_check: FuncId,
+    throw_take: FuncId,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -746,6 +782,7 @@ fn synthesize_main(
             fn_sigs,
             struct_layouts,
             generic_struct_decls,
+            try_stack: Vec::new(),
             locals: HashMap::new(),
             scope_stack: vec![Vec::new()],
             loop_stack: Vec::new(),
@@ -1061,6 +1098,7 @@ fn lower_fn(
         fn_sigs,
         struct_layouts,
         generic_struct_decls,
+        try_stack: Vec::new(),
         locals: HashMap::new(),
         scope_stack: vec![Vec::new()],
         loop_stack: Vec::new(),
@@ -1230,6 +1268,12 @@ struct LowerCtx<'a> {
     /// to instantiate `Foo<arg|...>` annotations in let-decl / fn-arg /
     /// closure-construction sites.
     generic_struct_decls: &'a HashMap<String, (Vec<String>, Vec<(String, String)>)>,
+    /// M4 — innermost-active try block's catch-block target. Each
+    /// `Stmt::Try` lowering pushes the catch BlockId before lowering its
+    /// body and pops after; user-fn calls in scope insert a cond_br on
+    /// `__torajs_throw_check()` that targets `*top` (or the fn's
+    /// propagate-out path if empty).
+    try_stack: Vec<BlockId>,
     /// name → (alloca-ptr value, contents type, moved flag). Every local —
     /// including the function's own parameters — sits behind an alloca.
     /// mem2reg lifts them to SSA values at -O1+.
@@ -1780,6 +1824,125 @@ impl<'a> LowerCtx<'a> {
                     .last()
                     .expect("ssa-lower: `continue` outside of any loop");
                 self.f.set_term(self.cur_block, Terminator::Br(cont_target));
+            }
+            Stmt::Throw(eid) => {
+                // M4.1 — `throw v` lowers to:
+                //   call __torajs_throw_set(v)
+                //   <emit drops for owned locals>
+                //   ret <sentinel>
+                // The sentinel value is whatever default fits the fn's
+                // return type (0 for I64, 0.0 for F64, void for Void).
+                // The caller's call-site check picks up the throw_active
+                // flag immediately and routes to the catch / propagate.
+                let v = self.lower_expr(*eid);
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.throw_set, vec![v]),
+                );
+                self.emit_drops_for_owned_locals();
+                let cb = self.cur_block;
+                let ret_ty = self.f.ret;
+                let term = match ret_ty {
+                    Type::Void => Terminator::Ret(None),
+                    Type::I64 | Type::I32 | Type::Bool => {
+                        Terminator::Ret(Some(Operand::ConstI64(0)))
+                    }
+                    Type::F64 => Terminator::Ret(Some(Operand::ConstF64(0.0))),
+                    _ => {
+                        // Pointer-shaped sentinels: zero-cast i64.
+                        Terminator::Ret(Some(Operand::ConstI64(0)))
+                    }
+                };
+                self.f.set_term(cb, term);
+            }
+            Stmt::Try {
+                body,
+                catch_param,
+                catch_body,
+                finally_body: _, // M4.2
+            } => {
+                // M4.1 — control-flow shape:
+                //   <pre>: call ...; cond_br throw_active, catch, body_continuation
+                //   body: lower body stmts (each user-fn-call inserts a
+                //         cond_br on throw_active → catch via try_stack);
+                //         on fall-through, br after_try
+                //   catch: take throw value, bind to catch_param,
+                //          lower catch_body; on fall-through br after_try
+                //   after_try: rest of program
+                let body_blk = self.f.add_block();
+                let catch_blk = self.f.add_block();
+                let after_blk = self.f.add_block();
+                self.f.set_term(self.cur_block, Terminator::Br(body_blk));
+                // body
+                self.cur_block = body_blk;
+                self.try_stack.push(catch_blk);
+                self.scope_stack.push(Vec::new());
+                for s in body {
+                    self.lower_stmt(s);
+                    if !self.cur_open() {
+                        break;
+                    }
+                }
+                if self.cur_open() {
+                    // M4.1 minimal — no drops on try/catch fall-through
+                    // beyond what `lower_stmt` already emitted. Owned
+                    // locals declared inside try/catch are dropped at
+                    // fn-end via emit_drops_for_owned_locals; full
+                    // throw-time stack-unwind drops land in M4.2.
+                    let cb = self.cur_block;
+                    self.f.set_term(cb, Terminator::Br(after_blk));
+                }
+                self.scope_stack.pop();
+                self.try_stack.pop();
+                // catch
+                self.cur_block = catch_blk;
+                self.scope_stack.push(Vec::new());
+                if let Some(p) = catch_param {
+                    let v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(self.intrinsics.throw_take, vec![]),
+                        Type::I64,
+                        Some(p),
+                    );
+                    let slot = self.alloca(Type::I64, Some(p));
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Store(Operand::Value(v), Operand::Value(slot), 0),
+                    );
+                    self.locals.insert(
+                        p.clone(),
+                        LocalInfo {
+                            slot,
+                            ty: Type::I64,
+                            moved: false,
+                            scope_depth: self.scope_stack.len() - 1,
+                        },
+                    );
+                    self.scope_stack.last_mut().unwrap().push(p.clone());
+                } else {
+                    // No param — still clear the active flag.
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Call(self.intrinsics.throw_take, vec![]),
+                    );
+                }
+                for s in catch_body {
+                    self.lower_stmt(s);
+                    if !self.cur_open() {
+                        break;
+                    }
+                }
+                if self.cur_open() {
+                    // M4.1 minimal — no drops on try/catch fall-through
+                    // beyond what `lower_stmt` already emitted. Owned
+                    // locals declared inside try/catch are dropped at
+                    // fn-end via emit_drops_for_owned_locals; full
+                    // throw-time stack-unwind drops land in M4.2.
+                    let cb = self.cur_block;
+                    self.f.set_term(cb, Terminator::Br(after_blk));
+                }
+                self.scope_stack.pop();
+                self.cur_block = after_blk;
             }
             Stmt::If {
                 cond,
@@ -2384,6 +2547,7 @@ impl<'a> LowerCtx<'a> {
                 let v = self
                     .f
                     .append_inst(self.cur_block, InstKind::Call(target, argv), ret_ty, None);
+                self.emit_throw_check(Some(target));
                 Operand::Value(v)
             }
             Expr::ObjectLit { fields } => {
@@ -3020,6 +3184,92 @@ impl<'a> LowerCtx<'a> {
         fid == self.intrinsics.math_pow
             || fid == self.intrinsics.math_min
             || fid == self.intrinsics.math_max
+    }
+
+    /// True if `fid` is one of the runtime intrinsics declared at the top
+    /// of `lower()`. None of these throw, so M4's call-site throw-check
+    /// can skip the cond_br after their calls (saves a runtime fn call
+    /// per intrinsic invocation in the hot path).
+    fn is_intrinsic(&self, fid: FuncId) -> bool {
+        let i = &self.intrinsics;
+        fid == i.print_i64
+            || fid == i.print_f64
+            || fid == i.str_alloc
+            || fid == i.str_print
+            || fid == i.str_drop
+            || fid == i.str_concat
+            || fid == i.obj_alloc
+            || fid == i.obj_drop
+            || fid == i.arr_alloc
+            || fid == i.arr_push
+            || fid == i.arr_drop
+            || fid == i.math_sqrt
+            || fid == i.math_abs
+            || fid == i.math_floor
+            || fid == i.math_ceil
+            || fid == i.math_log
+            || fid == i.math_exp
+            || fid == i.math_pow
+            || fid == i.math_min
+            || fid == i.math_max
+            || fid == i.throw_set
+            || fid == i.throw_check
+            || fid == i.throw_take
+    }
+
+    /// M4 — emit the per-call-site throw check. After a user fn returns,
+    /// load the throw_active flag; if non-zero, branch to the innermost
+    /// active try-block's catch (via `try_stack`) or — if no try is
+    /// active in this fn — emit drops + ret a sentinel so the caller's
+    /// own throw_check picks it up. Skips entirely for runtime intrinsics
+    /// (they never throw).
+    fn emit_throw_check(&mut self, target: Option<FuncId>) {
+        if let Some(fid) = target
+            && self.is_intrinsic(fid)
+        {
+            return;
+        }
+        let active = self.f.append_inst(
+            self.cur_block,
+            InstKind::Call(self.intrinsics.throw_check, vec![]),
+            Type::I64,
+            None,
+        );
+        let cmp = self.f.append_inst(
+            self.cur_block,
+            InstKind::ICmp(IPred::Ne, Operand::Value(active), Operand::ConstI64(0)),
+            Type::Bool,
+            None,
+        );
+        let normal_blk = self.f.add_block();
+        let throw_blk = self.f.add_block();
+        let cb = self.cur_block;
+        self.f.set_term(
+            cb,
+            Terminator::CondBr {
+                cond: Operand::Value(cmp),
+                then_blk: throw_blk,
+                else_blk: normal_blk,
+            },
+        );
+        // throw_blk: route to innermost active try's catch, or
+        // propagate (drop owned locals + ret sentinel).
+        if let Some(catch) = self.try_stack.last().copied() {
+            self.f.set_term(throw_blk, Terminator::Br(catch));
+        } else {
+            self.cur_block = throw_blk;
+            self.emit_drops_for_owned_locals();
+            let cb2 = self.cur_block;
+            let ret_ty = self.f.ret;
+            let term = match ret_ty {
+                Type::Void => Terminator::Ret(None),
+                Type::F64 => Terminator::Ret(Some(Operand::ConstF64(0.0))),
+                Type::I32 => Terminator::Ret(Some(Operand::ConstI32(0))),
+                _ => Terminator::Ret(Some(Operand::ConstI64(0))),
+            };
+            self.f.set_term(cb2, term);
+        }
+        self.cur_block = normal_blk;
     }
 
     /// Look up the callee's return type from the signatures map populated

@@ -220,6 +220,12 @@ impl Parser<'_> {
         if matches!(self.peek(), Token::Return) {
             return self.parse_return();
         }
+        if matches!(self.peek(), Token::Throw) {
+            return self.parse_throw();
+        }
+        if matches!(self.peek(), Token::Try) {
+            return self.parse_try();
+        }
         let mutable = match self.peek() {
             Token::Let => Some(true),
             Token::Const => Some(false),
@@ -450,6 +456,108 @@ impl Parser<'_> {
             self.pos += 1;
         }
         Ok(Stmt::Return(expr))
+    }
+
+    fn parse_throw(&mut self) -> Result<Stmt, String> {
+        self.pos += 1; // consume `throw`
+        let expr = self.parse_expr()?;
+        if matches!(self.peek(), Token::Semi) {
+            self.pos += 1;
+        }
+        Ok(Stmt::Throw(expr))
+    }
+
+    /// `try { body } catch (e) { catch_body } [finally { finally_body }]`.
+    /// `catch (e)` is required for now — TS allows `try { } finally { }`
+    /// without catch but our M4.1 surface requires the catch.
+    fn parse_try(&mut self) -> Result<Stmt, String> {
+        self.pos += 1; // consume `try`
+        let body = self.parse_block_stmts("try")?;
+        // `catch (e) { ... }`
+        match self.peek() {
+            Token::Catch => self.pos += 1,
+            t => {
+                return Err(format!(
+                    "expected `catch` after try-block, got {t:?} at {}",
+                    self.at()
+                ));
+            }
+        }
+        let catch_param = if matches!(self.peek(), Token::LParen) {
+            self.pos += 1;
+            let n = match self.peek() {
+                Token::Ident(n) => n.clone(),
+                t => {
+                    return Err(format!(
+                        "expected catch parameter name, got {t:?} at {}",
+                        self.at()
+                    ));
+                }
+            };
+            self.pos += 1;
+            // Optional type annotation `(e: number)` — accepted but
+            // ignored for now (M4.1 only types throws as numbers).
+            if matches!(self.peek(), Token::Colon) {
+                self.pos += 1;
+                let _ = self.parse_type_ann()?;
+            }
+            match self.peek() {
+                Token::RParen => self.pos += 1,
+                t => {
+                    return Err(format!(
+                        "expected `)` after catch param, got {t:?} at {}",
+                        self.at()
+                    ));
+                }
+            }
+            Some(n)
+        } else {
+            None
+        };
+        let catch_body = self.parse_block_stmts("catch")?;
+        // Optional finally — M4.2 wires the actual semantics; M4.1 just
+        // accepts and stores the body.
+        let finally_body = if matches!(self.peek(), Token::Finally) {
+            self.pos += 1;
+            Some(self.parse_block_stmts("finally")?)
+        } else {
+            None
+        };
+        Ok(Stmt::Try {
+            body,
+            catch_param,
+            catch_body,
+            finally_body,
+        })
+    }
+
+    /// Parse a `{ ... }` block as a flat list of statements (used by try /
+    /// catch / finally where we want the inner stmts directly, not wrapped
+    /// in `Stmt::Block`).
+    fn parse_block_stmts(&mut self, ctx: &str) -> Result<Vec<Stmt>, String> {
+        match self.peek() {
+            Token::LBrace => self.pos += 1,
+            t => {
+                return Err(format!(
+                    "expected `{{` to begin {ctx} block, got {t:?} at {}",
+                    self.at()
+                ));
+            }
+        }
+        let mut stmts = Vec::new();
+        while !matches!(self.peek(), Token::RBrace | Token::Eof) {
+            stmts.push(self.parse_stmt()?);
+        }
+        match self.peek() {
+            Token::RBrace => self.pos += 1,
+            t => {
+                return Err(format!(
+                    "expected `}}` to end {ctx} block, got {t:?} at {}",
+                    self.at()
+                ));
+            }
+        }
+        Ok(stmts)
     }
 
     fn parse_while(&mut self) -> Result<Stmt, String> {

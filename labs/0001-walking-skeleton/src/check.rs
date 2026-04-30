@@ -771,6 +771,55 @@ impl Checker {
                 self.check_stmt(ast, body);
                 self.scopes.pop();
             }
+            Stmt::Throw(eid) => {
+                // M4.1 — only `number`-typed throws are supported in the
+                // initial slice (matches the global throw-state slot's
+                // i64 width). Future relaxation lands when we add a
+                // Boxed Error / variant value type.
+                match self.type_of(ast, *eid) {
+                    Ok(Type::Number) => {}
+                    Ok(other) => self.errors.push(format!(
+                        "throw value must be number, got {other:?}"
+                    )),
+                    Err(e) => self.errors.push(e),
+                }
+            }
+            Stmt::Try {
+                body,
+                catch_param,
+                catch_body,
+                finally_body,
+            } => {
+                // body in a fresh scope
+                self.scopes.push(HashMap::new());
+                for s in body {
+                    self.check_stmt(ast, s);
+                }
+                self.scopes.pop();
+                // catch in a fresh scope with `e: number` injected
+                self.scopes.push(HashMap::new());
+                if let Some(p) = catch_param {
+                    let _ = self.declare(
+                        p.clone(),
+                        LocalInfo {
+                            ty: Type::Number,
+                            mutable: true,
+                            moved: false,
+                        },
+                    );
+                }
+                for s in catch_body {
+                    self.check_stmt(ast, s);
+                }
+                self.scopes.pop();
+                if let Some(fb) = finally_body {
+                    self.scopes.push(HashMap::new());
+                    for s in fb {
+                        self.check_stmt(ast, s);
+                    }
+                    self.scopes.pop();
+                }
+            }
             Stmt::Break | Stmt::Continue => {
                 // No type-side state to track; the lowerer enforces that
                 // these only appear inside loops.

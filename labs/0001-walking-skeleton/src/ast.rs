@@ -125,6 +125,21 @@ pub enum Stmt {
     /// `continue;` — jumps to the innermost loop's step (for) or
     /// header (while). M1.7.
     Continue,
+    /// `throw <expr>;` — M4. The thrown value's type is whatever
+    /// `<expr>` resolves to (currently number-only at the SSA layer).
+    /// Lowered to a write into `__torajs_throw_value` + an immediate
+    /// return from the enclosing fn (with a sentinel result).
+    Throw(ExprId),
+    /// `try { body } catch (e) { catch_body } finally { finally_body }`.
+    /// `catch_param` is the binding name for the caught value, typed
+    /// matching the `throw` site's value type. M4.1 supports try+catch;
+    /// `finally_body` lands in M4.2.
+    Try {
+        body: Vec<Stmt>,
+        catch_param: Option<String>,
+        catch_body: Vec<Stmt>,
+        finally_body: Option<Vec<Stmt>>,
+    },
     Block(Vec<Stmt>),
     FnDecl {
         name: String,
@@ -314,6 +329,32 @@ fn walk_stmt(ast: &Ast, s: &Stmt, bound: &mut Vec<String>, out: &mut Vec<String>
             bound.truncate(saved);
         }
         Stmt::Break | Stmt::Continue => {}
+        Stmt::Throw(eid) => walk_expr(ast, *eid, bound, out),
+        Stmt::Try {
+            body,
+            catch_param,
+            catch_body,
+            finally_body,
+        } => {
+            let saved = bound.len();
+            for s in body {
+                walk_stmt(ast, s, bound, out);
+            }
+            bound.truncate(saved);
+            if let Some(name) = catch_param {
+                bound.push(name.clone());
+            }
+            for s in catch_body {
+                walk_stmt(ast, s, bound, out);
+            }
+            bound.truncate(saved);
+            if let Some(fb) = finally_body {
+                for s in fb {
+                    walk_stmt(ast, s, bound, out);
+                }
+                bound.truncate(saved);
+            }
+        }
         Stmt::FnDecl { .. } | Stmt::TypeDecl { .. } => {
             // FnDecl inside an arrow body would be unusual; conservatively
             // ignore since check.rs hoists these out anyway.
@@ -461,6 +502,36 @@ impl Ast {
             }
             Stmt::Break => println!("{pad}Break"),
             Stmt::Continue => println!("{pad}Continue"),
+            Stmt::Throw(eid) => {
+                println!("{pad}Throw");
+                self.print_expr(*eid, indent + 1);
+            }
+            Stmt::Try {
+                body,
+                catch_param,
+                catch_body,
+                finally_body,
+            } => {
+                println!("{pad}Try");
+                println!("{pad}  body:");
+                for s in body {
+                    self.print_stmt(s, indent + 2);
+                }
+                if let Some(p) = catch_param {
+                    println!("{pad}  catch ({p}):");
+                } else {
+                    println!("{pad}  catch:");
+                }
+                for s in catch_body {
+                    self.print_stmt(s, indent + 2);
+                }
+                if let Some(fb) = finally_body {
+                    println!("{pad}  finally:");
+                    for s in fb {
+                        self.print_stmt(s, indent + 2);
+                    }
+                }
+            }
             Stmt::Block(stmts) => {
                 println!("{pad}Block");
                 for s in stmts {

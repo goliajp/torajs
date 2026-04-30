@@ -122,6 +122,15 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
             "__torajs_math_max" => {
                 define_math_binary(&ctx, &llvm_module, "__torajs_math_max", "fmax")
             }
+            "__torajs_throw_set" => {
+                define_throw_set(&ctx, &llvm_module)
+            }
+            "__torajs_throw_check" => {
+                define_throw_check(&ctx, &llvm_module)
+            }
+            "__torajs_throw_take" => {
+                define_throw_take(&ctx, &llvm_module)
+            }
             _ => declare_ssa_fn(&ctx, &llvm_module, f),
         };
         fn_map.push(llvm_fn);
@@ -150,6 +159,9 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
         "__torajs_math_pow",
         "__torajs_math_min",
         "__torajs_math_max",
+        "__torajs_throw_set",
+        "__torajs_throw_check",
+        "__torajs_throw_take",
     ];
     for (i, f) in ssa_module.funcs.iter().enumerate() {
         if f.is_declaration() || intrinsics.contains(&f.name.as_str()) {
@@ -523,6 +535,91 @@ fn define_math_binary<'ctx>(
         .unwrap_basic()
         .into_float_value();
     builder.build_return(Some(&r)).unwrap();
+    f
+}
+
+/// M4 — exception state. Two module-level i64 globals
+/// (`__torajs_throw_active`, `__torajs_throw_value`) plus three runtime
+/// helpers operating on them. Lowered code calls these (never the
+/// globals directly) so the same shape works in both AOT (LLVM IR) and
+/// JIT (Rust extern "C" fns over thread-local statics).
+fn ensure_throw_globals<'ctx>(
+    ctx: &'ctx Context,
+    m: &LlvmModule<'ctx>,
+) -> (
+    inkwell::values::GlobalValue<'ctx>,
+    inkwell::values::GlobalValue<'ctx>,
+) {
+    let i64_t = ctx.i64_type();
+    let active = match m.get_global("__torajs_throw_active") {
+        Some(g) => g,
+        None => {
+            let g = m.add_global(i64_t, None, "__torajs_throw_active");
+            g.set_initializer(&i64_t.const_int(0, false));
+            g
+        }
+    };
+    let value = match m.get_global("__torajs_throw_value") {
+        Some(g) => g,
+        None => {
+            let g = m.add_global(i64_t, None, "__torajs_throw_value");
+            g.set_initializer(&i64_t.const_int(0, false));
+            g
+        }
+    };
+    (active, value)
+}
+
+fn define_throw_set<'ctx>(ctx: &'ctx Context, m: &LlvmModule<'ctx>) -> FunctionValue<'ctx> {
+    let (active_g, value_g) = ensure_throw_globals(ctx, m);
+    let builder = ctx.create_builder();
+    let i64_t = ctx.i64_type();
+    let void_t = ctx.void_type();
+    let fn_t = void_t.fn_type(&[i64_t.into()], false);
+    let f = m.add_function("__torajs_throw_set", fn_t, None);
+    let entry = ctx.append_basic_block(f, "entry");
+    builder.position_at_end(entry);
+    let v = f.get_nth_param(0).unwrap().into_int_value();
+    builder
+        .build_store(active_g.as_pointer_value(), i64_t.const_int(1, false))
+        .unwrap();
+    builder.build_store(value_g.as_pointer_value(), v).unwrap();
+    builder.build_return(None).unwrap();
+    f
+}
+
+fn define_throw_check<'ctx>(ctx: &'ctx Context, m: &LlvmModule<'ctx>) -> FunctionValue<'ctx> {
+    let (active_g, _) = ensure_throw_globals(ctx, m);
+    let builder = ctx.create_builder();
+    let i64_t = ctx.i64_type();
+    let fn_t = i64_t.fn_type(&[], false);
+    let f = m.add_function("__torajs_throw_check", fn_t, None);
+    let entry = ctx.append_basic_block(f, "entry");
+    builder.position_at_end(entry);
+    let v = builder
+        .build_load(i64_t, active_g.as_pointer_value(), "v")
+        .unwrap()
+        .into_int_value();
+    builder.build_return(Some(&v)).unwrap();
+    f
+}
+
+fn define_throw_take<'ctx>(ctx: &'ctx Context, m: &LlvmModule<'ctx>) -> FunctionValue<'ctx> {
+    let (active_g, value_g) = ensure_throw_globals(ctx, m);
+    let builder = ctx.create_builder();
+    let i64_t = ctx.i64_type();
+    let fn_t = i64_t.fn_type(&[], false);
+    let f = m.add_function("__torajs_throw_take", fn_t, None);
+    let entry = ctx.append_basic_block(f, "entry");
+    builder.position_at_end(entry);
+    let v = builder
+        .build_load(i64_t, value_g.as_pointer_value(), "v")
+        .unwrap()
+        .into_int_value();
+    builder
+        .build_store(active_g.as_pointer_value(), i64_t.const_int(0, false))
+        .unwrap();
+    builder.build_return(Some(&v)).unwrap();
     f
 }
 

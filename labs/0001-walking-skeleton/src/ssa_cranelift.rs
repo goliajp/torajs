@@ -207,6 +207,32 @@ extern "C" fn arr_drop_runtime(p: *mut u8) {
     unsafe { free(p) }
 }
 
+// M4 — exception state. Two thread-local i64 globals plus three
+// runtime fns that ssa_lower emits as Call sites. Non-thread-safe
+// (the JIT compiles + runs in one thread); the AOT path defines the
+// same symbols in LLVM IR with module-level globals.
+static mut TORAJS_THROW_ACTIVE: i64 = 0;
+static mut TORAJS_THROW_VALUE: i64 = 0;
+
+extern "C" fn throw_set_runtime(v: i64) {
+    unsafe {
+        TORAJS_THROW_ACTIVE = 1;
+        TORAJS_THROW_VALUE = v;
+    }
+}
+
+extern "C" fn throw_check_runtime() -> i64 {
+    unsafe { TORAJS_THROW_ACTIVE }
+}
+
+extern "C" fn throw_take_runtime() -> i64 {
+    unsafe {
+        let v = TORAJS_THROW_VALUE;
+        TORAJS_THROW_ACTIVE = 0;
+        v
+    }
+}
+
 unsafe extern "C" {
     fn realloc(p: *mut u8, size: usize) -> *mut u8;
 }
@@ -316,6 +342,9 @@ pub fn execute(ssa_module: &Module) -> Result<i32, JitError> {
     jit_builder.symbol("__torajs_math_pow", math_pow_runtime as *const u8);
     jit_builder.symbol("__torajs_math_min", math_min_runtime as *const u8);
     jit_builder.symbol("__torajs_math_max", math_max_runtime as *const u8);
+    jit_builder.symbol("__torajs_throw_set", throw_set_runtime as *const u8);
+    jit_builder.symbol("__torajs_throw_check", throw_check_runtime as *const u8);
+    jit_builder.symbol("__torajs_throw_take", throw_take_runtime as *const u8);
 
     let mut module = JITModule::new(jit_builder);
     let ptr_ty = module.target_config().pointer_type();

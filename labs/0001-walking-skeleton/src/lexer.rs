@@ -20,6 +20,11 @@ pub enum Token {
     Return,
     /// `type Foo = { x: number }` declares a structural type alias.
     Type,
+    /// M4 — exception handling.
+    Try,
+    Catch,
+    Finally,
+    Throw,
     // punctuation
     Dot,
     Comma,
@@ -247,6 +252,10 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                     "function" => Token::Function,
                     "return" => Token::Return,
                     "type" => Token::Type,
+                    "try" => Token::Try,
+                    "catch" => Token::Catch,
+                    "finally" => Token::Finally,
+                    "throw" => Token::Throw,
                     _ => Token::Ident(name.to_string()),
                 };
                 emit(&mut out, token, start, i);
