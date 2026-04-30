@@ -110,11 +110,12 @@ console.log(Math.floor(Math.sqrt(alice.age * alice.age)));
 | **M2 Phase A/B** | non-capturing arrow fns + first-class fn pointers (`__fn(P)->R` annotation, FnSig, FnAddr+CallIndirect) | ✓ |
 | **M2 Phase C** | closures with **implicit captures** — heap env block `[fn_ptr, cap_0, cap_1, ...]`, env-load preamble in lifted body, `Type::Closure(SigId)` | ✓ 2026-04-30 |
 | **M3.1+M3.2+M3.3** | generics — `function id<T>(x: T): T`, type-arg inference at call sites, monomorphization pre-pass | ✓ 2026-04-30 |
+| **M3.4** | generic struct types — `type Pair<A, B> = { fst: A, snd: B }` instantiated on-demand into concrete `Type::Obj(StructId)` | ✓ 2026-04-30 |
 | ~~P2.3~~ | ~~`Rc<T>` first-class~~ | **REMOVED** — incompatible with TS-subset framing |
 
 ### Bench position (M4 Pro, hyperfine n=5)
 
-11 of 11 cases green on `torajs` (AOT) + `torajs-jit`. Vs **rust**: 9 wins / 1 tie / 1 loss (closure-counter, ~17%) on AOT. Vs **bun**: 11/11 wins on every case. Vs **node-v8**: 11/11 wins (4-71×). See `README.md` for the full table.
+13 of 13 cases green on `torajs` (AOT) + `torajs-jit`. Vs **rust**: 11 wins / 1 tie / 1 loss (closure-counter, ~17%) on AOT — the new `generic-pair-1m` lands at torajs 1.47 ms vs rust 2.51 ms (1.71× faster) thanks to LLVM eliding the malloc/free pair via heap-to-stack promotion. Vs **bun**: 13/13 wins on every case. Vs **node-v8**: 13/13 wins (4-71×). See `README.md` for the full table.
 
 ### Code size
 
@@ -126,7 +127,7 @@ bench/                             11 cases × 5 langs + harness + runners + res
 
 ### Currently executing
 
-M3 (generics — `function id<T>(x: T): T`) just shipped via commit `51c04d2`. Pre-existing AOT print-order bug fixed in the same commit (`__torajs_str_print` was using unbuffered `write(2)` while `print_i64` used `putchar`'s line buffer; mixed prints reordered at exit). Next up: **M3.4 — generic structs (`type Pair<A, B> = { fst: A, snd: B }`)** OR move to **M4 (error model)**.
+M3 fully shipped — `id<T>`, `pick<T>`, multi-param generic fns (`fst<A, B>`/`snd<A, B>`), and generic struct types `type Pair<A, B> = { fst: A, snd: B }` all work on JIT + AOT. Two new bench cases: `generic-id-1m` (mono zero-overhead) at torajs 14.10 ms vs rust 14.48 ms; `generic-pair-1m` (heap struct alloc loop) at torajs 1.47 ms vs rust 2.51 ms. Commits: `51c04d2`, `85c7307`, `f848881`. Next up: **M4 — error model (try/catch/throw)**.
 
 ---
 
@@ -171,7 +172,7 @@ The compiler already has `Array<T>` natively after M1. M3 generalizes the mechan
 | **M3.1** ✓ | parser/AST: type params on fn decls (`function id<T, U>(...)`) | parses + typechecks; `Stmt::FnDecl.type_params` populated |
 | **M3.2** ✓ | call-site type inference + `Type::TypeVar` placeholder; generic body skipped in pass-2 typecheck | `id(5)` infers `T = number`, `id("x")` infers `T = string`; substitution recorded per-`ExprId` |
 | **M3.3** ✓ | monomorphization pre-pass in ssa_lower: clone the generic FnDecl per unique `(name, type_args)`, substitute type-param annotations, retarget call sites to mono name | `id<number>(5)` and `id<string>("hi")` lower to distinct concrete fns; multi-param generics (`fst<A, B>`, `snd<A, B>`) work on JIT + AOT |
-| **M3.4** | generic structs: `type Pair<A, B> = { fst: A, snd: B }` | round-trips |
+| **M3.4** ✓ | generic structs: `type Pair<A, B> = { fst: A, snd: B }` instantiated on-demand into concrete `Type::Obj(sid)` via flat-string `Foo<arg|arg>` annotation + per-lowerer mutable `struct_layouts` | round-trips on JIT + AOT; generic-pair-1m bench at torajs (AOT) 1.47 ms vs rust 2.51 ms |
 
 ### M4 — Error model: try / catch / throw
 
