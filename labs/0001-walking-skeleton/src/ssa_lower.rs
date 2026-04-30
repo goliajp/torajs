@@ -413,6 +413,26 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         &[Type::Str, Type::Str],
         Type::Bool,
     );
+    // M6.1+ — split + join. AOT side imports these from a tiny C
+    // runtime (`runtime_str.c`); JIT side registers Rust extern "C"
+    // fns. Element type for split's output array is interned
+    // lazily — we don't intern Type::Arr(Str) here because the
+    // arr_layouts interner is keyed by element Type and we want
+    // ordering to stay deterministic across compilation runs.
+    let str_split_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_str_split",
+        &[Type::Str, Type::Str],
+        Type::Ptr,
+    );
+    let arr_join_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_arr_join",
+        &[Type::Ptr, Type::Str],
+        Type::Str,
+    );
     // stdlib `Math` namespace — first slice. All take an f64 and return
     // an f64; the lowerer auto-promotes integer args via SiToFp at the
     // call site. Backed by libc sqrt / fabs / floor / ceil via thin
@@ -660,6 +680,8 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         str_ends_with: str_ends_with_id,
         str_index_of: str_index_of_id,
         str_includes: str_includes_id,
+        str_split: str_split_id,
+        arr_join: arr_join_id,
         math_sqrt: math_sqrt_id,
         math_abs: math_abs_id,
         math_floor: math_floor_id,
@@ -788,6 +810,8 @@ struct Intrinsics {
     str_ends_with: FuncId,
     str_index_of: FuncId,
     str_includes: FuncId,
+    str_split: FuncId,
+    arr_join: FuncId,
     math_sqrt: FuncId,
     math_abs: FuncId,
     math_floor: FuncId,
@@ -1443,9 +1467,13 @@ impl<'a> LowerCtx<'a> {
             // Ident reads a binding's heap pointer; the Member reads a
             // field whose backing heap is still owned by the parent
             // struct. Dropping either would double-free.
+            // M6.1+ — Index borrows too: `parts[i]` for `parts: string[]`
+            // returns a view into the array's element slot, not a fresh
+            // allocation. Dropping it would free the array's element and
+            // poison subsequent reads / `parts.join(...)`.
             let is_borrow = matches!(
                 self.ast.get_expr(args[0]),
-                Expr::Ident(_) | Expr::Member { .. }
+                Expr::Ident(_) | Expr::Member { .. } | Expr::Index { .. }
             );
             let arg = self.lower_expr(args[0]);
             let arg_ty = self.operand_ty(&arg);
@@ -2591,13 +2619,21 @@ impl<'a> LowerCtx<'a> {
                 if let Expr::Member { obj, name } = self.ast.get_expr(*callee)
                     && matches!(
                         name.as_str(),
-                        "slice" | "charCodeAt" | "startsWith" | "endsWith" | "includes" | "indexOf"
+                        "slice" | "charCodeAt" | "startsWith" | "endsWith"
+                        | "includes" | "indexOf" | "split" | "join"
                     )
                 {
                     let recv_op = self.lower_expr(*obj);
                     let recv_ty = self.operand_ty(&recv_op);
-                    if recv_ty == Type::Str {
-                        let method = name.clone();
+                    let method = name.clone();
+                    // String methods.
+                    if recv_ty == Type::Str
+                        && matches!(
+                            method.as_str(),
+                            "slice" | "charCodeAt" | "startsWith"
+                            | "endsWith" | "includes" | "indexOf" | "split"
+                        )
+                    {
                         let mut argv = Vec::with_capacity(args.len() + 1);
                         argv.push(recv_op);
                         for a in args {
@@ -2610,12 +2646,38 @@ impl<'a> LowerCtx<'a> {
                             "endsWith" => (self.intrinsics.str_ends_with, Type::Bool),
                             "includes" => (self.intrinsics.str_includes, Type::Bool),
                             "indexOf" => (self.intrinsics.str_index_of, Type::I64),
+                            "split" => {
+                                // Output is Array<string> — intern the
+                                // layout once so the result type tag is
+                                // stable across multiple split calls.
+                                let arr_id = intern_arr_layout(
+                                    self.arr_layouts,
+                                    Type::Str,
+                                );
+                                (self.intrinsics.str_split, Type::Arr(arr_id))
+                            }
                             _ => unreachable!(),
                         };
                         let v = self.f.append_inst(
                             self.cur_block,
                             InstKind::Call(target, argv),
                             ret_ty,
+                            None,
+                        );
+                        return Operand::Value(v);
+                    }
+                    // Array<string>.join(sep) — receiver is Type::Arr,
+                    // method == "join". The check.rs guard ensures
+                    // element type is String, so we don't re-validate
+                    // here.
+                    if matches!(recv_ty, Type::Arr(_)) && method == "join" {
+                        let mut argv = Vec::with_capacity(2);
+                        argv.push(recv_op);
+                        argv.push(self.lower_expr(args[0]));
+                        let v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(self.intrinsics.arr_join, argv),
+                            Type::Str,
                             None,
                         );
                         return Operand::Value(v);
@@ -3849,6 +3911,8 @@ impl<'a> LowerCtx<'a> {
             || fid == i.str_ends_with
             || fid == i.str_index_of
             || fid == i.str_includes
+            || fid == i.str_split
+            || fid == i.arr_join
             || fid == i.math_sqrt
             || fid == i.math_abs
             || fid == i.math_floor

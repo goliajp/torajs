@@ -266,13 +266,47 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
         .write_to_file(&llvm_module, FileType::Object, &obj_path)
         .map_err(|e| CompileError::Emit(e.to_string()))?;
 
+    // M6.1+ — torajs's C runtime. Pieces that are clearer in C than via
+    // the inkwell IR-builder API (string split, array join, anything
+    // future where IR builder verbosity outweighs the link-cost gain).
+    // Embedded via include_str! and recompiled fresh per `tr build`;
+    // adds ~10-30 ms to the AOT pipeline (negligible vs LLVM optimize).
+    let c_runtime_src: &str = include_str!("runtime_str.c");
+    let c_src_path: PathBuf = std::env::temp_dir().join(format!(
+        "torajs-runtime-{}-{}.c",
+        std::process::id(),
+        rand_suffix()
+    ));
+    let c_obj_path: PathBuf = std::env::temp_dir().join(format!(
+        "torajs-runtime-{}-{}.o",
+        std::process::id(),
+        rand_suffix()
+    ));
+    std::fs::write(&c_src_path, c_runtime_src)
+        .map_err(|e| CompileError::Link(format!("write runtime.c: {e}")))?;
+    let cc_status = Command::new("cc")
+        .args(["-c", "-O2", "-o"])
+        .arg(&c_obj_path)
+        .arg(&c_src_path)
+        .status()
+        .map_err(|e| CompileError::Link(format!("spawning cc -c: {e}")))?;
+    if !cc_status.success() {
+        let _ = std::fs::remove_file(&c_src_path);
+        return Err(CompileError::Link(format!(
+            "cc -c runtime.c exited {cc_status}"
+        )));
+    }
+
     let status = Command::new("cc")
         .arg(&obj_path)
+        .arg(&c_obj_path)
         .arg("-o")
         .arg(out_path)
         .status()
         .map_err(|e| CompileError::Link(format!("spawning cc: {e}")))?;
     let _ = std::fs::remove_file(&obj_path);
+    let _ = std::fs::remove_file(&c_src_path);
+    let _ = std::fs::remove_file(&c_obj_path);
     if !status.success() {
         return Err(CompileError::Link(format!("cc exited {status}")));
     }

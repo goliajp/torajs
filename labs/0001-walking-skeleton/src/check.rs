@@ -1063,6 +1063,16 @@ impl Checker {
                         vec![Type::String],
                         Box::new(Type::Number),
                     )),
+                    // s.split(sep): string[] — borrow-shaped on both args.
+                    (Type::String, "split") => Ok(Type::Function(
+                        vec![Type::String],
+                        Box::new(Type::Array(Box::new(Type::String))),
+                    )),
+                    // arr.join(sep): string — receiver is Array<string>,
+                    // sep borrowed; result is freshly allocated.
+                    (Type::Array(elem), "join") if **elem == Type::String => {
+                        Ok(Type::Function(vec![Type::String], Box::new(Type::String)))
+                    }
                     // M1.2 — `xs.push(v)`: takes one element-typed arg,
                     // returns void (TS doesn't surface push's "new length"
                     // return value in our subset since it's rarely useful).
@@ -1258,6 +1268,7 @@ impl Checker {
                             name.as_str(),
                             "slice" | "charCodeAt" | "startsWith"
                             | "endsWith" | "includes" | "indexOf"
+                            | "split" | "join"
                         )
                 );
                 for (i, (param_ty, arg_id)) in params.iter().zip(args.iter()).enumerate() {

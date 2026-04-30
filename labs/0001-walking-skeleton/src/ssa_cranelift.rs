@@ -210,6 +210,97 @@ extern "C" fn str_includes_runtime(s: *const u8, sub: *const u8) -> i8 {
     i8::from(str_index_of_runtime(s, sub) >= 0)
 }
 
+/// `s.split(sep) -> string[]`. MVP: byte-by-byte scan; matches TS's
+/// non-regex string-separator overload. Empty `sep` matches TS by
+/// returning a one-element array `[s]` (TS's char-by-char split needs
+/// a different treatment we skip for now).
+extern "C" fn str_split_runtime(s: *const u8, sep: *const u8) -> *mut u8 {
+    unsafe {
+        let s_view = str_view(s);
+        let sep_view = str_view(sep);
+        // Allocate output array — exact-fit reserve happens after the
+        // first scan; for now use the dynamic-grow path.
+        let out_arr = arr_alloc_runtime(0);
+        let mut arr = out_arr;
+        if sep_view.is_empty() {
+            // TS char-split for empty sep is out of scope (UTF-16 code
+            // units); MVP returns [s] — a borrow-clone of s.
+            let copy = str_from_bytes(s_view);
+            arr = arr_push_runtime(arr, copy as i64);
+            return arr;
+        }
+        let mut start = 0usize;
+        let n = s_view.len();
+        let m = sep_view.len();
+        let mut i = 0usize;
+        while i + m <= n {
+            if &s_view[i..i + m] == sep_view {
+                let seg = str_from_bytes(&s_view[start..i]);
+                arr = arr_push_runtime(arr, seg as i64);
+                i += m;
+                start = i;
+            } else {
+                i += 1;
+            }
+        }
+        let tail = str_from_bytes(&s_view[start..n]);
+        arr = arr_push_runtime(arr, tail as i64);
+        arr
+    }
+}
+
+/// `arr.join(sep) -> string`. arr is Array<string>. MVP: two-pass —
+/// compute total len, then concatenate.
+extern "C" fn arr_join_runtime(arr: *const u8, sep: *const u8) -> *mut u8 {
+    unsafe {
+        let len = std::ptr::read(arr as *const u64) as usize;
+        let sep_view = str_view(sep);
+        if len == 0 {
+            return str_from_bytes(b"");
+        }
+        // Sum lengths first.
+        let mut total: usize = 0;
+        for i in 0..len {
+            let off = 16 + i * 8;
+            let elem_ptr = std::ptr::read((arr as *const u8).add(off) as *const *const u8);
+            total += std::ptr::read(elem_ptr as *const u64) as usize;
+        }
+        total += sep_view.len() * (len - 1);
+        // Allocate + copy.
+        let total_alloc = 8 + total;
+        let layout = std::alloc::Layout::from_size_align(total_alloc, 8).expect("layout");
+        let p = std::alloc::alloc(layout);
+        if p.is_null() {
+            std::alloc::handle_alloc_error(layout);
+        }
+        std::ptr::write(p as *mut u64, total as u64);
+        let mut cursor = 8usize;
+        for i in 0..len {
+            if i > 0 && !sep_view.is_empty() {
+                std::ptr::copy_nonoverlapping(
+                    sep_view.as_ptr(),
+                    p.add(cursor),
+                    sep_view.len(),
+                );
+                cursor += sep_view.len();
+            }
+            let off = 16 + i * 8;
+            let elem_ptr =
+                std::ptr::read((arr as *const u8).add(off) as *const *const u8);
+            let elem_view = str_view(elem_ptr);
+            if !elem_view.is_empty() {
+                std::ptr::copy_nonoverlapping(
+                    elem_view.as_ptr(),
+                    p.add(cursor),
+                    elem_view.len(),
+                );
+                cursor += elem_view.len();
+            }
+        }
+        p
+    }
+}
+
 // Object alloc/drop go through libc directly so we don't have to track
 // per-pointer Layouts (unlike strings, where the length is in the
 // StrRepr header). Inkwell backend uses the same libc pair, so AOT
@@ -486,6 +577,8 @@ pub fn execute(ssa_module: &Module) -> Result<i32, JitError> {
         "__torajs_str_includes",
         str_includes_runtime as *const u8,
     );
+    jit_builder.symbol("__torajs_str_split", str_split_runtime as *const u8);
+    jit_builder.symbol("__torajs_arr_join", arr_join_runtime as *const u8);
     jit_builder.symbol("__torajs_arr_drop", arr_drop_runtime as *const u8);
     jit_builder.symbol("__torajs_math_sqrt", math_sqrt_runtime as *const u8);
     jit_builder.symbol("__torajs_math_abs", math_abs_runtime as *const u8);
