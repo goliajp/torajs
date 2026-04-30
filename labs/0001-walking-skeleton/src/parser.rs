@@ -531,6 +531,7 @@ impl Parser<'_> {
         }
         Ok(Stmt::Try {
             body,
+            had_catch,
             catch_param,
             catch_type,
             catch_body,

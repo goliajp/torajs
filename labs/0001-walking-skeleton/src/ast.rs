@@ -132,12 +132,14 @@ pub enum Stmt {
     /// return from the enclosing fn (with a sentinel result).
     Throw(ExprId),
     /// `try { body } catch (e) { catch_body } finally { finally_body }`.
-    /// `catch_param` is the binding name for the caught value;
-    /// `catch_type` is the optional `: Type` annotation (M4.3 — controls
-    /// how the i64 throw_value gets reinterpreted: number / string /
-    /// future Error class).
+    /// `had_catch` distinguishes `try {} catch {} finally {}` (where the
+    /// catch swallows + finally runs) from `try {} finally {}` (where
+    /// finally runs and the throw keeps propagating).
+    /// `catch_param` is the binding name; `catch_type` is the optional
+    /// `: Type` annotation; `catch_body` is empty if `had_catch=false`.
     Try {
         body: Vec<Stmt>,
+        had_catch: bool,
         catch_param: Option<String>,
         catch_type: Option<String>,
         catch_body: Vec<Stmt>,
@@ -359,6 +361,7 @@ fn walk_stmt(ast: &Ast, s: &Stmt, bound: &mut Vec<String>, out: &mut Vec<String>
             body,
             catch_param,
             catch_type: _,
+            had_catch: _,
             catch_body,
             finally_body,
         } => {
@@ -684,6 +687,7 @@ impl Ast {
                 body,
                 catch_param,
                 catch_type: _,
+            had_catch: _,
                 catch_body,
                 finally_body,
             } => {

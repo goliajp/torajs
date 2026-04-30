@@ -20,6 +20,20 @@
 void *__torajs_arr_alloc(uint64_t initial_cap);
 void *__torajs_arr_push(void *arr, int64_t val);
 
+/* Returns 1 if strings have equal length and equal bytes, 0 otherwise.
+ * `===` / `!==` between Type::Str values dispatches here instead of
+ * pointer-compare. Spec ECMA-262 §7.2.16 step 3: "If x and y are
+ * Strings ... return true iff length(x) === length(y) and same code
+ * units." We don't deal with UTF-16 here — bytes match is enough for
+ * the byte-encoded Str layout. */
+int64_t __torajs_str_eq(const uint8_t *a, const uint8_t *b) {
+    uint64_t a_len = *(const uint64_t *)a;
+    uint64_t b_len = *(const uint64_t *)b;
+    if (a_len != b_len) return 0;
+    if (a_len == 0) return 1;
+    return memcmp(a + 8, b + 8, (size_t)a_len) == 0 ? 1 : 0;
+}
+
 static uint8_t *str_alloc_(uint64_t len) {
     uint8_t *p = (uint8_t *)malloc(8 + (size_t)len);
     *(uint64_t *)p = len;

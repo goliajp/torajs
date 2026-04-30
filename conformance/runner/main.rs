@@ -37,12 +37,16 @@ fn main() {
         Err(e) => die(&format!("cwd: {e}")),
     };
     let cases_dir = repo_root.join("conformance/cases");
-    if !cases_dir.is_dir() {
-        die(&format!("missing {}", cases_dir.display()));
+    let port_dir = repo_root.join("conformance/test262-port");
+    let mut cases: Vec<Case> = Vec::new();
+    if cases_dir.is_dir() {
+        cases.extend(collect_cases(&cases_dir));
     }
-    let cases = collect_cases(&cases_dir);
+    if port_dir.is_dir() {
+        cases.extend(collect_cases(&port_dir));
+    }
     if cases.is_empty() {
-        die("no .ts files under conformance/cases/");
+        die("no .ts files under conformance/cases/ or conformance/test262-port/");
     }
     let manifest = repo_root.join("labs/0001-walking-skeleton/Cargo.toml");
     if !manifest.is_file() {

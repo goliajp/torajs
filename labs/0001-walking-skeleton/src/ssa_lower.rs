@@ -413,6 +413,18 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         &[Type::Str, Type::Str],
         Type::Bool,
     );
+    // Spec-correct `===` / `!==` on strings — content-equal, not
+    // pointer-equal. ECMA-262 §7.2.16. Without this, `"a" === "a"`
+    // could be false depending on whether the literals shared a
+    // pool. AOT defines this in runtime_str.c; JIT registers
+    // a Rust extern "C" fn.
+    let str_eq_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_str_eq",
+        &[Type::Str, Type::Str],
+        Type::Bool,
+    );
     // M6.1+ — split + join. AOT side imports these from a tiny C
     // runtime (`runtime_str.c`); JIT side registers Rust extern "C"
     // fns. Element type for split's output array is interned
@@ -739,6 +751,7 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         str_ends_with: str_ends_with_id,
         str_index_of: str_index_of_id,
         str_includes: str_includes_id,
+        str_eq: str_eq_id,
         str_split: str_split_id,
         arr_join: arr_join_id,
         math_sqrt: math_sqrt_id,
@@ -871,6 +884,7 @@ struct Intrinsics {
     str_ends_with: FuncId,
     str_index_of: FuncId,
     str_includes: FuncId,
+    str_eq: FuncId,
     str_split: FuncId,
     arr_join: FuncId,
     math_sqrt: FuncId,
@@ -2127,6 +2141,7 @@ impl<'a> LowerCtx<'a> {
             }
             Stmt::Try {
                 body,
+                had_catch,
                 catch_param,
                 catch_type,
                 catch_body,
@@ -2134,15 +2149,20 @@ impl<'a> LowerCtx<'a> {
             } => {
                 // M4.1 + M4.2 — control-flow shape:
                 //   <pre>  ──br→ body
-                //   body   ──throw→ catch (via try_stack top)
+                //   body   ──throw→ catch (if had_catch) OR finally OR fn-propagate
                 //          ──fall→ post_target (= finally if present, else after)
                 //   catch  ──throw→ post_target (= finally if present, else fn-propagate)
                 //          ──fall→ post_target
                 //   finally  body lowered; on fall-through, cond_br on
                 //          throw_check: active → propagate, else → after
                 //   after  rest of program
+                //
+                // review test262 fix — `try {} finally {}` (no catch) must
+                // let the throw propagate THROUGH finally to outer
+                // catch / fn-propagate. We previously synthesized an
+                // empty catch_blk that called throw_take, clearing the
+                // flag. Now: only build catch_blk if had_catch.
                 let body_blk = self.f.add_block();
-                let catch_blk = self.f.add_block();
                 let after_blk = self.f.add_block();
                 let finally_blk = if finally_body.is_some() {
                     Some(self.f.add_block())
@@ -2151,6 +2171,13 @@ impl<'a> LowerCtx<'a> {
                 };
                 let post_target = finally_blk.unwrap_or(after_blk);
                 self.f.set_term(self.cur_block, Terminator::Br(body_blk));
+
+                // catch_blk only allocated if user wrote `catch`.
+                // For `try {} finally {}` the throw target while body
+                // runs is the finally (which propagates after running),
+                // OR fn-propagate if no finally either.
+                let catch_blk: Option<BlockId> =
+                    if *had_catch { Some(self.f.add_block()) } else { None };
 
                 // review #0001 fix — push finally onto try_finally_stack
                 // so `Stmt::Return` inside body / catch routes through
@@ -2161,9 +2188,14 @@ impl<'a> LowerCtx<'a> {
                     self.try_finally_stack.push(fb);
                 }
 
-                // body — throw target = catch
+                // body — throw target = catch (if had_catch) else
+                // finally (if has finally) else fn-propagate (no push).
                 self.cur_block = body_blk;
-                self.try_stack.push(catch_blk);
+                let body_throw_target =
+                    catch_blk.or(finally_blk);
+                if let Some(t) = body_throw_target {
+                    self.try_stack.push(t);
+                }
                 self.scope_stack.push(Vec::new());
                 for s in body {
                     self.lower_stmt(s);
@@ -2176,11 +2208,15 @@ impl<'a> LowerCtx<'a> {
                     self.f.set_term(cb, Terminator::Br(post_target));
                 }
                 self.scope_stack.pop();
-                self.try_stack.pop();
+                if body_throw_target.is_some() {
+                    self.try_stack.pop();
+                }
 
-                // catch — take value + bind, then lower catch body. If
-                // a finally is present, push it as the throw target so
-                // a re-throw inside catch still runs finally.
+                // catch — only present when user wrote `catch`. Take
+                // value + bind, then lower catch body. If a finally is
+                // present, push it as the throw target so a re-throw
+                // inside catch still runs finally.
+                if let Some(catch_blk) = catch_blk {
                 self.cur_block = catch_blk;
                 self.scope_stack.push(Vec::new());
                 if let Some(p) = catch_param {
@@ -2280,7 +2316,18 @@ impl<'a> LowerCtx<'a> {
                     let cb = self.cur_block;
                     self.f.set_term(cb, Terminator::Br(post_target));
                 }
-                self.scope_stack.pop();
+                // Match Stmt::Block's discipline — when popping the
+                // catch scope, also remove its locals from self.locals.
+                // Without this, `e` lingered as "owned" and fn-end
+                // drop emission tried to drop it in the after_blk
+                // (which is unreachable when both body+catch return),
+                // producing cross-block value references that cranelift
+                // rejects ("unmapped SSA value N").
+                let catch_frame = self.scope_stack.pop().unwrap_or_default();
+                for name in catch_frame {
+                    self.locals.remove(&name);
+                }
+                } // close `if let Some(catch_blk) = catch_blk`
 
                 // finally — runs on every normal+catch fall-through
                 // path AND on the catch-rethrow path. End: cond_br on
@@ -2336,18 +2383,30 @@ impl<'a> LowerCtx<'a> {
                                 else_blk: no_throw_blk,
                             },
                         );
-                        // propagate out: drops + ret sentinel.
+                        // propagate out: if there's an outer catch
+                        // handler still active in this fn, br to it
+                        // (so the throw value reaches outer try's
+                        // catch instead of being lost as a returned
+                        // sentinel). Otherwise drops + ret sentinel.
+                        // — review #0001 follow-up: f3()'s outer
+                        // catch was getting 0 instead of 7 because
+                        // finally's propagate always ret'd.
                         self.cur_block = prop_blk;
-                        self.emit_drops_for_owned_locals();
-                        let cb2 = self.cur_block;
-                        let ret_ty = self.f.ret;
-                        let prop_term = match ret_ty {
-                            Type::Void => Terminator::Ret(None),
-                            Type::F64 => Terminator::Ret(Some(Operand::ConstF64(0.0))),
-                            Type::I32 => Terminator::Ret(Some(Operand::ConstI32(0))),
-                            _ => Terminator::Ret(Some(Operand::ConstI64(0))),
-                        };
-                        self.f.set_term(cb2, prop_term);
+                        if let Some(handler) = self.try_stack.last().copied() {
+                            let cb2 = self.cur_block;
+                            self.f.set_term(cb2, Terminator::Br(handler));
+                        } else {
+                            self.emit_drops_for_owned_locals();
+                            let cb2 = self.cur_block;
+                            let ret_ty = self.f.ret;
+                            let prop_term = match ret_ty {
+                                Type::Void => Terminator::Ret(None),
+                                Type::F64 => Terminator::Ret(Some(Operand::ConstF64(0.0))),
+                                Type::I32 => Terminator::Ret(Some(Operand::ConstI32(0))),
+                                _ => Terminator::Ret(Some(Operand::ConstI64(0))),
+                            };
+                            self.f.set_term(cb2, prop_term);
+                        }
 
                         // no-throw path: check pending_return.
                         self.cur_block = no_throw_blk;
@@ -2380,10 +2439,11 @@ impl<'a> LowerCtx<'a> {
                                 let cb4 = self.cur_block;
                                 self.f.set_term(cb4, Terminator::Br(outer_fb));
                             } else {
+                                let fn_ret_ty = self.f.ret;
                                 let v = self.f.append_inst(
                                     self.cur_block,
-                                    InstKind::Load(ret_ty, Operand::Value(slot), 0),
-                                    ret_ty,
+                                    InstKind::Load(fn_ret_ty, Operand::Value(slot), 0),
+                                    fn_ret_ty,
                                     None,
                                 );
                                 self.emit_drops_for_owned_locals();
@@ -3922,6 +3982,36 @@ impl<'a> LowerCtx<'a> {
             );
             return Operand::Value(v);
         }
+        // String content-equality. ECMA-262 §7.2.16: `===` on strings
+        // is bytes-equal, not pointer-equal. Without this dispatch,
+        // two identical literals in different alloc sites produce
+        // !==. test262-port spike caught this. !== is content-equality
+        // negated.
+        if matches!(op, AstBinOp::Eq | AstBinOp::Neq)
+            && self.operand_ty(&a) == Type::Str
+            && self.operand_ty(&b) == Type::Str
+        {
+            let eq_v = self.f.append_inst(
+                self.cur_block,
+                InstKind::Call(self.intrinsics.str_eq, vec![a, b]),
+                Type::Bool,
+                None,
+            );
+            if matches!(op, AstBinOp::Neq) {
+                let r = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::BinOp(
+                        SsaBinOp::Xor,
+                        Operand::Value(eq_v),
+                        Operand::ConstBool(true),
+                    ),
+                    Type::Bool,
+                    None,
+                );
+                return Operand::Value(r);
+            }
+            return Operand::Value(eq_v);
+        }
 
         let force_float = matches!(op, AstBinOp::Div);
         let either_float =
@@ -4250,6 +4340,7 @@ impl<'a> LowerCtx<'a> {
             || fid == i.str_ends_with
             || fid == i.str_index_of
             || fid == i.str_includes
+            || fid == i.str_eq
             || fid == i.str_split
             || fid == i.arr_join
             || fid == i.math_sqrt

@@ -196,18 +196,36 @@ extern "C" fn str_index_of_runtime(s: *const u8, sub: *const u8) -> i64 {
     unsafe {
         let view = str_view(s);
         let sub = str_view(sub);
-        match view.windows(sub.len().max(1)).position(|w| {
-            // Empty `sub` matches at position 0 (matches TS).
-            sub.is_empty() || w == sub
-        }) {
-            Some(i) if !sub.is_empty() || i == 0 => i as i64,
-            _ => -1,
+        // Spec ECMA-262 §22.1.3.10: empty needle matches at 0 even
+        // for an empty haystack. Without this short-circuit, the
+        // `view.windows(1).position(...)` path on an empty view would
+        // return None → -1, diverging from `"".includes("")` = true.
+        if sub.is_empty() {
+            return 0;
+        }
+        if sub.len() > view.len() {
+            return -1;
+        }
+        match view.windows(sub.len()).position(|w| w == sub) {
+            Some(i) => i as i64,
+            None => -1,
         }
     }
 }
 
 extern "C" fn str_includes_runtime(s: *const u8, sub: *const u8) -> i8 {
     i8::from(str_index_of_runtime(s, sub) >= 0)
+}
+
+/// `__torajs_str_eq(a, b)` — content-equal compare. Used by `===` /
+/// `!==` between Type::Str values. Spec ECMA-262 §7.2.16: same length
+/// + same bytes. Returns 0/1 (cranelift's I8 maps to Rust i8 here).
+extern "C" fn str_eq_runtime(a: *const u8, b: *const u8) -> i8 {
+    unsafe {
+        let av = str_view(a);
+        let bv = str_view(b);
+        i8::from(av == bv)
+    }
 }
 
 /// `s.split(sep) -> string[]`. MVP: byte-by-byte scan; matches TS's
@@ -579,6 +597,7 @@ pub fn execute(ssa_module: &Module) -> Result<i32, JitError> {
     );
     jit_builder.symbol("__torajs_str_split", str_split_runtime as *const u8);
     jit_builder.symbol("__torajs_arr_join", arr_join_runtime as *const u8);
+    jit_builder.symbol("__torajs_str_eq", str_eq_runtime as *const u8);
     jit_builder.symbol("__torajs_arr_drop", arr_drop_runtime as *const u8);
     jit_builder.symbol("__torajs_math_sqrt", math_sqrt_runtime as *const u8);
     jit_builder.symbol("__torajs_math_abs", math_abs_runtime as *const u8);

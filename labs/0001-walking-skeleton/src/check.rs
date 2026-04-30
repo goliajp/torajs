@@ -810,6 +810,7 @@ impl Checker {
             }
             Stmt::Try {
                 body,
+                had_catch: _,
                 catch_param,
                 catch_type,
                 catch_body,
