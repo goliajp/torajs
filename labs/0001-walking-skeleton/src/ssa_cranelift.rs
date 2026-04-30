@@ -207,6 +207,45 @@ extern "C" fn arr_drop_runtime(p: *mut u8) {
     unsafe { free(p) }
 }
 
+// M6.2 fast-path. `arr_reserve(arr, new_cap)` ensures the array has at
+// least `new_cap` slots; reallocs once if cap < new_cap, otherwise
+// no-op. Returns the (possibly new) ptr — caller stores it back into
+// its slot.
+extern "C" fn arr_reserve_runtime(arr: *mut u8, new_cap: u64) -> *mut u8 {
+    let mut p = arr;
+    unsafe {
+        let header = p as *mut u64;
+        let cap = *header.add(1);
+        if cap < new_cap {
+            let new_total = 16usize + (new_cap as usize) * 8;
+            let np = libc_realloc(p, new_total);
+            if np.is_null() {
+                eprintln!("arr_reserve: realloc out of memory");
+                std::process::abort();
+            }
+            p = np;
+            let header = p as *mut u64;
+            *header.add(1) = new_cap;
+        }
+    }
+    p
+}
+
+// `arr_push_unchecked(arr, val)` writes val at the next slot without
+// any capacity check. UB if cap < len + 1; safe only when paired with
+// a preceding `arr_reserve` for a known upper bound. Used by M6.2's
+// map/filter loop after a one-shot reserve.
+extern "C" fn arr_push_unchecked_runtime(arr: *mut u8, val: i64) {
+    unsafe {
+        let header = arr as *mut u64;
+        let len = *header;
+        let slot_off = 16 + (len as usize) * 8;
+        let slot = (arr as *mut u8).add(slot_off) as *mut i64;
+        *slot = val;
+        *header = len + 1;
+    }
+}
+
 // M4 — exception state. Two thread-local i64 globals plus three
 // runtime fns that ssa_lower emits as Call sites. Non-thread-safe
 // (the JIT compiles + runs in one thread); the AOT path defines the
@@ -332,6 +371,11 @@ pub fn execute(ssa_module: &Module) -> Result<i32, JitError> {
     jit_builder.symbol("__torajs_obj_drop", obj_drop_runtime as *const u8);
     jit_builder.symbol("__torajs_arr_alloc", arr_alloc_runtime as *const u8);
     jit_builder.symbol("__torajs_arr_push", arr_push_runtime as *const u8);
+    jit_builder.symbol("__torajs_arr_reserve", arr_reserve_runtime as *const u8);
+    jit_builder.symbol(
+        "__torajs_arr_push_unchecked",
+        arr_push_unchecked_runtime as *const u8,
+    );
     jit_builder.symbol("__torajs_arr_drop", arr_drop_runtime as *const u8);
     jit_builder.symbol("__torajs_math_sqrt", math_sqrt_runtime as *const u8);
     jit_builder.symbol("__torajs_math_abs", math_abs_runtime as *const u8);

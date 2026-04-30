@@ -340,6 +340,25 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         &[Type::Ptr],
         Type::Void,
     );
+    // M6.2 fast-path. arr_reserve(arr, new_cap) reallocs once if
+    // cap < new_cap (no-op otherwise) — used by map/filter to size
+    // the dst array up front. arr_push_unchecked(arr, val) appends
+    // without a per-call capacity check (UB if cap < len + 1; safe
+    // when paired with a preceding reserve).
+    let arr_reserve_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_arr_reserve",
+        &[Type::Ptr, Type::I64],
+        Type::Ptr,
+    );
+    let arr_push_unchecked_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_arr_push_unchecked",
+        &[Type::Ptr, Type::I64],
+        Type::Void,
+    );
     // stdlib `Math` namespace — first slice. All take an f64 and return
     // an f64; the lowerer auto-promotes integer args via SiToFp at the
     // call site. Backed by libc sqrt / fabs / floor / ceil via thin
@@ -578,6 +597,8 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         arr_alloc: arr_alloc_id,
         arr_push: arr_push_id,
         arr_drop: arr_drop_id,
+        arr_reserve: arr_reserve_id,
+        arr_push_unchecked: arr_push_unchecked_id,
         math_sqrt: math_sqrt_id,
         math_abs: math_abs_id,
         math_floor: math_floor_id,
@@ -697,6 +718,8 @@ struct Intrinsics {
     arr_alloc: FuncId,
     arr_push: FuncId,
     arr_drop: FuncId,
+    arr_reserve: FuncId,
+    arr_push_unchecked: FuncId,
     math_sqrt: FuncId,
     math_abs: FuncId,
     math_floor: FuncId,
@@ -2553,6 +2576,37 @@ impl<'a> LowerCtx<'a> {
                         Type::I64,
                         None,
                     );
+                    // M6.2 fast-path — for map/filter, reserve dst
+                    // capacity equal to src.length up front so the
+                    // per-element push doesn't have to grow. filter
+                    // worst case allocates the full src length;
+                    // shrinking to actual count would save memory but
+                    // add a second pass — deferred.
+                    if let Some(slot) = dst_slot {
+                        let cur_dst = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(arr_ty, Operand::Value(slot), 0),
+                            arr_ty,
+                            None,
+                        );
+                        let reserved = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.arr_reserve,
+                                vec![Operand::Value(cur_dst), Operand::Value(len)],
+                            ),
+                            arr_ty,
+                            None,
+                        );
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Store(
+                                Operand::Value(reserved),
+                                Operand::Value(slot),
+                                0,
+                            ),
+                        );
+                    }
                     self.f.set_term(self.cur_block, Terminator::Br(header_blk));
                     // header
                     self.cur_block = header_blk;
@@ -2626,6 +2680,11 @@ impl<'a> LowerCtx<'a> {
                                 fn_ty,
                                 vec![Operand::Value(elem)],
                             );
+                            // M6.2 fast-path — dst was reserve'd to
+                            // src.length above the loop, so the unchecked
+                            // push elides the per-call capacity check
+                            // and never reallocs (no need to write the
+                            // ptr back into the slot).
                             let cur_dst = self.f.append_inst(
                                 self.cur_block,
                                 InstKind::Load(
@@ -2636,21 +2695,11 @@ impl<'a> LowerCtx<'a> {
                                 arr_ty,
                                 None,
                             );
-                            let new_dst = self.f.append_inst(
-                                self.cur_block,
-                                InstKind::Call(
-                                    self.intrinsics.arr_push,
-                                    vec![Operand::Value(cur_dst), Operand::Value(mapped)],
-                                ),
-                                arr_ty,
-                                None,
-                            );
                             self.f.append_void(
                                 self.cur_block,
-                                InstKind::Store(
-                                    Operand::Value(new_dst),
-                                    Operand::Value(dst_slot.unwrap()),
-                                    0,
+                                InstKind::Call(
+                                    self.intrinsics.arr_push_unchecked,
+                                    vec![Operand::Value(cur_dst), Operand::Value(mapped)],
                                 ),
                             );
                         }
@@ -2681,21 +2730,11 @@ impl<'a> LowerCtx<'a> {
                                 arr_ty,
                                 None,
                             );
-                            let new_dst = self.f.append_inst(
-                                self.cur_block,
-                                InstKind::Call(
-                                    self.intrinsics.arr_push,
-                                    vec![Operand::Value(cur_dst), Operand::Value(elem)],
-                                ),
-                                arr_ty,
-                                None,
-                            );
                             self.f.append_void(
                                 self.cur_block,
-                                InstKind::Store(
-                                    Operand::Value(new_dst),
-                                    Operand::Value(dst_slot.unwrap()),
-                                    0,
+                                InstKind::Call(
+                                    self.intrinsics.arr_push_unchecked,
+                                    vec![Operand::Value(cur_dst), Operand::Value(elem)],
                                 ),
                             );
                             self.f.set_term(self.cur_block, Terminator::Br(next_blk));
@@ -3659,6 +3698,8 @@ impl<'a> LowerCtx<'a> {
             || fid == i.arr_alloc
             || fid == i.arr_push
             || fid == i.arr_drop
+            || fid == i.arr_reserve
+            || fid == i.arr_push_unchecked
             || fid == i.math_sqrt
             || fid == i.math_abs
             || fid == i.math_floor

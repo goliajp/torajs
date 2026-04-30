@@ -29,18 +29,15 @@ Rust uses `Box<dyn Fn>` + `black_box(&dyn Fn)` + `#[inline(never)]` to defeat de
 ## Result on M4 Pro (n=5, 10M iters)
 
 ```
-torajs (AOT)   37.49 ms
-rust           27.40 ms      torajs 1.37× slower
-go             21.45 ms      torajs 1.75× slower
-bun-jsc        60.47 ms      torajs 1.61× faster
-bun-aot        60.06 ms      torajs 1.60× faster
-torajs-jit     81.98 ms
-node-v8       250.31 ms      torajs 6.68× faster
+torajs (AOT)   31.42 ms      ← parity with rust (was 37.49 before fast-path)
+rust           31.56 ms
+go             25.71 ms      go 1.22× faster
+bun-jsc        62.89 ms      torajs 2.00× faster
+bun-aot        63.16 ms      torajs 2.01× faster
+torajs-jit     84.64 ms
+node-v8       280.85 ms      torajs 8.94× faster
 ```
 
-torajs comfortably beats every JS engine but trails rust + go in this case. The gap is in the inner loop:
-- rust's `iter().map(...).collect()` pre-allocates the destination Vec exactly once and bulk-writes — no per-element realloc check.
-- go's `append` doubles capacity in-place; with `make([]int64, 0, n)` it would be even closer to a one-alloc loop.
-- torajs's `__torajs_arr_push` does a per-element capacity check + amortized realloc; combined with the closure call (load fn_ptr → indirect call → arg 0 = env), the inner loop is meaningfully heavier.
+**M6.2 fast-path applied (one-shot reserve + push_unchecked):** torajs's `xs.map` lowerer now emits `__torajs_arr_reserve(dst, src.length)` once before the loop and uses `__torajs_arr_push_unchecked` per element. The realloc check + cap-doubling that previously fired every push is gone. The before/after gap on this case was 37.49 → 31.42 ms (~16% faster); rust is now within stddev.
 
-Closing the gap requires a smarter Array runtime (a `reserve(n)` intrinsic the lowerer calls before the loop, OR a fast-path `push_unchecked` after a one-time bound check). Both are tractable; deferred to a follow-up since the M6.2 priority was "iter methods work" not "iter methods sub-rust".
+Go still leads slightly. Likely cause: Go's slice header lives by-value on the stack and the compiler bulk-vectorizes the per-element write loop; torajs and rust are both going through a heap-resident `(len, cap, data[])` block.

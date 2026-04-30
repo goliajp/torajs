@@ -94,6 +94,12 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
             "__torajs_obj_drop" => define_obj_drop(&ctx, &llvm_module, free),
             "__torajs_arr_alloc" => define_arr_alloc(&ctx, &llvm_module, malloc),
             "__torajs_arr_push" => define_arr_push(&ctx, &llvm_module, realloc),
+            "__torajs_arr_reserve" => {
+                define_arr_reserve(&ctx, &llvm_module, realloc)
+            }
+            "__torajs_arr_push_unchecked" => {
+                define_arr_push_unchecked(&ctx, &llvm_module)
+            }
             "__torajs_arr_drop" => define_arr_drop(&ctx, &llvm_module, free),
             "__torajs_math_sqrt" => {
                 define_math_unary(&ctx, &llvm_module, "__torajs_math_sqrt", "sqrt")
@@ -149,6 +155,8 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
         "__torajs_obj_drop",
         "__torajs_arr_alloc",
         "__torajs_arr_push",
+        "__torajs_arr_reserve",
+        "__torajs_arr_push_unchecked",
         "__torajs_arr_drop",
         "__torajs_math_sqrt",
         "__torajs_math_abs",
@@ -828,6 +836,112 @@ fn define_arr_push<'ctx>(
         .unwrap();
     builder.build_store(arr, len_p1).unwrap();
     builder.build_return(Some(&arr)).unwrap();
+    f
+}
+
+/// M6.2 fast-path. `arr_reserve(arr, new_cap) -> arr*` ensures
+/// `cap >= new_cap`; reallocs once if needed, otherwise no-op. Returns
+/// the (possibly new) ptr — caller stores it back into its slot.
+fn define_arr_reserve<'ctx>(
+    ctx: &'ctx Context,
+    m: &LlvmModule<'ctx>,
+    realloc: FunctionValue<'ctx>,
+) -> FunctionValue<'ctx> {
+    let builder = ctx.create_builder();
+    let i64_t = ctx.i64_type();
+    let ptr_t = ctx.ptr_type(AddressSpace::default());
+    let fn_t = ptr_t.fn_type(&[ptr_t.into(), i64_t.into()], false);
+    let f = m.add_function("__torajs_arr_reserve", fn_t, None);
+    let entry = ctx.append_basic_block(f, "entry");
+    let grow_blk = ctx.append_basic_block(f, "grow");
+    let exit_blk = ctx.append_basic_block(f, "exit");
+    builder.position_at_end(entry);
+    let arr_in = f.get_nth_param(0).unwrap().into_pointer_value();
+    let new_cap = f.get_nth_param(1).unwrap().into_int_value();
+    let cap_p = unsafe {
+        builder
+            .build_in_bounds_gep(i64_t, arr_in, &[i64_t.const_int(1, false)], "cap_p")
+            .unwrap()
+    };
+    let cap = builder
+        .build_load(i64_t, cap_p, "cap")
+        .unwrap()
+        .into_int_value();
+    let need_grow = builder
+        .build_int_compare(IntPredicate::ULT, cap, new_cap, "need_grow")
+        .unwrap();
+    builder
+        .build_conditional_branch(need_grow, grow_blk, exit_blk)
+        .unwrap();
+    // grow: realloc(p, 16 + new_cap * 8); store new_cap; pass to exit
+    builder.position_at_end(grow_blk);
+    let new_bytes = builder
+        .build_int_mul(new_cap, i64_t.const_int(8, false), "")
+        .unwrap();
+    let new_total = builder
+        .build_int_add(new_bytes, i64_t.const_int(16, false), "")
+        .unwrap();
+    let arr_grown = builder
+        .build_call(realloc, &[arr_in.into(), new_total.into()], "arr_grown")
+        .unwrap()
+        .try_as_basic_value()
+        .unwrap_basic()
+        .into_pointer_value();
+    let new_cap_p = unsafe {
+        builder
+            .build_in_bounds_gep(i64_t, arr_grown, &[i64_t.const_int(1, false)], "")
+            .unwrap()
+    };
+    builder.build_store(new_cap_p, new_cap).unwrap();
+    builder.build_unconditional_branch(exit_blk).unwrap();
+    // exit: phi arr → return
+    builder.position_at_end(exit_blk);
+    let phi = builder.build_phi(ptr_t, "arr").unwrap();
+    phi.add_incoming(&[(&arr_in, entry), (&arr_grown, grow_blk)]);
+    let arr = phi.as_basic_value().into_pointer_value();
+    builder.build_return(Some(&arr)).unwrap();
+    f
+}
+
+/// M6.2 fast-path. `arr_push_unchecked(arr, val)` — appends val
+/// assuming cap >= len + 1. UB otherwise. Used after a one-shot
+/// `arr_reserve` so the per-push capacity check is gone.
+fn define_arr_push_unchecked<'ctx>(
+    ctx: &'ctx Context,
+    m: &LlvmModule<'ctx>,
+) -> FunctionValue<'ctx> {
+    let builder = ctx.create_builder();
+    let i64_t = ctx.i64_type();
+    let i8_t = ctx.i8_type();
+    let ptr_t = ctx.ptr_type(AddressSpace::default());
+    let void_t = ctx.void_type();
+    let fn_t = void_t.fn_type(&[ptr_t.into(), i64_t.into()], false);
+    let f = m.add_function("__torajs_arr_push_unchecked", fn_t, None);
+    let entry = ctx.append_basic_block(f, "entry");
+    builder.position_at_end(entry);
+    let arr = f.get_nth_param(0).unwrap().into_pointer_value();
+    let val = f.get_nth_param(1).unwrap().into_int_value();
+    let len = builder
+        .build_load(i64_t, arr, "len")
+        .unwrap()
+        .into_int_value();
+    let len_x8 = builder
+        .build_int_mul(len, i64_t.const_int(8, false), "")
+        .unwrap();
+    let slot_off = builder
+        .build_int_add(len_x8, i64_t.const_int(16, false), "")
+        .unwrap();
+    let slot = unsafe {
+        builder
+            .build_in_bounds_gep(i8_t, arr, &[slot_off], "slot")
+            .unwrap()
+    };
+    builder.build_store(slot, val).unwrap();
+    let len_p1 = builder
+        .build_int_add(len, i64_t.const_int(1, false), "")
+        .unwrap();
+    builder.build_store(arr, len_p1).unwrap();
+    builder.build_return(None).unwrap();
     f
 }
 
