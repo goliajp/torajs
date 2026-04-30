@@ -62,7 +62,6 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
     let putchar = declare_putchar(&ctx, &llvm_module);
     let malloc = declare_malloc(&ctx, &llvm_module);
     let memcpy = declare_memcpy(&ctx, &llvm_module);
-    let write = declare_write(&ctx, &llvm_module);
 
     // Pass B: emit string-literal globals (LLVM `[N x i8]` private constants).
     // Indexed by StringId so callsites resolve via slice indexing.
@@ -86,7 +85,7 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
             "__torajs_str_alloc" => {
                 define_str_alloc(&ctx, &llvm_module, malloc, memcpy)
             }
-            "__torajs_str_print" => define_str_print(&ctx, &llvm_module, write),
+            "__torajs_str_print" => define_str_print(&ctx, &llvm_module, putchar),
             "__torajs_str_drop" => define_str_drop(&ctx, &llvm_module, free),
             "__torajs_str_concat" => {
                 define_str_concat(&ctx, &llvm_module, malloc, memcpy)
@@ -252,15 +251,6 @@ fn declare_free<'ctx>(ctx: &'ctx Context, m: &LlvmModule<'ctx>) -> FunctionValue
     let ptr_t = ctx.ptr_type(AddressSpace::default());
     let fn_t = void_t.fn_type(&[ptr_t.into()], false);
     m.add_function("free", fn_t, None)
-}
-
-fn declare_write<'ctx>(ctx: &'ctx Context, m: &LlvmModule<'ctx>) -> FunctionValue<'ctx> {
-    let i32_t = ctx.i32_type();
-    let i64_t = ctx.i64_type();
-    let ptr_t = ctx.ptr_type(AddressSpace::default());
-    // ssize_t write(int fd, const void *buf, size_t count) — return ignored
-    let fn_t = i64_t.fn_type(&[i32_t.into(), ptr_t.into(), i64_t.into()], false);
-    m.add_function("write", fn_t, None)
 }
 
 /// Emit one `[N x i8]` private constant per interned string. Just the raw
@@ -792,13 +782,20 @@ fn define_str_drop<'ctx>(
 ///     write(1 /*stdout*/, s + 8, len)
 ///     write(1, "\n", 1)
 ///
-/// Two write(2) syscalls. Should fold to a single in LLVM with a small
-/// stack-buffer prep, but we keep it simple — the perf impact on bench
-/// is in the noise (no string-heavy case yet).
+/// `__torajs_str_print(*StrRepr)` — writes the bytes + trailing newline
+/// through `putchar` (one byte at a time). Goes through the same stdio
+/// buffer as `print_i64`, so mixed `console.log(5); console.log("hi")`
+/// preserves source order. Earlier we used two `write(2)` syscalls; that
+/// was 1-2 syscalls per print but it bypassed stdio's line buffer, so
+/// numbers (which are putchar-buffered) flushed at exit AFTER strings
+/// (which were already written), reordering output. Per-byte putchar
+/// is the simplest cross-buffer-consistent fix; a fwrite/fputc pair via
+/// libc's `stdout` global would be faster on long strings but needs
+/// platform-specific symbol naming we don't want to wire up yet.
 fn define_str_print<'ctx>(
     ctx: &'ctx Context,
     m: &LlvmModule<'ctx>,
-    write: FunctionValue<'ctx>,
+    putchar: FunctionValue<'ctx>,
 ) -> FunctionValue<'ctx> {
     let builder = ctx.create_builder();
     let i64_t = ctx.i64_type();
@@ -809,6 +806,9 @@ fn define_str_print<'ctx>(
     let fn_t = void_t.fn_type(&[ptr_t.into()], false);
     let f = m.add_function("__torajs_str_print", fn_t, None);
     let entry = ctx.append_basic_block(f, "entry");
+    let cond_b = ctx.append_basic_block(f, "cond");
+    let body_b = ctx.append_basic_block(f, "body");
+    let exit_b = ctx.append_basic_block(f, "exit");
     builder.position_at_end(entry);
 
     let s = f.get_nth_param(0).unwrap().into_pointer_value();
@@ -818,32 +818,62 @@ fn define_str_print<'ctx>(
         .build_load(i64_t, s, "len")
         .unwrap()
         .into_int_value();
-
-    // data = s + 8
     let data = unsafe {
         builder
             .build_in_bounds_gep(i8_t, s, &[i64_t.const_int(8, false)], "data")
             .unwrap()
     };
-
-    let stdout_fd = i32_t.const_int(1, false);
+    // i_slot = 0
+    let i_slot = builder.build_alloca(i64_t, "i").unwrap();
     builder
-        .build_call(write, &[stdout_fd.into(), data.into(), len.into()], "_w")
+        .build_store(i_slot, i64_t.const_int(0, false))
         .unwrap();
+    builder.build_unconditional_branch(cond_b).unwrap();
 
-    // Trailing newline. A 1-byte stack alloca holding '\n'.
-    let nl_slot = builder.build_alloca(i8_t, "nl").unwrap();
-    builder
-        .build_store(nl_slot, i8_t.const_int(b'\n' as u64, false))
+    // cond: i < len ? body : exit
+    builder.position_at_end(cond_b);
+    let i = builder
+        .build_load(i64_t, i_slot, "")
+        .unwrap()
+        .into_int_value();
+    let cmp = builder
+        .build_int_compare(inkwell::IntPredicate::ULT, i, len, "")
         .unwrap();
-    builder
-        .build_call(
-            write,
-            &[stdout_fd.into(), nl_slot.into(), i64_t.const_int(1, false).into()],
-            "_wn",
-        )
-        .unwrap();
+    builder.build_conditional_branch(cmp, body_b, exit_b).unwrap();
 
+    // body: c = data[i]; putchar((i32) c); i = i + 1; back to cond
+    builder.position_at_end(body_b);
+    let i_now = builder
+        .build_load(i64_t, i_slot, "")
+        .unwrap()
+        .into_int_value();
+    let p = unsafe {
+        builder
+            .build_in_bounds_gep(i8_t, data, &[i_now], "")
+            .unwrap()
+    };
+    let c = builder
+        .build_load(i8_t, p, "")
+        .unwrap()
+        .into_int_value();
+    let c32 = builder
+        .build_int_z_extend(c, i32_t, "")
+        .unwrap();
+    builder
+        .build_call(putchar, &[c32.into()], "")
+        .unwrap();
+    let next = builder
+        .build_int_add(i_now, i64_t.const_int(1, false), "")
+        .unwrap();
+    builder.build_store(i_slot, next).unwrap();
+    builder.build_unconditional_branch(cond_b).unwrap();
+
+    // exit: putchar('\n'); ret void
+    builder.position_at_end(exit_b);
+    let newline = i32_t.const_int(b'\n' as u64, false);
+    builder
+        .build_call(putchar, &[newline.into()], "")
+        .unwrap();
     builder.build_return(None).unwrap();
     f
 }

@@ -293,6 +293,49 @@ impl Parser<'_> {
             }
         };
         self.pos += 1;
+        // M3 — optional type-parameter list: `function id<T, U>(...)`. If
+        // present, the names are recorded on the FnDecl and the typechecker
+        // treats them as placeholder types that don't resolve to a concrete
+        // shape until each call site.
+        let mut type_params: Vec<String> = Vec::new();
+        if matches!(self.peek(), Token::Lt) {
+            self.pos += 1;
+            if !matches!(self.peek(), Token::Gt) {
+                loop {
+                    match self.peek() {
+                        Token::Ident(n) => {
+                            type_params.push(n.clone());
+                            self.pos += 1;
+                        }
+                        t => {
+                            return Err(format!(
+                                "expected type-parameter name, got {t:?} at {}",
+                                self.at()
+                            ));
+                        }
+                    }
+                    match self.peek() {
+                        Token::Comma => self.pos += 1,
+                        Token::Gt => break,
+                        t => {
+                            return Err(format!(
+                                "expected `,` or `>` in type parameters, got {t:?} at {}",
+                                self.at()
+                            ));
+                        }
+                    }
+                }
+            }
+            match self.peek() {
+                Token::Gt => self.pos += 1,
+                t => {
+                    return Err(format!(
+                        "expected `>` to close type parameters, got {t:?} at {}",
+                        self.at()
+                    ));
+                }
+            }
+        }
         match self.peek() {
             Token::LParen => self.pos += 1,
             t => return Err(format!("expected `(`, got {t:?} at {}", self.at())),
@@ -357,6 +400,7 @@ impl Parser<'_> {
         }
         Ok(Stmt::FnDecl {
             name,
+            type_params,
             params,
             return_type,
             body,

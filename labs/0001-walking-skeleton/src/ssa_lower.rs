@@ -25,13 +25,230 @@
 
 use std::collections::HashMap;
 
-use crate::ast::{self, Ast, BinOp as AstBinOp, Expr, ExprId, Stmt};
+use crate::ast::{self, Ast, BinOp as AstBinOp, Expr, ExprId, Param, Stmt};
+use crate::check::{GenericCallSites, type_to_ann};
 use crate::ssa::{
     self, BinOp as SsaBinOp, BlockId, FPred, FuncId, IPred, InstKind, Module, Operand, Terminator,
     Type, ValueId,
 };
 
-pub fn lower(ast: &Ast) -> Module {
+/// M3 — generic call-site retargeting. For each `Expr::Call` whose ExprId
+/// is a generic call site, the typechecker has already inferred the
+/// concrete type args; this map remembers the **specialized fn name** the
+/// monomorphization pre-pass picked for that call site, so the lowerer's
+/// `Expr::Call` arm rewrites the callee to point at the specialized fn.
+type CallRetargets = HashMap<ExprId, String>;
+
+/// Encode an annotation string into a name-safe form for use inside a
+/// monomorphized fn name. `number` → `number`; `number[]` → `number_arr`;
+/// `__fn(number)->number` → `fn_number_to_number`. Distinct user types
+/// produce distinct strings so the cache key `(name, type_args)` resolves
+/// to a unique mono fn.
+fn name_safe(s: &str) -> String {
+    s.chars()
+        .map(|c| match c {
+            'a'..='z' | 'A'..='Z' | '0'..='9' | '_' => c,
+            _ => '_',
+        })
+        .collect()
+}
+
+/// Replace bare-word occurrences of each `from` token with `to` inside an
+/// annotation string. Word boundary = anything that isn't an alphanumeric
+/// or `_`. Used by `monomorphize_generics` to rewrite a generic FnDecl's
+/// type annotations into a concrete specialization (e.g. `T` → `number`,
+/// `T[]` → `number[]`, `__fn(T)->T` → `__fn(number)->number`).
+fn substitute_in_ann(ann: &str, subst: &[(String, String)]) -> String {
+    let mut out = String::with_capacity(ann.len());
+    let bytes = ann.as_bytes();
+    let mut i = 0usize;
+    while i < bytes.len() {
+        let c = bytes[i];
+        let is_word_start =
+            c.is_ascii_alphabetic() || c == b'_';
+        if !is_word_start {
+            out.push(c as char);
+            i += 1;
+            continue;
+        }
+        let start = i;
+        while i < bytes.len() {
+            let cc = bytes[i];
+            if cc.is_ascii_alphanumeric() || cc == b'_' {
+                i += 1;
+            } else {
+                break;
+            }
+        }
+        let word = &ann[start..i];
+        if let Some((_, replacement)) = subst.iter().find(|(from, _)| from == word) {
+            out.push_str(replacement);
+        } else {
+            out.push_str(word);
+        }
+    }
+    out
+}
+
+/// Substitute every type-param name in a `Stmt`'s body recursively.
+/// Currently only `Stmt::LetDecl` and the immediate FnDecl signature
+/// carry annotation strings; we walk into nested Block / If / While / For
+/// bodies. `subst` is the (param → concrete-ann) list applied to every
+/// `type_ann` Some(...) string encountered.
+fn substitute_in_stmt(stmt: &mut Stmt, subst: &[(String, String)]) {
+    match stmt {
+        Stmt::LetDecl { type_ann, .. } => {
+            if let Some(ann) = type_ann {
+                *ann = substitute_in_ann(ann, subst);
+            }
+        }
+        Stmt::If {
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            substitute_in_stmt(then_branch, subst);
+            if let Some(eb) = else_branch {
+                substitute_in_stmt(eb, subst);
+            }
+        }
+        Stmt::While { body, .. } => substitute_in_stmt(body, subst),
+        Stmt::For { init, body, .. } => {
+            if let Some(i) = init {
+                substitute_in_stmt(i, subst);
+            }
+            substitute_in_stmt(body, subst);
+        }
+        Stmt::Block(stmts) => {
+            for s in stmts {
+                substitute_in_stmt(s, subst);
+            }
+        }
+        Stmt::FnDecl {
+            params,
+            return_type,
+            body,
+            ..
+        } => {
+            for p in params {
+                if let Some(ann) = &mut p.type_ann {
+                    *ann = substitute_in_ann(ann, subst);
+                }
+            }
+            if let Some(rt) = return_type {
+                *rt = substitute_in_ann(rt, subst);
+            }
+            for s in body {
+                substitute_in_stmt(s, subst);
+            }
+        }
+        // Expr / Return / Break / Continue / TypeDecl carry no annotation
+        // strings worth substituting in the M3-minimal surface.
+        _ => {}
+    }
+}
+
+/// M3 — produce a monomorphized FnDecl for each unique
+/// `(generic_name, type_args)` tuple in `generic_call_sites`. Returns:
+///   - `mono_decls`: the new specialized FnDecls (to be appended to
+///     ast.stmts so pass 1 / 2 lower them as concrete fns)
+///   - `call_retargets`: per-call-site mapping `ExprId → mono_name` so
+///     the lowerer can rewrite each generic call's callee
+///   - `generic_fn_names`: original generic-fn names (for pass 1 to skip)
+fn monomorphize_generics(
+    ast: &Ast,
+    generic_call_sites: &GenericCallSites,
+) -> (Vec<Stmt>, CallRetargets, std::collections::HashSet<String>) {
+    let mut mono_decls: Vec<Stmt> = Vec::new();
+    let mut call_retargets: CallRetargets = HashMap::new();
+    let mut generic_fn_names: std::collections::HashSet<String> =
+        std::collections::HashSet::new();
+    // Cache: (name, [annotation_strings]) → mono_name. Re-uses an existing
+    // monomorphization when two call sites infer the same type args.
+    let mut cache: HashMap<(String, Vec<String>), String> = HashMap::new();
+
+    // Index original generic FnDecls by name.
+    let generics: HashMap<String, &Stmt> = ast
+        .stmts
+        .iter()
+        .filter_map(|s| match s {
+            Stmt::FnDecl { name, type_params, .. } if !type_params.is_empty() => {
+                Some((name.clone(), s))
+            }
+            _ => None,
+        })
+        .collect();
+    for k in generics.keys() {
+        generic_fn_names.insert(k.clone());
+    }
+
+    for (eid, (callee_name, type_args)) in generic_call_sites {
+        let arg_anns: Vec<String> = type_args.iter().map(type_to_ann).collect();
+        let cache_key = (callee_name.clone(), arg_anns.clone());
+        let mono_name = if let Some(name) = cache.get(&cache_key) {
+            name.clone()
+        } else {
+            let suffix: Vec<String> = arg_anns.iter().map(|a| name_safe(a)).collect();
+            let mono_name = format!("{}$$_{}", callee_name, suffix.join("_"));
+            // Look up the original generic FnDecl, clone it, substitute
+            // type-param names with concrete annotation strings, rename.
+            let Some(orig) = generics.get(callee_name).copied() else {
+                // Should not happen — typechecker already validated.
+                continue;
+            };
+            let Stmt::FnDecl {
+                type_params,
+                params,
+                return_type,
+                body,
+                ..
+            } = orig else {
+                continue;
+            };
+            let subst: Vec<(String, String)> = type_params
+                .iter()
+                .cloned()
+                .zip(arg_anns.iter().cloned())
+                .collect();
+            let mut new_params: Vec<Param> = params.clone();
+            for p in new_params.iter_mut() {
+                if let Some(ann) = &mut p.type_ann {
+                    *ann = substitute_in_ann(ann, &subst);
+                }
+            }
+            let new_return_type = return_type
+                .as_ref()
+                .map(|rt| substitute_in_ann(rt, &subst));
+            let mut new_body: Vec<Stmt> = body.clone();
+            for s in new_body.iter_mut() {
+                substitute_in_stmt(s, &subst);
+            }
+            mono_decls.push(Stmt::FnDecl {
+                name: mono_name.clone(),
+                type_params: Vec::new(),
+                params: new_params,
+                return_type: new_return_type,
+                body: new_body,
+            });
+            cache.insert(cache_key, mono_name.clone());
+            mono_name
+        };
+        call_retargets.insert(*eid, mono_name);
+    }
+    (mono_decls, call_retargets, generic_fn_names)
+}
+
+pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
+    // M3 — produce monomorphized FnDecls from each generic call site,
+    // and a per-call-site `ExprId → mono_name` retarget map. We clone
+    // the AST so the appended mono FnDecls don't mutate the caller's
+    // copy (cheap: the AST is a few thousand exprs at most).
+    let (mono_decls, call_retargets, generic_fn_names) =
+        monomorphize_generics(ast, generic_call_sites);
+    let mut owned_ast: Ast = ast.clone();
+    owned_ast.stmts.extend(mono_decls);
+    let ast: &Ast = &owned_ast;
+
     let mut module = Module::default();
     let mut fn_table: HashMap<String, FuncId> = HashMap::new();
 
@@ -235,9 +452,17 @@ pub fn lower(ast: &Ast) -> Module {
             name,
             return_type,
             params,
+            type_params,
             ..
         } = stmt
         {
+            // M3 — skip generic FnDecls. Their TypeVar-bearing annotations
+            // (`T`, `T[]`, etc.) can't be parsed by `parse_type`, and the
+            // monomorphization pre-pass has already produced concrete
+            // specializations that the regular pass picks up below.
+            if !type_params.is_empty() || generic_fn_names.contains(name) {
+                continue;
+            }
             let mut param_tys = Vec::with_capacity(params.len());
             for p in params {
                 param_tys.push(parse_type(
@@ -322,6 +547,7 @@ pub fn lower(ast: &Ast) -> Module {
             params,
             return_type,
             body,
+            ..
         } = &ast.stmts[stmt_idx]
         {
             let string_id_base = module.strings.len();
@@ -341,6 +567,7 @@ pub fn lower(ast: &Ast) -> Module {
                 &struct_layouts_snapshot,
                 string_id_base,
                 &mut closure_captures,
+                &call_retargets,
             );
             module.funcs[fid.0 as usize] = f;
             for s in new_strings {
@@ -370,6 +597,7 @@ pub fn lower(ast: &Ast) -> Module {
             &struct_layouts_snapshot,
             string_id_base,
             &mut closure_captures,
+            &call_retargets,
         );
         for s in new_strings {
             module.strings.push(s);
@@ -458,6 +686,7 @@ fn synthesize_main(
     struct_layouts: &[Vec<(String, Type)>],
     string_id_base: usize,
     closure_captures: &mut HashMap<String, Vec<Type>>,
+    call_retargets: &CallRetargets,
 ) -> (ssa::Function, Vec<Vec<u8>>) {
     let mut f = ssa::Function::new("main", Type::I32);
     let entry = f.add_block();
@@ -481,6 +710,7 @@ fn synthesize_main(
             new_strings: &mut new_strings,
             string_id_base,
             closure_captures,
+            call_retargets,
         };
         for s in stmts {
             ctx.lower_top_stmt(s);
@@ -654,6 +884,7 @@ fn lower_fn(
     struct_layouts: &[Vec<(String, Type)>],
     string_id_base: usize,
     closure_captures: &mut HashMap<String, Vec<Type>>,
+    call_retargets: &CallRetargets,
 ) -> (ssa::Function, Vec<Vec<u8>>) {
     let ret_ty = parse_type(return_type, aliases, arr_layouts, fn_sigs);
     let mut f = ssa::Function::new(name, ret_ty);
@@ -694,6 +925,7 @@ fn lower_fn(
         new_strings: &mut new_strings,
         string_id_base,
         closure_captures,
+        call_retargets,
     };
 
     // Materialize each param as an alloca-backed local. mem2reg at -O1+
@@ -885,6 +1117,12 @@ struct LowerCtx<'a> {
     /// lifted FnDecl name; the lifted body's `lower_fn` reads it to emit
     /// env-load preambles. Outliving any individual lower_fn call.
     closure_captures: &'a mut HashMap<String, Vec<Type>>,
+    /// M3 — per-call-site `ExprId → mono_name` retarget map. The
+    /// monomorphization pre-pass produced one specialized FnDecl per
+    /// `(generic_name, type_args)`; at each generic call site, the
+    /// `Expr::Call` arm rewrites the callee Ident to the mono name from
+    /// this map before falling through to the regular call lowering.
+    call_retargets: &'a CallRetargets,
 }
 
 impl<'a> LowerCtx<'a> {
@@ -1952,7 +2190,20 @@ impl<'a> LowerCtx<'a> {
                     );
                     return Operand::Value(v);
                 }
-                let target = self.resolve_callee(*callee);
+                // M3 — generic call retarget. If the typechecker recorded
+                // a (mono fn name) for this call's ExprId, look up the
+                // specialized FuncId by name and use it instead of the
+                // generic ident's resolve.
+                let target = if let Some(mono_name) = self.call_retargets.get(&eid).cloned() {
+                    *self
+                        .fn_table
+                        .get(&mono_name)
+                        .unwrap_or_else(|| panic!(
+                            "ssa-lower: monomorphized fn `{mono_name}` missing from fn_table"
+                        ))
+                } else {
+                    self.resolve_callee(*callee)
+                };
                 let mut argv: Vec<Operand> =
                     args.iter().map(|a| self.lower_expr(*a)).collect();
                 // Consume non-Copy ident args. Mirrors check.rs's pass; the

@@ -131,16 +131,19 @@ fn pipeline(src: &str, stage: Stage) -> ExitCode {
         return ExitCode::SUCCESS;
     }
 
-    if let Err(e) = check::check(&ast) {
-        eprintln!("type error: {e}");
-        return ExitCode::from(1);
-    }
+    let generic_call_sites = match check::check(&ast) {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("type error: {e}");
+            return ExitCode::from(1);
+        }
+    };
     if matches!(stage, Stage::Check) {
         return ExitCode::SUCCESS;
     }
 
     if matches!(stage, Stage::Ssa) {
-        let m = ssa_lower::lower(&ast);
+        let m = ssa_lower::lower(&ast, &generic_call_sites);
         m.print();
         return ExitCode::SUCCESS;
     }
@@ -246,10 +249,13 @@ fn run_build_llvm(args: &[String]) -> ExitCode {
     // global-fn machinery resolves them. Non-capturing closures only;
     // captures land in Phase B.
     ast::lift_arrow_fns(&mut ast);
-    if let Err(e) = check::check(&ast) {
-        eprintln!("type error: {e}");
-        return ExitCode::from(1);
-    }
+    let generic_call_sites = match check::check(&ast) {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("type error: {e}");
+            return ExitCode::from(1);
+        }
+    };
 
     // ssa_lower currently panics on unsupported AST shapes. Catch the panic
     // and report as exit-code-3 (bench harness's "not yet implemented" skip).
@@ -258,7 +264,7 @@ fn run_build_llvm(args: &[String]) -> ExitCode {
     let prev_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(|_| {}));
     let lower_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        ssa_lower::lower(&ast)
+        ssa_lower::lower(&ast, &generic_call_sites)
     }));
     std::panic::set_hook(prev_hook);
     let ssa_module = match lower_result {
@@ -323,17 +329,20 @@ fn run_jit(file_arg: Option<&String>) -> ExitCode {
     // global-fn machinery resolves them. Non-capturing closures only;
     // captures land in Phase B.
     ast::lift_arrow_fns(&mut ast);
-    if let Err(e) = check::check(&ast) {
-        eprintln!("type error: {e}");
-        return ExitCode::from(1);
-    }
+    let generic_call_sites = match check::check(&ast) {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("type error: {e}");
+            return ExitCode::from(1);
+        }
+    };
 
     // Same panic-to-exit-3 dance as run_build_llvm — ssa_lower panics on
     // unsupported AST shapes; bench harness reads exit 3 as "skip".
     let prev_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(|_| {}));
     let lower_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        ssa_lower::lower(&ast)
+        ssa_lower::lower(&ast, &generic_call_sites)
     }));
     std::panic::set_hook(prev_hook);
     let ssa_module = match lower_result {

@@ -28,6 +28,14 @@ pub enum Type {
     /// matching order. (TS-style structural compatibility, not nominal.)
     /// P2.4 introduced this; backed by heap allocation in P2.4.c.
     Struct(Vec<(String, Type)>),
+    /// M3 — type-parameter placeholder. Only legal inside the body of a
+    /// generic FnDecl; at call sites the typechecker infers a concrete
+    /// substitution and the `ssa_lower` monomorphization pass produces
+    /// one specialized fn per `(name, type_args)` tuple. Two `TypeVar`s
+    /// compare equal iff their names match, so distinct generic fns
+    /// must use distinct param names (the per-fn alias scope makes
+    /// this naturally true).
+    TypeVar(String),
 }
 
 impl Type {
@@ -43,12 +51,29 @@ impl Type {
             Type::Number | Type::Boolean | Type::Void | Type::Any
         )
         // Struct, String, Function, Array — all heap-owned, all affine.
+        // TypeVar — conservatively NOT Copy (instantiation may produce a
+        // heap-owned type); irrelevant in practice since generic bodies
+        // never witness their own end-of-fn drop walk (monomorphization
+        // produces concrete-type bodies before the SSA layer runs).
     }
 }
 
 fn resolve_type_ann(name: &str, aliases: &HashMap<String, Type>) -> Option<Type> {
+    resolve_type_ann_with_vars(name, aliases, &[])
+}
+
+/// Like `resolve_type_ann`, but accepts a slice of in-scope type-parameter
+/// names. A bare identifier matching one of those resolves to
+/// `Type::TypeVar(name)` regardless of any conflicting alias / primitive.
+/// Used by `build_fn_type` for generic fn bodies. M3.
+fn resolve_type_ann_with_vars(
+    name: &str,
+    aliases: &HashMap<String, Type>,
+    type_params: &[String],
+) -> Option<Type> {
     if let Some(rest) = name.strip_suffix("[]") {
-        return resolve_type_ann(rest, aliases).map(|inner| Type::Array(Box::new(inner)));
+        return resolve_type_ann_with_vars(rest, aliases, type_params)
+            .map(|inner| Type::Array(Box::new(inner)));
     }
     // M2 — closure env marker `__env(cap0|cap1|...)` injected by
     // `lift_arrow_fns` on the hidden first param of capturing arrows. At
@@ -104,10 +129,15 @@ fn resolve_type_ann(name: &str, aliases: &HashMap<String, Type>) -> Option<Type>
 
         let mut param_tys = Vec::with_capacity(params.len());
         for p in params {
-            param_tys.push(resolve_type_ann(p, aliases)?);
+            param_tys.push(resolve_type_ann_with_vars(p, aliases, type_params)?);
         }
-        let ret_ty = resolve_type_ann(ret_str, aliases)?;
+        let ret_ty = resolve_type_ann_with_vars(ret_str, aliases, type_params)?;
         return Some(Type::Function(param_tys, Box::new(ret_ty)));
+    }
+    // M3 — bare identifier matching an in-scope type-param resolves to a
+    // TypeVar regardless of any conflicting alias / primitive.
+    if type_params.iter().any(|p| p == name) {
+        return Some(Type::TypeVar(name.to_string()));
     }
     match name {
         // `number` is the JS-spelled umbrella; `i64` and `f64` are explicit
@@ -131,6 +161,16 @@ fn build_fn_type(
     return_type: &Option<String>,
     aliases: &HashMap<String, Type>,
 ) -> Result<Type, String> {
+    build_fn_type_with_vars(fn_name, params, return_type, aliases, &[])
+}
+
+fn build_fn_type_with_vars(
+    fn_name: &str,
+    params: &[Param],
+    return_type: &Option<String>,
+    aliases: &HashMap<String, Type>,
+    type_params: &[String],
+) -> Result<Type, String> {
     let mut param_tys = Vec::new();
     for p in params {
         let Some(ann) = &p.type_ann else {
@@ -139,7 +179,7 @@ fn build_fn_type(
                 p.name
             ));
         };
-        let Some(ty) = resolve_type_ann(ann, aliases) else {
+        let Some(ty) = resolve_type_ann_with_vars(ann, aliases, type_params) else {
             return Err(format!(
                 "unknown type `{ann}` for parameter `{}` of function `{fn_name}`",
                 p.name
@@ -149,7 +189,7 @@ fn build_fn_type(
     }
     let ret_ty = match return_type {
         None => Type::Void,
-        Some(t) => match resolve_type_ann(t, aliases) {
+        Some(t) => match resolve_type_ann_with_vars(t, aliases, type_params) {
             Some(ty) => ty,
             None => {
                 return Err(format!(
@@ -172,7 +212,43 @@ struct LocalInfo {
     moved: bool,
 }
 
-pub fn check(ast: &Ast) -> Result<(), String> {
+/// M3 — substitution recorded at each generic call site. Keyed by the
+/// `Expr::Call`'s `ExprId`. Value: (callee fn name, ordered concrete
+/// types matching the callee's `type_params`). The SSA monomorphizer
+/// reads this to pick / generate the right specialized fn.
+pub type GenericCallSites = HashMap<ExprId, (String, Vec<Type>)>;
+
+/// Map check.rs's `Type` to the type-annotation string the SSA layer's
+/// `parse_type` consumes. Used to translate inferred generic type args
+/// from the typechecker into ssa_lower's annotation strings.
+pub fn type_to_ann(ty: &Type) -> String {
+    match ty {
+        Type::Number => "number".into(),
+        Type::Boolean => "boolean".into(),
+        Type::String => "string".into(),
+        Type::Void => "void".into(),
+        Type::Any => "number".into(), // SSA-side has no Any; fall back to number
+        Type::Array(inner) => format!("{}[]", type_to_ann(inner)),
+        Type::Struct(_) => {
+            // Struct types appear by alias name in user code — but at
+            // call sites with structural inference we'd need to emit a
+            // brand-new struct annotation. Out of scope for the
+            // M3-minimal generic surface; deferred until generic
+            // monomorphization on Struct args is required.
+            "void".into()
+        }
+        Type::Function(args, ret) => {
+            let parts: Vec<String> = args.iter().map(type_to_ann).collect();
+            format!("__fn({})->{}", parts.join("|"), type_to_ann(ret))
+        }
+        Type::Object(name) => (*name).into(),
+        Type::TypeVar(_) => {
+            panic!("type_to_ann: TypeVar should be substituted before SSA layer")
+        }
+    }
+}
+
+pub fn check(ast: &Ast) -> Result<GenericCallSites, String> {
     let mut c = Checker {
         globals: HashMap::new(),
         scopes: vec![HashMap::new()],
@@ -181,6 +257,8 @@ pub fn check(ast: &Ast) -> Result<(), String> {
         expected_return: None,
         closure_captures: HashMap::new(),
         closure_fn_names: std::collections::HashSet::new(),
+        generic_type_params: HashMap::new(),
+        generic_call_sites: HashMap::new(),
     };
 
     // Pass 0: register type aliases first so fn signatures + let
@@ -216,9 +294,12 @@ pub fn check(ast: &Ast) -> Result<(), String> {
     // For lifted-closure FnDecls (first param `__env`), the user-visible
     // signature drops the env: callers see `(real_params...) -> ret`.
     // The full signature including __env stays implicit at the SSA layer.
+    // Generic FnDecls (non-empty type_params) get their signatures stored
+    // with TypeVar placeholders; call-site inference instantiates them.
     for stmt in &ast.stmts {
         if let Stmt::FnDecl {
             name,
+            type_params,
             params,
             return_type,
             ..
@@ -226,7 +307,13 @@ pub fn check(ast: &Ast) -> Result<(), String> {
         {
             let is_closure = params.first().is_some_and(|p| p.name == "__env");
             let user_params: &[Param] = if is_closure { &params[1..] } else { params };
-            match build_fn_type(name, user_params, return_type, &c.aliases) {
+            match build_fn_type_with_vars(
+                name,
+                user_params,
+                return_type,
+                &c.aliases,
+                type_params,
+            ) {
                 Ok(ty) => {
                     if c.globals.contains_key(name) {
                         c.errors.push(format!("redeclaration of function `{name}`"));
@@ -234,6 +321,9 @@ pub fn check(ast: &Ast) -> Result<(), String> {
                         c.globals.insert(name.clone(), ty);
                         if is_closure {
                             c.closure_fn_names.insert(name.clone());
+                        }
+                        if !type_params.is_empty() {
+                            c.generic_type_params.insert(name.clone(), type_params.clone());
                         }
                     }
                 }
@@ -244,10 +334,15 @@ pub fn check(ast: &Ast) -> Result<(), String> {
 
     // Pass 2: check each statement. Closure-lifted FnDecls are skipped
     // here — their bodies are checked lazily by the `Expr::Closure` arm
-    // of `type_of`, with captures injected as locals.
+    // of `type_of`, with captures injected as locals. Generic FnDecls
+    // are also skipped: their bodies use TypeVar placeholders that the
+    // SSA monomorphization pass instantiates per call site, and the
+    // body's own TS-shape ops (return, BinOp on TypeVar) would fail
+    // a concrete check here. Call-site inference still validates that
+    // arguments are consistent with each TypeVar instance.
     for stmt in &ast.stmts {
         if let Stmt::FnDecl { name, .. } = stmt
-            && c.closure_fn_names.contains(name)
+            && (c.closure_fn_names.contains(name) || c.generic_type_params.contains_key(name))
         {
             continue;
         }
@@ -255,7 +350,7 @@ pub fn check(ast: &Ast) -> Result<(), String> {
     }
 
     if c.errors.is_empty() {
-        Ok(())
+        Ok(c.generic_call_sites)
     } else {
         Err(c.errors.join("\n"))
     }
@@ -280,6 +375,79 @@ struct Checker {
     /// when an `Expr::Closure` references them, so the captures are in
     /// scope.
     closure_fn_names: std::collections::HashSet<String>,
+    /// M3 — type params for each generic FnDecl (`function id<T, U>(...)`).
+    /// Empty for non-generic fns. Pass-2 skips these decls (their
+    /// TypeVar-bearing bodies can't be type-checked without substitution);
+    /// the SSA monomorphization pass produces concrete bodies on demand.
+    /// Call-site inference uses this map to walk each TypeVar in the
+    /// signature and unify it against the actual argument type.
+    generic_type_params: HashMap<String, Vec<String>>,
+    /// M3 — per-call-site inferred type arguments. Keyed by the Call
+    /// expression's `ExprId`; value is `(callee_name, ordered type args
+    /// matching the callee's `type_params`)`. Read by the SSA monomorphizer
+    /// at each generic call site to pick / generate the right specialized
+    /// fn. Public via `pub fn check_with_generics` below.
+    pub generic_call_sites: HashMap<ExprId, (String, Vec<Type>)>,
+}
+
+/// Walk `pattern` and `actual` in lockstep; whenever a `TypeVar(name)` is
+/// found in `pattern`, bind it to the matching position in `actual`
+/// (or check consistency if already bound). Returns Err on mismatch.
+fn unify_typevar(
+    pattern: &Type,
+    actual: &Type,
+    subst: &mut HashMap<String, Type>,
+) -> Result<(), String> {
+    match (pattern, actual) {
+        (Type::TypeVar(name), concrete) => {
+            if let Some(existing) = subst.get(name) {
+                if existing != concrete {
+                    return Err(format!(
+                        "type parameter `{name}` was inferred as {existing:?} earlier but here is {concrete:?}"
+                    ));
+                }
+            } else {
+                subst.insert(name.clone(), concrete.clone());
+            }
+            Ok(())
+        }
+        (Type::Array(p_elem), Type::Array(a_elem)) => unify_typevar(p_elem, a_elem, subst),
+        (Type::Function(p_args, p_ret), Type::Function(a_args, a_ret)) => {
+            if p_args.len() != a_args.len() {
+                return Err(format!(
+                    "function arity mismatch: pattern {:?}, actual {:?}",
+                    p_args.len(),
+                    a_args.len()
+                ));
+            }
+            for (pa, aa) in p_args.iter().zip(a_args.iter()) {
+                unify_typevar(pa, aa, subst)?;
+            }
+            unify_typevar(p_ret, a_ret, subst)
+        }
+        (a, b) if a == b => Ok(()),
+        (a, b) => Err(format!("expected {a:?}, got {b:?}")),
+    }
+}
+
+/// Replace every `TypeVar(name)` inside `ty` with the binding from `subst`.
+/// Used to compute the resolved return type at a generic call site.
+fn substitute_typevars(ty: &Type, subst: &HashMap<String, Type>) -> Type {
+    match ty {
+        Type::TypeVar(name) => subst.get(name).cloned().unwrap_or_else(|| ty.clone()),
+        Type::Array(inner) => Type::Array(Box::new(substitute_typevars(inner, subst))),
+        Type::Function(args, ret) => Type::Function(
+            args.iter().map(|t| substitute_typevars(t, subst)).collect(),
+            Box::new(substitute_typevars(ret, subst)),
+        ),
+        Type::Struct(fields) => Type::Struct(
+            fields
+                .iter()
+                .map(|(n, t)| (n.clone(), substitute_typevars(t, subst)))
+                .collect(),
+        ),
+        other => other.clone(),
+    }
 }
 
 impl Checker {
@@ -748,6 +916,62 @@ impl Checker {
                 Ok(Type::Struct(field_tys))
             }
             Expr::Call { callee, args } => {
+                // M3 — generic call inference. If callee is a bare Ident
+                // naming a generic FnDecl, walk param/arg pairs unifying
+                // each TypeVar against the actual arg type, then
+                // substitute back into the return type. Side-table records
+                // the inferred substitution so ssa_lower can monomorphize.
+                if let Expr::Ident(name) = ast.get_expr(*callee)
+                    && let Some(type_params) = self.generic_type_params.get(name).cloned()
+                    && let Some(Type::Function(params, ret)) = self.globals.get(name).cloned()
+                {
+                    if params.len() != args.len() {
+                        return Err(format!(
+                            "expected {} argument(s) to `{name}`, got {}",
+                            params.len(),
+                            args.len()
+                        ));
+                    }
+                    let mut subst: HashMap<String, Type> = HashMap::new();
+                    let mut arg_tys: Vec<Type> = Vec::with_capacity(args.len());
+                    for (i, (param_ty, arg_id)) in
+                        params.iter().zip(args.iter()).enumerate()
+                    {
+                        let arg_ty = self.type_of(ast, *arg_id)?;
+                        if let Err(e) = unify_typevar(param_ty, &arg_ty, &mut subst) {
+                            return Err(format!(
+                                "argument {i} to `{name}`: {e}"
+                            ));
+                        }
+                        arg_tys.push(arg_ty);
+                    }
+                    // Validate every type-param was bound.
+                    for tp in &type_params {
+                        if !subst.contains_key(tp) {
+                            return Err(format!(
+                                "could not infer type parameter `{tp}` for `{name}`"
+                            ));
+                        }
+                    }
+                    let resolved_ret = substitute_typevars(&ret, &subst);
+                    // Record the substitution for the SSA monomorphizer.
+                    // Keyed by ExprId of the call so each call site gets
+                    // its own type-argument set.
+                    let type_args: Vec<Type> = type_params
+                        .iter()
+                        .map(|tp| subst.get(tp).cloned().unwrap())
+                        .collect();
+                    self.generic_call_sites.insert(eid, (name.clone(), type_args));
+                    // Consume non-Copy ident args under the resolved param
+                    // types (after substitution) — same affine rule.
+                    for (param_ty, arg_id) in params.iter().zip(args.iter()) {
+                        let resolved = substitute_typevars(param_ty, &subst);
+                        if !resolved.is_copy() && resolved != Type::Any {
+                            self.consume(ast, *arg_id);
+                        }
+                    }
+                    return Ok(resolved_ret);
+                }
                 let callee_ty = self.type_of(ast, *callee)?;
                 let Type::Function(params, ret) = callee_ty else {
                     return Err(format!("not callable: type {callee_ty:?}"));
@@ -1012,6 +1236,7 @@ impl Checker {
                         params,
                         return_type,
                         body,
+                        ..
                     } if name == &fn_name => Some((params.clone(), return_type.clone(), body.clone())),
                     _ => None,
                 });
@@ -1071,7 +1296,7 @@ mod tests {
     fn check_src(src: &str) -> Result<(), String> {
         let tokens = lexer::tokenize(src).map_err(|e| format!("lex: {e}"))?;
         let ast = parser::parse(&tokens).map_err(|e| format!("parse: {e}"))?;
-        super::check(&ast)
+        super::check(&ast).map(|_| ())
     }
 
     #[test]

@@ -128,6 +128,12 @@ pub enum Stmt {
     Block(Vec<Stmt>),
     FnDecl {
         name: String,
+        /// M3 — type parameters declared by `function id<T, U>(...)`. Empty
+        /// for non-generic fns. Each entry is the bare type-param name; uses
+        /// of these names inside `params` / `return_type` / `body` resolve
+        /// against this list at typecheck and trigger monomorphization at
+        /// each concrete call site.
+        type_params: Vec<String>,
         params: Vec<Param>,
         return_type: Option<String>,
         body: Vec<Stmt>,
@@ -142,7 +148,7 @@ pub enum Stmt {
     Return(Option<ExprId>),
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct Ast {
     pub stmts: Vec<Stmt>,
     pub exprs: Vec<Expr>,
@@ -218,6 +224,7 @@ pub fn lift_arrow_fns(ast: &mut Ast) {
             }
             new_decls.push(Stmt::FnDecl {
                 name,
+                type_params: Vec::new(),
                 params: final_params,
                 return_type,
                 body,
@@ -457,6 +464,7 @@ impl Ast {
             }
             Stmt::FnDecl {
                 name,
+                type_params,
                 params,
                 return_type,
                 body,
@@ -469,7 +477,12 @@ impl Ast {
                     })
                     .collect();
                 let ret = return_type.clone().unwrap_or_else(|| "void".into());
-                println!("{pad}FnDecl {name}({}): {ret}", plist.join(", "));
+                let tps = if type_params.is_empty() {
+                    String::new()
+                } else {
+                    format!("<{}>", type_params.join(", "))
+                };
+                println!("{pad}FnDecl {name}{tps}({}): {ret}", plist.join(", "));
                 for s in body {
                     self.print_stmt(s, indent + 1);
                 }
