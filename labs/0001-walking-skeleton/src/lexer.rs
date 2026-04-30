@@ -261,6 +261,27 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                 emit(&mut out, token, start, i);
             }
             b if b.is_ascii_digit() => {
+                // 0x... hex literal — TS / JS standard. Parse as u64 and
+                // cast to f64; values up to 2^53 round-trip exactly,
+                // which covers every realistic bitwise / mask use.
+                if b == b'0'
+                    && peek(bytes, i + 1).is_some_and(|c| c == b'x' || c == b'X')
+                {
+                    i += 2; // skip "0x"
+                    let hex_start = i;
+                    while i < len && bytes[i as usize].is_ascii_hexdigit() {
+                        i += 1;
+                    }
+                    if i == hex_start {
+                        return Err(format!("invalid hex literal at {start}"));
+                    }
+                    let s = std::str::from_utf8(&bytes[hex_start as usize..i as usize])
+                        .expect("ascii hex digits are valid utf-8");
+                    let n: u64 = u64::from_str_radix(s, 16)
+                        .map_err(|_| format!("invalid hex number at {start}"))?;
+                    emit(&mut out, Token::Number(n as f64), start, i);
+                    continue;
+                }
                 while i < len && bytes[i as usize].is_ascii_digit() {
                     i += 1;
                 }

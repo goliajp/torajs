@@ -1,0 +1,8 @@
+[package]
+name = "torajs-conformance"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "torajs-conformance"
+path = "main.rs"
