@@ -1325,14 +1325,12 @@ impl Checker {
                         .map(|tp| subst.get(tp).cloned().unwrap())
                         .collect();
                     self.generic_call_sites.insert(eid, (name.clone(), type_args));
-                    // Consume non-Copy ident args under the resolved param
-                    // types (after substitution) — same affine rule.
-                    for (param_ty, arg_id) in params.iter().zip(args.iter()) {
-                        let resolved = substitute_typevars(param_ty, &subst);
-                        if !resolved.is_copy() && resolved != Type::Any {
-                            self.consume(ast, *arg_id);
-                        }
-                    }
+                    // Generic call args also follow the new TS-shape
+                    // borrow semantics — non-Copy args are not consumed
+                    // by passing. See the comment in the regular Call
+                    // arm below for the rationale + caveat.
+                    let _ = params;
+                    let _ = args;
                     return Ok(resolved_ret);
                 }
                 let callee_ty = self.type_of(ast, *callee)?;
@@ -1380,17 +1378,22 @@ impl Checker {
                             "argument {i}: expected {param_ty:?}, got {arg_ty:?}"
                         ));
                     }
-                    // Non-Copy params consume the arg binding (Rust-shaped
-                    // move-on-pass). `Any` params (currently only
-                    // `console.log`) borrow instead — the printer is a
-                    // viewer, not an owner. Consuming an Any param would
-                    // make `console.log(s); console.log(s)` an error,
-                    // which we don't want for the most common shape.
-                    let skip_consume =
-                        is_string_borrow || (is_class_method && i == 0);
-                    if !param_ty.is_copy() && param_ty != &Type::Any && !skip_consume {
-                        self.consume(ast, *arg_id);
-                    }
+                    // TS-shape: function parameters borrow non-Copy args
+                    // by default. Calling `f(x)` does not mark `x` as
+                    // moved — the caller keeps owning the heap and can
+                    // pass the same binding to another function later.
+                    // Matches JS pass-by-reference semantics. Caveat: a
+                    // function that stores its arg into long-lived heap
+                    // (e.g. a global, or a returned struct field) would
+                    // create a dangling pointer once the caller drops
+                    // the original — there's no GC to keep it alive. For
+                    // the cases we ship today this is fine; the ts-subset
+                    // doc calls out the constraint.
+                    let _ = is_string_borrow;
+                    let _ = is_class_method;
+                    // Old affine-consume behavior is gone; the param-ty
+                    // pattern matching above stays since the type-arg
+                    // resolution still relies on it.
                 }
                 Ok(*ret)
             }

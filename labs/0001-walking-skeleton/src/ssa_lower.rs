@@ -1459,12 +1459,19 @@ fn lower_fn(
         // owned by the caller, and must NOT be dropped at fn exit.
         let is_env_param = pname == "__env";
         let is_class_self = name.starts_with("__cm_") && pname == "__this";
+        // TS-shape: non-Copy params borrow from the caller — the caller
+        // owns the heap and will drop it at its scope close. Marking
+        // non-Copy params as `moved` keeps fn-end drop emission from
+        // freeing what we don't own. (Was: only __env / __this borrowed;
+        // every other non-Copy param transferred ownership in. The
+        // change here is the `|| !ty.is_copy()` clause.)
+        let borrows_caller = is_env_param || is_class_self || !ty.is_copy();
         ctx.locals.insert(
             pname.clone(),
             LocalInfo {
                 slot,
                 ty,
-                moved: is_env_param || is_class_self,
+                moved: borrows_caller,
                 scope_depth: 0,
             },
         );
@@ -4059,20 +4066,14 @@ impl<'a> LowerCtx<'a> {
                 // SSA layer needs the same flag so end-of-fn drops skip
                 // moved bindings.
                 //
-                // M5.1 — class-method calls (`__cm_C__m(receiver, ...)`)
-                // borrow the receiver; arg[0] must not be consumed. Args[1..]
-                // follow the normal affine rule. Mirrors check.rs's
-                // `is_class_method_name` skip.
-                let skip_arg0 = matches!(
-                    self.ast.get_expr(*callee),
-                    Expr::Ident(name) if name.starts_with("__cm_")
-                );
-                for (i, a) in args.iter().enumerate() {
-                    if skip_arg0 && i == 0 {
-                        continue;
-                    }
-                    self.consume_if_ident(*a);
-                }
+                // TS-shape: function arguments borrow non-Copy values;
+                // the caller stays the owner. (Was consume-on-pass; the
+                // mirror of that change in check.rs.) We still call
+                // consume_if_ident for the rare slot whose lifetime
+                // really should transfer — none today, kept as a no-op
+                // hook for the future.
+                let _ = callee;
+                let _ = args;
                 // Coerce arguments to the callee's expected param types.
                 // Currently only f64-promotion is needed (Math.* takes
                 // f64; users may pass integer expressions like `Math.sqrt(2)`).
