@@ -109,6 +109,7 @@ console.log(Math.floor(Math.sqrt(alice.age * alice.age)));
 | **M1**     | TS subset core (comments / Array runtime / block drops / `p.x = v` / `&&` `\|\|` `!` / for-loop / break+continue) | ✓ |
 | **M2 Phase A/B** | non-capturing arrow fns + first-class fn pointers (`__fn(P)->R` annotation, FnSig, FnAddr+CallIndirect) | ✓ |
 | **M2 Phase C** | closures with **implicit captures** — heap env block `[fn_ptr, cap_0, cap_1, ...]`, env-load preamble in lifted body, `Type::Closure(SigId)` | ✓ 2026-04-30 |
+| **M3.1+M3.2+M3.3** | generics — `function id<T>(x: T): T`, type-arg inference at call sites, monomorphization pre-pass | ✓ 2026-04-30 |
 | ~~P2.3~~ | ~~`Rc<T>` first-class~~ | **REMOVED** — incompatible with TS-subset framing |
 
 ### Bench position (M4 Pro, hyperfine n=5)
@@ -125,7 +126,7 @@ bench/                             11 cases × 5 langs + harness + runners + res
 
 ### Currently executing
 
-M2 Phase C (closures with implicit captures) just shipped (commits `c7f866b` + `c225876`). Next up: **M3 — generics in user code**, starting with `function id<T>(x: T): T { return x; }`.
+M3 (generics — `function id<T>(x: T): T`) just shipped via commit `51c04d2`. Pre-existing AOT print-order bug fixed in the same commit (`__torajs_str_print` was using unbuffered `write(2)` while `print_i64` used `putchar`'s line buffer; mixed prints reordered at exit). Next up: **M3.4 — generic structs (`type Pair<A, B> = { fst: A, snd: B }`)** OR move to **M4 (error model)**.
 
 ---
 
@@ -167,9 +168,10 @@ The compiler already has `Array<T>` natively after M1. M3 generalizes the mechan
 
 | step | what | exit gate |
 |---|---|---|
-| **M3.1** | parser/AST: type params on fn decls, type aliases, struct types | `function id<T>(x: T): T { return x; }` parses + typechecks |
-| **M3.2** | monomorphization at SSA boundary | `id<number>(5)` and `id<string>("x")` lower to distinct concrete fns |
-| **M3.3** | generic structs: `type Pair<A, B> = { fst: A, snd: B }` | round-trips |
+| **M3.1** ✓ | parser/AST: type params on fn decls (`function id<T, U>(...)`) | parses + typechecks; `Stmt::FnDecl.type_params` populated |
+| **M3.2** ✓ | call-site type inference + `Type::TypeVar` placeholder; generic body skipped in pass-2 typecheck | `id(5)` infers `T = number`, `id("x")` infers `T = string`; substitution recorded per-`ExprId` |
+| **M3.3** ✓ | monomorphization pre-pass in ssa_lower: clone the generic FnDecl per unique `(name, type_args)`, substitute type-param annotations, retarget call sites to mono name | `id<number>(5)` and `id<string>("hi")` lower to distinct concrete fns; multi-param generics (`fst<A, B>`, `snd<A, B>`) work on JIT + AOT |
+| **M3.4** | generic structs: `type Pair<A, B> = { fst: A, snd: B }` | round-trips |
 
 ### M4 — Error model: try / catch / throw
 
