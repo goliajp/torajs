@@ -960,6 +960,9 @@ fn synthesize_main(
             struct_layouts,
             generic_struct_decls,
             try_stack: Vec::new(),
+            try_finally_stack: Vec::new(),
+            pending_return_slot: None,
+            pending_return_flag: None,
             locals: HashMap::new(),
             scope_stack: vec![Vec::new()],
             loop_stack: Vec::new(),
@@ -1334,6 +1337,9 @@ fn lower_fn(
         struct_layouts,
         generic_struct_decls,
         try_stack: Vec::new(),
+        try_finally_stack: Vec::new(),
+        pending_return_slot: None,
+        pending_return_flag: None,
         locals: HashMap::new(),
         scope_stack: vec![Vec::new()],
         loop_stack: Vec::new(),
@@ -1515,6 +1521,23 @@ struct LowerCtx<'a> {
     /// whose name isn't in this set; intrinsics + verified-pure
     /// user fns are exempt. Recovers the per-call cost M4.1 paid.
     may_throw_fns: &'a std::collections::HashSet<String>,
+    /// review #0001 fix — innermost-active finally block whose body
+    /// should run before the enclosing fn's `return` actually fires.
+    /// `Stmt::Return` inside a try-with-finally pushes its value into
+    /// `pending_return_slot` (fn-wide), sets `pending_return_flag`, and
+    /// branches to the top of this stack. The finally tail dispatches:
+    /// pending_return AND we're outermost → `load + ret`; otherwise →
+    /// `br` to the next outer finally to keep unwinding.
+    try_finally_stack: Vec<BlockId>,
+    /// Lazily-allocated alloca slot for a pending return value across
+    /// finally blocks. Type matches the enclosing fn's ret type. None
+    /// until the first try-with-finally lowering observes a return
+    /// would need to flow through it.
+    pending_return_slot: Option<ValueId>,
+    /// Companion bool flag for `pending_return_slot` — set by Return
+    /// inside a try-with-finally, checked at finally tail to decide
+    /// whether to ret vs continue normally.
+    pending_return_flag: Option<ValueId>,
     /// name → (alloca-ptr value, contents type, moved flag). Every local —
     /// including the function's own parameters — sits behind an alloca.
     /// mem2reg lifts them to SSA values at -O1+.
@@ -2129,6 +2152,15 @@ impl<'a> LowerCtx<'a> {
                 let post_target = finally_blk.unwrap_or(after_blk);
                 self.f.set_term(self.cur_block, Terminator::Br(body_blk));
 
+                // review #0001 fix — push finally onto try_finally_stack
+                // so `Stmt::Return` inside body / catch routes through
+                // the finally before actually returning. Pop AFTER
+                // body+catch so finally body itself doesn't see itself
+                // as the return target.
+                if let Some(fb) = finally_blk {
+                    self.try_finally_stack.push(fb);
+                }
+
                 // body — throw target = catch
                 self.cur_block = body_blk;
                 self.try_stack.push(catch_blk);
@@ -2254,6 +2286,12 @@ impl<'a> LowerCtx<'a> {
                 // path AND on the catch-rethrow path. End: cond_br on
                 // throw_active → propagate-out vs after_blk.
                 if let (Some(fb), Some(fbody)) = (finally_blk, finally_body) {
+                    // review #0001 fix — pop the try_finally_stack
+                    // BEFORE lowering finally body so a `return`
+                    // inside finally itself routes to the next outer
+                    // finally (or direct ret if outermost), not back
+                    // to ourselves.
+                    self.try_finally_stack.pop();
                     self.cur_block = fb;
                     self.scope_stack.push(Vec::new());
                     for s in fbody {
@@ -2263,13 +2301,21 @@ impl<'a> LowerCtx<'a> {
                         }
                     }
                     if self.cur_open() {
+                        // Three-way dispatch at finally tail (in priority
+                        // order):
+                        //   1. throw_active → propagate (catch / next-
+                        //      outer-throw-handler / fn-end)
+                        //   2. pending_return: still wrapping finallies
+                        //      → br to next outer finally; outermost →
+                        //      load slot + ret
+                        //   3. neither → fall through to after_blk
                         let active = self.f.append_inst(
                             self.cur_block,
                             InstKind::Call(self.intrinsics.throw_check, vec![]),
                             Type::I64,
                             None,
                         );
-                        let cmp = self.f.append_inst(
+                        let throw_cmp = self.f.append_inst(
                             self.cur_block,
                             InstKind::ICmp(
                                 IPred::Ne,
@@ -2280,13 +2326,14 @@ impl<'a> LowerCtx<'a> {
                             None,
                         );
                         let prop_blk = self.f.add_block();
+                        let no_throw_blk = self.f.add_block();
                         let cb = self.cur_block;
                         self.f.set_term(
                             cb,
                             Terminator::CondBr {
-                                cond: Operand::Value(cmp),
+                                cond: Operand::Value(throw_cmp),
                                 then_blk: prop_blk,
-                                else_blk: after_blk,
+                                else_blk: no_throw_blk,
                             },
                         );
                         // propagate out: drops + ret sentinel.
@@ -2294,15 +2341,71 @@ impl<'a> LowerCtx<'a> {
                         self.emit_drops_for_owned_locals();
                         let cb2 = self.cur_block;
                         let ret_ty = self.f.ret;
-                        let term = match ret_ty {
+                        let prop_term = match ret_ty {
                             Type::Void => Terminator::Ret(None),
                             Type::F64 => Terminator::Ret(Some(Operand::ConstF64(0.0))),
                             Type::I32 => Terminator::Ret(Some(Operand::ConstI32(0))),
                             _ => Terminator::Ret(Some(Operand::ConstI64(0))),
                         };
-                        self.f.set_term(cb2, term);
+                        self.f.set_term(cb2, prop_term);
+
+                        // no-throw path: check pending_return.
+                        self.cur_block = no_throw_blk;
+                        if let (Some(slot), Some(flag)) =
+                            (self.pending_return_slot, self.pending_return_flag)
+                        {
+                            let f = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Load(Type::Bool, Operand::Value(flag), 0),
+                                Type::Bool,
+                                None,
+                            );
+                            let ret_blk = self.f.add_block();
+                            let no_ret_blk = self.f.add_block();
+                            let cb3 = self.cur_block;
+                            self.f.set_term(
+                                cb3,
+                                Terminator::CondBr {
+                                    cond: Operand::Value(f),
+                                    then_blk: ret_blk,
+                                    else_blk: no_ret_blk,
+                                },
+                            );
+                            // ret_blk: pending_return is set. If we
+                            // still have an outer finally on the stack,
+                            // br to it (the slot value persists). Else
+                            // load + ret directly.
+                            self.cur_block = ret_blk;
+                            if let Some(outer_fb) = self.try_finally_stack.last().copied() {
+                                let cb4 = self.cur_block;
+                                self.f.set_term(cb4, Terminator::Br(outer_fb));
+                            } else {
+                                let v = self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::Load(ret_ty, Operand::Value(slot), 0),
+                                    ret_ty,
+                                    None,
+                                );
+                                self.emit_drops_for_owned_locals();
+                                let cb4 = self.cur_block;
+                                self.f.set_term(
+                                    cb4,
+                                    Terminator::Ret(Some(Operand::Value(v))),
+                                );
+                            }
+                            self.cur_block = no_ret_blk;
+                        }
+                        // either no pending_return slot ever allocated
+                        // (this fn never had a return-inside-finally)
+                        // OR no_ret_blk reached: just fall through.
+                        let cb4 = self.cur_block;
+                        self.f.set_term(cb4, Terminator::Br(after_blk));
                     }
                     self.scope_stack.pop();
+                } else {
+                    // No finally — pop the try_finally_stack push we
+                    // never made. (No-op; left for symmetry / future
+                    // refactor.)
                 }
                 self.cur_block = after_blk;
             }
@@ -2349,16 +2452,60 @@ impl<'a> LowerCtx<'a> {
                 self.cur_block = after_blk;
             }
             Stmt::Return(maybe) => {
-                // Lower the return value (if any) FIRST, then mark the
-                // returned binding as moved so end-of-fn drop skips it,
-                // THEN emit drops for everything still owned, THEN set
-                // the Ret terminator. The order matters: we want the drop
-                // calls to land in the same block as the Ret, before it.
                 let ret_operand = maybe.map(|eid| {
                     let v = self.lower_expr(eid);
                     self.consume_if_ident(eid);
                     v
                 });
+                // review #0001 fix — if any try-with-finally is active
+                // (i.e. we're inside try-body or catch-body of one),
+                // route through it: stash the return value in the
+                // pending-return slot (lazy-alloc'd at fn entry would
+                // be cleaner; for now alloc in entry block on first
+                // use), set the flag, branch to the innermost finally.
+                // The finally tail dispatches: pending_return + still
+                // wrapping finallies → br next outer; pending_return +
+                // outermost → load + ret.
+                if !self.try_finally_stack.is_empty() {
+                    let target = *self.try_finally_stack.last().unwrap();
+                    let ret_ty = self.f.ret;
+                    // Lazy-alloc slot + flag in fn-entry block (first
+                    // block of the fn, which is the alloca region).
+                    let slot = match self.pending_return_slot {
+                        Some(s) => s,
+                        None => {
+                            let s = self.alloca(ret_ty, Some("__pending_ret"));
+                            self.pending_return_slot = Some(s);
+                            s
+                        }
+                    };
+                    let flag = match self.pending_return_flag {
+                        Some(f) => f,
+                        None => {
+                            let f = self.alloca(Type::Bool, Some("__pending_flag"));
+                            self.pending_return_flag = Some(f);
+                            f
+                        }
+                    };
+                    if let Some(v) = ret_operand {
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Store(v, Operand::Value(slot), 0),
+                        );
+                    }
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Store(
+                            Operand::ConstBool(true),
+                            Operand::Value(flag),
+                            0,
+                        ),
+                    );
+                    let cb = self.cur_block;
+                    self.f.set_term(cb, Terminator::Br(target));
+                    return;
+                }
+                // No finally on the stack — direct ret.
                 self.emit_drops_for_owned_locals();
                 let cb = self.cur_block;
                 self.f.set_term(cb, Terminator::Ret(ret_operand));

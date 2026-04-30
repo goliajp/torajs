@@ -1669,6 +1669,20 @@ mod tests {
     }
 
     #[test]
+    fn return_inside_try_with_finally_typechecks() {
+        // review #0001 fix — return inside try-with-finally now routes
+        // through finally (was direct ret, skipping finally entirely).
+        // Typechecks; the lowering changes are in ssa_lower.
+        let src = r#"
+            function f(): number {
+                try { return 1; } catch (e) { return 99; }
+                finally { console.log(0); }
+            }
+        "#;
+        assert!(check_src(src).is_ok());
+    }
+
+    #[test]
     fn generic_fn_on_struct_arg_typechecks() {
         // `id<T>(x: T): T` applied to a struct used to fail because
         // type_to_ann returned "void" for Type::Struct, causing the
