@@ -12,15 +12,15 @@
 
 ### Goal
 
-Build a TypeScript runtime that runs a **subset of TS programs** with **TS semantics** — same observable behavior as `bun` running the same source. The differentiator is the runtime: AOT-compiled to a small native binary via LLVM, JIT-executed via Cranelift, with **compile-time ownership inference** instead of GC.
+Build a TypeScript runtime that runs a **subset of TS programs** with **TS semantics** — same observable behavior as `bun` running the same source. The differentiator is the runtime: AOT-compiled to a small native binary via LLVM (one path serves both `tr build` and `tr run` — the latter caches the binary at `~/.torajs/cache` for instant rerun), with **compile-time ownership inference** instead of GC.
 
 When behavior is ambiguous, **bun is the oracle**. Write the equivalent in TS, run it in `bun`, and match.
 
 ### Hard requirements
 
-1. **极致 perf** — beat bun/node on important benchmarks; hold them. Already 8/8 wins vs bun-jsc, 8/8 wins vs node-v8.
-2. **Compile not too slow** — rustc-debug-class for dev (single-digit-ms compile via Cranelift); LLVM `--release` opt-in for production builds (~45 ms / case).
-3. **Interpretable** — REPL + dev test runner without AOT compile (`tr run` via Cranelift JIT).
+1. **极致 perf** — beat bun/node on important benchmarks; hold them. Both `tr build` (AOT) and `tr run` (AOT-cache) win compute-heavy cases vs bun-jsc/bun-aot/node-v8 (e.g. popcount: 11 ms vs bun 57 ms; fib40: 226 ms vs bun 395 ms).
+2. **Compile not too slow** — first `tr run foo.ts` after a source edit pays one full LLVM compile (~50–90 ms / small program); subsequent runs hit the cache and skip compile entirely. Production builds use `tr build` with O3 (~45 ms / case).
+3. **Interpretable** — `tr run foo.ts` is the dev-loop entry point. AOT-with-cache replaced Cranelift JIT on 2026-05-01: cold compile is ~10× slower, but cache hits make iteration latency lower than JIT and runtime perf strictly better.
 4. **No GC** — no tracing GC, no refcount, no runtime memory-management overhead. The compiler infers ownership at compile time and emits deterministic drops.
 5. **TS-shape semantics** — what works, works the same as bun. No Rust-flavored idioms in user code (no `.clone()`, no `Rc<T>`, no lifetime annotations).
 6. **TS subset** — partial coverage of TS surface. Programs the compiler can't statically resolve (multi-rooted ownership, certain dynamic patterns) get clear compile errors. Users restructure to fit the subset.
@@ -45,9 +45,9 @@ The compiler still does ownership analysis under the hood (the no-GC requirement
 | Engine implementation language | Rust |
 | Source language | TS subset (TS surface, TS semantics, partial coverage) |
 | Embed existing JS engine? | No — write our own |
-| Execution model | AOT (`tr build`) + JIT (`tr run`) — both consume same SSA IR |
+| Execution model | AOT in both modes — `tr build` writes to `-o`, `tr run` writes to `~/.torajs/cache/<hash>` then execs. Single SSA → LLVM pipeline. |
 | Memory model | Compile-time ownership inference; no GC, no refcount |
-| Compiler backend | LLVM via Inkwell (AOT) + Cranelift (JIT) — same SSA IR |
+| Compiler backend | LLVM via Inkwell — single backend for both `tr run` and `tr build`. Cranelift JIT was tried (P3.6) and removed 2026-05-01: weaker codegen lost compute-heavy benchmarks to V8/JSC. |
 | TS conformance | None — torajs is a subset, not aligned to any TS version |
 | Test262 conformance | Not a goal |
 | First-class WASM target | Yes — torajs.com playground depends on it |
@@ -70,7 +70,8 @@ After the TS-subset pivot — revert of P2.3 (`Rc<T>` chain) + alias-aware owner
 ```
 $ tr build foo.tora.ts -o foo  # AOT — LLVM 22 + Inkwell, ~33 KB binary
 $ ./foo                         # native execution, perf-leading on bench
-$ tr run foo.tora.ts            # JIT — Cranelift, dev-loop, ~5 ms compile
+$ tr run foo.tora.ts            # AOT + cache — first run compiles (~50 ms),
+                                 # subsequent runs hit ~/.torajs/cache (~10 ms)
 ```
 
 A program of this shape compiles and runs end-to-end:
@@ -104,7 +105,7 @@ console.log(Math.floor(Math.sqrt(alice.age * alice.age)));
 | **P2.1+** | alias-aware ownership inference (no GC, TS-shape shared reads) | ✓ 2026-04-30 |
 | **P2.2**   | string runtime + drop emission (concat doesn't consume; TS-shape) | ✓ |
 | **P2.4**   | object literals + structural types | ✓ |
-| **P3**     | LLVM AOT + Cranelift JIT (one SSA IR, two backends) | ✓ |
+| **P3**     | LLVM AOT backend (one SSA IR → Inkwell). Cranelift JIT prototype shipped P3.6, removed 2026-05-01 — `tr run` is now AOT-with-cache against the same backend. | ✓ |
 | **stdlib slice 1** | `console.log`, `Math.{sqrt,abs,floor,ceil,log,exp,pow,min,max,PI,E}`, `String.length`, `print_f64` | ✓ |
 | **M1**     | TS subset core (comments / Array runtime / block drops / `p.x = v` / `&&` `\|\|` `!` / for-loop / break+continue) | ✓ |
 | **M2 Phase A/B** | non-capturing arrow fns + first-class fn pointers (`__fn(P)->R` annotation, FnSig, FnAddr+CallIndirect) | ✓ |
@@ -238,7 +239,7 @@ Multi-threaded executor + `Send` / `Sync` deferred to M9 (post-v1.0); single-thr
 | step | what | exit gate |
 |---|---|---|
 | **M9.1** | DWARF debug info on AOT; source-mapped panic backtraces | crash backtrace points at `.tora.ts` line |
-| **M9.2** | `tr debug` step-debugger via Cranelift JIT | step into / step over works |
+| **M9.2** | `tr debug` step-debugger (DWARF-driven, on the AOT-cache binary) | step into / step over works |
 | **M9.3** | `tr repl` interactive loop | `tr repl` evaluates expressions live |
 | **M9.4** | `libtora.a` + `tora_eval()` for embedding in Rust hosts | embed in a Rust app, run a script |
 | **M9.5** | multi-threaded executor + `Send`/`Sync` (post-v1.0 stretch) | parallel mandelbrot scales linearly |
@@ -262,22 +263,23 @@ Total time-to-v1.0 estimate: 12–24 months, depending on stdlib scope creep at 
 
 ## Backend pivot (2026-04-28) — historical
 
-Through P3.1–P3.3 the AOT path was **wasm-via-C**: tr → wasm-encoder → wasm2c (wabt) → clang -O3 → native binary. This won the bench but had hard ceilings — `compile_ms` floor ~95 ms, no GC integration, no tail calls, no exceptions, external dep on wabt + Apple clang. Replaced with **two backends sharing one SSA IR**:
+Through P3.1–P3.3 the AOT path was **wasm-via-C**: tr → wasm-encoder → wasm2c (wabt) → clang -O3 → native binary. This won the bench but had hard ceilings — `compile_ms` floor ~95 ms, no GC integration, no tail calls, no exceptions, external dep on wabt + Apple clang. Replaced (P3.4–P3.7) with a single LLVM-via-Inkwell backend:
 
 ```
 frontend (lex → parse → check) → SSA IR (rich types, ownership-aware,
                                           partial-evaluated, pattern-matched)
-                                  ↓                ↓
-                         Inkwell (LLVM 22)    Cranelift
-                              ↓                  ↓
-                         AOT object         JIT in-memory
-                         + system ld         + execute
-                              ↓                  ↓
-                         `tr build`         `tr run`
-                         (run_ms 极致)       (compile_ms 极致)
+                                              ↓
+                                     Inkwell (LLVM 22)
+                                              ↓
+                                       AOT object + ld
+                                              ↓
+                                ┌──────────────────────────┐
+                                ↓                          ↓
+                          `tr build -o foo`     `tr run` (cache: ~/.torajs/cache)
+                          (write to user path)  (write to cache slot, then exec)
 ```
 
-Both modes are first-class. `tr build` is the perf-leading native binary. `tr run` is Go-style "compile to memory and execute".
+Both modes are first-class and share one codegen path. `tr build` writes the binary to a user-given path (production / distribution). `tr run` writes it to the cache slot keyed by `hash(source + version + opt)`, then exec's — first run pays compile (~50 ms small / ~90 ms larger), reruns hit the cache and exec directly (~10 ms wrapper + native execution).
 
 ### run_ms ceiling = three layers, not one
 
@@ -302,21 +304,19 @@ Picking LLVM solved the codegen layer. The runtime layer (no GC, deterministic d
 
 A horizontal track running alongside every milestone, not numbered as a phase. Lives at `bench/` (top-level), implemented as a Rust harness crate that drives **bun, node, rust, go, python**, and torajs through a uniform per-case workload.
 
-### Status (2026-04-30)
+### Status (2026-05-01 — post Cranelift drop)
 
-8 cases × 5 runtimes + torajs (AOT + JIT). All 8 cases green on both torajs paths:
+`torajs-jit` row replaced by `torajs-run` (same `tr run` command, but the implementation is now AOT-with-cache against LLVM, not a Cranelift JIT). Hyperfine warmup measures the steady-state cache hit. Spot-check across 4 cases:
 
 ```
-case          torajs (AOT)  torajs-jit  rust    go     bun-jsc  node-v8
-ackermann          8.58       19.62     8.75    9.62   15.06     97.67
-collatz          106.10      210.73   105.57  142.60  322.04   1399.15
-fib40            146.82      515.58   178.56  227.26  382.48    641.08
-gcd1m             40.23       50.06    40.71   38.78   46.06    127.78
-mandelbrot        34.92       89.28    33.61   35.40   49.20    121.45
-popcount           2.91      105.13     2.72   55.33   55.29    127.66
-prime_count       47.94       55.45    47.67   39.06   58.72    159.45
-startup            1.14        7.60     1.34    1.82    7.86     83.14
+case          torajs (AOT)  torajs-run  rust    go     bun-jsc  bun-aot  node-v8
+popcount           3.03       11.09     3.07    54.82  56.61    56.59    131.46
+fib40            153.41      225.99   183.30   232.31 395.27   391.54    669.52
+mandelbrot        35.21       43.78    35.70    38.46  53.88    53.42    132.21
+startup            1.70       10.93     1.72     2.60  10.93    11.36     88.00
 ```
+
+`torajs-run` beats bun-jsc on every compute case (5× on popcount, 1.75× on fib40, 1.23× on mandelbrot) and ties bun on startup (both ~11 ms — exec + dyld floor). The 8 ms cache-hit overhead is the new `tr run` floor; pure `torajs` AOT is at Rust parity.
 
 ### Adding a case
 

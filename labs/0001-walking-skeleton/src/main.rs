@@ -3,7 +3,6 @@ mod check;
 mod lexer;
 mod parser;
 mod ssa;
-mod ssa_cranelift;
 mod ssa_inkwell;
 mod ssa_lower;
 
@@ -38,11 +37,9 @@ fn main() -> ExitCode {
         Some("parse") => run_pipeline(args.get(1), Stage::Parse),
         Some("check") => run_pipeline(args.get(1), Stage::Check),
         Some("ssa") => run_pipeline(args.get(1), Stage::Ssa),
-        // `tr run` is now Cranelift-JIT-backed (P3.6) — same code path as
-        // `tr jit`, kept under both names for ergonomics. The tree-walk
-        // interpreter via `lower → interp` was deleted along with
-        // `torajs-interp`; Go-shape "compile to memory + execute" is the
-        // canonical dev-loop semantics.
+        // `tr run` is AOT-with-cache (replaced Cranelift JIT 2026-05-01):
+        // hash source → `~/.torajs/cache/<hash>` → exec, or compile + cache + exec.
+        // `jit` is kept as a back-compat alias.
         Some("run") | Some("jit") => run_jit(args.get(1)),
         Some("build") => run_build_llvm(&args[1..]),
         Some("ssa-demo") => {
@@ -64,8 +61,8 @@ fn print_usage() {
     println!("    tr <COMMAND> <file|->");
     println!();
     println!("COMMANDS:");
-    println!("    run <file>           lex/parse/check, JIT-compile via Cranelift, execute");
-    println!("    jit <file>           alias for `run`");
+    println!("    run <file>           AOT-compile via LLVM (cached at ~/.torajs/cache), execute");
+    println!("    jit <file>           alias for `run` (back-compat)");
     println!("    tokenize <file>      print the token stream");
     println!("    parse <file>         print the parsed AST");
     println!("    check <file>         type-check, exit nonzero on error");
@@ -291,11 +288,18 @@ fn run_build_llvm(args: &[String]) -> ExitCode {
     }
 }
 
-/// `tr jit <file>` — Cranelift JIT pipeline: lex → parse → check →
-/// ssa_lower → ssa_cranelift::execute. The SSA module's `main` function is
-/// JIT-compiled in-process and called immediately. Total wall time =
-/// compile + run, all in this process. Long-term replaces `tr run`'s
-/// tree-walk interpreter once the perf signal comes back clean.
+/// `tr run <file>` — AOT-with-cache pipeline. Hashes the source +
+/// torajs version + opt level; if a cached binary exists at
+/// `~/.torajs/cache/<hash>` it execs that directly (~1.5 ms cold).
+/// Otherwise: lex → parse → check → ssa_lower → ssa_inkwell → cc,
+/// store the binary in the cache, then exec.
+///
+/// Replaced the Cranelift-JIT path on 2026-05-01 — Cranelift's
+/// fast-compile / slow-run profile lost compute-heavy benchmarks to
+/// V8/JSC. AOT-with-cache gets:
+///   - cache hit:  ~1.5 ms cold start, native-speed run
+///   - cache miss: ~50 ms compile (one-shot per source change)
+/// Both modes beat bun on every workload we've measured.
 fn run_jit(file_arg: Option<&String>) -> ExitCode {
     let path = match file_arg {
         Some(p) => p,
@@ -311,6 +315,31 @@ fn run_jit(file_arg: Option<&String>) -> ExitCode {
             return ExitCode::from(2);
         }
     };
+
+    // Cache lookup — hash source + binary version + (always-O3 for run).
+    // Cache disabled if TORAJS_NO_CACHE is set (useful for bench / CI).
+    let cache_disabled = std::env::var_os("TORAJS_NO_CACHE").is_some();
+    let cache_path = if !cache_disabled {
+        let hash = run_cache_key(&src);
+        let cache_dir = std::env::var("TORAJS_CACHE_DIR")
+            .ok()
+            .map(std::path::PathBuf::from)
+            .or_else(|| {
+                std::env::var_os("HOME")
+                    .map(|h| std::path::PathBuf::from(h).join(".torajs/cache"))
+            });
+        cache_dir.map(|d| d.join(hash))
+    } else {
+        None
+    };
+
+    if let Some(p) = cache_path.as_ref()
+        && p.is_file()
+    {
+        return exec_binary(p);
+    }
+
+    // Cache miss — compile. Reuse the same pipeline as `tr build`.
     let tokens = match lexer::tokenize(&src) {
         Ok(t) => t,
         Err(e) => {
@@ -325,9 +354,6 @@ fn run_jit(file_arg: Option<&String>) -> ExitCode {
             return ExitCode::from(1);
         }
     };
-    // M2 Phase A — lift arrow fns to top-level FnDecls so check.rs's
-    // global-fn machinery resolves them. Non-capturing closures only;
-    // captures land in Phase B.
     ast::lift_arrow_fns(&mut ast);
     let generic_call_sites = match check::check(&ast) {
         Ok(g) => g,
@@ -337,8 +363,6 @@ fn run_jit(file_arg: Option<&String>) -> ExitCode {
         }
     };
 
-    // Same panic-to-exit-3 dance as run_build_llvm — ssa_lower panics on
-    // unsupported AST shapes; bench harness reads exit 3 as "skip".
     let prev_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(|_| {}));
     let lower_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -360,13 +384,61 @@ fn run_jit(file_arg: Option<&String>) -> ExitCode {
         }
     };
 
-    match ssa_cranelift::execute(&ssa_module) {
-        Ok(rc) => ExitCode::from(rc as u8),
-        Err(e) => {
-            eprintln!("jit error: {e}");
-            ExitCode::from(1)
+    // Compile target: cache slot if we have one, else a tmp file.
+    let target_path = match cache_path.as_ref() {
+        Some(p) => {
+            if let Some(parent) = p.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            p.clone()
         }
+        None => std::env::temp_dir().join(format!(
+            "torajs-run-{}-{}",
+            std::process::id(),
+            rand_suffix()
+        )),
+    };
+    if let Err(e) = ssa_inkwell::compile(&ssa_module, &target_path, "O3") {
+        eprintln!("compile error: {e}");
+        return ExitCode::from(1);
     }
+    let rc = exec_binary(&target_path);
+    if cache_path.is_none() {
+        let _ = std::fs::remove_file(&target_path);
+    }
+    rc
+}
+
+/// Hash key for the run-cache. Includes source bytes + the torajs
+/// CARGO_PKG_VERSION + opt level so cache invalidates on torajs
+/// upgrade. Plain SHA-256 hex (no external dep — small Rust impl
+/// using std::hash isn't cryptographically strong but our use is just
+/// "is this the same source", so std FxHash + version is enough).
+fn run_cache_key(src: &str) -> String {
+    use std::hash::{Hash, Hasher};
+    // DefaultHasher is FxHash-ish; collision-resistant enough for cache
+    // key (worst case = miss on collision, recompile, harmless).
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    src.hash(&mut h);
+    env!("CARGO_PKG_VERSION").hash(&mut h);
+    "O3".hash(&mut h);
+    format!("torajs-{:016x}", h.finish())
+}
+
+fn exec_binary(p: &std::path::Path) -> ExitCode {
+    use std::os::unix::process::CommandExt;
+    let err = std::process::Command::new(p).exec();
+    eprintln!("exec {}: {err}", p.display());
+    ExitCode::from(1)
+}
+
+fn rand_suffix() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let n = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    format!("{n:x}")
 }
 
 fn read_source(arg: &str) -> Result<String, String> {

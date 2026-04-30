@@ -1,0 +1,18 @@
+# torajs `tr run` (dev-loop entry point). On 2026-05-01 the implementation
+# pivoted from Cranelift JIT to AOT-with-cache: hash source + version → look
+# up `~/.torajs/cache/<hash>` → exec the cached binary; on miss, run the
+# full `tr build` pipeline (LLVM 22) and store the result.
+#
+# Hyperfine's warmup ensures the measured run_ms is steady-state "cache
+# hit + native execution", not first-time compile. That's the metric that
+# matters for `tr run foo.ts` reruns during dev iteration. Cold-compile
+# cost (cache miss) is what `torajs` (AOT build) row already measures.
+#
+# compile_ms is blank by design: any LLVM compile happens once (first run
+# after a source edit) and lands in the cache, so steady-state compile is
+# zero. The cache hit lookup itself rolls into run_ms (~10 ms wrapper +
+# native execution).
+name = "torajs-run"
+detect = "{workspace}/target/release/tr --version"
+src_filename = "main.tora.ts"
+run = "{workspace}/target/release/tr run {src}"

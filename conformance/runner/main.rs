@@ -3,8 +3,8 @@
 //! Each conformance case is a single `.ts` file at `conformance/cases/`.
 //! For every case we run:
 //!   1. bun run <case>.ts     ← oracle (TS spec behavior)
-//!   2. torajs run <case>.ts  ← JIT (Cranelift)
-//!   3. torajs build <case>.ts && ./out  ← AOT (LLVM)
+//!   2. torajs run <case>.ts  ← AOT-with-cache (LLVM, cached at ~/.torajs/cache)
+//!   3. torajs build <case>.ts && ./out  ← AOT (LLVM, explicit out path)
 //!
 //! All three outputs must match. A case can opt out of bun (when the
 //! TS spec output diverges from torajs's subset semantics — e.g. JS's

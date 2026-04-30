@@ -4,14 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-# Inkwell drives LLVM 22 (brew) for `tr build` AOT. Build needs
-# LLVM_SYS_221_PREFIX=/opt/homebrew/opt/llvm in the environment.
+# Inkwell drives LLVM 22 (brew) for both `tr build` AOT and `tr run`
+# AOT-with-cache. Build needs LLVM_SYS_221_PREFIX=/opt/homebrew/opt/llvm
+# in the environment.
 inkwell = { version = "0.9", features = ["llvm22-1-prefer-dynamic"] }
-# Cranelift JIT for `tr jit` / eventual `tr run` (P3.6). Compile-to-memory
-# + execute in-process; replaces the tree-walk interpreter as the dev-loop
-# runtime. ~10× faster compile than LLVM at the cost of weaker codegen.
-cranelift-codegen = "0.131"
-cranelift-frontend = "0.131"
-cranelift-jit = "0.131"
-cranelift-module = "0.131"
-cranelift-native = "0.131"
