@@ -397,6 +397,142 @@ fn is_global_name(name: &str) -> bool {
     matches!(name, "console" | "Math")
 }
 
+/// M4.3.b — describe a fn's throw shape: `direct_throw` is true if any
+/// `throw` statement appears anywhere in the body; `called_fns` is the
+/// deduplicated list of identifier names referenced as direct call
+/// callees (`Expr::Call { callee: Ident(name) }`). The lowerer combines
+/// this with a fixed-point closure to compute may_throw transitively.
+pub fn fn_throw_info(ast: &Ast, body: &[Stmt]) -> (bool, Vec<String>) {
+    let mut direct = false;
+    let mut called: Vec<String> = Vec::new();
+    for s in body {
+        scan_stmt_for_throws(ast, s, &mut direct, &mut called);
+    }
+    (direct, called)
+}
+
+fn scan_stmt_for_throws(
+    ast: &Ast,
+    s: &Stmt,
+    direct: &mut bool,
+    called: &mut Vec<String>,
+) {
+    match s {
+        Stmt::Throw(eid) => {
+            *direct = true;
+            scan_expr_for_calls(ast, *eid, called);
+        }
+        Stmt::Expr(eid) | Stmt::Return(Some(eid)) => {
+            scan_expr_for_calls(ast, *eid, called)
+        }
+        Stmt::Return(None) | Stmt::Break | Stmt::Continue => {}
+        Stmt::LetDecl { init, .. } => scan_expr_for_calls(ast, *init, called),
+        Stmt::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            scan_expr_for_calls(ast, *cond, called);
+            scan_stmt_for_throws(ast, then_branch, direct, called);
+            if let Some(eb) = else_branch {
+                scan_stmt_for_throws(ast, eb, direct, called);
+            }
+        }
+        Stmt::While { cond, body } => {
+            scan_expr_for_calls(ast, *cond, called);
+            scan_stmt_for_throws(ast, body, direct, called);
+        }
+        Stmt::For {
+            init,
+            cond,
+            step,
+            body,
+        } => {
+            if let Some(i) = init {
+                scan_stmt_for_throws(ast, i, direct, called);
+            }
+            if let Some(c) = cond {
+                scan_expr_for_calls(ast, *c, called);
+            }
+            if let Some(st) = step {
+                scan_expr_for_calls(ast, *st, called);
+            }
+            scan_stmt_for_throws(ast, body, direct, called);
+        }
+        Stmt::Block(stmts) => {
+            for st in stmts {
+                scan_stmt_for_throws(ast, st, direct, called);
+            }
+        }
+        Stmt::Try {
+            body,
+            catch_body,
+            finally_body,
+            ..
+        } => {
+            for st in body {
+                scan_stmt_for_throws(ast, st, direct, called);
+            }
+            for st in catch_body {
+                scan_stmt_for_throws(ast, st, direct, called);
+            }
+            if let Some(fb) = finally_body {
+                for st in fb {
+                    scan_stmt_for_throws(ast, st, direct, called);
+                }
+            }
+        }
+        Stmt::FnDecl { .. } | Stmt::TypeDecl { .. } => {}
+    }
+}
+
+fn scan_expr_for_calls(ast: &Ast, eid: ExprId, out: &mut Vec<String>) {
+    match ast.get_expr(eid) {
+        Expr::Call { callee, args } => {
+            if let Expr::Ident(name) = ast.get_expr(*callee) {
+                if !out.contains(name) {
+                    out.push(name.clone());
+                }
+            }
+            scan_expr_for_calls(ast, *callee, out);
+            for a in args {
+                scan_expr_for_calls(ast, *a, out);
+            }
+        }
+        Expr::BinOp { left, right, .. } => {
+            scan_expr_for_calls(ast, *left, out);
+            scan_expr_for_calls(ast, *right, out);
+        }
+        Expr::Unary { expr, .. } => scan_expr_for_calls(ast, *expr, out),
+        Expr::Member { obj, .. } => scan_expr_for_calls(ast, *obj, out),
+        Expr::Assign { target, value } => {
+            scan_expr_for_calls(ast, *target, out);
+            scan_expr_for_calls(ast, *value, out);
+        }
+        Expr::Index { obj, index } => {
+            scan_expr_for_calls(ast, *obj, out);
+            scan_expr_for_calls(ast, *index, out);
+        }
+        Expr::Array(elems) => {
+            for e in elems {
+                scan_expr_for_calls(ast, *e, out);
+            }
+        }
+        Expr::ObjectLit { fields } => {
+            for (_, e) in fields {
+                scan_expr_for_calls(ast, *e, out);
+            }
+        }
+        // ArrowFn / Closure bodies are walked separately (their own
+        // FnDecls — lifted by lift_arrow_fns); from this fn's
+        // perspective the closure body's calls don't propagate to the
+        // outer fn's may_throw bit until the outer fn actually invokes
+        // the closure (which is itself a Call → tracked above).
+        Expr::ArrowFn { .. } | Expr::Closure { .. } => {}
+        Expr::Ident(_) | Expr::String(_) | Expr::Number(_) | Expr::Bool(_) => {}
+    }
+}
+
 fn walk_expr(ast: &Ast, eid: ExprId, bound: &mut Vec<String>, out: &mut Vec<String>) {
     match ast.get_expr(eid) {
         Expr::Ident(name) => {

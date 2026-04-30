@@ -542,6 +542,47 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
     // pattern as arr_layouts: collected during pass 0.5 / 1 / 2 and
     // written into `module.signatures` at the end.
     let mut fn_sigs: Vec<(Vec<Type>, Type)> = Vec::new();
+    // M4.3.b — may-throw analysis. Compute the set of fn names that
+    // can throw (directly or transitively via call). Per-call-site
+    // `emit_throw_check` skips the check entirely when the callee's
+    // name isn't in this set, recovering the per-call overhead of
+    // M4.1's "throw_check after every user-fn call".
+    //
+    // Algorithm: collect (name, direct_throw, called_names) tuples
+    // first; iterate to fixed-point — a fn is may_throw if
+    // direct_throw OR it calls any may_throw fn. Stops when no
+    // new names get added in a pass.
+    let mut may_throw: std::collections::HashSet<String> =
+        std::collections::HashSet::new();
+    let mut decl_throw_info: Vec<(String, bool, Vec<String>)> = Vec::new();
+    for stmt in &ast.stmts {
+        if let Stmt::FnDecl { name, body, .. } = stmt {
+            let (direct, called) = ast::fn_throw_info(ast, body);
+            if direct {
+                may_throw.insert(name.clone());
+            }
+            decl_throw_info.push((name.clone(), direct, called));
+        }
+    }
+    loop {
+        let mut grew = false;
+        for (name, _direct, called) in &decl_throw_info {
+            if may_throw.contains(name) {
+                continue;
+            }
+            for c in called {
+                if may_throw.contains(c) {
+                    may_throw.insert(name.clone());
+                    grew = true;
+                    break;
+                }
+            }
+        }
+        if !grew {
+            break;
+        }
+    }
+
     // M3.4 — generic struct decls indexed by name. parse_type instantiates
     // a fresh `Type::Obj(sid)` on-demand each time it encounters a
     // `Foo<arg1|arg2>` annotation (caching by interned struct layout).
@@ -740,6 +781,7 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
                 string_id_base,
                 &mut closure_captures,
                 &call_retargets,
+                &may_throw,
             );
             module.funcs[fid.0 as usize] = f;
             for s in new_strings {
@@ -771,6 +813,7 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
             string_id_base,
             &mut closure_captures,
             &call_retargets,
+            &may_throw,
         );
         for s in new_strings {
             module.strings.push(s);
@@ -880,6 +923,7 @@ fn synthesize_main(
     string_id_base: usize,
     closure_captures: &mut HashMap<String, Vec<Type>>,
     call_retargets: &CallRetargets,
+    may_throw_fns: &std::collections::HashSet<String>,
 ) -> (ssa::Function, Vec<Vec<u8>>) {
     let mut f = ssa::Function::new("main", Type::I32);
     let entry = f.add_block();
@@ -906,6 +950,7 @@ fn synthesize_main(
             string_id_base,
             closure_captures,
             call_retargets,
+            may_throw_fns,
         };
         for s in stmts {
             ctx.lower_top_stmt(s);
@@ -1165,6 +1210,7 @@ fn lower_fn(
     string_id_base: usize,
     closure_captures: &mut HashMap<String, Vec<Type>>,
     call_retargets: &CallRetargets,
+    may_throw_fns: &std::collections::HashSet<String>,
 ) -> (ssa::Function, Vec<Vec<u8>>) {
     let ret_ty = parse_type(
         return_type,
@@ -1222,6 +1268,7 @@ fn lower_fn(
         string_id_base,
         closure_captures,
         call_retargets,
+        may_throw_fns,
     };
 
     // Materialize each param as an alloca-backed local. mem2reg at -O1+
@@ -1389,6 +1436,11 @@ struct LowerCtx<'a> {
     /// `__torajs_throw_check()` that targets `*top` (or the fn's
     /// propagate-out path if empty).
     try_stack: Vec<BlockId>,
+    /// M4.3.b — fn names that may throw (directly or transitively).
+    /// `emit_throw_check` skips the check after a call to a callee
+    /// whose name isn't in this set; intrinsics + verified-pure
+    /// user fns are exempt. Recovers the per-call cost M4.1 paid.
+    may_throw_fns: &'a std::collections::HashSet<String>,
     /// name → (alloca-ptr value, contents type, moved flag). Every local —
     /// including the function's own parameters — sits behind an alloca.
     /// mem2reg lifts them to SSA values at -O1+.
@@ -3910,6 +3962,18 @@ impl<'a> LowerCtx<'a> {
         }
     }
 
+    /// Reverse lookup `FuncId → name` via the lowerer's fn_table. Linear
+    /// in the table size; used by `emit_throw_check` to consult the
+    /// may_throw set (also keyed by name). Module fn count stays in the
+    /// double-digits for our cases, so the linear scan is in the noise.
+    fn f_name_of(&self, fid: FuncId) -> String {
+        self.fn_table
+            .iter()
+            .find(|(_, v)| **v == fid)
+            .map(|(k, _)| k.clone())
+            .unwrap_or_default()
+    }
+
     /// True if `fid` is one of the runtime intrinsics declared at the top
     /// of `lower()`. None of these throw, so M4's call-site throw-check
     /// can skip the cond_br after their calls (saves a runtime fn call
@@ -3959,10 +4023,19 @@ impl<'a> LowerCtx<'a> {
     /// own throw_check picks it up. Skips entirely for runtime intrinsics
     /// (they never throw).
     fn emit_throw_check(&mut self, target: Option<FuncId>) {
-        if let Some(fid) = target
-            && self.is_intrinsic(fid)
-        {
-            return;
+        if let Some(fid) = target {
+            if self.is_intrinsic(fid) {
+                return;
+            }
+            // M4.3.b — skip the check entirely if the callee is a
+            // verified-non-throwing user fn. fib40 / popcount / gcd /
+            // mandelbrot etc. all live here, so the M4.1 5% slowdown
+            // is gone for any program that doesn't use try/throw at
+            // all (or whose hot fns provably can't reach a throw).
+            let callee_name = self.f_name_of(fid);
+            if !self.may_throw_fns.contains(&callee_name) {
+                return;
+            }
         }
         let active = self.f.append_inst(
             self.cur_block,
