@@ -62,6 +62,7 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
     let putchar = declare_putchar(&ctx, &llvm_module);
     let malloc = declare_malloc(&ctx, &llvm_module);
     let memcpy = declare_memcpy(&ctx, &llvm_module);
+    let memcmp = declare_memcmp(&ctx, &llvm_module);
 
     // Pass B: emit string-literal globals (LLVM `[N x i8]` private constants).
     // Indexed by StringId so callsites resolve via slice indexing.
@@ -82,6 +83,7 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
         let llvm_fn = match f.name.as_str() {
             "print_i64" => define_print_i64(&ctx, &llvm_module, putchar),
             "print_f64" => define_print_f64(&ctx, &llvm_module),
+            "print_bool" => define_print_bool(&ctx, &llvm_module, putchar),
             "__torajs_str_alloc" => {
                 define_str_alloc(&ctx, &llvm_module, malloc, memcpy)
             }
@@ -101,6 +103,39 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
                 define_arr_push_unchecked(&ctx, &llvm_module)
             }
             "__torajs_arr_drop" => define_arr_drop(&ctx, &llvm_module, free),
+            "__torajs_str_slice" => {
+                define_str_slice(&ctx, &llvm_module, malloc, memcpy)
+            }
+            "__torajs_str_char_code_at" => {
+                define_str_char_code_at(&ctx, &llvm_module)
+            }
+            "__torajs_str_starts_with" => define_str_prefix_suffix_check(
+                &ctx,
+                &llvm_module,
+                memcmp,
+                "__torajs_str_starts_with",
+                false,
+            ),
+            "__torajs_str_ends_with" => define_str_prefix_suffix_check(
+                &ctx,
+                &llvm_module,
+                memcmp,
+                "__torajs_str_ends_with",
+                true,
+            ),
+            "__torajs_str_index_of" => {
+                define_str_index_of(&ctx, &llvm_module, memcmp)
+            }
+            "__torajs_str_includes" => {
+                // index_of must be defined first — it is, since the
+                // pass-A loop iterates ssa_module.funcs in declaration
+                // order and we declare str_index_of before str_includes
+                // in ssa_lower.
+                let index_of = llvm_module
+                    .get_function("__torajs_str_index_of")
+                    .expect("str_index_of must be defined first");
+                define_str_includes(&ctx, &llvm_module, index_of)
+            }
             "__torajs_math_sqrt" => {
                 define_math_unary(&ctx, &llvm_module, "__torajs_math_sqrt", "sqrt")
             }
@@ -147,6 +182,7 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
     let intrinsics = [
         "print_i64",
         "print_f64",
+        "print_bool",
         "__torajs_str_alloc",
         "__torajs_str_print",
         "__torajs_str_drop",
@@ -158,6 +194,12 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
         "__torajs_arr_reserve",
         "__torajs_arr_push_unchecked",
         "__torajs_arr_drop",
+        "__torajs_str_slice",
+        "__torajs_str_char_code_at",
+        "__torajs_str_starts_with",
+        "__torajs_str_ends_with",
+        "__torajs_str_index_of",
+        "__torajs_str_includes",
         "__torajs_math_sqrt",
         "__torajs_math_abs",
         "__torajs_math_floor",
@@ -271,6 +313,15 @@ fn declare_free<'ctx>(ctx: &'ctx Context, m: &LlvmModule<'ctx>) -> FunctionValue
     let ptr_t = ctx.ptr_type(AddressSpace::default());
     let fn_t = void_t.fn_type(&[ptr_t.into()], false);
     m.add_function("free", fn_t, None)
+}
+
+fn declare_memcmp<'ctx>(ctx: &'ctx Context, m: &LlvmModule<'ctx>) -> FunctionValue<'ctx> {
+    let i32_t = ctx.i32_type();
+    let i64_t = ctx.i64_type();
+    let ptr_t = ctx.ptr_type(AddressSpace::default());
+    // int memcmp(const void *a, const void *b, size_t n)
+    let fn_t = i32_t.fn_type(&[ptr_t.into(), ptr_t.into(), i64_t.into()], false);
+    m.add_function("memcmp", fn_t, None)
 }
 
 /// Emit one `[N x i8]` private constant per interned string. Just the raw
@@ -430,6 +481,426 @@ fn define_str_concat<'ctx>(
         .unwrap();
 
     builder.build_return(Some(&p)).unwrap();
+    f
+}
+
+/// M6.1 — `__torajs_str_slice(*StrRepr s, i64 start, i64 end) -> *StrRepr`.
+/// Bounds-clamp start ∈ [0, len], end ∈ [start, len], allocate a fresh
+/// StrRepr holding `data[start..end]`. Inputs are read-only.
+fn define_str_slice<'ctx>(
+    ctx: &'ctx Context,
+    m: &LlvmModule<'ctx>,
+    malloc: FunctionValue<'ctx>,
+    memcpy: FunctionValue<'ctx>,
+) -> FunctionValue<'ctx> {
+    let builder = ctx.create_builder();
+    let i64_t = ctx.i64_type();
+    let i8_t = ctx.i8_type();
+    let ptr_t = ctx.ptr_type(AddressSpace::default());
+    let fn_t = ptr_t.fn_type(&[ptr_t.into(), i64_t.into(), i64_t.into()], false);
+    let f = m.add_function("__torajs_str_slice", fn_t, None);
+    let entry = ctx.append_basic_block(f, "entry");
+    builder.position_at_end(entry);
+
+    let s = f.get_nth_param(0).unwrap().into_pointer_value();
+    let start = f.get_nth_param(1).unwrap().into_int_value();
+    let end = f.get_nth_param(2).unwrap().into_int_value();
+    let zero = i64_t.const_int(0, false);
+
+    let len = builder.build_load(i64_t, s, "len").unwrap().into_int_value();
+    // start = max(0, min(start, len))
+    let start_neg = builder
+        .build_int_compare(IntPredicate::SLT, start, zero, "start_neg")
+        .unwrap();
+    let start_after_lo = builder
+        .build_select(start_neg, zero, start, "start_lo")
+        .unwrap()
+        .into_int_value();
+    let start_over = builder
+        .build_int_compare(IntPredicate::SGT, start_after_lo, len, "start_over")
+        .unwrap();
+    let start_c = builder
+        .build_select(start_over, len, start_after_lo, "start_c")
+        .unwrap()
+        .into_int_value();
+    // end_lo = max(start_c, end)
+    let end_under = builder
+        .build_int_compare(IntPredicate::SLT, end, start_c, "end_under")
+        .unwrap();
+    let end_after_lo = builder
+        .build_select(end_under, start_c, end, "end_lo")
+        .unwrap()
+        .into_int_value();
+    let end_over = builder
+        .build_int_compare(IntPredicate::SGT, end_after_lo, len, "end_over")
+        .unwrap();
+    let end_c = builder
+        .build_select(end_over, len, end_after_lo, "end_c")
+        .unwrap()
+        .into_int_value();
+
+    let new_len = builder
+        .build_int_sub(end_c, start_c, "new_len")
+        .unwrap();
+    let alloc_size = builder
+        .build_int_add(new_len, i64_t.const_int(8, false), "alloc_size")
+        .unwrap();
+    let p = builder
+        .build_call(malloc, &[alloc_size.into()], "p")
+        .unwrap()
+        .try_as_basic_value()
+        .unwrap_basic()
+        .into_pointer_value();
+    builder.build_store(p, new_len).unwrap();
+    let p_data = unsafe {
+        builder
+            .build_in_bounds_gep(i8_t, p, &[i64_t.const_int(8, false)], "p_data")
+            .unwrap()
+    };
+    let s_off = builder
+        .build_int_add(start_c, i64_t.const_int(8, false), "s_off")
+        .unwrap();
+    let s_data = unsafe {
+        builder
+            .build_in_bounds_gep(i8_t, s, &[s_off], "s_data")
+            .unwrap()
+    };
+    builder
+        .build_call(
+            memcpy,
+            &[p_data.into(), s_data.into(), new_len.into()],
+            "_cp",
+        )
+        .unwrap();
+    builder.build_return(Some(&p)).unwrap();
+    f
+}
+
+/// M6.1 — `__torajs_str_char_code_at(*StrRepr s, i64 i) -> i64`. Returns
+/// the byte at index `i` zero-extended to i64. M6.1 stub: returns 0
+/// for out-of-bounds (TS spec is NaN, but we don't have NaN-as-i64).
+fn define_str_char_code_at<'ctx>(
+    ctx: &'ctx Context,
+    m: &LlvmModule<'ctx>,
+) -> FunctionValue<'ctx> {
+    let builder = ctx.create_builder();
+    let i64_t = ctx.i64_type();
+    let i8_t = ctx.i8_type();
+    let ptr_t = ctx.ptr_type(AddressSpace::default());
+    let fn_t = i64_t.fn_type(&[ptr_t.into(), i64_t.into()], false);
+    let f = m.add_function("__torajs_str_char_code_at", fn_t, None);
+    let entry = ctx.append_basic_block(f, "entry");
+    let oob_blk = ctx.append_basic_block(f, "oob");
+    let load_blk = ctx.append_basic_block(f, "load");
+    builder.position_at_end(entry);
+
+    let s = f.get_nth_param(0).unwrap().into_pointer_value();
+    let i = f.get_nth_param(1).unwrap().into_int_value();
+    let len = builder.build_load(i64_t, s, "len").unwrap().into_int_value();
+    let zero = i64_t.const_int(0, false);
+    let i_neg = builder
+        .build_int_compare(IntPredicate::SLT, i, zero, "i_neg")
+        .unwrap();
+    let i_oor = builder
+        .build_int_compare(IntPredicate::SGE, i, len, "i_oor")
+        .unwrap();
+    let oob = builder.build_or(i_neg, i_oor, "oob").unwrap();
+    builder
+        .build_conditional_branch(oob, oob_blk, load_blk)
+        .unwrap();
+    builder.position_at_end(oob_blk);
+    builder.build_return(Some(&zero)).unwrap();
+    builder.position_at_end(load_blk);
+    let off = builder
+        .build_int_add(i, i64_t.const_int(8, false), "off")
+        .unwrap();
+    let p = unsafe {
+        builder
+            .build_in_bounds_gep(i8_t, s, &[off], "p")
+            .unwrap()
+    };
+    let b = builder.build_load(i8_t, p, "b").unwrap().into_int_value();
+    let v = builder.build_int_z_extend(b, i64_t, "v").unwrap();
+    builder.build_return(Some(&v)).unwrap();
+    f
+}
+
+/// Helper: emits the `s.starts_with(prefix)` / `s.ends_with(suffix)`
+/// shape — an i64 cmp on lens followed by a memcmp at the right offset.
+/// `from_end` true picks the end-aligned offset.
+fn define_str_prefix_suffix_check<'ctx>(
+    ctx: &'ctx Context,
+    m: &LlvmModule<'ctx>,
+    memcmp: FunctionValue<'ctx>,
+    name: &str,
+    from_end: bool,
+) -> FunctionValue<'ctx> {
+    let builder = ctx.create_builder();
+    let i64_t = ctx.i64_type();
+    let i8_t = ctx.i8_type();
+    let bool_t = ctx.bool_type();
+    let ptr_t = ctx.ptr_type(AddressSpace::default());
+    let fn_t = bool_t.fn_type(&[ptr_t.into(), ptr_t.into()], false);
+    let f = m.add_function(name, fn_t, None);
+    let entry = ctx.append_basic_block(f, "entry");
+    let cmp_blk = ctx.append_basic_block(f, "cmp");
+    let too_long = ctx.append_basic_block(f, "too_long");
+    builder.position_at_end(entry);
+
+    let s = f.get_nth_param(0).unwrap().into_pointer_value();
+    let n = f.get_nth_param(1).unwrap().into_pointer_value();
+    let s_len = builder.build_load(i64_t, s, "s_len").unwrap().into_int_value();
+    let n_len = builder.build_load(i64_t, n, "n_len").unwrap().into_int_value();
+    let too = builder
+        .build_int_compare(IntPredicate::SGT, n_len, s_len, "too")
+        .unwrap();
+    builder
+        .build_conditional_branch(too, too_long, cmp_blk)
+        .unwrap();
+    builder.position_at_end(too_long);
+    builder
+        .build_return(Some(&bool_t.const_int(0, false)))
+        .unwrap();
+    builder.position_at_end(cmp_blk);
+    // s_off = 8 + (from_end ? s_len - n_len : 0)
+    let s_off_pre = if from_end {
+        let diff = builder
+            .build_int_sub(s_len, n_len, "diff")
+            .unwrap();
+        builder
+            .build_int_add(diff, i64_t.const_int(8, false), "s_off")
+            .unwrap()
+    } else {
+        i64_t.const_int(8, false)
+    };
+    let s_data = unsafe {
+        builder
+            .build_in_bounds_gep(i8_t, s, &[s_off_pre], "s_data")
+            .unwrap()
+    };
+    let n_data = unsafe {
+        builder
+            .build_in_bounds_gep(i8_t, n, &[i64_t.const_int(8, false)], "n_data")
+            .unwrap()
+    };
+    let r = builder
+        .build_call(memcmp, &[s_data.into(), n_data.into(), n_len.into()], "r")
+        .unwrap()
+        .try_as_basic_value()
+        .unwrap_basic()
+        .into_int_value();
+    let eq = builder
+        .build_int_compare(
+            IntPredicate::EQ,
+            r,
+            ctx.i32_type().const_int(0, false),
+            "eq",
+        )
+        .unwrap();
+    builder.build_return(Some(&eq)).unwrap();
+    f
+}
+
+/// M6.1 — `__torajs_str_index_of(*StrRepr s, *StrRepr sub) -> i64`.
+/// Naive byte-scan; returns first match index or -1. Empty `sub`
+/// returns 0 (matches TS).
+fn define_str_index_of<'ctx>(
+    ctx: &'ctx Context,
+    m: &LlvmModule<'ctx>,
+    memcmp: FunctionValue<'ctx>,
+) -> FunctionValue<'ctx> {
+    let builder = ctx.create_builder();
+    let i64_t = ctx.i64_type();
+    let i8_t = ctx.i8_type();
+    let i32_t = ctx.i32_type();
+    let ptr_t = ctx.ptr_type(AddressSpace::default());
+    let fn_t = i64_t.fn_type(&[ptr_t.into(), ptr_t.into()], false);
+    let f = m.add_function("__torajs_str_index_of", fn_t, None);
+    let entry = ctx.append_basic_block(f, "entry");
+    let empty_sub_blk = ctx.append_basic_block(f, "empty_sub");
+    let header_blk = ctx.append_basic_block(f, "header");
+    let body_blk = ctx.append_basic_block(f, "body");
+    let cmp_blk = ctx.append_basic_block(f, "cmp");
+    let found_blk = ctx.append_basic_block(f, "found");
+    let next_blk = ctx.append_basic_block(f, "next");
+    let not_found_blk = ctx.append_basic_block(f, "not_found");
+    builder.position_at_end(entry);
+
+    let s = f.get_nth_param(0).unwrap().into_pointer_value();
+    let sub = f.get_nth_param(1).unwrap().into_pointer_value();
+    let s_len = builder.build_load(i64_t, s, "s_len").unwrap().into_int_value();
+    let sub_len = builder
+        .build_load(i64_t, sub, "sub_len")
+        .unwrap()
+        .into_int_value();
+    let zero = i64_t.const_int(0, false);
+    let sub_empty = builder
+        .build_int_compare(IntPredicate::EQ, sub_len, zero, "sub_empty")
+        .unwrap();
+    builder
+        .build_conditional_branch(sub_empty, empty_sub_blk, header_blk)
+        .unwrap();
+    builder.position_at_end(empty_sub_blk);
+    builder.build_return(Some(&zero)).unwrap();
+
+    // i_slot = 0; max_i = s_len - sub_len
+    builder.position_at_end(header_blk);
+    let i_slot = builder.build_alloca(i64_t, "i").unwrap();
+    builder.build_store(i_slot, zero).unwrap();
+    let max_i = builder
+        .build_int_sub(s_len, sub_len, "max_i")
+        .unwrap();
+    let header_inner = ctx.append_basic_block(f, "header_inner");
+    builder.build_unconditional_branch(header_inner).unwrap();
+    builder.position_at_end(header_inner);
+    let i_now = builder
+        .build_load(i64_t, i_slot, "i_now")
+        .unwrap()
+        .into_int_value();
+    let cont = builder
+        .build_int_compare(IntPredicate::SLE, i_now, max_i, "cont")
+        .unwrap();
+    builder
+        .build_conditional_branch(cont, body_blk, not_found_blk)
+        .unwrap();
+    builder.position_at_end(body_blk);
+    builder.build_unconditional_branch(cmp_blk).unwrap();
+
+    // cmp: memcmp(s+8+i, sub+8, sub_len) == 0 ?
+    builder.position_at_end(cmp_blk);
+    let i_now2 = builder
+        .build_load(i64_t, i_slot, "i_now2")
+        .unwrap()
+        .into_int_value();
+    let s_off = builder
+        .build_int_add(i_now2, i64_t.const_int(8, false), "s_off")
+        .unwrap();
+    let s_data = unsafe {
+        builder
+            .build_in_bounds_gep(i8_t, s, &[s_off], "s_data")
+            .unwrap()
+    };
+    let sub_data = unsafe {
+        builder
+            .build_in_bounds_gep(i8_t, sub, &[i64_t.const_int(8, false)], "sub_data")
+            .unwrap()
+    };
+    let r = builder
+        .build_call(memcmp, &[s_data.into(), sub_data.into(), sub_len.into()], "r")
+        .unwrap()
+        .try_as_basic_value()
+        .unwrap_basic()
+        .into_int_value();
+    let eq = builder
+        .build_int_compare(IntPredicate::EQ, r, i32_t.const_int(0, false), "eq")
+        .unwrap();
+    builder
+        .build_conditional_branch(eq, found_blk, next_blk)
+        .unwrap();
+
+    builder.position_at_end(found_blk);
+    let i_found = builder
+        .build_load(i64_t, i_slot, "i_found")
+        .unwrap()
+        .into_int_value();
+    builder.build_return(Some(&i_found)).unwrap();
+
+    builder.position_at_end(next_blk);
+    let i_then = builder
+        .build_load(i64_t, i_slot, "i_then")
+        .unwrap()
+        .into_int_value();
+    let i_next = builder
+        .build_int_add(i_then, i64_t.const_int(1, false), "i_next")
+        .unwrap();
+    builder.build_store(i_slot, i_next).unwrap();
+    builder.build_unconditional_branch(header_inner).unwrap();
+
+    builder.position_at_end(not_found_blk);
+    let neg_one = i64_t.const_int((-1_i64) as u64, true);
+    builder.build_return(Some(&neg_one)).unwrap();
+    f
+}
+
+/// M6.1 — `__torajs_str_includes(*StrRepr s, *StrRepr sub) -> bool`.
+/// Defers to `__torajs_str_index_of` and tests `>= 0`.
+fn define_str_includes<'ctx>(
+    ctx: &'ctx Context,
+    m: &LlvmModule<'ctx>,
+    index_of: FunctionValue<'ctx>,
+) -> FunctionValue<'ctx> {
+    let builder = ctx.create_builder();
+    let i64_t = ctx.i64_type();
+    let bool_t = ctx.bool_type();
+    let ptr_t = ctx.ptr_type(AddressSpace::default());
+    let fn_t = bool_t.fn_type(&[ptr_t.into(), ptr_t.into()], false);
+    let f = m.add_function("__torajs_str_includes", fn_t, None);
+    let entry = ctx.append_basic_block(f, "entry");
+    builder.position_at_end(entry);
+    let s = f.get_nth_param(0).unwrap();
+    let sub = f.get_nth_param(1).unwrap();
+    let r = builder
+        .build_call(index_of, &[s.into(), sub.into()], "r")
+        .unwrap()
+        .try_as_basic_value()
+        .unwrap_basic()
+        .into_int_value();
+    let cmp = builder
+        .build_int_compare(IntPredicate::SGE, r, i64_t.const_int(0, false), "cmp")
+        .unwrap();
+    builder.build_return(Some(&cmp)).unwrap();
+    f
+}
+
+/// `print_bool(bool) -> void` — putchar's `"true\n"` or `"false\n"`
+/// per the bool input. M6.1 console.log dispatch routes Type::Bool
+/// args here. (Same shared stdio buffer as print_i64 / str_print —
+/// no ordering surprises.)
+fn define_print_bool<'ctx>(
+    ctx: &'ctx Context,
+    m: &LlvmModule<'ctx>,
+    putchar: FunctionValue<'ctx>,
+) -> FunctionValue<'ctx> {
+    let builder = ctx.create_builder();
+    let i32_t = ctx.i32_type();
+    let bool_t = ctx.bool_type();
+    let void_t = ctx.void_type();
+    let fn_t = void_t.fn_type(&[bool_t.into()], false);
+    let f = m.add_function("print_bool", fn_t, None);
+    let entry = ctx.append_basic_block(f, "entry");
+    let true_blk = ctx.append_basic_block(f, "tbl");
+    let false_blk = ctx.append_basic_block(f, "fbl");
+    let nl_blk = ctx.append_basic_block(f, "nl");
+    builder.position_at_end(entry);
+    let b = f.get_nth_param(0).unwrap().into_int_value();
+    builder
+        .build_conditional_branch(b, true_blk, false_blk)
+        .unwrap();
+    let putc = |ch: u8| {
+        builder
+            .build_call(
+                putchar,
+                &[i32_t.const_int(ch as u64, false).into()],
+                "",
+            )
+            .unwrap();
+    };
+    builder.position_at_end(true_blk);
+    putc(b't');
+    putc(b'r');
+    putc(b'u');
+    putc(b'e');
+    builder.build_unconditional_branch(nl_blk).unwrap();
+    builder.position_at_end(false_blk);
+    putc(b'f');
+    putc(b'a');
+    putc(b'l');
+    putc(b's');
+    putc(b'e');
+    builder.build_unconditional_branch(nl_blk).unwrap();
+    builder.position_at_end(nl_blk);
+    putc(b'\n');
+    builder.build_return(None).unwrap();
     f
 }
 
@@ -1113,6 +1584,8 @@ fn define_print_i64<'ctx>(
     let pop = ctx.append_basic_block(f, "pop");
     let done = ctx.append_basic_block(f, "done");
 
+    let neg_blk = ctx.append_basic_block(f, "neg");
+    let prep_blk = ctx.append_basic_block(f, "prep");
     builder.position_at_end(entry);
     let buf = builder.build_alloca(i64_t.array_type(20), "buf").unwrap();
     let cnt_a = builder.build_alloca(i64_t, "count").unwrap();
@@ -1129,8 +1602,29 @@ fn define_print_i64<'ctx>(
         .build_int_compare(IntPredicate::EQ, arg, i64_t.const_int(0, false), "is_zero")
         .unwrap();
     builder
-        .build_conditional_branch(is_zero, zero_blk, loop1)
+        .build_conditional_branch(is_zero, zero_blk, prep_blk)
         .unwrap();
+    // prep: if n < 0 → emit '-' + negate, then fall through to loop1.
+    // Without this branch the digit-extraction loop bailed early on
+    // negative inputs (the SGT > 0 check sent them to loop2 with
+    // count=0 → just a newline).
+    builder.position_at_end(prep_blk);
+    let is_neg = builder
+        .build_int_compare(IntPredicate::SLT, arg, i64_t.const_int(0, false), "is_neg")
+        .unwrap();
+    builder
+        .build_conditional_branch(is_neg, neg_blk, loop1)
+        .unwrap();
+    builder.position_at_end(neg_blk);
+    let minus_ch = i32_t.const_int(b'-' as u64, false);
+    builder
+        .build_call(putchar, &[minus_ch.into()], "_minus")
+        .unwrap();
+    let neg_arg = builder
+        .build_int_neg(arg, "neg_arg")
+        .unwrap();
+    builder.build_store(n_a, neg_arg).unwrap();
+    builder.build_unconditional_branch(loop1).unwrap();
 
     builder.position_at_end(zero_blk);
     let zero_ch = i32_t.const_int(b'0' as u64, false);

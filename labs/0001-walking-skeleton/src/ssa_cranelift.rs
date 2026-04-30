@@ -67,6 +67,10 @@ extern "C" fn print_i64_runtime(n: i64) {
 /// default `{}` formatter; we rely on libc `%g` matching for the AOT
 /// path. Minor edge-case divergence (NaN sign, -0) is acceptable for
 /// bench output.
+extern "C" fn print_bool_runtime(b: i8) {
+    println!("{}", b != 0);
+}
+
 extern "C" fn print_f64_runtime(x: f64) {
     println!("{x}");
 }
@@ -120,6 +124,90 @@ extern "C" fn str_concat_runtime(a: *mut u8, b: *mut u8) -> *mut u8 {
         }
         p
     }
+}
+
+// M6.1 — String methods. All operate on the StrRepr layout
+// `[u64 len, u8 data[len]]` and mirror what JS / TS exposes on
+// `String.prototype`. AOT side defines the same symbols in LLVM IR
+// (`define_str_*` in ssa_inkwell.rs) so JIT / AOT stay in lockstep.
+
+/// Helper: read a StrRepr's `(len, data_ptr)`.
+unsafe fn str_view<'a>(s: *const u8) -> &'a [u8] {
+    unsafe {
+        let len = std::ptr::read(s as *const u64) as usize;
+        std::slice::from_raw_parts(s.add(8), len)
+    }
+}
+
+/// Helper: allocate a fresh StrRepr holding `bytes`.
+fn str_from_bytes(bytes: &[u8]) -> *mut u8 {
+    let total = 8 + bytes.len();
+    let layout = std::alloc::Layout::from_size_align(total, 8).expect("layout");
+    unsafe {
+        let p = std::alloc::alloc(layout);
+        if p.is_null() {
+            std::alloc::handle_alloc_error(layout);
+        }
+        std::ptr::write(p as *mut u64, bytes.len() as u64);
+        if !bytes.is_empty() {
+            std::ptr::copy_nonoverlapping(bytes.as_ptr(), p.add(8), bytes.len());
+        }
+        p
+    }
+}
+
+extern "C" fn str_slice_runtime(s: *const u8, start: i64, end: i64) -> *mut u8 {
+    unsafe {
+        let view = str_view(s);
+        let len = view.len() as i64;
+        let s_clamp = start.clamp(0, len) as usize;
+        let e_clamp = end.clamp(start.max(0), len) as usize;
+        str_from_bytes(&view[s_clamp..e_clamp])
+    }
+}
+
+extern "C" fn str_char_code_at_runtime(s: *const u8, i: i64) -> i64 {
+    unsafe {
+        let view = str_view(s);
+        if i < 0 || (i as usize) >= view.len() {
+            return 0; // TS returns NaN for OOB; M6.1 stub returns 0 (i64-shape).
+        }
+        view[i as usize] as i64
+    }
+}
+
+extern "C" fn str_starts_with_runtime(s: *const u8, prefix: *const u8) -> i8 {
+    unsafe {
+        let view = str_view(s);
+        let pre = str_view(prefix);
+        i8::from(view.starts_with(pre))
+    }
+}
+
+extern "C" fn str_ends_with_runtime(s: *const u8, suffix: *const u8) -> i8 {
+    unsafe {
+        let view = str_view(s);
+        let suf = str_view(suffix);
+        i8::from(view.ends_with(suf))
+    }
+}
+
+extern "C" fn str_index_of_runtime(s: *const u8, sub: *const u8) -> i64 {
+    unsafe {
+        let view = str_view(s);
+        let sub = str_view(sub);
+        match view.windows(sub.len().max(1)).position(|w| {
+            // Empty `sub` matches at position 0 (matches TS).
+            sub.is_empty() || w == sub
+        }) {
+            Some(i) if !sub.is_empty() || i == 0 => i as i64,
+            _ => -1,
+        }
+    }
+}
+
+extern "C" fn str_includes_runtime(s: *const u8, sub: *const u8) -> i8 {
+    i8::from(str_index_of_runtime(s, sub) >= 0)
 }
 
 // Object alloc/drop go through libc directly so we don't have to track
@@ -363,6 +451,7 @@ pub fn execute(ssa_module: &Module) -> Result<i32, JitError> {
         JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
     jit_builder.symbol("print_i64", print_i64_runtime as *const u8);
     jit_builder.symbol("print_f64", print_f64_runtime as *const u8);
+    jit_builder.symbol("print_bool", print_bool_runtime as *const u8);
     jit_builder.symbol("__torajs_str_alloc", str_alloc_runtime as *const u8);
     jit_builder.symbol("__torajs_str_print", str_print_runtime as *const u8);
     jit_builder.symbol("__torajs_str_drop", str_drop_runtime as *const u8);
@@ -375,6 +464,27 @@ pub fn execute(ssa_module: &Module) -> Result<i32, JitError> {
     jit_builder.symbol(
         "__torajs_arr_push_unchecked",
         arr_push_unchecked_runtime as *const u8,
+    );
+    jit_builder.symbol("__torajs_str_slice", str_slice_runtime as *const u8);
+    jit_builder.symbol(
+        "__torajs_str_char_code_at",
+        str_char_code_at_runtime as *const u8,
+    );
+    jit_builder.symbol(
+        "__torajs_str_starts_with",
+        str_starts_with_runtime as *const u8,
+    );
+    jit_builder.symbol(
+        "__torajs_str_ends_with",
+        str_ends_with_runtime as *const u8,
+    );
+    jit_builder.symbol(
+        "__torajs_str_index_of",
+        str_index_of_runtime as *const u8,
+    );
+    jit_builder.symbol(
+        "__torajs_str_includes",
+        str_includes_runtime as *const u8,
     );
     jit_builder.symbol("__torajs_arr_drop", arr_drop_runtime as *const u8);
     jit_builder.symbol("__torajs_math_sqrt", math_sqrt_runtime as *const u8);

@@ -1041,6 +1041,28 @@ impl Checker {
                         Ok(Type::Number)
                     }
                     (Type::String, "length") | (Type::Array(_), "length") => Ok(Type::Number),
+                    // M6.1 — String methods. All borrow `this` and any
+                    // String args (consumption only fires at concat,
+                    // which has its own arm). Bool-returning methods
+                    // return Type::Boolean; index/charCodeAt return
+                    // Number; slice returns String.
+                    (Type::String, "slice") => Ok(Type::Function(
+                        vec![Type::Number, Type::Number],
+                        Box::new(Type::String),
+                    )),
+                    (Type::String, "charCodeAt") => Ok(Type::Function(
+                        vec![Type::Number],
+                        Box::new(Type::Number),
+                    )),
+                    (Type::String, "startsWith") | (Type::String, "endsWith")
+                    | (Type::String, "includes") => Ok(Type::Function(
+                        vec![Type::String],
+                        Box::new(Type::Boolean),
+                    )),
+                    (Type::String, "indexOf") => Ok(Type::Function(
+                        vec![Type::String],
+                        Box::new(Type::Number),
+                    )),
                     // M1.2 — `xs.push(v)`: takes one element-typed arg,
                     // returns void (TS doesn't surface push's "new length"
                     // return value in our subset since it's rarely useful).
@@ -1226,6 +1248,18 @@ impl Checker {
                         args.len()
                     ));
                 }
+                // M6.1 — String borrow-methods (slice/includes/indexOf/...)
+                // don't transfer ownership of either receiver or args.
+                // They read both, allocate a fresh result, and return.
+                let is_string_borrow = matches!(
+                    ast.get_expr(*callee),
+                    Expr::Member { obj: _, name }
+                        if matches!(
+                            name.as_str(),
+                            "slice" | "charCodeAt" | "startsWith"
+                            | "endsWith" | "includes" | "indexOf"
+                        )
+                );
                 for (i, (param_ty, arg_id)) in params.iter().zip(args.iter()).enumerate() {
                     let arg_ty = self.type_of(ast, *arg_id)?;
                     if param_ty != &Type::Any && &arg_ty != param_ty {
@@ -1239,7 +1273,7 @@ impl Checker {
                     // viewer, not an owner. Consuming an Any param would
                     // make `console.log(s); console.log(s)` an error,
                     // which we don't want for the most common shape.
-                    if !param_ty.is_copy() && param_ty != &Type::Any {
+                    if !param_ty.is_copy() && param_ty != &Type::Any && !is_string_borrow {
                         self.consume(ast, *arg_id);
                     }
                 }
@@ -1323,6 +1357,13 @@ impl Checker {
                             Ok(Type::Boolean)
                         } else {
                             Err(format!("`!` requires boolean operand, got {t:?}"))
+                        }
+                    }
+                    crate::ast::UnaryOp::Neg => {
+                        if t == Type::Number {
+                            Ok(Type::Number)
+                        } else {
+                            Err(format!("`-` requires number operand, got {t:?}"))
                         }
                     }
                 }

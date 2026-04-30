@@ -810,6 +810,14 @@ impl Parser<'_> {
                 expr: inner,
             }));
         }
+        if matches!(self.peek(), Token::Minus) {
+            self.pos += 1;
+            let inner = self.parse_unary()?;
+            return Ok(self.ast.add_expr(Expr::Unary {
+                op: ast::UnaryOp::Neg,
+                expr: inner,
+            }));
+        }
         self.parse_postfix()
     }
 

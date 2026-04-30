@@ -28,6 +28,7 @@ pub enum BinOp {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnaryOp {
     Not, // logical !
+    Neg, // arithmetic -
 }
 
 #[derive(Debug, Clone)]

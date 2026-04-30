@@ -262,6 +262,13 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
     //                              `print_str` (deleted in P2.2.b).
     let print_i64_id = declare_intrinsic(&mut module, &mut fn_table, "print_i64", &[Type::I64], Type::Void);
     let print_f64_id = declare_intrinsic(&mut module, &mut fn_table, "print_f64", &[Type::F64], Type::Void);
+    let print_bool_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "print_bool",
+        &[Type::Bool],
+        Type::Void,
+    );
     let str_alloc_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -358,6 +365,53 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         "__torajs_arr_push_unchecked",
         &[Type::Ptr, Type::I64],
         Type::Void,
+    );
+    // M6.1 — String methods. All operate on the StrRepr layout
+    // `[u64 len, u8 data[len]]`. slice yields a fresh heap StrRepr;
+    // char_code_at returns the byte zext'd to i64; the `*_with`
+    // family + includes return bool; index_of returns i64 (-1 for
+    // not found). Both backends ship matching impls.
+    let str_slice_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_str_slice",
+        &[Type::Str, Type::I64, Type::I64],
+        Type::Str,
+    );
+    let str_char_code_at_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_str_char_code_at",
+        &[Type::Str, Type::I64],
+        Type::I64,
+    );
+    let str_starts_with_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_str_starts_with",
+        &[Type::Str, Type::Str],
+        Type::Bool,
+    );
+    let str_ends_with_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_str_ends_with",
+        &[Type::Str, Type::Str],
+        Type::Bool,
+    );
+    let str_index_of_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_str_index_of",
+        &[Type::Str, Type::Str],
+        Type::I64,
+    );
+    let str_includes_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_str_includes",
+        &[Type::Str, Type::Str],
+        Type::Bool,
     );
     // stdlib `Math` namespace — first slice. All take an f64 and return
     // an f64; the lowerer auto-promotes integer args via SiToFp at the
@@ -588,6 +642,7 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
     let intrinsics = Intrinsics {
         print_i64: print_i64_id,
         print_f64: print_f64_id,
+        print_bool: print_bool_id,
         str_alloc: str_alloc_id,
         str_print: str_print_id,
         str_drop: str_drop_id,
@@ -599,6 +654,12 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         arr_drop: arr_drop_id,
         arr_reserve: arr_reserve_id,
         arr_push_unchecked: arr_push_unchecked_id,
+        str_slice: str_slice_id,
+        str_char_code_at: str_char_code_at_id,
+        str_starts_with: str_starts_with_id,
+        str_ends_with: str_ends_with_id,
+        str_index_of: str_index_of_id,
+        str_includes: str_includes_id,
         math_sqrt: math_sqrt_id,
         math_abs: math_abs_id,
         math_floor: math_floor_id,
@@ -709,6 +770,7 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
 struct Intrinsics {
     print_i64: FuncId,
     print_f64: FuncId,
+    print_bool: FuncId,
     str_alloc: FuncId,
     str_print: FuncId,
     str_drop: FuncId,
@@ -720,6 +782,12 @@ struct Intrinsics {
     arr_drop: FuncId,
     arr_reserve: FuncId,
     arr_push_unchecked: FuncId,
+    str_slice: FuncId,
+    str_char_code_at: FuncId,
+    str_starts_with: FuncId,
+    str_ends_with: FuncId,
+    str_index_of: FuncId,
+    str_includes: FuncId,
     math_sqrt: FuncId,
     math_abs: FuncId,
     math_floor: FuncId,
@@ -1385,6 +1453,7 @@ impl<'a> LowerCtx<'a> {
             let target = match arg_ty {
                 Type::Str => self.intrinsics.str_print,
                 Type::F64 => self.intrinsics.print_f64,
+                Type::Bool => self.intrinsics.print_bool,
                 _ => self.intrinsics.print_i64,
             };
             self.f
@@ -2383,6 +2452,9 @@ impl<'a> LowerCtx<'a> {
                 // M1.5 — `!a` lowers to `xor a, true`. Operand is bool,
                 // result is bool. (BinOp::Xor on i1/i8 flips the low bit;
                 // since bools only carry 0 or 1, this is logical not.)
+                // M6.1 prereq — `-x` lowers to `0 - x`. f64 path emits
+                // fsub from 0.0 (no SItoFP needed since both ops are
+                // f64); i64 path emits sub from 0.
                 let v = self.lower_expr(*expr);
                 match op {
                     crate::ast::UnaryOp::Not => {
@@ -2397,6 +2469,37 @@ impl<'a> LowerCtx<'a> {
                             None,
                         );
                         Operand::Value(r)
+                    }
+                    crate::ast::UnaryOp::Neg => {
+                        let v_ty = self.operand_ty(&v);
+                        match v_ty {
+                            Type::F64 => {
+                                let r = self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::BinOp(
+                                        SsaBinOp::FSub,
+                                        Operand::ConstF64(0.0),
+                                        v,
+                                    ),
+                                    Type::F64,
+                                    None,
+                                );
+                                Operand::Value(r)
+                            }
+                            _ => {
+                                let r = self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::BinOp(
+                                        SsaBinOp::Sub,
+                                        Operand::ConstI64(0),
+                                        v,
+                                    ),
+                                    Type::I64,
+                                    None,
+                                );
+                                Operand::Value(r)
+                            }
+                        }
                     }
                 }
             }
@@ -2418,6 +2521,7 @@ impl<'a> LowerCtx<'a> {
                     let target = match arg_ty {
                         Type::Str => self.intrinsics.str_print,
                         Type::F64 => self.intrinsics.print_f64,
+                        Type::Bool => self.intrinsics.print_bool,
                         _ => self.intrinsics.print_i64,
                     };
                     self.f.append_void(
@@ -2478,6 +2582,44 @@ impl<'a> LowerCtx<'a> {
                     // result.
                     let _ = recv_name;
                     return Operand::ConstI64(0);
+                }
+                // M6.1 — `s.method(args)` for the String stdlib slice.
+                // Receiver must be Type::Str; methods route to the
+                // matching __torajs_str_* runtime intrinsic. Args are
+                // borrow-shaped (no consume — see the Call arm in
+                // check.rs).
+                if let Expr::Member { obj, name } = self.ast.get_expr(*callee)
+                    && matches!(
+                        name.as_str(),
+                        "slice" | "charCodeAt" | "startsWith" | "endsWith" | "includes" | "indexOf"
+                    )
+                {
+                    let recv_op = self.lower_expr(*obj);
+                    let recv_ty = self.operand_ty(&recv_op);
+                    if recv_ty == Type::Str {
+                        let method = name.clone();
+                        let mut argv = Vec::with_capacity(args.len() + 1);
+                        argv.push(recv_op);
+                        for a in args {
+                            argv.push(self.lower_expr(*a));
+                        }
+                        let (target, ret_ty) = match method.as_str() {
+                            "slice" => (self.intrinsics.str_slice, Type::Str),
+                            "charCodeAt" => (self.intrinsics.str_char_code_at, Type::I64),
+                            "startsWith" => (self.intrinsics.str_starts_with, Type::Bool),
+                            "endsWith" => (self.intrinsics.str_ends_with, Type::Bool),
+                            "includes" => (self.intrinsics.str_includes, Type::Bool),
+                            "indexOf" => (self.intrinsics.str_index_of, Type::I64),
+                            _ => unreachable!(),
+                        };
+                        let v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(target, argv),
+                            ret_ty,
+                            None,
+                        );
+                        return Operand::Value(v);
+                    }
                 }
                 // M6.2 — `xs.map / filter / reduce / forEach (fn[, init])`.
                 // Common shape: receiver lowers to a `Type::Arr` value
@@ -3689,6 +3831,7 @@ impl<'a> LowerCtx<'a> {
         let i = &self.intrinsics;
         fid == i.print_i64
             || fid == i.print_f64
+            || fid == i.print_bool
             || fid == i.str_alloc
             || fid == i.str_print
             || fid == i.str_drop
@@ -3700,6 +3843,12 @@ impl<'a> LowerCtx<'a> {
             || fid == i.arr_drop
             || fid == i.arr_reserve
             || fid == i.arr_push_unchecked
+            || fid == i.str_slice
+            || fid == i.str_char_code_at
+            || fid == i.str_starts_with
+            || fid == i.str_ends_with
+            || fid == i.str_index_of
+            || fid == i.str_includes
             || fid == i.math_sqrt
             || fid == i.math_abs
             || fid == i.math_floor
