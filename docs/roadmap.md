@@ -114,6 +114,7 @@ console.log(Math.floor(Math.sqrt(alice.age * alice.age)));
 | **M4.1+M4.2** | error model — `throw` / `try { } catch (e) { } finally { }` via module-level throw_active+throw_value globals; throw_check after every user-fn call | ✓ 2026-04-30 |
 | **M6.2** | Array methods — `xs.map / filter / reduce / forEach (fn)` via lowered loop + closure-call dispatch; method chains compose | ✓ 2026-04-30 |
 | **M6.2 fast-path** | one-shot `arr_reserve(src.length)` + `arr_push_unchecked` in the lowered map/filter loop — eliminates the per-element capacity check / realloc | ✓ 2026-04-30 |
+| **unary minus + M6.1** | `-x` for i64/f64 + AOT `print_i64` neg-handler; string methods slice/charCodeAt/startsWith/endsWith/includes/indexOf as borrow-shaped runtime intrinsics; `print_bool` for `console.log(true)` | ✓ 2026-05-01 |
 | ~~P2.3~~ | ~~`Rc<T>` first-class~~ | **REMOVED** — incompatible with TS-subset framing |
 
 ### Bench position (M4 Pro, hyperfine n=5)
@@ -130,7 +131,7 @@ bench/                             11 cases × 5 langs + harness + runners + res
 
 ### Currently executing
 
-M6.2 + fast-path shipped (commits `a8d11df`, `258e5d8`, `24475e6`). `array-map-1m` went 37.49 → 31.42 ms (parity with rust, 16% local speedup). Next candidates: **M4.3** (Error class + cross-frame drops + non-number throws), **M5** (module system), **M6.1** (String methods: slice/substring/indexOf/split/join), or **M6.3** (JSON.parse/stringify, Date).
+M6.1 (partial) + unary minus + print_bool just shipped (commit `d48ad64`). 6 string methods work on both backends as borrow-shaped intrinsics; the `xs.forEach(x => console.log(x))` bool-arg path no longer crashes. Next candidates: **M5** (module system), **M4.3** (Error class + cross-frame drops), **M6.3** (JSON.parse/stringify), or **`Array<string>` element type** (unblocks `split` + map<T, U>).
 
 ---
 
@@ -201,7 +202,7 @@ The compiler already has `Array<T>` natively after M1. M3 generalizes the mechan
 
 | step | what | exit gate |
 |---|---|---|
-| **M6.1** | `String` methods: `slice`, `substring`, `indexOf`, `split`, `join` | full method set tested vs bun |
+| **M6.1** ✓ (partial) | `String` methods — `slice`, `charCodeAt`, `startsWith`, `endsWith`, `includes`, `indexOf` shipped (borrow-shaped, both backends); `substring`, `split`, `join` deferred (split needs `Array<string>` element-type support) | tested via inline test, all 6 methods correct on JIT + AOT |
 | **M6.2** ✓ (partial) | `Array` methods: `map`, `filter`, `reduce`, `forEach` shipped — `(T) => T` uniform map only, method chains compose, capturing closures + top-level fn callables both work; `find` / `slice` deferred | array-map-1m bench at torajs (AOT) 37.49 ms vs rust 27.40 ms / go 21.45 ms; trails rust+go on per-push capacity check, beats bun (1.6×) and node-v8 (6.7×) |
 | **M6.3** | `Date`, `JSON.parse` / `JSON.stringify` | round-trip via tests |
 | **M6.4** | `fs` (sync subset): `readFileSync`, `writeFileSync` | reads/writes a file end-to-end |
