@@ -1826,54 +1826,63 @@ impl<'a> LowerCtx<'a> {
                 self.f.set_term(self.cur_block, Terminator::Br(cont_target));
             }
             Stmt::Throw(eid) => {
-                // M4.1 — `throw v` lowers to:
-                //   call __torajs_throw_set(v)
-                //   <emit drops for owned locals>
-                //   ret <sentinel>
-                // The sentinel value is whatever default fits the fn's
-                // return type (0 for I64, 0.0 for F64, void for Void).
-                // The caller's call-site check picks up the throw_active
-                // flag immediately and routes to the catch / propagate.
+                // M4 — `throw v`:
+                //   1. call __torajs_throw_set(v)
+                //   2. if there's an active try (try_stack non-empty),
+                //      `br <handler>` — this ensures finally / catch
+                //      inside the same fn runs before propagating.
+                //   3. otherwise emit drops + ret sentinel so the
+                //      caller's emit_throw_check picks up the propagate.
                 let v = self.lower_expr(*eid);
                 self.f.append_void(
                     self.cur_block,
                     InstKind::Call(self.intrinsics.throw_set, vec![v]),
                 );
-                self.emit_drops_for_owned_locals();
-                let cb = self.cur_block;
-                let ret_ty = self.f.ret;
-                let term = match ret_ty {
-                    Type::Void => Terminator::Ret(None),
-                    Type::I64 | Type::I32 | Type::Bool => {
-                        Terminator::Ret(Some(Operand::ConstI64(0)))
-                    }
-                    Type::F64 => Terminator::Ret(Some(Operand::ConstF64(0.0))),
-                    _ => {
-                        // Pointer-shaped sentinels: zero-cast i64.
-                        Terminator::Ret(Some(Operand::ConstI64(0)))
-                    }
-                };
-                self.f.set_term(cb, term);
+                if let Some(handler) = self.try_stack.last().copied() {
+                    let cb = self.cur_block;
+                    self.f.set_term(cb, Terminator::Br(handler));
+                } else {
+                    self.emit_drops_for_owned_locals();
+                    let cb = self.cur_block;
+                    let ret_ty = self.f.ret;
+                    let term = match ret_ty {
+                        Type::Void => Terminator::Ret(None),
+                        Type::I64 | Type::I32 | Type::Bool => {
+                            Terminator::Ret(Some(Operand::ConstI64(0)))
+                        }
+                        Type::F64 => Terminator::Ret(Some(Operand::ConstF64(0.0))),
+                        _ => Terminator::Ret(Some(Operand::ConstI64(0))),
+                    };
+                    self.f.set_term(cb, term);
+                }
             }
             Stmt::Try {
                 body,
                 catch_param,
                 catch_body,
-                finally_body: _, // M4.2
+                finally_body,
             } => {
-                // M4.1 — control-flow shape:
-                //   <pre>: call ...; cond_br throw_active, catch, body_continuation
-                //   body: lower body stmts (each user-fn-call inserts a
-                //         cond_br on throw_active → catch via try_stack);
-                //         on fall-through, br after_try
-                //   catch: take throw value, bind to catch_param,
-                //          lower catch_body; on fall-through br after_try
-                //   after_try: rest of program
+                // M4.1 + M4.2 — control-flow shape:
+                //   <pre>  ──br→ body
+                //   body   ──throw→ catch (via try_stack top)
+                //          ──fall→ post_target (= finally if present, else after)
+                //   catch  ──throw→ post_target (= finally if present, else fn-propagate)
+                //          ──fall→ post_target
+                //   finally  body lowered; on fall-through, cond_br on
+                //          throw_check: active → propagate, else → after
+                //   after  rest of program
                 let body_blk = self.f.add_block();
                 let catch_blk = self.f.add_block();
                 let after_blk = self.f.add_block();
+                let finally_blk = if finally_body.is_some() {
+                    Some(self.f.add_block())
+                } else {
+                    None
+                };
+                let post_target = finally_blk.unwrap_or(after_blk);
                 self.f.set_term(self.cur_block, Terminator::Br(body_blk));
-                // body
+
+                // body — throw target = catch
                 self.cur_block = body_blk;
                 self.try_stack.push(catch_blk);
                 self.scope_stack.push(Vec::new());
@@ -1884,17 +1893,15 @@ impl<'a> LowerCtx<'a> {
                     }
                 }
                 if self.cur_open() {
-                    // M4.1 minimal — no drops on try/catch fall-through
-                    // beyond what `lower_stmt` already emitted. Owned
-                    // locals declared inside try/catch are dropped at
-                    // fn-end via emit_drops_for_owned_locals; full
-                    // throw-time stack-unwind drops land in M4.2.
                     let cb = self.cur_block;
-                    self.f.set_term(cb, Terminator::Br(after_blk));
+                    self.f.set_term(cb, Terminator::Br(post_target));
                 }
                 self.scope_stack.pop();
                 self.try_stack.pop();
-                // catch
+
+                // catch — take value + bind, then lower catch body. If
+                // a finally is present, push it as the throw target so
+                // a re-throw inside catch still runs finally.
                 self.cur_block = catch_blk;
                 self.scope_stack.push(Vec::new());
                 if let Some(p) = catch_param {
@@ -1920,11 +1927,13 @@ impl<'a> LowerCtx<'a> {
                     );
                     self.scope_stack.last_mut().unwrap().push(p.clone());
                 } else {
-                    // No param — still clear the active flag.
                     self.f.append_void(
                         self.cur_block,
                         InstKind::Call(self.intrinsics.throw_take, vec![]),
                     );
+                }
+                if let Some(fb) = finally_blk {
+                    self.try_stack.push(fb);
                 }
                 for s in catch_body {
                     self.lower_stmt(s);
@@ -1932,16 +1941,69 @@ impl<'a> LowerCtx<'a> {
                         break;
                     }
                 }
+                if finally_blk.is_some() {
+                    self.try_stack.pop();
+                }
                 if self.cur_open() {
-                    // M4.1 minimal — no drops on try/catch fall-through
-                    // beyond what `lower_stmt` already emitted. Owned
-                    // locals declared inside try/catch are dropped at
-                    // fn-end via emit_drops_for_owned_locals; full
-                    // throw-time stack-unwind drops land in M4.2.
                     let cb = self.cur_block;
-                    self.f.set_term(cb, Terminator::Br(after_blk));
+                    self.f.set_term(cb, Terminator::Br(post_target));
                 }
                 self.scope_stack.pop();
+
+                // finally — runs on every normal+catch fall-through
+                // path AND on the catch-rethrow path. End: cond_br on
+                // throw_active → propagate-out vs after_blk.
+                if let (Some(fb), Some(fbody)) = (finally_blk, finally_body) {
+                    self.cur_block = fb;
+                    self.scope_stack.push(Vec::new());
+                    for s in fbody {
+                        self.lower_stmt(s);
+                        if !self.cur_open() {
+                            break;
+                        }
+                    }
+                    if self.cur_open() {
+                        let active = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(self.intrinsics.throw_check, vec![]),
+                            Type::I64,
+                            None,
+                        );
+                        let cmp = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::ICmp(
+                                IPred::Ne,
+                                Operand::Value(active),
+                                Operand::ConstI64(0),
+                            ),
+                            Type::Bool,
+                            None,
+                        );
+                        let prop_blk = self.f.add_block();
+                        let cb = self.cur_block;
+                        self.f.set_term(
+                            cb,
+                            Terminator::CondBr {
+                                cond: Operand::Value(cmp),
+                                then_blk: prop_blk,
+                                else_blk: after_blk,
+                            },
+                        );
+                        // propagate out: drops + ret sentinel.
+                        self.cur_block = prop_blk;
+                        self.emit_drops_for_owned_locals();
+                        let cb2 = self.cur_block;
+                        let ret_ty = self.f.ret;
+                        let term = match ret_ty {
+                            Type::Void => Terminator::Ret(None),
+                            Type::F64 => Terminator::Ret(Some(Operand::ConstF64(0.0))),
+                            Type::I32 => Terminator::Ret(Some(Operand::ConstI32(0))),
+                            _ => Terminator::Ret(Some(Operand::ConstI64(0))),
+                        };
+                        self.f.set_term(cb2, term);
+                    }
+                    self.scope_stack.pop();
+                }
                 self.cur_block = after_blk;
             }
             Stmt::If {
