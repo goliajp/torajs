@@ -662,6 +662,7 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
             return_type,
             params,
             type_params,
+            body,
             ..
         } = stmt
         {
@@ -683,13 +684,17 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
                     &mut struct_layouts,
                 ));
             }
-            let ret_ty = parse_type(
-                return_type.as_deref(),
-                &aliases,
-                &mut arr_layouts,
-                &mut fn_sigs,
-                &generic_struct_decls,
-                &mut struct_layouts,
+            let ret_ty = effective_ret_ty(
+                parse_type(
+                    return_type.as_deref(),
+                    &aliases,
+                    &mut arr_layouts,
+                    &mut fn_sigs,
+                    &generic_struct_decls,
+                    &mut struct_layouts,
+                ),
+                ast,
+                body,
             );
             let fid = FuncId(module.funcs.len() as u32);
             fn_table.insert(name.clone(), fid);
@@ -1000,6 +1005,64 @@ fn synthesize_main(
     (f, new_strings)
 }
 
+/// Walk a fn body and return true if any `Stmt::Return` directly returns
+/// an `Expr::Closure` value. Used to upgrade a declared `(y) => R` return
+/// type from `Type::FnSig(sig)` to `Type::Closure(sig)` when the body
+/// actually constructs a capturing arrow — without this upgrade the
+/// caller's slot is FnSig but the runtime value is a Closure env pointer,
+/// and dispatching via the FnSig path interprets the env pointer as a
+/// raw fn address → SIGBUS. Detected pattern is the direct-return case;
+/// returning a closure stored in a local is not yet handled.
+fn body_returns_closure(ast: &Ast, body: &[Stmt]) -> bool {
+    body.iter().any(|s| stmt_returns_closure(ast, s))
+}
+
+fn stmt_returns_closure(ast: &Ast, s: &Stmt) -> bool {
+    match s {
+        Stmt::Return(Some(eid)) => matches!(ast.get_expr(*eid), Expr::Closure { .. }),
+        Stmt::If {
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            stmt_returns_closure(ast, then_branch)
+                || else_branch
+                    .as_ref()
+                    .map(|e| stmt_returns_closure(ast, e))
+                    .unwrap_or(false)
+        }
+        Stmt::While { body, .. } | Stmt::For { body, .. } => stmt_returns_closure(ast, body),
+        Stmt::Block(stmts) => body_returns_closure(ast, stmts),
+        Stmt::Try {
+            body,
+            catch_body,
+            finally_body,
+            ..
+        } => {
+            body_returns_closure(ast, body)
+                || body_returns_closure(ast, catch_body)
+                || finally_body
+                    .as_ref()
+                    .map(|fb| body_returns_closure(ast, fb))
+                    .unwrap_or(false)
+        }
+        _ => false,
+    }
+}
+
+/// If the parsed return type is `Type::FnSig(sig)` and the function's
+/// body returns a `Type::Closure` value, upgrade to `Type::Closure(sig)`.
+/// Otherwise pass through. Both types share an 8-byte ABI so this is a
+/// pure dispatch-discipline change.
+fn effective_ret_ty(parsed: Type, ast: &Ast, body: &[Stmt]) -> Type {
+    if let Type::FnSig(sig_id) = parsed
+        && body_returns_closure(ast, body)
+    {
+        return Type::Closure(sig_id);
+    }
+    parsed
+}
+
 fn parse_type(
     ann: Option<&str>,
     aliases: &HashMap<String, Type>,
@@ -1303,13 +1366,17 @@ fn lower_fn(
     call_retargets: &CallRetargets,
     may_throw_fns: &std::collections::HashSet<String>,
 ) -> (ssa::Function, Vec<Vec<u8>>) {
-    let ret_ty = parse_type(
-        return_type,
-        aliases,
-        arr_layouts,
-        fn_sigs,
-        generic_struct_decls,
-        struct_layouts,
+    let ret_ty = effective_ret_ty(
+        parse_type(
+            return_type,
+            aliases,
+            arr_layouts,
+            fn_sigs,
+            generic_struct_decls,
+            struct_layouts,
+        ),
+        ast,
+        body,
     );
     let mut f = ssa::Function::new(name, ret_ty);
 
