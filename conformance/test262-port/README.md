@@ -47,22 +47,24 @@ Each ported file links back to the original test262 path in a comment block; the
 
 | category | what it covers | count |
 |---|---|--:|
-| `add` / `sub` / `mul` / `div` / `mod` | binary arithmetic | 5 |
+| `add` / `sub` / `mul` / `div` / `mod` | binary arithmetic — multiple T-variants per op (operand patterns, negatives, large ints, string concat) | 12 |
 | `unary` | `-x`, `!b` | 2 |
-| `cmp` | `===`, `!==`, `<`, `>`, `<=`, `>=` | 2 |
-| `bitop` | `&`, `\|`, `^`, `<<`, `>>` | 1 |
+| `cmp` | `===`, `!==`, `<`, `>`, `<=`, `>=`, string equality | 4 |
+| `bitop` | `&`, `\|`, `^`, `<<`, `>>` (one case per shape) | 4 |
 | `logical` | `&&`, `\|\|` | 2 |
-| `control` | `if/else`, `for`, `while`, `break`, `continue`, `try/catch/finally`, nested-try, throw-propagate | 9 |
-| `func` | function declaration, recursion, mutual recursion | 2 |
-| `closure` | single capture, multi-capture, closure-as-arg | 3 |
-| `object` | type alias struct, field read/write, pass-to-fn, nested fields | 4 |
-| `class` | constructor + method, mutating method, single inheritance, `super(args)` | 4 |
-| `string` | length, slice, includes, indexOf, charCodeAt, startsWith, endsWith, split+join | 8 |
-| `array` | length, push+index, map, filter, reduce, forEach, method-chain, multi-element growth | 8 |
-| `generic` | inferred `<T>`, generic struct `Pair<A, B>` | 2 |
-| `math` | abs/min/max/floor/ceil/sqrt/pow | 1 |
+| `control` | `if/else`, `for`, `while`, `break`, `continue`, `try/catch/finally`, nested-try, throw-propagate, nested-if/for/while, finally-on-break, finally-on-return, throw-inside-loop, block-scope shadow | 17 |
+| `func` | function declaration, recursion, mutual recursion, void return | 3 |
+| `closure` | single capture, multi capture, closure-as-arg, pick-fn (return one of two callable args), passing-fn-back (combinator), chain-call `f(0)(5)`, stateful-counter (struct-wrapped state) | 7 |
+| `object` | type-alias struct, field read/write, pass-to-fn, nested fields, mutation-via-fn, array of struct, struct with array field, deeply-nested, pass-to-multiple-fns | 9 |
+| `class` | constructor + method, mutating method, single inheritance, `super(args)` passthrough, three-level extends, inherited method on subclass instance, string-typed fields, this-passed-around | 8 |
+| `string` | length, slice, includes, indexOf, charCodeAt, startsWith, endsWith, split+join, pass-to-multiple-fns | 9 |
+| `array` | length, push+index, map, filter, reduce, forEach, method-chain, multi-element growth, nested array, pass-to-multiple-fns | 10 |
+| `generic` | inferred `<T>`, generic struct `Pair<A, B>`, multi-typeparam factory | 3 |
+| `math` | abs/min/max/floor/ceil/sqrt/pow, exp/log/PI/E | 2 |
 | `throw` | string value, struct value with `catch (e: Err)` | 2 |
-| **total** | | **55** |
+| `let-const` | const happy path | 1 |
+| `integration` | multi-feature combinators — fib precomputed, array-of-class, string-build, stats fns, quicksort, prime sieve, collatz step count, cmp+logical chain, string search, list stats, multi-throw-types | 11 |
+| **total** | | **106** |
 
 Filename ends with the original test262 stem (where one exists) to make grep'ing the lineage easy. Cases without a direct test262 lineage (closures, generics, classes — all TS / TS-subset additions outside ECMA-262 itself) carry a topical stem instead.
 
