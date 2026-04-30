@@ -111,11 +111,12 @@ console.log(Math.floor(Math.sqrt(alice.age * alice.age)));
 | **M2 Phase C** | closures with **implicit captures** — heap env block `[fn_ptr, cap_0, cap_1, ...]`, env-load preamble in lifted body, `Type::Closure(SigId)` | ✓ 2026-04-30 |
 | **M3.1+M3.2+M3.3** | generics — `function id<T>(x: T): T`, type-arg inference at call sites, monomorphization pre-pass | ✓ 2026-04-30 |
 | **M3.4** | generic struct types — `type Pair<A, B> = { fst: A, snd: B }` instantiated on-demand into concrete `Type::Obj(StructId)` | ✓ 2026-04-30 |
+| **M4.1+M4.2** | error model — `throw` / `try { } catch (e) { } finally { }` via module-level throw_active+throw_value globals; throw_check after every user-fn call | ✓ 2026-04-30 |
 | ~~P2.3~~ | ~~`Rc<T>` first-class~~ | **REMOVED** — incompatible with TS-subset framing |
 
 ### Bench position (M4 Pro, hyperfine n=5)
 
-13 of 13 cases green on `torajs` (AOT) + `torajs-jit`. Vs **rust**: 11 wins / 1 tie / 1 loss (closure-counter, ~17%) on AOT — the new `generic-pair-1m` lands at torajs 1.47 ms vs rust 2.51 ms (1.71× faster) thanks to LLVM eliding the malloc/free pair via heap-to-stack promotion. Vs **bun**: 13/13 wins on every case. Vs **node-v8**: 13/13 wins (4-71×). See `README.md` for the full table.
+14 of 14 cases green on `torajs` (AOT) + `torajs-jit`. Vs **rust**: 12 wins / 1 tie / 1 loss (closure-counter, ~17%) on AOT. The new `throw-catch-100k` lands at torajs 1.41 ms vs rust 432 ms (306× faster) — caveat: torajs's M4 throw is minimal (no cross-frame drops, no Error class, only number values), so this is a perf-at-current-scope number, not feature-parity. Vs **bun**: 14/14 wins. Vs **node-v8**: 14/14 wins (4-108×). See `README.md` for the full table.
 
 ### Code size
 
@@ -127,7 +128,7 @@ bench/                             11 cases × 5 langs + harness + runners + res
 
 ### Currently executing
 
-M3 fully shipped — `id<T>`, `pick<T>`, multi-param generic fns (`fst<A, B>`/`snd<A, B>`), and generic struct types `type Pair<A, B> = { fst: A, snd: B }` all work on JIT + AOT. Two new bench cases: `generic-id-1m` (mono zero-overhead) at torajs 14.10 ms vs rust 14.48 ms; `generic-pair-1m` (heap struct alloc loop) at torajs 1.47 ms vs rust 2.51 ms. Commits: `51c04d2`, `85c7307`, `f848881`. Next up: **M4 — error model (try/catch/throw)**.
+M4.1+M4.2 just shipped. `try { } catch (e) { } finally { }` works end-to-end on JIT and AOT, including 2-level fn propagation, catch-rethrow with finally, multiple shapes of fall-through. throw-catch-100k bench at torajs (AOT) 1.41 ms vs rust 432 ms — caveat: torajs throw is currently minimal (no cross-frame drops, no Error class, only number values). Commits: `e18e4e9`, `53762d0`, `ff0609c`. Next up: **M4.3 (Error class + cross-frame drops + non-number throws)** OR a different track — say **M5 (modules)**.
 
 ---
 
@@ -178,9 +179,9 @@ The compiler already has `Array<T>` natively after M1. M3 generalizes the mechan
 
 | step | what | exit gate |
 |---|---|---|
-| **M4.1** | parser/AST/typecheck for `throw`, `try`, `catch` | typechecks; basic `Error` class |
-| **M4.2** | unwinding lowered as state machine + early-return through scope drops | thrown errors propagate through fn boundaries with correct drop ordering |
-| **M4.3** | stdlib `Error` / `TypeError` / `RangeError` | matches bun's Error hierarchy (subset) |
+| **M4.1** ✓ | parser/AST/typecheck for `throw`, `try`, `catch`; module-level throw-state globals (`throw_active`, `throw_value`); per-call-site throw_check + cond_br to active try's catch or fn-level propagate | `safe(5) → 6, safe(-5) → 0`; 2-level propagation across fn boundaries works |
+| **M4.2** ✓ | `finally` block — runs on try fall-through, catch fall-through, and catch-rethrow path; cond_br on throw_check at finally end | `try { log = inner(n) } catch (e) { log = e+1; throw 200 } finally { console.log(log) }` runs finally on every path; throw-catch-100k bench at torajs (AOT) 1.41 ms vs rust 432 ms |
+| **M4.3** | stdlib `Error` / `TypeError` / `RangeError` + cross-frame drop-glue on throw + non-number throw values | matches bun's Error hierarchy (subset); leak-free under `leaks --atExit` |
 
 ### M5 — Module system
 
