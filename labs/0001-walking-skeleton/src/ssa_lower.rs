@@ -3891,6 +3891,120 @@ impl<'a> LowerCtx<'a> {
                     );
                     return Operand::Value(v);
                 }
+                // Generalized indirect call: when the callee is itself
+                // a Call expression (`f(0)(5)` — chained call), the
+                // existing Ident-keyed paths can't handle it. Lower the
+                // callee unconditionally to get a Closure or FnSig
+                // value, then dispatch indirectly. Mirrors
+                // `call_fn_value` but with explicit void handling.
+                // Member callees (Math.*, console.log, x.method()) and
+                // direct Ident callees fall through to the existing
+                // specialized paths below.
+                if matches!(self.ast.get_expr(*callee), Expr::Call { .. }) {
+                    let callee_op = self.lower_expr(*callee);
+                    let callee_ty = self.operand_ty(&callee_op);
+                    match callee_ty {
+                        Type::Closure(user_sig_id) => {
+                            let env_ptr = match callee_op {
+                                Operand::Value(v) => v,
+                                _ => panic!(
+                                    "ssa-lower: closure callee must be an SSA value"
+                                ),
+                            };
+                            let fn_ptr = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Load(
+                                    Type::Ptr,
+                                    Operand::Value(env_ptr),
+                                    0,
+                                ),
+                                Type::Ptr,
+                                None,
+                            );
+                            let (user_params, ret_ty) =
+                                self.fn_sigs[user_sig_id.0 as usize].clone();
+                            let mut env_first =
+                                Vec::with_capacity(user_params.len() + 1);
+                            env_first.push(Type::Ptr);
+                            env_first.extend(user_params);
+                            let env_first_sig =
+                                intern_fn_sig(self.fn_sigs, env_first, ret_ty);
+                            let mut argv: Vec<Operand> =
+                                Vec::with_capacity(args.len() + 1);
+                            argv.push(Operand::Value(env_ptr));
+                            for a in args {
+                                argv.push(self.lower_expr(*a));
+                            }
+                            for a in args {
+                                self.consume_if_ident(*a);
+                            }
+                            if ret_ty == Type::Void {
+                                self.f.append_void(
+                                    self.cur_block,
+                                    InstKind::CallIndirect(
+                                        env_first_sig,
+                                        Operand::Value(fn_ptr),
+                                        argv,
+                                    ),
+                                );
+                                return Operand::ConstI64(0);
+                            }
+                            let v = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::CallIndirect(
+                                    env_first_sig,
+                                    Operand::Value(fn_ptr),
+                                    argv,
+                                ),
+                                ret_ty,
+                                None,
+                            );
+                            return Operand::Value(v);
+                        }
+                        Type::FnSig(sig_id) => {
+                            let fn_ptr = match callee_op {
+                                Operand::Value(v) => v,
+                                _ => panic!(
+                                    "ssa-lower: fnsig callee must be an SSA value"
+                                ),
+                            };
+                            let ret_ty = self.fn_sigs[sig_id.0 as usize].1;
+                            let argv: Vec<Operand> = args
+                                .iter()
+                                .map(|a| self.lower_expr(*a))
+                                .collect();
+                            for a in args {
+                                self.consume_if_ident(*a);
+                            }
+                            if ret_ty == Type::Void {
+                                self.f.append_void(
+                                    self.cur_block,
+                                    InstKind::CallIndirect(
+                                        sig_id,
+                                        Operand::Value(fn_ptr),
+                                        argv,
+                                    ),
+                                );
+                                return Operand::ConstI64(0);
+                            }
+                            let v = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::CallIndirect(
+                                    sig_id,
+                                    Operand::Value(fn_ptr),
+                                    argv,
+                                ),
+                                ret_ty,
+                                None,
+                            );
+                            return Operand::Value(v);
+                        }
+                        _ => {
+                            // Non-callable — fall through to resolve_callee
+                            // for the panic with a clearer error message.
+                        }
+                    }
+                }
                 // M3 — generic call retarget. If the typechecker recorded
                 // a (mono fn name) for this call's ExprId, look up the
                 // specialized FuncId by name and use it instead of the
