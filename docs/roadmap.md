@@ -115,6 +115,7 @@ console.log(Math.floor(Math.sqrt(alice.age * alice.age)));
 | **M6.2** | Array methods — `xs.map / filter / reduce / forEach (fn)` via lowered loop + closure-call dispatch; method chains compose | ✓ 2026-04-30 |
 | **M6.2 fast-path** | one-shot `arr_reserve(src.length)` + `arr_push_unchecked` in the lowered map/filter loop — eliminates the per-element capacity check / realloc | ✓ 2026-04-30 |
 | **unary minus + M6.1** | `-x` for i64/f64 + AOT `print_i64` neg-handler; string methods slice/charCodeAt/startsWith/endsWith/includes/indexOf as borrow-shaped runtime intrinsics; `print_bool` for `console.log(true)` | ✓ 2026-05-01 |
+| **Array&lt;string&gt; + split / join** | implicit ptr↔i64 cast at AOT call boundary unblocks heap-element arrays; `s.split(sep) → string[]` and `arr.join(sep) → string` via a small C runtime (`runtime_str.c`) compiled+linked per `tr build`. Index-borrow fix on console.log dispatch (parts[i] no longer drops the array's element). | ✓ 2026-05-01 |
 | ~~P2.3~~ | ~~`Rc<T>` first-class~~ | **REMOVED** — incompatible with TS-subset framing |
 
 ### Bench position (M4 Pro, hyperfine n=5)
@@ -131,7 +132,7 @@ bench/                             11 cases × 5 langs + harness + runners + res
 
 ### Currently executing
 
-M6.1 (partial) + unary minus + print_bool just shipped (commit `d48ad64`). 6 string methods work on both backends as borrow-shaped intrinsics; the `xs.forEach(x => console.log(x))` bool-arg path no longer crashes. Next candidates: **M5** (module system), **M4.3** (Error class + cross-frame drops), **M6.3** (JSON.parse/stringify), or **`Array<string>` element type** (unblocks `split` + map<T, U>).
+M6.1 done — 8 string-shape methods + `Array<string>` end-to-end. Commits this session: `5adc3fb` → `e82d71d`. The C-runtime hook (`runtime_str.c` compiled+linked per `tr build`) is now available for any future helper where IR-builder verbosity outweighs the link-cost gain. Topological next: M4.3 (Error class + cross-frame drops), M6.3 (JSON), M7 (async), or M5 (modules) — order doesn't matter, all blocked only on themselves.
 
 ---
 
@@ -202,7 +203,7 @@ The compiler already has `Array<T>` natively after M1. M3 generalizes the mechan
 
 | step | what | exit gate |
 |---|---|---|
-| **M6.1** ✓ (partial) | `String` methods — `slice`, `charCodeAt`, `startsWith`, `endsWith`, `includes`, `indexOf` shipped (borrow-shaped, both backends); `substring`, `split`, `join` deferred (split needs `Array<string>` element-type support) | tested via inline test, all 6 methods correct on JIT + AOT |
+| **M6.1** ✓ | `String` methods — `slice`, `charCodeAt`, `startsWith`, `endsWith`, `includes`, `indexOf`, `split`, plus `Array<string>.join`. All borrow-shaped, both backends. (`substring` is a slice alias and deferred; arrays of arbitrary element types are unblocked.) | inline test exercises all 8 methods; round-trip `s.split(",").join("-")` works on JIT + AOT |
 | **M6.2** ✓ (partial) | `Array` methods: `map`, `filter`, `reduce`, `forEach` shipped — `(T) => T` uniform map only, method chains compose, capturing closures + top-level fn callables both work; `find` / `slice` deferred | array-map-1m bench at torajs (AOT) 37.49 ms vs rust 27.40 ms / go 21.45 ms; trails rust+go on per-push capacity check, beats bun (1.6×) and node-v8 (6.7×) |
 | **M6.3** | `Date`, `JSON.parse` / `JSON.stringify` | round-trip via tests |
 | **M6.4** | `fs` (sync subset): `readFileSync`, `writeFileSync` | reads/writes a file end-to-end |
