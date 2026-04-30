@@ -43,7 +43,28 @@ Each ported file links back to the original test262 path in a comment block; the
 
 ## Naming
 
-`<category>-<NNN>-<original-test262-stem>.ts` — categories so far: `add` / `sub` / `mul` / `div` / `cmp` / `bitop` / `string` / `array`. Filename ends with the original test262 stem to make grep'ing the lineage easy.
+`<category>-<NNN>-<original-test262-stem>.ts` — categories so far:
+
+| category | what it covers | count |
+|---|---|--:|
+| `add` / `sub` / `mul` / `div` / `mod` | binary arithmetic | 5 |
+| `unary` | `-x`, `!b` | 2 |
+| `cmp` | `===`, `!==`, `<`, `>`, `<=`, `>=` | 2 |
+| `bitop` | `&`, `\|`, `^`, `<<`, `>>` | 1 |
+| `logical` | `&&`, `\|\|` | 2 |
+| `control` | `if/else`, `for`, `while`, `break`, `continue`, `try/catch/finally`, nested-try, throw-propagate | 9 |
+| `func` | function declaration, recursion, mutual recursion | 2 |
+| `closure` | single capture, multi-capture, closure-as-arg | 3 |
+| `object` | type alias struct, field read/write, pass-to-fn, nested fields | 4 |
+| `class` | constructor + method, mutating method, single inheritance, `super(args)` | 4 |
+| `string` | length, slice, includes, indexOf, charCodeAt, startsWith, endsWith, split+join | 8 |
+| `array` | length, push+index, map, filter, reduce, forEach, method-chain, multi-element growth | 8 |
+| `generic` | inferred `<T>`, generic struct `Pair<A, B>` | 2 |
+| `math` | abs/min/max/floor/ceil/sqrt/pow | 1 |
+| `throw` | string value, struct value with `catch (e: Err)` | 2 |
+| **total** | | **55** |
+
+Filename ends with the original test262 stem (where one exists) to make grep'ing the lineage easy. Cases without a direct test262 lineage (closures, generics, classes — all TS / TS-subset additions outside ECMA-262 itself) carry a topical stem instead.
 
 ## Performance — torajs vs bun on the same source
 
