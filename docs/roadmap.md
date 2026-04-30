@@ -112,11 +112,12 @@ console.log(Math.floor(Math.sqrt(alice.age * alice.age)));
 | **M3.1+M3.2+M3.3** | generics — `function id<T>(x: T): T`, type-arg inference at call sites, monomorphization pre-pass | ✓ 2026-04-30 |
 | **M3.4** | generic struct types — `type Pair<A, B> = { fst: A, snd: B }` instantiated on-demand into concrete `Type::Obj(StructId)` | ✓ 2026-04-30 |
 | **M4.1+M4.2** | error model — `throw` / `try { } catch (e) { } finally { }` via module-level throw_active+throw_value globals; throw_check after every user-fn call | ✓ 2026-04-30 |
+| **M6.2** | Array methods — `xs.map / filter / reduce / forEach (fn)` via lowered loop + closure-call dispatch; method chains compose | ✓ 2026-04-30 |
 | ~~P2.3~~ | ~~`Rc<T>` first-class~~ | **REMOVED** — incompatible with TS-subset framing |
 
 ### Bench position (M4 Pro, hyperfine n=5)
 
-14 of 14 cases green on `torajs` (AOT) + `torajs-jit`. Vs **rust**: 12 wins / 1 tie / 1 loss (closure-counter, ~17%) on AOT. The new `throw-catch-100k` lands at torajs 1.41 ms vs rust 432 ms (306× faster) — caveat: torajs's M4 throw is minimal (no cross-frame drops, no Error class, only number values), so this is a perf-at-current-scope number, not feature-parity. Vs **bun**: 14/14 wins. Vs **node-v8**: 14/14 wins (4-108×). See `README.md` for the full table.
+15 of 15 cases green on `torajs` (AOT) + `torajs-jit`. Vs **rust**: 12 wins / 1 tie / 2 losses (closure-counter ~17%, array-map-1m ~37%) on AOT. The new `throw-catch-100k` lands at torajs 1.41 ms vs rust 432 ms (306× faster — caveat: torajs's M4 throw is minimal, no cross-frame drops, no Error class, only number values). The new `array-map-1m` (xs.map(closure) over 10M elems) lands at torajs 37.49 ms vs rust 27.40 ms / go 21.45 ms / bun ~60 ms — tractable gap (per-element arr_push capacity check). Vs **bun**: 15/15 wins. Vs **node-v8**: 15/15 wins (4-108×). See `README.md` for the full table.
 
 ### Code size
 
@@ -128,7 +129,7 @@ bench/                             11 cases × 5 langs + harness + runners + res
 
 ### Currently executing
 
-M4.1+M4.2 just shipped. `try { } catch (e) { } finally { }` works end-to-end on JIT and AOT, including 2-level fn propagation, catch-rethrow with finally, multiple shapes of fall-through. throw-catch-100k bench at torajs (AOT) 1.41 ms vs rust 432 ms — caveat: torajs throw is currently minimal (no cross-frame drops, no Error class, only number values). Commits: `e18e4e9`, `53762d0`, `ff0609c`. Next up: **M4.3 (Error class + cross-frame drops + non-number throws)** OR a different track — say **M5 (modules)**.
+M6.2 (Array.map/filter/reduce/forEach) just shipped — closures + arrays compose naturally now, method chains work. New benches: `array-map-1m` at torajs (AOT) 37.49 ms (1.37× behind rust, 1.6× ahead of bun). Commits: `a8d11df`, `258e5d8`. Next up: **M6.2 fast-path** (reserve(n) + push_unchecked to close the rust/go gap), OR **M4.3** (Error class + cross-frame drops), OR **M5** (modules).
 
 ---
 
@@ -200,7 +201,7 @@ The compiler already has `Array<T>` natively after M1. M3 generalizes the mechan
 | step | what | exit gate |
 |---|---|---|
 | **M6.1** | `String` methods: `slice`, `substring`, `indexOf`, `split`, `join` | full method set tested vs bun |
-| **M6.2** | `Array` methods: `map`, `filter`, `reduce`, `forEach`, `find`, `slice` (gates on M2 closures) | full method set tested vs bun |
+| **M6.2** ✓ (partial) | `Array` methods: `map`, `filter`, `reduce`, `forEach` shipped — `(T) => T` uniform map only, method chains compose, capturing closures + top-level fn callables both work; `find` / `slice` deferred | array-map-1m bench at torajs (AOT) 37.49 ms vs rust 27.40 ms / go 21.45 ms; trails rust+go on per-push capacity check, beats bun (1.6×) and node-v8 (6.7×) |
 | **M6.3** | `Date`, `JSON.parse` / `JSON.stringify` | round-trip via tests |
 | **M6.4** | `fs` (sync subset): `readFileSync`, `writeFileSync` | reads/writes a file end-to-end |
 | **M6.5** | `Bun.file`, `Bun.write` (bun-namespace subset) | matches bun's surface |
