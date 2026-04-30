@@ -4382,7 +4382,19 @@ impl<'a> LowerCtx<'a> {
                     self.cur_block,
                     InstKind::Store(Operand::Value(fn_addr_v), Operand::Value(env_v), 0),
                 );
-                // Store each capture by value at the right offset.
+                // Store each capture by value at the right offset. For
+                // non-Copy captures (Arr / Obj / Str / Closure), mark
+                // the outer binding as `moved` so end-of-scope drop
+                // emission skips it — the env block now holds the
+                // canonical pointer to the heap data, and freeing it at
+                // outer scope close would leave the closure body reading
+                // from already-freed memory. (Recursive drop of the env's
+                // contents when the closure binding itself dies is a
+                // future Env::drop story; for now non-Copy captures
+                // intentionally leak when the closure outlives its
+                // construction frame, matching JS-shape lifetime
+                // semantics where the captured heap stays alive as long
+                // as the closure does.)
                 for (i, (cap_name, cap_ty)) in
                     captures.iter().zip(cap_tys.iter()).enumerate()
                 {
@@ -4398,6 +4410,11 @@ impl<'a> LowerCtx<'a> {
                         self.cur_block,
                         InstKind::Store(Operand::Value(v), Operand::Value(env_v), offset),
                     );
+                    if !cap_ty.is_copy()
+                        && let Some(outer) = self.locals.get_mut(cap_name)
+                    {
+                        outer.moved = true;
+                    }
                 }
                 Operand::Value(env_v)
             }
