@@ -1,0 +1,7 @@
+runs = 5
+warmup = 2
+
+# 10M-element Array.map through a capturing closure, then iter-sum the
+# result. Tests M6.2 — the lowered map loop calls the closure (load
+# fn_ptr from env+0, indirect call with env as arg 0) per element.
+torajs_opt = "O3"
