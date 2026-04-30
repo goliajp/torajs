@@ -473,56 +473,62 @@ impl Parser<'_> {
     fn parse_try(&mut self) -> Result<Stmt, String> {
         self.pos += 1; // consume `try`
         let body = self.parse_block_stmts("try")?;
-        // `catch (e) { ... }`
-        match self.peek() {
-            Token::Catch => self.pos += 1,
-            t => {
-                return Err(format!(
-                    "expected `catch` after try-block, got {t:?} at {}",
-                    self.at()
-                ));
-            }
-        }
-        let (catch_param, catch_type) = if matches!(self.peek(), Token::LParen) {
+        // TS allows `try { } catch { }` OR `try { } finally { }` OR
+        // `try { } catch { } finally { }` — at least one of catch /
+        // finally is required.
+        let mut catch_param: Option<String> = None;
+        let mut catch_type: Option<String> = None;
+        let mut catch_body: Vec<Stmt> = Vec::new();
+        let mut had_catch = false;
+        if matches!(self.peek(), Token::Catch) {
+            had_catch = true;
             self.pos += 1;
-            let n = match self.peek() {
-                Token::Ident(n) => n.clone(),
-                t => {
-                    return Err(format!(
-                        "expected catch parameter name, got {t:?} at {}",
-                        self.at()
-                    ));
-                }
-            };
-            self.pos += 1;
-            // M4.3 — `catch (e: T)` type annotation drives how the
-            // i64 throw_value is reinterpreted. Default = number.
-            let ty = if matches!(self.peek(), Token::Colon) {
+            // `catch (e[: T])` is optional since ES2019.
+            if matches!(self.peek(), Token::LParen) {
                 self.pos += 1;
-                Some(self.parse_type_ann()?)
-            } else {
-                None
-            };
-            match self.peek() {
-                Token::RParen => self.pos += 1,
-                t => {
-                    return Err(format!(
-                        "expected `)` after catch param, got {t:?} at {}",
-                        self.at()
-                    ));
+                let n = match self.peek() {
+                    Token::Ident(n) => n.clone(),
+                    t => {
+                        return Err(format!(
+                            "expected catch parameter name, got {t:?} at {}",
+                            self.at()
+                        ));
+                    }
+                };
+                self.pos += 1;
+                let ty = if matches!(self.peek(), Token::Colon) {
+                    self.pos += 1;
+                    Some(self.parse_type_ann()?)
+                } else {
+                    None
+                };
+                match self.peek() {
+                    Token::RParen => self.pos += 1,
+                    t => {
+                        return Err(format!(
+                            "expected `)` after catch param, got {t:?} at {}",
+                            self.at()
+                        ));
+                    }
                 }
+                catch_param = Some(n);
+                catch_type = ty;
             }
-            (Some(n), ty)
-        } else {
-            (None, None)
-        };
-        let catch_body = self.parse_block_stmts("catch")?;
+            catch_body = self.parse_block_stmts("catch")?;
+        }
         let finally_body = if matches!(self.peek(), Token::Finally) {
             self.pos += 1;
             Some(self.parse_block_stmts("finally")?)
         } else {
             None
         };
+        if !had_catch && finally_body.is_none() {
+            return Err(format!(
+                "try block needs `catch` or `finally` (or both); got {:?} at {}",
+                self.peek(),
+                self.at()
+            ));
+        }
         Ok(Stmt::Try {
             body,
             catch_param,

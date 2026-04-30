@@ -690,6 +690,24 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
             decl_indices.push((i, fid));
         }
     }
+    // M2.A fix — lifted closures (`__closure_N`) must lower in REVERSE
+    // append order so each closure's CONSTRUCTION site (in its enclosing
+    // fn / outer closure) runs before its BODY (which reads
+    // `closure_captures` populated by the construction). Without this
+    // reorder, nested capturing closures crashed: __closure_0 (innermost)
+    // is appended first by lift_arrow_fns and would lower first, but its
+    // captures are populated by __closure_1 (outer)'s body lowering. We
+    // partition decl_indices: user fns in source order, then lifted
+    // closures in reverse-append order. Outermost closure lowers right
+    // after its enclosing user fn; innermost closure lowers last.
+    let (user_decls, mut closure_decls): (Vec<_>, Vec<_>) = decl_indices
+        .into_iter()
+        .partition(|(stmt_idx, _)| match &ast.stmts[*stmt_idx] {
+            Stmt::FnDecl { name, .. } => !name.starts_with("__closure_"),
+            _ => true,
+        });
+    closure_decls.reverse();
+    let decl_indices: Vec<_> = user_decls.into_iter().chain(closure_decls).collect();
 
     // Snapshot every callable's return type — used inside lower_fn to type
     // call-site results correctly.
@@ -1000,6 +1018,62 @@ fn parse_type(
     // re-decoded by `lower_fn` below to emit the env-load preamble.
     if s.starts_with("__env(") && s.ends_with(')') {
         return Type::Ptr;
+    }
+    // M3 fix — structural struct annotation `__struct(name:T|...)`,
+    // produced by `check::type_to_ann` for monomorphized generics that
+    // bind a struct type. Decode each field, intern the layout, return
+    // `Type::Obj(StructId)`. Same depth-aware split as `__fn(...)`.
+    if let Some(rest) = s.strip_prefix("__struct(")
+        && s.ends_with(')')
+    {
+        let inner = &rest[..rest.len() - 1];
+        let mut fields: Vec<(String, Type)> = Vec::new();
+        let mut depth: i32 = 0;
+        let mut last = 0usize;
+        let bytes = inner.as_bytes();
+        for (i, &b) in bytes.iter().enumerate() {
+            match b {
+                b'(' | b'<' => depth += 1,
+                b')' | b'>' => depth -= 1,
+                b'|' if depth == 0 => {
+                    let part = &inner[last..i];
+                    let (n, t) = part.split_once(':').unwrap_or((part, ""));
+                    let fty = parse_type(
+                        Some(t),
+                        aliases,
+                        arr_layouts,
+                        fn_sigs,
+                        generic_struct_decls,
+                        struct_layouts,
+                    );
+                    fields.push((n.to_string(), fty));
+                    last = i + 1;
+                }
+                _ => {}
+            }
+        }
+        if !inner.is_empty() {
+            let part = &inner[last..];
+            let (n, t) = part.split_once(':').unwrap_or((part, ""));
+            let fty = parse_type(
+                Some(t),
+                aliases,
+                arr_layouts,
+                fn_sigs,
+                generic_struct_decls,
+                struct_layouts,
+            );
+            fields.push((n.to_string(), fty));
+        }
+        // Intern by structural equality.
+        for (i, ex) in struct_layouts.iter().enumerate() {
+            if *ex == fields {
+                return Type::Obj(ssa::StructId(i as u32));
+            }
+        }
+        let id = ssa::StructId(struct_layouts.len() as u32);
+        struct_layouts.push(fields);
+        return Type::Obj(id);
     }
     // M2 Phase B Stage 2 — fn type `__fn(P1|P2|...)->R`. Same encoding
     // produced by parser::parse_type_ann; same depth-aware decoding as
@@ -2113,12 +2187,14 @@ impl<'a> LowerCtx<'a> {
                         LocalInfo {
                             slot,
                             ty: e_ty,
-                            // Caught value is borrowed by the catch
-                            // body. M4.3 minimum doesn't drop it on
-                            // catch fall-through (heap-leaking for
-                            // string/obj throws); proper drop emission
-                            // follows when we wire cross-frame drops.
-                            moved: !e_ty.is_copy(),
+                            // M4.3 fix — caught value is OWNED by the
+                            // catch local. throw_take() cleared the
+                            // global, so the heap behind `e` is now
+                            // ours; if catch falls through, the scope-
+                            // close drop below frees it. consume rules
+                            // (return e / throw e) flip moved=true via
+                            // the standard machinery.
+                            moved: false,
                             scope_depth: self.scope_stack.len() - 1,
                         },
                     );
@@ -2142,6 +2218,33 @@ impl<'a> LowerCtx<'a> {
                     self.try_stack.pop();
                 }
                 if self.cur_open() {
+                    // M4.3 fix — drop owned non-Copy locals declared in
+                    // the catch scope (including the catch param if not
+                    // consumed by `return e` / `throw e`). Mirrors
+                    // Stmt::Block's scope-close drop loop. Without this,
+                    // catch (e: string) { fall-through } leaked the
+                    // whole string heap on every iteration.
+                    let frame_names: Vec<String> = self
+                        .scope_stack
+                        .last()
+                        .map(|f| f.clone())
+                        .unwrap_or_default();
+                    for name in &frame_names {
+                        let info = match self.locals.get(name) {
+                            Some(i) => *i,
+                            None => continue,
+                        };
+                        if info.moved || info.ty.is_copy() {
+                            continue;
+                        }
+                        let val = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(info.ty, Operand::Value(info.slot), 0),
+                            info.ty,
+                            None,
+                        );
+                        self.emit_drop_value(Operand::Value(val), info.ty);
+                    }
                     let cb = self.cur_block;
                     self.f.set_term(cb, Terminator::Br(post_target));
                 }

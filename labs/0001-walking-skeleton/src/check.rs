@@ -60,6 +60,17 @@ impl Type {
 
 type GenericAliasMap = HashMap<String, (Vec<String>, Vec<(String, String)>)>;
 
+/// M6.1 — string / array methods that borrow both their receiver and
+/// any args (no consume on pass). Shared between `check.rs`'s Call
+/// arm (deciding whether to skip the move) and `ssa_lower`'s Member-
+/// call dispatch (which routes these to the matching runtime
+/// intrinsic). Single source of truth so the two layers can't drift
+/// out of sync — a new borrow-method only has to be added here.
+pub const STRING_BORROW_METHODS: &[&str] = &[
+    "slice", "charCodeAt", "startsWith", "endsWith", "includes",
+    "indexOf", "split", "join",
+];
+
 #[allow(dead_code)]
 fn resolve_type_ann(name: &str, aliases: &HashMap<String, Type>) -> Option<Type> {
     resolve_type_ann_full(name, aliases, &[], &HashMap::new())
@@ -348,13 +359,17 @@ pub fn type_to_ann(ty: &Type) -> String {
         Type::Void => "void".into(),
         Type::Any => "number".into(), // SSA-side has no Any; fall back to number
         Type::Array(inner) => format!("{}[]", type_to_ann(inner)),
-        Type::Struct(_) => {
-            // Struct types appear by alias name in user code — but at
-            // call sites with structural inference we'd need to emit a
-            // brand-new struct annotation. Out of scope for the
-            // M3-minimal generic surface; deferred until generic
-            // monomorphization on Struct args is required.
-            "void".into()
+        // Structs encode structurally as `__struct(field_name1:T1|...)`.
+        // ssa_lower's `parse_type` decodes the same shape, looks up
+        // (or interns) the matching `Type::Obj(StructId)`. Each
+        // distinct struct shape produces a distinct annotation so the
+        // generic mono cache no longer collides on `void`.
+        Type::Struct(fields) => {
+            let parts: Vec<String> = fields
+                .iter()
+                .map(|(n, ft)| format!("{n}:{}", type_to_ann(ft)))
+                .collect();
+            format!("__struct({})", parts.join("|"))
         }
         Type::Function(args, ret) => {
             let parts: Vec<String> = args.iter().map(type_to_ann).collect();
@@ -1293,12 +1308,7 @@ impl Checker {
                 let is_string_borrow = matches!(
                     ast.get_expr(*callee),
                     Expr::Member { obj: _, name }
-                        if matches!(
-                            name.as_str(),
-                            "slice" | "charCodeAt" | "startsWith"
-                            | "endsWith" | "includes" | "indexOf"
-                            | "split" | "join"
-                        )
+                        if STRING_BORROW_METHODS.iter().any(|m| *m == name.as_str())
                 );
                 for (i, (param_ty, arg_id)) in params.iter().zip(args.iter()).enumerate() {
                     let arg_ty = self.type_of(ast, *arg_id)?;
@@ -1619,8 +1629,59 @@ mod tests {
 
     fn check_src(src: &str) -> Result<(), String> {
         let tokens = lexer::tokenize(src).map_err(|e| format!("lex: {e}"))?;
-        let ast = parser::parse(&tokens).map_err(|e| format!("parse: {e}"))?;
+        let mut ast = parser::parse(&tokens).map_err(|e| format!("parse: {e}"))?;
+        crate::ast::lift_arrow_fns(&mut ast);
         super::check(&ast).map(|_| ())
+    }
+
+    // M4 / M6 — review #0001 regression tests. Each one corresponds to
+    // a P0/P1 bug fixed during the post-M4 phase review.
+
+    #[test]
+    fn try_finally_without_catch_parses() {
+        // Parser accepts `try { } finally { }` (TS-legal since ES2019).
+        let src = r#"
+            function f(): number {
+                try { return 1; } finally { console.log(0); }
+            }
+            f();
+        "#;
+        assert!(check_src(src).is_ok(), "expected ok, got {:?}", check_src(src));
+    }
+
+    #[test]
+    fn nested_capturing_closures_typecheck() {
+        // Nested capturing closures used to crash in ssa_lower because
+        // pass-2 lowered them in append (innermost-first) order.
+        // typecheck-only here; the SSA lower order fix is in
+        // ssa_lower's decl_indices reorder.
+        let src = r#"
+            function outer(a: number): number {
+                let inner = (b: number): number => {
+                    let inner2 = (c: number): number => a + b + c;
+                    return inner2(100);
+                };
+                return inner(10);
+            }
+            outer(1);
+        "#;
+        assert!(check_src(src).is_ok(), "expected ok, got {:?}", check_src(src));
+    }
+
+    #[test]
+    fn generic_fn_on_struct_arg_typechecks() {
+        // `id<T>(x: T): T` applied to a struct used to fail because
+        // type_to_ann returned "void" for Type::Struct, causing the
+        // mono pass to lower a fn with void params (rejected by
+        // both backends). Now encoded as `__struct(field:T|...)`.
+        let src = r#"
+            type A = { v: number };
+            function id<T>(x: T): T { return x; }
+            let a: A = { v: 5 };
+            let a2: A = id(a);
+            a2.v;
+        "#;
+        assert!(check_src(src).is_ok(), "expected ok, got {:?}", check_src(src));
     }
 
     #[test]
@@ -1837,23 +1898,18 @@ mod tests {
     }
 
     #[test]
-    fn arrow_fn_capture_unsupported() {
-        // Phase A: closures don't capture outer scope. References to
-        // outer-scope idents from inside an arrow fn body fail with
-        // "unknown identifier" since the lifted FnDecl sees only its
-        // own params + globals.
+    fn arrow_fn_capture_works() {
+        // M2 — arrow fns now capture outer-scope idents (was rejected
+        // in Phase A; M2 Phase C wired the env-block lowering).
         let src = r#"
-            let s: string = "outer";
-            let f = (): number => s.length;
+            function outer(): number {
+                let s: string = "captured";
+                let f = (): number => s.length;
+                return f();
+            }
         "#;
         let r = check_src(src);
-        assert!(
-            r.as_ref()
-                .err()
-                .map(|m| m.contains("unknown identifier `s`"))
-                .unwrap_or(false),
-            "expected capture-unsupported error, got {r:?}"
-        );
+        assert!(r.is_ok(), "expected ok, got {r:?}");
     }
 
     // ----- M1.6 / M1.7 — for-loop + break/continue -----
