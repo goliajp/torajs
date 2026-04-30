@@ -189,6 +189,17 @@ The compiler already has `Array<T>` natively after M1. M3 generalizes the mechan
 | **M4.2** ✓ | `finally` block — runs on try fall-through, catch fall-through, and catch-rethrow path; cond_br on throw_check at finally end | `try { log = inner(n) } catch (e) { log = e+1; throw 200 } finally { console.log(log) }` runs finally on every path; throw-catch-100k bench at torajs (AOT) 1.41 ms vs rust 432 ms |
 | **M4.3** ✓ | non-number throw values (string + struct), `catch (e: T)` annotation drives reinterpretation of the i64 throw_value, may-throw escape analysis to skip the per-call `throw_check` on verified-non-throwing callees, cross-frame drops verified leak-free | `throw { message: "..." }` + `catch (e: Err)` works; fib40 recovers from M4.1's 5% slowdown; `leaks --atExit` reports 0 leaks |
 
+### M-OO — Class / OO surface (cross-cutting; ran 2026-05-01)
+
+| step | what | exit gate |
+|---|---|---|
+| **M-OO.1** ✓ | single class — fields, constructor, methods, `new C()`, `c.method()`, `this`. Desugared post-parse into `type C = {...}` + `function __cm_C__m(__this, ...)`. Receiver borrows; `__cm_` prefix marks borrow-receiver in check.rs / ssa_lower. | 5 conformance cases + bun 3-way agreement. 1M-iter counter loop: 10 ms (cache-hit) vs bun 15 ms |
+| **M-OO.2** ✓ | single inheritance — `class Sub extends Base { ... }` + `super(args)` in subclass ctor. Field flattening (parent fields + own); declaration-order check; method-name uniqueness across the chain (override is M-OO.3). Receiver type-check accepts struct-prefix subtypes (Dog → Animal). | 3 conformance cases + multi-level chain works |
+| **M-OO.3** | virtual dispatch — vtable per class, obj header `[vtable_ptr, fields...]`, override allowed | `let s: Shape = new Circle(); s.area()` calls Circle.area |
+| **M-OO.4** | static fields/methods — `static count: number`, `Counter.create()` | works |
+| **M-OO.5** | private/protected/readonly modifiers — purely lint at typecheck, no runtime cost | accessing a private field from outside errors |
+| **M-OO.6** | abstract classes — `abstract class`, `abstract method` | instantiating an abstract class errors |
+
 ### M5 — Module system
 
 | step | what | exit gate |
