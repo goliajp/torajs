@@ -1896,9 +1896,52 @@ impl<'a, 'ctx> FnLower<'a, 'ctx> {
                 Some(BasicValueEnum::PointerValue(g.as_pointer_value()))
             }
             InstKind::Call(fid, args) => {
+                // M6.1 / Array<string> — coerce ptr ↔ i64 args at the
+                // call boundary. SSA's i64 / Ptr / Str / Obj / Arr /
+                // FnSig / Closure are all 8-byte values but LLVM IR's
+                // verifier requires explicit ptrtoint / inttoptr at call
+                // sites where the function expected one but got the
+                // other. (Cranelift is size-based and accepts either
+                // silently, hence the JIT path was working before this
+                // patch.) Only fires when the type kinds genuinely
+                // differ — same-shape calls are zero-cost.
                 let callee = self.fn_map[fid.0 as usize];
-                let argv: Vec<BasicMetadataValueEnum> =
-                    args.iter().map(|a| self.operand(a).into()).collect();
+                let expected = callee.get_type().get_param_types();
+                let i64_t = self.ctx.i64_type();
+                let ptr_t = self.ctx.ptr_type(AddressSpace::default());
+                let mut argv: Vec<BasicMetadataValueEnum> =
+                    Vec::with_capacity(args.len());
+                for (i, a) in args.iter().enumerate() {
+                    let raw = self.operand(a);
+                    let coerced: BasicValueEnum = if i < expected.len() {
+                        match expected[i] {
+                            BasicMetadataTypeEnum::IntType(_) => {
+                                if let BasicValueEnum::PointerValue(p) = raw {
+                                    self.builder
+                                        .build_ptr_to_int(p, i64_t, "")
+                                        .unwrap()
+                                        .into()
+                                } else {
+                                    raw
+                                }
+                            }
+                            BasicMetadataTypeEnum::PointerType(_) => {
+                                if let BasicValueEnum::IntValue(v) = raw {
+                                    self.builder
+                                        .build_int_to_ptr(v, ptr_t, "")
+                                        .unwrap()
+                                        .into()
+                                } else {
+                                    raw
+                                }
+                            }
+                            _ => raw,
+                        }
+                    } else {
+                        raw
+                    };
+                    argv.push(coerced.into());
+                }
                 let call = self.builder.build_call(callee, &argv, "").unwrap();
                 let kind = call.try_as_basic_value();
                 if kind.is_basic() {
