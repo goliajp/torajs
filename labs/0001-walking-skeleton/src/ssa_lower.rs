@@ -3041,6 +3041,40 @@ impl<'a> LowerCtx<'a> {
                         // load+drop it as the "old value".
                         let v = self.lower_expr(*value);
                         self.consume_if_ident(*value);
+                        // Type-check the rhs against the slot type. Without
+                        // this, `let n: number = 4; n = n / 2;` would
+                        // silently store an f64 (Div always returns f64)
+                        // into n's i64 slot, corrupting the bit pattern
+                        // (the value 2.0 would surface as
+                        // 4611686018427387904 = 0x4000000000000000 on the
+                        // next read). Reject the mismatch loudly; the user
+                        // restructures (use `>>` for int div by 2, or
+                        // declare the slot as f64).
+                        let v_ty = self.operand_ty(&v);
+                        if v_ty != snapshot.ty
+                            && !(snapshot.ty == Type::F64 && v_ty == Type::I64)
+                        {
+                            // i64-into-f64 slot is auto-coerced below the
+                            // existing LetDecl shape; everything else is a
+                            // genuine mismatch. (In particular, f64-into-i64
+                            // — what Div produces — has no clean coercion
+                            // since FpToSi isn't in the IR yet.)
+                            if !(snapshot.ty == Type::I64 && v_ty == Type::I32)
+                                && !(snapshot.ty == Type::I32 && v_ty == Type::I64)
+                                && !(snapshot.ty == Type::Ptr || v_ty == Type::Ptr)
+                            {
+                                panic!(
+                                    "ssa-lower: assignment to `{name}` mismatch — slot is {ty:?} but value is {v_ty:?}; use `>>` for integer divide or annotate the slot as the appropriate numeric width",
+                                    name = name,
+                                    ty = snapshot.ty,
+                                );
+                            }
+                        }
+                        let v = if snapshot.ty == Type::F64 && v_ty == Type::I64 {
+                            self.coerce_to_f64(v)
+                        } else {
+                            v
+                        };
                         let post_rhs =
                             *self.locals.get(&name).unwrap_or(&snapshot);
                         if !snapshot.ty.is_copy() && !post_rhs.moved {
