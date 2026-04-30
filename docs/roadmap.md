@@ -116,6 +116,7 @@ console.log(Math.floor(Math.sqrt(alice.age * alice.age)));
 | **M6.2 fast-path** | one-shot `arr_reserve(src.length)` + `arr_push_unchecked` in the lowered map/filter loop — eliminates the per-element capacity check / realloc | ✓ 2026-04-30 |
 | **unary minus + M6.1** | `-x` for i64/f64 + AOT `print_i64` neg-handler; string methods slice/charCodeAt/startsWith/endsWith/includes/indexOf as borrow-shaped runtime intrinsics; `print_bool` for `console.log(true)` | ✓ 2026-05-01 |
 | **Array&lt;string&gt; + split / join** | implicit ptr↔i64 cast at AOT call boundary unblocks heap-element arrays; `s.split(sep) → string[]` and `arr.join(sep) → string` via a small C runtime (`runtime_str.c`) compiled+linked per `tr build`. Index-borrow fix on console.log dispatch (parts[i] no longer drops the array's element). | ✓ 2026-05-01 |
+| **M4.3.a + .b** | non-number throws (`throw "msg"` / `catch (e: string)` / `catch (e: Err)` for struct types) + may-throw escape analysis (transitive call graph, throw_check skipped on verified-non-throwing callees, fib40 recovers from M4.1's 5% slowdown). Cross-frame drops verified leak-free via `leaks --atExit`. | ✓ 2026-05-01 |
 | ~~P2.3~~ | ~~`Rc<T>` first-class~~ | **REMOVED** — incompatible with TS-subset framing |
 
 ### Bench position (M4 Pro, hyperfine n=5)
@@ -132,7 +133,7 @@ bench/                             11 cases × 5 langs + harness + runners + res
 
 ### Currently executing
 
-M6.1 done — 8 string-shape methods + `Array<string>` end-to-end. Commits this session: `5adc3fb` → `e82d71d`. The C-runtime hook (`runtime_str.c` compiled+linked per `tr build`) is now available for any future helper where IR-builder verbosity outweighs the link-cost gain. Topological next: M4.3 (Error class + cross-frame drops), M6.3 (JSON), M7 (async), or M5 (modules) — order doesn't matter, all blocked only on themselves.
+M4 fully shipped: `throw / try / catch / finally` with non-number values, transitive may-throw analysis (zero per-call cost on non-throwing programs), cross-frame drops leak-free. Recent commits: `f334dec` (string throws) → `bb27682` (may-throw analysis). Up next: M5 (modules), M6.3 (JSON), M7 (async), or M8 (wasm32) — pick by user value, not dependency.
 
 ---
 
@@ -185,7 +186,7 @@ The compiler already has `Array<T>` natively after M1. M3 generalizes the mechan
 |---|---|---|
 | **M4.1** ✓ | parser/AST/typecheck for `throw`, `try`, `catch`; module-level throw-state globals (`throw_active`, `throw_value`); per-call-site throw_check + cond_br to active try's catch or fn-level propagate | `safe(5) → 6, safe(-5) → 0`; 2-level propagation across fn boundaries works |
 | **M4.2** ✓ | `finally` block — runs on try fall-through, catch fall-through, and catch-rethrow path; cond_br on throw_check at finally end | `try { log = inner(n) } catch (e) { log = e+1; throw 200 } finally { console.log(log) }` runs finally on every path; throw-catch-100k bench at torajs (AOT) 1.41 ms vs rust 432 ms |
-| **M4.3** | stdlib `Error` / `TypeError` / `RangeError` + cross-frame drop-glue on throw + non-number throw values | matches bun's Error hierarchy (subset); leak-free under `leaks --atExit` |
+| **M4.3** ✓ | non-number throw values (string + struct), `catch (e: T)` annotation drives reinterpretation of the i64 throw_value, may-throw escape analysis to skip the per-call `throw_check` on verified-non-throwing callees, cross-frame drops verified leak-free | `throw { message: "..." }` + `catch (e: Err)` works; fib40 recovers from M4.1's 5% slowdown; `leaks --atExit` reports 0 leaks |
 
 ### M5 — Module system
 
