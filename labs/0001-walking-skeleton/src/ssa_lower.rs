@@ -982,8 +982,12 @@ fn synthesize_main(
             try_finally_stack: Vec::new(),
             pending_return_slot: None,
             pending_return_flag: None,
+            pending_break_flag: None,
+            pending_continue_flag: None,
+            try_finally_loop_depth: Vec::new(),
             locals: HashMap::new(),
             scope_stack: vec![Vec::new()],
+            shadow_stack: vec![Vec::new()],
             loop_stack: Vec::new(),
             cur_block: entry,
             new_strings: &mut new_strings,
@@ -1419,10 +1423,14 @@ fn lower_fn(
         generic_struct_decls,
         try_stack: Vec::new(),
         try_finally_stack: Vec::new(),
+        try_finally_loop_depth: Vec::new(),
         pending_return_slot: None,
         pending_return_flag: None,
+        pending_break_flag: None,
+        pending_continue_flag: None,
         locals: HashMap::new(),
         scope_stack: vec![Vec::new()],
+        shadow_stack: vec![Vec::new()],
         loop_stack: Vec::new(),
         cur_block: entry,
         new_strings: &mut new_strings,
@@ -1642,6 +1650,31 @@ struct LowerCtx<'a> {
     /// remove them from `locals`. Cross-scope `let n = s` looks at this
     /// stack to detect that s lives in an outer scope (alias-only rule).
     scope_stack: Vec<Vec<String>>,
+    /// Parallel to `scope_stack`. When a `let X` shadows an outer-scope
+    /// `X`, the OLD `LocalInfo` for X is pushed here (in the current top
+    /// frame) before the inner binding overwrites `locals[X]`. On scope
+    /// close, after the inner frame's bindings are dropped + removed,
+    /// each (name, prev_info) here is reinstated into `locals`. Without
+    /// this, inner-block close `locals.remove(name)` would also evict the
+    /// outer X (HashMap is keyed by name only) and any subsequent outer
+    /// reference would crash with `unknown ident X`.
+    shadow_stack: Vec<Vec<(String, LocalInfo)>>,
+    /// Parallel to `try_finally_stack` — `loop_stack.len()` recorded at
+    /// the time each finally was pushed. Used by `Stmt::Break` /
+    /// `Stmt::Continue` to detect whether the topmost finally is
+    /// "between" the current site and the innermost enclosing loop. If
+    /// so, break/continue must route through finally first (set the
+    /// pending flag, branch to finally; finally tail dispatches the
+    /// pending flag back to the loop's break/continue target). Without
+    /// this, `for { try { break } finally { … } }` would skip the
+    /// finally body — spec violation.
+    try_finally_loop_depth: Vec<usize>,
+    /// Bool slot allocated lazily on first break-inside-finally; set by
+    /// the break site, checked at finally tail. Same lifecycle as
+    /// `pending_return_flag`.
+    pending_break_flag: Option<ValueId>,
+    /// Same shape for continue.
+    pending_continue_flag: Option<ValueId>,
     /// Loop control-flow stack — innermost loop on top. M1.7. Each entry
     /// is `(continue_target, break_target)`: a `break` inside the loop
     /// body branches to break_target; a `continue` branches to
@@ -1745,6 +1778,35 @@ impl<'a> LowerCtx<'a> {
     fn alloca(&mut self, ty: Type, name: Option<&str>) -> ValueId {
         self.f
             .append_inst(self.cur_block, InstKind::Alloca(ty), Type::Ptr, name)
+    }
+
+    /// Allocate in the function's entry block (BlockId(0)) regardless of
+    /// where lowering is currently positioned. Needed for slots whose
+    /// loads happen on multiple control-flow predecessors that share no
+    /// dominator other than entry — e.g. `__pending_break` /
+    /// `__pending_continue` flags, where the lazy alloca otherwise lands
+    /// in the break-block (which doesn't dominate the finally-tail
+    /// fall-through path) and LLVM rejects with "Instruction does not
+    /// dominate all uses".
+    fn alloca_in_entry(&mut self, ty: Type, name: Option<&str>) -> ValueId {
+        self.f
+            .append_inst(BlockId(0), InstKind::Alloca(ty), Type::Ptr, name)
+    }
+
+    /// Same as `alloca_in_entry` but also seeds the slot with `false`
+    /// (for Bool flags) in the entry block. Without this, the flag is
+    /// uninitialized memory on paths that reach the finally tail without
+    /// having taken the break/continue branch (e.g. the i=0 iteration
+    /// of `for { try { if i===N break } finally { … } }`); the finally
+    /// tail's `Load` then sees garbage and may spuriously route through
+    /// the break dispatch on the very first pass.
+    fn alloca_bool_flag_in_entry(&mut self, name: Option<&str>) -> ValueId {
+        let slot = self.alloca_in_entry(Type::Bool, name);
+        self.f.append_void(
+            BlockId(0),
+            InstKind::Store(Operand::ConstBool(false), Operand::Value(slot), 0),
+        );
+        slot
     }
 
     /// If `eid` resolves to a non-Copy `Ident(name)` binding, mark that
@@ -1877,6 +1939,7 @@ impl<'a> LowerCtx<'a> {
                 // the inner drops (the return path's emit_drops_for_owned_locals
                 // walks the full locals map).
                 self.scope_stack.push(Vec::new());
+                self.shadow_stack.push(Vec::new());
                 let mut early_exit = false;
                 for s in stmts {
                     self.lower_stmt(s);
@@ -1886,6 +1949,7 @@ impl<'a> LowerCtx<'a> {
                     }
                 }
                 let frame = self.scope_stack.pop().expect("scope frame");
+                let shadows = self.shadow_stack.pop().expect("shadow frame");
                 if !early_exit {
                     // Drop owners declared at this depth in declaration
                     // order. Skip moved (transferred) and Copy types.
@@ -1911,6 +1975,13 @@ impl<'a> LowerCtx<'a> {
                 // doesn't double-drop.
                 for name in frame {
                     self.locals.remove(&name);
+                }
+                // Restore any outer-scope bindings that were shadowed
+                // inside this block. Without this, `let x = 10; { let x
+                // = 99 } x` would crash because the inner block's close
+                // removed `x` from locals along with the outer entry.
+                for (name, prev) in shadows {
+                    self.locals.insert(name, prev);
                 }
             }
             Stmt::LetDecl {
@@ -2048,6 +2119,20 @@ impl<'a> LowerCtx<'a> {
                     self.cur_block,
                     InstKind::Store(init_val, Operand::Value(slot), 0),
                 );
+                // Shadowing: if `name` is bound in an outer scope (any
+                // scope depth strictly less than this one), capture the
+                // outer LocalInfo so it can be reinstated when this
+                // scope closes. Re-declaration at the SAME depth is
+                // a typecheck-level concern — at SSA we just overwrite.
+                if let Some(prev) = self.locals.get(name).copied()
+                    && prev.scope_depth < cur_depth
+                {
+                    let top_shadow = self
+                        .shadow_stack
+                        .last_mut()
+                        .expect("shadow frame");
+                    top_shadow.push((name.clone(), prev));
+                }
                 self.locals.insert(
                     name.clone(),
                     LocalInfo {
@@ -2099,6 +2184,7 @@ impl<'a> LowerCtx<'a> {
                 // header (cond), body, step, after. continue_target is
                 // step (so step runs on continue too).
                 self.scope_stack.push(Vec::new());
+                self.shadow_stack.push(Vec::new());
                 if let Some(i) = init {
                     self.lower_stmt(i);
                 }
@@ -2145,6 +2231,7 @@ impl<'a> LowerCtx<'a> {
                 self.cur_block = after;
                 // Drop init-scope locals (e.g. the `i` in `for (let i = 0;`).
                 let frame = self.scope_stack.pop().expect("for-init scope");
+                let shadows = self.shadow_stack.pop().expect("shadow frame");
                 for name in &frame {
                     let info = match self.locals.get(name) {
                         Some(i) => *i,
@@ -2164,20 +2251,74 @@ impl<'a> LowerCtx<'a> {
                 for name in frame {
                     self.locals.remove(&name);
                 }
+                for (name, prev) in shadows {
+                    self.locals.insert(name, prev);
+                }
             }
             Stmt::Break => {
-                // M1.7 — branch to the enclosing loop's break target.
+                // M1.7 — branch to the enclosing loop's break target,
+                // unless a finally is between us and the loop (then
+                // route through finally with pending_break set; finally
+                // tail dispatches back to the break target).
                 let (_, after) = *self
                     .loop_stack
                     .last()
                     .expect("ssa-lower: `break` outside of any loop");
-                self.f.set_term(self.cur_block, Terminator::Br(after));
+                if let Some(&fb) = self.try_finally_stack.last()
+                    && self.try_finally_loop_depth.last().copied()
+                        == Some(self.loop_stack.len())
+                {
+                    let flag = match self.pending_break_flag {
+                        Some(f) => f,
+                        None => {
+                            let f = self.alloca_bool_flag_in_entry(Some("__pending_break"));
+                            self.pending_break_flag = Some(f);
+                            f
+                        }
+                    };
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Store(
+                            Operand::ConstBool(true),
+                            Operand::Value(flag),
+                            0,
+                        ),
+                    );
+                    let cb = self.cur_block;
+                    self.f.set_term(cb, Terminator::Br(fb));
+                } else {
+                    self.f.set_term(self.cur_block, Terminator::Br(after));
+                }
             }
             Stmt::Continue => {
                 let (cont_target, _) = *self
                     .loop_stack
                     .last()
                     .expect("ssa-lower: `continue` outside of any loop");
+                if let Some(&fb) = self.try_finally_stack.last()
+                    && self.try_finally_loop_depth.last().copied()
+                        == Some(self.loop_stack.len())
+                {
+                    let flag = match self.pending_continue_flag {
+                        Some(f) => f,
+                        None => {
+                            let f = self.alloca_bool_flag_in_entry(Some("__pending_continue"));
+                            self.pending_continue_flag = Some(f);
+                            f
+                        }
+                    };
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Store(
+                            Operand::ConstBool(true),
+                            Operand::Value(flag),
+                            0,
+                        ),
+                    );
+                    let cb = self.cur_block;
+                    self.f.set_term(cb, Terminator::Br(fb));
+                    return;
+                }
                 self.f.set_term(self.cur_block, Terminator::Br(cont_target));
             }
             Stmt::Throw(eid) => {
@@ -2258,6 +2399,12 @@ impl<'a> LowerCtx<'a> {
                 // as the return target.
                 if let Some(fb) = finally_blk {
                     self.try_finally_stack.push(fb);
+                    // Record the loop-stack depth at push time so a
+                    // `break` / `continue` inside the try-body can tell
+                    // whether this finally is between it and the
+                    // innermost enclosing loop (and thus must be
+                    // routed through before exiting the loop).
+                    self.try_finally_loop_depth.push(self.loop_stack.len());
                 }
 
                 // body — throw target = catch (if had_catch) else
@@ -2269,6 +2416,7 @@ impl<'a> LowerCtx<'a> {
                     self.try_stack.push(t);
                 }
                 self.scope_stack.push(Vec::new());
+                self.shadow_stack.push(Vec::new());
                 for s in body {
                     self.lower_stmt(s);
                     if !self.cur_open() {
@@ -2280,6 +2428,10 @@ impl<'a> LowerCtx<'a> {
                     self.f.set_term(cb, Terminator::Br(post_target));
                 }
                 self.scope_stack.pop();
+                let body_shadows = self.shadow_stack.pop().unwrap_or_default();
+                for (name, prev) in body_shadows {
+                    self.locals.insert(name, prev);
+                }
                 if body_throw_target.is_some() {
                     self.try_stack.pop();
                 }
@@ -2291,6 +2443,7 @@ impl<'a> LowerCtx<'a> {
                 if let Some(catch_blk) = catch_blk {
                 self.cur_block = catch_blk;
                 self.scope_stack.push(Vec::new());
+                self.shadow_stack.push(Vec::new());
                 if let Some(p) = catch_param {
                     // M4.3 — slot type comes from `catch (e: T)` ann.
                     // throw_take returns i64; if the user annotated a
@@ -2396,8 +2549,12 @@ impl<'a> LowerCtx<'a> {
                 // producing cross-block value references that cranelift
                 // rejects ("unmapped SSA value N").
                 let catch_frame = self.scope_stack.pop().unwrap_or_default();
+                let catch_shadows = self.shadow_stack.pop().unwrap_or_default();
                 for name in catch_frame {
                     self.locals.remove(&name);
+                }
+                for (name, prev) in catch_shadows {
+                    self.locals.insert(name, prev);
                 }
                 } // close `if let Some(catch_blk) = catch_blk`
 
@@ -2411,8 +2568,10 @@ impl<'a> LowerCtx<'a> {
                     // finally (or direct ret if outermost), not back
                     // to ourselves.
                     self.try_finally_stack.pop();
+                    self.try_finally_loop_depth.pop();
                     self.cur_block = fb;
                     self.scope_stack.push(Vec::new());
+                    self.shadow_stack.push(Vec::new());
                     for s in fbody {
                         self.lower_stmt(s);
                         if !self.cur_open() {
@@ -2527,13 +2686,139 @@ impl<'a> LowerCtx<'a> {
                             }
                             self.cur_block = no_ret_blk;
                         }
-                        // either no pending_return slot ever allocated
-                        // (this fn never had a return-inside-finally)
-                        // OR no_ret_blk reached: just fall through.
+                        // pending_break dispatch — if `break` inside the
+                        // try-body or catch-body set the flag, route to
+                        // (a) the next outer finally that's still inside
+                        //     the same loop (chain), or
+                        // (b) the loop's break target (loop exit).
+                        // If neither flag was ever allocated for this fn,
+                        // skip the entire dispatch.
+                        if let Some(flag) = self.pending_break_flag {
+                            let f = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Load(Type::Bool, Operand::Value(flag), 0),
+                                Type::Bool,
+                                None,
+                            );
+                            let brk_blk = self.f.add_block();
+                            let no_brk_blk = self.f.add_block();
+                            let cb3 = self.cur_block;
+                            self.f.set_term(
+                                cb3,
+                                Terminator::CondBr {
+                                    cond: Operand::Value(f),
+                                    then_blk: brk_blk,
+                                    else_blk: no_brk_blk,
+                                },
+                            );
+                            self.cur_block = brk_blk;
+                            // Decide: chain to outer finally (if it's
+                            // also inside the current innermost loop) or
+                            // jump straight to the loop's break_target.
+                            // When jumping to the loop target, CLEAR the
+                            // flag first — otherwise the loop's outer
+                            // try-finally (or this same try on the next
+                            // iteration if it were continue) would
+                            // spuriously re-fire pending_break.
+                            let cur_loop_len = self.loop_stack.len();
+                            let outer_in_same_loop = self
+                                .try_finally_loop_depth
+                                .last()
+                                .copied()
+                                == Some(cur_loop_len);
+                            if outer_in_same_loop
+                                && let Some(outer_fb) =
+                                    self.try_finally_stack.last().copied()
+                            {
+                                let cb4 = self.cur_block;
+                                self.f.set_term(cb4, Terminator::Br(outer_fb));
+                            } else if let Some((_, brk_target)) =
+                                self.loop_stack.last().copied()
+                            {
+                                self.f.append_void(
+                                    self.cur_block,
+                                    InstKind::Store(
+                                        Operand::ConstBool(false),
+                                        Operand::Value(flag),
+                                        0,
+                                    ),
+                                );
+                                let cb4 = self.cur_block;
+                                self.f.set_term(cb4, Terminator::Br(brk_target));
+                            } else {
+                                // No enclosing loop — shouldn't happen
+                                // (break would have errored at lower
+                                // time). Defensive fall-through.
+                                let cb4 = self.cur_block;
+                                self.f.set_term(cb4, Terminator::Br(after_blk));
+                            }
+                            self.cur_block = no_brk_blk;
+                        }
+                        // pending_continue dispatch — same shape as break
+                        // but routes to the loop's continue_target.
+                        if let Some(flag) = self.pending_continue_flag {
+                            let f = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Load(Type::Bool, Operand::Value(flag), 0),
+                                Type::Bool,
+                                None,
+                            );
+                            let cont_blk = self.f.add_block();
+                            let no_cont_blk = self.f.add_block();
+                            let cb3 = self.cur_block;
+                            self.f.set_term(
+                                cb3,
+                                Terminator::CondBr {
+                                    cond: Operand::Value(f),
+                                    then_blk: cont_blk,
+                                    else_blk: no_cont_blk,
+                                },
+                            );
+                            self.cur_block = cont_blk;
+                            let cur_loop_len = self.loop_stack.len();
+                            let outer_in_same_loop = self
+                                .try_finally_loop_depth
+                                .last()
+                                .copied()
+                                == Some(cur_loop_len);
+                            if outer_in_same_loop
+                                && let Some(outer_fb) =
+                                    self.try_finally_stack.last().copied()
+                            {
+                                let cb4 = self.cur_block;
+                                self.f.set_term(cb4, Terminator::Br(outer_fb));
+                            } else if let Some((cont_target, _)) =
+                                self.loop_stack.last().copied()
+                            {
+                                // Clear flag before jumping — otherwise
+                                // the same try-finally re-fires on the
+                                // next iteration's pass through.
+                                self.f.append_void(
+                                    self.cur_block,
+                                    InstKind::Store(
+                                        Operand::ConstBool(false),
+                                        Operand::Value(flag),
+                                        0,
+                                    ),
+                                );
+                                let cb4 = self.cur_block;
+                                self.f.set_term(cb4, Terminator::Br(cont_target));
+                            } else {
+                                let cb4 = self.cur_block;
+                                self.f.set_term(cb4, Terminator::Br(after_blk));
+                            }
+                            self.cur_block = no_cont_blk;
+                        }
+                        // either no pending flag ever allocated, OR all
+                        // dispatches landed on no_*_blk: fall through.
                         let cb4 = self.cur_block;
                         self.f.set_term(cb4, Terminator::Br(after_blk));
                     }
                     self.scope_stack.pop();
+                    let finally_shadows = self.shadow_stack.pop().unwrap_or_default();
+                    for (name, prev) in finally_shadows {
+                        self.locals.insert(name, prev);
+                    }
                 } else {
                     // No finally — pop the try_finally_stack push we
                     // never made. (No-op; left for symmetry / future
