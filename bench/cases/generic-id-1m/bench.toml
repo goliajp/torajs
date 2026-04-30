@@ -1,0 +1,8 @@
+runs = 5
+warmup = 2
+
+# 10M-iteration loop calling a generic identity fn `id<T>(x: T): T`.
+# Tests M3 monomorphization zero-overhead: id<number> should be a
+# single-load i64 identity, fully inlinable by LLVM. Should land at
+# parity with array-sum-1m.
+torajs_opt = "O3"
