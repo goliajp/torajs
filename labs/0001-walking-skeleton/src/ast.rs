@@ -197,6 +197,17 @@ pub struct Ast {
 pub fn lift_arrow_fns(ast: &mut Ast) {
     let mut counter = 0u32;
     let mut new_decls: Vec<Stmt> = Vec::new();
+    // Top-level FnDecl names are globals — references to them inside an
+    // arrow body should not count as captures. Collect once before
+    // walking the exprs.
+    let global_fn_names: Vec<String> = ast
+        .stmts
+        .iter()
+        .filter_map(|s| match s {
+            Stmt::FnDecl { name, .. } => Some(name.clone()),
+            _ => None,
+        })
+        .collect();
     let n = ast.exprs.len();
     for i in 0..n {
         if !matches!(ast.exprs[i], Expr::ArrowFn { .. }) {
@@ -206,9 +217,12 @@ pub fn lift_arrow_fns(ast: &mut Ast) {
         counter += 1;
         // Compute captures BEFORE moving the arrow body out — collect free
         // vars (idents referenced inside the body that are neither one of
-        // the arrow's params nor declared by an inner let).
+        // the arrow's params nor declared by an inner let, and not a
+        // top-level FnDecl name).
         let captures = match &ast.exprs[i] {
-            Expr::ArrowFn { params, body, .. } => free_vars_of_arrow(ast, params, body),
+            Expr::ArrowFn { params, body, .. } => {
+                free_vars_of_arrow(ast, params, body, &global_fn_names)
+            }
             _ => Vec::new(),
         };
         let placeholder = if captures.is_empty() {
@@ -265,8 +279,16 @@ pub fn lift_arrow_fns(ast: &mut Ast) {
 /// global fn names out of the capture set when it has the symbol table).
 /// Inner ArrowFn bodies are walked too; their inner-arrow params shadow
 /// matching names inside their body.
-fn free_vars_of_arrow(ast: &Ast, params: &[Param], body: &[Stmt]) -> Vec<String> {
+fn free_vars_of_arrow(
+    ast: &Ast,
+    params: &[Param],
+    body: &[Stmt],
+    global_fn_names: &[String],
+) -> Vec<String> {
+    // Pre-bind top-level fn names so they're treated as already-in-scope
+    // and don't fall into the captures set.
     let mut bound: Vec<String> = params.iter().map(|p| p.name.clone()).collect();
+    bound.extend(global_fn_names.iter().cloned());
     let mut out: Vec<String> = Vec::new();
     for s in body {
         walk_stmt(ast, s, &mut bound, &mut out);
@@ -362,9 +384,21 @@ fn walk_stmt(ast: &Ast, s: &Stmt, bound: &mut Vec<String>, out: &mut Vec<String>
     }
 }
 
+/// Names that are pre-bound globals — they should never count as
+/// closure captures even when they appear as bare idents inside an
+/// arrow body. Currently the runtime-provided print / namespace
+/// objects. Kept in sync with `check.rs`'s `type_of(Expr::Ident)`
+/// fallback list.
+fn is_global_name(name: &str) -> bool {
+    matches!(name, "console" | "Math")
+}
+
 fn walk_expr(ast: &Ast, eid: ExprId, bound: &mut Vec<String>, out: &mut Vec<String>) {
     match ast.get_expr(eid) {
         Expr::Ident(name) => {
+            if is_global_name(name) {
+                return;
+            }
             if !bound.contains(name) && !out.contains(name) {
                 out.push(name.clone());
             }

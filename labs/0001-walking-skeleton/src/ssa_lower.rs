@@ -2456,6 +2456,344 @@ impl<'a> LowerCtx<'a> {
                     let _ = recv_name;
                     return Operand::ConstI64(0);
                 }
+                // M6.2 — `xs.map / filter / reduce / forEach (fn[, init])`.
+                // Common shape: receiver lowers to a `Type::Arr` value
+                // (Ident-bound array, or a previous `.map / .filter`
+                // call's return value for method chains); first arg is
+                // a Closure or FnSig (callable). Emit a loop over xs[i]
+                // for i in 0..xs.length and let each method specialize
+                // the per-element work / accumulator.
+                if let Expr::Member { obj, name } = self.ast.get_expr(*callee)
+                    && matches!(name.as_str(), "map" | "filter" | "reduce" | "forEach")
+                {
+                    // Lower receiver expr — only proceed if it produces
+                    // a Type::Arr value. Other shapes (e.g. Math.sqrt)
+                    // fall through to the next dispatch.
+                    let recv_op = self.lower_expr(*obj);
+                    let recv_ty = self.operand_ty(&recv_op);
+                    if !matches!(recv_ty, Type::Arr(_)) {
+                        // Not an array method call after all — but we've
+                        // already lowered the receiver. Re-run the
+                        // generic path by faking it through.
+                        // Note: keep this branch minimal — most non-Arr
+                        // member calls are Math.* / String.length /
+                        // console.log handled before reaching here.
+                        panic!(
+                            "ssa-lower: `.{name}(...)` on non-array receiver type {recv_ty:?}"
+                        );
+                    }
+                    let method = name.clone();
+                    let arr_ty = recv_ty;
+                    let elem_ty = self.arr_layouts[match arr_ty {
+                        Type::Arr(id) => id.0 as usize,
+                        _ => unreachable!(),
+                    }];
+                    // src_arr is the receiver Operand (already lowered).
+                    // Materialize into an SSA Value so subsequent loads
+                    // can reference it.
+                    let src_arr = match recv_op {
+                        Operand::Value(v) => v,
+                        _ => unreachable!("Type::Arr can't be a constant operand"),
+                    };
+                    // Lower the callable arg.
+                    let fn_val = self.lower_expr(args[0]);
+                    let fn_ty = self.operand_ty(&fn_val);
+                    // Per-method state: dst array (map/filter), acc slot
+                    // (reduce). forEach has neither.
+                    let dst_slot = if matches!(method.as_str(), "map" | "filter") {
+                        let dst_arr = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.arr_alloc,
+                                vec![Operand::ConstI64(0)],
+                            ),
+                            arr_ty,
+                            None,
+                        );
+                        let slot = self.alloca(arr_ty, Some("__iter_dst"));
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Store(
+                                Operand::Value(dst_arr),
+                                Operand::Value(slot),
+                                0,
+                            ),
+                        );
+                        Some(slot)
+                    } else {
+                        None
+                    };
+                    let acc_slot = if method == "reduce" {
+                        let init_v = self.lower_expr(args[1]);
+                        let slot = self.alloca(elem_ty, Some("__iter_acc"));
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Store(init_v, Operand::Value(slot), 0),
+                        );
+                        Some(slot)
+                    } else {
+                        None
+                    };
+                    // Loop scaffolding.
+                    let header_blk = self.f.add_block();
+                    let body_blk = self.f.add_block();
+                    let after_blk = self.f.add_block();
+                    let i_slot = self.alloca(Type::I64, Some("__iter_i"));
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Store(
+                            Operand::ConstI64(0),
+                            Operand::Value(i_slot),
+                            0,
+                        ),
+                    );
+                    let len = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Load(Type::I64, Operand::Value(src_arr), 0),
+                        Type::I64,
+                        None,
+                    );
+                    self.f.set_term(self.cur_block, Terminator::Br(header_blk));
+                    // header
+                    self.cur_block = header_blk;
+                    let i_now = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Load(Type::I64, Operand::Value(i_slot), 0),
+                        Type::I64,
+                        None,
+                    );
+                    let cmp = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::ICmp(
+                            IPred::Slt,
+                            Operand::Value(i_now),
+                            Operand::Value(len),
+                        ),
+                        Type::Bool,
+                        None,
+                    );
+                    self.f.set_term(
+                        self.cur_block,
+                        Terminator::CondBr {
+                            cond: Operand::Value(cmp),
+                            then_blk: body_blk,
+                            else_blk: after_blk,
+                        },
+                    );
+                    // body — load elem, dispatch to per-method work.
+                    self.cur_block = body_blk;
+                    let i_now2 = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Load(Type::I64, Operand::Value(i_slot), 0),
+                        Type::I64,
+                        None,
+                    );
+                    let scaled = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::BinOp(
+                            SsaBinOp::Shl,
+                            Operand::Value(i_now2),
+                            Operand::ConstI64(3),
+                        ),
+                        Type::I64,
+                        None,
+                    );
+                    let off = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::BinOp(
+                            SsaBinOp::Add,
+                            Operand::Value(scaled),
+                            Operand::ConstI64(16),
+                        ),
+                        Type::I64,
+                        None,
+                    );
+                    let elem = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::LoadDyn(
+                            elem_ty,
+                            Operand::Value(src_arr),
+                            Operand::Value(off),
+                        ),
+                        elem_ty,
+                        None,
+                    );
+                    // Per-method work.
+                    match method.as_str() {
+                        "map" => {
+                            let mapped = self.call_fn_value(
+                                fn_val,
+                                fn_ty,
+                                vec![Operand::Value(elem)],
+                            );
+                            let cur_dst = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Load(
+                                    arr_ty,
+                                    Operand::Value(dst_slot.unwrap()),
+                                    0,
+                                ),
+                                arr_ty,
+                                None,
+                            );
+                            let new_dst = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(
+                                    self.intrinsics.arr_push,
+                                    vec![Operand::Value(cur_dst), Operand::Value(mapped)],
+                                ),
+                                arr_ty,
+                                None,
+                            );
+                            self.f.append_void(
+                                self.cur_block,
+                                InstKind::Store(
+                                    Operand::Value(new_dst),
+                                    Operand::Value(dst_slot.unwrap()),
+                                    0,
+                                ),
+                            );
+                        }
+                        "filter" => {
+                            let keep = self.call_fn_value(
+                                fn_val,
+                                fn_ty,
+                                vec![Operand::Value(elem)],
+                            );
+                            let push_blk = self.f.add_block();
+                            let next_blk = self.f.add_block();
+                            self.f.set_term(
+                                self.cur_block,
+                                Terminator::CondBr {
+                                    cond: Operand::Value(keep),
+                                    then_blk: push_blk,
+                                    else_blk: next_blk,
+                                },
+                            );
+                            self.cur_block = push_blk;
+                            let cur_dst = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Load(
+                                    arr_ty,
+                                    Operand::Value(dst_slot.unwrap()),
+                                    0,
+                                ),
+                                arr_ty,
+                                None,
+                            );
+                            let new_dst = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(
+                                    self.intrinsics.arr_push,
+                                    vec![Operand::Value(cur_dst), Operand::Value(elem)],
+                                ),
+                                arr_ty,
+                                None,
+                            );
+                            self.f.append_void(
+                                self.cur_block,
+                                InstKind::Store(
+                                    Operand::Value(new_dst),
+                                    Operand::Value(dst_slot.unwrap()),
+                                    0,
+                                ),
+                            );
+                            self.f.set_term(self.cur_block, Terminator::Br(next_blk));
+                            self.cur_block = next_blk;
+                        }
+                        "reduce" => {
+                            let acc_now = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Load(
+                                    elem_ty,
+                                    Operand::Value(acc_slot.unwrap()),
+                                    0,
+                                ),
+                                elem_ty,
+                                None,
+                            );
+                            let new_acc = self.call_fn_value(
+                                fn_val,
+                                fn_ty,
+                                vec![Operand::Value(acc_now), Operand::Value(elem)],
+                            );
+                            self.f.append_void(
+                                self.cur_block,
+                                InstKind::Store(
+                                    Operand::Value(new_acc),
+                                    Operand::Value(acc_slot.unwrap()),
+                                    0,
+                                ),
+                            );
+                        }
+                        "forEach" => {
+                            let _ = self.call_fn_value(
+                                fn_val,
+                                fn_ty,
+                                vec![Operand::Value(elem)],
+                            );
+                        }
+                        _ => unreachable!(),
+                    }
+                    // i = i + 1
+                    let i_then = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Load(Type::I64, Operand::Value(i_slot), 0),
+                        Type::I64,
+                        None,
+                    );
+                    let i_next = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::BinOp(
+                            SsaBinOp::Add,
+                            Operand::Value(i_then),
+                            Operand::ConstI64(1),
+                        ),
+                        Type::I64,
+                        None,
+                    );
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Store(
+                            Operand::Value(i_next),
+                            Operand::Value(i_slot),
+                            0,
+                        ),
+                    );
+                    self.f.set_term(self.cur_block, Terminator::Br(header_blk));
+                    // after — produce method's result.
+                    self.cur_block = after_blk;
+                    return match method.as_str() {
+                        "map" | "filter" => {
+                            let v = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Load(
+                                    arr_ty,
+                                    Operand::Value(dst_slot.unwrap()),
+                                    0,
+                                ),
+                                arr_ty,
+                                None,
+                            );
+                            Operand::Value(v)
+                        }
+                        "reduce" => {
+                            let v = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Load(
+                                    elem_ty,
+                                    Operand::Value(acc_slot.unwrap()),
+                                    0,
+                                ),
+                                elem_ty,
+                                None,
+                            );
+                            Operand::Value(v)
+                        }
+                        "forEach" => Operand::ConstI64(0),
+                        _ => unreachable!(),
+                    };
+                }
                 // M2 — call a Closure-typed local. Load env_ptr from
                 // slot, load fn_ptr from env+0, indirect-call with env
                 // prepended to the user args. The underlying signature
@@ -3246,6 +3584,62 @@ impl<'a> LowerCtx<'a> {
         fid == self.intrinsics.math_pow
             || fid == self.intrinsics.math_min
             || fid == self.intrinsics.math_max
+    }
+
+    /// M6.2 — call a Closure or FnSig value with a list of args. Used
+    /// inside Array.map/filter/reduce/forEach loop bodies (and is the
+    /// mirror of the existing inline call-via-Closure / call-via-FnSig
+    /// dispatch, packaged for re-use).
+    fn call_fn_value(&mut self, fn_val: Operand, fn_ty: Type, args: Vec<Operand>) -> ValueId {
+        match fn_ty {
+            Type::Closure(user_sig_id) => {
+                let env_ptr = match fn_val {
+                    Operand::Value(v) => v,
+                    _ => unreachable!("closure value is SSA"),
+                };
+                let fn_ptr = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Load(Type::Ptr, Operand::Value(env_ptr), 0),
+                    Type::Ptr,
+                    None,
+                );
+                let (user_params, ret_ty) =
+                    self.fn_sigs[user_sig_id.0 as usize].clone();
+                let mut env_first = Vec::with_capacity(user_params.len() + 1);
+                env_first.push(Type::Ptr);
+                env_first.extend(user_params);
+                let env_first_sig = intern_fn_sig(self.fn_sigs, env_first, ret_ty);
+                let mut argv = Vec::with_capacity(args.len() + 1);
+                argv.push(Operand::Value(env_ptr));
+                argv.extend(args);
+                self.f.append_inst(
+                    self.cur_block,
+                    InstKind::CallIndirect(env_first_sig, Operand::Value(fn_ptr), argv),
+                    ret_ty,
+                    None,
+                )
+            }
+            Type::FnSig(sig_id) => {
+                let fn_ptr_val = match fn_val {
+                    Operand::Value(v) => v,
+                    _ => unreachable!("fnsig value is SSA"),
+                };
+                let ret_ty = self.fn_sigs[sig_id.0 as usize].1;
+                self.f.append_inst(
+                    self.cur_block,
+                    InstKind::CallIndirect(
+                        sig_id,
+                        Operand::Value(fn_ptr_val),
+                        args,
+                    ),
+                    ret_ty,
+                    None,
+                )
+            }
+            other => panic!(
+                "ssa-lower: call_fn_value: expected Closure or FnSig, got {other:?}"
+            ),
+        }
     }
 
     /// True if `fid` is one of the runtime intrinsics declared at the top

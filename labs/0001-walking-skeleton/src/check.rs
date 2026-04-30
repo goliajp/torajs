@@ -1048,6 +1048,60 @@ impl Checker {
                         let inner = (**elem).clone();
                         Ok(Type::Function(vec![inner], Box::new(Type::Void)))
                     }
+                    // M6.2 — `xs.map(fn)`: takes a `(T) => T` closure,
+                    // returns `T[]` (a fresh array). MVP keeps input
+                    // and output element types the same; non-uniform
+                    // map (e.g. `number[] → string[]`) lands when
+                    // generic methods are wired (post-M6.2.a).
+                    (Type::Array(elem), "map") => {
+                        let inner = (**elem).clone();
+                        let fn_ty = Type::Function(
+                            vec![inner.clone()],
+                            Box::new(inner.clone()),
+                        );
+                        Ok(Type::Function(
+                            vec![fn_ty],
+                            Box::new(Type::Array(Box::new(inner))),
+                        ))
+                    }
+                    // M6.2 — `xs.filter(predicate)`: takes a `(T) => boolean`,
+                    // returns `T[]` of kept elements.
+                    (Type::Array(elem), "filter") => {
+                        let inner = (**elem).clone();
+                        let pred_ty = Type::Function(
+                            vec![inner.clone()],
+                            Box::new(Type::Boolean),
+                        );
+                        Ok(Type::Function(
+                            vec![pred_ty],
+                            Box::new(Type::Array(Box::new(inner))),
+                        ))
+                    }
+                    // M6.2 — `xs.reduce(fn, initial)`: takes a
+                    // `(acc: T, x: T) => T` and an initial T value;
+                    // returns T. Two-arg reduce; the no-initial overload
+                    // is deferred.
+                    (Type::Array(elem), "reduce") => {
+                        let inner = (**elem).clone();
+                        let fn_ty = Type::Function(
+                            vec![inner.clone(), inner.clone()],
+                            Box::new(inner.clone()),
+                        );
+                        Ok(Type::Function(
+                            vec![fn_ty, inner.clone()],
+                            Box::new(inner),
+                        ))
+                    }
+                    // M6.2 — `xs.forEach(fn)`: takes a `(T) => void`,
+                    // returns void. Used for side-effecting iteration.
+                    (Type::Array(elem), "forEach") => {
+                        let inner = (**elem).clone();
+                        let fn_ty = Type::Function(
+                            vec![inner],
+                            Box::new(Type::Void),
+                        );
+                        Ok(Type::Function(vec![fn_ty], Box::new(Type::Void)))
+                    }
                     _ => Err(format!("no member `.{name}` on type {obj_ty:?}")),
                 }
             }
