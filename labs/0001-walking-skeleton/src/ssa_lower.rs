@@ -1979,6 +1979,7 @@ impl<'a> LowerCtx<'a> {
             Stmt::Try {
                 body,
                 catch_param,
+                catch_type,
                 catch_body,
                 finally_body,
             } => {
@@ -2025,13 +2026,32 @@ impl<'a> LowerCtx<'a> {
                 self.cur_block = catch_blk;
                 self.scope_stack.push(Vec::new());
                 if let Some(p) = catch_param {
+                    // M4.3 — slot type comes from `catch (e: T)` ann.
+                    // throw_take returns i64; if the user annotated a
+                    // ptr-shaped type (string / obj / arr / closure), the
+                    // backend's call-boundary cast helper widens i64 →
+                    // ptr at the Store. Default = I64 (M4.1 shape).
+                    let e_ty = match catch_type {
+                        Some(ann) => parse_type(
+                            Some(ann.as_str()),
+                            self.aliases,
+                            self.arr_layouts,
+                            self.fn_sigs,
+                            self.generic_struct_decls,
+                            self.struct_layouts,
+                        ),
+                        None => Type::I64,
+                    };
                     let v = self.f.append_inst(
                         self.cur_block,
                         InstKind::Call(self.intrinsics.throw_take, vec![]),
                         Type::I64,
                         Some(p),
                     );
-                    let slot = self.alloca(Type::I64, Some(p));
+                    let slot = self.alloca(e_ty, Some(p));
+                    // For ptr-shaped e_ty the backend's cast helper
+                    // turns the i64 throw_take result into a ptr at
+                    // the Store; same shape as M6.1's ptr↔i64 path.
                     self.f.append_void(
                         self.cur_block,
                         InstKind::Store(Operand::Value(v), Operand::Value(slot), 0),
@@ -2040,8 +2060,13 @@ impl<'a> LowerCtx<'a> {
                         p.clone(),
                         LocalInfo {
                             slot,
-                            ty: Type::I64,
-                            moved: false,
+                            ty: e_ty,
+                            // Caught value is borrowed by the catch
+                            // body. M4.3 minimum doesn't drop it on
+                            // catch fall-through (heap-leaking for
+                            // string/obj throws); proper drop emission
+                            // follows when we wire cross-frame drops.
+                            moved: !e_ty.is_copy(),
                             scope_depth: self.scope_stack.len() - 1,
                         },
                     );

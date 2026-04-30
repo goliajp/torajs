@@ -2112,7 +2112,31 @@ impl<'a, 'ctx> FnLower<'a, 'ctx> {
             Terminator::Ret(maybe) => match maybe {
                 Some(o) => {
                     let v = self.operand(o);
-                    self.builder.build_return(Some(&v)).unwrap();
+                    // M4.3 — same ptr↔i64 cast as the Call boundary,
+                    // applied at Ret. Throw's `ret <sentinel>` always
+                    // emits ConstI64(0); when the fn's signature
+                    // returns ptr-shaped (string / obj / arr / closure),
+                    // LLVM rejects `ret i64` against `ret ptr` without
+                    // an explicit inttoptr.
+                    let ret_ty = self.llvm_fn.get_type().get_return_type();
+                    let coerced: BasicValueEnum = match (v, ret_ty) {
+                        (BasicValueEnum::IntValue(iv), Some(rt)) if rt.is_pointer_type() => {
+                            let ptr_t = self.ctx.ptr_type(AddressSpace::default());
+                            self.builder
+                                .build_int_to_ptr(iv, ptr_t, "")
+                                .unwrap()
+                                .into()
+                        }
+                        (BasicValueEnum::PointerValue(pv), Some(rt)) if rt.is_int_type() => {
+                            let i64_t = self.ctx.i64_type();
+                            self.builder
+                                .build_ptr_to_int(pv, i64_t, "")
+                                .unwrap()
+                                .into()
+                        }
+                        _ => v,
+                    };
+                    self.builder.build_return(Some(&coerced)).unwrap();
                 }
                 None => {
                     self.builder.build_return(None).unwrap();

@@ -483,7 +483,7 @@ impl Parser<'_> {
                 ));
             }
         }
-        let catch_param = if matches!(self.peek(), Token::LParen) {
+        let (catch_param, catch_type) = if matches!(self.peek(), Token::LParen) {
             self.pos += 1;
             let n = match self.peek() {
                 Token::Ident(n) => n.clone(),
@@ -495,12 +495,14 @@ impl Parser<'_> {
                 }
             };
             self.pos += 1;
-            // Optional type annotation `(e: number)` — accepted but
-            // ignored for now (M4.1 only types throws as numbers).
-            if matches!(self.peek(), Token::Colon) {
+            // M4.3 — `catch (e: T)` type annotation drives how the
+            // i64 throw_value is reinterpreted. Default = number.
+            let ty = if matches!(self.peek(), Token::Colon) {
                 self.pos += 1;
-                let _ = self.parse_type_ann()?;
-            }
+                Some(self.parse_type_ann()?)
+            } else {
+                None
+            };
             match self.peek() {
                 Token::RParen => self.pos += 1,
                 t => {
@@ -510,13 +512,11 @@ impl Parser<'_> {
                     ));
                 }
             }
-            Some(n)
+            (Some(n), ty)
         } else {
-            None
+            (None, None)
         };
         let catch_body = self.parse_block_stmts("catch")?;
-        // Optional finally — M4.2 wires the actual semantics; M4.1 just
-        // accepts and stores the body.
         let finally_body = if matches!(self.peek(), Token::Finally) {
             self.pos += 1;
             Some(self.parse_block_stmts("finally")?)
@@ -526,6 +526,7 @@ impl Parser<'_> {
         Ok(Stmt::Try {
             body,
             catch_param,
+            catch_type,
             catch_body,
             finally_body,
         })

@@ -772,21 +772,31 @@ impl Checker {
                 self.scopes.pop();
             }
             Stmt::Throw(eid) => {
-                // M4.1 — only `number`-typed throws are supported in the
-                // initial slice (matches the global throw-state slot's
-                // i64 width). Future relaxation lands when we add a
-                // Boxed Error / variant value type.
+                // M4.3 — accept any 8-byte-shaped throw value. The
+                // global throw_value slot is i64; ptr-shaped values
+                // (Str, Obj, Arr, FnSig, Closure) are reinterpreted at
+                // catch time per the catch param's type annotation.
                 match self.type_of(ast, *eid) {
-                    Ok(Type::Number) => {}
+                    Ok(Type::Number) | Ok(Type::String) | Ok(Type::Boolean) => {}
+                    Ok(Type::Array(_)) | Ok(Type::Struct(_)) => {}
                     Ok(other) => self.errors.push(format!(
-                        "throw value must be number, got {other:?}"
+                        "throw value must be 8-byte-shaped, got {other:?}"
                     )),
                     Err(e) => self.errors.push(e),
+                }
+                // Throw consumes a non-Copy value (its heap is now
+                // owned by the catch site, which is responsible for
+                // dropping after the bind / re-throwing).
+                if let Ok(t) = self.type_of(ast, *eid)
+                    && !t.is_copy()
+                {
+                    self.consume(ast, *eid);
                 }
             }
             Stmt::Try {
                 body,
                 catch_param,
+                catch_type,
                 catch_body,
                 finally_body,
             } => {
@@ -796,13 +806,32 @@ impl Checker {
                     self.check_stmt(ast, s);
                 }
                 self.scopes.pop();
-                // catch in a fresh scope with `e: number` injected
+                // catch in a fresh scope with `e` injected. Type comes
+                // from `(e: T)` annotation — defaults to Number for
+                // backwards compat with M4.1's `throw 99` shape.
+                let e_ty = match catch_type {
+                    Some(ann) => match resolve_type_ann_full(
+                        ann,
+                        &self.aliases,
+                        &[],
+                        &self.generic_alias_decls,
+                    ) {
+                        Some(t) => t,
+                        None => {
+                            self.errors.push(format!(
+                                "unknown type `{ann}` in catch param"
+                            ));
+                            Type::Number
+                        }
+                    },
+                    None => Type::Number,
+                };
                 self.scopes.push(HashMap::new());
                 if let Some(p) = catch_param {
                     let _ = self.declare(
                         p.clone(),
                         LocalInfo {
-                            ty: Type::Number,
+                            ty: e_ty,
                             mutable: true,
                             moved: false,
                         },
