@@ -58,22 +58,94 @@ impl Type {
     }
 }
 
+type GenericAliasMap = HashMap<String, (Vec<String>, Vec<(String, String)>)>;
+
+#[allow(dead_code)]
 fn resolve_type_ann(name: &str, aliases: &HashMap<String, Type>) -> Option<Type> {
-    resolve_type_ann_with_vars(name, aliases, &[])
+    resolve_type_ann_full(name, aliases, &[], &HashMap::new())
 }
 
 /// Like `resolve_type_ann`, but accepts a slice of in-scope type-parameter
 /// names. A bare identifier matching one of those resolves to
 /// `Type::TypeVar(name)` regardless of any conflicting alias / primitive.
 /// Used by `build_fn_type` for generic fn bodies. M3.
+#[allow(dead_code)]
 fn resolve_type_ann_with_vars(
     name: &str,
     aliases: &HashMap<String, Type>,
     type_params: &[String],
 ) -> Option<Type> {
+    resolve_type_ann_full(name, aliases, type_params, &HashMap::new())
+}
+
+/// Full resolver: also accepts a generic-alias-decls map so `Pair<X|Y>`
+/// instantiates against the original `type Pair<A, B> = { ... }` decl.
+/// M3.4.
+fn resolve_type_ann_full(
+    name: &str,
+    aliases: &HashMap<String, Type>,
+    type_params: &[String],
+    generic_aliases: &GenericAliasMap,
+) -> Option<Type> {
     if let Some(rest) = name.strip_suffix("[]") {
-        return resolve_type_ann_with_vars(rest, aliases, type_params)
+        return resolve_type_ann_full(rest, aliases, type_params, generic_aliases)
             .map(|inner| Type::Array(Box::new(inner)));
+    }
+    // M3.4 — generic struct instantiation: `Foo<arg1|arg2|...>`. Same
+    // depth-aware decoder as `__fn(...)`. Substitutes type-args into the
+    // original decl's field annotations (as strings), then recursively
+    // resolves each substituted field type.
+    if let Some(open_idx) = name.find('<')
+        && name.ends_with('>')
+        && !name.starts_with("__fn(")
+        && !name.starts_with("__env(")
+    {
+        let head = &name[..open_idx];
+        if let Some((tp_names, fields)) = generic_aliases.get(head) {
+            let inner = &name[open_idx + 1..name.len() - 1];
+            // Split inner at depth-0 `|`.
+            let mut args: Vec<&str> = Vec::new();
+            let mut depth: i32 = 0;
+            let mut last = 0usize;
+            let bytes = inner.as_bytes();
+            for (i, &b) in bytes.iter().enumerate() {
+                match b {
+                    b'<' | b'(' => depth += 1,
+                    b'>' | b')' => depth -= 1,
+                    b'|' if depth == 0 => {
+                        args.push(&inner[last..i]);
+                        last = i + 1;
+                    }
+                    _ => {}
+                }
+            }
+            if !inner.is_empty() {
+                args.push(&inner[last..]);
+            }
+            if args.len() != tp_names.len() {
+                return None;
+            }
+            // Substitute each tp_name with its arg ann in every field's
+            // annotation string, then recursively resolve.
+            let subst: Vec<(String, String)> = tp_names
+                .iter()
+                .cloned()
+                .zip(args.iter().map(|s| s.to_string()))
+                .collect();
+            let mut field_tys: Vec<(String, Type)> = Vec::new();
+            for (fname, fann) in fields {
+                let substituted = ann_substitute(fann, &subst);
+                let ty = resolve_type_ann_full(
+                    &substituted,
+                    aliases,
+                    type_params,
+                    generic_aliases,
+                )?;
+                field_tys.push((fname.clone(), ty));
+            }
+            return Some(Type::Struct(field_tys));
+        }
+        return None;
     }
     // M2 — closure env marker `__env(cap0|cap1|...)` injected by
     // `lift_arrow_fns` on the hidden first param of capturing arrows. At
@@ -129,9 +201,9 @@ fn resolve_type_ann_with_vars(
 
         let mut param_tys = Vec::with_capacity(params.len());
         for p in params {
-            param_tys.push(resolve_type_ann_with_vars(p, aliases, type_params)?);
+            param_tys.push(resolve_type_ann_full(p, aliases, type_params, generic_aliases)?);
         }
-        let ret_ty = resolve_type_ann_with_vars(ret_str, aliases, type_params)?;
+        let ret_ty = resolve_type_ann_full(ret_str, aliases, type_params, generic_aliases)?;
         return Some(Type::Function(param_tys, Box::new(ret_ty)));
     }
     // M3 — bare identifier matching an in-scope type-param resolves to a
@@ -155,6 +227,42 @@ fn resolve_type_ann_with_vars(
     }
 }
 
+/// Word-boundary substitution on a type-annotation string. Same shape as
+/// the SSA layer's `substitute_in_ann` (kept local to check.rs to avoid
+/// a cross-module dep). Used by `resolve_type_ann_full` to substitute
+/// generic-alias type-params (`A`, `B`, ...) with concrete arg ann strings
+/// (`number`, `string`, `Pair<number|string>`, ...) during instantiation.
+fn ann_substitute(ann: &str, subst: &[(String, String)]) -> String {
+    let mut out = String::with_capacity(ann.len());
+    let bytes = ann.as_bytes();
+    let mut i = 0usize;
+    while i < bytes.len() {
+        let c = bytes[i];
+        let is_word_start = c.is_ascii_alphabetic() || c == b'_';
+        if !is_word_start {
+            out.push(c as char);
+            i += 1;
+            continue;
+        }
+        let start = i;
+        while i < bytes.len() {
+            let cc = bytes[i];
+            if cc.is_ascii_alphanumeric() || cc == b'_' {
+                i += 1;
+            } else {
+                break;
+            }
+        }
+        let word = &ann[start..i];
+        if let Some((_, replacement)) = subst.iter().find(|(from, _)| from == word) {
+            out.push_str(replacement);
+        } else {
+            out.push_str(word);
+        }
+    }
+    out
+}
+
 fn build_fn_type(
     fn_name: &str,
     params: &[Param],
@@ -171,6 +279,17 @@ fn build_fn_type_with_vars(
     aliases: &HashMap<String, Type>,
     type_params: &[String],
 ) -> Result<Type, String> {
+    build_fn_type_full(fn_name, params, return_type, aliases, type_params, &HashMap::new())
+}
+
+fn build_fn_type_full(
+    fn_name: &str,
+    params: &[Param],
+    return_type: &Option<String>,
+    aliases: &HashMap<String, Type>,
+    type_params: &[String],
+    generic_aliases: &GenericAliasMap,
+) -> Result<Type, String> {
     let mut param_tys = Vec::new();
     for p in params {
         let Some(ann) = &p.type_ann else {
@@ -179,7 +298,7 @@ fn build_fn_type_with_vars(
                 p.name
             ));
         };
-        let Some(ty) = resolve_type_ann_with_vars(ann, aliases, type_params) else {
+        let Some(ty) = resolve_type_ann_full(ann, aliases, type_params, generic_aliases) else {
             return Err(format!(
                 "unknown type `{ann}` for parameter `{}` of function `{fn_name}`",
                 p.name
@@ -189,7 +308,7 @@ fn build_fn_type_with_vars(
     }
     let ret_ty = match return_type {
         None => Type::Void,
-        Some(t) => match resolve_type_ann_with_vars(t, aliases, type_params) {
+        Some(t) => match resolve_type_ann_full(t, aliases, type_params, generic_aliases) {
             Some(ty) => ty,
             None => {
                 return Err(format!(
@@ -259,21 +378,35 @@ pub fn check(ast: &Ast) -> Result<GenericCallSites, String> {
         closure_fn_names: std::collections::HashSet::new(),
         generic_type_params: HashMap::new(),
         generic_call_sites: HashMap::new(),
+        generic_alias_decls: HashMap::new(),
     };
 
     // Pass 0: register type aliases first so fn signatures + let
     // annotations can reference them. `type Point = { x: number, y: number }`
-    // adds `Point → Type::Struct(...)` to `c.aliases`.
+    // adds `Point → Type::Struct(...)` to `c.aliases`. M3.4 — generic
+    // type aliases `type Pair<A, B> = { ... }` are recorded in a
+    // separate map (`generic_alias_decls`) and instantiated lazily by
+    // `resolve_type_ann_with_vars` when it sees `Pair<X|Y>` syntax.
     for stmt in &ast.stmts {
-        if let Stmt::TypeDecl { name, fields } = stmt {
-            if c.aliases.contains_key(name) {
+        if let Stmt::TypeDecl {
+            name,
+            type_params,
+            fields,
+        } = stmt
+        {
+            if c.aliases.contains_key(name) || c.generic_alias_decls.contains_key(name) {
                 c.errors.push(format!("redeclaration of type `{name}`"));
+                continue;
+            }
+            if !type_params.is_empty() {
+                c.generic_alias_decls
+                    .insert(name.clone(), (type_params.clone(), fields.clone()));
                 continue;
             }
             let mut field_tys: Vec<(String, Type)> = Vec::new();
             let mut had_err = false;
             for (fname, fty_ann) in fields {
-                match resolve_type_ann(fty_ann, &c.aliases) {
+                match resolve_type_ann_full(fty_ann, &c.aliases, &[], &c.generic_alias_decls) {
                     Some(ty) => field_tys.push((fname.clone(), ty)),
                     None => {
                         c.errors.push(format!(
@@ -307,12 +440,13 @@ pub fn check(ast: &Ast) -> Result<GenericCallSites, String> {
         {
             let is_closure = params.first().is_some_and(|p| p.name == "__env");
             let user_params: &[Param] = if is_closure { &params[1..] } else { params };
-            match build_fn_type_with_vars(
+            match build_fn_type_full(
                 name,
                 user_params,
                 return_type,
                 &c.aliases,
                 type_params,
+                &c.generic_alias_decls,
             ) {
                 Ok(ty) => {
                     if c.globals.contains_key(name) {
@@ -388,6 +522,12 @@ struct Checker {
     /// at each generic call site to pick / generate the right specialized
     /// fn. Public via `pub fn check_with_generics` below.
     pub generic_call_sites: HashMap<ExprId, (String, Vec<Type>)>,
+    /// M3.4 — generic struct alias declarations. Maps `Pair` →
+    /// `(["A","B"], [("fst","A"), ("snd","B")])` for
+    /// `type Pair<A, B> = { fst: A, snd: B }`. Used by
+    /// `resolve_type_ann_with_vars` to instantiate `Pair<number|string>`
+    /// on-demand into a concrete `Type::Struct`.
+    generic_alias_decls: GenericAliasMap,
 }
 
 /// Walk `pattern` and `actual` in lockstep; whenever a `TypeVar(name)` is
@@ -661,7 +801,7 @@ impl Checker {
                         ));
                         return;
                     };
-                    let Some(ann_ty) = resolve_type_ann(ann, &self.aliases) else {
+                    let Some(ann_ty) = resolve_type_ann_full(ann, &self.aliases, &[], &self.generic_alias_decls) else {
                         self.errors.push(format!("unknown type `{ann}`"));
                         return;
                     };
@@ -684,7 +824,7 @@ impl Checker {
                 let final_ty = match type_ann {
                     None => init_ty,
                     Some(ann) => {
-                        let Some(ann_ty) = resolve_type_ann(ann, &self.aliases) else {
+                        let Some(ann_ty) = resolve_type_ann_full(ann, &self.aliases, &[], &self.generic_alias_decls) else {
                             self.errors.push(format!("unknown type `{ann}`"));
                             return;
                         };

@@ -78,6 +78,39 @@ impl Parser<'_> {
             }
         };
         self.pos += 1;
+        // M3.4 — generic type instantiation `Pair<A, B>`. Encoded into the
+        // flat ann string as `Pair<A|B>` (inner `|` mirrors the `__fn(P|Q)`
+        // separator). Same depth-aware decoding shape, so check.rs and
+        // ssa_lower can share parsers with the existing fn-type reader.
+        if matches!(self.peek(), Token::Lt) {
+            self.pos += 1;
+            let mut args: Vec<String> = Vec::new();
+            if !matches!(self.peek(), Token::Gt) {
+                loop {
+                    args.push(self.parse_type_ann()?);
+                    match self.peek() {
+                        Token::Comma => self.pos += 1,
+                        Token::Gt => break,
+                        t => {
+                            return Err(format!(
+                                "expected `,` or `>` in type args, got {t:?} at {}",
+                                self.at()
+                            ));
+                        }
+                    }
+                }
+            }
+            match self.peek() {
+                Token::Gt => self.pos += 1,
+                t => {
+                    return Err(format!(
+                        "expected `>` to close type args, got {t:?} at {}",
+                        self.at()
+                    ));
+                }
+            }
+            name = format!("{name}<{}>", args.join("|"));
+        }
         while matches!(self.peek(), Token::LBracket) {
             self.pos += 1;
             match self.peek() {
@@ -933,6 +966,46 @@ impl Parser<'_> {
             }
         };
         self.pos += 1;
+        // M3.4 — optional type parameters: `type Pair<A, B> = { ... }`.
+        let mut type_params: Vec<String> = Vec::new();
+        if matches!(self.peek(), Token::Lt) {
+            self.pos += 1;
+            if !matches!(self.peek(), Token::Gt) {
+                loop {
+                    match self.peek() {
+                        Token::Ident(n) => {
+                            type_params.push(n.clone());
+                            self.pos += 1;
+                        }
+                        t => {
+                            return Err(format!(
+                                "expected type-parameter name in type<...>, got {t:?} at {}",
+                                self.at()
+                            ));
+                        }
+                    }
+                    match self.peek() {
+                        Token::Comma => self.pos += 1,
+                        Token::Gt => break,
+                        t => {
+                            return Err(format!(
+                                "expected `,` or `>` in type params, got {t:?} at {}",
+                                self.at()
+                            ));
+                        }
+                    }
+                }
+            }
+            match self.peek() {
+                Token::Gt => self.pos += 1,
+                t => {
+                    return Err(format!(
+                        "expected `>` to close type params, got {t:?} at {}",
+                        self.at()
+                    ));
+                }
+            }
+        }
         match self.peek() {
             Token::Eq => self.pos += 1,
             t => return Err(format!("expected `=` after type name, got {t:?} at {}", self.at())),
@@ -969,7 +1042,11 @@ impl Parser<'_> {
         if matches!(self.peek(), Token::Semi) {
             self.pos += 1;
         }
-        Ok(Stmt::TypeDecl { name, fields })
+        Ok(Stmt::TypeDecl {
+            name,
+            type_params,
+            fields,
+        })
     }
 
     fn parse_type_decl_field(&mut self) -> Result<(String, String), String> {

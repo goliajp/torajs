@@ -423,8 +423,29 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
     // pattern as arr_layouts: collected during pass 0.5 / 1 / 2 and
     // written into `module.signatures` at the end.
     let mut fn_sigs: Vec<(Vec<Type>, Type)> = Vec::new();
+    // M3.4 — generic struct decls indexed by name. parse_type instantiates
+    // a fresh `Type::Obj(sid)` on-demand each time it encounters a
+    // `Foo<arg1|arg2>` annotation (caching by interned struct layout).
+    let mut generic_struct_decls: HashMap<String, (Vec<String>, Vec<(String, String)>)> =
+        HashMap::new();
+    // M3.4 — detach struct_layouts from the module so generic-struct
+    // instantiation during pass 1/2 can intern new layouts without
+    // borrow-checker fights against `&mut module.funcs`. Written back
+    // at the end of `lower()`.
+    let mut struct_layouts: Vec<Vec<(String, Type)>> =
+        std::mem::take(&mut module.struct_layouts);
     for stmt in &ast.stmts {
-        if let Stmt::TypeDecl { name, fields } = stmt {
+        if let Stmt::TypeDecl {
+            name,
+            type_params,
+            fields,
+        } = stmt
+        {
+            if !type_params.is_empty() {
+                generic_struct_decls
+                    .insert(name.clone(), (type_params.clone(), fields.clone()));
+                continue;
+            }
             let mut layout: Vec<(String, Type)> = Vec::with_capacity(fields.len());
             for (fname, fty_ann) in fields {
                 let ty = parse_type(
@@ -432,10 +453,26 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
                     &aliases,
                     &mut arr_layouts,
                     &mut fn_sigs,
+                    &generic_struct_decls,
+                    &mut struct_layouts,
                 );
                 layout.push((fname.clone(), ty));
             }
-            let sid = module.intern_struct(layout);
+            // intern by structural equality
+            let sid = {
+                let mut found = None;
+                for (i, ex) in struct_layouts.iter().enumerate() {
+                    if *ex == layout {
+                        found = Some(ssa::StructId(i as u32));
+                        break;
+                    }
+                }
+                found.unwrap_or_else(|| {
+                    let id = ssa::StructId(struct_layouts.len() as u32);
+                    struct_layouts.push(layout);
+                    id
+                })
+            };
             aliases.insert(name.clone(), Type::Obj(sid));
         }
     }
@@ -470,6 +507,8 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
                     &aliases,
                     &mut arr_layouts,
                     &mut fn_sigs,
+                    &generic_struct_decls,
+                    &mut struct_layouts,
                 ));
             }
             let ret_ty = parse_type(
@@ -477,6 +516,8 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
                 &aliases,
                 &mut arr_layouts,
                 &mut fn_sigs,
+                &generic_struct_decls,
+                &mut struct_layouts,
             );
             let fid = FuncId(module.funcs.len() as u32);
             fn_table.insert(name.clone(), fid);
@@ -522,11 +563,8 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         math_max: math_max_id,
     };
 
-    // Snapshot struct layouts BEFORE entering pass 2 (which mutates
-    // module.funcs). Pass 2 only reads layouts (for object-lit field
-    // sizes / member-access offsets), so a clone is safe and simpler
-    // than fighting the borrow checker.
-    let struct_layouts_snapshot = module.struct_layouts.clone();
+    // (struct_layouts already detached from module at top of lower(),
+    // see M3.4 block above; write-back happens at the end.)
 
     // M2 — capture-types side channel. The construction site of
     // `Expr::Closure` populates this map (lifted-fn-name → ordered
@@ -564,7 +602,8 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
                 &aliases,
                 &mut arr_layouts,
                 &mut fn_sigs,
-                &struct_layouts_snapshot,
+                &mut struct_layouts,
+                &generic_struct_decls,
                 string_id_base,
                 &mut closure_captures,
                 &call_retargets,
@@ -594,7 +633,8 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
             &aliases,
             &mut arr_layouts,
             &mut fn_sigs,
-            &struct_layouts_snapshot,
+            &mut struct_layouts,
+            &generic_struct_decls,
             string_id_base,
             &mut closure_captures,
             &call_retargets,
@@ -607,6 +647,7 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
 
     module.arr_layouts = arr_layouts;
     module.signatures = fn_sigs;
+    module.struct_layouts = struct_layouts;
     module
 }
 
@@ -683,7 +724,8 @@ fn synthesize_main(
     aliases: &HashMap<String, Type>,
     arr_layouts: &mut Vec<Type>,
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
-    struct_layouts: &[Vec<(String, Type)>],
+    struct_layouts: &mut Vec<Vec<(String, Type)>>,
+    generic_struct_decls: &HashMap<String, (Vec<String>, Vec<(String, String)>)>,
     string_id_base: usize,
     closure_captures: &mut HashMap<String, Vec<Type>>,
     call_retargets: &CallRetargets,
@@ -703,6 +745,7 @@ fn synthesize_main(
             arr_layouts,
             fn_sigs,
             struct_layouts,
+            generic_struct_decls,
             locals: HashMap::new(),
             scope_stack: vec![Vec::new()],
             loop_stack: Vec::new(),
@@ -730,6 +773,8 @@ fn parse_type(
     aliases: &HashMap<String, Type>,
     arr_layouts: &mut Vec<Type>,
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
+    generic_struct_decls: &HashMap<String, (Vec<String>, Vec<(String, String)>)>,
+    struct_layouts: &mut Vec<Vec<(String, Type)>>,
 ) -> Type {
     let s = match ann {
         Some(s) => s,
@@ -741,14 +786,17 @@ fn parse_type(
     // (`T[][]`) work via the recursion: `number[][]` → strip to
     // `number[]` → strip to `number` → I64; intern outer-to-inner.
     if let Some(rest) = s.strip_suffix("[]") {
-        let elem = parse_type(Some(rest), aliases, arr_layouts, fn_sigs);
+        let elem = parse_type(
+            Some(rest),
+            aliases,
+            arr_layouts,
+            fn_sigs,
+            generic_struct_decls,
+            struct_layouts,
+        );
         let id = intern_arr_layout(arr_layouts, elem);
         return Type::Arr(id);
     }
-    // M2 Phase B Stage 2 — fn type `__fn(P1|P2|...)->R`. Same encoding
-    // produced by parser::parse_type_ann; same depth-aware decoding as
-    // check.rs's resolve_type_ann (so SSA + check agree on the signature
-    // structure).
     // M2 — closure env marker `__env(cap0|cap1|...)` injected by
     // `lift_arrow_fns` on the hidden first param of capturing arrows. At
     // SSA the env is just an opaque pointer; the capture names are
@@ -756,6 +804,10 @@ fn parse_type(
     if s.starts_with("__env(") && s.ends_with(')') {
         return Type::Ptr;
     }
+    // M2 Phase B Stage 2 — fn type `__fn(P1|P2|...)->R`. Same encoding
+    // produced by parser::parse_type_ann; same depth-aware decoding as
+    // check.rs's resolve_type_ann (so SSA + check agree on the signature
+    // structure).
     if let Some(rest) = s.strip_prefix("__fn(") {
         let bytes = rest.as_bytes();
         let mut depth: i32 = 1;
@@ -796,6 +848,8 @@ fn parse_type(
                         aliases,
                         arr_layouts,
                         fn_sigs,
+                        generic_struct_decls,
+                        struct_layouts,
                     ));
                     last = i + 1;
                 }
@@ -808,11 +862,84 @@ fn parse_type(
                 aliases,
                 arr_layouts,
                 fn_sigs,
+                generic_struct_decls,
+                struct_layouts,
             ));
         }
-        let ret = parse_type(Some(ret_str), aliases, arr_layouts, fn_sigs);
+        let ret = parse_type(
+            Some(ret_str),
+            aliases,
+            arr_layouts,
+            fn_sigs,
+            generic_struct_decls,
+            struct_layouts,
+        );
         let id = intern_fn_sig(fn_sigs, params, ret);
         return Type::FnSig(id);
+    }
+    // M3.4 — generic struct instantiation `Foo<arg1|arg2|...>`. Same
+    // depth-aware split as `__fn(...)`. Substitute type-params into each
+    // field annotation (string-level word-boundary substitution) and
+    // recursively parse to get field types, then intern the layout into
+    // module.struct_layouts.
+    if let Some(open_idx) = s.find('<')
+        && s.ends_with('>')
+    {
+        let head = &s[..open_idx];
+        if let Some((tp_names, fields)) = generic_struct_decls.get(head).cloned() {
+            let inner = &s[open_idx + 1..s.len() - 1];
+            let mut args: Vec<&str> = Vec::new();
+            let mut depth: i32 = 0;
+            let mut last = 0usize;
+            for (i, &b) in inner.as_bytes().iter().enumerate() {
+                match b {
+                    b'<' | b'(' => depth += 1,
+                    b'>' | b')' => depth -= 1,
+                    b'|' if depth == 0 => {
+                        args.push(&inner[last..i]);
+                        last = i + 1;
+                    }
+                    _ => {}
+                }
+            }
+            if !inner.is_empty() {
+                args.push(&inner[last..]);
+            }
+            if args.len() != tp_names.len() {
+                panic!(
+                    "ssa-lower: generic struct `{head}` expects {} type args, got {}",
+                    tp_names.len(),
+                    args.len()
+                );
+            }
+            let subst: Vec<(String, String)> = tp_names
+                .iter()
+                .cloned()
+                .zip(args.iter().map(|a| a.to_string()))
+                .collect();
+            let mut layout: Vec<(String, Type)> = Vec::with_capacity(fields.len());
+            for (fname, fann) in &fields {
+                let substituted = substitute_in_ann(fann, &subst);
+                let fty = parse_type(
+                    Some(&substituted),
+                    aliases,
+                    arr_layouts,
+                    fn_sigs,
+                    generic_struct_decls,
+                    struct_layouts,
+                );
+                layout.push((fname.clone(), fty));
+            }
+            // intern by structural equality on the layout
+            for (i, ex) in struct_layouts.iter().enumerate() {
+                if *ex == layout {
+                    return Type::Obj(ssa::StructId(i as u32));
+                }
+            }
+            let id = ssa::StructId(struct_layouts.len() as u32);
+            struct_layouts.push(layout);
+            return Type::Obj(id);
+        }
     }
     match s {
         // `number` defaults to i64 — best for the integer-heavy cases
@@ -881,12 +1008,20 @@ fn lower_fn(
     aliases: &HashMap<String, Type>,
     arr_layouts: &mut Vec<Type>,
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
-    struct_layouts: &[Vec<(String, Type)>],
+    struct_layouts: &mut Vec<Vec<(String, Type)>>,
+    generic_struct_decls: &HashMap<String, (Vec<String>, Vec<(String, String)>)>,
     string_id_base: usize,
     closure_captures: &mut HashMap<String, Vec<Type>>,
     call_retargets: &CallRetargets,
 ) -> (ssa::Function, Vec<Vec<u8>>) {
-    let ret_ty = parse_type(return_type, aliases, arr_layouts, fn_sigs);
+    let ret_ty = parse_type(
+        return_type,
+        aliases,
+        arr_layouts,
+        fn_sigs,
+        generic_struct_decls,
+        struct_layouts,
+    );
     let mut f = ssa::Function::new(name, ret_ty);
 
     // Capture param SSA values + types BEFORE creating the entry block; we'll
@@ -896,7 +1031,14 @@ fn lower_fn(
     // SSA-arg values).
     let mut param_setup: Vec<(String, ValueId, Type)> = Vec::with_capacity(params.len());
     for p in params {
-        let pty = parse_type(p.type_ann.as_deref(), aliases, arr_layouts, fn_sigs);
+        let pty = parse_type(
+            p.type_ann.as_deref(),
+            aliases,
+            arr_layouts,
+            fn_sigs,
+            generic_struct_decls,
+            struct_layouts,
+        );
         let pid = f.add_param(pty, &p.name);
         param_setup.push((p.name.clone(), pid, pty));
     }
@@ -918,6 +1060,7 @@ fn lower_fn(
         arr_layouts,
         fn_sigs,
         struct_layouts,
+        generic_struct_decls,
         locals: HashMap::new(),
         scope_stack: vec![Vec::new()],
         loop_stack: Vec::new(),
@@ -1075,12 +1218,18 @@ struct LowerCtx<'a> {
     /// `__fn(P1|P2)->R` annotations intern lazily; written into
     /// `module.signatures` at the end of `lower()`. M2 Phase B Stage 2.
     fn_sigs: &'a mut Vec<(Vec<Type>, Type)>,
-    /// Read-only view of all interned struct layouts. Object-lit + member
-    /// access need field-offset info, which is `field_index * 8` in MVP.
-    /// This is a snapshot — passing `&module.struct_layouts` directly
-    /// would conflict with the `&mut module.funcs` borrow during body
-    /// lowering, so we clone the Vec at the start of pass 2.
-    struct_layouts: &'a [Vec<(String, Type)>],
+    /// Mutable view of the struct-layouts interner. M3.4 lets parse_type
+    /// instantiate a generic-struct annotation (`Pair<number|string>`)
+    /// during body lowering and intern the resulting concrete layout
+    /// here on-demand. Pre-M3.4 this was an immutable snapshot, but
+    /// generic instantiation needs to grow the table. Detached from
+    /// `module.struct_layouts` at the top of `lower()` and written back
+    /// at the end.
+    struct_layouts: &'a mut Vec<Vec<(String, Type)>>,
+    /// M3.4 — generic struct decls indexed by name. Used by parse_type
+    /// to instantiate `Foo<arg|...>` annotations in let-decl / fn-arg /
+    /// closure-construction sites.
+    generic_struct_decls: &'a HashMap<String, (Vec<String>, Vec<(String, String)>)>,
     /// name → (alloca-ptr value, contents type, moved flag). Every local —
     /// including the function's own parameters — sits behind an alloca.
     /// mem2reg lifts them to SSA values at -O1+.
@@ -1424,6 +1573,8 @@ impl<'a> LowerCtx<'a> {
                         self.aliases,
                         self.arr_layouts,
                         self.fn_sigs,
+                        self.generic_struct_decls,
+                        self.struct_layouts,
                     )
                 } else {
                     Type::Void
@@ -2487,6 +2638,8 @@ impl<'a> LowerCtx<'a> {
                                     self.aliases,
                                     self.arr_layouts,
                                     self.fn_sigs,
+                                    self.generic_struct_decls,
+                                    self.struct_layouts,
                                 ));
                             }
                             ret_v = parse_type(
@@ -2494,6 +2647,8 @@ impl<'a> LowerCtx<'a> {
                                 self.aliases,
                                 self.arr_layouts,
                                 self.fn_sigs,
+                                self.generic_struct_decls,
+                                self.struct_layouts,
                             );
                             break;
                         }

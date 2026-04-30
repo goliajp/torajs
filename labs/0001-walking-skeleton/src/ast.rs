@@ -141,8 +141,13 @@ pub enum Stmt {
     /// `type Foo = { x: number, y: number };` — structural type alias.
     /// Field types are stored as raw annotation strings; `check.rs` is
     /// where they get resolved to `Type` values.
+    /// M3.4 — `type_params` is non-empty for generic struct types
+    /// `type Pair<A, B> = { fst: A, snd: B }`. Each use of `Pair<X, Y>`
+    /// in a type annotation instantiates a fresh concrete struct by
+    /// substituting `A→X, B→Y` in the field annotations.
     TypeDecl {
         name: String,
+        type_params: Vec<String>,
         fields: Vec<(String, String)>,
     },
     Return(Option<ExprId>),
@@ -487,12 +492,21 @@ impl Ast {
                     self.print_stmt(s, indent + 1);
                 }
             }
-            Stmt::TypeDecl { name, fields } => {
+            Stmt::TypeDecl {
+                name,
+                type_params,
+                fields,
+            } => {
                 let parts: Vec<String> = fields
                     .iter()
                     .map(|(n, t)| format!("{n}: {t}"))
                     .collect();
-                println!("{pad}TypeDecl {name} = {{ {} }}", parts.join(", "));
+                let tps = if type_params.is_empty() {
+                    String::new()
+                } else {
+                    format!("<{}>", type_params.join(", "))
+                };
+                println!("{pad}TypeDecl {name}{tps} = {{ {} }}", parts.join(", "));
             }
             Stmt::Return(maybe) => match maybe {
                 Some(eid) => {

@@ -1,0 +1,10 @@
+runs = 5
+warmup = 2
+
+# 1M-iteration loop allocating + reading a generic Pair<number, number>
+# every iteration. Tests M3.4 — `type Pair<A, B> = { fst: A, snd: B }`
+# instantiates one concrete struct layout, alloc + field-load per
+# iteration. Compares torajs's __torajs_obj_alloc + heap struct against
+# rust's Box<Pair<i64,i64>>, go's *Pair[int64, int64], bun's hidden-
+# class object.
+torajs_opt = "O3"
