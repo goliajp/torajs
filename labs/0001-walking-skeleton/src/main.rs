@@ -122,6 +122,7 @@ fn pipeline(src: &str, stage: Stage) -> ExitCode {
     // M2 Phase A — lift arrow fns to top-level FnDecls so check.rs's
     // global-fn machinery resolves them. Non-capturing closures only;
     // captures land in Phase B.
+    ast::desugar_classes(&mut ast);
     ast::lift_arrow_fns(&mut ast);
     if matches!(stage, Stage::Parse) {
         ast.print();
@@ -245,6 +246,7 @@ fn run_build_llvm(args: &[String]) -> ExitCode {
     // M2 Phase A — lift arrow fns to top-level FnDecls so check.rs's
     // global-fn machinery resolves them. Non-capturing closures only;
     // captures land in Phase B.
+    ast::desugar_classes(&mut ast);
     ast::lift_arrow_fns(&mut ast);
     let generic_call_sites = match check::check(&ast) {
         Ok(g) => g,
@@ -354,6 +356,7 @@ fn run_jit(file_arg: Option<&String>) -> ExitCode {
             return ExitCode::from(1);
         }
     };
+    ast::desugar_classes(&mut ast);
     ast::lift_arrow_fns(&mut ast);
     let generic_call_sites = match check::check(&ast) {
         Ok(g) => g,

@@ -1378,13 +1378,18 @@ fn lower_fn(
         // owned by the callee — the closure value (and its env) are
         // owned by the construction site / its enclosing scope. Mark
         // moved so end-of-fn drop walk skips it.
+        //
+        // M5.1 — same treatment for `__this` on a class method
+        // (function name starts with `__cm_`): the receiver is borrowed,
+        // owned by the caller, and must NOT be dropped at fn exit.
         let is_env_param = pname == "__env";
+        let is_class_self = name.starts_with("__cm_") && pname == "__this";
         ctx.locals.insert(
             pname.clone(),
             LocalInfo {
                 slot,
                 ty,
-                moved: is_env_param,
+                moved: is_env_param || is_class_self,
                 scope_depth: 0,
             },
         );
@@ -3553,7 +3558,19 @@ impl<'a> LowerCtx<'a> {
                 // Consume non-Copy ident args. Mirrors check.rs's pass; the
                 // SSA layer needs the same flag so end-of-fn drops skip
                 // moved bindings.
-                for a in args {
+                //
+                // M5.1 — class-method calls (`__cm_C__m(receiver, ...)`)
+                // borrow the receiver; arg[0] must not be consumed. Args[1..]
+                // follow the normal affine rule. Mirrors check.rs's
+                // `is_class_method_name` skip.
+                let skip_arg0 = matches!(
+                    self.ast.get_expr(*callee),
+                    Expr::Ident(name) if name.starts_with("__cm_")
+                );
+                for (i, a) in args.iter().enumerate() {
+                    if skip_arg0 && i == 0 {
+                        continue;
+                    }
                     self.consume_if_ident(*a);
                 }
                 // Coerce arguments to the callee's expected param types.

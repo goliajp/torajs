@@ -85,6 +85,16 @@ pub enum Expr {
         fn_name: String,
         captures: Vec<String>,
     },
+    /// M5.1 — `this` inside a class method body. Rewritten by the
+    /// `desugar_classes` pass into `Expr::Ident("__this")` once methods
+    /// are flattened into top-level FnDecls.
+    This,
+    /// M5.1 — `new ClassName(args)`. Rewritten by `desugar_classes` into
+    /// a Call to the synthesized `__new_ClassName` factory FnDecl.
+    New {
+        class_name: String,
+        args: Vec<ExprId>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -170,13 +180,302 @@ pub enum Stmt {
         type_params: Vec<String>,
         fields: Vec<(String, String)>,
     },
+    /// M5.1 — `class ClassName { fields; constructor(...) {...} methods }`.
+    /// Single-class, no inheritance / super / virtual dispatch yet.
+    /// The `desugar_classes` pass (run before `lift_arrow_fns`) flattens
+    /// this into a `TypeDecl` + a series of top-level `FnDecl`s, so the
+    /// SSA layer never sees `ClassDecl`.
+    ClassDecl {
+        name: String,
+        fields: Vec<(String, String)>,
+        ctor: Option<ClassCtor>,
+        methods: Vec<ClassMethod>,
+    },
     Return(Option<ExprId>),
+}
+
+#[derive(Debug, Clone)]
+pub struct ClassCtor {
+    pub params: Vec<Param>,
+    pub body: Vec<Stmt>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ClassMethod {
+    pub name: String,
+    pub params: Vec<Param>,
+    pub return_type: Option<String>,
+    pub body: Vec<Stmt>,
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct Ast {
     pub stmts: Vec<Stmt>,
     pub exprs: Vec<Expr>,
+}
+
+/// M5.1 — desugar `class C { ... }` into `type C = {...}` + a series of
+/// top-level `function` declarations (ctor / methods / `__new_C` factory).
+///
+/// This pass MUST run before `lift_arrow_fns` (so arrow fns inside method
+/// bodies are still ArrowFn at desugar time) and before `check.rs`. The
+/// SSA / runtime layer never sees `Stmt::ClassDecl` / `Expr::This` /
+/// `Expr::New` — they are erased here.
+///
+/// Rewrites performed:
+///
+///   1. For each class C with method m:
+///      - registers `m → C` in a global method table so call-sites
+///        `obj.m(...)` can be retargeted to `C__m(obj, ...)`.
+///      - duplicate method names across classes are an error (M5.1
+///        single-dispatch table; M5.2 will introduce vtables / interfaces).
+///   2. Walks every `Expr` in the arena once:
+///      - `Expr::This` → `Expr::Ident("__this")`
+///      - `Expr::Call { callee = Member{obj, name=m}, args }` where m is a
+///        known class method → `Call { callee = Ident("C__m"), args = [obj, ...args] }`
+///      - `Expr::New { class_name=C, args }` → `Call { callee = Ident("__new_C"), args }`
+///   3. For each `Stmt::ClassDecl`: replace in-place with the corresponding
+///      `Stmt::TypeDecl` (fields preserved verbatim), then append:
+///      - `function __new_C(args): C { let __this: C = {field0: 0, ...}; C__ctor(__this, args); return __this; }`
+///        (ctor params copied; factory return type is C; if no ctor declared,
+///         the factory just constructs the default-initialized object)
+///      - `function C__ctor(__this: C, ctor_params...): void { body }`
+///      - `function C__methodName(__this: C, params...): R { body }` for each method
+///
+/// The factory's default-initialization strategy: every field gets a typed
+/// zero literal (number → 0, string → "", boolean → false, T[] → [], any
+/// other named type → calls __new_T() recursively if it's a class, else
+/// errors at typecheck). Constructors are responsible for filling fields
+/// before they're observably read.
+pub fn desugar_classes(ast: &mut Ast) {
+    // Pass 1 — extract every ClassDecl. After this loop the original
+    // ClassDecl stmts are replaced by their generated TypeDecl in-place;
+    // ctor / methods / factory FnDecls accumulate in `appended`.
+    let mut method_to_class: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
+    let mut class_field_inits: std::collections::HashMap<String, Vec<(String, ExprId)>> =
+        std::collections::HashMap::new();
+    let mut appended: Vec<Stmt> = Vec::new();
+
+    // Snapshot the class metadata first (cloned out so we can mutate
+    // ast.stmts in-place without aliasing).
+    let class_index: Vec<(usize, String, Vec<(String, String)>, Option<ClassCtor>, Vec<ClassMethod>)> =
+        ast.stmts
+            .iter()
+            .enumerate()
+            .filter_map(|(i, s)| match s {
+                Stmt::ClassDecl {
+                    name,
+                    fields,
+                    ctor,
+                    methods,
+                } => Some((
+                    i,
+                    name.clone(),
+                    fields.clone(),
+                    ctor.clone(),
+                    methods.clone(),
+                )),
+                _ => None,
+            })
+            .collect();
+
+    if class_index.is_empty() {
+        return;
+    }
+
+    // Build the method dispatch table. Duplicate method names across
+    // classes are rejected — M5.1 has no virtual dispatch / interfaces.
+    for (_, cname, _, _, methods) in &class_index {
+        for m in methods {
+            if let Some(prev) = method_to_class.get(&m.name) {
+                panic!(
+                    "M5.1: method name `{}` is declared on both `{prev}` and `{cname}` — \
+                     M5.1 has no virtual dispatch (rename one, or wait for M5.2)",
+                    m.name
+                );
+            }
+            method_to_class.insert(m.name.clone(), cname.clone());
+        }
+    }
+
+    // For each class, build the list of typed default-initializer expressions
+    // that the factory will use to seed the `__this` object literal. We add
+    // these to ast.exprs once and reuse the ExprIds.
+    for (_, cname, fields, _, _) in &class_index {
+        let mut init_pairs: Vec<(String, ExprId)> = Vec::with_capacity(fields.len());
+        for (fname, fty) in fields {
+            let init_expr = default_init_for_type(fty);
+            let id = ast.add_expr(init_expr);
+            init_pairs.push((fname.clone(), id));
+        }
+        class_field_inits.insert(cname.clone(), init_pairs);
+    }
+
+    // Pass 2 — rewrite the expression arena. Walking by index is safe
+    // because we only mutate Exprs in place (or append new ones at the
+    // tail; existing ExprIds keep their meaning).
+    let n = ast.exprs.len();
+    for i in 0..n {
+        match &ast.exprs[i] {
+            Expr::This => {
+                ast.exprs[i] = Expr::Ident("__this".into());
+            }
+            Expr::New { class_name, args } => {
+                let factory = format!("__new_{class_name}");
+                let args = args.clone();
+                let callee = ast.add_expr(Expr::Ident(factory));
+                ast.exprs[i] = Expr::Call { callee, args };
+            }
+            Expr::Call { callee, args } => {
+                let callee_id = *callee;
+                let args_clone = args.clone();
+                // Look at what the callee is pointing at.
+                if let Expr::Member { obj, name } = &ast.exprs[callee_id.0 as usize] {
+                    let m_name = name.clone();
+                    let obj_id = *obj;
+                    if let Some(cname) = method_to_class.get(&m_name) {
+                        // `__cm_` prefix signals to check.rs / ssa_lower
+                        // that the first arg is the receiver and must be
+                        // passed by borrow (not consumed). See
+                        // `is_class_method_name` in check.rs.
+                        let mangled = format!("__cm_{cname}__{m_name}");
+                        let new_callee = ast.add_expr(Expr::Ident(mangled));
+                        let mut new_args = Vec::with_capacity(args_clone.len() + 1);
+                        new_args.push(obj_id);
+                        new_args.extend(args_clone);
+                        ast.exprs[i] = Expr::Call {
+                            callee: new_callee,
+                            args: new_args,
+                        };
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // Pass 3 — rewrite the stmt list. Replace each ClassDecl in-place
+    // with its TypeDecl, and accumulate the generated FnDecls.
+    for (idx, cname, fields, ctor, methods) in class_index {
+        let type_decl = Stmt::TypeDecl {
+            name: cname.clone(),
+            type_params: Vec::new(),
+            fields: fields.clone(),
+        };
+        ast.stmts[idx] = type_decl;
+
+        // Constructor → C__ctor(__this: C, params...): void { body }
+        let mut ctor_params_for_factory: Vec<Param> = Vec::new();
+        if let Some(c) = &ctor {
+            ctor_params_for_factory = c.params.clone();
+            let mut params: Vec<Param> = Vec::with_capacity(c.params.len() + 1);
+            params.push(Param {
+                name: "__this".into(),
+                type_ann: Some(cname.clone()),
+            });
+            params.extend(c.params.iter().cloned());
+            appended.push(Stmt::FnDecl {
+                name: format!("__cm_{cname}__ctor"),
+                type_params: Vec::new(),
+                params,
+                return_type: Some("void".into()),
+                body: c.body.clone(),
+            });
+        }
+
+        // Methods → __cm_C__m(__this: C, params...): R { body }
+        for m in &methods {
+            let mut params: Vec<Param> = Vec::with_capacity(m.params.len() + 1);
+            params.push(Param {
+                name: "__this".into(),
+                type_ann: Some(cname.clone()),
+            });
+            params.extend(m.params.iter().cloned());
+            appended.push(Stmt::FnDecl {
+                name: format!("__cm_{cname}__{}", m.name),
+                type_params: Vec::new(),
+                params,
+                return_type: m.return_type.clone(),
+                body: m.body.clone(),
+            });
+        }
+
+        // Factory: __new_C(ctor_params...): C {
+        //   let __this: C = { f0: <init>, f1: <init>, ... };
+        //   C__ctor(__this, ctor_params...);   // only if a ctor was declared
+        //   return __this;
+        // }
+        let factory_body = build_factory_body(
+            ast,
+            &cname,
+            &class_field_inits[&cname],
+            ctor.as_ref(),
+        );
+        appended.push(Stmt::FnDecl {
+            name: format!("__new_{cname}"),
+            type_params: Vec::new(),
+            params: ctor_params_for_factory,
+            return_type: Some(cname.clone()),
+            body: factory_body,
+        });
+    }
+
+    ast.stmts.extend(appended);
+}
+
+/// Build a default-initializer Expr for a type annotation string. Used by
+/// `desugar_classes` to seed the factory's object-literal at the top of
+/// `__new_C`. The constructor (if any) is responsible for overwriting
+/// these defaults with caller-provided values; the defaults exist so the
+/// object is well-typed even on fields a buggy constructor forgets to
+/// touch.
+fn default_init_for_type(ann: &str) -> Expr {
+    match ann {
+        "number" => Expr::Number(0.0),
+        "string" => Expr::String(String::new()),
+        "boolean" => Expr::Bool(false),
+        // Array types `T[]` and named types (other classes / aliases) are
+        // not legally default-zero in TS — for M5.1 we punt and emit a
+        // typed zero anyway; field types beyond primitive are deferred to
+        // M5.2 alongside inheritance.
+        _ if ann.ends_with("[]") => Expr::Array(Vec::new()),
+        _ => Expr::Number(0.0),
+    }
+}
+
+fn build_factory_body(
+    ast: &mut Ast,
+    cname: &str,
+    field_inits: &[(String, ExprId)],
+    ctor: Option<&ClassCtor>,
+) -> Vec<Stmt> {
+    let obj_lit = ast.add_expr(Expr::ObjectLit {
+        fields: field_inits.to_vec(),
+    });
+    let let_this = Stmt::LetDecl {
+        mutable: true,
+        name: "__this".into(),
+        type_ann: Some(cname.to_string()),
+        init: obj_lit,
+    };
+    let mut body: Vec<Stmt> = vec![let_this];
+    if let Some(c) = ctor {
+        // Build: __cm_C__ctor(__this, ctor_param_idents...);
+        let callee = ast.add_expr(Expr::Ident(format!("__cm_{cname}__ctor")));
+        let this_id = ast.add_expr(Expr::Ident("__this".into()));
+        let mut args: Vec<ExprId> = Vec::with_capacity(c.params.len() + 1);
+        args.push(this_id);
+        for p in &c.params {
+            let pid = ast.add_expr(Expr::Ident(p.name.clone()));
+            args.push(pid);
+        }
+        let call = ast.add_expr(Expr::Call { callee, args });
+        body.push(Stmt::Expr(call));
+    }
+    let ret_id = ast.add_expr(Expr::Ident("__this".into()));
+    body.push(Stmt::Return(Some(ret_id)));
+    body
 }
 
 /// M2 — lambda-lift arrow fns. Walks `ast.exprs` in index order; each
@@ -388,6 +687,11 @@ fn walk_stmt(ast: &Ast, s: &Stmt, bound: &mut Vec<String>, out: &mut Vec<String>
             // FnDecl inside an arrow body would be unusual; conservatively
             // ignore since check.rs hoists these out anyway.
         }
+        Stmt::ClassDecl { .. } => {
+            // desugar_classes runs before lift_arrow_fns; if a ClassDecl
+            // somehow remains, ignore — its body has already been split
+            // into FnDecls anyway.
+        }
     }
 }
 
@@ -486,6 +790,10 @@ fn scan_stmt_for_throws(
             }
         }
         Stmt::FnDecl { .. } | Stmt::TypeDecl { .. } => {}
+        Stmt::ClassDecl { .. } => {
+            // desugar_classes runs before throw analysis; classes split
+            // into FnDecls each get their own throw-info pass.
+        }
     }
 }
 
@@ -532,6 +840,12 @@ fn scan_expr_for_calls(ast: &Ast, eid: ExprId, out: &mut Vec<String>) {
         // outer fn's may_throw bit until the outer fn actually invokes
         // the closure (which is itself a Call → tracked above).
         Expr::ArrowFn { .. } | Expr::Closure { .. } => {}
+        Expr::New { args, .. } => {
+            for a in args {
+                scan_expr_for_calls(ast, *a, out);
+            }
+        }
+        Expr::This => {}
         Expr::Ident(_) | Expr::String(_) | Expr::Number(_) | Expr::Bool(_) => {}
     }
 }
@@ -596,6 +910,17 @@ fn walk_expr(ast: &Ast, eid: ExprId, bound: &mut Vec<String>, out: &mut Vec<Stri
                 if !bound.contains(c) && !out.contains(c) {
                     out.push(c.clone());
                 }
+            }
+        }
+        // M5.1 — by the time arrow-fn lifting runs, classes have already
+        // been desugared to functions (and `this` to `__this`). These
+        // arms guard against an arrow body that lexically nests inside a
+        // class method whose desugar hasn't completed; in practice we
+        // run desugar_classes before lift_arrow_fns, so they're inert.
+        Expr::This => {}
+        Expr::New { args, .. } => {
+            for a in args {
+                walk_expr(ast, *a, bound, out);
             }
         }
     }
@@ -765,6 +1090,47 @@ impl Ast {
                 }
                 None => println!("{pad}Return"),
             },
+            Stmt::ClassDecl {
+                name,
+                fields,
+                ctor,
+                methods,
+            } => {
+                let parts: Vec<String> = fields
+                    .iter()
+                    .map(|(n, t)| format!("{n}: {t}"))
+                    .collect();
+                println!("{pad}ClassDecl {name} fields={{ {} }}", parts.join(", "));
+                if let Some(c) = ctor {
+                    let plist: Vec<String> = c
+                        .params
+                        .iter()
+                        .map(|p| match &p.type_ann {
+                            Some(t) => format!("{}: {t}", p.name),
+                            None => p.name.clone(),
+                        })
+                        .collect();
+                    println!("{pad}  constructor({})", plist.join(", "));
+                    for s in &c.body {
+                        self.print_stmt(s, indent + 2);
+                    }
+                }
+                for m in methods {
+                    let plist: Vec<String> = m
+                        .params
+                        .iter()
+                        .map(|p| match &p.type_ann {
+                            Some(t) => format!("{}: {t}", p.name),
+                            None => p.name.clone(),
+                        })
+                        .collect();
+                    let ret = m.return_type.clone().unwrap_or_else(|| "void".into());
+                    println!("{pad}  method {}({}): {ret}", m.name, plist.join(", "));
+                    for s in &m.body {
+                        self.print_stmt(s, indent + 2);
+                    }
+                }
+            }
         }
     }
 
@@ -844,6 +1210,13 @@ impl Ast {
             }
             Expr::Closure { fn_name, captures } => {
                 println!("{pad}Closure {fn_name} captures=[{}]", captures.join(", "));
+            }
+            Expr::This => println!("{pad}This"),
+            Expr::New { class_name, args } => {
+                println!("{pad}New {class_name}");
+                for a in args {
+                    self.print_expr(*a, indent + 1);
+                }
             }
         }
     }

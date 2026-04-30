@@ -30,7 +30,7 @@
 //! array_lit := `[` (expr (`,` expr)*)? `]`
 //! type_ann := IDENT (`[` `]`)*
 
-use crate::ast::{self, Ast, BinOp, Expr, ExprId, Param, Stmt};
+use crate::ast::{self, Ast, BinOp, ClassCtor, ClassMethod, Expr, ExprId, Param, Stmt};
 use crate::lexer::{Spanned, Token};
 
 pub fn parse(tokens: &[Spanned]) -> Result<Ast, String> {
@@ -216,6 +216,9 @@ impl Parser<'_> {
         }
         if matches!(self.peek(), Token::Type) {
             return self.parse_type_decl();
+        }
+        if matches!(self.peek(), Token::Class) {
+            return self.parse_class_decl();
         }
         if matches!(self.peek(), Token::Return) {
             return self.parse_return();
@@ -934,6 +937,47 @@ impl Parser<'_> {
                 self.pos += 1;
                 Ok(self.ast.add_expr(Expr::Bool(false)))
             }
+            Token::This => {
+                self.pos += 1;
+                Ok(self.ast.add_expr(Expr::This))
+            }
+            Token::New => {
+                // `new ClassName(args)` — type args / generic ctors not yet
+                // supported; that's M5.2 alongside extends.
+                self.pos += 1;
+                let class_name = match self.peek() {
+                    Token::Ident(n) => n.clone(),
+                    t => {
+                        return Err(format!(
+                            "expected class name after `new`, got {t:?} at {}",
+                            self.at()
+                        ));
+                    }
+                };
+                self.pos += 1;
+                match self.peek() {
+                    Token::LParen => self.pos += 1,
+                    t => {
+                        return Err(format!(
+                            "expected `(` after `new {class_name}`, got {t:?} at {}",
+                            self.at()
+                        ));
+                    }
+                }
+                let mut args: Vec<ExprId> = Vec::new();
+                if !matches!(self.peek(), Token::RParen) {
+                    args.push(self.parse_expr()?);
+                    while matches!(self.peek(), Token::Comma) {
+                        self.pos += 1;
+                        args.push(self.parse_expr()?);
+                    }
+                }
+                match self.peek() {
+                    Token::RParen => self.pos += 1,
+                    t => return Err(format!("expected `)`, got {t:?} at {}", self.at())),
+                }
+                Ok(self.ast.add_expr(Expr::New { class_name, args }))
+            }
             t => Err(format!(
                 "expected expression, got {t:?} at {}",
                 self.tokens[pos].span.start
@@ -1171,6 +1215,185 @@ impl Parser<'_> {
             type_params,
             fields,
         })
+    }
+
+    /// M5.1 — `class C { field: T; constructor(...) {...} method(...): R {...} }`.
+    /// Single class, no inheritance / super / static / accessors. Lowered
+    /// post-parse by `desugar_classes` into a `TypeDecl` + a series of
+    /// `FnDecl`s. The parser only assembles the structure here.
+    fn parse_class_decl(&mut self) -> Result<Stmt, String> {
+        self.pos += 1; // consume `class`
+        let name = match self.peek() {
+            Token::Ident(n) => n.clone(),
+            t => {
+                return Err(format!(
+                    "expected class name, got {t:?} at {}",
+                    self.at()
+                ));
+            }
+        };
+        self.pos += 1;
+        match self.peek() {
+            Token::LBrace => self.pos += 1,
+            t => {
+                return Err(format!(
+                    "expected `{{` to begin class body, got {t:?} at {}",
+                    self.at()
+                ));
+            }
+        }
+        let mut fields: Vec<(String, String)> = Vec::new();
+        let mut ctor: Option<ClassCtor> = None;
+        let mut methods: Vec<ClassMethod> = Vec::new();
+        while !matches!(self.peek(), Token::RBrace | Token::Eof) {
+            // Each member is one of:
+            //   - `constructor(params) { body }`
+            //   - `methodName(params): R? { body }`
+            //   - `fieldName: T;`
+            // We disambiguate by lookahead: ident then `(` ⇒ ctor or method;
+            // ident then `:` ⇒ field declaration.
+            let member_name = match self.peek() {
+                Token::Ident(n) => n.clone(),
+                t => {
+                    return Err(format!(
+                        "expected class member name, got {t:?} at {}",
+                        self.at()
+                    ));
+                }
+            };
+            let next_tok = self.tokens.get(self.pos + 1).map(|s| &s.token);
+            match next_tok {
+                Some(Token::LParen) => {
+                    // ctor or method
+                    self.pos += 1; // consume name
+                    let params = self.parse_param_list()?;
+                    let return_type = if matches!(self.peek(), Token::Colon) {
+                        self.pos += 1;
+                        Some(self.parse_type_ann()?)
+                    } else {
+                        None
+                    };
+                    match self.peek() {
+                        Token::LBrace => self.pos += 1,
+                        t => {
+                            return Err(format!(
+                                "expected `{{` for {member_name} body, got {t:?} at {}",
+                                self.at()
+                            ));
+                        }
+                    }
+                    let mut body = Vec::new();
+                    while !matches!(self.peek(), Token::RBrace | Token::Eof) {
+                        body.push(self.parse_stmt()?);
+                    }
+                    match self.peek() {
+                        Token::RBrace => self.pos += 1,
+                        t => {
+                            return Err(format!(
+                                "expected `}}` to end {member_name} body, got {t:?} at {}",
+                                self.at()
+                            ));
+                        }
+                    }
+                    if member_name == "constructor" {
+                        if ctor.is_some() {
+                            return Err(format!(
+                                "duplicate constructor in class `{name}`"
+                            ));
+                        }
+                        ctor = Some(ClassCtor { params, body });
+                    } else {
+                        methods.push(ClassMethod {
+                            name: member_name,
+                            params,
+                            return_type,
+                            body,
+                        });
+                    }
+                }
+                Some(Token::Colon) => {
+                    // field declaration: `name: T;`
+                    self.pos += 2; // consume name + colon
+                    let ty = self.parse_type_ann()?;
+                    if matches!(self.peek(), Token::Semi) {
+                        self.pos += 1;
+                    }
+                    fields.push((member_name, ty));
+                }
+                t => {
+                    return Err(format!(
+                        "expected `(` (method) or `:` (field) after `{member_name}`, got {t:?} at {}",
+                        self.at()
+                    ));
+                }
+            }
+        }
+        match self.peek() {
+            Token::RBrace => self.pos += 1,
+            t => {
+                return Err(format!(
+                    "expected `}}` to end class body, got {t:?} at {}",
+                    self.at()
+                ));
+            }
+        }
+        if matches!(self.peek(), Token::Semi) {
+            self.pos += 1;
+        }
+        Ok(Stmt::ClassDecl {
+            name,
+            fields,
+            ctor,
+            methods,
+        })
+    }
+
+    /// Shared helper: parse a `(p1: T, p2: T, ...)` parameter list.
+    /// Used by class methods/ctors. (Existing `parse_fn` / `parse_arrow_fn`
+    /// have their own copies inlined; not refactoring them here to keep the
+    /// M5.1 diff focused.)
+    fn parse_param_list(&mut self) -> Result<Vec<Param>, String> {
+        match self.peek() {
+            Token::LParen => self.pos += 1,
+            t => return Err(format!("expected `(`, got {t:?} at {}", self.at())),
+        }
+        let mut params = Vec::new();
+        if !matches!(self.peek(), Token::RParen) {
+            loop {
+                let pname = match self.peek() {
+                    Token::Ident(n) => n.clone(),
+                    t => {
+                        return Err(format!(
+                            "expected parameter name, got {t:?} at {}",
+                            self.at()
+                        ));
+                    }
+                };
+                self.pos += 1;
+                let type_ann = if matches!(self.peek(), Token::Colon) {
+                    self.pos += 1;
+                    Some(self.parse_type_ann()?)
+                } else {
+                    None
+                };
+                params.push(Param { name: pname, type_ann });
+                match self.peek() {
+                    Token::Comma => self.pos += 1,
+                    Token::RParen => break,
+                    t => {
+                        return Err(format!(
+                            "expected `,` or `)` in params, got {t:?} at {}",
+                            self.at()
+                        ));
+                    }
+                }
+            }
+        }
+        match self.peek() {
+            Token::RParen => self.pos += 1,
+            t => return Err(format!("expected `)`, got {t:?} at {}", self.at())),
+        }
+        Ok(params)
     }
 
     fn parse_type_decl_field(&mut self) -> Result<(String, String), String> {

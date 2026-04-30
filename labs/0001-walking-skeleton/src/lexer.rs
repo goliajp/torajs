@@ -25,6 +25,13 @@ pub enum Token {
     Catch,
     Finally,
     Throw,
+    /// M5.1 — class / new / this. Single-class no-inheritance subset:
+    /// `class C { f: T; constructor(...) {...} method(...): R {...} }`.
+    /// Class is desugared post-parse into a TypeDecl + a set of FnDecls,
+    /// so `class` / `this` / `new` exist only at the parser layer.
+    Class,
+    New,
+    This,
     // punctuation
     Dot,
     Comma,
@@ -256,6 +263,9 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                     "catch" => Token::Catch,
                     "finally" => Token::Finally,
                     "throw" => Token::Throw,
+                    "class" => Token::Class,
+                    "new" => Token::New,
+                    "this" => Token::This,
                     _ => Token::Ident(name.to_string()),
                 };
                 emit(&mut out, token, start, i);
