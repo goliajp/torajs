@@ -170,6 +170,36 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
             "__torajs_math_trunc" => {
                 define_math_unary(&ctx, &llvm_module, "__torajs_math_trunc", "trunc")
             }
+            "__torajs_math_sin" => {
+                define_math_unary(&ctx, &llvm_module, "__torajs_math_sin", "sin")
+            }
+            "__torajs_math_cos" => {
+                define_math_unary(&ctx, &llvm_module, "__torajs_math_cos", "cos")
+            }
+            "__torajs_math_tan" => {
+                define_math_unary(&ctx, &llvm_module, "__torajs_math_tan", "tan")
+            }
+            "__torajs_math_asin" => {
+                define_math_unary(&ctx, &llvm_module, "__torajs_math_asin", "asin")
+            }
+            "__torajs_math_acos" => {
+                define_math_unary(&ctx, &llvm_module, "__torajs_math_acos", "acos")
+            }
+            "__torajs_math_atan" => {
+                define_math_unary(&ctx, &llvm_module, "__torajs_math_atan", "atan")
+            }
+            "__torajs_math_atan2" => {
+                define_math_binary(&ctx, &llvm_module, "__torajs_math_atan2", "atan2")
+            }
+            "__torajs_math_log2" => {
+                define_math_unary(&ctx, &llvm_module, "__torajs_math_log2", "log2")
+            }
+            "__torajs_math_log10" => {
+                define_math_unary(&ctx, &llvm_module, "__torajs_math_log10", "log10")
+            }
+            "__torajs_math_cbrt" => {
+                define_math_unary(&ctx, &llvm_module, "__torajs_math_cbrt", "cbrt")
+            }
             "__torajs_throw_set" => {
                 define_throw_set(&ctx, &llvm_module)
             }
@@ -218,6 +248,16 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
         "__torajs_math_max",
         "__torajs_math_round",
         "__torajs_math_trunc",
+        "__torajs_math_sin",
+        "__torajs_math_cos",
+        "__torajs_math_tan",
+        "__torajs_math_asin",
+        "__torajs_math_acos",
+        "__torajs_math_atan",
+        "__torajs_math_atan2",
+        "__torajs_math_log2",
+        "__torajs_math_log10",
+        "__torajs_math_cbrt",
         "__torajs_throw_set",
         "__torajs_throw_check",
         "__torajs_throw_take",

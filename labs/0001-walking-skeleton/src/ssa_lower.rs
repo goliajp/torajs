@@ -679,6 +679,76 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         &[Type::F64, Type::F64],
         Type::F64,
     );
+    let math_sin_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_math_sin",
+        &[Type::F64],
+        Type::F64,
+    );
+    let math_cos_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_math_cos",
+        &[Type::F64],
+        Type::F64,
+    );
+    let math_tan_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_math_tan",
+        &[Type::F64],
+        Type::F64,
+    );
+    let math_asin_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_math_asin",
+        &[Type::F64],
+        Type::F64,
+    );
+    let math_acos_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_math_acos",
+        &[Type::F64],
+        Type::F64,
+    );
+    let math_atan_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_math_atan",
+        &[Type::F64],
+        Type::F64,
+    );
+    let math_atan2_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_math_atan2",
+        &[Type::F64, Type::F64],
+        Type::F64,
+    );
+    let math_log2_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_math_log2",
+        &[Type::F64],
+        Type::F64,
+    );
+    let math_log10_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_math_log10",
+        &[Type::F64],
+        Type::F64,
+    );
+    let math_cbrt_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_math_cbrt",
+        &[Type::F64],
+        Type::F64,
+    );
     // M4 — exception state runtime. Three intrinsics around two
     // module-level i64 globals (`throw_active`, `throw_value`) that
     // the backend implements. Lowering uses set/check/take to thread
@@ -958,6 +1028,16 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         math_pow: math_pow_id,
         math_min: math_min_id,
         math_max: math_max_id,
+        math_sin: math_sin_id,
+        math_cos: math_cos_id,
+        math_tan: math_tan_id,
+        math_asin: math_asin_id,
+        math_acos: math_acos_id,
+        math_atan: math_atan_id,
+        math_atan2: math_atan2_id,
+        math_log2: math_log2_id,
+        math_log10: math_log10_id,
+        math_cbrt: math_cbrt_id,
         throw_set: throw_set_id,
         throw_check: throw_check_id,
         throw_take: throw_take_id,
@@ -1114,6 +1194,16 @@ struct Intrinsics {
     math_pow: FuncId,
     math_min: FuncId,
     math_max: FuncId,
+    math_sin: FuncId,
+    math_cos: FuncId,
+    math_tan: FuncId,
+    math_asin: FuncId,
+    math_acos: FuncId,
+    math_atan: FuncId,
+    math_atan2: FuncId,
+    math_log2: FuncId,
+    math_log10: FuncId,
+    math_cbrt: FuncId,
     /// M4 — exception state. `throw_set(value)` writes to module-level
     /// throw_active=1 + throw_value; `throw_check()` returns active flag;
     /// `throw_take()` reads value + clears flag. The backend defines the
@@ -6579,6 +6669,16 @@ impl<'a> LowerCtx<'a> {
                         "sign" => self.intrinsics.math_sign,
                         "round" => self.intrinsics.math_round,
                         "trunc" => self.intrinsics.math_trunc,
+                        "sin" => self.intrinsics.math_sin,
+                        "cos" => self.intrinsics.math_cos,
+                        "tan" => self.intrinsics.math_tan,
+                        "asin" => self.intrinsics.math_asin,
+                        "acos" => self.intrinsics.math_acos,
+                        "atan" => self.intrinsics.math_atan,
+                        "atan2" => self.intrinsics.math_atan2,
+                        "log2" => self.intrinsics.math_log2,
+                        "log10" => self.intrinsics.math_log10,
+                        "cbrt" => self.intrinsics.math_cbrt,
                         other => {
                             panic!("ssa-lower: unknown Math method `{other}`")
                         }
@@ -6600,12 +6700,22 @@ impl<'a> LowerCtx<'a> {
             || fid == self.intrinsics.math_sign
             || fid == self.intrinsics.math_round
             || fid == self.intrinsics.math_trunc
+            || fid == self.intrinsics.math_sin
+            || fid == self.intrinsics.math_cos
+            || fid == self.intrinsics.math_tan
+            || fid == self.intrinsics.math_asin
+            || fid == self.intrinsics.math_acos
+            || fid == self.intrinsics.math_atan
+            || fid == self.intrinsics.math_log2
+            || fid == self.intrinsics.math_log10
+            || fid == self.intrinsics.math_cbrt
     }
 
     fn is_math_binary(&self, fid: FuncId) -> bool {
         fid == self.intrinsics.math_pow
             || fid == self.intrinsics.math_min
             || fid == self.intrinsics.math_max
+            || fid == self.intrinsics.math_atan2
     }
 
     /// M6.2 — call a Closure or FnSig value with a list of args. Used
@@ -6717,6 +6827,16 @@ impl<'a> LowerCtx<'a> {
             || fid == i.math_sign
             || fid == i.math_round
             || fid == i.math_trunc
+            || fid == i.math_sin
+            || fid == i.math_cos
+            || fid == i.math_tan
+            || fid == i.math_asin
+            || fid == i.math_acos
+            || fid == i.math_atan
+            || fid == i.math_atan2
+            || fid == i.math_log2
+            || fid == i.math_log10
+            || fid == i.math_cbrt
             || fid == i.str_repeat
             || fid == i.str_to_upper
             || fid == i.str_to_lower

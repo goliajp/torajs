@@ -545,6 +545,27 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                         i += 1;
                     }
                 }
+                // Scientific notation: `e` / `E` optionally followed by
+                // `+` / `-`, then one or more digits. Only consume when
+                // the suffix is a real exponent — `1eFoo` parses as the
+                // number `1` followed by the ident `eFoo`.
+                if (peek(bytes, i) == Some(b'e') || peek(bytes, i) == Some(b'E'))
+                    && {
+                        let mut j = i + 1;
+                        if peek(bytes, j) == Some(b'+') || peek(bytes, j) == Some(b'-') {
+                            j += 1;
+                        }
+                        peek(bytes, j).is_some_and(|c| c.is_ascii_digit())
+                    }
+                {
+                    i += 1;
+                    if peek(bytes, i) == Some(b'+') || peek(bytes, i) == Some(b'-') {
+                        i += 1;
+                    }
+                    while i < len && bytes[i as usize].is_ascii_digit() {
+                        i += 1;
+                    }
+                }
                 let s = std::str::from_utf8(&bytes[start as usize..i as usize])
                     .expect("ascii digits are valid utf-8");
                 let n: f64 = s

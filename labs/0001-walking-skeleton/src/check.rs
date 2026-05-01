@@ -1210,13 +1210,16 @@ impl Checker {
                             m,
                             "sqrt" | "abs" | "floor" | "ceil" | "log" | "exp"
                             | "sign" | "round" | "trunc"
+                            | "sin" | "cos" | "tan" | "asin" | "acos" | "atan"
+                            | "log2" | "log10" | "cbrt"
                         ) =>
                     {
                         Ok(Type::Function(vec![Type::Number], Box::new(Type::Number)))
                     }
-                    // Two-arg methods: pow(x, y), min(a, b), max(a, b).
+                    // Two-arg methods: pow(x, y), min(a, b), max(a, b),
+                    // atan2(y, x).
                     (Type::Object("Math"), m)
-                        if matches!(m, "pow" | "min" | "max") =>
+                        if matches!(m, "pow" | "min" | "max" | "atan2") =>
                     {
                         Ok(Type::Function(
                             vec![Type::Number, Type::Number],
