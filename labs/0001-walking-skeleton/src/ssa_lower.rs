@@ -156,7 +156,7 @@ fn substitute_in_stmt(stmt: &mut Stmt, subst: &[(String, String)]) {
 ///     the lowerer can rewrite each generic call's callee
 ///   - `generic_fn_names`: original generic-fn names (for pass 1 to skip)
 fn monomorphize_generics(
-    ast: &Ast,
+    ast: &mut Ast,
     generic_call_sites: &GenericCallSites,
 ) -> (Vec<Stmt>, CallRetargets, std::collections::HashSet<String>) {
     let mut mono_decls: Vec<Stmt> = Vec::new();
@@ -167,13 +167,28 @@ fn monomorphize_generics(
     // monomorphization when two call sites infer the same type args.
     let mut cache: HashMap<(String, Vec<String>), String> = HashMap::new();
 
-    // Index original generic FnDecls by name.
-    let generics: HashMap<String, &Stmt> = ast
+    // Index original generic FnDecls by name. Cloned out so we can
+    // mutate ast freely below without aliasing.
+    let generics: HashMap<String, (Vec<String>, Vec<Param>, Option<String>, Vec<Stmt>)> = ast
         .stmts
         .iter()
         .filter_map(|s| match s {
-            Stmt::FnDecl { name, type_params, .. } if !type_params.is_empty() => {
-                Some((name.clone(), s))
+            Stmt::FnDecl {
+                name,
+                type_params,
+                params,
+                return_type,
+                body,
+            } if !type_params.is_empty() => {
+                Some((
+                    name.clone(),
+                    (
+                        type_params.clone(),
+                        params.clone(),
+                        return_type.clone(),
+                        body.clone(),
+                    ),
+                ))
             }
             _ => None,
         })
@@ -182,70 +197,496 @@ fn monomorphize_generics(
         generic_fn_names.insert(k.clone());
     }
 
+    // Worklist: (callee_name, arg_anns) — pending monomorphizations to
+    // emit. Seeded from generic_call_sites; grown by recursive walk
+    // over each just-emitted body.
+    let mut worklist: std::collections::VecDeque<(String, Vec<String>)> =
+        std::collections::VecDeque::new();
     for (eid, (callee_name, type_args)) in generic_call_sites {
         let arg_anns: Vec<String> = type_args.iter().map(type_to_ann).collect();
         let cache_key = (callee_name.clone(), arg_anns.clone());
-        let mono_name = if let Some(name) = cache.get(&cache_key) {
-            name.clone()
-        } else {
+        if !cache.contains_key(&cache_key) {
+            // Reserve mono name early so cycles break.
             let suffix: Vec<String> = arg_anns.iter().map(|a| name_safe(a)).collect();
             let mono_name = format!("{}$$_{}", callee_name, suffix.join("_"));
-            // Look up the original generic FnDecl, clone it, substitute
-            // type-param names with concrete annotation strings, rename.
-            let Some(orig) = generics.get(callee_name).copied() else {
-                // Should not happen — typechecker already validated.
-                continue;
-            };
-            let Stmt::FnDecl {
-                type_params,
-                params,
-                return_type,
-                body,
-                ..
-            } = orig else {
-                continue;
-            };
-            let subst: Vec<(String, String)> = type_params
-                .iter()
-                .cloned()
-                .zip(arg_anns.iter().cloned())
-                .collect();
-            let mut new_params: Vec<Param> = params.clone();
-            for p in new_params.iter_mut() {
-                if let Some(ann) = &mut p.type_ann {
-                    *ann = substitute_in_ann(ann, &subst);
-                }
-            }
-            let new_return_type = return_type
-                .as_ref()
-                .map(|rt| substitute_in_ann(rt, &subst));
-            let mut new_body: Vec<Stmt> = body.clone();
-            for s in new_body.iter_mut() {
-                substitute_in_stmt(s, &subst);
-            }
-            mono_decls.push(Stmt::FnDecl {
-                name: mono_name.clone(),
-                type_params: Vec::new(),
-                params: new_params,
-                return_type: new_return_type,
-                body: new_body,
-            });
-            cache.insert(cache_key, mono_name.clone());
-            mono_name
-        };
+            cache.insert(cache_key.clone(), mono_name.clone());
+            worklist.push_back((callee_name.clone(), arg_anns.clone()));
+        }
+        let mono_name = cache[&cache_key].clone();
         call_retargets.insert(*eid, mono_name);
     }
+    while let Some((callee_name, arg_anns)) = worklist.pop_front() {
+        let cache_key = (callee_name.clone(), arg_anns.clone());
+        let mono_name = cache[&cache_key].clone();
+        let Some((type_params, params, return_type, body)) = generics.get(&callee_name) else {
+            continue;
+        };
+        let subst: Vec<(String, String)> = type_params
+            .iter()
+            .cloned()
+            .zip(arg_anns.iter().cloned())
+            .collect();
+        let mut new_params: Vec<Param> = params.clone();
+        for p in new_params.iter_mut() {
+            if let Some(ann) = &mut p.type_ann {
+                *ann = substitute_in_ann(ann, &subst);
+            }
+        }
+        let new_return_type = return_type
+            .as_ref()
+            .map(|rt| substitute_in_ann(rt, &subst));
+        // Deep-clone the body's expression graph so each mono body has
+        // FRESH ExprIds. Without this, multiple instantiations of the
+        // same generic share one expression arena and the
+        // transitive-rewrite step below would overwrite each other.
+        let mut new_body: Vec<Stmt> = body
+            .iter()
+            .map(|s| deep_clone_stmt(ast, s))
+            .collect();
+        for s in new_body.iter_mut() {
+            substitute_in_stmt(s, &subst);
+        }
+        // Transitive rewrite: walk the freshly-substituted body for
+        // Call expressions whose callee is a generic fn sharing the
+        // SAME type_params name list. Reuse the outer subst (matching
+        // by position), rewrite the callee Ident to the mono name,
+        // and queue the inner instantiation. Class methods all share
+        // the class's type_params, so this covers __cm_C__m, the
+        // factory __new_C, and the ctor uniformly.
+        rewrite_inner_generic_calls(
+            ast,
+            &mut new_body,
+            &generics,
+            type_params,
+            &arg_anns,
+            &mut cache,
+            &mut worklist,
+        );
+        mono_decls.push(Stmt::FnDecl {
+            name: mono_name,
+            type_params: Vec::new(),
+            params: new_params,
+            return_type: new_return_type,
+            body: new_body,
+        });
+    }
     (mono_decls, call_retargets, generic_fn_names)
+}
+
+/// Deep-clone a Stmt's expression graph into the AST's arena, returning
+/// a Stmt that references freshly-allocated ExprIds. Used by
+/// monomorphization so each instantiation gets its own private copy of
+/// the body's expressions (no shared rewriting between instantiations).
+fn deep_clone_stmt(ast: &mut Ast, s: &Stmt) -> Stmt {
+    match s {
+        Stmt::Expr(eid) => Stmt::Expr(deep_clone_expr(ast, *eid)),
+        Stmt::Throw(eid) => Stmt::Throw(deep_clone_expr(ast, *eid)),
+        Stmt::Return(maybe) => {
+            Stmt::Return(maybe.map(|eid| deep_clone_expr(ast, eid)))
+        }
+        Stmt::LetDecl { mutable, name, type_ann, init } => Stmt::LetDecl {
+            mutable: *mutable,
+            name: name.clone(),
+            type_ann: type_ann.clone(),
+            init: deep_clone_expr(ast, *init),
+        },
+        Stmt::If { cond, then_branch, else_branch } => Stmt::If {
+            cond: deep_clone_expr(ast, *cond),
+            then_branch: Box::new(deep_clone_stmt(ast, then_branch)),
+            else_branch: else_branch.as_ref().map(|e| Box::new(deep_clone_stmt(ast, e))),
+        },
+        Stmt::While { cond, body } => Stmt::While {
+            cond: deep_clone_expr(ast, *cond),
+            body: Box::new(deep_clone_stmt(ast, body)),
+        },
+        Stmt::DoWhile { body, cond } => Stmt::DoWhile {
+            body: Box::new(deep_clone_stmt(ast, body)),
+            cond: deep_clone_expr(ast, *cond),
+        },
+        Stmt::For { init, cond, step, body } => Stmt::For {
+            init: init.as_ref().map(|i| Box::new(deep_clone_stmt(ast, i))),
+            cond: cond.map(|c| deep_clone_expr(ast, c)),
+            step: step.map(|s2| deep_clone_expr(ast, s2)),
+            body: Box::new(deep_clone_stmt(ast, body)),
+        },
+        Stmt::Switch { scrutinee, cases, default } => Stmt::Switch {
+            scrutinee: deep_clone_expr(ast, *scrutinee),
+            cases: cases.iter().map(|c| crate::ast::SwitchCase {
+                value: deep_clone_expr(ast, c.value),
+                body: c.body.iter().map(|s| deep_clone_stmt(ast, s)).collect(),
+            }).collect(),
+            default: default.as_ref().map(|db| {
+                db.iter().map(|s| deep_clone_stmt(ast, s)).collect()
+            }),
+        },
+        Stmt::Block(stmts) => Stmt::Block(
+            stmts.iter().map(|s| deep_clone_stmt(ast, s)).collect()
+        ),
+        Stmt::Multi(stmts) => Stmt::Multi(
+            stmts.iter().map(|s| deep_clone_stmt(ast, s)).collect()
+        ),
+        Stmt::Try { body, had_catch, catch_param, catch_type, catch_body, finally_body } => Stmt::Try {
+            body: body.iter().map(|s| deep_clone_stmt(ast, s)).collect(),
+            had_catch: *had_catch,
+            catch_param: catch_param.clone(),
+            catch_type: catch_type.clone(),
+            catch_body: catch_body.iter().map(|s| deep_clone_stmt(ast, s)).collect(),
+            finally_body: finally_body.as_ref().map(|fb| {
+                fb.iter().map(|s| deep_clone_stmt(ast, s)).collect()
+            }),
+        },
+        // Stmts that don't carry ExprIds — clone trivially.
+        other => other.clone(),
+    }
+}
+
+fn deep_clone_expr(ast: &mut Ast, eid: ExprId) -> ExprId {
+    let new_expr = match ast.get_expr(eid) {
+        Expr::Ident(n) => Expr::Ident(n.clone()),
+        Expr::String(s) => Expr::String(s.clone()),
+        Expr::Number(n) => Expr::Number(*n),
+        Expr::Bool(b) => Expr::Bool(*b),
+        Expr::Null => Expr::Null,
+        Expr::This => Expr::This,
+        Expr::BinOp { op, left, right } => {
+            let op = *op; let l = *left; let r = *right;
+            Expr::BinOp {
+                op,
+                left: deep_clone_expr(ast, l),
+                right: deep_clone_expr(ast, r),
+            }
+        }
+        Expr::Unary { op, expr } => {
+            let op = *op; let e = *expr;
+            Expr::Unary { op, expr: deep_clone_expr(ast, e) }
+        }
+        Expr::Member { obj, name } => {
+            let o = *obj; let name = name.clone();
+            Expr::Member { obj: deep_clone_expr(ast, o), name }
+        }
+        Expr::Call { callee, args } => {
+            let c = *callee; let args = args.clone();
+            Expr::Call {
+                callee: deep_clone_expr(ast, c),
+                args: args.into_iter().map(|a| deep_clone_expr(ast, a)).collect(),
+            }
+        }
+        Expr::Assign { target, value } => {
+            let t = *target; let v = *value;
+            Expr::Assign { target: deep_clone_expr(ast, t), value: deep_clone_expr(ast, v) }
+        }
+        Expr::Index { obj, index } => {
+            let o = *obj; let i = *index;
+            Expr::Index { obj: deep_clone_expr(ast, o), index: deep_clone_expr(ast, i) }
+        }
+        Expr::Array(els) => {
+            let els = els.clone();
+            Expr::Array(els.into_iter().map(|e| deep_clone_expr(ast, e)).collect())
+        }
+        Expr::ObjectLit { fields } => {
+            let fields = fields.clone();
+            Expr::ObjectLit {
+                fields: fields.into_iter()
+                    .map(|(n, e)| (n, deep_clone_expr(ast, e)))
+                    .collect(),
+            }
+        }
+        Expr::ArrowFn { params, return_type, body } => {
+            let params = params.clone();
+            let return_type = return_type.clone();
+            let body: Vec<Stmt> = body.iter().map(|s| s.clone()).collect();
+            // Arrow fn body stmts may carry ExprIds — but at this point
+            // arrows are already lifted by lift_arrow_fns in normal pipeline.
+            // Defensive: deep-clone each stmt.
+            Expr::ArrowFn {
+                params,
+                return_type,
+                body: body.iter().map(|s| deep_clone_stmt(ast, s)).collect(),
+            }
+        }
+        Expr::Closure { fn_name, captures } => Expr::Closure {
+            fn_name: fn_name.clone(),
+            captures: captures.clone(),
+        },
+        Expr::New { class_name, args } => {
+            let class_name = class_name.clone();
+            let args = args.clone();
+            Expr::New {
+                class_name,
+                args: args.into_iter().map(|a| deep_clone_expr(ast, a)).collect(),
+            }
+        }
+        Expr::Super { args } => {
+            let args = args.clone();
+            Expr::Super {
+                args: args.into_iter().map(|a| deep_clone_expr(ast, a)).collect(),
+            }
+        }
+        Expr::Ternary { cond, then_branch, else_branch } => {
+            let c = *cond; let t = *then_branch; let e = *else_branch;
+            Expr::Ternary {
+                cond: deep_clone_expr(ast, c),
+                then_branch: deep_clone_expr(ast, t),
+                else_branch: deep_clone_expr(ast, e),
+            }
+        }
+        Expr::TypeOf { expr } => {
+            let e = *expr;
+            Expr::TypeOf { expr: deep_clone_expr(ast, e) }
+        }
+        Expr::Spread { expr } => {
+            let e = *expr;
+            Expr::Spread { expr: deep_clone_expr(ast, e) }
+        }
+        Expr::Nullish { lhs, rhs } => {
+            let l = *lhs; let r = *rhs;
+            Expr::Nullish {
+                lhs: deep_clone_expr(ast, l),
+                rhs: deep_clone_expr(ast, r),
+            }
+        }
+        Expr::OptChain { obj, name } => {
+            let o = *obj; let name = name.clone();
+            Expr::OptChain { obj: deep_clone_expr(ast, o), name }
+        }
+        Expr::PostIncr { target, is_inc } => {
+            let t = *target; let is_inc = *is_inc;
+            Expr::PostIncr { target: deep_clone_expr(ast, t), is_inc }
+        }
+    };
+    ast.add_expr(new_expr)
+}
+
+/// Walk `body` for Call expressions whose callee is an Ident matching a
+/// generic fn name. If the inner generic fn's type_params match the
+/// outer's by name (typical class case: all methods share the class's
+/// type_params), reuse the outer subst, rewrite the callee Ident to
+/// the mono name, and queue the instantiation. Mutates `ast` to add
+/// new Ident expressions.
+fn rewrite_inner_generic_calls(
+    ast: &mut Ast,
+    body: &mut [Stmt],
+    generics: &HashMap<String, (Vec<String>, Vec<Param>, Option<String>, Vec<Stmt>)>,
+    outer_type_params: &[String],
+    outer_arg_anns: &[String],
+    cache: &mut HashMap<(String, Vec<String>), String>,
+    worklist: &mut std::collections::VecDeque<(String, Vec<String>)>,
+) {
+    // Walk every Call expression reachable from body's stmts. For each
+    // Ident-callee that's a generic fn, rewrite the callee.
+    fn walk_stmt(
+        ast: &mut Ast,
+        s: &Stmt,
+        generics: &HashMap<String, (Vec<String>, Vec<Param>, Option<String>, Vec<Stmt>)>,
+        outer_tp: &[String],
+        outer_anns: &[String],
+        cache: &mut HashMap<(String, Vec<String>), String>,
+        worklist: &mut std::collections::VecDeque<(String, Vec<String>)>,
+    ) {
+        match s {
+            Stmt::Expr(eid) | Stmt::Throw(eid) => walk_expr(ast, *eid, generics, outer_tp, outer_anns, cache, worklist),
+            Stmt::Return(maybe) => {
+                if let Some(eid) = maybe {
+                    walk_expr(ast, *eid, generics, outer_tp, outer_anns, cache, worklist);
+                }
+            }
+            Stmt::LetDecl { init, .. } => walk_expr(ast, *init, generics, outer_tp, outer_anns, cache, worklist),
+            Stmt::If { cond, then_branch, else_branch } => {
+                walk_expr(ast, *cond, generics, outer_tp, outer_anns, cache, worklist);
+                walk_stmt(ast, then_branch, generics, outer_tp, outer_anns, cache, worklist);
+                if let Some(eb) = else_branch {
+                    walk_stmt(ast, eb, generics, outer_tp, outer_anns, cache, worklist);
+                }
+            }
+            Stmt::While { cond, body } => {
+                walk_expr(ast, *cond, generics, outer_tp, outer_anns, cache, worklist);
+                walk_stmt(ast, body, generics, outer_tp, outer_anns, cache, worklist);
+            }
+            Stmt::DoWhile { body, cond } => {
+                walk_stmt(ast, body, generics, outer_tp, outer_anns, cache, worklist);
+                walk_expr(ast, *cond, generics, outer_tp, outer_anns, cache, worklist);
+            }
+            Stmt::For { init, cond, step, body } => {
+                if let Some(i) = init {
+                    walk_stmt(ast, i, generics, outer_tp, outer_anns, cache, worklist);
+                }
+                if let Some(c) = cond {
+                    walk_expr(ast, *c, generics, outer_tp, outer_anns, cache, worklist);
+                }
+                if let Some(s2) = step {
+                    walk_expr(ast, *s2, generics, outer_tp, outer_anns, cache, worklist);
+                }
+                walk_stmt(ast, body, generics, outer_tp, outer_anns, cache, worklist);
+            }
+            Stmt::Switch { scrutinee, cases, default } => {
+                walk_expr(ast, *scrutinee, generics, outer_tp, outer_anns, cache, worklist);
+                for c in cases {
+                    walk_expr(ast, c.value, generics, outer_tp, outer_anns, cache, worklist);
+                    for s in &c.body {
+                        walk_stmt(ast, s, generics, outer_tp, outer_anns, cache, worklist);
+                    }
+                }
+                if let Some(db) = default {
+                    for s in db {
+                        walk_stmt(ast, s, generics, outer_tp, outer_anns, cache, worklist);
+                    }
+                }
+            }
+            Stmt::Block(stmts) | Stmt::Multi(stmts) => {
+                for s in stmts {
+                    walk_stmt(ast, s, generics, outer_tp, outer_anns, cache, worklist);
+                }
+            }
+            Stmt::Try { body, catch_body, finally_body, .. } => {
+                for s in body {
+                    walk_stmt(ast, s, generics, outer_tp, outer_anns, cache, worklist);
+                }
+                for s in catch_body {
+                    walk_stmt(ast, s, generics, outer_tp, outer_anns, cache, worklist);
+                }
+                if let Some(fb) = finally_body {
+                    for s in fb {
+                        walk_stmt(ast, s, generics, outer_tp, outer_anns, cache, worklist);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn walk_expr(
+        ast: &mut Ast,
+        eid: ExprId,
+        generics: &HashMap<String, (Vec<String>, Vec<Param>, Option<String>, Vec<Stmt>)>,
+        outer_tp: &[String],
+        outer_anns: &[String],
+        cache: &mut HashMap<(String, Vec<String>), String>,
+        worklist: &mut std::collections::VecDeque<(String, Vec<String>)>,
+    ) {
+        // Snapshot the expression to decide on action.
+        let action = match ast.get_expr(eid) {
+            Expr::Call { callee, args } => {
+                let args_clone = args.clone();
+                if let Expr::Ident(name) = ast.get_expr(*callee) {
+                    if let Some((inner_tp, _, _, _)) = generics.get(name) {
+                        if inner_tp == outer_tp {
+                            Some((*callee, name.clone(), args_clone))
+                        } else { None }
+                    } else { None }
+                } else { None }
+            }
+            _ => None,
+        };
+        if let Some((callee_eid, name, args)) = action {
+            // Rewrite the Ident in-place to the mono name.
+            let arg_anns_v: Vec<String> = outer_anns.to_vec();
+            let cache_key = (name.clone(), arg_anns_v.clone());
+            let mono_name = if let Some(n) = cache.get(&cache_key).cloned() {
+                n
+            } else {
+                let suffix: Vec<String> = arg_anns_v.iter().map(|a| name_safe(a)).collect();
+                let mono_name = format!("{}$$_{}", name, suffix.join("_"));
+                cache.insert(cache_key.clone(), mono_name.clone());
+                worklist.push_back((name.clone(), arg_anns_v.clone()));
+                mono_name
+            };
+            ast.exprs[callee_eid.0 as usize] = Expr::Ident(mono_name);
+            // Recurse into args (may themselves contain inner generic calls).
+            for aid in args {
+                walk_expr(ast, aid, generics, outer_tp, outer_anns, cache, worklist);
+            }
+            return;
+        }
+        // Recurse into sub-expressions for non-rewritten forms.
+        // (We only need to visit Call expressions; other expressions
+        // can contain Calls as sub-children. Walk through structural
+        // recursion.)
+        match ast.get_expr(eid) {
+            Expr::Call { callee, args } => {
+                let cid = *callee;
+                let aids = args.clone();
+                walk_expr(ast, cid, generics, outer_tp, outer_anns, cache, worklist);
+                for aid in aids {
+                    walk_expr(ast, aid, generics, outer_tp, outer_anns, cache, worklist);
+                }
+            }
+            Expr::BinOp { left, right, .. } => {
+                let l = *left; let r = *right;
+                walk_expr(ast, l, generics, outer_tp, outer_anns, cache, worklist);
+                walk_expr(ast, r, generics, outer_tp, outer_anns, cache, worklist);
+            }
+            Expr::Unary { expr, .. } | Expr::TypeOf { expr } | Expr::Spread { expr } => {
+                let e = *expr;
+                walk_expr(ast, e, generics, outer_tp, outer_anns, cache, worklist);
+            }
+            Expr::Member { obj, .. } | Expr::OptChain { obj, .. } => {
+                let o = *obj;
+                walk_expr(ast, o, generics, outer_tp, outer_anns, cache, worklist);
+            }
+            Expr::Assign { target, value } => {
+                let t = *target; let v = *value;
+                walk_expr(ast, t, generics, outer_tp, outer_anns, cache, worklist);
+                walk_expr(ast, v, generics, outer_tp, outer_anns, cache, worklist);
+            }
+            Expr::Index { obj, index } => {
+                let o = *obj; let i = *index;
+                walk_expr(ast, o, generics, outer_tp, outer_anns, cache, worklist);
+                walk_expr(ast, i, generics, outer_tp, outer_anns, cache, worklist);
+            }
+            Expr::Array(els) => {
+                let els = els.clone();
+                for e in els {
+                    walk_expr(ast, e, generics, outer_tp, outer_anns, cache, worklist);
+                }
+            }
+            Expr::ObjectLit { fields } => {
+                let fields = fields.clone();
+                for (_, e) in fields {
+                    walk_expr(ast, e, generics, outer_tp, outer_anns, cache, worklist);
+                }
+            }
+            Expr::Ternary { cond, then_branch, else_branch } => {
+                let c = *cond; let t = *then_branch; let e = *else_branch;
+                walk_expr(ast, c, generics, outer_tp, outer_anns, cache, worklist);
+                walk_expr(ast, t, generics, outer_tp, outer_anns, cache, worklist);
+                walk_expr(ast, e, generics, outer_tp, outer_anns, cache, worklist);
+            }
+            Expr::Nullish { lhs, rhs } => {
+                let l = *lhs; let r = *rhs;
+                walk_expr(ast, l, generics, outer_tp, outer_anns, cache, worklist);
+                walk_expr(ast, r, generics, outer_tp, outer_anns, cache, worklist);
+            }
+            Expr::New { args, .. } | Expr::Super { args } => {
+                let args = args.clone();
+                for e in args {
+                    walk_expr(ast, e, generics, outer_tp, outer_anns, cache, worklist);
+                }
+            }
+            Expr::PostIncr { target, .. } => {
+                let t = *target;
+                walk_expr(ast, t, generics, outer_tp, outer_anns, cache, worklist);
+            }
+            _ => {}
+        }
+    }
+
+    for s in body.iter() {
+        walk_stmt(ast, s, generics, outer_type_params, outer_arg_anns, cache, worklist);
+    }
 }
 
 pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
     // M3 — produce monomorphized FnDecls from each generic call site,
     // and a per-call-site `ExprId → mono_name` retarget map. We clone
     // the AST so the appended mono FnDecls don't mutate the caller's
-    // copy (cheap: the AST is a few thousand exprs at most).
-    let (mono_decls, call_retargets, generic_fn_names) =
-        monomorphize_generics(ast, generic_call_sites);
+    // copy (cheap: the AST is a few thousand exprs at most). The
+    // monomorphizer needs a `&mut Ast` so it can fabricate new Ident
+    // expressions when transitively-rewriting inner generic-call
+    // callees in cloned bodies (class methods calling each other with
+    // shared type params).
     let mut owned_ast: Ast = ast.clone();
+    let (mono_decls, call_retargets, generic_fn_names) =
+        monomorphize_generics(&mut owned_ast, generic_call_sites);
     owned_ast.stmts.extend(mono_decls);
     let ast: &Ast = &owned_ast;
 
