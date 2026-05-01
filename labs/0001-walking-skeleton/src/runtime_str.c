@@ -238,6 +238,101 @@ void *__torajs_str_to_lower(const uint8_t *s) {
     return p;
 }
 
+#include <math.h>
+
+/* `Number.parseInt(s, radix)` — JS-spec parseInt, simplified subset.
+ * Skips leading ASCII whitespace, accepts optional sign, then digits in
+ * the given radix (2..36). Stops at the first non-digit. Returns NaN
+ * encoded as the IEEE-754 quiet-NaN bit pattern when no digits are
+ * consumed; otherwise the parsed double. radix=0 → autodetect (10
+ * default; 16 if "0x"/"0X" prefix). */
+double __torajs_num_parse_int(const uint8_t *s, int64_t radix) {
+    uint64_t len = *(const uint64_t *)s;
+    const uint8_t *data = s + 8;
+    uint64_t i = 0;
+    while (i < len && (data[i] == ' ' || data[i] == '\t' || data[i] == '\n'
+                       || data[i] == '\r' || data[i] == '\v' || data[i] == '\f')) {
+        i++;
+    }
+    int sign = 1;
+    if (i < len && (data[i] == '+' || data[i] == '-')) {
+        if (data[i] == '-') sign = -1;
+        i++;
+    }
+    int rdx = (int)radix;
+    if (rdx == 0) rdx = 10;
+    /* 0x / 0X auto-radix when caller passed 0 or 16. */
+    if ((radix == 0 || radix == 16) && i + 1 < len
+        && data[i] == '0' && (data[i + 1] == 'x' || data[i + 1] == 'X')) {
+        rdx = 16;
+        i += 2;
+    }
+    if (rdx < 2 || rdx > 36) return (double)NAN;
+    uint64_t digits_start = i;
+    double v = 0.0;
+    while (i < len) {
+        uint8_t c = data[i];
+        int d;
+        if (c >= '0' && c <= '9') d = c - '0';
+        else if (c >= 'a' && c <= 'z') d = c - 'a' + 10;
+        else if (c >= 'A' && c <= 'Z') d = c - 'A' + 10;
+        else break;
+        if (d >= rdx) break;
+        v = v * rdx + d;
+        i++;
+    }
+    if (i == digits_start) return (double)NAN;
+    return sign < 0 ? -v : v;
+}
+
+/* `Number.parseFloat(s)` — strtod over the trimmed prefix. Stops at
+ * the first non-numeric byte. Returns NaN if no digits parsed. */
+double __torajs_num_parse_float(const uint8_t *s) {
+    uint64_t len = *(const uint64_t *)s;
+    const uint8_t *data = s + 8;
+    /* Copy into a NUL-terminated buffer so strtod's bounds work. JS-allowed
+     * input shapes (sign, digits, exponent, +/-Infinity) all fit within
+     * len + 1 bytes; for very long inputs we'd need malloc — out of scope. */
+    char buf[64];
+    uint64_t copy = len < sizeof(buf) - 1 ? len : sizeof(buf) - 1;
+    memcpy(buf, data, (size_t)copy);
+    buf[copy] = 0;
+    char *endp = NULL;
+    double v = strtod(buf, &endp);
+    if (endp == buf) return (double)NAN;
+    return v;
+}
+
+/* `Number.isInteger(n)` — true iff n is finite and has no fractional
+ * part. ECMA-262 §20.1.2.3. */
+int64_t __torajs_num_is_integer_f(double n) {
+    if (!isfinite(n)) return 0;
+    return floor(n) == n ? 1 : 0;
+}
+int64_t __torajs_num_is_integer_i(int64_t n) {
+    (void)n;
+    return 1;
+}
+
+/* `Number.isNaN(n)` — true iff n is NaN. (Distinct from global `isNaN`
+ * which coerces non-numbers; the Number.isX form does not coerce.) */
+int64_t __torajs_num_is_nan_f(double n) {
+    return isnan(n) ? 1 : 0;
+}
+int64_t __torajs_num_is_nan_i(int64_t n) {
+    (void)n;
+    return 0;
+}
+
+/* `Number.isFinite(n)` — true iff n is a finite number. */
+int64_t __torajs_num_is_finite_f(double n) {
+    return isfinite(n) ? 1 : 0;
+}
+int64_t __torajs_num_is_finite_i(int64_t n) {
+    (void)n;
+    return 1;
+}
+
 /* Whitespace recognition for `trim*`: ASCII whitespace ' ', '\t', '\n',
  * '\r', '\v', '\f'. JS spec includes more (BOM, NBSP, …) but those are
  * UTF-16 units we don't model in v0. */

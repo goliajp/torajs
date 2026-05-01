@@ -439,6 +439,62 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         &[Type::Str, Type::I64, Type::Str],
         Type::Str,
     );
+    let num_parse_int_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_num_parse_int",
+        &[Type::Str, Type::I64],
+        Type::F64,
+    );
+    let num_parse_float_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_num_parse_float",
+        &[Type::Str],
+        Type::F64,
+    );
+    let num_is_integer_f_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_num_is_integer_f",
+        &[Type::F64],
+        Type::Bool,
+    );
+    let num_is_integer_i_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_num_is_integer_i",
+        &[Type::I64],
+        Type::Bool,
+    );
+    let num_is_nan_f_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_num_is_nan_f",
+        &[Type::F64],
+        Type::Bool,
+    );
+    let num_is_nan_i_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_num_is_nan_i",
+        &[Type::I64],
+        Type::Bool,
+    );
+    let num_is_finite_f_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_num_is_finite_f",
+        &[Type::F64],
+        Type::Bool,
+    );
+    let num_is_finite_i_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_num_is_finite_i",
+        &[Type::I64],
+        Type::Bool,
+    );
     // M6.1 — String methods. All operate on the StrRepr layout
     // `[u64 len, u8 data[len]]`. slice yields a fresh heap StrRepr;
     // char_code_at returns the byte zext'd to i64; the `*_with`
@@ -871,6 +927,14 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         str_trim_end: str_trim_end_id,
         str_pad_start: str_pad_start_id,
         str_pad_end: str_pad_end_id,
+        num_parse_int: num_parse_int_id,
+        num_parse_float: num_parse_float_id,
+        num_is_integer_f: num_is_integer_f_id,
+        num_is_integer_i: num_is_integer_i_id,
+        num_is_nan_f: num_is_nan_f_id,
+        num_is_nan_i: num_is_nan_i_id,
+        num_is_finite_f: num_is_finite_f_id,
+        num_is_finite_i: num_is_finite_i_id,
         str_slice: str_slice_id,
         str_char_code_at: str_char_code_at_id,
         str_starts_with: str_starts_with_id,
@@ -1019,6 +1083,14 @@ struct Intrinsics {
     str_trim_end: FuncId,
     str_pad_start: FuncId,
     str_pad_end: FuncId,
+    num_parse_int: FuncId,
+    num_parse_float: FuncId,
+    num_is_integer_f: FuncId,
+    num_is_integer_i: FuncId,
+    num_is_nan_f: FuncId,
+    num_is_nan_i: FuncId,
+    num_is_finite_f: FuncId,
+    num_is_finite_i: FuncId,
     str_slice: FuncId,
     str_char_code_at: FuncId,
     str_starts_with: FuncId,
@@ -3788,6 +3860,80 @@ impl<'a> LowerCtx<'a> {
                 }
             }
             Expr::Call { callee, args } => {
+                // `Number.<method>(args)` — global Number namespace. Each
+                // method has a specialized SSA path: parseInt / parseFloat
+                // route to a single str-based intrinsic; isInteger /
+                // isNaN / isFinite dispatch on the arg's SSA type at
+                // lower-time (i64 → trivial answer, f64 → runtime check).
+                if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
+                    && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
+                    && ns == "Number"
+                {
+                    match m_name.as_str() {
+                        "parseInt" => {
+                            // Number.parseInt(s, radix) — radix optional in JS;
+                            // typecheck enforces 2-arg shape so we always
+                            // have a ConstI64 / loaded radix here.
+                            let s = self.lower_expr(args[0]);
+                            let r = if args.len() >= 2 {
+                                self.lower_expr(args[1])
+                            } else {
+                                Operand::ConstI64(10)
+                            };
+                            // Subset constraint: radix must be an integer-
+                            // shaped expression (literal or i64 binding) so
+                            // no FpToSi is needed. Pass user-typed f64
+                            // through unchecked is a known v0 hole; doc'd
+                            // in the test port.
+                            let r_ty = self.operand_ty(&r);
+                            if r_ty != Type::I64 && r_ty != Type::I32
+                                && !matches!(r, Operand::ConstI64(_))
+                            {
+                                panic!(
+                                    "ssa-lower: Number.parseInt radix must be integer-typed; got {r_ty:?}"
+                                );
+                            }
+                            let v = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(self.intrinsics.num_parse_int, vec![s, r]),
+                                Type::F64,
+                                None,
+                            );
+                            return Operand::Value(v);
+                        }
+                        "parseFloat" => {
+                            let s = self.lower_expr(args[0]);
+                            let v = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(self.intrinsics.num_parse_float, vec![s]),
+                                Type::F64,
+                                None,
+                            );
+                            return Operand::Value(v);
+                        }
+                        "isInteger" | "isNaN" | "isFinite" => {
+                            let arg_op = self.lower_expr(args[0]);
+                            let arg_ty = self.operand_ty(&arg_op);
+                            let target = match (m_name.as_str(), arg_ty) {
+                                ("isInteger", Type::F64) => self.intrinsics.num_is_integer_f,
+                                ("isInteger", _) => self.intrinsics.num_is_integer_i,
+                                ("isNaN", Type::F64) => self.intrinsics.num_is_nan_f,
+                                ("isNaN", _) => self.intrinsics.num_is_nan_i,
+                                ("isFinite", Type::F64) => self.intrinsics.num_is_finite_f,
+                                ("isFinite", _) => self.intrinsics.num_is_finite_i,
+                                _ => unreachable!(),
+                            };
+                            let v = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(target, vec![arg_op]),
+                                Type::Bool,
+                                None,
+                            );
+                            return Operand::Value(v);
+                        }
+                        other => panic!("ssa-lower: unknown Number method `{other}`"),
+                    }
+                }
                 // `console.log(arg)` — works in any expression context
                 // (top-level stmt, inside a block, inside an if-body).
                 // Dispatches by arg's SSA type to print_str / print_f64

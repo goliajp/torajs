@@ -1184,6 +1184,7 @@ impl Checker {
                     "console" => Ok(Type::Object("console")),
                     "Math" => Ok(Type::Object("Math")),
                     "Object" => Ok(Type::Object("Object")),
+                    "Number" => Ok(Type::Object("Number")),
                     other => Err(format!("unknown identifier `{other}`")),
                 }
             }
@@ -1225,6 +1226,22 @@ impl Checker {
                     // Constants — read directly without parens.
                     (Type::Object("Math"), m) if matches!(m, "PI" | "E") => {
                         Ok(Type::Number)
+                    }
+                    // `Number` global — parseInt / parseFloat coerce a
+                    // string to a number; isInteger / isNaN / isFinite
+                    // are unary number predicates.
+                    (Type::Object("Number"), "parseInt") => Ok(Type::Function(
+                        vec![Type::String, Type::Number],
+                        Box::new(Type::Number),
+                    )),
+                    (Type::Object("Number"), "parseFloat") => Ok(Type::Function(
+                        vec![Type::String],
+                        Box::new(Type::Number),
+                    )),
+                    (Type::Object("Number"), m)
+                        if matches!(m, "isInteger" | "isNaN" | "isFinite") =>
+                    {
+                        Ok(Type::Function(vec![Type::Number], Box::new(Type::Boolean)))
                     }
                     // `Object.keys(obj)` — returns Array<String> with the
                     // field names of obj's struct type. Static-resolved at
