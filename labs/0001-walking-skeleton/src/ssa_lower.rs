@@ -8751,52 +8751,46 @@ impl<'a> LowerCtx<'a> {
                 Operand::Value(self.intern_string_literal(s))
             }
             Expr::InstanceOf { expr, class_name } => {
-                // Compile-time class membership. Lower the operand for
-                // its side effects, then resolve the answer against
-                // the class hierarchy recorded by desugar_classes.
+                // Phase H.1.c — runtime class membership via the header
+                // tag stored at offset 0. Compile-time we compute the
+                // closure of `class_name` and every class that extends
+                // it (transitively); runtime reads the tag and checks
+                // membership in that set. Heterogeneous arrays now
+                // distinguish subclasses correctly: an `Animal[]` slot
+                // holding a `Dog` instance carries the Dog tag in its
+                // header, so `dog instanceof Animal` reads Dog's tag
+                // and matches because Dog is in Animal's descendant set.
                 //
-                // Algorithm:
-                //   1. Get the operand's static struct id (sid_actual).
-                //   2. Find the class name whose alias maps to that sid
-                //      — this is the operand's declared class.
-                //   3. Walk `class_parents[name] → name → ... → None`,
-                //      checking each step against `class_name`.
-                //   4. ConstBool(true) if the chain hit class_name; false
-                //      otherwise. Also handle the trivial direct-id
-                //      case (operand sid == class_name's sid) without
-                //      consulting parent_map at all (works for classes
-                //      declared without `extends`).
+                // The set is a small Vec<u32> emitted as a sequence of
+                // ICmp::Eq + Or chain. LLVM converts it into a switch
+                // for hierarchies past a threshold; for typical 1-3
+                // class hierarchies the chain is shorter than a switch
+                // table.
                 let v = self.lower_expr(*expr);
                 let actual_ty = self.operand_ty(&v);
-                let target_ty = self.aliases.get(class_name).cloned();
-                let direct = matches!(
-                    (actual_ty, target_ty),
-                    (Type::Obj(a), Some(Type::Obj(t))) if a == t
-                );
-                let mut answer = direct;
-                if !answer
-                    && let Type::Obj(actual_sid) = actual_ty
-                {
-                    // Reverse-lookup the operand's declared class name
-                    // by scanning aliases for the matching StructId.
-                    let mut declared: Option<String> = None;
-                    for (n, ty) in self.aliases.iter() {
-                        if let Type::Obj(sid) = ty
-                            && *sid == actual_sid
-                        {
-                            declared = Some(n.clone());
-                            break;
-                        }
-                    }
-                    if let Some(start) = declared {
-                        let mut cur = Some(start);
+                if !matches!(actual_ty, Type::Obj(_)) {
+                    // Non-object operand: instanceof is trivially false.
+                    return Operand::ConstBool(false);
+                }
+                // Build the descendant-tag set for `class_name`. If
+                // class_name itself is unknown (e.g. user wrote
+                // `x instanceof NotAClass`), the set is empty and the
+                // answer is constant-false.
+                let mut descendant_tags: Vec<u32> = Vec::new();
+                if self.ast.class_parents.contains_key(class_name) {
+                    for c in self.ast.class_parents.keys() {
+                        // Walk c → parent → ... checking if class_name
+                        // appears as an ancestor (or c == class_name).
+                        let mut cur = Some(c.clone());
                         let mut depth = 0u32;
                         while let Some(name) = cur {
-                            if depth > 64 {
-                                break; // defensive cycle guard
-                            }
+                            if depth > 64 { break; }
                             if name == *class_name {
-                                answer = true;
+                                if let Some(Type::Obj(sid)) = self.aliases.get(c)
+                                    && let Some(tag) = self.sid_to_class_tag.get(&sid.0)
+                                {
+                                    descendant_tags.push(*tag);
+                                }
                                 break;
                             }
                             cur = self
@@ -8808,7 +8802,47 @@ impl<'a> LowerCtx<'a> {
                         }
                     }
                 }
-                Operand::ConstBool(answer)
+                if descendant_tags.is_empty() {
+                    return Operand::ConstBool(false);
+                }
+                descendant_tags.sort();
+                descendant_tags.dedup();
+                // Read tag at offset 0 of the operand.
+                let tag_v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Load(Type::I64, v, 0),
+                    Type::I64,
+                    None,
+                );
+                // OR-chain over descendant tags. Single-tag fast path
+                // emits one ICmp; multi-tag emits chain.
+                let mut acc: Option<ValueId> = None;
+                for &t in &descendant_tags {
+                    let eq = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::ICmp(
+                            IPred::Eq,
+                            Operand::Value(tag_v),
+                            Operand::ConstI64(t as i64),
+                        ),
+                        Type::Bool,
+                        None,
+                    );
+                    acc = Some(match acc {
+                        None => eq,
+                        Some(prev) => self.f.append_inst(
+                            self.cur_block,
+                            InstKind::BinOp(
+                                SsaBinOp::Or,
+                                Operand::Value(prev),
+                                Operand::Value(eq),
+                            ),
+                            Type::Bool,
+                            None,
+                        ),
+                    });
+                }
+                Operand::Value(acc.unwrap())
             }
             Expr::Nullish { lhs, rhs } => {
                 // `lhs ?? rhs` — evaluate lhs once, branch on null,
