@@ -355,19 +355,43 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                     emit(&mut out, Token::Bang, start, i);
                 }
             }
-            b'"' => {
+            b'"' | b'\'' => {
+                let quote = bytes[i as usize];
                 i += 1;
-                let str_start = i;
-                while i < len && bytes[i as usize] != b'"' {
-                    // P0 has no escapes; defer
+                // Decode JS-style escape sequences. Supported: \\ \" \'
+                // \n \r \t \b \f \v \0. Unknown escapes pass through
+                // their letter (matches V8's annex-B-friendly behavior
+                // for the small subset our tests need).
+                let mut buf: Vec<u8> = Vec::new();
+                while i < len && bytes[i as usize] != quote {
+                    let c = bytes[i as usize];
+                    if c == b'\\' && i + 1 < len {
+                        let esc = bytes[i as usize + 1];
+                        match esc {
+                            b'n' => buf.push(b'\n'),
+                            b'r' => buf.push(b'\r'),
+                            b't' => buf.push(b'\t'),
+                            b'b' => buf.push(0x08),
+                            b'f' => buf.push(0x0c),
+                            b'v' => buf.push(0x0b),
+                            b'0' => buf.push(0),
+                            b'\\' => buf.push(b'\\'),
+                            b'\'' => buf.push(b'\''),
+                            b'"' => buf.push(b'"'),
+                            b'`' => buf.push(b'`'),
+                            other => buf.push(other),
+                        }
+                        i += 2;
+                        continue;
+                    }
+                    buf.push(c);
                     i += 1;
                 }
                 if i >= len {
                     return Err(format!("unterminated string starting at {start}"));
                 }
-                let value = std::str::from_utf8(&bytes[str_start as usize..i as usize])
-                    .map_err(|_| format!("invalid utf-8 in string at {start}"))?
-                    .to_string();
+                let value = String::from_utf8(buf)
+                    .map_err(|_| format!("invalid utf-8 in string at {start}"))?;
                 i += 1; // consume closing quote
                 emit(&mut out, Token::String(value), start, i);
             }

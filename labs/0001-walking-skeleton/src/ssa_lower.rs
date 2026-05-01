@@ -390,6 +390,55 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         &[Type::Str, Type::I64],
         Type::Str,
     );
+    let str_to_upper_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_str_to_upper",
+        &[Type::Str],
+        Type::Str,
+    );
+    let str_to_lower_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_str_to_lower",
+        &[Type::Str],
+        Type::Str,
+    );
+    let str_trim_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_str_trim",
+        &[Type::Str],
+        Type::Str,
+    );
+    let str_trim_start_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_str_trim_start",
+        &[Type::Str],
+        Type::Str,
+    );
+    let str_trim_end_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_str_trim_end",
+        &[Type::Str],
+        Type::Str,
+    );
+    let str_pad_start_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_str_pad_start",
+        &[Type::Str, Type::I64, Type::Str],
+        Type::Str,
+    );
+    let str_pad_end_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_str_pad_end",
+        &[Type::Str, Type::I64, Type::Str],
+        Type::Str,
+    );
     // M6.1 — String methods. All operate on the StrRepr layout
     // `[u64 len, u8 data[len]]`. slice yields a fresh heap StrRepr;
     // char_code_at returns the byte zext'd to i64; the `*_with`
@@ -815,6 +864,13 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         arr_extend_unchecked: arr_extend_unchecked_id,
         arr_slice: arr_slice_id,
         str_repeat: str_repeat_id,
+        str_to_upper: str_to_upper_id,
+        str_to_lower: str_to_lower_id,
+        str_trim: str_trim_id,
+        str_trim_start: str_trim_start_id,
+        str_trim_end: str_trim_end_id,
+        str_pad_start: str_pad_start_id,
+        str_pad_end: str_pad_end_id,
         str_slice: str_slice_id,
         str_char_code_at: str_char_code_at_id,
         str_starts_with: str_starts_with_id,
@@ -956,6 +1012,13 @@ struct Intrinsics {
     arr_extend_unchecked: FuncId,
     arr_slice: FuncId,
     str_repeat: FuncId,
+    str_to_upper: FuncId,
+    str_to_lower: FuncId,
+    str_trim: FuncId,
+    str_trim_start: FuncId,
+    str_trim_end: FuncId,
+    str_pad_start: FuncId,
+    str_pad_end: FuncId,
     str_slice: FuncId,
     str_char_code_at: FuncId,
     str_starts_with: FuncId,
@@ -4018,6 +4081,9 @@ impl<'a> LowerCtx<'a> {
                         name.as_str(),
                         "slice" | "charCodeAt" | "startsWith" | "endsWith"
                         | "includes" | "indexOf" | "split" | "join" | "repeat"
+                        | "toUpperCase" | "toLowerCase"
+                        | "trim" | "trimStart" | "trimEnd"
+                        | "padStart" | "padEnd"
                     )
                 {
                     let recv_op = self.lower_expr(*obj);
@@ -4029,6 +4095,9 @@ impl<'a> LowerCtx<'a> {
                             method.as_str(),
                             "slice" | "charCodeAt" | "startsWith"
                             | "endsWith" | "includes" | "indexOf" | "split" | "repeat"
+                            | "toUpperCase" | "toLowerCase"
+                            | "trim" | "trimStart" | "trimEnd"
+                            | "padStart" | "padEnd"
                         )
                     {
                         let mut argv = Vec::with_capacity(args.len() + 1);
@@ -4039,6 +4108,13 @@ impl<'a> LowerCtx<'a> {
                         let (target, ret_ty) = match method.as_str() {
                             "slice" => (self.intrinsics.str_slice, Type::Str),
                             "repeat" => (self.intrinsics.str_repeat, Type::Str),
+                            "toUpperCase" => (self.intrinsics.str_to_upper, Type::Str),
+                            "toLowerCase" => (self.intrinsics.str_to_lower, Type::Str),
+                            "trim" => (self.intrinsics.str_trim, Type::Str),
+                            "trimStart" => (self.intrinsics.str_trim_start, Type::Str),
+                            "trimEnd" => (self.intrinsics.str_trim_end, Type::Str),
+                            "padStart" => (self.intrinsics.str_pad_start, Type::Str),
+                            "padEnd" => (self.intrinsics.str_pad_end, Type::Str),
                             "charCodeAt" => (self.intrinsics.str_char_code_at, Type::I64),
                             "startsWith" => (self.intrinsics.str_starts_with, Type::Bool),
                             "endsWith" => (self.intrinsics.str_ends_with, Type::Bool),
@@ -6495,6 +6571,14 @@ impl<'a> LowerCtx<'a> {
             || fid == i.math_sign
             || fid == i.math_round
             || fid == i.math_trunc
+            || fid == i.str_repeat
+            || fid == i.str_to_upper
+            || fid == i.str_to_lower
+            || fid == i.str_trim
+            || fid == i.str_trim_start
+            || fid == i.str_trim_end
+            || fid == i.str_pad_start
+            || fid == i.str_pad_end
             || fid == i.throw_set
             || fid == i.throw_check
             || fid == i.throw_take

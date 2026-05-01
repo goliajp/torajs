@@ -1253,6 +1253,18 @@ impl Checker {
                         vec![Type::Number],
                         Box::new(Type::String),
                     )),
+                    (Type::String, "toUpperCase") | (Type::String, "toLowerCase")
+                    | (Type::String, "trim") | (Type::String, "trimStart")
+                    | (Type::String, "trimEnd") => Ok(Type::Function(
+                        Vec::new(),
+                        Box::new(Type::String),
+                    )),
+                    (Type::String, "padStart") | (Type::String, "padEnd") => {
+                        Ok(Type::Function(
+                            vec![Type::Number, Type::String],
+                            Box::new(Type::String),
+                        ))
+                    }
                     (Type::String, "charCodeAt") => Ok(Type::Function(
                         vec![Type::Number],
                         Box::new(Type::Number),
