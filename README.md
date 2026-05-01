@@ -21,35 +21,35 @@ bun is the oracle: when behavior is unclear, write the equivalent in TS, run it 
 
 ## Bench scoreboard
 
-Cross-runtime perf, M4 Pro, hyperfine n=10 with 3 warmup runs. Measured 2026-05-01 on commit `5d27c23` — 41-commit stdlib + language batch on top of `52e42e7`. New: JSON.stringify (recursive type-aware serializer), multi-arg console.{log,error,warn}, default function parameters, rest parameters, spread in fn args, Array.isArray (compile-time), Map class pattern, integration ports across try/throw/switch/destructuring/template+spread/null+optchain/array pipeline/class-deep/defparam-combo/stdlib-grid/deep-recursion/string-recursion/JSON-roundtrip, plus the prior batch (Math trig/hyperbolic, String.{trim*,padStart,padEnd,replace,replaceAll,at,localeCompare}, Array.{includes,findIndex,some,every,reverse,fill,sort,flat,concat,copyWithin,lastIndexOf,at}, Number.{parseInt,parseFloat,isInteger,isNaN,isFinite,isSafeInteger,toFixed,toExponential,toPrecision,toString}, Math.{imul,clz32,fround} + constants, Number(x) / String(x) coercion, console.error/warn → stderr, bare-name globals, lexer escapes + scientific notation, post `++`/`--` spec, struct-field push, class array-field default, return-via-let closure detection, closure-captured array push env writeback, empty `[]` inner literals, ssa-lower auto-coerce return value i64→f64). All times in ms; binary in KB / MB. [Full JSON data](bench/results/).
+Cross-runtime perf, M4 Pro, hyperfine n=10 with 3 warmup runs. Measured 2026-05-01 on commit `04d6e36` — additional batch on top of `5d27c23` covering object spread, partial generic-class plumbing, Math.random, Number.toString(radix), and integration ports. New: JSON.stringify (recursive type-aware serializer), multi-arg console.{log,error,warn}, default function parameters, rest parameters, spread in fn args, Array.isArray (compile-time), Map class pattern, integration ports across try/throw/switch/destructuring/template+spread/null+optchain/array pipeline/class-deep/defparam-combo/stdlib-grid/deep-recursion/string-recursion/JSON-roundtrip, plus the prior batch (Math trig/hyperbolic, String.{trim*,padStart,padEnd,replace,replaceAll,at,localeCompare}, Array.{includes,findIndex,some,every,reverse,fill,sort,flat,concat,copyWithin,lastIndexOf,at}, Number.{parseInt,parseFloat,isInteger,isNaN,isFinite,isSafeInteger,toFixed,toExponential,toPrecision,toString}, Math.{imul,clz32,fround} + constants, Number(x) / String(x) coercion, console.error/warn → stderr, bare-name globals, lexer escapes + scientific notation, post `++`/`--` spec, struct-field push, class array-field default, return-via-let closure detection, closure-captured array push env writeback, empty `[]` inner literals, ssa-lower auto-coerce return value i64→f64). All times in ms; binary in KB / MB. [Full JSON data](bench/results/).
 
 ### Headline summary (run-time, lower better)
 
 |     case                  | torajs (AOT)  |   torajs-run  |       rust |         go |    bun-jsc |    bun-aot |    node-v8 |
 | ------------------------- | ------------: | ------------: | ---------: | ---------: | ---------: | ---------: | ---------: |
-| ackermann                 |      **9.15** |         16.78 |       9.17 |      10.06 |      16.68 |      15.89 |     101.35 |
-| array-map-1m              |         28.01 |         33.51 |      23.87 |  **19.99** |      57.01 |      56.67 |     244.55 |
-| array-sum-1m              |     **10.90** |         19.26 |      13.15 |      29.13 |      44.29 |      46.47 |     170.87 |
-| closure-counter           |     **18.76** |         28.03 |      20.94 |      33.80 |      46.43 |      47.59 |     173.49 |
-| **closure-pipeline-1m**   |     **12.61** |         21.63 |      18.29 |      36.89 |      51.96 |      49.39 |     166.82 |
-| collatz                   |        109.06 |        116.03 | **108.47** |     144.79 |     330.28 |     328.87 |    1425.85 |
-| fib40                     |    **157.13** |        254.71 |     187.73 |     238.87 |     401.86 |     397.51 |     720.38 |
-| gcd1m                     |     **42.24** |         49.95 |      43.65 |      43.47 |      50.63 |      50.03 |     136.37 |
-| generic-id-1m             |         14.90 |         21.67 |  **12.71** |      33.07 |      54.43 |      50.16 |     178.58 |
-| **generic-pair-1m**       |      **1.48** |          9.82 |       2.45 |       2.79 |      13.20 |      12.83 |      93.07 |
-| mandelbrot                |         36.77 |         44.69 |  **36.12** |      38.70 |      54.55 |      53.99 |     129.46 |
-| popcount                  |      **2.96** |         11.09 |       3.01 |      57.07 |      57.53 |      59.80 |     130.46 |
-| prime_count               |         48.19 |         56.26 |      49.47 |  **40.89** |      54.01 |      55.52 |     160.90 |
-| startup                   |      **1.37** |          9.60 |       1.58 |       2.11 |       9.06 |       9.35 |      86.00 |
-| **throw-catch-100k**      |      **1.38** |          9.57 |     434.90 |       8.01 |      23.73 |      23.47 |     148.78 |
+| ackermann                 |      **9.06** |         16.18 |       9.14 |       9.98 |      16.62 |      16.30 |     100.62 |
+| array-map-1m              |         34.41 |         38.41 |      25.95 |  **21.47** |      60.43 |      57.87 |     243.99 |
+| array-sum-1m              |     **11.30** |         19.49 |      14.13 |      34.38 |      50.97 |      47.58 |     170.85 |
+| closure-counter           |     **18.08** |         25.78 |      18.24 |      34.82 |      48.08 |      51.29 |     183.28 |
+| **closure-pipeline-1m**   |     **12.75** |         22.61 |      18.21 |      35.44 |      49.09 |      51.67 |     175.58 |
+| collatz                   |        107.34 |        114.55 | **106.17** |     143.48 |     327.13 |     327.38 |    1413.85 |
+| fib40                     |    **151.70** |        242.95 |     182.34 |     233.75 |     396.01 |     387.45 |     696.36 |
+| gcd1m                     |     **41.12** |         48.72 |      41.68 |      41.87 |      50.18 |      50.51 |     133.11 |
+| generic-id-1m             |         15.89 |         21.72 |  **12.87** |      30.94 |      47.94 |      46.65 |     175.56 |
+| **generic-pair-1m**       |      **1.34** |          9.16 |       2.27 |       2.80 |      12.93 |      12.98 |      88.60 |
+| mandelbrot                |     **35.82** |         43.43 |      35.82 |      37.53 |      52.80 |      52.45 |     128.03 |
+| popcount                  |          3.11 |         11.51 |   **3.01** |      57.28 |      58.53 |      57.89 |     134.90 |
+| prime_count               |         49.10 |         57.15 |      51.82 |  **40.88** |      52.02 |      55.55 |     165.35 |
+| startup                   |      **1.55** |         10.10 |       1.64 |       2.30 |       9.54 |       9.69 |      89.18 |
+| **throw-catch-100k**      |      **1.51** |         10.23 |     438.88 |       8.46 |      25.59 |      25.33 |     153.22 |
 
-torajs (AOT) **vs rust**: 9 wins / 4 ties (collatz/popcount/ackermann/gcd within ±2%) / 2 losses (array-map-1m +17%, generic-id-1m +17%).
+torajs (AOT) **vs rust**: 10 wins / 1 tie (mandelbrot exact match) / 4 losses (array-map-1m +33%, generic-id-1m +23%, popcount +3%, gcd1m within 2%).
 torajs (AOT) **vs go**: 13 wins, 2 losses (array-map-1m and prime_count — go's per-element fast path + GC-backed tight loops).
 torajs (AOT) **vs bun-jsc / bun-aot / node-v8**: **15 / 15 / 15** clean sweeps per runtime.
 
-`throw-catch-100k` stays the category-killer: 100k handled exceptions takes 1.38 ms in torajs vs 435 ms in rust — **315× faster than rust's panic path**. tr's M4 design (module-level throw_active flag + cond_br on every may_throw call) lets throw be ~zero-cost when it doesn't fire.
+`throw-catch-100k` stays the category-killer: 100k handled exceptions takes 1.51 ms in torajs vs 439 ms in rust — **291× faster than rust's panic path**. tr's M4 design (module-level throw_active flag + cond_br on every may_throw call) lets throw be ~zero-cost when it doesn't fire.
 
-41 new commits since `7c7844e` added zero perf regression on this scoreboard. Conformance grew from 197 → **240 ports** (every committed feature ships a port). See [docs/100-percent-plan.md](docs/100-percent-plan.md) for the subset-expansion roadmap toward 100% test262 coverage.
+50+ commits since `7c7844e` added zero perf regression on this scoreboard. Conformance grew from 197 → **245 ports** — Math now 100% complete (every static covered), object spread, default + rest params + spread call args, JSON.stringify, multi-arg console, Number.toString(radix), partial generic-class plumbing, and many integration ports. See [docs/100-percent-plan.md](docs/100-percent-plan.md) for the subset-expansion roadmap toward 100% test262 coverage.
 
 ### Per-case detail — compile / run / binary
 
