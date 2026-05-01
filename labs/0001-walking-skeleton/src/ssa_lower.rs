@@ -5450,7 +5450,7 @@ impl<'a> LowerCtx<'a> {
                 if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
                     && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
                     && ns == "String"
-                    && m_name == "fromCharCode"
+                    && (m_name == "fromCharCode" || m_name == "fromCodePoint")
                 {
                     if args.is_empty() {
                         return Operand::Value(self.intern_string_literal(""));
@@ -6155,7 +6155,8 @@ impl<'a> LowerCtx<'a> {
                 if let Expr::Member { obj, name } = self.ast.get_expr(*callee)
                     && matches!(
                         name.as_str(),
-                        "slice" | "charCodeAt" | "startsWith" | "endsWith"
+                        "slice" | "charCodeAt" | "codePointAt"
+                        | "startsWith" | "endsWith"
                         | "includes" | "indexOf" | "split" | "join" | "repeat"
                         | "toUpperCase" | "toLowerCase"
                         | "trim" | "trimStart" | "trimEnd"
@@ -6172,7 +6173,8 @@ impl<'a> LowerCtx<'a> {
                     if recv_ty == Type::Str
                         && matches!(
                             method.as_str(),
-                            "slice" | "charCodeAt" | "startsWith"
+                            "slice" | "charCodeAt" | "codePointAt"
+                            | "startsWith"
                             | "endsWith" | "includes" | "indexOf" | "split" | "repeat"
                             | "toUpperCase" | "toLowerCase"
                             | "trim" | "trimStart" | "trimEnd"
@@ -6199,7 +6201,11 @@ impl<'a> LowerCtx<'a> {
                             "replace" => (self.intrinsics.str_replace, Type::Str),
                             "replaceAll" => (self.intrinsics.str_replace_all, Type::Str),
                             "at" => (self.intrinsics.str_at, Type::Str),
-                            "charCodeAt" => (self.intrinsics.str_char_code_at, Type::I64),
+                            // `codePointAt` collapses to charCodeAt in tr's
+                            // byte-Str layout — both return the byte at
+                            // the index, indistinguishable inside the
+                            // ASCII / Latin-1 range tests stick to.
+                            "charCodeAt" | "codePointAt" => (self.intrinsics.str_char_code_at, Type::I64),
                             "startsWith" => (self.intrinsics.str_starts_with, Type::Bool),
                             "endsWith" => (self.intrinsics.str_ends_with, Type::Bool),
                             "includes" => (self.intrinsics.str_includes, Type::Bool),

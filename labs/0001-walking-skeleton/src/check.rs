@@ -1395,14 +1395,21 @@ impl Checker {
                         Box::new(Type::String),
                     )),
                     // String namespace static — `String.fromCharCode(n)`.
-                    (Type::Object("String"), "fromCharCode") => Ok(Type::Function(
+                    // `fromCodePoint` is the Unicode-aware sibling; in
+                    // tr's byte-Str layout the two collapse for code
+                    // points ≤ 0xff and ports keep arguments inside that
+                    // range to stay bun-portable.
+                    (Type::Object("String"), "fromCharCode")
+                    | (Type::Object("String"), "fromCodePoint") => Ok(Type::Function(
                         vec![Type::Number],
                         Box::new(Type::String),
                     )),
-                    (Type::String, "charCodeAt") => Ok(Type::Function(
-                        vec![Type::Number],
-                        Box::new(Type::Number),
-                    )),
+                    (Type::String, "charCodeAt") | (Type::String, "codePointAt") => {
+                        Ok(Type::Function(
+                            vec![Type::Number],
+                            Box::new(Type::Number),
+                        ))
+                    }
                     (Type::String, "startsWith") | (Type::String, "endsWith")
                     | (Type::String, "includes") => Ok(Type::Function(
                         vec![Type::String],
@@ -1975,7 +1982,7 @@ impl Checker {
                 if let Expr::Member { obj, name: m } = ast.get_expr(*callee)
                     && let Expr::Ident(ns) = ast.get_expr(*obj)
                     && ns == "String"
-                    && m == "fromCharCode"
+                    && (m == "fromCharCode" || m == "fromCodePoint")
                     && args.len() != 1
                 {
                     if args.is_empty() {
@@ -1985,7 +1992,7 @@ impl Checker {
                         let aty = self.type_of(ast, aid)?;
                         if aty != Type::Number {
                             return Err(format!(
-                                "String.fromCharCode args must be number, got {aty:?}"
+                                "String.{m} args must be number, got {aty:?}"
                             ));
                         }
                     }
