@@ -38,6 +38,28 @@ void __torajs_arr_extend_unchecked(uint8_t *dst, const uint8_t *src) {
     *(uint64_t *)dst = dst_len + src_len;
 }
 
+/* `Math.sign(x)` — JS spec: +1 / -1 / preserve-zero. NaN handling
+ * elided (subset doesn't expose NaN). libc has no `sign`, so this
+ * lives here rather than in the inkwell-side `define_math_unary`. */
+double __torajs_math_sign(double x) {
+    if (x > 0.0) return 1.0;
+    if (x < 0.0) return -1.0;
+    return x;  /* preserves -0.0 / +0.0 per JS spec */
+}
+
+/* `Math.round(x)` — JS rounds half-values toward +∞:
+ *   round(2.5)  === 3   (libc agrees)
+ *   round(-2.5) === -2  (libc disagrees: returns -3)
+ *   round(2.4)  === 2
+ * The simple `floor(x + 0.5)` form matches JS spec; we route here
+ * instead of libc round because libc rounds away from zero. */
+double __torajs_math_floor(double);  /* fwd-decl from inkwell side */
+double __torajs_math_round(double x) {
+    /* floor is defined in the inkwell-emitted module; libc fallback
+     * works too because the linker resolves either way. */
+    return __torajs_math_floor(x + 0.5);
+}
+
 /* `s.repeat(n)` — fresh String containing `s` concatenated n times.
  * Single malloc + n memcpy's. n<=0 returns the empty string. */
 void *__torajs_str_repeat(const uint8_t *s, int64_t n) {

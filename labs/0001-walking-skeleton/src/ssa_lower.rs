@@ -532,6 +532,27 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         &[Type::F64],
         Type::F64,
     );
+    let math_sign_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_math_sign",
+        &[Type::F64],
+        Type::F64,
+    );
+    let math_round_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_math_round",
+        &[Type::F64],
+        Type::F64,
+    );
+    let math_trunc_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_math_trunc",
+        &[Type::F64],
+        Type::F64,
+    );
     let math_pow_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -811,6 +832,9 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         math_ceil: math_ceil_id,
         math_log: math_log_id,
         math_exp: math_exp_id,
+        math_sign: math_sign_id,
+        math_round: math_round_id,
+        math_trunc: math_trunc_id,
         math_pow: math_pow_id,
         math_min: math_min_id,
         math_max: math_max_id,
@@ -949,6 +973,9 @@ struct Intrinsics {
     math_ceil: FuncId,
     math_log: FuncId,
     math_exp: FuncId,
+    math_sign: FuncId,
+    math_round: FuncId,
+    math_trunc: FuncId,
     math_pow: FuncId,
     math_min: FuncId,
     math_max: FuncId,
@@ -5736,6 +5763,9 @@ impl<'a> LowerCtx<'a> {
                         "pow" => self.intrinsics.math_pow,
                         "min" => self.intrinsics.math_min,
                         "max" => self.intrinsics.math_max,
+                        "sign" => self.intrinsics.math_sign,
+                        "round" => self.intrinsics.math_round,
+                        "trunc" => self.intrinsics.math_trunc,
                         other => {
                             panic!("ssa-lower: unknown Math method `{other}`")
                         }
@@ -5754,6 +5784,9 @@ impl<'a> LowerCtx<'a> {
             || fid == self.intrinsics.math_ceil
             || fid == self.intrinsics.math_log
             || fid == self.intrinsics.math_exp
+            || fid == self.intrinsics.math_sign
+            || fid == self.intrinsics.math_round
+            || fid == self.intrinsics.math_trunc
     }
 
     fn is_math_binary(&self, fid: FuncId) -> bool {
@@ -5868,6 +5901,9 @@ impl<'a> LowerCtx<'a> {
             || fid == i.math_pow
             || fid == i.math_min
             || fid == i.math_max
+            || fid == i.math_sign
+            || fid == i.math_round
+            || fid == i.math_trunc
             || fid == i.throw_set
             || fid == i.throw_check
             || fid == i.throw_take

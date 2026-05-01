@@ -163,6 +163,13 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
             "__torajs_math_max" => {
                 define_math_binary(&ctx, &llvm_module, "__torajs_math_max", "fmax")
             }
+            // Note: `__torajs_math_round` is defined in runtime_str.c
+            // (via `floor(x + 0.5)`) NOT via libc `round` — JS spec
+            // rounds half-values toward +∞ (round(-2.5) === -2) but
+            // libc rounds away from zero (round(-2.5) === -3).
+            "__torajs_math_trunc" => {
+                define_math_unary(&ctx, &llvm_module, "__torajs_math_trunc", "trunc")
+            }
             "__torajs_throw_set" => {
                 define_throw_set(&ctx, &llvm_module)
             }
@@ -209,6 +216,8 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
         "__torajs_math_pow",
         "__torajs_math_min",
         "__torajs_math_max",
+        "__torajs_math_round",
+        "__torajs_math_trunc",
         "__torajs_throw_set",
         "__torajs_throw_check",
         "__torajs_throw_take",

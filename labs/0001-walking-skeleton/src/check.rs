@@ -1208,6 +1208,7 @@ impl Checker {
                         if matches!(
                             m,
                             "sqrt" | "abs" | "floor" | "ceil" | "log" | "exp"
+                            | "sign" | "round" | "trunc"
                         ) =>
                     {
                         Ok(Type::Function(vec![Type::Number], Box::new(Type::Number)))
