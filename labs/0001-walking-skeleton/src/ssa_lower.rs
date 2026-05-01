@@ -5595,15 +5595,40 @@ impl<'a> LowerCtx<'a> {
                 Operand::Value(obj_ptr)
             }
             Expr::Member { obj, name } => {
-                // `Math.PI` and `Math.E` are compile-time constants — no
-                // SSA value at all, just synthesize a ConstF64 operand.
+                // `Math.PI` and friends — compile-time constants synthesized
+                // as ConstF64 operands. Same for the Number-namespace
+                // limits below.
                 if let Expr::Ident(n) = self.ast.get_expr(*obj)
                     && n == "Math"
                 {
                     return match name.as_str() {
                         "PI" => Operand::ConstF64(std::f64::consts::PI),
                         "E" => Operand::ConstF64(std::f64::consts::E),
+                        "LN2" => Operand::ConstF64(std::f64::consts::LN_2),
+                        "LN10" => Operand::ConstF64(std::f64::consts::LN_10),
+                        "LOG2E" => Operand::ConstF64(std::f64::consts::LOG2_E),
+                        "LOG10E" => Operand::ConstF64(std::f64::consts::LOG10_E),
+                        "SQRT2" => Operand::ConstF64(std::f64::consts::SQRT_2),
+                        "SQRT1_2" => {
+                            Operand::ConstF64(std::f64::consts::FRAC_1_SQRT_2)
+                        }
                         other => panic!("ssa-lower: unknown Math constant `{other}`"),
+                    };
+                }
+                if let Expr::Ident(n) = self.ast.get_expr(*obj)
+                    && n == "Number"
+                {
+                    return match name.as_str() {
+                        "NaN" => Operand::ConstF64(f64::NAN),
+                        "POSITIVE_INFINITY" => Operand::ConstF64(f64::INFINITY),
+                        "NEGATIVE_INFINITY" => Operand::ConstF64(f64::NEG_INFINITY),
+                        "EPSILON" => Operand::ConstF64(f64::EPSILON),
+                        // 2^53 - 1
+                        "MAX_SAFE_INTEGER" => Operand::ConstI64(9007199254740991),
+                        "MIN_SAFE_INTEGER" => Operand::ConstI64(-9007199254740991),
+                        "MAX_VALUE" => Operand::ConstF64(f64::MAX),
+                        "MIN_VALUE" => Operand::ConstF64(f64::MIN_POSITIVE),
+                        other => panic!("ssa-lower: unknown Number constant `{other}`"),
                     };
                 }
                 let obj_val = self.lower_expr(*obj);

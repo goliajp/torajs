@@ -1227,7 +1227,25 @@ impl Checker {
                         ))
                     }
                     // Constants — read directly without parens.
-                    (Type::Object("Math"), m) if matches!(m, "PI" | "E") => {
+                    (Type::Object("Math"), m)
+                        if matches!(
+                            m,
+                            "PI" | "E" | "LN2" | "LN10" | "LOG2E" | "LOG10E"
+                            | "SQRT2" | "SQRT1_2"
+                        ) =>
+                    {
+                        Ok(Type::Number)
+                    }
+                    // Number namespace constants — common floating-point
+                    // limits and integer-safety bounds.
+                    (Type::Object("Number"), m)
+                        if matches!(
+                            m,
+                            "NaN" | "POSITIVE_INFINITY" | "NEGATIVE_INFINITY"
+                            | "EPSILON" | "MAX_SAFE_INTEGER" | "MIN_SAFE_INTEGER"
+                            | "MAX_VALUE" | "MIN_VALUE"
+                        ) =>
+                    {
                         Ok(Type::Number)
                     }
                     // `Number` global — parseInt / parseFloat coerce a
