@@ -1503,10 +1503,22 @@ impl Checker {
                     // `xs.reverse()` — in-place reverse, returns the same
                     // array (chainable). Subset returns void since the
                     // chain shape isn't common in our test set.
-                    (Type::Array(elem), "reverse") => {
+                    // `toReversed` (ES2023) is the non-mutating sibling —
+                    // identical signature, fresh `Array<T>` result.
+                    (Type::Array(elem), "reverse") | (Type::Array(elem), "toReversed") => {
                         let inner = (**elem).clone();
                         Ok(Type::Function(
                             Vec::new(),
+                            Box::new(Type::Array(Box::new(inner))),
+                        ))
+                    }
+                    // `xs.with(i, v)` (ES2023) — non-mutating index update.
+                    // Returns a fresh `Array<T>` with `xs[i] = v`. Negative
+                    // `i` wraps via `len + i`. OOB is UB.
+                    (Type::Array(elem), "with") => {
+                        let inner = (**elem).clone();
+                        Ok(Type::Function(
+                            vec![Type::Number, inner.clone()],
                             Box::new(Type::Array(Box::new(inner))),
                         ))
                     }

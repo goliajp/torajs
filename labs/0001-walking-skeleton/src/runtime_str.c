@@ -222,6 +222,36 @@ void *__torajs_str_from_char_code(int64_t n) {
     return p;
 }
 
+/* `arr.toReversed()` (ES2023) — non-mutating reverse. Single malloc +
+ * reverse-direction byte-by-byte slot copy. Original untouched. */
+void *__torajs_arr_to_reversed(const uint8_t *arr) {
+    uint64_t len = *(const uint64_t *)arr;
+    uint8_t *p = (uint8_t *)malloc(16 + (size_t)len * 8);
+    *(uint64_t *)p = len;
+    *(uint64_t *)(p + 8) = len;
+    for (uint64_t i = 0; i < len; i++) {
+        uint64_t src_off = 16 + (len - 1 - i) * 8;
+        uint64_t dst_off = 16 + i * 8;
+        *(uint64_t *)(p + dst_off) = *(const uint64_t *)(arr + src_off);
+    }
+    return p;
+}
+
+/* `arr.with(i, v)` (ES2023) — non-mutating index update. Single malloc
+ * + memcpy + single slot overwrite. Negative `i` wraps via `len + i`.
+ * Out-of-bounds `i` is UB (matches the unchecked-index convention used
+ * elsewhere in tr's array runtime). */
+void *__torajs_arr_with(const uint8_t *arr, int64_t i, int64_t v) {
+    uint64_t len = *(const uint64_t *)arr;
+    uint8_t *p = (uint8_t *)malloc(16 + (size_t)len * 8);
+    *(uint64_t *)p = len;
+    *(uint64_t *)(p + 8) = len;
+    if (len) memcpy(p + 16, arr + 16, (size_t)len * 8);
+    int64_t adj = i < 0 ? (int64_t)len + i : i;
+    *(uint64_t *)(p + 16 + (uint64_t)adj * 8) = (uint64_t)v;
+    return p;
+}
+
 /* `s.substring(start, end)` — slice's pre-ES5 sibling. Diverges from
  * slice on two corners: negative inputs clamp to 0 (slice wraps to
  * len+n), and start > end gets silently swapped. After fixup both

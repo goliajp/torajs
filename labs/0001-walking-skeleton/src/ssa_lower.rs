@@ -1270,6 +1270,20 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         &[Type::Str, Type::I64, Type::I64],
         Type::Str,
     );
+    let arr_to_reversed_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_arr_to_reversed",
+        &[Type::Ptr],
+        Type::Ptr,
+    );
+    let arr_with_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_arr_with",
+        &[Type::Ptr, Type::I64, Type::I64],
+        Type::Ptr,
+    );
     let arr_join_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -1887,6 +1901,8 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         str_split: str_split_id,
         arr_from_string: arr_from_string_id,
         str_substring: str_substring_id,
+        arr_to_reversed: arr_to_reversed_id,
+        arr_with: arr_with_id,
         arr_join: arr_join_id,
         i64_to_str: i64_to_str_id,
         f64_to_str: f64_to_str_id,
@@ -2092,6 +2108,8 @@ struct Intrinsics {
     str_split: FuncId,
     arr_from_string: FuncId,
     str_substring: FuncId,
+    arr_to_reversed: FuncId,
+    arr_with: FuncId,
     arr_join: FuncId,
     i64_to_str: FuncId,
     f64_to_str: FuncId,
@@ -6218,7 +6236,8 @@ impl<'a> LowerCtx<'a> {
                         | "trim" | "trimStart" | "trimEnd"
                         | "padStart" | "padEnd"
                         | "replace" | "replaceAll"
-                        | "reverse" | "fill" | "at" | "concat" | "sort" | "flat"
+                        | "reverse" | "toReversed" | "with"
+                        | "fill" | "at" | "concat" | "sort" | "flat"
                         | "lastIndexOf" | "localeCompare" | "copyWithin"
                     )
                 {
@@ -6833,6 +6852,53 @@ impl<'a> LowerCtx<'a> {
                             InstKind::Call(
                                 self.intrinsics.arr_reverse,
                                 vec![recv_op],
+                            ),
+                            Type::Arr(arr_id),
+                            None,
+                        );
+                        return Operand::Value(v);
+                    }
+                    // `arr.toReversed()` — non-mutating reverse. Fresh
+                    // alloc + reverse-direction slot copy via the C
+                    // runtime; original untouched.
+                    if let Type::Arr(arr_id) = recv_ty
+                        && method == "toReversed"
+                        && args.is_empty()
+                    {
+                        let v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.arr_to_reversed,
+                                vec![recv_op],
+                            ),
+                            Type::Arr(arr_id),
+                            None,
+                        );
+                        return Operand::Value(v);
+                    }
+                    // `arr.with(i, v)` — non-mutating index update. The
+                    // C helper memcpy's the source array, then writes
+                    // `v` into the (negative-wrapped) `i` slot. Out-of-
+                    // bounds `i` is UB. Element value passed as i64 (the
+                    // 8-byte slot width); f64 elements would need a
+                    // bitcast not yet in the IR (matches `fill`).
+                    if let Type::Arr(arr_id) = recv_ty
+                        && method == "with"
+                        && args.len() == 2
+                    {
+                        let i_val = self.lower_expr(args[0]);
+                        let v_val = self.lower_expr(args[1]);
+                        let v_ty = self.operand_ty(&v_val);
+                        if v_ty == Type::F64 {
+                            panic!(
+                                "ssa-lower: Array.with on f64 elements not yet supported (need IR bitcast)"
+                            );
+                        }
+                        let v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.arr_with,
+                                vec![recv_op, i_val, v_val],
                             ),
                             Type::Arr(arr_id),
                             None,
@@ -9508,6 +9574,8 @@ impl<'a> LowerCtx<'a> {
             || fid == i.str_split
             || fid == i.arr_from_string
             || fid == i.str_substring
+            || fid == i.arr_to_reversed
+            || fid == i.arr_with
             || fid == i.arr_join
             || fid == i.math_sqrt
             || fid == i.math_abs
