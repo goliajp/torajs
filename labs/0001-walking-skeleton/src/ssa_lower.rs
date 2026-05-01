@@ -3871,10 +3871,19 @@ impl<'a> LowerCtx<'a> {
                     self.f.set_term(cb, Terminator::Br(target));
                     return;
                 }
-                // No finally on the stack — direct ret.
+                // No finally on the stack — direct ret. Coerce
+                // i64 → f64 when the fn ret type demands it (matches
+                // the implicit promotion BinOp uses for f64 contexts).
                 self.emit_drops_for_owned_locals();
                 let cb = self.cur_block;
-                self.f.set_term(cb, Terminator::Ret(ret_operand));
+                let coerced = ret_operand.map(|op| {
+                    if self.f.ret == Type::F64 && self.operand_ty(&op) == Type::I64 {
+                        self.coerce_to_f64(op)
+                    } else {
+                        op
+                    }
+                });
+                self.f.set_term(cb, Terminator::Ret(coerced));
             }
             Stmt::Expr(eid) => {
                 // Result discarded. Expression may still produce SSA insts as
