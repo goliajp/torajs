@@ -341,6 +341,8 @@ pub fn desugar_classes(ast: &mut Ast) {
         std::collections::HashMap::new();
     let mut class_field_inits: std::collections::HashMap<String, Vec<(String, ExprId)>> =
         std::collections::HashMap::new();
+    let mut class_field_preludes: std::collections::HashMap<String, Vec<Stmt>> =
+        std::collections::HashMap::new();
     let mut appended: Vec<Stmt> = Vec::new();
 
     // Snapshot the class metadata first (cloned out so we can mutate
@@ -479,15 +481,36 @@ pub fn desugar_classes(ast: &mut Ast) {
     // that the factory will use to seed the `__this` object literal. We use
     // the FLATTENED field list (parent fields + self fields) so subclass
     // factories produce a fully-initialized object.
+    //
+    // Empty `T[]` defaults need special handling: a bare `[]` in expression
+    // position has no inferable element type. We hoist these out into a
+    // typed prelude let — `let __def_arr_<field>: T[] = []` — and use the
+    // ident as the field init. The let-binding's annotation gives ssa-lower
+    // enough context to emit a typed `arr_alloc(0)`.
     for (_, cname, _, _, _, _) in &class_index {
         let combined = full_fields.get(cname).unwrap();
         let mut init_pairs: Vec<(String, ExprId)> = Vec::with_capacity(combined.len());
+        let mut prelude: Vec<Stmt> = Vec::new();
         for (fname, fty) in combined {
-            let init_expr = default_init_for_type(fty);
-            let id = ast.add_expr(init_expr);
-            init_pairs.push((fname.clone(), id));
+            if fty.ends_with("[]") {
+                let local = format!("__def_arr_{cname}_{fname}");
+                let arr_lit = ast.add_expr(Expr::Array(Vec::new()));
+                prelude.push(Stmt::LetDecl {
+                    mutable: false,
+                    name: local.clone(),
+                    type_ann: Some(fty.clone()),
+                    init: arr_lit,
+                });
+                let ident_id = ast.add_expr(Expr::Ident(local));
+                init_pairs.push((fname.clone(), ident_id));
+            } else {
+                let init_expr = default_init_for_type(fty);
+                let id = ast.add_expr(init_expr);
+                init_pairs.push((fname.clone(), id));
+            }
         }
         class_field_inits.insert(cname.clone(), init_pairs);
+        class_field_preludes.insert(cname.clone(), prelude);
     }
 
     // Pass 1.5 — rewrite `super(args)` inside each subclass's ctor body
@@ -617,6 +640,10 @@ pub fn desugar_classes(ast: &mut Ast) {
             ast,
             &cname,
             &class_field_inits[&cname],
+            class_field_preludes
+                .get(&cname)
+                .cloned()
+                .unwrap_or_default(),
             ctor.as_ref(),
         );
         appended.push(Stmt::FnDecl {
@@ -845,6 +872,7 @@ fn build_factory_body(
     ast: &mut Ast,
     cname: &str,
     field_inits: &[(String, ExprId)],
+    prelude: Vec<Stmt>,
     ctor: Option<&ClassCtor>,
 ) -> Vec<Stmt> {
     let obj_lit = ast.add_expr(Expr::ObjectLit {
@@ -856,7 +884,8 @@ fn build_factory_body(
         type_ann: Some(cname.to_string()),
         init: obj_lit,
     };
-    let mut body: Vec<Stmt> = vec![let_this];
+    let mut body: Vec<Stmt> = prelude;
+    body.push(let_this);
     if let Some(c) = ctor {
         // Build: __cm_C__ctor(__this, ctor_param_idents...);
         let callee = ast.add_expr(Expr::Ident(format!("__cm_{cname}__ctor")));
