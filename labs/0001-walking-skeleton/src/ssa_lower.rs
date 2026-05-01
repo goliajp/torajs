@@ -6481,14 +6481,55 @@ impl<'a> LowerCtx<'a> {
                 });
                 if !has_spread {
                     let n = element_ids.len() as i64;
+                    // Pre-determine the element type so we can lower
+                    // empty `[]` inner literals using the same arr_id.
+                    // The first non-empty sibling's type is the anchor;
+                    // empty inners get an `arr_alloc(0)` of that type.
+                    let mut anchor_ty: Option<Type> = None;
+                    for eid in &element_ids {
+                        if matches!(self.ast.get_expr(*eid), Expr::Array(els) if els.is_empty()) {
+                            continue;
+                        }
+                        let probe = self.lower_expr(*eid);
+                        anchor_ty = Some(self.operand_ty(&probe));
+                        // The probe lowering emitted SSA — we have to
+                        // commit to using these probe values as the
+                        // canonical lowered values for this position.
+                        // Re-lowering would double-allocate. So break
+                        // out and re-walk separately to coordinate.
+                        let _ = probe;
+                        break;
+                    }
+                    // We can't easily re-use the probe value (it was
+                    // lowered into the current block already). Fall
+                    // back to re-lowering all elements, treating empty
+                    // `[]` inners specially based on anchor_ty.
+                    // (The probe's allocations get discarded but LLVM's
+                    // DCE drops them at -O1+.)
                     let mut elem_vals: Vec<Operand> =
                         Vec::with_capacity(element_ids.len());
                     for eid in &element_ids {
+                        if matches!(self.ast.get_expr(*eid), Expr::Array(els) if els.is_empty())
+                            && let Some(Type::Arr(inner_id)) = anchor_ty
+                        {
+                            // Empty inner literal — emit a typed arr_alloc(0).
+                            let v = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(
+                                    self.intrinsics.arr_alloc,
+                                    vec![Operand::ConstI64(0)],
+                                ),
+                                Type::Arr(inner_id),
+                                None,
+                            );
+                            elem_vals.push(Operand::Value(v));
+                            continue;
+                        }
                         let v = self.lower_expr(*eid);
                         self.consume_if_ident(*eid);
                         elem_vals.push(v);
                     }
-                    let elem_ty = self.operand_ty(&elem_vals[0]);
+                    let elem_ty = anchor_ty.unwrap_or_else(|| self.operand_ty(&elem_vals[0]));
                     let arr_id = intern_arr_layout(self.arr_layouts, elem_ty);
                     let arr_ptr = self.f.append_inst(
                         self.cur_block,

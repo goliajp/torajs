@@ -1554,24 +1554,48 @@ impl Checker {
                 let ids: Vec<ExprId> = elements.clone();
                 // Helper: the "value type contributed by this element"
                 // is T for a non-spread element of type T, or T for a
-                // spread element whose source has type Array<T>.
-                let elem_value_ty = |this: &mut Self, eid: ExprId| -> Result<Type, String> {
+                // spread element whose source has type Array<T>. Empty
+                // inner array literals (`[]`) get `None` so the outer
+                // typecheck can defer their typing to a non-empty
+                // sibling.
+                let elem_value_ty = |this: &mut Self, eid: ExprId| -> Result<Option<Type>, String> {
                     if let Expr::Spread { expr } = ast.get_expr(eid) {
                         let src_ty = this.type_of(ast, *expr)?;
                         match src_ty {
-                            Type::Array(inner) => Ok(*inner),
+                            Type::Array(inner) => Ok(Some(*inner)),
                             other => Err(format!(
                                 "array spread source must be an array, got {other:?}"
                             )),
                         }
+                    } else if matches!(ast.get_expr(eid), Expr::Array(els) if els.is_empty()) {
+                        Ok(None)
                     } else {
-                        this.type_of(ast, eid)
+                        Ok(Some(this.type_of(ast, eid)?))
                     }
                 };
-                let first_ty = elem_value_ty(self, ids[0])?;
-                for &eid in ids.iter().skip(1) {
+                // Find first non-empty element to anchor the type. Empty
+                // siblings are allowed and inherit this anchor type.
+                let mut first_ty: Option<Type> = None;
+                for &eid in &ids {
+                    if let Some(t) = elem_value_ty(self, eid)? {
+                        first_ty = Some(t);
+                        break;
+                    }
+                }
+                let first_ty = match first_ty {
+                    Some(t) => t,
+                    None => {
+                        return Err(
+                            "array of all-empty inner literals — cannot infer element type"
+                                .into(),
+                        );
+                    }
+                };
+                for &eid in ids.iter() {
                     let ty = elem_value_ty(self, eid)?;
-                    if ty != first_ty {
+                    if let Some(ty) = ty
+                        && ty != first_ty
+                    {
                         return Err(format!(
                             "array element type mismatch: expected {first_ty:?}, got {ty:?}"
                         ));

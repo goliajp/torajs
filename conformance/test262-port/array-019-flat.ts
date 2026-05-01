@@ -16,6 +16,13 @@ function check(): number {
   let f4 = outer_empty.flat();
   if (f4.length !== 0) { throw "#5"; }
 
+  // Empty inner arrays mixed with non-empty.
+  let with_empty: number[][] = [[1], [], [2, 3], []];
+  let f6 = with_empty.flat();
+  if (f6.length !== 3) { throw "#5b"; }
+  if (f6[0] !== 1) { throw "#5c"; }
+  if (f6[2] !== 3) { throw "#5d"; }
+
   // Single inner array.
   let single: number[][] = [[1, 2, 3]];
   let f5 = single.flat();
