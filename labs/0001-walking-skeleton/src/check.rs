@@ -1322,7 +1322,9 @@ impl Checker {
                         vec![Type::Number],
                         Box::new(Type::String),
                     )),
-                    (Type::Number, "toFixed") => Ok(Type::Function(
+                    (Type::Number, "toFixed")
+                    | (Type::Number, "toExponential")
+                    | (Type::Number, "toPrecision") => Ok(Type::Function(
                         vec![Type::Number],
                         Box::new(Type::String),
                     )),

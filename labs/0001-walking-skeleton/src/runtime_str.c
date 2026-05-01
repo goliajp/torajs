@@ -532,6 +532,72 @@ void *__torajs_num_to_fixed_i(int64_t n, int64_t digits) {
     return __torajs_num_to_fixed_f((double)n, digits);
 }
 
+/* Strip leading zeros from an exponent in `<...>e<sign><digits>` so
+ * `1.23e+03` becomes `1.23e+3`, matching JS spec. Returns the new
+ * length. */
+static int js_normalize_exp_(const char *src, int src_len, char *dst) {
+    int dst_i = 0;
+    int i = 0;
+    while (i < src_len) {
+        char c = src[i++];
+        dst[dst_i++] = c;
+        if (c == 'e' && i < src_len) {
+            char sign = src[i];
+            if (sign == '+' || sign == '-') {
+                dst[dst_i++] = sign;
+                i++;
+            }
+            while (i < src_len && src[i] == '0') i++;
+            if (i >= src_len || src[i] < '0' || src[i] > '9') {
+                dst[dst_i++] = '0';
+            }
+        }
+    }
+    return dst_i;
+}
+
+/* `n.toExponential(digits)` — scientific form. snprintf %.*e with the
+ * given precision, then strip leading zeros from the exponent. */
+void *__torajs_num_to_exp_f(double n, int64_t digits) {
+    if (digits < 0) digits = 0;
+    if (digits > 100) digits = 100;
+    char buf[128];
+    int written = snprintf(buf, sizeof(buf), "%.*e", (int)digits, n);
+    if (written < 0) written = 0;
+    char fixed[128];
+    int dst_len = js_normalize_exp_(buf, written, fixed);
+    uint64_t len = (uint64_t)dst_len;
+    uint8_t *p = str_alloc_(len);
+    if (len) memcpy(p + 8, fixed, (size_t)len);
+    return p;
+}
+void *__torajs_num_to_exp_i(int64_t n, int64_t digits) {
+    return __torajs_num_to_exp_f((double)n, digits);
+}
+
+/* `n.toPrecision(digits)` — total significant digits. snprintf %.*g
+ * with exponent normalization. digits == 0 falls back to default %g. */
+void *__torajs_num_to_precision_f(double n, int64_t digits) {
+    char buf[128];
+    int written;
+    if (digits <= 0) {
+        written = snprintf(buf, sizeof(buf), "%g", n);
+    } else {
+        if (digits > 100) digits = 100;
+        written = snprintf(buf, sizeof(buf), "%.*g", (int)digits, n);
+    }
+    if (written < 0) written = 0;
+    char fixed[128];
+    int dst_len = js_normalize_exp_(buf, written, fixed);
+    uint64_t len = (uint64_t)dst_len;
+    uint8_t *p = str_alloc_(len);
+    if (len) memcpy(p + 8, fixed, (size_t)len);
+    return p;
+}
+void *__torajs_num_to_precision_i(int64_t n, int64_t digits) {
+    return __torajs_num_to_precision_f((double)n, digits);
+}
+
 /* `Number.parseInt(s, radix)` — JS-spec parseInt, simplified subset.
  * Skips leading ASCII whitespace, accepts optional sign, then digits in
  * the given radix (2..36). Stops at the first non-digit. Returns NaN

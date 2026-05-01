@@ -481,6 +481,34 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         &[Type::I64, Type::I64],
         Type::Str,
     );
+    let num_to_exp_f_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_num_to_exp_f",
+        &[Type::F64, Type::I64],
+        Type::Str,
+    );
+    let num_to_exp_i_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_num_to_exp_i",
+        &[Type::I64, Type::I64],
+        Type::Str,
+    );
+    let num_to_precision_f_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_num_to_precision_f",
+        &[Type::F64, Type::I64],
+        Type::Str,
+    );
+    let num_to_precision_i_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_num_to_precision_i",
+        &[Type::I64, Type::I64],
+        Type::Str,
+    );
     let num_parse_int_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -1206,6 +1234,10 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         str_replace_all: str_replace_all_id,
         num_to_fixed_f: num_to_fixed_f_id,
         num_to_fixed_i: num_to_fixed_i_id,
+        num_to_exp_f: num_to_exp_f_id,
+        num_to_exp_i: num_to_exp_i_id,
+        num_to_precision_f: num_to_precision_f_id,
+        num_to_precision_i: num_to_precision_i_id,
         num_parse_int: num_parse_int_id,
         num_parse_float: num_parse_float_id,
         num_is_integer_f: num_is_integer_f_id,
@@ -1401,6 +1433,10 @@ struct Intrinsics {
     str_replace_all: FuncId,
     num_to_fixed_f: FuncId,
     num_to_fixed_i: FuncId,
+    num_to_exp_f: FuncId,
+    num_to_exp_i: FuncId,
+    num_to_precision_f: FuncId,
+    num_to_precision_i: FuncId,
     num_parse_int: FuncId,
     num_parse_float: FuncId,
     num_is_integer_f: FuncId,
@@ -4236,26 +4272,39 @@ impl<'a> LowerCtx<'a> {
                 // Receiver is i64 or f64; route to the matching intrinsic
                 // (toString currently returns the same as `String(n)`).
                 if let Expr::Member { obj: recv_id, name: m_name } = self.ast.get_expr(*callee)
-                    && (m_name == "toFixed" || m_name == "toString")
+                    && matches!(
+                        m_name.as_str(),
+                        "toFixed" | "toString" | "toExponential" | "toPrecision"
+                    )
                 {
                     let recv_op = self.lower_expr(*recv_id);
                     let recv_ty = self.operand_ty(&recv_op);
                     if recv_ty == Type::I64 || recv_ty == Type::F64 {
-                        let target = if m_name == "toFixed" {
-                            if recv_ty == Type::F64 {
+                        let is_f64 = recv_ty == Type::F64;
+                        let target = match m_name.as_str() {
+                            "toFixed" => if is_f64 {
                                 self.intrinsics.num_to_fixed_f
                             } else {
                                 self.intrinsics.num_to_fixed_i
-                            }
-                        } else {
-                            // toString: route to the i64_to_str / f64_to_str
-                            // intrinsics that already format primitives for
-                            // string concat coercion.
-                            if recv_ty == Type::F64 {
+                            },
+                            "toExponential" => if is_f64 {
+                                self.intrinsics.num_to_exp_f
+                            } else {
+                                self.intrinsics.num_to_exp_i
+                            },
+                            "toPrecision" => if is_f64 {
+                                self.intrinsics.num_to_precision_f
+                            } else {
+                                self.intrinsics.num_to_precision_i
+                            },
+                            // toString: i64_to_str / f64_to_str — same
+                            // formatters powering Number-to-String
+                            // coercion in `+`.
+                            _ => if is_f64 {
                                 self.intrinsics.f64_to_str
                             } else {
                                 self.intrinsics.i64_to_str
-                            }
+                            },
                         };
                         let mut argv = vec![recv_op];
                         for a in args {
@@ -8055,6 +8104,10 @@ impl<'a> LowerCtx<'a> {
             || fid == i.str_replace_all
             || fid == i.num_to_fixed_f
             || fid == i.num_to_fixed_i
+            || fid == i.num_to_exp_f
+            || fid == i.num_to_exp_i
+            || fid == i.num_to_precision_f
+            || fid == i.num_to_precision_i
             || fid == i.arr_flat
             || fid == i.arr_concat
             || fid == i.arr_reverse
