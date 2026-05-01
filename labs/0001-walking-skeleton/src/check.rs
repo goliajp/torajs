@@ -1344,10 +1344,12 @@ impl Checker {
                         vec![Type::String],
                         Box::new(Type::Boolean),
                     )),
-                    (Type::String, "indexOf") => Ok(Type::Function(
-                        vec![Type::String],
-                        Box::new(Type::Number),
-                    )),
+                    (Type::String, "indexOf") | (Type::String, "lastIndexOf") => {
+                        Ok(Type::Function(
+                            vec![Type::String],
+                            Box::new(Type::Number),
+                        ))
+                    }
                     // s.split(sep): string[] — borrow-shaped on both args.
                     (Type::String, "split") => Ok(Type::Function(
                         vec![Type::String],

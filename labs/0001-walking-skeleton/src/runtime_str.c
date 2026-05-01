@@ -341,6 +341,20 @@ void *__torajs_str_replace_all(const uint8_t *s, const uint8_t *needle, const ui
     return p;
 }
 
+/* `s.lastIndexOf(needle)` — reverse memcmp scan, -1 on miss. */
+int64_t __torajs_str_last_index_of(const uint8_t *s, const uint8_t *needle) {
+    uint64_t s_len = *(const uint64_t *)s;
+    uint64_t n_len = *(const uint64_t *)needle;
+    if (n_len == 0) return (int64_t)s_len;
+    if (n_len > s_len) return -1;
+    for (int64_t i = (int64_t)(s_len - n_len); i >= 0; i--) {
+        if (memcmp(s + 8 + (uint64_t)i, needle + 8, (size_t)n_len) == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
 /* `Math.imul(a, b)` — 32-bit signed integer multiplication, low 32
  * bits, sign-extended. Same shape as JS spec.
  */

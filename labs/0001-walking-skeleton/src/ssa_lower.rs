@@ -577,6 +577,13 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         &[Type::Str, Type::Str],
         Type::I64,
     );
+    let str_last_index_of_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_str_last_index_of",
+        &[Type::Str, Type::Str],
+        Type::I64,
+    );
     let str_includes_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -1191,6 +1198,7 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         str_starts_with: str_starts_with_id,
         str_ends_with: str_ends_with_id,
         str_index_of: str_index_of_id,
+        str_last_index_of: str_last_index_of_id,
         str_includes: str_includes_id,
         str_eq: str_eq_id,
         str_split: str_split_id,
@@ -1382,6 +1390,7 @@ struct Intrinsics {
     str_starts_with: FuncId,
     str_ends_with: FuncId,
     str_index_of: FuncId,
+    str_last_index_of: FuncId,
     str_includes: FuncId,
     str_eq: FuncId,
     str_split: FuncId,
@@ -4867,6 +4876,7 @@ impl<'a> LowerCtx<'a> {
                             | "trim" | "trimStart" | "trimEnd"
                             | "padStart" | "padEnd"
                             | "replace" | "replaceAll" | "at"
+                            | "lastIndexOf"
                         )
                     {
                         let mut argv = Vec::with_capacity(args.len() + 1);
@@ -4892,6 +4902,7 @@ impl<'a> LowerCtx<'a> {
                             "endsWith" => (self.intrinsics.str_ends_with, Type::Bool),
                             "includes" => (self.intrinsics.str_includes, Type::Bool),
                             "indexOf" => (self.intrinsics.str_index_of, Type::I64),
+                            "lastIndexOf" => (self.intrinsics.str_last_index_of, Type::I64),
                             "split" => {
                                 // Output is Array<string> — intern the
                                 // layout once so the result type tag is
@@ -7961,6 +7972,7 @@ impl<'a> LowerCtx<'a> {
             || fid == i.str_starts_with
             || fid == i.str_ends_with
             || fid == i.str_index_of
+            || fid == i.str_last_index_of
             || fid == i.str_includes
             || fid == i.str_eq
             || fid == i.str_split
