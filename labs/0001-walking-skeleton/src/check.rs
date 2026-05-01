@@ -1292,6 +1292,12 @@ impl Checker {
                             Box::new(Type::Array(Box::new(inner))),
                         ))
                     }
+                    // `xs.indexOf(needle)` — linear scan; returns -1
+                    // on miss. Needle must match the element type.
+                    (Type::Array(elem), "indexOf") => {
+                        let inner = (**elem).clone();
+                        Ok(Type::Function(vec![inner], Box::new(Type::Number)))
+                    }
                     // M6.2 — `xs.map(fn)`: takes a `(T) => T` closure,
                     // returns `T[]` (a fresh array). MVP keeps input
                     // and output element types the same; non-uniform

@@ -3875,6 +3875,188 @@ impl<'a> LowerCtx<'a> {
                         );
                         return Operand::Value(v);
                     }
+                    // `arr.indexOf(needle)` — inline SSA loop.
+                    // Returns -1 if needle not found. Per-element
+                    // compare picks ICmp / FCmp / __torajs_str_eq
+                    // based on the array's element type. No
+                    // allocations; LLVM auto-vectorizes the i64 path.
+                    if let Type::Arr(arr_id) = recv_ty
+                        && method == "indexOf"
+                        && args.len() == 1
+                    {
+                        let elem_ty = self.arr_layouts[arr_id.0 as usize];
+                        let needle = self.lower_expr(args[0]);
+                        let result_slot =
+                            self.alloca_in_entry(Type::I64, Some("__idx"));
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Store(
+                                Operand::ConstI64(-1),
+                                Operand::Value(result_slot),
+                                0,
+                            ),
+                        );
+                        let i_slot = self.alloca_in_entry(Type::I64, Some("__i"));
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Store(
+                                Operand::ConstI64(0),
+                                Operand::Value(i_slot),
+                                0,
+                            ),
+                        );
+                        let len_v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(Type::I64, recv_op, 0),
+                            Type::I64,
+                            None,
+                        );
+                        let header = self.f.add_block();
+                        let body = self.f.add_block();
+                        let after = self.f.add_block();
+                        let cb = self.cur_block;
+                        self.f.set_term(cb, Terminator::Br(header));
+                        self.cur_block = header;
+                        let i_cur = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(Type::I64, Operand::Value(i_slot), 0),
+                            Type::I64,
+                            None,
+                        );
+                        let in_bounds = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::ICmp(
+                                IPred::Slt,
+                                Operand::Value(i_cur),
+                                Operand::Value(len_v),
+                            ),
+                            Type::Bool,
+                            None,
+                        );
+                        let cb = self.cur_block;
+                        self.f.set_term(
+                            cb,
+                            Terminator::CondBr {
+                                cond: Operand::Value(in_bounds),
+                                then_blk: body,
+                                else_blk: after,
+                            },
+                        );
+                        self.cur_block = body;
+                        // offset = 16 + i * 8
+                        let scaled = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::BinOp(
+                                SsaBinOp::Shl,
+                                Operand::Value(i_cur),
+                                Operand::ConstI64(3),
+                            ),
+                            Type::I64,
+                            None,
+                        );
+                        let off = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::BinOp(
+                                SsaBinOp::Add,
+                                Operand::Value(scaled),
+                                Operand::ConstI64(16),
+                            ),
+                            Type::I64,
+                            None,
+                        );
+                        // Use LoadDyn (the IR's "load <ty> from <ptr> +
+                        // <i64-offset>" instruction) so we don't have
+                        // to ptr-arith via raw BinOp::Add on a pointer.
+                        let elem = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::LoadDyn(elem_ty, recv_op, Operand::Value(off)),
+                            elem_ty,
+                            None,
+                        );
+                        let eq = match elem_ty {
+                            Type::F64 => self.f.append_inst(
+                                self.cur_block,
+                                InstKind::FCmp(
+                                    FPred::Oeq,
+                                    Operand::Value(elem),
+                                    needle,
+                                ),
+                                Type::Bool,
+                                None,
+                            ),
+                            Type::Str => self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(
+                                    self.intrinsics.str_eq,
+                                    vec![Operand::Value(elem), needle],
+                                ),
+                                Type::Bool,
+                                None,
+                            ),
+                            _ => self.f.append_inst(
+                                self.cur_block,
+                                InstKind::ICmp(
+                                    IPred::Eq,
+                                    Operand::Value(elem),
+                                    needle,
+                                ),
+                                Type::Bool,
+                                None,
+                            ),
+                        };
+                        let found = self.f.add_block();
+                        let next = self.f.add_block();
+                        let cb = self.cur_block;
+                        self.f.set_term(
+                            cb,
+                            Terminator::CondBr {
+                                cond: Operand::Value(eq),
+                                then_blk: found,
+                                else_blk: next,
+                            },
+                        );
+                        self.cur_block = found;
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Store(
+                                Operand::Value(i_cur),
+                                Operand::Value(result_slot),
+                                0,
+                            ),
+                        );
+                        let cb = self.cur_block;
+                        self.f.set_term(cb, Terminator::Br(after));
+                        self.cur_block = next;
+                        let next_i = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::BinOp(
+                                SsaBinOp::Add,
+                                Operand::Value(i_cur),
+                                Operand::ConstI64(1),
+                            ),
+                            Type::I64,
+                            None,
+                        );
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Store(
+                                Operand::Value(next_i),
+                                Operand::Value(i_slot),
+                                0,
+                            ),
+                        );
+                        let cb = self.cur_block;
+                        self.f.set_term(cb, Terminator::Br(header));
+                        self.cur_block = after;
+                        let _ = arr_id;
+                        let r = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(Type::I64, Operand::Value(result_slot), 0),
+                            Type::I64,
+                            None,
+                        );
+                        return Operand::Value(r);
+                    }
                 }
                 // M6.2 — `xs.map / filter / reduce / forEach (fn[, init])`.
                 // Common shape: receiver lowers to a `Type::Arr` value
