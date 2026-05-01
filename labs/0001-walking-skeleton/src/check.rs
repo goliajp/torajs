@@ -1624,6 +1624,31 @@ impl Checker {
                     let _ = args;
                     return Ok(resolved_ret);
                 }
+                // Math.min / Math.max — variadic. Accept any arg count >= 2,
+                // every arg must be Number; result is Number. ssa-lower
+                // folds the call into a pairwise reduction. The general
+                // Type::Function check below would reject ≠2 args here.
+                if let Expr::Member { obj, name: m } = ast.get_expr(*callee)
+                    && let Expr::Ident(ns) = ast.get_expr(*obj)
+                    && ns == "Math"
+                    && (m == "min" || m == "max")
+                {
+                    if args.len() < 2 {
+                        return Err(format!(
+                            "Math.{m} requires at least 2 args, got {}",
+                            args.len()
+                        ));
+                    }
+                    for &aid in args {
+                        let aty = self.type_of(ast, aid)?;
+                        if aty != Type::Number {
+                            return Err(format!(
+                                "Math.{m} args must be number, got {aty:?}"
+                            ));
+                        }
+                    }
+                    return Ok(Type::Number);
+                }
                 let callee_ty = self.type_of(ast, *callee)?;
                 let Type::Function(params, ret) = callee_ty else {
                     return Err(format!("not callable: type {callee_ty:?}"));

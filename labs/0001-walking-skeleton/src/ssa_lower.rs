@@ -3986,6 +3986,36 @@ impl<'a> LowerCtx<'a> {
                 }
             }
             Expr::Call { callee, args } => {
+                // `Math.min` / `Math.max` — variadic, fold into a pairwise
+                // reduction. ssa-lower emits left-to-right: r = min(a,b);
+                // r = min(r, c); r = min(r, d); ...
+                if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
+                    && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
+                    && ns == "Math"
+                    && (m_name == "min" || m_name == "max")
+                    && args.len() > 2
+                {
+                    let target = if m_name == "min" {
+                        self.intrinsics.math_min
+                    } else {
+                        self.intrinsics.math_max
+                    };
+                    let arg_ids: Vec<ExprId> = args.clone();
+                    let mut acc = self.lower_expr(arg_ids[0]);
+                    acc = self.coerce_to_f64(acc);
+                    for aid in arg_ids.iter().skip(1) {
+                        let next_op = self.lower_expr(*aid);
+                        let next_v = self.coerce_to_f64(next_op);
+                        let v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(target, vec![acc, next_v]),
+                            Type::F64,
+                            None,
+                        );
+                        acc = Operand::Value(v);
+                    }
+                    return acc;
+                }
                 // `Number.<method>(args)` — global Number namespace. Each
                 // method has a specialized SSA path: parseInt / parseFloat
                 // route to a single str-based intrinsic; isInteger /
