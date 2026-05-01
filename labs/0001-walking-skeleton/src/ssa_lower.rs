@@ -32,13 +32,14 @@ use crate::ssa::{
     Type, ValueId,
 };
 
-/// Phase H.1 — every heap-allocated object reserves a single 8-byte slot
-/// at offset 0 for a runtime class tag. Field 0 lives at offset
-/// `OBJ_HEADER_SIZE`, field i at `OBJ_HEADER_SIZE + i*8`. The tag itself
-/// is written by the allocator (currently a constant 0; class-aware
-/// tagging arrives in H.1.b). Closure env layout is unaffected — it has
+/// Phase H — every heap-allocated object reserves a 16-byte header:
+///   offset 0 — class tag (u32-sized but 8-byte aligned slot)
+///   offset 8 — vtable pointer (filled with a per-class const global
+///              by the factory; null for plain `type` aliases)
+/// Field 0 lives at `OBJ_HEADER_SIZE`, field i at
+/// `OBJ_HEADER_SIZE + i*8`. Closure env layout is unaffected — it has
 /// its own fn-ptr header at offset 0 and lives in a separate alloc path.
-const OBJ_HEADER_SIZE: u64 = 8;
+const OBJ_HEADER_SIZE: u64 = 16;
 
 /// M3 — generic call-site retargeting. For each `Expr::Call` whose ExprId
 /// is a generic call site, the typechecker has already inferred the
@@ -8183,6 +8184,16 @@ impl<'a> LowerCtx<'a> {
                 self.f.append_void(
                     self.cur_block,
                     InstKind::Store(Operand::ConstI64(tag as i64), Operand::Value(obj_ptr), 0),
+                );
+                // Phase H.3.a — vtable pointer slot at offset 8. Stays
+                // null until H.3.b emits per-class vtable globals and
+                // routes the factory through them. obj.method() still
+                // uses static `__cm_C__M(obj, ...)` dispatch so the slot
+                // is never read yet — this commit just reserves the
+                // header layout.
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Store(Operand::ConstPtrNull, Operand::Value(obj_ptr), 8),
                 );
                 for (i, val) in field_vals.iter().enumerate() {
                     let offset = OBJ_HEADER_SIZE + i as u64 * 8;
