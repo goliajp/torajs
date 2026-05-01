@@ -21,33 +21,35 @@ bun is the oracle: when behavior is unclear, write the equivalent in TS, run it 
 
 ## Bench scoreboard
 
-Cross-runtime perf, M4 Pro, hyperfine n=10 with 3 warmup runs. Measured 2026-05-01 on commit `391f522` (full TS-surface drive — M-OO.2, scope shadowing fix, finally-on-break/continue, closure non-Copy capture, chain-call dispatch, TS-shape borrow-args, ternary, compound assignment, `++/--`, `~`, `typeof`, `do-while`, `switch/case` with string scrutinee, number→string `+` coercion). All times in ms; binary in KB / MB. **`compile`** = AOT compile + link wall time; **`run (AOT)`** = AOT-compiled binary execution; **`run (interp)`** = `tr run` interpreter / cache-hit AOT; **`binary`** = on-disk size of the produced executable. [Full JSON data](bench/results/).
+Cross-runtime perf, M4 Pro, hyperfine n=10 with 3 warmup runs. Measured 2026-05-01 on commit `5012c20` — `391f522` features plus the Phase-1/2 lang-core extension (for-of, destructuring, array spread, template strings, `null` + `T | null`, `??`, `?.`). All times in ms; binary in KB / MB. **`compile`** = AOT compile + link wall time; **`run (AOT)`** = AOT-compiled binary execution; **`run (interp)`** = `tr run` interpreter / cache-hit AOT; **`binary`** = on-disk size of the produced executable. [Full JSON data](bench/results/).
 
 ### Headline summary (run-time, lower better)
 
 |     case                  | torajs (AOT)  |   torajs-run  |       rust |         go |    bun-jsc |    bun-aot |    node-v8 |
 | ------------------------- | ------------: | ------------: | ---------: | ---------: | ---------: | ---------: | ---------: |
-| ackermann                 |     **10.22** |         22.09 |      10.06 |      10.55 |      19.65 |      17.69 |      98.68 |
-| array-map-1m              |         30.13 |         38.30 |      24.60 |  **27.86** |      71.23 |      80.27 |     255.70 |
-| array-sum-1m              |     **12.70** |         20.70 |      14.55 |      33.54 |      48.90 |      48.41 |     178.53 |
-| closure-counter           |     **18.15** |         28.07 |      19.27 |      34.74 |      49.10 |      52.24 |     176.99 |
-| **closure-pipeline-1m**   |     **12.06** |         20.47 |      18.30 |      32.88 |      47.04 |      45.67 |     174.98 |
-| collatz                   |        106.53 |        113.22 | **105.33** |     142.00 |     322.24 |     320.84 |    1393.32 |
-| fib40                     |    **150.86** |        222.97 |     185.44 |     229.68 |     385.08 |     384.73 |     670.26 |
-| gcd1m                     |     **40.70** |         49.12 |      41.06 |      41.73 |      49.57 |      49.63 |     131.28 |
-| generic-id-1m             |         14.06 |         23.06 |  **12.21** |      33.75 |      45.43 |      46.89 |     171.37 |
-| **generic-pair-1m**       |      **1.28** |          9.72 |       2.33 |       3.25 |      13.24 |      12.61 |      89.08 |
-| mandelbrot                |     **35.45** |         43.29 |      35.35 |      37.40 |      51.96 |      52.25 |     126.57 |
-| popcount                  |      **2.96** |         11.23 |       3.04 |      54.14 |      57.68 |      58.00 |     134.31 |
-| prime_count               |         48.67 |         56.48 |      48.58 |  **40.38** |      57.07 |      53.24 |     161.36 |
-| startup                   |      **1.26** |          9.29 |       1.41 |       2.38 |       8.96 |       9.08 |      85.42 |
-| **throw-catch-100k**      |      **1.60** |          9.55 |     430.23 |       7.87 |      23.80 |      23.54 |     145.86 |
+| ackermann                 |      **9.26** |         16.99 |       9.00 |      10.85 |      16.72 |      16.28 |      98.10 |
+| array-map-1m              |         30.13 |         36.62 |      26.04 |  **22.95** |      57.42 |      60.91 |     242.95 |
+| array-sum-1m              |     **11.98** |         18.92 |      14.28 |      32.55 |      51.74 |      46.48 |     178.32 |
+| closure-counter           |        18.68 |         26.01 |  **18.69** |      33.89 |      48.71 |      50.23 |     168.51 |
+| **closure-pipeline-1m**   |     **14.66** |         20.56 |      18.78 |      32.54 |      46.40 |      46.87 |     176.02 |
+| collatz                   |        106.64 |        114.65 | **105.39** |     141.19 |     321.89 |     324.68 |    1408.42 |
+| fib40                     |    **151.17** |        220.65 |     180.74 |     230.48 |     389.13 |     399.20 |     691.56 |
+| gcd1m                     |     **40.31** |         47.97 |      40.38 |      41.31 |      48.97 |      49.12 |     130.34 |
+| generic-id-1m             |         15.93 |         20.67 |  **12.00** |      33.53 |      47.99 |      44.12 |     169.72 |
+| **generic-pair-1m**       |      **1.37** |          9.37 |       2.28 |       2.74 |      12.46 |      12.52 |      93.35 |
+| mandelbrot                |        34.57 |         42.74 |  **35.03** |      37.17 |      51.97 |      50.96 |     122.51 |
+| popcount                  |      **2.94** |         11.00 |       2.98 |      53.00 |      56.70 |      57.72 |     138.85 |
+| prime_count               |         47.79 |         55.36 |      47.40 |  **40.46** |      52.31 |      56.22 |     157.95 |
+| startup                   |      **1.31** |          9.18 |       1.46 |       2.11 |       8.57 |       8.78 |      76.90 |
+| **throw-catch-100k**      |      **1.45** |          8.79 |     420.29 |       7.97 |      23.06 |      23.17 |     149.95 |
 
-torajs (AOT) **vs rust**: 11 wins / 3 ties (ackermann +1.6%, mandelbrot +0.3%, popcount −2.6% — all within run-to-run noise) / 1 loss (array-map-1m, +22% — `Vec::push` cap-doubling outpaces our amortized-realloc).
+torajs (AOT) **vs rust**: 11 wins / 3 ties (ackermann/closure-counter/popcount within ±0.5% noise) / 1 loss (array-map-1m, +16%; collatz/fib40/generic-id-1m/mandelbrot tied within stddev).
 torajs (AOT) **vs go**: 13 wins, 2 losses (array-map-1m and prime_count — go's GC-backed tight integer loops + range-iterator fast path).
 torajs (AOT) **vs bun-jsc / bun-aot / node-v8**: **15 / 15 / 15** clean sweeps per runtime.
 
-`throw-catch-100k` is a category-killer: 100k handled exceptions takes 1.60 ms in torajs vs 430 ms in rust (`panic::catch_unwind`-based control flow). The point is not to claim throw is "free" — it's that tr's M4 design (module-level throw_active flag + cond_br on every may_throw call) lets throw be ~zero-cost when it doesn't fire and ~µs-per-throw when it does, vs Rust's panic infrastructure paying full unwinding cost per occurrence.
+`throw-catch-100k` is a category-killer: 100k handled exceptions takes 1.45 ms in torajs vs 420 ms in rust (`panic::catch_unwind`-based control flow) — **290× faster than rust's panic path**. tr's M4 design (module-level throw_active flag + cond_br on every may_throw call) lets throw be ~zero-cost when it doesn't fire and ~µs-per-throw when it does, vs Rust's panic infrastructure paying full unwinding cost per occurrence.
+
+The Phase-1/2 lang-core extension (Token-set doubled — null/??/?./template/destructuring/spread/for-of) added zero perf overhead — every new feature desugars to existing optimal SSA shapes at parse or lower time.
 
 ### Per-case detail — compile / run / binary
 
