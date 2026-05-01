@@ -341,6 +341,27 @@ void *__torajs_str_replace_all(const uint8_t *s, const uint8_t *needle, const ui
     return p;
 }
 
+/* `Math.imul(a, b)` — 32-bit signed integer multiplication, low 32
+ * bits, sign-extended. Same shape as JS spec.
+ */
+int64_t __torajs_math_imul(int64_t a, int64_t b) {
+    int32_t result = (int32_t)((uint32_t)((int32_t)a) * (uint32_t)((int32_t)b));
+    return (int64_t)result;
+}
+
+/* `Math.clz32(x)` — count leading zeros of x's 32-bit unsigned
+ * representation. Returns 32 if x is zero. */
+int64_t __torajs_math_clz32(int64_t x) {
+    uint32_t v = (uint32_t)((int32_t)x);
+    if (v == 0) return 32;
+    return (int64_t)__builtin_clz(v);
+}
+
+/* `Math.fround(x)` — round x to the nearest f32 then back to f64. */
+double __torajs_math_fround(double x) {
+    return (double)(float)x;
+}
+
 /* console.error / console.warn — stderr-routed primitives matching
  * console.log's three-way SSA dispatch. Same shape as the print_*
  * intrinsics but write to fd 2.

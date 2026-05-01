@@ -847,6 +847,27 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         &[Type::F64],
         Type::F64,
     );
+    let math_imul_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_math_imul",
+        &[Type::I64, Type::I64],
+        Type::I64,
+    );
+    let math_clz32_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_math_clz32",
+        &[Type::I64],
+        Type::I64,
+    );
+    let math_fround_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_math_fround",
+        &[Type::F64],
+        Type::F64,
+    );
     let print_i64_err_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -1206,6 +1227,9 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         math_atanh: math_atanh_id,
         math_expm1: math_expm1_id,
         math_log1p: math_log1p_id,
+        math_imul: math_imul_id,
+        math_clz32: math_clz32_id,
+        math_fround: math_fround_id,
         print_i64_err: print_i64_err_id,
         print_f64_err: print_f64_err_id,
         print_bool_err: print_bool_err_id,
@@ -1394,6 +1418,9 @@ struct Intrinsics {
     math_atanh: FuncId,
     math_expm1: FuncId,
     math_log1p: FuncId,
+    math_imul: FuncId,
+    math_clz32: FuncId,
+    math_fround: FuncId,
     print_i64_err: FuncId,
     print_f64_err: FuncId,
     print_bool_err: FuncId,
@@ -7666,6 +7693,9 @@ impl<'a> LowerCtx<'a> {
                         "atanh" => self.intrinsics.math_atanh,
                         "expm1" => self.intrinsics.math_expm1,
                         "log1p" => self.intrinsics.math_log1p,
+                        "imul" => self.intrinsics.math_imul,
+                        "clz32" => self.intrinsics.math_clz32,
+                        "fround" => self.intrinsics.math_fround,
                         other => {
                             panic!("ssa-lower: unknown Math method `{other}`")
                         }
@@ -7704,6 +7734,7 @@ impl<'a> LowerCtx<'a> {
             || fid == self.intrinsics.math_atanh
             || fid == self.intrinsics.math_expm1
             || fid == self.intrinsics.math_log1p
+            || fid == self.intrinsics.math_fround
     }
 
     fn is_math_binary(&self, fid: FuncId) -> bool {
@@ -7844,6 +7875,9 @@ impl<'a> LowerCtx<'a> {
             || fid == i.math_atanh
             || fid == i.math_expm1
             || fid == i.math_log1p
+            || fid == i.math_imul
+            || fid == i.math_clz32
+            || fid == i.math_fround
             || fid == i.str_repeat
             || fid == i.str_to_upper
             || fid == i.str_to_lower

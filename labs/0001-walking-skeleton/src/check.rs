@@ -1216,11 +1216,15 @@ impl Checker {
                             | "sin" | "cos" | "tan" | "asin" | "acos" | "atan"
                             | "log2" | "log10" | "cbrt"
                             | "sinh" | "cosh" | "tanh" | "asinh" | "acosh" | "atanh"
-                            | "expm1" | "log1p"
+                            | "expm1" | "log1p" | "clz32" | "fround"
                         ) =>
                     {
                         Ok(Type::Function(vec![Type::Number], Box::new(Type::Number)))
                     }
+                    (Type::Object("Math"), "imul") => Ok(Type::Function(
+                        vec![Type::Number, Type::Number],
+                        Box::new(Type::Number),
+                    )),
                     // Two-arg methods: pow(x, y), min(a, b), max(a, b),
                     // atan2(y, x).
                     (Type::Object("Math"), m)
