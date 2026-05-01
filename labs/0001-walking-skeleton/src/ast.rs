@@ -203,6 +203,14 @@ pub enum Stmt {
         finally_body: Option<Vec<Stmt>>,
     },
     Block(Vec<Stmt>),
+    /// Compiler-generated sequence of statements that share the
+    /// SURROUNDING scope (unlike `Block` which opens a fresh frame).
+    /// Produced by parse-time desugars like destructuring (`let [a, b]
+    /// = src` expands into 2-3 lets that must be visible in the outer
+    /// scope, not buried in a child block). ssa_lower flattens it via
+    /// a single recursive `lower_stmt` per child — no scope push, no
+    /// drop emission of its own.
+    Multi(Vec<Stmt>),
     FnDecl {
         name: String,
         /// M3 — type parameters declared by `function id<T, U>(...)`. Empty
@@ -683,7 +691,7 @@ fn collect_super_in_stmt(
             }
             collect_super_in_stmt(ast, body, out);
         }
-        Stmt::Block(stmts) => {
+        Stmt::Block(stmts) | Stmt::Multi(stmts) => {
             for st in stmts {
                 collect_super_in_stmt(ast, st, out);
             }
@@ -1031,6 +1039,12 @@ fn walk_stmt(ast: &Ast, s: &Stmt, bound: &mut Vec<String>, out: &mut Vec<String>
             }
             bound.truncate(saved);
         }
+        Stmt::Multi(stmts) => {
+            // Same surrounding scope — bindings stay visible after.
+            for st in stmts {
+                walk_stmt(ast, st, bound, out);
+            }
+        }
         Stmt::Break | Stmt::Continue => {}
         Stmt::Throw(eid) => walk_expr(ast, *eid, bound, out),
         Stmt::Try {
@@ -1161,7 +1175,7 @@ fn scan_stmt_for_throws(
             }
             scan_stmt_for_throws(ast, body, direct, called);
         }
-        Stmt::Block(stmts) => {
+        Stmt::Block(stmts) | Stmt::Multi(stmts) => {
             for st in stmts {
                 scan_stmt_for_throws(ast, st, direct, called);
             }
@@ -1470,6 +1484,12 @@ impl Ast {
             }
             Stmt::Block(stmts) => {
                 println!("{pad}Block");
+                for s in stmts {
+                    self.print_stmt(s, indent + 1);
+                }
+            }
+            Stmt::Multi(stmts) => {
+                println!("{pad}Multi");
                 for s in stmts {
                     self.print_stmt(s, indent + 1);
                 }

@@ -951,6 +951,12 @@ impl Checker {
                 }
                 self.scopes.pop();
             }
+            Stmt::Multi(stmts) => {
+                // Surrounding scope shared — no push.
+                for s in stmts {
+                    self.check_stmt(ast, s);
+                }
+            }
             Stmt::LetDecl {
                 mutable,
                 name,

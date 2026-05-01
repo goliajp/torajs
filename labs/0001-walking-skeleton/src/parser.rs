@@ -38,6 +38,7 @@ pub fn parse(tokens: &[Spanned]) -> Result<Ast, String> {
         tokens,
         pos: 0,
         ast: Ast::default(),
+        desugar_id: 0,
     };
     p.parse_program()?;
     Ok(p.ast)
@@ -47,6 +48,10 @@ struct Parser<'a> {
     tokens: &'a [Spanned],
     pos: usize,
     ast: Ast,
+    /// Monotone counter used by parse-time desugars (for-of, destructuring,
+    /// template literal interpolation) to mint collision-free temp names.
+    /// Starts at 0; each `mint_temp_id` returns + increments.
+    desugar_id: u32,
 }
 
 impl Parser<'_> {
@@ -243,6 +248,16 @@ impl Parser<'_> {
         if let Some(mutable) = mutable {
             let kw = if mutable { "let" } else { "const" };
             self.pos += 1;
+            // Destructuring: `let [a, b] = src` or `let { x, y } = src`.
+            // Parsed inline so it shares the let-decl's lookahead. Both
+            // forms desugar to `let __t = src; let <field>...; ...` so the
+            // backend never sees a destructuring pattern.
+            if matches!(self.peek(), Token::LBracket) {
+                return self.parse_array_destructuring(mutable);
+            }
+            if matches!(self.peek(), Token::LBrace) {
+                return self.parse_object_destructuring(mutable);
+            }
             let name = match self.peek() {
                 Token::Ident(n) => n.clone(),
                 t => {
@@ -744,6 +759,12 @@ impl Parser<'_> {
     /// as a stmt (typically a `let` decl or expr-stmt). Cond is an expr.
     /// Step is an expr (we don't have post-increment yet — use
     /// `i = i + 1`).
+    fn mint_desugar_id(&mut self) -> u32 {
+        let id = self.desugar_id;
+        self.desugar_id += 1;
+        id
+    }
+
     fn parse_for(&mut self) -> Result<Stmt, String> {
         self.pos += 1; // consume `for`
         match self.peek() {
@@ -754,6 +775,18 @@ impl Parser<'_> {
                     self.at()
                 ));
             }
+        }
+        // for-of detection: `for ( (let|const) IDENT (`:` T)? "of" EXPR )`.
+        // `of` is a contextual keyword (Token::Ident("of")) so this only
+        // triggers when the user means it. Falls back to C-style for-loop
+        // otherwise. The desugar produces zero-overhead SSA: source is
+        // bound once into a `__forof_src_N` temp (skipped if the source
+        // was already an Ident — mem2reg would elide it anyway, but we
+        // skip eagerly so the AST stays small), `__forof_end_N` caches
+        // length, classic for-loop walks indices, body sees the user's
+        // binding rebound from `__src[__i]`.
+        if let Some(stmt) = self.try_parse_for_of()? {
+            return Ok(stmt);
         }
         // init clause — empty (just `;`) or any stmt that ends with `;`.
         let init = if matches!(self.peek(), Token::Semi) {
@@ -795,6 +828,392 @@ impl Parser<'_> {
         }
         let body = Box::new(self.parse_stmt()?);
         Ok(Stmt::For { init, cond, step, body })
+    }
+
+    /// Try to recognize a `for ( (let|const) IDENT (: T)? "of" EXPR )` head
+    /// (we're already past the `(`). On match, consumes through the closing
+    /// `)`, parses the body, and emits the desugared C-style for-loop. On
+    /// non-match, restores `pos` and returns `Ok(None)` so the caller falls
+    /// back to the regular for-loop parser.
+    ///
+    /// Performance shape: the desugar collapses to the same SSA the user
+    /// would write by hand —
+    ///   { let __forof_src_N = src;       // skipped if src is Ident
+    ///     let __forof_end_N = __src.length;
+    ///     for (let __forof_i_N = 0; __i < __end; __i = __i + 1) {
+    ///       let v = __src[__i];
+    ///       <body>
+    ///     } }
+    /// — so mem2reg trivializes it and the loop runs at the same speed
+    /// as a hand-written index walk.
+    fn try_parse_for_of(&mut self) -> Result<Option<Stmt>, String> {
+        let saved = self.pos;
+        if !matches!(self.peek(), Token::Let | Token::Const) {
+            return Ok(None);
+        }
+        self.pos += 1;
+        let var_name = match self.peek() {
+            Token::Ident(n) => n.clone(),
+            _ => {
+                self.pos = saved;
+                return Ok(None);
+            }
+        };
+        self.pos += 1;
+        // Optional `: T` annotation — for now consumed but not used; the
+        // desugared `let v = __src[__i]` infers the element type from the
+        // array. Carrying the annotation forward isn't necessary for v0.
+        let mut have_type_ann = false;
+        if matches!(self.peek(), Token::Colon) {
+            self.pos += 1;
+            let _ann = self.parse_type_ann()?;
+            have_type_ann = true;
+        }
+        // Contextual `of` keyword — must be an Ident("of"). Anything else
+        // (`=` for a regular let-in-init, `;` for empty init, etc.) means
+        // this is NOT a for-of and we restore.
+        let is_of = matches!(self.peek(), Token::Ident(n) if n == "of");
+        if !is_of {
+            self.pos = saved;
+            return Ok(None);
+        }
+        self.pos += 1; // consume "of"
+        let _ = have_type_ann; // not yet propagated; suppress unused warning
+        let src = self.parse_expr()?;
+        match self.peek() {
+            Token::RParen => self.pos += 1,
+            t => {
+                return Err(format!(
+                    "expected `)` after for-of source, got {t:?} at {}",
+                    self.at()
+                ));
+            }
+        }
+        let body = self.parse_stmt()?;
+
+        // Emit the desugar. Mint a unique suffix per for-of to avoid
+        // collisions with user code AND with sibling for-ofs in the same
+        // scope (block-scope shadow would also save us, but explicit
+        // unique names are cheaper to reason about).
+        let id = self.mint_desugar_id();
+        let src_name = format!("__forof_src_{id}");
+        let end_name = format!("__forof_end_{id}");
+        let i_name = format!("__forof_i_{id}");
+
+        // src ident — if `src` is already an Ident, reuse it directly so
+        // we skip allocating a redundant temp. Cross-scope rebind handled
+        // by the regular LetDecl path; the alias-init rule already covers
+        // that case so the heap stays owned by the original binding.
+        let src_is_ident = matches!(self.ast.get_expr(src), Expr::Ident(_));
+        let src_ref_name: String = if src_is_ident {
+            if let Expr::Ident(n) = self.ast.get_expr(src) {
+                n.clone()
+            } else {
+                unreachable!()
+            }
+        } else {
+            src_name.clone()
+        };
+
+        let mut stmts: Vec<Stmt> = Vec::new();
+        if !src_is_ident {
+            // `let __src = <src>;`
+            stmts.push(Stmt::LetDecl {
+                mutable: false,
+                name: src_name.clone(),
+                type_ann: None,
+                init: src,
+            });
+        }
+        // `let __end = __src.length;`
+        let src_ident_for_len = self.ast.add_expr(Expr::Ident(src_ref_name.clone()));
+        let end_init = self.ast.add_expr(Expr::Member {
+            obj: src_ident_for_len,
+            name: "length".into(),
+        });
+        stmts.push(Stmt::LetDecl {
+            mutable: false,
+            name: end_name.clone(),
+            type_ann: Some("number".into()),
+            init: end_init,
+        });
+        // `for (let __i = 0; __i < __end; __i = __i + 1) { let v = __src[__i]; body }`
+        let zero = self.ast.add_expr(Expr::Number(0.0));
+        let init_stmt = Stmt::LetDecl {
+            mutable: true,
+            name: i_name.clone(),
+            type_ann: Some("number".into()),
+            init: zero,
+        };
+        let i_ref_for_cond = self.ast.add_expr(Expr::Ident(i_name.clone()));
+        let end_ref = self.ast.add_expr(Expr::Ident(end_name.clone()));
+        let cond_expr = self.ast.add_expr(Expr::BinOp {
+            op: BinOp::Lt,
+            left: i_ref_for_cond,
+            right: end_ref,
+        });
+        let i_ref_for_step_lhs = self.ast.add_expr(Expr::Ident(i_name.clone()));
+        let i_ref_for_step_rhs = self.ast.add_expr(Expr::Ident(i_name.clone()));
+        let one = self.ast.add_expr(Expr::Number(1.0));
+        let step_inc = self.ast.add_expr(Expr::BinOp {
+            op: BinOp::Add,
+            left: i_ref_for_step_rhs,
+            right: one,
+        });
+        let i_target = self.ast.add_expr(Expr::Ident(i_name.clone()));
+        let _ = i_ref_for_step_lhs; // unused; keep the index symbol uniqueness
+        let step_assign = self.ast.add_expr(Expr::Assign {
+            target: i_target,
+            value: step_inc,
+        });
+        // Body wrapped in a block so the `let v = __src[__i]` only lives
+        // for one iteration's scope — block-close drop emission cleans up
+        // any non-Copy element borrow.
+        let i_ref_for_index = self.ast.add_expr(Expr::Ident(i_name.clone()));
+        let src_ref_for_index = self.ast.add_expr(Expr::Ident(src_ref_name.clone()));
+        let elem_init = self.ast.add_expr(Expr::Index {
+            obj: src_ref_for_index,
+            index: i_ref_for_index,
+        });
+        let mut body_stmts: Vec<Stmt> = Vec::new();
+        body_stmts.push(Stmt::LetDecl {
+            mutable: false,
+            name: var_name,
+            type_ann: None,
+            init: elem_init,
+        });
+        body_stmts.push(body);
+        let body_block = Stmt::Block(body_stmts);
+        let for_stmt = Stmt::For {
+            init: Some(Box::new(init_stmt)),
+            cond: Some(cond_expr),
+            step: Some(step_assign),
+            body: Box::new(body_block),
+        };
+        stmts.push(for_stmt);
+        Ok(Some(Stmt::Block(stmts)))
+    }
+
+    /// `let [a, b, c] = src` → `let __t = src; let a = __t[0]; let b = __t[1]; ...`.
+    /// Source is bound once into a `__destr_src_N` temp (skipped if the
+    /// source was already an Ident — the alias rule keeps the original
+    /// binding the owner). Each pattern entry produces a regular
+    /// LetDecl; mem2reg + ssa_lower already optimize the resulting
+    /// shape down to direct loads. Element omission via comma-comma
+    /// (`let [, b] = src`) and tail rest (`let [a, ...rest] = src`)
+    /// are not supported in this first pass — they'd need a runtime
+    /// slice helper to produce the rest array.
+    fn parse_array_destructuring(&mut self, mutable: bool) -> Result<Stmt, String> {
+        self.pos += 1; // consume `[`
+        let mut names: Vec<String> = Vec::new();
+        if !matches!(self.peek(), Token::RBracket) {
+            loop {
+                let n = match self.peek() {
+                    Token::Ident(n) => n.clone(),
+                    t => {
+                        return Err(format!(
+                            "expected identifier in array destructuring, got {t:?} at {}",
+                            self.at()
+                        ));
+                    }
+                };
+                self.pos += 1;
+                names.push(n);
+                if matches!(self.peek(), Token::Comma) {
+                    self.pos += 1;
+                    continue;
+                }
+                break;
+            }
+        }
+        match self.peek() {
+            Token::RBracket => self.pos += 1,
+            t => {
+                return Err(format!(
+                    "expected `]` ending array destructuring, got {t:?} at {}",
+                    self.at()
+                ));
+            }
+        }
+        // Optional `: T[]` annotation on the whole pattern is not
+        // tracked at this layer — the desugared elements get their type
+        // from the array's element type via inference.
+        if matches!(self.peek(), Token::Colon) {
+            self.pos += 1;
+            let _ann = self.parse_type_ann()?;
+        }
+        match self.peek() {
+            Token::Eq => self.pos += 1,
+            t => {
+                return Err(format!(
+                    "expected `=` after destructuring pattern, got {t:?} at {}",
+                    self.at()
+                ));
+            }
+        }
+        let src = self.parse_expr()?;
+        if matches!(self.peek(), Token::Semi) {
+            self.pos += 1;
+        }
+        let stmts = self.emit_array_destructuring(mutable, &names, src);
+        // Stmt::Multi flattens at lowering time, so the user-visible
+        // lets join the surrounding scope rather than a fresh frame —
+        // matches TS semantics where `let [a, b] = src; …; a` works.
+        Ok(Stmt::Multi(stmts))
+    }
+
+    fn emit_array_destructuring(
+        &mut self,
+        mutable: bool,
+        names: &[String],
+        src: ExprId,
+    ) -> Vec<Stmt> {
+        let id = self.mint_desugar_id();
+        let src_is_ident = matches!(self.ast.get_expr(src), Expr::Ident(_));
+        let src_ref_name: String = if src_is_ident {
+            if let Expr::Ident(n) = self.ast.get_expr(src) {
+                n.clone()
+            } else {
+                unreachable!()
+            }
+        } else {
+            format!("__destr_src_{id}")
+        };
+        let mut stmts: Vec<Stmt> = Vec::new();
+        if !src_is_ident {
+            stmts.push(Stmt::LetDecl {
+                mutable: false,
+                name: src_ref_name.clone(),
+                type_ann: None,
+                init: src,
+            });
+        }
+        for (i, name) in names.iter().enumerate() {
+            let src_ref = self.ast.add_expr(Expr::Ident(src_ref_name.clone()));
+            let idx = self.ast.add_expr(Expr::Number(i as f64));
+            let elem = self.ast.add_expr(Expr::Index { obj: src_ref, index: idx });
+            stmts.push(Stmt::LetDecl {
+                mutable,
+                name: name.clone(),
+                type_ann: None,
+                init: elem,
+            });
+        }
+        stmts
+    }
+
+    /// `let { x, y } = src` → `let __t = src; let x = __t.x; let y = __t.y;`.
+    /// Renaming `let { x: foo, y: bar } = src` rebinds to foo / bar.
+    /// Same source-binding rule as array destructuring.
+    fn parse_object_destructuring(&mut self, mutable: bool) -> Result<Stmt, String> {
+        self.pos += 1; // consume `{`
+        let mut entries: Vec<(String, String)> = Vec::new(); // (field_name, bound_as)
+        if !matches!(self.peek(), Token::RBrace) {
+            loop {
+                let field = match self.peek() {
+                    Token::Ident(n) => n.clone(),
+                    t => {
+                        return Err(format!(
+                            "expected identifier in object destructuring, got {t:?} at {}",
+                            self.at()
+                        ));
+                    }
+                };
+                self.pos += 1;
+                let bound = if matches!(self.peek(), Token::Colon) {
+                    self.pos += 1;
+                    let n = match self.peek() {
+                        Token::Ident(n) => n.clone(),
+                        t => {
+                            return Err(format!(
+                                "expected rename target after `:` in destructuring, got {t:?} at {}",
+                                self.at()
+                            ));
+                        }
+                    };
+                    self.pos += 1;
+                    n
+                } else {
+                    field.clone()
+                };
+                entries.push((field, bound));
+                if matches!(self.peek(), Token::Comma) {
+                    self.pos += 1;
+                    continue;
+                }
+                break;
+            }
+        }
+        match self.peek() {
+            Token::RBrace => self.pos += 1,
+            t => {
+                return Err(format!(
+                    "expected `}}` ending object destructuring, got {t:?} at {}",
+                    self.at()
+                ));
+            }
+        }
+        if matches!(self.peek(), Token::Colon) {
+            self.pos += 1;
+            let _ann = self.parse_type_ann()?;
+        }
+        match self.peek() {
+            Token::Eq => self.pos += 1,
+            t => {
+                return Err(format!(
+                    "expected `=` after destructuring pattern, got {t:?} at {}",
+                    self.at()
+                ));
+            }
+        }
+        let src = self.parse_expr()?;
+        if matches!(self.peek(), Token::Semi) {
+            self.pos += 1;
+        }
+        let stmts = self.emit_object_destructuring(mutable, &entries, src);
+        Ok(Stmt::Multi(stmts))
+    }
+
+    fn emit_object_destructuring(
+        &mut self,
+        mutable: bool,
+        entries: &[(String, String)],
+        src: ExprId,
+    ) -> Vec<Stmt> {
+        let id = self.mint_desugar_id();
+        let src_is_ident = matches!(self.ast.get_expr(src), Expr::Ident(_));
+        let src_ref_name: String = if src_is_ident {
+            if let Expr::Ident(n) = self.ast.get_expr(src) {
+                n.clone()
+            } else {
+                unreachable!()
+            }
+        } else {
+            format!("__destr_src_{id}")
+        };
+        let mut stmts: Vec<Stmt> = Vec::new();
+        if !src_is_ident {
+            stmts.push(Stmt::LetDecl {
+                mutable: false,
+                name: src_ref_name.clone(),
+                type_ann: None,
+                init: src,
+            });
+        }
+        for (field, bound) in entries {
+            let src_ref = self.ast.add_expr(Expr::Ident(src_ref_name.clone()));
+            let mem = self.ast.add_expr(Expr::Member {
+                obj: src_ref,
+                name: field.clone(),
+            });
+            stmts.push(Stmt::LetDecl {
+                mutable,
+                name: bound.clone(),
+                type_ann: None,
+                init: mem,
+            });
+        }
+        stmts
     }
 
     fn parse_expr(&mut self) -> Result<ExprId, String> {

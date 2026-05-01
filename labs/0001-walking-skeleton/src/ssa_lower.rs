@@ -119,7 +119,7 @@ fn substitute_in_stmt(stmt: &mut Stmt, subst: &[(String, String)]) {
             }
             substitute_in_stmt(body, subst);
         }
-        Stmt::Block(stmts) => {
+        Stmt::Block(stmts) | Stmt::Multi(stmts) => {
             for s in stmts {
                 substitute_in_stmt(s, subst);
             }
@@ -1057,7 +1057,7 @@ fn stmt_returns_closure(ast: &Ast, s: &Stmt) -> bool {
                     .unwrap_or(false)
         }
         Stmt::While { body, .. } | Stmt::For { body, .. } => stmt_returns_closure(ast, body),
-        Stmt::Block(stmts) => body_returns_closure(ast, stmts),
+        Stmt::Block(stmts) | Stmt::Multi(stmts) => body_returns_closure(ast, stmts),
         Stmt::Try {
             body,
             catch_body,
@@ -1957,6 +1957,20 @@ impl<'a> LowerCtx<'a> {
 
     fn lower_stmt(&mut self, s: &Stmt) {
         match s {
+            Stmt::Multi(stmts) => {
+                // Compiler-generated sequence — share surrounding scope.
+                // No scope push, no drop emission of its own. Each child
+                // lowers as if it appeared at the parent site. Used by
+                // parse-time desugars (destructuring, possibly others)
+                // that need to emit multiple lets without burying them
+                // in a child block.
+                for s in stmts {
+                    self.lower_stmt(s);
+                    if !self.cur_open() {
+                        break;
+                    }
+                }
+            }
             Stmt::Block(stmts) => {
                 // M1.3 — push a fresh scope frame, lower stmts, drop
                 // anything declared in this block that's still owned at
