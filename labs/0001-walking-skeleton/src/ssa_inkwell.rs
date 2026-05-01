@@ -200,6 +200,30 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
             "__torajs_math_cbrt" => {
                 define_math_unary(&ctx, &llvm_module, "__torajs_math_cbrt", "cbrt")
             }
+            "__torajs_math_sinh" => {
+                define_math_unary(&ctx, &llvm_module, "__torajs_math_sinh", "sinh")
+            }
+            "__torajs_math_cosh" => {
+                define_math_unary(&ctx, &llvm_module, "__torajs_math_cosh", "cosh")
+            }
+            "__torajs_math_tanh" => {
+                define_math_unary(&ctx, &llvm_module, "__torajs_math_tanh", "tanh")
+            }
+            "__torajs_math_asinh" => {
+                define_math_unary(&ctx, &llvm_module, "__torajs_math_asinh", "asinh")
+            }
+            "__torajs_math_acosh" => {
+                define_math_unary(&ctx, &llvm_module, "__torajs_math_acosh", "acosh")
+            }
+            "__torajs_math_atanh" => {
+                define_math_unary(&ctx, &llvm_module, "__torajs_math_atanh", "atanh")
+            }
+            "__torajs_math_expm1" => {
+                define_math_unary(&ctx, &llvm_module, "__torajs_math_expm1", "expm1")
+            }
+            "__torajs_math_log1p" => {
+                define_math_unary(&ctx, &llvm_module, "__torajs_math_log1p", "log1p")
+            }
             "__torajs_throw_set" => {
                 define_throw_set(&ctx, &llvm_module)
             }
@@ -258,6 +282,14 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
         "__torajs_math_log2",
         "__torajs_math_log10",
         "__torajs_math_cbrt",
+        "__torajs_math_sinh",
+        "__torajs_math_cosh",
+        "__torajs_math_tanh",
+        "__torajs_math_asinh",
+        "__torajs_math_acosh",
+        "__torajs_math_atanh",
+        "__torajs_math_expm1",
+        "__torajs_math_log1p",
         "__torajs_throw_set",
         "__torajs_throw_check",
         "__torajs_throw_take",

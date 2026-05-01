@@ -1213,6 +1213,8 @@ impl Checker {
                             | "sign" | "round" | "trunc"
                             | "sin" | "cos" | "tan" | "asin" | "acos" | "atan"
                             | "log2" | "log10" | "cbrt"
+                            | "sinh" | "cosh" | "tanh" | "asinh" | "acosh" | "atanh"
+                            | "expm1" | "log1p"
                         ) =>
                     {
                         Ok(Type::Function(vec![Type::Number], Box::new(Type::Number)))
@@ -1711,6 +1713,26 @@ impl Checker {
                 // every arg must be Number; result is Number. ssa-lower
                 // folds the call into a pairwise reduction. The general
                 // Type::Function check below would reject ≠2 args here.
+                // Math.hypot — variadic. sqrt(sum of args²). Subset: any
+                // arg count >= 1; all Number; result Number.
+                if let Expr::Member { obj, name: m } = ast.get_expr(*callee)
+                    && let Expr::Ident(ns) = ast.get_expr(*obj)
+                    && ns == "Math"
+                    && m == "hypot"
+                {
+                    if args.is_empty() {
+                        return Err("Math.hypot requires at least 1 arg".into());
+                    }
+                    for &aid in args {
+                        let aty = self.type_of(ast, aid)?;
+                        if aty != Type::Number {
+                            return Err(format!(
+                                "Math.hypot args must be number, got {aty:?}"
+                            ));
+                        }
+                    }
+                    return Ok(Type::Number);
+                }
                 if let Expr::Member { obj, name: m } = ast.get_expr(*callee)
                     && let Expr::Ident(ns) = ast.get_expr(*obj)
                     && ns == "Math"

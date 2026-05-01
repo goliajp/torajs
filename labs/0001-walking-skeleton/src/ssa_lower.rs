@@ -777,6 +777,62 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         &[Type::F64],
         Type::F64,
     );
+    let math_sinh_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_math_sinh",
+        &[Type::F64],
+        Type::F64,
+    );
+    let math_cosh_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_math_cosh",
+        &[Type::F64],
+        Type::F64,
+    );
+    let math_tanh_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_math_tanh",
+        &[Type::F64],
+        Type::F64,
+    );
+    let math_asinh_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_math_asinh",
+        &[Type::F64],
+        Type::F64,
+    );
+    let math_acosh_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_math_acosh",
+        &[Type::F64],
+        Type::F64,
+    );
+    let math_atanh_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_math_atanh",
+        &[Type::F64],
+        Type::F64,
+    );
+    let math_expm1_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_math_expm1",
+        &[Type::F64],
+        Type::F64,
+    );
+    let math_log1p_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_math_log1p",
+        &[Type::F64],
+        Type::F64,
+    );
     let arr_reverse_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -1084,6 +1140,14 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         math_log2: math_log2_id,
         math_log10: math_log10_id,
         math_cbrt: math_cbrt_id,
+        math_sinh: math_sinh_id,
+        math_cosh: math_cosh_id,
+        math_tanh: math_tanh_id,
+        math_asinh: math_asinh_id,
+        math_acosh: math_acosh_id,
+        math_atanh: math_atanh_id,
+        math_expm1: math_expm1_id,
+        math_log1p: math_log1p_id,
         arr_reverse: arr_reverse_id,
         arr_fill: arr_fill_id,
         throw_set: throw_set_id,
@@ -1256,6 +1320,14 @@ struct Intrinsics {
     math_log2: FuncId,
     math_log10: FuncId,
     math_cbrt: FuncId,
+    math_sinh: FuncId,
+    math_cosh: FuncId,
+    math_tanh: FuncId,
+    math_asinh: FuncId,
+    math_acosh: FuncId,
+    math_atanh: FuncId,
+    math_expm1: FuncId,
+    math_log1p: FuncId,
     arr_reverse: FuncId,
     arr_fill: FuncId,
     /// M4 — exception state. `throw_set(value)` writes to module-level
@@ -4068,6 +4140,47 @@ impl<'a> LowerCtx<'a> {
                         }
                         _ => {}
                     }
+                }
+                // `Math.hypot` — variadic. Lower as
+                // sqrt(sum of args²) via Mul + Add fold + math_sqrt call.
+                if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
+                    && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
+                    && ns == "Math"
+                    && m_name == "hypot"
+                {
+                    let arg_ids: Vec<ExprId> = args.clone();
+                    let mut acc: Option<Operand> = None;
+                    for aid in arg_ids.iter() {
+                        let raw = self.lower_expr(*aid);
+                        let v = self.coerce_to_f64(raw);
+                        let sq = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::BinOp(SsaBinOp::FMul, v, v),
+                            Type::F64,
+                            None,
+                        );
+                        let sq_op = Operand::Value(sq);
+                        acc = Some(match acc {
+                            None => sq_op,
+                            Some(prev) => {
+                                let s = self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::BinOp(SsaBinOp::FAdd, prev, sq_op),
+                                    Type::F64,
+                                    None,
+                                );
+                                Operand::Value(s)
+                            }
+                        });
+                    }
+                    let sum = acc.unwrap();
+                    let r = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(self.intrinsics.math_sqrt, vec![sum]),
+                        Type::F64,
+                        None,
+                    );
+                    return Operand::Value(r);
                 }
                 // `Math.min` / `Math.max` — variadic, fold into a pairwise
                 // reduction. ssa-lower emits left-to-right: r = min(a,b);
@@ -7000,6 +7113,14 @@ impl<'a> LowerCtx<'a> {
                         "log2" => self.intrinsics.math_log2,
                         "log10" => self.intrinsics.math_log10,
                         "cbrt" => self.intrinsics.math_cbrt,
+                        "sinh" => self.intrinsics.math_sinh,
+                        "cosh" => self.intrinsics.math_cosh,
+                        "tanh" => self.intrinsics.math_tanh,
+                        "asinh" => self.intrinsics.math_asinh,
+                        "acosh" => self.intrinsics.math_acosh,
+                        "atanh" => self.intrinsics.math_atanh,
+                        "expm1" => self.intrinsics.math_expm1,
+                        "log1p" => self.intrinsics.math_log1p,
                         other => {
                             panic!("ssa-lower: unknown Math method `{other}`")
                         }
@@ -7030,6 +7151,14 @@ impl<'a> LowerCtx<'a> {
             || fid == self.intrinsics.math_log2
             || fid == self.intrinsics.math_log10
             || fid == self.intrinsics.math_cbrt
+            || fid == self.intrinsics.math_sinh
+            || fid == self.intrinsics.math_cosh
+            || fid == self.intrinsics.math_tanh
+            || fid == self.intrinsics.math_asinh
+            || fid == self.intrinsics.math_acosh
+            || fid == self.intrinsics.math_atanh
+            || fid == self.intrinsics.math_expm1
+            || fid == self.intrinsics.math_log1p
     }
 
     fn is_math_binary(&self, fid: FuncId) -> bool {
@@ -7158,6 +7287,14 @@ impl<'a> LowerCtx<'a> {
             || fid == i.math_log2
             || fid == i.math_log10
             || fid == i.math_cbrt
+            || fid == i.math_sinh
+            || fid == i.math_cosh
+            || fid == i.math_tanh
+            || fid == i.math_asinh
+            || fid == i.math_acosh
+            || fid == i.math_atanh
+            || fid == i.math_expm1
+            || fid == i.math_log1p
             || fid == i.str_repeat
             || fid == i.str_to_upper
             || fid == i.str_to_lower
