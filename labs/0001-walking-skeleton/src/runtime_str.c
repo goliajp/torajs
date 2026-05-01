@@ -38,6 +38,39 @@ void __torajs_arr_extend_unchecked(uint8_t *dst, const uint8_t *src) {
     *(uint64_t *)dst = dst_len + src_len;
 }
 
+/* `s.repeat(n)` — fresh String containing `s` concatenated n times.
+ * Single malloc + n memcpy's. n<=0 returns the empty string. */
+void *__torajs_str_repeat(const uint8_t *s, int64_t n) {
+    if (n < 0) n = 0;
+    uint64_t s_len = *(const uint64_t *)s;
+    uint64_t out_len = s_len * (uint64_t)n;
+    uint8_t *p = (uint8_t *)malloc(8 + (size_t)out_len);
+    *(uint64_t *)p = out_len;
+    if (s_len == 0 || n == 0) return p;
+    for (int64_t i = 0; i < n; i++) {
+        memcpy(p + 8 + (size_t)i * (size_t)s_len, s + 8, (size_t)s_len);
+    }
+    return p;
+}
+
+/* `arr.slice(start, end)` — fresh array containing the [start, end)
+ * range. Both indices are clamped to [0, arr.len]. Single malloc +
+ * one memcpy. Element-type-agnostic (8-byte slots). */
+void *__torajs_arr_slice(const uint8_t *arr, int64_t start, int64_t end) {
+    uint64_t len = *(const uint64_t *)arr;
+    int64_t lo = start < 0 ? 0 : (start > (int64_t)len ? (int64_t)len : start);
+    int64_t hi = end < 0 ? 0 : (end > (int64_t)len ? (int64_t)len : end);
+    if (hi < lo) hi = lo;
+    uint64_t out_len = (uint64_t)(hi - lo);
+    uint8_t *p = (uint8_t *)malloc(16 + (size_t)out_len * 8);
+    *(uint64_t *)p = out_len;
+    *(uint64_t *)(p + 8) = out_len; /* cap = len; no extra slack */
+    if (out_len > 0) {
+        memcpy(p + 16, arr + 16 + (size_t)lo * 8, (size_t)out_len * 8);
+    }
+    return p;
+}
+
 /* Format an i64 as a fresh String heap object. Used by `+` when one
  * operand is Number and the other String — JS coerces the number to
  * its decimal string form. snprintf gives enough buffer for any i64

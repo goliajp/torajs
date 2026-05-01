@@ -376,6 +376,20 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         &[Type::Ptr, Type::Ptr],
         Type::Void,
     );
+    let arr_slice_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_arr_slice",
+        &[Type::Ptr, Type::I64, Type::I64],
+        Type::Ptr,
+    );
+    let str_repeat_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_str_repeat",
+        &[Type::Str, Type::I64],
+        Type::Str,
+    );
     // M6.1 — String methods. All operate on the StrRepr layout
     // `[u64 len, u8 data[len]]`. slice yields a fresh heap StrRepr;
     // char_code_at returns the byte zext'd to i64; the `*_with`
@@ -778,6 +792,8 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         arr_reserve: arr_reserve_id,
         arr_push_unchecked: arr_push_unchecked_id,
         arr_extend_unchecked: arr_extend_unchecked_id,
+        arr_slice: arr_slice_id,
+        str_repeat: str_repeat_id,
         str_slice: str_slice_id,
         str_char_code_at: str_char_code_at_id,
         str_starts_with: str_starts_with_id,
@@ -914,6 +930,8 @@ struct Intrinsics {
     arr_reserve: FuncId,
     arr_push_unchecked: FuncId,
     arr_extend_unchecked: FuncId,
+    arr_slice: FuncId,
+    str_repeat: FuncId,
     str_slice: FuncId,
     str_char_code_at: FuncId,
     str_starts_with: FuncId,
@@ -3576,6 +3594,65 @@ impl<'a> LowerCtx<'a> {
                 // / print_i64. Result is the console.log return (Void
                 // → ConstI64(0) sentinel since the result is discarded
                 // by all call sites).
+                // `Object.values(obj)` — homogeneous struct only,
+                // checked at typecheck. Emits an array of the field
+                // values in declaration order. Same alloc + store
+                // pattern as Object.keys, with field reads instead of
+                // name interns.
+                if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
+                    && m_name == "values"
+                    && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
+                    && ns == "Object"
+                    && args.len() == 1
+                {
+                    let arg_op = self.lower_expr(args[0]);
+                    let arg_ty = self.operand_ty(&arg_op);
+                    let Type::Obj(sid) = arg_ty else {
+                        panic!(
+                            "ssa-lower: Object.values requires a struct arg, got {arg_ty:?}"
+                        );
+                    };
+                    let layout = self.struct_layouts[sid.0 as usize].clone();
+                    let n = layout.len() as i64;
+                    let elem_ty = layout[0].1;
+                    let arr_id = intern_arr_layout(self.arr_layouts, elem_ty);
+                    let arr_ptr = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.arr_alloc,
+                            vec![Operand::ConstI64(n)],
+                        ),
+                        Type::Arr(arr_id),
+                        None,
+                    );
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Store(
+                            Operand::ConstI64(n),
+                            Operand::Value(arr_ptr),
+                            0,
+                        ),
+                    );
+                    for (i, _) in layout.iter().enumerate() {
+                        let field_off = (i as u64) * 8;
+                        let v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(elem_ty, arg_op, field_off),
+                            elem_ty,
+                            None,
+                        );
+                        let arr_off = 16 + (i as u64) * 8;
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Store(
+                                Operand::Value(v),
+                                Operand::Value(arr_ptr),
+                                arr_off,
+                            ),
+                        );
+                    }
+                    return Operand::Value(arr_ptr);
+                }
                 // `Object.keys(obj)` — emits a compile-time constant
                 // string array of obj's struct field names. Zero-cost
                 // reflection: the struct layout is known at lower time,
@@ -3715,7 +3792,7 @@ impl<'a> LowerCtx<'a> {
                     && matches!(
                         name.as_str(),
                         "slice" | "charCodeAt" | "startsWith" | "endsWith"
-                        | "includes" | "indexOf" | "split" | "join"
+                        | "includes" | "indexOf" | "split" | "join" | "repeat"
                     )
                 {
                     let recv_op = self.lower_expr(*obj);
@@ -3726,7 +3803,7 @@ impl<'a> LowerCtx<'a> {
                         && matches!(
                             method.as_str(),
                             "slice" | "charCodeAt" | "startsWith"
-                            | "endsWith" | "includes" | "indexOf" | "split"
+                            | "endsWith" | "includes" | "indexOf" | "split" | "repeat"
                         )
                     {
                         let mut argv = Vec::with_capacity(args.len() + 1);
@@ -3736,6 +3813,7 @@ impl<'a> LowerCtx<'a> {
                         }
                         let (target, ret_ty) = match method.as_str() {
                             "slice" => (self.intrinsics.str_slice, Type::Str),
+                            "repeat" => (self.intrinsics.str_repeat, Type::Str),
                             "charCodeAt" => (self.intrinsics.str_char_code_at, Type::I64),
                             "startsWith" => (self.intrinsics.str_starts_with, Type::Bool),
                             "endsWith" => (self.intrinsics.str_ends_with, Type::Bool),
@@ -3773,6 +3851,26 @@ impl<'a> LowerCtx<'a> {
                             self.cur_block,
                             InstKind::Call(self.intrinsics.arr_join, argv),
                             Type::Str,
+                            None,
+                        );
+                        return Operand::Value(v);
+                    }
+                    // `arr.slice(start, end)` — fresh array of the
+                    // [start, end) range, single memcpy via
+                    // __torajs_arr_slice. Element type carried over
+                    // from the receiver.
+                    if let Type::Arr(arr_id) = recv_ty
+                        && method == "slice"
+                        && args.len() == 2
+                    {
+                        let mut argv = Vec::with_capacity(3);
+                        argv.push(recv_op);
+                        argv.push(self.lower_expr(args[0]));
+                        argv.push(self.lower_expr(args[1]));
+                        let v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(self.intrinsics.arr_slice, argv),
+                            Type::Arr(arr_id),
                             None,
                         );
                         return Operand::Value(v);

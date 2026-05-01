@@ -1248,6 +1248,10 @@ impl Checker {
                         vec![Type::Number, Type::Number],
                         Box::new(Type::String),
                     )),
+                    (Type::String, "repeat") => Ok(Type::Function(
+                        vec![Type::Number],
+                        Box::new(Type::String),
+                    )),
                     (Type::String, "charCodeAt") => Ok(Type::Function(
                         vec![Type::Number],
                         Box::new(Type::Number),
@@ -1277,6 +1281,16 @@ impl Checker {
                     (Type::Array(elem), "push") => {
                         let inner = (**elem).clone();
                         Ok(Type::Function(vec![inner], Box::new(Type::Void)))
+                    }
+                    // `xs.slice(start, end)` — fresh array of the
+                    // [start, end) range. Same element type. Both
+                    // bounds are required in this v0 subset.
+                    (Type::Array(elem), "slice") => {
+                        let inner = (**elem).clone();
+                        Ok(Type::Function(
+                            vec![Type::Number, Type::Number],
+                            Box::new(Type::Array(Box::new(inner))),
+                        ))
                     }
                     // M6.2 — `xs.map(fn)`: takes a `(T) => T` closure,
                     // returns `T[]` (a fresh array). MVP keeps input
@@ -1409,6 +1423,39 @@ impl Checker {
                 Ok(Type::Struct(field_tys))
             }
             Expr::Call { callee, args } => {
+                // `Object.values(obj)` — return type depends on the
+                // arg's struct shape. Only valid when all fields share
+                // a single type T; result is Array<T>. Heterogeneous
+                // structs error here. Static-resolved at lower time
+                // exactly like Object.keys, just packing values
+                // instead of names.
+                if let Expr::Member { obj: ns_id, name: m_name } = ast.get_expr(*callee)
+                    && m_name == "values"
+                    && let Expr::Ident(ns) = ast.get_expr(*ns_id)
+                    && ns == "Object"
+                    && args.len() == 1
+                {
+                    let arg_ty = self.type_of(ast, args[0])?;
+                    let Type::Struct(fields) = &arg_ty else {
+                        return Err(format!(
+                            "Object.values requires a struct arg, got {arg_ty:?}"
+                        ));
+                    };
+                    if fields.is_empty() {
+                        return Err(
+                            "Object.values on an empty struct can't infer element type".into(),
+                        );
+                    }
+                    let first = &fields[0].1;
+                    for (n, t) in fields.iter().skip(1) {
+                        if t != first {
+                            return Err(format!(
+                                "Object.values requires homogeneous struct fields; field `{n}` is {t:?} but earlier fields are {first:?}"
+                            ));
+                        }
+                    }
+                    return Ok(Type::Array(Box::new(first.clone())));
+                }
                 // M3 — generic call inference. If callee is a bare Ident
                 // naming a generic FnDecl, walk param/arg pairs unifying
                 // each TypeVar against the actual arg type, then
