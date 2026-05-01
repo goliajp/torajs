@@ -165,6 +165,11 @@ pub struct Param {
     /// at the call site (not in callee scope) when the caller omits
     /// the argument. None for required params.
     pub default: Option<ExprId>,
+    /// Rest parameter: `function f(...args: number[])`. Only valid as
+    /// the last param. The receiver sees `args` as an Array<T>; the
+    /// `apply_rest_args` AST pass packs trailing call-site args into
+    /// an array literal at every call site.
+    pub is_rest: bool,
 }
 
 /// One arm of a `switch` statement. `value` is the case label (must
@@ -619,6 +624,7 @@ pub fn desugar_classes(ast: &mut Ast) {
                 name: "__this".into(),
                 type_ann: Some(cname.clone()),
                 default: None,
+                is_rest: false,
             });
             params.extend(c.params.iter().cloned());
             appended.push(Stmt::FnDecl {
@@ -637,6 +643,7 @@ pub fn desugar_classes(ast: &mut Ast) {
                 name: "__this".into(),
                 type_ann: Some(cname.clone()),
                 default: None,
+                is_rest: false,
             });
             params.extend(m.params.iter().cloned());
             appended.push(Stmt::FnDecl {
@@ -988,6 +995,103 @@ pub fn apply_default_args(ast: &mut Ast) {
     }
 }
 
+/// Pack trailing call-site args into an array literal when the
+/// callee declares its last param with `...rest`. This pass mirrors
+/// `apply_default_args` but for the rest-param shape.
+///
+/// The transformation: `f(a0, a1, …, ak)` where f's params are
+/// `[p0, p1, ..., pn-1, ...rest]` becomes `f(a0, ..., an-1, [an, ..., ak])`
+/// — the trailing args (positions n through k) get bundled into a
+/// single Array literal at the rest-param position.
+pub fn apply_rest_args(ast: &mut Ast) {
+    // Map: callee name -> (n_required, rest_param_type_ann).
+    let mut fn_rest: HashMap<String, (usize, String)> = HashMap::new();
+    for s in &ast.stmts {
+        if let Stmt::FnDecl { name, params, .. } = s {
+            let is_closure = params.first().is_some_and(|p| p.name == "__env");
+            let user_params: &[Param] = if is_closure { &params[1..] } else { params };
+            if let Some(last) = user_params.last() {
+                if last.is_rest {
+                    let n_required = user_params.len() - 1;
+                    let rest_ann = last
+                        .type_ann
+                        .clone()
+                        .unwrap_or_else(|| "any[]".into());
+                    fn_rest.insert(name.clone(), (n_required, rest_ann));
+                }
+            }
+        }
+    }
+    if fn_rest.is_empty() {
+        return;
+    }
+    // Pre-synthesize empty-array helper FnDecls per rest type ann. Each
+    // helper has shape `function __empty_arr_<sanitized>(): T[] {
+    //   let _e: T[] = []; return _e; }`. The let-binding's annotation
+    // gives ssa-lower the typed-empty-array path.
+    let mut empty_helpers: HashMap<String, String> = HashMap::new();
+    for (_, (_, rest_ann)) in &fn_rest {
+        if !empty_helpers.contains_key(rest_ann) {
+            let sanitized: String = rest_ann
+                .chars()
+                .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+                .collect();
+            let helper_name = format!("__empty_arr__{sanitized}");
+            empty_helpers.insert(rest_ann.clone(), helper_name);
+        }
+    }
+    // Emit the helpers as new FnDecls.
+    for (rest_ann, helper_name) in &empty_helpers {
+        // Skip if already present.
+        let exists = ast.stmts.iter().any(|s| matches!(s, Stmt::FnDecl { name, .. } if name == helper_name));
+        if exists { continue; }
+        let arr_lit = ast.add_expr(Expr::Array(Vec::new()));
+        let body = vec![
+            Stmt::LetDecl {
+                mutable: false,
+                name: "_e".into(),
+                type_ann: Some(rest_ann.clone()),
+                init: arr_lit,
+            },
+            Stmt::Return(Some(ast.add_expr(Expr::Ident("_e".into())))),
+        ];
+        ast.stmts.push(Stmt::FnDecl {
+            name: helper_name.clone(),
+            type_params: Vec::new(),
+            params: Vec::new(),
+            return_type: Some(rest_ann.clone()),
+            body,
+        });
+    }
+    let n = ast.exprs.len();
+    for i in 0..n {
+        if let Expr::Call { callee, args } = &ast.exprs[i] {
+            let callee = *callee;
+            let name = match ast.get_expr(callee) {
+                Expr::Ident(n) => n.clone(),
+                _ => continue,
+            };
+            let Some((n_required, rest_ann)) = fn_rest.get(&name).cloned() else { continue };
+            let args_clone = args.clone();
+            if args_clone.len() < n_required {
+                continue;
+            }
+            let mut new_args: Vec<ExprId> = args_clone[..n_required].to_vec();
+            let rest_elems: Vec<ExprId> = args_clone[n_required..].to_vec();
+            let rest_arr = if rest_elems.is_empty() {
+                // Call the typed empty-array helper.
+                let helper_name = empty_helpers.get(&rest_ann).cloned().unwrap();
+                let callee_id = ast.add_expr(Expr::Ident(helper_name));
+                ast.add_expr(Expr::Call { callee: callee_id, args: Vec::new() })
+            } else {
+                ast.add_expr(Expr::Array(rest_elems))
+            };
+            new_args.push(rest_arr);
+            ast.exprs[i] = Expr::Call { callee, args: new_args };
+        }
+    }
+}
+
 /// M2 — lambda-lift arrow fns. Walks `ast.exprs` in index order; each
 /// `Expr::ArrowFn` is replaced in-place and a corresponding `Stmt::FnDecl`
 /// is appended to `ast.stmts`.
@@ -1068,6 +1172,7 @@ pub fn lift_arrow_fns(ast: &mut Ast) {
                         name: "__env".into(),
                         type_ann: Some(env_ann),
                         default: None,
+                        is_rest: false,
                     },
                 );
             }

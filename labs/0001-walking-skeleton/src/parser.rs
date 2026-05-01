@@ -422,6 +422,10 @@ impl Parser<'_> {
         let mut params = Vec::new();
         if !matches!(self.peek(), Token::RParen) {
             loop {
+                let is_rest = matches!(self.peek(), Token::DotDotDot);
+                if is_rest {
+                    self.pos += 1;
+                }
                 let pname = match self.peek() {
                     Token::Ident(n) => n.clone(),
                     t => {
@@ -438,7 +442,7 @@ impl Parser<'_> {
                 } else {
                     None
                 };
-                let default = if matches!(self.peek(), Token::Eq) {
+                let default = if !is_rest && matches!(self.peek(), Token::Eq) {
                     self.pos += 1;
                     Some(self.parse_expr()?)
                 } else {
@@ -448,9 +452,18 @@ impl Parser<'_> {
                     name: pname,
                     type_ann,
                     default,
+                    is_rest,
                 });
                 match self.peek() {
-                    Token::Comma => self.pos += 1,
+                    Token::Comma => {
+                        if is_rest {
+                            return Err(format!(
+                                "rest parameter must be last at {}",
+                                self.at()
+                            ));
+                        }
+                        self.pos += 1;
+                    }
                     Token::RParen => break,
                     t => return Err(format!("expected `,` or `)`, got {t:?} at {}", self.at())),
                 }
@@ -2242,6 +2255,12 @@ impl Parser<'_> {
         let mut params = Vec::new();
         if !matches!(self.peek(), Token::RParen) {
             loop {
+                // Rest parameter: `...name`. Must be the last param;
+                // the post-loop check enforces it.
+                let is_rest = matches!(self.peek(), Token::DotDotDot);
+                if is_rest {
+                    self.pos += 1;
+                }
                 let pname = match self.peek() {
                     Token::Ident(n) => n.clone(),
                     t => {
@@ -2260,16 +2279,24 @@ impl Parser<'_> {
                 };
                 // Default value: `= <expr>`. Evaluated at the call
                 // site (not in callee scope) when the caller omits
-                // the arg.
-                let default = if matches!(self.peek(), Token::Eq) {
+                // the arg. Not allowed on rest params.
+                let default = if !is_rest && matches!(self.peek(), Token::Eq) {
                     self.pos += 1;
                     Some(self.parse_expr()?)
                 } else {
                     None
                 };
-                params.push(Param { name: pname, type_ann, default });
+                params.push(Param { name: pname, type_ann, default, is_rest });
                 match self.peek() {
-                    Token::Comma => self.pos += 1,
+                    Token::Comma => {
+                        if is_rest {
+                            return Err(format!(
+                                "rest parameter must be last at {}",
+                                self.at()
+                            ));
+                        }
+                        self.pos += 1;
+                    }
                     Token::RParen => break,
                     t => {
                         return Err(format!(
@@ -2381,6 +2408,7 @@ impl Parser<'_> {
                     name: pname,
                     type_ann,
                     default,
+                    is_rest: false,
                 });
                 match self.peek() {
                     Token::Comma => self.pos += 1,
