@@ -1359,6 +1359,15 @@ impl Checker {
                         let inner = (**elem).clone();
                         Ok(Type::Function(vec![inner], Box::new(Type::Void)))
                     }
+                    // `a.concat(b)` — fresh array of a's elements then b's.
+                    // Subset: binary only, both arrays must share element type.
+                    (Type::Array(elem), "concat") => {
+                        let inner = (**elem).clone();
+                        Ok(Type::Function(
+                            vec![Type::Array(Box::new(inner.clone()))],
+                            Box::new(Type::Array(Box::new(inner))),
+                        ))
+                    }
                     // `xs.at(i)` — element at i with negative-index wrap.
                     // Subset returns T (not T | undefined) — out-of-bounds
                     // is UB, matches the unchecked indexing convention.

@@ -847,6 +847,13 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         &[Type::F64],
         Type::F64,
     );
+    let arr_concat_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_arr_concat",
+        &[Type::Ptr, Type::Ptr],
+        Type::Ptr,
+    );
     let arr_reverse_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -1164,6 +1171,7 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         math_atanh: math_atanh_id,
         math_expm1: math_expm1_id,
         math_log1p: math_log1p_id,
+        arr_concat: arr_concat_id,
         arr_reverse: arr_reverse_id,
         arr_fill: arr_fill_id,
         throw_set: throw_set_id,
@@ -1346,6 +1354,7 @@ struct Intrinsics {
     math_atanh: FuncId,
     math_expm1: FuncId,
     math_log1p: FuncId,
+    arr_concat: FuncId,
     arr_reverse: FuncId,
     arr_fill: FuncId,
     /// M4 — exception state. `throw_set(value)` writes to module-level
@@ -4639,7 +4648,7 @@ impl<'a> LowerCtx<'a> {
                         | "trim" | "trimStart" | "trimEnd"
                         | "padStart" | "padEnd"
                         | "replace" | "replaceAll"
-                        | "reverse" | "fill" | "at"
+                        | "reverse" | "fill" | "at" | "concat"
                     )
                 {
                     let recv_op = self.lower_expr(*obj);
@@ -4712,6 +4721,24 @@ impl<'a> LowerCtx<'a> {
                             self.cur_block,
                             InstKind::Call(self.intrinsics.arr_join, argv),
                             Type::Str,
+                            None,
+                        );
+                        return Operand::Value(v);
+                    }
+                    // `arr.concat(other)` — fresh array, single malloc +
+                    // two memcpys via the C runtime. Element type carried.
+                    if let Type::Arr(arr_id) = recv_ty
+                        && method == "concat"
+                        && args.len() == 1
+                    {
+                        let other = self.lower_expr(args[0]);
+                        let v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.arr_concat,
+                                vec![recv_op, other],
+                            ),
+                            Type::Arr(arr_id),
                             None,
                         );
                         return Operand::Value(v);
@@ -7365,6 +7392,7 @@ impl<'a> LowerCtx<'a> {
             || fid == i.str_replace_all
             || fid == i.num_to_fixed_f
             || fid == i.num_to_fixed_i
+            || fid == i.arr_concat
             || fid == i.arr_reverse
             || fid == i.arr_fill
             || fid == i.throw_set

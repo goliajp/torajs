@@ -341,6 +341,22 @@ void *__torajs_str_replace_all(const uint8_t *s, const uint8_t *needle, const ui
     return p;
 }
 
+/* `a.concat(b)` — fresh array containing all of a's elements then all
+ * of b's. Element-type-agnostic (8-byte slots). Single malloc + two
+ * memcpys. Subset is two-arg only; JS allows `[...].concat(b, c, d)`
+ * (multi-arg) but this v0 only handles the binary form. */
+void *__torajs_arr_concat(const uint8_t *a, const uint8_t *b) {
+    uint64_t a_len = *(const uint64_t *)a;
+    uint64_t b_len = *(const uint64_t *)b;
+    uint64_t total = a_len + b_len;
+    uint8_t *p = (uint8_t *)malloc(16 + (size_t)total * 8);
+    *(uint64_t *)p = total;
+    *(uint64_t *)(p + 8) = total;
+    if (a_len) memcpy(p + 16, a + 16, (size_t)a_len * 8);
+    if (b_len) memcpy(p + 16 + (size_t)a_len * 8, b + 16, (size_t)b_len * 8);
+    return p;
+}
+
 /* `arr.reverse()` — in-place reverse over the i64-slot array. Returns
  * the same array pointer for chaining. Element-type-agnostic. */
 void *__torajs_arr_reverse(uint8_t *arr) {
