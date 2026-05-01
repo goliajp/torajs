@@ -1624,6 +1624,69 @@ impl Checker {
                     let _ = args;
                     return Ok(resolved_ret);
                 }
+                // Bare-name JS globals: `parseInt`, `parseFloat`, `isNaN`,
+                // `isFinite`. Subset routes them to their Number.X counterparts
+                // (the global isNaN / isFinite officially coerce non-numbers
+                // before testing; the subset only accepts numeric / string
+                // args directly).
+                if let Expr::Ident(name) = ast.get_expr(*callee) {
+                    match name.as_str() {
+                        "parseInt" => {
+                            if args.is_empty() || args.len() > 2 {
+                                return Err(format!(
+                                    "parseInt expects 1-2 args, got {}",
+                                    args.len()
+                                ));
+                            }
+                            let s_ty = self.type_of(ast, args[0])?;
+                            if s_ty != Type::String {
+                                return Err(format!(
+                                    "parseInt arg 0 must be string, got {s_ty:?}"
+                                ));
+                            }
+                            if args.len() == 2 {
+                                let r_ty = self.type_of(ast, args[1])?;
+                                if r_ty != Type::Number {
+                                    return Err(format!(
+                                        "parseInt arg 1 must be number, got {r_ty:?}"
+                                    ));
+                                }
+                            }
+                            return Ok(Type::Number);
+                        }
+                        "parseFloat" => {
+                            if args.len() != 1 {
+                                return Err(format!(
+                                    "parseFloat expects 1 arg, got {}",
+                                    args.len()
+                                ));
+                            }
+                            let s_ty = self.type_of(ast, args[0])?;
+                            if s_ty != Type::String {
+                                return Err(format!(
+                                    "parseFloat arg must be string, got {s_ty:?}"
+                                ));
+                            }
+                            return Ok(Type::Number);
+                        }
+                        "isNaN" | "isFinite" => {
+                            if args.len() != 1 {
+                                return Err(format!(
+                                    "{name} expects 1 arg, got {}",
+                                    args.len()
+                                ));
+                            }
+                            let a_ty = self.type_of(ast, args[0])?;
+                            if a_ty != Type::Number {
+                                return Err(format!(
+                                    "{name} arg must be number, got {a_ty:?}"
+                                ));
+                            }
+                            return Ok(Type::Boolean);
+                        }
+                        _ => {}
+                    }
+                }
                 // Math.min / Math.max — variadic. Accept any arg count >= 2,
                 // every arg must be Number; result is Number. ssa-lower
                 // folds the call into a pairwise reduction. The general

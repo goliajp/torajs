@@ -3986,6 +3986,56 @@ impl<'a> LowerCtx<'a> {
                 }
             }
             Expr::Call { callee, args } => {
+                // Bare-name JS globals: `parseInt`, `parseFloat`, `isNaN`,
+                // `isFinite`. Route to the Number.X intrinsics.
+                if let Expr::Ident(name) = self.ast.get_expr(*callee) {
+                    match name.as_str() {
+                        "parseInt" => {
+                            let s = self.lower_expr(args[0]);
+                            let r = if args.len() >= 2 {
+                                self.lower_expr(args[1])
+                            } else {
+                                Operand::ConstI64(10)
+                            };
+                            let v = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(self.intrinsics.num_parse_int, vec![s, r]),
+                                Type::F64,
+                                None,
+                            );
+                            return Operand::Value(v);
+                        }
+                        "parseFloat" => {
+                            let s = self.lower_expr(args[0]);
+                            let v = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(self.intrinsics.num_parse_float, vec![s]),
+                                Type::F64,
+                                None,
+                            );
+                            return Operand::Value(v);
+                        }
+                        "isNaN" | "isFinite" => {
+                            let arg_op = self.lower_expr(args[0]);
+                            let arg_ty = self.operand_ty(&arg_op);
+                            let target = match (name.as_str(), arg_ty) {
+                                ("isNaN", Type::F64) => self.intrinsics.num_is_nan_f,
+                                ("isNaN", _) => self.intrinsics.num_is_nan_i,
+                                ("isFinite", Type::F64) => self.intrinsics.num_is_finite_f,
+                                ("isFinite", _) => self.intrinsics.num_is_finite_i,
+                                _ => unreachable!(),
+                            };
+                            let v = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(target, vec![arg_op]),
+                                Type::Bool,
+                                None,
+                            );
+                            return Operand::Value(v);
+                        }
+                        _ => {}
+                    }
+                }
                 // `Math.min` / `Math.max` — variadic, fold into a pairwise
                 // reduction. ssa-lower emits left-to-right: r = min(a,b);
                 // r = min(r, c); r = min(r, d); ...
