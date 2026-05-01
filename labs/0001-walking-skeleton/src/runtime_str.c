@@ -401,6 +401,25 @@ void *__torajs_str_to_lower(const uint8_t *s) {
 
 #include <math.h>
 
+/* `n.toFixed(digits)` — fixed-point decimal as a fresh String. JS spec
+ * accepts 0..100 digits; subset clamps to 0..20. snprintf gives spec-
+ * matching round-half-to-even on most libcs (close enough for the
+ * common cases). */
+void *__torajs_num_to_fixed_f(double n, int64_t digits) {
+    if (digits < 0) digits = 0;
+    if (digits > 20) digits = 20;
+    char buf[64];
+    int written = snprintf(buf, sizeof(buf), "%.*f", (int)digits, n);
+    if (written < 0) written = 0;
+    uint64_t len = (uint64_t)written;
+    uint8_t *p = str_alloc_(len);
+    if (len) memcpy(p + 8, buf, (size_t)len);
+    return p;
+}
+void *__torajs_num_to_fixed_i(int64_t n, int64_t digits) {
+    return __torajs_num_to_fixed_f((double)n, digits);
+}
+
 /* `Number.parseInt(s, radix)` — JS-spec parseInt, simplified subset.
  * Skips leading ASCII whitespace, accepts optional sign, then digits in
  * the given radix (2..36). Stops at the first non-digit. Returns NaN

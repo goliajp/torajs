@@ -1316,6 +1316,14 @@ impl Checker {
                         vec![Type::Number],
                         Box::new(Type::String),
                     )),
+                    (Type::Number, "toFixed") => Ok(Type::Function(
+                        vec![Type::Number],
+                        Box::new(Type::String),
+                    )),
+                    (Type::Number, "toString") => Ok(Type::Function(
+                        Vec::new(),
+                        Box::new(Type::String),
+                    )),
                     // String namespace static — `String.fromCharCode(n)`.
                     (Type::Object("String"), "fromCharCode") => Ok(Type::Function(
                         vec![Type::Number],

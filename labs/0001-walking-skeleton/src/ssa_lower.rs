@@ -467,6 +467,20 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         &[Type::Str, Type::Str, Type::Str],
         Type::Str,
     );
+    let num_to_fixed_f_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_num_to_fixed_f",
+        &[Type::F64, Type::I64],
+        Type::Str,
+    );
+    let num_to_fixed_i_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_num_to_fixed_i",
+        &[Type::I64, Type::I64],
+        Type::Str,
+    );
     let num_parse_int_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -1099,6 +1113,8 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         str_at: str_at_id,
         str_replace: str_replace_id,
         str_replace_all: str_replace_all_id,
+        num_to_fixed_f: num_to_fixed_f_id,
+        num_to_fixed_i: num_to_fixed_i_id,
         num_parse_int: num_parse_int_id,
         num_parse_float: num_parse_float_id,
         num_is_integer_f: num_is_integer_f_id,
@@ -1279,6 +1295,8 @@ struct Intrinsics {
     str_at: FuncId,
     str_replace: FuncId,
     str_replace_all: FuncId,
+    num_to_fixed_f: FuncId,
+    num_to_fixed_i: FuncId,
     num_parse_int: FuncId,
     num_parse_float: FuncId,
     num_is_integer_f: FuncId,
@@ -4076,6 +4094,44 @@ impl<'a> LowerCtx<'a> {
                 }
             }
             Expr::Call { callee, args } => {
+                // `n.toFixed(d)` / `n.toString()` — primitive Number methods.
+                // Receiver is i64 or f64; route to the matching intrinsic
+                // (toString currently returns the same as `String(n)`).
+                if let Expr::Member { obj: recv_id, name: m_name } = self.ast.get_expr(*callee)
+                    && (m_name == "toFixed" || m_name == "toString")
+                {
+                    let recv_op = self.lower_expr(*recv_id);
+                    let recv_ty = self.operand_ty(&recv_op);
+                    if recv_ty == Type::I64 || recv_ty == Type::F64 {
+                        let target = if m_name == "toFixed" {
+                            if recv_ty == Type::F64 {
+                                self.intrinsics.num_to_fixed_f
+                            } else {
+                                self.intrinsics.num_to_fixed_i
+                            }
+                        } else {
+                            // toString: route to the i64_to_str / f64_to_str
+                            // intrinsics that already format primitives for
+                            // string concat coercion.
+                            if recv_ty == Type::F64 {
+                                self.intrinsics.f64_to_str
+                            } else {
+                                self.intrinsics.i64_to_str
+                            }
+                        };
+                        let mut argv = vec![recv_op];
+                        for a in args {
+                            argv.push(self.lower_expr(*a));
+                        }
+                        let v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(target, argv),
+                            Type::Str,
+                            None,
+                        );
+                        return Operand::Value(v);
+                    }
+                }
                 // `String.fromCharCode(n)` — static on the String namespace.
                 if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
                     && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
@@ -7307,6 +7363,8 @@ impl<'a> LowerCtx<'a> {
             || fid == i.str_at
             || fid == i.str_replace
             || fid == i.str_replace_all
+            || fid == i.num_to_fixed_f
+            || fid == i.num_to_fixed_i
             || fid == i.arr_reverse
             || fid == i.arr_fill
             || fid == i.throw_set
