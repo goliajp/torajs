@@ -1073,6 +1073,7 @@ fn synthesize_main(
             closure_captures,
             call_retargets,
             may_throw_fns,
+            captured_arr_writeback: HashMap::new(),
         };
         for s in stmts {
             ctx.lower_top_stmt(s);
@@ -1621,6 +1622,7 @@ fn lower_fn(
         closure_captures,
         call_retargets,
         may_throw_fns,
+        captured_arr_writeback: HashMap::new(),
     };
 
     // Materialize each param as an alloca-backed local. mem2reg at -O1+
@@ -1718,6 +1720,18 @@ fn lower_fn(
                 ctx.cur_block,
                 InstKind::Store(Operand::Value(v), Operand::Value(cap_slot), 0),
             );
+            // M2 — captured arrays may grow inside the closure body
+            // (e.g. `xs.push(v)` reallocs). The env block holds the ptr
+            // by value (so the closure can outlive the construction
+            // scope, e.g. a factory's returned closure). We mirror every
+            // push back to env+offset so subsequent invocations of the
+            // SAME closure see the live ptr. Outer-scope reads don't
+            // observe the mutation in this scheme — see docs for the
+            // limitation. Empty for non-Arr captures.
+            if matches!(*cap_ty, Type::Arr(_)) {
+                ctx.captured_arr_writeback
+                    .insert(cap_slot, (env_slot, offset));
+            }
             ctx.locals.insert(
                 cap_name.clone(),
                 LocalInfo {
@@ -1889,6 +1903,17 @@ struct LowerCtx<'a> {
     /// `Expr::Call` arm rewrites the callee Ident to the mono name from
     /// this map before falling through to the regular call lowering.
     call_retargets: &'a CallRetargets,
+    /// M2 — env-write-back map for captured-array mutability. When a
+    /// closure captures a `Type::Arr` binding and pushes into it, the
+    /// element buffer may realloc; the local cap_slot stores the new
+    /// pointer, but the env block still holds the stale one. Each
+    /// captured-array slot is registered here as
+    /// `cap_slot_value -> (env_slot, env_offset)`; the push special-case
+    /// mirrors every Store-to-cap_slot to env_ptr+offset, so subsequent
+    /// captures (or re-entries of the same closure body) see the live
+    /// pointer. Empty for non-closure fns; populated only by the
+    /// closure prologue.
+    captured_arr_writeback: HashMap<ValueId, (ValueId, u64)>,
 }
 
 impl<'a> LowerCtx<'a> {
@@ -3889,6 +3914,40 @@ impl<'a> LowerCtx<'a> {
                                 0,
                             ),
                         );
+                        // M2 — if this ident is a captured array, the
+                        // env block holds the pre-realloc ptr value.
+                        // Mirror the new ptr to env+offset so the next
+                        // invocation of the same closure sees the live
+                        // buffer (the body's prologue re-loads from env
+                        // every call). This does NOT propagate back to
+                        // the outer scope's slot — value-shape capture
+                        // means the outer slot keeps its original ptr;
+                        // capturing-and-mutating + outer-scope-reads is
+                        // a documented limitation.
+                        if let Some((env_slot, env_offset)) = self
+                            .captured_arr_writeback
+                            .get(&info.slot)
+                            .copied()
+                        {
+                            let env_ptr = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Load(
+                                    Type::Ptr,
+                                    Operand::Value(env_slot),
+                                    0,
+                                ),
+                                Type::Ptr,
+                                None,
+                            );
+                            self.f.append_void(
+                                self.cur_block,
+                                InstKind::Store(
+                                    Operand::Value(new_arr),
+                                    Operand::Value(env_ptr),
+                                    env_offset,
+                                ),
+                            );
+                        }
                         // push returns void in TS but our intrinsic returns
                         // the pointer; surface a benign i64(0) so the Call
                         // expression has SOME operand. Most call sites are
