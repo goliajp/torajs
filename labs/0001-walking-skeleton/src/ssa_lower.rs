@@ -4791,6 +4791,17 @@ impl<'a> LowerCtx<'a> {
                         return Operand::Value(v);
                     }
                 }
+                // `Array.isArray(value)` — compile-time static check.
+                if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
+                    && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
+                    && ns == "Array"
+                    && m_name == "isArray"
+                {
+                    let arg_op = self.lower_expr(args[0]);
+                    let arg_ty = self.operand_ty(&arg_op);
+                    let result = matches!(arg_ty, Type::Arr(_));
+                    return Operand::ConstBool(result);
+                }
                 // `JSON.stringify(value)` — recursive type-aware serializer.
                 // Each call site is monomorphized inline based on the static
                 // type of the argument: primitives → direct formatter,

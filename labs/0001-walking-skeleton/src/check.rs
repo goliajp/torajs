@@ -1204,6 +1204,7 @@ impl Checker {
                     "Number" => Ok(Type::Object("Number")),
                     "String" => Ok(Type::Object("String")),
                     "JSON" => Ok(Type::Object("JSON")),
+                    "Array" => Ok(Type::Object("Array")),
                     other => Err(format!("unknown identifier `{other}`")),
                 }
             }
@@ -1297,6 +1298,10 @@ impl Checker {
                     // (per-call-site monomorphization).
                     (Type::Object("JSON"), "stringify") => {
                         Ok(Type::Function(vec![Type::Any], Box::new(Type::String)))
+                    }
+                    // Array.isArray(x) — compile-time static check.
+                    (Type::Object("Array"), "isArray") => {
+                        Ok(Type::Function(vec![Type::Any], Box::new(Type::Boolean)))
                     }
                     // `Object.keys(obj)` — returns Array<String> with the
                     // field names of obj's struct type. Static-resolved at
