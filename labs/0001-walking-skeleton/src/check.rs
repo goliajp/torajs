@@ -1611,7 +1611,11 @@ impl Checker {
                     // Nullable(Number) for Number arrays — not in v0;
                     // callers should use `xs[xs.findIndex(p)]` after a
                     // -1 check, or `xs.filter(p)[0]` with a length guard.)
-                    (Type::Array(elem), "findIndex") => {
+                    // `findLastIndex` is the reverse-iteration sibling and
+                    // shares the same -1-on-miss return, so it lives in
+                    // the subset alongside findIndex.
+                    (Type::Array(elem), "findIndex")
+                    | (Type::Array(elem), "findLastIndex") => {
                         let inner = (**elem).clone();
                         let pred_ty = Type::Function(
                             vec![inner],

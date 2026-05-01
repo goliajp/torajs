@@ -7098,12 +7098,13 @@ impl<'a> LowerCtx<'a> {
                         return Operand::Value(r);
                     }
                 }
-                // `xs.findIndex(p)` / `xs.some(p)` / `xs.every(p)` —
-                // short-circuit predicate iteration. Each runs the
-                // predicate per element, exiting on the first matching
-                // (findIndex / some) or first non-matching (every) hit.
+                // `xs.findIndex(p)` / `xs.findLastIndex(p)` / `xs.some(p)`
+                // / `xs.every(p)` — short-circuit predicate iteration.
+                // findLastIndex walks back-to-front; the others walk
+                // front-to-back. All exit on the first matching (find*
+                // / some) or first non-matching (every) hit.
                 if let Expr::Member { obj, name } = self.ast.get_expr(*callee)
-                    && matches!(name.as_str(), "findIndex" | "some" | "every")
+                    && matches!(name.as_str(), "findIndex" | "findLastIndex" | "some" | "every")
                 {
                     let recv_op = self.lower_expr(*obj);
                     let recv_ty = self.operand_ty(&recv_op);
@@ -7113,6 +7114,7 @@ impl<'a> LowerCtx<'a> {
                         );
                     }
                     let method = name.clone();
+                    let is_reverse = method == "findLastIndex";
                     let arr_ty = recv_ty;
                     let elem_ty = self.arr_layouts[match arr_ty {
                         Type::Arr(id) => id.0 as usize,
@@ -7124,9 +7126,9 @@ impl<'a> LowerCtx<'a> {
                     };
                     let fn_val = self.lower_expr(args[0]);
                     let fn_ty = self.operand_ty(&fn_val);
-                    // Result slot: number for findIndex, bool for some/every.
-                    // Defaults: findIndex = -1, some = false, every = true.
-                    let result_ty = if method == "findIndex" {
+                    // Result slot: number for find*Index, bool for some/every.
+                    // Defaults: find*Index = -1, some = false, every = true.
+                    let result_ty = if matches!(method.as_str(), "findIndex" | "findLastIndex") {
                         Type::I64
                     } else {
                         Type::Bool
@@ -7134,7 +7136,7 @@ impl<'a> LowerCtx<'a> {
                     let result_slot =
                         self.alloca_in_entry(result_ty, Some("__pred_res"));
                     let default_op: Operand = match method.as_str() {
-                        "findIndex" => Operand::ConstI64(-1),
+                        "findIndex" | "findLastIndex" => Operand::ConstI64(-1),
                         "some" => Operand::ConstBool(false),
                         "every" => Operand::ConstBool(true),
                         _ => unreachable!(),
@@ -7144,19 +7146,32 @@ impl<'a> LowerCtx<'a> {
                         InstKind::Store(default_op, Operand::Value(result_slot), 0),
                     );
                     let i_slot = self.alloca(Type::I64, Some("__pred_i"));
-                    self.f.append_void(
-                        self.cur_block,
-                        InstKind::Store(
-                            Operand::ConstI64(0),
-                            Operand::Value(i_slot),
-                            0,
-                        ),
-                    );
                     let len = self.f.append_inst(
                         self.cur_block,
                         InstKind::Load(Type::I64, Operand::Value(src_arr), 0),
                         Type::I64,
                         None,
+                    );
+                    // Forward: i = 0; loop while i < len; step i + 1.
+                    // Reverse (findLastIndex): i = len - 1; loop while i >= 0; step i - 1.
+                    let i_init: Operand = if is_reverse {
+                        let v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::BinOp(
+                                SsaBinOp::Sub,
+                                Operand::Value(len),
+                                Operand::ConstI64(1),
+                            ),
+                            Type::I64,
+                            None,
+                        );
+                        Operand::Value(v)
+                    } else {
+                        Operand::ConstI64(0)
+                    };
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Store(i_init, Operand::Value(i_slot), 0),
                     );
                     let header_blk = self.f.add_block();
                     let body_blk = self.f.add_block();
@@ -7173,9 +7188,9 @@ impl<'a> LowerCtx<'a> {
                     let cmp = self.f.append_inst(
                         self.cur_block,
                         InstKind::ICmp(
-                            IPred::Slt,
+                            if is_reverse { IPred::Sge } else { IPred::Slt },
                             Operand::Value(i_now),
-                            Operand::Value(len),
+                            if is_reverse { Operand::ConstI64(0) } else { Operand::Value(len) },
                         ),
                         Type::Bool,
                         None,
@@ -7262,7 +7277,7 @@ impl<'a> LowerCtx<'a> {
                     self.cur_block = hit_blk;
                     // hit: write the appropriate result and exit.
                     let hit_val: Operand = match method.as_str() {
-                        "findIndex" => Operand::Value(i_now2),
+                        "findIndex" | "findLastIndex" => Operand::Value(i_now2),
                         "some" => Operand::ConstBool(true),
                         "every" => Operand::ConstBool(false),
                         _ => unreachable!(),
@@ -7283,7 +7298,7 @@ impl<'a> LowerCtx<'a> {
                     let i_next = self.f.append_inst(
                         self.cur_block,
                         InstKind::BinOp(
-                            SsaBinOp::Add,
+                            if is_reverse { SsaBinOp::Sub } else { SsaBinOp::Add },
                             Operand::Value(i_then),
                             Operand::ConstI64(1),
                         ),
