@@ -1199,7 +1199,9 @@ impl Checker {
                     return Ok(ty.clone());
                 }
                 match (&obj_ty, name.as_str()) {
-                    (Type::Object("console"), "log") => {
+                    (Type::Object("console"), m)
+                        if matches!(m, "log" | "error" | "warn") =>
+                    {
                         Ok(Type::Function(vec![Type::Any], Box::new(Type::Void)))
                     }
                     // `Math` global — every method takes one number and

@@ -341,6 +341,25 @@ void *__torajs_str_replace_all(const uint8_t *s, const uint8_t *needle, const ui
     return p;
 }
 
+/* console.error / console.warn — stderr-routed primitives matching
+ * console.log's three-way SSA dispatch. Same shape as the print_*
+ * intrinsics but write to fd 2.
+ */
+void __torajs_print_i64_err(int64_t n) {
+    fprintf(stderr, "%lld\n", (long long)n);
+}
+void __torajs_print_f64_err(double d) {
+    fprintf(stderr, "%g\n", d);
+}
+void __torajs_print_bool_err(int64_t b) {
+    fputs(b ? "true\n" : "false\n", stderr);
+}
+void __torajs_str_print_err(const uint8_t *s) {
+    uint64_t len = *(const uint64_t *)s;
+    if (len) fwrite(s + 8, 1, (size_t)len, stderr);
+    fputc('\n', stderr);
+}
+
 /* `a.flat()` — single-level array flattening. Outer array holds inner
  * array pointers (8 bytes each); we sum their lengths in pass 1, then
  * memcpy each into the result in pass 2. Element-type-agnostic.

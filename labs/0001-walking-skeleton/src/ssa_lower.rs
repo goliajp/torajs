@@ -847,6 +847,34 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         &[Type::F64],
         Type::F64,
     );
+    let print_i64_err_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_print_i64_err",
+        &[Type::I64],
+        Type::Void,
+    );
+    let print_f64_err_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_print_f64_err",
+        &[Type::F64],
+        Type::Void,
+    );
+    let print_bool_err_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_print_bool_err",
+        &[Type::Bool],
+        Type::Void,
+    );
+    let str_print_err_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_str_print_err",
+        &[Type::Str],
+        Type::Void,
+    );
     let arr_flat_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -1178,6 +1206,10 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         math_atanh: math_atanh_id,
         math_expm1: math_expm1_id,
         math_log1p: math_log1p_id,
+        print_i64_err: print_i64_err_id,
+        print_f64_err: print_f64_err_id,
+        print_bool_err: print_bool_err_id,
+        str_print_err: str_print_err_id,
         arr_flat: arr_flat_id,
         arr_concat: arr_concat_id,
         arr_reverse: arr_reverse_id,
@@ -1362,6 +1394,10 @@ struct Intrinsics {
     math_atanh: FuncId,
     math_expm1: FuncId,
     math_log1p: FuncId,
+    print_i64_err: FuncId,
+    print_f64_err: FuncId,
+    print_bool_err: FuncId,
+    str_print_err: FuncId,
     arr_flat: FuncId,
     arr_concat: FuncId,
     arr_reverse: FuncId,
@@ -2324,23 +2360,15 @@ impl<'a> LowerCtx<'a> {
     fn lower_top_stmt(&mut self, s: &Stmt) {
         if let Stmt::Expr(eid) = s
             && let Expr::Call { callee, args } = self.ast.get_expr(*eid)
-            && self.is_console_log_member(*callee)
+            && let Some(method) = self.console_method_member(*callee)
             && args.len() == 1
         {
-            // `console.log` is borrow-style: doesn't consume its arg, so we
-            // don't mark the source binding moved. But for *temp* args
-            // (literal strings, BinOp results, Call returns), the Type::Str
-            // value is owned-by-nobody after the call — drop it on the
-            // spot to keep the heap from leaking.
-            //
-            // Both `Ident(s)` and `Member { obj, name }` are borrows — the
-            // Ident reads a binding's heap pointer; the Member reads a
-            // field whose backing heap is still owned by the parent
-            // struct. Dropping either would double-free.
-            // M6.1+ — Index borrows too: `parts[i]` for `parts: string[]`
-            // returns a view into the array's element slot, not a fresh
-            // allocation. Dropping it would free the array's element and
-            // poison subsequent reads / `parts.join(...)`.
+            // `console.{log,error,warn}` is borrow-style: doesn't consume
+            // its arg, so we don't mark the source binding moved. But
+            // for *temp* args (literal strings, BinOp results, Call
+            // returns), the Type::Str value is owned-by-nobody after
+            // the call — drop it on the spot to keep the heap from
+            // leaking.
             let is_borrow = matches!(
                 self.ast.get_expr(args[0]),
                 Expr::Ident(_) | Expr::Member { .. } | Expr::Index { .. }
@@ -2348,12 +2376,7 @@ impl<'a> LowerCtx<'a> {
             let arg = self.lower_expr(args[0]);
             let arg_ty = self.operand_ty(&arg);
             let is_str = arg_ty == Type::Str;
-            let target = match arg_ty {
-                Type::Str => self.intrinsics.str_print,
-                Type::F64 => self.intrinsics.print_f64,
-                Type::Bool => self.intrinsics.print_bool,
-                _ => self.intrinsics.print_i64,
-            };
+            let target = self.console_print_target(method, arg_ty);
             self.f
                 .append_void(self.cur_block, InstKind::Call(target, vec![arg]));
             if is_str && !is_borrow {
@@ -2371,6 +2394,40 @@ impl<'a> LowerCtx<'a> {
                 matches!(self.ast.get_expr(*obj), Expr::Ident(s) if s == "console")
             }
             _ => false,
+        }
+    }
+
+    /// `console.{log,error,warn}` recognizer returning the method name as
+    /// a static string (or None). Used to dispatch the appropriate
+    /// print intrinsic in lower_top_stmt + the in-expr console-call arm.
+    fn console_method_member(&self, eid: ExprId) -> Option<&'static str> {
+        if let Expr::Member { obj, name } = self.ast.get_expr(eid)
+            && let Expr::Ident(ns) = self.ast.get_expr(*obj)
+            && ns == "console"
+        {
+            return match name.as_str() {
+                "log" => Some("log"),
+                "error" => Some("error"),
+                "warn" => Some("warn"),
+                _ => None,
+            };
+        }
+        None
+    }
+
+    /// Pick the right print intrinsic for `console.<method>(<arg>)`.
+    /// log writes to stdout; error / warn write to stderr.
+    fn console_print_target(&self, method: &str, arg_ty: Type) -> FuncId {
+        let to_stderr = method != "log";
+        match (arg_ty, to_stderr) {
+            (Type::Str, false) => self.intrinsics.str_print,
+            (Type::Str, true) => self.intrinsics.str_print_err,
+            (Type::F64, false) => self.intrinsics.print_f64,
+            (Type::F64, true) => self.intrinsics.print_f64_err,
+            (Type::Bool, false) => self.intrinsics.print_bool,
+            (Type::Bool, true) => self.intrinsics.print_bool_err,
+            (_, false) => self.intrinsics.print_i64,
+            (_, true) => self.intrinsics.print_i64_err,
         }
     }
 
@@ -4482,7 +4539,9 @@ impl<'a> LowerCtx<'a> {
                     }
                     return Operand::Value(arr_ptr);
                 }
-                if self.is_console_log_member(*callee) && args.len() == 1 {
+                if let Some(method) = self.console_method_member(*callee)
+                    && args.len() == 1
+                {
                     let is_borrow = matches!(
                         self.ast.get_expr(args[0]),
                         Expr::Ident(_) | Expr::Member { .. }
@@ -4490,12 +4549,7 @@ impl<'a> LowerCtx<'a> {
                     let arg = self.lower_expr(args[0]);
                     let arg_ty = self.operand_ty(&arg);
                     let is_str = arg_ty == Type::Str;
-                    let target = match arg_ty {
-                        Type::Str => self.intrinsics.str_print,
-                        Type::F64 => self.intrinsics.print_f64,
-                        Type::Bool => self.intrinsics.print_bool,
-                        _ => self.intrinsics.print_i64,
-                    };
+                    let target = self.console_print_target(method, arg_ty);
                     self.f.append_void(
                         self.cur_block,
                         InstKind::Call(target, vec![arg]),
@@ -7736,6 +7790,10 @@ impl<'a> LowerCtx<'a> {
         fid == i.print_i64
             || fid == i.print_f64
             || fid == i.print_bool
+            || fid == i.print_i64_err
+            || fid == i.print_f64_err
+            || fid == i.print_bool_err
+            || fid == i.str_print_err
             || fid == i.str_alloc
             || fid == i.str_print
             || fid == i.str_drop
