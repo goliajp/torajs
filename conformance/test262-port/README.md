@@ -48,23 +48,29 @@ Each ported file links back to the original test262 path in a comment block; the
 | category | what it covers | count |
 |---|---|--:|
 | `add` / `sub` / `mul` / `div` / `mod` | binary arithmetic — multiple T-variants per op (operand patterns, negatives, large ints, string concat) | 12 |
-| `unary` | `-x`, `!b` | 2 |
+| `unary` | `-x`, `!b`, `~x` | 3 |
 | `cmp` | `===`, `!==`, `<`, `>`, `<=`, `>=`, string equality | 4 |
 | `bitop` | `&`, `\|`, `^`, `<<`, `>>` (one case per shape) | 4 |
 | `logical` | `&&`, `\|\|` | 2 |
-| `control` | `if/else`, `for`, `while`, `break`, `continue`, `try/catch/finally`, nested-try, throw-propagate, nested-if/for/while, finally-on-break, finally-on-return, throw-inside-loop, block-scope shadow | 17 |
+| `control` | `if/else`, `for`, `while`, `do-while`, `break`, `continue`, `try/catch/finally`, nested-try, throw-propagate, nested-if/for/while, finally-on-break, finally-on-return, throw-inside-loop, block-scope shadow | 19 |
+| `switch` | basic + default, fall-through, string scrutinee | 3 |
 | `func` | function declaration, recursion, mutual recursion, void return | 3 |
-| `closure` | single capture, multi capture, closure-as-arg, pick-fn (return one of two callable args), passing-fn-back (combinator), chain-call `f(0)(5)`, stateful-counter (struct-wrapped state) | 7 |
+| `closure` | single capture, multi capture, closure-as-arg, pick-fn, passing-fn-back, chain-call `f(0)(5)`, stateful-counter, counter-pair | 8 |
 | `object` | type-alias struct, field read/write, pass-to-fn, nested fields, mutation-via-fn, array of struct, struct with array field, deeply-nested, pass-to-multiple-fns | 9 |
-| `class` | constructor + method, mutating method, single inheritance, `super(args)` passthrough, three-level extends, inherited method on subclass instance, string-typed fields, this-passed-around | 8 |
+| `class` | constructor + method, mutating method, single inheritance, `super(args)` passthrough, three-level extends, inherited method on subclass instance, string-typed fields, this-passed-around, multi-class-coexist | 9 |
 | `string` | length, slice, includes, indexOf, charCodeAt, startsWith, endsWith, split+join, pass-to-multiple-fns | 9 |
 | `array` | length, push+index, map, filter, reduce, forEach, method-chain, multi-element growth, nested array, pass-to-multiple-fns | 10 |
 | `generic` | inferred `<T>`, generic struct `Pair<A, B>`, multi-typeparam factory | 3 |
 | `math` | abs/min/max/floor/ceil/sqrt/pow, exp/log/PI/E | 2 |
 | `throw` | string value, struct value with `catch (e: Err)` | 2 |
+| `ternary` | `cond ? a : b` — boolean cond, matching branches, nested chain | 1 |
+| `assign` | compound assignment `+= -= *= /= %=` | 1 |
+| `inc-dec` | `x++` / `x--` / `++x` / `--x` | 1 |
+| `typeof` | `typeof` returns "number" / "string" / "boolean" / "object" | 1 |
+| `concat` | number→string auto-coerce on `+` | 1 |
 | `let-const` | const happy path | 1 |
-| `integration` | multi-feature combinators — fib precomputed, array-of-class, string-build, stats fns, quicksort, prime sieve, collatz step count, cmp+logical chain, string search, list stats, multi-throw-types | 11 |
-| **total** | | **106** |
+| `integration` | multi-feature combinators — fib precomputed, array-of-class, string-build, stats fns, quicksort, prime sieve, collatz step count, cmp+logical chain, string search, list stats, multi-throw-types, matrix multiply, csv-build | 14 |
+| **total** | | **122** |
 
 Filename ends with the original test262 stem (where one exists) to make grep'ing the lineage easy. Cases without a direct test262 lineage (closures, generics, classes — all TS / TS-subset additions outside ECMA-262 itself) carry a topical stem instead.
 
