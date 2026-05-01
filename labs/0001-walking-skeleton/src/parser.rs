@@ -1950,13 +1950,13 @@ impl Parser<'_> {
         self.pos += 1; // consume `{`
         let mut fields: Vec<(String, ExprId)> = Vec::new();
         if !matches!(self.peek(), Token::RBrace) {
-            fields.push(self.parse_object_field()?);
+            fields.push(self.parse_object_field_or_spread()?);
             while matches!(self.peek(), Token::Comma) {
                 self.pos += 1;
                 if matches!(self.peek(), Token::RBrace) {
                     break; // trailing comma
                 }
-                fields.push(self.parse_object_field()?);
+                fields.push(self.parse_object_field_or_spread()?);
             }
         }
         match self.peek() {
@@ -1969,6 +1969,19 @@ impl Parser<'_> {
             }
         }
         Ok(self.ast.add_expr(Expr::ObjectLit { fields }))
+    }
+
+    /// One member inside an object literal — either `name: expr` or
+    /// `...src` spread. Spread is encoded with the sentinel field name
+    /// `__spread__` so the existing `Vec<(String, ExprId)>` shape
+    /// doesn't need to change.
+    fn parse_object_field_or_spread(&mut self) -> Result<(String, ExprId), String> {
+        if matches!(self.peek(), Token::DotDotDot) {
+            self.pos += 1;
+            let inner = self.parse_expr()?;
+            return Ok(("__spread__".to_string(), inner));
+        }
+        self.parse_object_field()
     }
 
     /// One `name: expr` pair inside an object literal.

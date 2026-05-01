@@ -7170,29 +7170,69 @@ impl<'a> LowerCtx<'a> {
                 Operand::Value(v)
             }
             Expr::ObjectLit { fields } => {
-                // Lower each field. Field types determine struct layout
-                // (8-byte slots in declaration order for MVP). Match the
-                // already-interned StructId by structural equality on
-                // the layout — this is what `intern_struct` did in pass
-                // 0.5 for `type` aliases. For object literals appearing
-                // without a `type` declaration in scope, the layout is
-                // inferred and would intern as a fresh struct (but we
-                // don't have a way to register new structs into the
-                // module post-pass-0 — the layout snapshot is read-only).
-                //
-                // For MVP we require: every object literal must match the
-                // layout of an already-declared `type`. The check.rs
-                // pass infers structurally; the SSA lowerer matches
-                // against `struct_layouts` registered in pass 0.5.
+                // Lower each field; spread members (sentinel name
+                // `__spread__`) are unfolded at lower time by reading
+                // each source-struct field offset and copying it into
+                // the destination. Spread sources are lowered once;
+                // their values are read field-by-field. Inline members
+                // win on key collision (later occurrences replace
+                // earlier slots).
                 let entries: Vec<(String, ExprId)> = fields.clone();
                 let mut field_tys: Vec<(String, Type)> = Vec::new();
                 let mut field_vals: Vec<Operand> = Vec::new();
                 for (n, eid) in &entries {
+                    if n == "__spread__" {
+                        // Lower the source obj once; for each of its
+                        // statically-known fields, emit a Load and
+                        // append (or replace). Ownership story: the
+                        // new struct ends up sharing the source's
+                        // non-Copy field heaps (Strings, Arrays, …).
+                        // To avoid double-free at scope-end, mark the
+                        // source binding moved iff its struct has at
+                        // least one non-Copy field. The source's own
+                        // obj-alloc memory leaks for that case
+                        // (acceptable trade for correctness).
+                        let src_op = self.lower_expr(*eid);
+                        let src_ty = self.operand_ty(&src_op);
+                        let Type::Obj(sid) = src_ty else {
+                            panic!(
+                                "ssa-lower: object spread source must be a struct, got {src_ty:?}"
+                            );
+                        };
+                        let layout = self.struct_layouts[sid.0 as usize].clone();
+                        let any_non_copy = layout.iter().any(|(_, t)| !t.is_copy());
+                        if any_non_copy {
+                            self.consume_if_ident(*eid);
+                        }
+                        for (idx, (sn, st)) in layout.iter().enumerate() {
+                            let off = (idx as u64) * 8;
+                            let v = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Load(*st, src_op, off),
+                                *st,
+                                None,
+                            );
+                            let v_op = Operand::Value(v);
+                            if let Some(pos) = field_tys.iter().position(|(k, _)| k == sn) {
+                                field_tys[pos] = (sn.clone(), *st);
+                                field_vals[pos] = v_op;
+                            } else {
+                                field_tys.push((sn.clone(), *st));
+                                field_vals.push(v_op);
+                            }
+                        }
+                        continue;
+                    }
                     let v = self.lower_expr(*eid);
                     self.consume_if_ident(*eid);
                     let ty = self.operand_ty(&v);
-                    field_tys.push((n.clone(), ty));
-                    field_vals.push(v);
+                    if let Some(pos) = field_tys.iter().position(|(k, _)| k == n) {
+                        field_tys[pos] = (n.clone(), ty);
+                        field_vals[pos] = v;
+                    } else {
+                        field_tys.push((n.clone(), ty));
+                        field_vals.push(v);
+                    }
                 }
                 let sid = self
                     .struct_layouts
