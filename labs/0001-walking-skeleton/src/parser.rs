@@ -846,11 +846,17 @@ impl Parser<'_> {
         Ok(Stmt::For { init, cond, step, body })
     }
 
-    /// Try to recognize a `for ( (let|const) IDENT (: T)? "of" EXPR )` head
-    /// (we're already past the `(`). On match, consumes through the closing
-    /// `)`, parses the body, and emits the desugared C-style for-loop. On
-    /// non-match, restores `pos` and returns `Ok(None)` so the caller falls
-    /// back to the regular for-loop parser.
+    /// Try to recognize a `for ( (let|const) IDENT (: T)? ("of"|"in") EXPR )`
+    /// head (we're already past the `(`). On match, consumes through the
+    /// closing `)`, parses the body, and emits the desugared C-style
+    /// for-loop. On non-match, restores `pos` and returns `Ok(None)` so
+    /// the caller falls back to the regular for-loop parser.
+    ///
+    /// for-in vs for-of:
+    /// - for-of (`for (let v of arr)`) iterates the array elements.
+    /// - for-in (`for (let k in obj)`) iterates obj's struct field names
+    ///   as strings. Same desugar shape as for-of, with the source
+    ///   wrapped in `Object.keys(obj)` so the body sees a string[].
     ///
     /// Performance shape: the desugar collapses to the same SSA the user
     /// would write by hand —
@@ -885,17 +891,36 @@ impl Parser<'_> {
             let _ann = self.parse_type_ann()?;
             have_type_ann = true;
         }
-        // Contextual `of` keyword — must be an Ident("of"). Anything else
-        // (`=` for a regular let-in-init, `;` for empty init, etc.) means
-        // this is NOT a for-of and we restore.
-        let is_of = matches!(self.peek(), Token::Ident(n) if n == "of");
-        if !is_of {
+        // Contextual `of` / `in` keyword — must be an Ident. Anything
+        // else (`=` for a regular let-in-init, `;` for empty init, etc.)
+        // means this is NOT a for-of/in and we restore.
+        let kind = match self.peek() {
+            Token::Ident(n) if n == "of" => Some("of"),
+            Token::Ident(n) if n == "in" => Some("in"),
+            _ => None,
+        };
+        let Some(kind) = kind else {
             self.pos = saved;
             return Ok(None);
-        }
-        self.pos += 1; // consume "of"
+        };
+        self.pos += 1; // consume "of" / "in"
         let _ = have_type_ann; // not yet propagated; suppress unused warning
-        let src = self.parse_expr()?;
+        let raw_src = self.parse_expr()?;
+        // for-in wraps `Object.keys(raw_src)` so the body sees a
+        // string[]. for-of uses raw_src directly.
+        let src = if kind == "in" {
+            let object_id = self.ast.add_expr(Expr::Ident("Object".into()));
+            let keys_member = self.ast.add_expr(Expr::Member {
+                obj: object_id,
+                name: "keys".into(),
+            });
+            self.ast.add_expr(Expr::Call {
+                callee: keys_member,
+                args: vec![raw_src],
+            })
+        } else {
+            raw_src
+        };
         match self.peek() {
             Token::RParen => self.pos += 1,
             t => {

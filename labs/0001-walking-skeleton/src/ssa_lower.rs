@@ -3576,6 +3576,63 @@ impl<'a> LowerCtx<'a> {
                 // / print_i64. Result is the console.log return (Void
                 // → ConstI64(0) sentinel since the result is discarded
                 // by all call sites).
+                // `Object.keys(obj)` — emits a compile-time constant
+                // string array of obj's struct field names. Zero-cost
+                // reflection: the struct layout is known at lower time,
+                // so the result is just an `arr_alloc(N)` + N direct
+                // stores, identical to writing `["x", "y", ...]` by
+                // hand.
+                if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
+                    && m_name == "keys"
+                    && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
+                    && ns == "Object"
+                    && args.len() == 1
+                {
+                    let arg_op = self.lower_expr(args[0]);
+                    let arg_ty = self.operand_ty(&arg_op);
+                    let field_names: Vec<String> = match arg_ty {
+                        Type::Obj(sid) => self.struct_layouts[sid.0 as usize]
+                            .iter()
+                            .map(|(n, _)| n.clone())
+                            .collect(),
+                        other => panic!(
+                            "ssa-lower: Object.keys requires a struct arg, got {other:?}"
+                        ),
+                    };
+                    let n = field_names.len() as i64;
+                    let str_ty = Type::Str;
+                    let arr_id = intern_arr_layout(self.arr_layouts, str_ty);
+                    let arr_ptr = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.arr_alloc,
+                            vec![Operand::ConstI64(n)],
+                        ),
+                        Type::Arr(arr_id),
+                        None,
+                    );
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Store(
+                            Operand::ConstI64(n),
+                            Operand::Value(arr_ptr),
+                            0,
+                        ),
+                    );
+                    for (i, fname) in field_names.iter().enumerate() {
+                        let str_v = self.intern_string_literal(fname);
+                        let off = 16 + (i as u64) * 8;
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Store(
+                                Operand::Value(str_v),
+                                Operand::Value(arr_ptr),
+                                off,
+                            ),
+                        );
+                    }
+                    return Operand::Value(arr_ptr);
+                }
                 if self.is_console_log_member(*callee) && args.len() == 1 {
                     let is_borrow = matches!(
                         self.ast.get_expr(args[0]),

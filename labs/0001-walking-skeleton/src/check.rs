@@ -1183,6 +1183,7 @@ impl Checker {
                 match name.as_str() {
                     "console" => Ok(Type::Object("console")),
                     "Math" => Ok(Type::Object("Math")),
+                    "Object" => Ok(Type::Object("Object")),
                     other => Err(format!("unknown identifier `{other}`")),
                 }
             }
@@ -1224,6 +1225,19 @@ impl Checker {
                     (Type::Object("Math"), m) if matches!(m, "PI" | "E") => {
                         Ok(Type::Number)
                     }
+                    // `Object.keys(obj)` — returns Array<String> with the
+                    // field names of obj's struct type. Static-resolved at
+                    // codegen (the struct layout is known at compile
+                    // time), so this is a compile-time constant array
+                    // emitted at the call site. Param is Type::Any
+                    // because the typechecker doesn't yet track
+                    // "any-struct" as a constraint; ssa_lower verifies
+                    // the arg actually carries Type::Obj at lower-time
+                    // and panics on non-struct args.
+                    (Type::Object("Object"), "keys") => Ok(Type::Function(
+                        vec![Type::Any],
+                        Box::new(Type::Array(Box::new(Type::String))),
+                    )),
                     (Type::String, "length") | (Type::Array(_), "length") => Ok(Type::Number),
                     // M6.1 — String methods. All borrow `this` and any
                     // String args (consumption only fires at concat,
