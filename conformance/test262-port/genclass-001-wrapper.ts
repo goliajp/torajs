@@ -17,12 +17,16 @@ class Wrapper<T> {
   }
 }
 
-// (Pair<A, B> with mixed types is a known v0 limitation: the factory's
-// default-init for TypeVar fields can't pick a representative value
-// when the same field's substituted type differs across
-// instantiations. Single-type-param classes work; multi-type-param
-// classes work iff every TypeVar resolves to the same underlying SSA
-// representation. Tracked separately.)
+class Pair<A, B> {
+  fst: A;
+  snd: B;
+  constructor(a: A, b: B) {
+    this.fst = a;
+    this.snd = b;
+  }
+  fst_of(): A { return this.fst; }
+}
+
 function check(): number {
   // Wrapper<number>.
   let w = new Wrapper(42);
@@ -34,6 +38,13 @@ function check(): number {
   let w2 = new Wrapper(7);
   if (w2.get_inner() !== 7) { throw "#3"; }
   if (w.get_inner() !== 100) { throw "#4: instance independence"; }
+
+  // Pair<number, string> with single-method use to dodge the
+  // multi-method-returning-borrowed-Str ownership issue (tracked
+  // separately in the class system).
+  let p = new Pair(42, "hello");
+  if (p.fst_of() !== 42) { throw "#5: multi-typeparam class"; }
+  if (p.snd !== "hello") { throw "#6: field access"; }
   return 0;
 }
 console.log(check());

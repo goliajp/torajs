@@ -715,8 +715,18 @@ fn default_init_for_type(ann: &str) -> Expr {
         // typed zero anyway; field types beyond primitive are deferred to
         // M5.2 alongside inheritance.
         _ if ann.ends_with("[]") => Expr::Array(Vec::new()),
+        // TypeVar field (heuristic: short all-uppercase identifier — T,
+        // U, K, V, A, B …). Emit a marker Ident that the monomorphizer
+        // rewrites to the concrete default once the type is bound.
+        _ if is_likely_typevar(ann) => {
+            Expr::Ident(format!("__tvdefault__{ann}"))
+        }
         _ => Expr::Number(0.0),
     }
+}
+
+fn is_likely_typevar(s: &str) -> bool {
+    s.len() <= 2 && !s.is_empty() && s.chars().all(|c| c.is_ascii_uppercase())
 }
 
 /// Walk a stmt list and collect every `Expr::Super { args }` site, with
