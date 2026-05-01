@@ -2121,6 +2121,46 @@ impl Parser<'_> {
             }
         };
         self.pos += 1;
+        // Optional generic type params: `class Map<K, V> { ... }`.
+        let mut type_params: Vec<String> = Vec::new();
+        if matches!(self.peek(), Token::Lt) {
+            self.pos += 1;
+            if !matches!(self.peek(), Token::Gt) {
+                loop {
+                    match self.peek() {
+                        Token::Ident(n) => {
+                            type_params.push(n.clone());
+                            self.pos += 1;
+                        }
+                        t => {
+                            return Err(format!(
+                                "expected type-param name in class<...>, got {t:?} at {}",
+                                self.at()
+                            ));
+                        }
+                    }
+                    match self.peek() {
+                        Token::Comma => self.pos += 1,
+                        Token::Gt => break,
+                        t => {
+                            return Err(format!(
+                                "expected `,` or `>` in class type params, got {t:?} at {}",
+                                self.at()
+                            ));
+                        }
+                    }
+                }
+            }
+            match self.peek() {
+                Token::Gt => self.pos += 1,
+                t => {
+                    return Err(format!(
+                        "expected `>` to close class type params, got {t:?} at {}",
+                        self.at()
+                    ));
+                }
+            }
+        }
         // M5.2 — optional `extends BaseName` clause.
         let parent: Option<String> = if matches!(self.peek(), Token::Extends) {
             self.pos += 1;
@@ -2249,6 +2289,7 @@ impl Parser<'_> {
         }
         Ok(Stmt::ClassDecl {
             name,
+            type_params,
             parent,
             fields,
             ctor,

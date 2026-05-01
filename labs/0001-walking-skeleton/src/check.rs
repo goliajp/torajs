@@ -681,6 +681,25 @@ fn unify_typevar(
             }
             unify_typevar(p_ret, a_ret, subst)
         }
+        (Type::Struct(p_fields), Type::Struct(a_fields)) => {
+            if p_fields.len() != a_fields.len() {
+                return Err(format!(
+                    "struct field count mismatch: pattern {} fields, actual {}",
+                    p_fields.len(),
+                    a_fields.len()
+                ));
+            }
+            for ((pn, pt), (an, at)) in p_fields.iter().zip(a_fields.iter()) {
+                if pn != an {
+                    return Err(format!(
+                        "struct field name mismatch: expected `{pn}`, got `{an}`"
+                    ));
+                }
+                unify_typevar(pt, at, subst)?;
+            }
+            Ok(())
+        }
+        (Type::Nullable(p), Type::Nullable(a)) => unify_typevar(p, a, subst),
         (a, b) if a == b => Ok(()),
         (a, b) => Err(format!("expected {a:?}, got {b:?}")),
     }

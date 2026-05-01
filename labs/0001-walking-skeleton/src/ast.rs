@@ -288,6 +288,11 @@ pub enum Stmt {
     /// SSA layer never sees `ClassDecl`.
     ClassDecl {
         name: String,
+        /// Generic type params: `class Map<K, V> { ... }`. Threaded through
+        /// to the desugared TypeDecl + every method's FnDecl. Same
+        /// monomorphization machinery as standalone generic fns +
+        /// generic-struct aliases.
+        type_params: Vec<String>,
         /// M5.2 — `class Sub extends Base { ... }`. None for root classes.
         /// Multi-level inheritance is supported (Sub extends Mid extends Root)
         /// as long as the chain is acyclic and every ancestor is declared
@@ -371,6 +376,7 @@ pub fn desugar_classes(ast: &mut Ast) {
     let class_index: Vec<(
         usize,
         String,
+        Vec<String>,           // type_params
         Option<String>,
         Vec<(String, String)>,
         Option<ClassCtor>,
@@ -382,6 +388,7 @@ pub fn desugar_classes(ast: &mut Ast) {
         .filter_map(|(i, s)| match s {
             Stmt::ClassDecl {
                 name,
+                type_params,
                 parent,
                 fields,
                 ctor,
@@ -389,6 +396,7 @@ pub fn desugar_classes(ast: &mut Ast) {
             } => Some((
                 i,
                 name.clone(),
+                type_params.clone(),
                 parent.clone(),
                 fields.clone(),
                 ctor.clone(),
@@ -405,7 +413,7 @@ pub fn desugar_classes(ast: &mut Ast) {
     // Build the parent map and validate the inheritance graph.
     let mut parent_map: std::collections::HashMap<String, Option<String>> =
         std::collections::HashMap::new();
-    for (_, cname, parent, _, _, _) in &class_index {
+    for (_, cname, _tp, parent, _, _, _) in &class_index {
         parent_map.insert(cname.clone(), parent.clone());
     }
     // Detect missing-parent and cycle errors. We don't allow forward
@@ -413,7 +421,7 @@ pub fn desugar_classes(ast: &mut Ast) {
     // ancestor must be declared before its descendants. This keeps
     // field-flattening + factory-emission order trivially correct.
     let mut declared_so_far: std::collections::HashSet<String> = std::collections::HashSet::new();
-    for (_, cname, parent, _, _, _) in &class_index {
+    for (_, cname, _tp, parent, _, _, _) in &class_index {
         if let Some(p) = parent {
             if !declared_so_far.contains(p) {
                 panic!(
@@ -431,7 +439,7 @@ pub fn desugar_classes(ast: &mut Ast) {
     // default-initialize.
     let mut full_fields: std::collections::HashMap<String, Vec<(String, String)>> =
         std::collections::HashMap::new();
-    for (_, cname, parent, fields, _, _) in &class_index {
+    for (_, cname, _tp, parent, fields, _, _) in &class_index {
         let mut combined: Vec<(String, String)> = Vec::new();
         if let Some(p) = parent {
             // Parent must be in full_fields by now (declaration order check
@@ -459,7 +467,7 @@ pub fn desugar_classes(ast: &mut Ast) {
     // Build the method dispatch table. Each method name resolves to the
     // class that declares it; subclass redeclaration of an inherited
     // method (override) is rejected for M5.2.a — virtual dispatch is M5.3.
-    for (_, cname, _, _, _, methods) in &class_index {
+    for (_, cname, _tp, _, _, _, methods) in &class_index {
         // Walk up the chain to detect overrides.
         for m in methods {
             // Check ancestors.
@@ -507,7 +515,7 @@ pub fn desugar_classes(ast: &mut Ast) {
     // typed prelude let — `let __def_arr_<field>: T[] = []` — and use the
     // ident as the field init. The let-binding's annotation gives ssa-lower
     // enough context to emit a typed `arr_alloc(0)`.
-    for (_, cname, _, _, _, _) in &class_index {
+    for (_, cname, _tp, _, _, _, _) in &class_index {
         let combined = full_fields.get(cname).unwrap();
         let mut init_pairs: Vec<(String, ExprId)> = Vec::with_capacity(combined.len());
         let mut prelude: Vec<Stmt> = Vec::new();
@@ -536,7 +544,7 @@ pub fn desugar_classes(ast: &mut Ast) {
     // Pass 1.5 — rewrite `super(args)` inside each subclass's ctor body
     // into a Call to `__cm_<Parent>__ctor(__this, args)`. Must run before
     // pass 2 (which rewrites `Expr::This` and method-call shapes).
-    for (_, cname, parent, _, ctor, _) in &class_index {
+    for (_, cname, _tp, parent, _, ctor, _) in &class_index {
         let Some(c) = ctor.as_ref() else { continue };
         let mut super_sites: Vec<(ExprId, Vec<ExprId>)> = Vec::new();
         for s in &c.body {
@@ -607,13 +615,21 @@ pub fn desugar_classes(ast: &mut Ast) {
     // Pass 3 — rewrite the stmt list. Replace each ClassDecl in-place
     // with its TypeDecl (using the flattened field list so subclasses
     // carry parent fields too), and accumulate the generated FnDecls.
-    for (idx, cname, _parent, _own_fields, ctor, methods) in class_index {
+    for (idx, cname, type_params, _parent, _own_fields, ctor, methods) in class_index {
         let type_decl = Stmt::TypeDecl {
             name: cname.clone(),
-            type_params: Vec::new(),
+            type_params: type_params.clone(),
             fields: full_fields[&cname].clone(),
         };
         ast.stmts[idx] = type_decl;
+
+        // For generic classes, the `__this` type ann must reference
+        // the instantiated form, e.g. `Wrapper<T>` not bare `Wrapper`.
+        let this_ann = if type_params.is_empty() {
+            cname.clone()
+        } else {
+            format!("{cname}<{}>", type_params.join("|"))
+        };
 
         // Constructor → C__ctor(__this: C, params...): void { body }
         let mut ctor_params_for_factory: Vec<Param> = Vec::new();
@@ -622,14 +638,14 @@ pub fn desugar_classes(ast: &mut Ast) {
             let mut params: Vec<Param> = Vec::with_capacity(c.params.len() + 1);
             params.push(Param {
                 name: "__this".into(),
-                type_ann: Some(cname.clone()),
+                type_ann: Some(this_ann.clone()),
                 default: None,
                 is_rest: false,
             });
             params.extend(c.params.iter().cloned());
             appended.push(Stmt::FnDecl {
                 name: format!("__cm_{cname}__ctor"),
-                type_params: Vec::new(),
+                type_params: type_params.clone(),
                 params,
                 return_type: Some("void".into()),
                 body: c.body.clone(),
@@ -641,14 +657,14 @@ pub fn desugar_classes(ast: &mut Ast) {
             let mut params: Vec<Param> = Vec::with_capacity(m.params.len() + 1);
             params.push(Param {
                 name: "__this".into(),
-                type_ann: Some(cname.clone()),
+                type_ann: Some(this_ann.clone()),
                 default: None,
                 is_rest: false,
             });
             params.extend(m.params.iter().cloned());
             appended.push(Stmt::FnDecl {
                 name: format!("__cm_{cname}__{}", m.name),
-                type_params: Vec::new(),
+                type_params: type_params.clone(),
                 params,
                 return_type: m.return_type.clone(),
                 body: m.body.clone(),
@@ -663,6 +679,7 @@ pub fn desugar_classes(ast: &mut Ast) {
         let factory_body = build_factory_body(
             ast,
             &cname,
+            &type_params,
             &class_field_inits[&cname],
             class_field_preludes
                 .get(&cname)
@@ -672,9 +689,9 @@ pub fn desugar_classes(ast: &mut Ast) {
         );
         appended.push(Stmt::FnDecl {
             name: format!("__new_{cname}"),
-            type_params: Vec::new(),
+            type_params: type_params.clone(),
             params: ctor_params_for_factory,
-            return_type: Some(cname.clone()),
+            return_type: Some(this_ann.clone()),
             body: factory_body,
         });
     }
@@ -896,6 +913,7 @@ fn method_owner_is_in_chain(
 fn build_factory_body(
     ast: &mut Ast,
     cname: &str,
+    type_params: &[String],
     field_inits: &[(String, ExprId)],
     prelude: Vec<Stmt>,
     ctor: Option<&ClassCtor>,
@@ -903,10 +921,15 @@ fn build_factory_body(
     let obj_lit = ast.add_expr(Expr::ObjectLit {
         fields: field_inits.to_vec(),
     });
+    let this_ann = if type_params.is_empty() {
+        cname.to_string()
+    } else {
+        format!("{cname}<{}>", type_params.join("|"))
+    };
     let let_this = Stmt::LetDecl {
         mutable: true,
         name: "__this".into(),
-        type_ann: Some(cname.to_string()),
+        type_ann: Some(this_ann),
         init: obj_lit,
     };
     let mut body: Vec<Stmt> = prelude;
@@ -1821,6 +1844,7 @@ impl Ast {
             },
             Stmt::ClassDecl {
                 name,
+                type_params: _,
                 parent,
                 fields,
                 ctor,
