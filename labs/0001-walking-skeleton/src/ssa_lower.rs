@@ -1256,6 +1256,13 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         &[Type::Str, Type::Str],
         Type::Ptr,
     );
+    let arr_from_string_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_arr_from_string",
+        &[Type::Str],
+        Type::Ptr,
+    );
     let arr_join_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -1871,6 +1878,7 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         str_includes: str_includes_id,
         str_eq: str_eq_id,
         str_split: str_split_id,
+        arr_from_string: arr_from_string_id,
         arr_join: arr_join_id,
         i64_to_str: i64_to_str_id,
         f64_to_str: f64_to_str_id,
@@ -2074,6 +2082,7 @@ struct Intrinsics {
     str_includes: FuncId,
     str_eq: FuncId,
     str_split: FuncId,
+    arr_from_string: FuncId,
     arr_join: FuncId,
     i64_to_str: FuncId,
     f64_to_str: FuncId,
@@ -5783,6 +5792,33 @@ impl<'a> LowerCtx<'a> {
                         other => panic!("ssa-lower: unknown Number method `{other}`"),
                     }
                 }
+                // `Array.from(s)` over a string — emits a Call to the
+                // runtime helper that walks `s` byte-by-byte and packs a
+                // single-char string per byte into a fresh `string[]`.
+                // Result type is interned through the same arr_layouts
+                // path Object.keys uses (element = Type::Str).
+                if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
+                    && m_name == "from"
+                    && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
+                    && ns == "Array"
+                    && args.len() == 1
+                {
+                    let arg_op = self.lower_expr(args[0]);
+                    let arg_ty = self.operand_ty(&arg_op);
+                    if !matches!(arg_ty, Type::Str) {
+                        panic!(
+                            "ssa-lower: Array.from requires a string arg, got {arg_ty:?}"
+                        );
+                    }
+                    let arr_id = intern_arr_layout(self.arr_layouts, Type::Str);
+                    let v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(self.intrinsics.arr_from_string, vec![arg_op]),
+                        Type::Arr(arr_id),
+                        None,
+                    );
+                    return Operand::Value(v);
+                }
                 // `console.log(arg)` — works in any expression context
                 // (top-level stmt, inside a block, inside an if-body).
                 // Dispatches by arg's SSA type to print_str / print_f64
@@ -9365,6 +9401,7 @@ impl<'a> LowerCtx<'a> {
             || fid == i.str_includes
             || fid == i.str_eq
             || fid == i.str_split
+            || fid == i.arr_from_string
             || fid == i.arr_join
             || fid == i.math_sqrt
             || fid == i.math_abs

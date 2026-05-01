@@ -222,6 +222,20 @@ void *__torajs_str_from_char_code(int64_t n) {
     return p;
 }
 
+/* `Array.from(s)` over a string source — fresh `string[]` with one
+ * single-byte string per byte of `s`. Mirrors `s.split("")` in JS but
+ * scoped to tr's byte-Str layout (no UTF-16 / surrogate handling). */
+void *__torajs_arr_from_string(const uint8_t *s) {
+    uint64_t s_len = *(const uint64_t *)s;
+    void *arr = __torajs_arr_alloc(s_len);
+    for (uint64_t i = 0; i < s_len; i++) {
+        uint8_t *p = str_alloc_(1);
+        p[8] = s[8 + i];
+        arr = __torajs_arr_push(arr, (int64_t)(intptr_t)p);
+    }
+    return arr;
+}
+
 /* `s.at(i)` — single-char string at index i, with negative-index wrap.
  * Returns the empty string if i is out of bounds (matches JS spec —
  * returning undefined would need Nullable<string>, not in v0). */

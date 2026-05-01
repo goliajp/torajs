@@ -1326,6 +1326,15 @@ impl Checker {
                     (Type::Object("Array"), "isArray") => {
                         Ok(Type::Function(vec![Type::Any], Box::new(Type::Boolean)))
                     }
+                    // `Array.from(s)` over a string — returns `string[]`
+                    // with one single-char string per byte. The other
+                    // overloads (iterable / arrayLike / mapFn) aren't in
+                    // tr's subset; ssa_lower validates the arg is Type::Str
+                    // at lower-time.
+                    (Type::Object("Array"), "from") => Ok(Type::Function(
+                        vec![Type::String],
+                        Box::new(Type::Array(Box::new(Type::String))),
+                    )),
                     // `Object.keys(obj)` — returns Array<String> with the
                     // field names of obj's struct type. Static-resolved at
                     // codegen (the struct layout is known at compile
