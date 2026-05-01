@@ -1397,10 +1397,9 @@ impl Checker {
                         vec![Type::Number],
                         Box::new(Type::String),
                     )),
-                    (Type::Number, "toString") => Ok(Type::Function(
-                        Vec::new(),
-                        Box::new(Type::String),
-                    )),
+                    (Type::Number, "toString") | (Type::Number, "toLocaleString") => {
+                        Ok(Type::Function(Vec::new(), Box::new(Type::String)))
+                    }
                     // String namespace static — `String.fromCharCode(n)`.
                     // `fromCodePoint` is the Unicode-aware sibling; in
                     // tr's byte-Str layout the two collapse for code

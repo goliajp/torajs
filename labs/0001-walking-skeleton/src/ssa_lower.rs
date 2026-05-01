@@ -5384,7 +5384,8 @@ impl<'a> LowerCtx<'a> {
                 if let Expr::Member { obj: recv_id, name: m_name } = self.ast.get_expr(*callee)
                     && matches!(
                         m_name.as_str(),
-                        "toFixed" | "toString" | "toExponential" | "toPrecision"
+                        "toFixed" | "toString" | "toLocaleString"
+                        | "toExponential" | "toPrecision"
                     )
                 {
                     let recv_op = self.lower_expr(*recv_id);
@@ -5422,9 +5423,13 @@ impl<'a> LowerCtx<'a> {
                             } else {
                                 self.intrinsics.num_to_precision_i
                             },
-                            // toString: i64_to_str / f64_to_str — same
-                            // formatters powering Number-to-String
-                            // coercion in `+`.
+                            // toString / toLocaleString: i64_to_str /
+                            // f64_to_str — same formatters powering
+                            // Number-to-String coercion in `+`. tr's
+                            // subset has no locale support, so
+                            // toLocaleString collapses to the canonical
+                            // decimal form (matches bun for ASCII /
+                            // POSIX locales).
                             _ => if is_f64 {
                                 self.intrinsics.f64_to_str
                             } else {
