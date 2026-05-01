@@ -1353,6 +1353,37 @@ impl Checker {
                         );
                         Ok(Type::Function(vec![fn_ty], Box::new(Type::Void)))
                     }
+                    // `xs.includes(needle)` — boolean variant of indexOf.
+                    (Type::Array(elem), "includes") => {
+                        let inner = (**elem).clone();
+                        Ok(Type::Function(vec![inner], Box::new(Type::Boolean)))
+                    }
+                    // `xs.findIndex(pred)` — index of first matching, or -1.
+                    // (`xs.find` returns `T | undefined` which would need
+                    // Nullable(Number) for Number arrays — not in v0;
+                    // callers should use `xs[xs.findIndex(p)]` after a
+                    // -1 check, or `xs.filter(p)[0]` with a length guard.)
+                    (Type::Array(elem), "findIndex") => {
+                        let inner = (**elem).clone();
+                        let pred_ty = Type::Function(
+                            vec![inner],
+                            Box::new(Type::Boolean),
+                        );
+                        Ok(Type::Function(
+                            vec![pred_ty],
+                            Box::new(Type::Number),
+                        ))
+                    }
+                    // `xs.some(pred)` / `xs.every(pred)` — short-circuit
+                    // ored / anded predicate iteration.
+                    (Type::Array(elem), "some") | (Type::Array(elem), "every") => {
+                        let inner = (**elem).clone();
+                        let pred_ty = Type::Function(
+                            vec![inner],
+                            Box::new(Type::Boolean),
+                        );
+                        Ok(Type::Function(vec![pred_ty], Box::new(Type::Boolean)))
+                    }
                     _ => Err(format!("no member `.{name}` on type {obj_ty:?}")),
                 }
             }

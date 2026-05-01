@@ -4105,10 +4105,15 @@ impl<'a> LowerCtx<'a> {
                     // compare picks ICmp / FCmp / __torajs_str_eq
                     // based on the array's element type. No
                     // allocations; LLVM auto-vectorizes the i64 path.
+                    //
+                    // `arr.includes(needle)` reuses the same loop,
+                    // returning a Bool instead of the index. Both share
+                    // the comparator dispatch.
                     if let Type::Arr(arr_id) = recv_ty
-                        && method == "indexOf"
+                        && (method == "indexOf" || method == "includes")
                         && args.len() == 1
                     {
+                        let want_bool = method == "includes";
                         let elem_ty = self.arr_layouts[arr_id.0 as usize];
                         let needle = self.lower_expr(args[0]);
                         let result_slot =
@@ -4280,8 +4285,232 @@ impl<'a> LowerCtx<'a> {
                             Type::I64,
                             None,
                         );
+                        if want_bool {
+                            // `includes` — return (result_slot != -1) as Bool.
+                            let b = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::ICmp(
+                                    IPred::Ne,
+                                    Operand::Value(r),
+                                    Operand::ConstI64(-1),
+                                ),
+                                Type::Bool,
+                                None,
+                            );
+                            return Operand::Value(b);
+                        }
                         return Operand::Value(r);
                     }
+                }
+                // `xs.findIndex(p)` / `xs.some(p)` / `xs.every(p)` —
+                // short-circuit predicate iteration. Each runs the
+                // predicate per element, exiting on the first matching
+                // (findIndex / some) or first non-matching (every) hit.
+                if let Expr::Member { obj, name } = self.ast.get_expr(*callee)
+                    && matches!(name.as_str(), "findIndex" | "some" | "every")
+                {
+                    let recv_op = self.lower_expr(*obj);
+                    let recv_ty = self.operand_ty(&recv_op);
+                    if !matches!(recv_ty, Type::Arr(_)) {
+                        panic!(
+                            "ssa-lower: `.{name}(...)` on non-array receiver type {recv_ty:?}"
+                        );
+                    }
+                    let method = name.clone();
+                    let arr_ty = recv_ty;
+                    let elem_ty = self.arr_layouts[match arr_ty {
+                        Type::Arr(id) => id.0 as usize,
+                        _ => unreachable!(),
+                    }];
+                    let src_arr = match recv_op {
+                        Operand::Value(v) => v,
+                        _ => unreachable!(),
+                    };
+                    let fn_val = self.lower_expr(args[0]);
+                    let fn_ty = self.operand_ty(&fn_val);
+                    // Result slot: number for findIndex, bool for some/every.
+                    // Defaults: findIndex = -1, some = false, every = true.
+                    let result_ty = if method == "findIndex" {
+                        Type::I64
+                    } else {
+                        Type::Bool
+                    };
+                    let result_slot =
+                        self.alloca_in_entry(result_ty, Some("__pred_res"));
+                    let default_op: Operand = match method.as_str() {
+                        "findIndex" => Operand::ConstI64(-1),
+                        "some" => Operand::ConstBool(false),
+                        "every" => Operand::ConstBool(true),
+                        _ => unreachable!(),
+                    };
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Store(default_op, Operand::Value(result_slot), 0),
+                    );
+                    let i_slot = self.alloca(Type::I64, Some("__pred_i"));
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Store(
+                            Operand::ConstI64(0),
+                            Operand::Value(i_slot),
+                            0,
+                        ),
+                    );
+                    let len = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Load(Type::I64, Operand::Value(src_arr), 0),
+                        Type::I64,
+                        None,
+                    );
+                    let header_blk = self.f.add_block();
+                    let body_blk = self.f.add_block();
+                    let after_blk = self.f.add_block();
+                    self.f.set_term(self.cur_block, Terminator::Br(header_blk));
+                    // header
+                    self.cur_block = header_blk;
+                    let i_now = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Load(Type::I64, Operand::Value(i_slot), 0),
+                        Type::I64,
+                        None,
+                    );
+                    let cmp = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::ICmp(
+                            IPred::Slt,
+                            Operand::Value(i_now),
+                            Operand::Value(len),
+                        ),
+                        Type::Bool,
+                        None,
+                    );
+                    self.f.set_term(
+                        self.cur_block,
+                        Terminator::CondBr {
+                            cond: Operand::Value(cmp),
+                            then_blk: body_blk,
+                            else_blk: after_blk,
+                        },
+                    );
+                    // body — load elem, run predicate
+                    self.cur_block = body_blk;
+                    let i_now2 = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Load(Type::I64, Operand::Value(i_slot), 0),
+                        Type::I64,
+                        None,
+                    );
+                    let scaled = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::BinOp(
+                            SsaBinOp::Shl,
+                            Operand::Value(i_now2),
+                            Operand::ConstI64(3),
+                        ),
+                        Type::I64,
+                        None,
+                    );
+                    let off = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::BinOp(
+                            SsaBinOp::Add,
+                            Operand::Value(scaled),
+                            Operand::ConstI64(16),
+                        ),
+                        Type::I64,
+                        None,
+                    );
+                    let elem = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::LoadDyn(
+                            elem_ty,
+                            Operand::Value(src_arr),
+                            Operand::Value(off),
+                        ),
+                        elem_ty,
+                        None,
+                    );
+                    let pred_v = self.call_fn_value(
+                        fn_val,
+                        fn_ty,
+                        vec![Operand::Value(elem)],
+                    );
+                    // Decide branch based on method semantics. some +
+                    // findIndex break on `pred == true`; every breaks on
+                    // `pred == false`.
+                    let break_cond = if method == "every" {
+                        let inv = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::ICmp(
+                                IPred::Eq,
+                                Operand::Value(pred_v),
+                                Operand::ConstBool(false),
+                            ),
+                            Type::Bool,
+                            None,
+                        );
+                        Operand::Value(inv)
+                    } else {
+                        Operand::Value(pred_v)
+                    };
+                    let hit_blk = self.f.add_block();
+                    let next_blk = self.f.add_block();
+                    self.f.set_term(
+                        self.cur_block,
+                        Terminator::CondBr {
+                            cond: break_cond,
+                            then_blk: hit_blk,
+                            else_blk: next_blk,
+                        },
+                    );
+                    self.cur_block = hit_blk;
+                    // hit: write the appropriate result and exit.
+                    let hit_val: Operand = match method.as_str() {
+                        "findIndex" => Operand::Value(i_now2),
+                        "some" => Operand::ConstBool(true),
+                        "every" => Operand::ConstBool(false),
+                        _ => unreachable!(),
+                    };
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Store(hit_val, Operand::Value(result_slot), 0),
+                    );
+                    self.f.set_term(self.cur_block, Terminator::Br(after_blk));
+                    // next: i++ and loop
+                    self.cur_block = next_blk;
+                    let i_then = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Load(Type::I64, Operand::Value(i_slot), 0),
+                        Type::I64,
+                        None,
+                    );
+                    let i_next = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::BinOp(
+                            SsaBinOp::Add,
+                            Operand::Value(i_then),
+                            Operand::ConstI64(1),
+                        ),
+                        Type::I64,
+                        None,
+                    );
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Store(
+                            Operand::Value(i_next),
+                            Operand::Value(i_slot),
+                            0,
+                        ),
+                    );
+                    self.f.set_term(self.cur_block, Terminator::Br(header_blk));
+                    self.cur_block = after_blk;
+                    let r = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Load(result_ty, Operand::Value(result_slot), 0),
+                        result_ty,
+                        None,
+                    );
+                    return Operand::Value(r);
                 }
                 // M6.2 — `xs.map / filter / reduce / forEach (fn[, init])`.
                 // Common shape: receiver lowers to a `Type::Arr` value
