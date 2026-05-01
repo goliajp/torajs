@@ -4648,7 +4648,7 @@ impl<'a> LowerCtx<'a> {
                         | "trim" | "trimStart" | "trimEnd"
                         | "padStart" | "padEnd"
                         | "replace" | "replaceAll"
-                        | "reverse" | "fill" | "at" | "concat"
+                        | "reverse" | "fill" | "at" | "concat" | "sort"
                     )
                 {
                     let recv_op = self.lower_expr(*obj);
@@ -4724,6 +4724,339 @@ impl<'a> LowerCtx<'a> {
                             None,
                         );
                         return Operand::Value(v);
+                    }
+                    // `arr.sort(cmp)` — in-place insertion sort calling
+                    // `cmp` for each compare. Returns the same array. The
+                    // comparator's return is treated as an i64 (or
+                    // implicitly-promoted-to-i64); ssa-lower picks ICmp/
+                    // FCmp(>0) based on its actual SSA type. Insertion
+                    // sort is O(n²) but works for moderate array sizes
+                    // and avoids needing closure-aware C runtime.
+                    if let Type::Arr(arr_id) = recv_ty
+                        && method == "sort"
+                        && args.len() == 1
+                    {
+                        let elem_ty = self.arr_layouts[arr_id.0 as usize];
+                        let arr_ptr = match recv_op {
+                            Operand::Value(v) => v,
+                            _ => unreachable!(),
+                        };
+                        let cmp_val = self.lower_expr(args[0]);
+                        let cmp_ty = self.operand_ty(&cmp_val);
+                        let len = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(Type::I64, recv_op, 0),
+                            Type::I64,
+                            None,
+                        );
+                        let i_slot = self.alloca(Type::I64, Some("__sort_i"));
+                        // i = 1
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Store(
+                                Operand::ConstI64(1),
+                                Operand::Value(i_slot),
+                                0,
+                            ),
+                        );
+                        let outer_hdr = self.f.add_block();
+                        let outer_body = self.f.add_block();
+                        let outer_after = self.f.add_block();
+                        self.f.set_term(self.cur_block, Terminator::Br(outer_hdr));
+                        // outer header: i < len?
+                        self.cur_block = outer_hdr;
+                        let i_now = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(Type::I64, Operand::Value(i_slot), 0),
+                            Type::I64,
+                            None,
+                        );
+                        let in_outer = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::ICmp(
+                                IPred::Slt,
+                                Operand::Value(i_now),
+                                Operand::Value(len),
+                            ),
+                            Type::Bool,
+                            None,
+                        );
+                        self.f.set_term(
+                            self.cur_block,
+                            Terminator::CondBr {
+                                cond: Operand::Value(in_outer),
+                                then_blk: outer_body,
+                                else_blk: outer_after,
+                            },
+                        );
+                        // outer body: load cur = xs[i], j = i, then inner loop
+                        self.cur_block = outer_body;
+                        let i_now2 = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(Type::I64, Operand::Value(i_slot), 0),
+                            Type::I64,
+                            None,
+                        );
+                        // off_i = 16 + i * 8
+                        let off_i_scaled = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::BinOp(
+                                SsaBinOp::Shl,
+                                Operand::Value(i_now2),
+                                Operand::ConstI64(3),
+                            ),
+                            Type::I64,
+                            None,
+                        );
+                        let off_i = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::BinOp(
+                                SsaBinOp::Add,
+                                Operand::Value(off_i_scaled),
+                                Operand::ConstI64(16),
+                            ),
+                            Type::I64,
+                            None,
+                        );
+                        let cur = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::LoadDyn(
+                                elem_ty,
+                                Operand::Value(arr_ptr),
+                                Operand::Value(off_i),
+                            ),
+                            elem_ty,
+                            None,
+                        );
+                        let j_slot = self.alloca(Type::I64, Some("__sort_j"));
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Store(
+                                Operand::Value(i_now2),
+                                Operand::Value(j_slot),
+                                0,
+                            ),
+                        );
+                        // inner loop: while j > 0 && cmp(xs[j-1], cur) > 0: shift
+                        let inner_hdr = self.f.add_block();
+                        let inner_check = self.f.add_block();
+                        let inner_body = self.f.add_block();
+                        let inner_after = self.f.add_block();
+                        self.f.set_term(self.cur_block, Terminator::Br(inner_hdr));
+                        // inner header: j > 0?
+                        self.cur_block = inner_hdr;
+                        let j_now = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(Type::I64, Operand::Value(j_slot), 0),
+                            Type::I64,
+                            None,
+                        );
+                        let j_pos = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::ICmp(
+                                IPred::Sgt,
+                                Operand::Value(j_now),
+                                Operand::ConstI64(0),
+                            ),
+                            Type::Bool,
+                            None,
+                        );
+                        self.f.set_term(
+                            self.cur_block,
+                            Terminator::CondBr {
+                                cond: Operand::Value(j_pos),
+                                then_blk: inner_check,
+                                else_blk: inner_after,
+                            },
+                        );
+                        // inner check: load xs[j-1], call cmp, test > 0
+                        self.cur_block = inner_check;
+                        let j_minus_1 = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::BinOp(
+                                SsaBinOp::Sub,
+                                Operand::Value(j_now),
+                                Operand::ConstI64(1),
+                            ),
+                            Type::I64,
+                            None,
+                        );
+                        let off_jm1_scaled = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::BinOp(
+                                SsaBinOp::Shl,
+                                Operand::Value(j_minus_1),
+                                Operand::ConstI64(3),
+                            ),
+                            Type::I64,
+                            None,
+                        );
+                        let off_jm1 = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::BinOp(
+                                SsaBinOp::Add,
+                                Operand::Value(off_jm1_scaled),
+                                Operand::ConstI64(16),
+                            ),
+                            Type::I64,
+                            None,
+                        );
+                        let prev = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::LoadDyn(
+                                elem_ty,
+                                Operand::Value(arr_ptr),
+                                Operand::Value(off_jm1),
+                            ),
+                            elem_ty,
+                            None,
+                        );
+                        let cmp_ret = self.call_fn_value(
+                            cmp_val,
+                            cmp_ty,
+                            vec![Operand::Value(prev), Operand::Value(cur)],
+                        );
+                        // ret > 0 — handle i64 vs f64 ret type.
+                        let cmp_ret_ty = self.f.value_type(cmp_ret);
+                        let pred_v = match cmp_ret_ty {
+                            Type::F64 => self.f.append_inst(
+                                self.cur_block,
+                                InstKind::FCmp(
+                                    FPred::Ogt,
+                                    Operand::Value(cmp_ret),
+                                    Operand::ConstF64(0.0),
+                                ),
+                                Type::Bool,
+                                None,
+                            ),
+                            _ => self.f.append_inst(
+                                self.cur_block,
+                                InstKind::ICmp(
+                                    IPred::Sgt,
+                                    Operand::Value(cmp_ret),
+                                    Operand::ConstI64(0),
+                                ),
+                                Type::Bool,
+                                None,
+                            ),
+                        };
+                        self.f.set_term(
+                            self.cur_block,
+                            Terminator::CondBr {
+                                cond: Operand::Value(pred_v),
+                                then_blk: inner_body,
+                                else_blk: inner_after,
+                            },
+                        );
+                        // inner body: xs[j] = xs[j-1]; j--
+                        self.cur_block = inner_body;
+                        // off_j = 16 + j * 8
+                        let off_j_scaled = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::BinOp(
+                                SsaBinOp::Shl,
+                                Operand::Value(j_now),
+                                Operand::ConstI64(3),
+                            ),
+                            Type::I64,
+                            None,
+                        );
+                        let off_j = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::BinOp(
+                                SsaBinOp::Add,
+                                Operand::Value(off_j_scaled),
+                                Operand::ConstI64(16),
+                            ),
+                            Type::I64,
+                            None,
+                        );
+                        // (load prev again here; could reuse but blocks differ)
+                        let prev2 = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::LoadDyn(
+                                elem_ty,
+                                Operand::Value(arr_ptr),
+                                Operand::Value(off_jm1),
+                            ),
+                            elem_ty,
+                            None,
+                        );
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::StoreDyn(
+                                Operand::Value(prev2),
+                                Operand::Value(arr_ptr),
+                                Operand::Value(off_j),
+                            ),
+                        );
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Store(
+                                Operand::Value(j_minus_1),
+                                Operand::Value(j_slot),
+                                0,
+                            ),
+                        );
+                        self.f.set_term(self.cur_block, Terminator::Br(inner_hdr));
+                        // inner after: xs[j] = cur
+                        self.cur_block = inner_after;
+                        let j_final = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(Type::I64, Operand::Value(j_slot), 0),
+                            Type::I64,
+                            None,
+                        );
+                        let off_jf_scaled = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::BinOp(
+                                SsaBinOp::Shl,
+                                Operand::Value(j_final),
+                                Operand::ConstI64(3),
+                            ),
+                            Type::I64,
+                            None,
+                        );
+                        let off_jf = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::BinOp(
+                                SsaBinOp::Add,
+                                Operand::Value(off_jf_scaled),
+                                Operand::ConstI64(16),
+                            ),
+                            Type::I64,
+                            None,
+                        );
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::StoreDyn(
+                                Operand::Value(cur),
+                                Operand::Value(arr_ptr),
+                                Operand::Value(off_jf),
+                            ),
+                        );
+                        // i++
+                        let i_next = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::BinOp(
+                                SsaBinOp::Add,
+                                Operand::Value(i_now2),
+                                Operand::ConstI64(1),
+                            ),
+                            Type::I64,
+                            None,
+                        );
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Store(
+                                Operand::Value(i_next),
+                                Operand::Value(i_slot),
+                                0,
+                            ),
+                        );
+                        self.f.set_term(self.cur_block, Terminator::Br(outer_hdr));
+                        self.cur_block = outer_after;
+                        return Operand::Value(arr_ptr);
                     }
                     // `arr.concat(other)` — fresh array, single malloc +
                     // two memcpys via the C runtime. Element type carried.

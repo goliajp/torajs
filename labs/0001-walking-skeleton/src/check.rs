@@ -1359,6 +1359,21 @@ impl Checker {
                         let inner = (**elem).clone();
                         Ok(Type::Function(vec![inner], Box::new(Type::Void)))
                     }
+                    // `xs.sort(cmp)` — in-place sort using the comparator
+                    // `(a: T, b: T) => number`. Returns the same array
+                    // (chainable). Subset requires the comparator (no
+                    // default lex-sort fallback).
+                    (Type::Array(elem), "sort") => {
+                        let inner = (**elem).clone();
+                        let cmp_ty = Type::Function(
+                            vec![inner.clone(), inner.clone()],
+                            Box::new(Type::Number),
+                        );
+                        Ok(Type::Function(
+                            vec![cmp_ty],
+                            Box::new(Type::Array(Box::new(inner))),
+                        ))
+                    }
                     // `a.concat(b)` — fresh array of a's elements then b's.
                     // Subset: binary only, both arrays must share element type.
                     (Type::Array(elem), "concat") => {
