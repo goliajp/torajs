@@ -1285,6 +1285,12 @@ impl Checker {
                             Box::new(Type::String),
                         ))
                     }
+                    (Type::String, "replace") | (Type::String, "replaceAll") => {
+                        Ok(Type::Function(
+                            vec![Type::String, Type::String],
+                            Box::new(Type::String),
+                        ))
+                    }
                     (Type::String, "charCodeAt") => Ok(Type::Function(
                         vec![Type::Number],
                         Box::new(Type::Number),

@@ -439,6 +439,20 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         &[Type::Str, Type::I64, Type::Str],
         Type::Str,
     );
+    let str_replace_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_str_replace",
+        &[Type::Str, Type::Str, Type::Str],
+        Type::Str,
+    );
+    let str_replace_all_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_str_replace_all",
+        &[Type::Str, Type::Str, Type::Str],
+        Type::Str,
+    );
     let num_parse_int_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -1011,6 +1025,8 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         str_trim_end: str_trim_end_id,
         str_pad_start: str_pad_start_id,
         str_pad_end: str_pad_end_id,
+        str_replace: str_replace_id,
+        str_replace_all: str_replace_all_id,
         num_parse_int: num_parse_int_id,
         num_parse_float: num_parse_float_id,
         num_is_integer_f: num_is_integer_f_id,
@@ -1179,6 +1195,8 @@ struct Intrinsics {
     str_trim_end: FuncId,
     str_pad_start: FuncId,
     str_pad_end: FuncId,
+    str_replace: FuncId,
+    str_replace_all: FuncId,
     num_parse_int: FuncId,
     num_parse_float: FuncId,
     num_is_integer_f: FuncId,
@@ -4338,6 +4356,7 @@ impl<'a> LowerCtx<'a> {
                         | "toUpperCase" | "toLowerCase"
                         | "trim" | "trimStart" | "trimEnd"
                         | "padStart" | "padEnd"
+                        | "replace" | "replaceAll"
                         | "reverse" | "fill"
                     )
                 {
@@ -4353,6 +4372,7 @@ impl<'a> LowerCtx<'a> {
                             | "toUpperCase" | "toLowerCase"
                             | "trim" | "trimStart" | "trimEnd"
                             | "padStart" | "padEnd"
+                            | "replace" | "replaceAll"
                         )
                     {
                         let mut argv = Vec::with_capacity(args.len() + 1);
@@ -4370,6 +4390,8 @@ impl<'a> LowerCtx<'a> {
                             "trimEnd" => (self.intrinsics.str_trim_end, Type::Str),
                             "padStart" => (self.intrinsics.str_pad_start, Type::Str),
                             "padEnd" => (self.intrinsics.str_pad_end, Type::Str),
+                            "replace" => (self.intrinsics.str_replace, Type::Str),
+                            "replaceAll" => (self.intrinsics.str_replace_all, Type::Str),
                             "charCodeAt" => (self.intrinsics.str_char_code_at, Type::I64),
                             "startsWith" => (self.intrinsics.str_starts_with, Type::Bool),
                             "endsWith" => (self.intrinsics.str_ends_with, Type::Bool),
@@ -6911,6 +6933,8 @@ impl<'a> LowerCtx<'a> {
             || fid == i.str_trim_end
             || fid == i.str_pad_start
             || fid == i.str_pad_end
+            || fid == i.str_replace
+            || fid == i.str_replace_all
             || fid == i.arr_reverse
             || fid == i.arr_fill
             || fid == i.throw_set
