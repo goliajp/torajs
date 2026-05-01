@@ -445,6 +445,23 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         &[Type::Ptr, Type::Str],
         Type::Str,
     );
+    // Number → String coercion for `+` mixed-type concat. Two
+    // signatures because the SSA-level distinction between i64 and
+    // f64 must be preserved at the call boundary.
+    let i64_to_str_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_i64_to_str",
+        &[Type::I64],
+        Type::Str,
+    );
+    let f64_to_str_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_f64_to_str",
+        &[Type::F64],
+        Type::Str,
+    );
     // stdlib `Math` namespace — first slice. All take an f64 and return
     // an f64; the lowerer auto-promotes integer args via SiToFp at the
     // call site. Backed by libc sqrt / fabs / floor / ceil via thin
@@ -759,6 +776,8 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         str_eq: str_eq_id,
         str_split: str_split_id,
         arr_join: arr_join_id,
+        i64_to_str: i64_to_str_id,
+        f64_to_str: f64_to_str_id,
         math_sqrt: math_sqrt_id,
         math_abs: math_abs_id,
         math_floor: math_floor_id,
@@ -892,6 +911,8 @@ struct Intrinsics {
     str_eq: FuncId,
     str_split: FuncId,
     arr_join: FuncId,
+    i64_to_str: FuncId,
+    f64_to_str: FuncId,
     math_sqrt: FuncId,
     math_abs: FuncId,
     math_floor: FuncId,
@@ -4768,18 +4789,73 @@ impl<'a> LowerCtx<'a> {
     fn lower_binop(&mut self, op: AstBinOp, a: Operand, b: Operand) -> Operand {
         // String concat short-circuit. Routes `str + str` to the runtime
         // concat intrinsic, which takes ownership of both operands.
-        if matches!(op, AstBinOp::Add)
-            && self.operand_ty(&a) == Type::Str
-            && self.operand_ty(&b) == Type::Str
-        {
-            let concat = self.intrinsics.str_concat;
-            let v = self.f.append_inst(
-                self.cur_block,
-                InstKind::Call(concat, vec![a, b]),
-                Type::Str,
-                None,
+        // Mixed Number+String / String+Number coerce the number to its
+        // decimal string form first via the runtime, then concat —
+        // matches JS spec ToString behavior.
+        if matches!(op, AstBinOp::Add) {
+            let a_ty = self.operand_ty(&a);
+            let b_ty = self.operand_ty(&b);
+            let mixed_string = matches!(
+                (a_ty, b_ty),
+                (Type::Str, Type::I64)
+                    | (Type::Str, Type::F64)
+                    | (Type::I64, Type::Str)
+                    | (Type::F64, Type::Str)
             );
-            return Operand::Value(v);
+            if a_ty == Type::Str && b_ty == Type::Str {
+                let concat = self.intrinsics.str_concat;
+                let v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(concat, vec![a, b]),
+                    Type::Str,
+                    None,
+                );
+                return Operand::Value(v);
+            }
+            if mixed_string {
+                let coerce = |ctx: &mut Self, v: Operand| -> Operand {
+                    match ctx.operand_ty(&v) {
+                        Type::Str => v,
+                        Type::I64 => {
+                            let r = ctx.f.append_inst(
+                                ctx.cur_block,
+                                InstKind::Call(
+                                    ctx.intrinsics.i64_to_str,
+                                    vec![v],
+                                ),
+                                Type::Str,
+                                None,
+                            );
+                            Operand::Value(r)
+                        }
+                        Type::F64 => {
+                            let r = ctx.f.append_inst(
+                                ctx.cur_block,
+                                InstKind::Call(
+                                    ctx.intrinsics.f64_to_str,
+                                    vec![v],
+                                ),
+                                Type::Str,
+                                None,
+                            );
+                            Operand::Value(r)
+                        }
+                        other => panic!(
+                            "ssa-lower: mixed string concat unexpected type {other:?}"
+                        ),
+                    }
+                };
+                let a_str = coerce(self, a);
+                let b_str = coerce(self, b);
+                let concat = self.intrinsics.str_concat;
+                let v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(concat, vec![a_str, b_str]),
+                    Type::Str,
+                    None,
+                );
+                return Operand::Value(v);
+            }
         }
         // String content-equality. ECMA-262 §7.2.16: `===` on strings
         // is bytes-equal, not pointer-equal. Without this dispatch,

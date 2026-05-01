@@ -13,12 +13,43 @@
  */
 
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 /* defined by the inkwell-emitted LLVM IR in the AOT binary */
 void *__torajs_arr_alloc(uint64_t initial_cap);
 void *__torajs_arr_push(void *arr, int64_t val);
+
+/* Format an i64 as a fresh String heap object. Used by `+` when one
+ * operand is Number and the other String — JS coerces the number to
+ * its decimal string form. snprintf gives enough buffer for any i64
+ * (max 20 digits + sign + null = 22 bytes). */
+void *__torajs_i64_to_str(int64_t n) {
+    char buf[24];
+    int written = snprintf(buf, sizeof(buf), "%lld", (long long)n);
+    if (written < 0) written = 0;
+    uint64_t len = (uint64_t)written;
+    uint8_t *p = (uint8_t *)malloc(8 + (size_t)len);
+    *(uint64_t *)p = len;
+    if (len) memcpy(p + 8, buf, (size_t)len);
+    return p;
+}
+
+/* Same shape for f64. Uses %g for short round-trip-friendly output —
+ * matches JS's String(n) for the integer-valued cases we exercise.
+ * (Full IEEE-754 round-trip requires more care; we'll punt on that
+ * until a test demands it.) */
+void *__torajs_f64_to_str(double d) {
+    char buf[32];
+    int written = snprintf(buf, sizeof(buf), "%g", d);
+    if (written < 0) written = 0;
+    uint64_t len = (uint64_t)written;
+    uint8_t *p = (uint8_t *)malloc(8 + (size_t)len);
+    *(uint64_t *)p = len;
+    if (len) memcpy(p + 8, buf, (size_t)len);
+    return p;
+}
 
 /* Returns 1 if strings have equal length and equal bytes, 0 otherwise.
  * `===` / `!==` between Type::Str values dispatches here instead of

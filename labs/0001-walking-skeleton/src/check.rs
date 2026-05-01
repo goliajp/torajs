@@ -1450,9 +1450,16 @@ impl Checker {
                             // `a` and `b` are still readable + droppable
                             // afterwards (matches bun / standard TS).
                             Ok(Type::String)
+                        } else if (l == Type::String && r == Type::Number)
+                            || (l == Type::Number && r == Type::String)
+                        {
+                            // JS ToString coercion — ssa_lower routes
+                            // the number side through __torajs_i64_to_str
+                            // / __torajs_f64_to_str before concat.
+                            Ok(Type::String)
                         } else {
                             Err(format!(
-                                "`+` requires both number or both string, got {l:?} and {r:?}"
+                                "`+` requires matching number/string operands or one of each, got {l:?} and {r:?}"
                             ))
                         }
                     }
