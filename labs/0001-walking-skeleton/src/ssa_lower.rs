@@ -6237,7 +6237,7 @@ impl<'a> LowerCtx<'a> {
                         | "padStart" | "padEnd"
                         | "replace" | "replaceAll"
                         | "reverse" | "toReversed" | "with"
-                        | "fill" | "at" | "concat" | "sort" | "flat"
+                        | "fill" | "at" | "concat" | "sort" | "toSorted" | "flat"
                         | "lastIndexOf" | "localeCompare" | "copyWithin"
                     )
                 {
@@ -6358,10 +6358,39 @@ impl<'a> LowerCtx<'a> {
                     // sort is O(n²) but works for moderate array sizes
                     // and avoids needing closure-aware C runtime.
                     if let Type::Arr(arr_id) = recv_ty
-                        && method == "sort"
+                        && (method == "sort" || method == "toSorted")
                         && args.len() == 1
                     {
                         let elem_ty = self.arr_layouts[arr_id.0 as usize];
+                        // toSorted clones the receiver via arr_slice
+                        // before sorting so the source stays intact.
+                        // arr_slice does the alloc + memcpy in one
+                        // runtime call; the rest of the body operates on
+                        // the clone.
+                        let recv_op = if method == "toSorted" {
+                            let len = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Load(Type::I64, recv_op, 0),
+                                Type::I64,
+                                None,
+                            );
+                            let v = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(
+                                    self.intrinsics.arr_slice,
+                                    vec![
+                                        recv_op,
+                                        Operand::ConstI64(0),
+                                        Operand::Value(len),
+                                    ],
+                                ),
+                                Type::Arr(arr_id),
+                                None,
+                            );
+                            Operand::Value(v)
+                        } else {
+                            recv_op
+                        };
                         let arr_ptr = match recv_op {
                             Operand::Value(v) => v,
                             _ => unreachable!(),

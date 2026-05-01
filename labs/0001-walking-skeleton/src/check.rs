@@ -1461,6 +1461,17 @@ impl Checker {
                     // `(a: T, b: T) => number`. Returns the same array
                     // (chainable). Subset requires the comparator (no
                     // default lex-sort fallback).
+                    (Type::Array(elem), "toSorted") => {
+                        let inner = (**elem).clone();
+                        let cmp_ty = Type::Function(
+                            vec![inner.clone(), inner.clone()],
+                            Box::new(Type::Number),
+                        );
+                        Ok(Type::Function(
+                            vec![cmp_ty],
+                            Box::new(Type::Array(Box::new(inner))),
+                        ))
+                    }
                     (Type::Array(elem), "sort") => {
                         let inner = (**elem).clone();
                         let cmp_ty = Type::Function(
