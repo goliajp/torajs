@@ -924,6 +924,13 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         &[Type::F64],
         Type::F64,
     );
+    let math_random_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_math_random",
+        &[],
+        Type::F64,
+    );
     let json_quote_str_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -1308,6 +1315,7 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         math_imul: math_imul_id,
         math_clz32: math_clz32_id,
         math_fround: math_fround_id,
+        math_random: math_random_id,
         json_quote_str: json_quote_str_id,
         print_i64_err: print_i64_err_id,
         print_f64_err: print_f64_err_id,
@@ -1509,6 +1517,7 @@ struct Intrinsics {
     math_imul: FuncId,
     math_clz32: FuncId,
     math_fround: FuncId,
+    math_random: FuncId,
     json_quote_str: FuncId,
     print_i64_err: FuncId,
     print_f64_err: FuncId,
@@ -8511,6 +8520,7 @@ impl<'a> LowerCtx<'a> {
                         "imul" => self.intrinsics.math_imul,
                         "clz32" => self.intrinsics.math_clz32,
                         "fround" => self.intrinsics.math_fround,
+                        "random" => self.intrinsics.math_random,
                         other => {
                             panic!("ssa-lower: unknown Math method `{other}`")
                         }
@@ -8695,6 +8705,7 @@ impl<'a> LowerCtx<'a> {
             || fid == i.math_imul
             || fid == i.math_clz32
             || fid == i.math_fround
+            || fid == i.math_random
             || fid == i.json_quote_str
             || fid == i.str_repeat
             || fid == i.str_to_upper

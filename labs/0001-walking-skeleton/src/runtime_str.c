@@ -418,6 +418,13 @@ void *__torajs_json_quote_str(const uint8_t *s) {
     return p;
 }
 
+/* `Math.random()` — uniform [0, 1). libc rand()/RAND_MAX scaled. Not
+ * cryptographically secure; matches the JS spec's "implementation-
+ * defined" wording for the simple use case. */
+double __torajs_math_random(void) {
+    return (double)rand() / ((double)RAND_MAX + 1.0);
+}
+
 /* `Math.imul(a, b)` — 32-bit signed integer multiplication, low 32
  * bits, sign-extended. Same shape as JS spec.
  */

@@ -1263,6 +1263,10 @@ impl Checker {
                         vec![Type::Number, Type::Number],
                         Box::new(Type::Number),
                     )),
+                    (Type::Object("Math"), "random") => Ok(Type::Function(
+                        Vec::new(),
+                        Box::new(Type::Number),
+                    )),
                     // Two-arg methods: pow(x, y), min(a, b), max(a, b),
                     // atan2(y, x).
                     (Type::Object("Math"), m)
