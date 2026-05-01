@@ -847,6 +847,13 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         &[Type::F64],
         Type::F64,
     );
+    let arr_flat_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_arr_flat",
+        &[Type::Ptr],
+        Type::Ptr,
+    );
     let arr_concat_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -1171,6 +1178,7 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         math_atanh: math_atanh_id,
         math_expm1: math_expm1_id,
         math_log1p: math_log1p_id,
+        arr_flat: arr_flat_id,
         arr_concat: arr_concat_id,
         arr_reverse: arr_reverse_id,
         arr_fill: arr_fill_id,
@@ -1354,6 +1362,7 @@ struct Intrinsics {
     math_atanh: FuncId,
     math_expm1: FuncId,
     math_log1p: FuncId,
+    arr_flat: FuncId,
     arr_concat: FuncId,
     arr_reverse: FuncId,
     arr_fill: FuncId,
@@ -4648,7 +4657,7 @@ impl<'a> LowerCtx<'a> {
                         | "trim" | "trimStart" | "trimEnd"
                         | "padStart" | "padEnd"
                         | "replace" | "replaceAll"
-                        | "reverse" | "fill" | "at" | "concat" | "sort"
+                        | "reverse" | "fill" | "at" | "concat" | "sort" | "flat"
                     )
                 {
                     let recv_op = self.lower_expr(*obj);
@@ -4721,6 +4730,31 @@ impl<'a> LowerCtx<'a> {
                             self.cur_block,
                             InstKind::Call(self.intrinsics.arr_join, argv),
                             Type::Str,
+                            None,
+                        );
+                        return Operand::Value(v);
+                    }
+                    // `arr.flat()` — single-level flatten via runtime
+                    // helper. Receiver is `Array<Array<T>>`; result type
+                    // is `Array<T>` (intern lazily if not already).
+                    if let Type::Arr(outer_id) = recv_ty
+                        && method == "flat"
+                        && args.is_empty()
+                    {
+                        let outer_elem = self.arr_layouts[outer_id.0 as usize];
+                        let Type::Arr(inner_id) = outer_elem else {
+                            panic!(
+                                "ssa-lower: flat requires Array<Array<T>>, got element {outer_elem:?}"
+                            );
+                        };
+                        let _ = inner_id;
+                        let v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.arr_flat,
+                                vec![recv_op],
+                            ),
+                            outer_elem,
                             None,
                         );
                         return Operand::Value(v);
@@ -7725,6 +7759,7 @@ impl<'a> LowerCtx<'a> {
             || fid == i.str_replace_all
             || fid == i.num_to_fixed_f
             || fid == i.num_to_fixed_i
+            || fid == i.arr_flat
             || fid == i.arr_concat
             || fid == i.arr_reverse
             || fid == i.arr_fill

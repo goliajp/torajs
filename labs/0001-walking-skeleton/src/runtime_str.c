@@ -341,6 +341,33 @@ void *__torajs_str_replace_all(const uint8_t *s, const uint8_t *needle, const ui
     return p;
 }
 
+/* `a.flat()` — single-level array flattening. Outer array holds inner
+ * array pointers (8 bytes each); we sum their lengths in pass 1, then
+ * memcpy each into the result in pass 2. Element-type-agnostic.
+ * v0 supports depth=1 only (no recursive flatten).
+ */
+void *__torajs_arr_flat(const uint8_t *outer) {
+    uint64_t outer_len = *(const uint64_t *)outer;
+    uint64_t total = 0;
+    for (uint64_t i = 0; i < outer_len; i++) {
+        const uint8_t *inner = *(const uint8_t *const *)(outer + 16 + i * 8);
+        total += *(const uint64_t *)inner;
+    }
+    uint8_t *p = (uint8_t *)malloc(16 + (size_t)total * 8);
+    *(uint64_t *)p = total;
+    *(uint64_t *)(p + 8) = total;
+    uint64_t cursor = 16;
+    for (uint64_t i = 0; i < outer_len; i++) {
+        const uint8_t *inner = *(const uint8_t *const *)(outer + 16 + i * 8);
+        uint64_t inner_len = *(const uint64_t *)inner;
+        if (inner_len) {
+            memcpy(p + cursor, inner + 16, (size_t)inner_len * 8);
+            cursor += inner_len * 8;
+        }
+    }
+    return p;
+}
+
 /* `a.concat(b)` — fresh array containing all of a's elements then all
  * of b's. Element-type-agnostic (8-byte slots). Single malloc + two
  * memcpys. Subset is two-arg only; JS allows `[...].concat(b, c, d)`

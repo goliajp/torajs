@@ -1359,6 +1359,21 @@ impl Checker {
                         let inner = (**elem).clone();
                         Ok(Type::Function(vec![inner], Box::new(Type::Void)))
                     }
+                    // `xs.flat()` — single-level flatten. Receiver must
+                    // be `T[][]`; result is `T[]`. v0 supports depth=1
+                    // only (no `.flat(2)` arg).
+                    (Type::Array(elem), "flat") => {
+                        let Type::Array(inner) = (**elem).clone() else {
+                            return Err(format!(
+                                "Array.flat requires Array<Array<T>>, receiver is Array<{:?}>",
+                                **elem
+                            ));
+                        };
+                        Ok(Type::Function(
+                            Vec::new(),
+                            Box::new(Type::Array(inner)),
+                        ))
+                    }
                     // `xs.sort(cmp)` — in-place sort using the comparator
                     // `(a: T, b: T) => number`. Returns the same array
                     // (chainable). Subset requires the comparator (no
