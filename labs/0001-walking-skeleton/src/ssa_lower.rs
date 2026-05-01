@@ -980,6 +980,13 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         &[Type::Ptr, Type::I64, Type::I64, Type::I64],
         Type::Ptr,
     );
+    let arr_copy_within_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_arr_copy_within",
+        &[Type::Ptr, Type::I64, Type::I64, Type::I64],
+        Type::Ptr,
+    );
     // M4 — exception state runtime. Three intrinsics around two
     // module-level i64 globals (`throw_active`, `throw_value`) that
     // the backend implements. Lowering uses set/check/take to thread
@@ -1302,6 +1309,7 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         arr_concat: arr_concat_id,
         arr_reverse: arr_reverse_id,
         arr_fill: arr_fill_id,
+        arr_copy_within: arr_copy_within_id,
         throw_set: throw_set_id,
         throw_check: throw_check_id,
         throw_take: throw_take_id,
@@ -1501,6 +1509,7 @@ struct Intrinsics {
     arr_concat: FuncId,
     arr_reverse: FuncId,
     arr_fill: FuncId,
+    arr_copy_within: FuncId,
     /// M4 — exception state. `throw_set(value)` writes to module-level
     /// throw_active=1 + throw_value; `throw_check()` returns active flag;
     /// `throw_take()` reads value + clears flag. The backend defines the
@@ -4938,7 +4947,7 @@ impl<'a> LowerCtx<'a> {
                         | "padStart" | "padEnd"
                         | "replace" | "replaceAll"
                         | "reverse" | "fill" | "at" | "concat" | "sort" | "flat"
-                        | "lastIndexOf" | "localeCompare"
+                        | "lastIndexOf" | "localeCompare" | "copyWithin"
                     )
                 {
                     let recv_op = self.lower_expr(*obj);
@@ -5484,6 +5493,26 @@ impl<'a> LowerCtx<'a> {
                             self.cur_block,
                             InstKind::LoadDyn(elem_ty, recv_op, Operand::Value(off)),
                             elem_ty,
+                            None,
+                        );
+                        return Operand::Value(v);
+                    }
+                    // `arr.copyWithin(target, start, end)` — in-place
+                    // memmove via runtime helper.
+                    if let Type::Arr(arr_id) = recv_ty
+                        && method == "copyWithin"
+                        && args.len() == 3
+                    {
+                        let target = self.lower_expr(args[0]);
+                        let start = self.lower_expr(args[1]);
+                        let end = self.lower_expr(args[2]);
+                        let v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.arr_copy_within,
+                                vec![recv_op, target, start, end],
+                            ),
+                            Type::Arr(arr_id),
                             None,
                         );
                         return Operand::Value(v);
@@ -8112,6 +8141,7 @@ impl<'a> LowerCtx<'a> {
             || fid == i.arr_concat
             || fid == i.arr_reverse
             || fid == i.arr_fill
+            || fid == i.arr_copy_within
             || fid == i.throw_set
             || fid == i.throw_check
             || fid == i.throw_take

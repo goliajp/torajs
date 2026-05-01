@@ -1430,6 +1430,15 @@ impl Checker {
                             Box::new(Type::Array(Box::new(inner))),
                         ))
                     }
+                    // `xs.copyWithin(target, start, end)` — memmove
+                    // [start, end) into `target` position, in-place.
+                    (Type::Array(elem), "copyWithin") => {
+                        let inner = (**elem).clone();
+                        Ok(Type::Function(
+                            vec![Type::Number, Type::Number, Type::Number],
+                            Box::new(Type::Array(Box::new(inner))),
+                        ))
+                    }
                     // `xs.fill(value, start, end)` — uniform fill over a
                     // range. start/end optional in JS; subset requires
                     // both for now. Returns the same array.

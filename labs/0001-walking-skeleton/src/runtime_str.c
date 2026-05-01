@@ -470,6 +470,26 @@ void *__torajs_arr_reverse(uint8_t *arr) {
     return arr;
 }
 
+/* `arr.copyWithin(target, start, end)` — in-place memmove of
+ * the [start, end) slice to position `target`. All indices clamped to
+ * [0, len]. memmove handles overlap. Returns same pointer. */
+void *__torajs_arr_copy_within(uint8_t *arr, int64_t target, int64_t start, int64_t end) {
+    uint64_t len = *(const uint64_t *)arr;
+    int64_t lo = start < 0 ? 0 : (start > (int64_t)len ? (int64_t)len : start);
+    int64_t hi = end < 0 ? 0 : (end > (int64_t)len ? (int64_t)len : end);
+    int64_t to = target < 0 ? 0 : (target > (int64_t)len ? (int64_t)len : target);
+    if (hi <= lo) return arr;
+    int64_t count = hi - lo;
+    if (to + count > (int64_t)len) {
+        count = (int64_t)len - to;
+        if (count <= 0) return arr;
+    }
+    memmove(arr + 16 + (uint64_t)to * 8,
+            arr + 16 + (uint64_t)lo * 8,
+            (size_t)count * 8);
+    return arr;
+}
+
 /* `arr.fill(value, start, end)` — write `value` into [start, end).
  * Both indices clamped to [0, len]. Element-type-agnostic — the value
  * is passed as i64 and stored verbatim in each slot; the caller's
