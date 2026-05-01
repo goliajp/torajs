@@ -1078,11 +1078,21 @@ pub fn apply_rest_args(ast: &mut Ast) {
             }
             let mut new_args: Vec<ExprId> = args_clone[..n_required].to_vec();
             let rest_elems: Vec<ExprId> = args_clone[n_required..].to_vec();
+            // Single-spread shape: `f(req…, ...arr)` — pass the spread
+            // source array directly as the rest param. Common in
+            // delegating wrappers.
+            let single_spread_only = rest_elems.len() == 1
+                && matches!(ast.get_expr(rest_elems[0]), Expr::Spread { .. });
             let rest_arr = if rest_elems.is_empty() {
-                // Call the typed empty-array helper.
                 let helper_name = empty_helpers.get(&rest_ann).cloned().unwrap();
                 let callee_id = ast.add_expr(Expr::Ident(helper_name));
                 ast.add_expr(Expr::Call { callee: callee_id, args: Vec::new() })
+            } else if single_spread_only {
+                if let Expr::Spread { expr } = ast.get_expr(rest_elems[0]) {
+                    *expr
+                } else {
+                    unreachable!()
+                }
             } else {
                 ast.add_expr(Expr::Array(rest_elems))
             };
