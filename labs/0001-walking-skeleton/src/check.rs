@@ -423,6 +423,32 @@ fn is_assignable_to(to: &Type, from: &Type) -> bool {
         }
         return is_assignable_to(inner, from);
     }
+    // Phase H.2 — struct prefix subtyping. `class Sub extends Base`
+    // desugars to a Sub struct whose field list starts with Base's
+    // (parent fields prepended in desugar_classes), so Sub is
+    // assignable to Base iff Base's fields are a prefix of Sub's
+    // and pairwise types match. Pure structural rule — no class_parents
+    // lookup needed; the layout invariant guarantees the fields-prefix
+    // check coincides with the class hierarchy.
+    if let (Type::Struct(to_fields), Type::Struct(from_fields)) = (to, from)
+        && from_fields.len() > to_fields.len()
+    {
+        for (i, (n, t)) in to_fields.iter().enumerate() {
+            let (fn_name, fn_ty) = &from_fields[i];
+            if fn_name != n || !is_assignable_to(t, fn_ty) {
+                return false;
+            }
+        }
+        return true;
+    }
+    // Array<Sub> → Array<Base> covariance: required for heterogeneous
+    // arrays like `Animal[] = [new Animal(), new Dog()]`. Same
+    // structural reasoning as the struct case — both Sub and Base
+    // share the storage shape (8-byte ptr slots) so the runtime
+    // layout is uniform.
+    if let (Type::Array(to_elem), Type::Array(from_elem)) = (to, from) {
+        return is_assignable_to(to_elem, from_elem);
+    }
     false
 }
 
@@ -1728,7 +1754,7 @@ impl Checker {
                 for &eid in ids.iter() {
                     let ty = elem_value_ty(self, eid)?;
                     if let Some(ty) = ty
-                        && ty != first_ty
+                        && !is_assignable_to(&first_ty, &ty)
                     {
                         return Err(format!(
                             "array element type mismatch: expected {first_ty:?}, got {ty:?}"
