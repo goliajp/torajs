@@ -129,6 +129,22 @@ impl Parser<'_> {
             }
             name.push_str("[]");
         }
+        // Trailing `| null` → wrap in a `__nullable(T)` marker. Parser
+        // doesn't try to be a full TS union solver — only the
+        // single-side-null case is supported in this subset.
+        if matches!(self.peek(), Token::Pipe) {
+            self.pos += 1;
+            if matches!(self.peek(), Token::Null) {
+                self.pos += 1;
+                name = format!("__nullable({name})");
+            } else {
+                return Err(format!(
+                    "only `T | null` unions are supported (no other unions yet); got {:?} at {}",
+                    self.peek(),
+                    self.at()
+                ));
+            }
+        }
         Ok(name)
     }
 
@@ -1270,7 +1286,7 @@ impl Parser<'_> {
     }
 
     fn parse_ternary(&mut self) -> Result<ExprId, String> {
-        let cond = self.parse_logical_or()?;
+        let cond = self.parse_nullish()?;
         if !matches!(self.peek(), Token::Question) {
             return Ok(cond);
         }
@@ -1289,6 +1305,25 @@ impl Parser<'_> {
             then_branch,
             else_branch,
         }))
+    }
+
+    /// `lhs ?? rhs` — left-associative, below ternary in precedence.
+    /// Lowered as a new `Expr::Nullish { lhs, rhs }` because the lhs
+    /// must be evaluated EXACTLY ONCE (it can have side effects); a
+    /// pure ternary desugar would either re-evaluate or require an
+    /// expression-level `let-binding` we don't have. ssa_lower stores
+    /// the lhs into a temp slot and branches on its null-ness.
+    fn parse_nullish(&mut self) -> Result<ExprId, String> {
+        let mut left = self.parse_logical_or()?;
+        while matches!(self.peek(), Token::QuestionQuestion) {
+            self.pos += 1;
+            let right = self.parse_logical_or()?;
+            left = self.ast.add_expr(Expr::Nullish {
+                lhs: left,
+                rhs: right,
+            });
+        }
+        Ok(left)
     }
 
     fn parse_logical_or(&mut self) -> Result<ExprId, String> {
@@ -1507,6 +1542,20 @@ impl Parser<'_> {
                     self.pos += 1;
                     node = self.ast.add_expr(Expr::Member { obj: node, name });
                 }
+                Token::QuestionDot => {
+                    self.pos += 1;
+                    let name = match self.peek() {
+                        Token::Ident(n) => n.clone(),
+                        t => {
+                            return Err(format!(
+                                "expected identifier after `?.`, got {t:?} at {}",
+                                self.at()
+                            ));
+                        }
+                    };
+                    self.pos += 1;
+                    node = self.ast.add_expr(Expr::OptChain { obj: node, name });
+                }
                 Token::LParen => {
                     self.pos += 1;
                     let mut args = Vec::new();
@@ -1616,6 +1665,10 @@ impl Parser<'_> {
             Token::False => {
                 self.pos += 1;
                 Ok(self.ast.add_expr(Expr::Bool(false)))
+            }
+            Token::Null => {
+                self.pos += 1;
+                Ok(self.ast.add_expr(Expr::Null))
             }
             Token::This => {
                 self.pos += 1;

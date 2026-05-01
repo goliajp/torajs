@@ -38,6 +38,11 @@ pub enum Expr {
     String(String),
     Number(f64),
     Bool(bool),
+    /// `null` — the in-band 0 sentinel for any pointer-shaped slot.
+    /// Lowered to `Operand::ConstPtrNull`. Comparable against pointer
+    /// values via `=== null` / `!== null` and the implicit `?.`/`??`
+    /// shapes.
+    Null,
     BinOp {
         op: BinOp,
         left: ExprId,
@@ -124,6 +129,20 @@ pub enum Expr {
     /// once, fills via `arr_push_unchecked` — no cap-doubling realloc.
     Spread {
         expr: ExprId,
+    },
+    /// `lhs ?? rhs` — nullish coalescing. ssa_lower stores `lhs` into a
+    /// temp slot, compares the slot value against null, and branches —
+    /// `lhs` evaluates exactly once even if it has side effects.
+    Nullish {
+        lhs: ExprId,
+        rhs: ExprId,
+    },
+    /// `obj?.field` — optional chaining for member access. ssa_lower
+    /// stores `obj` in a temp, branches on null, returns null on the
+    /// null path or `obj.field` otherwise. Single eval of `obj`.
+    OptChain {
+        obj: ExprId,
+        name: String,
     },
 }
 
@@ -788,7 +807,17 @@ fn collect_super_in_expr(
             collect_super_in_expr(ast, *else_branch, out);
         }
         Expr::TypeOf { expr } | Expr::Spread { expr } => collect_super_in_expr(ast, *expr, out),
-        Expr::This | Expr::Ident(_) | Expr::String(_) | Expr::Number(_) | Expr::Bool(_) => {}
+        Expr::Nullish { lhs, rhs } => {
+            collect_super_in_expr(ast, *lhs, out);
+            collect_super_in_expr(ast, *rhs, out);
+        }
+        Expr::OptChain { obj, .. } => collect_super_in_expr(ast, *obj, out),
+        Expr::This
+        | Expr::Ident(_)
+        | Expr::String(_)
+        | Expr::Number(_)
+        | Expr::Bool(_)
+        | Expr::Null => {}
     }
 }
 
@@ -1267,8 +1296,13 @@ fn scan_expr_for_calls(ast: &Ast, eid: ExprId, out: &mut Vec<String>) {
             scan_expr_for_calls(ast, *else_branch, out);
         }
         Expr::TypeOf { expr } | Expr::Spread { expr } => scan_expr_for_calls(ast, *expr, out),
+        Expr::Nullish { lhs, rhs } => {
+            scan_expr_for_calls(ast, *lhs, out);
+            scan_expr_for_calls(ast, *rhs, out);
+        }
+        Expr::OptChain { obj, .. } => scan_expr_for_calls(ast, *obj, out),
         Expr::This => {}
-        Expr::Ident(_) | Expr::String(_) | Expr::Number(_) | Expr::Bool(_) => {}
+        Expr::Ident(_) | Expr::String(_) | Expr::Number(_) | Expr::Bool(_) | Expr::Null => {}
     }
 }
 
@@ -1282,7 +1316,7 @@ fn walk_expr(ast: &Ast, eid: ExprId, bound: &mut Vec<String>, out: &mut Vec<Stri
                 out.push(name.clone());
             }
         }
-        Expr::String(_) | Expr::Number(_) | Expr::Bool(_) => {}
+        Expr::String(_) | Expr::Number(_) | Expr::Bool(_) | Expr::Null => {}
         Expr::BinOp { left, right, .. } => {
             walk_expr(ast, *left, bound, out);
             walk_expr(ast, *right, bound, out);
@@ -1351,6 +1385,11 @@ fn walk_expr(ast: &Ast, eid: ExprId, bound: &mut Vec<String>, out: &mut Vec<Stri
             walk_expr(ast, *else_branch, bound, out);
         }
         Expr::TypeOf { expr } | Expr::Spread { expr } => walk_expr(ast, *expr, bound, out),
+        Expr::Nullish { lhs, rhs } => {
+            walk_expr(ast, *lhs, bound, out);
+            walk_expr(ast, *rhs, bound, out);
+        }
+        Expr::OptChain { obj, .. } => walk_expr(ast, *obj, bound, out),
     }
 }
 
@@ -1608,6 +1647,7 @@ impl Ast {
             Expr::String(s) => println!("{pad}String({s:?})"),
             Expr::Number(n) => println!("{pad}Number({n})"),
             Expr::Bool(b) => println!("{pad}Bool({b})"),
+            Expr::Null => println!("{pad}Null"),
             Expr::BinOp { op, left, right } => {
                 println!("{pad}BinOp({op:?})");
                 self.print_expr(*left, indent + 1);
@@ -1704,6 +1744,15 @@ impl Ast {
             Expr::Spread { expr } => {
                 println!("{pad}Spread");
                 self.print_expr(*expr, indent + 1);
+            }
+            Expr::Nullish { lhs, rhs } => {
+                println!("{pad}Nullish");
+                self.print_expr(*lhs, indent + 1);
+                self.print_expr(*rhs, indent + 1);
+            }
+            Expr::OptChain { obj, name } => {
+                println!("{pad}OptChain .{name}");
+                self.print_expr(*obj, indent + 1);
             }
         }
     }

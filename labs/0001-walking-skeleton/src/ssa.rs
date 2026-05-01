@@ -151,6 +151,11 @@ pub enum Operand {
     ConstI32(i32),
     ConstF64(f64),
     ConstBool(bool),
+    /// `null` literal value for a pointer-shaped slot (Str / Obj / Arr /
+    /// Closure / FnSig). At codegen we emit `ptr_t.const_null()` —
+    /// exactly the in-band 0 sentinel JS treats as nullish. Cheaper
+    /// than ConstI64(0) since no inttoptr is needed.
+    ConstPtrNull,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -562,6 +567,7 @@ impl Function {
             Operand::ConstI32(n) => write!(w, "{n}"),
             Operand::ConstF64(n) => write!(w, "{n}"),
             Operand::ConstBool(b) => write!(w, "{b}"),
+            Operand::ConstPtrNull => write!(w, "null"),
         }
     }
 

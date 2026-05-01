@@ -67,6 +67,17 @@ pub enum Token {
     /// function param). Currently only the array-literal spread is
     /// lowered.
     DotDotDot,
+    /// `null` — the JS / TS null sentinel. tr lowers it to a 0
+    /// pointer for any pointer-shaped slot (Str / Obj / Arr / Closure
+    /// / FnSig); primitive-shaped slots (number / boolean) can't be
+    /// nullable in this subset (would need a tag bit).
+    Null,
+    /// `??` — nullish coalescing. Desugars to a ternary on the LHS's
+    /// nullability.
+    QuestionQuestion,
+    /// `?.` — optional chaining for member access. `obj?.field`
+    /// desugars to `obj == null ? null : obj.field`.
+    QuestionDot,
     /// `?` — start of a ternary `cond ? a : b` expression.
     Question,
     Eq,
@@ -182,7 +193,20 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                 }
             }
             b'~' => emit(&mut out, Token::Tilde, start, advance(&mut i)),
-            b'?' => emit(&mut out, Token::Question, start, advance(&mut i)),
+            b'?' => {
+                // `?` (ternary), `??` (nullish coalescing), `?.`
+                // (optional chaining). Single-char emit becomes
+                // multi-char when the suffix is `?` or `.`.
+                if peek(bytes, i + 1) == Some(b'?') {
+                    i += 2;
+                    emit(&mut out, Token::QuestionQuestion, start, i);
+                } else if peek(bytes, i + 1) == Some(b'.') {
+                    i += 2;
+                    emit(&mut out, Token::QuestionDot, start, i);
+                } else {
+                    emit(&mut out, Token::Question, start, advance(&mut i));
+                }
+            }
             b'/' => {
                 // `//` line comment, `/* */` block comment, or division.
                 // TS grammar puts comments at the lexer level (whitespace-
@@ -362,6 +386,7 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                     "case" => Token::Case,
                     "default" => Token::Default,
                     "typeof" => Token::TypeOf,
+                    "null" => Token::Null,
                     _ => Token::Ident(name.to_string()),
                 };
                 emit(&mut out, token, start, i);

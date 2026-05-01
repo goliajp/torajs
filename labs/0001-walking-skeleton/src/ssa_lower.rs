@@ -1112,6 +1112,26 @@ fn parse_type(
         Some(s) => s,
         None => return Type::Void,
     };
+    // `__nullable(T)` — at SSA storage / ABI level, identical to T.
+    // The `null` value is just an in-band 0 sentinel for pointer-shaped
+    // T. check.rs is the only layer that distinguishes T from
+    // Nullable(T); by here it's already enforced the rules.
+    if let Some(rest) = s.strip_prefix("__nullable(")
+        && let Some(inner) = rest.strip_suffix(')')
+    {
+        return parse_type(
+            Some(inner),
+            aliases,
+            arr_layouts,
+            fn_sigs,
+            generic_struct_decls,
+            struct_layouts,
+        );
+    }
+    if s == "null" {
+        // Bare `null` annotation (rare). Pointer-shaped, value is null.
+        return Type::Ptr;
+    }
     // `T[]` array suffix. Recurse on the element type, intern, return Arr.
     // The flat string is produced by parser::parse_type_ann, so we can
     // strip a trailing "[]" and recurse cleanly. Multi-dim arrays
@@ -3213,6 +3233,7 @@ impl<'a> LowerCtx<'a> {
                 }
             }
             Expr::Bool(b) => Operand::ConstBool(*b),
+            Expr::Null => Operand::ConstPtrNull,
             Expr::String(s) => {
                 let s = s.clone();
                 Operand::Value(self.intern_string_literal(&s))
@@ -4873,6 +4894,147 @@ impl<'a> LowerCtx<'a> {
                 };
                 Operand::Value(self.intern_string_literal(s))
             }
+            Expr::Nullish { lhs, rhs } => {
+                // `lhs ?? rhs` — evaluate lhs once, branch on null,
+                // result-slot store from either lhs (non-null) or rhs.
+                // Same shape as Ternary but the cond comes from a
+                // pointer null-compare and the lhs value is reused on
+                // the non-null path without re-evaluating.
+                let lhs_op = self.lower_expr(*lhs);
+                let lhs_ty = self.operand_ty(&lhs_op);
+                let res_slot = self.alloca_in_entry(lhs_ty, Some("__nullish"));
+                // Save lhs into the slot so the non-null branch can
+                // reuse it without re-eval.
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Store(lhs_op, Operand::Value(res_slot), 0),
+                );
+                // cond = (lhs == null) — pointer compare against 0.
+                let cond = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::ICmp(IPred::Eq, lhs_op, Operand::ConstPtrNull),
+                    Type::Bool,
+                    None,
+                );
+                let then_blk = self.f.add_block();
+                let else_blk = self.f.add_block();
+                let after = self.f.add_block();
+                let cb = self.cur_block;
+                self.f.set_term(
+                    cb,
+                    Terminator::CondBr {
+                        cond: Operand::Value(cond),
+                        then_blk,
+                        else_blk,
+                    },
+                );
+                // null path: lower rhs, store in slot.
+                self.cur_block = then_blk;
+                let rhs_op = self.lower_expr(*rhs);
+                let then_end = self.cur_block;
+                self.f.append_void(
+                    then_end,
+                    InstKind::Store(rhs_op, Operand::Value(res_slot), 0),
+                );
+                self.f.set_term(then_end, Terminator::Br(after));
+                // non-null path: slot already holds lhs; just branch.
+                self.f.set_term(else_blk, Terminator::Br(after));
+                self.cur_block = after;
+                let r = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Load(lhs_ty, Operand::Value(res_slot), 0),
+                    lhs_ty,
+                    None,
+                );
+                Operand::Value(r)
+            }
+            Expr::OptChain { obj, name } => {
+                // `obj?.field` — null-short-circuiting member access.
+                // Same allocate-slot + branch pattern as Nullish, but
+                // the non-null path reads `obj.field` instead of the
+                // saved obj. Result type is the field type (or Ptr if
+                // nullable struct field). For statically non-pointer
+                // obj_ty the cond_br is dead code; LLVM elides.
+                let obj_op = self.lower_expr(*obj);
+                let obj_ty = self.operand_ty(&obj_op);
+                // Determine the field's SSA type by looking up the
+                // struct layout. Only `Type::Obj(sid)` carries field
+                // info — for other obj_ty we'd need extra plumbing;
+                // not implemented in this pass.
+                let sid = match obj_ty {
+                    Type::Obj(sid) => sid,
+                    _ => panic!(
+                        "ssa-lower: optional chain on non-struct obj type {obj_ty:?} \
+                         not yet supported"
+                    ),
+                };
+                let layout = &self.struct_layouts[sid.0 as usize];
+                let (field_idx, field_ty) = layout
+                    .iter()
+                    .enumerate()
+                    .find(|(_, (n, _))| n == name)
+                    .map(|(i, (_, t))| (i, *t))
+                    .unwrap_or_else(|| {
+                        panic!("ssa-lower: no field `{name}` on struct {sid:?}")
+                    });
+                let res_slot = self.alloca_in_entry(field_ty, Some("__optchain"));
+                let cond = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::ICmp(IPred::Eq, obj_op, Operand::ConstPtrNull),
+                    Type::Bool,
+                    None,
+                );
+                let null_blk = self.f.add_block();
+                let mem_blk = self.f.add_block();
+                let after = self.f.add_block();
+                let cb = self.cur_block;
+                self.f.set_term(
+                    cb,
+                    Terminator::CondBr {
+                        cond: Operand::Value(cond),
+                        then_blk: null_blk,
+                        else_blk: mem_blk,
+                    },
+                );
+                // null path → store null sentinel for pointer types,
+                // ConstI64(0) otherwise. Field type drives.
+                self.cur_block = null_blk;
+                let null_val: Operand = match field_ty {
+                    Type::Str | Type::Obj(_) | Type::Arr(_)
+                    | Type::Closure(_) | Type::FnSig(_) | Type::Ptr => {
+                        Operand::ConstPtrNull
+                    }
+                    Type::F64 => Operand::ConstF64(0.0),
+                    _ => Operand::ConstI64(0),
+                };
+                self.f.append_void(
+                    null_blk,
+                    InstKind::Store(null_val, Operand::Value(res_slot), 0),
+                );
+                self.f.set_term(null_blk, Terminator::Br(after));
+                // member read path → load from obj + offset, store.
+                self.cur_block = mem_blk;
+                let offset = (field_idx as u64) * 8;
+                let v = self.f.append_inst(
+                    mem_blk,
+                    InstKind::Load(field_ty, obj_op, offset),
+                    field_ty,
+                    None,
+                );
+                self.f.append_void(
+                    mem_blk,
+                    InstKind::Store(Operand::Value(v), Operand::Value(res_slot), 0),
+                );
+                self.f.set_term(mem_blk, Terminator::Br(after));
+                self.cur_block = after;
+                let r = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Load(field_ty, Operand::Value(res_slot), 0),
+                    field_ty,
+                    None,
+                );
+                Operand::Value(r)
+            }
             other => panic!("ssa-lower: unsupported expr: {other:?}"),
         }
     }
@@ -4887,6 +5049,13 @@ impl<'a> LowerCtx<'a> {
             Operand::ConstI32(_) => Type::I32,
             Operand::ConstF64(_) => Type::F64,
             Operand::ConstBool(_) => Type::Bool,
+            // null is intentionally untyped at this layer — the
+            // surrounding context (Store slot type, Call arg type)
+            // determines what pointer shape it lands in. Returning Ptr
+            // here is the safe default; callers that need a more
+            // specific Type::Str / Type::Obj / etc. read it from the
+            // sink instead.
+            Operand::ConstPtrNull => Type::Ptr,
         }
     }
 

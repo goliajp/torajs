@@ -36,6 +36,14 @@ pub enum Type {
     /// must use distinct param names (the per-fn alias scope makes
     /// this naturally true).
     TypeVar(String),
+    /// `null` literal value. Only useful in unification with
+    /// `Type::Nullable(T)` — a bare `let x: null = null` is legal but
+    /// not very useful.
+    Null,
+    /// `T | null` — pointer-shaped T may carry the in-band 0 sentinel
+    /// at runtime. Restricted to T ∈ {String, Array<_>, Struct, …};
+    /// number/boolean nullables would need a tag bit and aren't in v0.
+    Nullable(Box<Type>),
 }
 
 impl Type {
@@ -136,6 +144,16 @@ fn resolve_type_ann_full(
     if let Some(rest) = name.strip_suffix("[]") {
         return resolve_type_ann_full(rest, aliases, type_params, generic_aliases)
             .map(|inner| Type::Array(Box::new(inner)));
+    }
+    // Nullable wrapper produced by the parser when it sees `T | null`.
+    if let Some(rest) = name.strip_prefix("__nullable(")
+        && let Some(inner) = rest.strip_suffix(')')
+    {
+        return resolve_type_ann_full(inner, aliases, type_params, generic_aliases)
+            .map(|t| Type::Nullable(Box::new(t)));
+    }
+    if name == "null" {
+        return Some(Type::Null);
     }
     // M3.4 — generic struct instantiation: `Foo<arg1|arg2|...>`. Same
     // depth-aware decoder as `__fn(...)`. Substitutes type-args into the
@@ -384,6 +402,30 @@ struct LocalInfo {
 pub type GenericCallSites = HashMap<ExprId, (String, Vec<Type>)>;
 
 /// Map check.rs's `Type` to the type-annotation string the SSA layer's
+/// Subtyping rule for the `let x: T = init` shape and similar slots.
+/// Returns true iff a value of type `from` is assignable to a variable
+/// of type `to`. The only widening relations we admit so far:
+///
+/// - `T == T`                                — identity
+/// - `T → T | null` (Nullable widening)      — non-null T fits a nullable slot
+/// - `null → T | null`                       — null fits a nullable slot
+/// - `null → null`                           — identity (rare in practice)
+///
+/// Everything else falls back to PartialEq. Notably we do NOT auto-narrow
+/// `T | null → T` — the user must use `??` or `?.` to dispose of the null.
+fn is_assignable_to(to: &Type, from: &Type) -> bool {
+    if to == from {
+        return true;
+    }
+    if let Type::Nullable(inner) = to {
+        if matches!(from, Type::Null) {
+            return true;
+        }
+        return is_assignable_to(inner, from);
+    }
+    false
+}
+
 /// `parse_type` consumes. Used to translate inferred generic type args
 /// from the typechecker into ssa_lower's annotation strings.
 pub fn type_to_ann(ty: &Type) -> String {
@@ -414,6 +456,13 @@ pub fn type_to_ann(ty: &Type) -> String {
         Type::TypeVar(_) => {
             panic!("type_to_ann: TypeVar should be substituted before SSA layer")
         }
+        // SSA layer treats nullable as the underlying T (storage and
+        // call boundaries are identical — the only difference is that
+        // `null` is a legal value of T). The annotation collapses to
+        // T's annotation; check.rs is the only layer that distinguishes
+        // them, and it's already past by the time this fn runs.
+        Type::Nullable(inner) => type_to_ann(inner),
+        Type::Null => "null".into(),
     }
 }
 
@@ -1003,7 +1052,7 @@ impl Checker {
                             self.errors.push(format!("unknown type `{ann}`"));
                             return;
                         };
-                        if ann_ty != init_ty {
+                        if !is_assignable_to(&ann_ty, &init_ty) {
                             self.errors.push(format!(
                                 "type mismatch on `{name}`: declared {ann_ty:?}, init has {init_ty:?}"
                             ));
@@ -1119,6 +1168,7 @@ impl Checker {
             Expr::String(_) => Ok(Type::String),
             Expr::Number(_) => Ok(Type::Number),
             Expr::Bool(_) => Ok(Type::Boolean),
+            Expr::Null => Ok(Type::Null),
             Expr::Ident(name) => {
                 if let Some(info) = self.lookup(name) {
                     // TS-shape: reads of an aliased / moved binding succeed
@@ -1517,13 +1567,24 @@ impl Checker {
                         }
                     }
                     BinOp::Eq | BinOp::Neq => {
+                        // Same primitive type → bool.
                         if l == r && matches!(l, Type::Number | Type::String | Type::Boolean) {
-                            Ok(Type::Boolean)
-                        } else {
-                            Err(format!(
-                                "strict equality requires same primitive type, got {l:?} and {r:?}"
-                            ))
+                            return Ok(Type::Boolean);
                         }
+                        // `Nullable(T) === null` and `null === Nullable(T)`
+                        // are valid checks; result is bool. So is
+                        // `null === null`. Identity on the same struct
+                        // type also OK (pointer compare).
+                        let l_is_null = matches!(l, Type::Null);
+                        let r_is_null = matches!(r, Type::Null);
+                        let l_is_nullable = matches!(l, Type::Nullable(_));
+                        let r_is_nullable = matches!(r, Type::Nullable(_));
+                        if (l_is_null || l_is_nullable) && (r_is_null || r_is_nullable) {
+                            return Ok(Type::Boolean);
+                        }
+                        Err(format!(
+                            "strict equality requires same primitive type, got {l:?} and {r:?}"
+                        ))
                     }
                     BinOp::LAnd | BinOp::LOr => {
                         // M1.5 — boolean ops are bool-only in the subset
@@ -1582,7 +1643,7 @@ impl Checker {
                         }
                         let target_ty = info.ty.clone();
                         let value_ty = self.type_of(ast, *value)?;
-                        if value_ty != target_ty {
+                        if !is_assignable_to(&target_ty, &value_ty) {
                             return Err(format!(
                                 "type mismatch assigning to `{name}`: declared {target_ty:?}, value is {value_ty:?}"
                             ));
@@ -1798,6 +1859,80 @@ impl Checker {
                 let _ = self.type_of(ast, *expr)?;
                 Ok(Type::String)
             }
+            Expr::Nullish { lhs, rhs } => {
+                // `lhs ?? rhs` — lhs must be Nullable(T) (or Null).
+                // Result type unifies the lhs's inner T with the rhs.
+                // If both are nullable T, result stays Nullable(T) so
+                // chains like `a ?? b ?? c` propagate nullability until
+                // a non-nullable rhs settles it.
+                let lhs_ty = self.type_of(ast, *lhs)?;
+                let rhs_ty = self.type_of(ast, *rhs)?;
+                let lhs_inner = match &lhs_ty {
+                    Type::Nullable(inner) => Some((**inner).clone()),
+                    Type::Null => None,
+                    other => {
+                        return Err(format!(
+                            "`??` left operand must be nullable, got {other:?}"
+                        ));
+                    }
+                };
+                // If lhs was Null literal, the answer is just rhs's type.
+                let Some(inner) = lhs_inner else {
+                    return Ok(rhs_ty);
+                };
+                // Accept rhs as the inner T (definitely non-null result)
+                // OR as Nullable(T) (still nullable result — rhs may be
+                // null too).
+                if rhs_ty == inner {
+                    return Ok(inner);
+                }
+                if let Type::Nullable(rhs_inner) = &rhs_ty
+                    && **rhs_inner == inner
+                {
+                    return Ok(rhs_ty);
+                }
+                Err(format!(
+                    "`??` rhs type {rhs_ty:?} does not match lhs inner {inner:?}"
+                ))
+            }
+            Expr::OptChain { obj, name } => {
+                // `obj?.field` — obj must be Nullable(T) where T is a
+                // struct that has `field`. Result type is `Nullable(F)`
+                // where F is the field's type. Composes naturally with
+                // outer `??` to flatten the null path.
+                let obj_ty = self.type_of(ast, *obj)?;
+                let inner = match &obj_ty {
+                    Type::Nullable(inner) => (**inner).clone(),
+                    Type::Null => return Ok(Type::Null),
+                    _ => {
+                        // Plain (non-nullable) obj: `?.` is allowed but
+                        // semantically equivalent to `.`. Resolve as
+                        // member access.
+                        let field_ty = self.member_type(&obj_ty, name)?;
+                        return Ok(field_ty);
+                    }
+                };
+                let field_ty = self.member_type(&inner, name)?;
+                Ok(Type::Nullable(Box::new(field_ty)))
+            }
+        }
+    }
+
+    /// Look up `name` on `obj_ty` and return the field/method type.
+    /// Pulled out so OptChain can reuse Member's resolution logic
+    /// without re-implementing the alias / array / class / Math /
+    /// console branches.
+    fn member_type(&mut self, obj_ty: &Type, name: &str) -> Result<Type, String> {
+        match (obj_ty, name) {
+            (Type::String, "length") | (Type::Array(_), "length") => Ok(Type::Number),
+            (Type::Struct(fields), n) => fields
+                .iter()
+                .find(|(fn_, _)| fn_ == n)
+                .map(|(_, t)| t.clone())
+                .ok_or_else(|| format!("no field `{n}` on struct {obj_ty:?}")),
+            (other, _) => Err(format!(
+                "no field `{name}` accessible on type {other:?}"
+            )),
         }
     }
 }

@@ -1889,8 +1889,6 @@ impl<'a, 'ctx> FnLower<'a, 'ctx> {
                 Some(r)
             }
             InstKind::ICmp(p, a, b) => {
-                let av = self.operand_int(a);
-                let bv = self.operand_int(b);
                 let pred = match p {
                     IPred::Eq => IntPredicate::EQ,
                     IPred::Ne => IntPredicate::NE,
@@ -1899,7 +1897,48 @@ impl<'a, 'ctx> FnLower<'a, 'ctx> {
                     IPred::Sle => IntPredicate::SLE,
                     IPred::Sge => IntPredicate::SGE,
                 };
-                let r = self.builder.build_int_compare(pred, av, bv, "").unwrap();
+                // Allow pointer compares (used by `=== null` / `!== null`
+                // and the optional-chain / nullish dispatchers). LLVM's
+                // build_int_compare accepts ptr-typed operands; mixing
+                // one ptr + one i64 needs an explicit ptrtoint cast on
+                // the ptr side.
+                let av_basic = self.operand(a);
+                let bv_basic = self.operand(b);
+                let av_is_ptr = matches!(av_basic, BasicValueEnum::PointerValue(_));
+                let bv_is_ptr = matches!(bv_basic, BasicValueEnum::PointerValue(_));
+                let r = if av_is_ptr && bv_is_ptr {
+                    self.builder
+                        .build_int_compare(
+                            pred,
+                            av_basic.into_pointer_value(),
+                            bv_basic.into_pointer_value(),
+                            "",
+                        )
+                        .unwrap()
+                } else if av_is_ptr || bv_is_ptr {
+                    let i64_t = self.ctx.i64_type();
+                    let av_int = if av_is_ptr {
+                        self.builder
+                            .build_ptr_to_int(av_basic.into_pointer_value(), i64_t, "")
+                            .unwrap()
+                    } else {
+                        av_basic.into_int_value()
+                    };
+                    let bv_int = if bv_is_ptr {
+                        self.builder
+                            .build_ptr_to_int(bv_basic.into_pointer_value(), i64_t, "")
+                            .unwrap()
+                    } else {
+                        bv_basic.into_int_value()
+                    };
+                    self.builder
+                        .build_int_compare(pred, av_int, bv_int, "")
+                        .unwrap()
+                } else {
+                    let av = av_basic.into_int_value();
+                    let bv = bv_basic.into_int_value();
+                    self.builder.build_int_compare(pred, av, bv, "").unwrap()
+                };
                 Some(BasicValueEnum::IntValue(r))
             }
             InstKind::FCmp(p, a, b) => {
@@ -2165,6 +2204,13 @@ impl<'a, 'ctx> FnLower<'a, 'ctx> {
             }
             Operand::ConstBool(b) => {
                 BasicValueEnum::IntValue(self.ctx.bool_type().const_int(*b as u64, false))
+            }
+            Operand::ConstPtrNull => {
+                BasicValueEnum::PointerValue(
+                    self.ctx
+                        .ptr_type(inkwell::AddressSpace::default())
+                        .const_null(),
+                )
             }
         }
     }
