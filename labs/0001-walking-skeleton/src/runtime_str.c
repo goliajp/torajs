@@ -222,6 +222,27 @@ void *__torajs_str_from_char_code(int64_t n) {
     return p;
 }
 
+/* `s.substring(start, end)` — slice's pre-ES5 sibling. Diverges from
+ * slice on two corners: negative inputs clamp to 0 (slice wraps to
+ * len+n), and start > end gets silently swapped. After fixup both
+ * indices clamp to [0, len], same as slice. */
+void *__torajs_str_substring(const uint8_t *s, int64_t start, int64_t end) {
+    uint64_t len = *(const uint64_t *)s;
+    if (start < 0) start = 0;
+    if (end < 0) end = 0;
+    if (start > (int64_t)len) start = (int64_t)len;
+    if (end > (int64_t)len) end = (int64_t)len;
+    if (start > end) {
+        int64_t tmp = start;
+        start = end;
+        end = tmp;
+    }
+    uint64_t new_len = (uint64_t)(end - start);
+    uint8_t *p = str_alloc_(new_len);
+    if (new_len) memcpy(p + 8, s + 8 + start, (size_t)new_len);
+    return p;
+}
+
 /* `Array.from(s)` over a string source — fresh `string[]` with one
  * single-byte string per byte of `s`. Mirrors `s.split("")` in JS but
  * scoped to tr's byte-Str layout (no UTF-16 / surrogate handling). */

@@ -1354,10 +1354,12 @@ impl Checker {
                     // which has its own arm). Bool-returning methods
                     // return Type::Boolean; index/charCodeAt return
                     // Number; slice returns String.
-                    (Type::String, "slice") => Ok(Type::Function(
-                        vec![Type::Number, Type::Number],
-                        Box::new(Type::String),
-                    )),
+                    (Type::String, "slice") | (Type::String, "substring") => {
+                        Ok(Type::Function(
+                            vec![Type::Number, Type::Number],
+                            Box::new(Type::String),
+                        ))
+                    }
                     (Type::String, "repeat") => Ok(Type::Function(
                         vec![Type::Number],
                         Box::new(Type::String),

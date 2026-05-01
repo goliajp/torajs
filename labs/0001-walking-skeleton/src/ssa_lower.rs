@@ -1263,6 +1263,13 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         &[Type::Str],
         Type::Ptr,
     );
+    let str_substring_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_str_substring",
+        &[Type::Str, Type::I64, Type::I64],
+        Type::Str,
+    );
     let arr_join_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -1879,6 +1886,7 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         str_eq: str_eq_id,
         str_split: str_split_id,
         arr_from_string: arr_from_string_id,
+        str_substring: str_substring_id,
         arr_join: arr_join_id,
         i64_to_str: i64_to_str_id,
         f64_to_str: f64_to_str_id,
@@ -2083,6 +2091,7 @@ struct Intrinsics {
     str_eq: FuncId,
     str_split: FuncId,
     arr_from_string: FuncId,
+    str_substring: FuncId,
     arr_join: FuncId,
     i64_to_str: FuncId,
     f64_to_str: FuncId,
@@ -6201,7 +6210,8 @@ impl<'a> LowerCtx<'a> {
                 if let Expr::Member { obj, name } = self.ast.get_expr(*callee)
                     && matches!(
                         name.as_str(),
-                        "slice" | "charCodeAt" | "codePointAt"
+                        "slice" | "substring"
+                        | "charCodeAt" | "codePointAt"
                         | "startsWith" | "endsWith"
                         | "includes" | "indexOf" | "split" | "join" | "repeat"
                         | "toUpperCase" | "toLowerCase"
@@ -6219,7 +6229,8 @@ impl<'a> LowerCtx<'a> {
                     if recv_ty == Type::Str
                         && matches!(
                             method.as_str(),
-                            "slice" | "charCodeAt" | "codePointAt"
+                            "slice" | "substring"
+                            | "charCodeAt" | "codePointAt"
                             | "startsWith"
                             | "endsWith" | "includes" | "indexOf" | "split" | "repeat"
                             | "toUpperCase" | "toLowerCase"
@@ -6236,6 +6247,7 @@ impl<'a> LowerCtx<'a> {
                         }
                         let (target, ret_ty) = match method.as_str() {
                             "slice" => (self.intrinsics.str_slice, Type::Str),
+                            "substring" => (self.intrinsics.str_substring, Type::Str),
                             "repeat" => (self.intrinsics.str_repeat, Type::Str),
                             "toUpperCase" => (self.intrinsics.str_to_upper, Type::Str),
                             "toLowerCase" => (self.intrinsics.str_to_lower, Type::Str),
@@ -9480,6 +9492,7 @@ impl<'a> LowerCtx<'a> {
             || fid == i.str_eq
             || fid == i.str_split
             || fid == i.arr_from_string
+            || fid == i.str_substring
             || fid == i.arr_join
             || fid == i.math_sqrt
             || fid == i.math_abs
