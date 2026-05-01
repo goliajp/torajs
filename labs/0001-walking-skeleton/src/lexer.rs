@@ -78,6 +78,15 @@ pub enum Token {
     /// `?.` — optional chaining for member access. `obj?.field`
     /// desugars to `obj == null ? null : obj.field`.
     QuestionDot,
+    /// Template literal `\`hi ${name} bye\`` — produced as a single
+    /// token carrying the alternating literal segments and the
+    /// pre-tokenized interpolation expressions. Parser stitches them
+    /// into a `+` chain at AST build time. Interpolations may use
+    /// arbitrary expressions but must NOT contain `}` outside of
+    /// balanced `{}` pairs (no inner template strings yet).
+    Template {
+        parts: Vec<TemplatePart>,
+    },
     /// `?` — start of a ternary `cond ? a : b` expression.
     Question,
     Eq,
@@ -114,13 +123,23 @@ pub enum Token {
     Eof,
 }
 
-#[derive(Debug, Clone, Copy)]
+/// One slot inside a `Token::Template`. Either a raw literal segment
+/// (the bytes between backticks / `${` / `}`) or a pre-tokenized
+/// interpolation expression (everything inside `${…}`). The parser at
+/// the Token::Template arm stitches them into `lit0 + expr0 + lit1 + …`.
+#[derive(Debug, Clone, PartialEq)]
+pub enum TemplatePart {
+    Lit(String),
+    Expr(Vec<Spanned>),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Span {
     pub start: u32,
     pub end: u32,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Spanned {
     pub token: Token,
     pub span: Span,
@@ -351,6 +370,84 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                     .to_string();
                 i += 1; // consume closing quote
                 emit(&mut out, Token::String(value), start, i);
+            }
+            b'`' => {
+                // Template literal. Read alternating literal segments
+                // and `${...}` interpolations until the closing
+                // backtick. Each interpolation's source slice is
+                // recursively tokenized so the parser can drop a
+                // sub-Parser into it without re-doing lex.
+                //
+                // Limitation: interpolations track only `{` `}` depth,
+                // not strings or backticks inside the expression. So
+                // `${ "}" }` (a literal `}` inside a string) and
+                // nested templates `${\`...\`}` aren't supported. The
+                // common arithmetic / member-access shapes work fine.
+                i += 1; // consume opening backtick
+                let mut parts: Vec<TemplatePart> = Vec::new();
+                let mut buf: Vec<u8> = Vec::new();
+                loop {
+                    if i >= len {
+                        return Err(format!(
+                            "unterminated template literal starting at {start}"
+                        ));
+                    }
+                    let b = bytes[i as usize];
+                    if b == b'`' {
+                        if !buf.is_empty() || parts.is_empty() {
+                            let s = std::str::from_utf8(&buf)
+                                .map_err(|_| format!("invalid utf-8 in template at {start}"))?
+                                .to_string();
+                            parts.push(TemplatePart::Lit(s));
+                        }
+                        i += 1; // consume closing backtick
+                        break;
+                    }
+                    if b == b'$' && peek(bytes, i + 1) == Some(b'{') {
+                        // Flush literal segment (even if empty — we
+                        // need the alternation).
+                        let s = std::str::from_utf8(&buf)
+                            .map_err(|_| format!("invalid utf-8 in template at {start}"))?
+                            .to_string();
+                        parts.push(TemplatePart::Lit(s));
+                        buf.clear();
+                        i += 2; // consume `${`
+                        let expr_start = i;
+                        let mut depth: i32 = 1;
+                        while i < len && depth > 0 {
+                            match bytes[i as usize] {
+                                b'{' => depth += 1,
+                                b'}' => depth -= 1,
+                                _ => {}
+                            }
+                            if depth == 0 {
+                                break;
+                            }
+                            i += 1;
+                        }
+                        if i >= len {
+                            return Err(format!(
+                                "unterminated template `${{...}}` interpolation at {start}"
+                            ));
+                        }
+                        let expr_end = i;
+                        i += 1; // consume `}`
+                        let expr_src =
+                            std::str::from_utf8(&bytes[expr_start as usize..expr_end as usize])
+                                .map_err(|_| {
+                                    format!("invalid utf-8 in template interp at {start}")
+                                })?;
+                        let inner = tokenize(expr_src)?;
+                        // Keep the trailing Eof so the sub-Parser's
+                        // peek() never falls off the end (its expr
+                        // parsers rely on the Eof guard).
+                        parts.push(TemplatePart::Expr(inner));
+                        continue;
+                    }
+                    buf.push(b);
+                    i += 1;
+                }
+                emit(&mut out, Token::Template { parts }, start, i);
             }
             b if is_ident_start(b) => {
                 while i < len && is_ident_cont(bytes[i as usize]) {

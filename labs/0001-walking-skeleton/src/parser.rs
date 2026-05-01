@@ -31,7 +31,7 @@
 //! type_ann := IDENT (`[` `]`)*
 
 use crate::ast::{self, Ast, BinOp, ClassCtor, ClassMethod, Expr, ExprId, Param, Stmt};
-use crate::lexer::{Spanned, Token};
+use crate::lexer::{self, Spanned, Token};
 
 pub fn parse(tokens: &[Spanned]) -> Result<Ast, String> {
     let mut p = Parser {
@@ -1232,6 +1232,78 @@ impl Parser<'_> {
         stmts
     }
 
+    /// Stitch a `Token::Template`'s parts into an `Expr::String + Expr +
+    /// Expr::String + …` chain. Single-part literal templates collapse
+    /// to a bare `Expr::String`. Empty-parts templates collapse to
+    /// `Expr::String("")`. Each interpolation gets a sub-Parser so the
+    /// recursive lex output can be consumed without re-tokenizing.
+    ///
+    /// Performance: chain of `+`s reuses the existing string-concat fast
+    /// path, including number→string auto-coercion. For N interpolations
+    /// with K number values: K num→str allocs + N concats. The parser
+    /// could in principle build an Array+join (1 array alloc + 1 join
+    /// alloc instead of N concats) for ≥3 interpolations; deferred to a
+    /// later optimization once profiling shows template heavy use.
+    fn lower_template_parts(
+        &mut self,
+        parts: &[lexer::TemplatePart],
+    ) -> Result<ExprId, String> {
+        if parts.is_empty() {
+            return Ok(self.ast.add_expr(Expr::String(String::new())));
+        }
+        // Special-case all-literal templates → emit a single
+        // Expr::String. Common case `\`hello\`` skips the chain entirely.
+        if parts.len() == 1 {
+            if let lexer::TemplatePart::Lit(s) = &parts[0] {
+                return Ok(self.ast.add_expr(Expr::String(s.clone())));
+            }
+        }
+        let mut acc: Option<ExprId> = None;
+        for p in parts {
+            let id = match p {
+                lexer::TemplatePart::Lit(s) => {
+                    if s.is_empty() && acc.is_some() {
+                        // Skip empty-string filler between adjacent
+                        // interpolations — `${a}${b}` shouldn't
+                        // generate an extra `+ ""` step.
+                        continue;
+                    }
+                    self.ast.add_expr(Expr::String(s.clone()))
+                }
+                lexer::TemplatePart::Expr(tokens) => {
+                    let mut sub = Parser {
+                        tokens,
+                        pos: 0,
+                        ast: std::mem::take(&mut self.ast),
+                        desugar_id: self.desugar_id,
+                    };
+                    let result = sub.parse_expr()?;
+                    // Tokens vec ends with Token::Eof; anything before
+                    // Eof past the parsed expr is leftover input.
+                    if !matches!(sub.peek(), Token::Eof) {
+                        return Err(format!(
+                            "unexpected trailing tokens in template interpolation: {:?}",
+                            sub.peek()
+                        ));
+                    }
+                    self.ast = sub.ast;
+                    self.desugar_id = sub.desugar_id;
+                    result
+                }
+            };
+            acc = Some(match acc {
+                None => id,
+                Some(prev) => self.ast.add_expr(Expr::BinOp {
+                    op: BinOp::Add,
+                    left: prev,
+                    right: id,
+                }),
+            });
+        }
+        // If acc is still None (everything was empty Lit), produce "".
+        Ok(acc.unwrap_or_else(|| self.ast.add_expr(Expr::String(String::new()))))
+    }
+
     fn parse_expr(&mut self) -> Result<ExprId, String> {
         self.parse_assign()
     }
@@ -1652,6 +1724,11 @@ impl Parser<'_> {
                 let s = s.clone();
                 self.pos += 1;
                 Ok(self.ast.add_expr(Expr::String(s)))
+            }
+            Token::Template { parts } => {
+                let parts = parts.clone();
+                self.pos += 1;
+                self.lower_template_parts(&parts)
             }
             Token::Number(n) => {
                 let n = *n;
