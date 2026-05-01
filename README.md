@@ -21,35 +21,35 @@ bun is the oracle: when behavior is unclear, write the equivalent in TS, run it 
 
 ## Bench scoreboard
 
-Cross-runtime perf, M4 Pro, hyperfine n=10 with 3 warmup runs. Measured 2026-05-01 on commit `7c7844e` — Phase-1/2 lang-core extension plus stdlib breadth (Object.keys/values, Number.{parseInt,parseFloat,isInteger,isNaN,isFinite}, Math trig+log batch, String.{toUpperCase,toLowerCase,trim*,padStart,padEnd,replace,replaceAll}, Array.{includes,findIndex,some,every,reverse,fill}, Math.{LN2,LN10,SQRT2,…} + Number.{MAX_SAFE_INTEGER,…} constants, Math.min/max variadic, post `++`/`--` spec, lexer string escapes + scientific notation, struct-field push, class array-field default, return-via-let closure detection, closure-captured array push env writeback). All times in ms; binary in KB / MB. **`compile`** = AOT compile + link wall time; **`run (AOT)`** = AOT-compiled binary execution; **`run (interp)`** = `tr run` interpreter / cache-hit AOT; **`binary`** = on-disk size of the produced executable. [Full JSON data](bench/results/).
+Cross-runtime perf, M4 Pro, hyperfine n=10 with 3 warmup runs. Measured 2026-05-01 on commit `52e42e7` — Phase-1/2 lang-core extension + 33-commit stdlib + language batch (default function parameters, Math trig/hyperbolic + variadic min/max/hypot, String.{toUpperCase,toLowerCase,trim*,padStart,padEnd,replace,replaceAll,at,localeCompare,lastIndexOf}, Array.{includes,findIndex,some,every,reverse,fill,sort,flat,concat,copyWithin,lastIndexOf,at}, Number.{parseInt,parseFloat,isInteger,isNaN,isFinite,isSafeInteger,toFixed,toExponential,toPrecision,toString}, Math.{imul,clz32,fround} + Math constants, Number(x) / String(x) coercion, console.error/warn → stderr, bare-name globals isNaN/isFinite/parseInt/parseFloat, lexer string escapes + scientific notation, post `++`/`--` spec, struct-field push, class array-field default, return-via-let closure detection, closure-captured array push env writeback, empty `[]` inner literals). All times in ms; binary in KB / MB. **`compile`** = AOT compile + link wall time; **`run (AOT)`** = AOT-compiled binary execution; **`run (interp)`** = `tr run` interpreter / cache-hit AOT; **`binary`** = on-disk size of the produced executable. [Full JSON data](bench/results/).
 
 ### Headline summary (run-time, lower better)
 
 |     case                  | torajs (AOT)  |   torajs-run  |       rust |         go |    bun-jsc |    bun-aot |    node-v8 |
 | ------------------------- | ------------: | ------------: | ---------: | ---------: | ---------: | ---------: | ---------: |
-| ackermann                 |      **9.07** |         16.88 |       9.38 |      10.60 |      15.78 |      16.59 |      98.33 |
-| array-map-1m              |         28.20 |         35.91 |      24.05 |  **19.46** |      55.98 |      55.33 |     242.40 |
-| array-sum-1m              |     **12.01** |         18.72 |      13.82 |      29.24 |      45.49 |      47.25 |     166.66 |
-| closure-counter           |     **17.88** |         25.00 |      18.44 |      31.26 |      47.12 |      48.79 |     169.57 |
-| **closure-pipeline-1m**   |     **12.12** |         19.46 |      18.10 |      31.51 |      46.15 |      45.12 |     170.99 |
-| collatz                   |        104.27 |        112.52 | **104.64** |     141.61 |     319.62 |     320.06 |    1382.95 |
-| fib40                     |    **144.55** |        218.86 |     183.56 |     220.48 |     381.74 |     371.25 |     688.12 |
-| gcd1m                     |     **39.88** |         47.77 |      39.94 |      40.74 |      48.44 |      48.67 |     128.45 |
-| generic-id-1m             |         15.09 |         20.22 |  **11.87** |      31.80 |      48.05 |      45.72 |     168.60 |
-| **generic-pair-1m**       |      **1.24** |          8.19 |       2.33 |       2.61 |      12.61 |      12.70 |      76.95 |
-| mandelbrot                |     **34.95** |         42.20 |      34.69 |      36.73 |      50.33 |      50.73 |     122.71 |
-| popcount                  |      **2.63** |          9.69 |       2.87 |      54.31 |      56.36 |      56.13 |     134.33 |
-| prime_count               |         47.40 |         54.30 |      47.03 |  **39.67** |      59.41 |      53.10 |     157.60 |
-| startup                   |      **1.20** |          8.25 |       1.30 |       1.88 |       8.11 |       7.25 |      80.32 |
-| **throw-catch-100k**      |      **1.30** |          8.54 |     418.35 |       7.41 |      22.11 |      21.79 |     133.48 |
+| ackermann                 |      **9.33** |         16.24 |       9.25 |      10.03 |      16.16 |      17.21 |     102.81 |
+| array-map-1m              |         31.14 |         37.59 |      26.46 |  **24.62** |      60.86 |      61.13 |     252.37 |
+| array-sum-1m              |     **12.79** |         21.12 |      14.56 |      33.19 |      53.56 |      48.36 |     178.03 |
+| closure-counter           |     **20.29** |         27.90 |      20.69 |      37.74 |      48.26 |      53.25 |     179.69 |
+| **closure-pipeline-1m**   |     **14.61** |         23.47 |      20.57 |      38.10 |      49.09 |      50.95 |     178.97 |
+| collatz                   |    **109.06** |        116.90 |     109.26 |     145.53 |     330.61 |     332.33 |    1435.43 |
+| fib40                     |    **156.03** |        225.84 |     184.53 |     239.06 |     406.16 |     404.53 |     699.47 |
+| gcd1m                     |         43.81 |         49.91 |  **41.88** |      41.99 |      49.88 |      49.18 |     137.30 |
+| generic-id-1m             |     **14.43** |         24.86 |      14.80 |      33.65 |      46.49 |      51.18 |     181.13 |
+| **generic-pair-1m**       |      **1.45** |          9.58 |       2.47 |       2.88 |      12.80 |      12.83 |      93.59 |
+| mandelbrot                |     **35.31** |         43.15 |      35.45 |      38.11 |      52.08 |      52.22 |     126.69 |
+| popcount                  |          3.03 |         10.66 |   **2.86** |      54.99 |      56.13 |      58.67 |     133.42 |
+| prime_count               |         48.99 |         56.59 |      51.26 |  **41.05** |      53.04 |      52.34 |     154.97 |
+| startup                   |      **1.63** |          9.95 |       1.64 |       1.98 |       8.99 |       8.63 |      86.03 |
+| **throw-catch-100k**      |      **1.54** |         10.33 |     442.99 |       7.92 |      24.71 |      24.31 |     149.77 |
 
-torajs (AOT) **vs rust**: 9 wins / 4 ties (collatz/gcd1m/mandelbrot/prime_count within ±1% noise) / 2 losses (array-map-1m +17%, generic-id-1m +27%).
+torajs (AOT) **vs rust**: 11 wins / 1 tie (collatz within 0.2%) / 3 losses (array-map-1m +18%, gcd1m +5%, popcount +6%).
 torajs (AOT) **vs go**: 13 wins, 2 losses (array-map-1m and prime_count — go's per-element fast path + GC-backed tight loops).
 torajs (AOT) **vs bun-jsc / bun-aot / node-v8**: **15 / 15 / 15** clean sweeps per runtime.
 
-`throw-catch-100k` stays a category-killer: 100k handled exceptions takes 1.30 ms in torajs vs 418 ms in rust (`panic::catch_unwind`-based control flow) — **322× faster than rust's panic path**. tr's M4 design (module-level throw_active flag + cond_br on every may_throw call) lets throw be ~zero-cost when it doesn't fire and ~µs-per-throw when it does, vs Rust's panic infrastructure paying full unwinding cost per occurrence.
+`throw-catch-100k` stays a category-killer: 100k handled exceptions takes 1.54 ms in torajs vs 443 ms in rust (`panic::catch_unwind`-based control flow) — **287× faster than rust's panic path**. tr's M4 design (module-level throw_active flag + cond_br on every may_throw call) lets throw be ~zero-cost when it doesn't fire and ~µs-per-throw when it does, vs Rust's panic infrastructure paying full unwinding cost per occurrence.
 
-The stdlib-breadth pass since `5012c20` added zero perf overhead on this scoreboard — every new method routes through existing intrinsic / inline-SSA shapes at lower time. The 197/197 test262 conformance suite grew alongside (was 184).
+The 33-commit stdlib + language batch since `7c7844e` added zero perf overhead on this scoreboard — every new method routes through existing intrinsic / inline-SSA shapes at lower time. The test262 conformance suite grew from 197 to **232 ports** alongside.
 
 ### Per-case detail — compile / run / binary
 
