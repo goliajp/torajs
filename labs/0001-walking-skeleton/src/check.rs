@@ -2413,6 +2413,15 @@ impl Checker {
                 let _ = self.type_of(ast, *expr)?;
                 Ok(Type::String)
             }
+            Expr::InstanceOf { expr, .. } => {
+                // `x instanceof C` — verify operand is typeable; the
+                // class name itself is resolved at lower-time against
+                // the class registry (and superclass chain). Returns
+                // Boolean unconditionally. The static answer (true /
+                // false) is computed in ssa_lower.
+                let _ = self.type_of(ast, *expr)?;
+                Ok(Type::Boolean)
+            }
             Expr::Nullish { lhs, rhs } => {
                 // `lhs ?? rhs` — lhs must be Nullable(T) (or Null).
                 // Result type unifies the lhs's inner T with the rhs.

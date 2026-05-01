@@ -367,7 +367,8 @@ fn rewrite_tvdefault_in_expr(ast: &mut Ast, eid: ExprId, subst: &[(String, Strin
             rewrite_tvdefault_in_expr(ast, left, subst);
             rewrite_tvdefault_in_expr(ast, right, subst);
         }
-        Expr::Unary { expr, .. } | Expr::TypeOf { expr } | Expr::Spread { expr } => {
+        Expr::Unary { expr, .. } | Expr::TypeOf { expr } | Expr::Spread { expr }
+        | Expr::InstanceOf { expr, .. } => {
             rewrite_tvdefault_in_expr(ast, expr, subst);
         }
         Expr::Member { obj, .. } | Expr::OptChain { obj, .. } => {
@@ -571,6 +572,10 @@ fn deep_clone_expr(ast: &mut Ast, eid: ExprId) -> ExprId {
             let e = *expr;
             Expr::TypeOf { expr: deep_clone_expr(ast, e) }
         }
+        Expr::InstanceOf { expr, class_name } => {
+            let e = *expr; let cn = class_name.clone();
+            Expr::InstanceOf { expr: deep_clone_expr(ast, e), class_name: cn }
+        }
         Expr::Spread { expr } => {
             let e = *expr;
             Expr::Spread { expr: deep_clone_expr(ast, e) }
@@ -752,7 +757,8 @@ fn rewrite_inner_generic_calls(
                 walk_expr(ast, l, generics, outer_tp, outer_anns, cache, worklist);
                 walk_expr(ast, r, generics, outer_tp, outer_anns, cache, worklist);
             }
-            Expr::Unary { expr, .. } | Expr::TypeOf { expr } | Expr::Spread { expr } => {
+            Expr::Unary { expr, .. } | Expr::TypeOf { expr } | Expr::Spread { expr }
+            | Expr::InstanceOf { expr, .. } => {
                 let e = *expr;
                 walk_expr(ast, e, generics, outer_tp, outer_anns, cache, worklist);
             }
@@ -8454,6 +8460,23 @@ impl<'a> LowerCtx<'a> {
                     Type::Void | Type::Ptr => "object",
                 };
                 Operand::Value(self.intern_string_literal(s))
+            }
+            Expr::InstanceOf { expr, class_name } => {
+                // Compile-time class membership. Lower the operand for
+                // its side effects, then compare its SSA Type against
+                // the alias entry for `class_name`. Emits ConstBool
+                // with the pre-decided answer. Inheritance-chain
+                // lookup not yet implemented — only direct-class
+                // identity (subclass.instanceof(Parent) returns false
+                // until M-OO.3 records the parent map and walks it).
+                let v = self.lower_expr(*expr);
+                let actual_ty = self.operand_ty(&v);
+                let target = self.aliases.get(class_name).cloned();
+                let answer = matches!(
+                    (actual_ty, target),
+                    (Type::Obj(a), Some(Type::Obj(t))) if a == t
+                );
+                Operand::ConstBool(answer)
             }
             Expr::Nullish { lhs, rhs } => {
                 // `lhs ?? rhs` — evaluate lhs once, branch on null,

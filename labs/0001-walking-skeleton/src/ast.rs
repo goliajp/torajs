@@ -125,6 +125,16 @@ pub enum Expr {
     TypeOf {
         expr: ExprId,
     },
+    /// `expr instanceof ClassName` — compile-time class membership check.
+    /// tr is statically typed: if `expr`'s declared type is the named
+    /// class (or a subclass via `extends`), this lowers to ConstBool(true);
+    /// otherwise ConstBool(false). The check itself never runs at
+    /// runtime — desugar_classes records the class hierarchy, and check.rs
+    /// resolves the answer during typechecking.
+    InstanceOf {
+        expr: ExprId,
+        class_name: String,
+    },
     /// `...expr` — array spread. Only valid as a child of `Expr::Array`.
     /// ssa_lower's Array arm pre-computes total length (sum of spread
     /// source `.length`s + non-spread element count) at runtime, allocs
@@ -884,7 +894,7 @@ fn collect_super_in_expr(
             collect_super_in_expr(ast, *then_branch, out);
             collect_super_in_expr(ast, *else_branch, out);
         }
-        Expr::TypeOf { expr } | Expr::Spread { expr } => collect_super_in_expr(ast, *expr, out),
+        Expr::TypeOf { expr } | Expr::Spread { expr } | Expr::InstanceOf { expr, .. } => collect_super_in_expr(ast, *expr, out),
         Expr::Nullish { lhs, rhs } => {
             collect_super_in_expr(ast, *lhs, out);
             collect_super_in_expr(ast, *rhs, out);
@@ -1557,7 +1567,7 @@ fn scan_expr_for_calls(ast: &Ast, eid: ExprId, out: &mut Vec<String>) {
             scan_expr_for_calls(ast, *then_branch, out);
             scan_expr_for_calls(ast, *else_branch, out);
         }
-        Expr::TypeOf { expr } | Expr::Spread { expr } => scan_expr_for_calls(ast, *expr, out),
+        Expr::TypeOf { expr } | Expr::Spread { expr } | Expr::InstanceOf { expr, .. } => scan_expr_for_calls(ast, *expr, out),
         Expr::Nullish { lhs, rhs } => {
             scan_expr_for_calls(ast, *lhs, out);
             scan_expr_for_calls(ast, *rhs, out);
@@ -1647,7 +1657,7 @@ fn walk_expr(ast: &Ast, eid: ExprId, bound: &mut Vec<String>, out: &mut Vec<Stri
             walk_expr(ast, *then_branch, bound, out);
             walk_expr(ast, *else_branch, bound, out);
         }
-        Expr::TypeOf { expr } | Expr::Spread { expr } => walk_expr(ast, *expr, bound, out),
+        Expr::TypeOf { expr } | Expr::Spread { expr } | Expr::InstanceOf { expr, .. } => walk_expr(ast, *expr, bound, out),
         Expr::Nullish { lhs, rhs } => {
             walk_expr(ast, *lhs, bound, out);
             walk_expr(ast, *rhs, bound, out);
@@ -2004,6 +2014,10 @@ impl Ast {
             }
             Expr::TypeOf { expr } => {
                 println!("{pad}TypeOf");
+                self.print_expr(*expr, indent + 1);
+            }
+            Expr::InstanceOf { expr, class_name } => {
+                println!("{pad}InstanceOf {class_name}");
                 self.print_expr(*expr, indent + 1);
             }
             Expr::Spread { expr } => {

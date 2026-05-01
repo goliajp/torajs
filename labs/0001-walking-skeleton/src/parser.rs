@@ -1530,6 +1530,24 @@ impl Parser<'_> {
     fn parse_comparison(&mut self) -> Result<ExprId, String> {
         let mut left = self.parse_shift()?;
         loop {
+            // `expr instanceof ClassName` — relational-precedence operator.
+            // Right-hand side is a single bare identifier (the class name),
+            // not a general expression — tr resolves the class statically.
+            if matches!(self.peek(), Token::InstanceOf) {
+                self.pos += 1;
+                let class_name = match self.peek() {
+                    Token::Ident(s) => s.clone(),
+                    other => return Err(format!(
+                        "expected class name after `instanceof`, got {other:?}"
+                    )),
+                };
+                self.pos += 1;
+                left = self.ast.add_expr(Expr::InstanceOf {
+                    expr: left,
+                    class_name,
+                });
+                continue;
+            }
             let op = match self.peek() {
                 Token::Lt => BinOp::Lt,
                 Token::Gt => BinOp::Gt,

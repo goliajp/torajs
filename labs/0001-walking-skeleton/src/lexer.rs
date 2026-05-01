@@ -115,6 +115,10 @@ pub enum Token {
     Default,
     /// `typeof x` — yields a string literal at runtime.
     TypeOf,
+    /// `x instanceof C` — relational operator. tr is statically typed,
+    /// so this is a compile-time decision based on the LHS's static
+    /// type vs the named class (and its superclass chain).
+    InstanceOf,
     FatArrow,
     Lt,
     Gt,
@@ -507,6 +511,7 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                     "case" => Token::Case,
                     "default" => Token::Default,
                     "typeof" => Token::TypeOf,
+                    "instanceof" => Token::InstanceOf,
                     "null" => Token::Null,
                     _ => Token::Ident(name.to_string()),
                 };
