@@ -1444,9 +1444,11 @@ impl Checker {
                             Box::new(Type::Array(Box::new(inner))),
                         ))
                     }
-                    // `xs.indexOf(needle)` — linear scan; returns -1
-                    // on miss. Needle must match the element type.
-                    (Type::Array(elem), "indexOf") => {
+                    // `xs.indexOf(needle)` / `xs.lastIndexOf(needle)` —
+                    // linear scan; returns -1 on miss. lastIndexOf scans
+                    // from the end. Needle must match the element type.
+                    (Type::Array(elem), "indexOf")
+                    | (Type::Array(elem), "lastIndexOf") => {
                         let inner = (**elem).clone();
                         Ok(Type::Function(vec![inner], Box::new(Type::Number)))
                     }

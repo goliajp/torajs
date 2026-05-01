@@ -4851,6 +4851,7 @@ impl<'a> LowerCtx<'a> {
                         | "padStart" | "padEnd"
                         | "replace" | "replaceAll"
                         | "reverse" | "fill" | "at" | "concat" | "sort" | "flat"
+                        | "lastIndexOf"
                     )
                 {
                     let recv_op = self.lower_expr(*obj);
@@ -5464,20 +5465,20 @@ impl<'a> LowerCtx<'a> {
                         );
                         return Operand::Value(v);
                     }
-                    // `arr.indexOf(needle)` — inline SSA loop.
-                    // Returns -1 if needle not found. Per-element
-                    // compare picks ICmp / FCmp / __torajs_str_eq
-                    // based on the array's element type. No
-                    // allocations; LLVM auto-vectorizes the i64 path.
-                    //
-                    // `arr.includes(needle)` reuses the same loop,
-                    // returning a Bool instead of the index. Both share
-                    // the comparator dispatch.
+                    // `arr.indexOf(needle)` / `arr.lastIndexOf(needle)` /
+                    // `arr.includes(needle)` — inline SSA loop. indexOf
+                    // returns the first match index (-1 on miss);
+                    // lastIndexOf scans from the end (-1 on miss);
+                    // includes returns a boolean. All three share the
+                    // per-element compare dispatch (ICmp / FCmp / str_eq).
                     if let Type::Arr(arr_id) = recv_ty
-                        && (method == "indexOf" || method == "includes")
+                        && (method == "indexOf"
+                            || method == "lastIndexOf"
+                            || method == "includes")
                         && args.len() == 1
                     {
                         let want_bool = method == "includes";
+                        let want_last = method == "lastIndexOf";
                         let elem_ty = self.arr_layouts[arr_id.0 as usize];
                         let needle = self.lower_expr(args[0]);
                         let result_slot =
@@ -5619,7 +5620,14 @@ impl<'a> LowerCtx<'a> {
                             ),
                         );
                         let cb = self.cur_block;
-                        self.f.set_term(cb, Terminator::Br(after));
+                        // indexOf / includes break on first match;
+                        // lastIndexOf keeps going so the result_slot
+                        // ends up holding the highest matching index.
+                        if want_last {
+                            self.f.set_term(cb, Terminator::Br(next));
+                        } else {
+                            self.f.set_term(cb, Terminator::Br(after));
+                        }
                         self.cur_block = next;
                         let next_i = self.f.append_inst(
                             self.cur_block,
