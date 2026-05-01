@@ -32,6 +32,14 @@ use crate::ssa::{
     Type, ValueId,
 };
 
+/// Phase H.1 — every heap-allocated object reserves a single 8-byte slot
+/// at offset 0 for a runtime class tag. Field 0 lives at offset
+/// `OBJ_HEADER_SIZE`, field i at `OBJ_HEADER_SIZE + i*8`. The tag itself
+/// is written by the allocator (currently a constant 0; class-aware
+/// tagging arrives in H.1.b). Closure env layout is unaffected — it has
+/// its own fn-ptr header at offset 0 and lives in a separate alloc path.
+const OBJ_HEADER_SIZE: u64 = 8;
+
 /// M3 — generic call-site retargeting. For each `Expr::Call` whose ExprId
 /// is a generic call site, the typechecker has already inferred the
 /// concrete type args; this map remembers the **specialized fn name** the
@@ -3595,7 +3603,7 @@ impl<'a> LowerCtx<'a> {
                         Type::Str,
                         None,
                     );
-                    let field_off = (i as u64) * 8;
+                    let field_off = OBJ_HEADER_SIZE + (i as u64) * 8;
                     let field_v = self.f.append_inst(
                         self.cur_block,
                         InstKind::Load(*fty, Operand::Value(obj_ptr), field_off),
@@ -3712,7 +3720,7 @@ impl<'a> LowerCtx<'a> {
                     if fty.is_copy() {
                         continue;
                     }
-                    let offset = i as u64 * 8;
+                    let offset = OBJ_HEADER_SIZE + i as u64 * 8;
                     let field_val = self.f.append_inst(
                         self.cur_block,
                         InstKind::Load(*fty, val, offset),
@@ -5190,7 +5198,7 @@ impl<'a> LowerCtx<'a> {
                                     "ssa-lower: struct {sid:?} has no field `{field}`"
                                 )
                             });
-                        let offset = (idx as u64) * 8;
+                        let offset = OBJ_HEADER_SIZE + (idx as u64) * 8;
                         let v = self.lower_expr(*value);
                         self.consume_if_ident(*value);
                         // Drop the old field value if non-Copy.
@@ -5943,7 +5951,7 @@ impl<'a> LowerCtx<'a> {
                         ),
                     );
                     for (i, _) in layout.iter().enumerate() {
-                        let field_off = (i as u64) * 8;
+                        let field_off = OBJ_HEADER_SIZE + (i as u64) * 8;
                         let v = self.f.append_inst(
                             self.cur_block,
                             InstKind::Load(elem_ty, arg_op, field_off),
@@ -6194,7 +6202,7 @@ impl<'a> LowerCtx<'a> {
                                 })
                                 && matches!(field_ty, Type::Arr(_))
                             {
-                                let offset = (idx as u64) * 8;
+                                let offset = OBJ_HEADER_SIZE + (idx as u64) * 8;
                                 let cur_arr = self.f.append_inst(
                                     self.cur_block,
                                     InstKind::Load(field_ty, obj_val, offset),
@@ -8089,7 +8097,7 @@ impl<'a> LowerCtx<'a> {
                             self.consume_if_ident(*eid);
                         }
                         for (idx, (sn, st)) in layout.iter().enumerate() {
-                            let off = (idx as u64) * 8;
+                            let off = OBJ_HEADER_SIZE + (idx as u64) * 8;
                             let v = self.f.append_inst(
                                 self.cur_block,
                                 InstKind::Load(*st, src_op, off),
@@ -8128,7 +8136,11 @@ impl<'a> LowerCtx<'a> {
                             "ssa-lower: object literal layout {field_tys:?} not registered as a `type` — anonymous struct types not yet supported (P2.4.c MVP)"
                         )
                     });
-                let size = field_tys.len() as i64 * 8;
+                // Phase H.1.a — alloc reserves OBJ_HEADER_SIZE for the
+                // class tag at offset 0, fields then start at offset
+                // OBJ_HEADER_SIZE. The tag itself is written as 0 here;
+                // class-aware tagging arrives in H.1.b.
+                let size = field_tys.len() as i64 * 8 + OBJ_HEADER_SIZE as i64;
                 let alloc_fid = self.intrinsics.obj_alloc;
                 let obj_ptr = self.f.append_inst(
                     self.cur_block,
@@ -8136,8 +8148,12 @@ impl<'a> LowerCtx<'a> {
                     Type::Obj(sid),
                     None,
                 );
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Store(Operand::ConstI64(0), Operand::Value(obj_ptr), 0),
+                );
                 for (i, val) in field_vals.iter().enumerate() {
-                    let offset = i as u64 * 8;
+                    let offset = OBJ_HEADER_SIZE + i as u64 * 8;
                     self.f.append_void(
                         self.cur_block,
                         InstKind::Store(*val, Operand::Value(obj_ptr), offset),
@@ -8228,7 +8244,7 @@ impl<'a> LowerCtx<'a> {
                             "ssa-lower: struct {sid:?} has no field `{name}` (layout: {layout:?})"
                         )
                     });
-                let offset = idx as u64 * 8;
+                let offset = OBJ_HEADER_SIZE + idx as u64 * 8;
                 let v = self.f.append_inst(
                     self.cur_block,
                     InstKind::Load(field_ty, obj_val, offset),
@@ -8882,7 +8898,7 @@ impl<'a> LowerCtx<'a> {
                 self.f.set_term(null_blk, Terminator::Br(after));
                 // member read path → load from obj + offset, store.
                 self.cur_block = mem_blk;
-                let offset = (field_idx as u64) * 8;
+                let offset = OBJ_HEADER_SIZE + (field_idx as u64) * 8;
                 let v = self.f.append_inst(
                     mem_blk,
                     InstKind::Load(field_ty, obj_op, offset),
@@ -8973,7 +8989,7 @@ impl<'a> LowerCtx<'a> {
                                     "ssa-lower: struct {sid:?} has no field `{field}`"
                                 )
                             });
-                        let offset = (idx as u64) * 8;
+                        let offset = OBJ_HEADER_SIZE + (idx as u64) * 8;
                         let old = self.f.append_inst(
                             self.cur_block,
                             InstKind::Load(field_ty, obj_val, offset),
