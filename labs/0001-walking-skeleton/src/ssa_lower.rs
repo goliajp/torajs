@@ -4249,6 +4249,118 @@ impl<'a> LowerCtx<'a> {
                     );
                     return Operand::Value(v);
                 }
+                // `Number(x)` / `String(x)` — coercion function calls.
+                // Number(x): identity for i64/f64; bool→i64; string→
+                // num_parse_float; null→0. String(x): identity for str;
+                // i64_to_str / f64_to_str / static "true"|"false"|"null".
+                if let Expr::Ident(name) = self.ast.get_expr(*callee)
+                    && (name == "Number" || name == "String")
+                {
+                    let arg = self.lower_expr(args[0]);
+                    let arg_ty = self.operand_ty(&arg);
+                    if name == "Number" {
+                        let v = match arg_ty {
+                            Type::I64 | Type::F64 => arg,
+                            Type::Bool => {
+                                // bool → i64: cond_br + select-shape via
+                                // alloca slot.
+                                let then_blk = self.f.add_block();
+                                let else_blk = self.f.add_block();
+                                let after_blk = self.f.add_block();
+                                let slot = self.alloca_in_entry(Type::I64, Some("__bool_n"));
+                                self.f.set_term(self.cur_block, Terminator::CondBr {
+                                    cond: arg,
+                                    then_blk,
+                                    else_blk,
+                                });
+                                self.f.append_void(
+                                    then_blk,
+                                    InstKind::Store(Operand::ConstI64(1), Operand::Value(slot), 0),
+                                );
+                                self.f.set_term(then_blk, Terminator::Br(after_blk));
+                                self.f.append_void(
+                                    else_blk,
+                                    InstKind::Store(Operand::ConstI64(0), Operand::Value(slot), 0),
+                                );
+                                self.f.set_term(else_blk, Terminator::Br(after_blk));
+                                self.cur_block = after_blk;
+                                let v = self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::Load(Type::I64, Operand::Value(slot), 0),
+                                    Type::I64,
+                                    None,
+                                );
+                                Operand::Value(v)
+                            }
+                            Type::Str => Operand::Value(self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(self.intrinsics.num_parse_float, vec![arg]),
+                                Type::F64,
+                                None,
+                            )),
+                            Type::Ptr => Operand::ConstI64(0), // null → 0
+                            other => panic!(
+                                "ssa-lower: Number() on type {other:?} not supported"
+                            ),
+                        };
+                        return v;
+                    } else {
+                        // String(x)
+                        let v = match arg_ty {
+                            Type::Str => arg,
+                            Type::I64 => Operand::Value(self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(self.intrinsics.i64_to_str, vec![arg]),
+                                Type::Str,
+                                None,
+                            )),
+                            Type::F64 => Operand::Value(self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(self.intrinsics.f64_to_str, vec![arg]),
+                                Type::Str,
+                                None,
+                            )),
+                            Type::Bool => {
+                                // Bool → "true" / "false" via static
+                                // string interns. Build with str_alloc
+                                // + memcpy into 4 / 5 byte buffer.
+                                let true_ptr = self.intern_string_literal("true");
+                                let false_ptr = self.intern_string_literal("false");
+                                let then_blk = self.f.add_block();
+                                let else_blk = self.f.add_block();
+                                let after_blk = self.f.add_block();
+                                let slot = self.alloca_in_entry(Type::Str, Some("__bool_str"));
+                                self.f.set_term(self.cur_block, Terminator::CondBr {
+                                    cond: arg,
+                                    then_blk,
+                                    else_blk,
+                                });
+                                self.f.append_void(
+                                    then_blk,
+                                    InstKind::Store(Operand::Value(true_ptr), Operand::Value(slot), 0),
+                                );
+                                self.f.set_term(then_blk, Terminator::Br(after_blk));
+                                self.f.append_void(
+                                    else_blk,
+                                    InstKind::Store(Operand::Value(false_ptr), Operand::Value(slot), 0),
+                                );
+                                self.f.set_term(else_blk, Terminator::Br(after_blk));
+                                self.cur_block = after_blk;
+                                let v = self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::Load(Type::Str, Operand::Value(slot), 0),
+                                    Type::Str,
+                                    None,
+                                );
+                                Operand::Value(v)
+                            }
+                            other => panic!(
+                                "ssa-lower: String() on type {other:?} not supported"
+                            ),
+                        };
+                        return v;
+                    }
+                }
                 // Bare-name JS globals: `parseInt`, `parseFloat`, `isNaN`,
                 // `isFinite`. Route to the Number.X intrinsics.
                 if let Expr::Ident(name) = self.ast.get_expr(*callee) {

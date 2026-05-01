@@ -1723,6 +1723,26 @@ impl Checker {
                     let _ = args;
                     return Ok(resolved_ret);
                 }
+                // `Number(x)` / `String(x)` — coercion function calls
+                // (the bare-name shape is JS's primitive constructor invoked
+                // without `new`). Subset accepts most pseudo-Any types
+                // and routes to the appropriate coercion at lower-time.
+                if let Expr::Ident(name) = ast.get_expr(*callee)
+                    && (name == "Number" || name == "String")
+                {
+                    if args.len() != 1 {
+                        return Err(format!(
+                            "{name}() expects 1 arg, got {}",
+                            args.len()
+                        ));
+                    }
+                    let _arg_ty = self.type_of(ast, args[0])?;
+                    if name == "Number" {
+                        return Ok(Type::Number);
+                    } else {
+                        return Ok(Type::String);
+                    }
+                }
                 // Bare-name JS globals: `parseInt`, `parseFloat`, `isNaN`,
                 // `isFinite`. Subset routes them to their Number.X counterparts
                 // (the global isNaN / isFinite officially coerce non-numbers
