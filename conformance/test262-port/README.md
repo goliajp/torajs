@@ -69,8 +69,21 @@ Each ported file links back to the original test262 path in a comment block; the
 | `typeof` | `typeof` returns "number" / "string" / "boolean" / "object" | 1 |
 | `concat` | number→string auto-coerce on `+` | 1 |
 | `let-const` | const happy path | 1 |
+| `null` / `nullish` / `optchain` | `null` literal + `T \| null` annotation, `??` coalescing, `?.` optional chain | 3 |
+| `template` | `` `…${expr}…` `` template literal with multi-shape interpolation | 1 |
+| `destr` | `let [a, b] = arr` and `let { x: foo } = obj` destructuring with rename | 2 |
 | `integration` | multi-feature combinators — fib precomputed, array-of-class, string-build, stats fns, quicksort, prime sieve, collatz step count, cmp+logical chain, string search, list stats, multi-throw-types, matrix multiply, csv-build | 14 |
-| **total** | | **122** |
+| **total** | | **130** |
+
+Phase 1 / 2 features added in the 2026-05-01 drive (parse-time
+desugar with zero overhead vs hand-written code):
+- `for-of` (control-020) — desugar to classic for-loop with cached length
+- array + object destructuring (destr-001 / -002)
+- array spread `[...xs, …]` (array-011) — single arr_alloc, memcpy per spread
+- template literals (template-001) — recursive lex + concat-chain desugar
+- `null` literal + `T | null` types (null-001)
+- `??` nullish coalescing (nullish-001) — single ICmp + cond_br, single eval of lhs
+- `?.` optional chaining (optchain-001) — same dispatch shape as `??`
 
 Filename ends with the original test262 stem (where one exists) to make grep'ing the lineage easy. Cases without a direct test262 lineage (closures, generics, classes — all TS / TS-subset additions outside ECMA-262 itself) carry a topical stem instead.
 
