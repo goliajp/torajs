@@ -5427,20 +5427,46 @@ impl<'a> LowerCtx<'a> {
                     let arg_ty = self.operand_ty(&arg_op);
                     return self.lower_json_stringify(arg_op, arg_ty);
                 }
-                // `String.fromCharCode(n)` — static on the String namespace.
+                // `String.fromCharCode(...codes)` — variadic. Each code is
+                // converted to a one-char string via the runtime helper, then
+                // pairwise str_concat builds the final string. Single-arg is
+                // the hot path; multi-arg builds an O(n) chain. Empty arg
+                // list yields the literal "".
                 if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
                     && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
                     && ns == "String"
                     && m_name == "fromCharCode"
                 {
-                    let n = self.lower_expr(args[0]);
-                    let v = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Call(self.intrinsics.str_from_char_code, vec![n]),
-                        Type::Str,
-                        None,
-                    );
-                    return Operand::Value(v);
+                    if args.is_empty() {
+                        return Operand::Value(self.intern_string_literal(""));
+                    }
+                    let mut acc: Option<Operand> = None;
+                    for &aid in args.iter() {
+                        let n = self.lower_expr(aid);
+                        let one = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(self.intrinsics.str_from_char_code, vec![n]),
+                            Type::Str,
+                            None,
+                        );
+                        let one_op = Operand::Value(one);
+                        acc = Some(match acc {
+                            None => one_op,
+                            Some(prev) => {
+                                let cat = self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::Call(
+                                        self.intrinsics.str_concat,
+                                        vec![prev, one_op],
+                                    ),
+                                    Type::Str,
+                                    None,
+                                );
+                                Operand::Value(cat)
+                            }
+                        });
+                    }
+                    return acc.expect("variadic fromCharCode acc must have been set");
                 }
                 // `Number(x)` / `String(x)` — coercion function calls.
                 // Number(x): identity for i64/f64; bool→i64; string→

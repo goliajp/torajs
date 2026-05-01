@@ -1959,6 +1959,29 @@ impl Checker {
                     }
                     return Ok(Type::Number);
                 }
+                // `String.fromCharCode(...codes)` — variadic. Each code is a
+                // Number; result is a String. The single-arg case still goes
+                // through the general type table for the intrinsic call; we
+                // only intercept when the arity is ≠ 1.
+                if let Expr::Member { obj, name: m } = ast.get_expr(*callee)
+                    && let Expr::Ident(ns) = ast.get_expr(*obj)
+                    && ns == "String"
+                    && m == "fromCharCode"
+                    && args.len() != 1
+                {
+                    if args.is_empty() {
+                        return Ok(Type::String);
+                    }
+                    for &aid in args {
+                        let aty = self.type_of(ast, aid)?;
+                        if aty != Type::Number {
+                            return Err(format!(
+                                "String.fromCharCode args must be number, got {aty:?}"
+                            ));
+                        }
+                    }
+                    return Ok(Type::String);
+                }
                 if let Expr::Member { obj, name: m } = ast.get_expr(*callee)
                     && let Expr::Ident(ns) = ast.get_expr(*obj)
                     && ns == "Math"
