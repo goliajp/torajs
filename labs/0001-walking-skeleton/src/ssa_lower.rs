@@ -3760,55 +3760,109 @@ impl<'a> LowerCtx<'a> {
                     }
                     return Operand::ConstI64(0);
                 }
-                // M1.2 — `xs.push(v)` special-case. Receiver must be an
-                // Ident bound to a mutable Type::Arr local; we load the
-                // current pointer, call arr_push (which may realloc and
-                // return a new pointer), and store the result back into
-                // the local's slot. Other receiver shapes (e.g.
-                // `getArr().push(v)`) are rejected for MVP.
-                if let Expr::Member { obj, name } = self.ast.get_expr(*callee)
+                // M1.2 — `xs.push(v)` special-case. Two receiver shapes:
+                //   (a) Ident bound to a mutable `Type::Arr` local — load
+                //       cur ptr from the slot, call arr_push (which may
+                //       realloc), store result back into the slot.
+                //   (b) `obj.field` where `field` is `Type::Arr` inside a
+                //       struct — load cur ptr from struct+offset, push,
+                //       store result back at the same offset.
+                // Other shapes (e.g. `getArr().push(v)`) are still rejected:
+                // there's no place to store a possibly-realloc'd pointer.
+                if let Expr::Member { obj: recv_id, name } = self.ast.get_expr(*callee)
                     && name == "push"
                     && args.len() == 1
-                    && let Expr::Ident(recv_name) = self.ast.get_expr(*obj)
-                    && let Some(info) = self.locals.get(recv_name).copied()
-                    && matches!(info.ty, Type::Arr(_))
                 {
-                    let recv_name = recv_name.clone();
-                    let arr_ty = info.ty;
-                    let cur_arr = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Load(arr_ty, Operand::Value(info.slot), 0),
-                        arr_ty,
-                        None,
-                    );
-                    let val = self.lower_expr(args[0]);
-                    self.consume_if_ident(args[0]);
-                    let new_arr = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Call(
-                            self.intrinsics.arr_push,
-                            vec![Operand::Value(cur_arr), val],
-                        ),
-                        arr_ty,
-                        None,
-                    );
-                    // Store the (possibly realloc'd) pointer back into
-                    // the array binding's slot.
-                    self.f.append_void(
-                        self.cur_block,
-                        InstKind::Store(
-                            Operand::Value(new_arr),
-                            Operand::Value(info.slot),
-                            0,
-                        ),
-                    );
-                    // push returns void in TS but our intrinsic returns
-                    // the pointer; surface a benign i64(0) so the Call
-                    // expression has SOME operand. Most call sites are
-                    // statement-level (`xs.push(v);`) and discard the
-                    // result.
-                    let _ = recv_name;
-                    return Operand::ConstI64(0);
+                    // (a) Ident-receiver path.
+                    if let Expr::Ident(recv_name) = self.ast.get_expr(*recv_id)
+                        && let Some(info) = self.locals.get(recv_name).copied()
+                        && matches!(info.ty, Type::Arr(_))
+                    {
+                        let arr_ty = info.ty;
+                        let cur_arr = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(arr_ty, Operand::Value(info.slot), 0),
+                            arr_ty,
+                            None,
+                        );
+                        let val = self.lower_expr(args[0]);
+                        self.consume_if_ident(args[0]);
+                        let new_arr = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.arr_push,
+                                vec![Operand::Value(cur_arr), val],
+                            ),
+                            arr_ty,
+                            None,
+                        );
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Store(
+                                Operand::Value(new_arr),
+                                Operand::Value(info.slot),
+                                0,
+                            ),
+                        );
+                        // push returns void in TS but our intrinsic returns
+                        // the pointer; surface a benign i64(0) so the Call
+                        // expression has SOME operand. Most call sites are
+                        // statement-level and discard the result.
+                        return Operand::ConstI64(0);
+                    }
+                    // (b) `obj.field.push(v)` — field-receiver path. We load
+                    // the struct pointer once (borrow), find the field's
+                    // offset, then load → push → store-back at that offset.
+                    if let Expr::Member { obj: struct_id, name: field_name } =
+                        self.ast.get_expr(*recv_id)
+                    {
+                        let obj_val = self.lower_expr(*struct_id);
+                        let obj_ty = self.operand_ty(&obj_val);
+                        if let Type::Obj(sid) = obj_ty {
+                            let layout =
+                                self.struct_layouts[sid.0 as usize].clone();
+                            if let Some((idx, field_ty)) = layout
+                                .iter()
+                                .enumerate()
+                                .find_map(|(i, (fname, fty))| {
+                                    if fname == field_name {
+                                        Some((i, *fty))
+                                    } else {
+                                        None
+                                    }
+                                })
+                                && matches!(field_ty, Type::Arr(_))
+                            {
+                                let offset = (idx as u64) * 8;
+                                let cur_arr = self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::Load(field_ty, obj_val, offset),
+                                    field_ty,
+                                    None,
+                                );
+                                let val = self.lower_expr(args[0]);
+                                self.consume_if_ident(args[0]);
+                                let new_arr = self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::Call(
+                                        self.intrinsics.arr_push,
+                                        vec![Operand::Value(cur_arr), val],
+                                    ),
+                                    field_ty,
+                                    None,
+                                );
+                                self.f.append_void(
+                                    self.cur_block,
+                                    InstKind::Store(
+                                        Operand::Value(new_arr),
+                                        obj_val,
+                                        offset,
+                                    ),
+                                );
+                                return Operand::ConstI64(0);
+                            }
+                        }
+                    }
                 }
                 // M6.1 — `s.method(args)` for the String stdlib slice.
                 // Receiver must be Type::Str; methods route to the
