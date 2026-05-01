@@ -1479,6 +1479,15 @@ impl Checker {
                             Box::new(Type::Array(Box::new(inner))),
                         ))
                     }
+                    // `s.concat(other)` — string concat. The single-arg
+                    // shape lives here so the standard method-call path
+                    // typechecks normally. Variadic forms drop into the
+                    // arity-≠-1 guard below the Math/String variadic
+                    // block.
+                    (Type::String, "concat") => Ok(Type::Function(
+                        vec![Type::String],
+                        Box::new(Type::String),
+                    )),
                     // `xs.at(i)` — element at i with negative-index wrap.
                     // Subset returns T (not T | undefined) — out-of-bounds
                     // is UB, matches the unchecked indexing convention.
@@ -2022,6 +2031,25 @@ impl Checker {
                         if aty != Type::Number {
                             return Err(format!(
                                 "String.{m} args must be number, got {aty:?}"
+                            ));
+                        }
+                    }
+                    return Ok(Type::String);
+                }
+                // `s.concat(...others)` with arity != 1 — variadic string
+                // concatenation. The arity-1 case takes the Type::Function
+                // arm above. Empty arg list returns the receiver
+                // unchanged at lower-time.
+                if let Expr::Member { obj: recv_id, name: m } = ast.get_expr(*callee)
+                    && m == "concat"
+                    && args.len() != 1
+                    && let Ok(Type::String) = self.type_of(ast, *recv_id)
+                {
+                    for &aid in args {
+                        let aty = self.type_of(ast, aid)?;
+                        if aty != Type::String {
+                            return Err(format!(
+                                "String.concat args must be string, got {aty:?}"
                             ));
                         }
                     }

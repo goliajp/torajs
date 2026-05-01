@@ -6652,6 +6652,32 @@ impl<'a> LowerCtx<'a> {
                         self.cur_block = outer_after;
                         return Operand::Value(arr_ptr);
                     }
+                    // `s.concat(...others)` — variadic string concat,
+                    // lowered as a left-fold over str_concat. Empty arg
+                    // list returns the receiver unchanged. The single-arg
+                    // case still flows through the typecheck Function-arm
+                    // dispatch but we intercept here uniformly to avoid
+                    // duplicate emit paths.
+                    if recv_ty == Type::Str && method == "concat" {
+                        if args.is_empty() {
+                            return recv_op;
+                        }
+                        let mut acc = recv_op;
+                        for a in args {
+                            let other = self.lower_expr(*a);
+                            let v = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(
+                                    self.intrinsics.str_concat,
+                                    vec![acc, other],
+                                ),
+                                Type::Str,
+                                None,
+                            );
+                            acc = Operand::Value(v);
+                        }
+                        return acc;
+                    }
                     // `arr.concat(other)` — fresh array, single malloc +
                     // two memcpys via the C runtime. Element type carried.
                     if let Type::Arr(arr_id) = recv_ty
