@@ -1765,6 +1765,26 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         }
     }
 
+    // Phase H.1.b — assign each declared class a runtime tag and build
+    // `sid → tag` so ObjectLit lowering can stamp the header. Tag 0 is
+    // reserved for "not a class" — plain `type` aliases stay tagged 0.
+    // Tags start at 1 and walk class names in lexical order so codegen
+    // stays deterministic across builds (HashMap iteration is unordered).
+    // sid collisions (two classes sharing a struct shape) keep the first
+    // tag wins; the rest still alias to that one — instanceof distinguishes
+    // them by walking class_parents on the recovered name, not by tag.
+    let mut sid_to_class_tag: HashMap<u32, u32> = HashMap::new();
+    {
+        let mut class_names: Vec<&String> = ast.class_parents.keys().collect();
+        class_names.sort();
+        for (i, cname) in class_names.iter().enumerate() {
+            let tag = (i as u32) + 1;
+            if let Some(Type::Obj(sid)) = aliases.get(*cname) {
+                sid_to_class_tag.entry(sid.0).or_insert(tag);
+            }
+        }
+    }
+
     // Pass 1: pre-allocate FuncIds + record correct return types for every
     // user FnDecl. The placeholder body is empty; pass 2 fills it in. Setting
     // the right ret type up front lets callsites resolve `f_ret_type_hint`
@@ -2008,6 +2028,7 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
                 &mut closure_captures,
                 &call_retargets,
                 &may_throw,
+                &sid_to_class_tag,
             );
             module.funcs[fid.0 as usize] = f;
             for s in new_strings {
@@ -2040,6 +2061,7 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
             &mut closure_captures,
             &call_retargets,
             &may_throw,
+            &sid_to_class_tag,
         );
         for s in new_strings {
             module.strings.push(s);
@@ -2225,6 +2247,7 @@ fn synthesize_main(
     closure_captures: &mut HashMap<String, Vec<Type>>,
     call_retargets: &CallRetargets,
     may_throw_fns: &std::collections::HashSet<String>,
+    sid_to_class_tag: &HashMap<u32, u32>,
 ) -> (ssa::Function, Vec<Vec<u8>>) {
     let mut f = ssa::Function::new("main", Type::I32);
     let entry = f.add_block();
@@ -2242,6 +2265,7 @@ fn synthesize_main(
             fn_sigs,
             struct_layouts,
             generic_struct_decls,
+            sid_to_class_tag,
             try_stack: Vec::new(),
             try_finally_stack: Vec::new(),
             pending_return_slot: None,
@@ -2739,6 +2763,7 @@ fn lower_fn(
     closure_captures: &mut HashMap<String, Vec<Type>>,
     call_retargets: &CallRetargets,
     may_throw_fns: &std::collections::HashSet<String>,
+    sid_to_class_tag: &HashMap<u32, u32>,
 ) -> (ssa::Function, Vec<Vec<u8>>) {
     let ret_ty = effective_ret_ty(
         parse_type(
@@ -2791,6 +2816,7 @@ fn lower_fn(
         fn_sigs,
         struct_layouts,
         generic_struct_decls,
+        sid_to_class_tag,
         try_stack: Vec::new(),
         try_finally_stack: Vec::new(),
         try_finally_loop_depth: Vec::new(),
@@ -2994,6 +3020,10 @@ struct LowerCtx<'a> {
     /// to instantiate `Foo<arg|...>` annotations in let-decl / fn-arg /
     /// closure-construction sites.
     generic_struct_decls: &'a HashMap<String, (Vec<String>, Vec<(String, String)>)>,
+    /// Phase H.1.b — `sid → class tag`, written into the OBJ_HEADER_SIZE
+    /// slot at offset 0 of every class instance. Plain `type` aliases
+    /// don't appear here (they get a 0 tag at allocation time).
+    sid_to_class_tag: &'a HashMap<u32, u32>,
     /// M4 — innermost-active try block's catch-block target. Each
     /// `Stmt::Try` lowering pushes the catch BlockId before lowering its
     /// body and pops after; user-fn calls in scope insert a cond_br on
@@ -8138,8 +8168,9 @@ impl<'a> LowerCtx<'a> {
                     });
                 // Phase H.1.a — alloc reserves OBJ_HEADER_SIZE for the
                 // class tag at offset 0, fields then start at offset
-                // OBJ_HEADER_SIZE. The tag itself is written as 0 here;
-                // class-aware tagging arrives in H.1.b.
+                // OBJ_HEADER_SIZE. H.1.b — write the per-class tag if
+                // this struct id was registered as a declared class;
+                // plain `type` aliases stay tagged 0.
                 let size = field_tys.len() as i64 * 8 + OBJ_HEADER_SIZE as i64;
                 let alloc_fid = self.intrinsics.obj_alloc;
                 let obj_ptr = self.f.append_inst(
@@ -8148,9 +8179,10 @@ impl<'a> LowerCtx<'a> {
                     Type::Obj(sid),
                     None,
                 );
+                let tag = self.sid_to_class_tag.get(&sid.0).copied().unwrap_or(0);
                 self.f.append_void(
                     self.cur_block,
-                    InstKind::Store(Operand::ConstI64(0), Operand::Value(obj_ptr), 0),
+                    InstKind::Store(Operand::ConstI64(tag as i64), Operand::Value(obj_ptr), 0),
                 );
                 for (i, val) in field_vals.iter().enumerate() {
                     let offset = OBJ_HEADER_SIZE + i as u64 * 8;
