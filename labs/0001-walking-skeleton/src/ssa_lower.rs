@@ -2480,12 +2480,6 @@ impl<'a> LowerCtx<'a> {
             && let Some(method) = self.console_method_member(*callee)
             && args.len() == 1
         {
-            // `console.{log,error,warn}` is borrow-style: doesn't consume
-            // its arg, so we don't mark the source binding moved. But
-            // for *temp* args (literal strings, BinOp results, Call
-            // returns), the Type::Str value is owned-by-nobody after
-            // the call — drop it on the spot to keep the heap from
-            // leaking.
             let is_borrow = matches!(
                 self.ast.get_expr(args[0]),
                 Expr::Ident(_) | Expr::Member { .. } | Expr::Index { .. }
@@ -2501,7 +2495,115 @@ impl<'a> LowerCtx<'a> {
             }
             return;
         }
+        // Multi-arg console.X: build a single Str via concat with " " separator,
+        // then print once. Each arg is coerced via the existing
+        // String(x) coercion path.
+        if let Stmt::Expr(eid) = s
+            && let Expr::Call { callee, args } = self.ast.get_expr(*eid)
+            && let Some(method) = self.console_method_member(*callee)
+            && args.len() > 1
+        {
+            let arg_ids: Vec<ExprId> = args.clone();
+            let space_str = self.intern_string_literal(" ");
+            let mut acc: Option<Operand> = None;
+            for (i, &aid) in arg_ids.iter().enumerate() {
+                let arg = self.lower_expr(aid);
+                let arg_ty = self.operand_ty(&arg);
+                // Coerce to Str.
+                let s_op = self.coerce_to_str(arg, arg_ty);
+                if i > 0 {
+                    let prev = acc.unwrap();
+                    let with_sep = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.str_concat,
+                            vec![prev, Operand::Value(space_str)],
+                        ),
+                        Type::Str,
+                        None,
+                    );
+                    let combined = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.str_concat,
+                            vec![Operand::Value(with_sep), s_op],
+                        ),
+                        Type::Str,
+                        None,
+                    );
+                    acc = Some(Operand::Value(combined));
+                } else {
+                    acc = Some(s_op);
+                }
+            }
+            let target = self.console_print_target(method, Type::Str);
+            let final_str = acc.unwrap();
+            self.f
+                .append_void(self.cur_block, InstKind::Call(target, vec![final_str]));
+            self.emit_drop_value(final_str, Type::Str);
+            return;
+        }
         self.lower_stmt(s);
+    }
+
+    /// Coerce a value of any type to Type::Str. Used by multi-arg
+    /// console.X to build a space-joined output line.
+    fn coerce_to_str(&mut self, val: Operand, ty: Type) -> Operand {
+        match ty {
+            Type::Str => val,
+            Type::I64 => {
+                let v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.i64_to_str, vec![val]),
+                    Type::Str,
+                    None,
+                );
+                Operand::Value(v)
+            }
+            Type::F64 => {
+                let v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.f64_to_str, vec![val]),
+                    Type::Str,
+                    None,
+                );
+                Operand::Value(v)
+            }
+            Type::Bool => {
+                let true_ptr = self.intern_string_literal("true");
+                let false_ptr = self.intern_string_literal("false");
+                let then_blk = self.f.add_block();
+                let else_blk = self.f.add_block();
+                let after_blk = self.f.add_block();
+                let slot = self.alloca_in_entry(Type::Str, Some("__c_bool"));
+                self.f.set_term(self.cur_block, Terminator::CondBr {
+                    cond: val,
+                    then_blk,
+                    else_blk,
+                });
+                self.f.append_void(
+                    then_blk,
+                    InstKind::Store(Operand::Value(true_ptr), Operand::Value(slot), 0),
+                );
+                self.f.set_term(then_blk, Terminator::Br(after_blk));
+                self.f.append_void(
+                    else_blk,
+                    InstKind::Store(Operand::Value(false_ptr), Operand::Value(slot), 0),
+                );
+                self.f.set_term(else_blk, Terminator::Br(after_blk));
+                self.cur_block = after_blk;
+                let v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Load(Type::Str, Operand::Value(slot), 0),
+                    Type::Str,
+                    None,
+                );
+                Operand::Value(v)
+            }
+            other => panic!(
+                "ssa-lower: console multi-arg coercion of type {other:?} not supported"
+            ),
+        }
     }
 
     /// `console.log` recognized as an Ident("console") + Member.name == "log".
@@ -5167,6 +5269,54 @@ impl<'a> LowerCtx<'a> {
                     if is_str && !is_borrow {
                         self.emit_drop_value(arg, Type::Str);
                     }
+                    return Operand::ConstI64(0);
+                }
+                // Multi-arg console.X — coerce each to Str, join with " ",
+                // print once. (Same machinery as lower_top_stmt's multi-arg
+                // path; duplicated here for in-expr / inside-fn-body
+                // contexts.)
+                if let Some(method) = self.console_method_member(*callee)
+                    && args.len() > 1
+                {
+                    let arg_ids: Vec<ExprId> = args.clone();
+                    let space_str = self.intern_string_literal(" ");
+                    let mut acc: Option<Operand> = None;
+                    for (i, &aid) in arg_ids.iter().enumerate() {
+                        let arg = self.lower_expr(aid);
+                        let arg_ty = self.operand_ty(&arg);
+                        let s_op = self.coerce_to_str(arg, arg_ty);
+                        if i > 0 {
+                            let prev = acc.unwrap();
+                            let with_sep = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(
+                                    self.intrinsics.str_concat,
+                                    vec![prev, Operand::Value(space_str)],
+                                ),
+                                Type::Str,
+                                None,
+                            );
+                            let combined = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(
+                                    self.intrinsics.str_concat,
+                                    vec![Operand::Value(with_sep), s_op],
+                                ),
+                                Type::Str,
+                                None,
+                            );
+                            acc = Some(Operand::Value(combined));
+                        } else {
+                            acc = Some(s_op);
+                        }
+                    }
+                    let target = self.console_print_target(method, Type::Str);
+                    let final_str = acc.unwrap();
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Call(target, vec![final_str]),
+                    );
+                    self.emit_drop_value(final_str, Type::Str);
                     return Operand::ConstI64(0);
                 }
                 // M1.2 — `xs.push(v)` special-case. Two receiver shapes:

@@ -1765,6 +1765,20 @@ impl Checker {
                     let _ = args;
                     return Ok(resolved_ret);
                 }
+                // `console.{log,error,warn}(arg0, arg1, …)` — accept any
+                // arity. The standard typecheck path would reject ≠1 args
+                // because Type::Function has fixed arity. Args are typed
+                // Type::Any so any value is acceptable.
+                if let Expr::Member { obj, name } = ast.get_expr(*callee)
+                    && let Expr::Ident(ns) = ast.get_expr(*obj)
+                    && ns == "console"
+                    && matches!(name.as_str(), "log" | "error" | "warn")
+                {
+                    for &aid in args {
+                        self.type_of(ast, aid)?;
+                    }
+                    return Ok(Type::Void);
+                }
                 // `Number(x)` / `String(x)` — coercion function calls
                 // (the bare-name shape is JS's primitive constructor invoked
                 // without `new`). Subset accepts most pseudo-Any types
