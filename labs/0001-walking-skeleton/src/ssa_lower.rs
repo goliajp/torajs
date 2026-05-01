@@ -481,6 +481,13 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         &[Type::I64, Type::I64],
         Type::Str,
     );
+    let num_to_string_radix_i_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_num_to_string_radix_i",
+        &[Type::I64, Type::I64],
+        Type::Str,
+    );
     let num_to_exp_f_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -1255,6 +1262,7 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         str_replace_all: str_replace_all_id,
         num_to_fixed_f: num_to_fixed_f_id,
         num_to_fixed_i: num_to_fixed_i_id,
+        num_to_string_radix_i: num_to_string_radix_i_id,
         num_to_exp_f: num_to_exp_f_id,
         num_to_exp_i: num_to_exp_i_id,
         num_to_precision_f: num_to_precision_f_id,
@@ -1457,6 +1465,7 @@ struct Intrinsics {
     str_replace_all: FuncId,
     num_to_fixed_f: FuncId,
     num_to_fixed_i: FuncId,
+    num_to_string_radix_i: FuncId,
     num_to_exp_f: FuncId,
     num_to_exp_i: FuncId,
     num_to_precision_f: FuncId,
@@ -4762,6 +4771,21 @@ impl<'a> LowerCtx<'a> {
                     let recv_ty = self.operand_ty(&recv_op);
                     if recv_ty == Type::I64 || recv_ty == Type::F64 {
                         let is_f64 = recv_ty == Type::F64;
+                        // toString with radix: route i64 receiver to the
+                        // radix-aware runtime helper.
+                        if m_name == "toString" && args.len() == 1 && !is_f64 {
+                            let radix = self.lower_expr(args[0]);
+                            let v = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(
+                                    self.intrinsics.num_to_string_radix_i,
+                                    vec![recv_op, radix],
+                                ),
+                                Type::Str,
+                                None,
+                            );
+                            return Operand::Value(v);
+                        }
                         let target = match m_name.as_str() {
                             "toFixed" => if is_f64 {
                                 self.intrinsics.num_to_fixed_f
@@ -8721,6 +8745,7 @@ impl<'a> LowerCtx<'a> {
             || fid == i.str_replace_all
             || fid == i.num_to_fixed_f
             || fid == i.num_to_fixed_i
+            || fid == i.num_to_string_radix_i
             || fid == i.num_to_exp_f
             || fid == i.num_to_exp_i
             || fid == i.num_to_precision_f

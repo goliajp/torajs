@@ -588,6 +588,37 @@ void *__torajs_str_to_lower(const uint8_t *s) {
 
 #include <math.h>
 
+/* `n.toString(radix)` for integers — encode i64 value in the given
+ * radix (2..36). Negative numbers get a leading `-`. */
+void *__torajs_num_to_string_radix_i(int64_t n, int64_t radix) {
+    if (radix < 2) radix = 2;
+    if (radix > 36) radix = 36;
+    char buf[80];
+    static const char digits[] = "0123456789abcdefghijklmnopqrstuvwxyz";
+    int neg = n < 0;
+    uint64_t u;
+    if (neg) {
+        // Two's complement abs handles INT64_MIN by overflow-wrap.
+        u = (uint64_t)(-(n + 1)) + 1;
+    } else {
+        u = (uint64_t)n;
+    }
+    int i = (int)sizeof(buf);
+    if (u == 0) {
+        buf[--i] = '0';
+    } else {
+        while (u > 0) {
+            buf[--i] = digits[u % (uint64_t)radix];
+            u /= (uint64_t)radix;
+        }
+    }
+    if (neg) buf[--i] = '-';
+    int len = (int)sizeof(buf) - i;
+    uint8_t *p = str_alloc_((uint64_t)len);
+    if (len) memcpy(p + 8, &buf[i], (size_t)len);
+    return p;
+}
+
 /* `n.toFixed(digits)` — fixed-point decimal as a fresh String. JS spec
  * accepts 0..100 digits; subset clamps to 0..20. snprintf gives spec-
  * matching round-half-to-even on most libcs (close enough for the

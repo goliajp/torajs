@@ -1825,6 +1825,33 @@ impl Checker {
                     }
                     return Ok(Type::Void);
                 }
+                // `n.toString(radix?)` — JS Number primitive method that
+                // accepts an optional radix in [2, 36]. The standard
+                // Type::Function check rejects variable arity; intercept
+                // here.
+                if let Expr::Member { obj, name } = ast.get_expr(*callee)
+                    && name == "toString"
+                {
+                    let recv_ty = self.type_of(ast, *obj)?;
+                    if recv_ty == Type::Number {
+                        if args.is_empty() {
+                            return Ok(Type::String);
+                        }
+                        if args.len() == 1 {
+                            let r_ty = self.type_of(ast, args[0])?;
+                            if r_ty != Type::Number {
+                                return Err(format!(
+                                    "Number.toString radix must be number, got {r_ty:?}"
+                                ));
+                            }
+                            return Ok(Type::String);
+                        }
+                        return Err(format!(
+                            "Number.toString accepts 0 or 1 arg, got {}",
+                            args.len()
+                        ));
+                    }
+                }
                 // `Number(x)` / `String(x)` — coercion function calls
                 // (the bare-name shape is JS's primitive constructor invoked
                 // without `new`). Subset accepts most pseudo-Any types
