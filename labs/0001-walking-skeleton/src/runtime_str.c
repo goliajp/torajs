@@ -213,6 +213,29 @@ void *__torajs_arr_join(const uint8_t *arr, const uint8_t *sep) {
     return p;
 }
 
+/* `String.fromCharCode(n)` — single-char string from a code point,
+ * truncated to byte (matches v0's byte-Str layout; non-ASCII would
+ * need UTF-8 encoding). */
+void *__torajs_str_from_char_code(int64_t n) {
+    uint8_t *p = str_alloc_(1);
+    p[8] = (uint8_t)(n & 0xff);
+    return p;
+}
+
+/* `s.at(i)` — single-char string at index i, with negative-index wrap.
+ * Returns the empty string if i is out of bounds (matches JS spec —
+ * returning undefined would need Nullable<string>, not in v0). */
+void *__torajs_str_at(const uint8_t *s, int64_t i) {
+    uint64_t len = *(const uint64_t *)s;
+    int64_t adj = i < 0 ? (int64_t)len + i : i;
+    if (adj < 0 || adj >= (int64_t)len) {
+        return str_alloc_(0);
+    }
+    uint8_t *p = str_alloc_(1);
+    p[8] = s[8 + (uint64_t)adj];
+    return p;
+}
+
 /* `s.replace(needle, replacement)` — replace the FIRST occurrence of
  * `needle` in `s` with `replacement`. Returns a fresh string; the
  * original is untouched. JS spec accepts a regex needle; we only

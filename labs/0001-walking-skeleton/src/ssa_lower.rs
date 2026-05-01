@@ -439,6 +439,20 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         &[Type::Str, Type::I64, Type::Str],
         Type::Str,
     );
+    let str_from_char_code_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_str_from_char_code",
+        &[Type::I64],
+        Type::Str,
+    );
+    let str_at_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_str_at",
+        &[Type::Str, Type::I64],
+        Type::Str,
+    );
     let str_replace_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -1025,6 +1039,8 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         str_trim_end: str_trim_end_id,
         str_pad_start: str_pad_start_id,
         str_pad_end: str_pad_end_id,
+        str_from_char_code: str_from_char_code_id,
+        str_at: str_at_id,
         str_replace: str_replace_id,
         str_replace_all: str_replace_all_id,
         num_parse_int: num_parse_int_id,
@@ -1195,6 +1211,8 @@ struct Intrinsics {
     str_trim_end: FuncId,
     str_pad_start: FuncId,
     str_pad_end: FuncId,
+    str_from_char_code: FuncId,
+    str_at: FuncId,
     str_replace: FuncId,
     str_replace_all: FuncId,
     num_parse_int: FuncId,
@@ -3986,6 +4004,21 @@ impl<'a> LowerCtx<'a> {
                 }
             }
             Expr::Call { callee, args } => {
+                // `String.fromCharCode(n)` — static on the String namespace.
+                if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
+                    && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
+                    && ns == "String"
+                    && m_name == "fromCharCode"
+                {
+                    let n = self.lower_expr(args[0]);
+                    let v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(self.intrinsics.str_from_char_code, vec![n]),
+                        Type::Str,
+                        None,
+                    );
+                    return Operand::Value(v);
+                }
                 // Bare-name JS globals: `parseInt`, `parseFloat`, `isNaN`,
                 // `isFinite`. Route to the Number.X intrinsics.
                 if let Expr::Ident(name) = self.ast.get_expr(*callee) {
@@ -4437,7 +4470,7 @@ impl<'a> LowerCtx<'a> {
                         | "trim" | "trimStart" | "trimEnd"
                         | "padStart" | "padEnd"
                         | "replace" | "replaceAll"
-                        | "reverse" | "fill"
+                        | "reverse" | "fill" | "at"
                     )
                 {
                     let recv_op = self.lower_expr(*obj);
@@ -4452,7 +4485,7 @@ impl<'a> LowerCtx<'a> {
                             | "toUpperCase" | "toLowerCase"
                             | "trim" | "trimStart" | "trimEnd"
                             | "padStart" | "padEnd"
-                            | "replace" | "replaceAll"
+                            | "replace" | "replaceAll" | "at"
                         )
                     {
                         let mut argv = Vec::with_capacity(args.len() + 1);
@@ -4472,6 +4505,7 @@ impl<'a> LowerCtx<'a> {
                             "padEnd" => (self.intrinsics.str_pad_end, Type::Str),
                             "replace" => (self.intrinsics.str_replace, Type::Str),
                             "replaceAll" => (self.intrinsics.str_replace_all, Type::Str),
+                            "at" => (self.intrinsics.str_at, Type::Str),
                             "charCodeAt" => (self.intrinsics.str_char_code_at, Type::I64),
                             "startsWith" => (self.intrinsics.str_starts_with, Type::Bool),
                             "endsWith" => (self.intrinsics.str_ends_with, Type::Bool),
@@ -4509,6 +4543,100 @@ impl<'a> LowerCtx<'a> {
                             self.cur_block,
                             InstKind::Call(self.intrinsics.arr_join, argv),
                             Type::Str,
+                            None,
+                        );
+                        return Operand::Value(v);
+                    }
+                    // `arr.at(i)` — element at i with negative-index wrap.
+                    // Inline SSA: idx = i < 0 ? len + i : i; load at idx.
+                    // Out-of-bounds is UB (matches the unchecked indexing
+                    // convention).
+                    if let Type::Arr(arr_id) = recv_ty
+                        && method == "at"
+                        && args.len() == 1
+                    {
+                        let elem_ty = self.arr_layouts[arr_id.0 as usize];
+                        let i_val = self.lower_expr(args[0]);
+                        let len = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(Type::I64, recv_op, 0),
+                            Type::I64,
+                            None,
+                        );
+                        let is_neg = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::ICmp(
+                                IPred::Slt,
+                                i_val,
+                                Operand::ConstI64(0),
+                            ),
+                            Type::Bool,
+                            None,
+                        );
+                        let i_plus_len = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::BinOp(
+                                SsaBinOp::Add,
+                                i_val,
+                                Operand::Value(len),
+                            ),
+                            Type::I64,
+                            None,
+                        );
+                        // adj = is_neg ? i + len : i (via select-shape:
+                        // alloca + cond_br).
+                        let adj_slot = self.alloca_in_entry(Type::I64, Some("__at_idx"));
+                        let neg_blk = self.f.add_block();
+                        let pos_blk = self.f.add_block();
+                        let after_blk = self.f.add_block();
+                        let cb = self.cur_block;
+                        self.f.set_term(cb, Terminator::CondBr {
+                            cond: Operand::Value(is_neg),
+                            then_blk: neg_blk,
+                            else_blk: pos_blk,
+                        });
+                        self.f.append_void(
+                            neg_blk,
+                            InstKind::Store(Operand::Value(i_plus_len), Operand::Value(adj_slot), 0),
+                        );
+                        self.f.set_term(neg_blk, Terminator::Br(after_blk));
+                        self.f.append_void(
+                            pos_blk,
+                            InstKind::Store(i_val, Operand::Value(adj_slot), 0),
+                        );
+                        self.f.set_term(pos_blk, Terminator::Br(after_blk));
+                        self.cur_block = after_blk;
+                        let adj = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(Type::I64, Operand::Value(adj_slot), 0),
+                            Type::I64,
+                            None,
+                        );
+                        // offset = 16 + adj * 8
+                        let scaled = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::BinOp(
+                                SsaBinOp::Shl,
+                                Operand::Value(adj),
+                                Operand::ConstI64(3),
+                            ),
+                            Type::I64,
+                            None,
+                        );
+                        let off = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::BinOp(
+                                SsaBinOp::Add,
+                                Operand::Value(scaled),
+                                Operand::ConstI64(16),
+                            ),
+                            Type::I64,
+                            None,
+                        );
+                        let v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::LoadDyn(elem_ty, recv_op, Operand::Value(off)),
+                            elem_ty,
                             None,
                         );
                         return Operand::Value(v);
@@ -7038,6 +7166,8 @@ impl<'a> LowerCtx<'a> {
             || fid == i.str_trim_end
             || fid == i.str_pad_start
             || fid == i.str_pad_end
+            || fid == i.str_from_char_code
+            || fid == i.str_at
             || fid == i.str_replace
             || fid == i.str_replace_all
             || fid == i.arr_reverse

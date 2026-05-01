@@ -1185,6 +1185,7 @@ impl Checker {
                     "Math" => Ok(Type::Object("Math")),
                     "Object" => Ok(Type::Object("Object")),
                     "Number" => Ok(Type::Object("Number")),
+                    "String" => Ok(Type::Object("String")),
                     other => Err(format!("unknown identifier `{other}`")),
                 }
             }
@@ -1309,6 +1310,15 @@ impl Checker {
                             Box::new(Type::String),
                         ))
                     }
+                    (Type::String, "at") => Ok(Type::Function(
+                        vec![Type::Number],
+                        Box::new(Type::String),
+                    )),
+                    // String namespace static — `String.fromCharCode(n)`.
+                    (Type::Object("String"), "fromCharCode") => Ok(Type::Function(
+                        vec![Type::Number],
+                        Box::new(Type::String),
+                    )),
                     (Type::String, "charCodeAt") => Ok(Type::Function(
                         vec![Type::Number],
                         Box::new(Type::Number),
@@ -1338,6 +1348,16 @@ impl Checker {
                     (Type::Array(elem), "push") => {
                         let inner = (**elem).clone();
                         Ok(Type::Function(vec![inner], Box::new(Type::Void)))
+                    }
+                    // `xs.at(i)` — element at i with negative-index wrap.
+                    // Subset returns T (not T | undefined) — out-of-bounds
+                    // is UB, matches the unchecked indexing convention.
+                    (Type::Array(elem), "at") => {
+                        let inner = (**elem).clone();
+                        Ok(Type::Function(
+                            vec![Type::Number],
+                            Box::new(inner),
+                        ))
                     }
                     // `xs.reverse()` — in-place reverse, returns the same
                     // array (chainable). Subset returns void since the
