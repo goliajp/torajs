@@ -2,6 +2,10 @@
 
 Research project (closed-source, internal). Working hypothesis: a **subset of TypeScript** — TS syntax, TS semantics, but only part of TS's surface is implemented. Features outside the subset are simply not there; we don't import foreign concepts (e.g. Rust ownership / borrow checking / RAII) unless takagi explicitly authorizes them. Two execution modes: **AOT to native binary** (`tr build`) and **JIT-style compile-and-run** (`tr run`), the Go shape. Implementation language is Rust. Public site: https://torajs.com
 
+## Communication (HARD RULE)
+
+**始终使用中文（简体中文）与 takagi 沟通。** 所有面向用户的回复、状态更新、解释、提问都必须是中文。仅以下场景使用英文：代码、变量名、git commit 消息、CLI 输出原文、PR / issue 正文（若仓库语言为英文）。混用其他语言（韩文、日文、法文等）严格禁止。这条规则强化 `.claude/rules/common/language.md`，违反视为重大错误。
+
 ## Anti-Hallucination (NON-NEGOTIABLE)
 
 Follow `.claude/rules/common/anti-hallucination.md` — always. Five rules, zero exceptions: say "I don't know", use tools before memory, no chain-guessing, retract mid-sentence when wrong, cite the source. Tool output itself must never be fabricated: if a tool returns only `[rerun: bN]` or empty content, report that literally and rerun — never invent plausible-looking output.
