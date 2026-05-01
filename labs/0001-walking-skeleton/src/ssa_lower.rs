@@ -924,6 +924,13 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         &[Type::F64],
         Type::F64,
     );
+    let json_quote_str_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_json_quote_str",
+        &[Type::Str],
+        Type::Str,
+    );
     let print_i64_err_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -1301,6 +1308,7 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         math_imul: math_imul_id,
         math_clz32: math_clz32_id,
         math_fround: math_fround_id,
+        json_quote_str: json_quote_str_id,
         print_i64_err: print_i64_err_id,
         print_f64_err: print_f64_err_id,
         print_bool_err: print_bool_err_id,
@@ -1501,6 +1509,7 @@ struct Intrinsics {
     math_imul: FuncId,
     math_clz32: FuncId,
     math_fround: FuncId,
+    json_quote_str: FuncId,
     print_i64_err: FuncId,
     print_f64_err: FuncId,
     print_bool_err: FuncId,
@@ -2536,6 +2545,349 @@ impl<'a> LowerCtx<'a> {
             (Type::Bool, true) => self.intrinsics.print_bool_err,
             (_, false) => self.intrinsics.print_i64,
             (_, true) => self.intrinsics.print_i64_err,
+        }
+    }
+
+    /// `JSON.stringify(value)` — type-aware serializer. Emits SSA for
+    /// the static type of `val_op` and returns a fresh Type::Str
+    /// operand containing the JSON encoding. Recursive: arrays loop +
+    /// dispatch on element type; structs unfold field-by-field at
+    /// compile time. Always single-pass — no second walk for length
+    /// pre-computation; fragments accumulate via str_concat.
+    fn lower_json_stringify(&mut self, val_op: Operand, ty: Type) -> Operand {
+        match ty {
+            Type::I64 => {
+                let v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.i64_to_str, vec![val_op]),
+                    Type::Str,
+                    None,
+                );
+                Operand::Value(v)
+            }
+            Type::F64 => {
+                let v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.f64_to_str, vec![val_op]),
+                    Type::Str,
+                    None,
+                );
+                Operand::Value(v)
+            }
+            Type::Bool => {
+                // Pick "true" / "false" via cond_br + alloca slot.
+                let true_ptr = self.intern_string_literal("true");
+                let false_ptr = self.intern_string_literal("false");
+                let then_blk = self.f.add_block();
+                let else_blk = self.f.add_block();
+                let after_blk = self.f.add_block();
+                let slot = self.alloca_in_entry(Type::Str, Some("__json_bool"));
+                self.f.set_term(self.cur_block, Terminator::CondBr {
+                    cond: val_op,
+                    then_blk,
+                    else_blk,
+                });
+                self.f.append_void(
+                    then_blk,
+                    InstKind::Store(Operand::Value(true_ptr), Operand::Value(slot), 0),
+                );
+                self.f.set_term(then_blk, Terminator::Br(after_blk));
+                self.f.append_void(
+                    else_blk,
+                    InstKind::Store(Operand::Value(false_ptr), Operand::Value(slot), 0),
+                );
+                self.f.set_term(else_blk, Terminator::Br(after_blk));
+                self.cur_block = after_blk;
+                let v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Load(Type::Str, Operand::Value(slot), 0),
+                    Type::Str,
+                    None,
+                );
+                Operand::Value(v)
+            }
+            Type::Str => {
+                // Quote + escape via runtime helper.
+                let v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.json_quote_str, vec![val_op]),
+                    Type::Str,
+                    None,
+                );
+                Operand::Value(v)
+            }
+            Type::Arr(arr_id) => {
+                let elem_ty = self.arr_layouts[arr_id.0 as usize];
+                let arr_ptr = match val_op {
+                    Operand::Value(v) => v,
+                    _ => unreachable!(),
+                };
+                // Build `[<e0>,<e1>,…]` via accumulator slot starting at "[".
+                let lbrack = self.intern_string_literal("[");
+                let rbrack = self.intern_string_literal("]");
+                let comma = self.intern_string_literal(",");
+                let acc = self.alloca_in_entry(Type::Str, Some("__json_arr"));
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Store(Operand::Value(lbrack), Operand::Value(acc), 0),
+                );
+                let len = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Load(Type::I64, Operand::Value(arr_ptr), 0),
+                    Type::I64,
+                    None,
+                );
+                let i_slot = self.alloca(Type::I64, Some("__json_i"));
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Store(
+                        Operand::ConstI64(0),
+                        Operand::Value(i_slot),
+                        0,
+                    ),
+                );
+                let header_blk = self.f.add_block();
+                let body_blk = self.f.add_block();
+                let after_blk = self.f.add_block();
+                self.f.set_term(self.cur_block, Terminator::Br(header_blk));
+                self.cur_block = header_blk;
+                let i_now = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Load(Type::I64, Operand::Value(i_slot), 0),
+                    Type::I64,
+                    None,
+                );
+                let in_bounds = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::ICmp(
+                        IPred::Slt,
+                        Operand::Value(i_now),
+                        Operand::Value(len),
+                    ),
+                    Type::Bool,
+                    None,
+                );
+                self.f.set_term(self.cur_block, Terminator::CondBr {
+                    cond: Operand::Value(in_bounds),
+                    then_blk: body_blk,
+                    else_blk: after_blk,
+                });
+                self.cur_block = body_blk;
+                // If i > 0, append ",".
+                let need_sep = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::ICmp(
+                        IPred::Sgt,
+                        Operand::Value(i_now),
+                        Operand::ConstI64(0),
+                    ),
+                    Type::Bool,
+                    None,
+                );
+                let sep_blk = self.f.add_block();
+                let no_sep_blk = self.f.add_block();
+                self.f.set_term(self.cur_block, Terminator::CondBr {
+                    cond: Operand::Value(need_sep),
+                    then_blk: sep_blk,
+                    else_blk: no_sep_blk,
+                });
+                self.cur_block = sep_blk;
+                let acc_now = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Load(Type::Str, Operand::Value(acc), 0),
+                    Type::Str,
+                    None,
+                );
+                let with_sep = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(
+                        self.intrinsics.str_concat,
+                        vec![Operand::Value(acc_now), Operand::Value(comma)],
+                    ),
+                    Type::Str,
+                    None,
+                );
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Store(Operand::Value(with_sep), Operand::Value(acc), 0),
+                );
+                self.f.set_term(self.cur_block, Terminator::Br(no_sep_blk));
+                self.cur_block = no_sep_blk;
+                // Load element + recursive serialize.
+                let scaled = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::BinOp(
+                        SsaBinOp::Shl,
+                        Operand::Value(i_now),
+                        Operand::ConstI64(3),
+                    ),
+                    Type::I64,
+                    None,
+                );
+                let off = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::BinOp(
+                        SsaBinOp::Add,
+                        Operand::Value(scaled),
+                        Operand::ConstI64(16),
+                    ),
+                    Type::I64,
+                    None,
+                );
+                let elem = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::LoadDyn(
+                        elem_ty,
+                        Operand::Value(arr_ptr),
+                        Operand::Value(off),
+                    ),
+                    elem_ty,
+                    None,
+                );
+                let elem_str = self.lower_json_stringify(Operand::Value(elem), elem_ty);
+                let acc_now2 = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Load(Type::Str, Operand::Value(acc), 0),
+                    Type::Str,
+                    None,
+                );
+                let with_elem = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(
+                        self.intrinsics.str_concat,
+                        vec![Operand::Value(acc_now2), elem_str],
+                    ),
+                    Type::Str,
+                    None,
+                );
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Store(Operand::Value(with_elem), Operand::Value(acc), 0),
+                );
+                let i_next = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::BinOp(
+                        SsaBinOp::Add,
+                        Operand::Value(i_now),
+                        Operand::ConstI64(1),
+                    ),
+                    Type::I64,
+                    None,
+                );
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Store(
+                        Operand::Value(i_next),
+                        Operand::Value(i_slot),
+                        0,
+                    ),
+                );
+                self.f.set_term(self.cur_block, Terminator::Br(header_blk));
+                self.cur_block = after_blk;
+                let acc_final = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Load(Type::Str, Operand::Value(acc), 0),
+                    Type::Str,
+                    None,
+                );
+                let result = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(
+                        self.intrinsics.str_concat,
+                        vec![Operand::Value(acc_final), Operand::Value(rbrack)],
+                    ),
+                    Type::Str,
+                    None,
+                );
+                Operand::Value(result)
+            }
+            Type::Obj(sid) => {
+                // Compile-time unfold of fields. Each field name is an
+                // interned literal; values recursively serialized.
+                let layout = self.struct_layouts[sid.0 as usize].clone();
+                let obj_ptr = match val_op {
+                    Operand::Value(v) => v,
+                    _ => unreachable!(),
+                };
+                let lbrace = self.intern_string_literal("{");
+                let rbrace = self.intern_string_literal("}");
+                let comma = self.intern_string_literal(",");
+                let colon = self.intern_string_literal(":");
+                let mut acc = Operand::Value(lbrace);
+                for (i, (fname, fty)) in layout.iter().enumerate() {
+                    if i > 0 {
+                        let v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.str_concat,
+                                vec![acc, Operand::Value(comma)],
+                            ),
+                            Type::Str,
+                            None,
+                        );
+                        acc = Operand::Value(v);
+                    }
+                    let key_str = self.intern_string_literal(fname);
+                    let key_quoted = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.json_quote_str,
+                            vec![Operand::Value(key_str)],
+                        ),
+                        Type::Str,
+                        None,
+                    );
+                    let v1 = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.str_concat,
+                            vec![acc, Operand::Value(key_quoted)],
+                        ),
+                        Type::Str,
+                        None,
+                    );
+                    let v2 = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.str_concat,
+                            vec![Operand::Value(v1), Operand::Value(colon)],
+                        ),
+                        Type::Str,
+                        None,
+                    );
+                    let field_off = (i as u64) * 8;
+                    let field_v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Load(*fty, Operand::Value(obj_ptr), field_off),
+                        *fty,
+                        None,
+                    );
+                    let field_str = self.lower_json_stringify(Operand::Value(field_v), *fty);
+                    let v3 = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.str_concat,
+                            vec![Operand::Value(v2), field_str],
+                        ),
+                        Type::Str,
+                        None,
+                    );
+                    acc = Operand::Value(v3);
+                }
+                let result = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(
+                        self.intrinsics.str_concat,
+                        vec![acc, Operand::Value(rbrace)],
+                    ),
+                    Type::Str,
+                    None,
+                );
+                Operand::Value(result)
+            }
+            other => panic!(
+                "ssa-lower: JSON.stringify on type {other:?} not yet supported"
+            ),
         }
     }
 
@@ -4336,6 +4688,20 @@ impl<'a> LowerCtx<'a> {
                         );
                         return Operand::Value(v);
                     }
+                }
+                // `JSON.stringify(value)` — recursive type-aware serializer.
+                // Each call site is monomorphized inline based on the static
+                // type of the argument: primitives → direct formatter,
+                // strings → quote helper, arrays/structs → loop / static
+                // unfold + str_concat chain. No GC, single linear sweep.
+                if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
+                    && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
+                    && ns == "JSON"
+                    && m_name == "stringify"
+                {
+                    let arg_op = self.lower_expr(args[0]);
+                    let arg_ty = self.operand_ty(&arg_op);
+                    return self.lower_json_stringify(arg_op, arg_ty);
                 }
                 // `String.fromCharCode(n)` — static on the String namespace.
                 if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
@@ -8128,6 +8494,7 @@ impl<'a> LowerCtx<'a> {
             || fid == i.math_imul
             || fid == i.math_clz32
             || fid == i.math_fround
+            || fid == i.json_quote_str
             || fid == i.str_repeat
             || fid == i.str_to_upper
             || fid == i.str_to_lower

@@ -1203,6 +1203,7 @@ impl Checker {
                     "Object" => Ok(Type::Object("Object")),
                     "Number" => Ok(Type::Object("Number")),
                     "String" => Ok(Type::Object("String")),
+                    "JSON" => Ok(Type::Object("JSON")),
                     other => Err(format!("unknown identifier `{other}`")),
                 }
             }
@@ -1289,6 +1290,13 @@ impl Checker {
                         if matches!(m, "isInteger" | "isNaN" | "isFinite" | "isSafeInteger") =>
                     {
                         Ok(Type::Function(vec![Type::Number], Box::new(Type::Boolean)))
+                    }
+                    // JSON.stringify(value) — value can be any subset
+                    // type; result is String. The actual type-aware
+                    // serialization shape happens at lower-time
+                    // (per-call-site monomorphization).
+                    (Type::Object("JSON"), "stringify") => {
+                        Ok(Type::Function(vec![Type::Any], Box::new(Type::String)))
                     }
                     // `Object.keys(obj)` — returns Array<String> with the
                     // field names of obj's struct type. Static-resolved at

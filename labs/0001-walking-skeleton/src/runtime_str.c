@@ -370,6 +370,54 @@ int64_t __torajs_str_last_index_of(const uint8_t *s, const uint8_t *needle) {
     return -1;
 }
 
+/* `JSON.stringify` — string-escape helper for the recursive ssa-lower
+ * generator. Wraps `s` in `"..."` and replaces JSON-illegal control
+ * chars and quote / backslash bytes. Single pass; pre-computes output
+ * length for a single malloc. */
+void *__torajs_json_quote_str(const uint8_t *s) {
+    uint64_t len = *(const uint64_t *)s;
+    uint64_t out = 2; /* surrounding quotes */
+    for (uint64_t i = 0; i < len; i++) {
+        uint8_t c = s[8 + i];
+        if (c == '"' || c == '\\' || c == '\n' || c == '\r'
+            || c == '\t' || c == '\b' || c == '\f') {
+            out += 2;
+        } else if (c < 0x20) {
+            out += 6; /* \uXXXX */
+        } else {
+            out += 1;
+        }
+    }
+    uint8_t *p = (uint8_t *)malloc(8 + (size_t)out);
+    *(uint64_t *)p = out;
+    p[8] = '"';
+    uint64_t cur = 9;
+    for (uint64_t i = 0; i < len; i++) {
+        uint8_t c = s[8 + i];
+        switch (c) {
+            case '"':  p[cur++] = '\\'; p[cur++] = '"';  break;
+            case '\\': p[cur++] = '\\'; p[cur++] = '\\'; break;
+            case '\n': p[cur++] = '\\'; p[cur++] = 'n';  break;
+            case '\r': p[cur++] = '\\'; p[cur++] = 'r';  break;
+            case '\t': p[cur++] = '\\'; p[cur++] = 't';  break;
+            case '\b': p[cur++] = '\\'; p[cur++] = 'b';  break;
+            case '\f': p[cur++] = '\\'; p[cur++] = 'f';  break;
+            default:
+                if (c < 0x20) {
+                    static const char hex[] = "0123456789abcdef";
+                    p[cur++] = '\\'; p[cur++] = 'u';
+                    p[cur++] = '0'; p[cur++] = '0';
+                    p[cur++] = hex[(c >> 4) & 0xf];
+                    p[cur++] = hex[c & 0xf];
+                } else {
+                    p[cur++] = c;
+                }
+        }
+    }
+    p[cur] = '"';
+    return p;
+}
+
 /* `Math.imul(a, b)` — 32-bit signed integer multiplication, low 32
  * bits, sign-extended. Same shape as JS spec.
  */
