@@ -21,6 +21,23 @@
 void *__torajs_arr_alloc(uint64_t initial_cap);
 void *__torajs_arr_push(void *arr, int64_t val);
 
+/* Append every element of `src` to `dst` via a single memcpy. Caller
+ * MUST have pre-sized dst's cap to fit (typical: array literal with
+ * spreads pre-computes total length and allocs once). Bumps dst's
+ * len. Both arrays are the same 8-byte-slot layout — element type
+ * doesn't matter at this layer.
+ *
+ * Layout: [u64 len, u64 cap, T data[cap]]. dst's len is at offset 0;
+ * the writeable tail starts at offset 16 + dst_len*8. Source data
+ * starts at src + 16. */
+void __torajs_arr_extend_unchecked(uint8_t *dst, const uint8_t *src) {
+    uint64_t dst_len = *(const uint64_t *)dst;
+    uint64_t src_len = *(const uint64_t *)src;
+    if (src_len == 0) return;
+    memcpy(dst + 16 + dst_len * 8, src + 16, (size_t)src_len * 8);
+    *(uint64_t *)dst = dst_len + src_len;
+}
+
 /* Format an i64 as a fresh String heap object. Used by `+` when one
  * operand is Number and the other String — JS coerces the number to
  * its decimal string form. snprintf gives enough buffer for any i64

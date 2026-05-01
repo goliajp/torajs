@@ -118,6 +118,13 @@ pub enum Expr {
     TypeOf {
         expr: ExprId,
     },
+    /// `...expr` — array spread. Only valid as a child of `Expr::Array`.
+    /// ssa_lower's Array arm pre-computes total length (sum of spread
+    /// source `.length`s + non-spread element count) at runtime, allocs
+    /// once, fills via `arr_push_unchecked` — no cap-doubling realloc.
+    Spread {
+        expr: ExprId,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -780,7 +787,7 @@ fn collect_super_in_expr(
             collect_super_in_expr(ast, *then_branch, out);
             collect_super_in_expr(ast, *else_branch, out);
         }
-        Expr::TypeOf { expr } => collect_super_in_expr(ast, *expr, out),
+        Expr::TypeOf { expr } | Expr::Spread { expr } => collect_super_in_expr(ast, *expr, out),
         Expr::This | Expr::Ident(_) | Expr::String(_) | Expr::Number(_) | Expr::Bool(_) => {}
     }
 }
@@ -1259,7 +1266,7 @@ fn scan_expr_for_calls(ast: &Ast, eid: ExprId, out: &mut Vec<String>) {
             scan_expr_for_calls(ast, *then_branch, out);
             scan_expr_for_calls(ast, *else_branch, out);
         }
-        Expr::TypeOf { expr } => scan_expr_for_calls(ast, *expr, out),
+        Expr::TypeOf { expr } | Expr::Spread { expr } => scan_expr_for_calls(ast, *expr, out),
         Expr::This => {}
         Expr::Ident(_) | Expr::String(_) | Expr::Number(_) | Expr::Bool(_) => {}
     }
@@ -1343,7 +1350,7 @@ fn walk_expr(ast: &Ast, eid: ExprId, bound: &mut Vec<String>, out: &mut Vec<Stri
             walk_expr(ast, *then_branch, bound, out);
             walk_expr(ast, *else_branch, bound, out);
         }
-        Expr::TypeOf { expr } => walk_expr(ast, *expr, bound, out),
+        Expr::TypeOf { expr } | Expr::Spread { expr } => walk_expr(ast, *expr, bound, out),
     }
 }
 
@@ -1692,6 +1699,10 @@ impl Ast {
             }
             Expr::TypeOf { expr } => {
                 println!("{pad}TypeOf");
+                self.print_expr(*expr, indent + 1);
+            }
+            Expr::Spread { expr } => {
+                println!("{pad}Spread");
                 self.print_expr(*expr, indent + 1);
             }
         }

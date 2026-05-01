@@ -366,6 +366,16 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         &[Type::Ptr, Type::I64],
         Type::Void,
     );
+    // Single-memcpy extend, used by array spread `[...xs, ...]`. Caller
+    // pre-sizes dst's cap; this just bumps len + memcpy's source data
+    // into dst's tail. Element-type-agnostic (every slot is 8 bytes).
+    let arr_extend_unchecked_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_arr_extend_unchecked",
+        &[Type::Ptr, Type::Ptr],
+        Type::Void,
+    );
     // M6.1 — String methods. All operate on the StrRepr layout
     // `[u64 len, u8 data[len]]`. slice yields a fresh heap StrRepr;
     // char_code_at returns the byte zext'd to i64; the `*_with`
@@ -767,6 +777,7 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         arr_drop: arr_drop_id,
         arr_reserve: arr_reserve_id,
         arr_push_unchecked: arr_push_unchecked_id,
+        arr_extend_unchecked: arr_extend_unchecked_id,
         str_slice: str_slice_id,
         str_char_code_at: str_char_code_at_id,
         str_starts_with: str_starts_with_id,
@@ -902,6 +913,7 @@ struct Intrinsics {
     arr_drop: FuncId,
     arr_reserve: FuncId,
     arr_push_unchecked: FuncId,
+    arr_extend_unchecked: FuncId,
     str_slice: FuncId,
     str_char_code_at: FuncId,
     str_starts_with: FuncId,
@@ -4438,55 +4450,164 @@ impl<'a> LowerCtx<'a> {
                 Operand::Value(v)
             }
             Expr::Array(elements) => {
-                // M1.2 — array literal: alloc with cap=N, store each
-                // element at offset 16 + i*8, set len = N. MVP only
-                // supports i64 elements.
+                // M1.2 — array literal. Two paths:
+                //
+                // No spread: alloc(cap=N), set len=N, direct stores at
+                //   offset 16+i*8. Same shape as the original M1.2 fast
+                //   path.
+                //
+                // Has spread: pre-compute total length at runtime as
+                //   (literal_count + sum of spread sources' lengths),
+                //   alloc(cap=total) with len=0, fill via per-element
+                //   arr_push_unchecked + per-spread arr_extend_unchecked.
+                //   Spread sources are memcpy'd in one shot — no per-
+                //   element runtime call. Single alloc, no realloc.
                 if elements.is_empty() {
                     panic!(
                         "ssa-lower: bare empty `[]` literal needs an array type annotation; LetDecl handles this case explicitly"
                     );
                 }
                 let element_ids: Vec<ExprId> = elements.clone();
-                let n = element_ids.len() as i64;
-                let mut elem_vals: Vec<Operand> = Vec::with_capacity(element_ids.len());
-                for eid in &element_ids {
-                    let v = self.lower_expr(*eid);
-                    self.consume_if_ident(*eid);
-                    elem_vals.push(v);
+                let has_spread = element_ids.iter().any(|eid| {
+                    matches!(self.ast.get_expr(*eid), Expr::Spread { .. })
+                });
+                if !has_spread {
+                    let n = element_ids.len() as i64;
+                    let mut elem_vals: Vec<Operand> =
+                        Vec::with_capacity(element_ids.len());
+                    for eid in &element_ids {
+                        let v = self.lower_expr(*eid);
+                        self.consume_if_ident(*eid);
+                        elem_vals.push(v);
+                    }
+                    let elem_ty = self.operand_ty(&elem_vals[0]);
+                    let arr_id = intern_arr_layout(self.arr_layouts, elem_ty);
+                    let arr_ptr = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.arr_alloc,
+                            vec![Operand::ConstI64(n)],
+                        ),
+                        Type::Arr(arr_id),
+                        None,
+                    );
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Store(
+                            Operand::ConstI64(n),
+                            Operand::Value(arr_ptr),
+                            0,
+                        ),
+                    );
+                    for (i, val) in elem_vals.iter().enumerate() {
+                        let off = 16 + (i as u64) * 8;
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Store(*val, Operand::Value(arr_ptr), off),
+                        );
+                    }
+                    return Operand::Value(arr_ptr);
                 }
-                let elem_ty = self.operand_ty(&elem_vals[0]);
-                debug_assert!(
-                    elem_ty == Type::I64,
-                    "ssa-lower MVP: array literal element type must be i64; got {elem_ty:?}"
-                );
+
+                // Spread path. Walk children once, lower each to an
+                // operand, partition into (non-spread val, spread arr).
+                // Element type comes from the first non-spread literal,
+                // OR (if all elements are spreads) from the first
+                // spread source's element type.
+                #[derive(Debug)]
+                enum Item {
+                    Lit(Operand),
+                    Spread(Operand),
+                }
+                let mut items: Vec<Item> = Vec::with_capacity(element_ids.len());
+                let mut elem_ty: Option<Type> = None;
+                let mut literal_count: i64 = 0;
+                for eid in &element_ids {
+                    if let Expr::Spread { expr } = self.ast.get_expr(*eid) {
+                        let inner = *expr;
+                        let v = self.lower_expr(inner);
+                        self.consume_if_ident(inner);
+                        let v_ty = self.operand_ty(&v);
+                        if let Type::Arr(arr_id) = v_ty {
+                            if elem_ty.is_none() {
+                                elem_ty = Some(self.arr_layouts[arr_id.0 as usize]);
+                            }
+                        }
+                        items.push(Item::Spread(v));
+                    } else {
+                        let v = self.lower_expr(*eid);
+                        self.consume_if_ident(*eid);
+                        let v_ty = self.operand_ty(&v);
+                        if elem_ty.is_none() {
+                            elem_ty = Some(v_ty);
+                        }
+                        literal_count += 1;
+                        items.push(Item::Lit(v));
+                    }
+                }
+                let elem_ty = elem_ty.unwrap_or(Type::I64);
                 let arr_id = intern_arr_layout(self.arr_layouts, elem_ty);
+
+                // total = literal_count + sum(spread.length).
+                let mut total: Operand = Operand::ConstI64(literal_count);
+                for it in &items {
+                    if let Item::Spread(arr_op) = it {
+                        let len = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(Type::I64, *arr_op, 0),
+                            Type::I64,
+                            None,
+                        );
+                        let summed = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::BinOp(
+                                SsaBinOp::Add,
+                                total,
+                                Operand::Value(len),
+                            ),
+                            Type::I64,
+                            None,
+                        );
+                        total = Operand::Value(summed);
+                    }
+                }
+                // arr_alloc(total) — len=0 cap=total, then fill.
                 let arr_ptr = self.f.append_inst(
                     self.cur_block,
-                    InstKind::Call(
-                        self.intrinsics.arr_alloc,
-                        vec![Operand::ConstI64(n)],
-                    ),
+                    InstKind::Call(self.intrinsics.arr_alloc, vec![total]),
                     Type::Arr(arr_id),
                     None,
                 );
-                // Set len = N at offset 0.
-                self.f.append_void(
-                    self.cur_block,
-                    InstKind::Store(
-                        Operand::ConstI64(n),
-                        Operand::Value(arr_ptr),
-                        0,
-                    ),
-                );
-                // Store each element at offset 16 + i*8.
-                for (i, val) in elem_vals.iter().enumerate() {
-                    let off = 16 + (i as u64) * 8;
-                    self.f.append_void(
-                        self.cur_block,
-                        InstKind::Store(*val, Operand::Value(arr_ptr), off),
-                    );
+                for it in items {
+                    match it {
+                        Item::Lit(v) => {
+                            self.f.append_void(
+                                self.cur_block,
+                                InstKind::Call(
+                                    self.intrinsics.arr_push_unchecked,
+                                    vec![Operand::Value(arr_ptr), v],
+                                ),
+                            );
+                        }
+                        Item::Spread(src) => {
+                            self.f.append_void(
+                                self.cur_block,
+                                InstKind::Call(
+                                    self.intrinsics.arr_extend_unchecked,
+                                    vec![Operand::Value(arr_ptr), src],
+                                ),
+                            );
+                        }
+                    }
                 }
                 Operand::Value(arr_ptr)
+            }
+            Expr::Spread { .. } => {
+                // Reaching here means a spread escaped its array-literal
+                // host (e.g. `f(...xs)` for fn calls — not yet supported).
+                // The check.rs pass already errors for the same shape,
+                // but defensive panic in case it slipped through.
+                panic!("ssa-lower: spread `...` outside array literal not yet supported")
             }
             Expr::Index { obj, index } => {
                 // M1.2 — `xs[i]` for Type::Arr. Bounds checking deferred

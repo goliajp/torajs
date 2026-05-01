@@ -2154,13 +2154,13 @@ impl Parser<'_> {
         self.pos += 1;
         let mut elements = Vec::new();
         if !matches!(self.peek(), Token::RBracket) {
-            elements.push(self.parse_expr()?);
+            elements.push(self.parse_array_element()?);
             while matches!(self.peek(), Token::Comma) {
                 self.pos += 1;
                 if matches!(self.peek(), Token::RBracket) {
                     break; // trailing comma allowed
                 }
-                elements.push(self.parse_expr()?);
+                elements.push(self.parse_array_element()?);
             }
         }
         match self.peek() {
@@ -2173,6 +2173,18 @@ impl Parser<'_> {
             }
         }
         Ok(self.ast.add_expr(Expr::Array(elements)))
+    }
+
+    /// One slot inside an array literal — either a spread `...src` or a
+    /// regular expression. Spread is wrapped in `Expr::Spread { expr }`
+    /// so ssa_lower's Array arm can fork into the pre-sized alloc path.
+    fn parse_array_element(&mut self) -> Result<ExprId, String> {
+        if matches!(self.peek(), Token::DotDotDot) {
+            self.pos += 1;
+            let inner = self.parse_expr()?;
+            return Ok(self.ast.add_expr(Expr::Spread { expr: inner }));
+        }
+        self.parse_expr()
     }
 
     fn parse_arrow_fn(&mut self) -> Result<ExprId, String> {

@@ -63,6 +63,10 @@ pub enum Token {
     Bang,
     /// `~` — bitwise not.
     Tilde,
+    /// `...` — spread (in array literal) or rest (in destructuring,
+    /// function param). Currently only the array-literal spread is
+    /// lowered.
+    DotDotDot,
     /// `?` — start of a ternary `cond ? a : b` expression.
     Question,
     Eq,
@@ -125,7 +129,16 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                 i += 1;
                 continue;
             }
-            b'.' => emit(&mut out, Token::Dot, start, advance(&mut i)),
+            b'.' => {
+                // `...` (spread/rest) emits a single DotDotDot token.
+                // Bare `.` stays Dot for member access.
+                if peek(bytes, i + 1) == Some(b'.') && peek(bytes, i + 2) == Some(b'.') {
+                    i += 3;
+                    emit(&mut out, Token::DotDotDot, start, i);
+                } else {
+                    emit(&mut out, Token::Dot, start, advance(&mut i));
+                }
+            }
             b',' => emit(&mut out, Token::Comma, start, advance(&mut i)),
             b':' => emit(&mut out, Token::Colon, start, advance(&mut i)),
             b';' => emit(&mut out, Token::Semi, start, advance(&mut i)),

@@ -1291,9 +1291,25 @@ impl Checker {
                     );
                 }
                 let ids: Vec<ExprId> = elements.clone();
-                let first_ty = self.type_of(ast, ids[0])?;
+                // Helper: the "value type contributed by this element"
+                // is T for a non-spread element of type T, or T for a
+                // spread element whose source has type Array<T>.
+                let elem_value_ty = |this: &mut Self, eid: ExprId| -> Result<Type, String> {
+                    if let Expr::Spread { expr } = ast.get_expr(eid) {
+                        let src_ty = this.type_of(ast, *expr)?;
+                        match src_ty {
+                            Type::Array(inner) => Ok(*inner),
+                            other => Err(format!(
+                                "array spread source must be an array, got {other:?}"
+                            )),
+                        }
+                    } else {
+                        this.type_of(ast, eid)
+                    }
+                };
+                let first_ty = elem_value_ty(self, ids[0])?;
                 for &eid in ids.iter().skip(1) {
-                    let ty = self.type_of(ast, eid)?;
+                    let ty = elem_value_ty(self, eid)?;
                     if ty != first_ty {
                         return Err(format!(
                             "array element type mismatch: expected {first_ty:?}, got {ty:?}"
@@ -1302,6 +1318,10 @@ impl Checker {
                 }
                 Ok(Type::Array(Box::new(first_ty)))
             }
+            Expr::Spread { .. } => Err(
+                "spread `...` is only valid inside an array literal"
+                    .into(),
+            ),
             Expr::ObjectLit { fields } => {
                 // Infer a structural type from the literal's field types.
                 // Order is preserved (matters for struct equality and
