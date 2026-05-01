@@ -341,6 +341,21 @@ void *__torajs_str_replace_all(const uint8_t *s, const uint8_t *needle, const ui
     return p;
 }
 
+/* `s.localeCompare(other)` — ASCII-only memcmp. JS spec returns a
+ * locale-sensitive result; v0 just compares byte-wise (fine for the
+ * ASCII-typical subset). Returns -1, 0, or 1. */
+int64_t __torajs_str_locale_compare(const uint8_t *a, const uint8_t *b) {
+    uint64_t a_len = *(const uint64_t *)a;
+    uint64_t b_len = *(const uint64_t *)b;
+    uint64_t min = a_len < b_len ? a_len : b_len;
+    int r = min ? memcmp(a + 8, b + 8, (size_t)min) : 0;
+    if (r < 0) return -1;
+    if (r > 0) return 1;
+    if (a_len < b_len) return -1;
+    if (a_len > b_len) return 1;
+    return 0;
+}
+
 /* `s.lastIndexOf(needle)` — reverse memcmp scan, -1 on miss. */
 int64_t __torajs_str_last_index_of(const uint8_t *s, const uint8_t *needle) {
     uint64_t s_len = *(const uint64_t *)s;

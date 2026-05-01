@@ -1344,7 +1344,9 @@ impl Checker {
                         vec![Type::String],
                         Box::new(Type::Boolean),
                     )),
-                    (Type::String, "indexOf") | (Type::String, "lastIndexOf") => {
+                    (Type::String, "indexOf")
+                    | (Type::String, "lastIndexOf")
+                    | (Type::String, "localeCompare") => {
                         Ok(Type::Function(
                             vec![Type::String],
                             Box::new(Type::Number),
