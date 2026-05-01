@@ -1484,6 +1484,13 @@ impl Checker {
                             Err(format!("`-` requires number operand, got {t:?}"))
                         }
                     }
+                    crate::ast::UnaryOp::BitNot => {
+                        if t == Type::Number {
+                            Ok(Type::Number)
+                        } else {
+                            Err(format!("`~` requires number operand, got {t:?}"))
+                        }
+                    }
                 }
             }
             Expr::Assign { target, value } => {
@@ -1694,6 +1701,29 @@ impl Checker {
             }
             Expr::Super { .. } => {
                 panic!("internal: `super(...)` reached check.rs (desugar didn't run?)")
+            }
+            Expr::Ternary { cond, then_branch, else_branch } => {
+                let c = self.type_of(ast, *cond)?;
+                if c != Type::Boolean {
+                    return Err(format!(
+                        "ternary condition must be boolean, got {c:?}"
+                    ));
+                }
+                let t = self.type_of(ast, *then_branch)?;
+                let e = self.type_of(ast, *else_branch)?;
+                if t != e {
+                    return Err(format!(
+                        "ternary branches differ — `then` is {t:?}, `else` is {e:?}"
+                    ));
+                }
+                Ok(t)
+            }
+            Expr::TypeOf { expr } => {
+                // Static-resolved at codegen — verifies the operand is
+                // typeable and returns Type::String. Doesn't actually
+                // need to know which string.
+                let _ = self.type_of(ast, *expr)?;
+                Ok(Type::String)
             }
         }
     }

@@ -29,6 +29,7 @@ pub enum BinOp {
 pub enum UnaryOp {
     Not, // logical !
     Neg, // arithmetic -
+    BitNot, // bitwise ~
 }
 
 #[derive(Debug, Clone)]
@@ -100,6 +101,22 @@ pub enum Expr {
     /// the surrounding class's parent is known.
     Super {
         args: Vec<ExprId>,
+    },
+    /// `cond ? then_branch : else_branch` — TS / JS ternary.
+    /// Lowered to a CondBr at SSA layer with a phi-style result via
+    /// an alloca slot (consistent with how the rest of tr handles
+    /// branch results today).
+    Ternary {
+        cond: ExprId,
+        then_branch: ExprId,
+        else_branch: ExprId,
+    },
+    /// `typeof x` — produces a string literal at runtime.
+    /// Lowered to a fresh Type::Str whose contents are determined by
+    /// the operand's static type ("number" / "string" / "boolean" /
+    /// "object").
+    TypeOf {
+        expr: ExprId,
     },
 }
 
@@ -708,6 +725,12 @@ fn collect_super_in_expr(
                 collect_super_in_expr(ast, *a, out);
             }
         }
+        Expr::Ternary { cond, then_branch, else_branch } => {
+            collect_super_in_expr(ast, *cond, out);
+            collect_super_in_expr(ast, *then_branch, out);
+            collect_super_in_expr(ast, *else_branch, out);
+        }
+        Expr::TypeOf { expr } => collect_super_in_expr(ast, *expr, out),
         Expr::This | Expr::Ident(_) | Expr::String(_) | Expr::Number(_) | Expr::Bool(_) => {}
     }
 }
@@ -1133,6 +1156,12 @@ fn scan_expr_for_calls(ast: &Ast, eid: ExprId, out: &mut Vec<String>) {
                 scan_expr_for_calls(ast, *a, out);
             }
         }
+        Expr::Ternary { cond, then_branch, else_branch } => {
+            scan_expr_for_calls(ast, *cond, out);
+            scan_expr_for_calls(ast, *then_branch, out);
+            scan_expr_for_calls(ast, *else_branch, out);
+        }
+        Expr::TypeOf { expr } => scan_expr_for_calls(ast, *expr, out),
         Expr::This => {}
         Expr::Ident(_) | Expr::String(_) | Expr::Number(_) | Expr::Bool(_) => {}
     }
@@ -1211,6 +1240,12 @@ fn walk_expr(ast: &Ast, eid: ExprId, bound: &mut Vec<String>, out: &mut Vec<Stri
                 walk_expr(ast, *a, bound, out);
             }
         }
+        Expr::Ternary { cond, then_branch, else_branch } => {
+            walk_expr(ast, *cond, bound, out);
+            walk_expr(ast, *then_branch, bound, out);
+            walk_expr(ast, *else_branch, bound, out);
+        }
+        Expr::TypeOf { expr } => walk_expr(ast, *expr, bound, out),
     }
 }
 
@@ -1519,6 +1554,16 @@ impl Ast {
                 for a in args {
                     self.print_expr(*a, indent + 1);
                 }
+            }
+            Expr::Ternary { cond, then_branch, else_branch } => {
+                println!("{pad}Ternary");
+                self.print_expr(*cond, indent + 1);
+                self.print_expr(*then_branch, indent + 1);
+                self.print_expr(*else_branch, indent + 1);
+            }
+            Expr::TypeOf { expr } => {
+                println!("{pad}TypeOf");
+                self.print_expr(*expr, indent + 1);
             }
         }
     }

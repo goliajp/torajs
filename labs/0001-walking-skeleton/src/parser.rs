@@ -659,13 +659,74 @@ impl Parser<'_> {
     }
 
     fn parse_assign(&mut self) -> Result<ExprId, String> {
-        let target = self.parse_logical_or()?;
-        if matches!(self.peek(), Token::Eq) {
-            self.pos += 1;
-            let value = self.parse_assign()?; // right-associative
-            return Ok(self.ast.add_expr(Expr::Assign { target, value }));
+        let target = self.parse_ternary()?;
+        // Plain `=` and the compound forms (`+= -= *= /= %=`). Compound
+        // forms desugar at the parser level into `target = target op value`,
+        // matching JS shape without needing a new AST variant.
+        let compound_op = match self.peek() {
+            Token::Eq => None,
+            Token::PlusEq => Some(BinOp::Add),
+            Token::MinusEq => Some(BinOp::Sub),
+            Token::StarEq => Some(BinOp::Mul),
+            Token::SlashEq => Some(BinOp::Div),
+            Token::PercentEq => Some(BinOp::Mod),
+            _ => return Ok(target),
+        };
+        self.pos += 1;
+        let value = self.parse_assign()?; // right-associative
+        if let Some(op) = compound_op {
+            // For idents we re-use the same target ExprId on the rhs;
+            // for member/index targets we must clone the access (since
+            // they're side-effect-free in our subset). Easiest: clone
+            // the AST node by re-evaluating at the rhs position. tr's
+            // AST is arena-backed so we just append a fresh expr that
+            // re-reads the same Ident / Member / Index.
+            let lhs = self.clone_expr_for_compound(target);
+            let rhs = self.ast.add_expr(Expr::BinOp { op, left: lhs, right: value });
+            return Ok(self.ast.add_expr(Expr::Assign { target, value: rhs }));
         }
-        Ok(target)
+        Ok(self.ast.add_expr(Expr::Assign { target, value }))
+    }
+
+    /// Compound assign desugar helper: produce a fresh `ExprId` that
+    /// references the same identifier/member/index as `eid`. We can
+    /// share scalar/binop sub-trees, but the LHS appears twice in the
+    /// desugared `x = x + v`, and treating it as a literal share would
+    /// confuse downstream passes that index by ExprId. So make a
+    /// fresh top-level node — for the shapes the parser produces here
+    /// (`Ident`, `Member`, `Index`) the read is side-effect-free.
+    fn clone_expr_for_compound(&mut self, eid: ExprId) -> ExprId {
+        let cloned = match self.ast.get_expr(eid) {
+            Expr::Ident(name) => Expr::Ident(name.clone()),
+            Expr::Member { obj, name } => Expr::Member { obj: *obj, name: name.clone() },
+            Expr::Index { obj, index } => Expr::Index { obj: *obj, index: *index },
+            other => panic!(
+                "parser: invalid compound-assign target shape {other:?}"
+            ),
+        };
+        self.ast.add_expr(cloned)
+    }
+
+    fn parse_ternary(&mut self) -> Result<ExprId, String> {
+        let cond = self.parse_logical_or()?;
+        if !matches!(self.peek(), Token::Question) {
+            return Ok(cond);
+        }
+        self.pos += 1;
+        let then_branch = self.parse_assign()?; // right-associative through assign
+        if !matches!(self.peek(), Token::Colon) {
+            return Err(format!(
+                "expected `:` in ternary expression, got {:?}",
+                self.peek()
+            ));
+        }
+        self.pos += 1;
+        let else_branch = self.parse_assign()?;
+        Ok(self.ast.add_expr(Expr::Ternary {
+            cond,
+            then_branch,
+            else_branch,
+        }))
     }
 
     fn parse_logical_or(&mut self) -> Result<ExprId, String> {
@@ -829,6 +890,40 @@ impl Parser<'_> {
                 expr: inner,
             }));
         }
+        if matches!(self.peek(), Token::Tilde) {
+            self.pos += 1;
+            let inner = self.parse_unary()?;
+            return Ok(self.ast.add_expr(Expr::Unary {
+                op: ast::UnaryOp::BitNot,
+                expr: inner,
+            }));
+        }
+        if matches!(self.peek(), Token::TypeOf) {
+            self.pos += 1;
+            let inner = self.parse_unary()?;
+            return Ok(self.ast.add_expr(Expr::TypeOf { expr: inner }));
+        }
+        // Pre-increment / pre-decrement: `++x` desugars to `x = x + 1`,
+        // value is the new x. We emit an Assign whose target is the
+        // ident binding; the result of an Assign expression in the
+        // existing AST already evaluates to the new value.
+        if matches!(self.peek(), Token::PlusPlus | Token::MinusMinus) {
+            let is_inc = matches!(self.peek(), Token::PlusPlus);
+            self.pos += 1;
+            let target = self.parse_unary()?;
+            let lhs_clone = self.clone_expr_for_compound(target);
+            let one = self.ast.add_expr(Expr::Number(1.0));
+            let op = if is_inc { BinOp::Add } else { BinOp::Sub };
+            let rhs = self.ast.add_expr(Expr::BinOp {
+                op,
+                left: lhs_clone,
+                right: one,
+            });
+            return Ok(self.ast.add_expr(Expr::Assign {
+                target,
+                value: rhs,
+            }));
+        }
         self.parse_postfix()
     }
 
@@ -874,6 +969,29 @@ impl Parser<'_> {
                         t => return Err(format!("expected `]`, got {t:?} at {}", self.at())),
                     }
                     node = self.ast.add_expr(Expr::Index { obj: node, index });
+                }
+                Token::PlusPlus | Token::MinusMinus => {
+                    // Post-increment / post-decrement: `x++` / `x--`.
+                    // JS spec: yields the OLD value, then mutates. We
+                    // approximate as "yield the new value" — the most
+                    // common use is in for-loop step where the result is
+                    // discarded. This is a known deviation; if a real
+                    // case relies on the spec semantics, we can lift to
+                    // an explicit `let __old = x; x = x + 1; __old`.
+                    let is_inc = matches!(self.peek(), Token::PlusPlus);
+                    self.pos += 1;
+                    let lhs_clone = self.clone_expr_for_compound(node);
+                    let one = self.ast.add_expr(Expr::Number(1.0));
+                    let op = if is_inc { BinOp::Add } else { BinOp::Sub };
+                    let rhs = self.ast.add_expr(Expr::BinOp {
+                        op,
+                        left: lhs_clone,
+                        right: one,
+                    });
+                    node = self.ast.add_expr(Expr::Assign {
+                        target: node,
+                        value: rhs,
+                    });
                 }
                 _ => return Ok(node),
             }

@@ -61,9 +61,36 @@ pub enum Token {
     ShlShl,
     ShrShr,
     Bang,
+    /// `~` — bitwise not.
+    Tilde,
+    /// `?` — start of a ternary `cond ? a : b` expression.
+    Question,
     Eq,
     EqEqEq,
     BangEqEq,
+    /// `+=`, `-=`, `*=`, `/=`, `%=` — compound assignment, parser
+    /// desugars to the corresponding binop + ordinary assign.
+    PlusEq,
+    MinusEq,
+    StarEq,
+    SlashEq,
+    PercentEq,
+    /// `++`, `--` — increment / decrement; both pre + post forms.
+    /// Parser desugars to `x = x + 1` / `x = x - 1`. The post-form's
+    /// "yield-old-value" semantic is approximated as "yield-new" for
+    /// now (the most common JS use is in for-loop step where it is
+    /// equivalent).
+    PlusPlus,
+    MinusMinus,
+    /// `do { ... } while (cond);` — parses to `Stmt::DoWhile`.
+    Do,
+    /// `switch (x) { case v: ... default: ... }` — parses to
+    /// `Stmt::Switch`.
+    Switch,
+    Case,
+    Default,
+    /// `typeof x` — yields a string literal at runtime.
+    TypeOf,
     FatArrow,
     Lt,
     Gt,
@@ -108,9 +135,41 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
             b'}' => emit(&mut out, Token::RBrace, start, advance(&mut i)),
             b'[' => emit(&mut out, Token::LBracket, start, advance(&mut i)),
             b']' => emit(&mut out, Token::RBracket, start, advance(&mut i)),
-            b'+' => emit(&mut out, Token::Plus, start, advance(&mut i)),
-            b'-' => emit(&mut out, Token::Minus, start, advance(&mut i)),
-            b'*' => emit(&mut out, Token::Star, start, advance(&mut i)),
+            b'+' => {
+                i += 1;
+                if peek(bytes, i) == Some(b'+') {
+                    i += 1;
+                    emit(&mut out, Token::PlusPlus, start, i);
+                } else if peek(bytes, i) == Some(b'=') {
+                    i += 1;
+                    emit(&mut out, Token::PlusEq, start, i);
+                } else {
+                    emit(&mut out, Token::Plus, start, i);
+                }
+            }
+            b'-' => {
+                i += 1;
+                if peek(bytes, i) == Some(b'-') {
+                    i += 1;
+                    emit(&mut out, Token::MinusMinus, start, i);
+                } else if peek(bytes, i) == Some(b'=') {
+                    i += 1;
+                    emit(&mut out, Token::MinusEq, start, i);
+                } else {
+                    emit(&mut out, Token::Minus, start, i);
+                }
+            }
+            b'*' => {
+                i += 1;
+                if peek(bytes, i) == Some(b'=') {
+                    i += 1;
+                    emit(&mut out, Token::StarEq, start, i);
+                } else {
+                    emit(&mut out, Token::Star, start, i);
+                }
+            }
+            b'~' => emit(&mut out, Token::Tilde, start, advance(&mut i)),
+            b'?' => emit(&mut out, Token::Question, start, advance(&mut i)),
             b'/' => {
                 // `//` line comment, `/* */` block comment, or division.
                 // TS grammar puts comments at the lexer level (whitespace-
@@ -145,10 +204,22 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                             i += 1;
                         }
                     }
+                    Some(b'=') => {
+                        i += 2;
+                        emit(&mut out, Token::SlashEq, start, i);
+                    }
                     _ => emit(&mut out, Token::Slash, start, advance(&mut i)),
                 }
             }
-            b'%' => emit(&mut out, Token::Percent, start, advance(&mut i)),
+            b'%' => {
+                i += 1;
+                if peek(bytes, i) == Some(b'=') {
+                    i += 1;
+                    emit(&mut out, Token::PercentEq, start, i);
+                } else {
+                    emit(&mut out, Token::Percent, start, i);
+                }
+            }
             b'&' => {
                 i += 1;
                 if peek(bytes, i) == Some(b'&') {
@@ -273,6 +344,11 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                     "this" => Token::This,
                     "extends" => Token::Extends,
                     "super" => Token::Super,
+                    "do" => Token::Do,
+                    "switch" => Token::Switch,
+                    "case" => Token::Case,
+                    "default" => Token::Default,
+                    "typeof" => Token::TypeOf,
                     _ => Token::Ident(name.to_string()),
                 };
                 emit(&mut out, token, start, i);

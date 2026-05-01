@@ -3314,6 +3314,23 @@ impl<'a> LowerCtx<'a> {
                             }
                         }
                     }
+                    crate::ast::UnaryOp::BitNot => {
+                        // `~x` is `x ^ -1` for integer types — flips
+                        // every bit. JS spec coerces to int32 first; tr
+                        // works in i64 land but the result agrees on
+                        // all values that fit in int32.
+                        let r = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::BinOp(
+                                SsaBinOp::Xor,
+                                v,
+                                Operand::ConstI64(-1),
+                            ),
+                            Type::I64,
+                            None,
+                        );
+                        Operand::Value(r)
+                    }
                 }
             }
             Expr::Call { callee, args } => {
@@ -4452,6 +4469,85 @@ impl<'a> LowerCtx<'a> {
                     }
                 }
                 Operand::Value(env_v)
+            }
+            Expr::Ternary {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
+                // Lower as: `let __tmp; if (cond) __tmp = T else __tmp = E; __tmp`
+                // The result type comes from the branches (verified equal
+                // by check.rs).
+                let cond = *cond;
+                let tb = *then_branch;
+                let eb = *else_branch;
+                let cond_op = self.lower_expr(cond);
+                // Allocate result slot in entry — both branches store to
+                // it, the post-block loads from it. (Same dominance
+                // pattern as pending_break, hence alloca_in_entry.)
+                let then_blk = self.f.add_block();
+                let else_blk = self.f.add_block();
+                let after_blk = self.f.add_block();
+                // Lower then-branch first to discover the result type.
+                let saved = self.cur_block;
+                self.cur_block = then_blk;
+                let then_val = self.lower_expr(tb);
+                let res_ty = self.operand_ty(&then_val);
+                let res_slot = self.alloca_in_entry(res_ty, Some("__tern"));
+                // Use the CURRENT block (post-branch lowering), not the
+                // entry of the branch — nested ternaries / calls move
+                // cur_block forward, and emitting into the wrong block
+                // produces dangling SSA refs ("unmapped SSA value N" at
+                // LLVM emit).
+                let then_end = self.cur_block;
+                self.f.append_void(
+                    then_end,
+                    InstKind::Store(then_val, Operand::Value(res_slot), 0),
+                );
+                self.f.set_term(then_end, Terminator::Br(after_blk));
+                self.cur_block = else_blk;
+                let else_val = self.lower_expr(eb);
+                let else_end = self.cur_block;
+                self.f.append_void(
+                    else_end,
+                    InstKind::Store(else_val, Operand::Value(res_slot), 0),
+                );
+                self.f.set_term(else_end, Terminator::Br(after_blk));
+                // Wire the original block's terminator to the cond_br.
+                self.f.set_term(
+                    saved,
+                    Terminator::CondBr {
+                        cond: cond_op,
+                        then_blk,
+                        else_blk,
+                    },
+                );
+                self.cur_block = after_blk;
+                let r = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Load(res_ty, Operand::Value(res_slot), 0),
+                    res_ty,
+                    None,
+                );
+                Operand::Value(r)
+            }
+            Expr::TypeOf { expr } => {
+                // Compile-time resolution: pick the literal string based
+                // on the operand's static SSA type. The operand is still
+                // lowered (it may have side effects).
+                let v = self.lower_expr(*expr);
+                let ty = self.operand_ty(&v);
+                let s: &str = match ty {
+                    Type::I64 | Type::F64 | Type::I32 => "number",
+                    Type::Bool => "boolean",
+                    Type::Str => "string",
+                    Type::Obj(_)
+                    | Type::Arr(_)
+                    | Type::Closure(_)
+                    | Type::FnSig(_) => "object",
+                    Type::Void | Type::Ptr => "object",
+                };
+                Operand::Value(self.intern_string_literal(s))
             }
             other => panic!("ssa-lower: unsupported expr: {other:?}"),
         }
