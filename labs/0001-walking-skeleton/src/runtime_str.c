@@ -580,6 +580,20 @@ double __torajs_num_parse_float(const uint8_t *s) {
     return v;
 }
 
+/* `Number.isSafeInteger(n)` — true iff n is an integer-valued number
+ * within [-(2^53 - 1), 2^53 - 1]. Safe means a round-trip through f64
+ * preserves the value exactly. */
+int64_t __torajs_num_is_safe_integer_f(double n) {
+    if (!isfinite(n)) return 0;
+    if (floor(n) != n) return 0;
+    double max_safe = 9007199254740991.0; /* 2^53 - 1 */
+    return (n >= -max_safe && n <= max_safe) ? 1 : 0;
+}
+int64_t __torajs_num_is_safe_integer_i(int64_t n) {
+    int64_t max_safe = 9007199254740991;
+    return (n >= -max_safe && n <= max_safe) ? 1 : 0;
+}
+
 /* `Number.isInteger(n)` — true iff n is finite and has no fractional
  * part. ECMA-262 §20.1.2.3. */
 int64_t __torajs_num_is_integer_f(double n) {

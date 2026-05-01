@@ -537,6 +537,20 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         &[Type::I64],
         Type::Bool,
     );
+    let num_is_safe_integer_f_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_num_is_safe_integer_f",
+        &[Type::F64],
+        Type::Bool,
+    );
+    let num_is_safe_integer_i_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_num_is_safe_integer_i",
+        &[Type::I64],
+        Type::Bool,
+    );
     // M6.1 — String methods. All operate on the StrRepr layout
     // `[u64 len, u8 data[len]]`. slice yields a fresh heap StrRepr;
     // char_code_at returns the byte zext'd to i64; the `*_with`
@@ -1193,6 +1207,8 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         num_is_nan_i: num_is_nan_i_id,
         num_is_finite_f: num_is_finite_f_id,
         num_is_finite_i: num_is_finite_i_id,
+        num_is_safe_integer_f: num_is_safe_integer_f_id,
+        num_is_safe_integer_i: num_is_safe_integer_i_id,
         str_slice: str_slice_id,
         str_char_code_at: str_char_code_at_id,
         str_starts_with: str_starts_with_id,
@@ -1385,6 +1401,8 @@ struct Intrinsics {
     num_is_nan_i: FuncId,
     num_is_finite_f: FuncId,
     num_is_finite_i: FuncId,
+    num_is_safe_integer_f: FuncId,
+    num_is_safe_integer_i: FuncId,
     str_slice: FuncId,
     str_char_code_at: FuncId,
     str_starts_with: FuncId,
@@ -4542,7 +4560,7 @@ impl<'a> LowerCtx<'a> {
                             );
                             return Operand::Value(v);
                         }
-                        "isInteger" | "isNaN" | "isFinite" => {
+                        "isInteger" | "isNaN" | "isFinite" | "isSafeInteger" => {
                             let arg_op = self.lower_expr(args[0]);
                             let arg_ty = self.operand_ty(&arg_op);
                             let target = match (m_name.as_str(), arg_ty) {
@@ -4552,6 +4570,8 @@ impl<'a> LowerCtx<'a> {
                                 ("isNaN", _) => self.intrinsics.num_is_nan_i,
                                 ("isFinite", Type::F64) => self.intrinsics.num_is_finite_f,
                                 ("isFinite", _) => self.intrinsics.num_is_finite_i,
+                                ("isSafeInteger", Type::F64) => self.intrinsics.num_is_safe_integer_f,
+                                ("isSafeInteger", _) => self.intrinsics.num_is_safe_integer_i,
                                 _ => unreachable!(),
                             };
                             let v = self.f.append_inst(

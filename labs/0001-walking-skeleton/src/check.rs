@@ -1269,7 +1269,7 @@ impl Checker {
                         Box::new(Type::Number),
                     )),
                     (Type::Object("Number"), m)
-                        if matches!(m, "isInteger" | "isNaN" | "isFinite") =>
+                        if matches!(m, "isInteger" | "isNaN" | "isFinite" | "isSafeInteger") =>
                     {
                         Ok(Type::Function(vec![Type::Number], Box::new(Type::Boolean)))
                     }
