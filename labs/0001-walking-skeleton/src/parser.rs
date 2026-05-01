@@ -1680,25 +1680,16 @@ impl Parser<'_> {
                 }
                 Token::PlusPlus | Token::MinusMinus => {
                     // Post-increment / post-decrement: `x++` / `x--`.
-                    // JS spec: yields the OLD value, then mutates. We
-                    // approximate as "yield the new value" — the most
-                    // common use is in for-loop step where the result is
-                    // discarded. This is a known deviation; if a real
-                    // case relies on the spec semantics, we can lift to
-                    // an explicit `let __old = x; x = x + 1; __old`.
+                    // JS spec: yields the OLD value, then mutates. ssa_lower
+                    // handles the temp-and-store-back machinery directly via
+                    // `Expr::PostIncr`. (Pre-increment uses `Expr::Assign`
+                    // with a `target = target + 1` shape — that's already
+                    // covered by the prefix-side parser.)
                     let is_inc = matches!(self.peek(), Token::PlusPlus);
                     self.pos += 1;
-                    let lhs_clone = self.clone_expr_for_compound(node);
-                    let one = self.ast.add_expr(Expr::Number(1.0));
-                    let op = if is_inc { BinOp::Add } else { BinOp::Sub };
-                    let rhs = self.ast.add_expr(Expr::BinOp {
-                        op,
-                        left: lhs_clone,
-                        right: one,
-                    });
-                    node = self.ast.add_expr(Expr::Assign {
+                    node = self.ast.add_expr(Expr::PostIncr {
                         target: node,
-                        value: rhs,
+                        is_inc,
                     });
                 }
                 _ => return Ok(node),

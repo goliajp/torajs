@@ -1983,6 +1983,17 @@ impl Checker {
                 let field_ty = self.member_type(&inner, name)?;
                 Ok(Type::Nullable(Box::new(field_ty)))
             }
+            Expr::PostIncr { target, .. } => {
+                // `x++` / `x--` yield the OLD value, then mutate. Result
+                // type is the target's type, which must be Number.
+                let ty = self.type_of(ast, *target)?;
+                if ty != Type::Number {
+                    return Err(format!(
+                        "post-increment requires a number target, got {ty:?}"
+                    ));
+                }
+                Ok(Type::Number)
+            }
         }
     }
 

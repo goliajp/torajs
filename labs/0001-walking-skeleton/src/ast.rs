@@ -144,6 +144,15 @@ pub enum Expr {
         obj: ExprId,
         name: String,
     },
+    /// `x++` / `x--` — JS-spec-compliant post-increment / post-decrement.
+    /// Yields the OLD value, then mutates the target. ssa_lower captures
+    /// `target`'s value into a temp SSA value, computes new = old ± 1,
+    /// stores new into target, and returns the temp.  Pre-increment is
+    /// the simpler `x = x + 1` shape and is already handled by Assign.
+    PostIncr {
+        target: ExprId,
+        is_inc: bool,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -839,6 +848,7 @@ fn collect_super_in_expr(
             collect_super_in_expr(ast, *rhs, out);
         }
         Expr::OptChain { obj, .. } => collect_super_in_expr(ast, *obj, out),
+        Expr::PostIncr { target, .. } => collect_super_in_expr(ast, *target, out),
         Expr::This
         | Expr::Ident(_)
         | Expr::String(_)
@@ -1330,6 +1340,7 @@ fn scan_expr_for_calls(ast: &Ast, eid: ExprId, out: &mut Vec<String>) {
             scan_expr_for_calls(ast, *rhs, out);
         }
         Expr::OptChain { obj, .. } => scan_expr_for_calls(ast, *obj, out),
+        Expr::PostIncr { target, .. } => scan_expr_for_calls(ast, *target, out),
         Expr::This => {}
         Expr::Ident(_) | Expr::String(_) | Expr::Number(_) | Expr::Bool(_) | Expr::Null => {}
     }
@@ -1419,6 +1430,7 @@ fn walk_expr(ast: &Ast, eid: ExprId, bound: &mut Vec<String>, out: &mut Vec<Stri
             walk_expr(ast, *rhs, bound, out);
         }
         Expr::OptChain { obj, .. } => walk_expr(ast, *obj, bound, out),
+        Expr::PostIncr { target, .. } => walk_expr(ast, *target, bound, out),
     }
 }
 
@@ -1782,6 +1794,10 @@ impl Ast {
             Expr::OptChain { obj, name } => {
                 println!("{pad}OptChain .{name}");
                 self.print_expr(*obj, indent + 1);
+            }
+            Expr::PostIncr { target, is_inc } => {
+                println!("{pad}PostIncr is_inc={is_inc}");
+                self.print_expr(*target, indent + 1);
             }
         }
     }

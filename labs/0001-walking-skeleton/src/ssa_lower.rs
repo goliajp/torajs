@@ -5538,6 +5538,170 @@ impl<'a> LowerCtx<'a> {
                 );
                 Operand::Value(r)
             }
+            Expr::PostIncr { target, is_inc } => {
+                // JS spec: yield the OLD value, then mutate. Three target
+                // shapes mirror Assign: Ident (load slot → store new),
+                // Member (load obj+offset → store new at same offset),
+                // Index (load arr+16+i*8 → store new at same addr).
+                // Type is always Number (typecheck enforced); we use BinOp
+                // Add/Sub against ConstI64(1) on i64 or ConstF64(1.0) on f64.
+                let is_inc = *is_inc;
+                match self.ast.get_expr(*target).clone() {
+                    Expr::Ident(name) => {
+                        let info = match self.locals.get(&name) {
+                            Some(i) => *i,
+                            None => panic!(
+                                "ssa-lower: post-incr on unknown ident `{name}`"
+                            ),
+                        };
+                        let old = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(info.ty, Operand::Value(info.slot), 0),
+                            info.ty,
+                            None,
+                        );
+                        let one = if info.ty == Type::F64 {
+                            Operand::ConstF64(1.0)
+                        } else {
+                            Operand::ConstI64(1)
+                        };
+                        let op = if is_inc { SsaBinOp::Add } else { SsaBinOp::Sub };
+                        let new_v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::BinOp(op, Operand::Value(old), one),
+                            info.ty,
+                            None,
+                        );
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Store(
+                                Operand::Value(new_v),
+                                Operand::Value(info.slot),
+                                0,
+                            ),
+                        );
+                        Operand::Value(old)
+                    }
+                    Expr::Member { obj, name: field } => {
+                        let obj_val = self.lower_expr(obj);
+                        let obj_ty = self.operand_ty(&obj_val);
+                        let sid = match obj_ty {
+                            Type::Obj(sid) => sid,
+                            other => panic!(
+                                "ssa-lower: post-incr field on non-obj {other:?}"
+                            ),
+                        };
+                        let layout =
+                            self.struct_layouts[sid.0 as usize].clone();
+                        let (idx, field_ty) = layout
+                            .iter()
+                            .enumerate()
+                            .find_map(|(i, (fname, fty))| {
+                                if fname == &field {
+                                    Some((i, *fty))
+                                } else {
+                                    None
+                                }
+                            })
+                            .unwrap_or_else(|| {
+                                panic!(
+                                    "ssa-lower: struct {sid:?} has no field `{field}`"
+                                )
+                            });
+                        let offset = (idx as u64) * 8;
+                        let old = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(field_ty, obj_val, offset),
+                            field_ty,
+                            None,
+                        );
+                        let one = if field_ty == Type::F64 {
+                            Operand::ConstF64(1.0)
+                        } else {
+                            Operand::ConstI64(1)
+                        };
+                        let op = if is_inc { SsaBinOp::Add } else { SsaBinOp::Sub };
+                        let new_v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::BinOp(op, Operand::Value(old), one),
+                            field_ty,
+                            None,
+                        );
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Store(Operand::Value(new_v), obj_val, offset),
+                        );
+                        Operand::Value(old)
+                    }
+                    Expr::Index { obj, index } => {
+                        let arr_val = self.lower_expr(obj);
+                        let arr_ty = self.operand_ty(&arr_val);
+                        let elem_ty = match arr_ty {
+                            Type::Arr(arr_id) => self.arr_layouts[arr_id.0 as usize],
+                            other => panic!(
+                                "ssa-lower: post-incr index on non-array {other:?}"
+                            ),
+                        };
+                        let idx_val = self.lower_expr(index);
+                        // offset = 16 + idx * 8, computed once and reused
+                        // for both load (old) and store (new).
+                        let scaled = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::BinOp(
+                                SsaBinOp::Shl,
+                                idx_val,
+                                Operand::ConstI64(3),
+                            ),
+                            Type::I64,
+                            None,
+                        );
+                        let offset = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::BinOp(
+                                SsaBinOp::Add,
+                                Operand::Value(scaled),
+                                Operand::ConstI64(16),
+                            ),
+                            Type::I64,
+                            None,
+                        );
+                        let old = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::LoadDyn(
+                                elem_ty,
+                                arr_val,
+                                Operand::Value(offset),
+                            ),
+                            elem_ty,
+                            None,
+                        );
+                        let one = if elem_ty == Type::F64 {
+                            Operand::ConstF64(1.0)
+                        } else {
+                            Operand::ConstI64(1)
+                        };
+                        let op = if is_inc { SsaBinOp::Add } else { SsaBinOp::Sub };
+                        let new_v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::BinOp(op, Operand::Value(old), one),
+                            elem_ty,
+                            None,
+                        );
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::StoreDyn(
+                                Operand::Value(new_v),
+                                arr_val,
+                                Operand::Value(offset),
+                            ),
+                        );
+                        Operand::Value(old)
+                    }
+                    other => panic!(
+                        "ssa-lower: post-incr target shape not supported: {other:?}"
+                    ),
+                }
+            }
             other => panic!("ssa-lower: unsupported expr: {other:?}"),
         }
     }
