@@ -5792,6 +5792,52 @@ impl<'a> LowerCtx<'a> {
                         other => panic!("ssa-lower: unknown Number method `{other}`"),
                     }
                 }
+                // `Array.of(...vals)` — emits the same SSA shape as a
+                // no-spread array literal: arr_alloc(n) + len-store +
+                // direct slot stores at offset 16+i*8. Element type
+                // comes from the first arg; check.rs already verified
+                // every arg unifies on it. Empty `Array.of()` is
+                // rejected upstream (no anchor).
+                if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
+                    && m_name == "of"
+                    && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
+                    && ns == "Array"
+                {
+                    let n = args.len() as i64;
+                    let mut elem_vals: Vec<Operand> = Vec::with_capacity(args.len());
+                    for &aid in args {
+                        let v = self.lower_expr(aid);
+                        self.consume_if_ident(aid);
+                        elem_vals.push(v);
+                    }
+                    let elem_ty = self.operand_ty(&elem_vals[0]);
+                    let arr_id = intern_arr_layout(self.arr_layouts, elem_ty);
+                    let arr_ptr = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.arr_alloc,
+                            vec![Operand::ConstI64(n)],
+                        ),
+                        Type::Arr(arr_id),
+                        None,
+                    );
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Store(
+                            Operand::ConstI64(n),
+                            Operand::Value(arr_ptr),
+                            0,
+                        ),
+                    );
+                    for (i, val) in elem_vals.iter().enumerate() {
+                        let off = 16 + (i as u64) * 8;
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Store(*val, Operand::Value(arr_ptr), off),
+                        );
+                    }
+                    return Operand::Value(arr_ptr);
+                }
                 // `Array.from(s)` over a string — emits a Call to the
                 // runtime helper that walks `s` byte-by-byte and packs a
                 // single-char string per byte into a fresh `string[]`.
