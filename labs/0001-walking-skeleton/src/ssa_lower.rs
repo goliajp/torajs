@@ -1096,36 +1096,121 @@ fn synthesize_main(
 /// raw fn address → SIGBUS. Detected pattern is the direct-return case;
 /// returning a closure stored in a local is not yet handled.
 fn body_returns_closure(ast: &Ast, body: &[Stmt]) -> bool {
-    body.iter().any(|s| stmt_returns_closure(ast, s))
+    // Pre-walk to collect names of locals bound to a Closure expression
+    // (`let f = capturingArrowFn`). Then the return walker treats
+    // `return f` as equivalent to `return Expr::Closure{...}`. This
+    // matches the common pattern of factory fns that build a closure
+    // into a local before returning it.
+    let mut closure_locals: std::collections::HashSet<String> =
+        std::collections::HashSet::new();
+    collect_closure_locals(ast, body, &mut closure_locals);
+    body.iter()
+        .any(|s| stmt_returns_closure(ast, s, &closure_locals))
 }
 
-fn stmt_returns_closure(ast: &Ast, s: &Stmt) -> bool {
+fn collect_closure_locals(
+    ast: &Ast,
+    body: &[Stmt],
+    out: &mut std::collections::HashSet<String>,
+) {
+    for s in body {
+        match s {
+            Stmt::LetDecl { name, init, .. } => {
+                if matches!(ast.get_expr(*init), Expr::Closure { .. }) {
+                    out.insert(name.clone());
+                }
+            }
+            Stmt::If {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                collect_closure_locals(ast, std::slice::from_ref(then_branch), out);
+                if let Some(eb) = else_branch {
+                    collect_closure_locals(ast, std::slice::from_ref(eb), out);
+                }
+            }
+            Stmt::While { body, .. } | Stmt::For { body, .. } => {
+                collect_closure_locals(ast, std::slice::from_ref(body), out);
+            }
+            Stmt::DoWhile { body, .. } => {
+                collect_closure_locals(ast, std::slice::from_ref(body), out);
+            }
+            Stmt::Block(stmts) | Stmt::Multi(stmts) => {
+                collect_closure_locals(ast, stmts, out);
+            }
+            Stmt::Try {
+                body,
+                catch_body,
+                finally_body,
+                ..
+            } => {
+                collect_closure_locals(ast, body, out);
+                collect_closure_locals(ast, catch_body, out);
+                if let Some(fb) = finally_body {
+                    collect_closure_locals(ast, fb, out);
+                }
+            }
+            Stmt::Switch {
+                cases, default, ..
+            } => {
+                for c in cases {
+                    collect_closure_locals(ast, &c.body, out);
+                }
+                if let Some(db) = default {
+                    collect_closure_locals(ast, db, out);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn stmt_returns_closure(
+    ast: &Ast,
+    s: &Stmt,
+    closure_locals: &std::collections::HashSet<String>,
+) -> bool {
     match s {
-        Stmt::Return(Some(eid)) => matches!(ast.get_expr(*eid), Expr::Closure { .. }),
+        Stmt::Return(Some(eid)) => match ast.get_expr(*eid) {
+            Expr::Closure { .. } => true,
+            Expr::Ident(name) => closure_locals.contains(name),
+            _ => false,
+        },
         Stmt::If {
             then_branch,
             else_branch,
             ..
         } => {
-            stmt_returns_closure(ast, then_branch)
+            stmt_returns_closure(ast, then_branch, closure_locals)
                 || else_branch
                     .as_ref()
-                    .map(|e| stmt_returns_closure(ast, e))
+                    .map(|e| stmt_returns_closure(ast, e, closure_locals))
                     .unwrap_or(false)
         }
-        Stmt::While { body, .. } | Stmt::For { body, .. } => stmt_returns_closure(ast, body),
-        Stmt::Block(stmts) | Stmt::Multi(stmts) => body_returns_closure(ast, stmts),
+        Stmt::While { body, .. } | Stmt::For { body, .. } => {
+            stmt_returns_closure(ast, body, closure_locals)
+        }
+        Stmt::Block(stmts) | Stmt::Multi(stmts) => stmts
+            .iter()
+            .any(|s| stmt_returns_closure(ast, s, closure_locals)),
         Stmt::Try {
             body,
             catch_body,
             finally_body,
             ..
         } => {
-            body_returns_closure(ast, body)
-                || body_returns_closure(ast, catch_body)
+            body.iter()
+                .any(|s| stmt_returns_closure(ast, s, closure_locals))
+                || catch_body
+                    .iter()
+                    .any(|s| stmt_returns_closure(ast, s, closure_locals))
                 || finally_body
                     .as_ref()
-                    .map(|fb| body_returns_closure(ast, fb))
+                    .map(|fb| {
+                        fb.iter()
+                            .any(|s| stmt_returns_closure(ast, s, closure_locals))
+                    })
                     .unwrap_or(false)
         }
         _ => false,
