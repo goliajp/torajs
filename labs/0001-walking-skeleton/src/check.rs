@@ -478,6 +478,7 @@ pub fn check(ast: &Ast) -> Result<GenericCallSites, String> {
         generic_type_params: HashMap::new(),
         generic_call_sites: HashMap::new(),
         generic_alias_decls: HashMap::new(),
+        fn_defaults: HashMap::new(),
     };
 
     // Pass 0: register type aliases first so fn signatures + let
@@ -558,6 +559,16 @@ pub fn check(ast: &Ast) -> Result<GenericCallSites, String> {
                         if !type_params.is_empty() {
                             c.generic_type_params.insert(name.clone(), type_params.clone());
                         }
+                        // Record per-param default ExprIds for caller-
+                        // side default substitution. None positions are
+                        // required args; first non-None marks the start
+                        // of the optional tail (JS spec — defaults must
+                        // be trailing).
+                        let defaults: Vec<Option<ExprId>> =
+                            user_params.iter().map(|p| p.default).collect();
+                        if defaults.iter().any(|d| d.is_some()) {
+                            c.fn_defaults.insert(name.clone(), defaults);
+                        }
                     }
                 }
                 Err(e) => c.errors.push(e),
@@ -627,6 +638,12 @@ struct Checker {
     /// `resolve_type_ann_with_vars` to instantiate `Pair<number|string>`
     /// on-demand into a concrete `Type::Struct`.
     generic_alias_decls: GenericAliasMap,
+    /// Per-FnDecl default-value ExprIds in param order (None for
+    /// required params, Some for `f(x = expr)`). Only present for fns
+    /// with at least one defaulted param. Used at call-typecheck time
+    /// to allow caller to omit trailing args, and at lower time to
+    /// supply the default expr at the call site.
+    pub fn_defaults: HashMap<String, Vec<Option<ExprId>>>,
 }
 
 /// Walk `pattern` and `actual` in lockstep; whenever a `TypeVar(name)` is

@@ -438,9 +438,16 @@ impl Parser<'_> {
                 } else {
                     None
                 };
+                let default = if matches!(self.peek(), Token::Eq) {
+                    self.pos += 1;
+                    Some(self.parse_expr()?)
+                } else {
+                    None
+                };
                 params.push(Param {
                     name: pname,
                     type_ann,
+                    default,
                 });
                 match self.peek() {
                     Token::Comma => self.pos += 1,
@@ -2251,7 +2258,16 @@ impl Parser<'_> {
                 } else {
                     None
                 };
-                params.push(Param { name: pname, type_ann });
+                // Default value: `= <expr>`. Evaluated at the call
+                // site (not in callee scope) when the caller omits
+                // the arg.
+                let default = if matches!(self.peek(), Token::Eq) {
+                    self.pos += 1;
+                    Some(self.parse_expr()?)
+                } else {
+                    None
+                };
+                params.push(Param { name: pname, type_ann, default });
                 match self.peek() {
                     Token::Comma => self.pos += 1,
                     Token::RParen => break,
@@ -2355,9 +2371,16 @@ impl Parser<'_> {
                 } else {
                     None
                 };
+                let default = if matches!(self.peek(), Token::Eq) {
+                    self.pos += 1;
+                    Some(self.parse_expr()?)
+                } else {
+                    None
+                };
                 params.push(Param {
                     name: pname,
                     type_ann,
+                    default,
                 });
                 match self.peek() {
                     Token::Comma => self.pos += 1,

@@ -1,5 +1,7 @@
 //! AST — arena-allocated. Children referenced by `ExprId(u32)`, not Box.
 
+use std::collections::HashMap;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ExprId(pub u32);
 
@@ -159,6 +161,10 @@ pub enum Expr {
 pub struct Param {
     pub name: String,
     pub type_ann: Option<String>,
+    /// Default value expression: `function f(x: number = 0)`. Evaluated
+    /// at the call site (not in callee scope) when the caller omits
+    /// the argument. None for required params.
+    pub default: Option<ExprId>,
 }
 
 /// One arm of a `switch` statement. `value` is the case label (must
@@ -612,6 +618,7 @@ pub fn desugar_classes(ast: &mut Ast) {
             params.push(Param {
                 name: "__this".into(),
                 type_ann: Some(cname.clone()),
+                default: None,
             });
             params.extend(c.params.iter().cloned());
             appended.push(Stmt::FnDecl {
@@ -629,6 +636,7 @@ pub fn desugar_classes(ast: &mut Ast) {
             params.push(Param {
                 name: "__this".into(),
                 type_ann: Some(cname.clone()),
+                default: None,
             });
             params.extend(m.params.iter().cloned());
             appended.push(Stmt::FnDecl {
@@ -914,6 +922,72 @@ fn build_factory_body(
     body
 }
 
+/// Apply default-argument substitution at Call sites. For every
+/// `function f(x = expr) {...}` or arrow fn with default params, walks
+/// every `Expr::Call` whose callee is an Ident matching the fn name
+/// and pads `args` with the default ExprIds when the caller omits
+/// trailing args. Shared ExprIds across call sites are fine — they're
+/// purely read by the type-checker and ssa-lower, never mutated.
+///
+/// Defaults are evaluated at the call site (not in callee scope) —
+/// slightly diverges from JS spec but covers typical constant /
+/// global-expression defaults used in tests.
+pub fn apply_default_args(ast: &mut Ast) {
+    let mut fn_defaults: HashMap<String, Vec<Option<ExprId>>> = HashMap::new();
+    for s in &ast.stmts {
+        if let Stmt::FnDecl { name, params, .. } = s {
+            let is_closure = params.first().is_some_and(|p| p.name == "__env");
+            let user_params: &[Param] = if is_closure { &params[1..] } else { params };
+            if user_params.iter().any(|p| p.default.is_some()) {
+                fn_defaults.insert(
+                    name.clone(),
+                    user_params.iter().map(|p| p.default).collect(),
+                );
+            }
+        }
+    }
+    if fn_defaults.is_empty() {
+        return;
+    }
+    let n = ast.exprs.len();
+    for i in 0..n {
+        if let Expr::Call { callee, args } = &ast.exprs[i] {
+            let callee = *callee;
+            let args_len = args.len();
+            // Look up callee's name. Direct Ident only.
+            let name = match ast.get_expr(callee) {
+                Expr::Ident(n) => n.clone(),
+                _ => continue,
+            };
+            let Some(defaults) = fn_defaults.get(&name) else {
+                continue;
+            };
+            if args_len >= defaults.len() {
+                continue;
+            }
+            // Append defaults for missing positions.
+            let mut new_args = match &ast.exprs[i] {
+                Expr::Call { args, .. } => args.clone(),
+                _ => unreachable!(),
+            };
+            let mut ok = true;
+            for j in args_len..defaults.len() {
+                if let Some(default_eid) = defaults[j] {
+                    new_args.push(default_eid);
+                } else {
+                    // Missing required arg — leave alone, typecheck
+                    // will report.
+                    ok = false;
+                    break;
+                }
+            }
+            if ok {
+                ast.exprs[i] = Expr::Call { callee, args: new_args };
+            }
+        }
+    }
+}
+
 /// M2 — lambda-lift arrow fns. Walks `ast.exprs` in index order; each
 /// `Expr::ArrowFn` is replaced in-place and a corresponding `Stmt::FnDecl`
 /// is appended to `ast.stmts`.
@@ -993,6 +1067,7 @@ pub fn lift_arrow_fns(ast: &mut Ast) {
                     Param {
                         name: "__env".into(),
                         type_ann: Some(env_ann),
+                        default: None,
                     },
                 );
             }
