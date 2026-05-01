@@ -126,6 +126,17 @@ pub struct Param {
     pub type_ann: Option<String>,
 }
 
+/// One arm of a `switch` statement. `value` is the case label (must
+/// be a literal in this subset — Number / String / Bool); `body` is
+/// the statements that run when the scrutinee strict-equals `value`,
+/// with the JS-shape fall-through to the next case unless interrupted
+/// by `break` or `return`.
+#[derive(Debug, Clone)]
+pub struct SwitchCase {
+    pub value: ExprId,
+    pub body: Vec<Stmt>,
+}
+
 #[derive(Debug, Clone)]
 pub enum Stmt {
     Expr(ExprId),
@@ -143,6 +154,19 @@ pub enum Stmt {
     While {
         cond: ExprId,
         body: Box<Stmt>,
+    },
+    /// `do { body } while (cond);` — body runs at least once, then
+    /// `cond` decides whether to repeat.
+    DoWhile {
+        body: Box<Stmt>,
+        cond: ExprId,
+    },
+    /// `switch (scrutinee) { case v: ... default: ... }` — strict-eq
+    /// dispatch. Cases share fall-through; `break` exits the switch.
+    Switch {
+        scrutinee: ExprId,
+        cases: Vec<SwitchCase>,
+        default: Option<Vec<Stmt>>,
     },
     /// `for (init; cond; step) body` — C-style for-loop. M1.6.
     /// `init` is typically a LetDecl but can also be an Expr stmt or
@@ -624,6 +648,24 @@ fn collect_super_in_stmt(
             collect_super_in_expr(ast, *cond, out);
             collect_super_in_stmt(ast, body, out);
         }
+        Stmt::DoWhile { body, cond } => {
+            collect_super_in_stmt(ast, body, out);
+            collect_super_in_expr(ast, *cond, out);
+        }
+        Stmt::Switch { scrutinee, cases, default } => {
+            collect_super_in_expr(ast, *scrutinee, out);
+            for c in cases {
+                collect_super_in_expr(ast, c.value, out);
+                for s in &c.body {
+                    collect_super_in_stmt(ast, s, out);
+                }
+            }
+            if let Some(db) = default {
+                for s in db {
+                    collect_super_in_stmt(ast, s, out);
+                }
+            }
+        }
         Stmt::For {
             init,
             cond,
@@ -939,6 +981,30 @@ fn walk_stmt(ast: &Ast, s: &Stmt, bound: &mut Vec<String>, out: &mut Vec<String>
             walk_stmt(ast, body, bound, out);
             bound.truncate(saved);
         }
+        Stmt::DoWhile { body, cond } => {
+            let saved = bound.len();
+            walk_stmt(ast, body, bound, out);
+            bound.truncate(saved);
+            walk_expr(ast, *cond, bound, out);
+        }
+        Stmt::Switch { scrutinee, cases, default } => {
+            walk_expr(ast, *scrutinee, bound, out);
+            for c in cases {
+                walk_expr(ast, c.value, bound, out);
+                let saved = bound.len();
+                for s in &c.body {
+                    walk_stmt(ast, s, bound, out);
+                }
+                bound.truncate(saved);
+            }
+            if let Some(db) = default {
+                let saved = bound.len();
+                for s in db {
+                    walk_stmt(ast, s, bound, out);
+                }
+                bound.truncate(saved);
+            }
+        }
         Stmt::For {
             init,
             cond,
@@ -1059,6 +1125,24 @@ fn scan_stmt_for_throws(
         Stmt::While { cond, body } => {
             scan_expr_for_calls(ast, *cond, called);
             scan_stmt_for_throws(ast, body, direct, called);
+        }
+        Stmt::DoWhile { body, cond } => {
+            scan_stmt_for_throws(ast, body, direct, called);
+            scan_expr_for_calls(ast, *cond, called);
+        }
+        Stmt::Switch { scrutinee, cases, default } => {
+            scan_expr_for_calls(ast, *scrutinee, called);
+            for c in cases {
+                scan_expr_for_calls(ast, c.value, called);
+                for s in &c.body {
+                    scan_stmt_for_throws(ast, s, direct, called);
+                }
+            }
+            if let Some(db) = default {
+                for s in db {
+                    scan_stmt_for_throws(ast, s, direct, called);
+                }
+            }
         }
         Stmt::For {
             init,
@@ -1307,6 +1391,31 @@ impl Ast {
                 self.print_expr(*cond, indent + 2);
                 println!("{pad}  body:");
                 self.print_stmt(body, indent + 2);
+            }
+            Stmt::DoWhile { body, cond } => {
+                println!("{pad}DoWhile");
+                println!("{pad}  body:");
+                self.print_stmt(body, indent + 2);
+                println!("{pad}  cond:");
+                self.print_expr(*cond, indent + 2);
+            }
+            Stmt::Switch { scrutinee, cases, default } => {
+                println!("{pad}Switch");
+                println!("{pad}  on:");
+                self.print_expr(*scrutinee, indent + 2);
+                for c in cases {
+                    println!("{pad}  case:");
+                    self.print_expr(c.value, indent + 2);
+                    for s in &c.body {
+                        self.print_stmt(s, indent + 2);
+                    }
+                }
+                if let Some(db) = default {
+                    println!("{pad}  default:");
+                    for s in db {
+                        self.print_stmt(s, indent + 2);
+                    }
+                }
             }
             Stmt::For { init, cond, step, body } => {
                 println!("{pad}For");

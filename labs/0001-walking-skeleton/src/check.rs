@@ -796,6 +796,46 @@ impl Checker {
                 }
                 self.check_stmt(ast, body);
             }
+            Stmt::DoWhile { body, cond } => {
+                self.check_stmt(ast, body);
+                match self.type_of(ast, *cond) {
+                    Ok(Type::Boolean) => {}
+                    Ok(other) => self
+                        .errors
+                        .push(format!("do-while condition must be boolean, got {other:?}")),
+                    Err(e) => self.errors.push(e),
+                }
+            }
+            Stmt::Switch { scrutinee, cases, default } => {
+                let scrut_ty = match self.type_of(ast, *scrutinee) {
+                    Ok(t) => t,
+                    Err(e) => {
+                        self.errors.push(e);
+                        return;
+                    }
+                };
+                for c in cases {
+                    match self.type_of(ast, c.value) {
+                        Ok(t) if t == scrut_ty => {}
+                        Ok(t) => self.errors.push(format!(
+                            "switch case value type {t:?} differs from scrutinee {scrut_ty:?}"
+                        )),
+                        Err(e) => self.errors.push(e),
+                    }
+                    self.scopes.push(HashMap::new());
+                    for s in &c.body {
+                        self.check_stmt(ast, s);
+                    }
+                    self.scopes.pop();
+                }
+                if let Some(db) = default {
+                    self.scopes.push(HashMap::new());
+                    for s in db {
+                        self.check_stmt(ast, s);
+                    }
+                    self.scopes.pop();
+                }
+            }
             Stmt::For { init, cond, step, body } => {
                 // Init runs in a fresh scope so `let i = 0; ...; for () i;`
                 // doesn't bleed `i` into the surrounding fn scope. Push

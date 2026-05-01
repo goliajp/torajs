@@ -194,6 +194,12 @@ impl Parser<'_> {
         if matches!(self.peek(), Token::While) {
             return self.parse_while();
         }
+        if matches!(self.peek(), Token::Do) {
+            return self.parse_do_while();
+        }
+        if matches!(self.peek(), Token::Switch) {
+            return self.parse_switch();
+        }
         if matches!(self.peek(), Token::For) {
             return self.parse_for();
         }
@@ -594,6 +600,143 @@ impl Parser<'_> {
         }
         let body = Box::new(self.parse_stmt()?);
         Ok(Stmt::While { cond, body })
+    }
+
+    fn parse_do_while(&mut self) -> Result<Stmt, String> {
+        self.pos += 1; // consume `do`
+        let body = Box::new(self.parse_stmt()?);
+        match self.peek() {
+            Token::While => self.pos += 1,
+            t => {
+                return Err(format!(
+                    "expected `while` after `do {{ … }}`, got {t:?} at {}",
+                    self.at()
+                ));
+            }
+        }
+        match self.peek() {
+            Token::LParen => self.pos += 1,
+            t => {
+                return Err(format!(
+                    "expected `(` after `while` in do-while, got {t:?} at {}",
+                    self.at()
+                ));
+            }
+        }
+        let cond = self.parse_expr()?;
+        match self.peek() {
+            Token::RParen => self.pos += 1,
+            t => {
+                return Err(format!(
+                    "expected `)` after do-while condition, got {t:?} at {}",
+                    self.at()
+                ));
+            }
+        }
+        // Optional `;` after the closing paren.
+        if matches!(self.peek(), Token::Semi) {
+            self.pos += 1;
+        }
+        Ok(Stmt::DoWhile { body, cond })
+    }
+
+    fn parse_switch(&mut self) -> Result<Stmt, String> {
+        self.pos += 1; // consume `switch`
+        match self.peek() {
+            Token::LParen => self.pos += 1,
+            t => {
+                return Err(format!(
+                    "expected `(` after `switch`, got {t:?} at {}",
+                    self.at()
+                ));
+            }
+        }
+        let scrutinee = self.parse_expr()?;
+        match self.peek() {
+            Token::RParen => self.pos += 1,
+            t => {
+                return Err(format!(
+                    "expected `)` after switch scrutinee, got {t:?} at {}",
+                    self.at()
+                ));
+            }
+        }
+        match self.peek() {
+            Token::LBrace => self.pos += 1,
+            t => {
+                return Err(format!(
+                    "expected `{{` to begin switch body, got {t:?} at {}",
+                    self.at()
+                ));
+            }
+        }
+        let mut cases: Vec<ast::SwitchCase> = Vec::new();
+        let mut default: Option<Vec<Stmt>> = None;
+        while !matches!(self.peek(), Token::RBrace | Token::Eof) {
+            match self.peek() {
+                Token::Case => {
+                    self.pos += 1;
+                    let value = self.parse_expr()?;
+                    match self.peek() {
+                        Token::Colon => self.pos += 1,
+                        t => {
+                            return Err(format!(
+                                "expected `:` after case value, got {t:?} at {}",
+                                self.at()
+                            ));
+                        }
+                    }
+                    let mut body: Vec<Stmt> = Vec::new();
+                    while !matches!(
+                        self.peek(),
+                        Token::Case | Token::Default | Token::RBrace | Token::Eof
+                    ) {
+                        body.push(self.parse_stmt()?);
+                    }
+                    cases.push(ast::SwitchCase { value, body });
+                }
+                Token::Default => {
+                    self.pos += 1;
+                    match self.peek() {
+                        Token::Colon => self.pos += 1,
+                        t => {
+                            return Err(format!(
+                                "expected `:` after `default`, got {t:?} at {}",
+                                self.at()
+                            ));
+                        }
+                    }
+                    let mut body: Vec<Stmt> = Vec::new();
+                    while !matches!(
+                        self.peek(),
+                        Token::Case | Token::Default | Token::RBrace | Token::Eof
+                    ) {
+                        body.push(self.parse_stmt()?);
+                    }
+                    default = Some(body);
+                }
+                t => {
+                    return Err(format!(
+                        "expected `case` or `default` inside switch, got {t:?} at {}",
+                        self.at()
+                    ));
+                }
+            }
+        }
+        match self.peek() {
+            Token::RBrace => self.pos += 1,
+            t => {
+                return Err(format!(
+                    "expected `}}` to end switch, got {t:?} at {}",
+                    self.at()
+                ));
+            }
+        }
+        Ok(Stmt::Switch {
+            scrutinee,
+            cases,
+            default,
+        })
     }
 
     /// `for (init?; cond?; step?) body`. Each clause is optional but the

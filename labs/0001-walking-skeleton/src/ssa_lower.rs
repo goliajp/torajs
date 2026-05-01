@@ -2186,6 +2186,174 @@ impl<'a> LowerCtx<'a> {
 
                 self.cur_block = after;
             }
+            Stmt::DoWhile { body, cond } => {
+                // Body executes at least once, then `cond` decides
+                // whether to repeat. Layout: body_blk → cond_blk → (back
+                // to body_blk | after). break/continue inside body act
+                // like a normal loop; continue jumps to cond_blk so the
+                // condition still re-evaluates.
+                let body_blk = self.f.add_block();
+                let cond_blk = self.f.add_block();
+                let after = self.f.add_block();
+
+                self.f.set_term(self.cur_block, Terminator::Br(body_blk));
+
+                self.loop_stack.push((cond_blk, after));
+                self.cur_block = body_blk;
+                self.lower_stmt(body);
+                if self.cur_open() {
+                    self.f.set_term(self.cur_block, Terminator::Br(cond_blk));
+                }
+                self.loop_stack.pop();
+
+                self.cur_block = cond_blk;
+                let c = self.lower_expr(*cond);
+                self.f.set_term(
+                    self.cur_block,
+                    Terminator::CondBr {
+                        cond: c,
+                        then_blk: body_blk,
+                        else_blk: after,
+                    },
+                );
+
+                self.cur_block = after;
+            }
+            Stmt::Switch {
+                scrutinee,
+                cases,
+                default,
+            } => {
+                // Lower switch as a chain of strict-eq compares with
+                // shared fall-through bodies. Layout:
+                //   eval scrutinee → cmp_0 → (body_0 | cmp_1) → cmp_1 →
+                //   (body_1 | … | default | after) → after.
+                // Each body falls through to the NEXT body's entry
+                // unless interrupted by `break` (loop_stack supplies the
+                // break target = `after`).
+                let scrut_val = self.lower_expr(*scrutinee);
+                let scrut_ty = self.operand_ty(&scrut_val);
+                let after = self.f.add_block();
+                self.loop_stack.push((after, after));
+
+                // Pre-allocate body blocks so fall-through across cases
+                // resolves to the next body, not its compare site.
+                let body_blks: Vec<BlockId> =
+                    cases.iter().map(|_| self.f.add_block()).collect();
+                let default_blk = if default.is_some() {
+                    Some(self.f.add_block())
+                } else {
+                    None
+                };
+
+                for (i, c) in cases.iter().enumerate() {
+                    // For i>0 the previous iteration already positioned
+                    // `cur_block` at the next_cmp_or_default block it
+                    // allocated; reuse it directly. (Allocating a fresh
+                    // block here would orphan the previous CondBr's
+                    // else-target and trip LLVM's unreachable detector,
+                    // surfacing as SIGTRAP at runtime.)
+                    let cmp_blk = self.cur_block;
+                    let _ = i;
+                    let v = self.lower_expr(c.value);
+                    let eq = match scrut_ty {
+                        Type::F64 => self.f.append_inst(
+                            cmp_blk,
+                            InstKind::FCmp(FPred::Oeq, scrut_val, v),
+                            Type::Bool,
+                            None,
+                        ),
+                        Type::Str => {
+                            // Strings dispatch through __torajs_str_eq
+                            // — declared as returning Type::Bool, so the
+                            // result is directly usable as the cond_br
+                            // condition.
+                            self.f.append_inst(
+                                cmp_blk,
+                                InstKind::Call(
+                                    self.intrinsics.str_eq,
+                                    vec![scrut_val, v],
+                                ),
+                                Type::Bool,
+                                None,
+                            )
+                        }
+                        _ => self.f.append_inst(
+                            cmp_blk,
+                            InstKind::ICmp(IPred::Eq, scrut_val, v),
+                            Type::Bool,
+                            None,
+                        ),
+                    };
+                    let next_cmp_or_default = if i + 1 < cases.len() {
+                        // Lazy: the next iteration creates the next cmp
+                        // block. We need its id NOW for the cond_br
+                        // false-branch. Allocate it here and assign in
+                        // the next iter.
+                        self.f.add_block()
+                    } else {
+                        default_blk.unwrap_or(after)
+                    };
+                    self.f.set_term(
+                        cmp_blk,
+                        Terminator::CondBr {
+                            cond: Operand::Value(eq),
+                            then_blk: body_blks[i],
+                            else_blk: next_cmp_or_default,
+                        },
+                    );
+                    // Lower the body in body_blks[i]. Fall-through goes
+                    // to body_blks[i+1] (or default, or after).
+                    let fall_through = if i + 1 < body_blks.len() {
+                        body_blks[i + 1]
+                    } else {
+                        default_blk.unwrap_or(after)
+                    };
+                    self.cur_block = body_blks[i];
+                    for s in &c.body {
+                        self.lower_stmt(s);
+                        if !self.cur_open() {
+                            break;
+                        }
+                    }
+                    if self.cur_open() {
+                        self.f.set_term(self.cur_block, Terminator::Br(fall_through));
+                    }
+                    // Position cur_block for the next iteration's cmp
+                    // (it's the block just made via "next_cmp_or_default"
+                    // when i+1 < cases.len()).
+                    if i + 1 < cases.len() {
+                        self.cur_block = next_cmp_or_default;
+                    }
+                }
+
+                if let (Some(db), Some(default_body)) = (default_blk, default) {
+                    self.cur_block = db;
+                    for s in default_body {
+                        self.lower_stmt(s);
+                        if !self.cur_open() {
+                            break;
+                        }
+                    }
+                    if self.cur_open() {
+                        self.f.set_term(self.cur_block, Terminator::Br(after));
+                    }
+                }
+                if cases.is_empty() {
+                    // Edge case: `switch (x) { default: ... }` with no
+                    // case arms.
+                    if let Some(db) = default_blk {
+                        let cb = self.cur_block;
+                        self.f.set_term(cb, Terminator::Br(db));
+                    } else {
+                        let cb = self.cur_block;
+                        self.f.set_term(cb, Terminator::Br(after));
+                    }
+                }
+
+                self.loop_stack.pop();
+                self.cur_block = after;
+            }
             Stmt::For { init, cond, step, body } => {
                 // M1.6 — `for (init; cond; step) body`. Create blocks for
                 // header (cond), body, step, after. continue_target is
