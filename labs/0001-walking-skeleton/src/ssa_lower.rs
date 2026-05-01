@@ -6233,7 +6233,7 @@ impl<'a> LowerCtx<'a> {
                         | "startsWith" | "endsWith"
                         | "includes" | "indexOf" | "split" | "join" | "repeat"
                         | "toUpperCase" | "toLowerCase"
-                        | "trim" | "trimStart" | "trimEnd"
+                        | "trim" | "trimStart" | "trimEnd" | "trimLeft" | "trimRight"
                         | "padStart" | "padEnd"
                         | "replace" | "replaceAll"
                         | "reverse" | "toReversed" | "with"
@@ -6253,7 +6253,7 @@ impl<'a> LowerCtx<'a> {
                             | "startsWith"
                             | "endsWith" | "includes" | "indexOf" | "split" | "repeat"
                             | "toUpperCase" | "toLowerCase"
-                            | "trim" | "trimStart" | "trimEnd"
+                            | "trim" | "trimStart" | "trimEnd" | "trimLeft" | "trimRight"
                             | "padStart" | "padEnd"
                             | "replace" | "replaceAll" | "at"
                             | "lastIndexOf" | "localeCompare"
@@ -6271,8 +6271,8 @@ impl<'a> LowerCtx<'a> {
                             "toUpperCase" => (self.intrinsics.str_to_upper, Type::Str),
                             "toLowerCase" => (self.intrinsics.str_to_lower, Type::Str),
                             "trim" => (self.intrinsics.str_trim, Type::Str),
-                            "trimStart" => (self.intrinsics.str_trim_start, Type::Str),
-                            "trimEnd" => (self.intrinsics.str_trim_end, Type::Str),
+                            "trimStart" | "trimLeft" => (self.intrinsics.str_trim_start, Type::Str),
+                            "trimEnd" | "trimRight" => (self.intrinsics.str_trim_end, Type::Str),
                             "padStart" => (self.intrinsics.str_pad_start, Type::Str),
                             "padEnd" => (self.intrinsics.str_pad_end, Type::Str),
                             "replace" => (self.intrinsics.str_replace, Type::Str),

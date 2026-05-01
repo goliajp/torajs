@@ -1366,7 +1366,12 @@ impl Checker {
                     )),
                     (Type::String, "toUpperCase") | (Type::String, "toLowerCase")
                     | (Type::String, "trim") | (Type::String, "trimStart")
-                    | (Type::String, "trimEnd") => Ok(Type::Function(
+                    | (Type::String, "trimEnd")
+                    // `trimLeft` / `trimRight` are the non-standard but
+                    // de-facto aliases that ship in every JS engine —
+                    // ECMAScript Annex B documents them as legacy of
+                    // `trimStart` / `trimEnd`.
+                    | (Type::String, "trimLeft") | (Type::String, "trimRight") => Ok(Type::Function(
                         Vec::new(),
                         Box::new(Type::String),
                     )),
