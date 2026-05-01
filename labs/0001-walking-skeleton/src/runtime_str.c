@@ -213,6 +213,39 @@ void *__torajs_arr_join(const uint8_t *arr, const uint8_t *sep) {
     return p;
 }
 
+/* `arr.reverse()` — in-place reverse over the i64-slot array. Returns
+ * the same array pointer for chaining. Element-type-agnostic. */
+void *__torajs_arr_reverse(uint8_t *arr) {
+    uint64_t len = *(const uint64_t *)arr;
+    if (len < 2) return arr;
+    uint64_t lo = 0, hi = len - 1;
+    while (lo < hi) {
+        uint64_t a_off = 16 + lo * 8;
+        uint64_t b_off = 16 + hi * 8;
+        uint64_t tmp = *(const uint64_t *)(arr + a_off);
+        *(uint64_t *)(arr + a_off) = *(const uint64_t *)(arr + b_off);
+        *(uint64_t *)(arr + b_off) = tmp;
+        lo++; hi--;
+    }
+    return arr;
+}
+
+/* `arr.fill(value, start, end)` — write `value` into [start, end).
+ * Both indices clamped to [0, len]. Element-type-agnostic — the value
+ * is passed as i64 and stored verbatim in each slot; the caller's
+ * SSA layer is responsible for converting types. Returns the same
+ * pointer for chaining. */
+void *__torajs_arr_fill(uint8_t *arr, int64_t value, int64_t start, int64_t end) {
+    uint64_t len = *(const uint64_t *)arr;
+    int64_t lo = start < 0 ? 0 : (start > (int64_t)len ? (int64_t)len : start);
+    int64_t hi = end < 0 ? 0 : (end > (int64_t)len ? (int64_t)len : end);
+    if (hi < lo) return arr;
+    for (int64_t i = lo; i < hi; i++) {
+        *(int64_t *)(arr + 16 + (uint64_t)i * 8) = value;
+    }
+    return arr;
+}
+
 /* `s.toUpperCase()` / `s.toLowerCase()` — ASCII-only fold (matches the
  * subset's byte-level Str layout). Non-ASCII bytes pass through
  * unchanged. Single malloc, single pass. */

@@ -749,6 +749,20 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         &[Type::F64],
         Type::F64,
     );
+    let arr_reverse_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_arr_reverse",
+        &[Type::Ptr],
+        Type::Ptr,
+    );
+    let arr_fill_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_arr_fill",
+        &[Type::Ptr, Type::I64, Type::I64, Type::I64],
+        Type::Ptr,
+    );
     // M4 — exception state runtime. Three intrinsics around two
     // module-level i64 globals (`throw_active`, `throw_value`) that
     // the backend implements. Lowering uses set/check/take to thread
@@ -1038,6 +1052,8 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         math_log2: math_log2_id,
         math_log10: math_log10_id,
         math_cbrt: math_cbrt_id,
+        arr_reverse: arr_reverse_id,
+        arr_fill: arr_fill_id,
         throw_set: throw_set_id,
         throw_check: throw_check_id,
         throw_take: throw_take_id,
@@ -1204,6 +1220,8 @@ struct Intrinsics {
     math_log2: FuncId,
     math_log10: FuncId,
     math_cbrt: FuncId,
+    arr_reverse: FuncId,
+    arr_fill: FuncId,
     /// M4 — exception state. `throw_set(value)` writes to module-level
     /// throw_active=1 + throw_value; `throw_check()` returns active flag;
     /// `throw_take()` reads value + clears flag. The backend defines the
@@ -4320,6 +4338,7 @@ impl<'a> LowerCtx<'a> {
                         | "toUpperCase" | "toLowerCase"
                         | "trim" | "trimStart" | "trimEnd"
                         | "padStart" | "padEnd"
+                        | "reverse" | "fill"
                     )
                 {
                     let recv_op = self.lower_expr(*obj);
@@ -4388,6 +4407,53 @@ impl<'a> LowerCtx<'a> {
                             self.cur_block,
                             InstKind::Call(self.intrinsics.arr_join, argv),
                             Type::Str,
+                            None,
+                        );
+                        return Operand::Value(v);
+                    }
+                    // `arr.reverse()` — in-place over the receiver,
+                    // returns the same array pointer for chaining.
+                    if let Type::Arr(arr_id) = recv_ty
+                        && method == "reverse"
+                        && args.is_empty()
+                    {
+                        let v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.arr_reverse,
+                                vec![recv_op],
+                            ),
+                            Type::Arr(arr_id),
+                            None,
+                        );
+                        return Operand::Value(v);
+                    }
+                    // `arr.fill(v, start, end)` — uniform fill of the
+                    // [start, end) range. Element value is passed as
+                    // i64 (8-byte slot — works for i64 / Bool / Str /
+                    // Obj / Arr; f64 elements would need a bitcast not
+                    // yet in the IR). The intrinsic returns the same
+                    // pointer.
+                    if let Type::Arr(arr_id) = recv_ty
+                        && method == "fill"
+                        && args.len() == 3
+                    {
+                        let value = self.lower_expr(args[0]);
+                        let value_ty = self.operand_ty(&value);
+                        if value_ty == Type::F64 {
+                            panic!(
+                                "ssa-lower: Array.fill on f64 elements not yet supported (need IR bitcast)"
+                            );
+                        }
+                        let start = self.lower_expr(args[1]);
+                        let end = self.lower_expr(args[2]);
+                        let v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.arr_fill,
+                                vec![recv_op, value, start, end],
+                            ),
+                            Type::Arr(arr_id),
                             None,
                         );
                         return Operand::Value(v);
@@ -6845,6 +6911,8 @@ impl<'a> LowerCtx<'a> {
             || fid == i.str_trim_end
             || fid == i.str_pad_start
             || fid == i.str_pad_end
+            || fid == i.arr_reverse
+            || fid == i.arr_fill
             || fid == i.throw_set
             || fid == i.throw_check
             || fid == i.throw_take

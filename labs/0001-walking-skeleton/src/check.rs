@@ -1315,6 +1315,26 @@ impl Checker {
                         let inner = (**elem).clone();
                         Ok(Type::Function(vec![inner], Box::new(Type::Void)))
                     }
+                    // `xs.reverse()` — in-place reverse, returns the same
+                    // array (chainable). Subset returns void since the
+                    // chain shape isn't common in our test set.
+                    (Type::Array(elem), "reverse") => {
+                        let inner = (**elem).clone();
+                        Ok(Type::Function(
+                            Vec::new(),
+                            Box::new(Type::Array(Box::new(inner))),
+                        ))
+                    }
+                    // `xs.fill(value, start, end)` — uniform fill over a
+                    // range. start/end optional in JS; subset requires
+                    // both for now. Returns the same array.
+                    (Type::Array(elem), "fill") => {
+                        let inner = (**elem).clone();
+                        Ok(Type::Function(
+                            vec![inner.clone(), Type::Number, Type::Number],
+                            Box::new(Type::Array(Box::new(inner))),
+                        ))
+                    }
                     // `xs.slice(start, end)` — fresh array of the
                     // [start, end) range. Same element type. Both
                     // bounds are required in this v0 subset.
