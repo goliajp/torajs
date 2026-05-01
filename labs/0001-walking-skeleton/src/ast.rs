@@ -333,6 +333,11 @@ pub struct ClassMethod {
 pub struct Ast {
     pub stmts: Vec<Stmt>,
     pub exprs: Vec<Expr>,
+    /// Recorded by `desugar_classes` so post-desugar passes (check, ssa_lower)
+    /// can resolve `instanceof Parent` on a subclass instance: maps each
+    /// declared class name to its parent (None if no `extends`). Empty
+    /// before desugar runs and for programs with no class declarations.
+    pub class_parents: std::collections::HashMap<String, Option<String>>,
 }
 
 /// M5.1 — desugar `class C { ... }` into `type C = {...}` + a series of
@@ -426,6 +431,10 @@ pub fn desugar_classes(ast: &mut Ast) {
     for (_, cname, _tp, parent, _, _, _) in &class_index {
         parent_map.insert(cname.clone(), parent.clone());
     }
+    // Make the parent map visible to post-desugar passes so `instanceof`
+    // can walk the chain when the LHS is a subclass and the RHS names
+    // an ancestor.
+    ast.class_parents = parent_map.clone();
     // Detect missing-parent and cycle errors. We don't allow forward
     // references to classes that come later in source order — every
     // ancestor must be declared before its descendants. This keeps

@@ -8463,19 +8463,62 @@ impl<'a> LowerCtx<'a> {
             }
             Expr::InstanceOf { expr, class_name } => {
                 // Compile-time class membership. Lower the operand for
-                // its side effects, then compare its SSA Type against
-                // the alias entry for `class_name`. Emits ConstBool
-                // with the pre-decided answer. Inheritance-chain
-                // lookup not yet implemented — only direct-class
-                // identity (subclass.instanceof(Parent) returns false
-                // until M-OO.3 records the parent map and walks it).
+                // its side effects, then resolve the answer against
+                // the class hierarchy recorded by desugar_classes.
+                //
+                // Algorithm:
+                //   1. Get the operand's static struct id (sid_actual).
+                //   2. Find the class name whose alias maps to that sid
+                //      — this is the operand's declared class.
+                //   3. Walk `class_parents[name] → name → ... → None`,
+                //      checking each step against `class_name`.
+                //   4. ConstBool(true) if the chain hit class_name; false
+                //      otherwise. Also handle the trivial direct-id
+                //      case (operand sid == class_name's sid) without
+                //      consulting parent_map at all (works for classes
+                //      declared without `extends`).
                 let v = self.lower_expr(*expr);
                 let actual_ty = self.operand_ty(&v);
-                let target = self.aliases.get(class_name).cloned();
-                let answer = matches!(
-                    (actual_ty, target),
+                let target_ty = self.aliases.get(class_name).cloned();
+                let direct = matches!(
+                    (actual_ty, target_ty),
                     (Type::Obj(a), Some(Type::Obj(t))) if a == t
                 );
+                let mut answer = direct;
+                if !answer
+                    && let Type::Obj(actual_sid) = actual_ty
+                {
+                    // Reverse-lookup the operand's declared class name
+                    // by scanning aliases for the matching StructId.
+                    let mut declared: Option<String> = None;
+                    for (n, ty) in self.aliases.iter() {
+                        if let Type::Obj(sid) = ty
+                            && *sid == actual_sid
+                        {
+                            declared = Some(n.clone());
+                            break;
+                        }
+                    }
+                    if let Some(start) = declared {
+                        let mut cur = Some(start);
+                        let mut depth = 0u32;
+                        while let Some(name) = cur {
+                            if depth > 64 {
+                                break; // defensive cycle guard
+                            }
+                            if name == *class_name {
+                                answer = true;
+                                break;
+                            }
+                            cur = self
+                                .ast
+                                .class_parents
+                                .get(&name)
+                                .and_then(|p| p.clone());
+                            depth += 1;
+                        }
+                    }
+                }
                 Operand::ConstBool(answer)
             }
             Expr::Nullish { lhs, rhs } => {
