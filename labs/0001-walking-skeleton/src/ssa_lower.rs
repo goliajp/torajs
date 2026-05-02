@@ -4278,15 +4278,18 @@ impl<'a> LowerCtx<'a> {
                 );
             }
             Type::Arr(arr_id) => {
-                // M1.2 MVP: only i64 elements. Element drop loop comes
-                // when non-Copy elements (string / obj / nested arr) get
-                // their own arr_push variants. For i64 elements, the
-                // header + data buffer free is all we need.
-                let elem = self.arr_layouts[arr_id.0 as usize];
-                debug_assert!(
-                    elem.is_copy(),
-                    "ssa-lower MVP: only Copy element types supported in Array<T>; got {elem:?}"
-                );
+                // Element-walk drop loop for non-Copy elements is
+                // staged but disabled: tr's array helpers (slice,
+                // concat, flat, copyWithin, ...) memcpy element
+                // POINTERS without deep-cloning. Adding a drop loop
+                // here would double-free shared elements between
+                // source and derived arrays. Proper fix needs
+                // either aliasing-aware element ownership tracking
+                // or deep-clone runtime helpers (str_clone,
+                // obj_clone). Tracked separately; non-Copy elements
+                // in arrays leak on drop (size = elements' heap)
+                // for now.
+                let _ = self.arr_layouts[arr_id.0 as usize];
                 let drop_fid = self.intrinsics.arr_drop;
                 self.f.append_void(
                     self.cur_block,
