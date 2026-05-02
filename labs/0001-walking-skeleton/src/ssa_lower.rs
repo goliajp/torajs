@@ -7337,6 +7337,127 @@ impl<'a> LowerCtx<'a> {
                 // / print_i64. Result is the console.log return (Void
                 // → ConstI64(0) sentinel since the result is discarded
                 // by all call sites).
+                // `Object.assign(target, source)` — field-by-field copy
+                // from source into target. Subset: both args same struct
+                // type. Returns target so chained use stays well-typed;
+                // source is borrowed (not consumed).
+                //
+                // Sharing model per field type:
+                //   - Copy (i64/f64/bool): plain Load + Store.
+                //   - Str / Substr / Obj / Closure: rc_inc'd; both target
+                //     and source then hold a ref, drops gate on rc==0.
+                //   - Arr<T>: deep-cloned via arr_slice + element rc_inc.
+                //     Type::Arr's drop walks elements unconditionally,
+                //     so two owners of the SAME array would double-walk
+                //     (each elem dec'd twice). Cloning gives target its
+                //     own array with proper element refcount accounting.
+                if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
+                    && m_name == "assign"
+                    && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
+                    && ns == "Object"
+                    && args.len() == 2
+                {
+                    let target_op = self.lower_expr(args[0]);
+                    let source_op = self.lower_expr(args[1]);
+                    let target_ty = self.operand_ty(&target_op);
+                    let Type::Obj(sid) = target_ty else {
+                        panic!(
+                            "ssa-lower: Object.assign target must be a struct, got {target_ty:?}"
+                        );
+                    };
+                    let layout = self.struct_layouts[sid.0 as usize].clone();
+                    for (idx, (_fname, fty)) in layout.iter().enumerate() {
+                        let offset = OBJ_HEADER_SIZE + (idx as u64) * 8;
+                        // Drop target's old value first (if non-Copy)
+                        // so any refcounted field properly releases
+                        // before being overwritten.
+                        if !fty.is_copy() {
+                            let old = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Load(*fty, target_op, offset),
+                                *fty,
+                                None,
+                            );
+                            self.emit_drop_value(
+                                Operand::Value(old),
+                                *fty,
+                            );
+                        }
+                        // Load source.field (borrow).
+                        let src_v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(*fty, source_op, offset),
+                            *fty,
+                            None,
+                        );
+                        let to_store = if let Type::Arr(arr_id) = *fty {
+                            // Deep-clone via arr_slice + per-element
+                            // rc_inc so target gets its own array.
+                            let len = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Load(
+                                    Type::I64,
+                                    Operand::Value(src_v),
+                                    ARR_LEN_OFF,
+                                ),
+                                Type::I64,
+                                None,
+                            );
+                            let cloned = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(
+                                    self.intrinsics.arr_slice,
+                                    vec![
+                                        Operand::Value(src_v),
+                                        Operand::ConstI64(0),
+                                        Operand::Value(len),
+                                    ],
+                                ),
+                                *fty,
+                                None,
+                            );
+                            let elem_ty = self.arr_layouts[arr_id.0 as usize];
+                            if elem_ty.is_refcounted() {
+                                let cloned_len = self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::Load(
+                                        Type::I64,
+                                        Operand::Value(cloned),
+                                        ARR_LEN_OFF,
+                                    ),
+                                    Type::I64,
+                                    None,
+                                );
+                                self.emit_arr_rc_inc_range(
+                                    Operand::Value(cloned),
+                                    Operand::ConstI64(0),
+                                    Operand::Value(cloned_len),
+                                );
+                            }
+                            Operand::Value(cloned)
+                        } else {
+                            if fty.is_refcounted() {
+                                self.f.append_void(
+                                    self.cur_block,
+                                    InstKind::Call(
+                                        self.intrinsics.rc_inc,
+                                        vec![Operand::Value(src_v)],
+                                    ),
+                                );
+                            }
+                            Operand::Value(src_v)
+                        };
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Store(
+                                to_store,
+                                target_op,
+                                offset,
+                            ),
+                        );
+                    }
+                    return target_op;
+                }
                 // `Object.values(obj)` — homogeneous struct only,
                 // checked at typecheck. Emits an array of the field
                 // values in declaration order. Same alloc + store

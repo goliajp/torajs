@@ -2033,6 +2033,37 @@ impl Checker {
                 Ok(Type::Struct(field_tys))
             }
             Expr::Call { callee, args } => {
+                // `Object.assign(target, source)` — single-source MVP.
+                // Subset constraint: both args must be the same struct
+                // type (no field-superset / partial / multi-source yet).
+                // Static-resolved at lower time as a field-by-field copy.
+                // Returns target so chains like `let r = Object.assign(...)`
+                // type-check.
+                if let Expr::Member { obj: ns_id, name: m_name } = ast.get_expr(*callee)
+                    && m_name == "assign"
+                    && let Expr::Ident(ns) = ast.get_expr(*ns_id)
+                    && ns == "Object"
+                {
+                    if args.len() != 2 {
+                        return Err(format!(
+                            "Object.assign expects 2 args (single-source MVP), got {}",
+                            args.len()
+                        ));
+                    }
+                    let target_ty = self.type_of(ast, args[0])?;
+                    let source_ty = self.type_of(ast, args[1])?;
+                    let Type::Struct(_) = &target_ty else {
+                        return Err(format!(
+                            "Object.assign target must be a struct, got {target_ty:?}"
+                        ));
+                    };
+                    if target_ty != source_ty {
+                        return Err(format!(
+                            "Object.assign requires identical struct types in this subset; target={target_ty:?}, source={source_ty:?}"
+                        ));
+                    }
+                    return Ok(target_ty);
+                }
                 // `Object.values(obj)` — return type depends on the
                 // arg's struct shape. Only valid when all fields share
                 // a single type T; result is Array<T>. Heterogeneous
