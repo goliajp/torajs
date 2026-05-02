@@ -1397,6 +1397,19 @@ pub fn desugar_classes(ast: &mut Ast) {
         });
     }
 
+    // Build a snapshot of every TypeDecl's field layout. Used by the
+    // default-init helper below so a class field whose type is a type
+    // alias (`type Step = { value: number, done: boolean }`) gets a
+    // structurally-correct zero rather than a Number(0).
+    let mut type_alias_fields: std::collections::HashMap<String, Vec<(String, String)>> =
+        std::collections::HashMap::new();
+    for s in &ast.stmts {
+        if let Stmt::TypeDecl { name, fields, .. } = s {
+            type_alias_fields.insert(name.clone(), fields.clone());
+        }
+    }
+    let combined_fields_map = full_fields.clone();
+
     // For each class, build the list of typed default-initializer expressions
     // that the factory will use to seed the `__this` object literal. We use
     // the FLATTENED field list (parent fields + self fields) so subclass
@@ -1407,27 +1420,28 @@ pub fn desugar_classes(ast: &mut Ast) {
     // typed prelude let — `let __def_arr_<field>: T[] = []` — and use the
     // ident as the field init. The let-binding's annotation gives ssa-lower
     // enough context to emit a typed `arr_alloc(0)`.
+    //
+    // Class- or alias-typed fields recursively expand into a nested
+    // ObjectLit of zero-initialized children, looked up via
+    // `combined_fields_map` (classes) and `type_alias_fields` (aliases).
+    // This is what makes `__Gen_<X>` / `__step_<X>` fields work as
+    // class fields on outer iterator classes (J.3 / I.2-inside-gen).
     for (_, cname, _tp, _, _, _, _) in &class_index {
-        let combined = full_fields.get(cname).unwrap();
+        let combined = full_fields.get(cname).unwrap().clone();
         let mut init_pairs: Vec<(String, ExprId)> = Vec::with_capacity(combined.len());
         let mut prelude: Vec<Stmt> = Vec::new();
-        for (fname, fty) in combined {
-            if fty.ends_with("[]") {
-                let local = format!("__def_arr_{cname}_{fname}");
-                let arr_lit = ast.add_expr(Expr::Array(Vec::new()));
-                prelude.push(Stmt::LetDecl {
-                    mutable: false,
-                    name: local.clone(),
-                    type_ann: Some(fty.clone()),
-                    init: arr_lit,
-                });
-                let ident_id = ast.add_expr(Expr::Ident(local));
-                init_pairs.push((fname.clone(), ident_id));
-            } else {
-                let init_expr = default_init_for_type(fty);
-                let id = ast.add_expr(init_expr);
-                init_pairs.push((fname.clone(), id));
-            }
+        for (fname, fty) in &combined {
+            let id = default_init_for_field(
+                ast,
+                fty,
+                &combined_fields_map,
+                &type_alias_fields,
+                &mut prelude,
+                cname,
+                fname,
+                &mut std::collections::HashSet::new(),
+            );
+            init_pairs.push((fname.clone(), id));
         }
         class_field_inits.insert(cname.clone(), init_pairs);
         class_field_preludes.insert(cname.clone(), prelude);
@@ -1627,6 +1641,68 @@ pub fn desugar_classes(ast: &mut Ast) {
 /// these defaults with caller-provided values; the defaults exist so the
 /// object is well-typed even on fields a buggy constructor forgets to
 /// touch.
+/// Recursive default-initializer for a class field. Knows how to:
+///   - hoist `T[]` into a typed prelude let returning the bound ident
+///   - expand a class- or alias-typed field into an ObjectLit of
+///     recursively-defaulted children (looked up in `class_layouts`
+///     and `alias_layouts`)
+///   - fall back to `default_init_for_type` for primitives / typevars
+///
+/// `seen` guards against direct cycles (a class transitively
+/// containing itself by name); a hit panics rather than spinning.
+#[allow(clippy::too_many_arguments)]
+fn default_init_for_field(
+    ast: &mut Ast,
+    fty: &str,
+    class_layouts: &std::collections::HashMap<String, Vec<(String, String)>>,
+    alias_layouts: &std::collections::HashMap<String, Vec<(String, String)>>,
+    prelude: &mut Vec<Stmt>,
+    parent_cname: &str,
+    parent_fname: &str,
+    seen: &mut std::collections::HashSet<String>,
+) -> ExprId {
+    if fty.ends_with("[]") {
+        let local = format!("__def_arr_{parent_cname}_{parent_fname}");
+        let arr_lit = ast.add_expr(Expr::Array(Vec::new()));
+        prelude.push(Stmt::LetDecl {
+            mutable: false,
+            name: local.clone(),
+            type_ann: Some(fty.to_string()),
+            init: arr_lit,
+        });
+        return ast.add_expr(Expr::Ident(local));
+    }
+    let sub_fields = class_layouts.get(fty).or_else(|| alias_layouts.get(fty));
+    if let Some(sub_fields) = sub_fields {
+        if !seen.insert(fty.to_string()) {
+            panic!(
+                "default_init_for_field: cyclic struct/class layout via `{fty}` \
+                 (parent `{parent_cname}.{parent_fname}`)"
+            );
+        }
+        let sub_fields = sub_fields.clone();
+        let mut sub_pairs: Vec<(String, ExprId)> = Vec::with_capacity(sub_fields.len());
+        for (sfname, sfty) in &sub_fields {
+            let sub_local = format!("{parent_cname}_{parent_fname}_{sfname}");
+            let sub_id = default_init_for_field(
+                ast,
+                sfty,
+                class_layouts,
+                alias_layouts,
+                prelude,
+                &sub_local,
+                sfname,
+                seen,
+            );
+            sub_pairs.push((sfname.clone(), sub_id));
+        }
+        seen.remove(fty);
+        return ast.add_expr(Expr::ObjectLit { fields: sub_pairs });
+    }
+    let init_expr = default_init_for_type(fty);
+    ast.add_expr(init_expr)
+}
+
 fn default_init_for_type(ann: &str) -> Expr {
     match ann {
         "number" => Expr::Number(0.0),

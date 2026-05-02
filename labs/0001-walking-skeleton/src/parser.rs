@@ -39,7 +39,7 @@ pub fn parse(tokens: &[Spanned]) -> Result<Ast, String> {
         pos: 0,
         ast: Ast::default(),
         desugar_id: 0,
-        generator_fn_names: std::collections::HashSet::new(),
+        generator_fns: std::collections::HashMap::new(),
     };
     p.parse_program()?;
     Ok(p.ast)
@@ -53,13 +53,15 @@ struct Parser<'a> {
     /// template literal interpolation) to mint collision-free temp names.
     /// Starts at 0; each `mint_temp_id` returns + increments.
     desugar_id: u32,
-    /// I.2 — names of `function*` declarations seen so far. for-of dispatches
-    /// on this set: `for (let v of gen())` where `gen` is a known generator
-    /// factory emits the iterator-protocol desugar (next-loop). Anything
-    /// else falls back to the array shape (index walk over `.length`).
-    /// Limitation: only direct call sites are detected — `let g = gen(); for
-    /// (let v of g)` won't recognise `g` as an iterator.
-    generator_fn_names: std::collections::HashSet<String>,
+    /// I.2 / J.3 — `function*` declarations seen so far, mapping name to
+    /// the declared yield-value type annotation (`function* gen(): T`).
+    /// for-of and `yield*` dispatch on this map: when the source is a
+    /// direct call to a known generator factory, the desugar emits the
+    /// iterator-protocol shape (next-loop) with the yield type
+    /// propagated as `let v: T`. Anything else falls back to the array
+    /// shape. Limitation: only direct call sites are detected — `let g
+    /// = gen(); for (let v of g)` won't recognise `g` as an iterator.
+    generator_fns: std::collections::HashMap<String, String>,
 }
 
 impl Parser<'_> {
@@ -271,6 +273,103 @@ impl Parser<'_> {
             // tr's subset doesn't accept the `yield;` (undefined value)
             // shape.
             self.pos += 1;
+            // J.3 — `yield * gen(args);` delegates to an inner generator.
+            // Parse-time desugar: same iterator-protocol shape as for-of
+            // over a known generator factory, with `yield __step.value`
+            // as the loop body.
+            if matches!(self.peek(), Token::Star) {
+                self.pos += 1;
+                let src = self.parse_expr()?;
+                if matches!(self.peek(), Token::Semi) {
+                    self.pos += 1;
+                }
+                let (callee_name, yield_ty) = match self.ast.get_expr(src) {
+                    Expr::Call { callee, .. } => match self.ast.get_expr(*callee) {
+                        Expr::Ident(n) => match self.generator_fns.get(n).cloned() {
+                            Some(yt) => (n.clone(), yt),
+                            None => {
+                                return Err(format!(
+                                    "yield* `{n}(...)` — `{n}` is not a known function* \
+                                     declaration (J.3 MVP only handles direct generator \
+                                     factory calls) at {}",
+                                    self.at()
+                                ));
+                            }
+                        },
+                        _ => {
+                            return Err(format!(
+                                "yield* requires a direct call to a function* declaration \
+                                 (got non-ident callee) at {}",
+                                self.at()
+                            ));
+                        }
+                    },
+                    _ => {
+                        return Err(format!(
+                            "yield* requires a direct call to a function* declaration \
+                             (got non-call expr) at {}",
+                            self.at()
+                        ));
+                    }
+                };
+                let gen_class = format!("__Gen_{callee_name}");
+                let step_ty = format!("__step_{callee_name}");
+                let id = self.mint_desugar_id();
+                let it_name = format!("__yieldstar_it_{id}");
+                let step_name = format!("__yieldstar_step_{id}");
+
+                let mut stmts: Vec<Stmt> = Vec::new();
+                stmts.push(Stmt::LetDecl {
+                    mutable: false,
+                    name: it_name.clone(),
+                    type_ann: Some(gen_class),
+                    init: src,
+                });
+
+                let it_ref = self.ast.add_expr(Expr::Ident(it_name));
+                let next_member = self.ast.add_expr(Expr::Member {
+                    obj: it_ref,
+                    name: "next".into(),
+                });
+                let next_call = self.ast.add_expr(Expr::Call {
+                    callee: next_member,
+                    args: Vec::new(),
+                });
+                let step_decl = Stmt::LetDecl {
+                    mutable: false,
+                    name: step_name.clone(),
+                    type_ann: Some(step_ty),
+                    init: next_call,
+                };
+
+                let step_ref_done = self.ast.add_expr(Expr::Ident(step_name.clone()));
+                let done_member = self.ast.add_expr(Expr::Member {
+                    obj: step_ref_done,
+                    name: "done".into(),
+                });
+                let done_check = Stmt::If {
+                    cond: done_member,
+                    then_branch: Box::new(Stmt::Break),
+                    else_branch: None,
+                };
+
+                let step_ref_value = self.ast.add_expr(Expr::Ident(step_name));
+                let value_member = self.ast.add_expr(Expr::Member {
+                    obj: step_ref_value,
+                    name: "value".into(),
+                });
+                let _ = yield_ty; // type ann implicit via yield expr
+                let yield_stmt = Stmt::Yield(value_member);
+
+                let loop_body = Stmt::Block(vec![step_decl, done_check, yield_stmt]);
+                let true_lit = self.ast.add_expr(Expr::Bool(true));
+                let while_loop = Stmt::While {
+                    cond: true_lit,
+                    body: Box::new(loop_body),
+                };
+                stmts.push(while_loop);
+                return Ok(Stmt::Block(stmts));
+            }
             let v = self.parse_expr()?;
             if matches!(self.peek(), Token::Semi) {
                 self.pos += 1;
@@ -400,9 +499,6 @@ impl Parser<'_> {
                 ));
             }
         };
-        if is_generator {
-            self.generator_fn_names.insert(name.clone());
-        }
         self.pos += 1;
         // M3 — optional type-parameter list: `function id<T, U>(...)`. If
         // present, the names are recorded on the FnDecl and the typechecker
@@ -511,6 +607,20 @@ impl Parser<'_> {
         } else {
             None
         };
+        // I.2 / J.3 — record this generator so for-of and yield* can
+        // look up its yield type at desugar time. The yield-type ann is
+        // mandatory at desugar_generators (panics otherwise) so we
+        // require it here too — without it the for-of body's `let v`
+        // can't be typed.
+        if is_generator {
+            let yield_ty = return_type.clone().unwrap_or_else(|| {
+                panic!(
+                    "function* {name} requires an explicit yield value type \
+                     annotation `: T` (Phase J MVP)"
+                )
+            });
+            self.generator_fns.insert(name.clone(), yield_ty);
+        }
         // body must be a block
         match self.peek() {
             Token::LBrace => self.pos += 1,
@@ -1002,25 +1112,27 @@ impl Parser<'_> {
         if kind == "of"
             && let Expr::Call { callee, .. } = self.ast.get_expr(src)
             && let Expr::Ident(callee_name) = self.ast.get_expr(*callee)
-            && self.generator_fn_names.contains(callee_name)
+            && let Some(yield_ty) = self.generator_fns.get(callee_name).cloned()
         {
+            let gen_class = format!("__Gen_{callee_name}");
+            let step_ty = format!("__step_{callee_name}");
             let id = self.mint_desugar_id();
             let it_name = format!("__forof_it_{id}");
             let step_name = format!("__forof_step_{id}");
 
             let mut stmts: Vec<Stmt> = Vec::new();
-            // let __it = <gen-call>
+            // let __it: __Gen_<callee> = <gen-call>
             stmts.push(Stmt::LetDecl {
                 mutable: false,
                 name: it_name.clone(),
-                type_ann: None,
+                type_ann: Some(gen_class),
                 init: src,
             });
 
             // Inside while(true):
-            //   let __step = __it.next();
+            //   let __step: __step_<callee> = __it.next();
             //   if (__step.done) { break; }
-            //   let v = __step.value;
+            //   let v: <yield_ty> = __step.value;
             //   <body>
             let it_ref = self.ast.add_expr(Expr::Ident(it_name.clone()));
             let next_member = self.ast.add_expr(Expr::Member {
@@ -1034,7 +1146,7 @@ impl Parser<'_> {
             let step_decl = Stmt::LetDecl {
                 mutable: false,
                 name: step_name.clone(),
-                type_ann: None,
+                type_ann: Some(step_ty),
                 init: next_call,
             };
 
@@ -1057,7 +1169,7 @@ impl Parser<'_> {
             let var_decl = Stmt::LetDecl {
                 mutable: false,
                 name: var_name,
-                type_ann: None,
+                type_ann: Some(yield_ty),
                 init: value_member,
             };
 
@@ -1441,7 +1553,7 @@ impl Parser<'_> {
                         pos: 0,
                         ast: std::mem::take(&mut self.ast),
                         desugar_id: self.desugar_id,
-                        generator_fn_names: std::mem::take(&mut self.generator_fn_names),
+                        generator_fns: std::mem::take(&mut self.generator_fns),
                     };
                     let result = sub.parse_expr()?;
                     // Tokens vec ends with Token::Eof; anything before
@@ -1454,7 +1566,7 @@ impl Parser<'_> {
                     }
                     self.ast = sub.ast;
                     self.desugar_id = sub.desugar_id;
-                    self.generator_fn_names = sub.generator_fn_names;
+                    self.generator_fns = sub.generator_fns;
                     result
                 }
             };
