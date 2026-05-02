@@ -9620,7 +9620,12 @@ impl<'a> LowerCtx<'a> {
                 // front-to-back. All exit on the first matching (find*
                 // / some) or first non-matching (every) hit.
                 if let Expr::Member { obj, name } = self.ast.get_expr(*callee)
-                    && matches!(name.as_str(), "findIndex" | "findLastIndex" | "some" | "every")
+                    && matches!(
+                        name.as_str(),
+                        "findIndex" | "findLastIndex"
+                        | "find" | "findLast"
+                        | "some" | "every"
+                    )
                 {
                     let recv_op = self.lower_expr(*obj);
                     let recv_ty = self.operand_ty(&recv_op);
@@ -9630,7 +9635,7 @@ impl<'a> LowerCtx<'a> {
                         );
                     }
                     let method = name.clone();
-                    let is_reverse = method == "findLastIndex";
+                    let is_reverse = method == "findLastIndex" || method == "findLast";
                     let arr_ty = recv_ty;
                     let elem_ty = self.arr_layouts[match arr_ty {
                         Type::Arr(id) => id.0 as usize,
@@ -9642,9 +9647,20 @@ impl<'a> LowerCtx<'a> {
                     };
                     let fn_val = self.lower_expr(args[0]);
                     let fn_ty = self.operand_ty(&fn_val);
-                    // Result slot: number for find*Index, bool for some/every.
-                    // Defaults: find*Index = -1, some = false, every = true.
-                    let result_ty = if matches!(method.as_str(), "findIndex" | "findLastIndex") {
+                    // Result slot:
+                    //   findIndex / findLastIndex → Type::I64 (-1 default)
+                    //   some / every             → Type::Bool (false / true)
+                    //   find / findLast          → elem_ty (zero-init default)
+                    // For find / findLast the not-found return is the
+                    // zero / null of the element type — no `T | undefined`
+                    // since tr lacks union types. For refcounted elements
+                    // the null-pointer sentinel makes a meaningful check
+                    // (`r === null`); for primitives the user must verify
+                    // existence via findIndex first.
+                    let is_find = matches!(method.as_str(), "find" | "findLast");
+                    let result_ty = if is_find {
+                        elem_ty
+                    } else if matches!(method.as_str(), "findIndex" | "findLastIndex") {
                         Type::I64
                     } else {
                         Type::Bool
@@ -9655,6 +9671,12 @@ impl<'a> LowerCtx<'a> {
                         "findIndex" | "findLastIndex" => Operand::ConstI64(-1),
                         "some" => Operand::ConstBool(false),
                         "every" => Operand::ConstBool(true),
+                        "find" | "findLast" => match elem_ty {
+                            Type::I64 => Operand::ConstI64(0),
+                            Type::F64 => Operand::ConstF64(0.0),
+                            Type::Bool => Operand::ConstBool(false),
+                            _ => Operand::ConstPtrNull,
+                        },
                         _ => unreachable!(),
                     };
                     self.f.append_void(
@@ -9791,11 +9813,26 @@ impl<'a> LowerCtx<'a> {
                         },
                     );
                     self.cur_block = hit_blk;
-                    // hit: write the appropriate result and exit.
+                    // hit: write the appropriate result and exit. For
+                    // find / findLast the elem is the result; refcounted
+                    // elements get rc_inc'd so the caller's binding owns
+                    // a ref independent of the source array's slot.
                     let hit_val: Operand = match method.as_str() {
                         "findIndex" | "findLastIndex" => Operand::Value(i_now2),
                         "some" => Operand::ConstBool(true),
                         "every" => Operand::ConstBool(false),
+                        "find" | "findLast" => {
+                            if elem_ty.is_refcounted() {
+                                self.f.append_void(
+                                    self.cur_block,
+                                    InstKind::Call(
+                                        self.intrinsics.rc_inc,
+                                        vec![Operand::Value(elem)],
+                                    ),
+                                );
+                            }
+                            Operand::Value(elem)
+                        }
                         _ => unreachable!(),
                     };
                     self.f.append_void(

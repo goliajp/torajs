@@ -1914,6 +1914,20 @@ impl Checker {
                     // `findLastIndex` is the reverse-iteration sibling and
                     // shares the same -1-on-miss return, so it lives in
                     // the subset alongside findIndex.
+                    // `xs.find(p)` / `xs.findLast(p)` — predicate scan.
+                    // tr's subset returns the element type itself (no
+                    // `T | undefined`); not-found returns the zero of
+                    // T (null for refcounted, 0 / false for primitives).
+                    // Caller can either disambiguate via findIndex first
+                    // or check against the sentinel value.
+                    (Type::Array(elem), "find") | (Type::Array(elem), "findLast") => {
+                        let inner = (**elem).clone();
+                        let pred_ty = Type::Function(
+                            vec![inner.clone()],
+                            Box::new(Type::Boolean),
+                        );
+                        Ok(Type::Function(vec![pred_ty], Box::new(inner)))
+                    }
                     (Type::Array(elem), "findIndex")
                     | (Type::Array(elem), "findLastIndex") => {
                         let inner = (**elem).clone();
