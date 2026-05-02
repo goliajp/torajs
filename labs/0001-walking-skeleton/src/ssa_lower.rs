@@ -1388,6 +1388,15 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         &[Type::Ptr, Type::Str],
         Type::Str,
     );
+    // View-aware variant — element-type Substr. Resolves bytes through
+    // each element's parent_ptr + offset rather than reading bytes inline.
+    let arr_join_substr_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_arr_join_substr",
+        &[Type::Ptr, Type::Str],
+        Type::Str,
+    );
     // Number → String coercion for `+` mixed-type concat. Two
     // signatures because the SSA-level distinction between i64 and
     // f64 must be preserved at the call boundary.
@@ -2074,6 +2083,7 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         arr_to_reversed: arr_to_reversed_id,
         arr_with: arr_with_id,
         arr_join: arr_join_id,
+        arr_join_substr: arr_join_substr_id,
         i64_to_str: i64_to_str_id,
         f64_to_str: f64_to_str_id,
         math_sqrt: math_sqrt_id,
@@ -2380,6 +2390,7 @@ struct Intrinsics {
     arr_to_reversed: FuncId,
     arr_with: FuncId,
     arr_join: FuncId,
+    arr_join_substr: FuncId,
     i64_to_str: FuncId,
     f64_to_str: FuncId,
     math_sqrt: FuncId,
@@ -3691,6 +3702,25 @@ impl<'a> LowerCtx<'a> {
             );
             let arg = self.lower_expr(args[0]);
             let arg_ty = self.operand_ty(&arg);
+            // Substr: materialize to owned Str (always-drop), then print as Str.
+            if arg_ty == Type::Substr {
+                let owned = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.substr_to_owned, vec![arg]),
+                    Type::Str,
+                    None,
+                );
+                let target = self.console_print_target(method, Type::Str);
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Call(target, vec![Operand::Value(owned)]),
+                );
+                self.emit_drop_value(Operand::Value(owned), Type::Str);
+                if !is_borrow {
+                    self.emit_drop_value(arg, Type::Substr);
+                }
+                return;
+            }
             let is_str = arg_ty == Type::Str;
             let target = self.console_print_target(method, arg_ty);
             self.f
@@ -3756,6 +3786,15 @@ impl<'a> LowerCtx<'a> {
     fn coerce_to_str(&mut self, val: Operand, ty: Type) -> Operand {
         match ty {
             Type::Str => val,
+            Type::Substr => {
+                let v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.substr_to_owned, vec![val]),
+                    Type::Str,
+                    None,
+                );
+                Operand::Value(v)
+            }
             Type::I64 => {
                 let v = self.f.append_inst(
                     self.cur_block,
@@ -4981,6 +5020,23 @@ impl<'a> LowerCtx<'a> {
                 if type_ann.is_none() {
                     ty = self.operand_ty(&init_val);
                 }
+                // Substr widening: at the TS surface a Substr IS a
+                // string, but at the SSA layer Str (owned) and Substr
+                // (view) take different code paths. If the user wrote
+                // `: string` / `: string[]` and the initializer is
+                // Substr / Arr<Substr>, take the initializer's narrower
+                // type — otherwise downstream byte access on the slot
+                // would treat Substr's parent_ptr / offset words as
+                // payload bytes.
+                let init_ty = self.operand_ty(&init_val);
+                if ty == Type::Str && init_ty == Type::Substr {
+                    ty = Type::Substr;
+                } else if let (Type::Arr(ann_id), Type::Arr(init_id)) = (ty, init_ty)
+                    && self.arr_layouts[ann_id.0 as usize] == Type::Str
+                    && self.arr_layouts[init_id.0 as usize] == Type::Substr
+                {
+                    ty = init_ty;
+                }
                 // Escape-captured Copy lets get a heap-allocated slot
                 // so the closure's env can hold a stable pointer that
                 // outlives the construction frame. Non-Copy captures
@@ -5150,12 +5206,14 @@ impl<'a> LowerCtx<'a> {
                             Type::Bool,
                             None,
                         ),
-                        Type::Str => {
+                        Type::Str | Type::Substr => {
                             // Strings: try inline byte-cmp fast-path
                             // when the case value is a short literal
-                            // (skips __torajs_str_eq C-runtime call).
-                            // Falls back to str_eq for non-literal
-                            // case values or long literals.
+                            // (skips __torajs_str_eq / substr_eq_str
+                            // C-runtime call). Inline emit handles
+                            // both Str and Substr scrutinee shapes.
+                            // Falls back to str_eq / substr_eq_str
+                            // for non-literal case values or long.
                             if let Expr::String(s) = self.ast.get_expr(c.value).clone() {
                                 let bytes = s.into_bytes();
                                 if bytes.len() <= 16 {
@@ -5166,10 +5224,15 @@ impl<'a> LowerCtx<'a> {
                                         unreachable!("emit_inline_str_eq_bytes returns Value")
                                     }
                                 } else {
+                                    let intrinsic = if scrut_ty == Type::Substr {
+                                        self.intrinsics.substr_eq_str
+                                    } else {
+                                        self.intrinsics.str_eq
+                                    };
                                     self.f.append_inst(
                                         cmp_blk,
                                         InstKind::Call(
-                                            self.intrinsics.str_eq,
+                                            intrinsic,
                                             vec![scrut_val, v],
                                         ),
                                         Type::Bool,
@@ -5177,10 +5240,15 @@ impl<'a> LowerCtx<'a> {
                                     )
                                 }
                             } else {
+                                let intrinsic = if scrut_ty == Type::Substr {
+                                    self.intrinsics.substr_eq_str
+                                } else {
+                                    self.intrinsics.str_eq
+                                };
                                 self.f.append_inst(
                                     cmp_blk,
                                     InstKind::Call(
-                                        self.intrinsics.str_eq,
+                                        intrinsic,
                                         vec![scrut_val, v],
                                     ),
                                     Type::Bool,
@@ -7258,6 +7326,24 @@ impl<'a> LowerCtx<'a> {
                     );
                     let arg = self.lower_expr(args[0]);
                     let arg_ty = self.operand_ty(&arg);
+                    if arg_ty == Type::Substr {
+                        let owned = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(self.intrinsics.substr_to_owned, vec![arg]),
+                            Type::Str,
+                            None,
+                        );
+                        let target = self.console_print_target(method, Type::Str);
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Call(target, vec![Operand::Value(owned)]),
+                        );
+                        self.emit_drop_value(Operand::Value(owned), Type::Str);
+                        if !is_borrow {
+                            self.emit_drop_value(arg, Type::Substr);
+                        }
+                        return Operand::ConstI64(0);
+                    }
                     let is_str = arg_ty == Type::Str;
                     let target = self.console_print_target(method, arg_ty);
                     self.f.append_void(
@@ -7552,6 +7638,94 @@ impl<'a> LowerCtx<'a> {
                     let recv_op = self.lower_expr(*obj);
                     let recv_ty = self.operand_ty(&recv_op);
                     let method = name.clone();
+                    // Phase Substr.B: dispatch view-aware methods on
+                    // Type::Substr receivers without materializing.
+                    // Currently MVP routes only the cheap byte-only ops;
+                    // anything that needs string-shaped output goes
+                    // through to_owned + Str path (Phase D would add
+                    // direct-on-Substr variants for slice/substring).
+                    if recv_ty == Type::Substr {
+                        match method.as_str() {
+                            "charCodeAt" | "codePointAt" => {
+                                let mut argv = Vec::with_capacity(2);
+                                argv.push(recv_op);
+                                for a in args {
+                                    argv.push(self.lower_expr(*a));
+                                }
+                                let v = self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::Call(self.intrinsics.substr_char_code_at, argv),
+                                    Type::I64,
+                                    None,
+                                );
+                                return Operand::Value(v);
+                            }
+                            // Methods producing new strings — materialize
+                            // first then route through the OWNED Str path.
+                            // Phase D may add view-direct variants that
+                            // skip materialization (e.g. substr.slice
+                            // returns Substr of same parent).
+                            _ => {
+                                let owned = self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::Call(
+                                        self.intrinsics.substr_to_owned,
+                                        vec![recv_op],
+                                    ),
+                                    Type::Str,
+                                    None,
+                                );
+                                let mut argv = Vec::with_capacity(args.len() + 1);
+                                argv.push(Operand::Value(owned));
+                                for a in args {
+                                    argv.push(self.lower_expr(*a));
+                                }
+                                let (target, ret_ty) = match method.as_str() {
+                                    "slice" => (self.intrinsics.str_slice, Type::Str),
+                                    "substring" => (self.intrinsics.str_substring, Type::Str),
+                                    "toUpperCase" => (self.intrinsics.str_to_upper, Type::Str),
+                                    "toLowerCase" => (self.intrinsics.str_to_lower, Type::Str),
+                                    "trim" => (self.intrinsics.str_trim, Type::Str),
+                                    "trimStart" | "trimLeft" => (self.intrinsics.str_trim_start, Type::Str),
+                                    "trimEnd" | "trimRight" => (self.intrinsics.str_trim_end, Type::Str),
+                                    "padStart" => (self.intrinsics.str_pad_start, Type::Str),
+                                    "padEnd" => (self.intrinsics.str_pad_end, Type::Str),
+                                    "startsWith" => (self.intrinsics.str_starts_with, Type::Bool),
+                                    "endsWith" => (self.intrinsics.str_ends_with, Type::Bool),
+                                    "includes" => (self.intrinsics.str_includes, Type::Bool),
+                                    "indexOf" => (self.intrinsics.str_index_of, Type::I64),
+                                    "lastIndexOf" => (self.intrinsics.str_last_index_of, Type::I64),
+                                    "localeCompare" => (self.intrinsics.str_locale_compare, Type::I64),
+                                    "at" => (self.intrinsics.str_at, Type::Str),
+                                    "repeat" => (self.intrinsics.str_repeat, Type::Str),
+                                    "replace" => (self.intrinsics.str_replace, Type::Str),
+                                    "replaceAll" => (self.intrinsics.str_replace_all, Type::Str),
+                                    other => panic!(
+                                        "ssa-lower: unsupported Substr method `{other}`"
+                                    ),
+                                };
+                                let v = self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::Call(target, argv),
+                                    ret_ty,
+                                    None,
+                                );
+                                // owned is consumed by the call (our Str
+                                // intrinsics are read-only on Str args, so
+                                // owned still needs scope-end drop — but
+                                // it's not bound to a local. Insert an
+                                // explicit drop so it doesn't leak).
+                                self.f.append_void(
+                                    self.cur_block,
+                                    InstKind::Call(
+                                        self.intrinsics.str_drop,
+                                        vec![Operand::Value(owned)],
+                                    ),
+                                );
+                                return Operand::Value(v);
+                            }
+                        }
+                    }
                     // String methods.
                     if recv_ty == Type::Str
                         && matches!(
@@ -7598,12 +7772,17 @@ impl<'a> LowerCtx<'a> {
                             "lastIndexOf" => (self.intrinsics.str_last_index_of, Type::I64),
                             "localeCompare" => (self.intrinsics.str_locale_compare, Type::I64),
                             "split" => {
-                                // Output is Array<string> — intern the
-                                // layout once so the result type tag is
-                                // stable across multiple split calls.
+                                // Phase Substr.B — split returns
+                                // Array<Substr>: each output element
+                                // is a 32-byte view referencing the
+                                // source's bytes. Zero memcpy per
+                                // substring; hot loops over `expr.split(sep)`
+                                // pay only N small mallocs (no per-byte
+                                // copy). Downstream method dispatch on
+                                // Substr routes to view-aware intrinsics.
                                 let arr_id = intern_arr_layout(
                                     self.arr_layouts,
-                                    Type::Str,
+                                    Type::Substr,
                                 );
                                 (self.intrinsics.str_split, Type::Arr(arr_id))
                             }
@@ -7621,13 +7800,21 @@ impl<'a> LowerCtx<'a> {
                     // method == "join". The check.rs guard ensures
                     // element type is String, so we don't re-validate
                     // here.
-                    if matches!(recv_ty, Type::Arr(_)) && method == "join" {
+                    if let Type::Arr(elem_arr_id) = recv_ty
+                        && method == "join"
+                    {
+                        let elem_ty = self.arr_layouts[elem_arr_id.0 as usize];
+                        let join_fid = if elem_ty == Type::Substr {
+                            self.intrinsics.arr_join_substr
+                        } else {
+                            self.intrinsics.arr_join
+                        };
                         let mut argv = Vec::with_capacity(2);
                         argv.push(recv_op);
                         argv.push(self.lower_expr(args[0]));
                         let v = self.f.append_inst(
                             self.cur_block,
-                            InstKind::Call(self.intrinsics.arr_join, argv),
+                            InstKind::Call(join_fid, argv),
                             Type::Str,
                             None,
                         );
@@ -9010,6 +9197,25 @@ impl<'a> LowerCtx<'a> {
                     // Lower the callable arg.
                     let fn_val = self.lower_expr(args[0]);
                     let fn_ty = self.operand_ty(&fn_val);
+                    // dst array's element type:
+                    //   - filter — same as src (filter only selects, doesn't
+                    //     transform).
+                    //   - map — closure return type. When src is Arr<Substr>
+                    //     and closure returns Str (the post-materialize
+                    //     boundary), dst is Arr<Str>; type-tag agreement
+                    //     with downstream method dispatch hinges on this.
+                    let dst_arr_ty = if method == "map"
+                        && let Some(sig_id) = match fn_ty {
+                            Type::FnSig(s) | Type::Closure(s) => Some(s),
+                            _ => None,
+                        }
+                    {
+                        let ret = self.fn_sigs[sig_id.0 as usize].1;
+                        let arr_id = intern_arr_layout(self.arr_layouts, ret);
+                        Type::Arr(arr_id)
+                    } else {
+                        arr_ty
+                    };
                     // Per-method state: dst array (map/filter), acc slot
                     // (reduce). forEach has neither.
                     let dst_slot = if matches!(method.as_str(), "map" | "filter") {
@@ -9019,10 +9225,10 @@ impl<'a> LowerCtx<'a> {
                                 self.intrinsics.arr_alloc,
                                 vec![Operand::ConstI64(0)],
                             ),
-                            arr_ty,
+                            dst_arr_ty,
                             None,
                         );
-                        let slot = self.alloca(arr_ty, Some("__iter_dst"));
+                        let slot = self.alloca(dst_arr_ty, Some("__iter_dst"));
                         self.f.append_void(
                             self.cur_block,
                             InstKind::Store(
@@ -9074,8 +9280,8 @@ impl<'a> LowerCtx<'a> {
                     if let Some(slot) = dst_slot {
                         let cur_dst = self.f.append_inst(
                             self.cur_block,
-                            InstKind::Load(arr_ty, Operand::Value(slot), 0),
-                            arr_ty,
+                            InstKind::Load(dst_arr_ty, Operand::Value(slot), 0),
+                            dst_arr_ty,
                             None,
                         );
                         let reserved = self.f.append_inst(
@@ -9084,7 +9290,7 @@ impl<'a> LowerCtx<'a> {
                                 self.intrinsics.arr_reserve,
                                 vec![Operand::Value(cur_dst), Operand::Value(len)],
                             ),
-                            arr_ty,
+                            dst_arr_ty,
                             None,
                         );
                         self.f.append_void(
@@ -9177,11 +9383,11 @@ impl<'a> LowerCtx<'a> {
                             let cur_dst = self.f.append_inst(
                                 self.cur_block,
                                 InstKind::Load(
-                                    arr_ty,
+                                    dst_arr_ty,
                                     Operand::Value(dst_slot.unwrap()),
                                     0,
                                 ),
-                                arr_ty,
+                                dst_arr_ty,
                                 None,
                             );
                             self.f.append_void(
@@ -9212,11 +9418,11 @@ impl<'a> LowerCtx<'a> {
                             let cur_dst = self.f.append_inst(
                                 self.cur_block,
                                 InstKind::Load(
-                                    arr_ty,
+                                    dst_arr_ty,
                                     Operand::Value(dst_slot.unwrap()),
                                     0,
                                 ),
-                                arr_ty,
+                                dst_arr_ty,
                                 None,
                             );
                             self.f.append_void(
@@ -9296,11 +9502,11 @@ impl<'a> LowerCtx<'a> {
                             let v = self.f.append_inst(
                                 self.cur_block,
                                 InstKind::Load(
-                                    arr_ty,
+                                    dst_arr_ty,
                                     Operand::Value(dst_slot.unwrap()),
                                     0,
                                 ),
-                                arr_ty,
+                                dst_arr_ty,
                                 None,
                             );
                             Operand::Value(v)
@@ -9777,7 +9983,9 @@ impl<'a> LowerCtx<'a> {
                 // `s.length` for Type::Str — read the u64 length stored
                 // at offset 8 of the StrRepr (after the 8-byte universal
                 // refcount header). See ssa_inkwell::STR_HDR_LEN_OFF.
-                if obj_ty == Type::Str && name == "length" {
+                // Substr's len lives at the same offset (8) as Str's —
+                // single load for both layouts.
+                if (obj_ty == Type::Str || obj_ty == Type::Substr) && name == "length" {
                     let v = self.f.append_inst(
                         self.cur_block,
                         InstKind::Load(Type::I64, obj_val, 8),
@@ -10914,18 +11122,64 @@ impl<'a> LowerCtx<'a> {
     /// literals (1-2 bytes) this unrolls to a few cycles; for longer
     /// (up to caller-defined cap) LLVM's loop opts often collapse to
     /// a single wide load + cmp.
+    /// Compute the byte-data location for a Str / Substr operand,
+    /// returned as `(base_ptr, byte_offset_into_base)`. Caller uses
+    /// LoadDyn(type, base_ptr, total_offset) where total_offset =
+    /// base_byte_offset + per-byte index.
+    ///
+    /// For OWNED Str: `(self, 16)` — bytes inline at self+16.
+    /// For Substr: `(parent_ptr, STR_HDR(16) + offset)` — the parent's
+    ///   bytes start at parent+16, view starts at parent+16+offset.
+    /// Returns `(base_ptr, base_offset_value_or_const)`.
+    fn emit_str_data_base(&mut self, op: Operand, ty: Type) -> (Operand, Operand) {
+        match ty {
+            Type::Str => (op, Operand::ConstI64(16)),
+            Type::Substr => {
+                let parent = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Load(Type::Ptr, op, 16),
+                    Type::Ptr,
+                    None,
+                );
+                let offset = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Load(Type::I64, op, 24),
+                    Type::I64,
+                    None,
+                );
+                // 16 + offset → byte offset into parent
+                let total_off = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::BinOp(
+                        SsaBinOp::Add,
+                        Operand::Value(offset),
+                        Operand::ConstI64(16),
+                    ),
+                    Type::I64,
+                    None,
+                );
+                (Operand::Value(parent), Operand::Value(total_off))
+            }
+            other => panic!("emit_str_data_base: unsupported type {other:?}"),
+        }
+    }
+
     fn emit_inline_str_eq_bytes(
         &mut self,
         other: Operand,
         bytes: &[u8],
     ) -> Operand {
+        // For Substr we still load len at offset 8 (same as Str), but
+        // bytes are accessed via (parent_data + offset). Compute the
+        // data pointer once per call, then per-byte loads use it.
+        let other_ty = self.operand_ty(&other);
         let result_slot = self.alloca_in_entry(Type::Bool, Some("__streq_r"));
         self.f.append_void(
             self.cur_block,
             InstKind::Store(Operand::ConstBool(false), Operand::Value(result_slot), 0),
         );
         let done_blk = self.f.add_block();
-        // step 1: len-eq
+        // step 1: len-eq (offset 8 for both Str and Substr)
         let other_len = self.f.append_inst(
             self.cur_block,
             InstKind::Load(Type::I64, other, 8),
@@ -10957,6 +11211,10 @@ impl<'a> LowerCtx<'a> {
             );
             self.f.set_term(self.cur_block, Terminator::Br(done_blk));
         } else {
+            // Compute (base_ptr, base_offset) once. For Str: (self, 16) —
+            // const-folded immediate. For Substr: 2 loads + 1 add to
+            // resolve parent + 16 + view_offset, amortized over chain.
+            let (base, base_off) = self.emit_str_data_base(other, other_ty);
             let mut chain: Vec<BlockId> = Vec::with_capacity(bytes.len() + 1);
             chain.push(self.cur_block);
             for _ in 0..bytes.len() {
@@ -10964,13 +11222,22 @@ impl<'a> LowerCtx<'a> {
             }
             for (i, &want_byte) in bytes.iter().enumerate() {
                 self.cur_block = chain[i];
-                // Load 4 bytes at static offset 16 + i (Str data starts
-                // at +16). Mask low byte. Saves adding Type::I8 to the
-                // SSA layer just for this; high 24 bits are masked out.
-                let static_off = 16 + i as u64;
+                // total_off = base_off + i, then LoadDyn 4 bytes.
+                // For Str (base_off = const 16) the add folds; for
+                // Substr the add stays but i is small const.
+                let off_i = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::BinOp(
+                        SsaBinOp::Add,
+                        base_off,
+                        Operand::ConstI64(i as i64),
+                    ),
+                    Type::I64,
+                    None,
+                );
                 let byte_v = self.f.append_inst(
                     self.cur_block,
-                    InstKind::Load(Type::I32, other, static_off),
+                    InstKind::LoadDyn(Type::I32, base, Operand::Value(off_i)),
                     Type::I32,
                     None,
                 );
@@ -11040,7 +11307,8 @@ impl<'a> LowerCtx<'a> {
             return None;
         }
         let other = self.lower_expr(other_eid);
-        if self.operand_ty(&other) != Type::Str {
+        let other_ty = self.operand_ty(&other);
+        if other_ty != Type::Str && other_ty != Type::Substr {
             return None;
         }
         let r = self.emit_inline_str_eq_bytes(other, &lit_bytes);
@@ -11138,13 +11406,67 @@ impl<'a> LowerCtx<'a> {
         // two identical literals in different alloc sites produce
         // !==. test262-port spike caught this. !== is content-equality
         // negated.
+        //
+        // Substr operand support: `Substr === Str` and `Str === Substr`
+        // route through `substr_eq_str` (substr always on left). Two
+        // Substr operands materialize lhs to OWNED first (rare path —
+        // no current bench / conformance triggers it).
+        let a_ty = self.operand_ty(&a);
+        let b_ty = self.operand_ty(&b);
         if matches!(op, AstBinOp::Eq | AstBinOp::Neq)
-            && self.operand_ty(&a) == Type::Str
-            && self.operand_ty(&b) == Type::Str
+            && (a_ty == Type::Str || a_ty == Type::Substr)
+            && (b_ty == Type::Str || b_ty == Type::Substr)
         {
+            // Pick correct comparator based on operand types. Substr
+            // on either side → substr_eq_str (with substr on left).
+            let (eq_call, args) = match (a_ty, b_ty) {
+                (Type::Str, Type::Str) => (self.intrinsics.str_eq, vec![a, b]),
+                (Type::Substr, Type::Str) => (self.intrinsics.substr_eq_str, vec![a, b]),
+                (Type::Str, Type::Substr) => (self.intrinsics.substr_eq_str, vec![b, a]),
+                (Type::Substr, Type::Substr) => {
+                    // materialize a to owned, then substr_eq_str(b, a_owned)
+                    let owned = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(self.intrinsics.substr_to_owned, vec![a]),
+                        Type::Str,
+                        None,
+                    );
+                    let eq = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.substr_eq_str,
+                            vec![b, Operand::Value(owned)],
+                        ),
+                        Type::Bool,
+                        None,
+                    );
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.str_drop,
+                            vec![Operand::Value(owned)],
+                        ),
+                    );
+                    if matches!(op, AstBinOp::Neq) {
+                        let r = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::BinOp(
+                                SsaBinOp::Xor,
+                                Operand::Value(eq),
+                                Operand::ConstBool(true),
+                            ),
+                            Type::Bool,
+                            None,
+                        );
+                        return Operand::Value(r);
+                    }
+                    return Operand::Value(eq);
+                }
+                _ => unreachable!(),
+            };
             let eq_v = self.f.append_inst(
                 self.cur_block,
-                InstKind::Call(self.intrinsics.str_eq, vec![a, b]),
+                InstKind::Call(eq_call, args),
                 Type::Bool,
                 None,
             );
@@ -11448,7 +11770,62 @@ impl<'a> LowerCtx<'a> {
     /// inside Array.map/filter/reduce/forEach loop bodies (and is the
     /// mirror of the existing inline call-via-Closure / call-via-FnSig
     /// dispatch, packaged for re-use).
+    /// Look up a sig's param types from a callable type. Returns None for
+    /// non-callable types — callers should already have validated.
+    fn sig_param_tys(&self, fn_ty: Type) -> Option<Vec<Type>> {
+        let sig_id = match fn_ty {
+            Type::FnSig(s) | Type::Closure(s) => s,
+            _ => return None,
+        };
+        Some(self.fn_sigs[sig_id.0 as usize].0.clone())
+    }
+
+    /// Phase Substr.B — boundary materialization. If the callee expects
+    /// `Type::Str` for an arg position and the actual operand is
+    /// `Type::Substr`, allocate an owned Str via substr_to_owned and
+    /// return the materialized operand; the caller drops it after the
+    /// call. Other type pairs pass through unchanged. Returns the
+    /// (possibly-rewritten) args plus a list of Str values to drop after
+    /// the call returns.
+    fn materialize_call_args(
+        &mut self,
+        fn_ty: Type,
+        args: Vec<Operand>,
+    ) -> (Vec<Operand>, Vec<Operand>) {
+        let Some(param_tys) = self.sig_param_tys(fn_ty) else {
+            return (args, Vec::new());
+        };
+        let mut out = Vec::with_capacity(args.len());
+        let mut drops = Vec::new();
+        for (i, a) in args.into_iter().enumerate() {
+            let actual = self.operand_ty(&a);
+            let expected = param_tys.get(i).copied();
+            if expected == Some(Type::Str) && actual == Type::Substr {
+                let v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.substr_to_owned, vec![a]),
+                    Type::Str,
+                    None,
+                );
+                out.push(Operand::Value(v));
+                drops.push(Operand::Value(v));
+            } else {
+                out.push(a);
+            }
+        }
+        (out, drops)
+    }
+
     fn call_fn_value(&mut self, fn_val: Operand, fn_ty: Type, args: Vec<Operand>) -> ValueId {
+        let (args, drops) = self.materialize_call_args(fn_ty, args);
+        let ret = self.call_fn_value_raw(fn_val, fn_ty, args);
+        for d in drops {
+            self.emit_drop_value(d, Type::Str);
+        }
+        ret
+    }
+
+    fn call_fn_value_raw(&mut self, fn_val: Operand, fn_ty: Type, args: Vec<Operand>) -> ValueId {
         match fn_ty {
             Type::Closure(user_sig_id) => {
                 let env_ptr = match fn_val {
@@ -11546,11 +11923,17 @@ impl<'a> LowerCtx<'a> {
             || fid == i.str_includes
             || fid == i.str_eq
             || fid == i.str_split
+            || fid == i.substr_create
+            || fid == i.substr_drop
+            || fid == i.substr_char_code_at
+            || fid == i.substr_eq_str
+            || fid == i.substr_to_owned
             || fid == i.arr_from_string
             || fid == i.str_substring
             || fid == i.arr_to_reversed
             || fid == i.arr_with
             || fid == i.arr_join
+            || fid == i.arr_join_substr
             || fid == i.math_sqrt
             || fid == i.math_abs
             || fid == i.math_floor
