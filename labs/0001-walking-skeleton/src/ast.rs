@@ -392,27 +392,34 @@ pub struct Ast {
 /// before they're observably read.
 /// Phase J — rewrite every `function*` generator into a class + factory.
 /// MVP scope: linear yield sequences (no loops / conditionals between
-/// yields). Body must be a flat list of statements; only `Stmt::Yield`
-/// is taken as a yield point. Non-yield statements are placed before
-/// the FIRST yield in the resulting state machine (so they run on the
-/// initial `next()` call). After all yields are exhausted, the iterator
-/// permanently returns `{ value: 0, done: true }`.
+/// yields). The desugar lowers the body into a `while (true) { ... }`
+/// state machine where each yield is one resume point.
+///
+/// J.2.b — `yield` is allowed inside `if` / `while` / `for` (any
+/// nesting). Each yield gets its own state arm. Control flow that
+/// crosses a yield boundary becomes `this.__state = N; continue;`
+/// gotos through the wrapping `while (true)`. Loop break / continue
+/// inside a yield-containing loop rewrite to gotos toward the loop's
+/// post-state / step-state respectively. yield-FREE inner control
+/// flow is emitted inline so its own break/continue keep their
+/// natural semantics.
 ///
 /// For `function* gen(): T { stmt0; yield e0; stmt1; yield e1; }`:
 ///   - emit a class `__Gen_gen` with field `__state: number` (0-init).
-///   - emit `next(): { value: T, done: boolean }` whose body is an
-///     if-chain over `__state`. Each arm runs the prelude leading up
-///     to its yield, bumps `__state`, returns `{value: e, done: false}`.
-///     Final arm returns `{value: <T-zero>, done: true}`.
-///   - emit a factory FnDecl `gen()` returning `__Gen_gen`, body just
-///     `new __Gen_gen()`.
+///   - emit `next(): { value: T, done: boolean }` whose body is
+///     `while (true) { if (state==0){...} if (state==1){...} ... return {0, true}; }`.
+///     Each arm runs its prelude, then either returns `{value:e, done:false}`
+///     for a yield, or sets `state=N` and `continue;` for a goto.
+///   - emit a factory FnDecl `gen()` returning `__Gen_gen`.
 ///
 /// MVP restrictions logged at desugar-time:
-///   - body must be a top-level `Vec<Stmt>` with yield stmts at the
-///     same nesting level (no yields inside If / While / For / Try /
-///     Switch); attempting violates with a panic.
 ///   - generator return-type annotation supplies the yield value type.
 ///     Required (no `function* gen()` without `: T`).
+///   - yields inside `try` / `catch` / `finally` / `switch` / nested
+///     functions are rejected at this stage (no states allocated for them).
+///   - all `let` declarations anywhere in the body are lifted to class
+///     fields. Same name in two scopes is an error (panic) since both
+///     would map to the same `this.<name>` field.
 pub fn desugar_generators(ast: &mut Ast) {
     let gen_indices: Vec<(usize, String, Vec<Param>, Option<String>, Vec<Stmt>)> = ast
         .stmts
@@ -575,34 +582,35 @@ pub fn desugar_generators(ast: &mut Ast) {
             )
         });
 
-        // Phase J.2.a — lift every top-level `let x: T = init` in the
-        // generator body to a class field so the binding survives across
-        // yield boundaries. Each lifted let becomes:
+        // J.2.a/b — lift every `let x: T = init` ANYWHERE in the body
+        // (including for-init, if/else branches, while/for bodies) to a
+        // class field so the binding survives yield boundaries. Each
+        // lifted let becomes:
         //   - a new field on the iterator class
         //   - a `this.<name> = init` assignment expr at the let's source
         //     position (replacing the LetDecl in-place)
         //   - a `this.<name>` rewrite for every Ident reference further
         //     down the body
-        // Locals declared inside nested control-flow (if / while / for /
-        // try) stay local — they don't cross yield boundaries since
-        // J.1 MVP doesn't allow yields inside those constructs anyway.
+        //
+        // Same-name lets in different scopes both map to the same field
+        // and would clobber each other; we panic on collision so the
+        // user has to rename. Switch / try lets are not lifted (those
+        // forms don't yet support yields).
         let mut gen_body = gen_body;
         let mut lifted_locals: Vec<(String, String)> = Vec::new();
         for s in &mut gen_body {
-            if let Stmt::LetDecl { name, type_ann, init, .. } = s {
-                let lifted_name = name.clone();
-                let lifted_ty = type_ann.clone().unwrap_or_else(|| "number".into());
-                lifted_locals.push((lifted_name.clone(), lifted_ty));
-                let this_id = ast.add_expr(Expr::This);
-                let f_member = ast.add_expr(Expr::Member {
-                    obj: this_id,
-                    name: lifted_name,
-                });
-                let assign = ast.add_expr(Expr::Assign {
-                    target: f_member,
-                    value: *init,
-                });
-                *s = Stmt::Expr(assign);
+            lift_lets_in_stmt(ast, s, &mut lifted_locals);
+        }
+        for i in 0..lifted_locals.len() {
+            for j in (i + 1)..lifted_locals.len() {
+                if lifted_locals[i].0 == lifted_locals[j].0 {
+                    panic!(
+                        "function* {gen_name}: duplicate `let {}` declarations across \
+                         scopes — both lift to `this.{}` and would collide. Rename \
+                         one (Phase J.2.b limitation).",
+                        lifted_locals[i].0, lifted_locals[i].0
+                    );
+                }
             }
         }
         // Names to rewrite to `this.<name>`: generator params + lifted
@@ -619,22 +627,6 @@ pub fn desugar_generators(ast: &mut Ast) {
         }
         rewrite_params_to_this(ast, &gen_body, &all_names);
 
-        // Walk body once. Group statements into "arms": each arm is a
-        // (prelude, yield_expr) pair; the trailing prelude (after the
-        // final yield) becomes a final done=true arm with no value.
-        let mut arms: Vec<(Vec<Stmt>, ExprId)> = Vec::new();
-        let mut tail: Vec<Stmt> = Vec::new();
-        let mut current_prelude: Vec<Stmt> = Vec::new();
-        for s in gen_body {
-            match s {
-                Stmt::Yield(eid) => {
-                    arms.push((std::mem::take(&mut current_prelude), eid));
-                }
-                other => current_prelude.push(other),
-            }
-        }
-        tail.extend(current_prelude);
-
         // Class name + struct return type for next().
         let class_name = format!("__Gen_{gen_name}");
         let step_ann = format!("__step_{gen_name}");
@@ -648,9 +640,29 @@ pub fn desugar_generators(ast: &mut Ast) {
             ],
         });
 
-        // Build next() body: if-chain over __state.
-        let mut next_body: Vec<Stmt> = Vec::new();
-        for (i, (prelude, val)) in arms.iter().enumerate() {
+        // Build the state machine. Each arm is the body of one state in
+        // an if-chain wrapped by `while (true) { ... }`. Yields close an
+        // arm with `return {value:e, done:false}`; control-flow gotos
+        // close with `state = N; continue;` and the `while(true)` loop
+        // re-enters the if-chain at the new state.
+        let mut sm = GenSm::new(ast);
+        sm.lower_seq(gen_body);
+        // After the last body stmt, the natural exit is "done forever".
+        let zero = default_init_for_type(&yield_ty);
+        let zero_id = sm.ast.add_expr(zero);
+        let done_lit = sm.ast.add_expr(Expr::Bool(true));
+        let final_obj = sm.ast.add_expr(Expr::ObjectLit {
+            fields: vec![
+                ("value".into(), zero_id),
+                ("done".into(), done_lit),
+            ],
+        });
+        sm.cur_buf.push(Stmt::Return(Some(final_obj)));
+        sm.flush_cur();
+
+        // Assemble: while (true) { if (state==0){arm0} if (state==1){arm1} ... ; catch-all }
+        let mut loop_body: Vec<Stmt> = Vec::new();
+        for (i, arm_stmts) in sm.arms.iter().enumerate() {
             let i_lit = ast.add_expr(Expr::Number(i as f64));
             let this_state = ast.add_expr(Expr::This);
             let state_member = ast.add_expr(Expr::Member {
@@ -662,51 +674,48 @@ pub fn desugar_generators(ast: &mut Ast) {
                 left: state_member,
                 right: i_lit,
             });
-            // arm body: prelude... ; this.__state = i+1 ; return {value:e, done:false}.
-            let mut arm_body: Vec<Stmt> = prelude.clone();
-            let next_state_lit = ast.add_expr(Expr::Number((i + 1) as f64));
-            let this_assign = ast.add_expr(Expr::This);
-            let state_member_assign = ast.add_expr(Expr::Member {
-                obj: this_assign,
-                name: "__state".into(),
-            });
-            let assign_expr = ast.add_expr(Expr::Assign {
-                target: state_member_assign,
-                value: next_state_lit,
-            });
-            arm_body.push(Stmt::Expr(assign_expr));
-            // return { value: e, done: false }
-            let done_lit = ast.add_expr(Expr::Bool(false));
-            let ret_obj = ast.add_expr(Expr::ObjectLit {
-                fields: vec![
-                    ("value".into(), *val),
-                    ("done".into(), done_lit),
-                ],
-            });
-            arm_body.push(Stmt::Return(Some(ret_obj)));
-            next_body.push(Stmt::If {
+            loop_body.push(Stmt::If {
                 cond,
-                then_branch: Box::new(Stmt::Block(arm_body)),
+                then_branch: Box::new(Stmt::Block(arm_stmts.clone())),
                 else_branch: None,
             });
         }
-        // Tail (statements after the last yield) — included only if
-        // non-empty. They run on the FINAL next() call, after which
-        // we return done=true.
-        for s in tail {
-            next_body.push(s);
-        }
-        // Default tail: return {value: <T zero>, done: true}.
-        let zero = default_init_for_type(&yield_ty);
-        let zero_id = ast.add_expr(zero);
-        let done_lit = ast.add_expr(Expr::Bool(true));
-        let final_obj = ast.add_expr(Expr::ObjectLit {
+        // Catch-all for any state past the last allocated arm (covers
+        // unreachable dead-states from break/continue and any "fell off
+        // the end" case that didn't return inside the if-chain).
+        let zero_tail = default_init_for_type(&yield_ty);
+        let zero_tail_id = ast.add_expr(zero_tail);
+        let done_tail = ast.add_expr(Expr::Bool(true));
+        let final_tail = ast.add_expr(Expr::ObjectLit {
             fields: vec![
-                ("value".into(), zero_id),
-                ("done".into(), done_lit),
+                ("value".into(), zero_tail_id),
+                ("done".into(), done_tail),
             ],
         });
-        next_body.push(Stmt::Return(Some(final_obj)));
+        loop_body.push(Stmt::Return(Some(final_tail)));
+
+        let true_lit = ast.add_expr(Expr::Bool(true));
+        // Unreachable trailing return after the `while (true)` — the
+        // typechecker's "all paths return" analysis doesn't infer that
+        // a `cond=true` while never falls out, so without this the
+        // function's tail path looks indeterminate. Cheap to emit, no
+        // runtime cost (LLVM dead-code-eliminates it).
+        let zero_after = default_init_for_type(&yield_ty);
+        let zero_after_id = ast.add_expr(zero_after);
+        let done_after = ast.add_expr(Expr::Bool(true));
+        let final_after = ast.add_expr(Expr::ObjectLit {
+            fields: vec![
+                ("value".into(), zero_after_id),
+                ("done".into(), done_after),
+            ],
+        });
+        let next_body: Vec<Stmt> = vec![
+            Stmt::While {
+                cond: true_lit,
+                body: Box::new(Stmt::Block(loop_body)),
+            },
+            Stmt::Return(Some(final_after)),
+        ];
 
         // Build the generator class with __state field + ctor + next().
         let zero_init = default_init_for_type("number");
@@ -802,6 +811,373 @@ pub fn desugar_generators(ast: &mut Ast) {
     }
 
     ast.stmts.extend(appended);
+}
+
+/// Recursively replace every `let x = init` in `s` (and any nested
+/// stmts) with `this.x = init`, recording each lifted `(name, type)`
+/// in `lifted`. Used by `desugar_generators` so locals declared in
+/// for-init / if-branches / while-bodies survive yield boundaries
+/// the same way top-level lets do.
+fn lift_lets_in_stmt(ast: &mut Ast, s: &mut Stmt, lifted: &mut Vec<(String, String)>) {
+    match s {
+        Stmt::LetDecl { name, type_ann, init, .. } => {
+            let n = name.clone();
+            let t = type_ann.clone().unwrap_or_else(|| "number".into());
+            lifted.push((n.clone(), t));
+            let this_id = ast.add_expr(Expr::This);
+            let m = ast.add_expr(Expr::Member { obj: this_id, name: n });
+            let assign = ast.add_expr(Expr::Assign { target: m, value: *init });
+            *s = Stmt::Expr(assign);
+        }
+        Stmt::If { then_branch, else_branch, .. } => {
+            lift_lets_in_stmt(ast, then_branch, lifted);
+            if let Some(eb) = else_branch.as_deref_mut() {
+                lift_lets_in_stmt(ast, eb, lifted);
+            }
+        }
+        Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
+            lift_lets_in_stmt(ast, body, lifted);
+        }
+        Stmt::For { init, body, .. } => {
+            if let Some(i) = init.as_deref_mut() {
+                lift_lets_in_stmt(ast, i, lifted);
+            }
+            lift_lets_in_stmt(ast, body, lifted);
+        }
+        Stmt::Block(stmts) | Stmt::Multi(stmts) => {
+            for s in stmts {
+                lift_lets_in_stmt(ast, s, lifted);
+            }
+        }
+        // Switch / try cases don't yet support yields (J.2.b scope)
+        // so their inner lets stay as plain locals — no lift needed.
+        _ => {}
+    }
+}
+
+/// Returns true if `s` (or any nested stmt) contains a `yield`. Used
+/// by `GenSm` to decide whether a control-flow construct must be
+/// expanded into separate state arms (yields present) or can be
+/// emitted inline as a regular Stmt::If / While / For.
+fn stmt_contains_yield(s: &Stmt) -> bool {
+    match s {
+        Stmt::Yield(_) => true,
+        Stmt::If { then_branch, else_branch, .. } => {
+            stmt_contains_yield(then_branch)
+                || else_branch.as_deref().is_some_and(stmt_contains_yield)
+        }
+        Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => stmt_contains_yield(body),
+        Stmt::For { init, body, .. } => {
+            init.as_deref().is_some_and(stmt_contains_yield) || stmt_contains_yield(body)
+        }
+        Stmt::Block(stmts) | Stmt::Multi(stmts) => stmts.iter().any(stmt_contains_yield),
+        Stmt::Switch { cases, default, .. } => {
+            cases.iter().any(|c| c.body.iter().any(stmt_contains_yield))
+                || default.as_ref().is_some_and(|d| d.iter().any(stmt_contains_yield))
+        }
+        Stmt::Try { body, catch_body, finally_body, .. } => {
+            body.iter().any(stmt_contains_yield)
+                || catch_body.iter().any(stmt_contains_yield)
+                || finally_body.as_ref().is_some_and(|f| f.iter().any(stmt_contains_yield))
+        }
+        _ => false,
+    }
+}
+
+/// Rewrite `continue;` / `break;` inside `s` into `state = <target>;
+/// continue;` gotos that re-enter the enclosing `while (true)` state
+/// machine at the loop's continue / break target. Stops at inner loop
+/// boundaries — break/continue inside a nested yield-free
+/// `while` / `for` belong to that inner loop and stay literal.
+fn rewrite_break_continue_for_outer(
+    ast: &mut Ast,
+    s: &mut Stmt,
+    cont_target: usize,
+    brk_target: usize,
+) {
+    fn make_goto(ast: &mut Ast, target: usize) -> Stmt {
+        let this_id = ast.add_expr(Expr::This);
+        let m = ast.add_expr(Expr::Member {
+            obj: this_id,
+            name: "__state".into(),
+        });
+        let lit = ast.add_expr(Expr::Number(target as f64));
+        let assign = ast.add_expr(Expr::Assign {
+            target: m,
+            value: lit,
+        });
+        Stmt::Block(vec![Stmt::Expr(assign), Stmt::Continue])
+    }
+    match s {
+        Stmt::Continue => *s = make_goto(ast, cont_target),
+        Stmt::Break => *s = make_goto(ast, brk_target),
+        // Inner loops own their break/continue — don't descend.
+        Stmt::While { .. } | Stmt::DoWhile { .. } | Stmt::For { .. } => {}
+        // Switch swallows `break` (it targets the switch). `continue`
+        // inside a switch belongs to the enclosing loop, but yields
+        // inside switch aren't in J.2.b scope so we don't touch this.
+        Stmt::Switch { .. } => {}
+        Stmt::Try { .. } => {}
+        Stmt::If { then_branch, else_branch, .. } => {
+            rewrite_break_continue_for_outer(ast, then_branch, cont_target, brk_target);
+            if let Some(eb) = else_branch.as_deref_mut() {
+                rewrite_break_continue_for_outer(ast, eb, cont_target, brk_target);
+            }
+        }
+        Stmt::Block(stmts) | Stmt::Multi(stmts) => {
+            for s in stmts {
+                rewrite_break_continue_for_outer(ast, s, cont_target, brk_target);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// State-machine emitter for generator bodies. Each state's body is
+/// accumulated into `cur_buf` and flushed into `arms[cur_state]` when
+/// the state ends (via yield, goto, or descent into a nested state).
+///
+/// The final assembled if-chain is wrapped in `while (true) { ... }`
+/// so `Stmt::Continue` can be used as the goto primitive — setting
+/// `this.__state = N; continue;` re-enters the chain at state N.
+struct GenSm<'a> {
+    ast: &'a mut Ast,
+    arms: Vec<Vec<Stmt>>,
+    cur_state: usize,
+    cur_buf: Vec<Stmt>,
+    /// (continue_target, break_target) for each enclosing yield-loop.
+    /// Yield-FREE inner loops emit inline — their break/continue keep
+    /// their normal Stmt::Break / Stmt::Continue meaning, never enter
+    /// this stack.
+    loop_stack: Vec<(usize, usize)>,
+}
+
+impl<'a> GenSm<'a> {
+    fn new(ast: &'a mut Ast) -> Self {
+        Self {
+            ast,
+            arms: vec![Vec::new()],
+            cur_state: 0,
+            cur_buf: Vec::new(),
+            loop_stack: Vec::new(),
+        }
+    }
+
+    fn alloc_state(&mut self) -> usize {
+        let s = self.arms.len();
+        self.arms.push(Vec::new());
+        s
+    }
+
+    fn flush_cur(&mut self) {
+        let cur = self.cur_state;
+        let buf = std::mem::take(&mut self.cur_buf);
+        self.arms[cur].extend(buf);
+    }
+
+    fn emit_set_state(&mut self, target: usize) -> Stmt {
+        let this_id = self.ast.add_expr(Expr::This);
+        let m = self.ast.add_expr(Expr::Member {
+            obj: this_id,
+            name: "__state".into(),
+        });
+        let lit = self.ast.add_expr(Expr::Number(target as f64));
+        let assign = self.ast.add_expr(Expr::Assign {
+            target: m,
+            value: lit,
+        });
+        Stmt::Expr(assign)
+    }
+
+    fn emit_goto(&mut self, target: usize) -> Vec<Stmt> {
+        let set = self.emit_set_state(target);
+        vec![set, Stmt::Continue]
+    }
+
+    fn emit_yield_return(&mut self, val: ExprId, next: usize) -> Vec<Stmt> {
+        let set = self.emit_set_state(next);
+        let done = self.ast.add_expr(Expr::Bool(false));
+        let obj = self.ast.add_expr(Expr::ObjectLit {
+            fields: vec![("value".into(), val), ("done".into(), done)],
+        });
+        vec![set, Stmt::Return(Some(obj))]
+    }
+
+    fn lower_seq(&mut self, stmts: Vec<Stmt>) {
+        for s in stmts {
+            self.lower(s);
+        }
+    }
+
+    fn lower(&mut self, stmt: Stmt) {
+        match stmt {
+            Stmt::Yield(e) => {
+                let next = self.alloc_state();
+                let mut yr = self.emit_yield_return(e, next);
+                self.cur_buf.append(&mut yr);
+                self.flush_cur();
+                self.cur_state = next;
+            }
+            Stmt::Block(stmts) | Stmt::Multi(stmts) => {
+                for s in stmts {
+                    self.lower(s);
+                }
+            }
+            Stmt::If { cond, then_branch, else_branch } => {
+                let then_has = stmt_contains_yield(&then_branch);
+                let else_has = else_branch
+                    .as_deref()
+                    .is_some_and(stmt_contains_yield);
+                if !then_has && !else_has {
+                    let mut s = Stmt::If { cond, then_branch, else_branch };
+                    if let Some(&(cont, brk)) = self.loop_stack.last() {
+                        rewrite_break_continue_for_outer(self.ast, &mut s, cont, brk);
+                    }
+                    self.cur_buf.push(s);
+                    return;
+                }
+                let then_entry = self.alloc_state();
+                let post = self.alloc_state();
+                let else_entry = if else_branch.is_some() {
+                    self.alloc_state()
+                } else {
+                    post
+                };
+                let then_jump = self.emit_goto(then_entry);
+                let else_jump = self.emit_goto(else_entry);
+                self.cur_buf.push(Stmt::If {
+                    cond,
+                    then_branch: Box::new(Stmt::Block(then_jump)),
+                    else_branch: Some(Box::new(Stmt::Block(else_jump))),
+                });
+                self.flush_cur();
+
+                self.cur_state = then_entry;
+                self.lower(*then_branch);
+                let mut exit = self.emit_goto(post);
+                self.cur_buf.append(&mut exit);
+                self.flush_cur();
+
+                if let Some(eb) = else_branch {
+                    self.cur_state = else_entry;
+                    self.lower(*eb);
+                    let mut exit = self.emit_goto(post);
+                    self.cur_buf.append(&mut exit);
+                    self.flush_cur();
+                }
+
+                self.cur_state = post;
+            }
+            Stmt::While { cond, body } => {
+                if !stmt_contains_yield(&body) {
+                    self.cur_buf.push(Stmt::While { cond, body });
+                    return;
+                }
+                let head = self.alloc_state();
+                let body_entry = self.alloc_state();
+                let post = self.alloc_state();
+
+                let mut to_head = self.emit_goto(head);
+                self.cur_buf.append(&mut to_head);
+                self.flush_cur();
+
+                self.cur_state = head;
+                let then_jump = self.emit_goto(body_entry);
+                let else_jump = self.emit_goto(post);
+                self.cur_buf.push(Stmt::If {
+                    cond,
+                    then_branch: Box::new(Stmt::Block(then_jump)),
+                    else_branch: Some(Box::new(Stmt::Block(else_jump))),
+                });
+                self.flush_cur();
+
+                self.cur_state = body_entry;
+                self.loop_stack.push((head, post));
+                self.lower(*body);
+                self.loop_stack.pop();
+                let mut back = self.emit_goto(head);
+                self.cur_buf.append(&mut back);
+                self.flush_cur();
+
+                self.cur_state = post;
+            }
+            Stmt::For { init, cond, step, body } => {
+                if !stmt_contains_yield(&body)
+                    && !init.as_deref().is_some_and(stmt_contains_yield)
+                {
+                    self.cur_buf.push(Stmt::For { init, cond, step, body });
+                    return;
+                }
+                if let Some(i) = init {
+                    self.lower(*i);
+                }
+                let head = self.alloc_state();
+                let body_entry = self.alloc_state();
+                let step_state = self.alloc_state();
+                let post = self.alloc_state();
+
+                let mut to_head = self.emit_goto(head);
+                self.cur_buf.append(&mut to_head);
+                self.flush_cur();
+
+                self.cur_state = head;
+                if let Some(c) = cond {
+                    let then_jump = self.emit_goto(body_entry);
+                    let else_jump = self.emit_goto(post);
+                    self.cur_buf.push(Stmt::If {
+                        cond: c,
+                        then_branch: Box::new(Stmt::Block(then_jump)),
+                        else_branch: Some(Box::new(Stmt::Block(else_jump))),
+                    });
+                } else {
+                    let mut g = self.emit_goto(body_entry);
+                    self.cur_buf.append(&mut g);
+                }
+                self.flush_cur();
+
+                self.cur_state = body_entry;
+                self.loop_stack.push((step_state, post));
+                self.lower(*body);
+                self.loop_stack.pop();
+                let mut to_step = self.emit_goto(step_state);
+                self.cur_buf.append(&mut to_step);
+                self.flush_cur();
+
+                self.cur_state = step_state;
+                if let Some(s) = step {
+                    self.cur_buf.push(Stmt::Expr(s));
+                }
+                let mut back = self.emit_goto(head);
+                self.cur_buf.append(&mut back);
+                self.flush_cur();
+
+                self.cur_state = post;
+            }
+            Stmt::Continue => {
+                if let Some(&(cont, _)) = self.loop_stack.last() {
+                    let mut g = self.emit_goto(cont);
+                    self.cur_buf.append(&mut g);
+                    self.flush_cur();
+                    let dead = self.alloc_state();
+                    self.cur_state = dead;
+                } else {
+                    self.cur_buf.push(Stmt::Continue);
+                }
+            }
+            Stmt::Break => {
+                if let Some(&(_, brk)) = self.loop_stack.last() {
+                    let mut g = self.emit_goto(brk);
+                    self.cur_buf.append(&mut g);
+                    self.flush_cur();
+                    let dead = self.alloc_state();
+                    self.cur_state = dead;
+                } else {
+                    self.cur_buf.push(Stmt::Break);
+                }
+            }
+            other => self.cur_buf.push(other),
+        }
+    }
 }
 
 pub fn desugar_classes(ast: &mut Ast) {
