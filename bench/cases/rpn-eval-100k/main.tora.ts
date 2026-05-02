@@ -1,6 +1,5 @@
 function evalRpn(expr: string): number {
-  let stack: number[] = [];
-  for (let i: number = 0; i < 16; i = i + 1) { stack.push(0); }
+  let stack: number[] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
   let sp: number = 0;
   let parts: string[] = expr.split(" ");
   for (let i: number = 0; i < parts.length; i = i + 1) {
