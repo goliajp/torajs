@@ -1612,6 +1612,16 @@ impl Checker {
                             Box::new(Type::String),
                         ))
                     }
+                    // `s.charAt(i)` — single-char substring at index i.
+                    // Identical surface to `s[i]`; routed through the
+                    // same substr_create / substr_slice path at lower
+                    // time. tr's subset doesn't return "" on OOB —
+                    // matches the unchecked-index convention used by
+                    // index access.
+                    (Type::String, "charAt") => Ok(Type::Function(
+                        vec![Type::Number],
+                        Box::new(Type::String),
+                    )),
                     (Type::String, "at") => Ok(Type::Function(
                         vec![Type::Number],
                         Box::new(Type::String),

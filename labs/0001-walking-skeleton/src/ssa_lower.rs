@@ -8206,7 +8206,7 @@ impl<'a> LowerCtx<'a> {
                     && matches!(
                         name.as_str(),
                         "slice" | "substring"
-                        | "charCodeAt" | "codePointAt"
+                        | "charCodeAt" | "codePointAt" | "charAt"
                         | "startsWith" | "endsWith"
                         | "includes" | "indexOf" | "split" | "join" | "repeat"
                         | "toUpperCase" | "toLowerCase"
@@ -8227,6 +8227,30 @@ impl<'a> LowerCtx<'a> {
                     // anything that needs string-shaped output goes
                     // through to_owned + Str path (Phase D would add
                     // direct-on-Substr variants for slice/substring).
+                    if recv_ty == Type::Substr && method == "charAt" && args.len() == 1 {
+                        // charAt on Substr: substr_slice(v, i, i+1).
+                        let idx_val = self.lower_expr(args[0]);
+                        let end = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::BinOp(
+                                SsaBinOp::Add,
+                                idx_val,
+                                Operand::ConstI64(1),
+                            ),
+                            Type::I64,
+                            None,
+                        );
+                        let v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.substr_slice,
+                                vec![recv_op, idx_val, Operand::Value(end)],
+                            ),
+                            Type::Substr,
+                            None,
+                        );
+                        return Operand::Value(v);
+                    }
                     if recv_ty == Type::Substr {
                         // View-aware fast paths — read bytes from
                         // parent + offset directly, no per-call malloc.
@@ -8344,6 +8368,47 @@ impl<'a> LowerCtx<'a> {
                                 return Operand::Value(v);
                             }
                         }
+                    }
+                    // `s.charAt(i)` — same-shape alias for `s[i]`.
+                    // Lowers to a length-1 substr view instead of going
+                    // through a separate runtime helper.
+                    if matches!(recv_ty, Type::Str | Type::Substr)
+                        && method == "charAt"
+                        && args.len() == 1
+                    {
+                        let idx_val = self.lower_expr(args[0]);
+                        let v = if recv_ty == Type::Str {
+                            self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(
+                                    self.intrinsics.substr_create,
+                                    vec![recv_op, idx_val, Operand::ConstI64(1)],
+                                ),
+                                Type::Substr,
+                                None,
+                            )
+                        } else {
+                            let end = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::BinOp(
+                                    SsaBinOp::Add,
+                                    idx_val,
+                                    Operand::ConstI64(1),
+                                ),
+                                Type::I64,
+                                None,
+                            );
+                            self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(
+                                    self.intrinsics.substr_slice,
+                                    vec![recv_op, idx_val, Operand::Value(end)],
+                                ),
+                                Type::Substr,
+                                None,
+                            )
+                        };
+                        return Operand::Value(v);
                     }
                     // String methods.
                     if recv_ty == Type::Str
