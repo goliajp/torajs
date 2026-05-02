@@ -147,10 +147,10 @@ impl Type {
     /// flags@6). `__torajs_rc_inc` / `__torajs_rc_dec` are only safe
     /// to call on values of refcount-aware types.
     ///
-    /// Phase 1: only `Str`. Phase 2 will add `Obj` / `Arr` / `Closure`
-    /// once those layouts gain the same header prefix.
+    /// Phase 1: `Str`. Phase 2A: `Arr`. Phase 2B: `Obj`. Phase 2C
+    /// will add `Closure` once env layout gains the header prefix.
     pub fn is_refcounted(self) -> bool {
-        matches!(self, Type::Str)
+        matches!(self, Type::Str | Type::Arr(_) | Type::Obj(_))
     }
 }
 

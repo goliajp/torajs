@@ -32,14 +32,19 @@ use crate::ssa::{
     Type, ValueId,
 };
 
-/// Phase H — every heap-allocated object reserves a 16-byte header:
-///   offset 0 — class tag (u32-sized but 8-byte aligned slot)
-///   offset 8 — vtable pointer (filled with a per-class const global
-///              by the factory; null for plain `type` aliases)
+/// Phase 2B refcount: every heap-allocated Obj reserves a 24-byte
+/// header:
+///   offset 0  — universal heap header (refcount u32 + type_tag u16 + flags u16)
+///   offset 8  — class tag (u64-slot; low 32 bits = per-class id, high
+///               32 reserved)
+///   offset 16 — vtable pointer (per-class const global; null for plain
+///               `type` aliases)
 /// Field 0 lives at `OBJ_HEADER_SIZE`, field i at
 /// `OBJ_HEADER_SIZE + i*8`. Closure env layout is unaffected — it has
 /// its own fn-ptr header at offset 0 and lives in a separate alloc path.
-const OBJ_HEADER_SIZE: u64 = 16;
+const OBJ_HEADER_SIZE: u64 = 24;
+const OBJ_CLASS_TAG_OFF: u64 = 8;
+const OBJ_VTABLE_OFF: u64 = 16;
 
 /// Phase 2A refcount: Arr layout (mirrors `__TORAJS_ARR_HDR_*` in
 /// runtime_str.c and `ARR_HDR_*` in ssa_inkwell.rs):
@@ -4278,6 +4283,25 @@ impl<'a> LowerCtx<'a> {
     /// our type aliases are declaration-ordered and forward refs are
     /// rejected at the type-decl pass — there's no way to build a
     /// recursive struct.
+    /// Phase 2B refcount: write the universal heap header (refcount=1
+    /// + type_tag=OBJ + flags=0) at offset 0 of a freshly-alloc'd
+    /// object. Lowerer emits this at every ObjectLit alloc site since
+    /// `__torajs_obj_alloc` stays a plain malloc (re-used by box / env
+    /// paths that don't want a refcount header).
+    fn emit_obj_header_init(&mut self, obj_op: Operand) {
+        // refcount @ +0 = 1
+        self.f.append_void(
+            self.cur_block,
+            InstKind::Store(Operand::ConstI32(1), obj_op, 0),
+        );
+        // type_tag @ +4 = OBJ (1)  (i16 stored via i32; high 16 bits are
+        // flags @ +6, also 0)
+        self.f.append_void(
+            self.cur_block,
+            InstKind::Store(Operand::ConstI32(1), obj_op, 4),
+        );
+    }
+
     /// Clamp an i64 SSA value to [lo, hi] via two `select` SSA-shape
     /// branches. Used by Array helpers that take user-provided indices
     /// (start / end / target) and need to match the C runtime's clamp
@@ -4522,7 +4546,59 @@ impl<'a> LowerCtx<'a> {
                 );
             }
             Type::Obj(sid) => {
+                // Phase 2B refcount-aware drop: inline `if (val != null)
+                // { if (--rc == 0) { walk_fields; free } }`. Field walk
+                // fires only on the last owner so shared Objs (refcount
+                // > 1) leave their fields intact for the surviving
+                // owner. obj_drop intrinsic stays plain free for box /
+                // env callers. NULL guard handles `let p: Pt | null =
+                // null` and similar nullable Obj patterns.
                 let layout = self.struct_layouts[sid.0 as usize].clone();
+                let dec_blk = self.f.add_block();
+                let walk_blk = self.f.add_block();
+                let after = self.f.add_block();
+                let null_check = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::ICmp(IPred::Eq, val, Operand::ConstPtrNull),
+                    Type::Bool,
+                    None,
+                );
+                self.f.set_term(self.cur_block, Terminator::CondBr {
+                    cond: Operand::Value(null_check),
+                    then_blk: after,
+                    else_blk: dec_blk,
+                });
+                self.cur_block = dec_blk;
+                let rc_now = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Load(Type::I32, val, 0),
+                    Type::I32,
+                    None,
+                );
+                let rc_dec = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::BinOp(SsaBinOp::Sub, Operand::Value(rc_now), Operand::ConstI32(1)),
+                    Type::I32,
+                    None,
+                );
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Store(Operand::Value(rc_dec), val, 0),
+                );
+                let is_zero = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::ICmp(IPred::Eq, Operand::Value(rc_dec), Operand::ConstI32(0)),
+                    Type::Bool,
+                    None,
+                );
+                self.f.set_term(self.cur_block, Terminator::CondBr {
+                    cond: Operand::Value(is_zero),
+                    then_blk: walk_blk,
+                    else_blk: after,
+                });
+                // walk_blk: refcount hit 0 — drop owned fields then
+                // free the obj heap.
+                self.cur_block = walk_blk;
                 for (i, (_, fty)) in layout.iter().enumerate() {
                     if fty.is_copy() {
                         continue;
@@ -4536,11 +4612,12 @@ impl<'a> LowerCtx<'a> {
                     );
                     self.emit_drop_value(Operand::Value(field_val), *fty);
                 }
-                let drop_fid = self.intrinsics.obj_drop;
                 self.f.append_void(
                     self.cur_block,
-                    InstKind::Call(drop_fid, vec![val]),
+                    InstKind::Call(self.intrinsics.obj_drop, vec![val]),
                 );
+                self.f.set_term(self.cur_block, Terminator::Br(after));
+                self.cur_block = after;
             }
             Type::Arr(arr_id) => {
                 // Phase B refcount: walk refcounted elements first
@@ -6313,7 +6390,7 @@ impl<'a> LowerCtx<'a> {
                     let result_slot = self.alloca_in_entry(ret_ty, Some("__dispatch_res"));
                     let tag = self.f.append_inst(
                         self.cur_block,
-                        InstKind::Load(Type::I64, recv, 0),
+                        InstKind::Load(Type::I64, recv, OBJ_CLASS_TAG_OFF),
                         Type::I64,
                         None,
                     );
@@ -9504,20 +9581,32 @@ impl<'a> LowerCtx<'a> {
                     Type::Obj(sid),
                     None,
                 );
+                // Phase 2B refcount: init universal heap header (refcount=1,
+                // type_tag=OBJ, flags=0). obj_alloc stays a plain malloc so
+                // it can be reused by box / closure-env paths that don't
+                // want a refcount header.
+                self.emit_obj_header_init(Operand::Value(obj_ptr));
                 let tag = self.sid_to_class_tag.get(&sid.0).copied().unwrap_or(0);
                 self.f.append_void(
                     self.cur_block,
-                    InstKind::Store(Operand::ConstI64(tag as i64), Operand::Value(obj_ptr), 0),
+                    InstKind::Store(
+                        Operand::ConstI64(tag as i64),
+                        Operand::Value(obj_ptr),
+                        OBJ_CLASS_TAG_OFF,
+                    ),
                 );
-                // Phase H.3.a — vtable pointer slot at offset 8. Stays
-                // null until H.3.b emits per-class vtable globals and
-                // routes the factory through them. obj.method() still
-                // uses static `__cm_C__M(obj, ...)` dispatch so the slot
-                // is never read yet — this commit just reserves the
-                // header layout.
+                // Phase H.3.a — vtable pointer slot. Stays null until
+                // H.3.b emits per-class vtable globals and routes the
+                // factory through them. obj.method() still uses static
+                // `__cm_C__M(obj, ...)` dispatch so the slot is never
+                // read yet — this commit just reserves the header layout.
                 self.f.append_void(
                     self.cur_block,
-                    InstKind::Store(Operand::ConstPtrNull, Operand::Value(obj_ptr), 8),
+                    InstKind::Store(
+                        Operand::ConstPtrNull,
+                        Operand::Value(obj_ptr),
+                        OBJ_VTABLE_OFF,
+                    ),
                 );
                 for (i, val) in field_vals.iter().enumerate() {
                     let offset = OBJ_HEADER_SIZE + i as u64 * 8;
@@ -10265,10 +10354,10 @@ impl<'a> LowerCtx<'a> {
                 }
                 descendant_tags.sort();
                 descendant_tags.dedup();
-                // Read tag at offset 0 of the operand.
+                // Read class tag at OBJ_CLASS_TAG_OFF.
                 let tag_v = self.f.append_inst(
                     self.cur_block,
-                    InstKind::Load(Type::I64, v, 0),
+                    InstKind::Load(Type::I64, v, OBJ_CLASS_TAG_OFF),
                     Type::I64,
                     None,
                 );
@@ -10308,6 +10397,11 @@ impl<'a> LowerCtx<'a> {
                 // Same shape as Ternary but the cond comes from a
                 // pointer null-compare and the lhs value is reused on
                 // the non-null path without re-evaluating.
+                //
+                // Phase B refcount: the result is borrowed from one of
+                // lhs / rhs without consuming either's local. To keep
+                // the caller's drop and the source's drop balanced, inc
+                // the chosen value's refcount in both branches.
                 let lhs_op = self.lower_expr(*lhs);
                 let lhs_ty = self.operand_ty(&lhs_op);
                 let res_slot = self.alloca_in_entry(lhs_ty, Some("__nullish"));
@@ -10344,8 +10438,20 @@ impl<'a> LowerCtx<'a> {
                     then_end,
                     InstKind::Store(rhs_op, Operand::Value(res_slot), 0),
                 );
+                if lhs_ty.is_refcounted() {
+                    self.f.append_void(
+                        then_end,
+                        InstKind::Call(self.intrinsics.rc_inc, vec![rhs_op]),
+                    );
+                }
                 self.f.set_term(then_end, Terminator::Br(after));
-                // non-null path: slot already holds lhs; just branch.
+                // non-null path: slot already holds lhs; inc it.
+                if lhs_ty.is_refcounted() {
+                    self.f.append_void(
+                        else_blk,
+                        InstKind::Call(self.intrinsics.rc_inc, vec![lhs_op]),
+                    );
+                }
                 self.f.set_term(else_blk, Terminator::Br(after));
                 self.cur_block = after;
                 let r = self.f.append_inst(

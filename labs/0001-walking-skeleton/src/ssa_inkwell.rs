@@ -1396,8 +1396,14 @@ fn define_throw_take<'ctx>(ctx: &'ctx Context, m: &LlvmModule<'ctx>) -> Function
     f
 }
 
-/// `__torajs_obj_alloc(u64 size) -> *void` — straight `malloc(size)`.
-/// Used by ObjectLit lowering; lowerer passes the static struct size.
+/// `__torajs_obj_alloc(u64 size) -> *void` — plain `malloc(size)`.
+///
+/// Stays a dumb allocator (no header init): the same intrinsic is
+/// reused by ObjectLit lowering AND by escape-captured Copy boxes
+/// (8-byte cells) AND by closure env blocks (header layout is
+/// fn_addr + drop_fn, not the universal heap header). The lowerer
+/// writes the universal refcount header at the call site for actual
+/// Obj allocations only.
 fn define_obj_alloc<'ctx>(
     ctx: &'ctx Context,
     m: &LlvmModule<'ctx>,
@@ -1421,10 +1427,11 @@ fn define_obj_alloc<'ctx>(
     f
 }
 
-/// `__torajs_obj_drop(*void p) -> void` — straight `free(p)`. P2.4.c MVP
-/// only supports objects with Copy or Str fields. P2.4.d will recursively
-/// drop non-Copy fields (Strings, nested objects) before freeing the
-/// outer struct — that's where the runtime needs the layout info.
+/// `__torajs_obj_drop(*void p) -> void` — plain `free(p)`. The
+/// Obj-specific refcount-aware drop lives at the lowerer site
+/// (`emit_drop_value Type::Obj`), which walks fields and emits an
+/// inline rc_dec + cond-free for the Obj header. This intrinsic is
+/// only called for box / env paths, both of which are single-owner.
 fn define_obj_drop<'ctx>(
     ctx: &'ctx Context,
     m: &LlvmModule<'ctx>,
