@@ -10607,8 +10607,24 @@ impl<'a> LowerCtx<'a> {
                     for a in args {
                         argv.push(self.lower_expr(*a));
                     }
-                    for a in args {
-                        self.consume_if_ident(*a);
+                    // Refcounted heap args: caller stays the owner, the
+                    // callee gets its own ref via rc_inc. Without this
+                    // every closure / fnsig call would mark the source
+                    // moved + skip caller's scope drop, producing latent
+                    // UAFs whenever the callee returns the same heap or
+                    // when the same arg is passed twice (identity-style
+                    // map / filter callbacks etc.).
+                    for (i, a) in args.iter().enumerate() {
+                        let argv_op = argv[i + 1]; // env_ptr is at 0
+                        let a_ty = self.operand_ty(&argv_op);
+                        if a_ty.is_refcounted() {
+                            self.f.append_void(
+                                self.cur_block,
+                                InstKind::Call(self.intrinsics.rc_inc, vec![argv_op]),
+                            );
+                        } else {
+                            self.consume_if_ident(*a);
+                        }
                     }
                     if ret_ty == Type::Void {
                         self.f.append_void(
@@ -10648,8 +10664,16 @@ impl<'a> LowerCtx<'a> {
                     );
                     let argv: Vec<Operand> =
                         args.iter().map(|a| self.lower_expr(*a)).collect();
-                    for a in args {
-                        self.consume_if_ident(*a);
+                    for (i, a) in args.iter().enumerate() {
+                        let a_ty = self.operand_ty(&argv[i]);
+                        if a_ty.is_refcounted() {
+                            self.f.append_void(
+                                self.cur_block,
+                                InstKind::Call(self.intrinsics.rc_inc, vec![argv[i]]),
+                            );
+                        } else {
+                            self.consume_if_ident(*a);
+                        }
                     }
                     let ret_ty = self.fn_sigs[sig_id.0 as usize].1;
                     let result_ty = if ret_ty == Type::Void {
