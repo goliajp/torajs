@@ -221,6 +221,95 @@ void *__torajs_substr_to_owned(const uint8_t *v) {
     return p;
 }
 
+/* Helper: resolve a Substr's data base (parent.bytes + offset). */
+static inline const uint8_t *substr_data_(const uint8_t *v) {
+    const uint8_t *parent = *(const uint8_t *const *)(v + __TORAJS_SUBSTR_PARENT_OFF);
+    uint64_t offset = *(const uint64_t *)(v + __TORAJS_SUBSTR_OFFSET_OFF);
+    return parent + __TORAJS_STR_HDR_SIZE + offset;
+}
+
+/* Substr.startsWith / endsWith / includes / indexOf — view-aware
+ * variants that read bytes from parent + offset without materializing.
+ * Needle is a Str (the common case from string literals). */
+int8_t __torajs_substr_starts_with(const uint8_t *v, const uint8_t *n) {
+    uint64_t v_len = __TORAJS_SUBSTR_LEN(v);
+    uint64_t n_len = __TORAJS_STR_LEN(n);
+    if (n_len > v_len) return 0;
+    if (n_len == 0) return 1;
+    return memcmp(substr_data_(v), __TORAJS_STR_CDATA(n), (size_t)n_len) == 0 ? 1 : 0;
+}
+
+int8_t __torajs_substr_ends_with(const uint8_t *v, const uint8_t *n) {
+    uint64_t v_len = __TORAJS_SUBSTR_LEN(v);
+    uint64_t n_len = __TORAJS_STR_LEN(n);
+    if (n_len > v_len) return 0;
+    if (n_len == 0) return 1;
+    return memcmp(substr_data_(v) + (v_len - n_len), __TORAJS_STR_CDATA(n), (size_t)n_len) == 0 ? 1 : 0;
+}
+
+int8_t __torajs_substr_includes(const uint8_t *v, const uint8_t *n) {
+    uint64_t v_len = __TORAJS_SUBSTR_LEN(v);
+    uint64_t n_len = __TORAJS_STR_LEN(n);
+    if (n_len == 0) return 1;
+    if (n_len > v_len) return 0;
+    const uint8_t *v_data = substr_data_(v);
+    const uint8_t *n_data = __TORAJS_STR_CDATA(n);
+    uint64_t end = v_len - n_len;
+    for (uint64_t i = 0; i <= end; i++) {
+        if (memcmp(v_data + i, n_data, (size_t)n_len) == 0) return 1;
+    }
+    return 0;
+}
+
+int64_t __torajs_substr_index_of(const uint8_t *v, const uint8_t *n) {
+    uint64_t v_len = __TORAJS_SUBSTR_LEN(v);
+    uint64_t n_len = __TORAJS_STR_LEN(n);
+    if (n_len == 0) return 0;
+    if (n_len > v_len) return -1;
+    const uint8_t *v_data = substr_data_(v);
+    const uint8_t *n_data = __TORAJS_STR_CDATA(n);
+    uint64_t end = v_len - n_len;
+    for (uint64_t i = 0; i <= end; i++) {
+        if (memcmp(v_data + i, n_data, (size_t)n_len) == 0) return (int64_t)i;
+    }
+    return -1;
+}
+
+/* Substr.slice / substring — view-of-view. The new Substr's parent is
+ * the SAME root parent (drop chain stays depth-1). Standalone (not
+ * INLINE) — its 32-byte struct is a separate malloc and substr_drop
+ * will free it. Negative index handling (slice wraps, substring
+ * clamps + swaps) matches the corresponding str helpers. */
+void *__torajs_substr_slice(const uint8_t *v, int64_t start, int64_t end) {
+    uint64_t v_len = __TORAJS_SUBSTR_LEN(v);
+    int64_t s = start < 0 ? (int64_t)v_len + start : start;
+    int64_t e = end < 0 ? (int64_t)v_len + end : end;
+    if (s < 0) s = 0;
+    if (e < 0) e = 0;
+    if (s > (int64_t)v_len) s = (int64_t)v_len;
+    if (e > (int64_t)v_len) e = (int64_t)v_len;
+    if (s > e) s = e;
+    void *parent = *(uint8_t **)(v + __TORAJS_SUBSTR_PARENT_OFF);
+    uint64_t v_off = *(const uint64_t *)(v + __TORAJS_SUBSTR_OFFSET_OFF);
+    return __torajs_substr_create(parent, v_off + (uint64_t)s, (uint64_t)(e - s));
+}
+
+void *__torajs_substr_substring(const uint8_t *v, int64_t start, int64_t end) {
+    uint64_t v_len = __TORAJS_SUBSTR_LEN(v);
+    if (start < 0) start = 0;
+    if (end < 0) end = 0;
+    if (start > (int64_t)v_len) start = (int64_t)v_len;
+    if (end > (int64_t)v_len) end = (int64_t)v_len;
+    if (start > end) {
+        int64_t tmp = start;
+        start = end;
+        end = tmp;
+    }
+    void *parent = *(uint8_t **)(v + __TORAJS_SUBSTR_PARENT_OFF);
+    uint64_t v_off = *(const uint64_t *)(v + __TORAJS_SUBSTR_OFFSET_OFF);
+    return __torajs_substr_create(parent, v_off + (uint64_t)start, (uint64_t)(end - start));
+}
+
 /* ============================================================
  * Arr layout (Phase 2A — universal heap header)
  *

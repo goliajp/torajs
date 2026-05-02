@@ -1346,6 +1346,52 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         &[Type::Substr, Type::Str],
         Type::Bool,
     );
+    // View-aware variants — read bytes from parent + offset, no
+    // materialize. Needle is Str (literal-side common case).
+    let substr_starts_with_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_substr_starts_with",
+        &[Type::Ptr, Type::Str],
+        Type::Bool,
+    );
+    let substr_ends_with_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_substr_ends_with",
+        &[Type::Ptr, Type::Str],
+        Type::Bool,
+    );
+    let substr_includes_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_substr_includes",
+        &[Type::Ptr, Type::Str],
+        Type::Bool,
+    );
+    let substr_index_of_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_substr_index_of",
+        &[Type::Ptr, Type::Str],
+        Type::I64,
+    );
+    // View-of-view — returns a fresh standalone Substr referencing the
+    // same root parent. 32-byte malloc, no byte copy.
+    let substr_slice_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_substr_slice",
+        &[Type::Ptr, Type::I64, Type::I64],
+        Type::Substr,
+    );
+    let substr_substring_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_substr_substring",
+        &[Type::Ptr, Type::I64, Type::I64],
+        Type::Substr,
+    );
     let substr_to_owned_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -2078,6 +2124,12 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         substr_char_code_at: substr_char_code_at_id,
         substr_eq_str: substr_eq_str_id,
         substr_to_owned: substr_to_owned_id,
+        substr_starts_with: substr_starts_with_id,
+        substr_ends_with: substr_ends_with_id,
+        substr_includes: substr_includes_id,
+        substr_index_of: substr_index_of_id,
+        substr_slice: substr_slice_id,
+        substr_substring: substr_substring_id,
         arr_from_string: arr_from_string_id,
         str_substring: str_substring_id,
         arr_to_reversed: arr_to_reversed_id,
@@ -2385,6 +2437,12 @@ struct Intrinsics {
     substr_char_code_at: FuncId,
     substr_eq_str: FuncId,
     substr_to_owned: FuncId,
+    substr_starts_with: FuncId,
+    substr_ends_with: FuncId,
+    substr_includes: FuncId,
+    substr_index_of: FuncId,
+    substr_slice: FuncId,
+    substr_substring: FuncId,
     arr_from_string: FuncId,
     str_substring: FuncId,
     arr_to_reversed: FuncId,
@@ -7645,26 +7703,53 @@ impl<'a> LowerCtx<'a> {
                     // through to_owned + Str path (Phase D would add
                     // direct-on-Substr variants for slice/substring).
                     if recv_ty == Type::Substr {
-                        match method.as_str() {
+                        // View-aware fast paths — read bytes from
+                        // parent + offset directly, no per-call malloc.
+                        let view_aware = match method.as_str() {
                             "charCodeAt" | "codePointAt" => {
-                                let mut argv = Vec::with_capacity(2);
-                                argv.push(recv_op);
-                                for a in args {
-                                    argv.push(self.lower_expr(*a));
-                                }
-                                let v = self.f.append_inst(
-                                    self.cur_block,
-                                    InstKind::Call(self.intrinsics.substr_char_code_at, argv),
-                                    Type::I64,
-                                    None,
-                                );
-                                return Operand::Value(v);
+                                Some((self.intrinsics.substr_char_code_at, Type::I64))
                             }
+                            "startsWith" => {
+                                Some((self.intrinsics.substr_starts_with, Type::Bool))
+                            }
+                            "endsWith" => {
+                                Some((self.intrinsics.substr_ends_with, Type::Bool))
+                            }
+                            "includes" => {
+                                Some((self.intrinsics.substr_includes, Type::Bool))
+                            }
+                            "indexOf" => {
+                                Some((self.intrinsics.substr_index_of, Type::I64))
+                            }
+                            "slice" => {
+                                Some((self.intrinsics.substr_slice, Type::Substr))
+                            }
+                            "substring" => {
+                                Some((self.intrinsics.substr_substring, Type::Substr))
+                            }
+                            _ => None,
+                        };
+                        if let Some((target, ret_ty)) = view_aware {
+                            let mut argv = Vec::with_capacity(args.len() + 1);
+                            argv.push(recv_op);
+                            for a in args {
+                                argv.push(self.lower_expr(*a));
+                            }
+                            let v = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(target, argv),
+                                ret_ty,
+                                None,
+                            );
+                            return Operand::Value(v);
+                        }
+                        match method.as_str() {
+                            // Unreachable now — view_aware above covers
+                            // these — but keep the explicit no-op match
+                            // arm in case the dispatch table later splits.
+                            "charCodeAt" | "codePointAt" => unreachable!(),
                             // Methods producing new strings — materialize
                             // first then route through the OWNED Str path.
-                            // Phase D may add view-direct variants that
-                            // skip materialization (e.g. substr.slice
-                            // returns Substr of same parent).
                             _ => {
                                 let owned = self.f.append_inst(
                                     self.cur_block,
@@ -11928,6 +12013,12 @@ impl<'a> LowerCtx<'a> {
             || fid == i.substr_char_code_at
             || fid == i.substr_eq_str
             || fid == i.substr_to_owned
+            || fid == i.substr_starts_with
+            || fid == i.substr_ends_with
+            || fid == i.substr_includes
+            || fid == i.substr_index_of
+            || fid == i.substr_slice
+            || fid == i.substr_substring
             || fid == i.arr_from_string
             || fid == i.str_substring
             || fid == i.arr_to_reversed
