@@ -24,6 +24,17 @@ function* pair(a: number, b: number): number {
   yield a + b;
 }
 
+// J.2.a — `let`s declared at the top level of a generator body get
+// lifted to fields on the iterator class so the binding survives
+// across yield boundaries.
+function* with_locals(): number {
+  let x = 10;
+  yield x;
+  let y = 20;
+  yield x + y;
+  yield x * y;
+}
+
 function check(): number {
   // Basic linear drive — three yields, fourth call returns done.
   let g = count3();
@@ -64,6 +75,13 @@ function check(): number {
     total = total + step.value;
   }
   if (total !== 6) { throw "#15: drain sum"; }
+
+  // J.2.a — cross-yield locals lifted to fields.
+  let h = with_locals();
+  if (h.next().value !== 10) { throw "#16: x"; }
+  if (h.next().value !== 30) { throw "#17: x+y"; }
+  if (h.next().value !== 200) { throw "#18: x*y"; }
+  if (h.next().done !== true) { throw "#19: locals end"; }
 
   return 0;
 }

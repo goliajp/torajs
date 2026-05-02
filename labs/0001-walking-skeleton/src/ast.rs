@@ -575,11 +575,49 @@ pub fn desugar_generators(ast: &mut Ast) {
             )
         });
 
-        // Rewrite param references inside the body to `this.<name>` so
-        // they resolve against the iterator class's fields once we move
-        // the body into a `next()` method (where the original local
-        // bindings no longer exist).
-        rewrite_params_to_this(ast, &gen_body, &gen_params);
+        // Phase J.2.a — lift every top-level `let x: T = init` in the
+        // generator body to a class field so the binding survives across
+        // yield boundaries. Each lifted let becomes:
+        //   - a new field on the iterator class
+        //   - a `this.<name> = init` assignment expr at the let's source
+        //     position (replacing the LetDecl in-place)
+        //   - a `this.<name>` rewrite for every Ident reference further
+        //     down the body
+        // Locals declared inside nested control-flow (if / while / for /
+        // try) stay local — they don't cross yield boundaries since
+        // J.1 MVP doesn't allow yields inside those constructs anyway.
+        let mut gen_body = gen_body;
+        let mut lifted_locals: Vec<(String, String)> = Vec::new();
+        for s in &mut gen_body {
+            if let Stmt::LetDecl { name, type_ann, init, .. } = s {
+                let lifted_name = name.clone();
+                let lifted_ty = type_ann.clone().unwrap_or_else(|| "number".into());
+                lifted_locals.push((lifted_name.clone(), lifted_ty));
+                let this_id = ast.add_expr(Expr::This);
+                let f_member = ast.add_expr(Expr::Member {
+                    obj: this_id,
+                    name: lifted_name,
+                });
+                let assign = ast.add_expr(Expr::Assign {
+                    target: f_member,
+                    value: *init,
+                });
+                *s = Stmt::Expr(assign);
+            }
+        }
+        // Names to rewrite to `this.<name>`: generator params + lifted
+        // locals. Both share the same identifier-shadowing semantics
+        // for our MVP (no shadowing).
+        let mut all_names: Vec<Param> = gen_params.clone();
+        for (n, t) in &lifted_locals {
+            all_names.push(Param {
+                name: n.clone(),
+                type_ann: Some(t.clone()),
+                default: None,
+                is_rest: false,
+            });
+        }
+        rewrite_params_to_this(ast, &gen_body, &all_names);
 
         // Walk body once. Group statements into "arms": each arm is a
         // (prelude, yield_expr) pair; the trailing prelude (after the
@@ -703,6 +741,13 @@ pub fn desugar_generators(ast: &mut Ast) {
         let mut class_fields: Vec<(String, String)> = vec![
             ("__state".into(), "number".into()),
         ];
+        // Lifted locals as class fields. Their initial values are zero
+        // (computed from the type ann) — actual initialization happens
+        // when the corresponding let-rewrite assignment fires inside
+        // next() body.
+        for (lname, lty) in &lifted_locals {
+            class_fields.push((lname.clone(), lty.clone()));
+        }
         let mut ctor_body_with_params = ctor.body.clone();
         for p in &gen_params {
             let pname = p.name.clone();
