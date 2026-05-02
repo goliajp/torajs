@@ -22,18 +22,23 @@ function check(): number {
 
   // Refcounted field: array. target's old array gets dropped; source's
   // array is deep-cloned (arr_slice + element rc_inc) so target ends
-  // up with its own array referencing the same elements.
+  // up with its own array referencing the same elements. Shared
+  // elements between target's old items and source's items are safe
+  // — array-literal lowering rc_inc's refcounted-borrow elements so
+  // each appearance of `it1` holds its own ref.
   let it1: Item = { name: "apple", count: 5 };
   let it2: Item = { name: "banana", count: 3 };
-  let it3: Item = { name: "cherry", count: 7 };
   let target_box: Box = { items: [it1], total: 5 };
-  let source_box: Box = { items: [it2, it3], total: 8 };
+  let source_box: Box = { items: [it1, it2], total: 8 };
   Object.assign(target_box, source_box);
   if (target_box.items.length !== 2) { throw "#7"; }
-  if (target_box.items[0].name !== "banana") { throw "#8"; }
-  if (target_box.items[1].name !== "cherry") { throw "#9"; }
+  if (target_box.items[0].name !== "apple") { throw "#8"; }
+  if (target_box.items[1].name !== "banana") { throw "#9"; }
   if (target_box.total !== 8) { throw "#10"; }
   if (source_box.items.length !== 2) { throw "#11"; }
+  // it1 still alive after the assign + its source/target sharing.
+  if (it1.name !== "apple") { throw "#11b: it1 corrupted"; }
+  if (it1.count !== 5) { throw "#11c: it1 corrupted"; }
 
   // Self-assign should be a no-op observable-wise (drops + restores
   // each refcounted field).

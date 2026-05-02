@@ -10561,6 +10561,8 @@ impl<'a> LowerCtx<'a> {
                     // DCE drops them at -O1+.)
                     let mut elem_vals: Vec<Operand> =
                         Vec::with_capacity(element_ids.len());
+                    let mut elem_inc_after: Vec<bool> =
+                        Vec::with_capacity(element_ids.len());
                     for eid in &element_ids {
                         if matches!(self.ast.get_expr(*eid), Expr::Array(els) if els.is_empty())
                             && let Some(Type::Arr(inner_id)) = anchor_ty
@@ -10576,10 +10578,31 @@ impl<'a> LowerCtx<'a> {
                                 None,
                             );
                             elem_vals.push(Operand::Value(v));
+                            elem_inc_after.push(false);
                             continue;
                         }
                         let v = self.lower_expr(*eid);
-                        self.consume_if_ident(*eid);
+                        let v_ty = self.operand_ty(&v);
+                        // Refcounted borrow source: keep the local owning
+                        // its ref, and rc_inc so the array slot also owns
+                        // one. Without this, two array literals sharing
+                        // the same local (`[x]; [x, y]`) would each treat
+                        // the slot as a transferred ref → double-walk-drop
+                        // at scope end → UAF on shared elements. Same
+                        // shape as Stmt::Assign's rhs-borrow inc.
+                        let needs_inc = v_ty.is_refcounted() && match self.ast.get_expr(*eid) {
+                            Expr::Ident(name) => self
+                                .locals
+                                .get(name)
+                                .map(|info| !info.moved)
+                                .unwrap_or(false),
+                            Expr::Member { .. } | Expr::Index { .. } => true,
+                            _ => false,
+                        };
+                        if !needs_inc {
+                            self.consume_if_ident(*eid);
+                        }
+                        elem_inc_after.push(needs_inc);
                         elem_vals.push(v);
                     }
                     let elem_ty = anchor_ty.unwrap_or_else(|| self.operand_ty(&elem_vals[0]));
@@ -10607,6 +10630,15 @@ impl<'a> LowerCtx<'a> {
                             self.cur_block,
                             InstKind::Store(*val, Operand::Value(arr_ptr), off),
                         );
+                        if elem_inc_after[i] {
+                            self.f.append_void(
+                                self.cur_block,
+                                InstKind::Call(
+                                    self.intrinsics.rc_inc,
+                                    vec![*val],
+                                ),
+                            );
+                        }
                     }
                     return Operand::Value(arr_ptr);
                 }
