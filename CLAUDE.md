@@ -12,7 +12,9 @@ Follow `.claude/rules/common/anti-hallucination.md` — always. Five rules, zero
 
 ## Design Principles (HARD RULES)
 
-Every architectural decision, runtime / compiler addition, performance trade-off, and API design must satisfy all four pillars: **高性能 / 自研 / 正统 / 规范**. See `docs/design-principles.md` for the full rubric and how to apply it. Any solution that fails one pillar — even as a temporary or MVP — is not acceptable.
+Every architectural decision, runtime / compiler addition, performance trade-off, and API design must satisfy all five pillars: **高性能 / 自研 / 正统 / 规范 / 上限优先**. See `docs/design-principles.md` for the full rubric and how to apply it. Any solution that fails one pillar — even as a temporary or MVP — is not acceptable.
+
+**上限优先** is the tiebreaker: when multiple paths satisfy the first four pillars, always pick the one with the highest ceiling and most future runway. Ceiling is measured by standard metrics (run_ms, build_ms, artifact size, future extensibility). Never pick "easier short-term" or "70% solution" over "harder but uncapped" — short-term shortcuts become tomorrow's architectural debt.
 
 ## Tech Stack
 

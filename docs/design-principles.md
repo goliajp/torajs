@@ -40,13 +40,38 @@ runtime / 编译器内核必须自己造，不引入外部依赖来"省事"。
 - **命名跟主流靠齐**：`__torajs_rc_inc` / `__torajs_rc_dec` / `__torajs_heap_header_t` 这种 PL textbook 命名风格
 - **拒绝"silent wrong"和"MVP limitation"**：silent leak / typecheck error / MVP 注释都视为债
 
+## 5. 上限优先（when choosing between paths）
+
+当多个方案都满足前 4 条原则时，**永远选上限最高、未来空间最大的那条**——不选"现在更省事"或"短期 ROI 看上去更明确"的方案。
+
+"上限"用标准指标衡量：
+- **runtime perf**：跑出来的程序速度（demo run_ms / bench scoreboard）
+- **build perf**：编译时长（`tr build_ms` / `tr run` cache miss / ssa_lower 时间）
+- **artifact size**：编译产物大小（binary KB）
+- **未来扩展性**：能不能在这条架构之上叠加更高级的优化、新 feature、新类型，而不需要推翻重来
+
+具体例子（substring 设计的两条候选路径）：
+
+| 方案 | run_ms | build_ms | size | 未来扩展 |
+|---|---|---|---|---|
+| **A. unified Str + data_ptr indirection** | OWNED 也走 1 indirection，hot-loop 退步 | 不变 | 同 | 局促，再加 ConsString 要叠 indirection 链 |
+| **B. Substring 独立 Type::Substr (Swift / Rust 模式)** | OWNED 不动，view 零 alloc | +轻微 | 同 | 顶上能叠 ConsString / SSO / interning |
+
+A 短期容易写、surface 单一；B 是 Swift / Rust / .NET 三大头部 PL 的路径，上限和未来空间都更高。**选 B**——哪怕短期工作量大 3-5 倍。
+
+反例（不要踩的）：
+- "先做 A，未来再迁移到 B" — 这是把架构债攒着，下次重构时全部翻一遍
+- "B 太难了，A 也能 work 70%" — 70% 的方案配不上对标 bun 的目标
+- "现在没时间做 B，先 ship A" — 永远不会有"以后"的时间
+
 ## 应用流程
 
-任何新 runtime helper / SSA 编译 pass / 架构层面的改动，**先按这四条原则自查**：
+任何新 runtime helper / SSA 编译 pass / 架构层面的改动，**先按这五条原则自查**：
 
 - 高性能：hot-path 心算过了吗？bench 会不会回归？
 - 自研：依赖了什么？是否可避免？
 - 正统：哪个头部语言 / textbook 是这么做的？
 - 规范：layout / 命名 / 抽象层次干净吗？是不是一次到位？
+- 上限优先：列出所有候选方案，按 run_ms / build_ms / size / 未来扩展 排序，选上限最高的那条
 
-四条都过才能落地。任何一条没过，回到设计阶段——不要"先 ship 再说"。
+五条都过才能落地。任何一条没过，回到设计阶段——不要"先 ship 再说"。
