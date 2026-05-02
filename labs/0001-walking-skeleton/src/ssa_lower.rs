@@ -3724,6 +3724,91 @@ impl<'a> LowerCtx<'a> {
         }
     }
 
+    /// Walk the entire expression tree under `eid` and mark every
+    /// non-Copy `Expr::Ident(name)` reference as moved. Used at
+    /// `Stmt::Return` so the drop walk skips any local whose heap
+    /// might be aliased by the returned value (`return helper(f)`
+    /// returns the same heap as `f` — dropping `f` before the return
+    /// would dangle the pointer the caller is about to receive).
+    /// Conservative: marks all non-Copy idents reached, even if not
+    /// actually aliased — at the return site this is safe because
+    /// the locals are about to go out of scope anyway. Stops at
+    /// closure / arrow bodies (their captured names live in a
+    /// separate frame).
+    fn consume_all_idents_in_return(&mut self, eid: ExprId) {
+        let mut stack: Vec<ExprId> = vec![eid];
+        let mut visited: std::collections::HashSet<u32> = std::collections::HashSet::new();
+        while let Some(id) = stack.pop() {
+            if !visited.insert(id.0) {
+                continue;
+            }
+            match self.ast.get_expr(id).clone() {
+                Expr::Ident(name) => {
+                    if let Some(info) = self.locals.get_mut(&name)
+                        && !info.ty.is_copy()
+                    {
+                        info.moved = true;
+                    }
+                }
+                Expr::BinOp { left, right, .. } => {
+                    stack.push(left);
+                    stack.push(right);
+                }
+                Expr::Unary { expr, .. }
+                | Expr::TypeOf { expr }
+                | Expr::Spread { expr }
+                | Expr::InstanceOf { expr, .. } => {
+                    stack.push(expr);
+                }
+                Expr::Member { obj, .. } | Expr::OptChain { obj, .. } => {
+                    stack.push(obj);
+                }
+                Expr::Call { callee, args } => {
+                    stack.push(callee);
+                    for a in args {
+                        stack.push(a);
+                    }
+                }
+                Expr::Assign { target, value } => {
+                    stack.push(target);
+                    stack.push(value);
+                }
+                Expr::Index { obj, index } => {
+                    stack.push(obj);
+                    stack.push(index);
+                }
+                Expr::Array(els) => {
+                    for e in els {
+                        stack.push(e);
+                    }
+                }
+                Expr::ObjectLit { fields } => {
+                    for (_, e) in fields {
+                        stack.push(e);
+                    }
+                }
+                Expr::Ternary { cond, then_branch, else_branch } => {
+                    stack.push(cond);
+                    stack.push(then_branch);
+                    stack.push(else_branch);
+                }
+                Expr::Nullish { lhs, rhs } => {
+                    stack.push(lhs);
+                    stack.push(rhs);
+                }
+                Expr::New { args, .. } | Expr::Super { args } => {
+                    for e in args {
+                        stack.push(e);
+                    }
+                }
+                Expr::PostIncr { target, .. } => {
+                    stack.push(target);
+                }
+                _ => {}
+            }
+        }
+    }
+
     /// Drop a single Operand of non-Copy type. Recurses into struct fields:
     ///
     ///   Str       → call str_drop(val)
@@ -4953,7 +5038,13 @@ impl<'a> LowerCtx<'a> {
             Stmt::Return(maybe) => {
                 let ret_operand = maybe.map(|eid| {
                     let v = self.lower_expr(eid);
-                    self.consume_if_ident(eid);
+                    // Mark every non-Copy local touched by the return
+                    // expression as moved. Without this, `return helper(f)`
+                    // (where helper returns f's pointer) would drop f
+                    // before the return — dangling the pointer the
+                    // caller is about to receive. Safe at return sites
+                    // because the locals are exiting scope anyway.
+                    self.consume_all_idents_in_return(eid);
                     v
                 });
                 // review #0001 fix — if any try-with-finally is active
@@ -8234,18 +8325,31 @@ impl<'a> LowerCtx<'a> {
                 };
                 let mut argv: Vec<Operand> =
                     args.iter().map(|a| self.lower_expr(*a)).collect();
-                // Consume non-Copy ident args. Mirrors check.rs's pass; the
-                // SSA layer needs the same flag so end-of-fn drops skip
-                // moved bindings.
-                //
-                // TS-shape: function arguments borrow non-Copy values;
-                // the caller stays the owner. (Was consume-on-pass; the
-                // mirror of that change in check.rs.) We still call
-                // consume_if_ident for the rare slot whose lifetime
-                // really should transfer — none today, kept as a no-op
-                // hook for the future.
-                let _ = callee;
-                let _ = args;
+                // Per-call-site consume bitmap from
+                // `ast.consuming_params`. Mirrors the check.rs pass.
+                // A consuming arg position transfers ownership from the
+                // caller's binding to the callee — `arr_yield(arr)`
+                // where `arr_yield` plumbs `values` into __new_*
+                // consumes `arr` here so the caller's drop walk skips
+                // it. Without this, both the caller's local and the
+                // instance's field own the same heap and both drop.
+                let consume_bitmap: Vec<bool> = match self.ast.get_expr(*callee) {
+                    Expr::Ident(callee_name) => {
+                        if let Some(bm) = self.ast.consuming_params.get(callee_name) {
+                            bm.clone()
+                        } else if callee_name.starts_with("__new_") {
+                            vec![true; args.len()]
+                        } else {
+                            vec![false; args.len()]
+                        }
+                    }
+                    _ => vec![false; args.len()],
+                };
+                for (i, a) in args.iter().enumerate() {
+                    if consume_bitmap.get(i).copied().unwrap_or(false) {
+                        self.consume_if_ident(*a);
+                    }
+                }
                 // Coerce arguments to the callee's expected param types.
                 // Currently only f64-promotion is needed (Math.* takes
                 // f64; users may pass integer expressions like `Math.sqrt(2)`).

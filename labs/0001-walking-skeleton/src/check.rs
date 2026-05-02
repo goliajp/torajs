@@ -91,6 +91,37 @@ pub fn is_class_method_name(name: &str) -> bool {
     name.starts_with("__cm_") || name.starts_with("__dispatch_")
 }
 
+/// Per-scope-frame snapshot of which bindings are currently moved.
+/// Each inner Vec captures the bindings inside one scope frame as
+/// `(name, moved)` pairs in the order they happen to live in the
+/// HashMap; the outer Vec is parallel to `Checker::scopes`.
+type MovedSnapshot = Vec<Vec<(String, bool)>>;
+
+/// True if `s` always exits its enclosing fn / loop / scope without
+/// falling through. Used by CFG-aware moved tracking: a diverging
+/// branch's local moves don't propagate to the post-branch state
+/// (the moves go off with the diverging exit).
+fn stmt_diverges(s: &crate::ast::Stmt) -> bool {
+    use crate::ast::Stmt;
+    match s {
+        Stmt::Return(_) | Stmt::Throw(_) | Stmt::Break | Stmt::Continue => true,
+        Stmt::Block(stmts) | Stmt::Multi(stmts) => {
+            stmts.last().is_some_and(stmt_diverges)
+        }
+        Stmt::If { then_branch, else_branch, .. } => {
+            // If both branches diverge, the if as a whole diverges.
+            stmt_diverges(then_branch)
+                && else_branch.as_deref().is_some_and(stmt_diverges)
+        }
+        // While/For/DoWhile/Switch/Try/etc. could diverge in principle
+        // (e.g. `while(true) { return ... }`) but we conservatively say
+        // they don't — avoids false negatives on potentially-finite
+        // loops. Worst case is we keep moves that should have been
+        // discarded; the trailing post-loop code stays safe.
+        _ => false,
+    }
+}
+
 /// M5.2 — structural-prefix subtyping for class-method receiver arguments.
 /// `Dog` (fields: name, bark_count) is a valid receiver for an
 /// `Animal`-typed method (fields: name) because the `name` field sits at
@@ -508,6 +539,7 @@ pub fn check(ast: &Ast) -> Result<GenericCallSites, String> {
         generic_call_sites: HashMap::new(),
         generic_alias_decls: HashMap::new(),
         fn_defaults: HashMap::new(),
+        consumed_calls: std::collections::HashSet::new(),
     };
 
     // Pass 0: register type aliases first so fn signatures + let
@@ -673,6 +705,13 @@ struct Checker {
     /// to allow caller to omit trailing args, and at lower time to
     /// supply the default expr at the call site.
     pub fn_defaults: HashMap<String, Vec<Option<ExprId>>>,
+    /// Set of `Expr::Call` ExprIds whose consume-bitmap has already
+    /// fired. type_of() is called multiple times on the same Call expr
+    /// in some flow paths (e.g. Stmt::Throw runs type_of, then runs it
+    /// again to fetch the type for consume); without this guard a Call
+    /// inside the throw expression would consume its args twice and
+    /// trip the affine tracker on the second pass.
+    consumed_calls: std::collections::HashSet<ExprId>,
 }
 
 /// Walk `pattern` and `actual` in lockstep; whenever a `TypeVar(name)` is
@@ -817,6 +856,93 @@ impl Checker {
         }
     }
 
+    /// Snapshot every (scope_idx, name) → moved bool across the whole
+    /// scope stack. Used by CFG-aware branch checking: snapshot before
+    /// a branch, run the branch (which may mark bindings moved), then
+    /// either restore the snapshot (diverging branch) or merge the
+    /// captured post-state with sibling branches' post-states.
+    fn snapshot_moved(&self) -> Vec<Vec<(String, bool)>> {
+        self.scopes
+            .iter()
+            .map(|s| s.iter().map(|(n, i)| (n.clone(), i.moved)).collect())
+            .collect()
+    }
+
+    /// Restore moved flags to the values captured by `snapshot_moved`.
+    /// Bindings introduced after the snapshot (i.e. inside the branch)
+    /// are unaffected — they're either still in the scope or already
+    /// popped by branch teardown.
+    fn restore_moved(&mut self, snap: &[Vec<(String, bool)>]) {
+        for (scope, snap_scope) in self.scopes.iter_mut().zip(snap.iter()) {
+            for (n, m) in snap_scope {
+                if let Some(info) = scope.get_mut(n) {
+                    info.moved = *m;
+                }
+            }
+        }
+    }
+
+    /// Apply the join of two branches' post-move states to the current
+    /// scope stack. A binding is marked moved post-join iff every
+    /// non-diverging branch moved it. Diverging branches contribute no
+    /// post-join moves (their moves go off with the diverging exit).
+    /// `pre` is the snapshot taken before either branch ran; `then_post`
+    /// / `else_post` are the snapshots taken after each branch ran (or
+    /// None for an absent else, which is treated as "live, no moves").
+    fn join_branch_moves(
+        &mut self,
+        pre: &[Vec<(String, bool)>],
+        then_post: &[Vec<(String, bool)>],
+        then_div: bool,
+        else_post: Option<&[Vec<(String, bool)>]>,
+        else_div: bool,
+    ) {
+        // For each scope frame and binding, compute newly-moved-in-branch
+        // (post.moved && !pre.moved) for each side, then join.
+        for (scope_idx, pre_scope) in pre.iter().enumerate() {
+            for (name, pre_moved) in pre_scope {
+                if *pre_moved {
+                    // Already moved before the if; nothing changes.
+                    continue;
+                }
+                let then_moved = then_post.get(scope_idx).is_some_and(|s| {
+                    s.iter().find(|(n, _)| n == name).map(|(_, m)| *m).unwrap_or(false)
+                });
+                let else_moved = match else_post {
+                    Some(es) => es.get(scope_idx).is_some_and(|s| {
+                        s.iter().find(|(n, _)| n == name).map(|(_, m)| *m).unwrap_or(false)
+                    }),
+                    // Absent else = implicit empty path that didn't move.
+                    None => false,
+                };
+                let then_lives = !then_div;
+                let else_lives = match else_post {
+                    Some(_) => !else_div,
+                    None => true,
+                };
+                let join_moved = match (then_lives, else_lives) {
+                    // Both diverge → post-if unreachable. Pre-state survives.
+                    (false, false) => *pre_moved,
+                    // Only else lives → propagate else's moves.
+                    (false, true) => else_moved,
+                    // Only then lives → propagate then's moves.
+                    (true, false) => then_moved,
+                    // Both live → conservative intersection (require both
+                    // sides to consume for post-state to be moved).
+                    (true, true) => then_moved && else_moved,
+                };
+                if join_moved && !pre_moved {
+                    // Mark in the right scope (we know it's at scope_idx).
+                    if let Some(scope) = self.scopes.get_mut(scope_idx)
+                        && let Some(info) = scope.get_mut(name)
+                    {
+                        info.moved = true;
+                    }
+                }
+            }
+        }
+    }
+
     /// Try to transfer ownership FROM the given expression. Called at the
     /// four transfer sites: let-rhs, assign-rhs, non-Copy fn arg, return
     /// value, struct field write.
@@ -906,10 +1032,36 @@ impl Checker {
                         .push(format!("if condition must be boolean, got {other:?}")),
                     Err(e) => self.errors.push(e),
                 }
+                // CFG-aware moved tracking: snapshot the moved-state
+                // before each branch, run the branch, capture its
+                // post-state, restore. Then join: a binding is moved
+                // post-if iff every non-diverging branch consumed it.
+                // This is what makes `if (cond) return f; return f;`
+                // work — the then-branch diverges so its consume of
+                // `f` doesn't propagate, leaving `f` available for
+                // the trailing return.
+                let pre = self.snapshot_moved();
                 self.check_stmt(ast, then_branch);
-                if let Some(eb) = else_branch {
-                    self.check_stmt(ast, eb);
-                }
+                let then_div = stmt_diverges(then_branch);
+                let then_post = self.snapshot_moved();
+                self.restore_moved(&pre);
+                let (else_div, else_post): (bool, Option<MovedSnapshot>) =
+                    if let Some(eb) = else_branch {
+                        self.check_stmt(ast, eb);
+                        let div = stmt_diverges(eb);
+                        let snap2 = self.snapshot_moved();
+                        self.restore_moved(&pre);
+                        (div, Some(snap2))
+                    } else {
+                        (false, None)
+                    };
+                self.join_branch_moves(
+                    &pre,
+                    &then_post,
+                    then_div,
+                    else_post.as_deref(),
+                    else_div,
+                );
             }
             Stmt::While { cond, body } => {
                 match self.type_of(ast, *cond) {
@@ -991,18 +1143,23 @@ impl Checker {
                 // global throw_value slot is i64; ptr-shaped values
                 // (Str, Obj, Arr, FnSig, Closure) are reinterpreted at
                 // catch time per the catch param's type annotation.
-                match self.type_of(ast, *eid) {
+                // type_of has side effects (it runs consume on
+                // consuming-arg positions inside any Call sub-expr),
+                // so we evaluate it once and reuse the result for both
+                // the type check AND the throw consume.
+                let t_result = self.type_of(ast, *eid);
+                match &t_result {
                     Ok(Type::Number) | Ok(Type::String) | Ok(Type::Boolean) => {}
                     Ok(Type::Array(_)) | Ok(Type::Struct(_)) => {}
                     Ok(other) => self.errors.push(format!(
                         "throw value must be 8-byte-shaped, got {other:?}"
                     )),
-                    Err(e) => self.errors.push(e),
+                    Err(e) => self.errors.push(e.clone()),
                 }
                 // Throw consumes a non-Copy value (its heap is now
                 // owned by the catch site, which is responsible for
                 // dropping after the bind / re-throwing).
-                if let Ok(t) = self.type_of(ast, *eid)
+                if let Ok(t) = t_result
                     && !t.is_copy()
                 {
                     self.consume(ast, *eid);
@@ -2203,6 +2360,25 @@ impl Checker {
                     ast.get_expr(*callee),
                     Expr::Ident(name) if is_class_method_name(name)
                 );
+                // Per-call-site consume bitmap, derived from
+                // `ast.consuming_params` for the callee fn (computed by
+                // `compute_consuming_params` from the body's flow into
+                // `__new_*` / `this.<field> =` sinks). For unknown
+                // callees (intrinsics, builtins) the default is "borrow"
+                // — only the constructor-factory shortcut here triggers
+                // when consuming_params doesn't have an entry.
+                let consume_bitmap: Vec<bool> = match ast.get_expr(*callee) {
+                    Expr::Ident(callee_name) => {
+                        if let Some(bm) = ast.consuming_params.get(callee_name) {
+                            bm.clone()
+                        } else if callee_name.starts_with("__new_") {
+                            vec![true; args.len()]
+                        } else {
+                            vec![false; args.len()]
+                        }
+                    }
+                    _ => vec![false; args.len()],
+                };
                 for (i, (param_ty, arg_id)) in params.iter().zip(args.iter()).enumerate() {
                     let arg_ty = self.type_of(ast, *arg_id)?;
                     // M5.2 — class-method dispatch: arg[0] is the receiver
@@ -2235,10 +2411,14 @@ impl Checker {
                     // doc calls out the constraint.
                     let _ = is_string_borrow;
                     let _ = is_class_method;
-                    // Old affine-consume behavior is gone; the param-ty
-                    // pattern matching above stays since the type-arg
-                    // resolution still relies on it.
+                    if consume_bitmap.get(i).copied().unwrap_or(false)
+                        && !arg_ty.is_copy()
+                        && !self.consumed_calls.contains(&eid)
+                    {
+                        self.consume(ast, *arg_id);
+                    }
                 }
+                self.consumed_calls.insert(eid);
                 Ok(*ret)
             }
             Expr::BinOp { op, left, right } => {

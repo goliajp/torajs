@@ -128,6 +128,7 @@ fn pipeline(src: &str, stage: Stage) -> ExitCode {
     ast::lift_arrow_fns(&mut ast);
     ast::apply_default_args(&mut ast);
     ast::apply_rest_args(&mut ast);
+    ast::compute_consuming_params(&mut ast);
     if matches!(stage, Stage::Parse) {
         ast.print();
         return ExitCode::SUCCESS;
@@ -256,6 +257,7 @@ fn run_build_llvm(args: &[String]) -> ExitCode {
     ast::lift_arrow_fns(&mut ast);
     ast::apply_default_args(&mut ast);
     ast::apply_rest_args(&mut ast);
+    ast::compute_consuming_params(&mut ast);
     let generic_call_sites = match check::check(&ast) {
         Ok(g) => g,
         Err(e) => {
@@ -370,6 +372,7 @@ fn run_jit(file_arg: Option<&String>) -> ExitCode {
     ast::lift_arrow_fns(&mut ast);
     ast::apply_default_args(&mut ast);
     ast::apply_rest_args(&mut ast);
+    ast::compute_consuming_params(&mut ast);
     let generic_call_sites = match check::check(&ast) {
         Ok(g) => g,
         Err(e) => {

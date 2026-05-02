@@ -374,6 +374,18 @@ pub struct Ast {
     /// Avoids adding an `is_async: bool` to every FnDecl construction
     /// site.
     pub async_fns: std::collections::HashSet<String>,
+    /// Ownership pass — per-function bitmap of which params get
+    /// "consumed" (transferred) by the call site instead of
+    /// borrowed. A param consumes if its body passes the param into a
+    /// `__new_*` constructor factory (which stores it into a class
+    /// field) or into another fn already known to consume that
+    /// position. Computed by `compute_consuming_params` after all
+    /// desugars; check.rs / ssa_lower consult this map at call sites
+    /// to decide whether to mark the caller's binding as moved.
+    /// Without this, `let g = make_iter(arr); ... drop` creates a
+    /// double-free because both `arr` and `g`'s field own the same
+    /// heap.
+    pub consuming_params: std::collections::HashMap<String, Vec<bool>>,
 }
 
 /// M5.1 — desugar `class C { ... }` into `type C = {...}` + a series of
@@ -1383,22 +1395,10 @@ pub fn desugar_async(ast: &mut Ast) {
             init: new_promise,
         };
 
-        // L.2 MVP — async fns must have a single tail return. Multi-
-        // branch returns trigger a tr ownership bug (silent wrong
-        // output: each branch ends up with its own moved Promise
-        // instance, neither carrying the resolved value back to the
-        // caller). Reject early so the user sees a clear error
-        // instead of a mysterious 0.
-        let return_count = count_returns(&body);
-        if return_count > 1 {
-            panic!(
-                "async function {name}: {return_count} `return` statements detected. \
-                 L.2 MVP only supports a single tail return — early returns hit a tr \
-                 ownership tracker bug across branches (the Promise instance gets \
-                 moved into one branch's helper call but later branches read the moved \
-                 value). Refactor to a single tail return."
-            );
-        }
+        // L.2 — multi-branch returns now work (the underlying tr
+        // ownership tracker bug was fixed by the CFG-aware moved
+        // tracking in check.rs's Stmt::If checker + the return-expr
+        // ident sweep in ssa_lower's Stmt::Return handler).
 
         // Rewrite returns inside body. Each `return e;` becomes
         // `__async_p.do_resolve(e); return __async_p;`. Returns with
@@ -1428,37 +1428,6 @@ pub fn desugar_async(ast: &mut Ast) {
             body: new_body,
             is_generator: false,
         };
-    }
-}
-
-/// Count `Stmt::Return` occurrences inside `body`, walking into
-/// control-flow constructs. Used by `desugar_async` to enforce its
-/// "single tail return" MVP constraint.
-fn count_returns(body: &[Stmt]) -> usize {
-    body.iter().map(count_returns_stmt).sum()
-}
-fn count_returns_stmt(s: &Stmt) -> usize {
-    match s {
-        Stmt::Return(_) => 1,
-        Stmt::If { then_branch, else_branch, .. } => {
-            count_returns_stmt(then_branch)
-                + else_branch.as_deref().map_or(0, count_returns_stmt)
-        }
-        Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => count_returns_stmt(body),
-        Stmt::For { init, body, .. } => {
-            init.as_deref().map_or(0, count_returns_stmt) + count_returns_stmt(body)
-        }
-        Stmt::Block(stmts) | Stmt::Multi(stmts) => count_returns(stmts),
-        Stmt::Switch { cases, default, .. } => {
-            cases.iter().map(|c| count_returns(&c.body)).sum::<usize>()
-                + default.as_ref().map_or(0, |d| count_returns(d))
-        }
-        Stmt::Try { body, catch_body, finally_body, .. } => {
-            count_returns(body)
-                + count_returns(catch_body)
-                + finally_body.as_ref().map_or(0, |fb| count_returns(fb))
-        }
-        _ => 0,
     }
 }
 
@@ -2343,6 +2312,279 @@ fn build_factory_body(
 /// Defaults are evaluated at the call site (not in callee scope) —
 /// slightly diverges from JS spec but covers typical constant /
 /// global-expression defaults used in tests.
+/// Static analysis: for each top-level FnDecl, determine which
+/// parameter positions get "consumed" by callers. A param consumes
+/// if its body reaches one of:
+///   - a `__new_*(... <param> ...)` constructor factory call
+///   - a call to another fn whose corresponding parameter already
+///     consumes
+///   - a `this.<field> = <param>` assignment (class method)
+///
+/// Computes the fixed point: iterate until no fn's bitmap changes.
+///
+/// Result is written to `ast.consuming_params`. check.rs / ssa_lower
+/// query this map at every Call site to decide whether to consume the
+/// caller's non-Copy ident arg.
+pub fn compute_consuming_params(ast: &mut Ast) {
+    use std::collections::HashMap;
+
+    // Snapshot fn signatures (name → param names).
+    let mut fn_params: HashMap<String, Vec<String>> = HashMap::new();
+    let mut fn_bodies: HashMap<String, Vec<Stmt>> = HashMap::new();
+    for s in &ast.stmts {
+        if let Stmt::FnDecl { name, params, body, .. } = s {
+            fn_params.insert(name.clone(), params.iter().map(|p| p.name.clone()).collect());
+            fn_bodies.insert(name.clone(), body.clone());
+        }
+    }
+    if fn_params.is_empty() {
+        return;
+    }
+
+    // Initial bitmap: all false.
+    let mut consuming: HashMap<String, Vec<bool>> = fn_params
+        .iter()
+        .map(|(n, ps)| (n.clone(), vec![false; ps.len()]))
+        .collect();
+
+    // Fixed-point loop. Each round, walk every fn body, see which params
+    // flow into a known-consuming sink. Stop when nothing changes.
+    let mut changed = true;
+    let mut rounds = 0;
+    while changed {
+        changed = false;
+        rounds += 1;
+        if rounds > 32 {
+            // Safety net: a pathological recursive shape shouldn't
+            // explode here. fn_count rounds upper bound suffices in
+            // practice (each round monotonically grows the consuming
+            // set; cap is fn count + slack).
+            break;
+        }
+        let snapshot = consuming.clone();
+        for (fname, params) in &fn_params {
+            let body = match fn_bodies.get(fname) {
+                Some(b) => b,
+                None => continue,
+            };
+            for s in body {
+                scan_stmt_for_consuming_flow(ast, s, fname, params, &snapshot, &mut consuming, &mut changed);
+            }
+        }
+    }
+
+    ast.consuming_params = consuming;
+}
+
+/// Walk `s` looking for sites that consume one of `params` (the
+/// surrounding fn's parameters). Updates `consuming[fname][i] = true`
+/// when found and sets `changed=true`.
+fn scan_stmt_for_consuming_flow(
+    ast: &Ast,
+    s: &Stmt,
+    fname: &str,
+    params: &[String],
+    snapshot: &std::collections::HashMap<String, Vec<bool>>,
+    consuming: &mut std::collections::HashMap<String, Vec<bool>>,
+    changed: &mut bool,
+) {
+    match s {
+        Stmt::Expr(eid) | Stmt::Throw(eid) | Stmt::Yield(eid) => {
+            scan_expr_for_consuming_flow(ast, *eid, fname, params, snapshot, consuming, changed);
+        }
+        Stmt::YieldInto { value, .. } => {
+            scan_expr_for_consuming_flow(ast, *value, fname, params, snapshot, consuming, changed);
+        }
+        Stmt::Return(Some(eid)) => {
+            scan_expr_for_consuming_flow(ast, *eid, fname, params, snapshot, consuming, changed);
+        }
+        Stmt::Return(None) => {}
+        Stmt::LetDecl { init, .. } => {
+            scan_expr_for_consuming_flow(ast, *init, fname, params, snapshot, consuming, changed);
+        }
+        Stmt::If { cond, then_branch, else_branch } => {
+            scan_expr_for_consuming_flow(ast, *cond, fname, params, snapshot, consuming, changed);
+            scan_stmt_for_consuming_flow(ast, then_branch, fname, params, snapshot, consuming, changed);
+            if let Some(eb) = else_branch {
+                scan_stmt_for_consuming_flow(ast, eb, fname, params, snapshot, consuming, changed);
+            }
+        }
+        Stmt::While { cond, body } => {
+            scan_expr_for_consuming_flow(ast, *cond, fname, params, snapshot, consuming, changed);
+            scan_stmt_for_consuming_flow(ast, body, fname, params, snapshot, consuming, changed);
+        }
+        Stmt::DoWhile { body, cond } => {
+            scan_stmt_for_consuming_flow(ast, body, fname, params, snapshot, consuming, changed);
+            scan_expr_for_consuming_flow(ast, *cond, fname, params, snapshot, consuming, changed);
+        }
+        Stmt::For { init, cond, step, body } => {
+            if let Some(i) = init {
+                scan_stmt_for_consuming_flow(ast, i, fname, params, snapshot, consuming, changed);
+            }
+            if let Some(c) = cond {
+                scan_expr_for_consuming_flow(ast, *c, fname, params, snapshot, consuming, changed);
+            }
+            if let Some(st) = step {
+                scan_expr_for_consuming_flow(ast, *st, fname, params, snapshot, consuming, changed);
+            }
+            scan_stmt_for_consuming_flow(ast, body, fname, params, snapshot, consuming, changed);
+        }
+        Stmt::Block(stmts) | Stmt::Multi(stmts) => {
+            for s in stmts {
+                scan_stmt_for_consuming_flow(ast, s, fname, params, snapshot, consuming, changed);
+            }
+        }
+        Stmt::Switch { scrutinee, cases, default } => {
+            scan_expr_for_consuming_flow(ast, *scrutinee, fname, params, snapshot, consuming, changed);
+            for c in cases {
+                scan_expr_for_consuming_flow(ast, c.value, fname, params, snapshot, consuming, changed);
+                for s in &c.body {
+                    scan_stmt_for_consuming_flow(ast, s, fname, params, snapshot, consuming, changed);
+                }
+            }
+            if let Some(d) = default {
+                for s in d {
+                    scan_stmt_for_consuming_flow(ast, s, fname, params, snapshot, consuming, changed);
+                }
+            }
+        }
+        Stmt::Try { body, catch_body, finally_body, .. } => {
+            for s in body {
+                scan_stmt_for_consuming_flow(ast, s, fname, params, snapshot, consuming, changed);
+            }
+            for s in catch_body {
+                scan_stmt_for_consuming_flow(ast, s, fname, params, snapshot, consuming, changed);
+            }
+            if let Some(fb) = finally_body {
+                for s in fb {
+                    scan_stmt_for_consuming_flow(ast, s, fname, params, snapshot, consuming, changed);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn scan_expr_for_consuming_flow(
+    ast: &Ast,
+    eid: ExprId,
+    fname: &str,
+    params: &[String],
+    snapshot: &std::collections::HashMap<String, Vec<bool>>,
+    consuming: &mut std::collections::HashMap<String, Vec<bool>>,
+    changed: &mut bool,
+) {
+    let expr = ast.get_expr(eid).clone();
+    match expr {
+        Expr::Call { callee, args } => {
+            // Decide which arg positions get consumed by this call:
+            //  - __new_<C>(...) — every non-Copy arg
+            //  - other fns — per snapshot's `consuming` bitmap
+            let mut consumes_at: Vec<bool> = vec![false; args.len()];
+            if let Expr::Ident(callee_name) = ast.get_expr(callee) {
+                if callee_name.starts_with("__new_") {
+                    for v in consumes_at.iter_mut() {
+                        *v = true;
+                    }
+                } else if let Some(bm) = snapshot.get(callee_name) {
+                    for (i, v) in consumes_at.iter_mut().enumerate() {
+                        if let Some(b) = bm.get(i) {
+                            *v = *b;
+                        }
+                    }
+                }
+            }
+            for (i, arg) in args.iter().enumerate() {
+                if consumes_at.get(i).copied().unwrap_or(false)
+                    && let Expr::Ident(name) = ast.get_expr(*arg)
+                    && let Some(idx) = params.iter().position(|p| p == name)
+                {
+                    let bm = consuming.get_mut(fname).unwrap();
+                    if !bm[idx] {
+                        bm[idx] = true;
+                        *changed = true;
+                    }
+                }
+                scan_expr_for_consuming_flow(ast, *arg, fname, params, snapshot, consuming, changed);
+            }
+            scan_expr_for_consuming_flow(ast, callee, fname, params, snapshot, consuming, changed);
+        }
+        Expr::Assign { target, value } => {
+            // `this.<field> = <param>` — class-field stores own the
+            // value transitively. Detect Member-on-This target shape.
+            if let Expr::Member { obj, .. } = ast.get_expr(target)
+                && (matches!(ast.get_expr(*obj), Expr::This)
+                    || matches!(ast.get_expr(*obj), Expr::Ident(n) if n == "__this"))
+                && let Expr::Ident(name) = ast.get_expr(value)
+                && let Some(idx) = params.iter().position(|p| p == name)
+            {
+                let bm = consuming.get_mut(fname).unwrap();
+                if !bm[idx] {
+                    bm[idx] = true;
+                    *changed = true;
+                }
+            }
+            scan_expr_for_consuming_flow(ast, target, fname, params, snapshot, consuming, changed);
+            scan_expr_for_consuming_flow(ast, value, fname, params, snapshot, consuming, changed);
+        }
+        Expr::New { args, .. } | Expr::Super { args } => {
+            // Pre-desugar shape: every arg consumed (constructor stores).
+            for arg in &args {
+                if let Expr::Ident(name) = ast.get_expr(*arg)
+                    && let Some(idx) = params.iter().position(|p| p == name)
+                {
+                    let bm = consuming.get_mut(fname).unwrap();
+                    if !bm[idx] {
+                        bm[idx] = true;
+                        *changed = true;
+                    }
+                }
+                scan_expr_for_consuming_flow(ast, *arg, fname, params, snapshot, consuming, changed);
+            }
+        }
+        Expr::BinOp { left, right, .. } => {
+            scan_expr_for_consuming_flow(ast, left, fname, params, snapshot, consuming, changed);
+            scan_expr_for_consuming_flow(ast, right, fname, params, snapshot, consuming, changed);
+        }
+        Expr::Unary { expr, .. }
+        | Expr::TypeOf { expr }
+        | Expr::Spread { expr }
+        | Expr::InstanceOf { expr, .. } => {
+            scan_expr_for_consuming_flow(ast, expr, fname, params, snapshot, consuming, changed);
+        }
+        Expr::Member { obj, .. } | Expr::OptChain { obj, .. } => {
+            scan_expr_for_consuming_flow(ast, obj, fname, params, snapshot, consuming, changed);
+        }
+        Expr::Index { obj, index } => {
+            scan_expr_for_consuming_flow(ast, obj, fname, params, snapshot, consuming, changed);
+            scan_expr_for_consuming_flow(ast, index, fname, params, snapshot, consuming, changed);
+        }
+        Expr::Array(els) => {
+            for e in els {
+                scan_expr_for_consuming_flow(ast, e, fname, params, snapshot, consuming, changed);
+            }
+        }
+        Expr::ObjectLit { fields } => {
+            for (_, e) in fields {
+                scan_expr_for_consuming_flow(ast, e, fname, params, snapshot, consuming, changed);
+            }
+        }
+        Expr::Ternary { cond, then_branch, else_branch } => {
+            scan_expr_for_consuming_flow(ast, cond, fname, params, snapshot, consuming, changed);
+            scan_expr_for_consuming_flow(ast, then_branch, fname, params, snapshot, consuming, changed);
+            scan_expr_for_consuming_flow(ast, else_branch, fname, params, snapshot, consuming, changed);
+        }
+        Expr::Nullish { lhs, rhs } => {
+            scan_expr_for_consuming_flow(ast, lhs, fname, params, snapshot, consuming, changed);
+            scan_expr_for_consuming_flow(ast, rhs, fname, params, snapshot, consuming, changed);
+        }
+        Expr::PostIncr { target, .. } => {
+            scan_expr_for_consuming_flow(ast, target, fname, params, snapshot, consuming, changed);
+        }
+        _ => {}
+    }
+}
+
 pub fn apply_default_args(ast: &mut Ast) {
     let mut fn_defaults: HashMap<String, Vec<Option<ExprId>>> = HashMap::new();
     for s in &ast.stmts {
