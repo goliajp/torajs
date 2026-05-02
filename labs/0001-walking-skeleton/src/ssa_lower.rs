@@ -9629,6 +9629,277 @@ impl<'a> LowerCtx<'a> {
                     );
                     return Operand::Value(r);
                 }
+                // `xs.flatMap(fn)` — outer loop over xs, per element
+                // call `fn(elem)` to get an Array<T>, inner loop over
+                // that array pushing each into dst. Inner array's elem
+                // is rc_inc'd before push (refcounted only) so the
+                // inner array's own drop balances correctly.
+                if let Expr::Member { obj, name } = self.ast.get_expr(*callee)
+                    && name == "flatMap"
+                    && args.len() == 1
+                {
+                    let recv_op = self.lower_expr(*obj);
+                    let recv_ty = self.operand_ty(&recv_op);
+                    let Type::Arr(_) = recv_ty else {
+                        panic!(
+                            "ssa-lower: flatMap on non-array receiver {recv_ty:?}"
+                        );
+                    };
+                    let arr_ty = recv_ty;
+                    let src_arr = match recv_op {
+                        Operand::Value(v) => v,
+                        _ => unreachable!(),
+                    };
+                    let fn_val = self.lower_expr(args[0]);
+                    let fn_ty = self.operand_ty(&fn_val);
+                    let inner_arr_ty = match fn_ty {
+                        Type::FnSig(s) | Type::Closure(s) => self.fn_sigs[s.0 as usize].1,
+                        _ => panic!("flatMap callback must be callable"),
+                    };
+                    let Type::Arr(inner_arr_id) = inner_arr_ty else {
+                        panic!("flatMap callback must return an array");
+                    };
+                    let dst_elem_ty = self.arr_layouts[inner_arr_id.0 as usize];
+                    let dst_arr_ty = inner_arr_ty;
+                    // Allocate dst (cap=0; arr_push grows on demand).
+                    let dst_init = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.arr_alloc,
+                            vec![Operand::ConstI64(0)],
+                        ),
+                        dst_arr_ty,
+                        None,
+                    );
+                    let dst_slot = self.alloca(dst_arr_ty, Some("__fm_dst"));
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Store(
+                            Operand::Value(dst_init),
+                            Operand::Value(dst_slot),
+                            0,
+                        ),
+                    );
+                    // Outer loop: i in 0..src.length.
+                    let oh = self.f.add_block();
+                    let ob = self.f.add_block();
+                    let oa = self.f.add_block();
+                    let i_slot = self.alloca(Type::I64, Some("__fm_i"));
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Store(Operand::ConstI64(0), Operand::Value(i_slot), 0),
+                    );
+                    let src_len = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Load(Type::I64, Operand::Value(src_arr), ARR_LEN_OFF),
+                        Type::I64,
+                        None,
+                    );
+                    self.f.set_term(self.cur_block, Terminator::Br(oh));
+                    self.cur_block = oh;
+                    let i_now = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Load(Type::I64, Operand::Value(i_slot), 0),
+                        Type::I64,
+                        None,
+                    );
+                    let cmp = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::ICmp(IPred::Slt, Operand::Value(i_now), Operand::Value(src_len)),
+                        Type::Bool,
+                        None,
+                    );
+                    self.f.set_term(self.cur_block, Terminator::CondBr {
+                        cond: Operand::Value(cmp),
+                        then_blk: ob,
+                        else_blk: oa,
+                    });
+                    self.cur_block = ob;
+                    // Load src[i].
+                    let src_elem_ty = self.arr_layouts[match arr_ty {
+                        Type::Arr(id) => id.0 as usize,
+                        _ => unreachable!(),
+                    }];
+                    let scaled = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::BinOp(
+                            SsaBinOp::Shl,
+                            Operand::Value(i_now),
+                            Operand::ConstI64(3),
+                        ),
+                        Type::I64,
+                        None,
+                    );
+                    let off = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::BinOp(
+                            SsaBinOp::Add,
+                            Operand::Value(scaled),
+                            Operand::ConstI64(ARR_DATA_OFF as i64),
+                        ),
+                        Type::I64,
+                        None,
+                    );
+                    let elem = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::LoadDyn(
+                            src_elem_ty,
+                            Operand::Value(src_arr),
+                            Operand::Value(off),
+                        ),
+                        src_elem_ty,
+                        None,
+                    );
+                    // Call closure(elem) → inner_arr.
+                    let inner_arr = self.call_fn_value(
+                        fn_val,
+                        fn_ty,
+                        vec![Operand::Value(elem)],
+                    );
+                    // Inner loop: j in 0..inner_arr.length, push each
+                    // into dst, rc_inc if refcounted.
+                    let ih = self.f.add_block();
+                    let ib = self.f.add_block();
+                    let ia = self.f.add_block();
+                    let j_slot = self.alloca(Type::I64, Some("__fm_j"));
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Store(Operand::ConstI64(0), Operand::Value(j_slot), 0),
+                    );
+                    let inner_len = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Load(Type::I64, Operand::Value(inner_arr), ARR_LEN_OFF),
+                        Type::I64,
+                        None,
+                    );
+                    self.f.set_term(self.cur_block, Terminator::Br(ih));
+                    self.cur_block = ih;
+                    let j_now = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Load(Type::I64, Operand::Value(j_slot), 0),
+                        Type::I64,
+                        None,
+                    );
+                    let jcmp = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::ICmp(IPred::Slt, Operand::Value(j_now), Operand::Value(inner_len)),
+                        Type::Bool,
+                        None,
+                    );
+                    self.f.set_term(self.cur_block, Terminator::CondBr {
+                        cond: Operand::Value(jcmp),
+                        then_blk: ib,
+                        else_blk: ia,
+                    });
+                    self.cur_block = ib;
+                    let jscaled = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::BinOp(SsaBinOp::Shl, Operand::Value(j_now), Operand::ConstI64(3)),
+                        Type::I64,
+                        None,
+                    );
+                    let joff = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::BinOp(
+                            SsaBinOp::Add,
+                            Operand::Value(jscaled),
+                            Operand::ConstI64(ARR_DATA_OFF as i64),
+                        ),
+                        Type::I64,
+                        None,
+                    );
+                    let inner_elem = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::LoadDyn(
+                            dst_elem_ty,
+                            Operand::Value(inner_arr),
+                            Operand::Value(joff),
+                        ),
+                        dst_elem_ty,
+                        None,
+                    );
+                    if dst_elem_ty.is_refcounted() {
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.rc_inc,
+                                vec![Operand::Value(inner_elem)],
+                            ),
+                        );
+                    }
+                    let cur_dst = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Load(dst_arr_ty, Operand::Value(dst_slot), 0),
+                        dst_arr_ty,
+                        None,
+                    );
+                    let new_dst = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.arr_push,
+                            vec![Operand::Value(cur_dst), Operand::Value(inner_elem)],
+                        ),
+                        dst_arr_ty,
+                        None,
+                    );
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Store(
+                            Operand::Value(new_dst),
+                            Operand::Value(dst_slot),
+                            0,
+                        ),
+                    );
+                    let j_next = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::BinOp(
+                            SsaBinOp::Add,
+                            Operand::Value(j_now),
+                            Operand::ConstI64(1),
+                        ),
+                        Type::I64,
+                        None,
+                    );
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Store(Operand::Value(j_next), Operand::Value(j_slot), 0),
+                    );
+                    self.f.set_term(self.cur_block, Terminator::Br(ih));
+                    self.cur_block = ia;
+                    // Drop the inner array (its elements are now in dst,
+                    // and we already rc_inc'd for refcounted dst push).
+                    self.emit_drop_value(Operand::Value(inner_arr), inner_arr_ty);
+                    // Outer i++.
+                    let i_then = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Load(Type::I64, Operand::Value(i_slot), 0),
+                        Type::I64,
+                        None,
+                    );
+                    let i_next = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::BinOp(
+                            SsaBinOp::Add,
+                            Operand::Value(i_then),
+                            Operand::ConstI64(1),
+                        ),
+                        Type::I64,
+                        None,
+                    );
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Store(Operand::Value(i_next), Operand::Value(i_slot), 0),
+                    );
+                    self.f.set_term(self.cur_block, Terminator::Br(oh));
+                    self.cur_block = oa;
+                    let final_dst = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Load(dst_arr_ty, Operand::Value(dst_slot), 0),
+                        dst_arr_ty,
+                        None,
+                    );
+                    return Operand::Value(final_dst);
+                }
                 // M6.2 — `xs.map / filter / reduce / forEach (fn[, init])`.
                 // Common shape: receiver lowers to a `Type::Arr` value
                 // (Ident-bound array, or a previous `.map / .filter`

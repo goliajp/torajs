@@ -1841,6 +1841,18 @@ impl Checker {
                             Box::new(Type::Array(Box::new(inner))),
                         ))
                     }
+                    // `xs.flatMap(fn)` — same homogeneous constraint as
+                    // map (`(T) => T[]` callback), returns `T[]`. Inner
+                    // arrays are flattened one level into the result.
+                    (Type::Array(elem), "flatMap") => {
+                        let inner = (**elem).clone();
+                        let arr_t = Type::Array(Box::new(inner.clone()));
+                        let fn_ty = Type::Function(
+                            vec![inner.clone()],
+                            Box::new(arr_t.clone()),
+                        );
+                        Ok(Type::Function(vec![fn_ty], Box::new(arr_t)))
+                    }
                     // M6.2 — `xs.filter(predicate)`: takes a `(T) => boolean`,
                     // returns `T[]` of kept elements.
                     (Type::Array(elem), "filter") => {
