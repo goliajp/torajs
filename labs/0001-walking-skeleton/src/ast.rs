@@ -1841,25 +1841,44 @@ pub fn desugar_classes(ast: &mut Ast) {
                     if let Some(owners) = method_owners.get(&m_name) {
                         // Three cases:
                         // (1) Single owner — keep static dispatch via
-                        //     `__cm_<C>__<M>`.
+                        //     `__cm_<C>__<M>`, EXCEPT when the receiver
+                        //     is `this.<field>` and the field is typed
+                        //     as a known builtin (Array `T[]`, `string`,
+                        //     `number`). Those calls dispatch to the
+                        //     intrinsic, not the user class's method
+                        //     — without the guard, `class C { data:
+                        //     T[]; push(v) { this.data.push(v); } }`
+                        //     would rewrite the inner `this.data.push`
+                        //     to `__cm_C__push(this.data, v)` and
+                        //     infinite-recurse.
                         // (2) Multi-owner forming a single inheritance
-                        //     chain (override case) — route through the
-                        //     generated `__dispatch_<M>` runtime dispatcher.
+                        //     chain (override case) — route through
+                        //     `__dispatch_<M>` runtime-tag dispatcher.
                         // (3) Multi-owner across unrelated hierarchies
-                        //     (sibling collision) — leave the Member-call
-                        //     shape intact; ssa_lower's `Type::Obj`
-                        //     Member-call arm picks the right per-class
-                        //     `__cm_<C>__<M>` from obj's static type.
+                        //     (sibling collision) — leave Member as-is.
                         if owners.len() == 1 {
-                            let mangled = format!("__cm_{}__{m_name}", owners[0]);
-                            let new_callee = ast.add_expr(Expr::Ident(mangled));
-                            let mut new_args = Vec::with_capacity(args_clone.len() + 1);
-                            new_args.push(obj_id);
-                            new_args.extend(args_clone);
-                            ast.exprs[i] = Expr::Call {
-                                callee: new_callee,
-                                args: new_args,
-                            };
+                            let skip_for_builtin_field = receiver_is_this_builtin_field(
+                                ast,
+                                obj_id,
+                                owners[0].as_str(),
+                                &class_index,
+                            );
+                            if skip_for_builtin_field {
+                                // Leave Member; ssa_lower picks the
+                                // builtin intrinsic from the field's
+                                // actual type at SSA time.
+                            } else {
+                                let mangled = format!("__cm_{}__{m_name}", owners[0]);
+                                let new_callee = ast.add_expr(Expr::Ident(mangled));
+                                let mut new_args =
+                                    Vec::with_capacity(args_clone.len() + 1);
+                                new_args.push(obj_id);
+                                new_args.extend(args_clone);
+                                ast.exprs[i] = Expr::Call {
+                                    callee: new_callee,
+                                    args: new_args,
+                                };
+                            }
                         } else if chain_methods.contains(&m_name) {
                             let mangled = format!("__dispatch_{m_name}");
                             let new_callee = ast.add_expr(Expr::Ident(mangled));
@@ -1969,11 +1988,73 @@ pub fn desugar_classes(ast: &mut Ast) {
     ast.stmts.extend(appended);
     // Hand multi-owner method_owners to ssa_lower for the
     // `__dispatch_<M>` runtime-tag dispatch. Single-owner entries are
-    // dropped since they don't need runtime resolution.
+    // dropped since they don't need runtime resolution (already
+    // statically rewritten unless the builtin-name guard skipped them,
+    // in which case ssa_lower's sibling-class path picks them up via
+    // the Type::Obj match — see the (Expr::Member ...) Call arm in
+    // lower_expr).
     ast.method_owners = method_owners
         .into_iter()
         .filter(|(_, owners)| owners.len() > 1)
         .collect();
+}
+
+/// True iff the call receiver is `this.<field>` AND the named
+/// field on class `cname` has a builtin (Array / Str / Number)
+/// type annotation. Used by desugar_classes' single-owner rewrite
+/// guard so `this.data.push(v)` (where `data: T[]`) doesn't get
+/// rewritten as a self-recursive class-method call.
+///
+/// `class_index` is the snapshot built at the top of desugar_classes
+/// — `(usize, name, type_params, parent, fields, ctor, methods)`.
+#[allow(clippy::type_complexity)]
+fn receiver_is_this_builtin_field(
+    ast: &Ast,
+    obj_id: ExprId,
+    cname: &str,
+    class_index: &[(
+        usize,
+        String,
+        Vec<String>,
+        Option<String>,
+        Vec<(String, String)>,
+        Option<ClassCtor>,
+        Vec<ClassMethod>,
+    )],
+) -> bool {
+    let Expr::Member { obj: inner_obj, name: field_name } =
+        &ast.exprs[obj_id.0 as usize]
+    else {
+        return false;
+    };
+    // The This → Ident("__this") rewrite in this same desugar pass
+    // may already have fired for low-ExprId nodes by the time we
+    // inspect this call (Pass 2 walks 0..n). Accept either shape.
+    let inner_is_this = match &ast.exprs[inner_obj.0 as usize] {
+        Expr::This => true,
+        Expr::Ident(n) if n == "__this" => true,
+        _ => false,
+    };
+    if !inner_is_this {
+        return false;
+    }
+    // Find the class entry and look up the field's type annotation.
+    let cls = class_index
+        .iter()
+        .find(|(_, n, ..)| n == cname);
+    let Some((_, _, _, _, fields, _, _)) = cls else {
+        return false;
+    };
+    let field_ty_ann = fields
+        .iter()
+        .find(|(fn_, _)| fn_ == field_name)
+        .map(|(_, ann)| ann.as_str());
+    let Some(ann) = field_ty_ann else {
+        return false;
+    };
+    // Builtin: Array (`T[]`), `string`, or `number`. These dispatch
+    // to runtime intrinsics, not user class methods.
+    ann.ends_with("[]") || ann == "string" || ann == "number"
 }
 
 /// Build a default-initializer Expr for a type annotation string. Used by
