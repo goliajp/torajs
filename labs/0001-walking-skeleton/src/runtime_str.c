@@ -238,29 +238,91 @@ int64_t __torajs_str_eq(const uint8_t *a, const uint8_t *b) {
     return memcmp(__TORAJS_STR_CDATA(a), __TORAJS_STR_CDATA(b), (size_t)a_len) == 0 ? 1 : 0;
 }
 
+/* `__torajs_arr_push_unchecked` is inkwell-defined and exported as a
+ * regular extern symbol; declare it here so the C runtime can call it
+ * from split's pre-sized fast path (skips per-push capacity check +
+ * potential realloc). */
+void __torajs_arr_push_unchecked(void *arr, int64_t val);
+
 void *__torajs_str_split(const uint8_t *s, const uint8_t *sep) {
     uint64_t s_len = __TORAJS_STR_LEN(s);
     uint64_t sep_len = __TORAJS_STR_LEN(sep);
     const uint8_t *s_data = __TORAJS_STR_CDATA(s);
     const uint8_t *sep_data = __TORAJS_STR_CDATA(sep);
 
-    void *arr = __torajs_arr_alloc(0);
-
     if (sep_len == 0) {
         /* MVP: empty separator returns [s_clone] (TS char-split is
          * UTF-16-flavored and out of scope for now). */
+        void *arr = __torajs_arr_alloc(1);
         uint8_t *p = str_alloc_(s_len);
         if (s_len) memcpy(__TORAJS_STR_DATA(p), s_data, (size_t)s_len);
-        return __torajs_arr_push(arr, (int64_t)(intptr_t)p);
+        __torajs_arr_push_unchecked(arr, (int64_t)(intptr_t)p);
+        return arr;
     }
 
+    /* Pass 1 — count occurrences (output length = matches + 1). */
+    uint64_t matches = 0;
+    if (sep_len == 1) {
+        /* Hot path: byte scan. Most splits are " ", ",", "\n" etc. */
+        uint8_t b = sep_data[0];
+        for (uint64_t k = 0; k < s_len; k++) {
+            if (s_data[k] == b) matches++;
+        }
+    } else if (sep_len <= s_len) {
+        uint64_t i = 0;
+        while (i + sep_len <= s_len) {
+            if (memcmp(s_data + i, sep_data, (size_t)sep_len) == 0) {
+                matches++;
+                i += sep_len;
+            } else {
+                i++;
+            }
+        }
+    }
+    uint64_t out_count = matches + 1;
+    /* Pass 2 — pre-sized array + single mega-block for all substring
+     * payloads. Each substring still has its own 16-byte header
+     * (refcount / type_tag / len) with refcount=1 and type_tag=STR,
+     * but all live contiguously inside one malloc — saves
+     * out_count - 1 malloc calls per split.
+     *
+     * Drop semantics work because each substring's str_drop dec's its
+     * own refcount and free()'s the substring's pointer. free() on a
+     * pointer that wasn't returned from malloc is UB on most allocators
+     * — so for now we keep one-malloc-per-substring (pre-sized array
+     * still wins the 3 reallocs above). The mega-block layout would
+     * need a paired arena-allocator (substring drops dec a shared
+     * counter, block frees at zero) — deferred until split-heavy
+     * benchmarks demand the additional 50% gain it would unlock.
+     *
+     * What this commit DOES gain: 0 array reallocs (pre-sized) +
+     * 1-byte sep fast-path (skip memcmp). Each substring still its
+     * own malloc. */
+    void *arr = __torajs_arr_alloc(out_count);
     uint64_t start = 0, i = 0;
+    if (sep_len == 1) {
+        uint8_t b = sep_data[0];
+        for (uint64_t k = 0; k < s_len; k++) {
+            if (s_data[k] == b) {
+                uint64_t seg_len = k - start;
+                uint8_t *p = str_alloc_(seg_len);
+                if (seg_len) memcpy(__TORAJS_STR_DATA(p), s_data + start, (size_t)seg_len);
+                __torajs_arr_push_unchecked(arr, (int64_t)(intptr_t)p);
+                start = k + 1;
+            }
+        }
+        uint64_t tail_len = s_len - start;
+        uint8_t *p = str_alloc_(tail_len);
+        if (tail_len) memcpy(__TORAJS_STR_DATA(p), s_data + start, (size_t)tail_len);
+        __torajs_arr_push_unchecked(arr, (int64_t)(intptr_t)p);
+        return arr;
+    }
     while (i + sep_len <= s_len) {
         if (memcmp(s_data + i, sep_data, (size_t)sep_len) == 0) {
             uint64_t seg_len = i - start;
             uint8_t *p = str_alloc_(seg_len);
             if (seg_len) memcpy(__TORAJS_STR_DATA(p), s_data + start, (size_t)seg_len);
-            arr = __torajs_arr_push(arr, (int64_t)(intptr_t)p);
+            __torajs_arr_push_unchecked(arr, (int64_t)(intptr_t)p);
             i += sep_len;
             start = i;
         } else {
@@ -270,7 +332,8 @@ void *__torajs_str_split(const uint8_t *s, const uint8_t *sep) {
     uint64_t tail_len = s_len - start;
     uint8_t *p = str_alloc_(tail_len);
     if (tail_len) memcpy(__TORAJS_STR_DATA(p), s_data + start, (size_t)tail_len);
-    return __torajs_arr_push(arr, (int64_t)(intptr_t)p);
+    __torajs_arr_push_unchecked(arr, (int64_t)(intptr_t)p);
+    return arr;
 }
 
 void *__torajs_arr_join(const uint8_t *arr, const uint8_t *sep) {

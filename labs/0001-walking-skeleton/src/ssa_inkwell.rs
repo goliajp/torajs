@@ -86,7 +86,11 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
             "print_f64" => define_print_f64(&ctx, &llvm_module),
             "print_bool" => define_print_bool(&ctx, &llvm_module, putchar),
             "__torajs_str_alloc" => {
-                define_str_alloc(&ctx, &llvm_module, malloc, memcpy)
+                let f = define_str_alloc(&ctx, &llvm_module, malloc, memcpy);
+                // hot — every literal materialization + every concat/slice
+                // result. Body is malloc + header init + memcpy.
+                mark_alwaysinline(&ctx, f);
+                f
             }
             "__torajs_str_print" => define_str_print(&ctx, &llvm_module, putchar),
             "__torajs_str_drop" => {
