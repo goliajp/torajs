@@ -338,6 +338,12 @@ pub struct Ast {
     /// declared class name to its parent (None if no `extends`). Empty
     /// before desugar runs and for programs with no class declarations.
     pub class_parents: std::collections::HashMap<String, Option<String>>,
+    /// Phase H.3.b — method name → declaring classes in source order
+    /// (deepest sub last). Used by ssa_lower's `__dispatch_<M>` Call
+    /// interception to emit the runtime tag-switch and call the right
+    /// owner's `__cm_<C>__M`. Single-owner methods aren't kept here
+    /// since they go through static `__cm_<Owner>__M` dispatch directly.
+    pub method_owners: std::collections::HashMap<String, Vec<String>>,
 }
 
 /// M5.1 — desugar `class C { ... }` into `type C = {...}` + a series of
@@ -377,7 +383,11 @@ pub fn desugar_classes(ast: &mut Ast) {
     // Pass 1 — extract every ClassDecl. After this loop the original
     // ClassDecl stmts are replaced by their generated TypeDecl in-place;
     // ctor / methods / factory FnDecls accumulate in `appended`.
-    let mut method_to_class: std::collections::HashMap<String, String> =
+    // method name → ordered list of declaring classes. Source order
+    // (deepest sub last) — this matters for dispatcher emission since
+    // we walk in reverse to check the deepest class first. Tracks
+    // every class that declares a method body, including overrides.
+    let mut method_owners: std::collections::HashMap<String, Vec<String>> =
         std::collections::HashMap::new();
     let mut class_field_inits: std::collections::HashMap<String, Vec<(String, ExprId)>> =
         std::collections::HashMap::new();
@@ -435,6 +445,10 @@ pub fn desugar_classes(ast: &mut Ast) {
     // can walk the chain when the LHS is a subclass and the RHS names
     // an ancestor.
     ast.class_parents = parent_map.clone();
+    // method_owners populated below; expose only the multi-owner entries
+    // so ssa_lower's `__dispatch_` interception is a constant-time
+    // contains lookup.
+    // (Filled in after the per-method walk; HashMap moved at end.)
     // Detect missing-parent and cycle errors. We don't allow forward
     // references to classes that come later in source order — every
     // ancestor must be declared before its descendants. This keeps
@@ -483,36 +497,30 @@ pub fn desugar_classes(ast: &mut Ast) {
         full_fields.insert(cname.clone(), combined);
     }
 
-    // Build the method dispatch table. Each method name resolves to the
-    // class that declares it; subclass redeclaration of an inherited
-    // method (override) is rejected for M5.2.a — virtual dispatch is M5.3.
+    // Build the method dispatch table. Phase H.3.b: ancestor-descendant
+    // overrides are now allowed and routed through a generated
+    // `__dispatch_<method>` fn that walks the runtime class tag. Sibling
+    // collisions across unrelated hierarchies remain rejected because
+    // tr's typechecker has no union types — `obj.M()` would need to
+    // know obj's class statically to typecheck against either signature.
     for (_, cname, _tp, _, _, _, methods) in &class_index {
-        // Walk up the chain to detect overrides.
         for m in methods {
-            // Check ancestors.
-            let mut cur = parent_map.get(cname).cloned().flatten();
-            while let Some(anc) = cur {
-                if let Some(owner) = method_to_class.get(&m.name)
-                    && (owner == &anc || method_owner_is_in_chain(&parent_map, owner, &anc))
-                {
-                    panic!(
-                        "M5.2.a: subclass `{cname}` overrides parent method `{}` \
-                         (declared on `{owner}`) — virtual dispatch is M5.3, \
-                         rename for now",
-                        m.name
-                    );
+            if let Some(prev_owners) = method_owners.get(&m.name) {
+                for prev in prev_owners {
+                    let related = method_owner_is_in_chain(&parent_map, prev, cname)
+                        || method_owner_is_in_chain(&parent_map, cname, prev);
+                    if !related {
+                        panic!(
+                            "M5.3: method `{}` declared on unrelated classes `{prev}` \
+                             and `{cname}` — needs a union type, not in v0",
+                            m.name
+                        );
+                    }
                 }
-                cur = parent_map.get(&anc).cloned().flatten();
             }
-            // Check siblings (any other class).
-            if let Some(prev) = method_to_class.get(&m.name) {
-                panic!(
-                    "M5.2: method name `{}` is declared on both `{prev}` and `{cname}` — \
-                     no virtual dispatch yet (rename one, or wait for M5.3)",
-                    m.name
-                );
-            }
-            method_to_class.insert(m.name.clone(), cname.clone());
+            method_owners.entry(m.name.clone())
+                .or_default()
+                .push(cname.clone());
         }
     }
     // Inherited methods: subclass instances should resolve a parent's
@@ -521,8 +529,74 @@ pub fn desugar_classes(ast: &mut Ast) {
     // Implementation: when handling `c.method()` rewriting, the dispatch
     // table is keyed only by method name. If a method is declared on
     // class A and class B extends A, then `b.someParentMethod()` works
-    // because `someParentMethod` is in `method_to_class` mapped to A.
+    // because `someParentMethod` is in `method_owners` (base entry).
     // No extra work needed here.
+
+    // Phase H.3.b — emit `__dispatch_<method>(__this, args...)` for every
+    // method whose name has multiple owners (the override case). Body is
+    // an instanceof-chain checking subclasses deepest-first, falling
+    // through to the base owner's `__cm_<Base>__<method>`. Single-owner
+    // methods stay on the static `__cm_<Owner>__M` path — no dispatcher
+    // fn, no extra indirection.
+    for (m_name, owners) in &method_owners {
+        if owners.len() < 2 {
+            continue;
+        }
+        // Locate the base owner's method to copy its signature.
+        let base_owner = &owners[0];
+        let (_, _, base_tp, _, _, _, base_methods) = class_index
+            .iter()
+            .find(|(_, n, ..)| n == base_owner)
+            .expect("base owner must exist in class_index");
+        let base_method = base_methods
+            .iter()
+            .find(|m| &m.name == m_name)
+            .expect("base owner declared the method by construction");
+        // Dispatcher params: `__this: Base, ...method_params`.
+        let mut params: Vec<Param> = Vec::with_capacity(base_method.params.len() + 1);
+        let this_ann = if base_tp.is_empty() {
+            base_owner.clone()
+        } else {
+            format!("{base_owner}<{}>", base_tp.join("|"))
+        };
+        params.push(Param {
+            name: "__this".into(),
+            type_ann: Some(this_ann),
+            default: None,
+            is_rest: false,
+        });
+        params.extend(base_method.params.iter().cloned());
+        // Body is a typecheck-clean stub that just forwards to the base
+        // owner's `__cm_<Base>__M` — passing `__this: Base` to a fn
+        // expecting `__this: Base` typechecks fine, and the SSA layer
+        // bypasses this body entirely (see `__dispatch_` interception
+        // in ssa_lower's Call arm). The stub is what tr would do if
+        // override were ignored; the real virtual dispatch happens at
+        // SSA level where untyped pointer args dodge the contravariance
+        // problem (subclass __cm fns expect __this: Sub which the
+        // typechecker won't widen Animal → Sub for, even though the
+        // runtime layout is compatible).
+        let mut body: Vec<Stmt> = Vec::new();
+        let stub_callee = ast.add_expr(Expr::Ident(format!("__cm_{base_owner}__{m_name}")));
+        let stub_this = ast.add_expr(Expr::Ident("__this".into()));
+        let mut stub_args: Vec<ExprId> = Vec::with_capacity(base_method.params.len() + 1);
+        stub_args.push(stub_this);
+        for p in &base_method.params {
+            stub_args.push(ast.add_expr(Expr::Ident(p.name.clone())));
+        }
+        let stub_call = ast.add_expr(Expr::Call {
+            callee: stub_callee,
+            args: stub_args,
+        });
+        body.push(Stmt::Return(Some(stub_call)));
+        appended.push(Stmt::FnDecl {
+            name: format!("__dispatch_{m_name}"),
+            type_params: base_tp.clone(),
+            params,
+            return_type: base_method.return_type.clone(),
+            body,
+        });
+    }
 
     // For each class, build the list of typed default-initializer expressions
     // that the factory will use to seed the `__this` object literal. We use
@@ -610,12 +684,17 @@ pub fn desugar_classes(ast: &mut Ast) {
                 if let Expr::Member { obj, name } = &ast.exprs[callee_id.0 as usize] {
                     let m_name = name.clone();
                     let obj_id = *obj;
-                    if let Some(cname) = method_to_class.get(&m_name) {
-                        // `__cm_` prefix signals to check.rs / ssa_lower
-                        // that the first arg is the receiver and must be
-                        // passed by borrow (not consumed). See
-                        // `is_class_method_name` in check.rs.
-                        let mangled = format!("__cm_{cname}__{m_name}");
+                    if let Some(owners) = method_owners.get(&m_name) {
+                        // Single owner: keep static dispatch — direct call
+                        // to the owning class's `__cm_<C>__<M>`, no
+                        // dispatcher fn needed. Multi-owner (override
+                        // case): redirect to the generated
+                        // `__dispatch_<M>` which walks the runtime tag.
+                        let mangled = if owners.len() == 1 {
+                            format!("__cm_{}__{m_name}", owners[0])
+                        } else {
+                            format!("__dispatch_{m_name}")
+                        };
                         let new_callee = ast.add_expr(Expr::Ident(mangled));
                         let mut new_args = Vec::with_capacity(args_clone.len() + 1);
                         new_args.push(obj_id);
@@ -716,6 +795,13 @@ pub fn desugar_classes(ast: &mut Ast) {
     }
 
     ast.stmts.extend(appended);
+    // Hand multi-owner method_owners to ssa_lower for the
+    // `__dispatch_<M>` runtime-tag dispatch. Single-owner entries are
+    // dropped since they don't need runtime resolution.
+    ast.method_owners = method_owners
+        .into_iter()
+        .filter(|(_, owners)| owners.len() > 1)
+        .collect();
 }
 
 /// Build a default-initializer Expr for a type annotation string. Used by

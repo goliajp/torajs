@@ -5417,6 +5417,141 @@ impl<'a> LowerCtx<'a> {
                 }
             }
             Expr::Call { callee, args } => {
+                // Phase H.3.b — virtual-dispatch interception. Desugar
+                // rewrites `obj.M()` for multi-owner methods to a call
+                // to the synthetic `__dispatch_<M>` fn whose body is a
+                // typecheck-clean stub forwarding to the base owner.
+                // We bypass the stub here and emit inline tag-switch
+                // dispatch: read the receiver's class tag, walk subclass
+                // owners deepest-first, and call the matching
+                // `__cm_<C>__<M>` directly. The fall-through default
+                // is the base owner's body.
+                if let Expr::Ident(callee_name) = self.ast.get_expr(*callee)
+                    && let Some(method_name) = callee_name.strip_prefix("__dispatch_")
+                    && let Some(owners) = self.ast.method_owners.get(method_name).cloned()
+                    && !args.is_empty()
+                {
+                    let arg_ops: Vec<Operand> = args
+                        .iter()
+                        .map(|a| {
+                            let op = self.lower_expr(*a);
+                            self.consume_if_ident(*a);
+                            op
+                        })
+                        .collect();
+                    let recv = arg_ops[0];
+                    // Look up base owner's __cm fn for return type + as
+                    // the default branch.
+                    let base_fn_name = format!("__cm_{}__{method_name}", owners[0]);
+                    let base_fid = *self.fn_table.get(&base_fn_name).unwrap_or_else(|| {
+                        panic!(
+                            "ssa-lower: __dispatch interception lost base fn `{base_fn_name}`"
+                        )
+                    });
+                    let ret_ty = self.f_ret_type_hint(base_fid);
+                    let result_slot = self.alloca_in_entry(ret_ty, Some("__dispatch_res"));
+                    let tag = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Load(Type::I64, recv, 0),
+                        Type::I64,
+                        None,
+                    );
+                    let after_blk = self.f.add_block();
+                    // Walk subclass owners deepest-first. For each, OR-
+                    // chain the descendant tag set against the loaded tag,
+                    // branch into a per-owner block that calls the
+                    // override and stores the result.
+                    for sub in owners.iter().skip(1).rev() {
+                        let descendant_tags = self.compute_descendant_tags(sub);
+                        if descendant_tags.is_empty() {
+                            continue;
+                        }
+                        let mut cond_acc: Option<ValueId> = None;
+                        for &t in &descendant_tags {
+                            let eq = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::ICmp(
+                                    IPred::Eq,
+                                    Operand::Value(tag),
+                                    Operand::ConstI64(t as i64),
+                                ),
+                                Type::Bool,
+                                None,
+                            );
+                            cond_acc = Some(match cond_acc {
+                                None => eq,
+                                Some(prev) => self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::BinOp(
+                                        SsaBinOp::Or,
+                                        Operand::Value(prev),
+                                        Operand::Value(eq),
+                                    ),
+                                    Type::Bool,
+                                    None,
+                                ),
+                            });
+                        }
+                        let sub_blk = self.f.add_block();
+                        let next_blk = self.f.add_block();
+                        self.f.set_term(
+                            self.cur_block,
+                            Terminator::CondBr {
+                                cond: Operand::Value(cond_acc.unwrap()),
+                                then_blk: sub_blk,
+                                else_blk: next_blk,
+                            },
+                        );
+                        // sub_blk: call __cm_<sub>__<method>(args)
+                        self.cur_block = sub_blk;
+                        let sub_fn_name = format!("__cm_{sub}__{method_name}");
+                        let sub_fid = *self.fn_table.get(&sub_fn_name).unwrap_or_else(|| {
+                            panic!(
+                                "ssa-lower: __dispatch lost override fn `{sub_fn_name}`"
+                            )
+                        });
+                        let r = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(sub_fid, arg_ops.clone()),
+                            ret_ty,
+                            None,
+                        );
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Store(
+                                Operand::Value(r),
+                                Operand::Value(result_slot),
+                                0,
+                            ),
+                        );
+                        self.f.set_term(self.cur_block, Terminator::Br(after_blk));
+                        self.cur_block = next_blk;
+                    }
+                    // Default: call base owner's __cm.
+                    let r = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(base_fid, arg_ops),
+                        ret_ty,
+                        None,
+                    );
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Store(
+                            Operand::Value(r),
+                            Operand::Value(result_slot),
+                            0,
+                        ),
+                    );
+                    self.f.set_term(self.cur_block, Terminator::Br(after_blk));
+                    self.cur_block = after_blk;
+                    let result = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Load(ret_ty, Operand::Value(result_slot), 0),
+                        ret_ty,
+                        None,
+                    );
+                    return Operand::Value(result);
+                }
                 // `n.toFixed(d)` / `n.toString()` — primitive Number methods.
                 // Receiver is i64 or f64; route to the matching intrinsic
                 // (toString currently returns the same as `String(n)`).
@@ -9836,6 +9971,38 @@ impl<'a> LowerCtx<'a> {
     /// in pass 1 of `lower`. Defaults to I64 for unknown FuncIds (intrinsics
     /// or forward refs we haven't catalogued yet — print_i64 returns void
     /// and is called via `append_void`, so its callsites never reach here).
+    /// Phase H.3.b — set of runtime class tags that satisfy `instanceof
+    /// class_name`: `class_name` itself plus every transitively-extending
+    /// subclass. Empty if `class_name` isn't a declared class. Same
+    /// algorithm as instanceof's lower path, factored out so the
+    /// `__dispatch_<M>` interception can reuse it.
+    fn compute_descendant_tags(&self, class_name: &str) -> Vec<u32> {
+        let mut out: Vec<u32> = Vec::new();
+        if !self.ast.class_parents.contains_key(class_name) {
+            return out;
+        }
+        for c in self.ast.class_parents.keys() {
+            let mut cur = Some(c.clone());
+            let mut depth = 0u32;
+            while let Some(name) = cur {
+                if depth > 64 { break; }
+                if name == *class_name {
+                    if let Some(Type::Obj(sid)) = self.aliases.get(c)
+                        && let Some(tag) = self.sid_to_class_tag.get(&sid.0)
+                    {
+                        out.push(*tag);
+                    }
+                    break;
+                }
+                cur = self.ast.class_parents.get(&name).and_then(|p| p.clone());
+                depth += 1;
+            }
+        }
+        out.sort();
+        out.dedup();
+        out
+    }
+
     fn f_ret_type_hint(&self, fid: FuncId) -> Type {
         self.signatures.get(&fid).copied().unwrap_or(Type::I64)
     }

@@ -84,8 +84,11 @@ pub const STRING_BORROW_METHODS: &[&str] = &[
 /// receiver (`__this`) and must be passed by borrow — neither check.rs's
 /// affine consume nor ssa_lower's transfer/drop logic should fire on
 /// arg[0] of these calls. Args[1..] follow the normal rules.
+/// `__dispatch_` is the H.3.b synthetic virtual-dispatch entry; same
+/// shape (arg[0] is borrow receiver, struct-prefix-subtype widening on
+/// the call), so it shares the predicate.
 pub fn is_class_method_name(name: &str) -> bool {
-    name.starts_with("__cm_")
+    name.starts_with("__cm_") || name.starts_with("__dispatch_")
 }
 
 /// M5.2 — structural-prefix subtyping for class-method receiver arguments.
