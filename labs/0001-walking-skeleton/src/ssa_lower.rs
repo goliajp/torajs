@@ -2287,6 +2287,7 @@ fn synthesize_main(
             call_retargets,
             may_throw_fns,
             captured_arr_writeback: HashMap::new(),
+            captured_box_promoted: HashMap::new(),
         };
         for s in stmts {
             ctx.lower_top_stmt(s);
@@ -2838,6 +2839,7 @@ fn lower_fn(
         call_retargets,
         may_throw_fns,
         captured_arr_writeback: HashMap::new(),
+        captured_box_promoted: HashMap::new(),
     };
 
     // Materialize each param as an alloca-backed local. mem2reg at -O1+
@@ -2924,29 +2926,43 @@ fn lower_fn(
                 None,
             );
             let offset = 8 + (i as u64) * 8;
-            let v = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Load(*cap_ty, Operand::Value(env_ptr), offset),
-                *cap_ty,
-                None,
-            );
-            let cap_slot = ctx.alloca(*cap_ty, Some(cap_name));
-            ctx.f.append_void(
-                ctx.cur_block,
-                InstKind::Store(Operand::Value(v), Operand::Value(cap_slot), 0),
-            );
-            // M2 — captured arrays may grow inside the closure body
-            // (e.g. `xs.push(v)` reallocs). The env block holds the ptr
-            // by value (so the closure can outlive the construction
-            // scope, e.g. a factory's returned closure). We mirror every
-            // push back to env+offset so subsequent invocations of the
-            // SAME closure see the live ptr. Outer-scope reads don't
-            // observe the mutation in this scheme — see docs for the
-            // limitation. Empty for non-Arr captures.
-            if matches!(*cap_ty, Type::Arr(_)) {
-                ctx.captured_arr_writeback
-                    .insert(cap_slot, (env_slot, offset));
-            }
+            // Two flavors mirroring the construction-site code:
+            //  - Copy types: env stored a heap-box ptr. Load the box
+            //    ptr and use it directly as the capture's local slot,
+            //    so loads/stores in the body flow through the box (=
+            //    outer slot post-promotion). JS-spec by-ref semantics.
+            //  - Non-Copy types: env stored the heap pointer VALUE
+            //    (string/array/struct/closure). Load the value, store
+            //    into a fresh local alloca, and bind the capture name
+            //    to that local. Body sees the heap data via the value.
+            let cap_slot = if cap_ty.is_copy() {
+                ctx.f.append_inst(
+                    ctx.cur_block,
+                    InstKind::Load(Type::Ptr, Operand::Value(env_ptr), offset),
+                    Type::Ptr,
+                    None,
+                )
+            } else {
+                let v = ctx.f.append_inst(
+                    ctx.cur_block,
+                    InstKind::Load(*cap_ty, Operand::Value(env_ptr), offset),
+                    *cap_ty,
+                    None,
+                );
+                let local = ctx.alloca(*cap_ty, Some(cap_name));
+                ctx.f.append_void(
+                    ctx.cur_block,
+                    InstKind::Store(Operand::Value(v), Operand::Value(local), 0),
+                );
+                // Captured Arr writeback (legacy mechanism) — keep so
+                // pushes inside the closure mirror back to env+offset
+                // for subsequent invocations of the same closure.
+                if matches!(*cap_ty, Type::Arr(_)) {
+                    ctx.captured_arr_writeback
+                        .insert(local, (env_slot, offset));
+                }
+                local
+            };
             ctx.locals.insert(
                 cap_name.clone(),
                 LocalInfo {
@@ -3133,6 +3149,14 @@ struct LowerCtx<'a> {
     /// pointer. Empty for non-closure fns; populated only by the
     /// closure prologue.
     captured_arr_writeback: HashMap<ValueId, (ValueId, u64)>,
+    /// Closure capture-by-reference for Copy-typed lets. Maps the
+    /// outer let's name to a heap-allocated 8-byte "box" pointer.
+    /// First closure that captures the let triggers box allocation +
+    /// outer-slot rewrite; subsequent closures (in the same fn) reuse
+    /// the box. Mutations through either path (outer or closure body)
+    /// flow through the box, so JS-spec by-reference semantics hold.
+    /// Box leaks until env-drop machinery lands.
+    captured_box_promoted: HashMap<String, ValueId>,
 }
 
 impl<'a> LowerCtx<'a> {
@@ -8928,38 +8952,103 @@ impl<'a> LowerCtx<'a> {
                     self.cur_block,
                     InstKind::Store(Operand::Value(fn_addr_v), Operand::Value(env_v), 0),
                 );
-                // Store each capture by value at the right offset. For
-                // non-Copy captures (Arr / Obj / Str / Closure), mark
-                // the outer binding as `moved` so end-of-scope drop
-                // emission skips it — the env block now holds the
-                // canonical pointer to the heap data, and freeing it at
-                // outer scope close would leave the closure body reading
-                // from already-freed memory. (Recursive drop of the env's
-                // contents when the closure binding itself dies is a
-                // future Env::drop story; for now non-Copy captures
-                // intentionally leak when the closure outlives its
-                // construction frame, matching JS-shape lifetime
-                // semantics where the captured heap stays alive as long
-                // as the closure does.)
+                // Two capture flavors:
+                //  - Copy types (number, bool): JS-spec by-reference. We
+                //    promote the outer slot to heap (via obj_alloc) on
+                //    its first capture, copy the current value into the
+                //    box, and rewrite the outer LocalInfo to point at
+                //    the box. The env then stores a pointer to the box,
+                //    so both outer reads/writes AND closure-body
+                //    reads/writes go through the same heap cell.
+                //    Mutations propagate. Box leaks until env-drop
+                //    machinery lands (small fixed cost per captured
+                //    Copy local).
+                //  - Non-Copy types (Str / Obj / Arr / Closure): the
+                //    outer slot already holds a heap pointer; capturing
+                //    by-value of that pointer plus marking the outer as
+                //    `moved` is the right semantics — the heap data
+                //    stays alive as long as the env does, and field
+                //    mutations on a struct/array propagate via the
+                //    shared heap. Rebinding the outer name to a fresh
+                //    object isn't observed by the closure (matches the
+                //    existing limitation; full rebind support would
+                //    require by-ref on non-Copy too).
                 for (i, (cap_name, cap_ty)) in
                     captures.iter().zip(cap_tys.iter()).enumerate()
                 {
                     let info = *self.locals.get(cap_name).expect("capture in scope");
-                    let v = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Load(*cap_ty, Operand::Value(info.slot), 0),
-                        *cap_ty,
-                        None,
-                    );
                     let offset = 8 + (i as u64) * 8;
-                    self.f.append_void(
-                        self.cur_block,
-                        InstKind::Store(Operand::Value(v), Operand::Value(env_v), offset),
-                    );
-                    if !cap_ty.is_copy()
-                        && let Some(outer) = self.locals.get_mut(cap_name)
-                    {
-                        outer.moved = true;
+                    if cap_ty.is_copy() {
+                        // Promote outer slot to heap if not already.
+                        // Detection: a heap-promoted slot is itself a
+                        // value of Type::Ptr that loads to a Type::Ptr
+                        // — but the simplest invariant is to do it
+                        // exactly once and stash the box pointer in
+                        // the LocalInfo. We track promoted slots via
+                        // a side channel `captured_box_promoted`.
+                        let box_ptr = match self.captured_box_promoted.get(cap_name).copied() {
+                            Some(b) => b,
+                            None => {
+                                // alloca the box on heap, copy current value in
+                                let cur_val = self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::Load(*cap_ty, Operand::Value(info.slot), 0),
+                                    *cap_ty,
+                                    None,
+                                );
+                                let box_v = self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::Call(
+                                        self.intrinsics.obj_alloc,
+                                        vec![Operand::ConstI64(8)],
+                                    ),
+                                    Type::Ptr,
+                                    None,
+                                );
+                                self.f.append_void(
+                                    self.cur_block,
+                                    InstKind::Store(
+                                        Operand::Value(cur_val),
+                                        Operand::Value(box_v),
+                                        0,
+                                    ),
+                                );
+                                self.captured_box_promoted.insert(cap_name.clone(), box_v);
+                                // Rewrite outer LocalInfo so subsequent
+                                // outer reads/writes flow through the box.
+                                if let Some(outer) = self.locals.get_mut(cap_name) {
+                                    outer.slot = box_v;
+                                }
+                                box_v
+                            }
+                        };
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Store(
+                                Operand::Value(box_ptr),
+                                Operand::Value(env_v),
+                                offset,
+                            ),
+                        );
+                    } else {
+                        // Non-Copy: by-value capture of the heap pointer.
+                        let v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(*cap_ty, Operand::Value(info.slot), 0),
+                            *cap_ty,
+                            None,
+                        );
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Store(
+                                Operand::Value(v),
+                                Operand::Value(env_v),
+                                offset,
+                            ),
+                        );
+                        if let Some(outer) = self.locals.get_mut(cap_name) {
+                            outer.moved = true;
+                        }
                     }
                 }
                 Operand::Value(env_v)
