@@ -6399,6 +6399,47 @@ impl<'a> LowerCtx<'a> {
                         }
                     }
                 }
+                // Phase I.1 — sibling-class static dispatch. For methods
+                // declared on unrelated classes (no inheritance relation,
+                // so no shared `__dispatch_<M>`), desugar leaves the
+                // Member-call shape intact. Resolve obj's static class
+                // from its struct id via aliases and emit the matching
+                // `__cm_<C>__<M>` static call.
+                if let Expr::Member { obj, name } = self.ast.get_expr(*callee)
+                    && self.ast.method_owners.contains_key(name)
+                {
+                    let recv_op = self.lower_expr(*obj);
+                    let recv_ty = self.operand_ty(&recv_op);
+                    if let Type::Obj(sid) = recv_ty {
+                        let mut class_name: Option<String> = None;
+                        for (n, ty) in self.aliases.iter() {
+                            if matches!(ty, Type::Obj(s) if s.0 == sid.0)
+                                && self.ast.class_parents.contains_key(n)
+                            {
+                                class_name = Some(n.clone());
+                                break;
+                            }
+                        }
+                        if let Some(cname) = class_name {
+                            let fn_name = format!("__cm_{cname}__{name}");
+                            if let Some(&fid) = self.fn_table.get(&fn_name) {
+                                let mut argv: Vec<Operand> = Vec::with_capacity(args.len() + 1);
+                                argv.push(recv_op);
+                                for a in args {
+                                    argv.push(self.lower_expr(*a));
+                                }
+                                let ret_ty = self.f_ret_type_hint(fid);
+                                let v = self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::Call(fid, argv),
+                                    ret_ty,
+                                    None,
+                                );
+                                return Operand::Value(v);
+                            }
+                        }
+                    }
+                }
                 // M6.1 — `s.method(args)` for the String stdlib slice.
                 // Receiver must be Type::Str; methods route to the
                 // matching __torajs_str_* runtime intrinsic. Args are

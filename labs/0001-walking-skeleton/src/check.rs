@@ -1265,6 +1265,34 @@ impl Checker {
                 {
                     return Ok(ty.clone());
                 }
+                // Phase I.1 — class method on Type::Struct. Reverse-lookup
+                // the class name from the struct shape (matches the
+                // first-aliased class with that struct), then probe
+                // `__cm_<class>__<name>` in globals. If found, return
+                // its Function type with `__this` (the implicit first
+                // param) stripped — caller's args fill the remaining
+                // params. Used by sibling-method calls left
+                // un-rewritten by desugar (the chain-and-static cases
+                // were rewritten into Ident calls already).
+                if let Type::Struct(_) = &obj_ty {
+                    let mut class_name: Option<String> = None;
+                    for (n, ty) in self.aliases.iter() {
+                        if *ty == obj_ty && ast.class_parents.contains_key(n) {
+                            class_name = Some(n.clone());
+                            break;
+                        }
+                    }
+                    if let Some(cname) = class_name {
+                        let cm_name = format!("__cm_{cname}__{name}");
+                        if let Some(Type::Function(params, ret)) = self.globals.get(&cm_name) {
+                            // Strip the implicit `__this` first param.
+                            if !params.is_empty() {
+                                let user_params = params[1..].to_vec();
+                                return Ok(Type::Function(user_params, ret.clone()));
+                            }
+                        }
+                    }
+                }
                 match (&obj_ty, name.as_str()) {
                     (Type::Object("console"), m)
                         if matches!(m, "log" | "error" | "warn") =>

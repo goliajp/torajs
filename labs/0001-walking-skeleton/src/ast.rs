@@ -498,39 +498,36 @@ pub fn desugar_classes(ast: &mut Ast) {
     }
 
     // Build the method dispatch table. Phase H.3.b: ancestor-descendant
-    // overrides are now allowed and routed through a generated
-    // `__dispatch_<method>` fn that walks the runtime class tag. Sibling
-    // collisions across unrelated hierarchies remain rejected because
-    // tr's typechecker has no union types — `obj.M()` would need to
-    // know obj's class statically to typecheck against either signature.
+    // overrides go through a generated `__dispatch_<method>` fn (walks
+    // runtime class tag). Phase I.1 lifted the sibling-collision panic:
+    // unrelated classes are allowed to share a method name now — call
+    // sites pick the right `__cm_<C>__M` from obj's static type at SSA
+    // lower time (handled by the `Type::Obj` Member-call arm).
     for (_, cname, _tp, _, _, _, methods) in &class_index {
         for m in methods {
-            if let Some(prev_owners) = method_owners.get(&m.name) {
-                for prev in prev_owners {
-                    let related = method_owner_is_in_chain(&parent_map, prev, cname)
-                        || method_owner_is_in_chain(&parent_map, cname, prev);
-                    if !related {
-                        panic!(
-                            "M5.3: method `{}` declared on unrelated classes `{prev}` \
-                             and `{cname}` — needs a union type, not in v0",
-                            m.name
-                        );
-                    }
-                }
-            }
             method_owners.entry(m.name.clone())
                 .or_default()
                 .push(cname.clone());
         }
     }
-    // Inherited methods: subclass instances should resolve a parent's
-    // method too. Walk each class's chain and add (parent_method →
-    // declaring_class) entries as additional resolution hints.
-    // Implementation: when handling `c.method()` rewriting, the dispatch
-    // table is keyed only by method name. If a method is declared on
-    // class A and class B extends A, then `b.someParentMethod()` works
-    // because `someParentMethod` is in `method_owners` (base entry).
-    // No extra work needed here.
+    // Phase I.1 — categorize each multi-owner method. If owners[0]
+    // (source-first, the topmost in source order) is an ancestor of
+    // every other owner, the method forms a single inheritance chain
+    // and gets the `__dispatch_<M>` runtime-tag dispatcher (override
+    // case). Otherwise (siblings in unrelated hierarchies, or a mix),
+    // call sites stay as Member-shape and ssa_lower picks the right
+    // `__cm_<C>__M` from obj's static type.
+    let chain_methods: std::collections::HashSet<String> = method_owners
+        .iter()
+        .filter(|(_, owners)| owners.len() > 1)
+        .filter(|(_, owners)| {
+            let base = &owners[0];
+            owners.iter().skip(1).all(|sub| {
+                method_owner_is_in_chain(&parent_map, base, sub)
+            })
+        })
+        .map(|(n, _)| n.clone())
+        .collect();
 
     // Phase H.3.b — emit `__dispatch_<method>(__this, args...)` for every
     // method whose name has multiple owners (the override case). Body is
@@ -539,7 +536,7 @@ pub fn desugar_classes(ast: &mut Ast) {
     // methods stay on the static `__cm_<Owner>__M` path — no dispatcher
     // fn, no extra indirection.
     for (m_name, owners) in &method_owners {
-        if owners.len() < 2 {
+        if !chain_methods.contains(m_name) {
             continue;
         }
         // Locate the base owner's method to copy its signature.
@@ -685,24 +682,39 @@ pub fn desugar_classes(ast: &mut Ast) {
                     let m_name = name.clone();
                     let obj_id = *obj;
                     if let Some(owners) = method_owners.get(&m_name) {
-                        // Single owner: keep static dispatch — direct call
-                        // to the owning class's `__cm_<C>__<M>`, no
-                        // dispatcher fn needed. Multi-owner (override
-                        // case): redirect to the generated
-                        // `__dispatch_<M>` which walks the runtime tag.
-                        let mangled = if owners.len() == 1 {
-                            format!("__cm_{}__{m_name}", owners[0])
-                        } else {
-                            format!("__dispatch_{m_name}")
-                        };
-                        let new_callee = ast.add_expr(Expr::Ident(mangled));
-                        let mut new_args = Vec::with_capacity(args_clone.len() + 1);
-                        new_args.push(obj_id);
-                        new_args.extend(args_clone);
-                        ast.exprs[i] = Expr::Call {
-                            callee: new_callee,
-                            args: new_args,
-                        };
+                        // Three cases:
+                        // (1) Single owner — keep static dispatch via
+                        //     `__cm_<C>__<M>`.
+                        // (2) Multi-owner forming a single inheritance
+                        //     chain (override case) — route through the
+                        //     generated `__dispatch_<M>` runtime dispatcher.
+                        // (3) Multi-owner across unrelated hierarchies
+                        //     (sibling collision) — leave the Member-call
+                        //     shape intact; ssa_lower's `Type::Obj`
+                        //     Member-call arm picks the right per-class
+                        //     `__cm_<C>__<M>` from obj's static type.
+                        if owners.len() == 1 {
+                            let mangled = format!("__cm_{}__{m_name}", owners[0]);
+                            let new_callee = ast.add_expr(Expr::Ident(mangled));
+                            let mut new_args = Vec::with_capacity(args_clone.len() + 1);
+                            new_args.push(obj_id);
+                            new_args.extend(args_clone);
+                            ast.exprs[i] = Expr::Call {
+                                callee: new_callee,
+                                args: new_args,
+                            };
+                        } else if chain_methods.contains(&m_name) {
+                            let mangled = format!("__dispatch_{m_name}");
+                            let new_callee = ast.add_expr(Expr::Ident(mangled));
+                            let mut new_args = Vec::with_capacity(args_clone.len() + 1);
+                            new_args.push(obj_id);
+                            new_args.extend(args_clone);
+                            ast.exprs[i] = Expr::Call {
+                                callee: new_callee,
+                                args: new_args,
+                            };
+                        }
+                        // else: sibling collision — leave Member call AS-IS.
                     }
                 }
             }
