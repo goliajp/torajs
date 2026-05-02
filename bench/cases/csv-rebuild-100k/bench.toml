@@ -1,0 +1,7 @@
+runs = 5
+warmup = 2
+
+# 100k iters of split + per-token concat. Validates the view-aware
+# concat path: each `parts[i] + sep` skips the substr_to_owned alloc
+# and writes bytes from parent + offset directly into the new Str.
+torajs_opt = "O3"

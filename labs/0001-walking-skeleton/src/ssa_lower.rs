@@ -1413,6 +1413,29 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         &[Type::Ptr],
         Type::Substr,
     );
+    // View-aware concat — one alloc + two memcpys, no intermediate
+    // materialize. Variants for each Substr-on-side combination.
+    let substr_concat_substr_str_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_substr_concat_substr_str",
+        &[Type::Ptr, Type::Str],
+        Type::Str,
+    );
+    let substr_concat_str_substr_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_substr_concat_str_substr",
+        &[Type::Str, Type::Ptr],
+        Type::Str,
+    );
+    let substr_concat_substr_substr_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_substr_concat_substr_substr",
+        &[Type::Ptr, Type::Ptr],
+        Type::Str,
+    );
     let substr_to_owned_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -2154,6 +2177,9 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         substr_trim: substr_trim_id,
         substr_trim_start: substr_trim_start_id,
         substr_trim_end: substr_trim_end_id,
+        substr_concat_substr_str: substr_concat_substr_str_id,
+        substr_concat_str_substr: substr_concat_str_substr_id,
+        substr_concat_substr_substr: substr_concat_substr_substr_id,
         arr_from_string: arr_from_string_id,
         str_substring: str_substring_id,
         arr_to_reversed: arr_to_reversed_id,
@@ -2470,6 +2496,9 @@ struct Intrinsics {
     substr_trim: FuncId,
     substr_trim_start: FuncId,
     substr_trim_end: FuncId,
+    substr_concat_substr_str: FuncId,
+    substr_concat_str_substr: FuncId,
+    substr_concat_substr_substr: FuncId,
     arr_from_string: FuncId,
     str_substring: FuncId,
     arr_to_reversed: FuncId,
@@ -11471,46 +11500,26 @@ impl<'a> LowerCtx<'a> {
                     | (Type::I64, Type::Substr)
                     | (Type::F64, Type::Substr)
             );
-            // Any Substr operand: materialize to OWNED Str then route
-            // to str_concat. Phase D may add a substr-aware concat that
-            // does one alloc + two memcpys (skips the intermediate
-            // substr_to_owned alloc); for now correctness > perf.
+            // Any Substr operand: route through view-aware concat
+            // helpers. One alloc + two memcpys (vs. 2 allocs + 3
+            // memcpys via substr_to_owned + str_concat).
             let either_substr = a_ty == Type::Substr || b_ty == Type::Substr;
             if either_substr
                 && (a_ty == Type::Str || a_ty == Type::Substr)
                 && (b_ty == Type::Str || b_ty == Type::Substr)
             {
-                let materialize = |ctx: &mut Self, v: Operand, ty: Type| -> Operand {
-                    if ty == Type::Substr {
-                        let owned = ctx.f.append_inst(
-                            ctx.cur_block,
-                            InstKind::Call(ctx.intrinsics.substr_to_owned, vec![v]),
-                            Type::Str,
-                            None,
-                        );
-                        Operand::Value(owned)
-                    } else {
-                        v
-                    }
+                let target = match (a_ty, b_ty) {
+                    (Type::Substr, Type::Str) => self.intrinsics.substr_concat_substr_str,
+                    (Type::Str, Type::Substr) => self.intrinsics.substr_concat_str_substr,
+                    (Type::Substr, Type::Substr) => self.intrinsics.substr_concat_substr_substr,
+                    _ => unreachable!(),
                 };
-                let a_str = materialize(self, a, a_ty);
-                let b_str = materialize(self, b, b_ty);
-                let concat = self.intrinsics.str_concat;
                 let v = self.f.append_inst(
                     self.cur_block,
-                    InstKind::Call(concat, vec![a_str, b_str]),
+                    InstKind::Call(target, vec![a, b]),
                     Type::Str,
                     None,
                 );
-                // Drop the temporary materialized owned Str(s). a_str /
-                // b_str are owned only when the original operand was
-                // Substr; str_concat is read-only on its inputs.
-                if a_ty == Type::Substr {
-                    self.emit_drop_value(a_str, Type::Str);
-                }
-                if b_ty == Type::Substr {
-                    self.emit_drop_value(b_str, Type::Str);
-                }
                 return Operand::Value(v);
             }
             if a_ty == Type::Str && b_ty == Type::Str {
@@ -12116,6 +12125,9 @@ impl<'a> LowerCtx<'a> {
             || fid == i.substr_trim
             || fid == i.substr_trim_start
             || fid == i.substr_trim_end
+            || fid == i.substr_concat_substr_str
+            || fid == i.substr_concat_str_substr
+            || fid == i.substr_concat_substr_substr
             || fid == i.arr_from_string
             || fid == i.str_substring
             || fid == i.arr_to_reversed

@@ -228,6 +228,41 @@ static inline const uint8_t *substr_data_(const uint8_t *v) {
     return parent + __TORAJS_STR_HDR_SIZE + offset;
 }
 
+/* View-aware concat: one alloc + two memcpys, no intermediate
+ * materialize. Phase B's straightforward `substr + s` path goes
+ * through substr_to_owned + str_concat (2 allocs, 3 memcpys); the
+ * helpers below collapse that to (1 alloc, 2 memcpys) — same cost
+ * as a plain Str + Str concat. */
+void *__torajs_substr_concat_substr_str(const uint8_t *v, const uint8_t *s) {
+    uint64_t v_len = __TORAJS_SUBSTR_LEN(v);
+    uint64_t s_len = __TORAJS_STR_LEN(s);
+    uint8_t *p = str_alloc_(v_len + s_len);
+    uint8_t *out = __TORAJS_STR_DATA(p);
+    if (v_len) memcpy(out, substr_data_(v), (size_t)v_len);
+    if (s_len) memcpy(out + v_len, __TORAJS_STR_CDATA(s), (size_t)s_len);
+    return p;
+}
+
+void *__torajs_substr_concat_str_substr(const uint8_t *s, const uint8_t *v) {
+    uint64_t s_len = __TORAJS_STR_LEN(s);
+    uint64_t v_len = __TORAJS_SUBSTR_LEN(v);
+    uint8_t *p = str_alloc_(s_len + v_len);
+    uint8_t *out = __TORAJS_STR_DATA(p);
+    if (s_len) memcpy(out, __TORAJS_STR_CDATA(s), (size_t)s_len);
+    if (v_len) memcpy(out + s_len, substr_data_(v), (size_t)v_len);
+    return p;
+}
+
+void *__torajs_substr_concat_substr_substr(const uint8_t *a, const uint8_t *b) {
+    uint64_t a_len = __TORAJS_SUBSTR_LEN(a);
+    uint64_t b_len = __TORAJS_SUBSTR_LEN(b);
+    uint8_t *p = str_alloc_(a_len + b_len);
+    uint8_t *out = __TORAJS_STR_DATA(p);
+    if (a_len) memcpy(out, substr_data_(a), (size_t)a_len);
+    if (b_len) memcpy(out + a_len, substr_data_(b), (size_t)b_len);
+    return p;
+}
+
 /* Substr.startsWith / endsWith / includes / indexOf — view-aware
  * variants that read bytes from parent + offset without materializing.
  * Needle is a Str (the common case from string literals). */
