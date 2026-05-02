@@ -1392,6 +1392,27 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         &[Type::Ptr, Type::I64, Type::I64],
         Type::Substr,
     );
+    let substr_trim_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_substr_trim",
+        &[Type::Ptr],
+        Type::Substr,
+    );
+    let substr_trim_start_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_substr_trim_start",
+        &[Type::Ptr],
+        Type::Substr,
+    );
+    let substr_trim_end_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_substr_trim_end",
+        &[Type::Ptr],
+        Type::Substr,
+    );
     let substr_to_owned_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -2130,6 +2151,9 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         substr_index_of: substr_index_of_id,
         substr_slice: substr_slice_id,
         substr_substring: substr_substring_id,
+        substr_trim: substr_trim_id,
+        substr_trim_start: substr_trim_start_id,
+        substr_trim_end: substr_trim_end_id,
         arr_from_string: arr_from_string_id,
         str_substring: str_substring_id,
         arr_to_reversed: arr_to_reversed_id,
@@ -2443,6 +2467,9 @@ struct Intrinsics {
     substr_index_of: FuncId,
     substr_slice: FuncId,
     substr_substring: FuncId,
+    substr_trim: FuncId,
+    substr_trim_start: FuncId,
+    substr_trim_end: FuncId,
     arr_from_string: FuncId,
     str_substring: FuncId,
     arr_to_reversed: FuncId,
@@ -7727,6 +7754,15 @@ impl<'a> LowerCtx<'a> {
                             "substring" => {
                                 Some((self.intrinsics.substr_substring, Type::Substr))
                             }
+                            "trim" => {
+                                Some((self.intrinsics.substr_trim, Type::Substr))
+                            }
+                            "trimStart" | "trimLeft" => {
+                                Some((self.intrinsics.substr_trim_start, Type::Substr))
+                            }
+                            "trimEnd" | "trimRight" => {
+                                Some((self.intrinsics.substr_trim_end, Type::Substr))
+                            }
                             _ => None,
                         };
                         if let Some((target, ret_ty)) = view_aware {
@@ -12019,6 +12055,9 @@ impl<'a> LowerCtx<'a> {
             || fid == i.substr_index_of
             || fid == i.substr_slice
             || fid == i.substr_substring
+            || fid == i.substr_trim
+            || fid == i.substr_trim_start
+            || fid == i.substr_trim_end
             || fid == i.arr_from_string
             || fid == i.str_substring
             || fid == i.arr_to_reversed

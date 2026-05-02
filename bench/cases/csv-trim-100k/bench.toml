@@ -1,0 +1,10 @@
+runs = 5
+warmup = 2
+
+# 100k iterations of split(",") + per-element trim. Each iter on
+# tr (after substr methods landed) walks substring views with no
+# byte copy: split is one block alloc, each .trim() is a 32-byte
+# view-of-view, no per-token byte allocation. The closure path
+# is still through map (dst array of substr) so the result is
+# again a substr array.
+torajs_opt = "O3"

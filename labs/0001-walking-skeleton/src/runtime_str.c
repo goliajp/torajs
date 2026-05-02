@@ -294,6 +294,48 @@ void *__torajs_substr_slice(const uint8_t *v, int64_t start, int64_t end) {
     return __torajs_substr_create(parent, v_off + (uint64_t)s, (uint64_t)(e - s));
 }
 
+/* Whitespace bytes (TS String.prototype.trim spec) — keep in sync with
+ * the str_trim implementation. ASCII subset is enough for tr's byte-Str
+ * model; full unicode whitespace will need utf-8-aware code later. */
+static inline int substr_is_ws_(uint8_t b) {
+    return b == ' ' || b == '\t' || b == '\n' || b == '\r' || b == '\v' || b == '\f';
+}
+
+/* Substr.trim — return a Substr whose offset/len are narrowed past the
+ * leading and trailing whitespace bytes. Same root parent (drop chain
+ * stays depth-1). 32-byte malloc, no byte copy. */
+void *__torajs_substr_trim(const uint8_t *v) {
+    uint64_t v_len = __TORAJS_SUBSTR_LEN(v);
+    uint64_t v_off = *(const uint64_t *)(v + __TORAJS_SUBSTR_OFFSET_OFF);
+    void *parent = *(uint8_t **)(v + __TORAJS_SUBSTR_PARENT_OFF);
+    const uint8_t *base = (const uint8_t *)parent + __TORAJS_STR_HDR_SIZE + v_off;
+    uint64_t lo = 0;
+    while (lo < v_len && substr_is_ws_(base[lo])) lo++;
+    uint64_t hi = v_len;
+    while (hi > lo && substr_is_ws_(base[hi - 1])) hi--;
+    return __torajs_substr_create(parent, v_off + lo, hi - lo);
+}
+
+void *__torajs_substr_trim_start(const uint8_t *v) {
+    uint64_t v_len = __TORAJS_SUBSTR_LEN(v);
+    uint64_t v_off = *(const uint64_t *)(v + __TORAJS_SUBSTR_OFFSET_OFF);
+    void *parent = *(uint8_t **)(v + __TORAJS_SUBSTR_PARENT_OFF);
+    const uint8_t *base = (const uint8_t *)parent + __TORAJS_STR_HDR_SIZE + v_off;
+    uint64_t lo = 0;
+    while (lo < v_len && substr_is_ws_(base[lo])) lo++;
+    return __torajs_substr_create(parent, v_off + lo, v_len - lo);
+}
+
+void *__torajs_substr_trim_end(const uint8_t *v) {
+    uint64_t v_len = __TORAJS_SUBSTR_LEN(v);
+    uint64_t v_off = *(const uint64_t *)(v + __TORAJS_SUBSTR_OFFSET_OFF);
+    void *parent = *(uint8_t **)(v + __TORAJS_SUBSTR_PARENT_OFF);
+    const uint8_t *base = (const uint8_t *)parent + __TORAJS_STR_HDR_SIZE + v_off;
+    uint64_t hi = v_len;
+    while (hi > 0 && substr_is_ws_(base[hi - 1])) hi--;
+    return __torajs_substr_create(parent, v_off, hi);
+}
+
 void *__torajs_substr_substring(const uint8_t *v, int64_t start, int64_t end) {
     uint64_t v_len = __TORAJS_SUBSTR_LEN(v);
     if (start < 0) start = 0;
