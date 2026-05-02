@@ -10,6 +10,10 @@ Research project (closed-source, internal). Working hypothesis: a **subset of Ty
 
 Follow `.claude/rules/common/anti-hallucination.md` — always. Five rules, zero exceptions: say "I don't know", use tools before memory, no chain-guessing, retract mid-sentence when wrong, cite the source. Tool output itself must never be fabricated: if a tool returns only `[rerun: bN]` or empty content, report that literally and rerun — never invent plausible-looking output.
 
+## Design Principles (HARD RULES)
+
+Every architectural decision, runtime / compiler addition, performance trade-off, and API design must satisfy all four pillars: **高性能 / 自研 / 正统 / 规范**. See `docs/design-principles.md` for the full rubric and how to apply it. Any solution that fails one pillar — even as a temporary or MVP — is not acceptable.
+
 ## Tech Stack
 
 - **Languages**: Rust (engine + API) + TypeScript (web + future scripting surface)
