@@ -5741,7 +5741,16 @@ impl<'a> LowerCtx<'a> {
                 //      inside the same fn runs before propagating.
                 //   3. otherwise emit drops + ret sentinel so the
                 //      caller's emit_throw_check picks up the propagate.
+                //
+                // Refcount: throw transfers ownership of v to the
+                // throw-handling system (global throw_value). Mirror
+                // Stmt::Return's consume-walk so the source local isn't
+                // double-dropped by emit_drops_for_owned_locals. Without
+                // this, a refcounted throw value crossing a fn boundary
+                // gets free'd by the throwing fn's drop walk before the
+                // caller's catch can read it.
                 let v = self.lower_expr(*eid);
+                self.consume_all_idents_in_return(*eid);
                 self.f.append_void(
                     self.cur_block,
                     InstKind::Call(self.intrinsics.throw_set, vec![v]),
