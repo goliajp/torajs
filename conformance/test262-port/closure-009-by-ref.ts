@@ -1,16 +1,22 @@
-// Closure Copy-capture is now by-reference. Mutations inside the
-// arrow body propagate back to the outer binding (matches JS-spec
-// closure semantics; previously every mutation wrote to a local
-// copy and was lost).
+// Closure Copy-capture is now by-reference for non-escaping
+// closures. Mutations inside the arrow body propagate back to the
+// outer binding (matches JS-spec closure semantics; previously
+// every mutation wrote to a local copy and was lost).
 //
 // Implementation: ssa_lower's Closure construction site detects
-// Copy-typed captures, promotes the outer slot to a heap-allocated
-// 8-byte "box" on first capture, rewrites the outer LocalInfo to
-// point at the box, and stores the box pointer into env+offset.
-// The closure body's __env decode loads the box pointer and uses
-// it directly as the capture's local slot, so loads / stores
-// transparently flow through the box. Box leaks until env-drop
-// machinery lands (a few bytes per captured Copy local).
+// non-escaping closures (the enclosing fn's return type is NOT a
+// Closure) and stores the outer alloca's POINTER into env+offset
+// for each Copy-typed capture. The closure body's __env decode
+// loads the pointer and uses it directly as the capture's local
+// slot, so loads / stores transparently flow through to the
+// original outer binding. Zero heap allocation, zero leak.
+//
+// Escaping closures (the factory pattern: fn returning a closure)
+// fall back to by-value capture for Copy types — the outer slot
+// would dangle past the construction frame, and a proper fix needs
+// env-drop machinery. Documented as
+// project_closure_box_leak_followup. Doesn't matter for the
+// non-escape callbacks below.
 
 function check(): number {
   // (1) Single Copy capture, mutation propagates

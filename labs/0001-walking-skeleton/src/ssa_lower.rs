@@ -1996,7 +1996,7 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
     // instructions for each capture. Construction site always runs
     // before its lifted body in ast.stmts ordering: user FnDecls come
     // first, lifted `__closure_N` decls are appended to the end.
-    let mut closure_captures: HashMap<String, Vec<Type>> = HashMap::new();
+    let mut closure_captures: HashMap<String, Vec<(Type, bool)>> = HashMap::new();
 
     // Pass 2: lower user FnDecl bodies. Each call returns the lowered
     // function plus any string literals interned during its body; we
@@ -2247,7 +2247,7 @@ fn synthesize_main(
     struct_layouts: &mut Vec<Vec<(String, Type)>>,
     generic_struct_decls: &HashMap<String, (Vec<String>, Vec<(String, String)>)>,
     string_id_base: usize,
-    closure_captures: &mut HashMap<String, Vec<Type>>,
+    closure_captures: &mut HashMap<String, Vec<(Type, bool)>>,
     call_retargets: &CallRetargets,
     may_throw_fns: &std::collections::HashSet<String>,
     sid_to_class_tag: &HashMap<u32, u32>,
@@ -2287,7 +2287,6 @@ fn synthesize_main(
             call_retargets,
             may_throw_fns,
             captured_arr_writeback: HashMap::new(),
-            captured_box_promoted: HashMap::new(),
         };
         for s in stmts {
             ctx.lower_top_stmt(s);
@@ -2764,7 +2763,7 @@ fn lower_fn(
     struct_layouts: &mut Vec<Vec<(String, Type)>>,
     generic_struct_decls: &HashMap<String, (Vec<String>, Vec<(String, String)>)>,
     string_id_base: usize,
-    closure_captures: &mut HashMap<String, Vec<Type>>,
+    closure_captures: &mut HashMap<String, Vec<(Type, bool)>>,
     call_retargets: &CallRetargets,
     may_throw_fns: &std::collections::HashSet<String>,
     sid_to_class_tag: &HashMap<u32, u32>,
@@ -2839,7 +2838,6 @@ fn lower_fn(
         call_retargets,
         may_throw_fns,
         captured_arr_writeback: HashMap::new(),
-        captured_box_promoted: HashMap::new(),
     };
 
     // Materialize each param as an alloca-backed local. mem2reg at -O1+
@@ -2895,7 +2893,7 @@ fn lower_fn(
         && let Some(ann) = &first.type_ann
         && let Some(cap_names) = decode_env_ann(ann)
     {
-        let cap_tys: Vec<Type> = ctx
+        let cap_meta: Vec<(Type, bool)> = ctx
             .closure_captures
             .get(name)
             .cloned()
@@ -2905,11 +2903,11 @@ fn lower_fn(
                      construction site must run before body lowering"
                 )
             });
-        if cap_tys.len() != cap_names.len() {
+        if cap_meta.len() != cap_names.len() {
             panic!(
                 "ssa-lower: closure `{name}` capture-name count {} != type count {}",
                 cap_names.len(),
-                cap_tys.len()
+                cap_meta.len()
             );
         }
         let env_slot = ctx
@@ -2918,7 +2916,9 @@ fn lower_fn(
             .copied()
             .expect("__env param materialized as local")
             .slot;
-        for (i, (cap_name, cap_ty)) in cap_names.iter().zip(cap_tys.iter()).enumerate() {
+        for (i, (cap_name, (cap_ty, is_byref))) in cap_names.iter().zip(cap_meta.iter()).enumerate() {
+            let cap_ty = *cap_ty;
+            let is_byref = *is_byref;
             let env_ptr = ctx.f.append_inst(
                 ctx.cur_block,
                 InstKind::Load(Type::Ptr, Operand::Value(env_slot), 0),
@@ -2926,16 +2926,17 @@ fn lower_fn(
                 None,
             );
             let offset = 8 + (i as u64) * 8;
-            // Two flavors mirroring the construction-site code:
-            //  - Copy types: env stored a heap-box ptr. Load the box
-            //    ptr and use it directly as the capture's local slot,
-            //    so loads/stores in the body flow through the box (=
-            //    outer slot post-promotion). JS-spec by-ref semantics.
-            //  - Non-Copy types: env stored the heap pointer VALUE
-            //    (string/array/struct/closure). Load the value, store
-            //    into a fresh local alloca, and bind the capture name
-            //    to that local. Body sees the heap data via the value.
-            let cap_slot = if cap_ty.is_copy() {
+            // Three modes mirroring the construction-site code:
+            //  - by-ref Copy: env stored ptr-to-outer-slot. Use the
+            //    loaded ptr as the capture's local slot directly so
+            //    body reads/writes flow through to the original slot.
+            //  - by-value Copy (escaping closure): env stored the
+            //    value. Load it into a fresh alloca; mutations stay
+            //    in the local copy (matches the legacy semantics).
+            //  - Non-Copy: env stored the heap pointer VALUE. Load
+            //    the value, store into a fresh local alloca. Body
+            //    sees the heap data via the value.
+            let cap_slot = if cap_ty.is_copy() && is_byref {
                 ctx.f.append_inst(
                     ctx.cur_block,
                     InstKind::Load(Type::Ptr, Operand::Value(env_ptr), offset),
@@ -2945,11 +2946,11 @@ fn lower_fn(
             } else {
                 let v = ctx.f.append_inst(
                     ctx.cur_block,
-                    InstKind::Load(*cap_ty, Operand::Value(env_ptr), offset),
-                    *cap_ty,
+                    InstKind::Load(cap_ty, Operand::Value(env_ptr), offset),
+                    cap_ty,
                     None,
                 );
-                let local = ctx.alloca(*cap_ty, Some(cap_name));
+                let local = ctx.alloca(cap_ty, Some(cap_name));
                 ctx.f.append_void(
                     ctx.cur_block,
                     InstKind::Store(Operand::Value(v), Operand::Value(local), 0),
@@ -2957,7 +2958,7 @@ fn lower_fn(
                 // Captured Arr writeback (legacy mechanism) — keep so
                 // pushes inside the closure mirror back to env+offset
                 // for subsequent invocations of the same closure.
-                if matches!(*cap_ty, Type::Arr(_)) {
+                if matches!(cap_ty, Type::Arr(_)) {
                     ctx.captured_arr_writeback
                         .insert(local, (env_slot, offset));
                 }
@@ -2967,7 +2968,7 @@ fn lower_fn(
                 cap_name.clone(),
                 LocalInfo {
                     slot: cap_slot,
-                    ty: *cap_ty,
+                    ty: cap_ty,
                     // Captures are aliases of outer-scope bindings — we
                     // borrow the heap, never own it. Mark `moved` so the
                     // closure body's end-of-fn drop walk skips them
@@ -3131,7 +3132,7 @@ struct LowerCtx<'a> {
     /// Construction site (`Expr::Closure`) populates the entry for the
     /// lifted FnDecl name; the lifted body's `lower_fn` reads it to emit
     /// env-load preambles. Outliving any individual lower_fn call.
-    closure_captures: &'a mut HashMap<String, Vec<Type>>,
+    closure_captures: &'a mut HashMap<String, Vec<(Type, bool)>>,
     /// M3 — per-call-site `ExprId → mono_name` retarget map. The
     /// monomorphization pre-pass produced one specialized FnDecl per
     /// `(generic_name, type_args)`; at each generic call site, the
@@ -3149,14 +3150,6 @@ struct LowerCtx<'a> {
     /// pointer. Empty for non-closure fns; populated only by the
     /// closure prologue.
     captured_arr_writeback: HashMap<ValueId, (ValueId, u64)>,
-    /// Closure capture-by-reference for Copy-typed lets. Maps the
-    /// outer let's name to a heap-allocated 8-byte "box" pointer.
-    /// First closure that captures the let triggers box allocation +
-    /// outer-slot rewrite; subsequent closures (in the same fn) reuse
-    /// the box. Mutations through either path (outer or closure body)
-    /// flow through the box, so JS-spec by-reference semantics hold.
-    /// Box leaks until env-drop machinery lands.
-    captured_box_promoted: HashMap<String, ValueId>,
 }
 
 impl<'a> LowerCtx<'a> {
@@ -8906,8 +8899,11 @@ impl<'a> LowerCtx<'a> {
                     intern_fn_sig(self.fn_sigs, user_param_tys, user_ret_ty);
                 let closure_ty = Type::Closure(user_sig);
 
-                // Resolve capture types from current locals + record on the
-                // side channel so the lifted body's lower_fn knows them.
+                // Resolve capture types from current locals + decide
+                // each capture's mode (by-ref vs by-value); record on
+                // the side channel so the lifted body's lower_fn knows
+                // how to decode each offset.
+                let enclosing_returns_closure = matches!(self.f.ret, Type::Closure(_));
                 let cap_tys: Vec<Type> = captures
                     .iter()
                     .map(|c| {
@@ -8921,8 +8917,15 @@ impl<'a> LowerCtx<'a> {
                             })
                     })
                     .collect();
+                let cap_meta: Vec<(Type, bool)> = cap_tys
+                    .iter()
+                    .map(|t| {
+                        let is_byref = t.is_copy() && !enclosing_returns_closure;
+                        (*t, is_byref)
+                    })
+                    .collect();
                 self.closure_captures
-                    .insert(fn_name.clone(), cap_tys.clone());
+                    .insert(fn_name.clone(), cap_meta);
 
                 // Allocate env block via __torajs_obj_alloc (just malloc).
                 let alloc_size = 8 + 8 * (captures.len() as i64);
@@ -8952,80 +8955,55 @@ impl<'a> LowerCtx<'a> {
                     self.cur_block,
                     InstKind::Store(Operand::Value(fn_addr_v), Operand::Value(env_v), 0),
                 );
-                // Two capture flavors:
-                //  - Copy types (number, bool): JS-spec by-reference. We
-                //    promote the outer slot to heap (via obj_alloc) on
-                //    its first capture, copy the current value into the
-                //    box, and rewrite the outer LocalInfo to point at
-                //    the box. The env then stores a pointer to the box,
-                //    so both outer reads/writes AND closure-body
-                //    reads/writes go through the same heap cell.
-                //    Mutations propagate. Box leaks until env-drop
-                //    machinery lands (small fixed cost per captured
-                //    Copy local).
-                //  - Non-Copy types (Str / Obj / Arr / Closure): the
-                //    outer slot already holds a heap pointer; capturing
-                //    by-value of that pointer plus marking the outer as
-                //    `moved` is the right semantics — the heap data
-                //    stays alive as long as the env does, and field
-                //    mutations on a struct/array propagate via the
-                //    shared heap. Rebinding the outer name to a fresh
-                //    object isn't observed by the closure (matches the
-                //    existing limitation; full rebind support would
-                //    require by-ref on non-Copy too).
+                // Capture-by-reference for Copy types when the closure
+                // doesn't escape its construction frame; capture-by-
+                // value for non-Copy or escaping closures.
+                //
+                // Escape detection (conservative): the enclosing fn's
+                // declared return type is a Closure ⇒ assume the
+                // construction may flow into the return, so the env
+                // outlives the construction frame and any by-reference
+                // pointer to a stack alloca would dangle. For the
+                // common non-escaping case (callback to forEach,
+                // immediate `inc(); inc();`, helper inside a number-
+                // returning fn) we just store the outer alloca's
+                // POINTER into env. No heap allocation, no leak;
+                // mutations through either path go to the same slot.
+                //
+                // For escaping closures with Copy captures we fall
+                // back to by-value (legacy MVP). Mutation won't
+                // propagate; closure-009-by-ref documents the
+                // limitation. End-to-end fix needs env-drop machinery
+                // (project_closure_box_leak_followup) — out of scope
+                // for this commit.
+                let enclosing_returns_closure = matches!(self.f.ret, Type::Closure(_));
                 for (i, (cap_name, cap_ty)) in
                     captures.iter().zip(cap_tys.iter()).enumerate()
                 {
                     let info = *self.locals.get(cap_name).expect("capture in scope");
                     let offset = 8 + (i as u64) * 8;
-                    if cap_ty.is_copy() {
-                        // Promote outer slot to heap if not already.
-                        // Detection: a heap-promoted slot is itself a
-                        // value of Type::Ptr that loads to a Type::Ptr
-                        // — but the simplest invariant is to do it
-                        // exactly once and stash the box pointer in
-                        // the LocalInfo. We track promoted slots via
-                        // a side channel `captured_box_promoted`.
-                        let box_ptr = match self.captured_box_promoted.get(cap_name).copied() {
-                            Some(b) => b,
-                            None => {
-                                // alloca the box on heap, copy current value in
-                                let cur_val = self.f.append_inst(
-                                    self.cur_block,
-                                    InstKind::Load(*cap_ty, Operand::Value(info.slot), 0),
-                                    *cap_ty,
-                                    None,
-                                );
-                                let box_v = self.f.append_inst(
-                                    self.cur_block,
-                                    InstKind::Call(
-                                        self.intrinsics.obj_alloc,
-                                        vec![Operand::ConstI64(8)],
-                                    ),
-                                    Type::Ptr,
-                                    None,
-                                );
-                                self.f.append_void(
-                                    self.cur_block,
-                                    InstKind::Store(
-                                        Operand::Value(cur_val),
-                                        Operand::Value(box_v),
-                                        0,
-                                    ),
-                                );
-                                self.captured_box_promoted.insert(cap_name.clone(), box_v);
-                                // Rewrite outer LocalInfo so subsequent
-                                // outer reads/writes flow through the box.
-                                if let Some(outer) = self.locals.get_mut(cap_name) {
-                                    outer.slot = box_v;
-                                }
-                                box_v
-                            }
-                        };
+                    if cap_ty.is_copy() && !enclosing_returns_closure {
+                        // By-reference: store the outer slot pointer.
                         self.f.append_void(
                             self.cur_block,
                             InstKind::Store(
-                                Operand::Value(box_ptr),
+                                Operand::Value(info.slot),
+                                Operand::Value(env_v),
+                                offset,
+                            ),
+                        );
+                    } else if cap_ty.is_copy() {
+                        // Escaping + Copy: by-value (legacy).
+                        let v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(*cap_ty, Operand::Value(info.slot), 0),
+                            *cap_ty,
+                            None,
+                        );
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Store(
+                                Operand::Value(v),
                                 Operand::Value(env_v),
                                 offset,
                             ),
