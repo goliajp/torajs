@@ -1907,36 +1907,81 @@ impl Parser<'_> {
         self.parse_postfix()
     }
 
+    /// Identifier-or-contextual-keyword name after a `.` / `?.` / for
+    /// class member declaration. JS / TS allow reserved words to appear
+    /// as property names (`p.catch(...)`, `obj.return`) — this maps the
+    /// few keyword tokens we may encounter in member position back to
+    /// their lexeme. Advances `self.pos` on success and returns None
+    /// (without consuming) when no name token is present.
+    fn member_name_after_dot(&mut self) -> Option<String> {
+        let name: Option<&'static str> = match self.peek() {
+            Token::Ident(n) => {
+                let n = n.clone();
+                self.pos += 1;
+                return Some(n);
+            }
+            Token::Catch => Some("catch"),
+            Token::Finally => Some("finally"),
+            Token::Return => Some("return"),
+            Token::Throw => Some("throw"),
+            Token::If => Some("if"),
+            Token::Else => Some("else"),
+            Token::For => Some("for"),
+            Token::While => Some("while"),
+            Token::Do => Some("do"),
+            Token::Break => Some("break"),
+            Token::Continue => Some("continue"),
+            Token::Switch => Some("switch"),
+            Token::Case => Some("case"),
+            Token::Default => Some("default"),
+            Token::Class => Some("class"),
+            Token::New => Some("new"),
+            Token::This => Some("this"),
+            Token::Function => Some("function"),
+            Token::TypeOf => Some("typeof"),
+            Token::InstanceOf => Some("instanceof"),
+            Token::Try => Some("try"),
+            Token::Yield => Some("yield"),
+            _ => None,
+        };
+        if let Some(s) = name {
+            self.pos += 1;
+            Some(s.to_string())
+        } else {
+            None
+        }
+    }
+
     fn parse_postfix(&mut self) -> Result<ExprId, String> {
         let mut node = self.parse_primary()?;
         loop {
             match self.peek() {
                 Token::Dot => {
                     self.pos += 1;
-                    let name = match self.peek() {
-                        Token::Ident(n) => n.clone(),
-                        t => {
+                    let name = match self.member_name_after_dot() {
+                        Some(n) => n,
+                        None => {
+                            let t = self.peek();
                             return Err(format!(
                                 "expected identifier after `.`, got {t:?} at {}",
                                 self.at()
                             ));
                         }
                     };
-                    self.pos += 1;
                     node = self.ast.add_expr(Expr::Member { obj: node, name });
                 }
                 Token::QuestionDot => {
                     self.pos += 1;
-                    let name = match self.peek() {
-                        Token::Ident(n) => n.clone(),
-                        t => {
+                    let name = match self.member_name_after_dot() {
+                        Some(n) => n,
+                        None => {
+                            let t = self.peek();
                             return Err(format!(
                                 "expected identifier after `?.`, got {t:?} at {}",
                                 self.at()
                             ));
                         }
                     };
-                    self.pos += 1;
                     node = self.ast.add_expr(Expr::OptChain { obj: node, name });
                 }
                 Token::LParen => {
@@ -2467,6 +2512,43 @@ impl Parser<'_> {
             // ident then `:` ⇒ field declaration.
             let member_name = match self.peek() {
                 Token::Ident(n) => n.clone(),
+                // Allow contextual keywords as class method names (matches
+                // JS / TS where `catch` / `finally` etc. are valid as
+                // property names). Only accept these when the following
+                // token is `(` so we don't confuse field declarations.
+                Token::Catch | Token::Finally | Token::Return | Token::Throw
+                | Token::If | Token::Else | Token::For | Token::While | Token::Do
+                | Token::Break | Token::Continue | Token::Switch | Token::Case
+                | Token::Default | Token::Class | Token::New | Token::This
+                | Token::Function | Token::TypeOf | Token::InstanceOf
+                | Token::Try | Token::Yield => {
+                    let lex = match self.peek() {
+                        Token::Catch => "catch",
+                        Token::Finally => "finally",
+                        Token::Return => "return",
+                        Token::Throw => "throw",
+                        Token::If => "if",
+                        Token::Else => "else",
+                        Token::For => "for",
+                        Token::While => "while",
+                        Token::Do => "do",
+                        Token::Break => "break",
+                        Token::Continue => "continue",
+                        Token::Switch => "switch",
+                        Token::Case => "case",
+                        Token::Default => "default",
+                        Token::Class => "class",
+                        Token::New => "new",
+                        Token::This => "this",
+                        Token::Function => "function",
+                        Token::TypeOf => "typeof",
+                        Token::InstanceOf => "instanceof",
+                        Token::Try => "try",
+                        Token::Yield => "yield",
+                        _ => unreachable!(),
+                    };
+                    lex.to_string()
+                }
                 t => {
                     return Err(format!(
                         "expected class member name, got {t:?} at {}",
