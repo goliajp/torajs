@@ -217,6 +217,13 @@ uint8_t *__torajs_str_alloc_pooled(uint64_t len) {
  * drop time; the linker resolves the symbol. */
 void __torajs_str_drop(void *s);
 
+/* Substr cell pool — same shape as the small-Str pool, sized for
+ * 32-byte view structs. Hot in any code path that does substr.trim
+ * / .slice / .substring inside a tight loop. */
+#define __TORAJS_SUBSTR_POOL_SLOTS 32
+static uint8_t *substr_pool_[__TORAJS_SUBSTR_POOL_SLOTS];
+static int substr_pool_count_ = 0;
+
 /* Create a substring view of `parent` (an OWNED Str) starting at
  * `offset` with length `len`. Caller must ensure offset+len ≤
  * parent.length (no bounds check here — matches the unchecked-index
@@ -230,7 +237,12 @@ void __torajs_str_drop(void *s);
  * an OWNED Str as parent; deferred until a slice/substring view path
  * lands.) */
 void *__torajs_substr_create(void *parent, uint64_t offset, uint64_t len) {
-    uint8_t *v = (uint8_t *)malloc(__TORAJS_SUBSTR_SIZE);
+    uint8_t *v;
+    if (substr_pool_count_ > 0) {
+        v = substr_pool_[--substr_pool_count_];
+    } else {
+        v = (uint8_t *)malloc(__TORAJS_SUBSTR_SIZE);
+    }
     __torajs_heap_header_t *h = (__torajs_heap_header_t *)v;
     h->refcount = 1;
     h->type_tag = __TORAJS_TAG_STR;  /* SSA Type::Substr is still "str" at the type-tag layer */
@@ -261,7 +273,11 @@ void __torajs_substr_drop(void *v) {
     if (__torajs_rc_dec(v)) {
         void *parent = (void *)*(uint8_t **)((uint8_t *)v + __TORAJS_SUBSTR_PARENT_OFF);
         __torajs_str_drop(parent);
-        free(v);
+        if (substr_pool_count_ < __TORAJS_SUBSTR_POOL_SLOTS) {
+            substr_pool_[substr_pool_count_++] = (uint8_t *)v;
+        } else {
+            free(v);
+        }
     }
 }
 
