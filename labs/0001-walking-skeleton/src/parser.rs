@@ -256,6 +256,19 @@ impl Parser<'_> {
         if matches!(self.peek(), Token::Try) {
             return self.parse_try();
         }
+        if matches!(self.peek(), Token::Yield) {
+            // `yield e ;` — Phase J. Parser-level only; the surrounding
+            // function must be `function*` or `desugar_generators` will
+            // surface this as a typecheck error. Single-arg form only —
+            // tr's subset doesn't accept the `yield;` (undefined value)
+            // shape.
+            self.pos += 1;
+            let v = self.parse_expr()?;
+            if matches!(self.peek(), Token::Semi) {
+                self.pos += 1;
+            }
+            return Ok(Stmt::Yield(v));
+        }
         let mutable = match self.peek() {
             Token::Let => Some(true),
             Token::Const => Some(false),
@@ -362,6 +375,14 @@ impl Parser<'_> {
 
     fn parse_fn(&mut self) -> Result<Stmt, String> {
         self.pos += 1; // consume `function`
+        // Phase J — `function*` generator declaration. Optional `*` token
+        // sandwiched between `function` and the name marks this fn as a
+        // generator; post-parse `desugar_generators` rewrites the body
+        // into a state-machine class.
+        let is_generator = matches!(self.peek(), Token::Star);
+        if is_generator {
+            self.pos += 1;
+        }
         let name = match self.peek() {
             Token::Ident(n) => n.clone(),
             t => {
@@ -503,6 +524,7 @@ impl Parser<'_> {
             params,
             return_type,
             body,
+            is_generator,
         })
     }
 

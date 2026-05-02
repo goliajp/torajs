@@ -883,6 +883,17 @@ impl Checker {
                     self.errors.push(e);
                 }
             }
+            Stmt::Yield(_) => {
+                // Phase J — Yield only appears inside generator bodies,
+                // and `desugar_generators` rewrites those bodies into
+                // ordinary class-method bodies before typecheck. Reaching
+                // a raw Yield here means desugar didn't run / didn't
+                // catch this node — surface as a typecheck error rather
+                // than panicking at SSA lower time.
+                self.errors.push(
+                    "yield is only valid inside a `function*` generator body".into(),
+                );
+            }
             Stmt::If {
                 cond,
                 then_branch,

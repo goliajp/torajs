@@ -278,6 +278,12 @@ pub enum Stmt {
         params: Vec<Param>,
         return_type: Option<String>,
         body: Vec<Stmt>,
+        /// Phase J — `function*` generator. The post-parse `desugar_generators`
+        /// pass rewrites generator FnDecls into a class with a `next()`
+        /// state machine, then leaves a thin factory FnDecl that returns
+        /// a fresh state-machine instance. Plain (non-generator) FnDecls
+        /// stay false; rewritten factories also stay false.
+        is_generator: bool,
     },
     /// `type Foo = { x: number, y: number };` — structural type alias.
     /// Field types are stored as raw annotation strings; `check.rs` is
@@ -313,6 +319,11 @@ pub enum Stmt {
         methods: Vec<ClassMethod>,
     },
     Return(Option<ExprId>),
+    /// Phase J — `yield e;` inside a generator body. The post-parse
+    /// `desugar_generators` pass rewrites every Yield into a state-
+    /// machine arm that returns `{value: e, done: false}`. Plain
+    /// (non-generator) bodies reject Yield at parse-time / desugar-time.
+    Yield(ExprId),
 }
 
 #[derive(Debug, Clone)]
@@ -379,6 +390,375 @@ pub struct Ast {
 /// other named type → calls __new_T() recursively if it's a class, else
 /// errors at typecheck). Constructors are responsible for filling fields
 /// before they're observably read.
+/// Phase J — rewrite every `function*` generator into a class + factory.
+/// MVP scope: linear yield sequences (no loops / conditionals between
+/// yields). Body must be a flat list of statements; only `Stmt::Yield`
+/// is taken as a yield point. Non-yield statements are placed before
+/// the FIRST yield in the resulting state machine (so they run on the
+/// initial `next()` call). After all yields are exhausted, the iterator
+/// permanently returns `{ value: 0, done: true }`.
+///
+/// For `function* gen(): T { stmt0; yield e0; stmt1; yield e1; }`:
+///   - emit a class `__Gen_gen` with field `__state: number` (0-init).
+///   - emit `next(): { value: T, done: boolean }` whose body is an
+///     if-chain over `__state`. Each arm runs the prelude leading up
+///     to its yield, bumps `__state`, returns `{value: e, done: false}`.
+///     Final arm returns `{value: <T-zero>, done: true}`.
+///   - emit a factory FnDecl `gen()` returning `__Gen_gen`, body just
+///     `new __Gen_gen()`.
+///
+/// MVP restrictions logged at desugar-time:
+///   - body must be a top-level `Vec<Stmt>` with yield stmts at the
+///     same nesting level (no yields inside If / While / For / Try /
+///     Switch); attempting violates with a panic.
+///   - generator return-type annotation supplies the yield value type.
+///     Required (no `function* gen()` without `: T`).
+pub fn desugar_generators(ast: &mut Ast) {
+    let gen_indices: Vec<(usize, String, Vec<Param>, Option<String>, Vec<Stmt>)> = ast
+        .stmts
+        .iter()
+        .enumerate()
+        .filter_map(|(i, s)| match s {
+            Stmt::FnDecl {
+                name,
+                params,
+                return_type,
+                body,
+                is_generator: true,
+                ..
+            } => Some((
+                i,
+                name.clone(),
+                params.clone(),
+                return_type.clone(),
+                body.clone(),
+            )),
+            _ => None,
+        })
+        .collect();
+
+    if gen_indices.is_empty() {
+        return;
+    }
+
+    // Helper: rewrite every `Ident(name)` matching one of the generator
+    // parameter names into `this.<name>`. We do this in-place on the
+    // expression arena so the same ExprIds keep their semantic meaning,
+    // just pointing at the field-access shape now. Walks every Expr
+    // reachable from the function body.
+    fn rewrite_params_to_this(ast: &mut Ast, body: &[Stmt], params: &[Param]) {
+        let pset: std::collections::HashSet<String> = params.iter().map(|p| p.name.clone()).collect();
+        let mut visited: std::collections::HashSet<u32> = std::collections::HashSet::new();
+        for s in body {
+            rewrite_params_in_stmt(ast, s, &pset, &mut visited);
+        }
+    }
+    fn rewrite_params_in_stmt(
+        ast: &mut Ast,
+        s: &Stmt,
+        pset: &std::collections::HashSet<String>,
+        visited: &mut std::collections::HashSet<u32>,
+    ) {
+        match s {
+            Stmt::Expr(eid) | Stmt::Throw(eid) | Stmt::Yield(eid) => {
+                rewrite_params_in_expr(ast, *eid, pset, visited);
+            }
+            Stmt::Return(maybe) => {
+                if let Some(eid) = maybe {
+                    rewrite_params_in_expr(ast, *eid, pset, visited);
+                }
+            }
+            Stmt::LetDecl { init, .. } => rewrite_params_in_expr(ast, *init, pset, visited),
+            Stmt::If { cond, then_branch, else_branch } => {
+                rewrite_params_in_expr(ast, *cond, pset, visited);
+                rewrite_params_in_stmt(ast, then_branch, pset, visited);
+                if let Some(e) = else_branch { rewrite_params_in_stmt(ast, e, pset, visited); }
+            }
+            Stmt::While { cond, body } => {
+                rewrite_params_in_expr(ast, *cond, pset, visited);
+                rewrite_params_in_stmt(ast, body, pset, visited);
+            }
+            Stmt::DoWhile { body, cond } => {
+                rewrite_params_in_stmt(ast, body, pset, visited);
+                rewrite_params_in_expr(ast, *cond, pset, visited);
+            }
+            Stmt::For { init, cond, step, body } => {
+                if let Some(i) = init { rewrite_params_in_stmt(ast, i, pset, visited); }
+                if let Some(c) = cond { rewrite_params_in_expr(ast, *c, pset, visited); }
+                if let Some(st) = step { rewrite_params_in_expr(ast, *st, pset, visited); }
+                rewrite_params_in_stmt(ast, body, pset, visited);
+            }
+            Stmt::Block(stmts) | Stmt::Multi(stmts) => {
+                for s in stmts { rewrite_params_in_stmt(ast, s, pset, visited); }
+            }
+            Stmt::Switch { scrutinee, cases, default } => {
+                rewrite_params_in_expr(ast, *scrutinee, pset, visited);
+                for c in cases {
+                    rewrite_params_in_expr(ast, c.value, pset, visited);
+                    for s in &c.body { rewrite_params_in_stmt(ast, s, pset, visited); }
+                }
+                if let Some(d) = default { for s in d { rewrite_params_in_stmt(ast, s, pset, visited); } }
+            }
+            _ => {}
+        }
+    }
+    fn rewrite_params_in_expr(
+        ast: &mut Ast,
+        eid: ExprId,
+        pset: &std::collections::HashSet<String>,
+        visited: &mut std::collections::HashSet<u32>,
+    ) {
+        if !visited.insert(eid.0) {
+            return;
+        }
+        let kind = ast.exprs[eid.0 as usize].clone();
+        match kind {
+            Expr::Ident(name) if pset.contains(&name) => {
+                let this_id = ast.add_expr(Expr::This);
+                ast.exprs[eid.0 as usize] = Expr::Member { obj: this_id, name };
+            }
+            Expr::BinOp { left, right, .. } => {
+                rewrite_params_in_expr(ast, left, pset, visited);
+                rewrite_params_in_expr(ast, right, pset, visited);
+            }
+            Expr::Unary { expr, .. } | Expr::TypeOf { expr } | Expr::Spread { expr }
+            | Expr::InstanceOf { expr, .. } => {
+                rewrite_params_in_expr(ast, expr, pset, visited);
+            }
+            Expr::Member { obj, .. } | Expr::OptChain { obj, .. } => {
+                rewrite_params_in_expr(ast, obj, pset, visited);
+            }
+            Expr::Call { callee, args } => {
+                rewrite_params_in_expr(ast, callee, pset, visited);
+                for a in args { rewrite_params_in_expr(ast, a, pset, visited); }
+            }
+            Expr::Assign { target, value } => {
+                rewrite_params_in_expr(ast, target, pset, visited);
+                rewrite_params_in_expr(ast, value, pset, visited);
+            }
+            Expr::Index { obj, index } => {
+                rewrite_params_in_expr(ast, obj, pset, visited);
+                rewrite_params_in_expr(ast, index, pset, visited);
+            }
+            Expr::Array(els) => {
+                for e in els { rewrite_params_in_expr(ast, e, pset, visited); }
+            }
+            Expr::ObjectLit { fields } => {
+                for (_, e) in fields { rewrite_params_in_expr(ast, e, pset, visited); }
+            }
+            Expr::Ternary { cond, then_branch, else_branch } => {
+                rewrite_params_in_expr(ast, cond, pset, visited);
+                rewrite_params_in_expr(ast, then_branch, pset, visited);
+                rewrite_params_in_expr(ast, else_branch, pset, visited);
+            }
+            Expr::Nullish { lhs, rhs } => {
+                rewrite_params_in_expr(ast, lhs, pset, visited);
+                rewrite_params_in_expr(ast, rhs, pset, visited);
+            }
+            Expr::New { args, .. } | Expr::Super { args } => {
+                for e in args { rewrite_params_in_expr(ast, e, pset, visited); }
+            }
+            Expr::PostIncr { target, .. } => {
+                rewrite_params_in_expr(ast, target, pset, visited);
+            }
+            _ => {}
+        }
+    }
+
+    let mut appended: Vec<Stmt> = Vec::new();
+
+    for (idx, gen_name, gen_params, gen_ret, gen_body) in gen_indices {
+        let yield_ty = gen_ret.unwrap_or_else(|| {
+            panic!(
+                "function* {gen_name} requires an explicit yield value type \
+                 annotation `: T` (Phase J MVP)"
+            )
+        });
+
+        // Rewrite param references inside the body to `this.<name>` so
+        // they resolve against the iterator class's fields once we move
+        // the body into a `next()` method (where the original local
+        // bindings no longer exist).
+        rewrite_params_to_this(ast, &gen_body, &gen_params);
+
+        // Walk body once. Group statements into "arms": each arm is a
+        // (prelude, yield_expr) pair; the trailing prelude (after the
+        // final yield) becomes a final done=true arm with no value.
+        let mut arms: Vec<(Vec<Stmt>, ExprId)> = Vec::new();
+        let mut tail: Vec<Stmt> = Vec::new();
+        let mut current_prelude: Vec<Stmt> = Vec::new();
+        for s in gen_body {
+            match s {
+                Stmt::Yield(eid) => {
+                    arms.push((std::mem::take(&mut current_prelude), eid));
+                }
+                other => current_prelude.push(other),
+            }
+        }
+        tail.extend(current_prelude);
+
+        // Class name + struct return type for next().
+        let class_name = format!("__Gen_{gen_name}");
+        let step_ann = format!("__step_{gen_name}");
+        // Type alias `type __step_<gen> = { value: T, done: boolean }`.
+        ast.stmts.push(Stmt::TypeDecl {
+            name: step_ann.clone(),
+            type_params: Vec::new(),
+            fields: vec![
+                ("value".into(), yield_ty.clone()),
+                ("done".into(), "boolean".into()),
+            ],
+        });
+
+        // Build next() body: if-chain over __state.
+        let mut next_body: Vec<Stmt> = Vec::new();
+        for (i, (prelude, val)) in arms.iter().enumerate() {
+            let i_lit = ast.add_expr(Expr::Number(i as f64));
+            let this_state = ast.add_expr(Expr::This);
+            let state_member = ast.add_expr(Expr::Member {
+                obj: this_state,
+                name: "__state".into(),
+            });
+            let cond = ast.add_expr(Expr::BinOp {
+                op: BinOp::Eq,
+                left: state_member,
+                right: i_lit,
+            });
+            // arm body: prelude... ; this.__state = i+1 ; return {value:e, done:false}.
+            let mut arm_body: Vec<Stmt> = prelude.clone();
+            let next_state_lit = ast.add_expr(Expr::Number((i + 1) as f64));
+            let this_assign = ast.add_expr(Expr::This);
+            let state_member_assign = ast.add_expr(Expr::Member {
+                obj: this_assign,
+                name: "__state".into(),
+            });
+            let assign_expr = ast.add_expr(Expr::Assign {
+                target: state_member_assign,
+                value: next_state_lit,
+            });
+            arm_body.push(Stmt::Expr(assign_expr));
+            // return { value: e, done: false }
+            let done_lit = ast.add_expr(Expr::Bool(false));
+            let ret_obj = ast.add_expr(Expr::ObjectLit {
+                fields: vec![
+                    ("value".into(), *val),
+                    ("done".into(), done_lit),
+                ],
+            });
+            arm_body.push(Stmt::Return(Some(ret_obj)));
+            next_body.push(Stmt::If {
+                cond,
+                then_branch: Box::new(Stmt::Block(arm_body)),
+                else_branch: None,
+            });
+        }
+        // Tail (statements after the last yield) — included only if
+        // non-empty. They run on the FINAL next() call, after which
+        // we return done=true.
+        for s in tail {
+            next_body.push(s);
+        }
+        // Default tail: return {value: <T zero>, done: true}.
+        let zero = default_init_for_type(&yield_ty);
+        let zero_id = ast.add_expr(zero);
+        let done_lit = ast.add_expr(Expr::Bool(true));
+        let final_obj = ast.add_expr(Expr::ObjectLit {
+            fields: vec![
+                ("value".into(), zero_id),
+                ("done".into(), done_lit),
+            ],
+        });
+        next_body.push(Stmt::Return(Some(final_obj)));
+
+        // Build the generator class with __state field + ctor + next().
+        let zero_init = default_init_for_type("number");
+        let zero_init_id = ast.add_expr(zero_init);
+        let ctor = ClassCtor {
+            params: gen_params.clone(),
+            body: vec![
+                Stmt::Expr({
+                    let this_id = ast.add_expr(Expr::This);
+                    let state_member = ast.add_expr(Expr::Member {
+                        obj: this_id,
+                        name: "__state".into(),
+                    });
+                    ast.add_expr(Expr::Assign {
+                        target: state_member,
+                        value: zero_init_id,
+                    })
+                }),
+            ],
+        };
+        let next_method = ClassMethod {
+            name: "next".into(),
+            params: Vec::new(),
+            return_type: Some(step_ann.clone()),
+            body: next_body,
+        };
+        // For Phase J MVP, generator parameters are stored as fields on
+        // the iterator object so the body can reference them through
+        // `this.<name>`. The fields are auto-prepended to the class
+        // declaration; the ctor's prelude (above) adds an assignment
+        // for each param.
+        let mut class_fields: Vec<(String, String)> = vec![
+            ("__state".into(), "number".into()),
+        ];
+        let mut ctor_body_with_params = ctor.body.clone();
+        for p in &gen_params {
+            let pname = p.name.clone();
+            let pty = p.type_ann.clone().unwrap_or_else(|| "number".into());
+            class_fields.push((pname.clone(), pty));
+            // this.<param> = <param>
+            let this_id = ast.add_expr(Expr::This);
+            let f_member = ast.add_expr(Expr::Member {
+                obj: this_id,
+                name: pname.clone(),
+            });
+            let arg_ident = ast.add_expr(Expr::Ident(pname));
+            let assign = ast.add_expr(Expr::Assign {
+                target: f_member,
+                value: arg_ident,
+            });
+            ctor_body_with_params.push(Stmt::Expr(assign));
+        }
+        let ctor_with_params = ClassCtor {
+            params: gen_params.clone(),
+            body: ctor_body_with_params,
+        };
+
+        appended.push(Stmt::ClassDecl {
+            name: class_name.clone(),
+            type_params: Vec::new(),
+            parent: None,
+            fields: class_fields,
+            ctor: Some(ctor_with_params),
+            methods: vec![next_method],
+        });
+
+        // Replace the original generator FnDecl with a thin factory
+        // that returns `new __Gen_<name>(args)`.
+        let factory_args: Vec<ExprId> = gen_params
+            .iter()
+            .map(|p| ast.add_expr(Expr::Ident(p.name.clone())))
+            .collect();
+        let new_expr = ast.add_expr(Expr::New {
+            class_name: class_name.clone(),
+            args: factory_args,
+        });
+        let factory_body = vec![Stmt::Return(Some(new_expr))];
+        ast.stmts[idx] = Stmt::FnDecl {
+            name: gen_name,
+            type_params: Vec::new(),
+            params: gen_params,
+            return_type: Some(class_name),
+            body: factory_body,
+            is_generator: false,
+        };
+    }
+
+    ast.stmts.extend(appended);
+}
+
 pub fn desugar_classes(ast: &mut Ast) {
     // Pass 1 — extract every ClassDecl. After this loop the original
     // ClassDecl stmts are replaced by their generated TypeDecl in-place;
@@ -592,6 +972,7 @@ pub fn desugar_classes(ast: &mut Ast) {
             params,
             return_type: base_method.return_type.clone(),
             body,
+            is_generator: false,
         });
     }
 
@@ -759,6 +1140,7 @@ pub fn desugar_classes(ast: &mut Ast) {
                 params,
                 return_type: Some("void".into()),
                 body: c.body.clone(),
+                is_generator: false,
             });
         }
 
@@ -778,6 +1160,7 @@ pub fn desugar_classes(ast: &mut Ast) {
                 params,
                 return_type: m.return_type.clone(),
                 body: m.body.clone(),
+                is_generator: false,
             });
         }
 
@@ -803,6 +1186,7 @@ pub fn desugar_classes(ast: &mut Ast) {
             params: ctor_params_for_factory,
             return_type: Some(this_ann.clone()),
             body: factory_body,
+            is_generator: false,
         });
     }
 
@@ -855,7 +1239,7 @@ fn collect_super_in_stmt(
     out: &mut Vec<(ExprId, Vec<ExprId>)>,
 ) {
     match s {
-        Stmt::Expr(eid) | Stmt::Throw(eid) => collect_super_in_expr(ast, *eid, out),
+        Stmt::Expr(eid) | Stmt::Throw(eid) | Stmt::Yield(eid) => collect_super_in_expr(ast, *eid, out),
         Stmt::Return(maybe) => {
             if let Some(eid) = maybe {
                 collect_super_in_expr(ast, *eid, out);
@@ -1211,6 +1595,7 @@ pub fn apply_rest_args(ast: &mut Ast) {
             params: Vec::new(),
             return_type: Some(rest_ann.clone()),
             body,
+            is_generator: false,
         });
     }
     let n = ast.exprs.len();
@@ -1342,6 +1727,7 @@ pub fn lift_arrow_fns(ast: &mut Ast) {
                 params: final_params,
                 return_type,
                 body,
+                is_generator: false,
             });
         }
     }
@@ -1378,7 +1764,7 @@ fn free_vars_of_arrow(
 
 fn walk_stmt(ast: &Ast, s: &Stmt, bound: &mut Vec<String>, out: &mut Vec<String>) {
     match s {
-        Stmt::Expr(eid) | Stmt::Return(Some(eid)) => walk_expr(ast, *eid, bound, out),
+        Stmt::Expr(eid) | Stmt::Return(Some(eid)) | Stmt::Yield(eid) => walk_expr(ast, *eid, bound, out),
         Stmt::Return(None) => {}
         Stmt::LetDecl { name, init, .. } => {
             walk_expr(ast, *init, bound, out);
@@ -1535,7 +1921,7 @@ fn scan_stmt_for_throws(
             *direct = true;
             scan_expr_for_calls(ast, *eid, called);
         }
-        Stmt::Expr(eid) | Stmt::Return(Some(eid)) => {
+        Stmt::Expr(eid) | Stmt::Return(Some(eid)) | Stmt::Yield(eid) => {
             scan_expr_for_calls(ast, *eid, called)
         }
         Stmt::Return(None) | Stmt::Break | Stmt::Continue => {}
@@ -1798,6 +2184,10 @@ impl Ast {
                 println!("{pad}ExprStmt");
                 self.print_expr(*eid, indent + 1);
             }
+            Stmt::Yield(eid) => {
+                println!("{pad}Yield");
+                self.print_expr(*eid, indent + 1);
+            }
             Stmt::LetDecl {
                 mutable,
                 name,
@@ -1927,6 +2317,7 @@ impl Ast {
                 params,
                 return_type,
                 body,
+                is_generator: _,
             } => {
                 let plist: Vec<String> = params
                     .iter()

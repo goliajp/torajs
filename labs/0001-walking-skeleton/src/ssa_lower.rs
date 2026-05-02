@@ -188,6 +188,7 @@ fn monomorphize_generics(
                 params,
                 return_type,
                 body,
+                is_generator: _,
             } if !type_params.is_empty() => {
                 Some((
                     name.clone(),
@@ -286,6 +287,7 @@ fn monomorphize_generics(
             params: new_params,
             return_type: new_return_type,
             body: new_body,
+            is_generator: false,
         });
     }
     (mono_decls, call_retargets, generic_fn_names)

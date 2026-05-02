@@ -119,6 +119,11 @@ pub enum Token {
     /// so this is a compile-time decision based on the LHS's static
     /// type vs the named class (and its superclass chain).
     InstanceOf,
+    /// Phase J — `yield e` produces the next value of a `function*`
+    /// generator. Recognized only inside generator bodies; desugar
+    /// rewrites the surrounding fn into a class with a `next()` state
+    /// machine.
+    Yield,
     FatArrow,
     Lt,
     Gt,
@@ -512,6 +517,7 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                     "default" => Token::Default,
                     "typeof" => Token::TypeOf,
                     "instanceof" => Token::InstanceOf,
+                    "yield" => Token::Yield,
                     "null" => Token::Null,
                     _ => Token::Ident(name.to_string()),
                 };

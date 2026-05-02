@@ -122,6 +122,7 @@ fn pipeline(src: &str, stage: Stage) -> ExitCode {
     // M2 Phase A — lift arrow fns to top-level FnDecls so check.rs's
     // global-fn machinery resolves them. Non-capturing closures only;
     // captures land in Phase B.
+    ast::desugar_generators(&mut ast);
     ast::desugar_classes(&mut ast);
     ast::lift_arrow_fns(&mut ast);
     ast::apply_default_args(&mut ast);
@@ -248,6 +249,7 @@ fn run_build_llvm(args: &[String]) -> ExitCode {
     // M2 Phase A — lift arrow fns to top-level FnDecls so check.rs's
     // global-fn machinery resolves them. Non-capturing closures only;
     // captures land in Phase B.
+    ast::desugar_generators(&mut ast);
     ast::desugar_classes(&mut ast);
     ast::lift_arrow_fns(&mut ast);
     ast::apply_default_args(&mut ast);
@@ -360,6 +362,7 @@ fn run_jit(file_arg: Option<&String>) -> ExitCode {
             return ExitCode::from(1);
         }
     };
+    ast::desugar_generators(&mut ast);
     ast::desugar_classes(&mut ast);
     ast::lift_arrow_fns(&mut ast);
     ast::apply_default_args(&mut ast);
