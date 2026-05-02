@@ -127,6 +127,7 @@ fn pipeline(src: &str, stage: Stage) -> ExitCode {
     ast::desugar_classes(&mut ast);
     ast::lift_arrow_fns(&mut ast);
     ast::infer_anonymous_closure_params(&mut ast);
+    ast::synthesize_forwarders(&mut ast);
     ast::apply_default_args(&mut ast);
     ast::apply_rest_args(&mut ast);
     ast::compute_consuming_params(&mut ast);
@@ -257,6 +258,7 @@ fn run_build_llvm(args: &[String]) -> ExitCode {
     ast::desugar_classes(&mut ast);
     ast::lift_arrow_fns(&mut ast);
     ast::infer_anonymous_closure_params(&mut ast);
+    ast::synthesize_forwarders(&mut ast);
     ast::apply_default_args(&mut ast);
     ast::apply_rest_args(&mut ast);
     ast::compute_consuming_params(&mut ast);
@@ -373,6 +375,7 @@ fn run_jit(file_arg: Option<&String>) -> ExitCode {
     ast::desugar_classes(&mut ast);
     ast::lift_arrow_fns(&mut ast);
     ast::infer_anonymous_closure_params(&mut ast);
+    ast::synthesize_forwarders(&mut ast);
     ast::apply_default_args(&mut ast);
     ast::apply_rest_args(&mut ast);
     ast::compute_consuming_params(&mut ast);

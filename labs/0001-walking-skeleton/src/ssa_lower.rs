@@ -1873,8 +1873,11 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
     // FnAddr(drop_fid) and store it into env+8.
     let mut env_drop_fids: Vec<(String, FuncId, ssa::SigId)> = Vec::new();
     for stmt in &ast.stmts {
-        if let Stmt::FnDecl { name, .. } = stmt
-            && name.starts_with("__closure_")
+        // Any FnDecl with `__env` as its first param is a closure-
+        // shaped body (lifted arrow OR synthesized forwarder for
+        // mixed-return wrapping). Each gets a paired env-drop fn.
+        if let Stmt::FnDecl { name, params, .. } = stmt
+            && params.first().is_some_and(|p| p.name == "__env")
         {
             let drop_name = format!("__env_drop_{name}");
             let fid = FuncId(module.funcs.len() as u32);
@@ -1886,6 +1889,28 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         }
     }
 
+    // Trivial drop fn for "no-capture closure wrappers" — used by the
+    // Return arm when wrapping a top-level FnAddr (Type::FnSig) into
+    // a Closure-typed value to satisfy a fn signature that returns
+    // `(...) => R`. The wrapper env has just fn_addr@0 + drop_fn@8,
+    // no captures. Drop body just frees the env block.
+    let env_drop_trivial_fid = {
+        let fid = FuncId(module.funcs.len() as u32);
+        fn_table.insert("__env_drop_trivial".into(), fid);
+        let sig = intern_fn_sig(&mut fn_sigs, vec![Type::Ptr], Type::Void);
+        fn_sig_ids.insert(fid, sig);
+        let mut f = ssa::Function::new("__env_drop_trivial", Type::Void);
+        let env_pid = f.add_param(Type::Ptr, "env");
+        let entry = f.add_block();
+        f.append_void(
+            entry,
+            InstKind::Call(obj_drop_id, vec![Operand::Value(env_pid)]),
+        );
+        f.set_term(entry, Terminator::Ret(None));
+        module.funcs.push(f);
+        (fid, sig)
+    };
+
     // Snapshot every callable's return type — used inside lower_fn to type
     // call-site results correctly.
     let signatures: HashMap<FuncId, Type> = module
@@ -1896,6 +1921,7 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         .collect();
 
     let intrinsics = Intrinsics {
+        env_drop_trivial: env_drop_trivial_fid,
         print_i64: print_i64_id,
         print_f64: print_f64_id,
         print_bool: print_bool_id,
@@ -2185,6 +2211,13 @@ fn synthesize_env_drop(
 /// only touches one type signature.
 #[derive(Debug, Clone, Copy)]
 struct Intrinsics {
+    /// Per-call-site trivial closure-wrapper drop. (FuncId, SigId).
+    /// Used by the Return arm when wrapping a top-level FnAddr into
+    /// a Closure-typed value to satisfy a fn signature returning
+    /// `(...) => R` from a non-capturing return path. The wrapper
+    /// env has just `fn_addr@0 + drop_fn@8` and no captures; the
+    /// drop body just frees the env block.
+    env_drop_trivial: (FuncId, ssa::SigId),
     print_i64: FuncId,
     print_f64: FuncId,
     print_bool: FuncId,
@@ -2537,6 +2570,13 @@ fn stmt_returns_closure(
 /// body returns a `Type::Closure` value, upgrade to `Type::Closure(sig)`.
 /// Otherwise pass through. Both types share an 8-byte ABI so this is a
 /// pure dispatch-discipline change.
+///
+/// When the body mixes Closure returns with FnSig-shaped returns
+/// (bare top-level fn names or non-capturing arrows), we still
+/// upgrade to Closure — the caller dispatches via the env's fn_addr —
+/// and the Stmt::Return arm in `lower_stmt` wraps each FnSig return
+/// in a synthesized forwarder closure (see `synthesize_forwarder` /
+/// `wrap_fnsig_into_closure_via_forwarder`).
 fn effective_ret_ty(parsed: Type, ast: &Ast, body: &[Stmt]) -> Type {
     if let Type::FnSig(sig_id) = parsed
         && body_returns_closure(ast, body)
@@ -2544,6 +2584,75 @@ fn effective_ret_ty(parsed: Type, ast: &Ast, body: &[Stmt]) -> Type {
         return Type::Closure(sig_id);
     }
     parsed
+}
+
+/// True if any `Stmt::Return(Some(<expr>))` in `body` has an Ident
+/// expression whose name resolves to a FnSig-shaped FnDecl (not a
+/// capturing closure). The set of such "FnSig fns" is every top-level
+/// FnDecl whose first parameter is NOT `__env`. Used to detect the
+/// "mixed FnSig/Closure return" anti-pattern in `effective_ret_ty`:
+/// if the body also returns a capturing arrow (Closure), the two
+/// calling conventions clash and we panic with a clear workaround.
+///
+/// Includes non-capturing lifted closures (`__closure_N` whose lifted
+/// FnDecl skips the __env param) — those produce FnSig at runtime
+/// even though they originated from `(y) => ...` syntax.
+fn body_has_ident_return_to_global(ast: &Ast, body: &[Stmt]) -> bool {
+    let fnsig_fns: std::collections::HashSet<String> = ast
+        .stmts
+        .iter()
+        .filter_map(|s| match s {
+            Stmt::FnDecl { name, params, .. } => {
+                let is_closure = params.first().is_some_and(|p| p.name == "__env");
+                if is_closure { None } else { Some(name.clone()) }
+            }
+            _ => None,
+        })
+        .collect();
+    body.iter()
+        .any(|s| stmt_has_ident_return(ast, s, &fnsig_fns))
+}
+
+fn stmt_has_ident_return(
+    ast: &Ast,
+    s: &Stmt,
+    globals: &std::collections::HashSet<String>,
+) -> bool {
+    match s {
+        Stmt::Return(Some(eid)) => {
+            matches!(ast.get_expr(*eid), Expr::Ident(n) if globals.contains(n))
+        }
+        Stmt::If { then_branch, else_branch, .. } => {
+            stmt_has_ident_return(ast, then_branch, globals)
+                || else_branch
+                    .as_deref()
+                    .is_some_and(|s| stmt_has_ident_return(ast, s, globals))
+        }
+        Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
+            stmt_has_ident_return(ast, body, globals)
+        }
+        Stmt::For { body, .. } => stmt_has_ident_return(ast, body, globals),
+        Stmt::Block(stmts) | Stmt::Multi(stmts) => {
+            stmts.iter().any(|s| stmt_has_ident_return(ast, s, globals))
+        }
+        Stmt::Switch { cases, default, .. } => {
+            cases.iter().any(|c| {
+                c.body.iter().any(|s| stmt_has_ident_return(ast, s, globals))
+            }) || default.as_ref().is_some_and(|d| {
+                d.iter().any(|s| stmt_has_ident_return(ast, s, globals))
+            })
+        }
+        Stmt::Try { body, catch_body, finally_body, .. } => {
+            body.iter().any(|s| stmt_has_ident_return(ast, s, globals))
+                || catch_body
+                    .iter()
+                    .any(|s| stmt_has_ident_return(ast, s, globals))
+                || finally_body.as_ref().is_some_and(|fb| {
+                    fb.iter().any(|s| stmt_has_ident_return(ast, s, globals))
+                })
+        }
+        _ => false,
+    }
 }
 
 fn parse_type(
@@ -9904,6 +10013,7 @@ impl<'a> LowerCtx<'a> {
             other => panic!("ssa-lower: cannot coerce {other:?} to f64"),
         }
     }
+
 
     /// Type-aware BinOp lowering. Decision rule:
     ///   - `/` always produces f64. Both operands coerced to f64. (Use `>>`
