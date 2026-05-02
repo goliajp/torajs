@@ -7517,6 +7517,83 @@ impl<'a> LowerCtx<'a> {
                     self.emit_drop_value(final_str, Type::Str);
                     return Operand::ConstI64(0);
                 }
+                // `xs.pop()` — Ident-receiver only. Load len, decrement,
+                // load slot at the new tail position. Element ownership
+                // transfers to the caller (the popped slot is now outside
+                // the active range, so element-walk drop won't dec it).
+                // Empty-array `pop` is UB (no `undefined` in tr's subset
+                // — matches the unchecked-index convention used elsewhere).
+                if let Expr::Member { obj: recv_id, name } = self.ast.get_expr(*callee)
+                    && name == "pop"
+                    && args.is_empty()
+                    && let Expr::Ident(recv_name) = self.ast.get_expr(*recv_id)
+                    && let Some(info) = self.locals.get(recv_name).copied()
+                    && let Type::Arr(arr_id) = info.ty
+                {
+                    let arr_ty = info.ty;
+                    let elem_ty = self.arr_layouts[arr_id.0 as usize];
+                    let cur_arr = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Load(arr_ty, Operand::Value(info.slot), 0),
+                        arr_ty,
+                        None,
+                    );
+                    let len = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Load(Type::I64, Operand::Value(cur_arr), ARR_LEN_OFF),
+                        Type::I64,
+                        None,
+                    );
+                    let new_len = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::BinOp(
+                            SsaBinOp::Sub,
+                            Operand::Value(len),
+                            Operand::ConstI64(1),
+                        ),
+                        Type::I64,
+                        None,
+                    );
+                    let scaled = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::BinOp(
+                            SsaBinOp::Shl,
+                            Operand::Value(new_len),
+                            Operand::ConstI64(3),
+                        ),
+                        Type::I64,
+                        None,
+                    );
+                    let off = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::BinOp(
+                            SsaBinOp::Add,
+                            Operand::Value(scaled),
+                            Operand::ConstI64(ARR_DATA_OFF as i64),
+                        ),
+                        Type::I64,
+                        None,
+                    );
+                    let elem = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::LoadDyn(
+                            elem_ty,
+                            Operand::Value(cur_arr),
+                            Operand::Value(off),
+                        ),
+                        elem_ty,
+                        None,
+                    );
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Store(
+                            Operand::Value(new_len),
+                            Operand::Value(cur_arr),
+                            ARR_LEN_OFF,
+                        ),
+                    );
+                    return Operand::Value(elem);
+                }
                 // M1.2 — `xs.push(v)` special-case. Two receiver shapes:
                 //   (a) Ident bound to a mutable `Type::Arr` local — load
                 //       cur ptr from the slot, call arr_push (which may

@@ -1671,6 +1671,16 @@ impl Checker {
                         let inner = (**elem).clone();
                         Ok(Type::Function(vec![inner], Box::new(Type::Void)))
                     }
+                    // `xs.pop()` — remove and return the last element.
+                    // Mutates the receiver. tr's subset assumes a non-empty
+                    // array (matches the `xs[xs.length - 1]` style call
+                    // patterns this enables); `pop` on an empty array is
+                    // unchecked. Returns the element type directly (no
+                    // `T | undefined` since tr lacks union types).
+                    (Type::Array(elem), "pop") => {
+                        let inner = (**elem).clone();
+                        Ok(Type::Function(Vec::new(), Box::new(inner)))
+                    }
                     // `xs.flat()` — single-level flatten. Receiver must
                     // be `T[][]`; result is `T[]`. v0 supports depth=1
                     // only (no `.flat(2)` arg).
