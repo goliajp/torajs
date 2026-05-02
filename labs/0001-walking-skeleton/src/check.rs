@@ -2100,6 +2100,43 @@ impl Checker {
                     }
                     return Ok(target_ty);
                 }
+                // `arr.flat(N)` — deep flatten. N must be a literal
+                // number so the type checker can peel that many
+                // Array<> layers from the receiver's element type.
+                // depth=0 is a shallow clone (returns Array<T_0>);
+                // depth>0 peels per-iter, stopping early if a layer
+                // is non-Array. Subset constraint: literal depth only
+                // (no `flat(n)` with runtime n — would need a depth-
+                // aware runtime helper).
+                if let Expr::Member { obj: recv, name: m_name } = ast.get_expr(*callee)
+                    && m_name == "flat"
+                    && args.len() == 1
+                {
+                    if let Expr::Number(d) = ast.get_expr(args[0]) {
+                        let depth = *d as i64;
+                        if depth < 0 {
+                            return Err("flat depth must be non-negative".into());
+                        }
+                        let recv_ty = self.type_of(ast, *recv)?;
+                        let Type::Array(_) = &recv_ty else {
+                            return Err(format!(
+                                "flat receiver must be Array<...>, got {recv_ty:?}"
+                            ));
+                        };
+                        let mut t = recv_ty.clone();
+                        for _ in 0..depth {
+                            if let Type::Array(elem) = t.clone()
+                                && let Type::Array(inner_inner) = (*elem).clone()
+                            {
+                                t = Type::Array(inner_inner);
+                            } else {
+                                break;
+                            }
+                        }
+                        return Ok(t);
+                    }
+                    return Err("flat depth must be a number literal".into());
+                }
                 // `Object.values(obj)` — return type depends on the
                 // arg's struct shape. Only valid when all fields share
                 // a single type T; result is Array<T>. Heterogeneous

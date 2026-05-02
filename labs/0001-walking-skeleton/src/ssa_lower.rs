@@ -8504,30 +8504,80 @@ impl<'a> LowerCtx<'a> {
                         );
                         return Operand::Value(v);
                     }
-                    // `arr.flat()` — single-level flatten via runtime
-                    // helper. Receiver is `Array<Array<T>>`; result type
-                    // is `Array<T>` (intern lazily if not already).
-                    if let Type::Arr(outer_id) = recv_ty
+                    // `arr.flat()` / `arr.flat(N)` — N-level deep flatten.
+                    // Default depth = 1. Literal depth N is statically
+                    // unrolled into N calls to the depth-1 runtime
+                    // helper, peeling one Array<> layer per iter and
+                    // stopping early if a layer is non-Array. depth=0 is
+                    // a shallow clone via arr_slice.
+                    if let Type::Arr(_) = recv_ty
                         && method == "flat"
-                        && args.is_empty()
+                        && args.len() <= 1
                     {
-                        let outer_elem = self.arr_layouts[outer_id.0 as usize];
-                        let Type::Arr(inner_id) = outer_elem else {
+                        let depth: i64 = if args.is_empty() {
+                            1
+                        } else if let Expr::Number(d) = self.ast.get_expr(args[0]) {
+                            *d as i64
+                        } else {
                             panic!(
-                                "ssa-lower: flat requires Array<Array<T>>, got element {outer_elem:?}"
+                                "ssa-lower: flat depth must be a number literal"
                             );
                         };
-                        let _ = inner_id;
-                        let v = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Call(
-                                self.intrinsics.arr_flat,
-                                vec![recv_op],
-                            ),
-                            outer_elem,
-                            None,
-                        );
-                        return Operand::Value(v);
+                        if depth == 0 {
+                            // Shallow clone: arr_slice(recv, 0, len) +
+                            // per-element rc_inc on refcounted layouts.
+                            let len = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Load(Type::I64, recv_op, ARR_LEN_OFF),
+                                Type::I64,
+                                None,
+                            );
+                            let v = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(
+                                    self.intrinsics.arr_slice,
+                                    vec![recv_op, Operand::ConstI64(0), Operand::Value(len)],
+                                ),
+                                recv_ty,
+                                None,
+                            );
+                            if let Type::Arr(arr_id) = recv_ty {
+                                let elem_ty = self.arr_layouts[arr_id.0 as usize];
+                                if elem_ty.is_refcounted() {
+                                    let len2 = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::Load(Type::I64, Operand::Value(v), ARR_LEN_OFF),
+                                        Type::I64,
+                                        None,
+                                    );
+                                    self.emit_arr_rc_inc_range(
+                                        Operand::Value(v),
+                                        Operand::ConstI64(0),
+                                        Operand::Value(len2),
+                                    );
+                                }
+                            }
+                            return Operand::Value(v);
+                        }
+                        let mut cur = recv_op;
+                        let mut cur_ty = recv_ty;
+                        for _ in 0..depth {
+                            let Type::Arr(outer_id) = cur_ty else { break; };
+                            let outer_elem = self.arr_layouts[outer_id.0 as usize];
+                            let Type::Arr(_) = outer_elem else { break; };
+                            let v = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(
+                                    self.intrinsics.arr_flat,
+                                    vec![cur],
+                                ),
+                                outer_elem,
+                                None,
+                            );
+                            cur = Operand::Value(v);
+                            cur_ty = outer_elem;
+                        }
+                        return cur;
                     }
                     // `arr.sort(cmp)` — in-place insertion sort calling
                     // `cmp` for each compare. Returns the same array. The
