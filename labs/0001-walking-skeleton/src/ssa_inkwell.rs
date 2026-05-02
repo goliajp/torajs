@@ -79,6 +79,8 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
     // else gets a declaration that pass D fills in.
     let free = declare_free(&ctx, &llvm_module);
     let realloc = declare_realloc(&ctx, &llvm_module);
+    let str_free = declare_str_free(&ctx, &llvm_module);
+    let str_alloc_pooled = declare_str_alloc_pooled(&ctx, &llvm_module);
     let mut fn_map: Vec<FunctionValue> = Vec::with_capacity(ssa_module.funcs.len());
     for f in &ssa_module.funcs {
         let llvm_fn = match f.name.as_str() {
@@ -86,22 +88,23 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
             "print_f64" => define_print_f64(&ctx, &llvm_module),
             "print_bool" => define_print_bool(&ctx, &llvm_module, putchar),
             "__torajs_str_alloc" => {
-                let f = define_str_alloc(&ctx, &llvm_module, malloc, memcpy);
+                let f = define_str_alloc(&ctx, &llvm_module, str_alloc_pooled, memcpy);
                 // hot — every literal materialization + every concat/slice
-                // result. Body is malloc + header init + memcpy.
+                // result. Body is pool fast-path / malloc + header init + memcpy.
                 mark_alwaysinline(&ctx, f);
                 f
             }
             "__torajs_str_print" => define_str_print(&ctx, &llvm_module, putchar),
             "__torajs_str_drop" => {
                 // hot in any non-trivial program (every Str scope-end
-                // dec). Body is NULL check + atomic-like dec + cond free.
-                let f = define_str_drop(&ctx, &llvm_module, free);
+                // dec). Body is NULL check + atomic-like dec + cond
+                // pool-or-free.
+                let f = define_str_drop(&ctx, &llvm_module, str_free);
                 mark_alwaysinline(&ctx, f);
                 f
             }
             "__torajs_str_concat" => {
-                define_str_concat(&ctx, &llvm_module, malloc, memcpy)
+                define_str_concat(&ctx, &llvm_module, str_alloc_pooled, memcpy)
             }
             "__torajs_obj_alloc" => define_obj_alloc(&ctx, &llvm_module, malloc),
             "__torajs_obj_drop" => define_obj_drop(&ctx, &llvm_module, free),
@@ -125,7 +128,7 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
                 f
             }
             "__torajs_str_slice" => {
-                define_str_slice(&ctx, &llvm_module, malloc, memcpy)
+                define_str_slice(&ctx, &llvm_module, str_alloc_pooled, memcpy)
             }
             "__torajs_str_char_code_at" => {
                 let f = define_str_char_code_at(&ctx, &llvm_module);
@@ -461,6 +464,29 @@ fn declare_free<'ctx>(ctx: &'ctx Context, m: &LlvmModule<'ctx>) -> FunctionValue
     m.add_function("free", fn_t, None)
 }
 
+/// `__torajs_str_free(uint8_t *p)` — pool-aware Str free. Defined in
+/// runtime_str.c. Pushes short-string blocks onto a thread-local LIFO
+/// for reuse by the next short-Str alloc; falls back to libc free for
+/// blocks too large to pool.
+fn declare_str_free<'ctx>(ctx: &'ctx Context, m: &LlvmModule<'ctx>) -> FunctionValue<'ctx> {
+    let void_t = ctx.void_type();
+    let ptr_t = ctx.ptr_type(AddressSpace::default());
+    let fn_t = void_t.fn_type(&[ptr_t.into()], false);
+    m.add_function("__torajs_str_free", fn_t, None)
+}
+
+/// `__torajs_str_alloc_pooled(uint64_t len) -> uint8_t*` — pool-aware
+/// Str alloc. Pops a recently-freed short-Str block when one fits;
+/// otherwise calls malloc + initializes the header. Defined in
+/// runtime_str.c. Inkwell's str_alloc IR fn delegates here so the
+/// LLVM-emitted hot path picks up the pool too.
+fn declare_str_alloc_pooled<'ctx>(ctx: &'ctx Context, m: &LlvmModule<'ctx>) -> FunctionValue<'ctx> {
+    let i64_t = ctx.i64_type();
+    let ptr_t = ctx.ptr_type(AddressSpace::default());
+    let fn_t = ptr_t.fn_type(&[i64_t.into()], false);
+    m.add_function("__torajs_str_alloc_pooled", fn_t, None)
+}
+
 fn declare_memcmp<'ctx>(ctx: &'ctx Context, m: &LlvmModule<'ctx>) -> FunctionValue<'ctx> {
     let i32_t = ctx.i32_type();
     let i64_t = ctx.i64_type();
@@ -491,6 +517,25 @@ const STR_HDR_TAG_STR: u64 = 0;
 /// Single-source-of-truth for every str-producing inkwell function so
 /// the header init never drifts between sites.
 fn emit_str_alloc_header<'ctx>(
+    _ctx: &'ctx Context,
+    builder: &inkwell::builder::Builder<'ctx>,
+    str_alloc_pooled: FunctionValue<'ctx>,
+    len: inkwell::values::IntValue<'ctx>,
+) -> inkwell::values::PointerValue<'ctx> {
+    // Header init + pool fast-path lives in __torajs_str_alloc_pooled
+    // (runtime_str.c). LTO inlines it into the caller, so this stays
+    // a single call from the IR's perspective but expands to the
+    // pool-pop fast path / malloc + 2-store header init.
+    builder
+        .build_call(str_alloc_pooled, &[len.into()], "str_p")
+        .unwrap()
+        .try_as_basic_value()
+        .unwrap_basic()
+        .into_pointer_value()
+}
+
+#[allow(dead_code)]
+fn emit_str_alloc_header_unused_legacy<'ctx>(
     ctx: &'ctx Context,
     builder: &inkwell::builder::Builder<'ctx>,
     malloc: FunctionValue<'ctx>,
@@ -785,7 +830,7 @@ fn emit_string_global<'ctx>(
 fn define_str_alloc<'ctx>(
     ctx: &'ctx Context,
     m: &LlvmModule<'ctx>,
-    malloc: FunctionValue<'ctx>,
+    str_alloc_pooled: FunctionValue<'ctx>,
     memcpy: FunctionValue<'ctx>,
 ) -> FunctionValue<'ctx> {
     let builder = ctx.create_builder();
@@ -799,7 +844,13 @@ fn define_str_alloc<'ctx>(
     let src = f.get_nth_param(0).unwrap().into_pointer_value();
     let len = f.get_nth_param(1).unwrap().into_int_value();
 
-    let p = emit_str_alloc_header(ctx, &builder, malloc, len);
+    // Pool-aware alloc with header pre-initialized inside the C helper.
+    let p = builder
+        .build_call(str_alloc_pooled, &[len.into()], "p")
+        .unwrap()
+        .try_as_basic_value()
+        .unwrap_basic()
+        .into_pointer_value();
     let data = str_data_ptr(ctx, &builder, p, "data");
     builder
         .build_call(memcpy, &[data.into(), src.into(), len.into()], "_cp")
@@ -816,7 +867,7 @@ fn define_str_alloc<'ctx>(
 fn define_str_concat<'ctx>(
     ctx: &'ctx Context,
     m: &LlvmModule<'ctx>,
-    malloc: FunctionValue<'ctx>,
+    str_alloc_pooled: FunctionValue<'ctx>,
     memcpy: FunctionValue<'ctx>,
 ) -> FunctionValue<'ctx> {
     let builder = ctx.create_builder();
@@ -834,7 +885,7 @@ fn define_str_concat<'ctx>(
     let b_len = str_len_load(ctx, &builder, b, "b_len");
     let total = builder.build_int_add(a_len, b_len, "total").unwrap();
 
-    let p = emit_str_alloc_header(ctx, &builder, malloc, total);
+    let p = emit_str_alloc_header(ctx, &builder, str_alloc_pooled, total);
     let p_data = str_data_ptr(ctx, &builder, p, "p_data");
     let a_data = str_data_ptr(ctx, &builder, a, "a_data");
     builder
@@ -861,7 +912,7 @@ fn define_str_concat<'ctx>(
 fn define_str_slice<'ctx>(
     ctx: &'ctx Context,
     m: &LlvmModule<'ctx>,
-    malloc: FunctionValue<'ctx>,
+    str_alloc_pooled: FunctionValue<'ctx>,
     memcpy: FunctionValue<'ctx>,
 ) -> FunctionValue<'ctx> {
     let builder = ctx.create_builder();
@@ -913,7 +964,7 @@ fn define_str_slice<'ctx>(
     let new_len = builder
         .build_int_sub(end_c, start_c, "new_len")
         .unwrap();
-    let p = emit_str_alloc_header(ctx, &builder, malloc, new_len);
+    let p = emit_str_alloc_header(ctx, &builder, str_alloc_pooled, new_len);
     let p_data = str_data_ptr(ctx, &builder, p, "p_data");
     let s_data_base = str_data_ptr(ctx, &builder, s, "s_data_base");
     let s_data = unsafe {

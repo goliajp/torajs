@@ -87,11 +87,92 @@ int __torajs_rc_dec(void *p) {
  * separate stores. Cuts the per-alloc store count to 2 (header + len). */
 #define __TORAJS_STR_HEADER_INIT \
     ((uint64_t)1u | ((uint64_t)__TORAJS_TAG_STR << 32))
-static inline uint8_t *str_alloc_(uint64_t len) {
-    uint8_t *p = (uint8_t *)malloc(__TORAJS_STR_HDR_SIZE + (size_t)len);
+
+/* ============================================================
+ * Small-Str pool — thread-local LIFO for short-lived ≤16-byte
+ * strings (the dominant size class for split tokens, single-char
+ * concat results, number-to-string for short ints, etc.).
+ *
+ * The pool stores only the `header + 16-byte payload` block size;
+ * any larger alloc bypasses to system malloc. On str_drop's free
+ * path, qualified blocks are pushed to the LIFO so the next
+ * alloc of equal-or-smaller size reuses the same memory — turning
+ * tight `+ then drop` loops from malloc/free per iter into
+ * pointer-pop/pointer-push.
+ *
+ * Single-threaded for now (tr has no async / threads); pool is
+ * `_Thread_local` so multi-threaded runtimes can land later
+ * without races. ============================================================ */
+
+#define __TORAJS_STR_POOL_SLOTS    32
+#define __TORAJS_STR_POOL_PAYLOAD  16
+
+/* tr is single-threaded today (no async / threads exposed); plain
+ * static storage avoids the TLS-init footprint on the binary. When
+ * threads land later, swap to `_Thread_local`. */
+static uint8_t *str_pool_[__TORAJS_STR_POOL_SLOTS];
+static int str_pool_count_ = 0;
+
+/* Block size class for a payload of `len` bytes. Short strings get
+ * uniformly rounded up to POOL_PAYLOAD so every pooled block has
+ * the same capacity (no risk of a small block being reused for a
+ * larger payload). Anything past POOL_PAYLOAD pays the exact size. */
+static inline size_t str_block_size_(uint64_t len) {
+    if (len <= __TORAJS_STR_POOL_PAYLOAD) {
+        return __TORAJS_STR_HDR_SIZE + __TORAJS_STR_POOL_PAYLOAD;
+    }
+    return __TORAJS_STR_HDR_SIZE + (size_t)len;
+}
+
+/* Caller must guarantee `len ≤ __TORAJS_STR_POOL_PAYLOAD`. */
+static inline uint8_t *str_pool_pop_(uint64_t len) {
+    uint8_t *p = str_pool_[--str_pool_count_];
     *(uint64_t *)p = __TORAJS_STR_HEADER_INIT;
     __TORAJS_STR_LEN(p) = len;
     return p;
+}
+
+/* Internal helper — alloc a fresh Str heap with refcount=1 + type_tag set
+ * + len written. Caller fills the bytes payload at __TORAJS_STR_DATA(p).
+ * Single-source-of-truth for every Str allocation in this file.
+ *
+ * Pool fast-path: short strings reuse a recently-freed block when
+ * available; falls back to malloc-with-rounded-block-size otherwise.
+ * Header is one combined u64 store (refcount=1 in low 32 bits +
+ * type_tag=STR in [32:48] + flags=0 in [48:64]) instead of three
+ * separate stores. */
+static inline uint8_t *str_alloc_(uint64_t len) {
+    if (len <= __TORAJS_STR_POOL_PAYLOAD && str_pool_count_ > 0) {
+        return str_pool_pop_(len);
+    }
+    uint8_t *p = (uint8_t *)malloc(str_block_size_(len));
+    *(uint64_t *)p = __TORAJS_STR_HEADER_INIT;
+    __TORAJS_STR_LEN(p) = len;
+    return p;
+}
+
+/* Free path used by both inkwell's str_drop (after rc → 0) and any
+ * C-runtime helper that calls free directly on a Str block. Pushes
+ * to the pool when the block fits and there's space; falls back to
+ * system free otherwise. Exposed under __torajs_ namespace so the
+ * inkwell-emitted str_drop can call it instead of libc free. */
+void __torajs_str_free(uint8_t *p) {
+    if (p == NULL) return;
+    uint64_t len = __TORAJS_STR_LEN(p);
+    if (len <= __TORAJS_STR_POOL_PAYLOAD && str_pool_count_ < __TORAJS_STR_POOL_SLOTS) {
+        str_pool_[str_pool_count_++] = p;
+        return;
+    }
+    free(p);
+}
+
+/* Inkwell-callable variant of the pool-aware alloc. Used by the IR
+ * `__torajs_str_alloc` definition so its alloc path also benefits
+ * from the pool. The IR side stays as a single LLVM function (and
+ * still gets alwaysinline), but for short strings it now cheaply
+ * delegates here when the pool has a slot. */
+uint8_t *__torajs_str_alloc_pooled(uint64_t len) {
+    return str_alloc_(len);
 }
 
 /* ============================================================
