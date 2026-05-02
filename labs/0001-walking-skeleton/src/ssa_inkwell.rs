@@ -391,8 +391,12 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
     ));
     std::fs::write(&c_src_path, c_runtime_src)
         .map_err(|e| CompileError::Link(format!("write runtime.c: {e}")))?;
+    // -flto lets the linker inline cross-TU calls between the
+    // LLVM-emitted object and the C runtime — chiefly the per-iter hot
+    // helpers (substr_char_code_at, substr_drop, arr_join_substr) that
+    // would otherwise stay as fn calls into the C TU.
     let cc_status = Command::new("cc")
-        .args(["-c", "-O2", "-o"])
+        .args(["-c", "-O2", "-flto", "-o"])
         .arg(&c_obj_path)
         .arg(&c_src_path)
         .status()
@@ -405,6 +409,7 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
     }
 
     let status = Command::new("cc")
+        .arg("-flto")
         .arg(&obj_path)
         .arg(&c_obj_path)
         .arg("-o")
