@@ -11466,7 +11466,53 @@ impl<'a> LowerCtx<'a> {
                     | (Type::Str, Type::F64)
                     | (Type::I64, Type::Str)
                     | (Type::F64, Type::Str)
+                    | (Type::Substr, Type::I64)
+                    | (Type::Substr, Type::F64)
+                    | (Type::I64, Type::Substr)
+                    | (Type::F64, Type::Substr)
             );
+            // Any Substr operand: materialize to OWNED Str then route
+            // to str_concat. Phase D may add a substr-aware concat that
+            // does one alloc + two memcpys (skips the intermediate
+            // substr_to_owned alloc); for now correctness > perf.
+            let either_substr = a_ty == Type::Substr || b_ty == Type::Substr;
+            if either_substr
+                && (a_ty == Type::Str || a_ty == Type::Substr)
+                && (b_ty == Type::Str || b_ty == Type::Substr)
+            {
+                let materialize = |ctx: &mut Self, v: Operand, ty: Type| -> Operand {
+                    if ty == Type::Substr {
+                        let owned = ctx.f.append_inst(
+                            ctx.cur_block,
+                            InstKind::Call(ctx.intrinsics.substr_to_owned, vec![v]),
+                            Type::Str,
+                            None,
+                        );
+                        Operand::Value(owned)
+                    } else {
+                        v
+                    }
+                };
+                let a_str = materialize(self, a, a_ty);
+                let b_str = materialize(self, b, b_ty);
+                let concat = self.intrinsics.str_concat;
+                let v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(concat, vec![a_str, b_str]),
+                    Type::Str,
+                    None,
+                );
+                // Drop the temporary materialized owned Str(s). a_str /
+                // b_str are owned only when the original operand was
+                // Substr; str_concat is read-only on its inputs.
+                if a_ty == Type::Substr {
+                    self.emit_drop_value(a_str, Type::Str);
+                }
+                if b_ty == Type::Substr {
+                    self.emit_drop_value(b_str, Type::Str);
+                }
+                return Operand::Value(v);
+            }
             if a_ty == Type::Str && b_ty == Type::Str {
                 let concat = self.intrinsics.str_concat;
                 let v = self.f.append_inst(
@@ -11481,6 +11527,18 @@ impl<'a> LowerCtx<'a> {
                 let coerce = |ctx: &mut Self, v: Operand| -> Operand {
                     match ctx.operand_ty(&v) {
                         Type::Str => v,
+                        Type::Substr => {
+                            let r = ctx.f.append_inst(
+                                ctx.cur_block,
+                                InstKind::Call(
+                                    ctx.intrinsics.substr_to_owned,
+                                    vec![v],
+                                ),
+                                Type::Str,
+                                None,
+                            );
+                            Operand::Value(r)
+                        }
                         Type::I64 => {
                             let r = ctx.f.append_inst(
                                 ctx.cur_block,
