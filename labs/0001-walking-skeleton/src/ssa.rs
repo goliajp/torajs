@@ -141,6 +141,17 @@ impl Type {
         // FnSig is just a fn pointer — Copy semantics, no drop.
         // Closure is heap-owned (env block) — non-Copy.
     }
+
+    /// Phase B refcount: returns true if the heap object for this type
+    /// begins with `__torajs_heap_header_t` (refcount@0, type_tag@4,
+    /// flags@6). `__torajs_rc_inc` / `__torajs_rc_dec` are only safe
+    /// to call on values of refcount-aware types.
+    ///
+    /// Phase 1: only `Str`. Phase 2 will add `Obj` / `Arr` / `Closure`
+    /// once those layouts gain the same header prefix.
+    pub fn is_refcounted(self) -> bool {
+        matches!(self, Type::Str)
+    }
 }
 
 #[derive(Debug, Clone, Copy)]

@@ -885,16 +885,29 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         &[Type::Str],
         Type::Void,
     );
-    // `__torajs_str_concat(a, b) -> StrRepr*` — consumes both operands
-    // (frees their backing heap), returns a freshly allocated StrRepr
-    // holding `a.bytes ++ b.bytes`. ssa_lower routes `Expr::BinOp(Add,
-    // str, str)` here.
+    // `__torajs_str_concat(a, b) -> StrRepr*` — read-only on operands;
+    // returns a freshly allocated StrRepr holding `a.bytes ++ b.bytes`.
+    // a and b stay owned by the caller (their refcount-aware drops fire
+    // at scope close). ssa_lower routes `Expr::BinOp(Add, str, str)` here.
     let str_concat_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
         "__torajs_str_concat",
         &[Type::Str, Type::Str],
         Type::Str,
+    );
+    // Phase B refcount: universal heap-header inc/dec. ssa_lower emits
+    // `rc_inc` at every site where ownership becomes shared (slot copy
+    // in array helpers, etc.). `rc_dec` is the type-erased counterpart
+    // to `str_drop` — currently used internally by str_drop; will become
+    // the single drop dispatch once obj/closure migrate to the same
+    // header in Phase 2.
+    let rc_inc_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_rc_inc",
+        &[Type::Ptr],
+        Type::Void,
     );
     // P2.4.c: object heap alloc + drop. Layout is the lowerer's call —
     // pass the byte size as i64. The runtime is just malloc/free.
@@ -1929,6 +1942,7 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         str_print: str_print_id,
         str_drop: str_drop_id,
         str_concat: str_concat_id,
+        rc_inc: rc_inc_id,
         obj_alloc: obj_alloc_id,
         obj_drop: obj_drop_id,
         arr_alloc: arr_alloc_id,
@@ -2225,6 +2239,10 @@ struct Intrinsics {
     str_print: FuncId,
     str_drop: FuncId,
     str_concat: FuncId,
+    /// Phase B refcount — `__torajs_rc_inc(ptr)` increments the heap
+    /// header's refcount (NULL passes through). Emitted at every
+    /// slot-copy / shared-ownership site for non-Copy heap values.
+    rc_inc: FuncId,
     obj_alloc: FuncId,
     obj_drop: FuncId,
     arr_alloc: FuncId,
@@ -4247,6 +4265,240 @@ impl<'a> LowerCtx<'a> {
     /// our type aliases are declaration-ordered and forward refs are
     /// rejected at the type-decl pass — there's no way to build a
     /// recursive struct.
+    /// Clamp an i64 SSA value to [lo, hi] via two `select` SSA-shape
+    /// branches. Used by Array helpers that take user-provided indices
+    /// (start / end / target) and need to match the C runtime's clamp
+    /// semantics for the in-place case.
+    fn clamp_i64_to_range(
+        &mut self,
+        v: Operand,
+        lo: Operand,
+        hi: Operand,
+    ) -> Operand {
+        // step 1: max(v, lo)
+        let too_low = self.f.append_inst(
+            self.cur_block,
+            InstKind::ICmp(IPred::Slt, v, lo),
+            Type::Bool,
+            None,
+        );
+        let lo_slot = self.alloca_in_entry(Type::I64, Some("__clamp_lo"));
+        let lo_t = self.f.add_block();
+        let lo_f = self.f.add_block();
+        let lo_after = self.f.add_block();
+        self.f.set_term(self.cur_block, Terminator::CondBr {
+            cond: Operand::Value(too_low),
+            then_blk: lo_t,
+            else_blk: lo_f,
+        });
+        self.f.append_void(
+            lo_t,
+            InstKind::Store(lo, Operand::Value(lo_slot), 0),
+        );
+        self.f.set_term(lo_t, Terminator::Br(lo_after));
+        self.f.append_void(
+            lo_f,
+            InstKind::Store(v, Operand::Value(lo_slot), 0),
+        );
+        self.f.set_term(lo_f, Terminator::Br(lo_after));
+        self.cur_block = lo_after;
+        let after_lo = self.f.append_inst(
+            self.cur_block,
+            InstKind::Load(Type::I64, Operand::Value(lo_slot), 0),
+            Type::I64,
+            None,
+        );
+        // step 2: min(after_lo, hi)
+        let too_high = self.f.append_inst(
+            self.cur_block,
+            InstKind::ICmp(IPred::Sgt, Operand::Value(after_lo), hi),
+            Type::Bool,
+            None,
+        );
+        let hi_slot = self.alloca_in_entry(Type::I64, Some("__clamp_hi"));
+        let hi_t = self.f.add_block();
+        let hi_f = self.f.add_block();
+        let hi_after = self.f.add_block();
+        self.f.set_term(self.cur_block, Terminator::CondBr {
+            cond: Operand::Value(too_high),
+            then_blk: hi_t,
+            else_blk: hi_f,
+        });
+        self.f.append_void(
+            hi_t,
+            InstKind::Store(hi, Operand::Value(hi_slot), 0),
+        );
+        self.f.set_term(hi_t, Terminator::Br(hi_after));
+        self.f.append_void(
+            hi_f,
+            InstKind::Store(Operand::Value(after_lo), Operand::Value(hi_slot), 0),
+        );
+        self.f.set_term(hi_f, Terminator::Br(hi_after));
+        self.cur_block = hi_after;
+        let v = self.f.append_inst(
+            self.cur_block,
+            InstKind::Load(Type::I64, Operand::Value(hi_slot), 0),
+            Type::I64,
+            None,
+        );
+        Operand::Value(v)
+    }
+
+    /// Walk slots [start, end) and call `emit_drop_value` on each
+    /// element. Used by `arr.fill` / `arr.copyWithin` non-Copy paths
+    /// to release the values that the operation is about to overwrite.
+    fn emit_arr_rc_drop_range(
+        &mut self,
+        arr: Operand,
+        elem_ty: Type,
+        start: Operand,
+        end: Operand,
+    ) {
+        let i_slot = self.alloca_in_entry(Type::I64, Some("__drp_i"));
+        self.f.append_void(
+            self.cur_block,
+            InstKind::Store(start, Operand::Value(i_slot), 0),
+        );
+        let header = self.f.add_block();
+        let body = self.f.add_block();
+        let after = self.f.add_block();
+        self.f.set_term(self.cur_block, Terminator::Br(header));
+        self.cur_block = header;
+        let i_now = self.f.append_inst(
+            self.cur_block,
+            InstKind::Load(Type::I64, Operand::Value(i_slot), 0),
+            Type::I64,
+            None,
+        );
+        let cond = self.f.append_inst(
+            self.cur_block,
+            InstKind::ICmp(IPred::Slt, Operand::Value(i_now), end),
+            Type::Bool,
+            None,
+        );
+        self.f.set_term(self.cur_block, Terminator::CondBr {
+            cond: Operand::Value(cond),
+            then_blk: body,
+            else_blk: after,
+        });
+        self.cur_block = body;
+        let scaled = self.f.append_inst(
+            self.cur_block,
+            InstKind::BinOp(SsaBinOp::Shl, Operand::Value(i_now), Operand::ConstI64(3)),
+            Type::I64,
+            None,
+        );
+        let off = self.f.append_inst(
+            self.cur_block,
+            InstKind::BinOp(SsaBinOp::Add, Operand::Value(scaled), Operand::ConstI64(16)),
+            Type::I64,
+            None,
+        );
+        let elem = self.f.append_inst(
+            self.cur_block,
+            InstKind::LoadDyn(elem_ty, arr, Operand::Value(off)),
+            elem_ty,
+            None,
+        );
+        self.emit_drop_value(Operand::Value(elem), elem_ty);
+        let i_next = self.f.append_inst(
+            self.cur_block,
+            InstKind::BinOp(SsaBinOp::Add, Operand::Value(i_now), Operand::ConstI64(1)),
+            Type::I64,
+            None,
+        );
+        self.f.append_void(
+            self.cur_block,
+            InstKind::Store(Operand::Value(i_next), Operand::Value(i_slot), 0),
+        );
+        self.f.set_term(self.cur_block, Terminator::Br(header));
+        self.cur_block = after;
+    }
+
+    /// Phase B refcount: walk an array's element slots in [start, end)
+    /// and call `__torajs_rc_inc` on each pointer. Used right after
+    /// every Array helper that memcpy-copies element pointers (slice /
+    /// toReversed / with / concat / spread / etc.) when the element
+    /// type is non-Copy — the derived array now shares ownership of
+    /// each element with the source, so inc balances the future
+    /// element-walk drop on either array.
+    ///
+    /// `start` and `end` are i64 SSA operands (slot indices, not byte
+    /// offsets). Generates an SSA `for (i = start; i < end; i++)` loop;
+    /// LLVM mem2reg + loop opts collapse it to whatever the target ISA
+    /// likes best.
+    fn emit_arr_rc_inc_range(
+        &mut self,
+        arr: Operand,
+        start: Operand,
+        end: Operand,
+    ) {
+        let i_slot = self.alloca_in_entry(Type::I64, Some("__inc_i"));
+        self.f.append_void(
+            self.cur_block,
+            InstKind::Store(start, Operand::Value(i_slot), 0),
+        );
+        let header = self.f.add_block();
+        let body = self.f.add_block();
+        let after = self.f.add_block();
+        self.f.set_term(self.cur_block, Terminator::Br(header));
+        // header: i < end ?
+        self.cur_block = header;
+        let i_now = self.f.append_inst(
+            self.cur_block,
+            InstKind::Load(Type::I64, Operand::Value(i_slot), 0),
+            Type::I64,
+            None,
+        );
+        let cond = self.f.append_inst(
+            self.cur_block,
+            InstKind::ICmp(IPred::Slt, Operand::Value(i_now), end),
+            Type::Bool,
+            None,
+        );
+        self.f.set_term(self.cur_block, Terminator::CondBr {
+            cond: Operand::Value(cond),
+            then_blk: body,
+            else_blk: after,
+        });
+        // body: rc_inc(arr[i]); i++
+        self.cur_block = body;
+        let scaled = self.f.append_inst(
+            self.cur_block,
+            InstKind::BinOp(SsaBinOp::Shl, Operand::Value(i_now), Operand::ConstI64(3)),
+            Type::I64,
+            None,
+        );
+        let off = self.f.append_inst(
+            self.cur_block,
+            InstKind::BinOp(SsaBinOp::Add, Operand::Value(scaled), Operand::ConstI64(16)),
+            Type::I64,
+            None,
+        );
+        let elem = self.f.append_inst(
+            self.cur_block,
+            InstKind::LoadDyn(Type::Ptr, arr, Operand::Value(off)),
+            Type::Ptr,
+            None,
+        );
+        self.f.append_void(
+            self.cur_block,
+            InstKind::Call(self.intrinsics.rc_inc, vec![Operand::Value(elem)]),
+        );
+        let i_next = self.f.append_inst(
+            self.cur_block,
+            InstKind::BinOp(SsaBinOp::Add, Operand::Value(i_now), Operand::ConstI64(1)),
+            Type::I64,
+            None,
+        );
+        self.f.append_void(
+            self.cur_block,
+            InstKind::Store(Operand::Value(i_next), Operand::Value(i_slot), 0),
+        );
+        self.f.set_term(self.cur_block, Terminator::Br(header));
+        self.cur_block = after;
+    }
+
     fn emit_drop_value(&mut self, val: Operand, ty: Type) {
         match ty {
             Type::Str => {
@@ -4278,18 +4530,31 @@ impl<'a> LowerCtx<'a> {
                 );
             }
             Type::Arr(arr_id) => {
-                // Element-walk drop loop for non-Copy elements is
-                // staged but disabled: tr's array helpers (slice,
-                // concat, flat, copyWithin, ...) memcpy element
-                // POINTERS without deep-cloning. Adding a drop loop
-                // here would double-free shared elements between
-                // source and derived arrays. Proper fix needs
-                // either aliasing-aware element ownership tracking
-                // or deep-clone runtime helpers (str_clone,
-                // obj_clone). Tracked separately; non-Copy elements
-                // in arrays leak on drop (size = elements' heap)
-                // for now.
-                let _ = self.arr_layouts[arr_id.0 as usize];
+                // Phase B refcount: walk refcounted elements first
+                // (each dec via emit_drop_value, freeing only when
+                // refcount hits 0). Aliasing across helpers (slice /
+                // concat / toReversed / ...) is balanced by the inc
+                // inserted at each helper site, so dec here is safe.
+                //
+                // Non-refcounted non-Copy element types (Obj / Arr /
+                // Closure today) skip the walk and leak — Phase 2 will
+                // migrate them to the universal heap header so they
+                // join this path.
+                let elem_ty = self.arr_layouts[arr_id.0 as usize];
+                if elem_ty.is_refcounted() {
+                    let len_v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Load(Type::I64, val, 0),
+                        Type::I64,
+                        None,
+                    );
+                    self.emit_arr_rc_drop_range(
+                        val,
+                        elem_ty,
+                        Operand::ConstI64(0),
+                        Operand::Value(len_v),
+                    );
+                }
                 let drop_fid = self.intrinsics.arr_drop;
                 self.f.append_void(
                     self.cur_block,
@@ -6833,9 +7098,10 @@ impl<'a> LowerCtx<'a> {
                     // (a) Ident-receiver path.
                     if let Expr::Ident(recv_name) = self.ast.get_expr(*recv_id)
                         && let Some(info) = self.locals.get(recv_name).copied()
-                        && matches!(info.ty, Type::Arr(_))
+                        && let Type::Arr(arr_id) = info.ty
                     {
                         let arr_ty = info.ty;
+                        let elem_ty = self.arr_layouts[arr_id.0 as usize];
                         let cur_arr = self.f.append_inst(
                             self.cur_block,
                             InstKind::Load(arr_ty, Operand::Value(info.slot), 0),
@@ -6843,7 +7109,17 @@ impl<'a> LowerCtx<'a> {
                             None,
                         );
                         let val = self.lower_expr(args[0]);
-                        self.consume_if_ident(args[0]);
+                        // Phase B refcount: for refcounted element
+                        // types, share ownership via inc instead of
+                        // consuming the source — caller's drop dec's,
+                        // array's element-walk drop dec's again, refs
+                        // net correctly even for `arr.push(s); arr.push(s)`.
+                        // Non-refcounted non-Copy (Obj / nested Arr /
+                        // Closure today) preserve the legacy consume
+                        // semantic until Phase 2 migrates them.
+                        if !elem_ty.is_refcounted() {
+                            self.consume_if_ident(args[0]);
+                        }
                         let new_arr = self.f.append_inst(
                             self.cur_block,
                             InstKind::Call(
@@ -6853,6 +7129,15 @@ impl<'a> LowerCtx<'a> {
                             arr_ty,
                             None,
                         );
+                        if elem_ty.is_refcounted() {
+                            self.f.append_void(
+                                self.cur_block,
+                                InstKind::Call(
+                                    self.intrinsics.rc_inc,
+                                    vec![val],
+                                ),
+                            );
+                        }
                         self.f.append_void(
                             self.cur_block,
                             InstKind::Store(
@@ -6922,8 +7207,9 @@ impl<'a> LowerCtx<'a> {
                                         None
                                     }
                                 })
-                                && matches!(field_ty, Type::Arr(_))
+                                && let Type::Arr(arr_id) = field_ty
                             {
+                                let elem_ty = self.arr_layouts[arr_id.0 as usize];
                                 let offset = OBJ_HEADER_SIZE + (idx as u64) * 8;
                                 let cur_arr = self.f.append_inst(
                                     self.cur_block,
@@ -6932,7 +7218,9 @@ impl<'a> LowerCtx<'a> {
                                     None,
                                 );
                                 let val = self.lower_expr(args[0]);
-                                self.consume_if_ident(args[0]);
+                                if !elem_ty.is_refcounted() {
+                                    self.consume_if_ident(args[0]);
+                                }
                                 let new_arr = self.f.append_inst(
                                     self.cur_block,
                                     InstKind::Call(
@@ -6942,6 +7230,15 @@ impl<'a> LowerCtx<'a> {
                                     field_ty,
                                     None,
                                 );
+                                if elem_ty.is_refcounted() {
+                                    self.f.append_void(
+                                        self.cur_block,
+                                        InstKind::Call(
+                                            self.intrinsics.rc_inc,
+                                            vec![val],
+                                        ),
+                                    );
+                                }
                                 self.f.append_void(
                                     self.cur_block,
                                     InstKind::Store(
@@ -7516,6 +7813,8 @@ impl<'a> LowerCtx<'a> {
                     }
                     // `arr.concat(other)` — fresh array, single malloc +
                     // two memcpys via the C runtime. Element type carried.
+                    // Phase B refcount: derived array's slots alias both
+                    // sources; inc each slot for non-Copy elements.
                     if let Type::Arr(arr_id) = recv_ty
                         && method == "concat"
                         && args.len() == 1
@@ -7530,6 +7829,20 @@ impl<'a> LowerCtx<'a> {
                             Type::Arr(arr_id),
                             None,
                         );
+                        let elem_ty = self.arr_layouts[arr_id.0 as usize];
+                        if elem_ty.is_refcounted() {
+                            let len = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Load(Type::I64, Operand::Value(v), 0),
+                                Type::I64,
+                                None,
+                            );
+                            self.emit_arr_rc_inc_range(
+                                Operand::Value(v),
+                                Operand::ConstI64(0),
+                                Operand::Value(len),
+                            );
+                        }
                         return Operand::Value(v);
                     }
                     // `arr.at(i)` — element at i with negative-index wrap.
@@ -7628,6 +7941,15 @@ impl<'a> LowerCtx<'a> {
                     }
                     // `arr.copyWithin(target, start, end)` — in-place
                     // memmove via runtime helper.
+                    //
+                    // Phase B refcount: for non-Copy elements the dst
+                    // range gets aliased ptrs from the src range. The
+                    // sequence MUST be inc-src-first then drop-dst,
+                    // otherwise an overlapping element could be freed
+                    // before its inc (use-after-free). Then arr_copy_within
+                    // does the bytewise memmove; refcounts now reflect
+                    // the post-copy slot ownership so the array's
+                    // eventual element-walk drop is balanced.
                     if let Type::Arr(arr_id) = recv_ty
                         && method == "copyWithin"
                         && args.len() == 3
@@ -7635,6 +7957,72 @@ impl<'a> LowerCtx<'a> {
                         let target = self.lower_expr(args[0]);
                         let start = self.lower_expr(args[1]);
                         let end = self.lower_expr(args[2]);
+                        let elem_ty = self.arr_layouts[arr_id.0 as usize];
+                        if elem_ty.is_refcounted() {
+                            // Replicate arr_copy_within's clamp: lo = clamp(start),
+                            // hi = clamp(end), to = clamp(target), count = min(hi-lo,
+                            // len-to). Then inc src [lo, lo+count) and drop dst
+                            // [to, to+count) before the memmove.
+                            let len_v = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Load(Type::I64, recv_op, 0),
+                                Type::I64,
+                                None,
+                            );
+                            let len_op = Operand::Value(len_v);
+                            let lo = self.clamp_i64_to_range(start, Operand::ConstI64(0), len_op);
+                            let hi = self.clamp_i64_to_range(end, Operand::ConstI64(0), len_op);
+                            let to = self.clamp_i64_to_range(target, Operand::ConstI64(0), len_op);
+                            // raw_count = max(0, hi - lo)
+                            let diff = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::BinOp(SsaBinOp::Sub, hi, lo),
+                                Type::I64,
+                                None,
+                            );
+                            let raw_count = self.clamp_i64_to_range(
+                                Operand::Value(diff),
+                                Operand::ConstI64(0),
+                                len_op,
+                            );
+                            // capacity left at dst = len - to
+                            let cap_left = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::BinOp(SsaBinOp::Sub, len_op, to),
+                                Type::I64,
+                                None,
+                            );
+                            // count = min(raw_count, cap_left), clamped >= 0
+                            let count = self.clamp_i64_to_range(
+                                raw_count,
+                                Operand::ConstI64(0),
+                                Operand::Value(cap_left),
+                            );
+                            // src_end = lo + count, dst_end = to + count
+                            let src_end = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::BinOp(SsaBinOp::Add, lo, count),
+                                Type::I64,
+                                None,
+                            );
+                            let dst_end = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::BinOp(SsaBinOp::Add, to, count),
+                                Type::I64,
+                                None,
+                            );
+                            self.emit_arr_rc_inc_range(
+                                recv_op,
+                                lo,
+                                Operand::Value(src_end),
+                            );
+                            self.emit_arr_rc_drop_range(
+                                recv_op,
+                                elem_ty,
+                                to,
+                                Operand::Value(dst_end),
+                            );
+                        }
                         let v = self.f.append_inst(
                             self.cur_block,
                             InstKind::Call(
@@ -7665,7 +8053,10 @@ impl<'a> LowerCtx<'a> {
                     }
                     // `arr.toReversed()` — non-mutating reverse. Fresh
                     // alloc + reverse-direction slot copy via the C
-                    // runtime; original untouched.
+                    // runtime; original untouched. Phase B refcount:
+                    // for non-Copy elements, inc each derived slot to
+                    // share ownership with the source (see arr.slice
+                    // for rationale).
                     if let Type::Arr(arr_id) = recv_ty
                         && method == "toReversed"
                         && args.is_empty()
@@ -7679,6 +8070,20 @@ impl<'a> LowerCtx<'a> {
                             Type::Arr(arr_id),
                             None,
                         );
+                        let elem_ty = self.arr_layouts[arr_id.0 as usize];
+                        if elem_ty.is_refcounted() {
+                            let len = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Load(Type::I64, Operand::Value(v), 0),
+                                Type::I64,
+                                None,
+                            );
+                            self.emit_arr_rc_inc_range(
+                                Operand::Value(v),
+                                Operand::ConstI64(0),
+                                Operand::Value(len),
+                            );
+                        }
                         return Operand::Value(v);
                     }
                     // `arr.with(i, v)` — non-mutating index update. The
@@ -7687,6 +8092,13 @@ impl<'a> LowerCtx<'a> {
                     // bounds `i` is UB. Element value passed as i64 (the
                     // 8-byte slot width); f64 elements would need a
                     // bitcast not yet in the IR (matches `fill`).
+                    //
+                    // Phase B refcount: for non-Copy elements, the
+                    // derived array shares ownership of all non-`i`
+                    // slots with the source AND of slot `i` with the
+                    // caller's `v`. inc every slot uniformly — caller's
+                    // drop on `v` and source's per-slot drops balance
+                    // against the derived array's own per-slot drops.
                     if let Type::Arr(arr_id) = recv_ty
                         && method == "with"
                         && args.len() == 2
@@ -7708,6 +8120,20 @@ impl<'a> LowerCtx<'a> {
                             Type::Arr(arr_id),
                             None,
                         );
+                        let elem_ty = self.arr_layouts[arr_id.0 as usize];
+                        if elem_ty.is_refcounted() {
+                            let len = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Load(Type::I64, Operand::Value(v), 0),
+                                Type::I64,
+                                None,
+                            );
+                            self.emit_arr_rc_inc_range(
+                                Operand::Value(v),
+                                Operand::ConstI64(0),
+                                Operand::Value(len),
+                            );
+                        }
                         return Operand::Value(v);
                     }
                     // `arr.fill(v, start, end)` — uniform fill of the
@@ -7716,6 +8142,12 @@ impl<'a> LowerCtx<'a> {
                     // Obj / Arr; f64 elements would need a bitcast not
                     // yet in the IR). The intrinsic returns the same
                     // pointer.
+                    //
+                    // Phase B refcount: for non-Copy elements, the
+                    // overwrite would leak the old value AND leave new-
+                    // value refcount imbalanced. Emit a per-slot SSA
+                    // loop that drops old + stores new + inc's new,
+                    // bypassing the C runtime for this case.
                     if let Type::Arr(arr_id) = recv_ty
                         && method == "fill"
                         && args.len() == 3
@@ -7729,21 +8161,114 @@ impl<'a> LowerCtx<'a> {
                         }
                         let start = self.lower_expr(args[1]);
                         let end = self.lower_expr(args[2]);
-                        let v = self.f.append_inst(
+                        let elem_ty = self.arr_layouts[arr_id.0 as usize];
+                        if elem_ty.is_copy() {
+                            let v = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(
+                                    self.intrinsics.arr_fill,
+                                    vec![recv_op, value, start, end],
+                                ),
+                                Type::Arr(arr_id),
+                                None,
+                            );
+                            return Operand::Value(v);
+                        }
+                        // Non-Copy fill: per-slot drop-old + store-new + inc-new.
+                        // Clamp [start, end) to [0, len] inline (matches arr_fill C semantics).
+                        let len_v = self.f.append_inst(
                             self.cur_block,
-                            InstKind::Call(
-                                self.intrinsics.arr_fill,
-                                vec![recv_op, value, start, end],
-                            ),
-                            Type::Arr(arr_id),
+                            InstKind::Load(Type::I64, recv_op, 0),
+                            Type::I64,
                             None,
                         );
-                        return Operand::Value(v);
+                        let lo = self.clamp_i64_to_range(
+                            start,
+                            Operand::ConstI64(0),
+                            Operand::Value(len_v),
+                        );
+                        let hi = self.clamp_i64_to_range(
+                            end,
+                            Operand::ConstI64(0),
+                            Operand::Value(len_v),
+                        );
+                        let i_slot = self.alloca_in_entry(Type::I64, Some("__fill_i"));
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Store(lo, Operand::Value(i_slot), 0),
+                        );
+                        let header = self.f.add_block();
+                        let body = self.f.add_block();
+                        let after = self.f.add_block();
+                        self.f.set_term(self.cur_block, Terminator::Br(header));
+                        self.cur_block = header;
+                        let i_now = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(Type::I64, Operand::Value(i_slot), 0),
+                            Type::I64,
+                            None,
+                        );
+                        let cond = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::ICmp(IPred::Slt, Operand::Value(i_now), hi),
+                            Type::Bool,
+                            None,
+                        );
+                        self.f.set_term(self.cur_block, Terminator::CondBr {
+                            cond: Operand::Value(cond),
+                            then_blk: body,
+                            else_blk: after,
+                        });
+                        self.cur_block = body;
+                        let scaled = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::BinOp(SsaBinOp::Shl, Operand::Value(i_now), Operand::ConstI64(3)),
+                            Type::I64,
+                            None,
+                        );
+                        let off = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::BinOp(SsaBinOp::Add, Operand::Value(scaled), Operand::ConstI64(16)),
+                            Type::I64,
+                            None,
+                        );
+                        let old = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::LoadDyn(elem_ty, recv_op, Operand::Value(off)),
+                            elem_ty,
+                            None,
+                        );
+                        self.emit_drop_value(Operand::Value(old), elem_ty);
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::StoreDyn(value, recv_op, Operand::Value(off)),
+                        );
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Call(self.intrinsics.rc_inc, vec![value]),
+                        );
+                        let i_next = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::BinOp(SsaBinOp::Add, Operand::Value(i_now), Operand::ConstI64(1)),
+                            Type::I64,
+                            None,
+                        );
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Store(Operand::Value(i_next), Operand::Value(i_slot), 0),
+                        );
+                        self.f.set_term(self.cur_block, Terminator::Br(header));
+                        self.cur_block = after;
+                        return recv_op;
                     }
                     // `arr.slice(start, end)` — fresh array of the
                     // [start, end) range, single memcpy via
                     // __torajs_arr_slice. Element type carried over
-                    // from the receiver.
+                    // from the receiver. Phase B refcount: when the
+                    // element type is non-Copy (Str etc.), the derived
+                    // array's slots alias the source's; inc each slot's
+                    // refcount so the source and derived can both safely
+                    // walk-drop their elements.
                     if let Type::Arr(arr_id) = recv_ty
                         && method == "slice"
                         && args.len() == 2
@@ -7758,6 +8283,20 @@ impl<'a> LowerCtx<'a> {
                             Type::Arr(arr_id),
                             None,
                         );
+                        let elem_ty = self.arr_layouts[arr_id.0 as usize];
+                        if elem_ty.is_refcounted() {
+                            let len = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Load(Type::I64, Operand::Value(v), 0),
+                                Type::I64,
+                                None,
+                            );
+                            self.emit_arr_rc_inc_range(
+                                Operand::Value(v),
+                                Operand::ConstI64(0),
+                                Operand::Value(len),
+                            );
+                        }
                         return Operand::Value(v);
                     }
                     // `arr.indexOf(needle)` / `arr.lastIndexOf(needle)` /
@@ -9153,34 +9692,55 @@ impl<'a> LowerCtx<'a> {
                     Lit(Operand),
                     Spread(Operand),
                 }
-                let mut items: Vec<Item> = Vec::with_capacity(element_ids.len());
+                // Lower each element first; capture its src ExprId so
+                // we can decide ownership semantics post-lowering once
+                // the actual SSA element type is known.
+                struct LoweredItem {
+                    op: Operand,
+                    src_eid: ExprId,
+                    is_spread: bool,
+                }
+                let mut lowered: Vec<LoweredItem> = Vec::with_capacity(element_ids.len());
                 let mut elem_ty: Option<Type> = None;
                 let mut literal_count: i64 = 0;
                 for eid in &element_ids {
                     if let Expr::Spread { expr } = self.ast.get_expr(*eid) {
                         let inner = *expr;
                         let v = self.lower_expr(inner);
-                        self.consume_if_ident(inner);
                         let v_ty = self.operand_ty(&v);
-                        if let Type::Arr(arr_id) = v_ty {
-                            if elem_ty.is_none() {
-                                elem_ty = Some(self.arr_layouts[arr_id.0 as usize]);
-                            }
+                        if let Type::Arr(arr_id) = v_ty
+                            && elem_ty.is_none()
+                        {
+                            elem_ty = Some(self.arr_layouts[arr_id.0 as usize]);
                         }
-                        items.push(Item::Spread(v));
+                        lowered.push(LoweredItem { op: v, src_eid: inner, is_spread: true });
                     } else {
                         let v = self.lower_expr(*eid);
-                        self.consume_if_ident(*eid);
                         let v_ty = self.operand_ty(&v);
                         if elem_ty.is_none() {
                             elem_ty = Some(v_ty);
                         }
                         literal_count += 1;
-                        items.push(Item::Lit(v));
+                        lowered.push(LoweredItem { op: v, src_eid: *eid, is_spread: false });
                     }
+                }
+                let elem_is_refcounted = elem_ty.unwrap_or(Type::I64).is_refcounted();
+                // Phase B refcount: for refcounted element types, leave
+                // the source ident live so its scope-drop fires; the
+                // inc emitted at placement time balances the array's
+                // element-walk dec. For Copy and non-refcounted-non-Copy
+                // (Obj / nested Arr / Closure) keep the legacy consume-
+                // if-ident transfer until Phase 2 migrates those layouts.
+                let mut items: Vec<Item> = Vec::with_capacity(lowered.len());
+                for li in &lowered {
+                    if !elem_is_refcounted {
+                        self.consume_if_ident(li.src_eid);
+                    }
+                    items.push(if li.is_spread { Item::Spread(li.op) } else { Item::Lit(li.op) });
                 }
                 let elem_ty = elem_ty.unwrap_or(Type::I64);
                 let arr_id = intern_arr_layout(self.arr_layouts, elem_ty);
+                let elem_is_refcounted = elem_ty.is_refcounted();
 
                 // total = literal_count + sum(spread.length).
                 let mut total: Operand = Operand::ConstI64(literal_count);
@@ -9222,8 +9782,31 @@ impl<'a> LowerCtx<'a> {
                                     vec![Operand::Value(arr_ptr), v],
                                 ),
                             );
+                            // Phase B refcount: array now shares
+                            // ownership of `v` with the caller.
+                            if elem_is_refcounted {
+                                self.f.append_void(
+                                    self.cur_block,
+                                    InstKind::Call(
+                                        self.intrinsics.rc_inc,
+                                        vec![v],
+                                    ),
+                                );
+                            }
                         }
                         Item::Spread(src) => {
+                            // Capture old_len before extend so we can
+                            // walk just the appended tail post-call.
+                            let old_len = if elem_is_refcounted {
+                                Some(self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::Load(Type::I64, Operand::Value(arr_ptr), 0),
+                                    Type::I64,
+                                    None,
+                                ))
+                            } else {
+                                None
+                            };
                             self.f.append_void(
                                 self.cur_block,
                                 InstKind::Call(
@@ -9231,6 +9814,19 @@ impl<'a> LowerCtx<'a> {
                                     vec![Operand::Value(arr_ptr), src],
                                 ),
                             );
+                            if let Some(old) = old_len {
+                                let new_len = self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::Load(Type::I64, Operand::Value(arr_ptr), 0),
+                                    Type::I64,
+                                    None,
+                                );
+                                self.emit_arr_rc_inc_range(
+                                    Operand::Value(arr_ptr),
+                                    Operand::Value(old),
+                                    Operand::Value(new_len),
+                                );
+                            }
                         }
                     }
                 }
