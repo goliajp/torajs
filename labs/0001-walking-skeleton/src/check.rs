@@ -1681,6 +1681,22 @@ impl Checker {
                         let inner = (**elem).clone();
                         Ok(Type::Function(Vec::new(), Box::new(inner)))
                     }
+                    // `xs.shift()` — same shape as pop but removes the
+                    // first element (memmoves the rest left). Subset
+                    // convention: empty-array shift is unchecked.
+                    (Type::Array(elem), "shift") => {
+                        let inner = (**elem).clone();
+                        Ok(Type::Function(Vec::new(), Box::new(inner)))
+                    }
+                    // `xs.unshift(v)` — insert v at slot 0 (memmoves
+                    // the rest right; may realloc). JS spec returns the
+                    // new length; tr returns void here for parser
+                    // symmetry with push (the return is typically
+                    // discarded).
+                    (Type::Array(elem), "unshift") => {
+                        let inner = (**elem).clone();
+                        Ok(Type::Function(vec![inner], Box::new(Type::Void)))
+                    }
                     // `xs.flat()` — single-level flatten. Receiver must
                     // be `T[][]`; result is `T[]`. v0 supports depth=1
                     // only (no `.flat(2)` arg).

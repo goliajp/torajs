@@ -1224,6 +1224,57 @@ void *__torajs_arr_reverse(uint8_t *arr) {
     return arr;
 }
 
+/* `arr.shift()` — remove and return slot[0]. Memmoves the rest of the
+ * slots one slot left, decrements len. Subset convention: empty-array
+ * shift is unchecked (no `T | undefined`). Returns the popped value
+ * as i64 (the slot's 8-byte payload, reinterpreted by the caller). */
+int64_t __torajs_arr_shift(uint8_t *arr) {
+    uint64_t len = __TORAJS_ARR_LEN(arr);
+    int64_t v = *(int64_t *)__TORAJS_ARR_SLOT(arr, 0);
+    if (len > 1) {
+        memmove(__TORAJS_ARR_SLOT(arr, 0),
+                __TORAJS_ARR_SLOT(arr, 1),
+                (size_t)(len - 1) * 8);
+    }
+    __TORAJS_ARR_LEN(arr) = len - 1;
+    return v;
+}
+
+/* `arr.unshift(v)` — insert `v` at slot[0]. Grows by 1 (realloc if
+ * cap < len+1), memmoves existing slots one slot right, writes v at
+ * slot[0]. Returns the new array pointer (caller stores it back into
+ * the slot, mirroring `push`). Returns the new length is the JS spec,
+ * but tr's API matches `push` (returning ptr) for parser symmetry —
+ * the return value is typically discarded. */
+void *__torajs_arr_unshift(uint8_t *arr, int64_t v) {
+    uint64_t len = __TORAJS_ARR_LEN(arr);
+    uint64_t cap = __TORAJS_ARR_CAP(arr);
+    if (len >= cap) {
+        /* Reuse arr_push's grow strategy: double cap (or 1 if 0).
+         * Allocate a new block, copy header + slots, free old. */
+        uint64_t new_cap = cap == 0 ? 1 : cap * 2;
+        uint8_t *p = arr_alloc_(0, new_cap);
+        if (len > 0) {
+            memcpy(__TORAJS_ARR_SLOT(p, 1),
+                   __TORAJS_ARR_CDATA(arr),
+                   (size_t)len * 8);
+        }
+        *(int64_t *)__TORAJS_ARR_SLOT(p, 0) = v;
+        __TORAJS_ARR_LEN(p) = len + 1;
+        free(arr);
+        return p;
+    }
+    /* In-place: memmove right + write slot[0]. */
+    if (len > 0) {
+        memmove(__TORAJS_ARR_SLOT(arr, 1),
+                __TORAJS_ARR_SLOT(arr, 0),
+                (size_t)len * 8);
+    }
+    *(int64_t *)__TORAJS_ARR_SLOT(arr, 0) = v;
+    __TORAJS_ARR_LEN(arr) = len + 1;
+    return arr;
+}
+
 /* `arr.copyWithin(target, start, end)` — in-place memmove of
  * the [start, end) slice to position `target`. All indices clamped to
  * [0, len]. memmove handles overlap. Returns same pointer. */

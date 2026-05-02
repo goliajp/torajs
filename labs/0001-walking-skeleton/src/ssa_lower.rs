@@ -982,6 +982,24 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         &[Type::Ptr, Type::I64],
         Type::Ptr,
     );
+    // `arr.shift()` — pull and return slot[0], memmove rest left.
+    // Returns i64; SSA caller bitcasts to the receiver's element type.
+    let arr_shift_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_arr_shift",
+        &[Type::Ptr],
+        Type::I64,
+    );
+    // `arr.unshift(v)` — insert at slot[0], memmove rest right; may
+    // realloc. Returns the new ptr (caller stores back into the slot).
+    let arr_unshift_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_arr_unshift",
+        &[Type::Ptr, Type::I64],
+        Type::Ptr,
+    );
     let arr_drop_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -2119,6 +2137,8 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         obj_drop: obj_drop_id,
         arr_alloc: arr_alloc_id,
         arr_push: arr_push_id,
+        arr_shift: arr_shift_id,
+        arr_unshift: arr_unshift_id,
         arr_drop: arr_drop_id,
         arr_reserve: arr_reserve_id,
         arr_push_unchecked: arr_push_unchecked_id,
@@ -2437,6 +2457,8 @@ struct Intrinsics {
     obj_drop: FuncId,
     arr_alloc: FuncId,
     arr_push: FuncId,
+    arr_shift: FuncId,
+    arr_unshift: FuncId,
     arr_drop: FuncId,
     arr_reserve: FuncId,
     arr_push_unchecked: FuncId,
@@ -7595,6 +7617,110 @@ impl<'a> LowerCtx<'a> {
                     return Operand::Value(elem);
                 }
                 // M1.2 — `xs.push(v)` special-case. Two receiver shapes:
+                // `xs.shift()` — Ident-receiver only. Calls runtime
+                // `arr_shift` which memmoves [1..len) → [0..len-1) and
+                // dec's len. Returns the popped element (i64 in C; SSA
+                // re-types via the receiver's element type).
+                if let Expr::Member { obj: recv_id, name } = self.ast.get_expr(*callee)
+                    && name == "shift"
+                    && args.is_empty()
+                    && let Expr::Ident(recv_name) = self.ast.get_expr(*recv_id)
+                    && let Some(info) = self.locals.get(recv_name).copied()
+                    && let Type::Arr(arr_id) = info.ty
+                {
+                    let arr_ty = info.ty;
+                    let elem_ty = self.arr_layouts[arr_id.0 as usize];
+                    let cur_arr = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Load(arr_ty, Operand::Value(info.slot), 0),
+                        arr_ty,
+                        None,
+                    );
+                    let v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.arr_shift,
+                            vec![Operand::Value(cur_arr)],
+                        ),
+                        elem_ty,
+                        None,
+                    );
+                    return Operand::Value(v);
+                }
+                // `xs.unshift(v)` — same realloc-and-store-back shape
+                // as push (a), but the runtime helper memmoves slots
+                // right + writes slot[0] before returning the new ptr.
+                if let Expr::Member { obj: recv_id, name } = self.ast.get_expr(*callee)
+                    && name == "unshift"
+                    && args.len() == 1
+                    && let Expr::Ident(recv_name) = self.ast.get_expr(*recv_id)
+                    && let Some(info) = self.locals.get(recv_name).copied()
+                    && let Type::Arr(arr_id) = info.ty
+                {
+                    let arr_ty = info.ty;
+                    let elem_ty = self.arr_layouts[arr_id.0 as usize];
+                    let cur_arr = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Load(arr_ty, Operand::Value(info.slot), 0),
+                        arr_ty,
+                        None,
+                    );
+                    let val = self.lower_expr(args[0]);
+                    if !elem_ty.is_refcounted() {
+                        self.consume_if_ident(args[0]);
+                    }
+                    let new_arr = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.arr_unshift,
+                            vec![Operand::Value(cur_arr), val],
+                        ),
+                        arr_ty,
+                        None,
+                    );
+                    if elem_ty.is_refcounted() {
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.rc_inc,
+                                vec![val],
+                            ),
+                        );
+                    }
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Store(
+                            Operand::Value(new_arr),
+                            Operand::Value(info.slot),
+                            0,
+                        ),
+                    );
+                    if let Some((env_slot, env_offset)) = self
+                        .captured_arr_writeback
+                        .get(&info.slot)
+                        .copied()
+                    {
+                        let env_ptr = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(
+                                Type::Ptr,
+                                Operand::Value(env_slot),
+                                0,
+                            ),
+                            Type::Ptr,
+                            None,
+                        );
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Store(
+                                Operand::Value(new_arr),
+                                Operand::Value(env_ptr),
+                                env_offset,
+                            ),
+                        );
+                    }
+                    return Operand::ConstI64(0);
+                }
                 //   (a) Ident bound to a mutable `Type::Arr` local — load
                 //       cur ptr from the slot, call arr_push (which may
                 //       realloc), store result back into the slot.
@@ -12175,6 +12301,8 @@ impl<'a> LowerCtx<'a> {
             || fid == i.obj_drop
             || fid == i.arr_alloc
             || fid == i.arr_push
+            || fid == i.arr_shift
+            || fid == i.arr_unshift
             || fid == i.arr_drop
             || fid == i.arr_reserve
             || fid == i.arr_push_unchecked
