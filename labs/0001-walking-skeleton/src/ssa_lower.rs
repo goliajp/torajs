@@ -59,6 +59,22 @@ const OBJ_VTABLE_OFF: u64 = 16;
 const ARR_LEN_OFF: u64 = 8;
 const ARR_DATA_OFF: u64 = 24;
 
+/// Phase 2C refcount: Closure env layout:
+///
+///   offset 0  — universal heap header (refcount u32 + type_tag u16 + flags u16)
+///   offset 8  — fn_addr (entry point)
+///   offset 16 — drop_fn  (per-closure cleanup, populated in Pass 2.5)
+///   offset 24 — cap0
+///   offset 32 — cap1
+///   ...
+///
+/// `__torajs_obj_alloc` stays the underlying allocator (plain malloc);
+/// the lowerer writes the universal header at the closure construction
+/// site via `emit_obj_header_init` adapted for type_tag=CLOSURE.
+const CLOSURE_FN_ADDR_OFF: u64 = 8;
+const CLOSURE_DROP_FN_OFF: u64 = 16;
+const CLOSURE_CAP_BASE_OFF: u64 = 24;
+
 /// M3 — generic call-site retargeting. For each `Expr::Call` whose ExprId
 /// is a generic call site, the typechecker has already inferred the
 /// concrete type args; this map remembers the **specialized fn name** the
@@ -2204,7 +2220,7 @@ fn synthesize_env_drop(
     let entry = f.add_block();
     let env_op = Operand::Value(env_pid);
     for (i, (cap_ty, _is_byref)) in cap_meta.iter().enumerate() {
-        let offset = 16 + (i as u64) * 8;
+        let offset = CLOSURE_CAP_BASE_OFF + (i as u64) * 8;
         if cap_ty.is_copy() {
             // Copy capture: env+offset stores a heap-allocated 8-byte
             // slot pointer. Free the slot.
@@ -3358,7 +3374,7 @@ fn lower_fn(
                 Type::Ptr,
                 None,
             );
-            let offset = 16 + (i as u64) * 8;
+            let offset = CLOSURE_CAP_BASE_OFF + (i as u64) * 8;
             // Three modes mirroring the construction-site code:
             //  - by-ref Copy: env stored ptr-to-outer-slot. Use the
             //    loaded ptr as the capture's local slot directly so
@@ -4652,15 +4668,16 @@ impl<'a> LowerCtx<'a> {
                 );
             }
             Type::Closure(_) => {
-                // Per-closure env-drop: load drop_fn ptr from env+8
-                // and call it. The drop fn (synthesized in Pass 2.5)
-                // walks the env's captures, frees each appropriately,
-                // then frees the env block itself. This handles all
-                // capture flavors (heap-promoted Copy boxes, non-Copy
-                // heap data, nested closures) uniformly.
+                // Per-closure env-drop: load drop_fn ptr from
+                // CLOSURE_DROP_FN_OFF and call it. The drop fn
+                // (synthesized in Pass 2.5) walks the env's captures,
+                // frees each appropriately, then frees the env block
+                // itself. This handles all capture flavors (heap-
+                // promoted Copy boxes, non-Copy heap data, nested
+                // closures) uniformly.
                 let drop_fn_ptr = self.f.append_inst(
                     self.cur_block,
-                    InstKind::Load(Type::Ptr, val, 8),
+                    InstKind::Load(Type::Ptr, val, CLOSURE_DROP_FN_OFF),
                     Type::Ptr,
                     None,
                 );
@@ -9222,7 +9239,7 @@ impl<'a> LowerCtx<'a> {
                     );
                     let fn_ptr = self.f.append_inst(
                         self.cur_block,
-                        InstKind::Load(Type::Ptr, Operand::Value(env_ptr), 0),
+                        InstKind::Load(Type::Ptr, Operand::Value(env_ptr), CLOSURE_FN_ADDR_OFF),
                         Type::Ptr,
                         None,
                     );
@@ -9339,7 +9356,7 @@ impl<'a> LowerCtx<'a> {
                                 InstKind::Load(
                                     Type::Ptr,
                                     Operand::Value(env_ptr),
-                                    0,
+                                    CLOSURE_FN_ADDR_OFF,
                                 ),
                                 Type::Ptr,
                                 None,
@@ -10099,16 +10116,18 @@ impl<'a> LowerCtx<'a> {
                 self.closure_captures
                     .insert(fn_name.clone(), cap_meta);
 
-                // Allocate env block. Layout (16-byte header + captures):
-                //   env+0  : fn_addr      (closure body entry point)
-                //   env+8  : drop_fn_ptr  (per-closure cleanup, populated
-                //                           in Pass 2.5; FuncId pre-
-                //                           registered in Pass 1 so we
-                //                           can FnAddr it here)
-                //   env+16 : cap0
-                //   env+24 : cap1
+                // Phase 2C: Closure env layout (24-byte header + captures):
+                //   env+0   : universal heap header (refcount + type_tag=CLOSURE + flags)
+                //   env+8   : fn_addr      (closure body entry point)
+                //   env+16  : drop_fn_ptr  (per-closure cleanup, populated
+                //                            in Pass 2.5; FuncId pre-
+                //                            registered in Pass 1 so we
+                //                            can FnAddr it here)
+                //   env+24  : cap0
+                //   env+32  : cap1
                 //   ...
-                let alloc_size = 16 + 8 * (captures.len() as i64);
+                let alloc_size = CLOSURE_CAP_BASE_OFF as i64
+                    + 8 * (captures.len() as i64);
                 let env_v = self.f.append_inst(
                     self.cur_block,
                     InstKind::Call(
@@ -10118,8 +10137,17 @@ impl<'a> LowerCtx<'a> {
                     closure_ty,
                     None,
                 );
-                // Store fn_addr at offset 0. fn_addr's natural type is
-                // FnSig but at the SSA layer it's just an i64 / ptr.
+                // Phase 2C refcount: init universal heap header
+                // (refcount=1, type_tag=CLOSURE=3, flags=0).
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Store(Operand::ConstI32(1), Operand::Value(env_v), 0),
+                );
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Store(Operand::ConstI32(3), Operand::Value(env_v), 4),
+                );
+                // Store fn_addr at CLOSURE_FN_ADDR_OFF.
                 let lifted_sig_id = self
                     .fn_sig_ids
                     .get(&fid)
@@ -10133,11 +10161,13 @@ impl<'a> LowerCtx<'a> {
                 );
                 self.f.append_void(
                     self.cur_block,
-                    InstKind::Store(Operand::Value(fn_addr_v), Operand::Value(env_v), 0),
+                    InstKind::Store(
+                        Operand::Value(fn_addr_v),
+                        Operand::Value(env_v),
+                        CLOSURE_FN_ADDR_OFF,
+                    ),
                 );
-                // Store drop_fn ptr at offset 8. The pre-registered
-                // `__env_drop_<closure_name>` FuncId is filled in by
-                // Pass 2.5 with the actual cleanup body.
+                // Store drop_fn ptr at CLOSURE_DROP_FN_OFF.
                 let drop_fn_name = format!("__env_drop_{fn_name}");
                 let drop_fid = *self.fn_table.get(&drop_fn_name).unwrap_or_else(|| {
                     panic!(
@@ -10157,7 +10187,11 @@ impl<'a> LowerCtx<'a> {
                 );
                 self.f.append_void(
                     self.cur_block,
-                    InstKind::Store(Operand::Value(drop_addr_v), Operand::Value(env_v), 8),
+                    InstKind::Store(
+                        Operand::Value(drop_addr_v),
+                        Operand::Value(env_v),
+                        CLOSURE_DROP_FN_OFF,
+                    ),
                 );
                 // Two capture modes:
                 //  - Copy types: by-reference. info.slot is a stable
@@ -10175,7 +10209,7 @@ impl<'a> LowerCtx<'a> {
                     captures.iter().zip(cap_tys.iter()).enumerate()
                 {
                     let info = *self.locals.get(cap_name).expect("capture in scope");
-                    let offset = 16 + (i as u64) * 8;
+                    let offset = CLOSURE_CAP_BASE_OFF + (i as u64) * 8;
                     if cap_ty.is_copy() {
                         self.f.append_void(
                             self.cur_block,
@@ -11164,7 +11198,7 @@ impl<'a> LowerCtx<'a> {
                 };
                 let fn_ptr = self.f.append_inst(
                     self.cur_block,
-                    InstKind::Load(Type::Ptr, Operand::Value(env_ptr), 0),
+                    InstKind::Load(Type::Ptr, Operand::Value(env_ptr), CLOSURE_FN_ADDR_OFF),
                     Type::Ptr,
                     None,
                 );
