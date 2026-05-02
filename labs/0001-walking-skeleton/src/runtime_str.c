@@ -92,6 +92,114 @@ static uint8_t *str_alloc_(uint64_t len) {
 }
 
 /* ============================================================
+ * Substr layout (Phase Substr.A — substring view)
+ *
+ * Substr = [header:8][len:8][parent_ptr:8][offset:8]   total 32
+ *   parent_ptr → owned Str whose bytes the view references
+ *   offset     → byte offset into parent.bytes where view starts
+ *   data       = parent.bytes + offset (computed on access; not stored)
+ *
+ * Refcount semantics: substr's drop dec's its own refcount; when 0 it
+ * also dec's parent's refcount (via str_drop) before freeing self.
+ * Parent stays alive as long as ANY view into it exists.
+ *
+ * Why a separate type from Str: keeps OWNED Str layout (16-byte
+ * prefix, bytes inline at +16) untouched — hot-path byte access on
+ * an owned Str stays a single GEP, no indirection. View access pays
+ * one extra load (parent_ptr → +16 → bytes), but only on Substr-typed
+ * values. Mirrors Swift's `String` / `Substring` split (or Rust's
+ * `String` / `&str`).
+ * ============================================================ */
+
+#define __TORAJS_SUBSTR_SIZE        32
+#define __TORAJS_SUBSTR_PARENT_OFF  16
+#define __TORAJS_SUBSTR_OFFSET_OFF  24
+#define __TORAJS_SUBSTR_LEN(p)      (*(uint64_t *)((const uint8_t *)(p) + 8))
+#define __TORAJS_SUBSTR_PARENT(p)   (*(uint8_t **)((const uint8_t *)(p) + __TORAJS_SUBSTR_PARENT_OFF))
+#define __TORAJS_SUBSTR_OFFSET(p)   (*(uint64_t *)((const uint8_t *)(p) + __TORAJS_SUBSTR_OFFSET_OFF))
+
+/* Forward-declare: __torajs_str_drop is defined in inkwell IR (see
+ * `define_str_drop` in ssa_inkwell.rs). We call it on parent at view-
+ * drop time; the linker resolves the symbol. */
+void __torajs_str_drop(void *s);
+
+/* Create a substring view of `parent` (an OWNED Str) starting at
+ * `offset` with length `len`. Caller must ensure offset+len ≤
+ * parent.length (no bounds check here — matches the unchecked-index
+ * convention used by other tr runtime helpers). Bumps parent's
+ * refcount so its bytes stay alive while the view exists.
+ *
+ * For nested views (`substr.slice(...)`), the caller should resolve
+ * to the root parent before calling this — view-of-view collapses to
+ * view-of-owner so drop chains stay depth-1. (Phase Substr.A only
+ * exposes `__torajs_str_split` as a view source, which always passes
+ * an OWNED Str as parent; deferred until a slice/substring view path
+ * lands.) */
+void *__torajs_substr_create(void *parent, uint64_t offset, uint64_t len) {
+    uint8_t *v = (uint8_t *)malloc(__TORAJS_SUBSTR_SIZE);
+    __torajs_heap_header_t *h = (__torajs_heap_header_t *)v;
+    h->refcount = 1;
+    h->type_tag = __TORAJS_TAG_STR;  /* SSA Type::Substr is still "str" at the type-tag layer */
+    h->flags = 0;  /* reserved for future weak/mark bits; view-vs-owned distinguished by SSA Type, not flag */
+    __TORAJS_SUBSTR_LEN(v) = len;
+    *(uint8_t **)(v + __TORAJS_SUBSTR_PARENT_OFF) = (uint8_t *)parent;
+    *(uint64_t *)(v + __TORAJS_SUBSTR_OFFSET_OFF) = offset;
+    __torajs_rc_inc(parent);
+    return v;
+}
+
+/* Drop a Substr view: dec self refcount; on hitting zero, dec parent's
+ * refcount (str_drop on parent) and free self. */
+void __torajs_substr_drop(void *v) {
+    if (v == NULL) return;
+    if (__torajs_rc_dec(v)) {
+        void *parent = (void *)*(uint8_t **)((uint8_t *)v + __TORAJS_SUBSTR_PARENT_OFF);
+        __torajs_str_drop(parent);
+        free(v);
+    }
+}
+
+/* Substr → i64: byte at position `i` (zero-extended). Out-of-bounds
+ * returns 0, matching `__torajs_str_char_code_at` semantics for OWNED
+ * Str. Hot path on RPN-style demos that iterate `tok.charCodeAt(i)`
+ * over view substrings from `expr.split(" ")`. */
+int64_t __torajs_substr_char_code_at(const uint8_t *v, int64_t i) {
+    uint64_t len = __TORAJS_SUBSTR_LEN(v);
+    if (i < 0 || (uint64_t)i >= len) return 0;
+    const uint8_t *parent = *(const uint8_t *const *)(v + __TORAJS_SUBSTR_PARENT_OFF);
+    uint64_t offset = *(const uint64_t *)(v + __TORAJS_SUBSTR_OFFSET_OFF);
+    return (int64_t)parent[__TORAJS_STR_HDR_SIZE + offset + (uint64_t)i];
+}
+
+/* Bytewise compare a Substr against an OWNED Str. Used by switch /
+ * `===` dispatch when the rhs is a known short literal (ssa_lower
+ * may further inline the byte chain). Returns 1 iff lengths equal
+ * AND bytes equal. */
+int64_t __torajs_substr_eq_str(const uint8_t *v, const uint8_t *s) {
+    uint64_t v_len = __TORAJS_SUBSTR_LEN(v);
+    uint64_t s_len = __TORAJS_STR_LEN(s);
+    if (v_len != s_len) return 0;
+    if (v_len == 0) return 1;
+    const uint8_t *parent = *(const uint8_t *const *)(v + __TORAJS_SUBSTR_PARENT_OFF);
+    uint64_t offset = *(const uint64_t *)(v + __TORAJS_SUBSTR_OFFSET_OFF);
+    const uint8_t *v_data = parent + __TORAJS_STR_HDR_SIZE + offset;
+    return memcmp(v_data, __TORAJS_STR_CDATA(s), (size_t)v_len) == 0 ? 1 : 0;
+}
+
+/* Materialize a Substr into a fresh OWNED Str (for crossing fn-call
+ * boundaries that expect Type::Str — Phase Substr.B; Phase Substr.C
+ * will mono-morphize the callee to accept Substr directly and avoid
+ * this allocation entirely). */
+void *__torajs_substr_to_owned(const uint8_t *v) {
+    uint64_t len = __TORAJS_SUBSTR_LEN(v);
+    const uint8_t *parent = *(const uint8_t *const *)(v + __TORAJS_SUBSTR_PARENT_OFF);
+    uint64_t offset = *(const uint64_t *)(v + __TORAJS_SUBSTR_OFFSET_OFF);
+    uint8_t *p = str_alloc_(len);
+    if (len) memcpy(__TORAJS_STR_DATA(p), parent + __TORAJS_STR_HDR_SIZE + offset, (size_t)len);
+    return p;
+}
+
+/* ============================================================
  * Arr layout (Phase 2A — universal heap header)
  *
  * Arr = [header:8][len:8][cap:8][slots:N*8]

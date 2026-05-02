@@ -1314,6 +1314,45 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         &[Type::Str, Type::Str],
         Type::Ptr,
     );
+    // Phase Substr.A — view-substring runtime helpers. `__torajs_str_split`
+    // (above) will be re-routed to return `Array<Substr>` in Phase Substr.B;
+    // these helpers provide the per-Substr ops the lowerer dispatches to
+    // when the receiver type is `Type::Substr`.
+    let substr_create_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_substr_create",
+        &[Type::Str, Type::I64, Type::I64],
+        Type::Substr,
+    );
+    let substr_drop_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_substr_drop",
+        &[Type::Substr],
+        Type::Void,
+    );
+    let substr_char_code_at_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_substr_char_code_at",
+        &[Type::Substr, Type::I64],
+        Type::I64,
+    );
+    let substr_eq_str_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_substr_eq_str",
+        &[Type::Substr, Type::Str],
+        Type::Bool,
+    );
+    let substr_to_owned_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_substr_to_owned",
+        &[Type::Substr],
+        Type::Str,
+    );
     let arr_from_string_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -2025,6 +2064,11 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         str_includes: str_includes_id,
         str_eq: str_eq_id,
         str_split: str_split_id,
+        substr_create: substr_create_id,
+        substr_drop: substr_drop_id,
+        substr_char_code_at: substr_char_code_at_id,
+        substr_eq_str: substr_eq_str_id,
+        substr_to_owned: substr_to_owned_id,
         arr_from_string: arr_from_string_id,
         str_substring: str_substring_id,
         arr_to_reversed: arr_to_reversed_id,
@@ -2325,6 +2369,12 @@ struct Intrinsics {
     str_includes: FuncId,
     str_eq: FuncId,
     str_split: FuncId,
+    /// Phase Substr.A — substring view runtime helpers.
+    substr_create: FuncId,
+    substr_drop: FuncId,
+    substr_char_code_at: FuncId,
+    substr_eq_str: FuncId,
+    substr_to_owned: FuncId,
     arr_from_string: FuncId,
     str_substring: FuncId,
     arr_to_reversed: FuncId,
@@ -4556,6 +4606,16 @@ impl<'a> LowerCtx<'a> {
         match ty {
             Type::Str => {
                 let drop_fid = self.intrinsics.str_drop;
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Call(drop_fid, vec![val]),
+                );
+            }
+            Type::Substr => {
+                // Phase Substr.A — view's drop dec's self refcount, then
+                // dec's parent's refcount before freeing. Runtime helper
+                // handles the chain.
+                let drop_fid = self.intrinsics.substr_drop;
                 self.f.append_void(
                     self.cur_block,
                     InstKind::Call(drop_fid, vec![val]),
@@ -10363,7 +10423,7 @@ impl<'a> LowerCtx<'a> {
                 let s: &str = match ty {
                     Type::I64 | Type::F64 | Type::I32 => "number",
                     Type::Bool => "boolean",
-                    Type::Str => "string",
+                    Type::Str | Type::Substr => "string",
                     Type::Obj(_)
                     | Type::Arr(_)
                     | Type::Closure(_)

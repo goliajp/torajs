@@ -77,6 +77,29 @@ pub enum Type {
     /// pointer is a `[N x i8]` global; drop is a no-op. Concat + true
     /// heap allocation lands in 2.2.b/c.
     Str,
+    /// Substring view — non-owning slice of an owned `Str`. Layout:
+    /// `[header:8][len:8][parent_ptr:8][offset:8]` (32 bytes). The
+    /// view holds a refcount on its parent Str so the source bytes
+    /// stay alive; view's drop dec's parent's refcount before free.
+    ///
+    /// Created by `s.split(sep)`, `s.slice(start, end)` etc. when the
+    /// result is a borrow into the source's bytes (zero `memcpy`,
+    /// zero per-substring byte alloc). Mirrors Swift's `Substring` /
+    /// Rust's `&str` slice — separate type from `Str` so the OWNED
+    /// hot-path doesn't pay any indirection cost. At codegen this
+    /// also lowers to a single pointer (same as `Str`), but the SSA
+    /// distinction routes `.charCodeAt` / `=== "literal"` / etc. to
+    /// view-aware variants that load bytes via `parent_data + offset`
+    /// instead of `self + 16`.
+    ///
+    /// Type system: TS source has no separate syntax for substring
+    /// (only `string`); the compiler infers `Substr` for split / slice
+    /// outputs and propagates it through let-binds + for-of. At fn-
+    /// call boundaries that expect `Str`, the call site auto-coerces
+    /// (Phase Substr.B materializes; Phase Substr.C will mono-
+    /// morphize the callee for both Str and Substr arg types to keep
+    /// view performance across boundaries).
+    Substr,
     /// Owned heap object handle pointing at a struct with the layout
     /// stored at `module.struct_layouts[id]`. Like Str, lowers to a
     /// single pointer at codegen — the SSA-level distinction lets
@@ -116,6 +139,7 @@ impl Type {
             Type::Void => "void",
             Type::Ptr => "ptr",
             Type::Str => "str",
+            Type::Substr => "substr",
             Type::Obj(_) => "obj",
             Type::Arr(_) => "arr",
             Type::FnSig(_) => "fnsig",
@@ -148,10 +172,13 @@ impl Type {
     /// to call on values of refcount-aware types.
     ///
     /// Phase 1: `Str`. Phase 2A: `Arr`. Phase 2B: `Obj`. Phase 2C:
-    /// `Closure`. All four non-Copy heap layouts now share the same
-    /// universal heap header.
+    /// `Closure`. Phase Substr.A: `Substr` (also uses universal heap
+    /// header; drop is view-aware — dec parent before free).
     pub fn is_refcounted(self) -> bool {
-        matches!(self, Type::Str | Type::Arr(_) | Type::Obj(_) | Type::Closure(_))
+        matches!(
+            self,
+            Type::Str | Type::Substr | Type::Arr(_) | Type::Obj(_) | Type::Closure(_)
+        )
     }
 }
 
