@@ -92,13 +92,27 @@ static uint8_t *str_alloc_(uint64_t len) {
 }
 
 /* ============================================================
- * Array helpers (layout unchanged in Phase 1; migrated in Phase 2)
+ * Arr layout (Phase 2A — universal heap header)
  *
- * Arr = [len:8][cap:8][slots:N*8]
- * len  at offset 0
- * cap  at offset 8
- * slots at offset 16
+ * Arr = [header:8][len:8][cap:8][slots:N*8]
+ * refcount + type_tag + flags at offset 0   (universal header)
+ * len  at offset 8
+ * cap  at offset 16
+ * slots at offset 24
+ *
+ * Sharing: ssa_lower emits __torajs_rc_inc at every alias-introducing
+ * site (let arr2 = arr / arr.slice / spread / ...). __torajs_arr_drop
+ * is refcount-aware (dec; free at 0). Element-walk drop fires at
+ * Type::Arr drop site for refcounted element types.
  * ============================================================ */
+
+#define __TORAJS_ARR_HDR_SIZE   24
+#define __TORAJS_ARR_LEN(p)     (*(uint64_t *)((const uint8_t *)(p) + 8))
+#define __TORAJS_ARR_CAP(p)     (*(uint64_t *)((const uint8_t *)(p) + 16))
+#define __TORAJS_ARR_DATA(p)    ((uint8_t *)(p) + __TORAJS_ARR_HDR_SIZE)
+#define __TORAJS_ARR_CDATA(p)   ((const uint8_t *)(p) + __TORAJS_ARR_HDR_SIZE)
+#define __TORAJS_ARR_SLOT(p, i) (__TORAJS_ARR_DATA(p) + (uint64_t)(i) * 8)
+#define __TORAJS_ARR_CSLOT(p, i) (__TORAJS_ARR_CDATA(p) + (uint64_t)(i) * 8)
 
 /* Append every element of `src` to `dst` via a single memcpy. Caller
  * MUST have pre-sized dst's cap to fit (typical: array literal with
@@ -106,11 +120,11 @@ static uint8_t *str_alloc_(uint64_t len) {
  * len. Both arrays are the same 8-byte-slot layout — element type
  * doesn't matter at this layer. */
 void __torajs_arr_extend_unchecked(uint8_t *dst, const uint8_t *src) {
-    uint64_t dst_len = *(const uint64_t *)dst;
-    uint64_t src_len = *(const uint64_t *)src;
+    uint64_t dst_len = __TORAJS_ARR_LEN(dst);
+    uint64_t src_len = __TORAJS_ARR_LEN(src);
     if (src_len == 0) return;
-    memcpy(dst + 16 + dst_len * 8, src + 16, (size_t)src_len * 8);
-    *(uint64_t *)dst = dst_len + src_len;
+    memcpy(__TORAJS_ARR_SLOT(dst, dst_len), __TORAJS_ARR_CDATA(src), (size_t)src_len * 8);
+    __TORAJS_ARR_LEN(dst) = dst_len + src_len;
 }
 
 /* `Math.sign(x)` — JS spec: +1 / -1 / preserve-zero. NaN handling
@@ -151,20 +165,33 @@ void *__torajs_str_repeat(const uint8_t *s, int64_t n) {
     return p;
 }
 
+/* Internal helper — alloc a fresh Arr heap with refcount=1 + type_tag
+ * set + len/cap written. Caller fills the slot data at
+ * __TORAJS_ARR_DATA(p). Single-source-of-truth for every Arr alloc
+ * in this file. */
+static uint8_t *arr_alloc_(uint64_t len, uint64_t cap) {
+    uint8_t *p = (uint8_t *)malloc(__TORAJS_ARR_HDR_SIZE + (size_t)cap * 8);
+    __torajs_heap_header_t *h = (__torajs_heap_header_t *)p;
+    h->refcount = 1;
+    h->type_tag = __TORAJS_TAG_ARR;
+    h->flags = 0;
+    __TORAJS_ARR_LEN(p) = len;
+    __TORAJS_ARR_CAP(p) = cap;
+    return p;
+}
+
 /* `arr.slice(start, end)` — fresh array containing the [start, end)
  * range. Both indices are clamped to [0, arr.len]. Single malloc +
  * one memcpy. Element-type-agnostic (8-byte slots). */
 void *__torajs_arr_slice(const uint8_t *arr, int64_t start, int64_t end) {
-    uint64_t len = *(const uint64_t *)arr;
+    uint64_t len = __TORAJS_ARR_LEN(arr);
     int64_t lo = start < 0 ? 0 : (start > (int64_t)len ? (int64_t)len : start);
     int64_t hi = end < 0 ? 0 : (end > (int64_t)len ? (int64_t)len : end);
     if (hi < lo) hi = lo;
     uint64_t out_len = (uint64_t)(hi - lo);
-    uint8_t *p = (uint8_t *)malloc(16 + (size_t)out_len * 8);
-    *(uint64_t *)p = out_len;
-    *(uint64_t *)(p + 8) = out_len; /* cap = len; no extra slack */
+    uint8_t *p = arr_alloc_(out_len, out_len); /* cap = len; no extra slack */
     if (out_len > 0) {
-        memcpy(p + 16, arr + 16 + (size_t)lo * 8, (size_t)out_len * 8);
+        memcpy(__TORAJS_ARR_DATA(p), __TORAJS_ARR_CSLOT(arr, lo), (size_t)out_len * 8);
     }
     return p;
 }
@@ -247,7 +274,7 @@ void *__torajs_str_split(const uint8_t *s, const uint8_t *sep) {
 }
 
 void *__torajs_arr_join(const uint8_t *arr, const uint8_t *sep) {
-    uint64_t len = *(const uint64_t *)arr;
+    uint64_t len = __TORAJS_ARR_LEN(arr);
     uint64_t sep_len = __TORAJS_STR_LEN(sep);
     const uint8_t *sep_data = __TORAJS_STR_CDATA(sep);
 
@@ -258,7 +285,7 @@ void *__torajs_arr_join(const uint8_t *arr, const uint8_t *sep) {
     /* pass 1: total = sum(elem.len) + sep_len * (len - 1) */
     uint64_t total = 0;
     for (uint64_t i = 0; i < len; i++) {
-        const uint8_t *elem = *(const uint8_t *const *)(arr + 16 + i * 8);
+        const uint8_t *elem = *(const uint8_t *const *)__TORAJS_ARR_CSLOT(arr, i);
         total += __TORAJS_STR_LEN(elem);
     }
     total += sep_len * (len - 1);
@@ -272,7 +299,7 @@ void *__torajs_arr_join(const uint8_t *arr, const uint8_t *sep) {
             memcpy(p_data + cursor, sep_data, (size_t)sep_len);
             cursor += sep_len;
         }
-        const uint8_t *elem = *(const uint8_t *const *)(arr + 16 + i * 8);
+        const uint8_t *elem = *(const uint8_t *const *)__TORAJS_ARR_CSLOT(arr, i);
         uint64_t elem_len = __TORAJS_STR_LEN(elem);
         if (elem_len) {
             memcpy(p_data + cursor, __TORAJS_STR_CDATA(elem), (size_t)elem_len);
@@ -294,14 +321,11 @@ void *__torajs_str_from_char_code(int64_t n) {
 /* `arr.toReversed()` (ES2023) — non-mutating reverse. Single malloc +
  * reverse-direction byte-by-byte slot copy. Original untouched. */
 void *__torajs_arr_to_reversed(const uint8_t *arr) {
-    uint64_t len = *(const uint64_t *)arr;
-    uint8_t *p = (uint8_t *)malloc(16 + (size_t)len * 8);
-    *(uint64_t *)p = len;
-    *(uint64_t *)(p + 8) = len;
+    uint64_t len = __TORAJS_ARR_LEN(arr);
+    uint8_t *p = arr_alloc_(len, len);
     for (uint64_t i = 0; i < len; i++) {
-        uint64_t src_off = 16 + (len - 1 - i) * 8;
-        uint64_t dst_off = 16 + i * 8;
-        *(uint64_t *)(p + dst_off) = *(const uint64_t *)(arr + src_off);
+        *(uint64_t *)__TORAJS_ARR_SLOT(p, i)
+            = *(const uint64_t *)__TORAJS_ARR_CSLOT(arr, len - 1 - i);
     }
     return p;
 }
@@ -311,13 +335,11 @@ void *__torajs_arr_to_reversed(const uint8_t *arr) {
  * Out-of-bounds `i` is UB (matches the unchecked-index convention used
  * elsewhere in tr's array runtime). */
 void *__torajs_arr_with(const uint8_t *arr, int64_t i, int64_t v) {
-    uint64_t len = *(const uint64_t *)arr;
-    uint8_t *p = (uint8_t *)malloc(16 + (size_t)len * 8);
-    *(uint64_t *)p = len;
-    *(uint64_t *)(p + 8) = len;
-    if (len) memcpy(p + 16, arr + 16, (size_t)len * 8);
+    uint64_t len = __TORAJS_ARR_LEN(arr);
+    uint8_t *p = arr_alloc_(len, len);
+    if (len) memcpy(__TORAJS_ARR_DATA(p), __TORAJS_ARR_CDATA(arr), (size_t)len * 8);
     int64_t adj = i < 0 ? (int64_t)len + i : i;
-    *(uint64_t *)(p + 16 + (uint64_t)adj * 8) = (uint64_t)v;
+    *(uint64_t *)__TORAJS_ARR_SLOT(p, adj) = (uint64_t)v;
     return p;
 }
 
@@ -611,21 +633,20 @@ void __torajs_str_print_err(const uint8_t *s) {
  * v0 supports depth=1 only (no recursive flatten).
  */
 void *__torajs_arr_flat(const uint8_t *outer) {
-    uint64_t outer_len = *(const uint64_t *)outer;
+    uint64_t outer_len = __TORAJS_ARR_LEN(outer);
     uint64_t total = 0;
     for (uint64_t i = 0; i < outer_len; i++) {
-        const uint8_t *inner = *(const uint8_t *const *)(outer + 16 + i * 8);
-        total += *(const uint64_t *)inner;
+        const uint8_t *inner = *(const uint8_t *const *)__TORAJS_ARR_CSLOT(outer, i);
+        total += __TORAJS_ARR_LEN(inner);
     }
-    uint8_t *p = (uint8_t *)malloc(16 + (size_t)total * 8);
-    *(uint64_t *)p = total;
-    *(uint64_t *)(p + 8) = total;
-    uint64_t cursor = 16;
+    uint8_t *p = arr_alloc_(total, total);
+    uint8_t *p_data = __TORAJS_ARR_DATA(p);
+    uint64_t cursor = 0;
     for (uint64_t i = 0; i < outer_len; i++) {
-        const uint8_t *inner = *(const uint8_t *const *)(outer + 16 + i * 8);
-        uint64_t inner_len = *(const uint64_t *)inner;
+        const uint8_t *inner = *(const uint8_t *const *)__TORAJS_ARR_CSLOT(outer, i);
+        uint64_t inner_len = __TORAJS_ARR_LEN(inner);
         if (inner_len) {
-            memcpy(p + cursor, inner + 16, (size_t)inner_len * 8);
+            memcpy(p_data + cursor, __TORAJS_ARR_CDATA(inner), (size_t)inner_len * 8);
             cursor += inner_len * 8;
         }
     }
@@ -637,29 +658,28 @@ void *__torajs_arr_flat(const uint8_t *outer) {
  * memcpys. Subset is two-arg only; JS allows `[...].concat(b, c, d)`
  * (multi-arg) but this v0 only handles the binary form. */
 void *__torajs_arr_concat(const uint8_t *a, const uint8_t *b) {
-    uint64_t a_len = *(const uint64_t *)a;
-    uint64_t b_len = *(const uint64_t *)b;
+    uint64_t a_len = __TORAJS_ARR_LEN(a);
+    uint64_t b_len = __TORAJS_ARR_LEN(b);
     uint64_t total = a_len + b_len;
-    uint8_t *p = (uint8_t *)malloc(16 + (size_t)total * 8);
-    *(uint64_t *)p = total;
-    *(uint64_t *)(p + 8) = total;
-    if (a_len) memcpy(p + 16, a + 16, (size_t)a_len * 8);
-    if (b_len) memcpy(p + 16 + (size_t)a_len * 8, b + 16, (size_t)b_len * 8);
+    uint8_t *p = arr_alloc_(total, total);
+    uint8_t *p_data = __TORAJS_ARR_DATA(p);
+    if (a_len) memcpy(p_data, __TORAJS_ARR_CDATA(a), (size_t)a_len * 8);
+    if (b_len) memcpy(p_data + (size_t)a_len * 8, __TORAJS_ARR_CDATA(b), (size_t)b_len * 8);
     return p;
 }
 
 /* `arr.reverse()` — in-place reverse over the i64-slot array. Returns
  * the same array pointer for chaining. Element-type-agnostic. */
 void *__torajs_arr_reverse(uint8_t *arr) {
-    uint64_t len = *(const uint64_t *)arr;
+    uint64_t len = __TORAJS_ARR_LEN(arr);
     if (len < 2) return arr;
     uint64_t lo = 0, hi = len - 1;
     while (lo < hi) {
-        uint64_t a_off = 16 + lo * 8;
-        uint64_t b_off = 16 + hi * 8;
-        uint64_t tmp = *(const uint64_t *)(arr + a_off);
-        *(uint64_t *)(arr + a_off) = *(const uint64_t *)(arr + b_off);
-        *(uint64_t *)(arr + b_off) = tmp;
+        uint64_t *a_slot = (uint64_t *)__TORAJS_ARR_SLOT(arr, lo);
+        uint64_t *b_slot = (uint64_t *)__TORAJS_ARR_SLOT(arr, hi);
+        uint64_t tmp = *a_slot;
+        *a_slot = *b_slot;
+        *b_slot = tmp;
         lo++; hi--;
     }
     return arr;
@@ -669,7 +689,7 @@ void *__torajs_arr_reverse(uint8_t *arr) {
  * the [start, end) slice to position `target`. All indices clamped to
  * [0, len]. memmove handles overlap. Returns same pointer. */
 void *__torajs_arr_copy_within(uint8_t *arr, int64_t target, int64_t start, int64_t end) {
-    uint64_t len = *(const uint64_t *)arr;
+    uint64_t len = __TORAJS_ARR_LEN(arr);
     int64_t lo = start < 0 ? 0 : (start > (int64_t)len ? (int64_t)len : start);
     int64_t hi = end < 0 ? 0 : (end > (int64_t)len ? (int64_t)len : end);
     int64_t to = target < 0 ? 0 : (target > (int64_t)len ? (int64_t)len : target);
@@ -679,8 +699,8 @@ void *__torajs_arr_copy_within(uint8_t *arr, int64_t target, int64_t start, int6
         count = (int64_t)len - to;
         if (count <= 0) return arr;
     }
-    memmove(arr + 16 + (uint64_t)to * 8,
-            arr + 16 + (uint64_t)lo * 8,
+    memmove(__TORAJS_ARR_SLOT(arr, to),
+            __TORAJS_ARR_SLOT(arr, lo),
             (size_t)count * 8);
     return arr;
 }
@@ -691,12 +711,12 @@ void *__torajs_arr_copy_within(uint8_t *arr, int64_t target, int64_t start, int6
  * SSA layer is responsible for converting types. Returns the same
  * pointer for chaining. */
 void *__torajs_arr_fill(uint8_t *arr, int64_t value, int64_t start, int64_t end) {
-    uint64_t len = *(const uint64_t *)arr;
+    uint64_t len = __TORAJS_ARR_LEN(arr);
     int64_t lo = start < 0 ? 0 : (start > (int64_t)len ? (int64_t)len : start);
     int64_t hi = end < 0 ? 0 : (end > (int64_t)len ? (int64_t)len : end);
     if (hi < lo) return arr;
     for (int64_t i = lo; i < hi; i++) {
-        *(int64_t *)(arr + 16 + (uint64_t)i * 8) = value;
+        *(int64_t *)__TORAJS_ARR_SLOT(arr, i) = value;
     }
     return arr;
 }

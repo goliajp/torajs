@@ -572,6 +572,149 @@ fn str_len_load<'ctx>(
         .into_int_value()
 }
 
+/// Phase 2A refcount: every Arr heap object begins with the same
+/// 8-byte universal heap header `__torajs_heap_header_t` (refcount@0,
+/// type_tag@4, flags@6), followed by `len@8`, `cap@16`, and `slots@24`.
+/// Mirrors `__TORAJS_ARR_HDR_SIZE` and friends in `runtime_str.c`.
+const ARR_HDR_LEN_OFF: u64 = 8;
+const ARR_HDR_CAP_OFF: u64 = 16;
+const ARR_HDR_DATA_OFF: u64 = 24;
+const ARR_HDR_TAG_ARR: u64 = 2;
+
+/// Emit `malloc(ARR_HDR_DATA_OFF + cap*8)` + universal-header init
+/// (refcount=1 / type_tag=ARR / flags=0) + len/cap stores. Caller
+/// fills slot data starting at `p + ARR_HDR_DATA_OFF`.
+fn emit_arr_alloc_header<'ctx>(
+    ctx: &'ctx Context,
+    builder: &inkwell::builder::Builder<'ctx>,
+    malloc: FunctionValue<'ctx>,
+    len: inkwell::values::IntValue<'ctx>,
+    cap: inkwell::values::IntValue<'ctx>,
+) -> inkwell::values::PointerValue<'ctx> {
+    let i64_t = ctx.i64_type();
+    let i32_t = ctx.i32_type();
+    let i16_t = ctx.i16_type();
+    let i8_t = ctx.i8_type();
+
+    let cap_bytes = builder
+        .build_int_mul(cap, i64_t.const_int(8, false), "arr_cap_bytes")
+        .unwrap();
+    let total = builder
+        .build_int_add(
+            cap_bytes,
+            i64_t.const_int(ARR_HDR_DATA_OFF, false),
+            "arr_total",
+        )
+        .unwrap();
+    let p = builder
+        .build_call(malloc, &[total.into()], "arr_p")
+        .unwrap()
+        .try_as_basic_value()
+        .unwrap_basic()
+        .into_pointer_value();
+
+    // refcount @ +0 = 1
+    builder.build_store(p, i32_t.const_int(1, false)).unwrap();
+    // type_tag @ +4 = TAG_ARR
+    let tag_ptr = unsafe {
+        builder
+            .build_in_bounds_gep(i8_t, p, &[i64_t.const_int(STR_HDR_TYPE_TAG_OFF, false)], "arr_tag")
+            .unwrap()
+    };
+    builder
+        .build_store(tag_ptr, i16_t.const_int(ARR_HDR_TAG_ARR, false))
+        .unwrap();
+    // flags @ +6 = 0
+    let flags_ptr = unsafe {
+        builder
+            .build_in_bounds_gep(i8_t, p, &[i64_t.const_int(STR_HDR_FLAGS_OFF, false)], "arr_flags")
+            .unwrap()
+    };
+    builder
+        .build_store(flags_ptr, i16_t.const_int(0, false))
+        .unwrap();
+    // len @ +8
+    let len_ptr = unsafe {
+        builder
+            .build_in_bounds_gep(i8_t, p, &[i64_t.const_int(ARR_HDR_LEN_OFF, false)], "arr_len_p")
+            .unwrap()
+    };
+    builder.build_store(len_ptr, len).unwrap();
+    // cap @ +16
+    let cap_ptr = unsafe {
+        builder
+            .build_in_bounds_gep(i8_t, p, &[i64_t.const_int(ARR_HDR_CAP_OFF, false)], "arr_cap_p")
+            .unwrap()
+    };
+    builder.build_store(cap_ptr, cap).unwrap();
+    p
+}
+
+/// Get the Arr's data byte pointer (`p + ARR_HDR_DATA_OFF`).
+fn arr_data_ptr<'ctx>(
+    ctx: &'ctx Context,
+    builder: &inkwell::builder::Builder<'ctx>,
+    arr_ptr: inkwell::values::PointerValue<'ctx>,
+    name: &str,
+) -> inkwell::values::PointerValue<'ctx> {
+    let i64_t = ctx.i64_type();
+    let i8_t = ctx.i8_type();
+    unsafe {
+        builder
+            .build_in_bounds_gep(
+                i8_t,
+                arr_ptr,
+                &[i64_t.const_int(ARR_HDR_DATA_OFF, false)],
+                name,
+            )
+            .unwrap()
+    }
+}
+
+/// Load the Arr's `len` field (`*(u64*)(p + ARR_HDR_LEN_OFF)`).
+fn arr_len_load<'ctx>(
+    ctx: &'ctx Context,
+    builder: &inkwell::builder::Builder<'ctx>,
+    arr_ptr: inkwell::values::PointerValue<'ctx>,
+    name: &str,
+) -> inkwell::values::IntValue<'ctx> {
+    let i64_t = ctx.i64_type();
+    let i8_t = ctx.i8_type();
+    let len_ptr = unsafe {
+        builder
+            .build_in_bounds_gep(
+                i8_t,
+                arr_ptr,
+                &[i64_t.const_int(ARR_HDR_LEN_OFF, false)],
+                &format!("{name}_lp"),
+            )
+            .unwrap()
+    };
+    builder.build_load(i64_t, len_ptr, name).unwrap().into_int_value()
+}
+
+/// Load the Arr's `cap` field (`*(u64*)(p + ARR_HDR_CAP_OFF)`).
+fn arr_cap_load<'ctx>(
+    ctx: &'ctx Context,
+    builder: &inkwell::builder::Builder<'ctx>,
+    arr_ptr: inkwell::values::PointerValue<'ctx>,
+    name: &str,
+) -> inkwell::values::IntValue<'ctx> {
+    let i64_t = ctx.i64_type();
+    let i8_t = ctx.i8_type();
+    let cap_ptr = unsafe {
+        builder
+            .build_in_bounds_gep(
+                i8_t,
+                arr_ptr,
+                &[i64_t.const_int(ARR_HDR_CAP_OFF, false)],
+                &format!("{name}_cp"),
+            )
+            .unwrap()
+    };
+    builder.build_load(i64_t, cap_ptr, name).unwrap().into_int_value()
+}
+
 /// Emit one `[N x i8]` private constant per interned string. Just the raw
 /// bytes — no NUL terminator. The string runtime carries length explicitly
 /// in the heap StrRepr's first 8 bytes.
@@ -1321,44 +1464,27 @@ fn define_arr_alloc<'ctx>(
     builder.position_at_end(entry);
 
     let cap = f.get_nth_param(0).unwrap().into_int_value();
-    let cap_bytes = builder
-        .build_int_mul(cap, i64_t.const_int(8, false), "cap_bytes")
-        .unwrap();
-    let total = builder
-        .build_int_add(cap_bytes, i64_t.const_int(16, false), "total")
-        .unwrap();
-    let p = builder
-        .build_call(malloc, &[total.into()], "p")
-        .unwrap()
-        .try_as_basic_value()
-        .unwrap_basic()
-        .into_pointer_value();
-    // len = 0 at offset 0
-    builder.build_store(p, i64_t.const_int(0, false)).unwrap();
-    // cap at offset 8
-    let cap_ptr = unsafe {
-        builder
-            .build_in_bounds_gep(i64_t, p, &[i64_t.const_int(1, false)], "cap_p")
-            .unwrap()
-    };
-    builder.build_store(cap_ptr, cap).unwrap();
+    let len_zero = i64_t.const_int(0, false);
+    let p = emit_arr_alloc_header(ctx, &builder, malloc, len_zero, cap);
     builder.build_return(Some(&p)).unwrap();
     f
 }
 
 /// `__torajs_arr_push(*u8 arr, i64 val) -> *u8`
 ///
-///     len = *(u64*)arr
-///     cap = *((u64*)arr + 1)
+/// Phase 2A layout:
+///     len = *(u64*)(arr + ARR_HDR_LEN_OFF)
+///     cap = *(u64*)(arr + ARR_HDR_CAP_OFF)
 ///     if len == cap:
 ///       new_cap = cap == 0 ? 4 : cap * 2
-///       new_total = 16 + new_cap * 8
-///       arr = realloc(arr, new_total)
-///       *((u64*)arr + 1) = new_cap
-///     // store at offset 16 + len*8
-///     *(i64*)(arr + 16 + len*8) = val
-///     *(u64*)arr = len + 1
+///       arr = realloc(arr, ARR_HDR_DATA_OFF + new_cap*8)
+///       store new_cap @ ARR_HDR_CAP_OFF
+///     store val @ ARR_HDR_DATA_OFF + len*8
+///     store len+1 @ ARR_HDR_LEN_OFF
 ///     return arr
+///
+/// Note: realloc preserves the universal heap header (refcount /
+/// type_tag / flags) since it sits at offset 0..8 — no re-init needed.
 fn define_arr_push<'ctx>(
     ctx: &'ctx Context,
     m: &LlvmModule<'ctx>,
@@ -1378,19 +1504,8 @@ fn define_arr_push<'ctx>(
     let arr_in = f.get_nth_param(0).unwrap().into_pointer_value();
     let val = f.get_nth_param(1).unwrap().into_int_value();
 
-    let len = builder
-        .build_load(i64_t, arr_in, "len")
-        .unwrap()
-        .into_int_value();
-    let cap_ptr_in = unsafe {
-        builder
-            .build_in_bounds_gep(i64_t, arr_in, &[i64_t.const_int(1, false)], "cap_p")
-            .unwrap()
-    };
-    let cap = builder
-        .build_load(i64_t, cap_ptr_in, "cap")
-        .unwrap()
-        .into_int_value();
+    let len = arr_len_load(ctx, &builder, arr_in, "len");
+    let cap = arr_cap_load(ctx, &builder, arr_in, "cap");
     let need_grow = builder
         .build_int_compare(IntPredicate::EQ, len, cap, "need_grow")
         .unwrap();
@@ -1419,7 +1534,11 @@ fn define_arr_push<'ctx>(
         .build_int_mul(new_cap, i64_t.const_int(8, false), "new_cap_bytes")
         .unwrap();
     let new_total = builder
-        .build_int_add(new_cap_bytes, i64_t.const_int(16, false), "new_total")
+        .build_int_add(
+            new_cap_bytes,
+            i64_t.const_int(ARR_HDR_DATA_OFF, false),
+            "new_total",
+        )
         .unwrap();
     let arr_grown = builder
         .build_call(realloc, &[arr_in.into(), new_total.into()], "arr_grown")
@@ -1429,7 +1548,12 @@ fn define_arr_push<'ctx>(
         .into_pointer_value();
     let new_cap_p = unsafe {
         builder
-            .build_in_bounds_gep(i64_t, arr_grown, &[i64_t.const_int(1, false)], "new_cap_p")
+            .build_in_bounds_gep(
+                i8_t,
+                arr_grown,
+                &[i64_t.const_int(ARR_HDR_CAP_OFF, false)],
+                "new_cap_p",
+            )
             .unwrap()
     };
     builder.build_store(new_cap_p, new_cap).unwrap();
@@ -1440,23 +1564,30 @@ fn define_arr_push<'ctx>(
     let phi = builder.build_phi(ptr_t, "arr").unwrap();
     phi.add_incoming(&[(&arr_in, entry), (&arr_grown, grow_blk)]);
     let arr = phi.as_basic_value().into_pointer_value();
-    // slot_off = 16 + len * 8
+    let data = arr_data_ptr(ctx, &builder, arr, "data");
     let len_x8 = builder
         .build_int_mul(len, i64_t.const_int(8, false), "len_x8")
         .unwrap();
-    let slot_off = builder
-        .build_int_add(len_x8, i64_t.const_int(16, false), "slot_off")
-        .unwrap();
     let slot = unsafe {
         builder
-            .build_in_bounds_gep(i8_t, arr, &[slot_off], "slot")
+            .build_in_bounds_gep(i8_t, data, &[len_x8], "slot")
             .unwrap()
     };
     builder.build_store(slot, val).unwrap();
     let len_p1 = builder
         .build_int_add(len, i64_t.const_int(1, false), "len_p1")
         .unwrap();
-    builder.build_store(arr, len_p1).unwrap();
+    let len_p = unsafe {
+        builder
+            .build_in_bounds_gep(
+                i8_t,
+                arr,
+                &[i64_t.const_int(ARR_HDR_LEN_OFF, false)],
+                "len_p",
+            )
+            .unwrap()
+    };
+    builder.build_store(len_p, len_p1).unwrap();
     builder.build_return(Some(&arr)).unwrap();
     f
 }
@@ -1471,6 +1602,7 @@ fn define_arr_reserve<'ctx>(
 ) -> FunctionValue<'ctx> {
     let builder = ctx.create_builder();
     let i64_t = ctx.i64_type();
+    let i8_t = ctx.i8_type();
     let ptr_t = ctx.ptr_type(AddressSpace::default());
     let fn_t = ptr_t.fn_type(&[ptr_t.into(), i64_t.into()], false);
     let f = m.add_function("__torajs_arr_reserve", fn_t, None);
@@ -1480,28 +1612,24 @@ fn define_arr_reserve<'ctx>(
     builder.position_at_end(entry);
     let arr_in = f.get_nth_param(0).unwrap().into_pointer_value();
     let new_cap = f.get_nth_param(1).unwrap().into_int_value();
-    let cap_p = unsafe {
-        builder
-            .build_in_bounds_gep(i64_t, arr_in, &[i64_t.const_int(1, false)], "cap_p")
-            .unwrap()
-    };
-    let cap = builder
-        .build_load(i64_t, cap_p, "cap")
-        .unwrap()
-        .into_int_value();
+    let cap = arr_cap_load(ctx, &builder, arr_in, "cap");
     let need_grow = builder
         .build_int_compare(IntPredicate::ULT, cap, new_cap, "need_grow")
         .unwrap();
     builder
         .build_conditional_branch(need_grow, grow_blk, exit_blk)
         .unwrap();
-    // grow: realloc(p, 16 + new_cap * 8); store new_cap; pass to exit
+    // grow: realloc(p, ARR_HDR_DATA_OFF + new_cap * 8); store new_cap; pass to exit
     builder.position_at_end(grow_blk);
     let new_bytes = builder
         .build_int_mul(new_cap, i64_t.const_int(8, false), "")
         .unwrap();
     let new_total = builder
-        .build_int_add(new_bytes, i64_t.const_int(16, false), "")
+        .build_int_add(
+            new_bytes,
+            i64_t.const_int(ARR_HDR_DATA_OFF, false),
+            "",
+        )
         .unwrap();
     let arr_grown = builder
         .build_call(realloc, &[arr_in.into(), new_total.into()], "arr_grown")
@@ -1511,7 +1639,12 @@ fn define_arr_reserve<'ctx>(
         .into_pointer_value();
     let new_cap_p = unsafe {
         builder
-            .build_in_bounds_gep(i64_t, arr_grown, &[i64_t.const_int(1, false)], "")
+            .build_in_bounds_gep(
+                i8_t,
+                arr_grown,
+                &[i64_t.const_int(ARR_HDR_CAP_OFF, false)],
+                "",
+            )
             .unwrap()
     };
     builder.build_store(new_cap_p, new_cap).unwrap();
@@ -1543,47 +1676,100 @@ fn define_arr_push_unchecked<'ctx>(
     builder.position_at_end(entry);
     let arr = f.get_nth_param(0).unwrap().into_pointer_value();
     let val = f.get_nth_param(1).unwrap().into_int_value();
-    let len = builder
-        .build_load(i64_t, arr, "len")
-        .unwrap()
-        .into_int_value();
+    let len = arr_len_load(ctx, &builder, arr, "len");
+    let data = arr_data_ptr(ctx, &builder, arr, "data");
     let len_x8 = builder
         .build_int_mul(len, i64_t.const_int(8, false), "")
         .unwrap();
-    let slot_off = builder
-        .build_int_add(len_x8, i64_t.const_int(16, false), "")
-        .unwrap();
     let slot = unsafe {
         builder
-            .build_in_bounds_gep(i8_t, arr, &[slot_off], "slot")
+            .build_in_bounds_gep(i8_t, data, &[len_x8], "slot")
             .unwrap()
     };
     builder.build_store(slot, val).unwrap();
     let len_p1 = builder
         .build_int_add(len, i64_t.const_int(1, false), "")
         .unwrap();
-    builder.build_store(arr, len_p1).unwrap();
+    let len_p = unsafe {
+        builder
+            .build_in_bounds_gep(
+                i8_t,
+                arr,
+                &[i64_t.const_int(ARR_HDR_LEN_OFF, false)],
+                "len_p",
+            )
+            .unwrap()
+    };
+    builder.build_store(len_p, len_p1).unwrap();
     builder.build_return(None).unwrap();
     f
 }
 
-/// `__torajs_arr_drop(*u8 arr) -> void` — `free(arr)`. Caller has
-/// already dropped non-Copy elements (M1.2 MVP only handles i64
-/// elements which need no inner drop).
+/// `__torajs_arr_drop(*u8 arr) -> void`
+///
+/// Phase 2A refcount: dec the universal heap header; free only at zero.
+/// NULL passes through. Caller is responsible for walking refcounted
+/// element types FIRST (`emit_drop_value Type::Arr` does this in
+/// ssa_lower).
 fn define_arr_drop<'ctx>(
     ctx: &'ctx Context,
     m: &LlvmModule<'ctx>,
     free: FunctionValue<'ctx>,
 ) -> FunctionValue<'ctx> {
     let builder = ctx.create_builder();
+    let i32_t = ctx.i32_type();
+    let i64_t = ctx.i64_type();
+    let i8_t = ctx.i8_type();
     let ptr_t = ctx.ptr_type(AddressSpace::default());
     let void_t = ctx.void_type();
     let fn_t = void_t.fn_type(&[ptr_t.into()], false);
     let f = m.add_function("__torajs_arr_drop", fn_t, None);
     let entry = ctx.append_basic_block(f, "entry");
+    let dec_blk = ctx.append_basic_block(f, "dec");
+    let free_blk = ctx.append_basic_block(f, "free");
+    let ret_blk = ctx.append_basic_block(f, "ret");
     builder.position_at_end(entry);
     let arg = f.get_nth_param(0).unwrap().into_pointer_value();
+    let null = ptr_t.const_null();
+    let is_null = builder
+        .build_int_compare(IntPredicate::EQ, arg, null, "is_null")
+        .unwrap();
+    builder
+        .build_conditional_branch(is_null, ret_blk, dec_blk)
+        .unwrap();
+
+    builder.position_at_end(dec_blk);
+    let rc_ptr = unsafe {
+        builder
+            .build_in_bounds_gep(
+                i8_t,
+                arg,
+                &[i64_t.const_int(STR_HDR_REFCOUNT_OFF, false)],
+                "rc_ptr",
+            )
+            .unwrap()
+    };
+    let rc_now = builder
+        .build_load(i32_t, rc_ptr, "rc_now")
+        .unwrap()
+        .into_int_value();
+    let rc_dec = builder
+        .build_int_sub(rc_now, i32_t.const_int(1, false), "rc_dec")
+        .unwrap();
+    builder.build_store(rc_ptr, rc_dec).unwrap();
+    let zero = i32_t.const_int(0, false);
+    let is_zero = builder
+        .build_int_compare(IntPredicate::EQ, rc_dec, zero, "is_zero")
+        .unwrap();
+    builder
+        .build_conditional_branch(is_zero, free_blk, ret_blk)
+        .unwrap();
+
+    builder.position_at_end(free_blk);
     builder.build_call(free, &[arg.into()], "_f").unwrap();
+    builder.build_unconditional_branch(ret_blk).unwrap();
+
+    builder.position_at_end(ret_blk);
     builder.build_return(None).unwrap();
     f
 }

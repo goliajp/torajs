@@ -41,6 +41,19 @@ use crate::ssa::{
 /// its own fn-ptr header at offset 0 and lives in a separate alloc path.
 const OBJ_HEADER_SIZE: u64 = 16;
 
+/// Phase 2A refcount: Arr layout (mirrors `__TORAJS_ARR_HDR_*` in
+/// runtime_str.c and `ARR_HDR_*` in ssa_inkwell.rs):
+///
+///   offset 0  — universal heap header (refcount u32 + type_tag u16 + flags u16)
+///   offset 8  — len (u64)
+///   offset 16 — cap (u64)
+///   offset 24 — slot data (N * 8 bytes)
+///
+/// Use `ARR_LEN_OFF` for Load(Type::I64, arr_op, ...) and `ARR_DATA_OFF`
+/// as the constant added to `i*8` to compute slot byte offsets.
+const ARR_LEN_OFF: u64 = 8;
+const ARR_DATA_OFF: u64 = 24;
+
 /// M3 — generic call-site retargeting. For each `Expr::Call` whose ExprId
 /// is a generic call site, the typechecker has already inferred the
 /// concrete type args; this map remembers the **specialized fn name** the
@@ -3856,7 +3869,7 @@ impl<'a> LowerCtx<'a> {
                 );
                 let len = self.f.append_inst(
                     self.cur_block,
-                    InstKind::Load(Type::I64, Operand::Value(arr_ptr), 0),
+                    InstKind::Load(Type::I64, Operand::Value(arr_ptr), ARR_LEN_OFF),
                     Type::I64,
                     None,
                 );
@@ -3952,7 +3965,7 @@ impl<'a> LowerCtx<'a> {
                     InstKind::BinOp(
                         SsaBinOp::Add,
                         Operand::Value(scaled),
-                        Operand::ConstI64(16),
+                        Operand::ConstI64(ARR_DATA_OFF as i64),
                     ),
                     Type::I64,
                     None,
@@ -4390,7 +4403,7 @@ impl<'a> LowerCtx<'a> {
         );
         let off = self.f.append_inst(
             self.cur_block,
-            InstKind::BinOp(SsaBinOp::Add, Operand::Value(scaled), Operand::ConstI64(16)),
+            InstKind::BinOp(SsaBinOp::Add, Operand::Value(scaled), Operand::ConstI64(ARR_DATA_OFF as i64)),
             Type::I64,
             None,
         );
@@ -4471,7 +4484,7 @@ impl<'a> LowerCtx<'a> {
         );
         let off = self.f.append_inst(
             self.cur_block,
-            InstKind::BinOp(SsaBinOp::Add, Operand::Value(scaled), Operand::ConstI64(16)),
+            InstKind::BinOp(SsaBinOp::Add, Operand::Value(scaled), Operand::ConstI64(ARR_DATA_OFF as i64)),
             Type::I64,
             None,
         );
@@ -4544,7 +4557,7 @@ impl<'a> LowerCtx<'a> {
                 if elem_ty.is_refcounted() {
                     let len_v = self.f.append_inst(
                         self.cur_block,
-                        InstKind::Load(Type::I64, val, 0),
+                        InstKind::Load(Type::I64, val, ARR_LEN_OFF),
                         Type::I64,
                         None,
                     );
@@ -5952,6 +5965,33 @@ impl<'a> LowerCtx<'a> {
                         // load+drop it as the "old value".
                         let v = self.lower_expr(*value);
                         self.consume_if_ident(*value);
+                        // Phase B refcount: when the rhs is a borrow of a
+                        // refcounted value (Member / Index / cross-scope
+                        // ident, all alias-shaped), the lhs and rhs end up
+                        // sharing ownership. inc the value so both can drop
+                        // independently. Self-assign + same-scope ident
+                        // moves are handled by consume_if_ident above.
+                        let v_is_refcounted = self.operand_ty(&v).is_refcounted();
+                        if v_is_refcounted {
+                            let needs_inc = match self.ast.get_expr(*value) {
+                                Expr::Member { .. } | Expr::Index { .. } => true,
+                                Expr::Ident(src) => self
+                                    .locals
+                                    .get(src)
+                                    .map(|info| !info.moved)
+                                    .unwrap_or(false),
+                                _ => false,
+                            };
+                            if needs_inc {
+                                self.f.append_void(
+                                    self.cur_block,
+                                    InstKind::Call(
+                                        self.intrinsics.rc_inc,
+                                        vec![v],
+                                    ),
+                                );
+                            }
+                        }
                         // Type-check the rhs against the slot type. Without
                         // this, `let n: number = 4; n = n / 2;` would
                         // silently store an f64 (Div always returns f64)
@@ -6102,7 +6142,7 @@ impl<'a> LowerCtx<'a> {
                             InstKind::BinOp(
                                 SsaBinOp::Add,
                                 Operand::Value(scaled),
-                                Operand::ConstI64(16),
+                                Operand::ConstI64(ARR_DATA_OFF as i64),
                             ),
                             Type::I64,
                             None,
@@ -6853,11 +6893,11 @@ impl<'a> LowerCtx<'a> {
                         InstKind::Store(
                             Operand::ConstI64(n),
                             Operand::Value(arr_ptr),
-                            0,
+                            ARR_LEN_OFF,
                         ),
                     );
                     for (i, val) in elem_vals.iter().enumerate() {
-                        let off = 16 + (i as u64) * 8;
+                        let off = ARR_DATA_OFF + (i as u64) * 8;
                         self.f.append_void(
                             self.cur_block,
                             InstKind::Store(*val, Operand::Value(arr_ptr), off),
@@ -6934,7 +6974,7 @@ impl<'a> LowerCtx<'a> {
                         InstKind::Store(
                             Operand::ConstI64(n),
                             Operand::Value(arr_ptr),
-                            0,
+                            ARR_LEN_OFF,
                         ),
                     );
                     for (i, _) in layout.iter().enumerate() {
@@ -6945,7 +6985,7 @@ impl<'a> LowerCtx<'a> {
                             elem_ty,
                             None,
                         );
-                        let arr_off = 16 + (i as u64) * 8;
+                        let arr_off = ARR_DATA_OFF + (i as u64) * 8;
                         self.f.append_void(
                             self.cur_block,
                             InstKind::Store(
@@ -6997,12 +7037,12 @@ impl<'a> LowerCtx<'a> {
                         InstKind::Store(
                             Operand::ConstI64(n),
                             Operand::Value(arr_ptr),
-                            0,
+                            ARR_LEN_OFF,
                         ),
                     );
                     for (i, fname) in field_names.iter().enumerate() {
                         let str_v = self.intern_string_literal(fname);
-                        let off = 16 + (i as u64) * 8;
+                        let off = ARR_DATA_OFF + (i as u64) * 8;
                         self.f.append_void(
                             self.cur_block,
                             InstKind::Store(
@@ -7443,7 +7483,7 @@ impl<'a> LowerCtx<'a> {
                         let recv_op = if method == "toSorted" {
                             let len = self.f.append_inst(
                                 self.cur_block,
-                                InstKind::Load(Type::I64, recv_op, 0),
+                                InstKind::Load(Type::I64, recv_op, ARR_LEN_OFF),
                                 Type::I64,
                                 None,
                             );
@@ -7472,7 +7512,7 @@ impl<'a> LowerCtx<'a> {
                         let cmp_ty = self.operand_ty(&cmp_val);
                         let len = self.f.append_inst(
                             self.cur_block,
-                            InstKind::Load(Type::I64, recv_op, 0),
+                            InstKind::Load(Type::I64, recv_op, ARR_LEN_OFF),
                             Type::I64,
                             None,
                         );
@@ -7540,7 +7580,7 @@ impl<'a> LowerCtx<'a> {
                             InstKind::BinOp(
                                 SsaBinOp::Add,
                                 Operand::Value(off_i_scaled),
-                                Operand::ConstI64(16),
+                                Operand::ConstI64(ARR_DATA_OFF as i64),
                             ),
                             Type::I64,
                             None,
@@ -7623,7 +7663,7 @@ impl<'a> LowerCtx<'a> {
                             InstKind::BinOp(
                                 SsaBinOp::Add,
                                 Operand::Value(off_jm1_scaled),
-                                Operand::ConstI64(16),
+                                Operand::ConstI64(ARR_DATA_OFF as i64),
                             ),
                             Type::I64,
                             None,
@@ -7693,7 +7733,7 @@ impl<'a> LowerCtx<'a> {
                             InstKind::BinOp(
                                 SsaBinOp::Add,
                                 Operand::Value(off_j_scaled),
-                                Operand::ConstI64(16),
+                                Operand::ConstI64(ARR_DATA_OFF as i64),
                             ),
                             Type::I64,
                             None,
@@ -7749,7 +7789,7 @@ impl<'a> LowerCtx<'a> {
                             InstKind::BinOp(
                                 SsaBinOp::Add,
                                 Operand::Value(off_jf_scaled),
-                                Operand::ConstI64(16),
+                                Operand::ConstI64(ARR_DATA_OFF as i64),
                             ),
                             Type::I64,
                             None,
@@ -7833,7 +7873,7 @@ impl<'a> LowerCtx<'a> {
                         if elem_ty.is_refcounted() {
                             let len = self.f.append_inst(
                                 self.cur_block,
-                                InstKind::Load(Type::I64, Operand::Value(v), 0),
+                                InstKind::Load(Type::I64, Operand::Value(v), ARR_LEN_OFF),
                                 Type::I64,
                                 None,
                             );
@@ -7857,7 +7897,7 @@ impl<'a> LowerCtx<'a> {
                         let i_val = self.lower_expr(args[0]);
                         let len = self.f.append_inst(
                             self.cur_block,
-                            InstKind::Load(Type::I64, recv_op, 0),
+                            InstKind::Load(Type::I64, recv_op, ARR_LEN_OFF),
                             Type::I64,
                             None,
                         );
@@ -7926,7 +7966,7 @@ impl<'a> LowerCtx<'a> {
                             InstKind::BinOp(
                                 SsaBinOp::Add,
                                 Operand::Value(scaled),
-                                Operand::ConstI64(16),
+                                Operand::ConstI64(ARR_DATA_OFF as i64),
                             ),
                             Type::I64,
                             None,
@@ -7965,7 +8005,7 @@ impl<'a> LowerCtx<'a> {
                             // [to, to+count) before the memmove.
                             let len_v = self.f.append_inst(
                                 self.cur_block,
-                                InstKind::Load(Type::I64, recv_op, 0),
+                                InstKind::Load(Type::I64, recv_op, ARR_LEN_OFF),
                                 Type::I64,
                                 None,
                             );
@@ -8074,7 +8114,7 @@ impl<'a> LowerCtx<'a> {
                         if elem_ty.is_refcounted() {
                             let len = self.f.append_inst(
                                 self.cur_block,
-                                InstKind::Load(Type::I64, Operand::Value(v), 0),
+                                InstKind::Load(Type::I64, Operand::Value(v), ARR_LEN_OFF),
                                 Type::I64,
                                 None,
                             );
@@ -8124,7 +8164,7 @@ impl<'a> LowerCtx<'a> {
                         if elem_ty.is_refcounted() {
                             let len = self.f.append_inst(
                                 self.cur_block,
-                                InstKind::Load(Type::I64, Operand::Value(v), 0),
+                                InstKind::Load(Type::I64, Operand::Value(v), ARR_LEN_OFF),
                                 Type::I64,
                                 None,
                             );
@@ -8178,7 +8218,7 @@ impl<'a> LowerCtx<'a> {
                         // Clamp [start, end) to [0, len] inline (matches arr_fill C semantics).
                         let len_v = self.f.append_inst(
                             self.cur_block,
-                            InstKind::Load(Type::I64, recv_op, 0),
+                            InstKind::Load(Type::I64, recv_op, ARR_LEN_OFF),
                             Type::I64,
                             None,
                         );
@@ -8228,7 +8268,7 @@ impl<'a> LowerCtx<'a> {
                         );
                         let off = self.f.append_inst(
                             self.cur_block,
-                            InstKind::BinOp(SsaBinOp::Add, Operand::Value(scaled), Operand::ConstI64(16)),
+                            InstKind::BinOp(SsaBinOp::Add, Operand::Value(scaled), Operand::ConstI64(ARR_DATA_OFF as i64)),
                             Type::I64,
                             None,
                         );
@@ -8287,7 +8327,7 @@ impl<'a> LowerCtx<'a> {
                         if elem_ty.is_refcounted() {
                             let len = self.f.append_inst(
                                 self.cur_block,
-                                InstKind::Load(Type::I64, Operand::Value(v), 0),
+                                InstKind::Load(Type::I64, Operand::Value(v), ARR_LEN_OFF),
                                 Type::I64,
                                 None,
                             );
@@ -8336,7 +8376,7 @@ impl<'a> LowerCtx<'a> {
                         );
                         let len_v = self.f.append_inst(
                             self.cur_block,
-                            InstKind::Load(Type::I64, recv_op, 0),
+                            InstKind::Load(Type::I64, recv_op, ARR_LEN_OFF),
                             Type::I64,
                             None,
                         );
@@ -8388,7 +8428,7 @@ impl<'a> LowerCtx<'a> {
                             InstKind::BinOp(
                                 SsaBinOp::Add,
                                 Operand::Value(scaled),
-                                Operand::ConstI64(16),
+                                Operand::ConstI64(ARR_DATA_OFF as i64),
                             ),
                             Type::I64,
                             None,
@@ -8558,7 +8598,7 @@ impl<'a> LowerCtx<'a> {
                     let i_slot = self.alloca(Type::I64, Some("__pred_i"));
                     let len = self.f.append_inst(
                         self.cur_block,
-                        InstKind::Load(Type::I64, Operand::Value(src_arr), 0),
+                        InstKind::Load(Type::I64, Operand::Value(src_arr), ARR_LEN_OFF),
                         Type::I64,
                         None,
                     );
@@ -8636,7 +8676,7 @@ impl<'a> LowerCtx<'a> {
                         InstKind::BinOp(
                             SsaBinOp::Add,
                             Operand::Value(scaled),
-                            Operand::ConstI64(16),
+                            Operand::ConstI64(ARR_DATA_OFF as i64),
                         ),
                         Type::I64,
                         None,
@@ -8826,7 +8866,7 @@ impl<'a> LowerCtx<'a> {
                     );
                     let len = self.f.append_inst(
                         self.cur_block,
-                        InstKind::Load(Type::I64, Operand::Value(src_arr), 0),
+                        InstKind::Load(Type::I64, Operand::Value(src_arr), ARR_LEN_OFF),
                         Type::I64,
                         None,
                     );
@@ -8911,7 +8951,7 @@ impl<'a> LowerCtx<'a> {
                         InstKind::BinOp(
                             SsaBinOp::Add,
                             Operand::Value(scaled),
-                            Operand::ConstI64(16),
+                            Operand::ConstI64(ARR_DATA_OFF as i64),
                         ),
                         Type::I64,
                         None,
@@ -9539,12 +9579,12 @@ impl<'a> LowerCtx<'a> {
                     );
                     return Operand::Value(v);
                 }
-                // M1.2: `xs.length` on Type::Arr — read u64 len at
-                // offset 0 of the array header.
+                // Phase 2A: `xs.length` on Type::Arr — read u64 len at
+                // offset ARR_LEN_OFF of the array header.
                 if matches!(obj_ty, Type::Arr(_)) && name == "length" {
                     let v = self.f.append_inst(
                         self.cur_block,
-                        InstKind::Load(Type::I64, obj_val, 0),
+                        InstKind::Load(Type::I64, obj_val, ARR_LEN_OFF),
                         Type::I64,
                         None,
                     );
@@ -9669,11 +9709,11 @@ impl<'a> LowerCtx<'a> {
                         InstKind::Store(
                             Operand::ConstI64(n),
                             Operand::Value(arr_ptr),
-                            0,
+                            ARR_LEN_OFF,
                         ),
                     );
                     for (i, val) in elem_vals.iter().enumerate() {
-                        let off = 16 + (i as u64) * 8;
+                        let off = ARR_DATA_OFF + (i as u64) * 8;
                         self.f.append_void(
                             self.cur_block,
                             InstKind::Store(*val, Operand::Value(arr_ptr), off),
@@ -9748,7 +9788,7 @@ impl<'a> LowerCtx<'a> {
                     if let Item::Spread(arr_op) = it {
                         let len = self.f.append_inst(
                             self.cur_block,
-                            InstKind::Load(Type::I64, *arr_op, 0),
+                            InstKind::Load(Type::I64, *arr_op, ARR_LEN_OFF),
                             Type::I64,
                             None,
                         );
@@ -9800,7 +9840,7 @@ impl<'a> LowerCtx<'a> {
                             let old_len = if elem_is_refcounted {
                                 Some(self.f.append_inst(
                                     self.cur_block,
-                                    InstKind::Load(Type::I64, Operand::Value(arr_ptr), 0),
+                                    InstKind::Load(Type::I64, Operand::Value(arr_ptr), ARR_LEN_OFF),
                                     Type::I64,
                                     None,
                                 ))
@@ -9817,7 +9857,7 @@ impl<'a> LowerCtx<'a> {
                             if let Some(old) = old_len {
                                 let new_len = self.f.append_inst(
                                     self.cur_block,
-                                    InstKind::Load(Type::I64, Operand::Value(arr_ptr), 0),
+                                    InstKind::Load(Type::I64, Operand::Value(arr_ptr), ARR_LEN_OFF),
                                     Type::I64,
                                     None,
                                 );
@@ -9874,7 +9914,7 @@ impl<'a> LowerCtx<'a> {
                     InstKind::BinOp(
                         SsaBinOp::Add,
                         Operand::Value(scaled),
-                        Operand::ConstI64(16),
+                        Operand::ConstI64(ARR_DATA_OFF as i64),
                     ),
                     Type::I64,
                     None,
@@ -10525,7 +10565,7 @@ impl<'a> LowerCtx<'a> {
                             InstKind::BinOp(
                                 SsaBinOp::Add,
                                 Operand::Value(scaled),
-                                Operand::ConstI64(16),
+                                Operand::ConstI64(ARR_DATA_OFF as i64),
                             ),
                             Type::I64,
                             None,
