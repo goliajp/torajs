@@ -4777,6 +4777,123 @@ impl<'a> LowerCtx<'a> {
         self.cur_block = after;
     }
 
+    /// Boundary materialize: take an Array<Substr> and return a fresh
+    /// Array<Str> with each element substr_to_owned'd. Drops the
+    /// source array (its element-walk dec's parents; the new array's
+    /// elements own the bytes outright). Used at fn / closure return
+    /// sites where the declared type is Array<Str> but the body
+    /// produced Array<Substr> (e.g. closure body `s => s.split("")`).
+    fn materialize_arr_substr_to_str(&mut self, src: Operand, declared_ty: Type) -> Operand {
+        let src_len = self.f.append_inst(
+            self.cur_block,
+            InstKind::Load(Type::I64, src, ARR_LEN_OFF),
+            Type::I64,
+            None,
+        );
+        let dst = self.f.append_inst(
+            self.cur_block,
+            InstKind::Call(
+                self.intrinsics.arr_alloc,
+                vec![Operand::Value(src_len)],
+            ),
+            declared_ty,
+            None,
+        );
+        self.f.append_void(
+            self.cur_block,
+            InstKind::Store(Operand::Value(src_len), Operand::Value(dst), ARR_LEN_OFF),
+        );
+        // Per-element loop: substr_to_owned each.
+        let i_slot = self.alloca(Type::I64, Some("__mat_i"));
+        self.f.append_void(
+            self.cur_block,
+            InstKind::Store(Operand::ConstI64(0), Operand::Value(i_slot), 0),
+        );
+        let header = self.f.add_block();
+        let body = self.f.add_block();
+        let after = self.f.add_block();
+        self.f.set_term(self.cur_block, Terminator::Br(header));
+        self.cur_block = header;
+        let i_now = self.f.append_inst(
+            self.cur_block,
+            InstKind::Load(Type::I64, Operand::Value(i_slot), 0),
+            Type::I64,
+            None,
+        );
+        let cmp = self.f.append_inst(
+            self.cur_block,
+            InstKind::ICmp(IPred::Slt, Operand::Value(i_now), Operand::Value(src_len)),
+            Type::Bool,
+            None,
+        );
+        self.f.set_term(self.cur_block, Terminator::CondBr {
+            cond: Operand::Value(cmp),
+            then_blk: body,
+            else_blk: after,
+        });
+        self.cur_block = body;
+        let scaled = self.f.append_inst(
+            self.cur_block,
+            InstKind::BinOp(SsaBinOp::Shl, Operand::Value(i_now), Operand::ConstI64(3)),
+            Type::I64,
+            None,
+        );
+        let off = self.f.append_inst(
+            self.cur_block,
+            InstKind::BinOp(
+                SsaBinOp::Add,
+                Operand::Value(scaled),
+                Operand::ConstI64(ARR_DATA_OFF as i64),
+            ),
+            Type::I64,
+            None,
+        );
+        let substr_v = self.f.append_inst(
+            self.cur_block,
+            InstKind::LoadDyn(Type::Substr, src, Operand::Value(off)),
+            Type::Substr,
+            None,
+        );
+        let owned = self.f.append_inst(
+            self.cur_block,
+            InstKind::Call(
+                self.intrinsics.substr_to_owned,
+                vec![Operand::Value(substr_v)],
+            ),
+            Type::Str,
+            None,
+        );
+        self.f.append_void(
+            self.cur_block,
+            InstKind::StoreDyn(
+                Operand::Value(owned),
+                Operand::Value(dst),
+                Operand::Value(off),
+            ),
+        );
+        let i_next = self.f.append_inst(
+            self.cur_block,
+            InstKind::BinOp(
+                SsaBinOp::Add,
+                Operand::Value(i_now),
+                Operand::ConstI64(1),
+            ),
+            Type::I64,
+            None,
+        );
+        self.f.append_void(
+            self.cur_block,
+            InstKind::Store(Operand::Value(i_next), Operand::Value(i_slot), 0),
+        );
+        self.f.set_term(self.cur_block, Terminator::Br(header));
+        self.cur_block = after;
+        // Drop the source Array<Substr> — its element-walk dec's each
+        // substr (which dec's parent), then frees the array block.
+        let src_arr_substr_ty = self.operand_ty(&src);
+        self.emit_drop_value(src, src_arr_substr_ty);
+        Operand::Value(dst)
+    }
+
     fn emit_drop_value(&mut self, val: Operand, ty: Type) {
         match ty {
             Type::Str => {
@@ -6226,15 +6343,43 @@ impl<'a> LowerCtx<'a> {
                 // No finally on the stack — direct ret. Coerce
                 // i64 → f64 when the fn ret type demands it (matches
                 // the implicit promotion BinOp uses for f64 contexts).
-                self.emit_drops_for_owned_locals();
-                let cb = self.cur_block;
+                // Substr-aware boundary: if the declared return is
+                // Type::Str / Array<Str> and the actual is Substr /
+                // Array<Substr>, materialize. Without this, callers
+                // that rely on declared return type (e.g. flatMap's
+                // dst_elem_ty derivation) would interpret slot bytes
+                // through the wrong layout.
                 let coerced = ret_operand.map(|op| {
-                    if self.f.ret == Type::F64 && self.operand_ty(&op) == Type::I64 {
+                    let actual = self.operand_ty(&op);
+                    if self.f.ret == Type::F64 && actual == Type::I64 {
                         self.coerce_to_f64(op)
+                    } else if self.f.ret == Type::Str && actual == Type::Substr {
+                        let v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.substr_to_owned,
+                                vec![op],
+                            ),
+                            Type::Str,
+                            None,
+                        );
+                        // Drop the source Substr — it was about to
+                        // exit this fn anyway, and the materialized
+                        // owned Str now carries the bytes.
+                        self.emit_drop_value(op, Type::Substr);
+                        Operand::Value(v)
+                    } else if let (Type::Arr(want_id), Type::Arr(got_id))
+                        = (self.f.ret, actual)
+                        && self.arr_layouts[want_id.0 as usize] == Type::Str
+                        && self.arr_layouts[got_id.0 as usize] == Type::Substr
+                    {
+                        self.materialize_arr_substr_to_str(op, self.f.ret)
                     } else {
                         op
                     }
                 });
+                self.emit_drops_for_owned_locals();
+                let cb = self.cur_block;
                 self.f.set_term(cb, Terminator::Ret(coerced));
             }
             Stmt::Expr(eid) => {

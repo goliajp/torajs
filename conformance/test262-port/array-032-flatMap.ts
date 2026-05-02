@@ -40,6 +40,17 @@ function check(): number {
   let empty: number[] = [];
   let r: number[] = empty.flatMap((n: number): number[] => [n, n]);
   if (r.length !== 0) { throw "#18: empty"; }
+
+  // Closure body produces Array<Substr> (split result), declared as
+  // Array<Str>. Return-coerce materializes each substr to owned Str
+  // so flatMap sees Array<Str> as expected.
+  let ws: string[] = ["ab", "cd"];
+  let chars: string[] = ws.flatMap((s: string): string[] => s.split(""));
+  if (chars.length !== 4) { throw "#19: chars.len " + chars.length; }
+  if (chars[0] !== "a") { throw "#20"; }
+  if (chars[1] !== "b") { throw "#21"; }
+  if (chars[2] !== "c") { throw "#22"; }
+  if (chars[3] !== "d") { throw "#23"; }
   return 0;
 }
 console.log(check());
