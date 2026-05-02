@@ -11223,13 +11223,46 @@ impl<'a> LowerCtx<'a> {
                 // Compute byte offset = 16 + index * 8, then LoadDyn.
                 let arr_val = self.lower_expr(*obj);
                 let arr_ty = self.operand_ty(&arr_val);
+                // String indexing: `s[i]` returns a single-char view.
+                // For Type::Str: substr_create(s, i, 1). For Type::Substr:
+                // substr_slice(v, i, i+1) (resolves to root parent).
+                if matches!(arr_ty, Type::Str | Type::Substr) {
+                    let idx_val = self.lower_expr(*index);
+                    let v = if arr_ty == Type::Str {
+                        self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.substr_create,
+                                vec![arr_val, idx_val, Operand::ConstI64(1)],
+                            ),
+                            Type::Substr,
+                            None,
+                        )
+                    } else {
+                        let end = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::BinOp(
+                                SsaBinOp::Add,
+                                idx_val,
+                                Operand::ConstI64(1),
+                            ),
+                            Type::I64,
+                            None,
+                        );
+                        self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.substr_slice,
+                                vec![arr_val, idx_val, Operand::Value(end)],
+                            ),
+                            Type::Substr,
+                            None,
+                        )
+                    };
+                    return Operand::Value(v);
+                }
                 let elem_ty = match arr_ty {
                     Type::Arr(arr_id) => self.arr_layouts[arr_id.0 as usize],
-                    Type::Str => {
-                        panic!(
-                            "ssa-lower: `s[i]` on Type::Str not yet implemented (M1.2 only does Array<T>)"
-                        );
-                    }
                     other => panic!(
                         "ssa-lower: index access on non-array type {other:?}"
                     ),
