@@ -6,3 +6,15 @@ members = [
     "bench/harness",
     "conformance/runner",
 ]
+
+# Phase B: tr binary itself runs at max-opt — affects compile_ms only.
+# LTO=fat collapses inkwell + tr crates into a single codegen unit so
+# Rust call sites into LLVM bridge can be cross-crate inlined. Demo
+# binary perf (the output of `tr build`) is unaffected by this — that's
+# determined by tr's pass to LLVM (`--opt O3` by default; see
+# main.rs:179).
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = true

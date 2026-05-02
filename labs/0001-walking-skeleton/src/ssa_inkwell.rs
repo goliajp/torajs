@@ -19,6 +19,7 @@ use std::process::Command;
 
 use inkwell::{FloatPredicate, IntPredicate};
 use inkwell::OptimizationLevel;
+use inkwell::attributes::{Attribute, AttributeLoc};
 use inkwell::context::Context;
 use inkwell::module::Module as LlvmModule;
 use inkwell::passes::PassBuilderOptions;
@@ -88,7 +89,13 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
                 define_str_alloc(&ctx, &llvm_module, malloc, memcpy)
             }
             "__torajs_str_print" => define_str_print(&ctx, &llvm_module, putchar),
-            "__torajs_str_drop" => define_str_drop(&ctx, &llvm_module, free),
+            "__torajs_str_drop" => {
+                // hot in any non-trivial program (every Str scope-end
+                // dec). Body is NULL check + atomic-like dec + cond free.
+                let f = define_str_drop(&ctx, &llvm_module, free);
+                mark_alwaysinline(&ctx, f);
+                f
+            }
             "__torajs_str_concat" => {
                 define_str_concat(&ctx, &llvm_module, malloc, memcpy)
             }
@@ -100,14 +107,29 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
                 define_arr_reserve(&ctx, &llvm_module, realloc)
             }
             "__torajs_arr_push_unchecked" => {
-                define_arr_push_unchecked(&ctx, &llvm_module)
+                let f = define_arr_push_unchecked(&ctx, &llvm_module);
+                // hot intrinsic, body is ~5 instructions; force-inline so
+                // map / filter / spread loops don't pay a fn-call per push
+                mark_alwaysinline(&ctx, f);
+                f
             }
-            "__torajs_arr_drop" => define_arr_drop(&ctx, &llvm_module, free),
+            "__torajs_arr_drop" => {
+                let f = define_arr_drop(&ctx, &llvm_module, free);
+                // every Array scope-end + every refcounted-elem-walk
+                // bottom hits this; body is NULL check + dec + cond free
+                mark_alwaysinline(&ctx, f);
+                f
+            }
             "__torajs_str_slice" => {
                 define_str_slice(&ctx, &llvm_module, malloc, memcpy)
             }
             "__torajs_str_char_code_at" => {
-                define_str_char_code_at(&ctx, &llvm_module)
+                let f = define_str_char_code_at(&ctx, &llvm_module);
+                // hot intrinsic — body is bounds check + byte load + zext.
+                // Force-inline so per-iter `s.charCodeAt(i)` collapses to
+                // a single byte load in lex / parse hot loops
+                mark_alwaysinline(&ctx, f);
+                f
             }
             "__torajs_str_starts_with" => define_str_prefix_suffix_check(
                 &ctx,
@@ -570,6 +592,17 @@ fn str_len_load<'ctx>(
         .build_load(i64_t, len_ptr, name)
         .unwrap()
         .into_int_value()
+}
+
+/// Mark a function as `alwaysinline` — LLVM forces inlining at every
+/// call site regardless of cost model. Used for hot, small intrinsics
+/// (e.g. `__torajs_str_char_code_at`) where the per-call C-function-
+/// boundary cost dwarfs the body. Must be called AFTER `add_function`
+/// and BEFORE the body lowers; doesn't change function semantics.
+fn mark_alwaysinline<'ctx>(ctx: &'ctx Context, f: FunctionValue<'ctx>) {
+    let kind = Attribute::get_named_enum_kind_id("alwaysinline");
+    let attr = ctx.create_enum_attribute(kind, 0);
+    f.add_attribute(AttributeLoc::Function, attr);
 }
 
 /// Phase 2A refcount: every Arr heap object begins with the same

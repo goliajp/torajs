@@ -5091,19 +5091,42 @@ impl<'a> LowerCtx<'a> {
                             None,
                         ),
                         Type::Str => {
-                            // Strings dispatch through __torajs_str_eq
-                            // — declared as returning Type::Bool, so the
-                            // result is directly usable as the cond_br
-                            // condition.
-                            self.f.append_inst(
-                                cmp_blk,
-                                InstKind::Call(
-                                    self.intrinsics.str_eq,
-                                    vec![scrut_val, v],
-                                ),
-                                Type::Bool,
-                                None,
-                            )
+                            // Strings: try inline byte-cmp fast-path
+                            // when the case value is a short literal
+                            // (skips __torajs_str_eq C-runtime call).
+                            // Falls back to str_eq for non-literal
+                            // case values or long literals.
+                            if let Expr::String(s) = self.ast.get_expr(c.value).clone() {
+                                let bytes = s.into_bytes();
+                                if bytes.len() <= 16 {
+                                    let r = self.emit_inline_str_eq_bytes(scrut_val, &bytes);
+                                    if let Operand::Value(vid) = r {
+                                        vid
+                                    } else {
+                                        unreachable!("emit_inline_str_eq_bytes returns Value")
+                                    }
+                                } else {
+                                    self.f.append_inst(
+                                        cmp_blk,
+                                        InstKind::Call(
+                                            self.intrinsics.str_eq,
+                                            vec![scrut_val, v],
+                                        ),
+                                        Type::Bool,
+                                        None,
+                                    )
+                                }
+                            } else {
+                                self.f.append_inst(
+                                    cmp_blk,
+                                    InstKind::Call(
+                                        self.intrinsics.str_eq,
+                                        vec![scrut_val, v],
+                                    ),
+                                    Type::Bool,
+                                    None,
+                                )
+                            }
                         }
                         _ => self.f.append_inst(
                             cmp_blk,
@@ -5121,8 +5144,14 @@ impl<'a> LowerCtx<'a> {
                     } else {
                         default_blk.unwrap_or(after)
                     };
+                    // For most cases self.cur_block == cmp_blk (the eq
+                    // append was directly into cmp_blk). For the Str
+                    // inline-eq path, the multi-block helper moved
+                    // self.cur_block to its `done` block — the cond_br
+                    // must fire there, where `eq` is defined.
+                    let _ = cmp_blk;
                     self.f.set_term(
-                        cmp_blk,
+                        self.cur_block,
                         Terminator::CondBr {
                             cond: Operand::Value(eq),
                             then_blk: body_blks[i],
@@ -6288,6 +6317,18 @@ impl<'a> LowerCtx<'a> {
                 }
                 if matches!(*op, AstBinOp::LOr) {
                     return self.lower_logical_or(*left, *right);
+                }
+                // Perf fast-path — `s === "literal"` / `s !== "literal"`
+                // where `"literal"` is short (≤16 bytes) and known at
+                // compile time. Emits inline `len-eq + byte-eq chain`,
+                // skipping the `__torajs_str_eq` C-runtime fn-call (which
+                // LLVM can't inline since it's in a separately-compiled
+                // C module). Critical for switch-on-string hot loops:
+                //   `switch (op) { case "+": ...; case "-": ... }`
+                if matches!(op, AstBinOp::Eq | AstBinOp::Neq) {
+                    if let Some(r) = self.try_inline_str_eq_with_literal(*op, *left, *right) {
+                        return r;
+                    }
                 }
                 let a = self.lower_expr(*left);
                 let b = self.lower_expr(*right);
@@ -10803,6 +10844,164 @@ impl<'a> LowerCtx<'a> {
     ///     a float-flavored op is emitted (FAdd/FSub/FMul, FCmp).
     ///   - Bitwise ops + Mod stay integer-only; mixing them with f64 is a
     ///     type error (caught at lower-time, not tolerated).
+    /// Emit inline byte-by-byte `Str === &[u8]` comparison. Returns a
+    /// bool Operand. Walks bytes [0..bytes.len()) of `other`; first
+    /// mismatch short-circuits to false. For len=0 just returns
+    /// `len(other) == 0`.
+    ///
+    /// Skips the `__torajs_str_eq` C-runtime fn-call (which lives in
+    /// a separately-compiled module so LLVM can't inline it). For tiny
+    /// literals (1-2 bytes) this unrolls to a few cycles; for longer
+    /// (up to caller-defined cap) LLVM's loop opts often collapse to
+    /// a single wide load + cmp.
+    fn emit_inline_str_eq_bytes(
+        &mut self,
+        other: Operand,
+        bytes: &[u8],
+    ) -> Operand {
+        let result_slot = self.alloca_in_entry(Type::Bool, Some("__streq_r"));
+        self.f.append_void(
+            self.cur_block,
+            InstKind::Store(Operand::ConstBool(false), Operand::Value(result_slot), 0),
+        );
+        let done_blk = self.f.add_block();
+        // step 1: len-eq
+        let other_len = self.f.append_inst(
+            self.cur_block,
+            InstKind::Load(Type::I64, other, 8),
+            Type::I64,
+            None,
+        );
+        let len_eq = self.f.append_inst(
+            self.cur_block,
+            InstKind::ICmp(
+                IPred::Eq,
+                Operand::Value(other_len),
+                Operand::ConstI64(bytes.len() as i64),
+            ),
+            Type::Bool,
+            None,
+        );
+        let cmp_blk = self.f.add_block();
+        self.f.set_term(self.cur_block, Terminator::CondBr {
+            cond: Operand::Value(len_eq),
+            then_blk: cmp_blk,
+            else_blk: done_blk,
+        });
+        self.cur_block = cmp_blk;
+        if bytes.is_empty() {
+            // len-eq alone determines truth.
+            self.f.append_void(
+                self.cur_block,
+                InstKind::Store(Operand::ConstBool(true), Operand::Value(result_slot), 0),
+            );
+            self.f.set_term(self.cur_block, Terminator::Br(done_blk));
+        } else {
+            let mut chain: Vec<BlockId> = Vec::with_capacity(bytes.len() + 1);
+            chain.push(self.cur_block);
+            for _ in 0..bytes.len() {
+                chain.push(self.f.add_block());
+            }
+            for (i, &want_byte) in bytes.iter().enumerate() {
+                self.cur_block = chain[i];
+                // Load 4 bytes at static offset 16 + i (Str data starts
+                // at +16). Mask low byte. Saves adding Type::I8 to the
+                // SSA layer just for this; high 24 bits are masked out.
+                let static_off = 16 + i as u64;
+                let byte_v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Load(Type::I32, other, static_off),
+                    Type::I32,
+                    None,
+                );
+                let byte_lo = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::BinOp(
+                        SsaBinOp::And,
+                        Operand::Value(byte_v),
+                        Operand::ConstI32(0xff),
+                    ),
+                    Type::I32,
+                    None,
+                );
+                let eq = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::ICmp(
+                        IPred::Eq,
+                        Operand::Value(byte_lo),
+                        Operand::ConstI32(want_byte as i32),
+                    ),
+                    Type::Bool,
+                    None,
+                );
+                self.f.set_term(self.cur_block, Terminator::CondBr {
+                    cond: Operand::Value(eq),
+                    then_blk: chain[i + 1],
+                    else_blk: done_blk,
+                });
+            }
+            self.cur_block = chain[bytes.len()];
+            self.f.append_void(
+                self.cur_block,
+                InstKind::Store(Operand::ConstBool(true), Operand::Value(result_slot), 0),
+            );
+            self.f.set_term(self.cur_block, Terminator::Br(done_blk));
+        }
+        self.cur_block = done_blk;
+        let r = self.f.append_inst(
+            self.cur_block,
+            InstKind::Load(Type::Bool, Operand::Value(result_slot), 0),
+            Type::Bool,
+            None,
+        );
+        Operand::Value(r)
+    }
+
+    /// Perf fast-path for `expr === "literal"` / `expr !== "literal"`
+    /// where the literal is short (≤16 bytes). Returns `None` if the
+    /// pattern doesn't match (caller falls through to the generic
+    /// str_eq path). For switch-on-string the equivalent inline emit
+    /// happens directly inside `Stmt::Switch` lowering — see there.
+    fn try_inline_str_eq_with_literal(
+        &mut self,
+        op: AstBinOp,
+        left: ExprId,
+        right: ExprId,
+    ) -> Option<Operand> {
+        let (lit_bytes, other_eid) = match (
+            self.ast.get_expr(left).clone(),
+            self.ast.get_expr(right).clone(),
+        ) {
+            (Expr::String(s), _) => (s.into_bytes(), right),
+            (_, Expr::String(s)) => (s.into_bytes(), left),
+            _ => return None,
+        };
+        if lit_bytes.len() > 16 {
+            return None;
+        }
+        let other = self.lower_expr(other_eid);
+        if self.operand_ty(&other) != Type::Str {
+            return None;
+        }
+        let r = self.emit_inline_str_eq_bytes(other, &lit_bytes);
+        // For !==, flip via xor.
+        if matches!(op, AstBinOp::Neq) {
+            let r_v = match r {
+                Operand::Value(v) => v,
+                _ => unreachable!(),
+            };
+            let n = self.f.append_inst(
+                self.cur_block,
+                InstKind::BinOp(SsaBinOp::Xor, Operand::Value(r_v), Operand::ConstBool(true)),
+                Type::Bool,
+                None,
+            );
+            Some(Operand::Value(n))
+        } else {
+            Some(r)
+        }
+    }
+
     fn lower_binop(&mut self, op: AstBinOp, a: Operand, b: Operand) -> Operand {
         // String concat short-circuit. Routes `str + str` to the runtime
         // concat intrinsic, which takes ownership of both operands.
