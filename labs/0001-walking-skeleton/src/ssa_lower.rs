@@ -2287,6 +2287,7 @@ fn synthesize_main(
             call_retargets,
             may_throw_fns,
             captured_arr_writeback: HashMap::new(),
+            escape_captured_lets: std::collections::HashSet::new(),
         };
         for s in stmts {
             ctx.lower_top_stmt(s);
@@ -2747,6 +2748,155 @@ fn intern_fn_sig(
     id
 }
 
+/// Walk `s` (and any nested stmts / exprs) collecting every name
+/// that appears in some `Expr::Closure { captures }` list. Used by
+/// `lower_fn`'s escape-capture pre-pass so the let-decl path can
+/// heap-allocate slots that an escaping closure will hold pointers to.
+fn collect_closure_captures_in_stmt(
+    ast: &Ast,
+    s: &Stmt,
+    out: &mut std::collections::HashSet<String>,
+) {
+    match s {
+        Stmt::Expr(eid)
+        | Stmt::Throw(eid)
+        | Stmt::Yield(eid) => collect_closure_captures_in_expr(ast, *eid, out),
+        Stmt::YieldInto { value, .. } => collect_closure_captures_in_expr(ast, *value, out),
+        Stmt::Return(Some(eid)) => collect_closure_captures_in_expr(ast, *eid, out),
+        Stmt::Return(None) => {}
+        Stmt::LetDecl { init, .. } => collect_closure_captures_in_expr(ast, *init, out),
+        Stmt::If { cond, then_branch, else_branch } => {
+            collect_closure_captures_in_expr(ast, *cond, out);
+            collect_closure_captures_in_stmt(ast, then_branch, out);
+            if let Some(eb) = else_branch {
+                collect_closure_captures_in_stmt(ast, eb, out);
+            }
+        }
+        Stmt::While { cond, body } => {
+            collect_closure_captures_in_expr(ast, *cond, out);
+            collect_closure_captures_in_stmt(ast, body, out);
+        }
+        Stmt::DoWhile { body, cond } => {
+            collect_closure_captures_in_stmt(ast, body, out);
+            collect_closure_captures_in_expr(ast, *cond, out);
+        }
+        Stmt::For { init, cond, step, body } => {
+            if let Some(i) = init {
+                collect_closure_captures_in_stmt(ast, i, out);
+            }
+            if let Some(c) = cond {
+                collect_closure_captures_in_expr(ast, *c, out);
+            }
+            if let Some(st) = step {
+                collect_closure_captures_in_expr(ast, *st, out);
+            }
+            collect_closure_captures_in_stmt(ast, body, out);
+        }
+        Stmt::Block(stmts) | Stmt::Multi(stmts) => {
+            for s in stmts {
+                collect_closure_captures_in_stmt(ast, s, out);
+            }
+        }
+        Stmt::Switch { scrutinee, cases, default } => {
+            collect_closure_captures_in_expr(ast, *scrutinee, out);
+            for c in cases {
+                collect_closure_captures_in_expr(ast, c.value, out);
+                for s in &c.body {
+                    collect_closure_captures_in_stmt(ast, s, out);
+                }
+            }
+            if let Some(d) = default {
+                for s in d {
+                    collect_closure_captures_in_stmt(ast, s, out);
+                }
+            }
+        }
+        Stmt::Try { body, catch_body, finally_body, .. } => {
+            for s in body {
+                collect_closure_captures_in_stmt(ast, s, out);
+            }
+            for s in catch_body {
+                collect_closure_captures_in_stmt(ast, s, out);
+            }
+            if let Some(fb) = finally_body {
+                for s in fb {
+                    collect_closure_captures_in_stmt(ast, s, out);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn collect_closure_captures_in_expr(
+    ast: &Ast,
+    eid: ExprId,
+    out: &mut std::collections::HashSet<String>,
+) {
+    match ast.get_expr(eid) {
+        Expr::Closure { captures, .. } => {
+            for c in captures {
+                out.insert(c.clone());
+            }
+        }
+        Expr::BinOp { left, right, .. } => {
+            collect_closure_captures_in_expr(ast, *left, out);
+            collect_closure_captures_in_expr(ast, *right, out);
+        }
+        Expr::Unary { expr, .. }
+        | Expr::TypeOf { expr }
+        | Expr::Spread { expr }
+        | Expr::InstanceOf { expr, .. } => {
+            collect_closure_captures_in_expr(ast, *expr, out);
+        }
+        Expr::Member { obj, .. } | Expr::OptChain { obj, .. } => {
+            collect_closure_captures_in_expr(ast, *obj, out);
+        }
+        Expr::Call { callee, args } => {
+            collect_closure_captures_in_expr(ast, *callee, out);
+            for a in args {
+                collect_closure_captures_in_expr(ast, *a, out);
+            }
+        }
+        Expr::Assign { target, value } => {
+            collect_closure_captures_in_expr(ast, *target, out);
+            collect_closure_captures_in_expr(ast, *value, out);
+        }
+        Expr::Index { obj, index } => {
+            collect_closure_captures_in_expr(ast, *obj, out);
+            collect_closure_captures_in_expr(ast, *index, out);
+        }
+        Expr::Array(els) => {
+            for e in els {
+                collect_closure_captures_in_expr(ast, *e, out);
+            }
+        }
+        Expr::ObjectLit { fields } => {
+            for (_, e) in fields {
+                collect_closure_captures_in_expr(ast, *e, out);
+            }
+        }
+        Expr::Ternary { cond, then_branch, else_branch } => {
+            collect_closure_captures_in_expr(ast, *cond, out);
+            collect_closure_captures_in_expr(ast, *then_branch, out);
+            collect_closure_captures_in_expr(ast, *else_branch, out);
+        }
+        Expr::Nullish { lhs, rhs } => {
+            collect_closure_captures_in_expr(ast, *lhs, out);
+            collect_closure_captures_in_expr(ast, *rhs, out);
+        }
+        Expr::New { args, .. } | Expr::Super { args } => {
+            for e in args {
+                collect_closure_captures_in_expr(ast, *e, out);
+            }
+        }
+        Expr::PostIncr { target, .. } => {
+            collect_closure_captures_in_expr(ast, *target, out);
+        }
+        _ => {}
+    }
+}
+
 fn lower_fn(
     name: &str,
     params: &[ast::Param],
@@ -2838,17 +2988,55 @@ fn lower_fn(
         call_retargets,
         may_throw_fns,
         captured_arr_writeback: HashMap::new(),
+        escape_captured_lets: std::collections::HashSet::new(),
     };
+
+    // Escape-capture analysis: if this fn's return type is a Closure
+    // (factory pattern), any `let` whose name appears in some
+    // `Expr::Closure` capture list within `body` is going to be
+    // captured by an escaping closure. We need to heap-allocate
+    // those slots at let-decl so the env can hold a stable pointer
+    // to them, with the env-drop fn freeing them at closure value
+    // drop.
+    if matches!(ctx.f.ret, Type::Closure(_)) {
+        for s in body {
+            collect_closure_captures_in_stmt(ctx.ast, s, &mut ctx.escape_captured_lets);
+        }
+    }
 
     // Materialize each param as an alloca-backed local. mem2reg at -O1+
     // collapses these straight back to the SSA arg values, so there is no
     // perf cost; we still get fib40 at 150 ms.
     for (pname, pid, ty) in param_setup {
-        let slot = ctx.alloca(ty, Some(&pname));
-        ctx.f.append_void(
-            ctx.cur_block,
-            InstKind::Store(Operand::Value(pid), Operand::Value(slot), 0),
-        );
+        // Escape-captured params (the same set built for lets) need a
+        // heap-allocated slot — an escape closure that captures a param
+        // would otherwise hold a pointer into the caller's freed stack
+        // frame. Same heap-alloc + transfer-ownership-to-env shape as
+        // escape-captured lets.
+        let escape_captured = ctx.escape_captured_lets.contains(&pname);
+        let slot = if escape_captured {
+            let s = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(
+                    ctx.intrinsics.obj_alloc,
+                    vec![Operand::ConstI64(8)],
+                ),
+                Type::Ptr,
+                None,
+            );
+            ctx.f.append_void(
+                ctx.cur_block,
+                InstKind::Store(Operand::Value(pid), Operand::Value(s), 0),
+            );
+            s
+        } else {
+            let s = ctx.alloca(ty, Some(&pname));
+            ctx.f.append_void(
+                ctx.cur_block,
+                InstKind::Store(Operand::Value(pid), Operand::Value(s), 0),
+            );
+            s
+        };
         // The hidden `__env` first-param of a lifted closure is not
         // owned by the callee — the closure value (and its env) are
         // owned by the construction site / its enclosing scope. Mark
@@ -2862,10 +3050,10 @@ fn lower_fn(
         // TS-shape: non-Copy params borrow from the caller — the caller
         // owns the heap and will drop it at its scope close. Marking
         // non-Copy params as `moved` keeps fn-end drop emission from
-        // freeing what we don't own. (Was: only __env / __this borrowed;
-        // every other non-Copy param transferred ownership in. The
-        // change here is the `|| !ty.is_copy()` clause.)
-        let borrows_caller = is_env_param || is_class_self || !ty.is_copy();
+        // freeing what we don't own. Escape-captured params transfer
+        // ownership to env (env-drop frees the heap slot).
+        let borrows_caller =
+            is_env_param || is_class_self || !ty.is_copy() || escape_captured;
         ctx.locals.insert(
             pname.clone(),
             LocalInfo {
@@ -3150,6 +3338,16 @@ struct LowerCtx<'a> {
     /// pointer. Empty for non-closure fns; populated only by the
     /// closure prologue.
     captured_arr_writeback: HashMap<ValueId, (ValueId, u64)>,
+    /// Names of `let` bindings in the current fn body that are
+    /// captured by an escape closure (one whose env outlives the
+    /// construction frame — detected via the enclosing fn's return
+    /// type being a Closure type). These lets get heap-allocated
+    /// slots at let-decl so the env can hold a stable pointer to
+    /// them. The env-drop fn frees the slot (along with the env)
+    /// when the closure value is dropped.
+    /// Empty for non-escape-context fns; populated at fn-entry by
+    /// scanning `body` for `Expr::Closure` captures.
+    escape_captured_lets: std::collections::HashSet<String>,
 }
 
 impl<'a> LowerCtx<'a> {
@@ -4130,7 +4328,25 @@ impl<'a> LowerCtx<'a> {
                 if type_ann.is_none() {
                     ty = self.operand_ty(&init_val);
                 }
-                let slot = self.alloca(ty, Some(name));
+                // Escape-captured lets get a heap-allocated slot so
+                // the closure's env can hold a stable pointer that
+                // outlives the construction frame. The env-drop fn
+                // (synthesized per closure) frees the slot when the
+                // closure value dies.
+                let escape_captured = self.escape_captured_lets.contains(name);
+                let slot = if escape_captured {
+                    self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.obj_alloc,
+                            vec![Operand::ConstI64(8)],
+                        ),
+                        Type::Ptr,
+                        None,
+                    )
+                } else {
+                    self.alloca(ty, Some(name))
+                };
                 self.f.append_void(
                     self.cur_block,
                     InstKind::Store(init_val, Operand::Value(slot), 0),
@@ -4154,7 +4370,12 @@ impl<'a> LowerCtx<'a> {
                     LocalInfo {
                         slot,
                         ty,
-                        moved: is_alias_init,
+                        // Escape-captured lets transfer ownership to
+                        // the env at first closure construction; the
+                        // env's drop fn frees the heap slot. Mark
+                        // moved so the outer scope's drop walk skips
+                        // it (the env is the canonical owner).
+                        moved: is_alias_init || escape_captured,
                         scope_depth: cur_depth,
                     },
                 );
@@ -8903,7 +9124,6 @@ impl<'a> LowerCtx<'a> {
                 // each capture's mode (by-ref vs by-value); record on
                 // the side channel so the lifted body's lower_fn knows
                 // how to decode each offset.
-                let enclosing_returns_closure = matches!(self.f.ret, Type::Closure(_));
                 let cap_tys: Vec<Type> = captures
                     .iter()
                     .map(|c| {
@@ -8917,12 +9137,13 @@ impl<'a> LowerCtx<'a> {
                             })
                     })
                     .collect();
+                // Copy captures always go by-ref now: the let-decl
+                // pre-pass heap-allocs slots that escape closures
+                // capture, so info.slot is a stable pointer
+                // regardless of enclosing fn's return type.
                 let cap_meta: Vec<(Type, bool)> = cap_tys
                     .iter()
-                    .map(|t| {
-                        let is_byref = t.is_copy() && !enclosing_returns_closure;
-                        (*t, is_byref)
-                    })
+                    .map(|t| (*t, t.is_copy()))
                     .collect();
                 self.closure_captures
                     .insert(fn_name.clone(), cap_meta);
@@ -8955,35 +9176,24 @@ impl<'a> LowerCtx<'a> {
                     self.cur_block,
                     InstKind::Store(Operand::Value(fn_addr_v), Operand::Value(env_v), 0),
                 );
-                // Capture-by-reference for Copy types when the closure
-                // doesn't escape its construction frame; capture-by-
-                // value for non-Copy or escaping closures.
-                //
-                // Escape detection (conservative): the enclosing fn's
-                // declared return type is a Closure ⇒ assume the
-                // construction may flow into the return, so the env
-                // outlives the construction frame and any by-reference
-                // pointer to a stack alloca would dangle. For the
-                // common non-escaping case (callback to forEach,
-                // immediate `inc(); inc();`, helper inside a number-
-                // returning fn) we just store the outer alloca's
-                // POINTER into env. No heap allocation, no leak;
-                // mutations through either path go to the same slot.
-                //
-                // For escaping closures with Copy captures we fall
-                // back to by-value (legacy MVP). Mutation won't
-                // propagate; closure-009-by-ref documents the
-                // limitation. End-to-end fix needs env-drop machinery
-                // (project_closure_box_leak_followup) — out of scope
-                // for this commit.
-                let enclosing_returns_closure = matches!(self.f.ret, Type::Closure(_));
+                // Two capture modes:
+                //  - Copy types: by-reference. info.slot is a stable
+                //    pointer (heap-alloc'd at let-decl when the let
+                //    is escape-captured, otherwise the enclosing fn's
+                //    stack alloca which lives at least as long as the
+                //    closure does in the non-escape case). Storing
+                //    info.slot into env makes reads/writes through
+                //    env flow back to the original slot — JS-spec
+                //    by-reference semantics.
+                //  - Non-Copy types: by-value of the heap pointer.
+                //    Outer marked moved so the heap doesn't double-
+                //    free; env owns the pointer until env-drop fires.
                 for (i, (cap_name, cap_ty)) in
                     captures.iter().zip(cap_tys.iter()).enumerate()
                 {
                     let info = *self.locals.get(cap_name).expect("capture in scope");
                     let offset = 8 + (i as u64) * 8;
-                    if cap_ty.is_copy() && !enclosing_returns_closure {
-                        // By-reference: store the outer slot pointer.
+                    if cap_ty.is_copy() {
                         self.f.append_void(
                             self.cur_block,
                             InstKind::Store(
@@ -8992,24 +9202,7 @@ impl<'a> LowerCtx<'a> {
                                 offset,
                             ),
                         );
-                    } else if cap_ty.is_copy() {
-                        // Escaping + Copy: by-value (legacy).
-                        let v = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Load(*cap_ty, Operand::Value(info.slot), 0),
-                            *cap_ty,
-                            None,
-                        );
-                        self.f.append_void(
-                            self.cur_block,
-                            InstKind::Store(
-                                Operand::Value(v),
-                                Operand::Value(env_v),
-                                offset,
-                            ),
-                        );
                     } else {
-                        // Non-Copy: by-value capture of the heap pointer.
                         let v = self.f.append_inst(
                             self.cur_block,
                             InstKind::Load(*cap_ty, Operand::Value(info.slot), 0),
