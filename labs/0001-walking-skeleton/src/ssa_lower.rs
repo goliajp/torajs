@@ -10874,14 +10874,13 @@ impl<'a> LowerCtx<'a> {
                     if n == "__spread__" {
                         // Lower the source obj once; for each of its
                         // statically-known fields, emit a Load and
-                        // append (or replace). Ownership story: the
-                        // new struct ends up sharing the source's
-                        // non-Copy field heaps (Strings, Arrays, …).
-                        // To avoid double-free at scope-end, mark the
-                        // source binding moved iff its struct has at
-                        // least one non-Copy field. The source's own
-                        // obj-alloc memory leaks for that case
-                        // (acceptable trade for correctness).
+                        // append (or replace). Refcount story: each
+                        // refcounted field gets rc_inc'd so the new
+                        // struct's slot owns its own ref independently
+                        // of the source. The source's container drops
+                        // normally at scope end via the standard non-
+                        // Copy local sweep (no longer moved-out by
+                        // spread).
                         let src_op = self.lower_expr(*eid);
                         let src_ty = self.operand_ty(&src_op);
                         let Type::Obj(sid) = src_ty else {
@@ -10890,10 +10889,6 @@ impl<'a> LowerCtx<'a> {
                             );
                         };
                         let layout = self.struct_layouts[sid.0 as usize].clone();
-                        let any_non_copy = layout.iter().any(|(_, t)| !t.is_copy());
-                        if any_non_copy {
-                            self.consume_if_ident(*eid);
-                        }
                         for (idx, (sn, st)) in layout.iter().enumerate() {
                             let off = OBJ_HEADER_SIZE + (idx as u64) * 8;
                             let v = self.f.append_inst(
@@ -10902,6 +10897,15 @@ impl<'a> LowerCtx<'a> {
                                 *st,
                                 None,
                             );
+                            if st.is_refcounted() {
+                                self.f.append_void(
+                                    self.cur_block,
+                                    InstKind::Call(
+                                        self.intrinsics.rc_inc,
+                                        vec![Operand::Value(v)],
+                                    ),
+                                );
+                            }
                             let v_op = Operand::Value(v);
                             if let Some(pos) = field_tys.iter().position(|(k, _)| k == sn) {
                                 field_tys[pos] = (sn.clone(), *st);
