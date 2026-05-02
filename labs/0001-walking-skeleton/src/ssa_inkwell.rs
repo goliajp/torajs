@@ -439,6 +439,139 @@ fn declare_memcmp<'ctx>(ctx: &'ctx Context, m: &LlvmModule<'ctx>) -> FunctionVal
     m.add_function("memcmp", fn_t, None)
 }
 
+/// Phase B refcount: every Str heap object begins with the universal
+/// 8-byte heap header `__torajs_heap_header_t` (refcount@0, type_tag@4,
+/// flags@6), followed by `len@8`, then `bytes@16`. The values below are
+/// the offsets used by every Str-producing inkwell IR site, kept in
+/// lock-step with `__TORAJS_STR_HDR_SIZE` and the macros defined in
+/// `runtime_str.c`. If you change one, change the other.
+const STR_HDR_REFCOUNT_OFF: u64 = 0;
+const STR_HDR_TYPE_TAG_OFF: u64 = 4;
+const STR_HDR_FLAGS_OFF: u64 = 6;
+const STR_HDR_LEN_OFF: u64 = 8;
+const STR_HDR_DATA_OFF: u64 = 16;
+const STR_HDR_TAG_STR: u64 = 0;
+
+/// Emit the inkwell IR sequence that materializes a fresh Str heap
+/// object: malloc(16 + len), init refcount=1 / type_tag=STR / flags=0 /
+/// len, return the pointer (data area uninitialized — caller fills the
+/// `len` bytes at `p + STR_HDR_DATA_OFF`).
+///
+/// Single-source-of-truth for every str-producing inkwell function so
+/// the header init never drifts between sites.
+fn emit_str_alloc_header<'ctx>(
+    ctx: &'ctx Context,
+    builder: &inkwell::builder::Builder<'ctx>,
+    malloc: FunctionValue<'ctx>,
+    len: inkwell::values::IntValue<'ctx>,
+) -> inkwell::values::PointerValue<'ctx> {
+    let i64_t = ctx.i64_type();
+    let i32_t = ctx.i32_type();
+    let i16_t = ctx.i16_type();
+    let i8_t = ctx.i8_type();
+
+    let total = builder
+        .build_int_add(len, i64_t.const_int(STR_HDR_DATA_OFF, false), "str_total")
+        .unwrap();
+    let p = builder
+        .build_call(malloc, &[total.into()], "str_p")
+        .unwrap()
+        .try_as_basic_value()
+        .unwrap_basic()
+        .into_pointer_value();
+
+    // refcount = 1 (already at offset 0; no GEP needed)
+    builder.build_store(p, i32_t.const_int(1, false)).unwrap();
+    // type_tag @ +4
+    let tag_ptr = unsafe {
+        builder
+            .build_in_bounds_gep(
+                i8_t,
+                p,
+                &[i64_t.const_int(STR_HDR_TYPE_TAG_OFF, false)],
+                "str_tag",
+            )
+            .unwrap()
+    };
+    builder
+        .build_store(tag_ptr, i16_t.const_int(STR_HDR_TAG_STR, false))
+        .unwrap();
+    // flags @ +6
+    let flags_ptr = unsafe {
+        builder
+            .build_in_bounds_gep(
+                i8_t,
+                p,
+                &[i64_t.const_int(STR_HDR_FLAGS_OFF, false)],
+                "str_flags",
+            )
+            .unwrap()
+    };
+    builder
+        .build_store(flags_ptr, i16_t.const_int(0, false))
+        .unwrap();
+    // len @ +8
+    let len_ptr = unsafe {
+        builder
+            .build_in_bounds_gep(
+                i8_t,
+                p,
+                &[i64_t.const_int(STR_HDR_LEN_OFF, false)],
+                "str_len_ptr",
+            )
+            .unwrap()
+    };
+    builder.build_store(len_ptr, len).unwrap();
+    p
+}
+
+/// Get the Str's data byte pointer (`p + STR_HDR_DATA_OFF`). Used by
+/// every site that reads or writes string bytes after the header.
+fn str_data_ptr<'ctx>(
+    ctx: &'ctx Context,
+    builder: &inkwell::builder::Builder<'ctx>,
+    str_ptr: inkwell::values::PointerValue<'ctx>,
+    name: &str,
+) -> inkwell::values::PointerValue<'ctx> {
+    let i64_t = ctx.i64_type();
+    let i8_t = ctx.i8_type();
+    unsafe {
+        builder
+            .build_in_bounds_gep(
+                i8_t,
+                str_ptr,
+                &[i64_t.const_int(STR_HDR_DATA_OFF, false)],
+                name,
+            )
+            .unwrap()
+    }
+}
+
+/// Load the Str's `len` field (`*(u64*)(p + STR_HDR_LEN_OFF)`).
+fn str_len_load<'ctx>(
+    ctx: &'ctx Context,
+    builder: &inkwell::builder::Builder<'ctx>,
+    str_ptr: inkwell::values::PointerValue<'ctx>,
+    name: &str,
+) -> inkwell::values::IntValue<'ctx> {
+    let i64_t = ctx.i64_type();
+    let i8_t = ctx.i8_type();
+    let len_ptr = unsafe {
+        builder
+            .build_in_bounds_gep(
+                i8_t,
+                str_ptr,
+                &[i64_t.const_int(STR_HDR_LEN_OFF, false)],
+                &format!("{name}_lp"),
+            )
+            .unwrap()
+    };
+    builder
+        .build_load(i64_t, len_ptr, name)
+        .unwrap()
+        .into_int_value()
+}
+
 /// Emit one `[N x i8]` private constant per interned string. Just the raw
 /// bytes — no NUL terminator. The string runtime carries length explicitly
 /// in the heap StrRepr's first 8 bytes.
@@ -461,13 +594,9 @@ fn emit_string_global<'ctx>(
 
 /// `__torajs_str_alloc(*const u8 src, u64 len) -> *StrRepr`
 ///
-/// Build:
-///     p = malloc(8 + len)
-///     *(u64*)p = len
-///     memcpy(p + 8, src, len)
-///     return p
-///
-/// The returned pointer is a heap StrRepr. Caller's drop frees it.
+/// Allocates a fresh Str heap object via `emit_str_alloc_header` (which
+/// writes the universal refcount header + len field), then copies
+/// `len` bytes from `src` into the data area at `p + STR_HDR_DATA_OFF`.
 fn define_str_alloc<'ctx>(
     ctx: &'ctx Context,
     m: &LlvmModule<'ctx>,
@@ -476,7 +605,6 @@ fn define_str_alloc<'ctx>(
 ) -> FunctionValue<'ctx> {
     let builder = ctx.create_builder();
     let i64_t = ctx.i64_type();
-    let i8_t = ctx.i8_type();
     let ptr_t = ctx.ptr_type(AddressSpace::default());
     let fn_t = ptr_t.fn_type(&[ptr_t.into(), i64_t.into()], false);
     let f = m.add_function("__torajs_str_alloc", fn_t, None);
@@ -486,25 +614,8 @@ fn define_str_alloc<'ctx>(
     let src = f.get_nth_param(0).unwrap().into_pointer_value();
     let len = f.get_nth_param(1).unwrap().into_int_value();
 
-    let total = builder
-        .build_int_add(len, i64_t.const_int(8, false), "total")
-        .unwrap();
-    let p = builder
-        .build_call(malloc, &[total.into()], "p")
-        .unwrap()
-        .try_as_basic_value()
-        .unwrap_basic()
-        .into_pointer_value();
-
-    // Store len at offset 0
-    builder.build_store(p, len).unwrap();
-
-    // Compute data pointer = p + 8 (byte offset)
-    let data = unsafe {
-        builder
-            .build_in_bounds_gep(i8_t, p, &[i64_t.const_int(8, false)], "data")
-            .unwrap()
-    };
+    let p = emit_str_alloc_header(ctx, &builder, malloc, len);
+    let data = str_data_ptr(ctx, &builder, p, "data");
     builder
         .build_call(memcpy, &[data.into(), src.into(), len.into()], "_cp")
         .unwrap();
@@ -515,18 +626,8 @@ fn define_str_alloc<'ctx>(
 
 /// `__torajs_str_concat(*StrRepr a, *StrRepr b) -> *StrRepr`
 ///
-/// Build:
-///     a_len = *(u64*)a
-///     b_len = *(u64*)b
-///     total = a_len + b_len
-///     p = malloc(8 + total)
-///     *(u64*)p = total
-///     memcpy(p + 8, a + 8, a_len)
-///     memcpy(p + 8 + a_len, b + 8, b_len)
-///     return p
-///
-/// TS-shape: read-only on operands. `a` and `b` keep their heaps —
-/// caller's drops still fire normally on them.
+/// Allocates a fresh Str holding `a.bytes ++ b.bytes`. Operands are
+/// read-only; the caller's drops still fire normally on them.
 fn define_str_concat<'ctx>(
     ctx: &'ctx Context,
     m: &LlvmModule<'ctx>,
@@ -534,7 +635,6 @@ fn define_str_concat<'ctx>(
     memcpy: FunctionValue<'ctx>,
 ) -> FunctionValue<'ctx> {
     let builder = ctx.create_builder();
-    let i64_t = ctx.i64_type();
     let i8_t = ctx.i8_type();
     let ptr_t = ctx.ptr_type(AddressSpace::default());
     let fn_t = ptr_t.fn_type(&[ptr_t.into(), ptr_t.into()], false);
@@ -545,36 +645,13 @@ fn define_str_concat<'ctx>(
     let a = f.get_nth_param(0).unwrap().into_pointer_value();
     let b = f.get_nth_param(1).unwrap().into_pointer_value();
 
-    let a_len = builder.build_load(i64_t, a, "a_len").unwrap().into_int_value();
-    let b_len = builder.build_load(i64_t, b, "b_len").unwrap().into_int_value();
+    let a_len = str_len_load(ctx, &builder, a, "a_len");
+    let b_len = str_len_load(ctx, &builder, b, "b_len");
     let total = builder.build_int_add(a_len, b_len, "total").unwrap();
 
-    let alloc_size = builder
-        .build_int_add(total, i64_t.const_int(8, false), "alloc_size")
-        .unwrap();
-    let p = builder
-        .build_call(malloc, &[alloc_size.into()], "p")
-        .unwrap()
-        .try_as_basic_value()
-        .unwrap_basic()
-        .into_pointer_value();
-
-    // Store total len at offset 0
-    builder.build_store(p, total).unwrap();
-
-    // p_data = p + 8
-    let p_data = unsafe {
-        builder
-            .build_in_bounds_gep(i8_t, p, &[i64_t.const_int(8, false)], "p_data")
-            .unwrap()
-    };
-    // a_data = a + 8
-    let a_data = unsafe {
-        builder
-            .build_in_bounds_gep(i8_t, a, &[i64_t.const_int(8, false)], "a_data")
-            .unwrap()
-    };
-    // memcpy(p_data, a_data, a_len)
+    let p = emit_str_alloc_header(ctx, &builder, malloc, total);
+    let p_data = str_data_ptr(ctx, &builder, p, "p_data");
+    let a_data = str_data_ptr(ctx, &builder, a, "a_data");
     builder
         .build_call(memcpy, &[p_data.into(), a_data.into(), a_len.into()], "_cp_a")
         .unwrap();
@@ -584,13 +661,7 @@ fn define_str_concat<'ctx>(
             .build_in_bounds_gep(i8_t, p_data, &[a_len], "p_data2")
             .unwrap()
     };
-    // b_data = b + 8
-    let b_data = unsafe {
-        builder
-            .build_in_bounds_gep(i8_t, b, &[i64_t.const_int(8, false)], "b_data")
-            .unwrap()
-    };
-    // memcpy(p_data2, b_data, b_len)
+    let b_data = str_data_ptr(ctx, &builder, b, "b_data");
     builder
         .build_call(memcpy, &[p_data2.into(), b_data.into(), b_len.into()], "_cp_b")
         .unwrap();
@@ -622,7 +693,7 @@ fn define_str_slice<'ctx>(
     let end = f.get_nth_param(2).unwrap().into_int_value();
     let zero = i64_t.const_int(0, false);
 
-    let len = builder.build_load(i64_t, s, "len").unwrap().into_int_value();
+    let len = str_len_load(ctx, &builder, s, "len");
     // start = max(0, min(start, len))
     let start_neg = builder
         .build_int_compare(IntPredicate::SLT, start, zero, "start_neg")
@@ -657,27 +728,12 @@ fn define_str_slice<'ctx>(
     let new_len = builder
         .build_int_sub(end_c, start_c, "new_len")
         .unwrap();
-    let alloc_size = builder
-        .build_int_add(new_len, i64_t.const_int(8, false), "alloc_size")
-        .unwrap();
-    let p = builder
-        .build_call(malloc, &[alloc_size.into()], "p")
-        .unwrap()
-        .try_as_basic_value()
-        .unwrap_basic()
-        .into_pointer_value();
-    builder.build_store(p, new_len).unwrap();
-    let p_data = unsafe {
-        builder
-            .build_in_bounds_gep(i8_t, p, &[i64_t.const_int(8, false)], "p_data")
-            .unwrap()
-    };
-    let s_off = builder
-        .build_int_add(start_c, i64_t.const_int(8, false), "s_off")
-        .unwrap();
+    let p = emit_str_alloc_header(ctx, &builder, malloc, new_len);
+    let p_data = str_data_ptr(ctx, &builder, p, "p_data");
+    let s_data_base = str_data_ptr(ctx, &builder, s, "s_data_base");
     let s_data = unsafe {
         builder
-            .build_in_bounds_gep(i8_t, s, &[s_off], "s_data")
+            .build_in_bounds_gep(i8_t, s_data_base, &[start_c], "s_data")
             .unwrap()
     };
     builder
@@ -711,7 +767,7 @@ fn define_str_char_code_at<'ctx>(
 
     let s = f.get_nth_param(0).unwrap().into_pointer_value();
     let i = f.get_nth_param(1).unwrap().into_int_value();
-    let len = builder.build_load(i64_t, s, "len").unwrap().into_int_value();
+    let len = str_len_load(ctx, &builder, s, "len");
     let zero = i64_t.const_int(0, false);
     let i_neg = builder
         .build_int_compare(IntPredicate::SLT, i, zero, "i_neg")
@@ -726,12 +782,10 @@ fn define_str_char_code_at<'ctx>(
     builder.position_at_end(oob_blk);
     builder.build_return(Some(&zero)).unwrap();
     builder.position_at_end(load_blk);
-    let off = builder
-        .build_int_add(i, i64_t.const_int(8, false), "off")
-        .unwrap();
+    let s_data = str_data_ptr(ctx, &builder, s, "s_data");
     let p = unsafe {
         builder
-            .build_in_bounds_gep(i8_t, s, &[off], "p")
+            .build_in_bounds_gep(i8_t, s_data, &[i], "p")
             .unwrap()
     };
     let b = builder.build_load(i8_t, p, "b").unwrap().into_int_value();
@@ -751,7 +805,6 @@ fn define_str_prefix_suffix_check<'ctx>(
     from_end: bool,
 ) -> FunctionValue<'ctx> {
     let builder = ctx.create_builder();
-    let i64_t = ctx.i64_type();
     let i8_t = ctx.i8_type();
     let bool_t = ctx.bool_type();
     let ptr_t = ctx.ptr_type(AddressSpace::default());
@@ -764,8 +817,8 @@ fn define_str_prefix_suffix_check<'ctx>(
 
     let s = f.get_nth_param(0).unwrap().into_pointer_value();
     let n = f.get_nth_param(1).unwrap().into_pointer_value();
-    let s_len = builder.build_load(i64_t, s, "s_len").unwrap().into_int_value();
-    let n_len = builder.build_load(i64_t, n, "n_len").unwrap().into_int_value();
+    let s_len = str_len_load(ctx, &builder, s, "s_len");
+    let n_len = str_len_load(ctx, &builder, n, "n_len");
     let too = builder
         .build_int_compare(IntPredicate::SGT, n_len, s_len, "too")
         .unwrap();
@@ -777,27 +830,19 @@ fn define_str_prefix_suffix_check<'ctx>(
         .build_return(Some(&bool_t.const_int(0, false)))
         .unwrap();
     builder.position_at_end(cmp_blk);
-    // s_off = 8 + (from_end ? s_len - n_len : 0)
-    let s_off_pre = if from_end {
-        let diff = builder
-            .build_int_sub(s_len, n_len, "diff")
-            .unwrap();
-        builder
-            .build_int_add(diff, i64_t.const_int(8, false), "s_off")
-            .unwrap()
+    // s_off = from_end ? s_len - n_len : 0 (relative to s_data)
+    let s_data_base = str_data_ptr(ctx, &builder, s, "s_data_base");
+    let s_data = if from_end {
+        let diff = builder.build_int_sub(s_len, n_len, "diff").unwrap();
+        unsafe {
+            builder
+                .build_in_bounds_gep(i8_t, s_data_base, &[diff], "s_data")
+                .unwrap()
+        }
     } else {
-        i64_t.const_int(8, false)
+        s_data_base
     };
-    let s_data = unsafe {
-        builder
-            .build_in_bounds_gep(i8_t, s, &[s_off_pre], "s_data")
-            .unwrap()
-    };
-    let n_data = unsafe {
-        builder
-            .build_in_bounds_gep(i8_t, n, &[i64_t.const_int(8, false)], "n_data")
-            .unwrap()
-    };
+    let n_data = str_data_ptr(ctx, &builder, n, "n_data");
     let r = builder
         .build_call(memcmp, &[s_data.into(), n_data.into(), n_len.into()], "r")
         .unwrap()
@@ -843,11 +888,8 @@ fn define_str_index_of<'ctx>(
 
     let s = f.get_nth_param(0).unwrap().into_pointer_value();
     let sub = f.get_nth_param(1).unwrap().into_pointer_value();
-    let s_len = builder.build_load(i64_t, s, "s_len").unwrap().into_int_value();
-    let sub_len = builder
-        .build_load(i64_t, sub, "sub_len")
-        .unwrap()
-        .into_int_value();
+    let s_len = str_len_load(ctx, &builder, s, "s_len");
+    let sub_len = str_len_load(ctx, &builder, sub, "sub_len");
     let zero = i64_t.const_int(0, false);
     let sub_empty = builder
         .build_int_compare(IntPredicate::EQ, sub_len, zero, "sub_empty")
@@ -865,6 +907,8 @@ fn define_str_index_of<'ctx>(
     let max_i = builder
         .build_int_sub(s_len, sub_len, "max_i")
         .unwrap();
+    let s_data_base = str_data_ptr(ctx, &builder, s, "s_data_base");
+    let sub_data = str_data_ptr(ctx, &builder, sub, "sub_data");
     let header_inner = ctx.append_basic_block(f, "header_inner");
     builder.build_unconditional_branch(header_inner).unwrap();
     builder.position_at_end(header_inner);
@@ -881,23 +925,15 @@ fn define_str_index_of<'ctx>(
     builder.position_at_end(body_blk);
     builder.build_unconditional_branch(cmp_blk).unwrap();
 
-    // cmp: memcmp(s+8+i, sub+8, sub_len) == 0 ?
+    // cmp: memcmp(s_data + i, sub_data, sub_len) == 0 ?
     builder.position_at_end(cmp_blk);
     let i_now2 = builder
         .build_load(i64_t, i_slot, "i_now2")
         .unwrap()
         .into_int_value();
-    let s_off = builder
-        .build_int_add(i_now2, i64_t.const_int(8, false), "s_off")
-        .unwrap();
     let s_data = unsafe {
         builder
-            .build_in_bounds_gep(i8_t, s, &[s_off], "s_data")
-            .unwrap()
-    };
-    let sub_data = unsafe {
-        builder
-            .build_in_bounds_gep(i8_t, sub, &[i64_t.const_int(8, false)], "sub_data")
+            .build_in_bounds_gep(i8_t, s_data_base, &[i_now2], "s_data")
             .unwrap()
     };
     let r = builder
@@ -1552,23 +1588,76 @@ fn define_arr_drop<'ctx>(
     f
 }
 
-/// `__torajs_str_drop(*StrRepr s) -> void` — `free(s)`. The runtime owns
-/// the layout decision (see __torajs_str_alloc); free works because alloc
-/// used libc malloc.
+/// `__torajs_str_drop(*StrRepr s) -> void`
+///
+/// Phase B refcount: decrement the universal heap header's refcount;
+/// free the alloc only when it reaches zero. NULL passes through.
+///
+///     if (s == NULL) return;
+///     u32 *rc = (u32*)s;          // refcount @ offset 0
+///     *rc -= 1;
+///     if (*rc == 0) free(s);
 fn define_str_drop<'ctx>(
     ctx: &'ctx Context,
     m: &LlvmModule<'ctx>,
     free: FunctionValue<'ctx>,
 ) -> FunctionValue<'ctx> {
     let builder = ctx.create_builder();
+    let i32_t = ctx.i32_type();
     let ptr_t = ctx.ptr_type(AddressSpace::default());
     let void_t = ctx.void_type();
     let fn_t = void_t.fn_type(&[ptr_t.into()], false);
     let f = m.add_function("__torajs_str_drop", fn_t, None);
     let entry = ctx.append_basic_block(f, "entry");
+    let dec_blk = ctx.append_basic_block(f, "dec");
+    let free_blk = ctx.append_basic_block(f, "free");
+    let ret_blk = ctx.append_basic_block(f, "ret");
     builder.position_at_end(entry);
     let arg = f.get_nth_param(0).unwrap().into_pointer_value();
+    let null = ptr_t.const_null();
+    let is_null = builder
+        .build_int_compare(IntPredicate::EQ, arg, null, "is_null")
+        .unwrap();
+    builder
+        .build_conditional_branch(is_null, ret_blk, dec_blk)
+        .unwrap();
+
+    builder.position_at_end(dec_blk);
+    let i64_t = ctx.i64_type();
+    let i8_t = ctx.i8_type();
+    // refcount @ STR_HDR_REFCOUNT_OFF (offset 0). Explicit GEP so the
+    // const documents the layout; LLVM mem2reg collapses the zero GEP.
+    let rc_ptr = unsafe {
+        builder
+            .build_in_bounds_gep(
+                i8_t,
+                arg,
+                &[i64_t.const_int(STR_HDR_REFCOUNT_OFF, false)],
+                "rc_ptr",
+            )
+            .unwrap()
+    };
+    let rc_now = builder
+        .build_load(i32_t, rc_ptr, "rc_now")
+        .unwrap()
+        .into_int_value();
+    let rc_dec = builder
+        .build_int_sub(rc_now, i32_t.const_int(1, false), "rc_dec")
+        .unwrap();
+    builder.build_store(rc_ptr, rc_dec).unwrap();
+    let zero = i32_t.const_int(0, false);
+    let is_zero = builder
+        .build_int_compare(IntPredicate::EQ, rc_dec, zero, "is_zero")
+        .unwrap();
+    builder
+        .build_conditional_branch(is_zero, free_blk, ret_blk)
+        .unwrap();
+
+    builder.position_at_end(free_blk);
     builder.build_call(free, &[arg.into()], "_f").unwrap();
+    builder.build_unconditional_branch(ret_blk).unwrap();
+
+    builder.position_at_end(ret_blk);
     builder.build_return(None).unwrap();
     f
 }
@@ -1610,16 +1699,8 @@ fn define_str_print<'ctx>(
 
     let s = f.get_nth_param(0).unwrap().into_pointer_value();
 
-    // load len from offset 0
-    let len = builder
-        .build_load(i64_t, s, "len")
-        .unwrap()
-        .into_int_value();
-    let data = unsafe {
-        builder
-            .build_in_bounds_gep(i8_t, s, &[i64_t.const_int(8, false)], "data")
-            .unwrap()
-    };
+    let len = str_len_load(ctx, &builder, s, "len");
+    let data = str_data_ptr(ctx, &builder, s, "data");
     // i_slot = 0
     let i_slot = builder.build_alloca(i64_t, "i").unwrap();
     builder

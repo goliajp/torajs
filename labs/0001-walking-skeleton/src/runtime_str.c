@@ -1,15 +1,26 @@
 /*
- * torajs C runtime — string + array helpers that are clearer in C than
- * via the inkwell IR-builder API. Compiled once per `tr build` invoke
- * and linked alongside the generated LLVM IR object.
+ * torajs C runtime — non-Copy heap object layout + string / array helpers.
  *
- * Both heaps follow the same layout the rest of torajs uses:
- *   String = { uint64_t len; uint8_t data[len]; }
- *   Array  = { uint64_t len; uint64_t cap; T data[cap]; }   // T = 8 bytes
+ * ===== Universal heap object header (Phase B refcount) =====
  *
- * Forward declarations let us call back into intrinsics that the
- * inkwell side defines (arr_alloc, arr_push). Those resolve at link
- * time inside the same final binary.
+ * Every non-Copy heap allocation (Str today; Obj / Arr / Closure in
+ * Phase 2) begins with this 8-byte header. The runtime uses it for
+ * reference counting (B-style ARC: inc on share, dec on drop, free at 0)
+ * and reserves bits for future GC / weak-ref / debug extensions.
+ *
+ *   offset 0: refcount (u32) — initial 1; never zero except just-before-free
+ *   offset 4: type_tag (u16) — 0=str, 1=obj, 2=arr, 3=closure
+ *   offset 6: flags    (u16) — reserved (weak / mark / cycle bits)
+ *
+ * Type-specific metadata follows immediately at offset 8.
+ *
+ *   Str:     [header:8][len:8][bytes:N]              prefix 16
+ *   Arr:     [header:8][len:8][cap:8][slots:N*8]     prefix 24 (Phase 2)
+ *   Obj:     [header:8][type_id:4][vtable:8][...]    Phase 2
+ *   Closure: [header:8][fn_addr:8][drop_fn:8][...]   Phase 2
+ *
+ * Phase 1 (this file + ssa_inkwell.rs str defs): Str migrated.
+ * Phase 2 (later commits): Arr / Obj / Closure migrated.
  */
 
 #include <stdint.h>
@@ -21,15 +32,79 @@
 void *__torajs_arr_alloc(uint64_t initial_cap);
 void *__torajs_arr_push(void *arr, int64_t val);
 
+/* ============================================================
+ * Universal heap-object header + refcount API
+ * ============================================================ */
+
+typedef struct __attribute__((aligned(8))) {
+    uint32_t refcount;
+    uint16_t type_tag;
+    uint16_t flags;
+} __torajs_heap_header_t;
+
+#define __TORAJS_TAG_STR     0
+#define __TORAJS_TAG_OBJ     1
+#define __TORAJS_TAG_ARR     2
+#define __TORAJS_TAG_CLOSURE 3
+
+/* Increment refcount of any non-Copy heap object. NULL passes through
+ * (sentinel for "no value"). Used by ssa_lower at every slot-copy /
+ * borrow-promotion site where ownership becomes shared. */
+void __torajs_rc_inc(void *p) {
+    if (p == NULL) return;
+    ((__torajs_heap_header_t *)p)->refcount += 1;
+}
+
+/* Decrement refcount; return 1 iff it reached zero (caller's per-type
+ * drop path uses this to walk owned children before free). NULL passes
+ * through (returns 0). */
+int __torajs_rc_dec(void *p) {
+    if (p == NULL) return 0;
+    __torajs_heap_header_t *h = (__torajs_heap_header_t *)p;
+    h->refcount -= 1;
+    return h->refcount == 0 ? 1 : 0;
+}
+
+/* ============================================================
+ * Str layout helpers
+ *
+ * Str = [header:8][len:8][bytes:N]
+ * len  at offset 8
+ * data at offset 16
+ * ============================================================ */
+
+#define __TORAJS_STR_HDR_SIZE   16
+#define __TORAJS_STR_LEN(p)     (*(uint64_t *)((const uint8_t *)(p) + 8))
+#define __TORAJS_STR_DATA(p)    ((uint8_t *)(p) + __TORAJS_STR_HDR_SIZE)
+#define __TORAJS_STR_CDATA(p)   ((const uint8_t *)(p) + __TORAJS_STR_HDR_SIZE)
+
+/* Internal helper — alloc a fresh Str heap with refcount=1 + type_tag set
+ * + len written. Caller fills the bytes payload at __TORAJS_STR_DATA(p).
+ * Single-source-of-truth for every Str allocation in this file. */
+static uint8_t *str_alloc_(uint64_t len) {
+    uint8_t *p = (uint8_t *)malloc(__TORAJS_STR_HDR_SIZE + (size_t)len);
+    __torajs_heap_header_t *h = (__torajs_heap_header_t *)p;
+    h->refcount = 1;
+    h->type_tag = __TORAJS_TAG_STR;
+    h->flags = 0;
+    __TORAJS_STR_LEN(p) = len;
+    return p;
+}
+
+/* ============================================================
+ * Array helpers (layout unchanged in Phase 1; migrated in Phase 2)
+ *
+ * Arr = [len:8][cap:8][slots:N*8]
+ * len  at offset 0
+ * cap  at offset 8
+ * slots at offset 16
+ * ============================================================ */
+
 /* Append every element of `src` to `dst` via a single memcpy. Caller
  * MUST have pre-sized dst's cap to fit (typical: array literal with
  * spreads pre-computes total length and allocs once). Bumps dst's
  * len. Both arrays are the same 8-byte-slot layout — element type
- * doesn't matter at this layer.
- *
- * Layout: [u64 len, u64 cap, T data[cap]]. dst's len is at offset 0;
- * the writeable tail starts at offset 16 + dst_len*8. Source data
- * starts at src + 16. */
+ * doesn't matter at this layer. */
 void __torajs_arr_extend_unchecked(uint8_t *dst, const uint8_t *src) {
     uint64_t dst_len = *(const uint64_t *)dst;
     uint64_t src_len = *(const uint64_t *)src;
@@ -64,13 +139,14 @@ double __torajs_math_round(double x) {
  * Single malloc + n memcpy's. n<=0 returns the empty string. */
 void *__torajs_str_repeat(const uint8_t *s, int64_t n) {
     if (n < 0) n = 0;
-    uint64_t s_len = *(const uint64_t *)s;
+    uint64_t s_len = __TORAJS_STR_LEN(s);
     uint64_t out_len = s_len * (uint64_t)n;
-    uint8_t *p = (uint8_t *)malloc(8 + (size_t)out_len);
-    *(uint64_t *)p = out_len;
+    uint8_t *p = str_alloc_(out_len);
     if (s_len == 0 || n == 0) return p;
+    const uint8_t *s_data = __TORAJS_STR_CDATA(s);
+    uint8_t *p_data = __TORAJS_STR_DATA(p);
     for (int64_t i = 0; i < n; i++) {
-        memcpy(p + 8 + (size_t)i * (size_t)s_len, s + 8, (size_t)s_len);
+        memcpy(p_data + (size_t)i * (size_t)s_len, s_data, (size_t)s_len);
     }
     return p;
 }
@@ -102,9 +178,8 @@ void *__torajs_i64_to_str(int64_t n) {
     int written = snprintf(buf, sizeof(buf), "%lld", (long long)n);
     if (written < 0) written = 0;
     uint64_t len = (uint64_t)written;
-    uint8_t *p = (uint8_t *)malloc(8 + (size_t)len);
-    *(uint64_t *)p = len;
-    if (len) memcpy(p + 8, buf, (size_t)len);
+    uint8_t *p = str_alloc_(len);
+    if (len) memcpy(__TORAJS_STR_DATA(p), buf, (size_t)len);
     return p;
 }
 
@@ -117,9 +192,8 @@ void *__torajs_f64_to_str(double d) {
     int written = snprintf(buf, sizeof(buf), "%g", d);
     if (written < 0) written = 0;
     uint64_t len = (uint64_t)written;
-    uint8_t *p = (uint8_t *)malloc(8 + (size_t)len);
-    *(uint64_t *)p = len;
-    if (len) memcpy(p + 8, buf, (size_t)len);
+    uint8_t *p = str_alloc_(len);
+    if (len) memcpy(__TORAJS_STR_DATA(p), buf, (size_t)len);
     return p;
 }
 
@@ -130,24 +204,18 @@ void *__torajs_f64_to_str(double d) {
  * units." We don't deal with UTF-16 here — bytes match is enough for
  * the byte-encoded Str layout. */
 int64_t __torajs_str_eq(const uint8_t *a, const uint8_t *b) {
-    uint64_t a_len = *(const uint64_t *)a;
-    uint64_t b_len = *(const uint64_t *)b;
+    uint64_t a_len = __TORAJS_STR_LEN(a);
+    uint64_t b_len = __TORAJS_STR_LEN(b);
     if (a_len != b_len) return 0;
     if (a_len == 0) return 1;
-    return memcmp(a + 8, b + 8, (size_t)a_len) == 0 ? 1 : 0;
-}
-
-static uint8_t *str_alloc_(uint64_t len) {
-    uint8_t *p = (uint8_t *)malloc(8 + (size_t)len);
-    *(uint64_t *)p = len;
-    return p;
+    return memcmp(__TORAJS_STR_CDATA(a), __TORAJS_STR_CDATA(b), (size_t)a_len) == 0 ? 1 : 0;
 }
 
 void *__torajs_str_split(const uint8_t *s, const uint8_t *sep) {
-    uint64_t s_len = *(const uint64_t *)s;
-    uint64_t sep_len = *(const uint64_t *)sep;
-    const uint8_t *s_data = s + 8;
-    const uint8_t *sep_data = sep + 8;
+    uint64_t s_len = __TORAJS_STR_LEN(s);
+    uint64_t sep_len = __TORAJS_STR_LEN(sep);
+    const uint8_t *s_data = __TORAJS_STR_CDATA(s);
+    const uint8_t *sep_data = __TORAJS_STR_CDATA(sep);
 
     void *arr = __torajs_arr_alloc(0);
 
@@ -155,7 +223,7 @@ void *__torajs_str_split(const uint8_t *s, const uint8_t *sep) {
         /* MVP: empty separator returns [s_clone] (TS char-split is
          * UTF-16-flavored and out of scope for now). */
         uint8_t *p = str_alloc_(s_len);
-        if (s_len) memcpy(p + 8, s_data, (size_t)s_len);
+        if (s_len) memcpy(__TORAJS_STR_DATA(p), s_data, (size_t)s_len);
         return __torajs_arr_push(arr, (int64_t)(intptr_t)p);
     }
 
@@ -164,7 +232,7 @@ void *__torajs_str_split(const uint8_t *s, const uint8_t *sep) {
         if (memcmp(s_data + i, sep_data, (size_t)sep_len) == 0) {
             uint64_t seg_len = i - start;
             uint8_t *p = str_alloc_(seg_len);
-            if (seg_len) memcpy(p + 8, s_data + start, (size_t)seg_len);
+            if (seg_len) memcpy(__TORAJS_STR_DATA(p), s_data + start, (size_t)seg_len);
             arr = __torajs_arr_push(arr, (int64_t)(intptr_t)p);
             i += sep_len;
             start = i;
@@ -174,14 +242,14 @@ void *__torajs_str_split(const uint8_t *s, const uint8_t *sep) {
     }
     uint64_t tail_len = s_len - start;
     uint8_t *p = str_alloc_(tail_len);
-    if (tail_len) memcpy(p + 8, s_data + start, (size_t)tail_len);
+    if (tail_len) memcpy(__TORAJS_STR_DATA(p), s_data + start, (size_t)tail_len);
     return __torajs_arr_push(arr, (int64_t)(intptr_t)p);
 }
 
 void *__torajs_arr_join(const uint8_t *arr, const uint8_t *sep) {
     uint64_t len = *(const uint64_t *)arr;
-    uint64_t sep_len = *(const uint64_t *)sep;
-    const uint8_t *sep_data = sep + 8;
+    uint64_t sep_len = __TORAJS_STR_LEN(sep);
+    const uint8_t *sep_data = __TORAJS_STR_CDATA(sep);
 
     if (len == 0) {
         return str_alloc_(0);
@@ -191,22 +259,23 @@ void *__torajs_arr_join(const uint8_t *arr, const uint8_t *sep) {
     uint64_t total = 0;
     for (uint64_t i = 0; i < len; i++) {
         const uint8_t *elem = *(const uint8_t *const *)(arr + 16 + i * 8);
-        total += *(const uint64_t *)elem;
+        total += __TORAJS_STR_LEN(elem);
     }
     total += sep_len * (len - 1);
 
     /* pass 2: copy */
     uint8_t *p = str_alloc_(total);
-    uint64_t cursor = 8;
+    uint8_t *p_data = __TORAJS_STR_DATA(p);
+    uint64_t cursor = 0;
     for (uint64_t i = 0; i < len; i++) {
         if (i > 0 && sep_len) {
-            memcpy(p + cursor, sep_data, (size_t)sep_len);
+            memcpy(p_data + cursor, sep_data, (size_t)sep_len);
             cursor += sep_len;
         }
         const uint8_t *elem = *(const uint8_t *const *)(arr + 16 + i * 8);
-        uint64_t elem_len = *(const uint64_t *)elem;
+        uint64_t elem_len = __TORAJS_STR_LEN(elem);
         if (elem_len) {
-            memcpy(p + cursor, elem + 8, (size_t)elem_len);
+            memcpy(p_data + cursor, __TORAJS_STR_CDATA(elem), (size_t)elem_len);
             cursor += elem_len;
         }
     }
@@ -218,7 +287,7 @@ void *__torajs_arr_join(const uint8_t *arr, const uint8_t *sep) {
  * need UTF-8 encoding). */
 void *__torajs_str_from_char_code(int64_t n) {
     uint8_t *p = str_alloc_(1);
-    p[8] = (uint8_t)(n & 0xff);
+    __TORAJS_STR_DATA(p)[0] = (uint8_t)(n & 0xff);
     return p;
 }
 
@@ -257,7 +326,7 @@ void *__torajs_arr_with(const uint8_t *arr, int64_t i, int64_t v) {
  * len+n), and start > end gets silently swapped. After fixup both
  * indices clamp to [0, len], same as slice. */
 void *__torajs_str_substring(const uint8_t *s, int64_t start, int64_t end) {
-    uint64_t len = *(const uint64_t *)s;
+    uint64_t len = __TORAJS_STR_LEN(s);
     if (start < 0) start = 0;
     if (end < 0) end = 0;
     if (start > (int64_t)len) start = (int64_t)len;
@@ -269,7 +338,7 @@ void *__torajs_str_substring(const uint8_t *s, int64_t start, int64_t end) {
     }
     uint64_t new_len = (uint64_t)(end - start);
     uint8_t *p = str_alloc_(new_len);
-    if (new_len) memcpy(p + 8, s + 8 + start, (size_t)new_len);
+    if (new_len) memcpy(__TORAJS_STR_DATA(p), __TORAJS_STR_CDATA(s) + start, (size_t)new_len);
     return p;
 }
 
@@ -277,11 +346,12 @@ void *__torajs_str_substring(const uint8_t *s, int64_t start, int64_t end) {
  * single-byte string per byte of `s`. Mirrors `s.split("")` in JS but
  * scoped to tr's byte-Str layout (no UTF-16 / surrogate handling). */
 void *__torajs_arr_from_string(const uint8_t *s) {
-    uint64_t s_len = *(const uint64_t *)s;
+    uint64_t s_len = __TORAJS_STR_LEN(s);
+    const uint8_t *s_data = __TORAJS_STR_CDATA(s);
     void *arr = __torajs_arr_alloc(s_len);
     for (uint64_t i = 0; i < s_len; i++) {
         uint8_t *p = str_alloc_(1);
-        p[8] = s[8 + i];
+        __TORAJS_STR_DATA(p)[0] = s_data[i];
         arr = __torajs_arr_push(arr, (int64_t)(intptr_t)p);
     }
     return arr;
@@ -291,13 +361,13 @@ void *__torajs_arr_from_string(const uint8_t *s) {
  * Returns the empty string if i is out of bounds (matches JS spec —
  * returning undefined would need Nullable<string>, not in v0). */
 void *__torajs_str_at(const uint8_t *s, int64_t i) {
-    uint64_t len = *(const uint64_t *)s;
+    uint64_t len = __TORAJS_STR_LEN(s);
     int64_t adj = i < 0 ? (int64_t)len + i : i;
     if (adj < 0 || adj >= (int64_t)len) {
         return str_alloc_(0);
     }
     uint8_t *p = str_alloc_(1);
-    p[8] = s[8 + (uint64_t)adj];
+    __TORAJS_STR_DATA(p)[0] = __TORAJS_STR_CDATA(s)[adj];
     return p;
 }
 
@@ -307,12 +377,12 @@ void *__torajs_str_at(const uint8_t *s, int64_t i) {
  * support string needles in v0. If `needle` doesn't occur, returns a
  * fresh copy of `s` (so the caller can drop both inputs uniformly). */
 void *__torajs_str_replace(const uint8_t *s, const uint8_t *needle, const uint8_t *repl) {
-    uint64_t s_len = *(const uint64_t *)s;
-    uint64_t n_len = *(const uint64_t *)needle;
-    uint64_t r_len = *(const uint64_t *)repl;
-    const uint8_t *s_data = s + 8;
-    const uint8_t *n_data = needle + 8;
-    const uint8_t *r_data = repl + 8;
+    uint64_t s_len = __TORAJS_STR_LEN(s);
+    uint64_t n_len = __TORAJS_STR_LEN(needle);
+    uint64_t r_len = __TORAJS_STR_LEN(repl);
+    const uint8_t *s_data = __TORAJS_STR_CDATA(s);
+    const uint8_t *n_data = __TORAJS_STR_CDATA(needle);
+    const uint8_t *r_data = __TORAJS_STR_CDATA(repl);
     /* Find the first occurrence. memmem isn't portable across BSD/Linux
      * uniformly — manual search keeps the deps minimal. */
     int64_t found = -1;
@@ -330,17 +400,18 @@ void *__torajs_str_replace(const uint8_t *s, const uint8_t *needle, const uint8_
     if (found < 0) {
         /* Not found — return a fresh copy of s. */
         uint8_t *p = str_alloc_(s_len);
-        if (s_len) memcpy(p + 8, s_data, (size_t)s_len);
+        if (s_len) memcpy(__TORAJS_STR_DATA(p), s_data, (size_t)s_len);
         return p;
     }
     uint64_t out_len = s_len - n_len + r_len;
     uint8_t *p = str_alloc_(out_len);
-    if (found > 0) memcpy(p + 8, s_data, (size_t)found);
-    if (r_len) memcpy(p + 8 + (size_t)found, r_data, (size_t)r_len);
+    uint8_t *p_data = __TORAJS_STR_DATA(p);
+    if (found > 0) memcpy(p_data, s_data, (size_t)found);
+    if (r_len) memcpy(p_data + (size_t)found, r_data, (size_t)r_len);
     uint64_t tail_off = (uint64_t)found + n_len;
     uint64_t tail_len = s_len - tail_off;
     if (tail_len) {
-        memcpy(p + 8 + (uint64_t)found + r_len, s_data + tail_off, (size_t)tail_len);
+        memcpy(p_data + (uint64_t)found + r_len, s_data + tail_off, (size_t)tail_len);
     }
     return p;
 }
@@ -349,18 +420,18 @@ void *__torajs_str_replace(const uint8_t *s, const uint8_t *needle, const uint8_
  * with non-overlapping search (the standard JS behavior), pre-allocs
  * the exact result size, then does a single fill pass. */
 void *__torajs_str_replace_all(const uint8_t *s, const uint8_t *needle, const uint8_t *repl) {
-    uint64_t s_len = *(const uint64_t *)s;
-    uint64_t n_len = *(const uint64_t *)needle;
-    uint64_t r_len = *(const uint64_t *)repl;
-    const uint8_t *s_data = s + 8;
-    const uint8_t *n_data = needle + 8;
-    const uint8_t *r_data = repl + 8;
+    uint64_t s_len = __TORAJS_STR_LEN(s);
+    uint64_t n_len = __TORAJS_STR_LEN(needle);
+    uint64_t r_len = __TORAJS_STR_LEN(repl);
+    const uint8_t *s_data = __TORAJS_STR_CDATA(s);
+    const uint8_t *n_data = __TORAJS_STR_CDATA(needle);
+    const uint8_t *r_data = __TORAJS_STR_CDATA(repl);
     if (n_len == 0) {
         /* JS spec: empty needle on replaceAll throws TypeError. We
          * don't throw at the runtime layer — just return a copy. The
          * subset shouldn't trigger this path under a typical test. */
         uint8_t *p = str_alloc_(s_len);
-        if (s_len) memcpy(p + 8, s_data, (size_t)s_len);
+        if (s_len) memcpy(__TORAJS_STR_DATA(p), s_data, (size_t)s_len);
         return p;
     }
     /* Pass 1 — count occurrences. */
@@ -378,28 +449,29 @@ void *__torajs_str_replace_all(const uint8_t *s, const uint8_t *needle, const ui
     }
     if (hits == 0) {
         uint8_t *p = str_alloc_(s_len);
-        if (s_len) memcpy(p + 8, s_data, (size_t)s_len);
+        if (s_len) memcpy(__TORAJS_STR_DATA(p), s_data, (size_t)s_len);
         return p;
     }
     /* out_len = s_len - hits*n_len + hits*r_len */
     uint64_t out_len = s_len + hits * (r_len > n_len ? (r_len - n_len) : 0)
                               - hits * (r_len < n_len ? (n_len - r_len) : 0);
     uint8_t *p = str_alloc_(out_len);
+    uint8_t *p_data = __TORAJS_STR_DATA(p);
     /* Pass 2 — copy with substitutions. */
     uint64_t src_i = 0, dst_i = 0;
     while (src_i + n_len <= s_len) {
         if (memcmp(s_data + src_i, n_data, (size_t)n_len) == 0) {
-            if (r_len) memcpy(p + 8 + dst_i, r_data, (size_t)r_len);
+            if (r_len) memcpy(p_data + dst_i, r_data, (size_t)r_len);
             dst_i += r_len;
             src_i += n_len;
         } else {
-            p[8 + dst_i] = s_data[src_i];
+            p_data[dst_i] = s_data[src_i];
             dst_i++;
             src_i++;
         }
     }
     while (src_i < s_len) {
-        p[8 + dst_i] = s_data[src_i];
+        p_data[dst_i] = s_data[src_i];
         dst_i++;
         src_i++;
     }
@@ -410,10 +482,10 @@ void *__torajs_str_replace_all(const uint8_t *s, const uint8_t *needle, const ui
  * locale-sensitive result; v0 just compares byte-wise (fine for the
  * ASCII-typical subset). Returns -1, 0, or 1. */
 int64_t __torajs_str_locale_compare(const uint8_t *a, const uint8_t *b) {
-    uint64_t a_len = *(const uint64_t *)a;
-    uint64_t b_len = *(const uint64_t *)b;
+    uint64_t a_len = __TORAJS_STR_LEN(a);
+    uint64_t b_len = __TORAJS_STR_LEN(b);
     uint64_t min = a_len < b_len ? a_len : b_len;
-    int r = min ? memcmp(a + 8, b + 8, (size_t)min) : 0;
+    int r = min ? memcmp(__TORAJS_STR_CDATA(a), __TORAJS_STR_CDATA(b), (size_t)min) : 0;
     if (r < 0) return -1;
     if (r > 0) return 1;
     if (a_len < b_len) return -1;
@@ -423,12 +495,14 @@ int64_t __torajs_str_locale_compare(const uint8_t *a, const uint8_t *b) {
 
 /* `s.lastIndexOf(needle)` — reverse memcmp scan, -1 on miss. */
 int64_t __torajs_str_last_index_of(const uint8_t *s, const uint8_t *needle) {
-    uint64_t s_len = *(const uint64_t *)s;
-    uint64_t n_len = *(const uint64_t *)needle;
+    uint64_t s_len = __TORAJS_STR_LEN(s);
+    uint64_t n_len = __TORAJS_STR_LEN(needle);
     if (n_len == 0) return (int64_t)s_len;
     if (n_len > s_len) return -1;
+    const uint8_t *s_data = __TORAJS_STR_CDATA(s);
+    const uint8_t *n_data = __TORAJS_STR_CDATA(needle);
     for (int64_t i = (int64_t)(s_len - n_len); i >= 0; i--) {
-        if (memcmp(s + 8 + (uint64_t)i, needle + 8, (size_t)n_len) == 0) {
+        if (memcmp(s_data + (uint64_t)i, n_data, (size_t)n_len) == 0) {
             return i;
         }
     }
@@ -440,10 +514,11 @@ int64_t __torajs_str_last_index_of(const uint8_t *s, const uint8_t *needle) {
  * chars and quote / backslash bytes. Single pass; pre-computes output
  * length for a single malloc. */
 void *__torajs_json_quote_str(const uint8_t *s) {
-    uint64_t len = *(const uint64_t *)s;
+    uint64_t len = __TORAJS_STR_LEN(s);
+    const uint8_t *s_data = __TORAJS_STR_CDATA(s);
     uint64_t out = 2; /* surrounding quotes */
     for (uint64_t i = 0; i < len; i++) {
-        uint8_t c = s[8 + i];
+        uint8_t c = s_data[i];
         if (c == '"' || c == '\\' || c == '\n' || c == '\r'
             || c == '\t' || c == '\b' || c == '\f') {
             out += 2;
@@ -453,33 +528,33 @@ void *__torajs_json_quote_str(const uint8_t *s) {
             out += 1;
         }
     }
-    uint8_t *p = (uint8_t *)malloc(8 + (size_t)out);
-    *(uint64_t *)p = out;
-    p[8] = '"';
-    uint64_t cur = 9;
+    uint8_t *p = str_alloc_(out);
+    uint8_t *p_data = __TORAJS_STR_DATA(p);
+    p_data[0] = '"';
+    uint64_t cur = 1;
     for (uint64_t i = 0; i < len; i++) {
-        uint8_t c = s[8 + i];
+        uint8_t c = s_data[i];
         switch (c) {
-            case '"':  p[cur++] = '\\'; p[cur++] = '"';  break;
-            case '\\': p[cur++] = '\\'; p[cur++] = '\\'; break;
-            case '\n': p[cur++] = '\\'; p[cur++] = 'n';  break;
-            case '\r': p[cur++] = '\\'; p[cur++] = 'r';  break;
-            case '\t': p[cur++] = '\\'; p[cur++] = 't';  break;
-            case '\b': p[cur++] = '\\'; p[cur++] = 'b';  break;
-            case '\f': p[cur++] = '\\'; p[cur++] = 'f';  break;
+            case '"':  p_data[cur++] = '\\'; p_data[cur++] = '"';  break;
+            case '\\': p_data[cur++] = '\\'; p_data[cur++] = '\\'; break;
+            case '\n': p_data[cur++] = '\\'; p_data[cur++] = 'n';  break;
+            case '\r': p_data[cur++] = '\\'; p_data[cur++] = 'r';  break;
+            case '\t': p_data[cur++] = '\\'; p_data[cur++] = 't';  break;
+            case '\b': p_data[cur++] = '\\'; p_data[cur++] = 'b';  break;
+            case '\f': p_data[cur++] = '\\'; p_data[cur++] = 'f';  break;
             default:
                 if (c < 0x20) {
                     static const char hex[] = "0123456789abcdef";
-                    p[cur++] = '\\'; p[cur++] = 'u';
-                    p[cur++] = '0'; p[cur++] = '0';
-                    p[cur++] = hex[(c >> 4) & 0xf];
-                    p[cur++] = hex[c & 0xf];
+                    p_data[cur++] = '\\'; p_data[cur++] = 'u';
+                    p_data[cur++] = '0'; p_data[cur++] = '0';
+                    p_data[cur++] = hex[(c >> 4) & 0xf];
+                    p_data[cur++] = hex[c & 0xf];
                 } else {
-                    p[cur++] = c;
+                    p_data[cur++] = c;
                 }
         }
     }
-    p[cur] = '"';
+    p_data[cur] = '"';
     return p;
 }
 
@@ -525,8 +600,8 @@ void __torajs_print_bool_err(int64_t b) {
     fputs(b ? "true\n" : "false\n", stderr);
 }
 void __torajs_str_print_err(const uint8_t *s) {
-    uint64_t len = *(const uint64_t *)s;
-    if (len) fwrite(s + 8, 1, (size_t)len, stderr);
+    uint64_t len = __TORAJS_STR_LEN(s);
+    if (len) fwrite(__TORAJS_STR_CDATA(s), 1, (size_t)len, stderr);
     fputc('\n', stderr);
 }
 
@@ -630,23 +705,27 @@ void *__torajs_arr_fill(uint8_t *arr, int64_t value, int64_t start, int64_t end)
  * subset's byte-level Str layout). Non-ASCII bytes pass through
  * unchanged. Single malloc, single pass. */
 void *__torajs_str_to_upper(const uint8_t *s) {
-    uint64_t len = *(const uint64_t *)s;
+    uint64_t len = __TORAJS_STR_LEN(s);
+    const uint8_t *s_data = __TORAJS_STR_CDATA(s);
     uint8_t *p = str_alloc_(len);
+    uint8_t *p_data = __TORAJS_STR_DATA(p);
     for (uint64_t i = 0; i < len; i++) {
-        uint8_t c = s[8 + i];
+        uint8_t c = s_data[i];
         if (c >= 'a' && c <= 'z') c = (uint8_t)(c - 32);
-        p[8 + i] = c;
+        p_data[i] = c;
     }
     return p;
 }
 
 void *__torajs_str_to_lower(const uint8_t *s) {
-    uint64_t len = *(const uint64_t *)s;
+    uint64_t len = __TORAJS_STR_LEN(s);
+    const uint8_t *s_data = __TORAJS_STR_CDATA(s);
     uint8_t *p = str_alloc_(len);
+    uint8_t *p_data = __TORAJS_STR_DATA(p);
     for (uint64_t i = 0; i < len; i++) {
-        uint8_t c = s[8 + i];
+        uint8_t c = s_data[i];
         if (c >= 'A' && c <= 'Z') c = (uint8_t)(c + 32);
-        p[8 + i] = c;
+        p_data[i] = c;
     }
     return p;
 }
@@ -680,7 +759,7 @@ void *__torajs_num_to_string_radix_i(int64_t n, int64_t radix) {
     if (neg) buf[--i] = '-';
     int len = (int)sizeof(buf) - i;
     uint8_t *p = str_alloc_((uint64_t)len);
-    if (len) memcpy(p + 8, &buf[i], (size_t)len);
+    if (len) memcpy(__TORAJS_STR_DATA(p), &buf[i], (size_t)len);
     return p;
 }
 
@@ -696,7 +775,7 @@ void *__torajs_num_to_fixed_f(double n, int64_t digits) {
     if (written < 0) written = 0;
     uint64_t len = (uint64_t)written;
     uint8_t *p = str_alloc_(len);
-    if (len) memcpy(p + 8, buf, (size_t)len);
+    if (len) memcpy(__TORAJS_STR_DATA(p), buf, (size_t)len);
     return p;
 }
 void *__torajs_num_to_fixed_i(int64_t n, int64_t digits) {
@@ -739,7 +818,7 @@ void *__torajs_num_to_exp_f(double n, int64_t digits) {
     int dst_len = js_normalize_exp_(buf, written, fixed);
     uint64_t len = (uint64_t)dst_len;
     uint8_t *p = str_alloc_(len);
-    if (len) memcpy(p + 8, fixed, (size_t)len);
+    if (len) memcpy(__TORAJS_STR_DATA(p), fixed, (size_t)len);
     return p;
 }
 void *__torajs_num_to_exp_i(int64_t n, int64_t digits) {
@@ -762,7 +841,7 @@ void *__torajs_num_to_precision_f(double n, int64_t digits) {
     int dst_len = js_normalize_exp_(buf, written, fixed);
     uint64_t len = (uint64_t)dst_len;
     uint8_t *p = str_alloc_(len);
-    if (len) memcpy(p + 8, fixed, (size_t)len);
+    if (len) memcpy(__TORAJS_STR_DATA(p), fixed, (size_t)len);
     return p;
 }
 void *__torajs_num_to_precision_i(int64_t n, int64_t digits) {
@@ -776,8 +855,8 @@ void *__torajs_num_to_precision_i(int64_t n, int64_t digits) {
  * consumed; otherwise the parsed double. radix=0 → autodetect (10
  * default; 16 if "0x"/"0X" prefix). */
 double __torajs_num_parse_int(const uint8_t *s, int64_t radix) {
-    uint64_t len = *(const uint64_t *)s;
-    const uint8_t *data = s + 8;
+    uint64_t len = __TORAJS_STR_LEN(s);
+    const uint8_t *data = __TORAJS_STR_CDATA(s);
     uint64_t i = 0;
     while (i < len && (data[i] == ' ' || data[i] == '\t' || data[i] == '\n'
                        || data[i] == '\r' || data[i] == '\v' || data[i] == '\f')) {
@@ -817,8 +896,8 @@ double __torajs_num_parse_int(const uint8_t *s, int64_t radix) {
 /* `Number.parseFloat(s)` — strtod over the trimmed prefix. Stops at
  * the first non-numeric byte. Returns NaN if no digits parsed. */
 double __torajs_num_parse_float(const uint8_t *s) {
-    uint64_t len = *(const uint64_t *)s;
-    const uint8_t *data = s + 8;
+    uint64_t len = __TORAJS_STR_LEN(s);
+    const uint8_t *data = __TORAJS_STR_CDATA(s);
     /* Copy into a NUL-terminated buffer so strtod's bounds work. JS-allowed
      * input shapes (sign, digits, exponent, +/-Infinity) all fit within
      * len + 1 bytes; for very long inputs we'd need malloc — out of scope. */
@@ -884,33 +963,36 @@ static int is_trim_ws_(uint8_t c) {
 }
 
 void *__torajs_str_trim_start(const uint8_t *s) {
-    uint64_t len = *(const uint64_t *)s;
+    uint64_t len = __TORAJS_STR_LEN(s);
+    const uint8_t *s_data = __TORAJS_STR_CDATA(s);
     uint64_t lo = 0;
-    while (lo < len && is_trim_ws_(s[8 + lo])) lo++;
+    while (lo < len && is_trim_ws_(s_data[lo])) lo++;
     uint64_t out = len - lo;
     uint8_t *p = str_alloc_(out);
-    if (out) memcpy(p + 8, s + 8 + lo, (size_t)out);
+    if (out) memcpy(__TORAJS_STR_DATA(p), s_data + lo, (size_t)out);
     return p;
 }
 
 void *__torajs_str_trim_end(const uint8_t *s) {
-    uint64_t len = *(const uint64_t *)s;
+    uint64_t len = __TORAJS_STR_LEN(s);
+    const uint8_t *s_data = __TORAJS_STR_CDATA(s);
     uint64_t hi = len;
-    while (hi > 0 && is_trim_ws_(s[8 + hi - 1])) hi--;
+    while (hi > 0 && is_trim_ws_(s_data[hi - 1])) hi--;
     uint8_t *p = str_alloc_(hi);
-    if (hi) memcpy(p + 8, s + 8, (size_t)hi);
+    if (hi) memcpy(__TORAJS_STR_DATA(p), s_data, (size_t)hi);
     return p;
 }
 
 void *__torajs_str_trim(const uint8_t *s) {
-    uint64_t len = *(const uint64_t *)s;
+    uint64_t len = __TORAJS_STR_LEN(s);
+    const uint8_t *s_data = __TORAJS_STR_CDATA(s);
     uint64_t lo = 0;
-    while (lo < len && is_trim_ws_(s[8 + lo])) lo++;
+    while (lo < len && is_trim_ws_(s_data[lo])) lo++;
     uint64_t hi = len;
-    while (hi > lo && is_trim_ws_(s[8 + hi - 1])) hi--;
+    while (hi > lo && is_trim_ws_(s_data[hi - 1])) hi--;
     uint64_t out = hi - lo;
     uint8_t *p = str_alloc_(out);
-    if (out) memcpy(p + 8, s + 8 + lo, (size_t)out);
+    if (out) memcpy(__TORAJS_STR_DATA(p), s_data + lo, (size_t)out);
     return p;
 }
 
@@ -920,48 +1002,54 @@ void *__torajs_str_trim(const uint8_t *s) {
  * result has exactly targetLen bytes. JS spec uses code units; we use
  * bytes (good enough for ASCII). padEnd appends instead. */
 void *__torajs_str_pad_start(const uint8_t *s, int64_t target_len, const uint8_t *pad) {
-    uint64_t s_len = *(const uint64_t *)s;
+    uint64_t s_len = __TORAJS_STR_LEN(s);
+    const uint8_t *s_data = __TORAJS_STR_CDATA(s);
     if (target_len < 0 || (uint64_t)target_len <= s_len) {
         uint8_t *p = str_alloc_(s_len);
-        if (s_len) memcpy(p + 8, s + 8, (size_t)s_len);
+        if (s_len) memcpy(__TORAJS_STR_DATA(p), s_data, (size_t)s_len);
         return p;
     }
-    uint64_t pad_len = *(const uint64_t *)pad;
+    uint64_t pad_len = __TORAJS_STR_LEN(pad);
+    const uint8_t *pad_data = __TORAJS_STR_CDATA(pad);
     uint64_t out = (uint64_t)target_len;
     uint8_t *p = str_alloc_(out);
+    uint8_t *p_data = __TORAJS_STR_DATA(p);
     uint64_t need = out - s_len;
     /* Pad source might be empty → can't fill, return s_len-padded zero
      * bytes. Match JS behavior: if padStr is empty, the original is
      * returned. We don't have access to the original ptr here; just
      * write zero bytes and rely on tests to provide non-empty pad. */
     if (pad_len == 0) {
-        memset(p + 8, ' ', (size_t)need);
+        memset(p_data, ' ', (size_t)need);
     } else {
         for (uint64_t i = 0; i < need; i++) {
-            p[8 + i] = pad[8 + (i % pad_len)];
+            p_data[i] = pad_data[i % pad_len];
         }
     }
-    if (s_len) memcpy(p + 8 + need, s + 8, (size_t)s_len);
+    if (s_len) memcpy(p_data + need, s_data, (size_t)s_len);
     return p;
 }
 
 void *__torajs_str_pad_end(const uint8_t *s, int64_t target_len, const uint8_t *pad) {
-    uint64_t s_len = *(const uint64_t *)s;
+    uint64_t s_len = __TORAJS_STR_LEN(s);
+    const uint8_t *s_data = __TORAJS_STR_CDATA(s);
     if (target_len < 0 || (uint64_t)target_len <= s_len) {
         uint8_t *p = str_alloc_(s_len);
-        if (s_len) memcpy(p + 8, s + 8, (size_t)s_len);
+        if (s_len) memcpy(__TORAJS_STR_DATA(p), s_data, (size_t)s_len);
         return p;
     }
-    uint64_t pad_len = *(const uint64_t *)pad;
+    uint64_t pad_len = __TORAJS_STR_LEN(pad);
+    const uint8_t *pad_data = __TORAJS_STR_CDATA(pad);
     uint64_t out = (uint64_t)target_len;
     uint8_t *p = str_alloc_(out);
-    if (s_len) memcpy(p + 8, s + 8, (size_t)s_len);
+    uint8_t *p_data = __TORAJS_STR_DATA(p);
+    if (s_len) memcpy(p_data, s_data, (size_t)s_len);
     uint64_t fill = out - s_len;
     if (pad_len == 0) {
-        memset(p + 8 + s_len, ' ', (size_t)fill);
+        memset(p_data + s_len, ' ', (size_t)fill);
     } else {
         for (uint64_t i = 0; i < fill; i++) {
-            p[8 + s_len + i] = pad[8 + (i % pad_len)];
+            p_data[s_len + i] = pad_data[i % pad_len];
         }
     }
     return p;

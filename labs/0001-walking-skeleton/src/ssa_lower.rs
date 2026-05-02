@@ -8989,11 +8989,12 @@ impl<'a> LowerCtx<'a> {
                 let obj_val = self.lower_expr(*obj);
                 let obj_ty = self.operand_ty(&obj_val);
                 // `s.length` for Type::Str — read the u64 length stored
-                // at offset 0 of the StrRepr.
+                // at offset 8 of the StrRepr (after the 8-byte universal
+                // refcount header). See ssa_inkwell::STR_HDR_LEN_OFF.
                 if obj_ty == Type::Str && name == "length" {
                     let v = self.f.append_inst(
                         self.cur_block,
-                        InstKind::Load(Type::I64, obj_val, 0),
+                        InstKind::Load(Type::I64, obj_val, 8),
                         Type::I64,
                         None,
                     );
