@@ -10914,8 +10914,30 @@ impl<'a> LowerCtx<'a> {
                         continue;
                     }
                     let v = self.lower_expr(*eid);
-                    self.consume_if_ident(*eid);
                     let ty = self.operand_ty(&v);
+                    // Refcounted-borrow source: rc_inc + don't consume,
+                    // so the source binding stays usable AND the new
+                    // struct's slot owns its own ref. Same shape as the
+                    // array-literal fix; without it, two struct lits
+                    // sharing a refcounted Obj field (`{x: a}; {x: a}`)
+                    // would double-walk-drop the shared element.
+                    let needs_inc = ty.is_refcounted() && match self.ast.get_expr(*eid) {
+                        Expr::Ident(name) => self
+                            .locals
+                            .get(name)
+                            .map(|info| !info.moved)
+                            .unwrap_or(false),
+                        Expr::Member { .. } | Expr::Index { .. } => true,
+                        _ => false,
+                    };
+                    if needs_inc {
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Call(self.intrinsics.rc_inc, vec![v]),
+                        );
+                    } else {
+                        self.consume_if_ident(*eid);
+                    }
                     if let Some(pos) = field_tys.iter().position(|(k, _)| k == n) {
                         field_tys[pos] = (n.clone(), ty);
                         field_vals[pos] = v;

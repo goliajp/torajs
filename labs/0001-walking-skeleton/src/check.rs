@@ -2056,9 +2056,14 @@ impl Checker {
                         }
                     } else {
                         let ty = self.type_of(ast, *eid)?;
-                        if !ty.is_copy() {
-                            self.consume(ast, *eid);
-                        }
+                        // All non-Copy heap types are refcounted at the
+                        // SSA layer (Str / Substr / Arr / Obj / Closure
+                        // share the universal heap header). Object lit
+                        // field init from a borrow source rc_inc's at
+                        // lower time, so `let w1 = { it: x }; let w2 =
+                        // { it: x }` is safe (both fields share the rc).
+                        // Skip the strict-consume reject for non-Copy
+                        // — the lower layer handles ownership.
                         if let Some(pos) = field_tys.iter().position(|(k, _)| k == n) {
                             field_tys[pos] = (n.clone(), ty);
                         } else {
