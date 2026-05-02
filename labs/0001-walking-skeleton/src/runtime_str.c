@@ -80,13 +80,16 @@ int __torajs_rc_dec(void *p) {
 
 /* Internal helper — alloc a fresh Str heap with refcount=1 + type_tag set
  * + len written. Caller fills the bytes payload at __TORAJS_STR_DATA(p).
- * Single-source-of-truth for every Str allocation in this file. */
-static uint8_t *str_alloc_(uint64_t len) {
+ * Single-source-of-truth for every Str allocation in this file.
+ *
+ * Header is one combined u64 store (refcount=1 in low 32 bits +
+ * type_tag=STR in [32:48] + flags=0 in [48:64]) instead of three
+ * separate stores. Cuts the per-alloc store count to 2 (header + len). */
+#define __TORAJS_STR_HEADER_INIT \
+    ((uint64_t)1u | ((uint64_t)__TORAJS_TAG_STR << 32))
+static inline uint8_t *str_alloc_(uint64_t len) {
     uint8_t *p = (uint8_t *)malloc(__TORAJS_STR_HDR_SIZE + (size_t)len);
-    __torajs_heap_header_t *h = (__torajs_heap_header_t *)p;
-    h->refcount = 1;
-    h->type_tag = __TORAJS_TAG_STR;
-    h->flags = 0;
+    *(uint64_t *)p = __TORAJS_STR_HEADER_INIT;
     __TORAJS_STR_LEN(p) = len;
     return p;
 }
