@@ -883,7 +883,7 @@ impl Checker {
                     self.errors.push(e);
                 }
             }
-            Stmt::Yield(_) => {
+            Stmt::Yield(_) | Stmt::YieldInto { .. } => {
                 // Phase J — Yield only appears inside generator bodies,
                 // and `desugar_generators` rewrites those bodies into
                 // ordinary class-method bodies before typecheck. Reaching

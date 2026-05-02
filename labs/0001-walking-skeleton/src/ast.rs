@@ -324,6 +324,18 @@ pub enum Stmt {
     /// machine arm that returns `{value: e, done: false}`. Plain
     /// (non-generator) bodies reject Yield at parse-time / desugar-time.
     Yield(ExprId),
+    /// Phase J.4 — `let <var>(:T)? = yield <value>;` inside a generator
+    /// body. desugar_generators expands this to `yield <value>;` +
+    /// `let <var>(:T)? = this.__sent;` so the bound variable receives
+    /// whatever was passed to the next-most `g.next(arg)` call.
+    /// The iterator class gains a `__sent: <yield_ty>` field and
+    /// `next()` takes an optional `__yield_arg` parameter that is
+    /// stored into `this.__sent` on every resume.
+    YieldInto {
+        var: String,
+        type_ann: Option<String>,
+        value: ExprId,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -470,6 +482,9 @@ pub fn desugar_generators(ast: &mut Ast) {
             Stmt::Expr(eid) | Stmt::Throw(eid) | Stmt::Yield(eid) => {
                 rewrite_params_in_expr(ast, *eid, pset, visited);
             }
+            Stmt::YieldInto { value, .. } => {
+                rewrite_params_in_expr(ast, *value, pset, visited);
+            }
             Stmt::Return(maybe) => {
                 if let Some(eid) = maybe {
                     rewrite_params_in_expr(ast, *eid, pset, visited);
@@ -597,6 +612,19 @@ pub fn desugar_generators(ast: &mut Ast) {
         // user has to rename. Switch / try lets are not lifted (those
         // forms don't yet support yields).
         let mut gen_body = gen_body;
+        // J.4 — expand every `let v(:T)? = yield <e>;` into
+        //   yield <e>;
+        //   let v(:T)? = this.__sent;
+        // so the rest of the pipeline only sees standard `Stmt::Yield`
+        // and `Stmt::LetDecl`. The `this.__sent` reference picks up
+        // whatever was passed to `g.next(arg)` on the resume.
+        for s in &mut gen_body {
+            expand_yield_into_in_stmt(ast, s, &yield_ty);
+        }
+        // After expansion, gen_body may contain Multi(Vec<Stmt>) holding
+        // the [Yield; LetDecl] pair. The recursive let-lift below walks
+        // Multi just fine.
+
         let mut lifted_locals: Vec<(String, String)> = Vec::new();
         for s in &mut gen_body {
             lift_lets_in_stmt(ast, s, &mut lifted_locals);
@@ -736,11 +764,42 @@ pub fn desugar_generators(ast: &mut Ast) {
                 }),
             ],
         };
+        // J.4 — next() takes an optional `__yield_arg: <yield_ty> = 0`
+        // parameter and stashes it in `this.__sent` before re-entering
+        // the state machine. YieldInto-expanded `let v = this.__sent`
+        // sites read that field to receive the value passed to
+        // `g.next(arg)`. First call's arg is ignored per JS spec; tr's
+        // typed-default uses zero/empty depending on yield type.
+        let yield_arg_default = default_init_for_type(&yield_ty);
+        let yield_arg_default_id = ast.add_expr(yield_arg_default);
+        let yield_arg_param = Param {
+            name: "__yield_arg".into(),
+            type_ann: Some(yield_ty.clone()),
+            default: Some(yield_arg_default_id),
+            is_rest: false,
+        };
+        let stash_sent = {
+            let this_id = ast.add_expr(Expr::This);
+            let sent_member = ast.add_expr(Expr::Member {
+                obj: this_id,
+                name: "__sent".into(),
+            });
+            let arg_ident = ast.add_expr(Expr::Ident("__yield_arg".into()));
+            let assign = ast.add_expr(Expr::Assign {
+                target: sent_member,
+                value: arg_ident,
+            });
+            Stmt::Expr(assign)
+        };
+        let mut next_body_with_stash: Vec<Stmt> = Vec::with_capacity(next_body.len() + 1);
+        next_body_with_stash.push(stash_sent);
+        next_body_with_stash.extend(next_body);
+
         let next_method = ClassMethod {
             name: "next".into(),
-            params: Vec::new(),
+            params: vec![yield_arg_param],
             return_type: Some(step_ann.clone()),
-            body: next_body,
+            body: next_body_with_stash,
         };
         // For Phase J MVP, generator parameters are stored as fields on
         // the iterator object so the body can reference them through
@@ -749,6 +808,7 @@ pub fn desugar_generators(ast: &mut Ast) {
         // for each param.
         let mut class_fields: Vec<(String, String)> = vec![
             ("__state".into(), "number".into()),
+            ("__sent".into(), yield_ty.clone()),
         ];
         // Lifted locals as class fields. Their initial values are zero
         // (computed from the type ann) — actual initialization happens
@@ -813,6 +873,61 @@ pub fn desugar_generators(ast: &mut Ast) {
     ast.stmts.extend(appended);
 }
 
+/// J.4 — recursively expand every `Stmt::YieldInto { var, type_ann,
+/// value }` in `s` into the pair `[Stmt::Yield(value);
+/// Stmt::LetDecl { name: var, type_ann, init: this.__sent }]`. The
+/// pair is wrapped in `Stmt::Multi` so it occupies the YieldInto's
+/// original slot without disturbing surrounding scope. Walks into
+/// nested control-flow.
+///
+/// `yield_ty` is the surrounding generator's declared yield type; it
+/// supplies the let's annotation when the user omitted one (so the
+/// J.2.b lift picks the right field type).
+fn expand_yield_into_in_stmt(ast: &mut Ast, s: &mut Stmt, yield_ty: &str) {
+    match s {
+        Stmt::YieldInto { var, type_ann, value } => {
+            let var = std::mem::take(var);
+            let ty = type_ann.clone().or_else(|| Some(yield_ty.to_string()));
+            let value = *value;
+            let yield_stmt = Stmt::Yield(value);
+            let this_id = ast.add_expr(Expr::This);
+            let sent_member = ast.add_expr(Expr::Member {
+                obj: this_id,
+                name: "__sent".into(),
+            });
+            let let_stmt = Stmt::LetDecl {
+                mutable: true,
+                name: var,
+                type_ann: ty,
+                init: sent_member,
+            };
+            *s = Stmt::Multi(vec![yield_stmt, let_stmt]);
+        }
+        Stmt::If { then_branch, else_branch, .. } => {
+            expand_yield_into_in_stmt(ast, then_branch, yield_ty);
+            if let Some(eb) = else_branch.as_deref_mut() {
+                expand_yield_into_in_stmt(ast, eb, yield_ty);
+            }
+        }
+        Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
+            expand_yield_into_in_stmt(ast, body, yield_ty);
+        }
+        Stmt::For { init, body, .. } => {
+            if let Some(i) = init.as_deref_mut() {
+                expand_yield_into_in_stmt(ast, i, yield_ty);
+            }
+            expand_yield_into_in_stmt(ast, body, yield_ty);
+        }
+        Stmt::Block(stmts) | Stmt::Multi(stmts) => {
+            for s in stmts {
+                expand_yield_into_in_stmt(ast, s, yield_ty);
+            }
+        }
+        // Switch / try cases not yet in yield scope (J.2.b).
+        _ => {}
+    }
+}
+
 /// Recursively replace every `let x = init` in `s` (and any nested
 /// stmts) with `this.x = init`, recording each lifted `(name, type)`
 /// in `lifted`. Used by `desugar_generators` so locals declared in
@@ -861,7 +976,7 @@ fn lift_lets_in_stmt(ast: &mut Ast, s: &mut Stmt, lifted: &mut Vec<(String, Stri
 /// emitted inline as a regular Stmt::If / While / For.
 fn stmt_contains_yield(s: &Stmt) -> bool {
     match s {
-        Stmt::Yield(_) => true,
+        Stmt::Yield(_) | Stmt::YieldInto { .. } => true,
         Stmt::If { then_branch, else_branch, .. } => {
             stmt_contains_yield(then_branch)
                 || else_branch.as_deref().is_some_and(stmt_contains_yield)
@@ -1737,6 +1852,7 @@ fn collect_super_in_stmt(
 ) {
     match s {
         Stmt::Expr(eid) | Stmt::Throw(eid) | Stmt::Yield(eid) => collect_super_in_expr(ast, *eid, out),
+        Stmt::YieldInto { value, .. } => collect_super_in_expr(ast, *value, out),
         Stmt::Return(maybe) => {
             if let Some(eid) = maybe {
                 collect_super_in_expr(ast, *eid, out);
@@ -1984,7 +2100,63 @@ pub fn apply_default_args(ast: &mut Ast) {
             }
         }
     }
-    if fn_defaults.is_empty() {
+    // Sibling-shape Member calls (`obj.method(args)`) survive desugar
+    // when the method name is shared by unrelated classes (I.1). For
+    // those, look up class-method FnDecls named `__cm_<C>__<method>`
+    // and group by `<method>`. If every owner of `<method>` has the
+    // same defaults shape (length + which positions have defaults),
+    // we can apply them to the bare `obj.method(args)` call site
+    // without knowing the receiver's static type.
+    let mut method_defaults: HashMap<String, Vec<Option<ExprId>>> = HashMap::new();
+    let mut method_conflict: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for (fname, defaults) in &fn_defaults {
+        let Some(rest) = fname.strip_prefix("__cm_") else {
+            continue;
+        };
+        // Use rfind: the class name itself may contain `__` (e.g.
+        // `__Gen_count3`), so the method-name boundary is the LAST `__`.
+        let Some(idx) = rest.rfind("__") else {
+            continue;
+        };
+        let mname = &rest[idx + 2..];
+        // The first param of __cm_C__M is __this (no default). Skip it
+        // when comparing — the Member-call path doesn't pass __this
+        // explicitly.
+        if defaults.is_empty() {
+            continue;
+        }
+        let user_defaults: Vec<Option<ExprId>> = defaults[1..].to_vec();
+        if !user_defaults.iter().any(|d| d.is_some()) {
+            continue;
+        }
+        if method_conflict.contains(mname) {
+            continue;
+        }
+        match method_defaults.get(mname) {
+            None => {
+                method_defaults.insert(mname.to_string(), user_defaults);
+            }
+            Some(existing) => {
+                // Conflict only if defaults shape differs (different
+                // arity or different which-positions). We don't compare
+                // ExprIds — different generator classes use different
+                // ExprId for the same Number(0.0) literal but should
+                // count as compatible. Compare lengths + Some/None
+                // pattern only.
+                let same_shape = existing.len() == user_defaults.len()
+                    && existing
+                        .iter()
+                        .zip(&user_defaults)
+                        .all(|(a, b)| a.is_some() == b.is_some());
+                if !same_shape {
+                    method_conflict.insert(mname.to_string());
+                    method_defaults.remove(mname);
+                }
+            }
+        }
+    }
+
+    if fn_defaults.is_empty() && method_defaults.is_empty() {
         return;
     }
     let n = ast.exprs.len();
@@ -1992,18 +2164,22 @@ pub fn apply_default_args(ast: &mut Ast) {
         if let Expr::Call { callee, args } = &ast.exprs[i] {
             let callee = *callee;
             let args_len = args.len();
-            // Look up callee's name. Direct Ident only.
-            let name = match ast.get_expr(callee) {
-                Expr::Ident(n) => n.clone(),
+            // Pick defaults: prefer Ident match, fall back to Member
+            // (sibling-shape) lookup.
+            let defaults: Vec<Option<ExprId>> = match ast.get_expr(callee).clone() {
+                Expr::Ident(name) => match fn_defaults.get(&name) {
+                    Some(d) => d.clone(),
+                    None => continue,
+                },
+                Expr::Member { name, .. } => match method_defaults.get(&name) {
+                    Some(d) => d.clone(),
+                    None => continue,
+                },
                 _ => continue,
-            };
-            let Some(defaults) = fn_defaults.get(&name) else {
-                continue;
             };
             if args_len >= defaults.len() {
                 continue;
             }
-            // Append defaults for missing positions.
             let mut new_args = match &ast.exprs[i] {
                 Expr::Call { args, .. } => args.clone(),
                 _ => unreachable!(),
@@ -2013,8 +2189,6 @@ pub fn apply_default_args(ast: &mut Ast) {
                 if let Some(default_eid) = defaults[j] {
                     new_args.push(default_eid);
                 } else {
-                    // Missing required arg — leave alone, typecheck
-                    // will report.
                     ok = false;
                     break;
                 }
@@ -2262,6 +2436,7 @@ fn free_vars_of_arrow(
 fn walk_stmt(ast: &Ast, s: &Stmt, bound: &mut Vec<String>, out: &mut Vec<String>) {
     match s {
         Stmt::Expr(eid) | Stmt::Return(Some(eid)) | Stmt::Yield(eid) => walk_expr(ast, *eid, bound, out),
+        Stmt::YieldInto { value, .. } => walk_expr(ast, *value, bound, out),
         Stmt::Return(None) => {}
         Stmt::LetDecl { name, init, .. } => {
             walk_expr(ast, *init, bound, out);
@@ -2421,6 +2596,7 @@ fn scan_stmt_for_throws(
         Stmt::Expr(eid) | Stmt::Return(Some(eid)) | Stmt::Yield(eid) => {
             scan_expr_for_calls(ast, *eid, called)
         }
+        Stmt::YieldInto { value, .. } => scan_expr_for_calls(ast, *value, called),
         Stmt::Return(None) | Stmt::Break | Stmt::Continue => {}
         Stmt::LetDecl { init, .. } => scan_expr_for_calls(ast, *init, called),
         Stmt::If {
@@ -2684,6 +2860,10 @@ impl Ast {
             Stmt::Yield(eid) => {
                 println!("{pad}Yield");
                 self.print_expr(*eid, indent + 1);
+            }
+            Stmt::YieldInto { var, type_ann, value } => {
+                println!("{pad}YieldInto var={var} ty={type_ann:?}");
+                self.print_expr(*value, indent + 1);
             }
             Stmt::LetDecl {
                 mutable,

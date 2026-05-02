@@ -414,6 +414,20 @@ impl Parser<'_> {
                 Token::Eq => self.pos += 1,
                 t => return Err(format!("expected `=`, got {t:?} at {}", self.at())),
             }
+            // J.4 — `let name(:T)? = yield <expr>;` shape. We detect this
+            // before falling into the regular parse_expr so the rhs's
+            // `yield` keyword is consumed cleanly. desugar_generators
+            // later expands the YieldInto into a yield + a let bound to
+            // `this.__sent` (the value passed to the next-most
+            // `g.next(arg)` call).
+            if matches!(self.peek(), Token::Yield) {
+                self.pos += 1;
+                let value = self.parse_expr()?;
+                if matches!(self.peek(), Token::Semi) {
+                    self.pos += 1;
+                }
+                return Ok(Stmt::YieldInto { var: name, type_ann, value });
+            }
             let init = self.parse_expr()?;
             if matches!(self.peek(), Token::Semi) {
                 self.pos += 1;
