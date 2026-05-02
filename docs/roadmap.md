@@ -21,7 +21,7 @@ When behavior is ambiguous, **bun is the oracle**. Write the equivalent in TS, r
 1. **极致 perf** — beat bun/node on important benchmarks; hold them. Both `tr build` (AOT) and `tr run` (AOT-cache) win compute-heavy cases vs bun-jsc/bun-aot/node-v8 (e.g. popcount: 11 ms vs bun 57 ms; fib40: 226 ms vs bun 395 ms).
 2. **Compile not too slow** — first `tr run foo.ts` after a source edit pays one full LLVM compile (~50–90 ms / small program); subsequent runs hit the cache and skip compile entirely. Production builds use `tr build` with O3 (~45 ms / case).
 3. **Interpretable** — `tr run foo.ts` is the dev-loop entry point. AOT-with-cache replaced Cranelift JIT on 2026-05-01: cold compile is ~10× slower, but cache hits make iteration latency lower than JIT and runtime perf strictly better.
-4. **No GC** — no tracing GC, no refcount, no runtime memory-management overhead. The compiler infers ownership at compile time and emits deterministic drops.
+4. **No GC, internal ARC for shared heap** — no tracing GC. Single-owner heap values use compile-time ownership inference + deterministic drops. Multi-owner cases (Array<T>, throw/catch shared structs, closure captures crossing scopes) use a hidden ARC-style refcount on a universal heap header — the user never writes `.clone()` or sees `Rc<T>`. See `docs/design-principles.md` for the four-pillar rubric the refcount pivot satisfies.
 5. **TS-shape semantics** — what works, works the same as bun. No Rust-flavored idioms in user code (no `.clone()`, no `Rc<T>`, no lifetime annotations).
 6. **TS subset** — partial coverage of TS surface. Programs the compiler can't statically resolve (multi-rooted ownership, certain dynamic patterns) get clear compile errors. Users restructure to fit the subset.
 
@@ -46,7 +46,7 @@ The compiler still does ownership analysis under the hood (the no-GC requirement
 | Source language | TS subset (TS surface, TS semantics, partial coverage) |
 | Embed existing JS engine? | No — write our own |
 | Execution model | AOT in both modes — `tr build` writes to `-o`, `tr run` writes to `~/.torajs/cache/<hash>` then execs. Single SSA → LLVM pipeline. |
-| Memory model | Compile-time ownership inference; no GC, no refcount |
+| Memory model | Compile-time ownership inference for single-owner; hidden ARC refcount on universal heap header for shared paths (no user-visible `Rc<T>`); no tracing GC |
 | Compiler backend | LLVM via Inkwell — single backend for both `tr run` and `tr build`. Cranelift JIT was tried (P3.6) and removed 2026-05-01: weaker codegen lost compute-heavy benchmarks to V8/JSC. |
 | TS conformance | None — torajs is a subset, not aligned to any TS version |
 | Test262 conformance | Not a goal |
@@ -302,7 +302,7 @@ run_ms 极限 = optimal_codegen × optimal_runtime × optimal_layout
 Picking LLVM solved the codegen layer. The runtime layer (no GC, deterministic drop) is where bun/V8 lose 4–20× — their codegen is fine, their runtime + layout carry too much overhead. Specific commitments:
 
 1. **IR carries rich type info** → emit specialized LLVM IR. Monomorphization, devirtualization at IR level, `noalias` from ownership analysis, `!range` from type narrowing.
-2. **Compile-time ownership inference** — alias-aware analysis under TS-shape semantics. Deterministic drops at scope exit, no GC pause, no refcount bumps. (Pre-pivot framing called for `Rc<T>` as user-visible escape valve; that was wrong — corrected 2026-04-30.)
+2. **Compile-time ownership inference + hidden ARC** — alias-aware analysis under TS-shape semantics handles single-owner paths with deterministic drops at scope exit. Multi-owner paths (Array<T> aliasing, throw/catch shared structs, cross-scope closure captures) route through a hidden ARC-style refcount on the universal heap header. Inc on share, dec on drop, free at zero — Swift ARC / CPython pattern. The user never sees `Rc<T>` or writes `.clone()`. (Pre-pivot framing called for `Rc<T>` as user-visible escape valve; that was wrong — corrected 2026-04-30. Pre-2026-05-02 framing called for "no refcount" period; corrected when implementation revealed ownership-only didn't compose for Array<non-Copy> aliasing — refcount went hidden / runtime-internal instead.)
 3. **Language-level PGO** — `@hot` / `@cold` attributes → LLVM `branch_weights` metadata.
 4. **Pattern-detected intrinsics** — Brian Kernighan popcount → `@llvm.ctpop.i64`, ctz/clz/bswap, vectorizable nested loops → NEON.
 5. **Stack/arena allocation first** — escape analysis to stack-allocate non-escaping locals; region inference for fn-scoped temporaries.
