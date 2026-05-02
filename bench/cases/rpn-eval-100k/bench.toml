@@ -1,0 +1,11 @@
+runs = 5
+warmup = 2
+
+# 100k-iteration RPN evaluator. Each iter: split(" ") on a fixed
+# expression, scan tokens by first-byte (charCodeAt(0)), do the
+# arithmetic on a small int stack. The split + per-token
+# charCodeAt dispatch is exactly the workload that motivated the
+# Substr (view) layout — every substring would otherwise pay a
+# malloc + memcpy for bytes the source already holds. With
+# Substr, each split element is a 32-byte view with no byte copy.
+torajs_opt = "O3"

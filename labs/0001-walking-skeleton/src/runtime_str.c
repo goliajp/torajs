@@ -118,6 +118,16 @@ static uint8_t *str_alloc_(uint64_t len) {
 #define __TORAJS_SUBSTR_PARENT(p)   (*(uint8_t **)((const uint8_t *)(p) + __TORAJS_SUBSTR_PARENT_OFF))
 #define __TORAJS_SUBSTR_OFFSET(p)   (*(uint64_t *)((const uint8_t *)(p) + __TORAJS_SUBSTR_OFFSET_OFF))
 
+/* Substr flag bits (in the universal-header `flags` field).
+ *
+ * INLINE — substr struct is embedded inside another allocation (e.g.
+ * the array tail emitted by __torajs_str_split's single-block layout).
+ * substr_drop must NOT free the substr itself in that case; the
+ * enclosing block's drop frees everything in one go. The drop still
+ * dec's the parent Str's refcount because each inline substr holds
+ * one parent ref. */
+#define __TORAJS_FLAG_SUBSTR_INLINE 1u
+
 /* Forward-declare: __torajs_str_drop is defined in inkwell IR (see
  * `define_str_drop` in ssa_inkwell.rs). We call it on parent at view-
  * drop time; the linker resolves the symbol. */
@@ -148,10 +158,22 @@ void *__torajs_substr_create(void *parent, uint64_t offset, uint64_t len) {
     return v;
 }
 
-/* Drop a Substr view: dec self refcount; on hitting zero, dec parent's
- * refcount (str_drop on parent) and free self. */
+/* Drop a Substr view. Two cases distinguished by the INLINE flag:
+ *   - standalone (flag clear): dec own refcount; at 0, str_drop(parent)
+ *     and free self.
+ *   - inline (flag set): the substr struct lives inside a bigger
+ *     allocation (typically the array tail produced by str_split). Don't
+ *     touch own refcount, don't free self — just dec parent (each inline
+ *     substr still holds one parent ref). The enclosing block's drop
+ *     reclaims the substr storage when it frees itself. */
 void __torajs_substr_drop(void *v) {
     if (v == NULL) return;
+    __torajs_heap_header_t *h = (__torajs_heap_header_t *)v;
+    if (h->flags & __TORAJS_FLAG_SUBSTR_INLINE) {
+        void *parent = (void *)*(uint8_t **)((uint8_t *)v + __TORAJS_SUBSTR_PARENT_OFF);
+        __torajs_str_drop(parent);
+        return;
+    }
     if (__torajs_rc_dec(v)) {
         void *parent = (void *)*(uint8_t **)((uint8_t *)v + __TORAJS_SUBSTR_PARENT_OFF);
         __torajs_str_drop(parent);
@@ -365,21 +387,41 @@ void __torajs_arr_push_unchecked(void *arr, int64_t val);
  * long as drop dispatches via Substr — but we don't currently emit
  * mixed-type slots, so just create a view of the whole source instead).
  */
+/* Allocate the str_split output as a single block:
+ *
+ *   [arr_hdr:24][N*8 ptr slots][N*32 inline substr structs]
+ *
+ * Each slot[i] holds the address of the inline substr struct at
+ * substrs_base + i*32. Each substr is marked INLINE in its flags so
+ * substr_drop only dec's parent (no per-substr free). Final arr_drop
+ * reclaims the entire block in one free(). Cuts the malloc count of
+ * a split from N+1 (one arr alloc + N substr allocs) to exactly 1. */
+static inline void __torajs_split_init_inline(
+    uint8_t *substr_slot,
+    void **arr_ptr_slot,
+    const uint8_t *parent,
+    uint64_t offset,
+    uint64_t len
+) {
+    __torajs_heap_header_t *h = (__torajs_heap_header_t *)substr_slot;
+    h->refcount = 1;
+    h->type_tag = __TORAJS_TAG_STR;
+    h->flags = __TORAJS_FLAG_SUBSTR_INLINE;
+    __TORAJS_SUBSTR_LEN(substr_slot) = len;
+    *(const uint8_t **)(substr_slot + __TORAJS_SUBSTR_PARENT_OFF) = parent;
+    *(uint64_t *)(substr_slot + __TORAJS_SUBSTR_OFFSET_OFF) = offset;
+    __torajs_rc_inc((void *)parent);
+    *arr_ptr_slot = substr_slot;
+}
+
 void *__torajs_str_split(const uint8_t *s, const uint8_t *sep) {
     uint64_t s_len = __TORAJS_STR_LEN(s);
     uint64_t sep_len = __TORAJS_STR_LEN(sep);
     const uint8_t *s_data = __TORAJS_STR_CDATA(s);
     const uint8_t *sep_data = __TORAJS_STR_CDATA(sep);
 
-    if (sep_len == 0) {
-        /* Empty separator returns [view-of-whole-s]. */
-        void *arr = __torajs_arr_alloc(1);
-        void *v = __torajs_substr_create((void *)s, 0, s_len);
-        __torajs_arr_push_unchecked(arr, (int64_t)(intptr_t)v);
-        return arr;
-    }
-
-    /* Pass 1 — count occurrences (output length = matches + 1). */
+    /* Pass 1 — count occurrences (out_count = matches + 1). Empty
+     * separator returns [view-of-whole-s] (out_count = 1, no scan). */
     uint64_t matches = 0;
     if (sep_len == 1) {
         /* Hot path: byte scan. Most splits are " ", ",", "\n" etc. */
@@ -387,7 +429,7 @@ void *__torajs_str_split(const uint8_t *s, const uint8_t *sep) {
         for (uint64_t k = 0; k < s_len; k++) {
             if (s_data[k] == b) matches++;
         }
-    } else if (sep_len <= s_len) {
+    } else if (sep_len > 0 && sep_len <= s_len) {
         uint64_t i = 0;
         while (i + sep_len <= s_len) {
             if (memcmp(s_data + i, sep_data, (size_t)sep_len) == 0) {
@@ -399,33 +441,64 @@ void *__torajs_str_split(const uint8_t *s, const uint8_t *sep) {
         }
     }
     uint64_t out_count = matches + 1;
-    void *arr = __torajs_arr_alloc(out_count);
-    uint64_t start = 0, i = 0;
+
+    /* Single-block alloc. */
+    uint64_t slots_size = out_count * 8;
+    uint64_t substrs_size = out_count * __TORAJS_SUBSTR_SIZE;
+    uint64_t total = __TORAJS_ARR_HDR_SIZE + slots_size + substrs_size;
+    uint8_t *arr = (uint8_t *)malloc(total);
+    __torajs_heap_header_t *ah = (__torajs_heap_header_t *)arr;
+    ah->refcount = 1;
+    ah->type_tag = __TORAJS_TAG_ARR;
+    ah->flags = 0;
+    __TORAJS_ARR_LEN(arr) = out_count;
+    __TORAJS_ARR_CAP(arr) = out_count;
+    uint8_t *substrs_base = arr + __TORAJS_ARR_HDR_SIZE + slots_size;
+    void **slots = (void **)(arr + __TORAJS_ARR_HDR_SIZE);
+
+    if (sep_len == 0) {
+        __torajs_split_init_inline(substrs_base, &slots[0], s, 0, s_len);
+        return arr;
+    }
+
+    /* Pass 2 — fill substrs + slots inline. */
+    uint64_t ix = 0;
+    uint64_t start = 0;
     if (sep_len == 1) {
         uint8_t b = sep_data[0];
         for (uint64_t k = 0; k < s_len; k++) {
             if (s_data[k] == b) {
-                void *v = __torajs_substr_create((void *)s, start, k - start);
-                __torajs_arr_push_unchecked(arr, (int64_t)(intptr_t)v);
+                __torajs_split_init_inline(
+                    substrs_base + ix * __TORAJS_SUBSTR_SIZE,
+                    &slots[ix],
+                    s, start, k - start
+                );
+                ix++;
                 start = k + 1;
             }
         }
-        void *v = __torajs_substr_create((void *)s, start, s_len - start);
-        __torajs_arr_push_unchecked(arr, (int64_t)(intptr_t)v);
-        return arr;
-    }
-    while (i + sep_len <= s_len) {
-        if (memcmp(s_data + i, sep_data, (size_t)sep_len) == 0) {
-            void *v = __torajs_substr_create((void *)s, start, i - start);
-            __torajs_arr_push_unchecked(arr, (int64_t)(intptr_t)v);
-            i += sep_len;
-            start = i;
-        } else {
-            i += 1;
+    } else {
+        uint64_t i = 0;
+        while (i + sep_len <= s_len) {
+            if (memcmp(s_data + i, sep_data, (size_t)sep_len) == 0) {
+                __torajs_split_init_inline(
+                    substrs_base + ix * __TORAJS_SUBSTR_SIZE,
+                    &slots[ix],
+                    s, start, i - start
+                );
+                ix++;
+                i += sep_len;
+                start = i;
+            } else {
+                i += 1;
+            }
         }
     }
-    void *v = __torajs_substr_create((void *)s, start, s_len - start);
-    __torajs_arr_push_unchecked(arr, (int64_t)(intptr_t)v);
+    __torajs_split_init_inline(
+        substrs_base + ix * __TORAJS_SUBSTR_SIZE,
+        &slots[ix],
+        s, start, s_len - start
+    );
     return arr;
 }
 
