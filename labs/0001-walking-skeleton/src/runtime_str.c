@@ -687,15 +687,20 @@ void *__torajs_str_split(const uint8_t *s, const uint8_t *sep) {
     const uint8_t *sep_data = __TORAJS_STR_CDATA(sep);
 
     /* Pass 1 — count occurrences (out_count = matches + 1). Empty
-     * separator returns [view-of-whole-s] (out_count = 1, no scan). */
+     * separator splits per-char (TS spec: `"ab".split("") === ["a","b"]`),
+     * yielding s_len single-byte substrings. */
     uint64_t matches = 0;
-    if (sep_len == 1) {
+    uint64_t out_count;
+    if (sep_len == 0) {
+        out_count = s_len;
+    } else if (sep_len == 1) {
         /* Hot path: byte scan. Most splits are " ", ",", "\n" etc. */
         uint8_t b = sep_data[0];
         for (uint64_t k = 0; k < s_len; k++) {
             if (s_data[k] == b) matches++;
         }
-    } else if (sep_len > 0 && sep_len <= s_len) {
+        out_count = matches + 1;
+    } else if (sep_len <= s_len) {
         uint64_t i = 0;
         while (i + sep_len <= s_len) {
             if (memcmp(s_data + i, sep_data, (size_t)sep_len) == 0) {
@@ -705,8 +710,10 @@ void *__torajs_str_split(const uint8_t *s, const uint8_t *sep) {
                 i++;
             }
         }
+        out_count = matches + 1;
+    } else {
+        out_count = 1;
     }
-    uint64_t out_count = matches + 1;
 
     /* Single-block alloc. */
     uint64_t slots_size = out_count * 8;
@@ -723,7 +730,13 @@ void *__torajs_str_split(const uint8_t *s, const uint8_t *sep) {
     void **slots = (void **)(arr + __TORAJS_ARR_HDR_SIZE);
 
     if (sep_len == 0) {
-        __torajs_split_init_inline(substrs_base, &slots[0], s, 0, s_len);
+        for (uint64_t k = 0; k < s_len; k++) {
+            __torajs_split_init_inline(
+                substrs_base + k * __TORAJS_SUBSTR_SIZE,
+                &slots[k],
+                s, k, 1
+            );
+        }
         return arr;
     }
 
