@@ -249,7 +249,22 @@ impl Parser<'_> {
             return Ok(Stmt::Continue);
         }
         if matches!(self.peek(), Token::Function) {
-            return self.parse_fn();
+            return self.parse_fn(false);
+        }
+        // L.2 — `async function f(...)`. The `async` token is consumed
+        // and we set is_async on the resulting FnDecl. desugar_async
+        // (post-parse) wraps the body's return value in a Promise and
+        // shifts the surface return type from T to Promise<T>.
+        if matches!(self.peek(), Token::Async) {
+            self.pos += 1;
+            if !matches!(self.peek(), Token::Function) {
+                return Err(format!(
+                    "expected `function` after `async`, got {:?} at {}",
+                    self.peek(),
+                    self.at()
+                ));
+            }
+            return self.parse_fn(true);
         }
         if matches!(self.peek(), Token::Type) {
             return self.parse_type_decl();
@@ -494,7 +509,7 @@ impl Parser<'_> {
         })
     }
 
-    fn parse_fn(&mut self) -> Result<Stmt, String> {
+    fn parse_fn(&mut self, is_async: bool) -> Result<Stmt, String> {
         self.pos += 1; // consume `function`
         // Phase J — `function*` generator declaration. Optional `*` token
         // sandwiched between `function` and the name marks this fn as a
@@ -634,6 +649,9 @@ impl Parser<'_> {
                 )
             });
             self.generator_fns.insert(name.clone(), yield_ty);
+        }
+        if is_async {
+            self.ast.async_fns.insert(name.clone());
         }
         // body must be a block
         match self.peek() {
@@ -1882,6 +1900,19 @@ impl Parser<'_> {
             self.pos += 1;
             let inner = self.parse_unary()?;
             return Ok(self.ast.add_expr(Expr::TypeOf { expr: inner }));
+        }
+        // L.2 — `await <expr>` extracts the resolved value from a
+        // Promise. MVP desugar: `await e` ⇒ `e.value` (synchronous
+        // read, well-defined only for already-fulfilled promises in
+        // the L.1 eager-fire model). Right-associative so chained
+        // forms parse like other unary prefixes.
+        if matches!(self.peek(), Token::Await) {
+            self.pos += 1;
+            let inner = self.parse_unary()?;
+            return Ok(self.ast.add_expr(Expr::Member {
+                obj: inner,
+                name: "value".into(),
+            }));
         }
         // Pre-increment / pre-decrement: `++x` desugars to `x = x + 1`,
         // value is the new x. We emit an Assign whose target is the

@@ -124,6 +124,16 @@ pub enum Token {
     /// rewrites the surrounding fn into a class with a `next()` state
     /// machine.
     Yield,
+    /// Phase L — `async function f()` declares an async function whose
+    /// body returns a Promise. desugar_async wraps the body's return
+    /// value in a Promise and switches the surface return type from
+    /// `T` to `Promise<T>`.
+    Async,
+    /// Phase L — `await <expr>` extracts the resolved value from a
+    /// Promise. MVP desugar at parse time: `await e` ⇒ `e.value`
+    /// (synchronous read, only well-defined for already-fulfilled
+    /// promises in the current eager-fire model).
+    Await,
     FatArrow,
     Lt,
     Gt,
@@ -518,6 +528,8 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                     "typeof" => Token::TypeOf,
                     "instanceof" => Token::InstanceOf,
                     "yield" => Token::Yield,
+                    "async" => Token::Async,
+                    "await" => Token::Await,
                     "null" => Token::Null,
                     _ => Token::Ident(name.to_string()),
                 };

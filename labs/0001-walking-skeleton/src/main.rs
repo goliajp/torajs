@@ -123,6 +123,7 @@ fn pipeline(src: &str, stage: Stage) -> ExitCode {
     // global-fn machinery resolves them. Non-capturing closures only;
     // captures land in Phase B.
     ast::desugar_generators(&mut ast);
+    ast::desugar_async(&mut ast);
     ast::desugar_classes(&mut ast);
     ast::lift_arrow_fns(&mut ast);
     ast::apply_default_args(&mut ast);
@@ -250,6 +251,7 @@ fn run_build_llvm(args: &[String]) -> ExitCode {
     // global-fn machinery resolves them. Non-capturing closures only;
     // captures land in Phase B.
     ast::desugar_generators(&mut ast);
+    ast::desugar_async(&mut ast);
     ast::desugar_classes(&mut ast);
     ast::lift_arrow_fns(&mut ast);
     ast::apply_default_args(&mut ast);
@@ -363,6 +365,7 @@ fn run_jit(file_arg: Option<&String>) -> ExitCode {
         }
     };
     ast::desugar_generators(&mut ast);
+    ast::desugar_async(&mut ast);
     ast::desugar_classes(&mut ast);
     ast::lift_arrow_fns(&mut ast);
     ast::apply_default_args(&mut ast);

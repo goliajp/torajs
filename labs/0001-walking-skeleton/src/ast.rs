@@ -367,6 +367,13 @@ pub struct Ast {
     /// owner's `__cm_<C>__M`. Single-owner methods aren't kept here
     /// since they go through static `__cm_<Owner>__M` dispatch directly.
     pub method_owners: std::collections::HashMap<String, Vec<String>>,
+    /// Phase L.2 — names of `async function` declarations recorded by
+    /// the parser. desugar_async iterates ast.stmts and, for any
+    /// FnDecl whose name is in this set, wraps the return value in a
+    /// Promise and shifts the surface return type from T to Promise<T>.
+    /// Avoids adding an `is_async: bool` to every FnDecl construction
+    /// site.
+    pub async_fns: std::collections::HashSet<String>,
 }
 
 /// M5.1 — desugar `class C { ... }` into `type C = {...}` + a series of
@@ -1292,6 +1299,256 @@ impl<'a> GenSm<'a> {
             }
             other => self.cur_buf.push(other),
         }
+    }
+}
+
+/// Phase L.2 — rewrite each `async function f(args): T { body }` into
+/// a regular FnDecl returning `Promise<T>` whose body wraps the
+/// original return values in a Promise:
+///
+///   function f(args): Promise<T> {
+///     let __async_p = new Promise(<default T>);
+///     <body, with each `return e;` rewritten to `__async_p.do_resolve(e); return __async_p;`>
+///     return __async_p;
+///   }
+///
+/// MVP scope:
+///   - `Promise` must be the user-declared L.1 class (or any class
+///     with `do_resolve(v: T): void`); we don't synthesize one here.
+///   - `await e` is already lowered to `e.value` at parse time, so
+///     this pass doesn't need to touch it.
+///   - The original return type annotation IS required (no inference).
+///
+/// Runs between `desugar_generators` and `desugar_classes` so
+/// `new Promise(...)` is still in pre-desugar shape (desugar_classes
+/// will rewrite it to `__new_Promise(...)`).
+pub fn desugar_async(ast: &mut Ast) {
+    if ast.async_fns.is_empty() {
+        return;
+    }
+    // Find every async FnDecl by index so we can mutate ast.stmts in
+    // place. We only touch stmts; field shapes stay otherwise unchanged.
+    let async_indices: Vec<usize> = ast
+        .stmts
+        .iter()
+        .enumerate()
+        .filter_map(|(i, s)| match s {
+            Stmt::FnDecl { name, .. } if ast.async_fns.contains(name) => Some(i),
+            _ => None,
+        })
+        .collect();
+
+    for idx in async_indices {
+        // Snapshot the FnDecl pieces so we can rebuild it in place.
+        let (name, type_params, params, return_type, body) = match &ast.stmts[idx] {
+            Stmt::FnDecl {
+                name,
+                type_params,
+                params,
+                return_type,
+                body,
+                ..
+            } => (
+                name.clone(),
+                type_params.clone(),
+                params.clone(),
+                return_type.clone(),
+                body.clone(),
+            ),
+            _ => unreachable!(),
+        };
+        let inner_ty = return_type.unwrap_or_else(|| {
+            panic!(
+                "async function {name} requires an explicit return type \
+                 annotation `: T` (Phase L MVP)"
+            )
+        });
+        let promise_ty = format!("Promise<{inner_ty}>");
+        // Same monomorphization-via-name dance the rest of the
+        // codebase uses: type alias `Promise<number>` will get
+        // resolved to the concrete `Promise_number` struct shape by
+        // check.rs's generic-type machinery.
+
+        // let __async_p = new Promise(<default T>)
+        let default_init = default_init_for_type(&inner_ty);
+        let default_id = ast.add_expr(default_init);
+        let new_promise = ast.add_expr(Expr::New {
+            class_name: "Promise".into(),
+            args: vec![default_id],
+        });
+        let p_decl = Stmt::LetDecl {
+            mutable: false,
+            name: "__async_p".into(),
+            type_ann: Some(promise_ty.clone()),
+            init: new_promise,
+        };
+
+        // L.2 MVP — async fns must have a single tail return. Multi-
+        // branch returns trigger a tr ownership bug (silent wrong
+        // output: each branch ends up with its own moved Promise
+        // instance, neither carrying the resolved value back to the
+        // caller). Reject early so the user sees a clear error
+        // instead of a mysterious 0.
+        let return_count = count_returns(&body);
+        if return_count > 1 {
+            panic!(
+                "async function {name}: {return_count} `return` statements detected. \
+                 L.2 MVP only supports a single tail return — early returns hit a tr \
+                 ownership tracker bug across branches (the Promise instance gets \
+                 moved into one branch's helper call but later branches read the moved \
+                 value). Refactor to a single tail return."
+            );
+        }
+
+        // Rewrite returns inside body. Each `return e;` becomes
+        // `__async_p.do_resolve(e); return __async_p;`. Returns with
+        // no value get a default-init injected.
+        let mut new_body: Vec<Stmt> = Vec::with_capacity(body.len() + 2);
+        new_body.push(p_decl);
+        for s in body {
+            let mut s = s;
+            rewrite_returns_for_async(ast, &mut s, &inner_ty);
+            new_body.push(s);
+        }
+        // Tail safety: if control flow falls off the end without an
+        // explicit return, hand back the (still-pending) Promise.
+        // Skip emitting if the body trivially ends with a return —
+        // tr's ownership tracker treats the second access as a
+        // double-move even when the path is unreachable.
+        if !body_ends_in_return(&new_body) {
+            let p_ref = ast.add_expr(Expr::Ident("__async_p".into()));
+            new_body.push(Stmt::Return(Some(p_ref)));
+        }
+
+        ast.stmts[idx] = Stmt::FnDecl {
+            name,
+            type_params,
+            params,
+            return_type: Some(promise_ty),
+            body: new_body,
+            is_generator: false,
+        };
+    }
+}
+
+/// Count `Stmt::Return` occurrences inside `body`, walking into
+/// control-flow constructs. Used by `desugar_async` to enforce its
+/// "single tail return" MVP constraint.
+fn count_returns(body: &[Stmt]) -> usize {
+    body.iter().map(count_returns_stmt).sum()
+}
+fn count_returns_stmt(s: &Stmt) -> usize {
+    match s {
+        Stmt::Return(_) => 1,
+        Stmt::If { then_branch, else_branch, .. } => {
+            count_returns_stmt(then_branch)
+                + else_branch.as_deref().map_or(0, count_returns_stmt)
+        }
+        Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => count_returns_stmt(body),
+        Stmt::For { init, body, .. } => {
+            init.as_deref().map_or(0, count_returns_stmt) + count_returns_stmt(body)
+        }
+        Stmt::Block(stmts) | Stmt::Multi(stmts) => count_returns(stmts),
+        Stmt::Switch { cases, default, .. } => {
+            cases.iter().map(|c| count_returns(&c.body)).sum::<usize>()
+                + default.as_ref().map_or(0, |d| count_returns(d))
+        }
+        Stmt::Try { body, catch_body, finally_body, .. } => {
+            count_returns(body)
+                + count_returns(catch_body)
+                + finally_body.as_ref().map_or(0, |fb| count_returns(fb))
+        }
+        _ => 0,
+    }
+}
+
+/// True if the (possibly-empty) body's last reachable statement is a
+/// `Stmt::Return`. Used by `desugar_async` to skip emitting the tail-
+/// safety `return __async_p;` when the body already ends in one (a
+/// second access of `__async_p` would trip tr's move tracker even on
+/// the unreachable path).
+fn body_ends_in_return(body: &[Stmt]) -> bool {
+    match body.last() {
+        Some(Stmt::Return(_)) => true,
+        Some(Stmt::Multi(stmts)) | Some(Stmt::Block(stmts)) => body_ends_in_return(stmts),
+        _ => false,
+    }
+}
+
+/// Recursively rewrite `Stmt::Return(Some(e))` (and `Stmt::Return(None)`)
+/// inside `s` into the pair `__async_p.do_resolve(e); return __async_p;`.
+/// The desugar guards against multi-branch returns at a higher level
+/// (`count_returns > 1` panics with a clear error) so tr's ownership
+/// tracker only sees one transfer of `__async_p` per body — the
+/// straight-line tail return.
+fn rewrite_returns_for_async(ast: &mut Ast, s: &mut Stmt, inner_ty: &str) {
+    match s {
+        Stmt::Return(maybe) => {
+            let value = match maybe {
+                Some(eid) => *eid,
+                None => {
+                    let default = default_init_for_type(inner_ty);
+                    ast.add_expr(default)
+                }
+            };
+            let p_ref = ast.add_expr(Expr::Ident("__async_p".into()));
+            let do_resolve_m = ast.add_expr(Expr::Member {
+                obj: p_ref,
+                name: "do_resolve".into(),
+            });
+            let call = ast.add_expr(Expr::Call {
+                callee: do_resolve_m,
+                args: vec![value],
+            });
+            let p_ret = ast.add_expr(Expr::Ident("__async_p".into()));
+            *s = Stmt::Multi(vec![Stmt::Expr(call), Stmt::Return(Some(p_ret))]);
+        }
+        Stmt::If { then_branch, else_branch, .. } => {
+            rewrite_returns_for_async(ast, then_branch, inner_ty);
+            if let Some(eb) = else_branch.as_deref_mut() {
+                rewrite_returns_for_async(ast, eb, inner_ty);
+            }
+        }
+        Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
+            rewrite_returns_for_async(ast, body, inner_ty);
+        }
+        Stmt::For { body, init, .. } => {
+            if let Some(i) = init.as_deref_mut() {
+                rewrite_returns_for_async(ast, i, inner_ty);
+            }
+            rewrite_returns_for_async(ast, body, inner_ty);
+        }
+        Stmt::Block(stmts) | Stmt::Multi(stmts) => {
+            for s in stmts {
+                rewrite_returns_for_async(ast, s, inner_ty);
+            }
+        }
+        Stmt::Switch { cases, default, .. } => {
+            for c in cases {
+                for s in &mut c.body {
+                    rewrite_returns_for_async(ast, s, inner_ty);
+                }
+            }
+            if let Some(d) = default {
+                for s in d {
+                    rewrite_returns_for_async(ast, s, inner_ty);
+                }
+            }
+        }
+        Stmt::Try { body, catch_body, finally_body, .. } => {
+            for s in body {
+                rewrite_returns_for_async(ast, s, inner_ty);
+            }
+            for s in catch_body {
+                rewrite_returns_for_async(ast, s, inner_ty);
+            }
+            if let Some(fb) = finally_body {
+                for s in fb {
+                    rewrite_returns_for_async(ast, s, inner_ty);
+                }
+            }
+        }
+        _ => {}
     }
 }
 
