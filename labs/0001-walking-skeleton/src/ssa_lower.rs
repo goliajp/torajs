@@ -6488,6 +6488,34 @@ impl<'a> LowerCtx<'a> {
                     );
                     return Operand::Value(v);
                 }
+                // Top-level `const X = LITERAL` fallback. check.rs's
+                // pre-pass registered the type in globals; here we
+                // inline the literal so named-fn bodies can read it
+                // (top-level lets normally alloca inside main and
+                // aren't visible from sibling fns).
+                if self.locals.get(name).is_none() {
+                    let name_owned = name.clone();
+                    for s in &self.ast.stmts {
+                        if let Stmt::LetDecl { name: n, init, .. } = s
+                            && n == &name_owned
+                        {
+                            match self.ast.get_expr(*init) {
+                                Expr::Number(v) => {
+                                    if v.fract() == 0.0 && v.abs() < (1u64 << 53) as f64 {
+                                        return Operand::ConstI64(*v as i64);
+                                    }
+                                    return Operand::ConstF64(*v);
+                                }
+                                Expr::Bool(b) => return Operand::ConstBool(*b),
+                                Expr::String(s) => {
+                                    let id = self.intern_string_literal(s);
+                                    return Operand::Value(id);
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                }
                 let info = match self.locals.get(name) {
                     Some(i) => *i,
                     None => panic!("ssa-lower: unknown ident `{name}`"),

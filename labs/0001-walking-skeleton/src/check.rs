@@ -645,6 +645,27 @@ pub fn check(ast: &Ast) -> Result<GenericCallSites, String> {
     // body's own TS-shape ops (return, BinOp on TypeVar) would fail
     // a concrete check here. Call-site inference still validates that
     // arguments are consistent with each TypeVar instance.
+    // Pre-pass: register top-level `const X = LITERAL` (Number / String
+    // / Boolean) as globals so named functions can read them. tr's lower
+    // path emits the literal inline at every reference; non-literal
+    // initializers stay scoped to the implicit main fn (they alloca
+    // there and aren't visible from named-fn bodies).
+    for stmt in &ast.stmts {
+        if let Stmt::LetDecl { name, init, .. } = stmt {
+            let lit_ty = match ast.get_expr(*init) {
+                Expr::Number(_) => Some(Type::Number),
+                Expr::String(_) => Some(Type::String),
+                Expr::Bool(_) => Some(Type::Boolean),
+                _ => None,
+            };
+            if let Some(ty) = lit_ty
+                && !c.globals.contains_key(name)
+            {
+                c.globals.insert(name.clone(), ty);
+            }
+        }
+    }
+
     for stmt in &ast.stmts {
         if let Stmt::FnDecl { name, .. } = stmt
             && (c.closure_fn_names.contains(name) || c.generic_type_params.contains_key(name))
