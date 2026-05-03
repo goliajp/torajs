@@ -24,6 +24,7 @@ When behavior is ambiguous, **bun is the oracle**. Write the equivalent in TS, r
 4. **No GC, internal ARC for shared heap** — no tracing GC. Single-owner heap values use compile-time ownership inference + deterministic drops. Multi-owner cases (Array<T>, throw/catch shared structs, closure captures crossing scopes) use a hidden ARC-style refcount on a universal heap header — the user never writes `.clone()` or sees `Rc<T>`. See `docs/design-principles.md` for the four-pillar rubric the refcount pivot satisfies.
 5. **TS-shape semantics** — what works, works the same as bun. No Rust-flavored idioms in user code (no `.clone()`, no `Rc<T>`, no lifetime annotations).
 6. **TS subset** — partial coverage of TS surface. Programs the compiler can't statically resolve (multi-rooted ownership, certain dynamic patterns) get clear compile errors. Users restructure to fit the subset.
+7. **test262 conformance over the supported subset** (revised 2026-05-03) — test262 is the reference suite for ECMAScript runtime conformance; once a test262 case's surface lies inside torajs's supported subset, the case must pass three-way (bun + tr-jit + tr-aot). v1.0 hard target: ≥ **90 %** pass rate on the subset-compatible slice of test262 (estimated 5K–15K cases out of test262's ~50K total). The full-coverage ambition (`feedback_torajs_ambition`) supersedes the earlier "test262 not a goal" stance — out-of-subset test262 cases (those touching `var` / `==` / `null|undefined` / `Symbol|Proxy|WeakMap` / `eval` / regex specifics) stay legitimately skipped under the documented subset boundary.
 
 ### What's NOT in scope (corrections from earlier framing)
 
@@ -49,7 +50,7 @@ The compiler still does ownership analysis under the hood (the no-GC requirement
 | Memory model | Compile-time ownership inference for single-owner; hidden ARC refcount on universal heap header for shared paths (no user-visible `Rc<T>`); no tracing GC |
 | Compiler backend | LLVM via Inkwell — single backend for both `tr run` and `tr build`. Cranelift JIT was tried (P3.6) and removed 2026-05-01: weaker codegen lost compute-heavy benchmarks to V8/JSC. |
 | TS conformance | None — torajs is a subset, not aligned to any TS version |
-| Test262 conformance | Not a goal |
+| Test262 conformance | **Hard target on the subset-compatible slice** (revised 2026-05-03; was "Not a goal"). v1.0 gate: ≥ 90 % pass on the subset slice (~5K–15K of test262's ~50K total). |
 | First-class WASM target | Yes — torajs.com playground depends on it |
 
 ### Working mode
@@ -394,7 +395,7 @@ Things explicitly NOT planned. Some have been demoted from earlier drafts (under
 - **Conditional / mapped types** (`Pick<T, K>`, `Partial<T>`, `T extends U ? X : Y`) — TS-specific compiler tricks bound to its inference model. Probably never.
 - **Cycle-collecting weak references** — no-GC contract. Cycles in dynamic structures (mutable graph nodes referencing each other) are not expressible in the TS subset; users restructure. No `Weak<T>` shipping.
 - **`Rc<T>` / `Arc<T>` / `RefCell<T>` user-visible types** — corrected on 2026-04-30. The runtime implementation may use refcount-like techniques internally, but these are NEVER user-facing.
-- **Test262 conformance** — out of scope.
+- ~~**Test262 conformance** — out of scope.~~ **Restored as a hard requirement on 2026-05-03** (see `Hard requirements #7`). The subset-compatible slice of test262 (~5K–15K cases) is a v1.0 gate at ≥ 90 % pass.
 - **WebAssembly user-code target** (different from "engine-as-wasm" in M8) — emit wasm artifacts from user `.tora.ts` source for non-browser deployment. Beyond v1.0 timeline.
 - **Multi-threaded executor + `Send`/`Sync`** — single-threaded async is enough for v1.0 (matches bun's main path). Multi-threaded deferred to M9.5 (post-v1.0).
 

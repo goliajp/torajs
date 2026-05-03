@@ -3,6 +3,11 @@ node_modules/
 *.swp
 .DS_Store
 
+# tc39/test262 — clone for the test262 runner; >100 MB and not part
+# of torajs source. Grab via:
+#   git clone --depth 1 https://github.com/tc39/test262 vendor/test262
+vendor/
+
 # .claude/ is per-developer (synced via `devops dotclaude sync torajs`),
 # never committed.  Per CLAUDE.md: dotclaude policy for sibling projects.
 .claude/

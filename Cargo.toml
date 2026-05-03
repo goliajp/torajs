@@ -5,6 +5,7 @@ members = [
     "labs/0002-inkwell-spike",
     "bench/harness",
     "conformance/runner",
+    "conformance/test262-runner",
 ]
 
 # Phase B: tr binary itself runs at max-opt — affects compile_ms only.
