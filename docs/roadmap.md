@@ -219,7 +219,7 @@ The compiler already has `Array<T>` natively after M1. M3 generalizes the mechan
 |---|---|---|
 | **M6.1** ✓ | `String` methods — `slice`, `charCodeAt`, `startsWith`, `endsWith`, `includes`, `indexOf`, `split`, plus `Array<string>.join`. All borrow-shaped, both backends. (`substring` is a slice alias and deferred; arrays of arbitrary element types are unblocked.) | inline test exercises all 8 methods; round-trip `s.split(",").join("-")` works on JIT + AOT |
 | **M6.2** ✓ (partial) | `Array` methods: `map`, `filter`, `reduce`, `forEach` shipped — `(T) => T` uniform map only, method chains compose, capturing closures + top-level fn callables both work; `find` / `slice` deferred | array-map-1m bench at torajs (AOT) 37.49 ms vs rust 27.40 ms / go 21.45 ms; trails rust+go on per-push capacity check, beats bun (1.6×) and node-v8 (6.7×) |
-| **M6.3** | `Date`, `JSON.parse` / `JSON.stringify` | round-trip via tests |
+| **M6.3** ◐ | `Date`, `JSON.parse` / `JSON.stringify` | partial: `JSON.stringify` shipped for primitives (Type::I64 / F64 / Bool / Str / Substr) — `m6-09-json-stringify-primitives.ts` covers the escape table per ECMA-404 §9. Array / Object / Class-instance dispatch deferred (recursive walker + intermediate-string drop bookkeeping). `JSON.parse` deferred (needs `Type::Class` + variant types since torajs has no `any`). `Date` not yet started. |
 | **M6.4** | `fs` (sync subset): `readFileSync`, `writeFileSync` | reads/writes a file end-to-end |
 | **M6.5** | `Bun.file`, `Bun.write` (bun-namespace subset) | matches bun's surface |
 
