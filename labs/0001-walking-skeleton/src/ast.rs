@@ -314,6 +314,11 @@ pub enum Stmt {
         /// as long as the chain is acyclic and every ancestor is declared
         /// before the descendant in source order.
         parent: Option<String>,
+        /// M-OO.6 — `abstract class C { ... }`. Abstract classes can't be
+        /// instantiated (`new C()` rejected at typecheck), and any
+        /// concrete (non-abstract) subclass must override every abstract
+        /// method along the inheritance chain.
+        is_abstract: bool,
         fields: Vec<(String, String)>,
         /// M-OO.4 — `static fieldName: T = init`. Each entry desugars to a
         /// top-level `let __sf_<Class>__<name>: T = init` (LetDecl) which
@@ -394,6 +399,13 @@ pub struct ClassMethod {
     pub params: Vec<Param>,
     pub return_type: Option<String>,
     pub body: Vec<Stmt>,
+    /// M-OO.6 — `abstract method(): T;`. Body is empty (`Vec::new()`) when
+    /// abstract. desugar_classes skips emitting `__cm_<C>__<m>` for
+    /// abstract methods (no body to lower); the corresponding `__cm_*`
+    /// must come from a concrete override in a subclass. Validation that
+    /// concrete subclasses cover every inherited abstract is done in
+    /// desugar_classes' chain walk.
+    pub is_abstract: bool,
 }
 
 /// M-OO.4 — `static fieldName: T = init` entry. Init is mandatory because
@@ -875,6 +887,7 @@ pub fn desugar_generators(ast: &mut Ast) {
             params: vec![yield_arg_param],
             return_type: Some(step_ann.clone()),
             body: next_body_with_stash,
+            is_abstract: false,
         };
         // For Phase J MVP, generator parameters are stored as fields on
         // the iterator object so the body can reference them through
@@ -919,6 +932,7 @@ pub fn desugar_generators(ast: &mut Ast) {
             name: class_name.clone(),
             type_params: Vec::new(),
             parent: None,
+            is_abstract: false,
             fields: class_fields,
             static_fields: Vec::new(),
             ctor: Some(ctor_with_params),
@@ -1638,6 +1652,7 @@ pub fn desugar_classes(ast: &mut Ast) {
                 name,
                 type_params,
                 parent,
+                is_abstract: _,
                 fields,
                 static_fields,
                 ctor,
@@ -1660,6 +1675,87 @@ pub fn desugar_classes(ast: &mut Ast) {
 
     if class_index.is_empty() {
         return;
+    }
+
+    // M-OO.6 — collect abstract-class names + per-class abstract-method
+    // names. Concrete subclasses must override every inherited abstract;
+    // `new` of an abstract class is rejected (in check.rs). Side-channel
+    // (HashSet / HashMap) instead of inflating class_index's tuple.
+    let mut abstract_classes: std::collections::HashSet<String> =
+        std::collections::HashSet::new();
+    let mut abstract_methods: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
+    for s in ast.stmts.iter() {
+        if let Stmt::ClassDecl {
+            name,
+            is_abstract,
+            methods,
+            ..
+        } = s
+        {
+            if *is_abstract {
+                abstract_classes.insert(name.clone());
+            }
+            let abs: Vec<String> = methods
+                .iter()
+                .filter(|m| m.is_abstract)
+                .map(|m| m.name.clone())
+                .collect();
+            if !abs.is_empty() {
+                abstract_methods.insert(name.clone(), abs);
+            }
+            // Abstract method only allowed inside abstract class.
+            // (Parser already rejects this for the immediate case, but
+            // a desugar-time double-check catches programmatically-built
+            // classes from upstream desugars.)
+            if !is_abstract && methods.iter().any(|m| m.is_abstract) {
+                panic!(
+                    "M-OO.6: concrete class `{name}` cannot declare abstract methods"
+                );
+            }
+        }
+    }
+    // Walk every concrete class's inheritance chain (root → leaf,
+    // accumulating "unimplemented" abstract names along the way) and
+    // verify that none survive into the concrete leaf.
+    for (_, cname, _, _, _, _, _, _, _) in &class_index {
+        if abstract_classes.contains(cname) {
+            continue;
+        }
+        let mut chain: Vec<String> = Vec::new();
+        let mut cur: Option<String> = Some(cname.clone());
+        while let Some(c) = cur {
+            chain.push(c.clone());
+            cur = class_index
+                .iter()
+                .find(|t| t.1 == c)
+                .and_then(|t| t.3.clone());
+        }
+        chain.reverse();
+        let mut unimplemented: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
+        for cls in &chain {
+            if let Some(absms) = abstract_methods.get(cls) {
+                for m in absms {
+                    unimplemented.insert(m.clone());
+                }
+            }
+            if let Some(t) = class_index.iter().find(|t| &t.1 == cls) {
+                let cls_methods = &t.7;
+                for m in cls_methods.iter() {
+                    if !m.is_abstract {
+                        unimplemented.remove(&m.name);
+                    }
+                }
+            }
+        }
+        if !unimplemented.is_empty() {
+            let mut names: Vec<&String> = unimplemented.iter().collect();
+            names.sort();
+            panic!(
+                "M-OO.6: concrete class `{cname}` must override abstract method(s): {names:?}"
+            );
+        }
     }
 
     // Build the parent map and validate the inheritance graph.
@@ -2045,6 +2141,36 @@ pub fn desugar_classes(ast: &mut Ast) {
 
         // Methods → __cm_C__m(__this: C, params...): R { body }
         for m in &methods {
+            // M-OO.6 — abstract method: the user wrote no body. We
+            // still need a `__cm_<C>__<m>` symbol because ssa_lower's
+            // `__dispatch_<m>` interception emits the base owner as
+            // the fall-through default branch. Concrete subclasses
+            // override the dispatch via tag-switch, so the stub is
+            // unreachable on a well-typed program — emit a `throw`
+            // body as a defensive trap. The thrown value is a small
+            // integer so we don't need a string allocation on a
+            // never-taken path.
+            if m.is_abstract {
+                let mut params: Vec<Param> = Vec::with_capacity(m.params.len() + 1);
+                params.push(Param {
+                    name: "__this".into(),
+                    type_ann: Some(this_ann.clone()),
+                    default: None,
+                    is_rest: false,
+                });
+                params.extend(m.params.iter().cloned());
+                let trap_eid = ast.add_expr(Expr::Number(7777.0));
+                let trap_body = vec![Stmt::Throw(trap_eid)];
+                appended.push(Stmt::FnDecl {
+                    name: format!("__cm_{cname}__{}", m.name),
+                    type_params: type_params.clone(),
+                    params,
+                    return_type: m.return_type.clone(),
+                    body: trap_body,
+                    is_generator: false,
+                });
+                continue;
+            }
             let mut params: Vec<Param> = Vec::with_capacity(m.params.len() + 1);
             params.push(Param {
                 name: "__this".into(),
@@ -2145,6 +2271,22 @@ pub fn desugar_classes(ast: &mut Ast) {
             };
             if let Some(new_name) = replacement {
                 ast.exprs[i] = Expr::Ident(new_name);
+            }
+        }
+    }
+
+    // M-OO.6 — reject `new AbstractClass()` after the desugar walk
+    // (abstract metadata is local to this pass; the SSA layer never
+    // sees it). Walking ast.exprs catches every construction site
+    // regardless of where in the tree it lives.
+    if !abstract_classes.is_empty() {
+        for expr in &ast.exprs {
+            if let Expr::New { class_name, .. } = expr
+                && abstract_classes.contains(class_name)
+            {
+                panic!(
+                    "M-OO.6: cannot instantiate abstract class `{class_name}` — use a concrete subclass"
+                );
             }
         }
     }
@@ -4330,6 +4472,7 @@ impl Ast {
                 name,
                 type_params: _,
                 parent,
+                is_abstract: _,
                 fields,
                 static_fields: _,
                 ctor,

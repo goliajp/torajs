@@ -306,6 +306,17 @@ impl Parser<'_> {
         if matches!(self.peek(), Token::Class) {
             return self.parse_class_decl();
         }
+        // M-OO.6 — `abstract class C { ... }`. `abstract` is a contextual
+        // keyword (just an Ident otherwise) — only treat it as such when
+        // followed by `class`.
+        if let Token::Ident(s) = self.peek()
+            && s == "abstract"
+            && let Some(next) = self.tokens.get(self.pos + 1)
+            && matches!(next.token, Token::Class)
+        {
+            self.pos += 1; // consume `abstract`
+            return self.parse_class_decl_with_abstract(true);
+        }
         if matches!(self.peek(), Token::Return) {
             return self.parse_return();
         }
@@ -2671,6 +2682,10 @@ impl Parser<'_> {
     /// post-parse by `desugar_classes` into a `TypeDecl` + a series of
     /// `FnDecl`s. The parser only assembles the structure here.
     fn parse_class_decl(&mut self) -> Result<Stmt, String> {
+        self.parse_class_decl_with_abstract(false)
+    }
+
+    fn parse_class_decl_with_abstract(&mut self, is_abstract: bool) -> Result<Stmt, String> {
         self.pos += 1; // consume `class`
         let name = match self.peek() {
             Token::Ident(n) => n.clone(),
@@ -2766,6 +2781,48 @@ impl Parser<'_> {
             // ident then `:` ⇒ field declaration. The `static` modifier is a
             // contextual keyword: only treated as such when the next token
             // is a valid member name shape.
+            // M-OO.6 — `abstract methodName(...);` (no body). The
+            // `abstract` modifier is a contextual keyword (Ident with
+            // text "abstract"); skip over it so the rest of the
+            // member-name dispatch reads the actual method name. Static
+            // and abstract are mutually exclusive (`static abstract` is
+            // not a thing in TS). Only valid on methods; static fields
+            // and instance fields don't accept the modifier.
+            let mut is_abstract_method = false;
+            if let Token::Ident(s) = self.peek()
+                && s == "abstract"
+            {
+                let next = self.tokens.get(self.pos + 1).map(|t| &t.token);
+                if matches!(
+                    next,
+                    Some(Token::Ident(_))
+                        | Some(Token::Catch)
+                        | Some(Token::Finally)
+                        | Some(Token::Return)
+                        | Some(Token::Throw)
+                        | Some(Token::If)
+                        | Some(Token::Else)
+                        | Some(Token::For)
+                        | Some(Token::While)
+                        | Some(Token::Do)
+                        | Some(Token::Break)
+                        | Some(Token::Continue)
+                        | Some(Token::Switch)
+                        | Some(Token::Case)
+                        | Some(Token::Default)
+                        | Some(Token::Class)
+                        | Some(Token::New)
+                        | Some(Token::This)
+                        | Some(Token::Function)
+                        | Some(Token::TypeOf)
+                        | Some(Token::InstanceOf)
+                        | Some(Token::Try)
+                        | Some(Token::Yield)
+                ) {
+                    self.pos += 1;
+                    is_abstract_method = true;
+                }
+            }
             let is_static = if let Token::Ident(s) = self.peek()
                 && s == "static"
             {
@@ -2804,6 +2861,18 @@ impl Parser<'_> {
             } else {
                 false
             };
+            if is_abstract_method && is_static {
+                return Err(format!(
+                    "`static abstract` is not allowed in class `{name}` at {}",
+                    self.at()
+                ));
+            }
+            if is_abstract_method && !is_abstract {
+                return Err(format!(
+                    "abstract method only allowed in `abstract class` (class `{name}`) at {}",
+                    self.at()
+                ));
+            }
             let member_name = match self.peek() {
                 Token::Ident(n) => n.clone(),
                 // Allow contextual keywords as class method names (matches
@@ -2862,32 +2931,52 @@ impl Parser<'_> {
                     } else {
                         None
                     };
-                    match self.peek() {
-                        Token::LBrace => self.pos += 1,
-                        t => {
-                            return Err(format!(
-                                "expected `{{` for {member_name} body, got {t:?} at {}",
-                                self.at()
-                            ));
+                    let body = if is_abstract_method {
+                        // M-OO.6 — abstract method has no body, just `;`
+                        match self.peek() {
+                            Token::Semi => self.pos += 1,
+                            t => {
+                                return Err(format!(
+                                    "abstract method `{member_name}` cannot have a body — expected `;`, got {t:?} at {}",
+                                    self.at()
+                                ));
+                            }
                         }
-                    }
-                    let mut body = Vec::new();
-                    while !matches!(self.peek(), Token::RBrace | Token::Eof) {
-                        body.push(self.parse_stmt()?);
-                    }
-                    match self.peek() {
-                        Token::RBrace => self.pos += 1,
-                        t => {
-                            return Err(format!(
-                                "expected `}}` to end {member_name} body, got {t:?} at {}",
-                                self.at()
-                            ));
+                        Vec::new()
+                    } else {
+                        match self.peek() {
+                            Token::LBrace => self.pos += 1,
+                            t => {
+                                return Err(format!(
+                                    "expected `{{` for {member_name} body, got {t:?} at {}",
+                                    self.at()
+                                ));
+                            }
                         }
-                    }
+                        let mut body = Vec::new();
+                        while !matches!(self.peek(), Token::RBrace | Token::Eof) {
+                            body.push(self.parse_stmt()?);
+                        }
+                        match self.peek() {
+                            Token::RBrace => self.pos += 1,
+                            t => {
+                                return Err(format!(
+                                    "expected `}}` to end {member_name} body, got {t:?} at {}",
+                                    self.at()
+                                ));
+                            }
+                        }
+                        body
+                    };
                     if member_name == "constructor" {
                         if is_static {
                             return Err(format!(
                                 "`static constructor` is not allowed in class `{name}`"
+                            ));
+                        }
+                        if is_abstract_method {
+                            return Err(format!(
+                                "`abstract constructor` is not allowed in class `{name}`"
                             ));
                         }
                         if ctor.is_some() {
@@ -2902,6 +2991,7 @@ impl Parser<'_> {
                             params,
                             return_type,
                             body,
+                            is_abstract: is_abstract_method,
                         };
                         if is_static {
                             static_methods.push(m);
@@ -2966,6 +3056,7 @@ impl Parser<'_> {
             name,
             type_params,
             parent,
+            is_abstract,
             fields,
             static_fields,
             ctor,
