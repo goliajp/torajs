@@ -199,7 +199,7 @@ The compiler already has `Array<T>` natively after M1. M3 generalizes the mechan
 | **M-OO.3** ✓ | virtual dispatch — `[header][class_tag][vtable_ptr][fields...]` layout (24 B prefix); behavioral exit met via inline tag-switch over chain owners (deepest-first) at every `__dispatch_<M>` interception. vtable_ptr slot reserved at offset 16 but null today; converting tag-switch → vtable indirect call is a perf cleanup task (O(chain depth) → O(1)) deferred until profile shows it on a hot path. `instanceof-005-method-override.ts` exercises full chain (Animal → Dog → Puppy + side-branch Cat) including upcasting through `Animal[]`. | shipped via tag-switch; vtable upgrade tracked separately |
 | **M-OO.4** ✓ | static fields/methods — `static fieldName: T = init` desugars to `let __sf_<C>__<n>: T = init` (K.3/K.4 globals); `static methodName(...)` desugars to top-level `__sm_<C>__<n>` FnDecl. `<Class>.<member>` rewritten by `desugar_classes` to flat Ident before downstream passes. Init required on static fields (no ctor). | shipped — `m-oo-04-static.ts` exercises number/string fields + static-method-returning-instance + cross-fn reads + nested static calls |
 | **M-OO.5** | private/protected/readonly modifiers — purely lint at typecheck, no runtime cost | accessing a private field from outside errors |
-| **M-OO.6** | abstract classes — `abstract class`, `abstract method` | instantiating an abstract class errors |
+| **M-OO.6** ✓ | abstract classes — `abstract class`, `abstract method` | shipped — `m-oo-06-abstract.ts` exercises Shape/Circle/Square chain with concrete describe() + abstract area() override; concrete subclass missing-override and `new AbstractClass()` both rejected at desugar time |
 
 ### M5 — Module system
 
