@@ -2291,7 +2291,7 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
             name,
             init,
             type_ann,
-            ..
+            mutable,
         } = stmt
         {
             let init_is_literal = matches!(
@@ -2311,15 +2311,37 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
                 &mut struct_layouts,
             );
             // K.3 — primitive Copy types (no lifetime concerns).
-            // K.4 — refcount Str (we drop on program exit).
-            // Other refcount types (Arr / Obj / Closure) and FnSig
-            // stay deferred until refcount-aware globals init / assign
-            // logic is generalized.
+            // K.4 — refcount Str (drop on program exit).
+            // K.6 — refcount Arr / Obj (same drop machinery as Str —
+            //       `emit_drop_value` dispatches by type, walking
+            //       refcounted array elements / object fields).
+            // Closure / FnSig still deferred: Closure needs the
+            // matching `__env_drop_<closure>` to wire through the
+            // global-drop path, and FnSig globals haven't surfaced
+            // a real use case yet.
             let supported = matches!(
                 ty,
-                Type::I64 | Type::F64 | Type::Bool | Type::I32 | Type::Str
+                Type::I64
+                    | Type::F64
+                    | Type::Bool
+                    | Type::I32
+                    | Type::Str
+                    | Type::Arr(_)
+                    | Type::Obj(_)
             );
             if !supported {
+                continue;
+            }
+            // K.6 — mutable refcount globals are not yet supported.
+            // The shipped Assign-Ident reject covers `X = newValue`,
+            // but hidden mutation through method calls (`xs.push(v)`,
+            // `xs.sort()`, `obj.field = v` on a global) bypasses
+            // that gate and would need writeback to the global slot
+            // for any push that reallocates. Until that path lands,
+            // mutable refcount globals stay scoped to the implicit
+            // main as before. Mutable primitive Copy globals stay
+            // promoted (K.3 / globals-001 depends on it).
+            if *mutable && ty.is_refcounted() {
                 continue;
             }
             globals.insert(name.clone(), ty);
@@ -5286,14 +5308,37 @@ impl<'a> LowerCtx<'a> {
                 if self.is_main_fn
                     && let Some(slot_ty) = self.globals.get(name).copied()
                 {
-                    let init_val = self.lower_expr(*init);
-                    // K.4 — Str globals. The init expression must
-                    // produce a fresh-heap value (function-call
-                    // result, string concat, etc.). Borrow-shaped
-                    // init (Ident / Member / Index) would need an
-                    // `rc_inc` to make the slot independently
-                    // owned; that path isn't live yet — reject it
-                    // with a clear message so the user restructures.
+                    // K.6 — empty array literal `[]` for an Arr global.
+                    // Mirror the LetDecl fast-path: lower_expr panics
+                    // on a bare `[]` because there's no element to
+                    // infer the element type from, so we emit
+                    // `arr_alloc(0)` directly using the slot's
+                    // annotated ArrId.
+                    let init_val = if let Expr::Array(els) = self.ast.get_expr(*init)
+                        && els.is_empty()
+                        && matches!(slot_ty, Type::Arr(_))
+                    {
+                        let v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.arr_alloc,
+                                vec![Operand::ConstI64(0)],
+                            ),
+                            slot_ty,
+                            None,
+                        );
+                        Operand::Value(v)
+                    } else {
+                        self.lower_expr(*init)
+                    };
+                    // K.4 — refcount globals. Init must produce a
+                    // fresh-heap value (function-call result,
+                    // concat, array/object literal, new C()).
+                    // Borrow-shaped init (Ident / Member / Index)
+                    // would need an extra `rc_inc` to give the slot
+                    // independent ownership; that path isn't live
+                    // yet — reject it with a clear message so the
+                    // user restructures.
                     if slot_ty.is_refcounted() {
                         let init_is_borrow = matches!(
                             self.ast.get_expr(*init),
