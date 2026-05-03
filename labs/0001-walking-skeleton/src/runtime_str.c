@@ -284,7 +284,10 @@ void __torajs_substr_drop(void *v) {
 /* Substr → i64: byte at position `i` (zero-extended). Out-of-bounds
  * returns 0, matching `__torajs_str_char_code_at` semantics for OWNED
  * Str. Hot path on RPN-style demos that iterate `tok.charCodeAt(i)`
- * over view substrings from `expr.split(" ")`. */
+ * over view substrings from `expr.split(" ")` — explicit always_inline
+ * so LTO collapses the per-call dispatch to a 3-load + zext sequence
+ * inside the caller's loop body. */
+__attribute__((always_inline))
 int64_t __torajs_substr_char_code_at(const uint8_t *v, int64_t i) {
     uint64_t len = __TORAJS_SUBSTR_LEN(v);
     if (i < 0 || (uint64_t)i >= len) return 0;
