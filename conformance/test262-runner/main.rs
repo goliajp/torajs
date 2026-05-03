@@ -274,6 +274,40 @@ fn transform_source(src: &str) -> String {
             i += b"var ".len();
             continue;
         }
+        // `==` / `!=` → strict form. Skip already-strict (`===` /
+        // `!==`) and the negation-then-eq combo `!==`. byte-walker
+        // sees `=` first; if next is `=`, look one further:
+        //   `===` (already strict) — pass through 3 bytes
+        //   `==`  + non-`=` next   — rewrite to `===`
+        //   `=`   + non-`=`         — assignment, pass through
+        if b == b'=' && i + 1 < bytes.len() && bytes[i + 1] == b'=' {
+            if i + 2 < bytes.len() && bytes[i + 2] == b'=' {
+                // `===` — copy verbatim
+                out.push('=');
+                out.push('=');
+                out.push('=');
+                i += 3;
+                continue;
+            }
+            // `==` not followed by `=` — rewrite.
+            out.push_str("===");
+            i += 2;
+            continue;
+        }
+        if b == b'!' && i + 1 < bytes.len() && bytes[i + 1] == b'=' {
+            if i + 2 < bytes.len() && bytes[i + 2] == b'=' {
+                // `!==` — copy verbatim
+                out.push('!');
+                out.push('=');
+                out.push('=');
+                i += 3;
+                continue;
+            }
+            // `!=` not followed by `=` — rewrite.
+            out.push_str("!==");
+            i += 2;
+            continue;
+        }
         out.push(b as char);
         i += 1;
     }
