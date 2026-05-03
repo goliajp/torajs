@@ -3993,16 +3993,109 @@ type AstExprsView<'a> = &'a [Expr];
 /// Returns `Some(ann)` only if every reachable return agrees; any
 /// disagreement or any return that resists static typing yields None
 /// (caller leaves return_type alone).
+///
+/// Beyond literals + boolean-result ops, the helper does a one-pass
+/// scan over let-decl bodies to populate a binding → annotation map
+/// (so `let x = 3; ... return x + 1;` infers `x: number` and bubbles
+/// `number` out as the return). Lookups that fall off the simple-
+/// shape grammar (Member / Call / Index / object literal / etc.) bail
+/// to None — the typechecker still owns the deeper analysis.
 fn infer_return_ann(
     exprs: AstExprsView,
     body: &[Stmt],
     params: &[Param],
 ) -> Option<String> {
+    let mut binds: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
+    for p in params {
+        if let Some(ann) = &p.type_ann {
+            binds.insert(p.name.clone(), ann.clone());
+        }
+    }
+    collect_let_binding_anns(exprs, body, &mut binds);
     let mut acc: Option<String> = None;
-    if !collect_return_anns(exprs, body, params, &mut acc) {
+    if !collect_return_anns(exprs, body, &binds, &mut acc) {
         return None;
     }
     acc
+}
+
+/// Walk `body` and for each `let x = INIT;` whose `INIT` we can
+/// statically annotate, register `x → ann` in `binds`. Inner
+/// FnDecls / nested classes etc. are skipped — we only care about
+/// the immediate fn's binding scope. Idempotent over re-runs since
+/// later let-decls in the same scope shadow earlier ones.
+fn collect_let_binding_anns(
+    exprs: AstExprsView,
+    body: &[Stmt],
+    binds: &mut std::collections::HashMap<String, String>,
+) {
+    for s in body {
+        collect_let_binding_anns_stmt(exprs, s, binds);
+    }
+}
+
+fn collect_let_binding_anns_stmt(
+    exprs: AstExprsView,
+    s: &Stmt,
+    binds: &mut std::collections::HashMap<String, String>,
+) {
+    match s {
+        Stmt::LetDecl { name, type_ann, init, .. } => {
+            // Explicit annotation wins.
+            if let Some(ann) = type_ann {
+                binds.insert(name.clone(), ann.clone());
+                return;
+            }
+            // Else infer from init shape — using the binds map we've
+            // built up to here, so `let x = 3; let y = x + 1;` chains
+            // correctly.
+            let bs: Vec<Param> = binds_to_params(binds);
+            if let Some(ann) = infer_expr_ann_with(exprs, *init, &bs, binds) {
+                binds.insert(name.clone(), ann);
+            }
+        }
+        Stmt::If { then_branch, else_branch, .. } => {
+            collect_let_binding_anns_stmt(exprs, then_branch, binds);
+            if let Some(eb) = else_branch {
+                collect_let_binding_anns_stmt(exprs, eb, binds);
+            }
+        }
+        Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
+            collect_let_binding_anns_stmt(exprs, body, binds);
+        }
+        Stmt::For { init, body, .. } => {
+            if let Some(i) = init {
+                collect_let_binding_anns_stmt(exprs, i, binds);
+            }
+            collect_let_binding_anns_stmt(exprs, body, binds);
+        }
+        Stmt::Block(stmts) | Stmt::Multi(stmts) => {
+            collect_let_binding_anns(exprs, stmts, binds);
+        }
+        Stmt::Try { body, catch_body, finally_body, .. } => {
+            collect_let_binding_anns(exprs, body, binds);
+            collect_let_binding_anns(exprs, catch_body, binds);
+            if let Some(fb) = finally_body {
+                collect_let_binding_anns(exprs, fb, binds);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn binds_to_params(
+    binds: &std::collections::HashMap<String, String>,
+) -> Vec<Param> {
+    binds
+        .iter()
+        .map(|(k, v)| Param {
+            name: k.clone(),
+            type_ann: Some(v.clone()),
+            default: None,
+            is_rest: false,
+        })
+        .collect()
 }
 
 /// Returns false on first disagreement / un-inferable return; on
@@ -4010,11 +4103,11 @@ fn infer_return_ann(
 fn collect_return_anns(
     exprs: AstExprsView,
     body: &[Stmt],
-    params: &[Param],
+    binds: &std::collections::HashMap<String, String>,
     acc: &mut Option<String>,
 ) -> bool {
     for s in body {
-        if !collect_return_anns_stmt(exprs, s, params, acc) {
+        if !collect_return_anns_stmt(exprs, s, binds, acc) {
             return false;
         }
     }
@@ -4024,12 +4117,13 @@ fn collect_return_anns(
 fn collect_return_anns_stmt(
     exprs: AstExprsView,
     s: &Stmt,
-    params: &[Param],
+    binds: &std::collections::HashMap<String, String>,
     acc: &mut Option<String>,
 ) -> bool {
     match s {
         Stmt::Return(Some(eid)) => {
-            let Some(ann) = infer_expr_ann(exprs, *eid, params) else {
+            let bs = binds_to_params(binds);
+            let Some(ann) = infer_expr_ann_with(exprs, *eid, &bs, binds) else {
                 return false;
             };
             match acc {
@@ -4041,39 +4135,39 @@ fn collect_return_anns_stmt(
         }
         Stmt::Return(None) => true,
         Stmt::If { then_branch, else_branch, .. } => {
-            if !collect_return_anns_stmt(exprs, then_branch, params, acc) {
+            if !collect_return_anns_stmt(exprs, then_branch, binds, acc) {
                 return false;
             }
             if let Some(eb) = else_branch
-                && !collect_return_anns_stmt(exprs, eb, params, acc)
+                && !collect_return_anns_stmt(exprs, eb, binds, acc)
             {
                 return false;
             }
             true
         }
         Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
-            collect_return_anns_stmt(exprs, body, params, acc)
+            collect_return_anns_stmt(exprs, body, binds, acc)
         }
         Stmt::For { init, body, .. } => {
             if let Some(i) = init
-                && !collect_return_anns_stmt(exprs, i, params, acc)
+                && !collect_return_anns_stmt(exprs, i, binds, acc)
             {
                 return false;
             }
-            collect_return_anns_stmt(exprs, body, params, acc)
+            collect_return_anns_stmt(exprs, body, binds, acc)
         }
         Stmt::Block(stmts) | Stmt::Multi(stmts) => {
-            collect_return_anns(exprs, stmts, params, acc)
+            collect_return_anns(exprs, stmts, binds, acc)
         }
         Stmt::Try { body, catch_body, finally_body, .. } => {
-            if !collect_return_anns(exprs, body, params, acc) {
+            if !collect_return_anns(exprs, body, binds, acc) {
                 return false;
             }
-            if !collect_return_anns(exprs, catch_body, params, acc) {
+            if !collect_return_anns(exprs, catch_body, binds, acc) {
                 return false;
             }
             if let Some(fb) = finally_body
-                && !collect_return_anns(exprs, fb, params, acc)
+                && !collect_return_anns(exprs, fb, binds, acc)
             {
                 return false;
             }
@@ -4089,35 +4183,55 @@ fn collect_return_anns_stmt(
 
 /// Statically infer an annotation string for an expression. Limited to
 /// shapes whose annotation is unambiguous without consulting the
-/// typechecker — literals, boolean-result BinOp/Unary, and Ident
-/// references to a param whose annotation we just stamped.
-fn infer_expr_ann(
+/// typechecker — literals, boolean-result BinOp/Unary, arithmetic ops
+/// with statically-typeable operands, and Ident references resolvable
+/// against `binds` (params + locally-inferred let bindings).
+fn infer_expr_ann_with(
     exprs: AstExprsView,
     eid: ExprId,
     params: &[Param],
+    binds: &std::collections::HashMap<String, String>,
 ) -> Option<String> {
     let e = exprs.get(eid.0 as usize)?;
     match e {
         Expr::Number(_) => Some("number".into()),
         Expr::String(_) => Some("string".into()),
         Expr::Bool(_) => Some("boolean".into()),
-        Expr::BinOp { op, .. } => match op {
+        Expr::BinOp { op, left, right } => match op {
             BinOp::Lt | BinOp::Gt | BinOp::Le | BinOp::Ge
             | BinOp::Eq | BinOp::Neq | BinOp::LAnd | BinOp::LOr => {
                 Some("boolean".into())
             }
-            // Add/Sub/Mul/Div/Mod/Bit*/Shift — could be number or
-            // string-concat (Add). Bail; let the typechecker complain.
-            _ => None,
+            BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod
+            | BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor
+            | BinOp::Shl | BinOp::Shr => Some("number".into()),
+            // `+` is the only ambiguous op (number add OR string
+            // concat); fall back to per-side inference and only commit
+            // when both agree on a concrete primitive.
+            BinOp::Add => {
+                let l = infer_expr_ann_with(exprs, *left, params, binds)?;
+                let r = infer_expr_ann_with(exprs, *right, params, binds)?;
+                if l == "number" && r == "number" {
+                    Some("number".into())
+                } else if l == "string" && r == "string" {
+                    Some("string".into())
+                } else {
+                    None
+                }
+            }
         },
         Expr::Unary { op, .. } => match op {
             UnaryOp::Not => Some("boolean".into()),
             UnaryOp::Neg | UnaryOp::BitNot => Some("number".into()),
         },
-        Expr::Ident(name) => params
-            .iter()
-            .find(|p| &p.name == name)
-            .and_then(|p| p.type_ann.clone()),
+        Expr::Ident(name) => {
+            if let Some(p) = params.iter().find(|p| &p.name == name)
+                && let Some(ann) = &p.type_ann
+            {
+                return Some(ann.clone());
+            }
+            binds.get(name).cloned()
+        }
         // Conservatively bail on Member / Call / Index / etc.
         // The typechecker's regular path will produce the right errors;
         // we only override when statically obvious.
