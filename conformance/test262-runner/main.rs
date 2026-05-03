@@ -35,7 +35,12 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 
 const TEST262_ROOT: &str = "vendor/test262";
-const HARNESS_FILES: &[&str] = &["sta.js", "assert.js"];
+/// Typed harness path (relative to repo root). Replaces test262's
+/// stock `harness/sta.js` + `harness/assert.js` — those are untyped
+/// JS and would trip torajs's typecheck on the very first line. The
+/// typed harness exposes top-level generic fns (`__t262_*`) that the
+/// source-rewrite layer points every `assert.X(...)` call site at.
+const TORAJS_HARNESS: &str = "conformance/test262-harness.ts";
 const DEFAULT_WORKERS: usize = 8;
 const DEFAULT_REPORT_BUGS: usize = 20;
 
@@ -128,16 +133,173 @@ fn collect_cases(root: &Path, filter: Option<&str>) -> Vec<PathBuf> {
     out
 }
 
-fn read_harness(root: &Path) -> Result<String, String> {
-    let mut combined = String::new();
-    for name in HARNESS_FILES {
-        let path = root.join("harness").join(name);
-        let bytes = std::fs::read_to_string(&path)
-            .map_err(|e| format!("read harness {}: {e}", path.display()))?;
-        combined.push_str(&bytes);
-        combined.push('\n');
+fn read_harness() -> Result<String, String> {
+    let path = Path::new(TORAJS_HARNESS);
+    std::fs::read_to_string(path)
+        .map(|s| {
+            let mut out = s;
+            out.push('\n');
+            out
+        })
+        .map_err(|e| format!("read harness {}: {e}", path.display()))
+}
+
+/// Source rewrite — minimum-viable layer to bridge test262's stock
+/// JS to torajs's strict TS subset. Operates byte-by-byte over the
+/// case source, skipping inside string literals and comments so the
+/// rewrites never fire on string contents. Current rewrites:
+///
+///   - `assert.sameValue(`     → `__t262_sameValue(`
+///   - `assert.notSameValue(`  → `__t262_notSameValue(`
+///   - `assert.throws(<id>, `  → `__t262_throws_runtime(`  (drops the
+///                              first ident arg — torajs has no way
+///                              to compare class identity at runtime)
+///   - bare `assert(`          → `__t262_assert(`
+///   - leading-word `var `     → `let `
+///
+/// What this DOESN'T do: handle `==` → `===`, untyped fn-decl
+/// parameter annotation, `null` / `undefined` literals, or features
+/// like Symbol / Proxy / WeakMap. Those hit torajs's subset boundary
+/// directly and the case stays classified `incompatible` until a
+/// bigger transform layer or substrate change addresses them.
+fn transform_source(src: &str) -> String {
+    let bytes = src.as_bytes();
+    let mut out = String::with_capacity(bytes.len() + 64);
+    let mut i = 0usize;
+    while i < bytes.len() {
+        let b = bytes[i];
+        // String literal — copy verbatim until the matching quote.
+        if b == b'"' || b == b'\'' || b == b'`' {
+            let quote = b;
+            out.push(quote as char);
+            i += 1;
+            while i < bytes.len() {
+                let c = bytes[i];
+                out.push(c as char);
+                i += 1;
+                if c == b'\\' && i < bytes.len() {
+                    out.push(bytes[i] as char);
+                    i += 1;
+                    continue;
+                }
+                if c == quote {
+                    break;
+                }
+            }
+            continue;
+        }
+        // `//` line comment.
+        if b == b'/' && i + 1 < bytes.len() && bytes[i + 1] == b'/' {
+            while i < bytes.len() && bytes[i] != b'\n' {
+                out.push(bytes[i] as char);
+                i += 1;
+            }
+            continue;
+        }
+        // `/* ... */` block comment.
+        if b == b'/' && i + 1 < bytes.len() && bytes[i + 1] == b'*' {
+            out.push('/');
+            out.push('*');
+            i += 2;
+            while i + 1 < bytes.len() && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
+                out.push(bytes[i] as char);
+                i += 1;
+            }
+            if i + 1 < bytes.len() {
+                out.push('*');
+                out.push('/');
+                i += 2;
+            }
+            continue;
+        }
+        // `assert.<method>(` rewrites.
+        if starts_with_at(bytes, i, b"assert.") {
+            // Try the longest-match-first rewrites.
+            const REWRITES: &[(&[u8], &str)] = &[
+                (b"assert.sameValue(", "__t262_sameValue("),
+                (b"assert.notSameValue(", "__t262_notSameValue("),
+            ];
+            let mut hit = false;
+            for (needle, replacement) in REWRITES {
+                if starts_with_at(bytes, i, needle) {
+                    out.push_str(replacement);
+                    i += needle.len();
+                    hit = true;
+                    break;
+                }
+            }
+            if hit {
+                continue;
+            }
+            // `assert.throws(<ident>, ` → drop the class arg.
+            if starts_with_at(bytes, i, b"assert.throws(") {
+                let after = i + b"assert.throws(".len();
+                let mut j = after;
+                while j < bytes.len() && bytes[j].is_ascii_whitespace() {
+                    j += 1;
+                }
+                let id_start = j;
+                while j < bytes.len()
+                    && (bytes[j].is_ascii_alphanumeric() || bytes[j] == b'_')
+                {
+                    j += 1;
+                }
+                if j > id_start {
+                    while j < bytes.len() && bytes[j].is_ascii_whitespace() {
+                        j += 1;
+                    }
+                    if j < bytes.len() && bytes[j] == b',' {
+                        j += 1;
+                        while j < bytes.len() && bytes[j].is_ascii_whitespace() {
+                            j += 1;
+                        }
+                        out.push_str("__t262_throws_runtime(");
+                        i = j;
+                        continue;
+                    }
+                }
+                // Couldn't parse the class arg cleanly — fall through and
+                // emit verbatim.
+            }
+        }
+        // bare `assert(` (must NOT be a member like `obj.assert(`).
+        if starts_with_at(bytes, i, b"assert(") && !preceded_by_dot(bytes, i) {
+            out.push_str("__t262_assert(");
+            i += b"assert(".len();
+            continue;
+        }
+        // `var ` → `let ` (word-boundary on the left + whitespace on the right).
+        if starts_with_at(bytes, i, b"var ") && !preceded_by_word(bytes, i) {
+            out.push_str("let ");
+            i += b"var ".len();
+            continue;
+        }
+        out.push(b as char);
+        i += 1;
     }
-    Ok(combined)
+    out
+}
+
+fn starts_with_at(bytes: &[u8], i: usize, needle: &[u8]) -> bool {
+    if i + needle.len() > bytes.len() {
+        return false;
+    }
+    &bytes[i..i + needle.len()] == needle
+}
+
+fn preceded_by_dot(bytes: &[u8], i: usize) -> bool {
+    if i == 0 {
+        return false;
+    }
+    bytes[i - 1] == b'.'
+}
+
+fn preceded_by_word(bytes: &[u8], i: usize) -> bool {
+    if i == 0 {
+        return false;
+    }
+    let c = bytes[i - 1];
+    c.is_ascii_alphanumeric() || c == b'_' || c == b'$'
 }
 
 fn run_case(path: &Path, harness: &str, tr_bin: &Path, slot: usize) -> Outcome {
@@ -149,7 +311,8 @@ fn run_case(path: &Path, harness: &str, tr_bin: &Path, slot: usize) -> Outcome {
             };
         }
     };
-    let full = format!("{harness}\n{case_src}");
+    let transformed = transform_source(&case_src);
+    let full = format!("{harness}\n{transformed}");
 
     // Distinct tmp file per worker slot to avoid races. Use `.ts` so
     // tr's read_source treats it as a normal source file (extension
@@ -258,7 +421,7 @@ fn main() {
         std::process::exit(2);
     }
 
-    let harness = match read_harness(root) {
+    let harness = match read_harness() {
         Ok(h) => h,
         Err(e) => {
             eprintln!("error: {e}");
