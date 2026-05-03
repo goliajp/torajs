@@ -1522,6 +1522,16 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         &[Type::F64],
         Type::Str,
     );
+    // M6.3 — JSON.stringify intrinsics. Quote helper for `Type::Str`;
+    // primitives (number / boolean) reuse `__torajs_i64_to_str` /
+    // `__torajs_f64_to_str` plus a JS-true/false literal pair.
+    let json_str_quote_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_json_str_quote",
+        &[Type::Str],
+        Type::Str,
+    );
     // stdlib `Math` namespace — first slice. All take an f64 and return
     // an f64; the lowerer auto-promotes integer args via SiToFp at the
     // call site. Backed by libc sqrt / fabs / floor / ceil via thin
@@ -2208,6 +2218,7 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         arr_join_substr: arr_join_substr_id,
         i64_to_str: i64_to_str_id,
         f64_to_str: f64_to_str_id,
+        json_str_quote: json_str_quote_id,
         math_sqrt: math_sqrt_id,
         math_abs: math_abs_id,
         math_floor: math_floor_id,
@@ -2619,6 +2630,10 @@ struct Intrinsics {
     arr_join_substr: FuncId,
     i64_to_str: FuncId,
     f64_to_str: FuncId,
+    /// M6.3 — `JSON.stringify(s)` for `Type::Str`. Wraps the input
+    /// in `"` and escapes the JSON spec's mandatory characters (`"`,
+    /// `\\`, control bytes); returns a fresh heap StrRepr*.
+    json_str_quote: FuncId,
     math_sqrt: FuncId,
     math_abs: FuncId,
     math_floor: FuncId,
@@ -7589,6 +7604,131 @@ impl<'a> LowerCtx<'a> {
                             return Operand::Value(v);
                         }
                         _ => {}
+                    }
+                }
+                // M6.3 — `JSON.stringify(value)` for primitive types
+                // (number / boolean / string). Array / Object / Class-
+                // instance dispatch is deferred — the recursive walker
+                // requires per-shape codegen specialization. The
+                // primitive cases reuse the existing
+                // `__torajs_i64_to_str` / `__torajs_f64_to_str` /
+                // `__torajs_json_str_quote` intrinsics; bool branches
+                // on the operand and stores the literal "true" / "false"
+                // global. `null` / `undefined` are out-of-scope for
+                // torajs (see roadmap), so JSON's `null` keyword has no
+                // direct counterpart — programs use the typed union
+                // shape instead.
+                if let Expr::Member { obj: ns_id, name: m_name } =
+                    self.ast.get_expr(*callee)
+                    && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
+                    && ns == "JSON"
+                    && m_name == "stringify"
+                    && args.len() == 1
+                {
+                    let arg = self.lower_expr(args[0]);
+                    let arg_ty = self.operand_ty(&arg);
+                    match arg_ty {
+                        Type::I64 => {
+                            let r = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(self.intrinsics.i64_to_str, vec![arg]),
+                                Type::Str,
+                                None,
+                            );
+                            return Operand::Value(r);
+                        }
+                        Type::F64 => {
+                            let r = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(self.intrinsics.f64_to_str, vec![arg]),
+                                Type::Str,
+                                None,
+                            );
+                            return Operand::Value(r);
+                        }
+                        Type::Bool => {
+                            let true_ptr = self.intern_string_literal("true");
+                            let false_ptr = self.intern_string_literal("false");
+                            let then_blk = self.f.add_block();
+                            let else_blk = self.f.add_block();
+                            let after_blk = self.f.add_block();
+                            let slot = self.alloca_in_entry(Type::Str, Some("__json_bool"));
+                            self.f.set_term(
+                                self.cur_block,
+                                Terminator::CondBr {
+                                    cond: arg,
+                                    then_blk,
+                                    else_blk,
+                                },
+                            );
+                            self.f.append_void(
+                                then_blk,
+                                InstKind::Store(
+                                    Operand::Value(true_ptr),
+                                    Operand::Value(slot),
+                                    0,
+                                ),
+                            );
+                            self.f.set_term(then_blk, Terminator::Br(after_blk));
+                            self.f.append_void(
+                                else_blk,
+                                InstKind::Store(
+                                    Operand::Value(false_ptr),
+                                    Operand::Value(slot),
+                                    0,
+                                ),
+                            );
+                            self.f.set_term(else_blk, Terminator::Br(after_blk));
+                            self.cur_block = after_blk;
+                            let v = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Load(Type::Str, Operand::Value(slot), 0),
+                                Type::Str,
+                                None,
+                            );
+                            return Operand::Value(v);
+                        }
+                        Type::Str => {
+                            let r = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(
+                                    self.intrinsics.json_str_quote,
+                                    vec![arg],
+                                ),
+                                Type::Str,
+                                None,
+                            );
+                            return Operand::Value(r);
+                        }
+                        Type::Substr => {
+                            // Materialize Substr → owned Str first,
+                            // then quote. The intermediate is owned
+                            // and dropped at the call's expression
+                            // site by the caller's drop walk.
+                            let owned = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(
+                                    self.intrinsics.substr_to_owned,
+                                    vec![arg],
+                                ),
+                                Type::Str,
+                                None,
+                            );
+                            let r = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(
+                                    self.intrinsics.json_str_quote,
+                                    vec![Operand::Value(owned)],
+                                ),
+                                Type::Str,
+                                None,
+                            );
+                            self.emit_drop_value(Operand::Value(owned), Type::Str);
+                            return Operand::Value(r);
+                        }
+                        other => panic!(
+                            "ssa-lower: M6.3 partial — JSON.stringify({other:?}) not yet supported (number / boolean / string only; Array / Object / Class are follow-up)"
+                        ),
                     }
                 }
                 // `Math.hypot` — variadic. Lower as
