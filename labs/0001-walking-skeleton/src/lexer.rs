@@ -60,6 +60,11 @@ pub enum Token {
     Caret,
     ShlShl,
     ShrShr,
+    /// `>>>` — unsigned right shift (logical, no sign-extension). JS
+    /// `(x >>> 0)` is the canonical Number→UInt32 coercion idiom; the
+    /// parser maps it to `BinOp::UShr` which the SSA layer lowers to
+    /// LLVM's `lshr` instruction.
+    ShrShrShr,
     Bang,
     /// `~` — bitwise not.
     Tilde,
@@ -342,7 +347,12 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                     emit(&mut out, Token::GtEq, start, i);
                 } else if peek(bytes, i) == Some(b'>') {
                     i += 1;
-                    emit(&mut out, Token::ShrShr, start, i);
+                    if peek(bytes, i) == Some(b'>') {
+                        i += 1;
+                        emit(&mut out, Token::ShrShrShr, start, i);
+                    } else {
+                        emit(&mut out, Token::ShrShr, start, i);
+                    }
                 } else {
                     emit(&mut out, Token::Gt, start, i);
                 }

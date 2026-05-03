@@ -13936,7 +13936,8 @@ impl<'a> LowerCtx<'a> {
                 | AstBinOp::BitOr
                 | AstBinOp::BitXor
                 | AstBinOp::Shl
-                | AstBinOp::Shr => {
+                | AstBinOp::Shr
+                | AstBinOp::UShr => {
                     panic!("ssa-lower: bitwise/mod op `{op:?}` requires i64 operands")
                 }
                 _ => {}
@@ -13960,6 +13961,7 @@ impl<'a> LowerCtx<'a> {
                 | AstBinOp::BitXor
                 | AstBinOp::Shl
                 | AstBinOp::Shr
+                | AstBinOp::UShr
                 | AstBinOp::LAnd
                 | AstBinOp::LOr => unreachable!(),
             };
@@ -13977,6 +13979,27 @@ impl<'a> LowerCtx<'a> {
             AstBinOp::BitXor => self.bin(SsaBinOp::Xor, a, b, Type::I64),
             AstBinOp::Shl => self.bin(SsaBinOp::Shl, a, b, Type::I64),
             AstBinOp::Shr => self.bin(SsaBinOp::AShr, a, b, Type::I64),
+            AstBinOp::UShr => {
+                // JS spec: `a >>> b` is `ToUint32(a) >>> (ToUint32(b) & 0x1F)`.
+                // We're on i64, so first mask `a` to its lower 32 bits
+                // (turning a negative i64 like -1 into 0xFFFF_FFFF) and
+                // mask `b` to its bottom 5 bits — then logical-shift.
+                // The result is always non-negative ≤ 2^32-1, fitting
+                // back into i64 directly.
+                let mask32 = self.bin(
+                    SsaBinOp::And,
+                    a,
+                    Operand::ConstI64(0xFFFF_FFFF),
+                    Type::I64,
+                );
+                let masked_shift = self.bin(
+                    SsaBinOp::And,
+                    b,
+                    Operand::ConstI64(0x1F),
+                    Type::I64,
+                );
+                self.bin(SsaBinOp::LShr, mask32, masked_shift, Type::I64)
+            }
             AstBinOp::Lt => self.cmp(IPred::Slt, a, b),
             AstBinOp::Gt => self.cmp(IPred::Sgt, a, b),
             AstBinOp::Le => self.cmp(IPred::Sle, a, b),

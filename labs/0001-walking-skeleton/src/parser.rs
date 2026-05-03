@@ -1898,6 +1898,7 @@ impl Parser<'_> {
             let op = match self.peek() {
                 Token::ShlShl => BinOp::Shl,
                 Token::ShrShr => BinOp::Shr,
+                Token::ShrShrShr => BinOp::UShr,
                 _ => return Ok(left),
             };
             self.pos += 1;

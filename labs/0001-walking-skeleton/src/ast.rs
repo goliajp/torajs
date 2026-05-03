@@ -23,6 +23,10 @@ pub enum BinOp {
     BitXor,
     Shl,
     Shr,  // signed; JS `>>`
+    /// JS `>>>` — unsigned (logical) right shift. Lowered as LLVM
+    /// `lshr` rather than `ashr`; the typechecker still treats it as
+    /// `Number → Number` (matches arithmetic Shr).
+    UShr,
     LAnd, // logical &&  — short-circuits
     LOr,  // logical ||  — short-circuits
 }
@@ -4555,7 +4559,7 @@ fn infer_expr_ann_with(
             }
             BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod
             | BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor
-            | BinOp::Shl | BinOp::Shr => Some("number".into()),
+            | BinOp::Shl | BinOp::Shr | BinOp::UShr => Some("number".into()),
             // `+` is the only ambiguous op (number add OR string
             // concat); fall back to per-side inference and only commit
             // when both agree on a concrete primitive.

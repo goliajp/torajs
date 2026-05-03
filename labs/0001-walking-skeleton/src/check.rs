@@ -2826,7 +2826,7 @@ impl Checker {
                             ))
                         }
                     }
-                    BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor | BinOp::Shl | BinOp::Shr => {
+                    BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor | BinOp::Shl | BinOp::Shr | BinOp::UShr => {
                         if l == Type::Number && r == Type::Number {
                             Ok(Type::Number)
                         } else {
