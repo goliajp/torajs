@@ -1,6 +1,6 @@
 # torajs
 
-Research project (closed-source, internal). Working hypothesis: a **subset of TypeScript** — TS syntax, TS semantics, but only part of TS's surface is implemented. Features outside the subset are simply not there; we don't import foreign concepts (e.g. Rust ownership / borrow checking / RAII) unless takagi explicitly authorizes them. Two execution modes: **AOT to native binary** (`tr build`) and **JIT-style compile-and-run** (`tr run`), the Go shape. Implementation language is Rust. Public site: https://torajs.com
+Closed-source internal language project. Goal: a TypeScript runtime that runs the same TS programs `bun` does, with the same TS semantics, differentiated on **AOT to native binary + small artifact + fast startup**. Reference baseline is `bun` — anything bun runs, tr must eventually run; "not implemented" is always a roadmap phase, never an out-of-scope decision. Foreign idioms (Rust ownership / borrow checking / RAII, etc.) are not imported into the language surface unless takagi explicitly authorizes them. Two execution modes: **AOT to native binary** (`tr build`) and **JIT-style compile-and-run** (`tr run`), the Go shape. Implementation language is Rust. Public site: https://torajs.com
 
 ## Communication (HARD RULE)
 
