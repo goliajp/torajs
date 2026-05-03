@@ -1659,6 +1659,13 @@ pub fn desugar_classes(ast: &mut Ast) {
     let mut class_field_preludes: std::collections::HashMap<String, Vec<Stmt>> =
         std::collections::HashMap::new();
     let mut appended: Vec<Stmt> = Vec::new();
+    /// M-OO.4 — accumulator for `let __sf_<C>__<name>: T = init;`
+    /// declarations. These get **prepended** to `ast.stmts` (not
+    /// appended) so the synthetic `main` fn runs them before any
+    /// user top-level code; the alternative leaves `check()` reading
+    /// uninitialized slots when the user-visible call comes first
+    /// in source order.
+    let mut static_field_inits: Vec<Stmt> = Vec::new();
 
     // Snapshot the class metadata first (cloned out so we can mutate
     // ast.stmts in-place without aliasing). M5.2 adds `parent` to the
@@ -2252,8 +2259,17 @@ pub fn desugar_classes(ast: &mut Ast) {
         // globals accept it. The `init` ExprId is reused — desugar
         // runs before any pass that might mutate the expression
         // referenced by it.
+        //
+        // CRITICAL: static field LetDecls go into `static_field_inits`
+        // (NOT `appended`) so they can be prepended to `ast.stmts`
+        // before the user's top-level code runs. Otherwise the synth
+        // main fn would call `check()` BEFORE the static field slot
+        // was initialized — every read of `Counter.label` inside
+        // `check()` would see the slot's null/zero default. This was
+        // a real silent leak + correctness bug uncovered by the
+        // m-oo-04-static `leaks --atExit` audit.
         for sf in &static_fields {
-            appended.push(Stmt::LetDecl {
+            static_field_inits.push(Stmt::LetDecl {
                 mutable: false,
                 name: format!("__sf_{cname}__{}", sf.name),
                 type_ann: Some(sf.type_ann.clone()),
@@ -2278,6 +2294,18 @@ pub fn desugar_classes(ast: &mut Ast) {
     }
 
     ast.stmts.extend(appended);
+
+    // M-OO.4 — prepend static-field LetDecls so they init before any
+    // user code. Maintains insertion order across multiple classes
+    // (declaration-order, source-order). Doing this AFTER
+    // `ast.stmts.extend(appended)` keeps the source-position of
+    // appended decls (factory / __cm_*/__sm_*) unchanged; they're
+    // already at the back where check.rs / ssa_lower expect them.
+    if !static_field_inits.is_empty() {
+        let mut new_stmts = static_field_inits;
+        new_stmts.extend(std::mem::take(&mut ast.stmts));
+        ast.stmts = new_stmts;
+    }
 
     // M-OO.4 — rewrite `<ClassName>.<member>` accesses to flat
     // `__sf_<C>__<member>` / `__sm_<C>__<member>` Idents wherever

@@ -2294,11 +2294,19 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
             mutable,
         } = stmt
         {
-            let init_is_literal = matches!(
+            // Number / Bool literal init stays on the K.1 fast path —
+            // those are Copy types so inlining the constant at every
+            // read is free. String literal init must go through the
+            // globals path: K.1's fallback emits a fresh
+            // `__torajs_str_alloc` per read site, which leaks one
+            // alloc per read (uncovered by `m-oo-04-static`'s leak
+            // audit — `Counter.label !== "ctr"` was paying a fresh
+            // alloc on the LHS at every comparison).
+            let init_is_inline_literal = matches!(
                 ast.get_expr(*init),
-                Expr::Number(_) | Expr::String(_) | Expr::Bool(_)
+                Expr::Number(_) | Expr::Bool(_)
             );
-            if init_is_literal {
+            if init_is_inline_literal {
                 continue;
             }
             let Some(ann) = type_ann else { continue };
@@ -4033,6 +4041,26 @@ impl<'a> LowerCtx<'a> {
 
     /// Coerce a value of any type to Type::Str. Used by multi-arg
     /// console.X to build a space-joined output line.
+    /// True when an expression's lowered Operand represents a freshly-
+    /// allocated owned value that the surrounding lowering site must
+    /// drop after use. False for borrow-shaped expressions (Ident /
+    /// Member / Index / OptChain) — those lean on the source binding
+    /// to keep the heap alive, and dropping here would either free a
+    /// still-referenced slot or double-drop with the source's own
+    /// scope-end emit_drop. Used by Expr::BinOp's post-call drop pass
+    /// to fix the historical leak where `s + literal` left the literal
+    /// unfreed.
+    fn expr_is_fresh_owned(&self, eid: ExprId) -> bool {
+        !matches!(
+            self.ast.get_expr(eid),
+            Expr::Ident(_)
+                | Expr::Member { .. }
+                | Expr::Index { .. }
+                | Expr::OptChain { .. }
+                | Expr::This
+        )
+    }
+
     fn coerce_to_str(&mut self, val: Operand, ty: Type) -> Operand {
         match ty {
             Type::Str => val,
@@ -6732,11 +6760,21 @@ impl<'a> LowerCtx<'a> {
                     );
                     return Operand::Value(v);
                 }
-                // Top-level `const X = LITERAL` fallback. check.rs's
-                // pre-pass registered the type in globals; here we
-                // inline the literal so named-fn bodies can read it
-                // (top-level lets normally alloca inside main and
-                // aren't visible from sibling fns).
+                // Top-level `const X = LITERAL` fallback for Copy
+                // types (Number / Bool). check.rs's pre-pass
+                // registered the type in globals; here we inline the
+                // constant so named-fn bodies can read it (top-level
+                // lets normally alloca inside main and aren't visible
+                // from sibling fns).
+                //
+                // String literals deliberately fall through this path
+                // — they're routed through the K.3 / K.4 LLVM-global
+                // slot below. Inlining `intern_string_literal(s)` at
+                // every read site emits a fresh heap alloc per call,
+                // which leaks one allocation per read (uncovered by
+                // m-oo-04-static's `leaks --atExit` audit when
+                // `Counter.label !== "ctr"` paid an LHS alloc on
+                // every comparison).
                 if self.locals.get(name).is_none() {
                     let name_owned = name.clone();
                     for s in &self.ast.stmts {
@@ -6751,10 +6789,6 @@ impl<'a> LowerCtx<'a> {
                                     return Operand::ConstF64(*v);
                                 }
                                 Expr::Bool(b) => return Operand::ConstBool(*b),
-                                Expr::String(s) => {
-                                    let id = self.intern_string_literal(s);
-                                    return Operand::Value(id);
-                                }
                                 _ => {}
                             }
                         }
@@ -7104,7 +7138,25 @@ impl<'a> LowerCtx<'a> {
                 // produces a fresh allocation without freeing inputs;
                 // see ssa_inkwell::define_str_concat / ssa_cranelift::
                 // str_concat_runtime for the matching change.
-                self.lower_binop(*op, a, b)
+                let result = self.lower_binop(*op, a, b);
+                // Drop fresh-owned refcounted operands left over from
+                // BinOp on Str / Substr (Eq / Neq / Add). lower_binop
+                // doesn't consume — every concat / str_eq path keeps
+                // the inputs live. If the source-level expr was an
+                // `Ident` / `Member` / `Index` we don't own the heap
+                // (the binding does), so leave it alone. Anything
+                // else (`String` literal, `Call` returning Str, sub-
+                // BinOp concat result, etc.) was a fresh alloc whose
+                // ownership ends here.
+                let a_ty = self.operand_ty(&a);
+                if a_ty.is_refcounted() && self.expr_is_fresh_owned(*left) {
+                    self.emit_drop_value(a, a_ty);
+                }
+                let b_ty = self.operand_ty(&b);
+                if b_ty.is_refcounted() && self.expr_is_fresh_owned(*right) {
+                    self.emit_drop_value(b, b_ty);
+                }
+                result
             }
             Expr::Unary { op, expr } => {
                 // M1.5 — `!a` lowers to `xor a, true`. Operand is bool,
