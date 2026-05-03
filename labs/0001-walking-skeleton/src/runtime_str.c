@@ -677,65 +677,6 @@ void *__torajs_f64_to_str(double d) {
     return p;
 }
 
-/* M6.3 — JSON.stringify(string): wrap with double quotes and escape
- * every JSON-spec-mandatory character. Returns a fresh heap StrRepr*.
- * Two-pass (count + write) so we malloc the right size up front
- * instead of growing as we go.
- *
- * Escape table (ECMA-404 §9):
- *   "  \\  →  \" \\
- *   \n \t \r \b \f → \n \t \r \b \f (single-char escape)
- *   any other control byte (< 0x20) → \u00XX (6-char hex form)
- *   everything else (including all >= 0x20 bytes, UTF-8 continuation
- *     bytes included) passes through verbatim — torajs strings are
- *     byte-encoded so a multi-byte UTF-8 sequence stays intact.
- */
-void *__torajs_json_str_quote(const uint8_t *s) {
-    uint64_t len = __TORAJS_STR_LEN(s);
-    const uint8_t *data = __TORAJS_STR_CDATA(s);
-    uint64_t out_len = 2; /* opening + closing quote */
-    for (uint64_t i = 0; i < len; i++) {
-        uint8_t c = data[i];
-        switch (c) {
-            case '"': case '\\': case '\n': case '\t':
-            case '\r': case '\b': case '\f':
-                out_len += 2;
-                break;
-            default:
-                out_len += (c < 0x20) ? 6 : 1;
-                break;
-        }
-    }
-    uint8_t *p = str_alloc_(out_len);
-    uint8_t *out = __TORAJS_STR_DATA(p);
-    static const char hex[] = "0123456789abcdef";
-    uint64_t j = 0;
-    out[j++] = '"';
-    for (uint64_t i = 0; i < len; i++) {
-        uint8_t c = data[i];
-        switch (c) {
-            case '"':  out[j++] = '\\'; out[j++] = '"';  break;
-            case '\\': out[j++] = '\\'; out[j++] = '\\'; break;
-            case '\n': out[j++] = '\\'; out[j++] = 'n';  break;
-            case '\t': out[j++] = '\\'; out[j++] = 't';  break;
-            case '\r': out[j++] = '\\'; out[j++] = 'r';  break;
-            case '\b': out[j++] = '\\'; out[j++] = 'b';  break;
-            case '\f': out[j++] = '\\'; out[j++] = 'f';  break;
-            default:
-                if (c < 0x20) {
-                    out[j++] = '\\'; out[j++] = 'u';
-                    out[j++] = '0';  out[j++] = '0';
-                    out[j++] = (uint8_t)hex[(c >> 4) & 0xF];
-                    out[j++] = (uint8_t)hex[c & 0xF];
-                } else {
-                    out[j++] = c;
-                }
-                break;
-        }
-    }
-    out[j++] = '"';
-    return p;
-}
 
 /* Returns 1 if strings have equal length and equal bytes, 0 otherwise.
  * `===` / `!==` between Type::Str values dispatches here instead of
