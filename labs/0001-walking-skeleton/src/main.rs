@@ -1,6 +1,7 @@
 mod ast;
 mod check;
 mod lexer;
+mod modules;
 mod parser;
 mod ssa;
 mod ssa_inkwell;
@@ -8,6 +9,7 @@ mod ssa_lower;
 
 use std::env;
 use std::io::Read;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -94,10 +96,11 @@ fn run_pipeline(file_arg: Option<&String>, stage: Stage) -> ExitCode {
             return ExitCode::from(2);
         }
     };
-    pipeline(&src, stage)
+    let base_dir = base_dir_for(path);
+    pipeline(&src, &base_dir, stage)
 }
 
-fn pipeline(src: &str, stage: Stage) -> ExitCode {
+fn pipeline(src: &str, base_dir: &Path, stage: Stage) -> ExitCode {
     let tokens = match lexer::tokenize(src) {
         Ok(t) => t,
         Err(e) => {
@@ -119,6 +122,13 @@ fn pipeline(src: &str, stage: Stage) -> ExitCode {
             return ExitCode::from(1);
         }
     };
+    // K.2 — resolve cross-file imports BEFORE the desugar pipeline so
+    // imported decls go through the same downstream passes (class
+    // desugar, arrow lift, etc.) as same-file decls.
+    if let Err(e) = modules::resolve_imports(&mut ast, base_dir) {
+        eprintln!("import error: {e}");
+        return ExitCode::from(1);
+    }
     // M2 Phase A — lift arrow fns to top-level FnDecls so check.rs's
     // global-fn machinery resolves them. Non-capturing closures only;
     // captures land in Phase B.
@@ -251,6 +261,12 @@ fn run_build_llvm(args: &[String]) -> ExitCode {
             return ExitCode::from(1);
         }
     };
+    // K.2 — resolve cross-file imports before the desugar pipeline.
+    let base_dir = base_dir_for(input);
+    if let Err(e) = modules::resolve_imports(&mut ast, &base_dir) {
+        eprintln!("import error: {e}");
+        return ExitCode::from(1);
+    }
     // M2 Phase A — lift arrow fns to top-level FnDecls so check.rs's
     // global-fn machinery resolves them. Non-capturing closures only;
     // captures land in Phase B.
@@ -334,9 +350,31 @@ fn run_jit(file_arg: Option<&String>) -> ExitCode {
         }
     };
 
-    // Cache lookup — hash source + binary version + (always-O3 for run).
-    // Cache disabled if TORAJS_NO_CACHE is set (useful for bench / CI).
-    let cache_disabled = std::env::var_os("TORAJS_NO_CACHE").is_some();
+    // Lex + parse up front — needed both to feed the rest of the pipeline
+    // and to detect whether the program contains cross-file imports
+    // (which disqualify the source-hash cache; see below).
+    let tokens = match lexer::tokenize(&src) {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("lex error: {e}");
+            return ExitCode::from(1);
+        }
+    };
+    let mut ast = match parser::parse(&tokens) {
+        Ok(a) => a,
+        Err(e) => {
+            eprintln!("parse error: {e}");
+            return ExitCode::from(1);
+        }
+    };
+    let multi_file = modules::has_imports(&ast);
+
+    // Cache lookup — hash main source + binary version + (always-O3 for run).
+    // Cache disabled if TORAJS_NO_CACHE is set (useful for bench / CI), or
+    // if the program is multi-file: the source-only hash can't see edits to
+    // imported files, so a stale cache would silently win. Multi-file
+    // hashing lands in a follow-up phase.
+    let cache_disabled = std::env::var_os("TORAJS_NO_CACHE").is_some() || multi_file;
     let cache_path = if !cache_disabled {
         let hash = run_cache_key(&src);
         let cache_dir = std::env::var("TORAJS_CACHE_DIR")
@@ -358,20 +396,11 @@ fn run_jit(file_arg: Option<&String>) -> ExitCode {
     }
 
     // Cache miss — compile. Reuse the same pipeline as `tr build`.
-    let tokens = match lexer::tokenize(&src) {
-        Ok(t) => t,
-        Err(e) => {
-            eprintln!("lex error: {e}");
-            return ExitCode::from(1);
-        }
-    };
-    let mut ast = match parser::parse(&tokens) {
-        Ok(a) => a,
-        Err(e) => {
-            eprintln!("parse error: {e}");
-            return ExitCode::from(1);
-        }
-    };
+    let base_dir = base_dir_for(path);
+    if let Err(e) = modules::resolve_imports(&mut ast, &base_dir) {
+        eprintln!("import error: {e}");
+        return ExitCode::from(1);
+    }
     ast::unwrap_exports(&mut ast);
     ast::desugar_generators(&mut ast);
     ast::desugar_async(&mut ast);
@@ -478,4 +507,22 @@ fn read_source(arg: &str) -> Result<String, String> {
     } else {
         std::fs::read_to_string(arg).map_err(|e| format!("reading {arg}: {e}"))
     }
+}
+
+/// Directory that relative `import` paths resolve against. For a file
+/// argument, that's the file's parent directory (canonicalized so
+/// `import "./x"` and `import "x"` from `./bench/foo.ts` both land at
+/// the same absolute path). For stdin, fall back to the current working
+/// directory — `import "./x"` from stdin means `./x` from `cwd`.
+fn base_dir_for(file_arg: &str) -> PathBuf {
+    if file_arg == "-" {
+        return std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    }
+    let p = PathBuf::from(file_arg);
+    let parent = p.parent().filter(|p| !p.as_os_str().is_empty());
+    let dir = match parent {
+        Some(d) => d.to_path_buf(),
+        None => PathBuf::from("."),
+    };
+    dir.canonicalize().unwrap_or(dir)
 }

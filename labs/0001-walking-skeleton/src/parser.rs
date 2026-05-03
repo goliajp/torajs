@@ -34,15 +34,43 @@ use crate::ast::{self, Ast, BinOp, ClassCtor, ClassMethod, Expr, ExprId, Param, 
 use crate::lexer::{self, Spanned, Token};
 
 pub fn parse(tokens: &[Spanned]) -> Result<Ast, String> {
+    let mut ast = Ast::default();
+    parse_into(tokens, &mut ast)?;
+    Ok(ast)
+}
+
+/// Phase K.2 — append-mode parse. Parses `tokens` into the existing
+/// `target` AST, sharing its `exprs` arena so any newly-minted ExprIds
+/// continue numbering from `target.exprs.len()`. Returns the index of
+/// the first appended Stmt in `target.stmts` (caller can drain from
+/// there to extract just the new section).
+///
+/// Used by `modules::resolve_imports` to merge an imported file's AST
+/// into the main file's AST without an ExprId remap pass — every Expr
+/// landed via `add_expr`, which mints a fresh u32 from the current
+/// `exprs.len()`, so values originating in the imported file are
+/// already indexed correctly within the merged arena.
+///
+/// The Parser-internal `desugar_id` counter is seeded with the current
+/// arena length so any temp-name minting (`__step_<n>`, etc.) emitted
+/// by parse-time desugars in the imported file can't collide with
+/// names already minted while parsing the main file (or any earlier
+/// imported file).
+pub fn parse_into(tokens: &[Spanned], target: &mut Ast) -> Result<usize, String> {
+    let stmt_offset = target.stmts.len();
+    let id_offset = target.exprs.len() as u32;
+    let taken = std::mem::take(target);
     let mut p = Parser {
         tokens,
         pos: 0,
-        ast: Ast::default(),
-        desugar_id: 0,
+        ast: taken,
+        desugar_id: id_offset,
         generator_fns: std::collections::HashMap::new(),
     };
-    p.parse_program()?;
-    Ok(p.ast)
+    let result = p.parse_program();
+    *target = p.ast;
+    result?;
+    Ok(stmt_offset)
 }
 
 struct Parser<'a> {

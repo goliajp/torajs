@@ -100,10 +100,40 @@ fn collect_cases(dir: &Path) -> Vec<Case> {
     };
     let mut paths: Vec<PathBuf> = entries
         .filter_map(|e| e.ok().map(|x| x.path()))
-        .filter(|p| p.extension().is_some_and(|e| e == "ts"))
         .collect();
     paths.sort();
     for p in paths {
+        if p.is_dir() {
+            // Phase K.2 — multi-file case. Convention: the directory is one
+            // case, named after the directory; `<dir>/main.ts` is the entry
+            // point that bun and torajs both run; sibling `.ts` files are
+            // imported via relative `import` statements. Expected-output
+            // override (when bun differs) lives at `<dir>/main.expected`,
+            // mirroring the single-file convention.
+            let main_ts = p.join("main.ts");
+            if !main_ts.is_file() {
+                continue;
+            }
+            let stem = p
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("?")
+                .to_string();
+            let expected = main_ts.with_extension("expected");
+            out.push(Case {
+                name: stem,
+                src: main_ts,
+                expected_override: if expected.is_file() {
+                    Some(expected)
+                } else {
+                    None
+                },
+            });
+            continue;
+        }
+        if !p.extension().is_some_and(|e| e == "ts") {
+            continue;
+        }
         let stem = p
             .file_stem()
             .and_then(|s| s.to_str())
