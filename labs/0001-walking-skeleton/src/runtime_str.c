@@ -224,6 +224,60 @@ void __torajs_str_drop(void *s);
 static uint8_t *substr_pool_[__TORAJS_SUBSTR_POOL_SLOTS];
 static int substr_pool_count_ = 0;
 
+/* str_split-block pool — keeps the variable-size single-block
+ * allocations made by __torajs_str_split (header + N ptr slots +
+ * N inline 32-byte substr structs) in a small thread-local cache
+ * indexed by `cap`. Tight loops over `s.split(sep)` recycle the
+ * exact same block every iter, turning each split's malloc into
+ * a pointer-pop. The block carries SPLIT_BLOCK in its flags so
+ * arr_drop knows which pool to push to.
+ *
+ * Bounded slot count + per-cap match keeps the search O(N)-with-
+ * tiny-N (rare to see > a handful of distinct cap values in a
+ * single tight loop). */
+#define __TORAJS_FLAG_SPLIT_BLOCK 2u
+#define __TORAJS_SPLIT_POOL_SLOTS 16
+static uint8_t *split_pool_blocks_[__TORAJS_SPLIT_POOL_SLOTS];
+static uint64_t split_pool_caps_[__TORAJS_SPLIT_POOL_SLOTS];
+static int split_pool_count_ = 0;
+
+/* Hardcoded constants — Arr layout macros are declared further down
+ * in this file but the split pool needs them now. Keep in sync with
+ * `__TORAJS_ARR_HDR_SIZE` (24) + `__TORAJS_ARR_CAP_OFF` (16). */
+static inline uint8_t *split_block_alloc_(uint64_t out_count) {
+    for (int i = 0; i < split_pool_count_; i++) {
+        if (split_pool_caps_[i] == out_count) {
+            uint8_t *p = split_pool_blocks_[i];
+            int last = --split_pool_count_;
+            split_pool_blocks_[i] = split_pool_blocks_[last];
+            split_pool_caps_[i] = split_pool_caps_[last];
+            return p;
+        }
+    }
+    uint64_t slots_size = out_count * 8;
+    uint64_t substrs_size = out_count * __TORAJS_SUBSTR_SIZE;
+    uint64_t total = 24 + slots_size + substrs_size;
+    return (uint8_t *)malloc(total);
+}
+
+/* Free path for split blocks. arr_drop (inkwell IR) calls
+ * __torajs_arr_free which dispatches here when the SPLIT flag is
+ * set in the universal header. */
+void __torajs_arr_free(void *p) {
+    if (p == NULL) return;
+    __torajs_heap_header_t *h = (__torajs_heap_header_t *)p;
+    if (h->flags & __TORAJS_FLAG_SPLIT_BLOCK) {
+        uint64_t cap = *(uint64_t *)((uint8_t *)p + 16);
+        if (split_pool_count_ < __TORAJS_SPLIT_POOL_SLOTS) {
+            split_pool_blocks_[split_pool_count_] = (uint8_t *)p;
+            split_pool_caps_[split_pool_count_] = cap;
+            split_pool_count_++;
+            return;
+        }
+    }
+    free(p);
+}
+
 /* Create a substring view of `parent` (an OWNED Str) starting at
  * `offset` with length `len`. Caller must ensure offset+len ≤
  * parent.length (no bounds check here — matches the unchecked-index
@@ -718,15 +772,14 @@ void *__torajs_str_split(const uint8_t *s, const uint8_t *sep) {
         out_count = 1;
     }
 
-    /* Single-block alloc. */
+    /* Single-block alloc — pool-aware. SPLIT flag tagged so
+     * __torajs_arr_free routes free path to the split pool. */
     uint64_t slots_size = out_count * 8;
-    uint64_t substrs_size = out_count * __TORAJS_SUBSTR_SIZE;
-    uint64_t total = __TORAJS_ARR_HDR_SIZE + slots_size + substrs_size;
-    uint8_t *arr = (uint8_t *)malloc(total);
+    uint8_t *arr = split_block_alloc_(out_count);
     __torajs_heap_header_t *ah = (__torajs_heap_header_t *)arr;
     ah->refcount = 1;
     ah->type_tag = __TORAJS_TAG_ARR;
-    ah->flags = 0;
+    ah->flags = __TORAJS_FLAG_SPLIT_BLOCK;
     __TORAJS_ARR_LEN(arr) = out_count;
     __TORAJS_ARR_CAP(arr) = out_count;
     uint8_t *substrs_base = arr + __TORAJS_ARR_HDR_SIZE + slots_size;

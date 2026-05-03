@@ -81,6 +81,7 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
     let realloc = declare_realloc(&ctx, &llvm_module);
     let str_free = declare_str_free(&ctx, &llvm_module);
     let str_alloc_pooled = declare_str_alloc_pooled(&ctx, &llvm_module);
+    let arr_free = declare_arr_free(&ctx, &llvm_module);
     let mut fn_map: Vec<FunctionValue> = Vec::with_capacity(ssa_module.funcs.len());
     for f in &ssa_module.funcs {
         let llvm_fn = match f.name.as_str() {
@@ -121,7 +122,7 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
                 f
             }
             "__torajs_arr_drop" => {
-                let f = define_arr_drop(&ctx, &llvm_module, free);
+                let f = define_arr_drop(&ctx, &llvm_module, arr_free);
                 // every Array scope-end + every refcounted-elem-walk
                 // bottom hits this; body is NULL check + dec + cond free
                 mark_alwaysinline(&ctx, f);
@@ -473,6 +474,18 @@ fn declare_str_free<'ctx>(ctx: &'ctx Context, m: &LlvmModule<'ctx>) -> FunctionV
     let ptr_t = ctx.ptr_type(AddressSpace::default());
     let fn_t = void_t.fn_type(&[ptr_t.into()], false);
     m.add_function("__torajs_str_free", fn_t, None)
+}
+
+/// `__torajs_arr_free(void *p)` — pool-aware arr free. Defined in
+/// runtime_str.c. Routes split-block allocations (flagged in the
+/// universal header) to a thread-local cache indexed by `cap` so
+/// tight `s.split(sep)` loops recycle the exact same block every
+/// iter instead of mallocing per call.
+fn declare_arr_free<'ctx>(ctx: &'ctx Context, m: &LlvmModule<'ctx>) -> FunctionValue<'ctx> {
+    let void_t = ctx.void_type();
+    let ptr_t = ctx.ptr_type(AddressSpace::default());
+    let fn_t = void_t.fn_type(&[ptr_t.into()], false);
+    m.add_function("__torajs_arr_free", fn_t, None)
 }
 
 /// `__torajs_str_alloc_pooled(uint64_t len) -> uint8_t*` — pool-aware
