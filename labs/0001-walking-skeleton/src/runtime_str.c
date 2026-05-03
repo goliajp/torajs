@@ -1734,3 +1734,257 @@ void *__torajs_str_pad_end(const uint8_t *s, int64_t target_len, const uint8_t *
     }
     return p;
 }
+
+/* M6.3 — JSON.parse runtime helpers. Cursor is `int64_t *pos`,
+ * updated in place by every helper so ssa_lower's compile-time
+ * specialized parser can thread one alloca'd slot through all
+ * recursive calls. On syntactic mismatch each helper stuffs an
+ * error string into the throw_active / throw_value globals via
+ * `__torajs_throw_set` and returns a default; ssa_lower emits a
+ * `throw_check` after each call so propagation flows correctly.
+ */
+
+extern void __torajs_throw_set(int64_t v);
+
+static void torajs_json_throw(const char *msg, int64_t pos) {
+    char buf[96];
+    int n = snprintf(buf, sizeof(buf), "%s at pos %lld", msg, (long long)pos);
+    if (n < 0) n = 0;
+    if ((size_t)n >= sizeof(buf)) n = (int)sizeof(buf) - 1;
+    uint64_t len = (uint64_t)n;
+    uint8_t *err = str_alloc_(len);
+    if (len) memcpy(__TORAJS_STR_DATA(err), buf, (size_t)len);
+    __torajs_throw_set((int64_t)(uintptr_t)err);
+}
+
+static void torajs_json_skip_ws(const uint8_t *data, uint64_t len, int64_t *pos) {
+    while (*pos < (int64_t)len) {
+        uint8_t c = data[*pos];
+        if (c == ' ' || c == '\t' || c == '\n' || c == '\r') {
+            (*pos)++;
+        } else {
+            break;
+        }
+    }
+}
+
+void __torajs_json_eat_char(const uint8_t *str, int64_t *pos, int64_t want) {
+    uint64_t len = __TORAJS_STR_LEN(str);
+    const uint8_t *data = __TORAJS_STR_CDATA(str);
+    torajs_json_skip_ws(data, len, pos);
+    if (*pos >= (int64_t)len || data[*pos] != (uint8_t)want) {
+        char m[40];
+        snprintf(m, sizeof(m), "JSON.parse: expected '%c'", (char)want);
+        torajs_json_throw(m, *pos);
+        return;
+    }
+    (*pos)++;
+}
+
+int64_t __torajs_json_parse_int(const uint8_t *str, int64_t *pos) {
+    uint64_t len = __TORAJS_STR_LEN(str);
+    const uint8_t *data = __TORAJS_STR_CDATA(str);
+    torajs_json_skip_ws(data, len, pos);
+    int64_t start = *pos;
+    int64_t neg = 0;
+    if (*pos < (int64_t)len && data[*pos] == '-') {
+        neg = 1;
+        (*pos)++;
+    }
+    int64_t digits_start = *pos;
+    int64_t value = 0;
+    while (*pos < (int64_t)len && data[*pos] >= '0' && data[*pos] <= '9') {
+        value = value * 10 + (int64_t)(data[*pos] - '0');
+        (*pos)++;
+    }
+    if (*pos == digits_start) {
+        torajs_json_throw("JSON.parse: expected number digits", start);
+        return 0;
+    }
+    return neg ? -value : value;
+}
+
+double __torajs_json_parse_float(const uint8_t *str, int64_t *pos) {
+    uint64_t len = __TORAJS_STR_LEN(str);
+    const uint8_t *data = __TORAJS_STR_CDATA(str);
+    torajs_json_skip_ws(data, len, pos);
+    int64_t start = *pos;
+    int64_t end = start;
+    if (end < (int64_t)len && data[end] == '-') end++;
+    while (end < (int64_t)len && data[end] >= '0' && data[end] <= '9') end++;
+    if (end < (int64_t)len && data[end] == '.') {
+        end++;
+        while (end < (int64_t)len && data[end] >= '0' && data[end] <= '9') end++;
+    }
+    if (end < (int64_t)len && (data[end] == 'e' || data[end] == 'E')) {
+        end++;
+        if (end < (int64_t)len && (data[end] == '+' || data[end] == '-')) end++;
+        while (end < (int64_t)len && data[end] >= '0' && data[end] <= '9') end++;
+    }
+    if (end == start || (end == start + 1 && data[start] == '-')) {
+        torajs_json_throw("JSON.parse: expected number digits", start);
+        return 0.0;
+    }
+    char buf[64];
+    uint64_t blen = (uint64_t)(end - start);
+    if (blen >= sizeof(buf)) blen = sizeof(buf) - 1;
+    memcpy(buf, data + start, blen);
+    buf[blen] = '\0';
+    *pos = end;
+    return strtod(buf, NULL);
+}
+
+int64_t __torajs_json_parse_bool(const uint8_t *str, int64_t *pos) {
+    uint64_t len = __TORAJS_STR_LEN(str);
+    const uint8_t *data = __TORAJS_STR_CDATA(str);
+    torajs_json_skip_ws(data, len, pos);
+    int64_t start = *pos;
+    if (*pos + 4 <= (int64_t)len && memcmp(data + *pos, "true", 4) == 0) {
+        *pos += 4;
+        return 1;
+    }
+    if (*pos + 5 <= (int64_t)len && memcmp(data + *pos, "false", 5) == 0) {
+        *pos += 5;
+        return 0;
+    }
+    torajs_json_throw("JSON.parse: expected 'true' or 'false'", start);
+    return 0;
+}
+
+void *__torajs_json_parse_string(const uint8_t *str, int64_t *pos) {
+    uint64_t len = __TORAJS_STR_LEN(str);
+    const uint8_t *data = __TORAJS_STR_CDATA(str);
+    torajs_json_skip_ws(data, len, pos);
+    int64_t start = *pos;
+    if (*pos >= (int64_t)len || data[*pos] != '"') {
+        torajs_json_throw("JSON.parse: expected string", start);
+        return str_alloc_(0);
+    }
+    (*pos)++;
+    /* Pass 1: scan to find the closing quote + count decoded length. */
+    uint64_t out_len = 0;
+    int64_t scan = *pos;
+    while (scan < (int64_t)len) {
+        uint8_t c = data[scan];
+        if (c == '"') break;
+        if (c == '\\') {
+            if (scan + 1 >= (int64_t)len) {
+                torajs_json_throw("JSON.parse: bad escape", scan);
+                return str_alloc_(0);
+            }
+            uint8_t e = data[scan + 1];
+            if (e == 'u') {
+                if (scan + 6 > (int64_t)len) {
+                    torajs_json_throw("JSON.parse: short \\u escape", scan);
+                    return str_alloc_(0);
+                }
+                out_len += 1;
+                scan += 6;
+            } else {
+                out_len += 1;
+                scan += 2;
+            }
+            continue;
+        }
+        out_len += 1;
+        scan += 1;
+    }
+    if (scan >= (int64_t)len) {
+        torajs_json_throw("JSON.parse: unterminated string", start);
+        return str_alloc_(0);
+    }
+    /* Pass 2: write decoded bytes. */
+    uint8_t *p = str_alloc_(out_len);
+    uint8_t *out = __TORAJS_STR_DATA(p);
+    uint64_t j = 0;
+    int64_t i = *pos;
+    while (i < scan) {
+        uint8_t c = data[i];
+        if (c == '\\') {
+            uint8_t e = data[i + 1];
+            switch (e) {
+                case '"':  out[j++] = '"';  i += 2; break;
+                case '\\': out[j++] = '\\'; i += 2; break;
+                case '/':  out[j++] = '/';  i += 2; break;
+                case 'b':  out[j++] = '\b'; i += 2; break;
+                case 'f':  out[j++] = '\f'; i += 2; break;
+                case 'n':  out[j++] = '\n'; i += 2; break;
+                case 'r':  out[j++] = '\r'; i += 2; break;
+                case 't':  out[j++] = '\t'; i += 2; break;
+                case 'u': {
+                    int v = 0;
+                    for (int k = 0; k < 4; k++) {
+                        uint8_t h = data[i + 2 + k];
+                        v <<= 4;
+                        if (h >= '0' && h <= '9') v |= (h - '0');
+                        else if (h >= 'a' && h <= 'f') v |= (h - 'a' + 10);
+                        else if (h >= 'A' && h <= 'F') v |= (h - 'A' + 10);
+                    }
+                    out[j++] = (uint8_t)(v & 0xFF);
+                    i += 6;
+                    break;
+                }
+                default:
+                    out[j++] = e;
+                    i += 2;
+                    break;
+            }
+        } else {
+            out[j++] = c;
+            i += 1;
+        }
+    }
+    *pos = scan + 1; /* skip closing quote */
+    return p;
+}
+
+/* Returns 1 if the next token is a continuation comma (consumed),
+ * 0 if the next token is the terminator (consumed), -1 only if a
+ * syntactic error was thrown. The terminator byte is the caller's
+ * responsibility — `]` for arrays, `}` for objects. */
+int64_t __torajs_json_arr_step(const uint8_t *str, int64_t *pos, int64_t terminator) {
+    uint64_t len = __TORAJS_STR_LEN(str);
+    const uint8_t *data = __TORAJS_STR_CDATA(str);
+    torajs_json_skip_ws(data, len, pos);
+    if (*pos >= (int64_t)len) {
+        torajs_json_throw("JSON.parse: unexpected end-of-input", *pos);
+        return -1;
+    }
+    uint8_t c = data[*pos];
+    if (c == ',') { (*pos)++; return 1; }
+    if (c == (uint8_t)terminator) { (*pos)++; return 0; }
+    char m[64];
+    snprintf(m, sizeof(m), "JSON.parse: expected ',' or '%c'", (char)terminator);
+    torajs_json_throw(m, *pos);
+    return -1;
+}
+
+/* Peek at the first token after an opening bracket. Returns 0 if the
+ * immediate next non-ws byte is the terminator (consumed; empty
+ * collection), 1 if the next byte begins a value (NOT consumed), -1
+ * on EOF / error. Lets the array / object parsers skip the leading-
+ * element parse on `[]` / `{}`. */
+int64_t __torajs_json_arr_first(const uint8_t *str, int64_t *pos, int64_t terminator) {
+    uint64_t len = __TORAJS_STR_LEN(str);
+    const uint8_t *data = __TORAJS_STR_CDATA(str);
+    torajs_json_skip_ws(data, len, pos);
+    if (*pos >= (int64_t)len) {
+        torajs_json_throw("JSON.parse: unexpected end-of-input", *pos);
+        return -1;
+    }
+    if (data[*pos] == (uint8_t)terminator) {
+        (*pos)++;
+        return 0;
+    }
+    return 1;
+}
+
+/* Compare a torajs Str value byte-by-byte against a literal C string.
+ * Returns 1 on match, 0 otherwise. Used by the object parser to
+ * verify a parsed key against an expected field name. */
+int64_t __torajs_str_eq_cstr(const uint8_t *s, const uint8_t *cstr_bytes, int64_t cstr_len) {
+    uint64_t s_len = __TORAJS_STR_LEN(s);
+    if ((int64_t)s_len != cstr_len) return 0;
+    if (cstr_len == 0) return 1;
+    return memcmp(__TORAJS_STR_CDATA(s), cstr_bytes, (size_t)cstr_len) == 0 ? 1 : 0;
+}

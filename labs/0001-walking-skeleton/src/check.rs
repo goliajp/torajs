@@ -460,6 +460,16 @@ fn is_assignable_to(to: &Type, from: &Type) -> bool {
     if to == from {
         return true;
     }
+    // M6.3 — `Type::Any` from JSON.parse return is a typecheck-level
+    // hole; ssa_lower's LetDecl arm specializes the actual decode at
+    // lower time using the slot's annotation. Allow Any → any T at
+    // assignment sites so `let v: T = JSON.parse(text)` typechecks.
+    // (`Type::Any` was previously only used as `console.log`'s param
+    // type, where source Any was never the from-side; this widens
+    // it without breaking that path.)
+    if matches!(from, Type::Any) {
+        return true;
+    }
     if let Type::Nullable(inner) = to {
         if matches!(from, Type::Null) {
             return true;
@@ -1736,6 +1746,16 @@ impl Checker {
                     // (per-call-site monomorphization).
                     (Type::Object("JSON"), "stringify") => {
                         Ok(Type::Function(vec![Type::Any], Box::new(Type::String)))
+                    }
+                    // M6.3 — `JSON.parse(text): T` — caller-driven type
+                    // inference. The return type at typecheck level is
+                    // Any (effectively a hole); ssa_lower's LetDecl
+                    // arm reads the slot's `type_ann` and emits the
+                    // per-shape parser at lower time. check.rs accepts
+                    // any `Type::Any` slot, so the let binding's
+                    // declared `T` slot type drives the actual decode.
+                    (Type::Object("JSON"), "parse") => {
+                        Ok(Type::Function(vec![Type::String], Box::new(Type::Any)))
                     }
                     // Array.isArray(x) — compile-time static check.
                     (Type::Object("Array"), "isArray") => {

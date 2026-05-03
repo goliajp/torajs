@@ -1771,6 +1771,67 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         &[Type::Str],
         Type::Str,
     );
+    // M6.3 — JSON.parse runtime helpers. Cursor (`*int64`, alloca'd
+    // by the caller fn) threaded through every helper; each advances
+    // it past the consumed token. On syntactic mismatch the helper
+    // emits a `__torajs_throw_set` so ssa_lower's `throw_check` after
+    // the call propagates correctly.
+    let json_eat_char_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_json_eat_char",
+        &[Type::Str, Type::Ptr, Type::I64],
+        Type::Void,
+    );
+    let json_parse_int_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_json_parse_int",
+        &[Type::Str, Type::Ptr],
+        Type::I64,
+    );
+    let json_parse_float_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_json_parse_float",
+        &[Type::Str, Type::Ptr],
+        Type::F64,
+    );
+    let json_parse_bool_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_json_parse_bool",
+        &[Type::Str, Type::Ptr],
+        Type::I64,
+    );
+    let json_parse_string_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_json_parse_string",
+        &[Type::Str, Type::Ptr],
+        Type::Str,
+    );
+    let json_arr_step_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_json_arr_step",
+        &[Type::Str, Type::Ptr, Type::I64],
+        Type::I64,
+    );
+    let json_arr_first_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_json_arr_first",
+        &[Type::Str, Type::Ptr, Type::I64],
+        Type::I64,
+    );
+    let str_eq_cstr_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_str_eq_cstr",
+        &[Type::Str, Type::Ptr, Type::I64],
+        Type::I64,
+    );
     let print_i64_err_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -2243,6 +2304,14 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         math_fround: math_fround_id,
         math_random: math_random_id,
         json_quote_str: json_quote_str_id,
+        json_eat_char: json_eat_char_id,
+        json_parse_int: json_parse_int_id,
+        json_parse_float: json_parse_float_id,
+        json_parse_bool: json_parse_bool_id,
+        json_parse_string: json_parse_string_id,
+        json_arr_step: json_arr_step_id,
+        json_arr_first: json_arr_first_id,
+        str_eq_cstr: str_eq_cstr_id,
         print_i64_err: print_i64_err_id,
         print_f64_err: print_f64_err_id,
         print_bool_err: print_bool_err_id,
@@ -2662,6 +2731,18 @@ struct Intrinsics {
     math_fround: FuncId,
     math_random: FuncId,
     json_quote_str: FuncId,
+    /// M6.3 — JSON.parse runtime helpers. See `runtime_str.c` for the
+    /// per-helper contract. Cursor is `int64_t *`, threaded by the
+    /// caller via an alloca slot; helpers advance it past the
+    /// consumed token. Throws via `__torajs_throw_set` on mismatch.
+    json_eat_char: FuncId,
+    json_parse_int: FuncId,
+    json_parse_float: FuncId,
+    json_parse_bool: FuncId,
+    json_parse_string: FuncId,
+    json_arr_step: FuncId,
+    json_arr_first: FuncId,
+    str_eq_cstr: FuncId,
     print_i64_err: FuncId,
     print_f64_err: FuncId,
     print_bool_err: FuncId,
@@ -4041,6 +4122,48 @@ impl<'a> LowerCtx<'a> {
 
     /// Coerce a value of any type to Type::Str. Used by multi-arg
     /// console.X to build a space-joined output line.
+    /// M6.3 — peek at an Expr to see whether it's the
+    /// `JSON.parse(text)` call shape that drives caller-typed JSON
+    /// parsing. Used by Stmt::LetDecl to switch the init-lowering to
+    /// `lower_json_parse` when the slot's annotation gives us a
+    /// concrete target type.
+    fn is_json_parse_call(&self, eid: ExprId) -> bool {
+        let Expr::Call { callee, args } = self.ast.get_expr(eid) else {
+            return false;
+        };
+        if args.len() != 1 {
+            return false;
+        }
+        let Expr::Member { obj, name } = self.ast.get_expr(*callee) else {
+            return false;
+        };
+        if name != "parse" {
+            return false;
+        }
+        matches!(self.ast.get_expr(*obj), Expr::Ident(s) if s == "JSON")
+    }
+
+    /// M6.3 — wrapper around `parse_type` that returns `None` when the
+    /// annotation is missing or doesn't resolve to a concrete Type
+    /// the JSON parser knows how to handle. Lets the LetDecl fast-
+    /// path skip to the regular flow when the slot has no usable
+    /// type info.
+    fn try_resolve_type_ann(&mut self, ann: Option<&str>) -> Option<Type> {
+        let ann = ann?;
+        let ty = parse_type(
+            Some(ann),
+            self.aliases,
+            self.arr_layouts,
+            self.fn_sigs,
+            self.generic_struct_decls,
+            self.struct_layouts,
+        );
+        if matches!(ty, Type::Void) {
+            return None;
+        }
+        Some(ty)
+    }
+
     /// True when an expression's lowered Operand represents a freshly-
     /// allocated owned value that the surrounding lowering site must
     /// drop after use. False for borrow-shaped expressions (Ident /
@@ -4533,6 +4656,421 @@ impl<'a> LowerCtx<'a> {
             }
             other => panic!(
                 "ssa-lower: JSON.stringify on type {other:?} not yet supported"
+            ),
+        }
+    }
+
+    /// M6.3 — recursive `JSON.parse` codegen. The caller drives type
+    /// inference (`let v: T = JSON.parse(text)`) so this fn sees the
+    /// concrete `slot_ty` and emits per-shape intrinsic calls,
+    /// threading a single cursor alloca through every recursive
+    /// call. Each helper advances the cursor past its consumed
+    /// token; on syntactic mismatch the helper sets the throw_value
+    /// global, and the caller is responsible for emitting a
+    /// `__torajs_throw_check` after this returns (matches the
+    /// throw_check shape used elsewhere in ssa_lower).
+    ///
+    /// `text_op` must be a `Type::Str` operand; `cursor_slot` is a
+    /// pointer to an alloca'd `i64` initialized to 0 by the caller.
+    fn lower_json_parse(
+        &mut self,
+        text_op: Operand,
+        cursor_ptr: Operand,
+        slot_ty: Type,
+    ) -> Operand {
+        match slot_ty {
+            Type::I64 => {
+                let v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(
+                        self.intrinsics.json_parse_int,
+                        vec![text_op, cursor_ptr],
+                    ),
+                    Type::I64,
+                    None,
+                );
+                Operand::Value(v)
+            }
+            Type::F64 => {
+                let v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(
+                        self.intrinsics.json_parse_float,
+                        vec![text_op, cursor_ptr],
+                    ),
+                    Type::F64,
+                    None,
+                );
+                Operand::Value(v)
+            }
+            Type::Bool => {
+                // Helper returns I64 (0/1); coerce by ne-zero.
+                let v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(
+                        self.intrinsics.json_parse_bool,
+                        vec![text_op, cursor_ptr],
+                    ),
+                    Type::I64,
+                    None,
+                );
+                let b = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::ICmp(
+                        IPred::Ne,
+                        Operand::Value(v),
+                        Operand::ConstI64(0),
+                    ),
+                    Type::Bool,
+                    None,
+                );
+                Operand::Value(b)
+            }
+            Type::Str => {
+                let v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(
+                        self.intrinsics.json_parse_string,
+                        vec![text_op, cursor_ptr],
+                    ),
+                    Type::Str,
+                    None,
+                );
+                Operand::Value(v)
+            }
+            Type::Arr(arr_id) => {
+                let elem_ty = self.arr_layouts[arr_id.0 as usize];
+                // eat '['
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Call(
+                        self.intrinsics.json_eat_char,
+                        vec![text_op, cursor_ptr, Operand::ConstI64(b'[' as i64)],
+                    ),
+                );
+                // alloc array (cap=0; grows via push). arr_push returns
+                // a (possibly realloc'd) pointer — we MUST round-trip
+                // each push through an alloca slot or subsequent
+                // pushes scribble over freed memory after the first
+                // realloc.
+                let initial = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(
+                        self.intrinsics.arr_alloc,
+                        vec![Operand::ConstI64(0)],
+                    ),
+                    slot_ty,
+                    None,
+                );
+                let arr_slot = self.alloca(slot_ty, Some("__json_arr"));
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Store(
+                        Operand::Value(initial),
+                        Operand::Value(arr_slot),
+                        0,
+                    ),
+                );
+                // arr_first('[', ']') — 0 if immediately ']' (consumed),
+                // 1 if a value follows (NOT consumed).
+                let first = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(
+                        self.intrinsics.json_arr_first,
+                        vec![text_op, cursor_ptr, Operand::ConstI64(b']' as i64)],
+                    ),
+                    Type::I64,
+                    None,
+                );
+                let header = self.f.add_block();
+                let body = self.f.add_block();
+                let after = self.f.add_block();
+                let nonempty = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::ICmp(
+                        IPred::Ne,
+                        Operand::Value(first),
+                        Operand::ConstI64(0),
+                    ),
+                    Type::Bool,
+                    None,
+                );
+                self.f.set_term(
+                    self.cur_block,
+                    Terminator::CondBr {
+                        cond: Operand::Value(nonempty),
+                        then_blk: body,
+                        else_blk: after,
+                    },
+                );
+                self.cur_block = body;
+                let elem = self.lower_json_parse(text_op, cursor_ptr, elem_ty);
+                let cur_arr = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Load(slot_ty, Operand::Value(arr_slot), 0),
+                    slot_ty,
+                    None,
+                );
+                let new_arr = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(
+                        self.intrinsics.arr_push,
+                        vec![Operand::Value(cur_arr), elem],
+                    ),
+                    slot_ty,
+                    None,
+                );
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Store(
+                        Operand::Value(new_arr),
+                        Operand::Value(arr_slot),
+                        0,
+                    ),
+                );
+                self.f.set_term(self.cur_block, Terminator::Br(header));
+                self.cur_block = header;
+                let step = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(
+                        self.intrinsics.json_arr_step,
+                        vec![text_op, cursor_ptr, Operand::ConstI64(b']' as i64)],
+                    ),
+                    Type::I64,
+                    None,
+                );
+                let cont = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::ICmp(
+                        IPred::Eq,
+                        Operand::Value(step),
+                        Operand::ConstI64(1),
+                    ),
+                    Type::Bool,
+                    None,
+                );
+                self.f.set_term(
+                    self.cur_block,
+                    Terminator::CondBr {
+                        cond: Operand::Value(cont),
+                        then_blk: body,
+                        else_blk: after,
+                    },
+                );
+                self.cur_block = after;
+                let final_arr = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Load(slot_ty, Operand::Value(arr_slot), 0),
+                    slot_ty,
+                    None,
+                );
+                Operand::Value(final_arr)
+            }
+            Type::Obj(sid) => {
+                let layout = self.struct_layouts[sid.0 as usize].clone();
+                // eat '{'
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Call(
+                        self.intrinsics.json_eat_char,
+                        vec![text_op, cursor_ptr, Operand::ConstI64(b'{' as i64)],
+                    ),
+                );
+                // alloc object — same shape as obj literal lowering:
+                // header (24 B) + N fields × 8 B; class_tag = 0
+                // (parsed objects are anonymous structs, not class
+                // instances), vtable_ptr = null.
+                let total_size =
+                    OBJ_HEADER_SIZE + (layout.len() as u64) * 8;
+                let obj_ptr_v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(
+                        self.intrinsics.obj_alloc,
+                        vec![Operand::ConstI64(total_size as i64)],
+                    ),
+                    Type::Ptr,
+                    None,
+                );
+                self.emit_obj_header_init(Operand::Value(obj_ptr_v));
+                let obj_ptr = Operand::Value(obj_ptr_v);
+                // arr_first('{', '}') — handle empty object.
+                let first = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(
+                        self.intrinsics.json_arr_first,
+                        vec![text_op, cursor_ptr, Operand::ConstI64(b'}' as i64)],
+                    ),
+                    Type::I64,
+                    None,
+                );
+                let nonempty = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::ICmp(
+                        IPred::Ne,
+                        Operand::Value(first),
+                        Operand::ConstI64(0),
+                    ),
+                    Type::Bool,
+                    None,
+                );
+                let body = self.f.add_block();
+                let after = self.f.add_block();
+                self.f.set_term(
+                    self.cur_block,
+                    Terminator::CondBr {
+                        cond: Operand::Value(nonempty),
+                        then_blk: body,
+                        else_blk: after,
+                    },
+                );
+                self.cur_block = body;
+                // For each field in declared order: parse the key,
+                // verify it matches the expected field name, eat ':',
+                // recurse on the field's type, store at field offset.
+                // After the last field, no separator step is needed —
+                // the leading-element path already consumed `'}'` if
+                // empty; the per-field flow expects a `,` between
+                // fields and a `}` after the last. arr_step is
+                // emitted between fields and after the last field
+                // (terminator='}').
+                for (i, (fname, fty)) in layout.iter().enumerate() {
+                    if i > 0 {
+                        // arr_step expects ',' (continue) or '}' (end);
+                        // only ',' is valid here since we still have
+                        // more declared fields.
+                        let step = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.json_arr_step,
+                                vec![
+                                    text_op,
+                                    cursor_ptr,
+                                    Operand::ConstI64(b'}' as i64),
+                                ],
+                            ),
+                            Type::I64,
+                            None,
+                        );
+                        let _ = step; // throw fires on syntactic error
+                    }
+                    // parse key string
+                    let key = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.json_parse_string,
+                            vec![text_op, cursor_ptr],
+                        ),
+                        Type::Str,
+                        None,
+                    );
+                    // Verify key matches expected field name. If not,
+                    // throw a clear error.
+                    let bytes = fname.as_bytes().to_vec();
+                    let want_len = bytes.len() as i64;
+                    let want_sid = ssa::StringId(
+                        (self.string_id_base + self.new_strings.len()) as u32,
+                    );
+                    self.new_strings.push(bytes);
+                    let want_ptr = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::StringRef(want_sid),
+                        Type::Ptr,
+                        None,
+                    );
+                    let eq = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.str_eq_cstr,
+                            vec![
+                                Operand::Value(key),
+                                Operand::Value(want_ptr),
+                                Operand::ConstI64(want_len),
+                            ],
+                        ),
+                        Type::I64,
+                        None,
+                    );
+                    let key_ok = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::ICmp(
+                            IPred::Ne,
+                            Operand::Value(eq),
+                            Operand::ConstI64(0),
+                        ),
+                        Type::Bool,
+                        None,
+                    );
+                    let ok_blk = self.f.add_block();
+                    let bad_blk = self.f.add_block();
+                    self.f.set_term(
+                        self.cur_block,
+                        Terminator::CondBr {
+                            cond: Operand::Value(key_ok),
+                            then_blk: ok_blk,
+                            else_blk: bad_blk,
+                        },
+                    );
+                    // bad path: drop the parsed key + throw.
+                    self.cur_block = bad_blk;
+                    self.emit_drop_value(Operand::Value(key), Type::Str);
+                    let err_msg = format!(
+                        "JSON.parse: expected field \"{fname}\""
+                    );
+                    let err_str = self.intern_string_literal(&err_msg);
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.throw_set,
+                            vec![Operand::Value(err_str)],
+                        ),
+                    );
+                    self.f.set_term(self.cur_block, Terminator::Br(ok_blk));
+                    self.cur_block = ok_blk;
+                    // Drop the parsed key (we only needed its bytes
+                    // for the equality check).
+                    self.emit_drop_value(Operand::Value(key), Type::Str);
+                    // eat ':'
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.json_eat_char,
+                            vec![
+                                text_op,
+                                cursor_ptr,
+                                Operand::ConstI64(b':' as i64),
+                            ],
+                        ),
+                    );
+                    // Parse field value (recursive).
+                    let fv = self.lower_json_parse(text_op, cursor_ptr, *fty);
+                    // Store at field offset.
+                    let field_off = OBJ_HEADER_SIZE + (i as u64) * 8;
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Store(fv, obj_ptr, field_off),
+                    );
+                }
+                // After the last field, expect '}' — emit arr_step
+                // with terminator='}' which consumes either ',' (and
+                // would loop, but we're done) or '}'. To strictly
+                // enforce the closing brace, we eat '}' directly.
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Call(
+                        self.intrinsics.json_eat_char,
+                        vec![
+                            text_op,
+                            cursor_ptr,
+                            Operand::ConstI64(b'}' as i64),
+                        ],
+                    ),
+                );
+                self.f.set_term(self.cur_block, Terminator::Br(after));
+                self.cur_block = after;
+                obj_ptr
+            }
+            other => panic!(
+                "ssa-lower: JSON.parse into type {other:?} not yet supported"
             ),
         }
     }
@@ -5348,6 +5886,73 @@ impl<'a> LowerCtx<'a> {
                 type_ann,
                 init,
             } => {
+                // M6.3 — `let v: T = JSON.parse(text)` — caller-driven
+                // typed parse. ssa_lower picks up `T` from `type_ann`
+                // (so the user doesn't need an explicit `<T>` syntax)
+                // and emits per-shape recursive parser calls into the
+                // runtime helpers. Other call sites of `JSON.parse`
+                // (fn-arg / fn-return) hit ssa_lower's lower_expr
+                // path and will need a similar caller-driven hook
+                // when those shapes show up — for now, only LetDecl
+                // form is wired.
+                if let Some(slot_ty_for_parse) =
+                    self.try_resolve_type_ann(type_ann.as_deref())
+                    && self.is_json_parse_call(*init)
+                {
+                    let text_eid = if let Expr::Call { args, .. } =
+                        self.ast.get_expr(*init).clone()
+                    {
+                        args[0]
+                    } else {
+                        unreachable!()
+                    };
+                    let text_op = self.lower_expr(text_eid);
+                    let cursor = self.alloca(Type::I64, Some("__json_pos"));
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Store(
+                            Operand::ConstI64(0),
+                            Operand::Value(cursor),
+                            0,
+                        ),
+                    );
+                    let result = self.lower_json_parse(
+                        text_op,
+                        Operand::Value(cursor),
+                        slot_ty_for_parse,
+                    );
+                    // The text Str — if it was a freshly-owned op
+                    // (literal / call result / concat), drop it now;
+                    // a borrow (Ident / Member / Index) is the source
+                    // binding's responsibility.
+                    if self.expr_is_fresh_owned(text_eid)
+                        && self.operand_ty(&text_op).is_refcounted()
+                    {
+                        self.emit_drop_value(text_op, self.operand_ty(&text_op));
+                    }
+                    // Stash result into the regular let-decl path's
+                    // storage. We synthesize a slot directly because
+                    // the fall-through path expects to discover ty
+                    // from init_val + type_ann, which already aligns.
+                    let slot = self.alloca(slot_ty_for_parse, Some(name));
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Store(result, Operand::Value(slot), 0),
+                    );
+                    let cur_depth = self.scope_stack.len() - 1;
+                    self.locals.insert(
+                        name.clone(),
+                        LocalInfo {
+                            slot,
+                            ty: slot_ty_for_parse,
+                            moved: false,
+                            scope_depth: cur_depth,
+                        },
+                    );
+                    let top = self.scope_stack.last_mut().expect("scope frame");
+                    top.push(name.clone());
+                    return;
+                }
                 // K.3 / K.4 — top-level data global. Lower init, store
                 // into the module's global slot via GlobalRef + Store,
                 // skip the alloca / locals registration. Only fires
