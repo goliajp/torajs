@@ -58,7 +58,9 @@ gap to fix. File an issue.
 ### Install
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/golia-jp/torajs/main/install.sh | bash
+curl -fsSL https://install.torajs.com | bash
+# or, pinned to GitHub raw:
+curl -fsSL https://raw.githubusercontent.com/goliajp/torajs/main/install.sh | bash
 ```
 
 Or build from source: `cargo build --release -p tr`.

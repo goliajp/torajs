@@ -1,0 +1,34 @@
+# install.torajs.com — vanity entry point for the curl-pipe-bash
+# installer. Single Caddy site, no app behind it; we just redirect
+# to GitHub raw so the install script stays the same artifact users
+# read in the public repo.
+#
+# Deploy:
+#   1. CNAME `install.torajs.com → t01.golia.jp` (or whatever DNS
+#      target points at the t01 Caddy host)
+#   2. Add this site block to CaddyStore (the canonical Caddy config
+#      managed via `devops caddy deploy t01`)
+#   3. `devops caddy deploy t01` to push + reload
+#
+# Verification after deploy:
+#   curl -fsSI https://install.torajs.com | head -3
+#     → HTTP/2 302 Found
+#     → location: https://raw.githubusercontent.com/goliajp/torajs/main/install.sh
+#   curl -fsSL https://install.torajs.com | head -3
+#     → first lines of install.sh
+
+install.torajs.com, www.install.torajs.com {
+	# Always redirect to the canonical install script in the public
+	# repo's `main` branch. 302 (temporary) so we can swap targets
+	# later (e.g. point at a release-tagged install.sh, or a
+	# torajs.com-hosted static copy) without users seeing a stale
+	# 301 cached.
+	redir https://raw.githubusercontent.com/goliajp/torajs/main/install.sh 302
+
+	# Permissive log target so devops can correlate install hits
+	# with downstream release-artifact downloads on github.
+	log {
+		output file /var/log/caddy/install.torajs.com.log
+		format console
+	}
+}

@@ -3,13 +3,18 @@
 ## Install
 
 ```sh
-# v0.1 ships pre-built binaries on the release page. Replace the
-# version + platform with what your machine needs.
-curl -L https://github.com/golia-jp/torajs/releases/download/v0.1.0-beta/tr-v0.1.0-beta-darwin-arm64.tar.gz \
-  | tar -xz -C ~/.torajs/bin/
+# easiest path — fetches the latest release for your platform
+curl -fsSL https://install.torajs.com | bash
 
 export PATH="$HOME/.torajs/bin:$PATH"
 tr --version
+```
+
+Or pin a specific tarball directly:
+
+```sh
+curl -L https://github.com/goliajp/torajs/releases/download/v0.1.0-beta/tr-v0.1.0-beta-darwin-arm64.tar.gz \
+  | tar -xz -C ~/.torajs/bin/
 ```
 
 (Source builds: `cargo build --release -p tr` from the repo root
@@ -87,7 +92,7 @@ Empty diff means tr's output matches bun byte-for-byte.
 
 ## Where to file feedback
 
-- Issues / feature requests: `github.com/golia-jp/torajs/issues`
+- Issues / feature requests: `github.com/goliajp/torajs/issues`
 - Performance regressions: include the bench case + `tr --version`
   + your CPU model in the report
 - Anything bun runs that tr rejects: include the `.ts` source +

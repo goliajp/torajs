@@ -3,17 +3,17 @@
 # detected platform, extract to ~/.torajs, optionally PATH-hint.
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/<org>/torajs/main/install.sh | bash
-#   curl -fsSL https://install.torajs.com | bash    # if vanity domain wired
+#   curl -fsSL https://install.torajs.com | bash                # vanity domain
+#   curl -fsSL https://raw.githubusercontent.com/goliajp/torajs/main/install.sh | bash
 #
 # Override:
-#   TORAJS_REPO=org/torajs       — repo to fetch from (default below)
+#   TORAJS_REPO=goliajp/torajs   — repo to fetch from (default below)
 #   TORAJS_VERSION=v0.1.0-beta   — pin a specific version
 #   TORAJS_PREFIX=$HOME/.torajs  — install root
 
 set -euo pipefail
 
-repo="${TORAJS_REPO:-golia-jp/torajs}"
+repo="${TORAJS_REPO:-goliajp/torajs}"
 prefix="${TORAJS_PREFIX:-$HOME/.torajs}"
 version="${TORAJS_VERSION:-}"
 

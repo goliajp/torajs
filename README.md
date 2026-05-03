@@ -32,7 +32,7 @@ full feature table + per-feature roadmap-phase mapping.
 
 ```sh
 # install (v0.1.0-beta release)
-curl -fsSL https://raw.githubusercontent.com/golia-jp/torajs/main/install.sh | bash
+curl -fsSL https://install.torajs.com | bash
 
 # JIT-style: compile + run, cached at ~/.torajs/cache
 tr run hello.ts
