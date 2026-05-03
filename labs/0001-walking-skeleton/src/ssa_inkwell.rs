@@ -2491,6 +2491,15 @@ impl<'a, 'ctx> FnLower<'a, 'ctx> {
                     .unwrap();
                 Some(BasicValueEnum::FloatValue(r))
             }
+            InstKind::ZExtBoolToI64(op) => {
+                let v = self.operand_int(op);
+                let i64_ty = self.ctx.i64_type();
+                let r = self
+                    .builder
+                    .build_int_z_extend(v, i64_ty, "")
+                    .unwrap();
+                Some(BasicValueEnum::IntValue(r))
+            }
             InstKind::StringRef(sid) => {
                 let g = self.string_globals[sid.0 as usize];
                 Some(BasicValueEnum::PointerValue(g.as_pointer_value()))

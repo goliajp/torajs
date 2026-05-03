@@ -318,6 +318,11 @@ pub enum InstKind {
     /// `%v = sitofp <i64-operand>` — signed integer to f64 cast. Used to
     /// promote i64 operands when mixed with f64 in arithmetic / comparisons.
     SiToFp(Operand),
+    /// `%v = zext <bool-operand>` — zero-extend an i1 / Bool value to i64.
+    /// Needed when storing booleans into uniform 8-byte slots (`Array<bool>`,
+    /// `Object` fields with bool type, etc.) and when passing them to
+    /// runtime intrinsics whose signature is i64-shaped.
+    ZExtBoolToI64(Operand),
     /// `%v = string_ref <id>` — yields a (ptr, len) pair to a global string
     /// constant. Result type is Ptr; the length lives in the module's
     /// `strings` table alongside the bytes.
@@ -702,6 +707,10 @@ impl Function {
             }
             InstKind::SiToFp(op) => {
                 write!(w, "sitofp ")?;
+                self.write_operand(w, op)?;
+            }
+            InstKind::ZExtBoolToI64(op) => {
+                write!(w, "zext_bool ")?;
                 self.write_operand(w, op)?;
             }
             InstKind::StringRef(s) => {

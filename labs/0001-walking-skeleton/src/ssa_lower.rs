@@ -9185,7 +9185,7 @@ impl<'a> LowerCtx<'a> {
                             arr_ty,
                             None,
                         );
-                        let val = self.lower_expr(args[0]);
+                        let mut val = self.lower_expr(args[0]);
                         // Phase B refcount: for refcounted element
                         // types, share ownership via inc instead of
                         // consuming the source — caller's drop dec's,
@@ -9197,6 +9197,9 @@ impl<'a> LowerCtx<'a> {
                         if !elem_ty.is_refcounted() {
                             self.consume_if_ident(args[0]);
                         }
+                        // Boolean elements need widening to the uniform
+                        // 8-byte slot the runtime helper expects.
+                        val = self.coerce_bool_to_i64(val);
                         let new_arr = self.f.append_inst(
                             self.cur_block,
                             InstKind::Call(
@@ -13475,6 +13478,32 @@ impl<'a> LowerCtx<'a> {
             // specific Type::Str / Type::Obj / etc. read it from the
             // sink instead.
             Operand::ConstPtrNull => Type::Ptr,
+        }
+    }
+
+    /// Widen a Bool / i1 operand to the i64-shaped slot used by uniform
+    /// runtime helpers (array push, object field store, hashmap value,
+    /// throw_value). Constants are rewritten in place; SSA values go
+    /// through an explicit `ZExtBoolToI64` instruction. No-op when the
+    /// operand is already i64-shaped.
+    fn coerce_bool_to_i64(&mut self, op: Operand) -> Operand {
+        match self.operand_ty(&op) {
+            Type::Bool => match op {
+                Operand::ConstBool(b) => {
+                    Operand::ConstI64(if b { 1 } else { 0 })
+                }
+                Operand::Value(_) => {
+                    let v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::ZExtBoolToI64(op),
+                        Type::I64,
+                        None,
+                    );
+                    Operand::Value(v)
+                }
+                _ => op,
+            },
+            _ => op,
         }
     }
 
