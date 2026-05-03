@@ -318,6 +318,14 @@ fn resolve_type_ann_full(
         "string" => Some(Type::String),
         "boolean" => Some(Type::Boolean),
         "void" => Some(Type::Void),
+        // `any` is recognized as a real type in the resolver only as a
+        // late-stage fallback — `desugar_implicit_generics` rewrites
+        // every annotated `: any` to a fresh TypeVar before this layer
+        // sees it. A bare `any` reaching here means the AST pre-pass
+        // was bypassed (e.g. a custom front-end test wiring), and we
+        // accept it rather than reject so the surface stays self-
+        // consistent.
+        "any" => Some(Type::Any),
         // User-declared struct alias (P2.4): `type Point = { x: number, y: number }`
         // adds `Point` to the aliases map. Resolution returns the
         // structural Type::Struct directly — no nominal layer above.

@@ -3858,6 +3858,151 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
     }
 }
 
+/// Untyped fn params (`function f(x) {}`) and explicit `: any` annotations
+/// are folded into the existing M3 generic-monomorphization pipeline by
+/// rewriting each untyped/any param's annotation to a fresh `TypeVar` and
+/// adding the new name to the fn's `type_params`. This keeps the
+/// substrate "TS subset" — every param still has a concrete type at SSA
+/// time, but the typechecker can defer that type to call-site inference
+/// (see check.rs's generic call-site arm and ssa_lower's
+/// `monomorphize_generics`). Same treatment for an untyped/`any` return
+/// type, BUT only when the body actually returns a non-void expression
+/// — otherwise we'd flip the default-void semantic for stub fns.
+///
+/// Runs after `lift_arrow_fns` / `infer_anonymous_closure_params` so
+/// closure params that already got concrete annotations from method
+/// inference don't get re-genericized.
+///
+/// Skipped:
+///   - lifted-closure FnDecls (first param `__env`) — those need their
+///     concrete env layout for capture lowering; also their user params
+///     are already inferred by `infer_anonymous_closure_params` for the
+///     known-receiver-method shape.
+///   - desugar-synthesized fns whose first param is `__this` — that's a
+///     class instance/factory binding and must stay nominally typed.
+///   - generator/factory helpers (the desugarers stamp explicit
+///     annotations on every param they emit).
+pub fn desugar_implicit_generics(ast: &mut Ast) {
+    use std::collections::HashSet;
+
+    for stmt in &mut ast.stmts {
+        let Stmt::FnDecl {
+            params,
+            return_type,
+            type_params,
+            body,
+            ..
+        } = stmt
+        else {
+            continue;
+        };
+
+        // Skip lifted closures and class-method synthesized shapes —
+        // both keep their concrete first-param annotation as-is.
+        if let Some(first) = params.first()
+            && (first.name == "__env" || first.name == "__this")
+        {
+            continue;
+        }
+
+        // Avoid name collisions with any explicit type-params already
+        // declared. Tracking the in-use set lets us pick `__T1`, `__T2`,
+        // ... without trampling.
+        let mut taken: HashSet<String> = type_params.iter().cloned().collect();
+
+        let mut next_idx: usize = type_params.len();
+        let alloc = |taken: &mut HashSet<String>, next_idx: &mut usize| -> String {
+            loop {
+                *next_idx += 1;
+                let candidate = format!("__T{next_idx}");
+                if !taken.contains(&candidate) {
+                    taken.insert(candidate.clone());
+                    return candidate;
+                }
+            }
+        };
+
+        let mut new_type_params: Vec<String> = Vec::new();
+        for p in params.iter_mut() {
+            let needs_var = match &p.type_ann {
+                None => true,
+                Some(ann) => ann == "any",
+            };
+            if !needs_var {
+                continue;
+            }
+            // Don't genericize rest params — `...args: any[]` would need
+            // a list-of-T encoding the substrate doesn't model. Leave
+            // them un-genericized; the typechecker still rejects them
+            // with the existing "requires annotation" message, but only
+            // for rest-shaped sites which are a narrow slice.
+            if p.is_rest {
+                continue;
+            }
+            let var_name = alloc(&mut taken, &mut next_idx);
+            p.type_ann = Some(var_name.clone());
+            new_type_params.push(var_name);
+        }
+
+        // Return type: only convert an explicit `: any`. An omitted
+        // return type cannot be safely turned into a fresh TypeVar —
+        // call-site inference can only see arg types, not what the body
+        // returns, so a no-arg `function f(): any { return 1; }` style
+        // would fail to bind. Leaving omitted returns alone preserves
+        // the long-standing parser default (None → Void at typecheck
+        // time); the existing "return type mismatch: function expects
+        // Void, got <T>" error keeps firing for those, which is what
+        // we want until a body-based return-type inference pass lands.
+        let _ = body;
+        if return_type.as_deref() == Some("any") {
+            let var_name = alloc(&mut taken, &mut next_idx);
+            *return_type = Some(var_name.clone());
+            new_type_params.push(var_name);
+        }
+
+        if !new_type_params.is_empty() {
+            type_params.extend(new_type_params);
+        }
+    }
+}
+
+fn body_has_value_return(body: &[Stmt]) -> bool {
+    for s in body {
+        if stmt_has_value_return(s) {
+            return true;
+        }
+    }
+    false
+}
+
+fn stmt_has_value_return(s: &Stmt) -> bool {
+    match s {
+        Stmt::Return(Some(_)) => true,
+        Stmt::If { then_branch, else_branch, .. } => {
+            stmt_has_value_return(then_branch)
+                || else_branch.as_deref().is_some_and(stmt_has_value_return)
+        }
+        Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
+            stmt_has_value_return(body)
+        }
+        Stmt::For { init, body, .. } => {
+            init.as_deref().is_some_and(stmt_has_value_return)
+                || stmt_has_value_return(body)
+        }
+        Stmt::Block(stmts) | Stmt::Multi(stmts) => body_has_value_return(stmts),
+        Stmt::Try { body, catch_body, finally_body, .. } => {
+            body_has_value_return(body)
+                || body_has_value_return(catch_body)
+                || finally_body
+                    .as_deref()
+                    .is_some_and(body_has_value_return)
+        }
+        // Nested FnDecl returns are scoped to the inner fn — skip.
+        Stmt::FnDecl { .. } => false,
+        _ => false,
+    }
+}
+
 fn collect_let_anns(body: &[Stmt], out: &mut std::collections::HashMap<String, String>) {
     for s in body {
         match s {

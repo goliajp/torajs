@@ -24,19 +24,19 @@ class Test262Error {
   }
 }
 
-function __t262_assert(actual: boolean, msg: string): void {
+function __t262_assert(actual: boolean, msg: string = ""): void {
   if (!actual) {
     throw new Test262Error(msg);
   }
 }
 
-function __t262_sameValue<T>(actual: T, expected: T, msg: string): void {
+function __t262_sameValue<T>(actual: T, expected: T, msg: string = ""): void {
   if (actual !== expected) {
     throw new Test262Error(msg);
   }
 }
 
-function __t262_notSameValue<T>(actual: T, expected: T, msg: string): void {
+function __t262_notSameValue<T>(actual: T, expected: T, msg: string = ""): void {
   if (actual === expected) {
     throw new Test262Error(msg);
   }
@@ -47,7 +47,7 @@ function __t262_notSameValue<T>(actual: T, expected: T, msg: string): void {
 // Test262 also exposes `assert.throws(ErrorType, fn, msg)` — the
 // rewrite turns that into `__t262_throws`.
 
-function __t262_throws_runtime(thunk: () => void, msg: string): void {
+function __t262_throws_runtime(thunk: () => void, msg: string = ""): void {
   let threw: boolean = false;
   try {
     thunk();
