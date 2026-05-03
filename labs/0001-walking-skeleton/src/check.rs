@@ -1242,6 +1242,14 @@ impl Checker {
                 match &t_result {
                     Ok(Type::Number) | Ok(Type::String) | Ok(Type::Boolean) => {}
                     Ok(Type::Array(_)) | Ok(Type::Struct(_)) => {}
+                    // `throw null` and `throw <Nullable<T>>` are valid
+                    // JS — null lowers to the same 0-sentinel pointer
+                    // shape as Obj / Arr / Str, so the throw_value slot
+                    // can hold it. The catch param's annotation
+                    // determines how the value is interpreted (a typed
+                    // `catch (e: number)` against an actual null throw
+                    // is the user's bug, not the runtime's).
+                    Ok(Type::Null) | Ok(Type::Nullable(_)) => {}
                     Ok(other) => self.errors.push(format!(
                         "throw value must be 8-byte-shaped, got {other:?}"
                     )),

@@ -160,10 +160,14 @@ impl Type {
                 | Type::Bool
                 | Type::Void
                 | Type::FnSig(_)
+                | Type::Ptr
         )
         // Str + Obj + Arr are heap-owned, affine.
         // FnSig is just a fn pointer — Copy semantics, no drop.
         // Closure is heap-owned (env block) — non-Copy.
+        // Ptr is a raw pointer (env handles, drop-fn ptrs, null
+        // sentinels) — non-owning, no drop. Bindings of `let x = null`
+        // and similar pointer-shaped slots are POD by reference.
     }
 
     /// Phase B refcount: returns true if the heap object for this type
