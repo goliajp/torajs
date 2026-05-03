@@ -10,9 +10,14 @@ import { useEffect, useState } from 'react'
  * center, with thin amber rules separating sections — the visual
  * cadence is a magazine spread, not a SaaS tile grid.
  *
+ * Content density modeled on bun.sh: hero + headline numbers +
+ * inline install + "what you get" cards + perf chart + tabbed
+ * code samples + status + footer. Each section answers the
+ * "why should I install this?" question once more.
+ *
  * Data is hardcoded against the bench scoreboard committed in this
- * repo (README.md headline numbers, `bench/results/*`). When the
- * scoreboard ships a new run, refresh `BENCH` below.
+ * repo (README.md headline numbers, `bench/results/*`). Refresh
+ * `BENCH` below when the scoreboard publishes a new run.
  */
 export function Landing() {
   return (
@@ -20,7 +25,7 @@ export function Landing() {
       <Header />
       <Hero />
       <PaintLine spacing="lg" />
-      <Install />
+      <WhyGrid />
       <PaintLine spacing="md" />
       <CodeShowcase />
       <PaintLine spacing="md" />
@@ -34,21 +39,28 @@ export function Landing() {
   )
 }
 
+/* ------------------------------------------------------------------ */
+/* Header                                                             */
+/* ------------------------------------------------------------------ */
+
 function Header() {
   return (
-    <header className="settle relative z-10 mx-auto flex max-w-[960px] items-center justify-between px-6 pt-7 sm:pt-9">
+    <header className="settle relative z-10 mx-auto flex max-w-[1080px] items-center justify-between px-6 pt-6 sm:pt-8">
       <a
         href="/"
-        className="wordmark-roman text-bone text-[28px] tracking-tight"
+        className="wordmark-roman text-bone text-[26px] tracking-tight"
         style={{ letterSpacing: '-0.05em' }}
       >
         <span className="text-tiger">tora</span>
         <span className="opacity-90">js</span>
       </a>
 
-      <nav className="text-bone-dim flex items-center gap-6 font-mono text-[12px] tracking-[0.18em] uppercase">
-        <a className="hover:text-tiger-bright transition-colors" href="#install">
-          Install
+      <nav className="text-bone-dim hidden items-center gap-6 font-mono text-[11.5px] tracking-[0.18em] uppercase sm:flex">
+        <a className="hover:text-tiger-bright transition-colors" href="#why">
+          Why
+        </a>
+        <a className="hover:text-tiger-bright transition-colors" href="#code">
+          Code
         </a>
         <a className="hover:text-tiger-bright transition-colors" href="#bench">
           Bench
@@ -67,15 +79,32 @@ function Header() {
   )
 }
 
+/* ------------------------------------------------------------------ */
+/* Hero — wordmark + tagline + install + headline numbers all in     */
+/* the first viewport (bun.sh-shaped density)                         */
+/* ------------------------------------------------------------------ */
+
 function Hero() {
+  const cmd = 'curl -fsSL https://install.torajs.com | bash'
+  const [copied, setCopied] = useState(false)
+  const onCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(cmd)
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1500)
+    } catch {
+      /* no clipboard — silent fallback, the command stays selectable */
+    }
+  }
+
   return (
-    <section className="relative mx-auto max-w-[960px] px-6 pt-16 pb-12 sm:pt-24 sm:pb-20">
+    <section className="relative mx-auto max-w-[1080px] px-6 pt-12 pb-10 sm:pt-20 sm:pb-16">
       <p className="eyebrow settle" style={{ animationDelay: '60ms' }}>
         v0.1.0-beta · TypeScript runtime · AOT to native
       </p>
 
       <h1
-        className="wordmark settle text-bone mt-6 text-[18vw] leading-[0.82] sm:mt-8 sm:text-[164px]"
+        className="wordmark settle text-bone mt-5 text-[20vw] leading-[0.82] sm:mt-7 sm:text-[180px]"
         style={{ animationDelay: '160ms' }}
       >
         <span className="text-tiger">tora</span>
@@ -84,34 +113,63 @@ function Hero() {
       </h1>
 
       <p
-        className="settle text-bone-dim mt-10 max-w-[640px] text-[19px] leading-[1.5] sm:text-[22px]"
+        className="settle text-bone-dim mt-8 max-w-[700px] text-[20px] leading-[1.45] sm:text-[26px]"
         style={{ animationDelay: '320ms', fontWeight: 350 }}
       >
-        The same TypeScript programs <Inline mark>bun</Inline> runs, with the same semantics —{' '}
-        <Inline mark>compiled ahead-of-time</Inline> to a tiny native binary.{' '}
-        <span className="text-bone">~1.3 ms cold start.</span>{' '}
-        <span className="text-bone">~40 KB statically linked.</span> No GC pauses, no V8 footprint.
+        A TypeScript runtime that runs the same programs <Inline mark>bun</Inline> runs, with the
+        same semantics — compiled ahead-of-time to a tiny native binary.
       </p>
 
       <div
-        className="settle mt-12 flex flex-wrap items-center gap-4"
-        style={{ animationDelay: '460ms' }}
+        id="install"
+        className="settle mt-10 grid gap-5 sm:mt-12 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-6"
+        style={{ animationDelay: '440ms' }}
       >
-        <a
-          href="#install"
-          className="text-ink bg-tiger hover:bg-tiger-bright group inline-flex items-center gap-3 px-5 py-3 font-mono text-[12.5px] tracking-[0.18em] uppercase transition-colors"
+        <button
+          onClick={onCopy}
+          className="code-block group relative overflow-hidden text-left transition-transform hover:-translate-y-px"
+          aria-label="Copy install command"
         >
-          Install
-          <span aria-hidden className="transition-transform group-hover:translate-x-1">
-            →
-          </span>
-        </a>
-        <a
-          href="https://github.com/goliajp/torajs"
-          className="border-rule text-bone hover:border-tiger hover:text-tiger-bright inline-flex items-center gap-3 border px-5 py-3 font-mono text-[12.5px] tracking-[0.18em] uppercase transition-colors"
-        >
-          Source on GitHub
-        </a>
+          <div className="border-rule text-bone-faint flex items-center justify-between border-b px-5 py-2 font-mono text-[10.5px] tracking-[0.2em] uppercase">
+            <span>shell · macOS arm64 · Linux x64</span>
+            <span className="group-hover:text-tiger-bright transition-colors">
+              {copied ? 'copied ✓' : 'click to copy'}
+            </span>
+          </div>
+          <pre className="px-5 py-5 font-mono text-[15.5px] leading-[1.55] sm:text-[17px]">
+            <span className="text-bone-faint">$</span> <span className="text-bone">curl</span>{' '}
+            <span className="tk-num">-fsSL</span>{' '}
+            <span className="tk-str">https://install.torajs.com</span>{' '}
+            <span className="text-bone">|</span> <span className="text-tiger">bash</span>
+            <span className="cursor-blink" />
+          </pre>
+        </button>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <a
+            href="https://github.com/goliajp/torajs"
+            className="border-rule text-bone hover:border-tiger hover:text-tiger-bright inline-flex items-center gap-2 border px-5 py-3 font-mono text-[11.5px] tracking-[0.18em] uppercase transition-colors"
+          >
+            GitHub
+            <span aria-hidden>↗</span>
+          </a>
+          <a
+            href="https://github.com/goliajp/torajs/blob/main/docs/getting-started.md"
+            className="text-bone-dim hover:text-tiger-bright inline-flex items-center gap-2 px-2 py-3 font-mono text-[11.5px] tracking-[0.18em] uppercase transition-colors"
+          >
+            Docs →
+          </a>
+        </div>
+      </div>
+
+      <div
+        className="settle border-rule/70 sm:divide-rule/70 mt-12 grid gap-4 border-y py-7 sm:mt-16 sm:grid-cols-4 sm:gap-0 sm:divide-x"
+        style={{ animationDelay: '560ms' }}
+      >
+        <Stat label="Cold start" value="~1.3 ms" hint="tr run hello.ts" />
+        <Stat label="Binary size" value="~40 KB" hint="tr build, statically linked" />
+        <Stat label="Bench scoreboard" value="19 / 19" hint="cases tr build wins vs bun" />
+        <Stat label="bun-parity" value="99.7 %" hint="of cases tr accepts" last />
       </div>
 
       <Sigil />
@@ -119,16 +177,16 @@ function Hero() {
   )
 }
 
-/* Decorative tiger-stripe glyph in the upper-right corner of the
- * hero. Pure SVG — strokes only, no fills. Echoes the wordmark
- * accent without competing with it. */
+/* ------------------------------------------------------------------ */
+/* Decorative tiger-stripe glyph in the hero corner.                  */
+/* ------------------------------------------------------------------ */
+
 function Sigil() {
   return (
     <svg
       aria-hidden
       viewBox="0 0 240 320"
-      className="absolute top-12 right-6 hidden h-[280px] w-auto opacity-50 sm:block"
-      style={{ animationDelay: '600ms' }}
+      className="absolute top-12 right-6 hidden h-[300px] w-auto opacity-60 lg:block"
     >
       <g
         fill="none"
@@ -143,9 +201,7 @@ function Sigil() {
         <path d="M124,32 L124,300" opacity="0.35" />
         <path d="M152,16 L152,304" opacity="0.45" />
         <path d="M180,40 L180,288" opacity="0.3" />
-        {/* horizontal break — the "stripe break" motif */}
         <path d="M20,160 L210,160" opacity="0.2" stroke="white" />
-        {/* small marker dots */}
         <circle cx="40" cy="160" r="2.4" fill="currentColor" stroke="none" />
         <circle cx="96" cy="160" r="2.4" fill="currentColor" stroke="none" />
         <circle cx="152" cy="160" r="2.4" fill="currentColor" stroke="none" />
@@ -154,101 +210,139 @@ function Sigil() {
   )
 }
 
-function Install() {
-  const cmd = 'curl -fsSL https://install.torajs.com | bash'
-  const [copied, setCopied] = useState(false)
+/* ------------------------------------------------------------------ */
+/* Why grid — the bun.sh-style "what you get" 4-card pitch.           */
+/* ------------------------------------------------------------------ */
 
-  const onCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(cmd)
-      setCopied(true)
-      window.setTimeout(() => setCopied(false), 1500)
-    } catch {
-      /* clipboard API not available; ignore silently */
-    }
-  }
+const WHY: { tag: string; title: string; body: string; figure: string; figureLabel: string }[] = [
+  {
+    tag: '01',
+    title: 'AOT to a real binary',
+    body: 'Same compiler path serves `tr build` and `tr run`. No V8 bundle, no JIT, no GC pauses. Static, statically-linked, ready to drop into a container.',
+    figure: '40 KB',
+    figureLabel: 'tr build · static binary',
+  },
+  {
+    tag: '02',
+    title: 'Bun is the oracle',
+    body: "Anything bun runs that tr accepts produces bun-identical output. When behavior is unclear, write the equivalent in TS, run it in bun, and match. Coverage grows; semantics don't drift.",
+    figure: '99.67 %',
+    figureLabel: 'of tr-accepted test262 cases match bun',
+  },
+  {
+    tag: '03',
+    title: 'Cold start measured in microseconds',
+    body: 'No engine warm-up. From `exec` to first user line in ≈ 1.3 ms on Apple Silicon. The whole runtime is the binary you wrote.',
+    figure: '1.3 ms',
+    figureLabel: 'startup case · M4 Pro',
+  },
+  {
+    tag: '04',
+    title: 'TS as you actually write it',
+    body: 'Classes, generics, closures, generators, try / catch, JSON, multi-file imports, the full string / array / Math / Number stdlib — implemented and verified, end-to-end.',
+    figure: '301 / 301',
+    figureLabel: 'three-way conformance · bun + tr-jit + tr-aot',
+  },
+]
 
+function WhyGrid() {
   return (
-    <section id="install" className="mx-auto max-w-[960px] px-6 py-14 sm:py-20">
-      <SectionLabel index="01" label="Install" />
+    <section id="why" className="mx-auto max-w-[1080px] px-6 py-14 sm:py-20">
+      <SectionLabel index="01" label="Why torajs" />
 
-      <div className="mt-8 grid gap-10 sm:grid-cols-[1fr_auto] sm:items-end">
-        <div>
-          <p className="text-bone-dim max-w-[520px] text-[16px] leading-[1.55]">
-            One line, one platform-detected tarball, signature-verified before extract. Drops the{' '}
-            <Inline mono>tr</Inline> binary into <Inline mono>~/.torajs/bin</Inline>, prints a PATH
-            hint, exits.
-          </p>
-        </div>
-        <p className="text-bone-faint hidden font-mono text-[11px] tracking-[0.2em] uppercase sm:block">
-          macOS arm64 · Linux x64
-        </p>
-      </div>
+      <h2 className="wordmark-roman text-bone mt-6 max-w-[760px] text-[44px] leading-[0.95] sm:mt-8 sm:text-[64px]">
+        TypeScript, <span className="text-tiger">compiled</span>{' '}
+        <span className="text-bone">— not just transpiled.</span>
+      </h2>
+      <p className="text-bone-dim mt-6 max-w-[640px] text-[16.5px] leading-[1.55]">
+        Most runtimes optimize the latency between source and JIT. tr skips the JIT entirely. Same
+        TS, all the way down to a binary.
+      </p>
 
-      <div className="code-block group relative mt-8 overflow-hidden">
-        <div className="border-rule text-bone-faint flex items-center justify-between border-b px-5 py-2 font-mono text-[11px] tracking-[0.2em] uppercase">
-          <span>shell</span>
-          <button
-            onClick={onCopy}
-            className="text-bone-dim hover:text-tiger-bright transition-colors"
-            aria-label="Copy install command"
+      <ul className="border-rule/70 bg-rule/40 mt-12 grid gap-px overflow-hidden border sm:mt-16 sm:grid-cols-2">
+        {WHY.map((item) => (
+          <li
+            key={item.tag}
+            className="bg-ink-2/85 group hover:bg-ink-3 flex flex-col gap-6 px-6 py-8 transition-colors sm:px-8 sm:py-10"
           >
-            {copied ? 'copied ✓' : 'copy'}
-          </button>
-        </div>
-        <pre className="px-5 py-5 font-mono text-[15px] leading-[1.6] sm:text-[16px]">
-          <span className="text-bone-faint">$</span> <span className="text-bone">curl</span>{' '}
-          <span className="tk-num">-fsSL</span>{' '}
-          <span className="tk-str">https://install.torajs.com</span>{' '}
-          <span className="text-bone">|</span> <span className="text-tiger">bash</span>
-          <span className="cursor-blink" />
-        </pre>
-      </div>
-
-      <div className="text-bone-faint mt-6 grid gap-3 font-mono text-[12px] sm:grid-cols-3">
-        <Stat label="Cold start" value="~1.3 ms" hint="tr run hello.ts" />
-        <Stat label="Binary size" value="~40 KB" hint="tr build, statically linked" />
-        <Stat label="Compile" value="~50 ms" hint="cached on rerun" />
-      </div>
+            <div className="flex items-center justify-between">
+              <span className="text-tiger font-mono text-[11px] tracking-[0.2em] uppercase">
+                {item.tag}
+              </span>
+              <span className="text-bone-faint font-mono text-[10.5px] tracking-[0.18em] uppercase">
+                {item.figureLabel}
+              </span>
+            </div>
+            <h3 className="wordmark-roman text-bone text-[28px] leading-[1.05] sm:text-[34px]">
+              {item.title}
+            </h3>
+            <p className="text-bone-dim text-[14.5px] leading-[1.6]">{item.body}</p>
+            <p className="font-display num text-tiger-bright mt-auto text-[40px] font-medium tracking-tight sm:text-[52px]">
+              {item.figure}
+            </p>
+          </li>
+        ))}
+      </ul>
     </section>
   )
 }
 
-function CodeShowcase() {
-  return (
-    <section className="mx-auto max-w-[960px] px-6 py-14 sm:py-20">
-      <SectionLabel index="02" label="The same TS, faster" />
+/* ------------------------------------------------------------------ */
+/* Code showcase — tabbed examples (sha256 / fizz-buzz / json)        */
+/* ------------------------------------------------------------------ */
 
-      <div className="mt-8 grid gap-10 sm:grid-cols-[1.1fr_1fr] sm:gap-14">
+type TabKey = 'sha256' | 'fizzbuzz' | 'json'
+
+function CodeShowcase() {
+  const [tab, setTab] = useState<TabKey>('sha256')
+
+  return (
+    <section id="code" className="mx-auto max-w-[1080px] px-6 py-14 sm:py-20">
+      <SectionLabel index="02" label="Real TypeScript" />
+
+      <div className="mt-8 grid gap-12 sm:grid-cols-[1fr_1.15fr] sm:items-start sm:gap-16">
         <div>
-          <h2 className="wordmark-roman text-bone text-[40px] sm:text-[56px]">
+          <h2 className="wordmark-roman text-bone text-[40px] leading-[0.95] sm:text-[56px]">
             What you write is what bun runs.
           </h2>
-          <p className="text-bone-dim mt-6 max-w-[480px] text-[16px] leading-[1.6]">
-            Classes, generics, closures, generators, try/catch, JSON, multi-file imports, the full
-            string / array / Math stdlib — implemented and verified against bun byte-for-byte. The
-            runtime differentiator is the only differentiator: AOT to a real native binary, ARC
-            under a universal heap header, no tracing GC.
+          <p className="text-bone-dim mt-6 max-w-[440px] text-[15.5px] leading-[1.6]">
+            Every snippet on the right is a real example from the repo.
+            <br />
+            <br />
+            Run them locally:
           </p>
-          <p className="text-bone-faint mt-6 font-mono text-[12px] tracking-[0.18em] uppercase">
-            from{' '}
-            <a
-              className="link-amber"
-              href="https://github.com/goliajp/torajs/tree/main/examples/sha256"
-            >
-              examples / sha256.ts
+          <pre className="text-bone-dim mt-4 font-mono text-[13px]">
+            <span className="text-bone-faint">$</span> <span className="text-tiger">tr run</span>{' '}
+            examples/sha256/sha256.ts
+          </pre>
+          <p className="text-bone-faint mt-8 font-mono text-[11px] tracking-[0.18em] uppercase">
+            More in{' '}
+            <a className="link-amber" href="https://github.com/goliajp/torajs/tree/main/examples">
+              examples /
             </a>
           </p>
         </div>
 
-        <div className="code-block overflow-hidden">
-          <div className="border-rule text-bone-faint flex items-center justify-between border-b px-5 py-2 font-mono text-[11px] tracking-[0.2em] uppercase">
-            <span>sha256.ts</span>
-            <span className="text-tiger-bright">tr run · bun parity</span>
+        <div className="code-block flex flex-col overflow-hidden">
+          <div className="border-rule flex items-center gap-1 border-b px-2">
+            <Tab active={tab === 'sha256'} onClick={() => setTab('sha256')}>
+              sha256.ts
+            </Tab>
+            <Tab active={tab === 'fizzbuzz'} onClick={() => setTab('fizzbuzz')}>
+              fizz-buzz.ts
+            </Tab>
+            <Tab active={tab === 'json'} onClick={() => setTab('json')}>
+              json-pretty.ts
+            </Tab>
+            <span className="text-tiger-bright ml-auto py-2 pr-3 font-mono text-[10.5px] tracking-[0.18em] uppercase">
+              tr ↔ bun · parity
+            </span>
           </div>
-          <pre className="overflow-x-auto px-5 py-5 font-mono text-[12.5px] leading-[1.6]">
+          <pre className="overflow-x-auto px-5 py-5 font-mono text-[12.5px] leading-[1.65] sm:text-[13.5px]">
             <code>
-              <Sample />
+              {tab === 'sha256' && <Sha256Sample />}
+              {tab === 'fizzbuzz' && <FizzBuzzSample />}
+              {tab === 'json' && <JsonSample />}
             </code>
           </pre>
         </div>
@@ -257,14 +351,32 @@ function CodeShowcase() {
   )
 }
 
-function Sample() {
-  /* Hand-tokenized excerpt — keeps the runtime small (no shiki, no
-   * highlight.js bundled). The ratio of accent / dim / quoted text
-   * drives the visual rhythm of the block; tweak by swapping
-   * .tk-* spans, never inject color values inline. */
+function Tab({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean
+  onClick: () => void
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`relative px-3 py-2 font-mono text-[11.5px] tracking-[0.16em] uppercase transition-colors ${
+        active ? 'text-bone' : 'text-bone-faint hover:text-bone-dim'
+      }`}
+    >
+      {children}
+      {active && <span aria-hidden className="bg-tiger absolute right-3 bottom-0 left-3 h-[2px]" />}
+    </button>
+  )
+}
+
+function Sha256Sample() {
   return (
     <>
-      <span className="tk-com">{`// SHA-256 — bit-twiddle heavy, 32-bit math via \`>>> 0\` coercion.`}</span>
+      <span className="tk-com">{`// SHA-256 — bit-twiddle heavy, JS UInt32 coercion via \`>>> 0\`.`}</span>
       {'\n'}
       <span className="tk-kw">function</span> <span className="tk-fn">rotr</span>(
       <span className="text-bone">x</span>: <span className="tk-typ">number</span>,{' '}
@@ -300,6 +412,99 @@ function Sample() {
   )
 }
 
+function FizzBuzzSample() {
+  return (
+    <>
+      <span className="tk-com">{`// Classic FizzBuzz — number→string, modulo, conditional flow.`}</span>
+      {'\n'}
+      <span className="tk-kw">function</span> <span className="tk-fn">fizzBuzz</span>(
+      <span className="text-bone">n</span>: <span className="tk-typ">number</span>):{' '}
+      <span className="tk-typ">void</span> {`{`}
+      {'\n'}
+      {'  '}
+      <span className="tk-kw">for</span> ( <span className="tk-kw">let</span>{' '}
+      <span className="text-bone">i</span> = <span className="tk-num">1</span>;{' '}
+      <span className="text-bone">i</span> {'<='} <span className="text-bone">n</span>;{' '}
+      <span className="text-bone">i</span>++ ) {`{`}
+      {'\n'}
+      {'    '}
+      <span className="tk-kw">if</span> (<span className="text-bone">i</span> %{' '}
+      <span className="tk-num">15</span> === <span className="tk-num">0</span>){' '}
+      <span className="text-bone">console</span>.<span className="tk-fn">log</span>(
+      <span className="tk-str">&quot;FizzBuzz&quot;</span>);{'\n'}
+      {'    '}
+      <span className="tk-kw">else if</span> (<span className="text-bone">i</span> %{' '}
+      <span className="tk-num">3</span> === <span className="tk-num">0</span>){' '}
+      <span className="text-bone">console</span>.<span className="tk-fn">log</span>(
+      <span className="tk-str">&quot;Fizz&quot;</span>);{'\n'}
+      {'    '}
+      <span className="tk-kw">else if</span> (<span className="text-bone">i</span> %{' '}
+      <span className="tk-num">5</span> === <span className="tk-num">0</span>){' '}
+      <span className="text-bone">console</span>.<span className="tk-fn">log</span>(
+      <span className="tk-str">&quot;Buzz&quot;</span>);{'\n'}
+      {'    '}
+      <span className="tk-kw">else</span> <span className="text-bone">console</span>.
+      <span className="tk-fn">log</span>(<span className="text-bone">i</span>.
+      <span className="tk-fn">toString</span>());{'\n'}
+      {'  '}
+      {`}`}
+      {'\n'}
+      {`}`}
+      {'\n\n'}
+      <span className="tk-fn">fizzBuzz</span>(<span className="tk-num">20</span>);
+    </>
+  )
+}
+
+function JsonSample() {
+  return (
+    <>
+      <span className="tk-com">{`// Class instances → JSON, parse round-trip with type inference.`}</span>
+      {'\n'}
+      <span className="tk-kw">class</span> <span className="tk-typ">User</span> {`{`}
+      {'\n'}
+      {'  '}
+      <span className="text-bone">name</span>: <span className="tk-typ">string</span>;{'\n'}
+      {'  '}
+      <span className="text-bone">tags</span>: <span className="tk-typ">string</span>[];{'\n'}
+      {'  '}
+      <span className="tk-fn">constructor</span>(<span className="text-bone">name</span>:{' '}
+      <span className="tk-typ">string</span>, <span className="text-bone">tags</span>:{' '}
+      <span className="tk-typ">string</span>[]) {`{`}
+      {'\n'}
+      {'    '}
+      <span className="tk-kw">this</span>.<span className="text-bone">name</span> ={' '}
+      <span className="text-bone">name</span>; <span className="tk-kw">this</span>.
+      <span className="text-bone">tags</span> = <span className="text-bone">tags</span>;{'\n'}
+      {'  '}
+      {`}`}
+      {'\n'}
+      {`}`}
+      {'\n\n'}
+      <span className="tk-kw">const</span> <span className="text-bone">alice</span> ={' '}
+      <span className="tk-kw">new</span> <span className="tk-typ">User</span>(
+      <span className="tk-str">&quot;Alice&quot;</span>, [
+      <span className="tk-str">&quot;admin&quot;</span>,{' '}
+      <span className="tk-str">&quot;engineer&quot;</span>]);{'\n'}
+      <span className="text-bone">console</span>.<span className="tk-fn">log</span>(
+      <span className="text-bone">JSON</span>.<span className="tk-fn">stringify</span>(
+      <span className="text-bone">alice</span>));{'\n'}
+      <span className="tk-com">{`// → {"name":"Alice","tags":["admin","engineer"]}`}</span>
+      {'\n\n'}
+      <span className="tk-com">{`// caller-driven type inference for the parsed shape:`}</span>
+      {'\n'}
+      <span className="tk-kw">const</span> <span className="text-bone">arr</span>:{' '}
+      <span className="tk-typ">number</span>[] = <span className="text-bone">JSON</span>.
+      <span className="tk-fn">parse</span>(<span className="tk-str">&apos;[10, 20, 30]&apos;</span>
+      );
+    </>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/* Bench scoreboard                                                   */
+/* ------------------------------------------------------------------ */
+
 type BenchRow = {
   case: string
   tr: number
@@ -330,15 +535,9 @@ const BENCH: BenchRow[] = [
 ]
 
 function Bench() {
-  /* Bars are normalized per-row to the slowest competitor in the row,
-   * so each row reads as "tr's share of the worst time." Absolute
-   * milliseconds are kept in the value column for readers who care
-   * about wall-clock. Animation triggers once when the section
-   * scrolls into view. */
-  /* Use the IntersectionObserver to delay-trigger bar fills only
-   * when the section reaches the viewport. Default to `true` so the
-   * (rare) no-IO environment still shows the bars; the observer
-   * effect only ever flips us back to false → true once. */
+  /* IntersectionObserver triggers the bar fills on scroll into view.
+   * Default to true if the API isn't available so non-IO environments
+   * still show the chart. */
   const [visible, setVisible] = useState(() => typeof IntersectionObserver === 'undefined')
 
   useEffect(() => {
@@ -359,23 +558,23 @@ function Bench() {
   }, [visible])
 
   return (
-    <section id="bench" className="scanlines mx-auto max-w-[960px] px-6 py-16 sm:py-24">
+    <section id="bench" className="scanlines mx-auto max-w-[1080px] px-6 py-16 sm:py-24">
       <SectionLabel index="03" label="Bench scoreboard" />
 
-      <div className="mt-8 grid gap-10 sm:grid-cols-[1fr_auto] sm:items-end">
+      <div className="mt-8 grid gap-10 sm:grid-cols-[1fr_auto] sm:items-end sm:gap-12">
         <div>
-          <h2 className="wordmark-roman text-bone text-[40px] sm:text-[56px]">
+          <h2 className="wordmark-roman text-bone text-[40px] leading-[0.95] sm:text-[56px]">
             <span className="text-tiger">19/19</span>
             <span> bench cases, tr build wins.</span>
           </h2>
-          <p className="text-bone-dim mt-5 max-w-[520px] text-[15.5px]">
-            Cross-runtime perf, M4 Pro, hyperfine n=10 with 3 warmup runs. Headline rows below; full
-            table in{' '}
+          <p className="text-bone-dim mt-5 max-w-[600px] text-[15.5px] leading-[1.6]">
+            Cross-runtime perf, Apple M4 Pro, hyperfine n=10 with 3 warmup runs. Eight
+            representative rows below — full table in{' '}
             <a
               className="link-amber"
               href="https://github.com/goliajp/torajs/blob/main/docs/perf.md"
             >
-              docs/perf.md
+              docs / perf.md
             </a>
             .
           </p>
@@ -385,18 +584,18 @@ function Bench() {
         </div>
       </div>
 
-      <ul className="mt-10 space-y-4">
+      <ul className="mt-10 space-y-4 sm:mt-14">
         {BENCH.map((row, i) => {
           const max = Math.max(row.tr, row.rust, row.go, row.bun)
           return (
             <li
               key={row.case}
-              className="grid gap-2 sm:grid-cols-[180px_1fr_120px] sm:items-center sm:gap-6"
+              className="grid gap-2 sm:grid-cols-[200px_1fr_120px] sm:items-center sm:gap-8"
             >
               <div className="text-bone font-mono text-[13px]">
                 {row.case}
                 {row.label && (
-                  <span className="text-tiger-bright ml-2 text-[11px] tracking-[0.16em] uppercase">
+                  <span className="text-tiger-bright ml-2 text-[10.5px] tracking-[0.16em] uppercase">
                     {row.label}
                   </span>
                 )}
@@ -436,10 +635,8 @@ function Bench() {
                 />
               </div>
               <div className="num text-bone font-mono text-[13px] sm:text-right">
-                <div>
-                  <span className="text-tiger-bright">{row.tr.toFixed(2)}</span>{' '}
-                  <span className="text-bone-faint">ms</span>
-                </div>
+                <span className="text-tiger-bright">{row.tr.toFixed(2)}</span>{' '}
+                <span className="text-bone-faint">ms</span>
               </div>
             </li>
           )
@@ -489,13 +686,17 @@ function Bar({
   )
 }
 
+/* ------------------------------------------------------------------ */
+/* Capability grid — what works today                                 */
+/* ------------------------------------------------------------------ */
+
 const CAPABILITIES: { title: string; body: string }[] = [
   {
     title: 'Classes & generics',
     body: 'Instance + static, inheritance, abstract, visibility modifiers. Generics monomorphized per call site.',
   },
   {
-    title: 'Closures, generators',
+    title: 'Closures · generators',
     body: 'Lifted closures with implicit captures. function*, yield, yield * — full state-machine lowering.',
   },
   {
@@ -508,7 +709,7 @@ const CAPABILITIES: { title: string; body: string }[] = [
   },
   {
     title: 'Full string · array · Math',
-    body: 'slice / repeat / replace / pad·, push / map / filter / reduce / sort, every Math.* + constant.',
+    body: 'slice / repeat / replace / pad·, push / map / filter / reduce / sort, every Math.* + constants.',
   },
   {
     title: 'AOT to native, by default',
@@ -518,32 +719,34 @@ const CAPABILITIES: { title: string; body: string }[] = [
 
 function CapabilityGrid() {
   return (
-    <section id="status" className="mx-auto max-w-[960px] px-6 py-14 sm:py-20">
+    <section id="status" className="mx-auto max-w-[1080px] px-6 py-14 sm:py-20">
       <SectionLabel index="04" label="What works today" />
 
       <div className="mt-8 grid gap-10 sm:grid-cols-[1.05fr_1fr] sm:gap-14">
-        <h2 className="wordmark-roman text-bone text-[40px] sm:text-[52px]">
+        <h2 className="wordmark-roman text-bone text-[40px] leading-[0.95] sm:text-[52px]">
           Most everyday TS, already shipping.
         </h2>
-        <p className="text-bone-dim text-[15.5px] sm:pt-4">
+        <p className="text-bone-dim text-[15.5px] sm:pt-3">
           The line is moving — not a frozen cut-down language. Anything bun runs that tr rejects is
-          a roadmap-phase gap, not a permanent decision. The full feature table lives in{' '}
+          a roadmap-phase gap, not a permanent decision. Full feature table in{' '}
           <a
             className="link-amber"
             href="https://github.com/goliajp/torajs/blob/main/docs/language-status.md"
           >
-            language-status.md
+            docs / language-status.md
           </a>
           .
         </p>
       </div>
 
-      <ul className="mt-12 grid gap-x-10 gap-y-8 sm:grid-cols-2">
+      <ul className="mt-12 grid gap-x-10 gap-y-8 sm:grid-cols-2 lg:grid-cols-3">
         {CAPABILITIES.map((c, i) => (
-          <li key={c.title} className="border-rule border-l pl-5">
+          <li key={c.title} className="border-rule/70 border-l pl-5">
             <p className="eyebrow">{String(i + 1).padStart(2, '0')}</p>
-            <h3 className="text-bone font-display mt-3 text-[20px] font-medium">{c.title}</h3>
-            <p className="text-bone-dim mt-2 text-[14.5px] leading-[1.6]">{c.body}</p>
+            <h3 className="text-bone font-display mt-3 text-[20px] leading-[1.15] font-medium">
+              {c.title}
+            </h3>
+            <p className="text-bone-dim mt-2 text-[14px] leading-[1.6]">{c.body}</p>
           </li>
         ))}
       </ul>
@@ -551,38 +754,48 @@ function CapabilityGrid() {
   )
 }
 
+/* ------------------------------------------------------------------ */
+/* Closing note                                                        */
+/* ------------------------------------------------------------------ */
+
 function ClosingNote() {
   return (
-    <section className="mx-auto max-w-[960px] px-6 py-16 sm:py-24">
+    <section className="mx-auto max-w-[1080px] px-6 py-16 sm:py-24">
       <div className="grid gap-10 sm:grid-cols-[auto_1fr] sm:items-center sm:gap-14">
         <p
           aria-hidden
           className="wordmark text-tiger leading-[0.85]"
-          style={{ fontSize: 'clamp(96px, 14vw, 168px)' }}
+          style={{ fontSize: 'clamp(110px, 14vw, 188px)' }}
         >
           ⤳
         </p>
         <div>
-          <h2 className="wordmark-roman text-bone text-[40px] leading-[0.95] sm:text-[56px]">
+          <h2 className="wordmark-roman text-bone text-[40px] leading-[0.95] sm:text-[60px]">
             Bun is the oracle.
           </h2>
-          <p className="text-bone-dim mt-6 max-w-[520px] text-[16px] leading-[1.6]">
+          <p className="text-bone-dim mt-6 max-w-[560px] text-[16px] leading-[1.6]">
             When behavior is unclear, write the equivalent in TS, run it in{' '}
             <Inline mono>bun</Inline>, and match. If torajs differs from bun&rsquo;s output
             (excluding the documented perf differentiators), that&rsquo;s a bug — file an issue.
           </p>
-          <div className="mt-8 flex flex-wrap gap-4">
+          <div className="mt-8 flex flex-wrap items-center gap-5">
             <a
-              className="text-tiger-bright font-mono text-[12.5px] tracking-[0.18em] uppercase"
+              className="text-tiger-bright font-mono text-[12px] tracking-[0.18em] uppercase"
               href="https://github.com/goliajp/torajs/issues/new"
             >
               File an issue →
             </a>
             <a
-              className="text-bone-dim hover:text-bone font-mono text-[12.5px] tracking-[0.18em] uppercase transition-colors"
+              className="text-bone-dim hover:text-bone font-mono text-[12px] tracking-[0.18em] uppercase transition-colors"
               href="https://github.com/goliajp/torajs/blob/main/docs/getting-started.md"
             >
               Read the docs →
+            </a>
+            <a
+              className="text-bone-dim hover:text-bone font-mono text-[12px] tracking-[0.18em] uppercase transition-colors"
+              href="https://github.com/goliajp/torajs/tree/main/examples"
+            >
+              Browse examples →
             </a>
           </div>
         </div>
@@ -591,17 +804,21 @@ function ClosingNote() {
   )
 }
 
+/* ------------------------------------------------------------------ */
+/* Footer                                                              */
+/* ------------------------------------------------------------------ */
+
 function Footer() {
   return (
     <footer className="border-rule/70 mt-12 border-t">
-      <div className="mx-auto grid max-w-[960px] gap-8 px-6 py-10 sm:grid-cols-[1.4fr_1fr_1fr_1fr]">
+      <div className="mx-auto grid max-w-[1080px] gap-8 px-6 py-10 sm:grid-cols-[1.4fr_1fr_1fr_1fr]">
         <div>
           <p className="wordmark-roman text-bone text-[28px]">
             <span className="text-tiger">tora</span>
             <span>js</span>
           </p>
-          <p className="text-bone-faint mt-3 text-[13px]">
-            Ship the same TS bun runs, faster — at a fraction of the size.
+          <p className="text-bone-faint mt-3 text-[13px] leading-[1.5]">
+            Ship the same TypeScript bun runs, faster — at a fraction of the size.
           </p>
         </div>
         <FootCol
@@ -636,7 +853,7 @@ function Footer() {
         />
       </div>
       <div className="border-rule/40 border-t">
-        <div className="mx-auto flex max-w-[960px] items-center justify-between px-6 py-4 font-mono text-[11px] tracking-[0.18em] uppercase">
+        <div className="mx-auto flex max-w-[1080px] flex-wrap items-center justify-between gap-2 px-6 py-4 font-mono text-[10.5px] tracking-[0.18em] uppercase">
           <span className="text-bone-faint">© torajs · Apache-2.0 · v0.1.0-beta</span>
           <span className="text-bone-faint">
             <span className="text-tiger">●</span> released 2026
@@ -646,6 +863,10 @@ function Footer() {
     </footer>
   )
 }
+
+/* ------------------------------------------------------------------ */
+/* Small composable bits                                              */
+/* ------------------------------------------------------------------ */
 
 function FootCol({ heading, links }: { heading: string; links: [string, string][] }) {
   return (
@@ -671,7 +892,7 @@ function SectionLabel({ index, label }: { index: string; label: string }) {
   return (
     <div className="flex items-baseline gap-4">
       <span className="num text-tiger font-mono text-[12px]">{index}</span>
-      <span className="bg-rule h-[1px] max-w-[100px] flex-1" />
+      <span className="bg-rule h-[1px] max-w-[120px] flex-1" />
       <span className="eyebrow">{label}</span>
     </div>
   )
@@ -680,7 +901,7 @@ function SectionLabel({ index, label }: { index: string; label: string }) {
 function PaintLine({ spacing }: { spacing: 'sm' | 'md' | 'lg' }) {
   const cls = spacing === 'lg' ? 'py-12' : spacing === 'md' ? 'py-8' : 'py-4'
   return (
-    <div className={`mx-auto max-w-[960px] px-6 ${cls}`}>
+    <div className={`mx-auto max-w-[1080px] px-6 ${cls}`}>
       <div className="tiger-rule" />
     </div>
   )
@@ -708,14 +929,26 @@ function Inline({
   return <span>{children}</span>
 }
 
-function Stat({ label, value, hint }: { label: string; value: string; hint: string }) {
+function Stat({
+  label,
+  value,
+  hint,
+  last,
+}: {
+  label: string
+  value: string
+  hint: string
+  last?: boolean
+}) {
   return (
-    <div className="border-rule border-l pl-4">
-      <p className="text-bone-faint tracking-[0.18em] uppercase">{label}</p>
-      <p className="text-bone num font-display mt-1 text-[20px] font-medium tracking-tight">
+    <div className={`px-0 sm:px-6 ${last ? '' : ''} ${last ? 'sm:pr-0' : ''} sm:first:pl-0`}>
+      <p className="text-bone-faint font-mono text-[10.5px] tracking-[0.18em] uppercase">{label}</p>
+      <p className="text-bone num font-display mt-2 text-[28px] font-medium tracking-tight sm:text-[32px]">
         {value}
       </p>
-      <p className="text-bone-faint/80 mt-1 text-[10.5px] tracking-[0.16em] uppercase">{hint}</p>
+      <p className="text-bone-faint/80 mt-1 font-mono text-[10.5px] tracking-[0.16em] uppercase">
+        {hint}
+      </p>
     </div>
   )
 }
