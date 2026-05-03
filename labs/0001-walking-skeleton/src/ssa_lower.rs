@@ -6936,6 +6936,7 @@ impl<'a> LowerCtx<'a> {
                                 Type::Void => Terminator::Ret(None),
                                 Type::F64 => Terminator::Ret(Some(Operand::ConstF64(0.0))),
                                 Type::I32 => Terminator::Ret(Some(Operand::ConstI32(0))),
+                                Type::Bool => Terminator::Ret(Some(Operand::ConstBool(false))),
                                 _ => Terminator::Ret(Some(Operand::ConstI64(0))),
                             };
                             self.f.set_term(cb2, prop_term);
@@ -14353,6 +14354,7 @@ impl<'a> LowerCtx<'a> {
                 Type::Void => Terminator::Ret(None),
                 Type::F64 => Terminator::Ret(Some(Operand::ConstF64(0.0))),
                 Type::I32 => Terminator::Ret(Some(Operand::ConstI32(0))),
+                Type::Bool => Terminator::Ret(Some(Operand::ConstBool(false))),
                 _ => Terminator::Ret(Some(Operand::ConstI64(0))),
             };
             self.f.set_term(cb2, term);
