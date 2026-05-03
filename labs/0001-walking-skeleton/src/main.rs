@@ -23,6 +23,24 @@ enum Stage {
 }
 
 fn main() -> ExitCode {
+    // Compact panic hook — strips backtrace + thread-name noise and
+    // prints a single `not yet supported: <msg>` line so callers can
+    // classify the failure cleanly. The bench harness and test262
+    // runner both look at the first stderr line; the longer multi-
+    // line default hook splits the diagnostic across the panic
+    // location and the "note: run with RUST_BACKTRACE" footer.
+    std::panic::set_hook(Box::new(|info| {
+        let payload = info.payload();
+        let msg = if let Some(s) = payload.downcast_ref::<&str>() {
+            (*s).to_string()
+        } else if let Some(s) = payload.downcast_ref::<String>() {
+            s.clone()
+        } else {
+            "tr panicked".to_string()
+        };
+        eprintln!("not yet supported: {msg}");
+    }));
+
     let args: Vec<String> = env::args().skip(1).collect();
     let cmd = args.first().map(String::as_str);
 
