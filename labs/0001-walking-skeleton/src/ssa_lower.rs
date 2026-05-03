@@ -25,8 +25,8 @@
 
 use std::collections::HashMap;
 
-use crate::ast::{self, Ast, BinOp as AstBinOp, Expr, ExprId, Param, Stmt};
-use crate::check::{GenericCallSites, type_to_ann};
+use crate::ast::{self, Ast, BinOp as AstBinOp, Expr, ExprId, Param, Stmt, UnaryOp as AstUnaryOp};
+use crate::check::{self as check_mod, GenericCallSites, type_to_ann};
 use crate::ssa::{
     self, BinOp as SsaBinOp, BlockId, FPred, FuncId, IPred, InstKind, Module, Operand, Terminator,
     Type, ValueId,
@@ -81,6 +81,49 @@ const CLOSURE_CAP_BASE_OFF: u64 = 24;
 /// monomorphization pre-pass picked for that call site, so the lowerer's
 /// `Expr::Call` arm rewrites the callee to point at the specialized fn.
 type CallRetargets = HashMap<ExprId, String>;
+
+/// Compile-time numeric width hint for a generic type-arg position.
+/// `Number` at the typecheck layer collapses i64 and f64 into one type;
+/// at SSA the two are distinct shapes. The monomorphizer reads this
+/// hint to decide whether `T = Number` should specialize as `i64`
+/// (default) or `f64` (e.g. when an arg is `Math.abs(...)` whose
+/// intrinsic returns f64).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NumWidth {
+    /// No information — fall back to the default ("number" → I64) so
+    /// integer-heavy generics keep their i64 specialization.
+    Unknown,
+    /// One or more arg expressions at this type-arg position lower to
+    /// f64 (Math.* calls, `/` results, decimal literals, etc.).
+    F64,
+}
+
+/// Walk an expression and return F64 if it statically lowers to f64.
+/// Conservative: returns Unknown for any shape we can't classify
+/// purely from the AST (Idents, member accesses on user objects, etc.)
+/// so we don't accidentally widen integer-shaped generics.
+fn infer_arg_width(ast: &Ast, eid: ExprId) -> NumWidth {
+    match ast.get_expr(eid) {
+        Expr::Number(n) if n.fract() != 0.0 => NumWidth::F64,
+        Expr::BinOp { op: AstBinOp::Div, .. } => NumWidth::F64,
+        Expr::Unary { op: AstUnaryOp::Neg, expr } => infer_arg_width(ast, *expr),
+        Expr::Call { callee, .. } => {
+            // Math.* methods all return f64 (libm-shaped intrinsics).
+            // String.fromCharCode and Number.parseInt return non-Number
+            // types so we don't need width inference for them — only
+            // the Number-returning subset matters here.
+            if let Expr::Member { obj, name } = ast.get_expr(*callee)
+                && let Expr::Ident(ns) = ast.get_expr(*obj)
+                && ns == "Math"
+            {
+                let _ = name;
+                return NumWidth::F64;
+            }
+            NumWidth::Unknown
+        }
+        _ => NumWidth::Unknown,
+    }
+}
 
 /// Encode an annotation string into a name-safe form for use inside a
 /// monomorphized fn name. `number` → `number`; `number[]` → `number_arr`;
@@ -198,6 +241,61 @@ fn substitute_in_stmt(stmt: &mut Stmt, subst: &[(String, String)]) {
 ///   - `call_retargets`: per-call-site mapping `ExprId → mono_name` so
 ///     the lowerer can rewrite each generic call's callee
 ///   - `generic_fn_names`: original generic-fn names (for pass 1 to skip)
+/// For each entry in a generic fn's `type_params`, walk the call site's
+/// argument expressions at the positions whose param annotation names
+/// that type-param. Return F64 if any of those args statically lowers to
+/// f64; otherwise Unknown (defaults to i64 mono). Only consults the AST
+/// — no SSA-side info — so the result is callable from
+/// `monomorphize_generics` before any SSA pass runs.
+fn compute_typevar_widths(
+    ast: &Ast,
+    call_eid: ExprId,
+    callee_name: &str,
+    type_args: &[check_mod::Type],
+    generics: &HashMap<
+        String,
+        (Vec<String>, Vec<Param>, Option<String>, Vec<Stmt>),
+    >,
+) -> Vec<NumWidth> {
+    let arg_eids: Vec<ExprId> = match ast.get_expr(call_eid) {
+        Expr::Call { args, .. } => args.clone(),
+        _ => Vec::new(),
+    };
+    let Some((tp_names, gen_params, _, _)) = generics.get(callee_name) else {
+        return vec![NumWidth::Unknown; type_args.len()];
+    };
+    tp_names
+        .iter()
+        .enumerate()
+        .map(|(_tp_idx, tp_name)| {
+            // Only interesting if this type-arg resolved to Number.
+            // Any other type collapses to Unknown — we only widen Number
+            // generics to f64.
+            let mut acc = NumWidth::Unknown;
+            for (pi, p) in gen_params.iter().enumerate() {
+                let Some(ann) = &p.type_ann else { continue };
+                // Lightweight match — bare `T` is the common case (Type
+                // checker substitutes nested forms like `T[]` to a
+                // concrete element type during instantiation, so the
+                // monomorphizer rarely sees compound TypeVar anns at
+                // call sites worth inspecting). If the param ann is
+                // exactly the type-param name, the corresponding arg
+                // contributes to this T's width.
+                if ann == tp_name
+                    && let Some(arg_eid) = arg_eids.get(pi)
+                {
+                    let w = infer_arg_width(ast, *arg_eid);
+                    if matches!(w, NumWidth::F64) {
+                        acc = NumWidth::F64;
+                        break;
+                    }
+                }
+            }
+            acc
+        })
+        .collect()
+}
+
 fn monomorphize_generics(
     ast: &mut Ast,
     generic_call_sites: &GenericCallSites,
@@ -247,7 +345,26 @@ fn monomorphize_generics(
     let mut worklist: std::collections::VecDeque<(String, Vec<String>)> =
         std::collections::VecDeque::new();
     for (eid, (callee_name, type_args)) in generic_call_sites {
-        let arg_anns: Vec<String> = type_args.iter().map(type_to_ann).collect();
+        // Width-aware ann selection: for each type-arg that resolved to
+        // `Type::Number`, walk the arg positions whose param annotation
+        // names this type-param and pick "f64" if any arg statically
+        // lowers to f64 (Math.* call, decimal literal, etc.). Otherwise
+        // keep the default "number" → I64. This lets one generic fn
+        // serve both `check<T=Number>(1, 2)` (I64 mono) and
+        // `check<T=Number>(Math.abs(-1), 1)` (F64 mono) cleanly.
+        let widths: Vec<NumWidth> =
+            compute_typevar_widths(ast, *eid, callee_name, type_args, &generics);
+        let arg_anns: Vec<String> = type_args
+            .iter()
+            .zip(widths.iter())
+            .map(|(ty, w)| {
+                if matches!(ty, check_mod::Type::Number) && matches!(w, NumWidth::F64) {
+                    "f64".into()
+                } else {
+                    type_to_ann(ty)
+                }
+            })
+            .collect();
         let cache_key = (callee_name.clone(), arg_anns.clone());
         if !cache.contains_key(&cache_key) {
             // Reserve mono name early so cycles break.
@@ -11965,6 +12082,26 @@ impl<'a> LowerCtx<'a> {
                     debug_assert_eq!(argv.len(), 2, "Math.* binary takes 2 args");
                     argv[0] = self.coerce_to_f64(argv[0]);
                     argv[1] = self.coerce_to_f64(argv[1]);
+                } else if let Some(sig_id) = self.fn_sig_ids.get(&target).copied() {
+                    // Width-aware coercion for monomorphized generic
+                    // calls. The mono name picked the F64 specialization
+                    // when any arg statically lowered to f64 (see
+                    // `compute_typevar_widths`); the param types in the
+                    // sig are F64 for those positions. Coerce each i64
+                    // operand to f64 to match. Only fires when the mono
+                    // sig ACTUALLY differs from the operand type, so
+                    // integer-only generics keep their i64 path.
+                    let param_tys = self.fn_sigs[sig_id.0 as usize].0.clone();
+                    for (i, expected) in param_tys.iter().enumerate() {
+                        if i >= argv.len() {
+                            break;
+                        }
+                        if matches!(expected, Type::F64)
+                            && matches!(self.operand_ty(&argv[i]), Type::I64)
+                        {
+                            argv[i] = self.coerce_to_f64(argv[i]);
+                        }
+                    }
                 }
                 let ret_ty = self.f_ret_type_hint(target);
                 let v = self
