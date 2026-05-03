@@ -7410,7 +7410,21 @@ impl<'a> LowerCtx<'a> {
                 // ... }`) reaches here and is a no-op in single-file
                 // mode.
             }
-            other => panic!("ssa-lower: unsupported stmt: {other:?}"),
+            other => {
+                // Friendly classification for the most common shapes
+                // that hit this catch-all so users get a readable
+                // message instead of the raw AST debug print.
+                let label = match other {
+                    Stmt::FnDecl { name, .. } => format!(
+                        "nested function declaration `{name}` inside a block / switch (planned: function-statement hoisting, see roadmap)"
+                    ),
+                    Stmt::ClassDecl { name, .. } => format!(
+                        "nested class declaration `{name}` inside a block (planned: same hoisting story as nested functions)"
+                    ),
+                    _ => format!("statement shape not yet implemented: {other:?}"),
+                };
+                panic!("{label}");
+            }
         }
     }
 
