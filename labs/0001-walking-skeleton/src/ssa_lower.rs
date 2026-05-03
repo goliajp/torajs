@@ -2310,7 +2310,16 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
                 &generic_struct_decls,
                 &mut struct_layouts,
             );
-            if !matches!(ty, Type::I64 | Type::F64 | Type::Bool | Type::I32) {
+            // K.3 — primitive Copy types (no lifetime concerns).
+            // K.4 — refcount Str (we drop on program exit).
+            // Other refcount types (Arr / Obj / Closure) and FnSig
+            // stay deferred until refcount-aware globals init / assign
+            // logic is generalized.
+            let supported = matches!(
+                ty,
+                Type::I64 | Type::F64 | Type::Bool | Type::I32 | Type::Str
+            );
+            if !supported {
                 continue;
             }
             globals.insert(name.clone(), ty);
@@ -2740,6 +2749,7 @@ fn synthesize_main(
         }
         if ctx.cur_open() {
             ctx.emit_drops_for_owned_locals();
+            ctx.emit_drops_for_globals();
             let cb = ctx.cur_block;
             ctx.f
                 .set_term(cb, Terminator::Ret(Some(Operand::ConstI32(0))));
@@ -5154,6 +5164,41 @@ impl<'a> LowerCtx<'a> {
         }
     }
 
+    /// K.4 — drop refcount-typed module data globals at the
+    /// fall-through `main` exit so the heap doesn't leak. Iterated in
+    /// sorted name order for deterministic codegen across runs.
+    /// Throw-out-of-main exits skip this (process abort cleans up the
+    /// heap; emitting drops on an unwind path would need finally-style
+    /// glue that's out of scope for K.4). Only fires inside the
+    /// synthesized `main` fn.
+    fn emit_drops_for_globals(&mut self) {
+        if !self.is_main_fn {
+            return;
+        }
+        let mut entries: Vec<(String, Type)> = self
+            .globals
+            .iter()
+            .filter(|(_, ty)| ty.is_refcounted())
+            .map(|(n, t)| (n.clone(), *t))
+            .collect();
+        entries.sort_by(|a, b| a.0.cmp(&b.0));
+        for (name, ty) in entries {
+            let ptr = self.f.append_inst(
+                self.cur_block,
+                InstKind::GlobalRef(name),
+                Type::Ptr,
+                None,
+            );
+            let v = self.f.append_inst(
+                self.cur_block,
+                InstKind::Load(ty, Operand::Value(ptr), 0),
+                ty,
+                None,
+            );
+            self.emit_drop_value(Operand::Value(v), ty);
+        }
+    }
+
     fn lower_stmt(&mut self, s: &Stmt) {
         match s {
             Stmt::Multi(stmts) => {
@@ -5231,18 +5276,35 @@ impl<'a> LowerCtx<'a> {
                 type_ann,
                 init,
             } => {
-                // K.3 — top-level data global. Lower init, store into the
-                // module's global slot via GlobalRef + Store, skip the
-                // alloca / locals registration. Only fires inside the
-                // synthesized `main` fn — named-fn bodies never declare
-                // top-level globals (the AST keeps the LetDecl at the
-                // top level, so a named-fn body sees nothing). Reads /
-                // writes from any fn body (main included) flow through
-                // the ident-read / Assign-Ident fallbacks below.
+                // K.3 / K.4 — top-level data global. Lower init, store
+                // into the module's global slot via GlobalRef + Store,
+                // skip the alloca / locals registration. Only fires
+                // inside the synthesized `main` fn — named-fn bodies
+                // never declare top-level globals. Reads / writes from
+                // any fn body (main included) flow through the ident-
+                // read / Assign-Ident fallbacks below.
                 if self.is_main_fn
                     && let Some(slot_ty) = self.globals.get(name).copied()
                 {
                     let init_val = self.lower_expr(*init);
+                    // K.4 — Str globals. The init expression must
+                    // produce a fresh-heap value (function-call
+                    // result, string concat, etc.). Borrow-shaped
+                    // init (Ident / Member / Index) would need an
+                    // `rc_inc` to make the slot independently
+                    // owned; that path isn't live yet — reject it
+                    // with a clear message so the user restructures.
+                    if slot_ty.is_refcounted() {
+                        let init_is_borrow = matches!(
+                            self.ast.get_expr(*init),
+                            Expr::Ident(_) | Expr::Member { .. } | Expr::Index { .. }
+                        );
+                        if init_is_borrow {
+                            panic!(
+                                "ssa-lower: K.4 refcount global `{name}` requires fresh-heap init (function-call / concat / new); borrow-shaped init not yet supported"
+                            );
+                        }
+                    }
                     let coerced = if slot_ty == Type::F64
                         && self.operand_ty(&init_val) == Type::I64
                     {
@@ -6668,13 +6730,22 @@ impl<'a> LowerCtx<'a> {
                 match self.ast.get_expr(*target).clone() {
                     Expr::Ident(name) => {
                         // K.3 — assignment to a module-level data
-                        // global. Lower rhs, GlobalRef + Store. K.3
-                        // only registers primitive Copy types (I64 /
-                        // F64 / Bool / I32) so there's no old-value
-                        // drop dance: the slot just holds bits.
+                        // global. Lower rhs, GlobalRef + Store. For
+                        // primitive Copy types (I64 / F64 / Bool /
+                        // I32) there's no old-value drop dance: the
+                        // slot just holds bits. For K.4 refcount
+                        // globals (Str), mutable assign requires
+                        // dropping the old heap value + maybe inc on
+                        // a borrow rhs — that path isn't built yet,
+                        // so reject loudly.
                         if self.locals.get(&name).is_none()
                             && let Some(slot_ty) = self.globals.get(&name).copied()
                         {
+                            if slot_ty.is_refcounted() {
+                                panic!(
+                                    "ssa-lower: assignment to refcount global `{name}` is not yet supported (K.4 ships read-only Str globals; mutable refcount globals are a follow-up)"
+                                );
+                            }
                             let v = self.lower_expr(*value);
                             let v_ty = self.operand_ty(&v);
                             let v = if slot_ty == Type::F64 && v_ty == Type::I64 {

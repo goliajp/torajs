@@ -881,8 +881,19 @@ fn emit_data_global<'ctx>(
             glob.set_initializer(&t.const_int(0, false));
             glob
         }
+        // K.4 — Str globals. Slot holds a heap-pointer (ptr-shaped).
+        // Initial null; `main` lowers the init expression and stores a
+        // fresh StrRepr* into the slot before any code reads it.
+        // ssa_lower's emit_drops_for_globals fires `__torajs_str_drop`
+        // on the loaded value at fall-through `main` exit.
+        Type::Str => {
+            let t = ctx.ptr_type(AddressSpace::default());
+            let glob = m.add_global(t, None, &g.name);
+            glob.set_initializer(&t.const_null());
+            glob
+        }
         other => panic!(
-            "emit_data_global: K.3 only supports primitive Copy types (I64 / F64 / Bool / I32); got {other:?}"
+            "emit_data_global: unsupported global type {other:?} (K.4 supports primitive Copy + Str; other refcount types are deferred)"
         ),
     }
 }
