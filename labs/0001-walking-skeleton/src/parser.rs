@@ -2781,6 +2781,80 @@ impl Parser<'_> {
             // ident then `:` ⇒ field declaration. The `static` modifier is a
             // contextual keyword: only treated as such when the next token
             // is a valid member name shape.
+            // M-OO.5 — visibility / readonly modifiers (contextual
+            // keywords). Order in TS: `[public|private|protected]
+            // [static] [readonly] [abstract] memberName`. We accept
+            // them in any order before the abstract / static keywords
+            // already handled below — TS's tsc actually requires a
+            // specific order, but matching the strict ordering matters
+            // less than recognizing the modifiers.
+            let mut explicit_visibility: Option<ast::Visibility> = None;
+            let mut is_readonly = false;
+            loop {
+                let Token::Ident(s) = self.peek() else {
+                    break;
+                };
+                let candidate = match s.as_str() {
+                    "public" => Some(ast::Visibility::Public),
+                    "private" => Some(ast::Visibility::Private),
+                    "protected" => Some(ast::Visibility::Protected),
+                    _ => None,
+                };
+                if let Some(vis) = candidate {
+                    if explicit_visibility.is_some() {
+                        return Err(format!(
+                            "duplicate visibility modifier in class `{name}` at {}",
+                            self.at()
+                        ));
+                    }
+                    // Lookahead must be a member-name shape — otherwise
+                    // the ident is being used as a regular member
+                    // (e.g. `private` as a field name in lax JS).
+                    let next = self.tokens.get(self.pos + 1).map(|t| &t.token);
+                    if !matches!(
+                        next,
+                        Some(Token::Ident(_))
+                            | Some(Token::Catch)
+                            | Some(Token::Finally)
+                            | Some(Token::Return)
+                            | Some(Token::Throw)
+                            | Some(Token::If)
+                            | Some(Token::Else)
+                            | Some(Token::For)
+                            | Some(Token::While)
+                            | Some(Token::Do)
+                            | Some(Token::Break)
+                            | Some(Token::Continue)
+                            | Some(Token::Switch)
+                            | Some(Token::Case)
+                            | Some(Token::Default)
+                            | Some(Token::Class)
+                            | Some(Token::New)
+                            | Some(Token::This)
+                            | Some(Token::Function)
+                            | Some(Token::TypeOf)
+                            | Some(Token::InstanceOf)
+                            | Some(Token::Try)
+                            | Some(Token::Yield)
+                    ) {
+                        break;
+                    }
+                    self.pos += 1;
+                    explicit_visibility = Some(vis);
+                    continue;
+                }
+                if s == "readonly" {
+                    let next = self.tokens.get(self.pos + 1).map(|t| &t.token);
+                    if !matches!(next, Some(Token::Ident(_))) {
+                        break;
+                    }
+                    self.pos += 1;
+                    is_readonly = true;
+                    continue;
+                }
+                break;
+            }
+
             // M-OO.6 — `abstract methodName(...);` (no body). The
             // `abstract` modifier is a contextual keyword (Ident with
             // text "abstract"); skip over it so the rest of the
@@ -2986,12 +3060,27 @@ impl Parser<'_> {
                         }
                         ctor = Some(ClassCtor { params, body });
                     } else {
+                        if is_readonly {
+                            return Err(format!(
+                                "`readonly` modifier is only valid on fields, not on method `{member_name}` in class `{name}` at {}",
+                                self.at()
+                            ));
+                        }
+                        let visibility =
+                            explicit_visibility.unwrap_or(ast::Visibility::Public);
+                        if visibility != ast::Visibility::Public {
+                            self.ast.member_visibility.insert(
+                                (name.clone(), member_name.clone()),
+                                visibility,
+                            );
+                        }
                         let m = ClassMethod {
                             name: member_name,
                             params,
                             return_type,
                             body,
                             is_abstract: is_abstract_method,
+                            visibility,
                         };
                         if is_static {
                             static_methods.push(m);
@@ -3004,8 +3093,26 @@ impl Parser<'_> {
                     // field declaration. Instance: `name: T;`. Static
                     // (M-OO.4): `name: T = init;` — init is required
                     // (no constructor to default-init in).
+                    if is_abstract_method {
+                        return Err(format!(
+                            "`abstract` modifier is only valid on methods, not on field `{member_name}` in class `{name}` at {}",
+                            self.at()
+                        ));
+                    }
                     self.pos += 2; // consume name + colon
                     let ty = self.parse_type_ann()?;
+                    let visibility =
+                        explicit_visibility.unwrap_or(ast::Visibility::Public);
+                    if visibility != ast::Visibility::Public {
+                        self.ast
+                            .member_visibility
+                            .insert((name.clone(), member_name.clone()), visibility);
+                    }
+                    if is_readonly {
+                        self.ast
+                            .readonly_fields
+                            .insert((name.clone(), member_name.clone()));
+                    }
                     if is_static {
                         match self.peek() {
                             Token::Eq => self.pos += 1,

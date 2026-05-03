@@ -406,6 +406,23 @@ pub struct ClassMethod {
     /// concrete subclasses cover every inherited abstract is done in
     /// desugar_classes' chain walk.
     pub is_abstract: bool,
+    /// M-OO.5 — visibility modifier (default `Public`). Enforced at
+    /// typecheck (check.rs): `Private` rejects access from outside the
+    /// declaring class; `Protected` rejects access from outside the
+    /// declaring class + its descendants.
+    pub visibility: Visibility,
+}
+
+/// M-OO.5 — TypeScript-style visibility modifier on class members.
+/// `Public` is the parse-time default and never appears explicitly in
+/// the source; `Private` corresponds to `private`; `Protected` to
+/// `protected`. (TS also has `#name` private fields with a different
+/// runtime story, which torajs doesn't ship — only the modifier form.)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Visibility {
+    Public,
+    Private,
+    Protected,
 }
 
 /// M-OO.4 — `static fieldName: T = init` entry. Init is mandatory because
@@ -435,6 +452,21 @@ pub struct Ast {
     /// owner's `__cm_<C>__M`. Single-owner methods aren't kept here
     /// since they go through static `__cm_<Owner>__M` dispatch directly.
     pub method_owners: std::collections::HashMap<String, Vec<String>>,
+    /// M-OO.5 — `(class_name, member_name)` → visibility, populated by
+    /// the parser when a `private` / `protected` modifier appears on a
+    /// field or method. Public is the absent-default (no entry stored).
+    /// `static_fields` and `static_methods` get the same treatment —
+    /// the entry's `class_name` is the class's own name regardless of
+    /// instance-vs-static. check.rs reads this map at every Member
+    /// access site to enforce the modifier.
+    pub member_visibility: std::collections::HashMap<(String, String), Visibility>,
+    /// M-OO.5 — `(class_name, field_name)` set of `readonly` fields.
+    /// Both instance and static fields can be readonly. check.rs rejects
+    /// `obj.field = ...` (instance) and `Class.field = ...` (static)
+    /// when the entry is present. Readonly inside the constructor /
+    /// class init context is allowed; check.rs's caller-context tracking
+    /// lifts the restriction for the same path that visibility uses.
+    pub readonly_fields: std::collections::HashSet<(String, String)>,
     /// Phase L.2 — names of `async function` declarations recorded by
     /// the parser. desugar_async iterates ast.stmts and, for any
     /// FnDecl whose name is in this set, wraps the return value in a
@@ -888,6 +920,7 @@ pub fn desugar_generators(ast: &mut Ast) {
             return_type: Some(step_ann.clone()),
             body: next_body_with_stash,
             is_abstract: false,
+            visibility: Visibility::Public,
         };
         // For Phase J MVP, generator parameters are stored as fields on
         // the iterator object so the body can reference them through
