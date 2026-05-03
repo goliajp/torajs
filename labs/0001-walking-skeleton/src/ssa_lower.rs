@@ -530,6 +530,7 @@ fn deep_clone_expr(ast: &mut Ast, eid: ExprId) -> ExprId {
         Expr::Number(n) => Expr::Number(*n),
         Expr::Bool(b) => Expr::Bool(*b),
         Expr::Null => Expr::Null,
+        Expr::Uninit => Expr::Uninit,
         Expr::This => Expr::This,
         Expr::BinOp { op, left, right } => {
             let op = *op; let l = *left; let r = *right;

@@ -40,6 +40,14 @@ pub enum Expr {
     String(String),
     Number(f64),
     Bool(bool),
+    /// `let x;` / `let x: T;` — placeholder init the parser emits when
+    /// no `= EXPR` is provided. `desugar_uninit_let` walks the
+    /// declaring scope for the first `x = EXPR;` shape, splices that
+    /// EXPR into the let's init, and removes the assignment. Anything
+    /// that resists rewrite (no follow-up assignment) keeps `Uninit`,
+    /// which the typechecker rejects with a clear "declared but never
+    /// assigned" message — better than the previous parse-error wall.
+    Uninit,
     /// `null` — the in-band 0 sentinel for any pointer-shaped slot.
     /// Lowered to `Operand::ConstPtrNull`. Comparable against pointer
     /// values via `=== null` / `!== null` and the implicit `?.`/`??`
@@ -2691,7 +2699,8 @@ fn collect_super_in_expr(
         | Expr::String(_)
         | Expr::Number(_)
         | Expr::Bool(_)
-        | Expr::Null => {}
+        | Expr::Null
+        | Expr::Uninit => {}
     }
 }
 
@@ -3882,6 +3891,116 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
 ///     class instance/factory binding and must stay nominally typed.
 ///   - generator/factory helpers (the desugarers stamp explicit
 ///     annotations on every param they emit).
+/// `let x;` (the `var x;` shape after the test262 runner's `var → let`
+/// rewrite) parses to `Stmt::LetDecl { init: Expr::Uninit }`. This
+/// pass walks each declaring scope, finds the first
+/// `Stmt::Expr(Assign { Ident(x), value })` after the let, splices
+/// `value` into the let's init, and removes the assignment. Anything
+/// that doesn't have a matching follow-up assignment keeps the
+/// `Uninit` sentinel; the typechecker reports it with a clear "let
+/// declared but never assigned" message — better than the previous
+/// `expected `=`, got Semi` parse error.
+///
+/// Limitations of the search:
+///   - same scope only — won't promote an inner-block assignment to
+///     the outer let's init, since that would change scope semantics
+///   - first matching assignment wins — chains like
+///     `let x; if (...) x = 1; else x = "two";` don't unify; only the
+///     first branch's value lifts in, the second stays an assign and
+///     the regular type checker handles the agreement check
+///   - top-level vs fn-body scopes are walked uniformly; nested
+///     control-flow children don't bubble assignments across their
+///     boundary (we only splice within the same `Vec<Stmt>`)
+pub fn desugar_uninit_let(ast: &mut Ast) {
+    rewrite_uninit_in_stmts(&mut ast.stmts, &ast.exprs.clone());
+    // FnDecl bodies live inside `ast.stmts` already; the recursive
+    // walk handles them when it descends into Stmt::FnDecl variants.
+}
+
+fn rewrite_uninit_in_stmts(stmts: &mut Vec<Stmt>, exprs: &[Expr]) {
+    let mut i = 0;
+    while i < stmts.len() {
+        // Recurse into nested scopes first so each scope's lets see
+        // their own follow-up assignments.
+        match &mut stmts[i] {
+            Stmt::FnDecl { body, .. } => {
+                rewrite_uninit_in_stmts(body, exprs);
+            }
+            Stmt::Block(inner) | Stmt::Multi(inner) => {
+                rewrite_uninit_in_stmts(inner, exprs);
+            }
+            Stmt::If { then_branch, else_branch, .. } => {
+                if let Stmt::Block(b) | Stmt::Multi(b) = then_branch.as_mut() {
+                    rewrite_uninit_in_stmts(b, exprs);
+                }
+                if let Some(eb) = else_branch
+                    && let Stmt::Block(b) | Stmt::Multi(b) = eb.as_mut()
+                {
+                    rewrite_uninit_in_stmts(b, exprs);
+                }
+            }
+            Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
+                if let Stmt::Block(b) | Stmt::Multi(b) = body.as_mut() {
+                    rewrite_uninit_in_stmts(b, exprs);
+                }
+            }
+            Stmt::For { body, .. } => {
+                if let Stmt::Block(b) | Stmt::Multi(b) = body.as_mut() {
+                    rewrite_uninit_in_stmts(b, exprs);
+                }
+            }
+            Stmt::Try { body, catch_body, finally_body, .. } => {
+                rewrite_uninit_in_stmts(body, exprs);
+                rewrite_uninit_in_stmts(catch_body, exprs);
+                if let Some(fb) = finally_body {
+                    rewrite_uninit_in_stmts(fb, exprs);
+                }
+            }
+            _ => {}
+        }
+        // Now, if this stmt is an Uninit let, scan forward for the
+        // first matching `name = EXPR;` and splice.
+        let (name, init_eid) = match &stmts[i] {
+            Stmt::LetDecl { name, init, .. } => (name.clone(), *init),
+            _ => {
+                i += 1;
+                continue;
+            }
+        };
+        let is_uninit = matches!(exprs.get(init_eid.0 as usize), Some(Expr::Uninit));
+        if !is_uninit {
+            i += 1;
+            continue;
+        }
+        let mut j = i + 1;
+        let mut found: Option<(usize, ExprId)> = None;
+        while j < stmts.len() {
+            if let Stmt::Expr(eid) = &stmts[j]
+                && let Some(Expr::Assign { target, value }) =
+                    exprs.get(eid.0 as usize)
+                && let Some(Expr::Ident(n)) = exprs.get(target.0 as usize)
+                && n == &name
+            {
+                found = Some((j, *value));
+                break;
+            }
+            // Don't reach into non-flat control-flow: an assignment in
+            // a sibling block / if-branch doesn't lift to the outer
+            // scope. Only adjacent flat stmts in the SAME Vec<Stmt>
+            // count.
+            j += 1;
+        }
+        if let Some((stmt_idx, value)) = found {
+            // Splice value into the let's init, drop the assignment.
+            if let Stmt::LetDecl { init, .. } = &mut stmts[i] {
+                *init = value;
+            }
+            stmts.remove(stmt_idx);
+        }
+        i += 1;
+    }
+}
+
 pub fn desugar_implicit_generics(ast: &mut Ast) {
     use std::collections::HashSet;
 
@@ -4663,7 +4782,8 @@ fn scan_expr_for_calls(ast: &Ast, eid: ExprId, out: &mut Vec<String>) {
         Expr::OptChain { obj, .. } => scan_expr_for_calls(ast, *obj, out),
         Expr::PostIncr { target, .. } => scan_expr_for_calls(ast, *target, out),
         Expr::This => {}
-        Expr::Ident(_) | Expr::String(_) | Expr::Number(_) | Expr::Bool(_) | Expr::Null => {}
+        Expr::Ident(_) | Expr::String(_) | Expr::Number(_) | Expr::Bool(_)
+        | Expr::Null | Expr::Uninit => {}
     }
 }
 
@@ -4677,7 +4797,8 @@ fn walk_expr(ast: &Ast, eid: ExprId, bound: &mut Vec<String>, out: &mut Vec<Stri
                 out.push(name.clone());
             }
         }
-        Expr::String(_) | Expr::Number(_) | Expr::Bool(_) | Expr::Null => {}
+        Expr::String(_) | Expr::Number(_) | Expr::Bool(_)
+        | Expr::Null | Expr::Uninit => {}
         Expr::BinOp { left, right, .. } => {
             walk_expr(ast, *left, bound, out);
             walk_expr(ast, *right, bound, out);
@@ -5032,6 +5153,7 @@ impl Ast {
             Expr::Number(n) => println!("{pad}Number({n})"),
             Expr::Bool(b) => println!("{pad}Bool({b})"),
             Expr::Null => println!("{pad}Null"),
+            Expr::Uninit => println!("{pad}Uninit"),
             Expr::BinOp { op, left, right } => {
                 println!("{pad}BinOp({op:?})");
                 self.print_expr(*left, indent + 1);

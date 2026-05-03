@@ -470,6 +470,26 @@ impl Parser<'_> {
             } else {
                 None
             };
+            // `let x;` / `let x: T;` (no init) — emit an `Expr::Uninit`
+            // sentinel and let `desugar_uninit_let` resolve it from the
+            // first follow-up `x = EXPR;` in the declaring scope. Const
+            // requires an init by language rule, so reject early.
+            if matches!(self.peek(), Token::Semi) {
+                self.pos += 1;
+                if !mutable {
+                    return Err(format!(
+                        "`const {name}` requires an initializer at {}",
+                        self.at()
+                    ));
+                }
+                let init = self.ast.add_expr(Expr::Uninit);
+                return Ok(Stmt::LetDecl {
+                    mutable,
+                    name,
+                    type_ann,
+                    init,
+                });
+            }
             match self.peek() {
                 Token::Eq => self.pos += 1,
                 t => return Err(format!("expected `=`, got {t:?} at {}", self.at())),

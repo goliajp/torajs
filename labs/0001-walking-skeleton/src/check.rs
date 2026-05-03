@@ -1567,6 +1567,15 @@ impl Checker {
             Expr::Number(_) => Ok(Type::Number),
             Expr::Bool(_) => Ok(Type::Boolean),
             Expr::Null => Ok(Type::Null),
+            // `Expr::Uninit` only ever appears as a `let x;` placeholder
+            // init and is normally resolved by `desugar_uninit_let` to
+            // the first follow-up assignment's RHS. Reaching here means
+            // the let was declared but never assigned anywhere in scope
+            // — surface that as a clean type error rather than letting
+            // the lowerer panic later.
+            Expr::Uninit => Err(
+                "let binding declared without initializer and never assigned in scope".into(),
+            ),
             Expr::Ident(name) => {
                 if let Some(info) = self.lookup(name) {
                     // TS-shape: reads of an aliased / moved binding succeed
