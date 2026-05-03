@@ -1,9 +1,10 @@
 # 100% test262 plan
 
-Goal: cover the test262 surface as much as the TS-subset compilation
-model can. The subset boundary is mutable — when a test262 case needs
-a feature that's "out of subset", we extend the subset (with notes
-in this doc + `docs/ts-subset.md`).
+Goal: cover the full test262 surface — the v1.0 hard requirement is
+≥ 90 % pass on the in-scope slice. Anything bun runs that tr rejects
+is a roadmap-phase gap; this doc tracks how we close those gaps,
+phase by phase, with `docs/language-status.md` reflecting current
+status after each ship.
 
 The constraint that doesn't move: **runtime perf of `tr build` /
 `tr run` must not regress on the bench scoreboard**. Every new feature
@@ -85,6 +86,6 @@ can audit.
 3. New cap-doubling / cap-shrinking heap behavior must include a
    budget assertion in the perf-gate test (TBD — gate hasn't been
    set up yet at this scale; for now visual inspection).
-4. Document every "subset extension" decision here, with one-line
-   why-now justification, just like `unsafe` blocks document why
-   safety isn't statically verifiable.
+4. Document every "feature added to close a roadmap-phase gap"
+   decision here, with one-line why-now justification, just like
+   `unsafe` blocks document why safety isn't statically verifiable.

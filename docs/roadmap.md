@@ -2,7 +2,7 @@
 
 > Canonical implementation plan. Living document — update as work progresses, decisions change, or steps reveal new sub-steps.
 >
-> Last revised: 2026-04-30 (TS-subset pivot — discarded "Rust-shaped semantics" framing; rewrote milestones around bun-shape feature parity with compile-time ownership inference)
+> Last revised: 2026-05-04 (re-framed to drop the "subset" framing per `feedback_no_subset_word`; goal is full TS coverage, not partial. Earlier 2026-04-30 pivot discarded "Rust-shaped semantics" framing and rewrote milestones around bun-shape feature parity with compile-time ownership inference.)
 >
 > Provenance audit trail: `.claude/researches/0001-direction.md` through `0005-roadmap.md` (early discussion logs — note: pre-2026-04-30 they used a "TS syntax + Rust semantics" framing that was takagi-corrected on 2026-04-30; treat them as historical context, not as design source-of-truth).
 
@@ -12,7 +12,14 @@
 
 ### Goal
 
-Build a TypeScript runtime that runs a **subset of TS programs** with **TS semantics** — same observable behavior as `bun` running the same source. The differentiator is the runtime: AOT-compiled to a small native binary via LLVM (one path serves both `tr build` and `tr run` — the latter caches the binary at `~/.torajs/cache` for instant rerun), with **compile-time ownership inference** instead of GC.
+Build a TypeScript runtime that runs the same TS programs `bun`
+runs, with **TS semantics** — same observable behavior as `bun` on
+the same source. Anything bun runs, tr eventually runs; not-yet-
+implemented features are roadmap phases, never out-of-scope decisions.
+The differentiator is the runtime: AOT-compiled to a small native
+binary via LLVM (one path serves both `tr build` and `tr run` — the
+latter caches the binary at `~/.torajs/cache` for instant rerun),
+with ARC under a universal heap header instead of GC.
 
 When behavior is ambiguous, **bun is the oracle**. Write the equivalent in TS, run it in `bun`, and match.
 
@@ -23,12 +30,12 @@ When behavior is ambiguous, **bun is the oracle**. Write the equivalent in TS, r
 3. **Interpretable** — `tr run foo.ts` is the dev-loop entry point. AOT-with-cache replaced Cranelift JIT on 2026-05-01: cold compile is ~10× slower, but cache hits make iteration latency lower than JIT and runtime perf strictly better.
 4. **No GC, internal ARC for shared heap** — no tracing GC. Single-owner heap values use compile-time ownership inference + deterministic drops. Multi-owner cases (Array<T>, throw/catch shared structs, closure captures crossing scopes) use a hidden ARC-style refcount on a universal heap header — the user never writes `.clone()` or sees `Rc<T>`. See `docs/design-principles.md` for the four-pillar rubric the refcount pivot satisfies.
 5. **TS-shape semantics** — what works, works the same as bun. No Rust-flavored idioms in user code (no `.clone()`, no `Rc<T>`, no lifetime annotations).
-6. **TS subset** — partial coverage of TS surface. Programs the compiler can't statically resolve (multi-rooted ownership, certain dynamic patterns) get clear compile errors. Users restructure to fit the subset.
-7. **test262 conformance over the supported subset** (revised 2026-05-03) — test262 is the reference suite for ECMAScript runtime conformance; once a test262 case's surface lies inside torajs's supported subset, the case must pass three-way (bun + tr-jit + tr-aot). v1.0 hard target: ≥ **90 %** pass rate on the subset-compatible slice of test262 (estimated 5K–15K cases out of test262's ~50K total). The full-coverage ambition (`feedback_torajs_ambition`) supersedes the earlier "test262 not a goal" stance — out-of-subset test262 cases (those touching `var` / `==` / `null|undefined` / `Symbol|Proxy|WeakMap` / `eval` / regex specifics) stay legitimately skipped under the documented subset boundary.
+6. **Full TS coverage as a roadmap target** — every TS feature bun supports has a roadmap phase. Programs that hit a not-yet-implemented feature get a clean compile error referencing the phase that will close the gap. The compile error is intermediate state, not a permanent boundary; users don't restructure to fit a "subset", they wait for the phase to land or open an issue if no phase exists.
+7. **test262 conformance** (revised 2026-05-03) — test262 is the reference suite for ECMAScript runtime conformance. v1.0 hard target: ≥ **90 %** pass rate on the in-scope slice of test262 (estimated 5K–15K cases out of test262's ~50K total — the rest are negative tests / harness-dependent / `bun-skip`). The full-coverage ambition (`feedback_torajs_ambition`) supersedes the earlier "test262 not a goal" stance — every reject must point at a roadmap phase, not at a permanent design boundary.
 
 ### What's NOT in scope (corrections from earlier framing)
 
-Earlier roadmap drafts (pre-2026-04-30) called out **"TS syntax + Rust-shaped semantics"** with explicit `Rc<T>` / affine moves / `.clone()` exposed to the user. takagi corrected this on 2026-04-30: **torajs is a TS subset, not a Rust dialect**. User-visible Rust idioms are out:
+Earlier roadmap drafts (pre-2026-04-30) called out **"TS syntax + Rust-shaped semantics"** with explicit `Rc<T>` / affine moves / `.clone()` exposed to the user. takagi corrected this on 2026-04-30: **torajs uses TS semantics, not Rust idioms**. User-visible Rust idioms are out:
 
 - `Rc<T>` / `Arc<T>` / `RefCell<T>` — never user-facing
 - `.clone()` as a required call — compiler decides
@@ -37,20 +44,20 @@ Earlier roadmap drafts (pre-2026-04-30) called out **"TS syntax + Rust-shaped se
 - `move` keyword — not needed
 - Affine "use of moved value" errors on simple read sites — replaced by alias-aware ownership inference
 
-The compiler still does ownership analysis under the hood (the no-GC requirement leaves no choice), but it's **invisible at the source level**. See `docs/ts-subset.md` for the user-facing subset boundary, including the small set of programs that get rejected at compile time (multi-rooted ownership) with restructuring suggestions.
+The compiler still does ownership analysis under the hood (the no-GC requirement leaves no choice), but it's **invisible at the source level**. See `docs/language-status.md` for the current feature coverage and per-feature roadmap-phase mapping for everything not yet implemented.
 
 ### Resolved decisions
 
 | Decision | Choice |
 | --- | --- |
 | Engine implementation language | Rust |
-| Source language | TS subset (TS surface, TS semantics, partial coverage) |
+| Source language | TypeScript (TS surface, TS semantics; coverage expanding per the phase plan) |
 | Embed existing JS engine? | No — write our own |
 | Execution model | AOT in both modes — `tr build` writes to `-o`, `tr run` writes to `~/.torajs/cache/<hash>` then execs. Single SSA → LLVM pipeline. |
 | Memory model | Compile-time ownership inference for single-owner; hidden ARC refcount on universal heap header for shared paths (no user-visible `Rc<T>`); no tracing GC |
 | Compiler backend | LLVM via Inkwell — single backend for both `tr run` and `tr build`. Cranelift JIT was tried (P3.6) and removed 2026-05-01: weaker codegen lost compute-heavy benchmarks to V8/JSC. |
-| TS conformance | None — torajs is a subset, not aligned to any TS version |
-| Test262 conformance | **Hard target on the subset-compatible slice** (revised 2026-05-03; was "Not a goal"). v1.0 gate: ≥ 90 % pass on the subset slice (~5K–15K of test262's ~50K total). |
+| TS conformance | Coverage expands phase-by-phase; goal is full TS as bun runs it (≥ bun) |
+| Test262 conformance | **Hard target on the in-scope slice** (revised 2026-05-03; was "Not a goal"). v1.0 gate: ≥ 90 % pass on the in-scope slice (~5K–15K of test262's ~50K total). |
 | First-class WASM target | Yes — torajs.com playground depends on it |
 
 ### Working mode
@@ -64,7 +71,7 @@ The compiler still does ownership analysis under the hood (the no-GC requirement
 
 ## Status snapshot (2026-04-30)
 
-After the TS-subset pivot — revert of P2.3 (`Rc<T>` chain) + alias-aware ownership inference shipped.
+After the 2026-04-30 framing pivot — revert of P2.3 (`Rc<T>` chain) + alias-aware ownership inference shipped.
 
 ### What works end-to-end
 
@@ -108,7 +115,7 @@ console.log(Math.floor(Math.sqrt(alice.age * alice.age)));
 | **P2.4**   | object literals + structural types | ✓ |
 | **P3**     | LLVM AOT backend (one SSA IR → Inkwell). Cranelift JIT prototype shipped P3.6, removed 2026-05-01 — `tr run` is now AOT-with-cache against the same backend. | ✓ |
 | **stdlib slice 1** | `console.log`, `Math.{sqrt,abs,floor,ceil,log,exp,pow,min,max,PI,E}`, `String.length`, `print_f64` | ✓ |
-| **M1**     | TS subset core (comments / Array runtime / block drops / `p.x = v` / `&&` `\|\|` `!` / for-loop / break+continue) | ✓ |
+| **M1**     | core surface (comments / Array runtime / block drops / `p.x = v` / `&&` `\|\|` `!` / for-loop / break+continue) | ✓ |
 | **M2 Phase A/B** | non-capturing arrow fns + first-class fn pointers (`__fn(P)->R` annotation, FnSig, FnAddr+CallIndirect) | ✓ |
 | **M2 Phase C** | closures with **implicit captures** — heap env block `[fn_ptr, cap_0, cap_1, ...]`, env-load preamble in lifted body, `Type::Closure(SigId)` | ✓ 2026-04-30 |
 | **M3.1+M3.2+M3.3** | generics — `function id<T>(x: T): T`, type-arg inference at call sites, monomorphization pre-pass | ✓ 2026-04-30 |
@@ -119,7 +126,7 @@ console.log(Math.floor(Math.sqrt(alice.age * alice.age)));
 | **unary minus + M6.1** | `-x` for i64/f64 + AOT `print_i64` neg-handler; string methods slice/charCodeAt/startsWith/endsWith/includes/indexOf as borrow-shaped runtime intrinsics; `print_bool` for `console.log(true)` | ✓ 2026-05-01 |
 | **Array&lt;string&gt; + split / join** | implicit ptr↔i64 cast at AOT call boundary unblocks heap-element arrays; `s.split(sep) → string[]` and `arr.join(sep) → string` via a small C runtime (`runtime_str.c`) compiled+linked per `tr build`. Index-borrow fix on console.log dispatch (parts[i] no longer drops the array's element). | ✓ 2026-05-01 |
 | **M4.3.a + .b** | non-number throws (`throw "msg"` / `catch (e: string)` / `catch (e: Err)` for struct types) + may-throw escape analysis (transitive call graph, throw_check skipped on verified-non-throwing callees, fib40 recovers from M4.1's 5% slowdown). Cross-frame drops verified leak-free via `leaks --atExit`. | ✓ 2026-05-01 |
-| ~~P2.3~~ | ~~`Rc<T>` first-class~~ | **REMOVED** — incompatible with TS-subset framing |
+| ~~P2.3~~ | ~~`Rc<T>` first-class~~ | **REMOVED** — Rust idiom not exposed at the source level (per 2026-04-30 framing pivot) |
 
 ### Bench position (M4 Pro, hyperfine n=5)
 
@@ -129,7 +136,7 @@ console.log(Math.floor(Math.sqrt(alice.age * alice.age)));
 
 ```
 labs/0001-walking-skeleton/src/   ~6000 LOC across 9 files
-docs/                              roadmap.md + stdlib.md + ts-subset.md
+docs/                              roadmap.md + stdlib.md + language-status.md
 bench/                             11 cases × 5 langs + harness + runners + results
 ```
 
@@ -141,9 +148,9 @@ M4 fully shipped: `throw / try / catch / finally` with non-number values, transi
 
 ## Execution path — committed order, no per-step ask
 
-The single committed path through the TS-subset implementation. Each milestone is a coherent chunk of TS-surface coverage; sub-steps within a milestone roll up to one observable feature shipping. The agent runs each step end-to-end (code + tests + commit) without checkpointing back unless a real fork appears.
+The single committed path through the TS implementation. Each milestone is a coherent chunk of TS-surface coverage; sub-steps within a milestone roll up to one observable feature shipping. The agent runs each step end-to-end (code + tests + commit) without checkpointing back unless a real fork appears.
 
-### M1 — finish the TS subset core
+### M1 — finish the core surface
 
 Plug remaining holes in the language surface so non-trivial TS programs run.
 
@@ -213,15 +220,15 @@ The compiler already has `Array<T>` natively after M1. M3 generalizes the mechan
 
 **Graduation point**: end of M5, `labs/0001-walking-skeleton/` promotes to `crates/torajs-core/` + `crates/tr-cli/`. `v0.1` tag.
 
-### M6 — Standard library expansion (bun-shape subset)
+### M6 — Standard library expansion (bun-shape stdlib)
 
 | step | what | exit gate |
 |---|---|---|
 | **M6.1** ✓ | `String` methods — `slice`, `charCodeAt`, `startsWith`, `endsWith`, `includes`, `indexOf`, `split`, plus `Array<string>.join`. All borrow-shaped, both backends. (`substring` is a slice alias and deferred; arrays of arbitrary element types are unblocked.) | inline test exercises all 8 methods; round-trip `s.split(",").join("-")` works on JIT + AOT |
 | **M6.2** ✓ (partial) | `Array` methods: `map`, `filter`, `reduce`, `forEach` shipped — `(T) => T` uniform map only, method chains compose, capturing closures + top-level fn callables both work; `find` / `slice` deferred | array-map-1m bench at torajs (AOT) 37.49 ms vs rust 27.40 ms / go 21.45 ms; trails rust+go on per-push capacity check, beats bun (1.6×) and node-v8 (6.7×) |
 | **M6.3** ◐ | `Date`, `JSON.parse` / `JSON.stringify` | **`JSON.stringify` + `JSON.parse` shipped end-to-end** — primitive / array / object / class instance / nested. Caller-driven typing: `let v: T = JSON.parse(text)` reads the slot's annotation `T` at lower-time, so no explicit `<T>` syntax needed. Runtime helpers in `runtime_str.c` (`__torajs_json_*`); ssa_lower compiles per-shape recursive parser/encoder. `m6-09-json-stringify-primitives.ts` / `m6-10-json-stringify-arr-obj.ts` / `m6-11-json-parse.ts`. Surrogate-pair `\uXXXX` decoding, custom revivers, JSON.parse on number-typed `1.5` (currently I64 path only) — follow-ups. **`Date` not yet started.** |
-| **M6.4** | `fs` (sync subset): `readFileSync`, `writeFileSync` | reads/writes a file end-to-end |
-| **M6.5** | `Bun.file`, `Bun.write` (bun-namespace subset) | matches bun's surface |
+| **M6.4** | `fs` (initial scope: `readFileSync`, `writeFileSync`) | reads/writes a file end-to-end |
+| **M6.5** | `Bun.file`, `Bun.write` (initial Bun namespace surface) | matches bun's surface |
 
 ### M7 — Async / await
 
@@ -358,7 +365,7 @@ Work that runs **alongside** every milestone, not as one of them. Tracked here s
 
 ### Documentation
 
-- **`docs/` is canonical** — this roadmap, `stdlib.md`, `ts-subset.md`, future `lang-reference.md`, `embedding.md`. Versioned with the code.
+- **`docs/` is canonical** — this roadmap, `stdlib.md`, `language-status.md`, future `lang-reference.md`, `embedding.md`. Versioned with the code.
 - **Public website** at `torajs.com` — landing + playground (M8) + docs + bench scoreboard (auto-generated from `bench/results/`).
 - **No external blog/marketing** during research phase. Communications happen on takagi's discretion.
 
@@ -384,7 +391,7 @@ Perf work happens incrementally:
 
 Things explicitly NOT planned. Some have been demoted from earlier drafts (under the wrong "Rust semantics" framing):
 
-- **`null` / `undefined`** — dropped by design. Use `Option<T>` if needed (TS subset doesn't have undefined either; explicit absence via tagged unions).
+- ~~**`null` / `undefined`** — dropped by design.~~ `null` is supported (since 2026-05-04, `Type::Ptr` becomes Copy + null sentinel handling). `undefined` is a roadmap item — until it lands, use `Nullable<T>` (`T | null`).
 - **`==` / `!=`** — only `===` / `!==`.
 - **`var` keyword** — only `let` / `const`.
 - **Decorators** — not planned. Use cases are better served by macros (far) or manual code.
@@ -393,9 +400,9 @@ Things explicitly NOT planned. Some have been demoted from earlier drafts (under
 - **`eval` / `Function` constructor** — dropped.
 - **Class syntax (initial)** — possibly later as desugaring to `type` + `impl`-style methods. Not in M1-M9 critical path.
 - **Conditional / mapped types** (`Pick<T, K>`, `Partial<T>`, `T extends U ? X : Y`) — TS-specific compiler tricks bound to its inference model. Probably never.
-- **Cycle-collecting weak references** — no-GC contract. Cycles in dynamic structures (mutable graph nodes referencing each other) are not expressible in the TS subset; users restructure. No `Weak<T>` shipping.
+- **Cycle-collecting weak references** — no-tracing-GC contract. Cycles are a roadmap item: v1.0 must support them (bun does, via V8). The implementation will be ARC-aware cycle collector or similar; not a "users restructure to avoid" surface.
 - **`Rc<T>` / `Arc<T>` / `RefCell<T>` user-visible types** — corrected on 2026-04-30. The runtime implementation may use refcount-like techniques internally, but these are NEVER user-facing.
-- ~~**Test262 conformance** — out of scope.~~ **Restored as a hard requirement on 2026-05-03** (see `Hard requirements #7`). The subset-compatible slice of test262 (~5K–15K cases) is a v1.0 gate at ≥ 90 % pass.
+- ~~**Test262 conformance** — out of scope.~~ **Restored as a hard requirement on 2026-05-03** (see `Hard requirements #7`). The in-scope slice of test262 (~5K–15K cases) is a v1.0 gate at ≥ 90 % pass.
 - **WebAssembly user-code target** (different from "engine-as-wasm" in M8) — emit wasm artifacts from user `.tora.ts` source for non-browser deployment. Beyond v1.0 timeline.
 - **Multi-threaded executor + `Send`/`Sync`** — single-threaded async is enough for v1.0 (matches bun's main path). Multi-threaded deferred to M9.5 (post-v1.0).
 

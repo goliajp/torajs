@@ -1,23 +1,51 @@
 # torajs
 
-A TypeScript runtime that runs a subset of TS programs with **TS semantics**, AOT-compiled to small native binaries via LLVM. **No GC**, no refcount — the compiler infers ownership at compile time. Two execution modes: `tr build` (AOT to standalone binary) and `tr run` (AOT-with-cache, dev-loop shape — same codegen, cached at `~/.torajs/cache`).
+A TypeScript runtime that runs the same TS programs `bun` does, with
+TS semantics, AOT-compiled to small native binaries via LLVM. **No
+GC pauses, no V8 footprint** — tr ships ARC under a universal heap
+header. Two execution modes: `tr build` (AOT to standalone binary)
+and `tr run` (compile + cache + execute, dev-loop shape — same
+codegen, cached at `~/.torajs/cache`).
 
-> Closed-source research project. Public site: https://torajs.com
+> Public site: https://torajs.com
 
-## What it is
+## What works
 
+- Classes (instance + static, inheritance, `abstract`, visibility),
+  generics, closures, generators
+- `try` / `catch` / `finally` / `throw`
+- Function expressions, `let x;` (uninitialized), `any` / untyped
+  fn params (auto-monomorphized at call sites)
+- Cross-file `import` / `export` (named imports today; default +
+  namespace + side-effect imports tracked in roadmap)
+- Full string / array / Math / JSON / Number stdlib surface
+- `>>>` UInt32 coercion idiom (SHA-256 / hash-heavy code)
+
+bun is the oracle. When behavior is unclear, write the equivalent
+in TS, run it in `bun`, and match. Anything bun runs that tr
+rejects is a roadmap-phase gap, not a design boundary.
+
+See [`docs/language-status.md`](docs/language-status.md) for the
+full feature table + per-feature roadmap-phase mapping.
+
+## Quick start
+
+```sh
+# install (v0.1.0-beta release)
+curl -fsSL https://raw.githubusercontent.com/golia-jp/torajs/main/install.sh | bash
+
+# JIT-style: compile + run, cached at ~/.torajs/cache
+tr run hello.ts
+
+# AOT: produce a native binary
+tr build hello.ts -o hello && ./hello
 ```
-TS subset surface         TS semantics, no GC               One codegen, two modes
-─────────────────         ───────────────────               ──────────────────────
-function fib(n: number)   let n = s;                        tr build → LLVM 22 → bin
-   : number { ... }       console.log(s); console.log(n);   tr run   → same path, cached
-let xs: number[] = [];    // both reads work                 ~40 KB static binary
-xs.push(1); xs[0] = 9;    // one drop at scope exit          ~1.3 ms cold-start
-```
 
-bun is the oracle: when behavior is unclear, write the equivalent in TS, run it in `bun`, and match.
+5 self-contained examples in [`examples/`](examples/) — SHA-256,
+prime sieve, FizzBuzz, wc-clone, JSON serializer demo. Each output
+is byte-identical to `bun run`.
 
-`number` is `i64` by default; `f64` is opt-in. Strings, objects, and arrays follow TS reference semantics — multiple bindings can alias the same heap, the compiler picks the owner statically and emits one drop. No `null`, no `==`, no `var`, no decorators, no `eval`. Differentiator from bun is the runtime: ~40 KB native binary, ~1.3 ms startup, no GC pauses. See [`docs/ts-subset.md`](docs/ts-subset.md) for the supported subset boundary.
+More: [`docs/getting-started.md`](docs/getting-started.md).
 
 ## Bench scoreboard
 
@@ -51,7 +79,7 @@ torajs (AOT) **vs bun-jsc / bun-aot / node-v8**: **15 / 15 / 15** clean sweeps p
 
 `throw-catch-100k` stays the category-killer: 100k handled exceptions takes 1.29 ms in torajs vs 426 ms in rust — **330× faster than rust's panic path**. tr's M4 design (module-level throw_active flag + cond_br on every may_throw call) lets throw be ~zero-cost when it doesn't fire.
 
-65+ commits since `7c7844e` added zero perf regression on the scoreboard's stable cases — long cases (fib40, mandelbrot, gcd1m, collatz, prime_count, closure-counter) all sit within ±2% of their `7c7844e`-era values across every bench since. Conformance grew from 197 → **266 ports** — Math 100% complete, object spread, default + rest params + spread call args, JSON.stringify, multi-arg console, variadic String.fromCharCode + fromCodePoint, codePointAt, Number.toString(radix), generic class fixed-point monomorphization (`class Wrapper<T>`, `class Stack<T>`, `class Pair<A, B>`), `instanceof` (direct + extends-chain walk), `Array.from(string)`, and many integration ports. See [docs/100-percent-plan.md](docs/100-percent-plan.md) for the subset-expansion roadmap toward 100% test262 coverage.
+65+ commits since `7c7844e` added zero perf regression on the scoreboard's stable cases — long cases (fib40, mandelbrot, gcd1m, collatz, prime_count, closure-counter) all sit within ±2% of their `7c7844e`-era values across every bench since. Conformance grew from 197 → **301 ports** + test262 baseline at 606 / 23941 in-scope cases (2.53 %, 99.67 % of tr-accepted cases match bun byte-identical). See [`docs/language-status.md`](docs/language-status.md) for the language coverage roadmap and [`docs/100-percent-plan.md`](docs/100-percent-plan.md) for the path toward 100 % test262.
 
 ### Per-case detail — compile / run / binary
 
@@ -320,7 +348,7 @@ echo 'console.log("hello");' > hi.tora.ts
 | P2.2               | string runtime + drop emission (concat doesn't consume)                                             |   ✓    |
 | P2.4               | object literals + structural types                                                                  |   ✓    |
 | P3                 | LLVM AOT codegen + `tr run` cache layer (Cranelift JIT retired)                                     |   ✓    |
-| **M1**             | TS subset core (comments, Array runtime, block-scope drops, mutable field/index write, bool ops, for, break/continue) | ✓ |
+| **M1**             | core surface (comments, Array runtime, block-scope drops, mutable field/index write, bool ops, for, break/continue) | ✓ |
 | **M2**             | closures with implicit captures (single + multi + nested + escaping returns)                        |   ✓    |
 | **M3**             | generics in user code (type params, monomorphization, generic structs)                              |   ✓    |
 | **M4**             | error model: try / catch / throw / finally — number / string / struct throw values                  |   ✓    |
@@ -333,7 +361,7 @@ echo 'console.log("hello");' > hi.tora.ts
 | M8                 | playground (wasm) + LSP + tooling                                                                   |   —    |
 | M9                 | source maps + debugger + embedding API + multi-thread → v1.0                                        |   —    |
 
-[Full roadmap](docs/roadmap.md). Phase P3 went through a mid-project pivot from wasm-via-C → LLVM-direct + Cranelift. The P2 ownership story was framing-corrected on 2026-04-30 (TS subset, not Rust dialect; see [`docs/ts-subset.md`](docs/ts-subset.md)).
+[Full roadmap](docs/roadmap.md). Phase P3 went through a mid-project pivot from wasm-via-C → LLVM-direct + Cranelift. The P2 ownership story was framing-corrected on 2026-04-30 (TS semantics, not Rust idioms; see [`docs/language-status.md`](docs/language-status.md)).
 
 ## Bench cases
 
@@ -369,7 +397,9 @@ torajs/
 ├── labs/0002-inkwell-spike/      ← throwaway: LLVM gate validation
 ├── bench/                        ← cross-runtime perf harness
 ├── docs/roadmap.md               ← canonical implementation plan
-├── docs/ts-subset.md             ← TS subset boundary documentation
+├── docs/language-status.md       ← what works today + per-feature roadmap-phase mapping
+├── docs/getting-started.md       ← install + hello world
+├── docs/perf.md                  ← bench scoreboard + reproduction
 └── web/                          ← torajs.com website (Vite + React)
 ```
 
