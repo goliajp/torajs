@@ -1,0 +1,121 @@
+# GitHub Actions — release pipeline.
+#
+# Trigger: push of a `v*` tag (e.g. `v0.1.0-beta`). Builds tr binary
+# tarballs for macOS arm64 and Linux x64, uploads them as a GitHub
+# release attachment. Source-tarball + sha256 sums are auto-emitted.
+#
+# Pre-requisites in the repo settings:
+#   - LLVM 22 available on each runner (the cargo build pulls inkwell
+#     which needs `llvm-config` reachable on PATH; the steps below
+#     install it via apt / brew per platform).
+#   - `secrets.GITHUB_TOKEN` is the default release-publish token; no
+#     additional secret needed for the basic flow.
+
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build-${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            os: macos-14
+            archive: tr-${{ github.ref_name }}-darwin-arm64.tar.gz
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-24.04
+            archive: tr-${{ github.ref_name }}-linux-x64.tar.gz
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install LLVM 22 (macOS)
+        if: matrix.os == 'macos-14'
+        run: |
+          brew update
+          brew install llvm@22
+          echo "LLVM_SYS_220_PREFIX=$(brew --prefix llvm@22)" >> $GITHUB_ENV
+          echo "$(brew --prefix llvm@22)/bin" >> $GITHUB_PATH
+
+      - name: install LLVM 22 (Linux)
+        if: matrix.os == 'ubuntu-24.04'
+        run: |
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/llvm.asc
+          echo 'deb http://apt.llvm.org/noble/ llvm-toolchain-noble-22 main' | sudo tee /etc/apt/sources.list.d/llvm.list
+          sudo apt-get update
+          sudo apt-get install -y llvm-22-dev llvm-22-tools libpolly-22-dev clang-22
+          echo "LLVM_SYS_220_PREFIX=/usr/lib/llvm-22" >> $GITHUB_ENV
+          echo "/usr/lib/llvm-22/bin" >> $GITHUB_PATH
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release-${{ matrix.target }}
+
+      - name: build tr release
+        run: cargo build --release -p tr --target ${{ matrix.target }}
+
+      - name: stage artifact
+        run: |
+          mkdir -p staging/tr
+          cp target/${{ matrix.target }}/release/tr staging/tr/tr
+          cp README.md staging/tr/README.md
+          cp -r docs staging/tr/docs
+          cp -r examples staging/tr/examples
+          tar -czf ${{ matrix.archive }} -C staging tr
+          shasum -a 256 ${{ matrix.archive }} > ${{ matrix.archive }}.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.archive }}
+          path: |
+            ${{ matrix.archive }}
+            ${{ matrix.archive }}.sha256
+          retention-days: 7
+
+  release:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: assemble release notes
+        run: |
+          echo "torajs ${{ github.ref_name }}" > release-notes.md
+          echo "" >> release-notes.md
+          echo "Beta release. See:" >> release-notes.md
+          echo "" >> release-notes.md
+          echo "- [docs/getting-started.md](docs/getting-started.md) — install + hello world" >> release-notes.md
+          echo "- [docs/language-status.md](docs/language-status.md) — what works today + what's planned" >> release-notes.md
+          echo "- [docs/perf.md](docs/perf.md) — bench scoreboard + reproduction" >> release-notes.md
+          echo "" >> release-notes.md
+          echo "## Verify your download" >> release-notes.md
+          echo "" >> release-notes.md
+          echo '```' >> release-notes.md
+          echo 'shasum -a 256 -c <archive>.sha256' >> release-notes.md
+          echo '```' >> release-notes.md
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: torajs ${{ github.ref_name }}
+          body_path: release-notes.md
+          files: dist/*
+          prerelease: ${{ contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
