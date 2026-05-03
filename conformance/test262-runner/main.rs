@@ -48,7 +48,7 @@ const DEFAULT_REPORT_BUGS: usize = 20;
 enum Outcome {
     Pass,
     Bug { kind: String, msg: String },
-    Incompatible { kind: String },
+    Incompatible { kind: String, msg: String },
     BunSkip,
     HarnessError { msg: String },
 }
@@ -380,16 +380,60 @@ fn run_case(path: &Path, harness: &str, tr_bin: &Path, slot: usize) -> Outcome {
         return Outcome::BunSkip;
     }
 
-    let tr = Command::new(tr_bin)
+    // 30s per-case timeout. tr's compile pipeline shouldn't take that
+    // long even on huge cases (test262's Unicode-table cases push 3MB
+    // sources); a 30s outlier almost always means an O(n^2) pass or an
+    // infinite loop, not a slow-but-correct compile. We classify hung
+    // cases as `Incompatible { kind: "tr-timeout" }` so they don't
+    // block the run from finishing.
+    let mut tr_proc = match Command::new(tr_bin)
         .args(["run", &tmp_path.to_string_lossy()])
         .env("TORAJS_NO_CACHE", "1")
-        .output();
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            let _ = std::fs::remove_file(&tmp_path);
+            return Outcome::HarnessError {
+                msg: format!("tr spawn: {e}"),
+            };
+        }
+    };
+    let timeout = std::time::Duration::from_secs(30);
+    let started = Instant::now();
+    let tr_out = loop {
+        match tr_proc.try_wait() {
+            Ok(Some(_status)) => {
+                break tr_proc.wait_with_output();
+            }
+            Ok(None) => {
+                if started.elapsed() >= timeout {
+                    let _ = tr_proc.kill();
+                    let _ = tr_proc.wait();
+                    let _ = std::fs::remove_file(&tmp_path);
+                    return Outcome::Incompatible {
+                        kind: "tr-timeout".to_string(),
+                        msg: format!("tr timed out after {}s", timeout.as_secs()),
+                    };
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            Err(e) => {
+                let _ = std::fs::remove_file(&tmp_path);
+                return Outcome::HarnessError {
+                    msg: format!("tr wait: {e}"),
+                };
+            }
+        }
+    };
     let _ = std::fs::remove_file(&tmp_path);
-    let tr_out = match tr {
+    let tr_out = match tr_out {
         Ok(o) => o,
         Err(e) => {
             return Outcome::HarnessError {
-                msg: format!("tr spawn: {e}"),
+                msg: format!("tr output: {e}"),
             };
         }
     };
@@ -423,6 +467,7 @@ fn run_case(path: &Path, harness: &str, tr_bin: &Path, slot: usize) -> Outcome {
     if let Some(kind) = incompat_kind {
         return Outcome::Incompatible {
             kind: kind.to_string(),
+            msg: first_line,
         };
     }
 
@@ -496,6 +541,8 @@ fn main() {
     let bun_skip = AtomicUsize::new(0);
     let incompat: Mutex<std::collections::HashMap<String, usize>> =
         Mutex::new(std::collections::HashMap::new());
+    let incompat_samples: Mutex<std::collections::HashMap<String, Vec<(PathBuf, String)>>> =
+        Mutex::new(std::collections::HashMap::new());
     let bugs: Mutex<Vec<(PathBuf, String, String)>> = Mutex::new(Vec::new());
     let harness_err: Mutex<Vec<(PathBuf, String)>> = Mutex::new(Vec::new());
 
@@ -511,6 +558,7 @@ fn main() {
             let pass = &pass;
             let bun_skip = &bun_skip;
             let incompat = &incompat;
+            let incompat_samples = &incompat_samples;
             let bugs = &bugs;
             let harness_err = &harness_err;
             let progress = &progress;
@@ -533,9 +581,15 @@ fn main() {
                     Outcome::BunSkip => {
                         bun_skip.fetch_add(1, Ordering::Relaxed);
                     }
-                    Outcome::Incompatible { kind } => {
+                    Outcome::Incompatible { kind, msg } => {
                         let mut m = incompat.lock().unwrap();
-                        *m.entry(kind).or_insert(0) += 1;
+                        *m.entry(kind.clone()).or_insert(0) += 1;
+                        drop(m);
+                        let mut s = incompat_samples.lock().unwrap();
+                        let v = s.entry(kind).or_default();
+                        if v.len() < 30 {
+                            v.push((p.clone(), msg));
+                        }
                     }
                     Outcome::Bug { kind, msg } => {
                         let mut v = bugs.lock().unwrap();
@@ -561,6 +615,7 @@ fn main() {
     let pass = pass.load(Ordering::Relaxed);
     let bun_skip = bun_skip.load(Ordering::Relaxed);
     let incompat = incompat.into_inner().unwrap();
+    let incompat_samples = incompat_samples.into_inner().unwrap();
     let incompat_total: usize = incompat.values().sum();
     let bugs = bugs.into_inner().unwrap();
     let harness_err = harness_err.into_inner().unwrap();
@@ -605,6 +660,17 @@ fn main() {
         println!("\nincompatibility breakdown:");
         for (k, v) in &incompat_sorted {
             println!("  {v:>6}  {k}");
+        }
+    }
+
+    if std::env::var("TORAJS_T262_DUMP_INCOMPAT").is_ok() {
+        for (k, _) in &incompat_sorted {
+            let Some(samples) = incompat_samples.get(k) else { continue };
+            println!("\n--- sample {k} ({} cases) ---", samples.len());
+            for (p, msg) in samples.iter().take(20) {
+                let rel = p.strip_prefix(root).unwrap_or(p);
+                println!("  {}: {msg}", rel.display());
+            }
         }
     }
 
