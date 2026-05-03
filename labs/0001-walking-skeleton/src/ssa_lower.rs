@@ -2269,6 +2269,63 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
     // first, lifted `__closure_N` decls are appended to the end.
     let mut closure_captures: HashMap<String, Vec<(Type, bool)>> = HashMap::new();
 
+    // Pass 1.5 (K.3) — register top-level data globals. A top-level
+    // `let X: T = init` whose type annotation parses to a primitive
+    // Copy type (I64 / F64 / Bool / I32) and whose initializer is NOT
+    // a literal becomes a real LLVM global slot — readable and writable
+    // from named-fn bodies via `GlobalRef + Load` / `+ Store`.
+    //
+    // Skipped (still scope to implicit main as a local):
+    //   - literal-init forms (`const X = 42`) — the K.1 inline-literal
+    //     fallback path is faster and doesn't need a slot.
+    //   - missing type annotation — K.3 doesn't run inference here;
+    //     `let Y = computeValue()` without `: T` keeps the K.1 behavior
+    //     of being a main-fn local (named-fn read errors with "unknown
+    //     ident").
+    //   - refcount-typed annotations (Str / Arr / Obj / Closure) — those
+    //     need an exit-time drop hook that doesn't yet exist; revisit
+    //     in a follow-up phase.
+    let mut globals: HashMap<String, Type> = HashMap::new();
+    for stmt in &ast.stmts {
+        if let Stmt::LetDecl {
+            name,
+            init,
+            type_ann,
+            ..
+        } = stmt
+        {
+            let init_is_literal = matches!(
+                ast.get_expr(*init),
+                Expr::Number(_) | Expr::String(_) | Expr::Bool(_)
+            );
+            if init_is_literal {
+                continue;
+            }
+            let Some(ann) = type_ann else { continue };
+            let ty = parse_type(
+                Some(ann),
+                &aliases,
+                &mut arr_layouts,
+                &mut fn_sigs,
+                &generic_struct_decls,
+                &mut struct_layouts,
+            );
+            if !matches!(ty, Type::I64 | Type::F64 | Type::Bool | Type::I32) {
+                continue;
+            }
+            globals.insert(name.clone(), ty);
+        }
+    }
+    let mut data_globals_out: Vec<ssa::DataGlobal> = globals
+        .iter()
+        .map(|(name, ty)| ssa::DataGlobal {
+            name: name.clone(),
+            ty: *ty,
+        })
+        .collect();
+    data_globals_out.sort_by(|a, b| a.name.cmp(&b.name));
+    module.data_globals = data_globals_out;
+
     // Pass 2: lower user FnDecl bodies. Each call returns the lowered
     // function plus any string literals interned during its body; we
     // append those into module.strings before the next call so the
@@ -2303,6 +2360,7 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
                 &call_retargets,
                 &may_throw,
                 &sid_to_class_tag,
+                &globals,
             );
             module.funcs[fid.0 as usize] = f;
             for s in new_strings {
@@ -2336,6 +2394,7 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
             &call_retargets,
             &may_throw,
             &sid_to_class_tag,
+            &globals,
         );
         for s in new_strings {
             module.strings.push(s);
@@ -2617,6 +2676,7 @@ fn declare_intrinsic(
     id
 }
 
+#[allow(clippy::too_many_arguments)]
 fn synthesize_main(
     stmts: &[&Stmt],
     ast: &Ast,
@@ -2634,6 +2694,7 @@ fn synthesize_main(
     call_retargets: &CallRetargets,
     may_throw_fns: &std::collections::HashSet<String>,
     sid_to_class_tag: &HashMap<u32, u32>,
+    globals: &HashMap<String, Type>,
 ) -> (ssa::Function, Vec<Vec<u8>>) {
     let mut f = ssa::Function::new("main", Type::I32);
     let entry = f.add_block();
@@ -2671,6 +2732,8 @@ fn synthesize_main(
             may_throw_fns,
             captured_arr_writeback: HashMap::new(),
             escape_captured_lets: std::collections::HashSet::new(),
+            globals,
+            is_main_fn: true,
         };
         for s in stmts {
             ctx.lower_top_stmt(s);
@@ -3356,6 +3419,7 @@ fn collect_closure_captures_in_expr(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn lower_fn(
     name: &str,
     params: &[ast::Param],
@@ -3376,6 +3440,7 @@ fn lower_fn(
     call_retargets: &CallRetargets,
     may_throw_fns: &std::collections::HashSet<String>,
     sid_to_class_tag: &HashMap<u32, u32>,
+    globals: &HashMap<String, Type>,
 ) -> (ssa::Function, Vec<Vec<u8>>) {
     let ret_ty = effective_ret_ty(
         parse_type(
@@ -3448,6 +3513,8 @@ fn lower_fn(
         may_throw_fns,
         captured_arr_writeback: HashMap::new(),
         escape_captured_lets: std::collections::HashSet::new(),
+        globals,
+        is_main_fn: false,
     };
 
     // Closure-capture analysis: any `let` (or param) whose name is
@@ -3806,6 +3873,21 @@ struct LowerCtx<'a> {
     /// Empty for non-escape-context fns; populated at fn-entry by
     /// scanning `body` for `Expr::Closure` captures.
     escape_captured_lets: std::collections::HashSet<String>,
+    /// Phase K.3 — module-level data globals (top-level `let X: T = init`
+    /// where T is a primitive Copy type). Read by the ident-read fallback
+    /// to emit `GlobalRef + Load` for cross-fn reads, and by the LetDecl
+    /// arm in `main` to emit `GlobalRef + Store` for the init expression.
+    /// Refcount-typed globals (string / array / object / class instance)
+    /// are NOT in this map yet — they fall through to the existing
+    /// implicit-main-local path; lifting them requires a destructor at
+    /// program exit and is deferred to a later phase.
+    globals: &'a HashMap<String, Type>,
+    /// Phase K.3 — true while lowering the synthesized `main` fn. The
+    /// LetDecl arm uses this to decide whether a top-level let in
+    /// `globals` should write to the global slot (in main) or skip
+    /// declaration entirely (in named fns — they only ever read/write
+    /// the slot via the ident-read / Assign-Ident fallbacks).
+    is_main_fn: bool,
 }
 
 impl<'a> LowerCtx<'a> {
@@ -5149,6 +5231,39 @@ impl<'a> LowerCtx<'a> {
                 type_ann,
                 init,
             } => {
+                // K.3 — top-level data global. Lower init, store into the
+                // module's global slot via GlobalRef + Store, skip the
+                // alloca / locals registration. Only fires inside the
+                // synthesized `main` fn — named-fn bodies never declare
+                // top-level globals (the AST keeps the LetDecl at the
+                // top level, so a named-fn body sees nothing). Reads /
+                // writes from any fn body (main included) flow through
+                // the ident-read / Assign-Ident fallbacks below.
+                if self.is_main_fn
+                    && let Some(slot_ty) = self.globals.get(name).copied()
+                {
+                    let init_val = self.lower_expr(*init);
+                    let coerced = if slot_ty == Type::F64
+                        && self.operand_ty(&init_val) == Type::I64
+                    {
+                        self.coerce_to_f64(init_val)
+                    } else {
+                        init_val
+                    };
+                    let ptr = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::GlobalRef(name.clone()),
+                        Type::Ptr,
+                        None,
+                    );
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Store(coerced, Operand::Value(ptr), 0),
+                    );
+                    let _ = type_ann; // currently unused on this path
+                    let _ = slot_ty;
+                    return;
+                }
                 // M2 Phase B Stage 4 — `let f = global_fn`. Allocate a
                 // Type::FnSig slot, store FnAddr in it. Subsequent use
                 // either loads the slot for indirect call / passing as
@@ -6516,6 +6631,27 @@ impl<'a> LowerCtx<'a> {
                         }
                     }
                 }
+                // K.3 — module-level data global. After the literal
+                // fallback misses, check the K.3 globals registry; if
+                // X is there, emit GlobalRef + Load. The slot was
+                // initialized at main entry by the LetDecl arm above.
+                if self.locals.get(name).is_none()
+                    && let Some(ty) = self.globals.get(name).copied()
+                {
+                    let ptr = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::GlobalRef(name.clone()),
+                        Type::Ptr,
+                        None,
+                    );
+                    let v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Load(ty, Operand::Value(ptr), 0),
+                        ty,
+                        None,
+                    );
+                    return Operand::Value(v);
+                }
                 let info = match self.locals.get(name) {
                     Some(i) => *i,
                     None => panic!("ssa-lower: unknown ident `{name}`"),
@@ -6531,6 +6667,42 @@ impl<'a> LowerCtx<'a> {
             Expr::Assign { target, value } => {
                 match self.ast.get_expr(*target).clone() {
                     Expr::Ident(name) => {
+                        // K.3 — assignment to a module-level data
+                        // global. Lower rhs, GlobalRef + Store. K.3
+                        // only registers primitive Copy types (I64 /
+                        // F64 / Bool / I32) so there's no old-value
+                        // drop dance: the slot just holds bits.
+                        if self.locals.get(&name).is_none()
+                            && let Some(slot_ty) = self.globals.get(&name).copied()
+                        {
+                            let v = self.lower_expr(*value);
+                            let v_ty = self.operand_ty(&v);
+                            let v = if slot_ty == Type::F64 && v_ty == Type::I64 {
+                                self.coerce_to_f64(v)
+                            } else {
+                                v
+                            };
+                            let ptr = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::GlobalRef(name.clone()),
+                                Type::Ptr,
+                                None,
+                            );
+                            self.f.append_void(
+                                self.cur_block,
+                                InstKind::Store(v, Operand::Value(ptr), 0),
+                            );
+                            // Assignment-as-expression — TS yields the
+                            // assigned value. Re-load so the result
+                            // has the slot's current contents.
+                            let r = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Load(slot_ty, Operand::Value(ptr), 0),
+                                slot_ty,
+                                None,
+                            );
+                            return Operand::Value(r);
+                        }
                         let snapshot = match self.locals.get(&name) {
                             Some(i) => *i,
                             None => panic!(

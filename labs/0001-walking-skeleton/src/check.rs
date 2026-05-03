@@ -651,14 +651,30 @@ pub fn check(ast: &Ast) -> Result<GenericCallSites, String> {
     // initializers stay scoped to the implicit main fn (they alloca
     // there and aren't visible from named-fn bodies).
     for stmt in &ast.stmts {
-        if let Stmt::LetDecl { name, init, .. } = stmt {
+        if let Stmt::LetDecl {
+            name,
+            init,
+            type_ann,
+            ..
+        } = stmt
+        {
             let lit_ty = match ast.get_expr(*init) {
                 Expr::Number(_) => Some(Type::Number),
                 Expr::String(_) => Some(Type::String),
                 Expr::Bool(_) => Some(Type::Boolean),
                 _ => None,
             };
-            if let Some(ty) = lit_ty
+            // Phase K.3 — non-literal init with explicit type annotation
+            // becomes a real LLVM data global. Record the annotated type
+            // so named-fn bodies type-check reads + writes against it.
+            // ssa_lower restricts the runtime registration to primitive
+            // Copy types (I64 / F64 / Bool); for the typecheck we just
+            // accept whatever resolves cleanly.
+            let ann_ty = match (lit_ty.clone(), type_ann) {
+                (None, Some(ann)) => resolve_type_ann(ann, &c.aliases),
+                _ => lit_ty,
+            };
+            if let Some(ty) = ann_ty
                 && !c.globals.contains_key(name)
             {
                 c.globals.insert(name.clone(), ty);
@@ -2706,6 +2722,26 @@ impl Checker {
             Expr::Assign { target, value } => {
                 match ast.get_expr(*target).clone() {
                     Expr::Ident(name) => {
+                        // Phase K.3 — assignment to a top-level data global
+                        // resolves through `self.globals` rather than the
+                        // scope stack. We don't yet track `const`-ness for
+                        // globals separately from the LetDecl's `mutable`
+                        // flag (the global is registered by the pre-pass
+                        // before we visit the LetDecl); for now any top-
+                        // level binding is writable from named-fn bodies.
+                        // Tighten if a real workload depends on it.
+                        if self.lookup(&name).is_none()
+                            && let Some(global_ty) = self.globals.get(&name).cloned()
+                        {
+                            let value_ty = self.type_of(ast, *value)?;
+                            if !is_assignable_to(&global_ty, &value_ty) {
+                                return Err(format!(
+                                    "type mismatch assigning to global `{name}`: declared {global_ty:?}, value is {value_ty:?}"
+                                ));
+                            }
+                            self.consume(ast, *value);
+                            return Ok(global_ty);
+                        }
                         let info = match self.lookup(&name) {
                             Some(i) => i,
                             None => {

@@ -318,6 +318,12 @@ pub enum InstKind {
     /// constant. Result type is Ptr; the length lives in the module's
     /// `strings` table alongside the bytes.
     StringRef(StringId),
+    /// Phase K.3 — `%v = global_ref <name>` — pointer to a module-level
+    /// data global slot (top-level `let X: T = init`). Result type is
+    /// always Ptr; the slot's value type is stored in `Module::data_globals`
+    /// so the backend can pick the right load/store width. Pair with
+    /// `Load(ty, ptr, 0)` / `Store(value, ptr, 0)` for read / write.
+    GlobalRef(String),
     /// `%v = fn_addr <fid>` — take the address of a known function.
     /// Result type is `Type::FnSig(sig_id)` matching the function's
     /// signature. M2 Phase B Stage 3.
@@ -471,6 +477,19 @@ pub struct Module {
     /// SigId = index. Used by `InstKind::CallIndirect` to look up the
     /// calling convention at codegen. M2 Phase B Stage 2.
     pub signatures: Vec<(Vec<Type>, Type)>,
+    /// Phase K.3 — module-level data globals declared by top-level
+    /// `let X: T = <init>`. The backend emits one LLVM global per
+    /// entry (zero-initialized; the SSA `main` fn runs `<init>` and
+    /// `Store`s the result into the slot before any other code). Reads
+    /// from named-fn bodies lower to `GlobalRef(name)` + `Load(ty, ...)`;
+    /// writes lower to `GlobalRef(name)` + `Store(value, ...)`.
+    pub data_globals: Vec<DataGlobal>,
+}
+
+#[derive(Debug, Clone)]
+pub struct DataGlobal {
+    pub name: String,
+    pub ty: Type,
 }
 
 impl Module {
@@ -683,6 +702,9 @@ impl Function {
             }
             InstKind::StringRef(s) => {
                 write!(w, "string_ref @str{}", s.0)?;
+            }
+            InstKind::GlobalRef(name) => {
+                write!(w, "global_ref @{name}")?;
             }
             InstKind::FnAddr(fid) => {
                 write!(w, "fn_addr {}", m.func_name(*fid))?;

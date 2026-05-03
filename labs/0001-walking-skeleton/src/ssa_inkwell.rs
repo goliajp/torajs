@@ -74,6 +74,15 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
         .map(|(i, bytes)| emit_string_global(&ctx, &llvm_module, i, bytes))
         .collect();
 
+    // Pass B' (K.3): emit module-level data globals (top-level `let X: T`
+    // where T is a primitive Copy type). Keyed by name so `InstKind::GlobalRef`
+    // resolves via lookup.
+    let data_globals: HashMap<String, inkwell::values::GlobalValue> = ssa_module
+        .data_globals
+        .iter()
+        .map(|g| (g.name.clone(), emit_data_global(&ctx, &llvm_module, g)))
+        .collect();
+
     // Pass C: walk every SSA function and create a corresponding LLVM
     // FunctionValue. Backend-owned intrinsics get a body here; everything
     // else gets a declaration that pass D fills in.
@@ -335,6 +344,7 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
             llvm_fn: fn_map[i],
             fn_map: &fn_map,
             string_globals: &string_globals,
+            data_globals: &data_globals,
             ssa_module,
             block_map: HashMap::new(),
             value_map: HashMap::new(),
@@ -833,6 +843,48 @@ fn emit_string_global<'ctx>(
     g.set_linkage(inkwell::module::Linkage::Private);
     g.set_unnamed_addr(true);
     g
+}
+
+/// Phase K.3 — emit one LLVM module-level data global per
+/// `s::DataGlobal`. Zero-initialized; the SSA `main` fn lowers the
+/// user's init expression and stores into the slot before any other
+/// code runs. K.3 only registers primitive Copy types — string /
+/// array / object globals are out of scope until a follow-up wires
+/// up exit-time drop hooks.
+fn emit_data_global<'ctx>(
+    ctx: &'ctx Context,
+    m: &LlvmModule<'ctx>,
+    g: &s::DataGlobal,
+) -> inkwell::values::GlobalValue<'ctx> {
+    match g.ty {
+        Type::I64 => {
+            let t = ctx.i64_type();
+            let glob = m.add_global(t, None, &g.name);
+            glob.set_initializer(&t.const_int(0, false));
+            glob
+        }
+        Type::I32 => {
+            let t = ctx.i32_type();
+            let glob = m.add_global(t, None, &g.name);
+            glob.set_initializer(&t.const_int(0, false));
+            glob
+        }
+        Type::F64 => {
+            let t = ctx.f64_type();
+            let glob = m.add_global(t, None, &g.name);
+            glob.set_initializer(&t.const_float(0.0));
+            glob
+        }
+        Type::Bool => {
+            let t = ctx.bool_type();
+            let glob = m.add_global(t, None, &g.name);
+            glob.set_initializer(&t.const_int(0, false));
+            glob
+        }
+        other => panic!(
+            "emit_data_global: K.3 only supports primitive Copy types (I64 / F64 / Bool / I32); got {other:?}"
+        ),
+    }
 }
 
 /// `__torajs_str_alloc(*const u8 src, u64 len) -> *StrRepr`
@@ -2274,6 +2326,9 @@ struct FnLower<'a, 'ctx> {
     llvm_fn: FunctionValue<'ctx>,
     fn_map: &'a [FunctionValue<'ctx>],
     string_globals: &'a [inkwell::values::GlobalValue<'ctx>],
+    /// Phase K.3 — module-level data globals indexed by name. Looked
+    /// up by `InstKind::GlobalRef` to yield the slot's pointer value.
+    data_globals: &'a HashMap<String, inkwell::values::GlobalValue<'ctx>>,
     /// Whole SSA module — needed by `InstKind::CallIndirect` to look up
     /// the signature interner. Read-only; no mutation. M2 Phase B Stage 3.
     ssa_module: &'a s::Module,
@@ -2427,6 +2482,13 @@ impl<'a, 'ctx> FnLower<'a, 'ctx> {
             }
             InstKind::StringRef(sid) => {
                 let g = self.string_globals[sid.0 as usize];
+                Some(BasicValueEnum::PointerValue(g.as_pointer_value()))
+            }
+            InstKind::GlobalRef(name) => {
+                let g = self
+                    .data_globals
+                    .get(name)
+                    .unwrap_or_else(|| panic!("ssa-inkwell: unknown data global `{name}`"));
                 Some(BasicValueEnum::PointerValue(g.as_pointer_value()))
             }
             InstKind::Call(fid, args) => {
