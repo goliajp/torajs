@@ -6427,6 +6427,15 @@ impl<'a> LowerCtx<'a> {
                 let after = self.f.add_block();
                 self.loop_stack.push((after, after));
 
+                // Snapshot the entry block before any case-cmp / default
+                // lowering changes `cur_block`. The `cases.is_empty()`
+                // path needs this to terminate the switch's predecessor
+                // with an unconditional branch into the default body —
+                // setting that terminator on `cur_block` after the
+                // default body has already been lowered would clobber
+                // whatever terminator the default left in place.
+                let switch_entry = self.cur_block;
+
                 // Pre-allocate body blocks so fall-through across cases
                 // resolves to the next body, not its compare site.
                 let body_blks: Vec<BlockId> =
@@ -6572,15 +6581,13 @@ impl<'a> LowerCtx<'a> {
                     }
                 }
                 if cases.is_empty() {
-                    // Edge case: `switch (x) { default: ... }` with no
-                    // case arms.
-                    if let Some(db) = default_blk {
-                        let cb = self.cur_block;
-                        self.f.set_term(cb, Terminator::Br(db));
-                    } else {
-                        let cb = self.cur_block;
-                        self.f.set_term(cb, Terminator::Br(after));
-                    }
+                    // Edge case: `switch (x) { default: ... }` (or
+                    // `switch (x) {}`) with no case arms. The cases
+                    // loop never ran, so `switch_entry` has no
+                    // terminator — wire it directly to the default body
+                    // (or to `after` when there's no default either).
+                    let target = default_blk.unwrap_or(after);
+                    self.f.set_term(switch_entry, Terminator::Br(target));
                 }
 
                 self.loop_stack.pop();
