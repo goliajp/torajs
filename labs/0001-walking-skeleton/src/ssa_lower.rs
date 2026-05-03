@@ -8236,6 +8236,54 @@ impl<'a> LowerCtx<'a> {
                     // anything that needs string-shaped output goes
                     // through to_owned + Str path (Phase D would add
                     // direct-on-Substr variants for slice/substring).
+                    // `s.charCodeAt(LITERAL)` — inline a 4-byte LoadDyn
+                    // + mask to 0xff + zext, skipping the bounds check
+                    // and the runtime fn-call dispatch. Hot in tight
+                    // tokenize loops (RPN evaluator etc). Same shape as
+                    // emit_inline_str_eq_bytes — uses emit_str_data_base
+                    // to handle Str (base_off = 16) and Substr (base_off
+                    // = 16 + parent_offset, parent loaded once) uniformly.
+                    if matches!(recv_ty, Type::Str | Type::Substr)
+                        && matches!(method.as_str(), "charCodeAt" | "codePointAt")
+                        && args.len() == 1
+                        && let Expr::Number(n) = self.ast.get_expr(args[0])
+                        && *n >= 0.0
+                        && n.fract() == 0.0
+                        && (*n as i64) < 1024
+                    {
+                        let lit_idx = *n as i64;
+                        let (base, base_off) = self.emit_str_data_base(recv_op, recv_ty);
+                        let off_v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::BinOp(
+                                SsaBinOp::Add,
+                                base_off,
+                                Operand::ConstI64(lit_idx),
+                            ),
+                            Type::I64,
+                            None,
+                        );
+                        // Load 8 bytes (I64); little-endian byte at idx
+                        // is the low byte of the load → mask with 0xff
+                        // promotes to a clean I64 char code.
+                        let raw = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::LoadDyn(Type::I64, base, Operand::Value(off_v)),
+                            Type::I64,
+                            None,
+                        );
+                        let v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::BinOp(
+                                SsaBinOp::And,
+                                Operand::Value(raw),
+                                Operand::ConstI64(0xff),
+                            ),
+                            Type::I64,
+                            None,
+                        );
+                        return Operand::Value(v);
+                    }
                     if recv_ty == Type::Substr && method == "charAt" && args.len() == 1 {
                         // charAt on Substr: substr_slice(v, i, i+1).
                         let idx_val = self.lower_expr(args[0]);
