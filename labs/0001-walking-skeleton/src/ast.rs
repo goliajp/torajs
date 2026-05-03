@@ -315,8 +315,18 @@ pub enum Stmt {
         /// before the descendant in source order.
         parent: Option<String>,
         fields: Vec<(String, String)>,
+        /// M-OO.4 — `static fieldName: T = init`. Each entry desugars to a
+        /// top-level `let __sf_<Class>__<name>: T = init` (LetDecl) which
+        /// the K.3/K.4 globals machinery picks up. Init is required (no
+        /// constructor to default-init in).
+        static_fields: Vec<StaticField>,
         ctor: Option<ClassCtor>,
         methods: Vec<ClassMethod>,
+        /// M-OO.4 — `static methodName(args): R { body }`. Each entry
+        /// desugars to a top-level `function __sm_<Class>__<name>(...) {...}`
+        /// (no `__this` param). Call-site `<Class>.<method>(args)` is
+        /// rewritten by `desugar_classes` to `__sm_<Class>__<method>(args)`.
+        static_methods: Vec<ClassMethod>,
     },
     Return(Option<ExprId>),
     /// Phase J — `yield e;` inside a generator body. The post-parse
@@ -384,6 +394,18 @@ pub struct ClassMethod {
     pub params: Vec<Param>,
     pub return_type: Option<String>,
     pub body: Vec<Stmt>,
+}
+
+/// M-OO.4 — `static fieldName: T = init` entry. Init is mandatory because
+/// static fields aren't reachable from the constructor (they're per-class,
+/// not per-instance). desugar_classes rewrites each into a top-level
+/// `let __sf_<Class>__<name>: T = init`, where the K.3 / K.4 globals
+/// machinery promotes the binding to a real LLVM data slot.
+#[derive(Debug, Clone)]
+pub struct StaticField {
+    pub name: String,
+    pub type_ann: String,
+    pub init: ExprId,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -898,8 +920,10 @@ pub fn desugar_generators(ast: &mut Ast) {
             type_params: Vec::new(),
             parent: None,
             fields: class_fields,
+            static_fields: Vec::new(),
             ctor: Some(ctor_with_params),
             methods: vec![next_method],
+            static_methods: Vec::new(),
         });
 
         // Replace the original generator FnDecl with a thin factory
@@ -1592,14 +1616,19 @@ pub fn desugar_classes(ast: &mut Ast) {
     // Snapshot the class metadata first (cloned out so we can mutate
     // ast.stmts in-place without aliasing). M5.2 adds `parent` to the
     // tuple — for inheritance flattening + super(args) rewriting.
+    // M-OO.4 adds the static-fields / static-methods slices for the
+    // post-collect emission of `__sf_<C>__<n>` LetDecls and
+    // `__sm_<C>__<m>` FnDecls.
     let class_index: Vec<(
         usize,
         String,
         Vec<String>,           // type_params
         Option<String>,
         Vec<(String, String)>,
+        Vec<StaticField>,      // static_fields
         Option<ClassCtor>,
         Vec<ClassMethod>,
+        Vec<ClassMethod>,      // static_methods
     )> = ast
         .stmts
         .iter()
@@ -1610,16 +1639,20 @@ pub fn desugar_classes(ast: &mut Ast) {
                 type_params,
                 parent,
                 fields,
+                static_fields,
                 ctor,
                 methods,
+                static_methods,
             } => Some((
                 i,
                 name.clone(),
                 type_params.clone(),
                 parent.clone(),
                 fields.clone(),
+                static_fields.clone(),
                 ctor.clone(),
                 methods.clone(),
+                static_methods.clone(),
             )),
             _ => None,
         })
@@ -1632,7 +1665,7 @@ pub fn desugar_classes(ast: &mut Ast) {
     // Build the parent map and validate the inheritance graph.
     let mut parent_map: std::collections::HashMap<String, Option<String>> =
         std::collections::HashMap::new();
-    for (_, cname, _tp, parent, _, _, _) in &class_index {
+    for (_, cname, _tp, parent, _, _, _, _, _) in &class_index {
         parent_map.insert(cname.clone(), parent.clone());
     }
     // Make the parent map visible to post-desugar passes so `instanceof`
@@ -1648,7 +1681,7 @@ pub fn desugar_classes(ast: &mut Ast) {
     // ancestor must be declared before its descendants. This keeps
     // field-flattening + factory-emission order trivially correct.
     let mut declared_so_far: std::collections::HashSet<String> = std::collections::HashSet::new();
-    for (_, cname, _tp, parent, _, _, _) in &class_index {
+    for (_, cname, _tp, parent, _, _, _, _, _) in &class_index {
         if let Some(p) = parent {
             if !declared_so_far.contains(p) {
                 panic!(
@@ -1666,7 +1699,7 @@ pub fn desugar_classes(ast: &mut Ast) {
     // default-initialize.
     let mut full_fields: std::collections::HashMap<String, Vec<(String, String)>> =
         std::collections::HashMap::new();
-    for (_, cname, _tp, parent, fields, _, _) in &class_index {
+    for (_, cname, _tp, parent, fields, _, _, _, _) in &class_index {
         let mut combined: Vec<(String, String)> = Vec::new();
         if let Some(p) = parent {
             // Parent must be in full_fields by now (declaration order check
@@ -1697,7 +1730,7 @@ pub fn desugar_classes(ast: &mut Ast) {
     // unrelated classes are allowed to share a method name now — call
     // sites pick the right `__cm_<C>__M` from obj's static type at SSA
     // lower time (handled by the `Type::Obj` Member-call arm).
-    for (_, cname, _tp, _, _, _, methods) in &class_index {
+    for (_, cname, _tp, _, _, _, _, methods, _) in &class_index {
         for m in methods {
             method_owners.entry(m.name.clone())
                 .or_default()
@@ -1735,7 +1768,7 @@ pub fn desugar_classes(ast: &mut Ast) {
         }
         // Locate the base owner's method to copy its signature.
         let base_owner = &owners[0];
-        let (_, _, base_tp, _, _, _, base_methods) = class_index
+        let (_, _, base_tp, _, _, _, _, base_methods, _) = class_index
             .iter()
             .find(|(_, n, ..)| n == base_owner)
             .expect("base owner must exist in class_index");
@@ -1819,7 +1852,7 @@ pub fn desugar_classes(ast: &mut Ast) {
     // `combined_fields_map` (classes) and `type_alias_fields` (aliases).
     // This is what makes `__Gen_<X>` / `__step_<X>` fields work as
     // class fields on outer iterator classes (J.3 / I.2-inside-gen).
-    for (_, cname, _tp, _, _, _, _) in &class_index {
+    for (_, cname, _tp, _, _, _, _, _, _) in &class_index {
         let combined = full_fields.get(cname).unwrap().clone();
         let mut init_pairs: Vec<(String, ExprId)> = Vec::with_capacity(combined.len());
         let mut prelude: Vec<Stmt> = Vec::new();
@@ -1843,7 +1876,7 @@ pub fn desugar_classes(ast: &mut Ast) {
     // Pass 1.5 — rewrite `super(args)` inside each subclass's ctor body
     // into a Call to `__cm_<Parent>__ctor(__this, args)`. Must run before
     // pass 2 (which rewrites `Expr::This` and method-call shapes).
-    for (_, cname, _tp, parent, _, ctor, _) in &class_index {
+    for (_, cname, _tp, parent, _, _, ctor, _, _) in &class_index {
         let Some(c) = ctor.as_ref() else { continue };
         let mut super_sites: Vec<(ExprId, Vec<ExprId>)> = Vec::new();
         for s in &c.body {
@@ -1950,10 +1983,29 @@ pub fn desugar_classes(ast: &mut Ast) {
         }
     }
 
+    // M-OO.4 — collect static-member rewrite tables: keys are
+    // `(ClassName, member_name)` → flat replacement ident
+    // (`__sf_<C>__<n>` for fields, `__sm_<C>__<m>` for methods). After
+    // emitting the desugared decls, a second walk over `ast.exprs`
+    // rewrites every `Expr::Member { obj: Ident("ClassName"), name }`
+    // whose key is in the table to a plain `Expr::Ident(replacement)`.
+    let mut static_member_rewrites: std::collections::HashMap<(String, String), String> =
+        std::collections::HashMap::new();
+    for (_, cname, _, _, _, sfs, _, _, sms) in &class_index {
+        for sf in sfs {
+            static_member_rewrites
+                .insert((cname.clone(), sf.name.clone()), format!("__sf_{cname}__{}", sf.name));
+        }
+        for sm in sms {
+            static_member_rewrites
+                .insert((cname.clone(), sm.name.clone()), format!("__sm_{cname}__{}", sm.name));
+        }
+    }
+
     // Pass 3 — rewrite the stmt list. Replace each ClassDecl in-place
     // with its TypeDecl (using the flattened field list so subclasses
     // carry parent fields too), and accumulate the generated FnDecls.
-    for (idx, cname, type_params, _parent, _own_fields, ctor, methods) in class_index {
+    for (idx, cname, type_params, _parent, _own_fields, static_fields, ctor, methods, static_methods) in class_index {
         let type_decl = Stmt::TypeDecl {
             name: cname.clone(),
             type_params: type_params.clone(),
@@ -2035,9 +2087,68 @@ pub fn desugar_classes(ast: &mut Ast) {
             body: factory_body,
             is_generator: false,
         });
+
+        // M-OO.4 — emit `let __sf_<C>__<name>: T = init;` for each
+        // static field. const-form (mutable=false) so K.4 refcount
+        // globals accept it. The `init` ExprId is reused — desugar
+        // runs before any pass that might mutate the expression
+        // referenced by it.
+        for sf in &static_fields {
+            appended.push(Stmt::LetDecl {
+                mutable: false,
+                name: format!("__sf_{cname}__{}", sf.name),
+                type_ann: Some(sf.type_ann.clone()),
+                init: sf.init,
+            });
+        }
+
+        // M-OO.4 — emit `function __sm_<C>__<name>(...): R { body }`
+        // for each static method. No `__this` param (statics don't
+        // bind a receiver). type_params propagate from the class so
+        // generic statics on a generic class work.
+        for sm in &static_methods {
+            appended.push(Stmt::FnDecl {
+                name: format!("__sm_{cname}__{}", sm.name),
+                type_params: type_params.clone(),
+                params: sm.params.clone(),
+                return_type: sm.return_type.clone(),
+                body: sm.body.clone(),
+                is_generator: false,
+            });
+        }
     }
 
     ast.stmts.extend(appended);
+
+    // M-OO.4 — rewrite `<ClassName>.<member>` accesses to flat
+    // `__sf_<C>__<member>` / `__sm_<C>__<member>` Idents wherever
+    // they appear in the program (top-level + every fn body / arrow
+    // body / nested struct field initializer — all live in
+    // `ast.exprs` since exprs are arena-allocated). This walks the
+    // arena once; the rewrite is in-place and shape-preserving (a
+    // Member is one ExprId; the new Ident is the same ExprId with a
+    // new variant). Downstream passes (lift_arrow_fns, check.rs,
+    // ssa_lower) see plain Idents and resolve them through the
+    // top-level fn / globals tables already populated above.
+    if !static_member_rewrites.is_empty() {
+        for i in 0..ast.exprs.len() {
+            let replacement = match &ast.exprs[i] {
+                Expr::Member { obj, name } => {
+                    if let Expr::Ident(class_name) = &ast.exprs[obj.0 as usize] {
+                        let key = (class_name.clone(), name.clone());
+                        static_member_rewrites.get(&key).cloned()
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            };
+            if let Some(new_name) = replacement {
+                ast.exprs[i] = Expr::Ident(new_name);
+            }
+        }
+    }
+
     // Hand multi-owner method_owners to ssa_lower for the
     // `__dispatch_<M>` runtime-tag dispatch. Single-owner entries are
     // dropped since they don't need runtime resolution (already
@@ -2070,7 +2181,9 @@ fn receiver_is_this_builtin_field(
         Vec<String>,
         Option<String>,
         Vec<(String, String)>,
+        Vec<StaticField>,
         Option<ClassCtor>,
+        Vec<ClassMethod>,
         Vec<ClassMethod>,
     )],
 ) -> bool {
@@ -2094,7 +2207,7 @@ fn receiver_is_this_builtin_field(
     let cls = class_index
         .iter()
         .find(|(_, n, ..)| n == cname);
-    let Some((_, _, _, _, fields, _, _)) = cls else {
+    let Some((_, _, _, _, fields, _, _, _, _)) = cls else {
         return false;
     };
     let field_ty_ann = fields
@@ -4218,8 +4331,10 @@ impl Ast {
                 type_params: _,
                 parent,
                 fields,
+                static_fields: _,
                 ctor,
                 methods,
+                static_methods: _,
             } => {
                 let parts: Vec<String> = fields
                     .iter()

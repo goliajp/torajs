@@ -2751,15 +2751,59 @@ impl Parser<'_> {
             }
         }
         let mut fields: Vec<(String, String)> = Vec::new();
+        let mut static_fields: Vec<ast::StaticField> = Vec::new();
         let mut ctor: Option<ClassCtor> = None;
         let mut methods: Vec<ClassMethod> = Vec::new();
+        let mut static_methods: Vec<ClassMethod> = Vec::new();
         while !matches!(self.peek(), Token::RBrace | Token::Eof) {
             // Each member is one of:
             //   - `constructor(params) { body }`
             //   - `methodName(params): R? { body }`
-            //   - `fieldName: T;`
+            //   - `fieldName: T;`                       (instance field)
+            //   - `static methodName(params): R? { body }`  (M-OO.4)
+            //   - `static fieldName: T = init;`              (M-OO.4)
             // We disambiguate by lookahead: ident then `(` ⇒ ctor or method;
-            // ident then `:` ⇒ field declaration.
+            // ident then `:` ⇒ field declaration. The `static` modifier is a
+            // contextual keyword: only treated as such when the next token
+            // is a valid member name shape.
+            let is_static = if let Token::Ident(s) = self.peek()
+                && s == "static"
+            {
+                let next = self.tokens.get(self.pos + 1).map(|t| &t.token);
+                if matches!(
+                    next,
+                    Some(Token::Ident(_))
+                        | Some(Token::Catch)
+                        | Some(Token::Finally)
+                        | Some(Token::Return)
+                        | Some(Token::Throw)
+                        | Some(Token::If)
+                        | Some(Token::Else)
+                        | Some(Token::For)
+                        | Some(Token::While)
+                        | Some(Token::Do)
+                        | Some(Token::Break)
+                        | Some(Token::Continue)
+                        | Some(Token::Switch)
+                        | Some(Token::Case)
+                        | Some(Token::Default)
+                        | Some(Token::Class)
+                        | Some(Token::New)
+                        | Some(Token::This)
+                        | Some(Token::Function)
+                        | Some(Token::TypeOf)
+                        | Some(Token::InstanceOf)
+                        | Some(Token::Try)
+                        | Some(Token::Yield)
+                ) {
+                    self.pos += 1;
+                    true
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
             let member_name = match self.peek() {
                 Token::Ident(n) => n.clone(),
                 // Allow contextual keywords as class method names (matches
@@ -2841,6 +2885,11 @@ impl Parser<'_> {
                         }
                     }
                     if member_name == "constructor" {
+                        if is_static {
+                            return Err(format!(
+                                "`static constructor` is not allowed in class `{name}`"
+                            ));
+                        }
                         if ctor.is_some() {
                             return Err(format!(
                                 "duplicate constructor in class `{name}`"
@@ -2848,22 +2897,50 @@ impl Parser<'_> {
                         }
                         ctor = Some(ClassCtor { params, body });
                     } else {
-                        methods.push(ClassMethod {
+                        let m = ClassMethod {
                             name: member_name,
                             params,
                             return_type,
                             body,
-                        });
+                        };
+                        if is_static {
+                            static_methods.push(m);
+                        } else {
+                            methods.push(m);
+                        }
                     }
                 }
                 Some(Token::Colon) => {
-                    // field declaration: `name: T;`
+                    // field declaration. Instance: `name: T;`. Static
+                    // (M-OO.4): `name: T = init;` — init is required
+                    // (no constructor to default-init in).
                     self.pos += 2; // consume name + colon
                     let ty = self.parse_type_ann()?;
-                    if matches!(self.peek(), Token::Semi) {
-                        self.pos += 1;
+                    if is_static {
+                        match self.peek() {
+                            Token::Eq => self.pos += 1,
+                            t => {
+                                return Err(format!(
+                                    "static field `{member_name}` requires an initializer (`= ...`), got {t:?} at {}",
+                                    self.at()
+                                ));
+                            }
+                        }
+                        let init = self.parse_assign()?;
+                        if matches!(self.peek(), Token::Semi) {
+                            self.pos += 1;
+                        }
+                        static_fields.push(ast::StaticField {
+                            name: member_name,
+                            type_ann: ty,
+                            init,
+                        });
+                    } else {
+                        if matches!(self.peek(), Token::Semi) {
+                            self.pos += 1;
+                        }
+                        fields.push((member_name, ty));
                     }
-                    fields.push((member_name, ty));
                 }
                 t => {
                     return Err(format!(
@@ -2890,8 +2967,10 @@ impl Parser<'_> {
             type_params,
             parent,
             fields,
+            static_fields,
             ctor,
             methods,
+            static_methods,
         })
     }
 
