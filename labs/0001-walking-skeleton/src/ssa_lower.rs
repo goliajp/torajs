@@ -6642,10 +6642,13 @@ impl<'a> LowerCtx<'a> {
                     let ret_ty = self.f.ret;
                     let term = match ret_ty {
                         Type::Void => Terminator::Ret(None),
-                        Type::I64 | Type::I32 | Type::Bool => {
-                            Terminator::Ret(Some(Operand::ConstI64(0)))
-                        }
+                        Type::I64 => Terminator::Ret(Some(Operand::ConstI64(0))),
+                        Type::I32 => Terminator::Ret(Some(Operand::ConstI32(0))),
+                        Type::Bool => Terminator::Ret(Some(Operand::ConstBool(false))),
                         Type::F64 => Terminator::Ret(Some(Operand::ConstF64(0.0))),
+                        // Pointer-shaped (Str / Arr / Obj / Closure /
+                        // FnSig / Ptr) all use the same i64-shaped null
+                        // sentinel at the SSA layer.
                         _ => Terminator::Ret(Some(Operand::ConstI64(0))),
                     };
                     self.f.set_term(cb, term);
