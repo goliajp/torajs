@@ -216,6 +216,12 @@ impl Parser<'_> {
     }
 
     fn parse_stmt(&mut self) -> Result<Stmt, String> {
+        if matches!(self.peek(), Token::Import) {
+            return self.parse_import();
+        }
+        if matches!(self.peek(), Token::Export) {
+            return self.parse_export();
+        }
         if matches!(self.peek(), Token::LBrace) {
             return self.parse_block();
         }
@@ -2352,6 +2358,191 @@ impl Parser<'_> {
     }
 
     /// `type Name = { f1: T1, f2: T2 };`
+    /// Phase K.1 — `import` declaration parser. Single-file mode: builds
+    /// the AST node so the syntax is accepted; the lowerer treats it as
+    /// a no-op until K.2 wires in cross-file linking. Recognized shapes:
+    ///   - `import "./x"`                       (side-effect-only)
+    ///   - `import x from "./x"`                (default import)
+    ///   - `import * as ns from "./x"`          (namespace import)
+    ///   - `import { a, b as c } from "./x"`    (named imports)
+    ///   - `import x, { a, b } from "./x"`      (combined default + named)
+    ///   - `import x, * as ns from "./x"`       (combined default + namespace)
+    fn parse_import(&mut self) -> Result<Stmt, String> {
+        self.pos += 1; // consume `import`
+        let mut default: Option<String> = None;
+        let mut namespace: Option<String> = None;
+        let mut named: Vec<(String, Option<String>)> = Vec::new();
+        // Bare `import "./x"` — no clause, just the source.
+        if let Token::String(_) = self.peek() {
+            let source = match self.peek() {
+                Token::String(s) => s.clone(),
+                _ => unreachable!(),
+            };
+            self.pos += 1;
+            self.skip_optional_semi();
+            return Ok(Stmt::ImportDecl { default, namespace, named, source });
+        }
+        // Default import: `import x ...` (next token is Ident).
+        if let Token::Ident(_) = self.peek() {
+            let name = match self.peek() {
+                Token::Ident(n) => n.clone(),
+                _ => unreachable!(),
+            };
+            self.pos += 1;
+            default = Some(name);
+            // Optional `, { ... }` or `, * as ns`.
+            if matches!(self.peek(), Token::Comma) {
+                self.pos += 1;
+            }
+        }
+        // Namespace: `* as ns` (Token::Star + Ident("as") + Ident).
+        if matches!(self.peek(), Token::Star) {
+            self.pos += 1;
+            self.expect_ident_keyword("as")?;
+            let n = match self.peek() {
+                Token::Ident(n) => n.clone(),
+                t => return Err(format!(
+                    "expected namespace ident after `* as`, got {t:?} at {}",
+                    self.at()
+                )),
+            };
+            self.pos += 1;
+            namespace = Some(n);
+        }
+        // Named: `{ a, b as c }`.
+        if matches!(self.peek(), Token::LBrace) {
+            self.pos += 1;
+            while !matches!(self.peek(), Token::RBrace) {
+                let orig = match self.peek() {
+                    Token::Ident(n) => n.clone(),
+                    t => return Err(format!(
+                        "expected ident in import named clause, got {t:?} at {}",
+                        self.at()
+                    )),
+                };
+                self.pos += 1;
+                let alias = if matches!(self.peek(), Token::Ident(n) if n == "as") {
+                    self.pos += 1;
+                    let a = match self.peek() {
+                        Token::Ident(n) => n.clone(),
+                        t => return Err(format!(
+                            "expected alias ident after `as`, got {t:?} at {}",
+                            self.at()
+                        )),
+                    };
+                    self.pos += 1;
+                    Some(a)
+                } else {
+                    None
+                };
+                named.push((orig, alias));
+                if matches!(self.peek(), Token::Comma) {
+                    self.pos += 1;
+                }
+            }
+            self.pos += 1; // consume `}`
+        }
+        // `from "./x"` tail.
+        self.expect_ident_keyword("from")?;
+        let source = match self.peek() {
+            Token::String(s) => s.clone(),
+            t => return Err(format!(
+                "expected string source after `from`, got {t:?} at {}",
+                self.at()
+            )),
+        };
+        self.pos += 1;
+        self.skip_optional_semi();
+        Ok(Stmt::ImportDecl { default, namespace, named, source })
+    }
+
+    /// Phase K.1 — `export` declaration parser. Recognized shapes:
+    ///   - `export function/class/type/const/let X ...`  (modifier on decl)
+    ///   - `export { a, b as c }`                        (named re-export)
+    ///   - `export default <expr>`                        (default export)
+    fn parse_export(&mut self) -> Result<Stmt, String> {
+        self.pos += 1; // consume `export`
+        // `export default <expr>;`
+        if matches!(self.peek(), Token::Default) {
+            self.pos += 1;
+            let e = self.parse_expr()?;
+            self.skip_optional_semi();
+            return Ok(Stmt::ExportDecl {
+                inner: None,
+                named: Vec::new(),
+                default_expr: Some(e),
+            });
+        }
+        // `export { a, b as c };`
+        if matches!(self.peek(), Token::LBrace) {
+            self.pos += 1;
+            let mut named: Vec<(String, Option<String>)> = Vec::new();
+            while !matches!(self.peek(), Token::RBrace) {
+                let orig = match self.peek() {
+                    Token::Ident(n) => n.clone(),
+                    t => return Err(format!(
+                        "expected ident in export named clause, got {t:?} at {}",
+                        self.at()
+                    )),
+                };
+                self.pos += 1;
+                let alias = if matches!(self.peek(), Token::Ident(n) if n == "as") {
+                    self.pos += 1;
+                    let a = match self.peek() {
+                        Token::Ident(n) => n.clone(),
+                        t => return Err(format!(
+                            "expected alias ident after `as`, got {t:?} at {}",
+                            self.at()
+                        )),
+                    };
+                    self.pos += 1;
+                    Some(a)
+                } else {
+                    None
+                };
+                named.push((orig, alias));
+                if matches!(self.peek(), Token::Comma) {
+                    self.pos += 1;
+                }
+            }
+            self.pos += 1; // consume `}`
+            self.skip_optional_semi();
+            return Ok(Stmt::ExportDecl {
+                inner: None,
+                named,
+                default_expr: None,
+            });
+        }
+        // `export <decl>` — modifier on a function / class / type / let
+        // / const declaration. Single-file mode just unwraps the inner
+        // decl; the AST-level wrapper is preserved for future K.2 work.
+        let inner = self.parse_stmt()?;
+        Ok(Stmt::ExportDecl {
+            inner: Some(Box::new(inner)),
+            named: Vec::new(),
+            default_expr: None,
+        })
+    }
+
+    fn expect_ident_keyword(&mut self, kw: &str) -> Result<(), String> {
+        match self.peek() {
+            Token::Ident(n) if n == kw => {
+                self.pos += 1;
+                Ok(())
+            }
+            t => Err(format!(
+                "expected `{kw}`, got {t:?} at {}",
+                self.at()
+            )),
+        }
+    }
+
+    fn skip_optional_semi(&mut self) {
+        if matches!(self.peek(), Token::Semi) {
+            self.pos += 1;
+        }
+    }
+
     fn parse_type_decl(&mut self) -> Result<Stmt, String> {
         self.pos += 1; // consume `type`
         let name = match self.peek() {

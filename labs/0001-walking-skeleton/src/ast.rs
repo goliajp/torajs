@@ -336,6 +336,40 @@ pub enum Stmt {
         type_ann: Option<String>,
         value: ExprId,
     },
+    /// Phase K.1 — `import` declaration. Single-file mode: parsed into
+    /// the AST so the syntax is accepted, but the lowerer treats it as
+    /// a no-op. K.2 will wire in the cross-file symbol table.
+    ///
+    /// Variants captured:
+    ///   - `import { a, b as c } from "./x"` → `named: [(a, None), (b, Some(c))]`
+    ///   - `import x from "./x"`              → `default: Some("x")`
+    ///   - `import * as ns from "./x"`         → `namespace: Some("ns")`
+    ///   - `import "./x"` (side-effect-only)  → all None
+    ImportDecl {
+        // K.2 will read these to populate the cross-file symbol
+        // table. K.1 just preserves the parse-time data.
+        #[allow(dead_code)] default: Option<String>,
+        #[allow(dead_code)] namespace: Option<String>,
+        #[allow(dead_code)] named: Vec<(String, Option<String>)>,
+        source: String,
+    },
+    /// Phase K.1 — `export` declaration. Single-file mode strips the
+    /// modifier from a wrapped declaration; K.2 will record the export
+    /// list in the per-file symbol table.
+    ///
+    /// Variants:
+    ///   - `export function f() {}`   → `inner: Some(<the FnDecl>)`
+    ///   - `export const x = 1`        → `inner: Some(<the LetDecl>)`
+    ///   - `export class C {}`         → `inner: Some(<the ClassDecl>)`
+    ///   - `export type T = ...`       → `inner: Some(<the TypeDecl>)`
+    ///   - `export { a, b }`           → `named: [(a, None), (b, Some(c))]`
+    ///   - `export default <expr>`     → `default_expr: Some(...)`
+    ExportDecl {
+        inner: Option<Box<Stmt>>,
+        // K.2 will read these to populate the export list.
+        #[allow(dead_code)] named: Vec<(String, Option<String>)>,
+        #[allow(dead_code)] default_expr: Option<ExprId>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -1521,6 +1555,24 @@ fn rewrite_returns_for_async(ast: &mut Ast, s: &mut Stmt, inner_ty: &str) {
     }
 }
 
+/// K.1 single-file desugar — strip every `Stmt::ExportDecl { inner }`
+/// wrapper, replacing it in-place with `inner` so downstream check.rs
+/// / ssa_lower see the wrapped FnDecl / TypeDecl / LetDecl as a normal
+/// top-level declaration. `Stmt::ImportDecl` and the bare named-export
+/// (`export { a, b }`) form are left as-is — they're parse-only at K.1
+/// and will be picked up by K.2's cross-file symbol table pass.
+pub fn unwrap_exports(ast: &mut Ast) {
+    let mut new_stmts: Vec<Stmt> = Vec::with_capacity(ast.stmts.len());
+    for s in std::mem::take(&mut ast.stmts) {
+        if let Stmt::ExportDecl { inner: Some(boxed), .. } = s {
+            new_stmts.push(*boxed);
+        } else {
+            new_stmts.push(s);
+        }
+    }
+    ast.stmts = new_stmts;
+}
+
 pub fn desugar_classes(ast: &mut Ast) {
     // Pass 1 — extract every ClassDecl. After this loop the original
     // ClassDecl stmts are replaced by their generated TypeDecl in-place;
@@ -2241,6 +2293,12 @@ fn collect_super_in_stmt(
         }
         Stmt::Break | Stmt::Continue => {}
         Stmt::FnDecl { .. } | Stmt::TypeDecl { .. } | Stmt::ClassDecl { .. } => {}
+        Stmt::ImportDecl { .. } => {}
+        Stmt::ExportDecl { inner, .. } => {
+            if let Some(inner) = inner {
+                collect_super_in_stmt(ast, inner, out);
+            }
+        }
     }
 }
 
@@ -3662,6 +3720,12 @@ fn walk_stmt(ast: &Ast, s: &Stmt, bound: &mut Vec<String>, out: &mut Vec<String>
             // somehow remains, ignore — its body has already been split
             // into FnDecls anyway.
         }
+        Stmt::ImportDecl { .. } => {}
+        Stmt::ExportDecl { inner, .. } => {
+            if let Some(inner) = inner {
+                walk_stmt(ast, inner, bound, out);
+            }
+        }
     }
 }
 
@@ -3782,6 +3846,12 @@ fn scan_stmt_for_throws(
         Stmt::ClassDecl { .. } => {
             // desugar_classes runs before throw analysis; classes split
             // into FnDecls each get their own throw-info pass.
+        }
+        Stmt::ImportDecl { .. } => {}
+        Stmt::ExportDecl { inner, .. } => {
+            if let Some(inner) = inner {
+                scan_stmt_for_throws(ast, inner, direct, called);
+            }
         }
     }
 }
@@ -4191,6 +4261,15 @@ impl Ast {
                     for s in &m.body {
                         self.print_stmt(s, indent + 2);
                     }
+                }
+            }
+            Stmt::ImportDecl { source, .. } => {
+                println!("{pad}ImportDecl {source:?}");
+            }
+            Stmt::ExportDecl { inner, .. } => {
+                println!("{pad}ExportDecl");
+                if let Some(inner) = inner {
+                    self.print_stmt(inner, indent + 1);
                 }
             }
         }

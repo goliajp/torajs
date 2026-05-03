@@ -6401,6 +6401,16 @@ impl<'a> LowerCtx<'a> {
                 // interned the layout. Re-encountering during the body
                 // walk is a no-op.
             }
+            Stmt::ImportDecl { .. } => {
+                // K.1 single-file mode: no semantic effect. K.2 will
+                // wire this into a cross-file symbol table.
+            }
+            Stmt::ExportDecl { .. } => {
+                // K.1: `unwrap_exports` desugar should have flattened
+                // the declaration-form. Bare named-export (`export {
+                // ... }`) reaches here and is a no-op in single-file
+                // mode.
+            }
             other => panic!("ssa-lower: unsupported stmt: {other:?}"),
         }
     }

@@ -1393,6 +1393,18 @@ impl Checker {
             Stmt::ClassDecl { name, .. } => {
                 panic!("internal: ClassDecl `{name}` reached check.rs (desugar didn't run?)");
             }
+            Stmt::ImportDecl { .. } => {
+                // K.1 single-file mode: import is parse-only, no
+                // semantic effect. K.2 will add the cross-file symbol
+                // table check here.
+            }
+            Stmt::ExportDecl { inner, .. } => {
+                // K.1 single-file mode: export is the modifier wrapper;
+                // typecheck the wrapped declaration if any.
+                if let Some(inner) = inner {
+                    self.check_stmt(ast, inner);
+                }
+            }
         }
     }
 

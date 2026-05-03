@@ -134,6 +134,15 @@ pub enum Token {
     /// (synchronous read, only well-defined for already-fulfilled
     /// promises in the current eager-fire model).
     Await,
+    /// Phase K — `import { a, b } from "./x"` / `import x from "./x"` /
+    /// `import * as ns from "./x"`. Single-file mode treats the import
+    /// as a syntax-only declaration (no symbol resolution); K.2-K.4 will
+    /// wire in cross-file linking.
+    Import,
+    /// Phase K — `export function/class/type/const/let X` modifier on
+    /// a declaration, or `export { a, b }` re-export form. Single-file
+    /// mode strips the modifier (no semantic effect).
+    Export,
     FatArrow,
     Lt,
     Gt,
@@ -530,6 +539,13 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                     "yield" => Token::Yield,
                     "async" => Token::Async,
                     "await" => Token::Await,
+                    "import" => Token::Import,
+                    "export" => Token::Export,
+                    // `from` and `as` are contextual keywords in TS —
+                    // they may appear as plain identifiers outside
+                    // import context (`let from = 1` is legal). Lexer
+                    // keeps them as Ident; parser recognizes them by
+                    // string match in the import-decl tail.
                     "null" => Token::Null,
                     _ => Token::Ident(name.to_string()),
                 };
