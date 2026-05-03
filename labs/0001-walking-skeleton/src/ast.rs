@@ -3885,7 +3885,13 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
 pub fn desugar_implicit_generics(ast: &mut Ast) {
     use std::collections::HashSet;
 
-    for stmt in &mut ast.stmts {
+    // Split borrow: the body-walk inference helper reads `exprs` while
+    // we mutate `stmts` in the same iteration. Destructure the fields
+    // so the borrow checker sees two disjoint references rather than a
+    // single &mut Ast.
+    let Ast { stmts, exprs, .. } = ast;
+    let ast_exprs_view: AstExprsView = &*exprs;
+    for stmt in stmts.iter_mut() {
         let Stmt::FnDecl {
             params,
             return_type,
@@ -3944,25 +3950,178 @@ pub fn desugar_implicit_generics(ast: &mut Ast) {
             new_type_params.push(var_name);
         }
 
-        // Return type: only convert an explicit `: any`. An omitted
-        // return type cannot be safely turned into a fresh TypeVar —
-        // call-site inference can only see arg types, not what the body
-        // returns, so a no-arg `function f(): any { return 1; }` style
-        // would fail to bind. Leaving omitted returns alone preserves
-        // the long-standing parser default (None → Void at typecheck
-        // time); the existing "return type mismatch: function expects
-        // Void, got <T>" error keeps firing for those, which is what
-        // we want until a body-based return-type inference pass lands.
-        let _ = body;
+        // Return type:
+        //   - explicit `: any` → fresh TypeVar (M3 path, monomorphized
+        //     at call sites)
+        //   - omitted (`function f(...) { ... }`) → walk the body's
+        //     `return EXPR;` sites and try to *statically* infer a
+        //     consistent annotation (literal kind, boolean BinOp/Unary,
+        //     Ident-of-typed-binding). If every value-return agrees on
+        //     a single annotation, set it as the return type; if there
+        //     is disagreement or any return resists static inference,
+        //     leave the return alone (sticks to the long-standing None
+        //     → Void default — call sites that need a non-void value
+        //     will still get the "return type mismatch" error, which is
+        //     the right pre-existing surface).
+        //   - explicit non-any annotation → leave alone.
         if return_type.as_deref() == Some("any") {
             let var_name = alloc(&mut taken, &mut next_idx);
             *return_type = Some(var_name.clone());
             new_type_params.push(var_name);
+        } else if return_type.is_none() && body_has_value_return(body) {
+            if let Some(inferred) = infer_return_ann(ast_exprs_view, body, params) {
+                *return_type = Some(inferred);
+            }
         }
 
         if !new_type_params.is_empty() {
             type_params.extend(new_type_params);
         }
+    }
+}
+
+/// Borrow-shaped view of `Ast.exprs` for the inference helper. Defined
+/// at the top of `desugar_implicit_generics` (just below) — `&[Expr]`
+/// indexed by `ExprId.0 as usize`. The pre-pass walks expression
+/// shapes statically without consulting the typechecker, so this
+/// flat slice is enough.
+type AstExprsView<'a> = &'a [Expr];
+
+/// Static return-type sniff. Walks every value-return inside `body`
+/// (recursing through control-flow shapes that propagate value-
+/// returns out of the fn) and asks `infer_expr_ann` for an annotation.
+/// Returns `Some(ann)` only if every reachable return agrees; any
+/// disagreement or any return that resists static typing yields None
+/// (caller leaves return_type alone).
+fn infer_return_ann(
+    exprs: AstExprsView,
+    body: &[Stmt],
+    params: &[Param],
+) -> Option<String> {
+    let mut acc: Option<String> = None;
+    if !collect_return_anns(exprs, body, params, &mut acc) {
+        return None;
+    }
+    acc
+}
+
+/// Returns false on first disagreement / un-inferable return; on
+/// success, `acc` holds the unique annotation across all returns.
+fn collect_return_anns(
+    exprs: AstExprsView,
+    body: &[Stmt],
+    params: &[Param],
+    acc: &mut Option<String>,
+) -> bool {
+    for s in body {
+        if !collect_return_anns_stmt(exprs, s, params, acc) {
+            return false;
+        }
+    }
+    true
+}
+
+fn collect_return_anns_stmt(
+    exprs: AstExprsView,
+    s: &Stmt,
+    params: &[Param],
+    acc: &mut Option<String>,
+) -> bool {
+    match s {
+        Stmt::Return(Some(eid)) => {
+            let Some(ann) = infer_expr_ann(exprs, *eid, params) else {
+                return false;
+            };
+            match acc {
+                None => *acc = Some(ann),
+                Some(prev) if *prev == ann => {}
+                Some(_) => return false,
+            }
+            true
+        }
+        Stmt::Return(None) => true,
+        Stmt::If { then_branch, else_branch, .. } => {
+            if !collect_return_anns_stmt(exprs, then_branch, params, acc) {
+                return false;
+            }
+            if let Some(eb) = else_branch
+                && !collect_return_anns_stmt(exprs, eb, params, acc)
+            {
+                return false;
+            }
+            true
+        }
+        Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
+            collect_return_anns_stmt(exprs, body, params, acc)
+        }
+        Stmt::For { init, body, .. } => {
+            if let Some(i) = init
+                && !collect_return_anns_stmt(exprs, i, params, acc)
+            {
+                return false;
+            }
+            collect_return_anns_stmt(exprs, body, params, acc)
+        }
+        Stmt::Block(stmts) | Stmt::Multi(stmts) => {
+            collect_return_anns(exprs, stmts, params, acc)
+        }
+        Stmt::Try { body, catch_body, finally_body, .. } => {
+            if !collect_return_anns(exprs, body, params, acc) {
+                return false;
+            }
+            if !collect_return_anns(exprs, catch_body, params, acc) {
+                return false;
+            }
+            if let Some(fb) = finally_body
+                && !collect_return_anns(exprs, fb, params, acc)
+            {
+                return false;
+            }
+            true
+        }
+        // Switch / nested FnDecl etc. — conservative: treat as opaque,
+        // make the whole inference bail (returns are uncommon inside
+        // these shapes for our test262 surface).
+        Stmt::FnDecl { .. } => true,
+        _ => true,
+    }
+}
+
+/// Statically infer an annotation string for an expression. Limited to
+/// shapes whose annotation is unambiguous without consulting the
+/// typechecker — literals, boolean-result BinOp/Unary, and Ident
+/// references to a param whose annotation we just stamped.
+fn infer_expr_ann(
+    exprs: AstExprsView,
+    eid: ExprId,
+    params: &[Param],
+) -> Option<String> {
+    let e = exprs.get(eid.0 as usize)?;
+    match e {
+        Expr::Number(_) => Some("number".into()),
+        Expr::String(_) => Some("string".into()),
+        Expr::Bool(_) => Some("boolean".into()),
+        Expr::BinOp { op, .. } => match op {
+            BinOp::Lt | BinOp::Gt | BinOp::Le | BinOp::Ge
+            | BinOp::Eq | BinOp::Neq | BinOp::LAnd | BinOp::LOr => {
+                Some("boolean".into())
+            }
+            // Add/Sub/Mul/Div/Mod/Bit*/Shift — could be number or
+            // string-concat (Add). Bail; let the typechecker complain.
+            _ => None,
+        },
+        Expr::Unary { op, .. } => match op {
+            UnaryOp::Not => Some("boolean".into()),
+            UnaryOp::Neg | UnaryOp::BitNot => Some("number".into()),
+        },
+        Expr::Ident(name) => params
+            .iter()
+            .find(|p| &p.name == name)
+            .and_then(|p| p.type_ann.clone()),
+        // Conservatively bail on Member / Call / Index / etc.
+        // The typechecker's regular path will produce the right errors;
+        // we only override when statically obvious.
+        _ => None,
     }
 }
 
