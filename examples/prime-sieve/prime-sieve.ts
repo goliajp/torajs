@@ -37,24 +37,20 @@ function joinDecimal(xs: number[]): string {
   return out;
 }
 
-function main(): void {
-  const N = 1000;
-  const primes = sieveOfEratosthenes(N);
+const N = 1000;
+const primes = sieveOfEratosthenes(N);
 
-  console.log("primes <= " + N.toString() + ": " + primes.length.toString());
+console.log("primes <= " + N.toString() + ": " + primes.length.toString());
 
-  const firstTen: number[] = [];
-  for (let i = 0; i < 10 && i < primes.length; i++) {
-    firstTen.push(primes[i]);
-  }
-  console.log("first 10: " + joinDecimal(firstTen));
-
-  const lastTen: number[] = [];
-  const start = primes.length - 10;
-  for (let i = start; i < primes.length; i++) {
-    lastTen.push(primes[i]);
-  }
-  console.log("last 10:  " + joinDecimal(lastTen));
+const firstTen: number[] = [];
+for (let i = 0; i < 10 && i < primes.length; i++) {
+  firstTen.push(primes[i]);
 }
+console.log("first 10: " + joinDecimal(firstTen));
 
-main();
+const lastTen: number[] = [];
+const start = primes.length - 10;
+for (let i = start; i < primes.length; i++) {
+  lastTen.push(primes[i]);
+}
+console.log("last 10:  " + joinDecimal(lastTen));

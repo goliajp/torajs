@@ -9266,6 +9266,64 @@ impl<'a> LowerCtx<'a> {
                         // statement-level and discard the result.
                         return Operand::ConstI64(0);
                     }
+                    // K.8 — Ident-receiver where the binding is a top-level
+                    // refcount global (registered by the K.6 globals pass).
+                    // Load the cur ptr from the global slot via GlobalRef,
+                    // push, store back. Mirror semantic of the local path
+                    // above — including refcount inc on the pushed value
+                    // for refcounted element types.
+                    if let Expr::Ident(recv_name) = self.ast.get_expr(*recv_id)
+                        && self.locals.get(recv_name).is_none()
+                        && let Some(slot_ty) = self.globals.get(recv_name).copied()
+                        && let Type::Arr(arr_id) = slot_ty
+                    {
+                        let arr_ty = slot_ty;
+                        let elem_ty = self.arr_layouts[arr_id.0 as usize];
+                        let slot_ptr = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::GlobalRef(recv_name.clone()),
+                            Type::Ptr,
+                            None,
+                        );
+                        let cur_arr = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(arr_ty, Operand::Value(slot_ptr), 0),
+                            arr_ty,
+                            None,
+                        );
+                        let mut val = self.lower_expr(args[0]);
+                        if !elem_ty.is_refcounted() {
+                            self.consume_if_ident(args[0]);
+                        }
+                        val = self.coerce_bool_to_i64(val);
+                        let new_arr = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.arr_push,
+                                vec![Operand::Value(cur_arr), val],
+                            ),
+                            arr_ty,
+                            None,
+                        );
+                        if elem_ty.is_refcounted() {
+                            self.f.append_void(
+                                self.cur_block,
+                                InstKind::Call(
+                                    self.intrinsics.rc_inc,
+                                    vec![val],
+                                ),
+                            );
+                        }
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Store(
+                                Operand::Value(new_arr),
+                                Operand::Value(slot_ptr),
+                                0,
+                            ),
+                        );
+                        return Operand::ConstI64(0);
+                    }
                     // (b) `obj.field.push(v)` — field-receiver path. We load
                     // the struct pointer once (borrow), find the field's
                     // offset, then load → push → store-back at that offset.
