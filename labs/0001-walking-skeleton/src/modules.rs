@@ -50,7 +50,16 @@ type WorkItem = (PathBuf, Vec<NamedImport>);
 /// and injecting its requested named exports as top-level declarations
 /// at the front of `ast.stmts`. Single-file mode (no `ImportDecl`s) is
 /// a no-op.
-pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<(), String> {
+///
+/// Returns the list of `(canonical_path, source_bytes)` for every file
+/// visited (BFS order, deduplicated). `tr run`'s cache key includes
+/// every entry so an edit to a transitively-imported file invalidates
+/// the cache slot for the main file.
+pub fn resolve_imports(
+    ast: &mut Ast,
+    base_dir: &Path,
+) -> Result<Vec<(PathBuf, Vec<u8>)>, String> {
+    let mut closure_files: Vec<(PathBuf, Vec<u8>)> = Vec::new();
     let mut visited: HashSet<PathBuf> = HashSet::new();
     let mut work: VecDeque<WorkItem> = VecDeque::new();
 
@@ -80,6 +89,7 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<(), String> {
             .map_err(|e| format!("import {} lex: {e}", target_path.display()))?;
         let lib_offset = parser::parse_into(&tokens, ast)
             .map_err(|e| format!("import {} parse: {e}", target_path.display()))?;
+        closure_files.push((target_path.clone(), src_text.into_bytes()));
         let target_dir = target_path
             .parent()
             .map(Path::to_path_buf)
@@ -146,7 +156,7 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<(), String> {
         new_stmts.extend(std::mem::take(&mut ast.stmts));
         ast.stmts = new_stmts;
     }
-    Ok(())
+    Ok(closure_files)
 }
 
 fn check_k2_form(
@@ -223,13 +233,3 @@ fn rename_decl(s: &mut Stmt, new_name: String) {
     }
 }
 
-/// Detect whether `ast` contains any `ImportDecl` after parse — used by
-/// `tr run`'s cache-key path: cache by source-hash alone is unsafe for
-/// multi-file programs (a lib edit doesn't bump the main file's hash),
-/// so when imports are present we skip the cache and recompile every
-/// run. Multi-file hashing is a follow-up phase.
-pub fn has_imports(ast: &Ast) -> bool {
-    ast.stmts
-        .iter()
-        .any(|s| matches!(s, Stmt::ImportDecl { .. }))
-}

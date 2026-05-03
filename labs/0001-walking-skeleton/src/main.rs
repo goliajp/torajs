@@ -350,9 +350,12 @@ fn run_jit(file_arg: Option<&String>) -> ExitCode {
         }
     };
 
-    // Lex + parse up front — needed both to feed the rest of the pipeline
-    // and to detect whether the program contains cross-file imports
-    // (which disqualify the source-hash cache; see below).
+    // Lex + parse + resolve imports up front. Both `tr run`'s cache key
+    // and the rest of the pipeline need a fully-resolved AST, and the
+    // import closure must be hashed into the cache key so an edit to a
+    // transitively-imported file invalidates the slot. Cost over a
+    // single-file program: zero (resolve_imports returns empty closure
+    // when no ImportDecls are present).
     let tokens = match lexer::tokenize(&src) {
         Ok(t) => t,
         Err(e) => {
@@ -367,16 +370,22 @@ fn run_jit(file_arg: Option<&String>) -> ExitCode {
             return ExitCode::from(1);
         }
     };
-    let multi_file = modules::has_imports(&ast);
+    let base_dir = base_dir_for(path);
+    let import_closure = match modules::resolve_imports(&mut ast, &base_dir) {
+        Ok(files) => files,
+        Err(e) => {
+            eprintln!("import error: {e}");
+            return ExitCode::from(1);
+        }
+    };
 
-    // Cache lookup — hash main source + binary version + (always-O3 for run).
-    // Cache disabled if TORAJS_NO_CACHE is set (useful for bench / CI), or
-    // if the program is multi-file: the source-only hash can't see edits to
-    // imported files, so a stale cache would silently win. Multi-file
-    // hashing lands in a follow-up phase.
-    let cache_disabled = std::env::var_os("TORAJS_NO_CACHE").is_some() || multi_file;
+    // Cache key — main source + every imported file's bytes + binary
+    // version + opt level. Cache disabled only if TORAJS_NO_CACHE is
+    // set (bench / CI). Multi-file is now first-class: an edit to lib
+    // bumps the closure hash → cache misses → recompile.
+    let cache_disabled = std::env::var_os("TORAJS_NO_CACHE").is_some();
     let cache_path = if !cache_disabled {
-        let hash = run_cache_key(&src);
+        let hash = run_cache_key(&src, &import_closure);
         let cache_dir = std::env::var("TORAJS_CACHE_DIR")
             .ok()
             .map(std::path::PathBuf::from)
@@ -395,12 +404,8 @@ fn run_jit(file_arg: Option<&String>) -> ExitCode {
         return exec_binary(p);
     }
 
-    // Cache miss — compile. Reuse the same pipeline as `tr build`.
-    let base_dir = base_dir_for(path);
-    if let Err(e) = modules::resolve_imports(&mut ast, &base_dir) {
-        eprintln!("import error: {e}");
-        return ExitCode::from(1);
-    }
+    // Cache miss — compile. resolve_imports already ran above, so this
+    // path picks up at the desugar pipeline.
     ast::unwrap_exports(&mut ast);
     ast::desugar_generators(&mut ast);
     ast::desugar_async(&mut ast);
@@ -465,17 +470,28 @@ fn run_jit(file_arg: Option<&String>) -> ExitCode {
     rc
 }
 
-/// Hash key for the run-cache. Includes source bytes + the torajs
-/// CARGO_PKG_VERSION + opt level so cache invalidates on torajs
-/// upgrade. Plain SHA-256 hex (no external dep — small Rust impl
-/// using std::hash isn't cryptographically strong but our use is just
-/// "is this the same source", so std FxHash + version is enough).
-fn run_cache_key(src: &str) -> String {
+/// Hash key for the run-cache. Includes the main source + every
+/// imported file's path-relative bytes + the torajs CARGO_PKG_VERSION
+/// + opt level. Multi-file: an edit to a transitively-imported lib
+/// bumps the closure hash → cache slot misses → recompile.
+///
+/// Stable hashing: std DefaultHasher is FxHash-ish (collision-resistant
+/// enough for cache use — worst case is a false miss / recompile, which
+/// is harmless). The full-bytes-of-each-file approach is overkill for
+/// a 4-file project but stays correct as the import graph grows.
+fn run_cache_key(src: &str, import_closure: &[(PathBuf, Vec<u8>)]) -> String {
     use std::hash::{Hash, Hasher};
-    // DefaultHasher is FxHash-ish; collision-resistant enough for cache
-    // key (worst case = miss on collision, recompile, harmless).
     let mut h = std::collections::hash_map::DefaultHasher::new();
     src.hash(&mut h);
+    // Sort the closure by path so the hash is order-independent (BFS
+    // traversal order can vary if the lib graph is rearranged, but the
+    // resulting program is the same).
+    let mut sorted: Vec<&(PathBuf, Vec<u8>)> = import_closure.iter().collect();
+    sorted.sort_by(|a, b| a.0.cmp(&b.0));
+    for (path, bytes) in &sorted {
+        path.hash(&mut h);
+        bytes.hash(&mut h);
+    }
     env!("CARGO_PKG_VERSION").hash(&mut h);
     "O3".hash(&mut h);
     format!("torajs-{:016x}", h.finish())
