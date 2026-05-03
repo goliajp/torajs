@@ -2177,6 +2177,27 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
     // forward refs, return-type-bool functions like is_prime).
     let mut decl_indices: Vec<(usize, FuncId)> = Vec::new();
     let mut fn_sig_ids: HashMap<FuncId, ssa::SigId> = HashMap::new();
+
+    // Pass 0.4 — register every Pass-0 intrinsic's signature in
+    // `fn_sig_ids`. The call-site coercion arm later (`Expr::Call`
+    // lowering, F64↔I64 directions) needs the param type list to
+    // decide whether to insert SiToFp / FpToSi at boundary, and it
+    // looks up the sig via `fn_sig_ids`. Without this, intrinsic
+    // calls like `Math.imul(0.1, 7)` skip coercion and trip LLVM's
+    // verifier with "Call parameter type does not match function
+    // signature." Walks every Func currently in `module.funcs` —
+    // since this runs before the user-decl pass, the only entries
+    // are the Pass-0 intrinsics declared above.
+    for (idx, f) in module.funcs.iter().enumerate() {
+        let fid = FuncId(idx as u32);
+        let param_tys: Vec<Type> = f
+            .params
+            .iter()
+            .map(|p| f.values[p.0 as usize].ty)
+            .collect();
+        let sig = intern_fn_sig(&mut fn_sigs, param_tys, f.ret);
+        fn_sig_ids.insert(fid, sig);
+    }
     for (i, stmt) in ast.stmts.iter().enumerate() {
         if let Stmt::FnDecl {
             name,
@@ -2911,6 +2932,27 @@ fn declare_intrinsic(
     let id = FuncId(module.funcs.len() as u32);
     fn_table.insert(name.to_string(), id);
     module.funcs.push(f);
+    id
+}
+
+/// Register an intrinsic's signature in the shared `fn_sigs` table
+/// and the FuncId → SigId map so the call-site coercion path can
+/// look up its expected param types. Without this, the per-call
+/// coercion arm sees `None` for intrinsics and skips the F64↔I64
+/// fix-up — exactly the case Math.imul / Math.clz32 / parseInt's
+/// integer-typed parameters need.
+fn declare_intrinsic_with_sig(
+    module: &mut Module,
+    fn_table: &mut HashMap<String, FuncId>,
+    fn_sigs: &mut Vec<(Vec<Type>, Type)>,
+    fn_sig_ids: &mut HashMap<FuncId, ssa::SigId>,
+    name: &str,
+    param_tys: &[Type],
+    ret_ty: Type,
+) -> FuncId {
+    let id = declare_intrinsic(module, fn_table, name, param_tys, ret_ty);
+    let sig = intern_fn_sig(fn_sigs, param_tys.to_vec(), ret_ty);
+    fn_sig_ids.insert(id, sig);
     id
 }
 
