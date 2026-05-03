@@ -3893,6 +3893,7 @@ pub fn desugar_implicit_generics(ast: &mut Ast) {
     let ast_exprs_view: AstExprsView = &*exprs;
     for stmt in stmts.iter_mut() {
         let Stmt::FnDecl {
+            name,
             params,
             return_type,
             type_params,
@@ -3908,6 +3909,17 @@ pub fn desugar_implicit_generics(ast: &mut Ast) {
         if let Some(first) = params.first()
             && (first.name == "__env" || first.name == "__this")
         {
+            continue;
+        }
+        // Lifted arrow / function-expression bodies (`__closure_<N>`)
+        // are stored in locals and called indirectly — the M3 generic
+        // call-site retargeting only fires for bare-Ident callees that
+        // name a global generic FnDecl, so adding TypeVars here would
+        // produce a generic signature with no path to monomorphize.
+        // Leave their params un-genericized; the typechecker still
+        // requires explicit annotations on captured-arrow params, which
+        // matches the long-standing surface.
+        if name.starts_with("__closure_") {
             continue;
         }
 

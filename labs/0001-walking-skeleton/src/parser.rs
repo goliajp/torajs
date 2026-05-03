@@ -2136,6 +2136,17 @@ impl Parser<'_> {
             // value, etc.).
             return self.parse_object_literal();
         }
+        // Function expression — `function (params): R { body }` or
+        // `function NAME(params): R { body }` in expression position.
+        // IIFE pattern `(function() { ... }())` is the dominant test262
+        // shape this unblocks. Treat it as an `Expr::ArrowFn`: lifted by
+        // `lift_arrow_fns` to a top-level FnDecl, same downstream
+        // pipeline as `() => { ... }`. The optional name is parsed
+        // (and ignored — fn-expr names are scoped only to the body, a
+        // niche we don't implement).
+        if matches!(self.peek(), Token::Function) {
+            return self.parse_fn_expr();
+        }
         let pos = self.pos;
         match &self.tokens[pos].token {
             Token::Ident(n) => {
@@ -3315,6 +3326,54 @@ impl Parser<'_> {
             return Ok(self.ast.add_expr(Expr::Spread { expr: inner }));
         }
         self.parse_expr()
+    }
+
+    /// `function (params): R { body }` / `function NAME(params): R { body }`
+    /// in expression position. Re-uses the FnDecl parser shape but emits
+    /// an `Expr::ArrowFn` (the optional self-name is dropped — function
+    /// expression names bind only inside the body, a feature out-of-
+    /// scope for the subset).
+    fn parse_fn_expr(&mut self) -> Result<ExprId, String> {
+        // current token is `function`
+        self.pos += 1;
+        // Optional name — accept and discard.
+        if let Token::Ident(_) = self.peek() {
+            self.pos += 1;
+        }
+        let params = self.parse_param_list()?;
+        let return_type = if matches!(self.peek(), Token::Colon) {
+            self.pos += 1;
+            Some(self.parse_type_ann()?)
+        } else {
+            None
+        };
+        match self.peek() {
+            Token::LBrace => self.pos += 1,
+            t => {
+                return Err(format!(
+                    "expected `{{` after function expression header, got {t:?} at {}",
+                    self.at()
+                ));
+            }
+        }
+        let mut stmts = Vec::new();
+        while !matches!(self.peek(), Token::RBrace | Token::Eof) {
+            stmts.push(self.parse_stmt()?);
+        }
+        match self.peek() {
+            Token::RBrace => self.pos += 1,
+            t => {
+                return Err(format!(
+                    "expected `}}` after function expression body, got {t:?} at {}",
+                    self.at()
+                ));
+            }
+        }
+        Ok(self.ast.add_expr(Expr::ArrowFn {
+            params,
+            return_type,
+            body: stmts,
+        }))
     }
 
     fn parse_arrow_fn(&mut self) -> Result<ExprId, String> {
