@@ -6,6 +6,17 @@ Research project (closed-source, internal). Working hypothesis: a **subset of Ty
 
 **始终使用中文（简体中文）与 takagi 沟通。** 所有面向用户的回复、状态更新、解释、提问都必须是中文。仅以下场景使用英文：代码、变量名、git commit 消息、CLI 输出原文、PR / issue 正文（若仓库语言为英文）。混用其他语言（韩文、日文、法文等）严格禁止。这条规则强化 `.claude/rules/common/language.md`，违反视为重大错误。
 
+## Working Mode (HARD RULE) — 顺序执行计划，不开候选清单
+
+**项目永远只有一份"顺序执行计划"，由 status memory 维护，按顺序往下做。** Brief 给 takagi 时**严禁**列"下一步候选 1/2/3"或"按 leverage 推荐 A/B/C"这种 framing —— 那是把计划决策再丢回给 takagi，等于反复让他做同一件事。这条强化 `feedback_drive_dont_ask` 和 `feedback_no_fork_questions`：
+
+- **Ship 完一个里程碑后，自动推下一项**。从 `project_status_*.md` 的执行计划列表 take 顺位第一项就开始做，不汇报"我要做 X 还是 Y"。
+- **Brief 内容只有：已 ship 的 commit 总结 + 当前正在做的事 + 已观察到的事实**。不列"候选"，不问"要不要继续"。
+- **计划调整由 takagi 主动提出**："改方向"、"插入 X"、"先做 Y" 才是 takagi 干预 plan 的入口。我自己的工作只是按 plan 推进 + 在 plan 末尾追加新发现的 follow-up 项（如 substrate 阻塞导致需要新 phase）。
+- **顺序由依赖决定**：substrate 阻塞 / 必经路径 在前，平行 / 锦上添花在后。我维护这个顺序，不让 takagi 选。
+
+违反这条 = 把决策成本反推给 takagi = 与 auto loop dev 的全部前提冲突。
+
 ## Anti-Hallucination (NON-NEGOTIABLE)
 
 Follow `.claude/rules/common/anti-hallucination.md` — always. Five rules, zero exceptions: say "I don't know", use tools before memory, no chain-guessing, retract mid-sentence when wrong, cite the source. Tool output itself must never be fabricated: if a tool returns only `[rerun: bN]` or empty content, report that literally and rerun — never invent plausible-looking output.
