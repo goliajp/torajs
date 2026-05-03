@@ -2533,6 +2533,7 @@ impl<'a, 'ctx> FnLower<'a, 'ctx> {
                 let callee = self.fn_map[fid.0 as usize];
                 let expected = callee.get_type().get_param_types();
                 let i64_t = self.ctx.i64_type();
+                let f64_t = self.ctx.f64_type();
                 let ptr_t = self.ctx.ptr_type(AddressSpace::default());
                 let mut argv: Vec<BasicMetadataValueEnum> =
                     Vec::with_capacity(args.len());
@@ -2540,16 +2541,35 @@ impl<'a, 'ctx> FnLower<'a, 'ctx> {
                     let raw = self.operand(a);
                     let coerced: BasicValueEnum = if i < expected.len() {
                         match expected[i] {
-                            BasicMetadataTypeEnum::IntType(_) => {
-                                if let BasicValueEnum::PointerValue(p) = raw {
+                            BasicMetadataTypeEnum::IntType(it) => match raw {
+                                BasicValueEnum::PointerValue(p) => {
                                     self.builder
                                         .build_ptr_to_int(p, i64_t, "")
                                         .unwrap()
                                         .into()
-                                } else {
-                                    raw
                                 }
-                            }
+                                BasicValueEnum::FloatValue(f) => {
+                                    // Float arg into an int param —
+                                    // truncate via fptosi (matches JS
+                                    // ToInt32 / ToUint32 prefix on
+                                    // Math.imul / charAt-with-float-index
+                                    // / parseInt-with-float-radix).
+                                    let _ = it;
+                                    self.builder
+                                        .build_float_to_signed_int(f, i64_t, "")
+                                        .unwrap()
+                                        .into()
+                                }
+                                _ => raw,
+                            },
+                            BasicMetadataTypeEnum::FloatType(_) => match raw {
+                                BasicValueEnum::IntValue(v) => self
+                                    .builder
+                                    .build_signed_int_to_float(v, f64_t, "")
+                                    .unwrap()
+                                    .into(),
+                                _ => raw,
+                            },
                             BasicMetadataTypeEnum::PointerType(_) => {
                                 if let BasicValueEnum::IntValue(v) = raw {
                                     self.builder

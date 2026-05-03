@@ -9707,7 +9707,8 @@ impl<'a> LowerCtx<'a> {
                         && method == "charAt"
                         && args.len() == 1
                     {
-                        let idx_val = self.lower_expr(args[0]);
+                        let idx_raw = self.lower_expr(args[0]);
+                        let idx_val = self.coerce_to_i64(idx_raw);
                         let v = if recv_ty == Type::Str {
                             self.f.append_inst(
                                 self.cur_block,
@@ -12787,7 +12788,8 @@ impl<'a> LowerCtx<'a> {
                 // For Type::Str: substr_create(s, i, 1). For Type::Substr:
                 // substr_slice(v, i, i+1) (resolves to root parent).
                 if matches!(arr_ty, Type::Str | Type::Substr) {
-                    let idx_val = self.lower_expr(*index);
+                    let idx_raw = self.lower_expr(*index);
+                    let idx_val = self.coerce_to_i64(idx_raw);
                     let v = if arr_ty == Type::Str {
                         self.f.append_inst(
                             self.cur_block,
