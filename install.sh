@@ -56,7 +56,11 @@ platform="${os_label}-${arch_label}"
 # Resolve version (latest release if unset).
 if [ -z "$version" ]; then
   blue "looking up latest release..."
-  version="$(curl -fsSL "https://api.github.com/repos/${repo}/releases/latest" \
+  # /releases/latest excludes prereleases (404s when only a -beta /
+  # -rc release exists), so fall back to /releases (full list) and
+  # take the topmost tag — GitHub returns it newest-first regardless
+  # of prerelease flag.
+  version="$(curl -fsSL "https://api.github.com/repos/${repo}/releases?per_page=20" \
     | grep '"tag_name"' | head -n1 | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')"
 fi
 if [ -z "$version" ]; then
