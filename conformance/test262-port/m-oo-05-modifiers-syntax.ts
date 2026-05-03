@@ -1,59 +1,64 @@
-// Phase M-OO.5 (partial — parser + AST only).
+// Phase M-OO.5 — visibility modifier syntax + enforcement.
 //
-// `public` / `private` / `protected` / `readonly` modifiers are
-// recognized as contextual keywords on class members. The visibility
-// flag is stored on `ClassMethod` and in `Ast.member_visibility` /
-// `Ast.readonly_fields`. Runtime enforcement is **deferred** — the
-// typecheck layer needs nominal class-name info on `Type::Struct`
-// (currently structural-only) to resolve `obj.member` back to its
-// declaring class. Same framing as M-OO.3 vtable conversion.
+// `public` / `private` / `protected` / `readonly` modifiers parse as
+// contextual keywords; check.rs enforces visibility based on the
+// caller's class context (`__cm_<C>__*` / `__sm_<C>__*` fn name
+// pattern → current_class). The binding's nominal class is stored
+// on LocalInfo.declared_class when `let c: Counter = ...` matches a
+// known class name in `ast.class_parents`.
 //
-// This case verifies that adding the modifiers doesn't break parsing
-// or downstream lowering — every member can still be reached as if
-// public, which preserves compatibility while the enforcement layer
-// is built out.
+// This case exercises the legal access patterns:
+//   - public members read / called from outside the class
+//   - private + protected accessed from `this` inside the class
+//   - protected accessed from a subclass via `this`
+// Negative-enforcement cases (private read from outside, etc.) are
+// rejected at typecheck — they can't be expressed as conformance
+// cases that pass three-way (the runner expects build success).
 
-class Counter {
-  public count: number;
+class Animal {
+  protected name: string;
   private secret: number;
-  protected tag: string;
-  public readonly initial: number;
 
-  constructor(start: number, t: string) {
-    this.count = start;
-    this.secret = start * 2;
-    this.tag = t;
-    this.initial = start;
+  constructor(n: string, s: number) {
+    this.name = n;
+    this.secret = s;
   }
 
-  public bump(): number {
-    this.count = this.count + 1;
-    return this.count;
+  public greet(): string {
+    return this.name;
   }
 
-  private internal(): number {
-    return this.secret + 1;
+  private revealSecret(): number {
+    return this.secret;
   }
 
-  protected wrap(): string {
-    return this.tag;
+  public reveal(): number {
+    // Private access from inside the same class is fine.
+    return this.revealSecret();
+  }
+}
+
+class Dog extends Animal {
+  constructor(n: string, s: number) {
+    super(n, s);
+  }
+
+  public describe(): string {
+    // Protected access from a subclass `this` is fine.
+    return this.name;
   }
 }
 
 function check(): number {
-  let c: Counter = new Counter(10, "alpha");
-  if (c.count !== 10) { throw "#1: public field"; }
-  if (c.bump() !== 11) { throw "#2: public method"; }
-  if (c.bump() !== 12) { throw "#3: bump again"; }
-  // Note — these reads currently succeed because enforcement is
-  // deferred. Once nominal class typing lands, M-OO.5 enforcement
-  // will reject the next two lines (case will be split into a
-  // positive-syntax test + a negative-enforcement test).
-  if (c.secret !== 20) { throw "#4: private field still readable (parser-only)"; }
-  if (c.internal() !== 21) { throw "#5: private method still callable (parser-only)"; }
-  if (c.tag !== "alpha") { throw "#6: protected field still readable (parser-only)"; }
-  if (c.wrap() !== "alpha") { throw "#7: protected method still callable (parser-only)"; }
-  if (c.initial !== 10) { throw "#8: readonly field"; }
+  let a: Animal = new Animal("alice", 42);
+  if (a.greet() !== "alice") { throw "#1: public method"; }
+  if (a.reveal() !== 42) { throw "#2: private accessed via public method"; }
+
+  let d: Dog = new Dog("rex", 7);
+  if (d.greet() !== "rex") { throw "#3: inherited public method"; }
+  if (d.describe() !== "rex") { throw "#4: protected via subclass this"; }
+  if (d.reveal() !== 7) { throw "#5: private (via inherited public)"; }
+
   return 0;
 }
 console.log(check());

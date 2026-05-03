@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 
-use crate::ast::{Ast, BinOp, Expr, ExprId, Param, Stmt};
+use crate::ast::{Ast, BinOp, Expr, ExprId, Param, Stmt, Visibility};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Type {
@@ -427,6 +427,15 @@ struct LocalInfo {
     /// further read of this binding is a type error. Copy-typed bindings
     /// never get marked.
     moved: bool,
+    /// M-OO.5 — when this binding's declared type annotation matches a
+    /// class name (`let c: Counter = ...`), record the class name so
+    /// `c.member` accesses can look up the visibility entry in
+    /// `ast.member_visibility`. Plain object-literal bindings, function-
+    /// return bindings, and primitive bindings get `None` here. The
+    /// nominal info lives on the binding rather than on `Type::Struct`
+    /// to avoid a substrate refactor — it's enough for the
+    /// `obj.member` pattern that visibility enforcement needs.
+    declared_class: Option<String>,
 }
 
 /// M3 — substitution recorded at each generic call site. Keyed by the
@@ -533,6 +542,7 @@ pub fn check(ast: &Ast) -> Result<GenericCallSites, String> {
         aliases: HashMap::new(),
         errors: Vec::new(),
         expected_return: None,
+        current_class: None,
         closure_captures: HashMap::new(),
         closure_fn_names: std::collections::HashSet::new(),
         generic_type_params: HashMap::new(),
@@ -706,6 +716,16 @@ struct Checker {
     aliases: HashMap<String, Type>,
     errors: Vec<String>,
     expected_return: Option<Type>,
+    /// M-OO.5 — when typechecking a fn body whose name follows the
+    /// `__cm_<Class>__<method>` / `__sm_<Class>__<method>` shape that
+    /// `desugar_classes` mints, `current_class` records the enclosing
+    /// class. Member-access enforcement reads this to decide whether
+    /// `obj.private_member` is allowed (private requires caller is
+    /// inside the same class; protected requires caller in same class
+    /// or descendant). `None` outside of class fn bodies (top-level
+    /// stmts, free fns, etc.) — those treat every member as if it
+    /// were public.
+    current_class: Option<String>,
     /// M2 — captures for each lifted closure FnDecl. Populated by the
     /// `Expr::Closure` arm of `type_of` (which resolves capture types in
     /// the OUTER scope at the construction site) and consumed by the
@@ -865,6 +885,22 @@ impl Checker {
             }
         }
         None
+    }
+
+    /// M-OO.5 — true iff `child` is a descendant of `ancestor` along
+    /// the class inheritance chain stored in `ast.class_parents`.
+    /// Used by Protected visibility enforcement: `protected member`
+    /// access is allowed when the caller's class is the owner OR any
+    /// subclass.
+    fn is_descendant_of(&self, ast: &Ast, child: &str, ancestor: &str) -> bool {
+        let mut cur = child;
+        while let Some(parent) = ast.class_parents.get(cur).and_then(|p| p.as_deref()) {
+            if parent == ancestor {
+                return true;
+            }
+            cur = parent;
+        }
+        false
     }
 
     /// Walk the scope stack from innermost outward and flip `moved=true`
@@ -1244,6 +1280,7 @@ impl Checker {
                             ty: e_ty,
                             mutable: true,
                             moved: false,
+                            declared_class: None,
                         },
                     );
                 }
@@ -1339,12 +1376,30 @@ impl Checker {
                 // owns: either it took transfer from a source (Ident → see
                 // `consume` below), or the value is fresh.
                 let is_alias_init = self.classify_init_alias(ast, *init);
+                // M-OO.5 — when the declared annotation names a known
+                // class, propagate that nominal info to the binding so
+                // `name.private_member` accesses can look up the
+                // visibility entry. type_ann is the source string
+                // (e.g. "Counter"); we treat it as a class iff it
+                // appears in `c.aliases` AND has a corresponding entry
+                // in `ast.class_parents` (declared via `class`, not
+                // `type`).
+                let declared_class: Option<String> = type_ann
+                    .as_ref()
+                    .and_then(|s| {
+                        if ast.class_parents.contains_key(s.as_str()) {
+                            Some(s.clone())
+                        } else {
+                            None
+                        }
+                    });
                 if let Err(e) = self.declare(
                     name.clone(),
                     LocalInfo {
                         ty: final_ty,
                         mutable: *mutable,
                         moved: is_alias_init,
+                        declared_class,
                     },
                 ) {
                     self.errors.push(e);
@@ -1372,13 +1427,55 @@ impl Checker {
                 // mirror the arrow-fn rule (no captures).
                 let saved_scopes = std::mem::replace(&mut self.scopes, vec![HashMap::new()]);
                 let saved_return = self.expected_return.replace(*ret_ty);
+                // M-OO.5 — fn name pattern → enclosing class context.
+                // `__cm_<C>__<m>` (instance method) and
+                // `__sm_<C>__<m>` (static method) both put the body
+                // inside class C; visibility checks compare against
+                // this. Free fns / `__new_<C>` / `__dispatch_<m>` /
+                // `__env_drop_<closure>` etc. don't establish a class
+                // scope (`__new_C` IS the class's factory but isn't
+                // user-written code, so it shouldn't be granted
+                // private-access; the methods it calls are __cm_*
+                // which DO have the context).
+                let saved_class = self.current_class.take();
+                let new_class: Option<String> = name
+                    .strip_prefix("__cm_")
+                    .and_then(|rest| rest.split_once("__").map(|(c, _)| c.to_string()))
+                    .or_else(|| {
+                        name.strip_prefix("__sm_").and_then(|rest| {
+                            rest.split_once("__").map(|(c, _)| c.to_string())
+                        })
+                    });
+                if new_class.is_some() {
+                    self.current_class = new_class;
+                }
                 for (p, ty) in params.iter().zip(param_tys.iter()) {
+                    // M-OO.5 — propagate nominal class info onto every
+                    // param whose source-level type annotation names a
+                    // known class. The synthesized `__this` param uses
+                    // the enclosing class context (its annotation may
+                    // be a generic-instantiated form like `Wrapper<T>`
+                    // that doesn't lookup as a plain class name);
+                    // user-written params with a plain class name
+                    // pull from `ast.class_parents`.
+                    let declared_class = if p.name == "__this" {
+                        self.current_class.clone()
+                    } else {
+                        p.type_ann.as_ref().and_then(|s| {
+                            if ast.class_parents.contains_key(s.as_str()) {
+                                Some(s.clone())
+                            } else {
+                                None
+                            }
+                        })
+                    };
                     if let Err(e) = self.declare(
                         p.name.clone(),
                         LocalInfo {
                             ty: ty.clone(),
                             mutable: true,
                             moved: false,
+                            declared_class,
                         },
                     ) {
                         self.errors.push(e);
@@ -1389,6 +1486,7 @@ impl Checker {
                 }
                 self.expected_return = saved_return;
                 self.scopes = saved_scopes;
+                self.current_class = saved_class;
             }
             Stmt::TypeDecl { .. } => {
                 // Already handled in pass 0; re-encountering it during the
@@ -1475,6 +1573,49 @@ impl Checker {
             }
             Expr::Member { obj, name } => {
                 let obj_ty = self.type_of(ast, *obj)?;
+                // M-OO.5 — visibility enforcement. Find the binding's
+                // nominal class:
+                //   - `this` inside a class method body inherits the
+                //     current class context.
+                //   - An Ident bound by `let x: ClassName = ...` carries
+                //     its `declared_class` from the LetDecl arm.
+                // Other shapes (chained Member, Call result, etc.)
+                // currently get no nominal info; treat their visibility
+                // as Public until that path needs tightening.
+                let obj_class: Option<String> = match ast.get_expr(*obj) {
+                    Expr::This => self.current_class.clone(),
+                    Expr::Ident(n) => {
+                        self.lookup(n).and_then(|info| info.declared_class)
+                    }
+                    _ => None,
+                };
+                if let Some(cls) = obj_class.as_deref()
+                    && let Some(vis) = ast
+                        .member_visibility
+                        .get(&(cls.to_string(), name.clone()))
+                        .copied()
+                {
+                    let allowed = match vis {
+                        Visibility::Public => true,
+                        Visibility::Private => {
+                            self.current_class.as_deref() == Some(cls)
+                        }
+                        Visibility::Protected => self
+                            .current_class
+                            .as_deref()
+                            .map(|c| c == cls || self.is_descendant_of(ast, c, cls))
+                            .unwrap_or(false),
+                    };
+                    if !allowed {
+                        return Err(format!(
+                            "M-OO.5: cannot access {vis:?} member `{cls}.{name}` from {}",
+                            self.current_class
+                                .as_deref()
+                                .map(|c| format!("class `{c}`"))
+                                .unwrap_or_else(|| "outside any class".to_string())
+                        ));
+                    }
+                }
                 // Struct field access is the most general path — look up
                 // the named field; type is whatever it was declared as.
                 if let Type::Struct(fields) = &obj_ty
@@ -2852,6 +2993,7 @@ impl Checker {
                             ty: ty.clone(),
                             mutable: true,
                             moved: false,
+                            declared_class: None,
                         },
                     ) {
                         self.errors.push(e);
@@ -2916,6 +3058,7 @@ impl Checker {
                                 ty: cap_ty.clone(),
                                 mutable: true,
                                 moved: false,
+                                declared_class: None,
                             },
                         );
                     }
@@ -2926,6 +3069,7 @@ impl Checker {
                                 ty: ty.clone(),
                                 mutable: true,
                                 moved: false,
+                                declared_class: None,
                             },
                         );
                     }
