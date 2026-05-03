@@ -318,6 +318,12 @@ pub enum InstKind {
     /// `%v = sitofp <i64-operand>` — signed integer to f64 cast. Used to
     /// promote i64 operands when mixed with f64 in arithmetic / comparisons.
     SiToFp(Operand),
+    /// `%v = fptosi <f64-operand>` — float to signed i64 cast (truncates).
+    /// Mirrors JS's ToInt32 / ToUint32 prefix behaviour on the truncation
+    /// step. Used at call sites whose runtime intrinsic expects an i64
+    /// integer parameter (Math.imul, Math.clz32, anywhere accepting a
+    /// "numeric integer index" the user might have written as 0.5).
+    FpToSi(Operand),
     /// `%v = zext <bool-operand>` — zero-extend an i1 / Bool value to i64.
     /// Needed when storing booleans into uniform 8-byte slots (`Array<bool>`,
     /// `Object` fields with bool type, etc.) and when passing them to
@@ -707,6 +713,10 @@ impl Function {
             }
             InstKind::SiToFp(op) => {
                 write!(w, "sitofp ")?;
+                self.write_operand(w, op)?;
+            }
+            InstKind::FpToSi(op) => {
+                write!(w, "fptosi ")?;
                 self.write_operand(w, op)?;
             }
             InstKind::ZExtBoolToI64(op) => {

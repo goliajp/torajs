@@ -12166,22 +12166,29 @@ impl<'a> LowerCtx<'a> {
                     argv[1] = self.coerce_to_f64(argv[1]);
                 } else if let Some(sig_id) = self.fn_sig_ids.get(&target).copied() {
                     // Width-aware coercion for monomorphized generic
-                    // calls. The mono name picked the F64 specialization
-                    // when any arg statically lowered to f64 (see
-                    // `compute_typevar_widths`); the param types in the
-                    // sig are F64 for those positions. Coerce each i64
-                    // operand to f64 to match. Only fires when the mono
-                    // sig ACTUALLY differs from the operand type, so
-                    // integer-only generics keep their i64 path.
+                    // calls AND direct intrinsics. The mono name picked
+                    // the F64 specialization when any arg statically
+                    // lowered to f64 (see `compute_typevar_widths`);
+                    // the param types in the sig are F64 for those
+                    // positions. Coerce both directions:
+                    //   expected F64 + actual I64 → SiToFp (widen)
+                    //   expected I64 + actual F64 → FpToSi (truncate;
+                    //     matches JS ToInt32 / ToUint32 prefix behavior
+                    //     for indexes / codepoints / bit positions)
                     let param_tys = self.fn_sigs[sig_id.0 as usize].0.clone();
                     for (i, expected) in param_tys.iter().enumerate() {
                         if i >= argv.len() {
                             break;
                         }
-                        if matches!(expected, Type::F64)
-                            && matches!(self.operand_ty(&argv[i]), Type::I64)
-                        {
-                            argv[i] = self.coerce_to_f64(argv[i]);
+                        let got = self.operand_ty(&argv[i]);
+                        match (expected, got) {
+                            (Type::F64, Type::I64) | (Type::F64, Type::Bool) => {
+                                argv[i] = self.coerce_to_f64(argv[i]);
+                            }
+                            (Type::I64, Type::F64) | (Type::I64, Type::Bool) => {
+                                argv[i] = self.coerce_to_i64(argv[i]);
+                            }
+                            _ => {}
                         }
                     }
                 }
@@ -13569,6 +13576,32 @@ impl<'a> LowerCtx<'a> {
                 _ => op,
             },
             _ => op,
+        }
+    }
+
+    /// Truncate an f64 operand to i64. Mirrors `coerce_to_f64` for the
+    /// reverse direction — used at call sites whose runtime intrinsic
+    /// expects an integer parameter (Math.imul, Math.clz32) but the
+    /// caller may have passed a float literal or a Math.* result.
+    /// Constants fold in place; value operands emit `InstKind::FpToSi`.
+    fn coerce_to_i64(&mut self, op: Operand) -> Operand {
+        match self.operand_ty(&op) {
+            Type::I64 => op,
+            Type::Bool => self.coerce_bool_to_i64(op),
+            Type::F64 => match op {
+                Operand::ConstF64(n) => Operand::ConstI64(n as i64),
+                Operand::Value(_) => {
+                    let v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::FpToSi(op),
+                        Type::I64,
+                        None,
+                    );
+                    Operand::Value(v)
+                }
+                _ => op,
+            },
+            other => panic!("ssa-lower: cannot coerce {other:?} to i64"),
         }
     }
 

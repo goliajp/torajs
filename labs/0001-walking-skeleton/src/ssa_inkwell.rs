@@ -2491,6 +2491,15 @@ impl<'a, 'ctx> FnLower<'a, 'ctx> {
                     .unwrap();
                 Some(BasicValueEnum::FloatValue(r))
             }
+            InstKind::FpToSi(op) => {
+                let v = self.operand(op).into_float_value();
+                let i = self.ctx.i64_type();
+                let r = self
+                    .builder
+                    .build_float_to_signed_int(v, i, "")
+                    .unwrap();
+                Some(BasicValueEnum::IntValue(r))
+            }
             InstKind::ZExtBoolToI64(op) => {
                 let v = self.operand_int(op);
                 let i64_ty = self.ctx.i64_type();
