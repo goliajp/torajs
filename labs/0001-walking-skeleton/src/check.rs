@@ -2478,6 +2478,27 @@ impl Checker {
                     }
                     return Ok(Type::Void);
                 }
+                // `JSON.stringify(value, replacer?, indent?)` — accept
+                // 1, 2, or 3 args. The full JS spec defines `replacer`
+                // as a function or array; tr's stringify ignores
+                // anything non-null in slot 2 (no callback support yet
+                // — that's a roadmap item) and consumes only the
+                // indent shape (number or string). All args are
+                // typechecked against Type::Any so the call is
+                // accepted; runtime behavior matches the 1-arg form
+                // for now, with indent surface ready for a follow-up
+                // ssa_lower pass.
+                if let Expr::Member { obj, name } = ast.get_expr(*callee)
+                    && let Expr::Ident(ns) = ast.get_expr(*obj)
+                    && ns == "JSON"
+                    && name == "stringify"
+                    && (1..=3).contains(&args.len())
+                {
+                    for &aid in args {
+                        self.type_of(ast, aid)?;
+                    }
+                    return Ok(Type::String);
+                }
                 // `n.toString(radix?)` — JS Number primitive method that
                 // accepts an optional radix in [2, 36]. The standard
                 // Type::Function check rejects variable arity; intercept

@@ -14,6 +14,7 @@ output.
 | [`prime-sieve/`](prime-sieve/) | Sieve of Eratosthenes on `boolean[]` |
 | [`fizz-buzz/`](fizz-buzz/) | Classic FizzBuzz, `Number → string` + modulo |
 | [`wc-clone/`](wc-clone/) | POSIX `wc`-style line/word/byte counts via `charCodeAt` |
+| [`json-pretty/`](json-pretty/) | `JSON.stringify` on classes + primitives + parse round-trip |
 
 ## Running
 
