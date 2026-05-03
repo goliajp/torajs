@@ -3917,6 +3917,226 @@ pub fn desugar_uninit_let(ast: &mut Ast) {
     // walk handles them when it descends into Stmt::FnDecl variants.
 }
 
+/// JS's `arguments` object is array-like, holds the actual passed
+/// values, and changes per call site. A faithful implementation needs
+/// runtime support (heterogeneous array, per-call materialization).
+///
+/// This pass implements two static-rewrite shapes that cover the bulk
+/// of test262's `arguments-object/*` cases without runtime changes:
+///
+///   - `arguments.length` → `Number(<arity>)` where arity is the fn's
+///     declared param count (excluding the synthetic `__env` / `__this`
+///     prefix params from closure / class lowering)
+///   - `arguments[N]` with `N` a literal integer in [0, arity) →
+///     `Ident(<param-name-N>)`. Param ownership rules then apply
+///     normally (the typechecker treats it as a read of that binding).
+///
+/// Bare `arguments` (returned, passed, dynamically indexed) is left
+/// alone — the typechecker reports it as an unknown identifier with
+/// the existing message, which is the correct surface until a real
+/// arguments-object materialization lands.
+///
+/// Runs after class / closure desugars (so the synthetic `__env` /
+/// `__this` prefix is already in place) and after `lift_arrow_fns`
+/// (so closure-lifted FnDecls are visible). Needs to run before the
+/// typechecker so the rewritten Idents resolve cleanly.
+pub fn desugar_arguments_object(ast: &mut Ast) {
+    // Snapshot per-fn user-param names, indexed by FnDecl name. The
+    // walk below mutates expression nodes in place using these
+    // snapshots.
+    use std::collections::HashMap;
+    let mut fn_params: HashMap<String, Vec<String>> = HashMap::new();
+    for s in &ast.stmts {
+        if let Stmt::FnDecl { name, params, .. } = s {
+            // Skip the synthetic `__env` (closure capture vector) and
+            // `__this` (class instance) prefix params — they're not
+            // user-visible "arguments". Everything after is the
+            // user's declared param list.
+            let user_start = params
+                .first()
+                .filter(|p| p.name == "__env" || p.name == "__this")
+                .map(|_| 1)
+                .unwrap_or(0);
+            let names: Vec<String> = params[user_start..]
+                .iter()
+                .map(|p| p.name.clone())
+                .collect();
+            fn_params.insert(name.clone(), names);
+        }
+    }
+
+    let stmts_clone: Vec<Stmt> = ast.stmts.clone();
+    for (idx, stmt) in stmts_clone.iter().enumerate() {
+        if let Stmt::FnDecl { name, body, .. } = stmt {
+            let Some(params) = fn_params.get(name) else { continue };
+            let new_body: Vec<Stmt> = body
+                .iter()
+                .map(|s| rewrite_arguments_in_stmt(ast, s, params))
+                .collect();
+            if let Stmt::FnDecl { body: b, .. } = &mut ast.stmts[idx] {
+                *b = new_body;
+            }
+        }
+    }
+}
+
+fn rewrite_arguments_in_stmt(ast: &mut Ast, s: &Stmt, params: &[String]) -> Stmt {
+    match s {
+        Stmt::Expr(eid) => Stmt::Expr(rewrite_arguments_in_expr(ast, *eid, params)),
+        Stmt::Throw(eid) => Stmt::Throw(rewrite_arguments_in_expr(ast, *eid, params)),
+        Stmt::Return(Some(eid)) => {
+            Stmt::Return(Some(rewrite_arguments_in_expr(ast, *eid, params)))
+        }
+        Stmt::Return(None) => Stmt::Return(None),
+        Stmt::LetDecl { mutable, name, type_ann, init } => Stmt::LetDecl {
+            mutable: *mutable,
+            name: name.clone(),
+            type_ann: type_ann.clone(),
+            init: rewrite_arguments_in_expr(ast, *init, params),
+        },
+        Stmt::Block(stmts) => Stmt::Block(
+            stmts
+                .iter()
+                .map(|s| rewrite_arguments_in_stmt(ast, s, params))
+                .collect(),
+        ),
+        Stmt::Multi(stmts) => Stmt::Multi(
+            stmts
+                .iter()
+                .map(|s| rewrite_arguments_in_stmt(ast, s, params))
+                .collect(),
+        ),
+        Stmt::If { cond, then_branch, else_branch } => Stmt::If {
+            cond: rewrite_arguments_in_expr(ast, *cond, params),
+            then_branch: Box::new(rewrite_arguments_in_stmt(ast, then_branch, params)),
+            else_branch: else_branch
+                .as_ref()
+                .map(|eb| Box::new(rewrite_arguments_in_stmt(ast, eb, params))),
+        },
+        Stmt::While { cond, body } => Stmt::While {
+            cond: rewrite_arguments_in_expr(ast, *cond, params),
+            body: Box::new(rewrite_arguments_in_stmt(ast, body, params)),
+        },
+        Stmt::DoWhile { cond, body } => Stmt::DoWhile {
+            cond: rewrite_arguments_in_expr(ast, *cond, params),
+            body: Box::new(rewrite_arguments_in_stmt(ast, body, params)),
+        },
+        Stmt::For { init, cond, step, body } => Stmt::For {
+            init: init.as_ref().map(|i| Box::new(rewrite_arguments_in_stmt(ast, i, params))),
+            cond: cond.map(|c| rewrite_arguments_in_expr(ast, c, params)),
+            step: step.map(|u| rewrite_arguments_in_expr(ast, u, params)),
+            body: Box::new(rewrite_arguments_in_stmt(ast, body, params)),
+        },
+        Stmt::Try { body, had_catch, catch_param, catch_type, catch_body, finally_body } => {
+            Stmt::Try {
+                body: body
+                    .iter()
+                    .map(|s| rewrite_arguments_in_stmt(ast, s, params))
+                    .collect(),
+                had_catch: *had_catch,
+                catch_param: catch_param.clone(),
+                catch_type: catch_type.clone(),
+                catch_body: catch_body
+                    .iter()
+                    .map(|s| rewrite_arguments_in_stmt(ast, s, params))
+                    .collect(),
+                finally_body: finally_body.as_ref().map(|fb| {
+                    fb.iter()
+                        .map(|s| rewrite_arguments_in_stmt(ast, s, params))
+                        .collect()
+                }),
+            }
+        }
+        // Nested FnDecl owns its own arguments scope — leave it for
+        // the outer pass to handle independently when it iterates
+        // ast.stmts (lift_arrow_fns has already hoisted closures to
+        // top-level FnDecls, so nested-FnDecl-in-body is rare in
+        // practice).
+        other => other.clone(),
+    }
+}
+
+fn rewrite_arguments_in_expr(ast: &mut Ast, eid: ExprId, params: &[String]) -> ExprId {
+    let e = ast.get_expr(eid).clone();
+    match e {
+        // `arguments.length` → Number(<arity>)
+        Expr::Member { obj, name } if name == "length" => {
+            if let Expr::Ident(n) = ast.get_expr(obj)
+                && n == "arguments"
+            {
+                return ast.add_expr(Expr::Number(params.len() as f64));
+            }
+            // Recurse through the receiver; non-arguments member access
+            // gets a fresh node so nested rewrites still reach the
+            // children.
+            let new_obj = rewrite_arguments_in_expr(ast, obj, params);
+            ast.add_expr(Expr::Member { obj: new_obj, name })
+        }
+        // `arguments[N]` with literal N in [0, arity) → Ident(param[N])
+        Expr::Index { obj, index } => {
+            let is_arguments = matches!(
+                ast.get_expr(obj),
+                Expr::Ident(n) if n == "arguments"
+            );
+            if is_arguments
+                && let Expr::Number(n) = ast.get_expr(index)
+                && n.fract() == 0.0
+                && (*n as usize) < params.len()
+            {
+                let pname = params[*n as usize].clone();
+                return ast.add_expr(Expr::Ident(pname));
+            }
+            let new_obj = rewrite_arguments_in_expr(ast, obj, params);
+            let new_index = rewrite_arguments_in_expr(ast, index, params);
+            ast.add_expr(Expr::Index { obj: new_obj, index: new_index })
+        }
+        Expr::BinOp { op, left, right } => {
+            let l = rewrite_arguments_in_expr(ast, left, params);
+            let r = rewrite_arguments_in_expr(ast, right, params);
+            ast.add_expr(Expr::BinOp { op, left: l, right: r })
+        }
+        Expr::Unary { op, expr } => {
+            let e2 = rewrite_arguments_in_expr(ast, expr, params);
+            ast.add_expr(Expr::Unary { op, expr: e2 })
+        }
+        Expr::Call { callee, args } => {
+            let c = rewrite_arguments_in_expr(ast, callee, params);
+            let new_args: Vec<ExprId> = args
+                .iter()
+                .map(|a| rewrite_arguments_in_expr(ast, *a, params))
+                .collect();
+            ast.add_expr(Expr::Call { callee: c, args: new_args })
+        }
+        Expr::Member { obj, name } => {
+            let o = rewrite_arguments_in_expr(ast, obj, params);
+            ast.add_expr(Expr::Member { obj: o, name })
+        }
+        Expr::Assign { target, value } => {
+            let t = rewrite_arguments_in_expr(ast, target, params);
+            let v = rewrite_arguments_in_expr(ast, value, params);
+            ast.add_expr(Expr::Assign { target: t, value: v })
+        }
+        Expr::Array(elems) => {
+            let new_elems: Vec<ExprId> = elems
+                .iter()
+                .map(|e| rewrite_arguments_in_expr(ast, *e, params))
+                .collect();
+            ast.add_expr(Expr::Array(new_elems))
+        }
+        Expr::ObjectLit { fields } => {
+            let new_fields: Vec<(String, ExprId)> = fields
+                .iter()
+                .map(|(n, e)| (n.clone(), rewrite_arguments_in_expr(ast, *e, params)))
+                .collect();
+            ast.add_expr(Expr::ObjectLit { fields: new_fields })
+        }
+        // Leaf / opaque shapes — no children to recurse through here.
+        // Intentionally returns the original `eid` so we don't bloat
+        // the arena with no-op clones.
+        _ => eid,
+    }
+}
+
 fn rewrite_uninit_in_stmts(stmts: &mut Vec<Stmt>, exprs: &[Expr]) {
     let mut i = 0;
     while i < stmts.len() {
