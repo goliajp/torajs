@@ -1672,6 +1672,31 @@ pub fn unwrap_exports(ast: &mut Ast) {
 /// in pure-builtin programs. v0.2 #2 covers Date; future built-ins
 /// (BigInt, Map, Set, ...) extend the match arm.
 pub fn desugar_builtin_new(ast: &mut Ast) {
+    /* Pass 1 — handle `Array.of(a, b, c)` rewrites. Walk every Call
+     * whose callee is the Member shape `Array.of`, and replace the
+     * whole Call expression with an array literal. Same ExprId is
+     * reused so downstream passes see plain `Expr::Array`. */
+    let n_exprs = ast.exprs.len();
+    for i in 0..n_exprs {
+        let array_of_args = match &ast.exprs[i] {
+            Expr::Call { callee, args } => {
+                let callee_id = *callee;
+                if let Expr::Member { obj, name } = &ast.exprs[callee_id.0 as usize]
+                    && name == "of"
+                    && let Expr::Ident(ns) = &ast.exprs[obj.0 as usize]
+                    && ns == "Array"
+                {
+                    Some(args.clone())
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        };
+        if let Some(args) = array_of_args {
+            ast.exprs[i] = Expr::Array(args);
+        }
+    }
     let n = ast.exprs.len();
     for i in 0..n {
         let plan = match &ast.exprs[i] {
