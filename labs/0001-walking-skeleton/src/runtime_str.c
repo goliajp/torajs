@@ -1404,6 +1404,22 @@ void *__torajs_process_cwd(void) {
     return out;
 }
 
+/* `process.env.NAME` lookup — calls libc getenv on the NUL-copy of
+ * the name. Returns a freshly-allocated Str of the env value, or
+ * NULL pointer if the var isn't set (caller's slot is Nullable<Str>;
+ * tr's `undefined` maps to NULL via the undefined→null bridge so
+ * `process.env.X === undefined` round-trips correctly). */
+void *__torajs_process_getenv(const void *name_str) {
+    char name[256];
+    path_copy_to_buf(name_str, name, sizeof(name));
+    const char *v = getenv(name);
+    if (!v) return NULL;
+    uint64_t len = strlen(v);
+    uint8_t *out = __torajs_str_alloc_pooled(len);
+    memcpy(out + __TORAJS_STR_HDR_SIZE, v, (size_t)len);
+    return out;
+}
+
 void *__torajs_process_platform(void) {
 #if defined(__APPLE__)
     static const char p[] = "darwin";

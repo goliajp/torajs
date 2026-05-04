@@ -1748,6 +1748,13 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         &[],
         Type::Str,
     );
+    let process_getenv_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_process_getenv",
+        &[Type::Str],
+        Type::Str,
+    );
     let substr_create_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -2738,6 +2745,7 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         process_exit: process_exit_id,
         process_cwd: process_cwd_id,
         process_platform: process_platform_id,
+        process_getenv: process_getenv_id,
         arr_from_string: arr_from_string_id,
         str_substring: str_substring_id,
         arr_to_reversed: arr_to_reversed_id,
@@ -3215,6 +3223,7 @@ struct Intrinsics {
     process_exit: FuncId,
     process_cwd: FuncId,
     process_platform: FuncId,
+    process_getenv: FuncId,
     arr_from_string: FuncId,
     str_substring: FuncId,
     arr_to_reversed: FuncId,
@@ -13098,6 +13107,38 @@ impl<'a> LowerCtx<'a> {
                     let v = self.f.append_inst(
                         self.cur_block,
                         InstKind::Call(self.intrinsics.process_platform, Vec::new()),
+                        Type::Str,
+                        None,
+                    );
+                    return Operand::Value(v);
+                }
+                /* v0.3 #3 — `process.env` — namespace marker; produces
+                 * a zero-cost ConstPtrNull operand. The actual env lookup
+                 * fires when this is the receiver of a Member access
+                 * (the `Member(Member(process, env), NAME)` shape below). */
+                if let Expr::Ident(n) = self.ast.get_expr(*obj)
+                    && n == "process"
+                    && name == "env"
+                {
+                    return Operand::ConstPtrNull;
+                }
+                /* v0.3 #3 — `process.env.NAME` — runtime getenv lookup.
+                 * `obj` here is the inner `process.env` Member, which
+                 * lowers to ConstPtrNull (the env namespace marker
+                 * above). We discard that value and emit getenv with
+                 * the property name as a Str literal. */
+                if let Expr::Member { obj: inner_obj, name: inner_name } = self.ast.get_expr(*obj)
+                    && inner_name == "env"
+                    && let Expr::Ident(n) = self.ast.get_expr(*inner_obj)
+                    && n == "process"
+                {
+                    let key_str = self.intern_string_literal(name);
+                    let v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.process_getenv,
+                            vec![Operand::Value(key_str)],
+                        ),
                         Type::Str,
                         None,
                     );

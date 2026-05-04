@@ -2042,6 +2042,14 @@ impl Checker {
                      * Returned as Type::String; ssa_lower's Member arm
                      * emits a runtime call to __torajs_process_platform. */
                     (Type::Object("process"), "platform") => Ok(Type::String),
+                    /* `process.env` — env-namespace Object; member
+                     * access on it (`process.env.NAME`) routes through
+                     * the (Object("env"), _) arm below to runtime getenv. */
+                    (Type::Object("process"), "env") => Ok(Type::Object("env")),
+                    /* `process.env.NAME` — Nullable<String> (NULL when
+                     * var unset; tr's undefined→null bridge keeps
+                     * `=== undefined` round-tripping). */
+                    (Type::Object("env"), _) => Ok(Type::Nullable(Box::new(Type::String))),
 
                     /* v0.3 #1 — fs module surface (Phase 2.0a substrate).
                      * Synchronous file I/O; throw on error is Phase 2.0b. */
@@ -3551,6 +3559,11 @@ impl Checker {
             (Type::String, "length") | (Type::Array(_), "length") => Ok(Type::Number),
             /* v0.3 #3 — process.platform constant string read. */
             (Type::Object("process"), "platform") => Ok(Type::String),
+            /* `process.env` — returns the env namespace, used as
+             * the receiver for further `process.env.NAME` access. */
+            (Type::Object("process"), "env") => Ok(Type::Object("env")),
+            /* `process.env.NAME` — runtime getenv, Nullable<String>. */
+            (Type::Object("env"), _name) => Ok(Type::Nullable(Box::new(Type::String))),
             (Type::Struct(fields), n) => fields
                 .iter()
                 .find(|(fn_, _)| fn_ == n)
