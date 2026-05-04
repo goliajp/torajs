@@ -1458,6 +1458,35 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
     // (above) will be re-routed to return `Array<Substr>` in Phase Substr.B;
     // these helpers provide the per-Substr ops the lowerer dispatches to
     // when the receiver type is `Type::Substr`.
+    // v0.2 #1 — regex matching engine. `__torajs_regex_compile` takes
+    // the literal's pattern + flags as Str values (carried through
+    // from `Expr::Regex { pattern, flags }`) and returns a freshly
+    // allocated `RegExp` heap object holding the compiled NFA + flag
+    // bitset. `__torajs_regex_test` runs the backtracking matcher
+    // against a string. Both are defined in `runtime_regex.c`; rc_dec
+    // routes RegExp drops through the universal heap header type-tag
+    // dispatch, identical to every other heap object.
+    let regex_compile_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_regex_compile",
+        &[Type::Str, Type::Str],
+        Type::RegExp,
+    );
+    let regex_test_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_regex_test",
+        &[Type::RegExp, Type::Str],
+        Type::Bool,
+    );
+    let regex_drop_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_regex_drop",
+        &[Type::RegExp],
+        Type::Void,
+    );
     let substr_create_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -2404,6 +2433,9 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         substr_concat_substr_str: substr_concat_substr_str_id,
         substr_concat_str_substr: substr_concat_str_substr_id,
         substr_concat_substr_substr: substr_concat_substr_substr_id,
+        regex_compile: regex_compile_id,
+        regex_test: regex_test_id,
+        regex_drop: regex_drop_id,
         arr_from_string: arr_from_string_id,
         str_substring: str_substring_id,
         arr_to_reversed: arr_to_reversed_id,
@@ -2831,6 +2863,15 @@ struct Intrinsics {
     substr_concat_substr_str: FuncId,
     substr_concat_str_substr: FuncId,
     substr_concat_substr_substr: FuncId,
+    /// v0.2 #1 — regex matching engine. `regex_compile` parses the
+    /// pattern + flag string at runtime into an NFA + flag bitset
+    /// (Thompson construction); `regex_test` runs the backtracking
+    /// matcher against a string and returns 1/0. Subsequent surface
+    /// methods (`s.match`, `s.replace`, `re.exec`, ...) land in
+    /// follow-up sub-phases as more `__torajs_regex_*` helpers.
+    regex_compile: FuncId,
+    regex_test: FuncId,
+    regex_drop: FuncId,
     arr_from_string: FuncId,
     str_substring: FuncId,
     arr_to_reversed: FuncId,
@@ -3511,6 +3552,7 @@ fn parse_type(
         "boolean" => Type::Bool,
         "string" => Type::Str,
         "void" => Type::Void,
+        "regex" => Type::RegExp,
         other => match aliases.get(other) {
             Some(ty) => *ty,
             None => panic!("ssa-lower: unsupported type annotation `{other}`"),
@@ -5907,6 +5949,21 @@ impl<'a> LowerCtx<'a> {
                     InstKind::CallIndirect(drop_void_sig, Operand::Value(drop_fn_ptr), vec![val]),
                 );
             }
+            Type::RegExp => {
+                // v0.2 #1 — RegExp uses the universal heap header
+                // (refcount @ +0, type_tag @ +4). The runtime side
+                // exposes `__torajs_regex_drop`, a thin wrapper that
+                // dispatches to `__torajs_rc_dec`; on hit-zero rc_dec
+                // calls the type-tag-specific free path (frees the
+                // NFA state table, the source string, then the obj).
+                // Routing through a regex-specific drop keeps NULL-
+                // safety + double-drop assertions at the single source
+                // of truth (rc_dec).
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.regex_drop, vec![val]),
+                );
+            }
             other if other.is_copy() => {
                 // Nothing to drop — caller filtered, but be defensive.
             }
@@ -7535,6 +7592,29 @@ impl<'a> LowerCtx<'a> {
             Expr::String(s) => {
                 let s = s.clone();
                 Operand::Value(self.intern_string_literal(&s))
+            }
+            // v0.2 #1 — regex literal `/pat/flags`. Lower to a runtime
+            // call to `__torajs_regex_compile(pat_str, flags_str)`
+            // returning a freshly allocated RegExp. Pattern + flags are
+            // carried as interned Str literals (the C side parses them
+            // into the NFA + flag bitset). The resulting RegExp is
+            // refcounted under the universal heap header — drop emission
+            // walks Type::RegExp through `__torajs_rc_dec`.
+            Expr::Regex { pattern, flags } => {
+                let pat_str = pattern.clone();
+                let flag_str = flags.clone();
+                let pat_v = self.intern_string_literal(&pat_str);
+                let flag_v = self.intern_string_literal(&flag_str);
+                let v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(
+                        self.intrinsics.regex_compile,
+                        vec![Operand::Value(pat_v), Operand::Value(flag_v)],
+                    ),
+                    Type::RegExp,
+                    None,
+                );
+                Operand::Value(v)
             }
             Expr::Ident(name) => {
                 // M2 Phase B Stage 4 — bare Ident referring to a global
@@ -9490,6 +9570,39 @@ impl<'a> LowerCtx<'a> {
                                 );
                                 return Operand::Value(v);
                             }
+                        }
+                    }
+                }
+                // v0.2 #1 — `re.method(args)` for the RegExp stdlib
+                // slice. Receiver Type::RegExp; methods route to the
+                // matching `__torajs_regex_*` runtime intrinsic. Args
+                // are borrow-shaped (the runtime helpers don't take
+                // ownership — the caller's drop walk handles it).
+                if let Expr::Member { obj, name } = self.ast.get_expr(*callee)
+                    && matches!(name.as_str(), "test")
+                {
+                    let recv_op = self.lower_expr(*obj);
+                    let recv_ty = self.operand_ty(&recv_op);
+                    if recv_ty == Type::RegExp {
+                        let method = name.clone();
+                        match method.as_str() {
+                            "test" => {
+                                debug_assert_eq!(args.len(), 1);
+                                let s = self.lower_expr(args[0]);
+                                let v = self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::Call(
+                                        self.intrinsics.regex_test,
+                                        vec![recv_op, s],
+                                    ),
+                                    Type::Bool,
+                                    None,
+                                );
+                                return Operand::Value(v);
+                            }
+                            _ => unreachable!(
+                                "regex method `{method}` not yet wired"
+                            ),
                         }
                     }
                 }
@@ -13165,7 +13278,8 @@ impl<'a> LowerCtx<'a> {
                     Type::Obj(_)
                     | Type::Arr(_)
                     | Type::Closure(_)
-                    | Type::FnSig(_) => "object",
+                    | Type::FnSig(_)
+                    | Type::RegExp => "object",
                     Type::Void | Type::Ptr => "object",
                 };
                 Operand::Value(self.intern_string_literal(s))

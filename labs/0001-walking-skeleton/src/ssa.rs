@@ -127,6 +127,15 @@ pub enum Type {
     /// argument. Heap-owned, non-Copy (the env block is freed when the
     /// last owner of the closure binding goes out of scope).
     Closure(SigId),
+    /// Compiled regex instance — a heap pointer to a struct whose
+    /// layout is `{ universal_heap_header; nfa_state_count; nfa_states;
+    /// num_groups; flags; source_str_ptr }`. Built by a `/pat/flags`
+    /// literal lowering through `__torajs_regex_compile`. Member calls
+    /// (`.test`, `.exec`, ...) lower to the matching `__torajs_regex_*`
+    /// runtime helpers. ARC-owned (universal heap header); drop routes
+    /// through `__torajs_rc_dec` like every other heap object. Lowers
+    /// to a single pointer at codegen.
+    RegExp,
 }
 
 impl Type {
@@ -140,6 +149,7 @@ impl Type {
             Type::Ptr => "ptr",
             Type::Str => "str",
             Type::Substr => "substr",
+            Type::RegExp => "regex",
             Type::Obj(_) => "obj",
             Type::Arr(_) => "arr",
             Type::FnSig(_) => "fnsig",
@@ -181,7 +191,12 @@ impl Type {
     pub fn is_refcounted(self) -> bool {
         matches!(
             self,
-            Type::Str | Type::Substr | Type::Arr(_) | Type::Obj(_) | Type::Closure(_)
+            Type::Str
+                | Type::Substr
+                | Type::Arr(_)
+                | Type::Obj(_)
+                | Type::Closure(_)
+                | Type::RegExp
         )
     }
 }

@@ -46,6 +46,7 @@ typedef struct __attribute__((aligned(8))) {
 #define __TORAJS_TAG_OBJ     1
 #define __TORAJS_TAG_ARR     2
 #define __TORAJS_TAG_CLOSURE 3
+#define __TORAJS_TAG_REGEX   4  /* runtime_regex.c — compiled NFA + flags */
 
 /* Increment refcount of any non-Copy heap object. NULL passes through
  * (sentinel for "no value"). Used by ssa_lower at every slot-copy /

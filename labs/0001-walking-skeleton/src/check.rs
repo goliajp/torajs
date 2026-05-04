@@ -44,6 +44,13 @@ pub enum Type {
     /// at runtime. Restricted to T ∈ {String, Array<_>, Struct, …};
     /// number/boolean nullables would need a tag bit and aren't in v0.
     Nullable(Box<Type>),
+    /// Compiled regex instance produced by a `/.../flags` literal or
+    /// (eventually) `new RegExp(...)`. Heap-owned, non-Copy, ARC under
+    /// the universal heap header. Distinct from `Type::Object("RegExp")`
+    /// (the global constructor) — `RegExp` is the *value* type of `re`
+    /// in `let re = /foo/i;`. Method dispatch (`.test`, `.exec`, ...)
+    /// resolves through the Member arm against this variant.
+    RegExp,
 }
 
 impl Type {
@@ -550,6 +557,9 @@ pub fn type_to_ann(ty: &Type) -> String {
         // them, and it's already past by the time this fn runs.
         Type::Nullable(inner) => type_to_ann(inner),
         Type::Null => "null".into(),
+        // RegExp is its own SSA type (Type::RegExp); the annotation
+        // round-trips through ssa_lower's parse_type back to the same.
+        Type::RegExp => "regex".into(),
     }
 }
 
@@ -1584,14 +1594,13 @@ impl Checker {
             Expr::Uninit => Err(
                 "let binding declared without initializer and never assigned in scope".into(),
             ),
-            // Regex literals parse cleanly (commit shipping the lexer
-            // contextual-tokenization + Expr::Regex node) but the
-            // matching engine is a follow-up phase — reject at
-            // typecheck so the case lands in the not-yet-supported
-            // bucket rather than a panic.
-            Expr::Regex { pattern, flags } => Err(format!(
-                "regex literals not yet implemented (planned): /{pattern}/{flags}"
-            )),
+            // Regex literal `/pat/flags` — produces a `Type::RegExp`.
+            // Pattern + flags are validated at runtime in
+            // `__torajs_regex_compile` (allocates the NFA + flag bits);
+            // the typechecker only confirms the literal is well-shaped.
+            // Method dispatch (`.test`, `.exec`, ...) is resolved
+            // through the Member arm against `Type::RegExp`.
+            Expr::Regex { pattern: _, flags: _ } => Ok(Type::RegExp),
             Expr::Ident(name) => {
                 if let Some(info) = self.lookup(name) {
                     // TS-shape: reads of an aliased / moved binding succeed
@@ -1890,6 +1899,17 @@ impl Checker {
                     (Type::Number, "toString") | (Type::Number, "toLocaleString") => {
                         Ok(Type::Function(Vec::new(), Box::new(Type::String)))
                     }
+                    // RegExp instance methods. v0.2 #1 ships `.test(s)`;
+                    // `.exec` / `.toString` / `.source` / `.flags` /
+                    // `.global` / `.lastIndex` come in subsequent
+                    // sub-phases. The matching engine in
+                    // `runtime_regex.c` is the single source of truth
+                    // for both `re.test(s)` and the `s.match(re)` /
+                    // `s.replace(re, repl)` paths in v0.2 #1.b/c.
+                    (Type::RegExp, "test") => Ok(Type::Function(
+                        vec![Type::String],
+                        Box::new(Type::Boolean),
+                    )),
                     // String namespace static — `String.fromCharCode(n)`.
                     // `fromCodePoint` is the Unicode-aware sibling; in
                     // tr's byte-Str layout the two collapse for code
