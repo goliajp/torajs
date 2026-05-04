@@ -1487,6 +1487,38 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         &[Type::RegExp],
         Type::Void,
     );
+    // Phase 1b — surface methods. Each takes the receiver Str and the
+    // RegExp (and a repl Str for replace*); returns either a fresh Str
+    // (replace / replaceAll) or an Array<Str> (match / split). Drop
+    // semantics flow through the standard Type::Str / Type::Arr paths.
+    let regex_match_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_str_match_regex",
+        &[Type::Str, Type::RegExp],
+        Type::Ptr,
+    );
+    let regex_replace_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_str_replace_regex",
+        &[Type::Str, Type::RegExp, Type::Str],
+        Type::Str,
+    );
+    let regex_replace_all_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_str_replace_all_regex",
+        &[Type::Str, Type::RegExp, Type::Str],
+        Type::Str,
+    );
+    let regex_split_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_str_split_regex",
+        &[Type::Str, Type::RegExp],
+        Type::Ptr,
+    );
     let substr_create_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -2436,6 +2468,10 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         regex_compile: regex_compile_id,
         regex_test: regex_test_id,
         regex_drop: regex_drop_id,
+        regex_match: regex_match_id,
+        regex_replace: regex_replace_id,
+        regex_replace_all: regex_replace_all_id,
+        regex_split: regex_split_id,
         arr_from_string: arr_from_string_id,
         str_substring: str_substring_id,
         arr_to_reversed: arr_to_reversed_id,
@@ -2872,6 +2908,10 @@ struct Intrinsics {
     regex_compile: FuncId,
     regex_test: FuncId,
     regex_drop: FuncId,
+    regex_match: FuncId,
+    regex_replace: FuncId,
+    regex_replace_all: FuncId,
+    regex_split: FuncId,
     arr_from_string: FuncId,
     str_substring: FuncId,
     arr_to_reversed: FuncId,
@@ -9603,6 +9643,93 @@ impl<'a> LowerCtx<'a> {
                             _ => unreachable!(
                                 "regex method `{method}` not yet wired"
                             ),
+                        }
+                    }
+                }
+                // v0.2 #1 Phase 1b — `s.replace(re, repl)` /
+                // `s.replaceAll(re, repl)` / `s.split(re)` /
+                // `s.match(re)` route to `__torajs_str_*_regex` when
+                // the first arg is a RegExp. The non-regex string-only
+                // path still owns the (Type::Str, Type::Str) call sites
+                // below; this block intercepts only when the first arg
+                // is statically a regex.
+                //
+                // Detection: peek the AST without lowering to avoid
+                // double side-effects (re-evaluating the receiver if
+                // we were to fall through). Recognized regex args:
+                //   - Expr::Regex { ... } — literal `/.../flags`
+                //   - Expr::Ident(name) — a local whose tracked SSA
+                //     type is Type::RegExp
+                // Anything else (incl. computed RegExp from a function
+                // call) falls through to the existing string path,
+                // which currently rejects RegExp args via Type::Any
+                // signature. A v0.2 #1.c follow-up can broaden the
+                // detection — for now the literal + ident forms cover
+                // the dominant idioms and all the test262 cases at
+                // hand use these shapes.
+                if let Expr::Member { obj, name } = self.ast.get_expr(*callee)
+                    && matches!(name.as_str(), "replace" | "replaceAll" | "split" | "match")
+                    && !args.is_empty()
+                {
+                    let arg0_is_regex = match self.ast.get_expr(args[0]) {
+                        Expr::Regex { .. } => true,
+                        Expr::Ident(n) => {
+                            self.locals.get(n).map(|info| info.ty == Type::RegExp).unwrap_or(false)
+                        }
+                        _ => false,
+                    };
+                    if arg0_is_regex {
+                        let recv_op = self.lower_expr(*obj);
+                        let recv_ty = self.operand_ty(&recv_op);
+                        debug_assert_eq!(recv_ty, Type::Str);
+                        let re_op = self.lower_expr(args[0]);
+                        let method = name.clone();
+                        let arr_id = intern_arr_layout(self.arr_layouts, Type::Str);
+                        match method.as_str() {
+                            "match" => {
+                                let v = self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::Call(
+                                        self.intrinsics.regex_match,
+                                        vec![recv_op, re_op],
+                                    ),
+                                    Type::Arr(arr_id),
+                                    None,
+                                );
+                                return Operand::Value(v);
+                            }
+                            "split" => {
+                                let v = self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::Call(
+                                        self.intrinsics.regex_split,
+                                        vec![recv_op, re_op],
+                                    ),
+                                    Type::Arr(arr_id),
+                                    None,
+                                );
+                                return Operand::Value(v);
+                            }
+                            "replace" | "replaceAll" => {
+                                debug_assert_eq!(args.len(), 2);
+                                let repl = self.lower_expr(args[1]);
+                                let target = if method == "replace" {
+                                    self.intrinsics.regex_replace
+                                } else {
+                                    self.intrinsics.regex_replace_all
+                                };
+                                let v = self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::Call(
+                                        target,
+                                        vec![recv_op, re_op, repl],
+                                    ),
+                                    Type::Str,
+                                    None,
+                                );
+                                return Operand::Value(v);
+                            }
+                            _ => unreachable!(),
                         }
                     }
                 }

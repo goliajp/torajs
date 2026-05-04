@@ -904,80 +904,149 @@ static void add_thread(
     }
 }
 
-/* Run the program on `s` starting at every position from 0..slen.
- * Returns 1 iff any starting position leads to MATCH. */
-static int vm_search(const Program *p, const uint8_t *s, int64_t slen, uint8_t flags) {
-    if (p->n_insts == 0) return 0;
-    int *cur = (int *)malloc(sizeof(int) * (size_t)p->n_insts);
-    int *nxt = (int *)malloc(sizeof(int) * (size_t)p->n_insts);
-    uint32_t *visited_cur = (uint32_t *)calloc((size_t)p->n_insts, sizeof(uint32_t));
-    uint32_t *visited_nxt = (uint32_t *)calloc((size_t)p->n_insts, sizeof(uint32_t));
+/* Try matching at exactly `start_pos`. Returns end position on hit
+ * (start_pos..end_pos consumed), or -1 on miss. Workspace buffers
+ * are caller-provided so a caller in a tight loop (replaceAll /
+ * matchAll / split) can amortize the allocation across many
+ * positions — the find helper below allocates once and reuses. */
+static int64_t vm_match_at(
+    const Program *p,
+    const uint8_t *s, int64_t slen,
+    int64_t start_pos,
+    uint8_t flags,
+    int *cur, int *nxt,
+    uint32_t *visited_cur, uint32_t *visited_nxt,
+    uint32_t *step_id_ref
+) {
     ThreadList cur_tl = { cur, 0, 0 };
     ThreadList nxt_tl = { nxt, 0, 0 };
     VisitedTable cur_vt = { p->n_insts, visited_cur };
     VisitedTable nxt_vt = { p->n_insts, visited_nxt };
 
-    int matched = 0;
-    uint32_t step_id = 1;
+    cur_tl.n = 0;
+    cur_tl.step_id = ++(*step_id_ref);
+    add_thread(&cur_tl, &cur_vt, 0, p, s, slen, start_pos, flags);
 
-    /* For each starting position, seed pc=0 and step through. */
-    for (int64_t start = 0; start <= slen && !matched; start++) {
-        cur_tl.n = 0;
-        cur_tl.step_id = step_id;
-        add_thread(&cur_tl, &cur_vt, 0, p, s, slen, start, flags);
+    int64_t end_pos = -1;
 
-        for (int64_t pos = start; pos <= slen; pos++) {
-            nxt_tl.n = 0;
-            nxt_tl.step_id = ++step_id;
-            for (int ti = 0; ti < cur_tl.n && !matched; ti++) {
-                int pc = cur_tl.list[ti];
-                Inst ins = p->insts[pc];
-                switch (ins.op) {
-                    case OP_CHAR: {
-                        if (pos < slen && char_eq(ins.ch, s[pos], flags)) {
-                            add_thread(&nxt_tl, &nxt_vt, pc + 1, p, s, slen, pos + 1, flags);
-                        }
-                        break;
+    /* Leftmost-first / greedy semantics: when MATCH fires for a
+     * thread at position p, lower-priority threads in cur_tl at this
+     * step are dead (can't beat it), but higher-priority threads
+     * already advanced into nxt_tl can still extend the match by
+     * consuming more chars. So we record end_pos but DON'T break out
+     * of the outer pos loop — keep advancing until the live thread
+     * set drains. The latest MATCH seen wins. */
+    for (int64_t pos = start_pos; pos <= slen; pos++) {
+        nxt_tl.n = 0;
+        nxt_tl.step_id = ++(*step_id_ref);
+        int saw_match_this_step = 0;
+        for (int ti = 0; ti < cur_tl.n && !saw_match_this_step; ti++) {
+            int pc = cur_tl.list[ti];
+            Inst ins = p->insts[pc];
+            switch (ins.op) {
+                case OP_CHAR: {
+                    if (pos < slen && char_eq(ins.ch, s[pos], flags)) {
+                        add_thread(&nxt_tl, &nxt_vt, pc + 1, p, s, slen, pos + 1, flags);
                     }
-                    case OP_ANYCHAR: {
-                        if (pos < slen && ((flags & RE_FLAG_S) || s[pos] != '\n')) {
-                            add_thread(&nxt_tl, &nxt_vt, pc + 1, p, s, slen, pos + 1, flags);
-                        }
-                        break;
-                    }
-                    case OP_CLASS: {
-                        if (pos < slen && cc_test(&p->classes[ins.a], s[pos])) {
-                            add_thread(&nxt_tl, &nxt_vt, pc + 1, p, s, slen, pos + 1, flags);
-                        }
-                        break;
-                    }
-                    case OP_MATCH:
-                        matched = 1;
-                        break;
-                    default:
-                        /* Epsilon ops were already resolved by add_thread. */
-                        break;
+                    break;
                 }
+                case OP_ANYCHAR: {
+                    if (pos < slen && ((flags & RE_FLAG_S) || s[pos] != '\n')) {
+                        add_thread(&nxt_tl, &nxt_vt, pc + 1, p, s, slen, pos + 1, flags);
+                    }
+                    break;
+                }
+                case OP_CLASS: {
+                    if (pos < slen && cc_test(&p->classes[ins.a], s[pos])) {
+                        add_thread(&nxt_tl, &nxt_vt, pc + 1, p, s, slen, pos + 1, flags);
+                    }
+                    break;
+                }
+                case OP_MATCH:
+                    /* Higher-priority threads at this step were already
+                     * processed (they ran first by ti order). Any later
+                     * MATCH or extension via lower-priority threads is
+                     * a worse choice — stop scanning this step. */
+                    saw_match_this_step = 1;
+                    end_pos = pos;
+                    break;
+                default:
+                    break;
             }
-            if (matched) break;
-            /* Swap cur/next. */
-            ThreadList tmp_tl = cur_tl; cur_tl = nxt_tl; nxt_tl = tmp_tl;
-            VisitedTable tmp_vt = cur_vt; cur_vt = nxt_vt; nxt_vt = tmp_vt;
-            if (cur_tl.n == 0) break; /* No live threads → this start fails. */
         }
-        /* End-of-input check — any thread sitting on MATCH is acceptance. */
-        if (!matched) {
-            for (int ti = 0; ti < cur_tl.n; ti++) {
-                if (p->insts[cur_tl.list[ti]].op == OP_MATCH) { matched = 1; break; }
-            }
+        ThreadList tmp_tl = cur_tl; cur_tl = nxt_tl; nxt_tl = tmp_tl;
+        VisitedTable tmp_vt = cur_vt; cur_vt = nxt_vt; nxt_vt = tmp_vt;
+        if (cur_tl.n == 0) break;
+    }
+    /* End-of-input: any thread sitting on MATCH after the loop is also
+     * an acceptance — record it. (cur_tl has been swapped to the most
+     * recent next-list at this point.) */
+    for (int ti = 0; ti < cur_tl.n; ti++) {
+        if (p->insts[cur_tl.list[ti]].op == OP_MATCH) {
+            end_pos = slen;
+            break;
         }
     }
+    return end_pos;
+}
 
+/* Search for a match starting at any position >= from_pos. Writes the
+ * match start + end positions and returns 1 on hit; returns 0 on miss
+ * (out params untouched). Allocates VM workspace internally; callers
+ * doing many find calls in a tight loop (replaceAll / split) should
+ * use vm_search_from_with_ws below to amortize. */
+static int vm_search_from(
+    const Program *p,
+    const uint8_t *s, int64_t slen,
+    int64_t from_pos,
+    uint8_t flags,
+    int64_t *out_start, int64_t *out_end
+) {
+    if (p->n_insts == 0) return 0;
+    int *cur = (int *)malloc(sizeof(int) * (size_t)p->n_insts);
+    int *nxt = (int *)malloc(sizeof(int) * (size_t)p->n_insts);
+    uint32_t *vc = (uint32_t *)calloc((size_t)p->n_insts, sizeof(uint32_t));
+    uint32_t *vn = (uint32_t *)calloc((size_t)p->n_insts, sizeof(uint32_t));
+    uint32_t step_id = 0;
+    int hit = 0;
+    for (int64_t st = from_pos; st <= slen; st++) {
+        int64_t end = vm_match_at(p, s, slen, st, flags, cur, nxt, vc, vn, &step_id);
+        if (end >= 0) {
+            *out_start = st;
+            *out_end = end;
+            hit = 1;
+            break;
+        }
+    }
     free(cur);
     free(nxt);
-    free(visited_cur);
-    free(visited_nxt);
-    return matched;
+    free(vc);
+    free(vn);
+    return hit;
+}
+
+/* Tight-loop variant: caller owns the workspace so per-iter alloc is
+ * skipped. step_id is shared so visited bitmaps stay coherent across
+ * find calls on the same workspace. */
+static int vm_search_from_with_ws(
+    const Program *p,
+    const uint8_t *s, int64_t slen,
+    int64_t from_pos,
+    uint8_t flags,
+    int *cur, int *nxt,
+    uint32_t *vc, uint32_t *vn,
+    uint32_t *step_id_ref,
+    int64_t *out_start, int64_t *out_end
+) {
+    for (int64_t st = from_pos; st <= slen; st++) {
+        int64_t end = vm_match_at(p, s, slen, st, flags, cur, nxt, vc, vn, step_id_ref);
+        if (end >= 0) {
+            *out_start = st;
+            *out_end = end;
+            return 1;
+        }
+    }
+    return 0;
 }
 
 int64_t __torajs_regex_test(const void *re_ptr, const void *str_ptr) {
@@ -985,5 +1054,286 @@ int64_t __torajs_regex_test(const void *re_ptr, const void *str_ptr) {
     const RegExp *re = (const RegExp *)re_ptr;
     const uint8_t *s = __TORAJS_STR_CDATA(str_ptr);
     int64_t slen = (int64_t)__TORAJS_STR_LEN(str_ptr);
-    return vm_search(&re->prog, s, slen, re->flags) ? 1 : 0;
+    int64_t st, en;
+    return vm_search_from(&re->prog, s, slen, 0, re->flags, &st, &en) ? 1 : 0;
+}
+
+/* ============================================================
+ * Phase 1b surface methods — find_next + s.match / s.replace /
+ * s.replaceAll / s.split / re.exec.
+ *
+ * Result objects use the universal heap layout — Str via
+ * `__torajs_str_alloc_pooled`, Array via `__torajs_arr_alloc` /
+ * `__torajs_arr_push`. ssa_lower's drop machinery handles cleanup
+ * through the standard Type::Str / Type::Arr paths.
+ *
+ * Capturing groups are NOT yet supported in Phase 1b — `s.match`
+ * without `g` returns a single-element array `[matched_substring]`
+ * (vs JS spec's `[match, group1, group2, ..., index, input]`).
+ * Same trade for `re.exec`. Phase 1c will add VM save instructions
+ * + capture group recording and round these out to spec shape.
+ *
+ * Replacement string `$&` / `$1..$9` substitution is also Phase 1c
+ * — the replace helpers below treat repl as a plain literal string.
+ * ============================================================ */
+
+extern uint8_t *__torajs_str_alloc_pooled(uint64_t len);
+extern void *__torajs_arr_alloc(uint64_t initial_cap);
+extern void *__torajs_arr_push(void *arr, int64_t val);
+
+/* Build a fresh Str holding bytes [data, data+len). Refcount=1.
+ * Allocator is the small-Str pool path so ≤16-byte tokens (the dominant
+ * size class for split / match outputs) recycle instead of malloc. */
+static uint8_t *str_from_bytes(const uint8_t *data, int64_t len) {
+    uint8_t *p = __torajs_str_alloc_pooled((uint64_t)len);
+    if (len > 0) memcpy(p + __TORAJS_STR_HDR_SIZE, data, (size_t)len);
+    return p;
+}
+
+/* Find next match in `s` starting at `start`. Returns packed i64:
+ *   high 32 = start_pos, low 32 = end_pos (exclusive)
+ *   sentinel -1 = no match
+ * Only used by ssa_lower-emitted code that wants the raw positions
+ * (not currently exposed; the surface methods below use the C-level
+ * helpers directly). Reserved for Phase 1c when re.exec wires in
+ * capture groups. */
+int64_t __torajs_regex_find(const void *re_ptr, const void *str_ptr, int64_t start) {
+    if (!re_ptr) return -1;
+    const RegExp *re = (const RegExp *)re_ptr;
+    const uint8_t *s = __TORAJS_STR_CDATA(str_ptr);
+    int64_t slen = (int64_t)__TORAJS_STR_LEN(str_ptr);
+    if (start < 0) start = 0;
+    if (start > slen) return -1;
+    int64_t st, en;
+    if (!vm_search_from(&re->prog, s, slen, start, re->flags, &st, &en)) return -1;
+    return (st << 32) | (en & 0xffffffff);
+}
+
+/* `s.match(re)` — Phase 1b shape:
+ *   - Returns Array<Str>; never returns null (callers treat empty
+ *     array as "no match"). Spec returns null on miss; tr deviates
+ *     on this single point until Nullable<Array<Str>> propagation
+ *     lands as part of Phase 1c.
+ *   - Without `g` flag: single-element array `[matched_substring]`
+ *   - With `g` flag: array of all non-overlapping match substrings
+ *   - Empty matches (e.g. zero-width /a STAR/ on "bbb") advance one
+ *     position to avoid infinite loops, mirroring JS semantics. */
+void *__torajs_str_match_regex(const void *str_ptr, const void *re_ptr) {
+    void *out = __torajs_arr_alloc(0);
+    if (!re_ptr || !str_ptr) return out;
+    const RegExp *re = (const RegExp *)re_ptr;
+    const uint8_t *s = __TORAJS_STR_CDATA(str_ptr);
+    int64_t slen = (int64_t)__TORAJS_STR_LEN(str_ptr);
+
+    int *cur = (int *)malloc(sizeof(int) * (size_t)re->prog.n_insts);
+    int *nxt = (int *)malloc(sizeof(int) * (size_t)re->prog.n_insts);
+    uint32_t *vc = (uint32_t *)calloc((size_t)re->prog.n_insts, sizeof(uint32_t));
+    uint32_t *vn = (uint32_t *)calloc((size_t)re->prog.n_insts, sizeof(uint32_t));
+    uint32_t step_id = 0;
+
+    int64_t pos = 0;
+    int global = (re->flags & RE_FLAG_G) ? 1 : 0;
+    while (pos <= slen) {
+        int64_t st, en;
+        if (!vm_search_from_with_ws(&re->prog, s, slen, pos, re->flags,
+                                    cur, nxt, vc, vn, &step_id, &st, &en)) break;
+        uint8_t *seg = str_from_bytes(s + st, en - st);
+        out = __torajs_arr_push(out, (int64_t)(intptr_t)seg);
+        if (!global) break;
+        /* Empty match — bump pos by 1 to avoid spinning forever. */
+        pos = (en == st) ? en + 1 : en;
+    }
+
+    free(cur); free(nxt); free(vc); free(vn);
+    return out;
+}
+
+/* `s.replace(re, repl)` — single first-match replacement. `repl` is a
+ * plain Str (no `$&` / `$1..$9` substitution in Phase 1b). When `re`
+ * carries the `g` flag, behaves like replaceAll (matches JS spec). */
+void *__torajs_str_replace_regex(
+    const void *str_ptr, const void *re_ptr, const void *repl_ptr
+) {
+    if (!re_ptr) return str_from_bytes(__TORAJS_STR_CDATA(str_ptr),
+                                       (int64_t)__TORAJS_STR_LEN(str_ptr));
+    const RegExp *re = (const RegExp *)re_ptr;
+    const uint8_t *s = __TORAJS_STR_CDATA(str_ptr);
+    int64_t slen = (int64_t)__TORAJS_STR_LEN(str_ptr);
+    const uint8_t *repl = __TORAJS_STR_CDATA(repl_ptr);
+    int64_t repl_len = (int64_t)__TORAJS_STR_LEN(repl_ptr);
+    int global = (re->flags & RE_FLAG_G) ? 1 : 0;
+
+    int *cur = (int *)malloc(sizeof(int) * (size_t)re->prog.n_insts);
+    int *nxt = (int *)malloc(sizeof(int) * (size_t)re->prog.n_insts);
+    uint32_t *vc = (uint32_t *)calloc((size_t)re->prog.n_insts, sizeof(uint32_t));
+    uint32_t *vn = (uint32_t *)calloc((size_t)re->prog.n_insts, sizeof(uint32_t));
+    uint32_t step_id = 0;
+
+    /* Scratch output buffer — grown geometrically. */
+    int64_t out_cap = slen + 16;
+    uint8_t *out = (uint8_t *)malloc((size_t)out_cap);
+    int64_t out_len = 0;
+    int64_t pos = 0;
+
+    while (pos <= slen) {
+        int64_t st, en;
+        if (!vm_search_from_with_ws(&re->prog, s, slen, pos, re->flags,
+                                    cur, nxt, vc, vn, &step_id, &st, &en)) break;
+        int64_t pre_len = st - pos;
+        int64_t need = out_len + pre_len + repl_len + 16;
+        if (need > out_cap) {
+            while (need > out_cap) out_cap *= 2;
+            out = (uint8_t *)realloc(out, (size_t)out_cap);
+        }
+        if (pre_len > 0) memcpy(out + out_len, s + pos, (size_t)pre_len);
+        out_len += pre_len;
+        memcpy(out + out_len, repl, (size_t)repl_len);
+        out_len += repl_len;
+        if (en == st) {
+            /* Empty match — copy the next char verbatim and advance. */
+            if (st < slen) {
+                if (out_len + 1 > out_cap) {
+                    out_cap *= 2;
+                    out = (uint8_t *)realloc(out, (size_t)out_cap);
+                }
+                out[out_len++] = s[st];
+            }
+            pos = en + 1;
+        } else {
+            pos = en;
+        }
+        if (!global) break;
+    }
+    /* Append remainder. */
+    int64_t tail = slen - pos;
+    if (tail > 0) {
+        if (out_len + tail > out_cap) {
+            out_cap = out_len + tail;
+            out = (uint8_t *)realloc(out, (size_t)out_cap);
+        }
+        memcpy(out + out_len, s + pos, (size_t)tail);
+        out_len += tail;
+    }
+
+    uint8_t *result = str_from_bytes(out, out_len);
+    free(out);
+    free(cur); free(nxt); free(vc); free(vn);
+    return result;
+}
+
+/* `s.replaceAll(re, repl)` — same as replace with implicit `g`-style
+ * iteration (works regardless of whether the pattern carried `g` —
+ * JS spec actually throws TypeError if `re` doesn't carry `g`, but
+ * that's a v0.2 #1.c spec-correctness pass). Always replaces every
+ * non-overlapping match. */
+void *__torajs_str_replace_all_regex(
+    const void *str_ptr, const void *re_ptr, const void *repl_ptr
+) {
+    if (!re_ptr) return str_from_bytes(__TORAJS_STR_CDATA(str_ptr),
+                                       (int64_t)__TORAJS_STR_LEN(str_ptr));
+    const RegExp *re = (const RegExp *)re_ptr;
+    const uint8_t *s = __TORAJS_STR_CDATA(str_ptr);
+    int64_t slen = (int64_t)__TORAJS_STR_LEN(str_ptr);
+    const uint8_t *repl = __TORAJS_STR_CDATA(repl_ptr);
+    int64_t repl_len = (int64_t)__TORAJS_STR_LEN(repl_ptr);
+
+    int *cur = (int *)malloc(sizeof(int) * (size_t)re->prog.n_insts);
+    int *nxt = (int *)malloc(sizeof(int) * (size_t)re->prog.n_insts);
+    uint32_t *vc = (uint32_t *)calloc((size_t)re->prog.n_insts, sizeof(uint32_t));
+    uint32_t *vn = (uint32_t *)calloc((size_t)re->prog.n_insts, sizeof(uint32_t));
+    uint32_t step_id = 0;
+
+    int64_t out_cap = slen + 16;
+    uint8_t *out = (uint8_t *)malloc((size_t)out_cap);
+    int64_t out_len = 0;
+    int64_t pos = 0;
+
+    while (pos <= slen) {
+        int64_t st, en;
+        if (!vm_search_from_with_ws(&re->prog, s, slen, pos, re->flags,
+                                    cur, nxt, vc, vn, &step_id, &st, &en)) break;
+        int64_t pre_len = st - pos;
+        int64_t need = out_len + pre_len + repl_len + 16;
+        if (need > out_cap) {
+            while (need > out_cap) out_cap *= 2;
+            out = (uint8_t *)realloc(out, (size_t)out_cap);
+        }
+        if (pre_len > 0) memcpy(out + out_len, s + pos, (size_t)pre_len);
+        out_len += pre_len;
+        memcpy(out + out_len, repl, (size_t)repl_len);
+        out_len += repl_len;
+        if (en == st) {
+            if (st < slen) {
+                if (out_len + 1 > out_cap) {
+                    out_cap *= 2;
+                    out = (uint8_t *)realloc(out, (size_t)out_cap);
+                }
+                out[out_len++] = s[st];
+            }
+            pos = en + 1;
+        } else {
+            pos = en;
+        }
+    }
+    int64_t tail = slen - pos;
+    if (tail > 0) {
+        if (out_len + tail > out_cap) {
+            out_cap = out_len + tail;
+            out = (uint8_t *)realloc(out, (size_t)out_cap);
+        }
+        memcpy(out + out_len, s + pos, (size_t)tail);
+        out_len += tail;
+    }
+
+    uint8_t *result = str_from_bytes(out, out_len);
+    free(out);
+    free(cur); free(nxt); free(vc); free(vn);
+    return result;
+}
+
+/* `s.split(re)` — splits at each non-overlapping match of `re`. The
+ * matched bytes are removed from the output; the input is sliced into
+ * the pieces between matches (and before the first / after the last).
+ * Phase 1b: returns Array<Str>; capturing groups would be interleaved
+ * into the result by JS spec — that wiring is part of Phase 1c. */
+void *__torajs_str_split_regex(const void *str_ptr, const void *re_ptr) {
+    void *out = __torajs_arr_alloc(0);
+    if (!re_ptr || !str_ptr) return out;
+    const RegExp *re = (const RegExp *)re_ptr;
+    const uint8_t *s = __TORAJS_STR_CDATA(str_ptr);
+    int64_t slen = (int64_t)__TORAJS_STR_LEN(str_ptr);
+
+    int *cur = (int *)malloc(sizeof(int) * (size_t)re->prog.n_insts);
+    int *nxt = (int *)malloc(sizeof(int) * (size_t)re->prog.n_insts);
+    uint32_t *vc = (uint32_t *)calloc((size_t)re->prog.n_insts, sizeof(uint32_t));
+    uint32_t *vn = (uint32_t *)calloc((size_t)re->prog.n_insts, sizeof(uint32_t));
+    uint32_t step_id = 0;
+
+    int64_t pos = 0;
+    while (pos <= slen) {
+        int64_t st, en;
+        if (!vm_search_from_with_ws(&re->prog, s, slen, pos, re->flags,
+                                    cur, nxt, vc, vn, &step_id, &st, &en)) break;
+        if (en == st) {
+            /* Empty separator — JS specifies splitting after each char:
+             * "ab".split(//) → ["a","b"]. We mirror that: take one byte,
+             * push, advance. */
+            if (st >= slen) break;
+            uint8_t *seg = str_from_bytes(s + pos, st - pos);
+            out = __torajs_arr_push(out, (int64_t)(intptr_t)seg);
+            pos = en + 1;
+            continue;
+        }
+        uint8_t *seg = str_from_bytes(s + pos, st - pos);
+        out = __torajs_arr_push(out, (int64_t)(intptr_t)seg);
+        pos = en;
+    }
+    /* Append final tail. */
+    if (pos <= slen) {
+        uint8_t *seg = str_from_bytes(s + pos, slen - pos);
+        out = __torajs_arr_push(out, (int64_t)(intptr_t)seg);
+    }
+
+    free(cur); free(nxt); free(vc); free(vn);
+    return out;
 }

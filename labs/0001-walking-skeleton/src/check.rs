@@ -1871,8 +1871,14 @@ impl Checker {
                         ))
                     }
                     (Type::String, "replace") | (Type::String, "replaceAll") => {
+                        // Pattern arg is either a literal Str (existing
+                        // string-only path through __torajs_str_replace
+                        // / __torajs_str_replace_all) or a RegExp
+                        // (Phase 1b regex path). Type::Any here lets
+                        // either type pass typecheck; ssa_lower picks
+                        // the dispatch by operand SSA type.
                         Ok(Type::Function(
-                            vec![Type::String, Type::String],
+                            vec![Type::Any, Type::String],
                             Box::new(Type::String),
                         ))
                     }
@@ -1939,9 +1945,21 @@ impl Checker {
                             Box::new(Type::Number),
                         ))
                     }
-                    // s.split(sep): string[] — borrow-shaped on both args.
+                    // s.split(sep): string[] — `sep` is Str or RegExp;
+                    // Type::Any lets either type pass typecheck and
+                    // ssa_lower dispatches on operand SSA type to the
+                    // string-only `__torajs_str_split` or the regex
+                    // path `__torajs_str_split_regex`.
                     (Type::String, "split") => Ok(Type::Function(
-                        vec![Type::String],
+                        vec![Type::Any],
+                        Box::new(Type::Array(Box::new(Type::String))),
+                    )),
+                    // s.match(re) — Phase 1b returns Array<Str>; without
+                    // `g` flag the array has 1 element (the matched
+                    // substring), with `g` it has all matches. Capture
+                    // groups + JS-spec null-on-miss are Phase 1c.
+                    (Type::String, "match") => Ok(Type::Function(
+                        vec![Type::RegExp],
                         Box::new(Type::Array(Box::new(Type::String))),
                     )),
                     // arr.join(sep): string — receiver is Array<string>,
