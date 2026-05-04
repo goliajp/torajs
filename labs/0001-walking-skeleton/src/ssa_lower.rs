@@ -1519,6 +1519,18 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         &[Type::Str, Type::RegExp],
         Type::Ptr,
     );
+    // Phase 1c.1 — re.exec(s) returns Array<Str> [match, g1, g2, ...]
+    // (or empty array on miss). Wires the surface method through to
+    // the C runtime; the matcher's per-thread saves[] array carries
+    // capture group offsets and __torajs_regex_exec materializes
+    // them into the result.
+    let regex_exec_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_regex_exec",
+        &[Type::RegExp, Type::Str],
+        Type::Ptr,
+    );
     let substr_create_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -2472,6 +2484,7 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         regex_replace: regex_replace_id,
         regex_replace_all: regex_replace_all_id,
         regex_split: regex_split_id,
+        regex_exec: regex_exec_id,
         arr_from_string: arr_from_string_id,
         str_substring: str_substring_id,
         arr_to_reversed: arr_to_reversed_id,
@@ -2912,6 +2925,7 @@ struct Intrinsics {
     regex_replace: FuncId,
     regex_replace_all: FuncId,
     regex_split: FuncId,
+    regex_exec: FuncId,
     arr_from_string: FuncId,
     str_substring: FuncId,
     arr_to_reversed: FuncId,
@@ -9619,7 +9633,7 @@ impl<'a> LowerCtx<'a> {
                 // are borrow-shaped (the runtime helpers don't take
                 // ownership — the caller's drop walk handles it).
                 if let Expr::Member { obj, name } = self.ast.get_expr(*callee)
-                    && matches!(name.as_str(), "test")
+                    && matches!(name.as_str(), "test" | "exec")
                 {
                     let recv_op = self.lower_expr(*obj);
                     let recv_ty = self.operand_ty(&recv_op);
@@ -9636,6 +9650,21 @@ impl<'a> LowerCtx<'a> {
                                         vec![recv_op, s],
                                     ),
                                     Type::Bool,
+                                    None,
+                                );
+                                return Operand::Value(v);
+                            }
+                            "exec" => {
+                                debug_assert_eq!(args.len(), 1);
+                                let s = self.lower_expr(args[0]);
+                                let arr_id = intern_arr_layout(self.arr_layouts, Type::Str);
+                                let v = self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::Call(
+                                        self.intrinsics.regex_exec,
+                                        vec![recv_op, s],
+                                    ),
+                                    Type::Arr(arr_id),
                                     None,
                                 );
                                 return Operand::Value(v);

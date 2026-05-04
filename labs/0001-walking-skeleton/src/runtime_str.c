@@ -1232,6 +1232,13 @@ void __torajs_print_bool_err(int64_t b) {
     fputs(b ? "true\n" : "false\n", stderr);
 }
 void __torajs_str_print_err(const uint8_t *s) {
+    /* NULL guard — Nullable<Str> slots and uncaptured regex group slots
+     * pass NULL through here. Print "null" to match console.log(null)
+     * semantics rather than segfaulting on the len read. */
+    if (s == NULL) {
+        fputs("null\n", stderr);
+        return;
+    }
     uint64_t len = __TORAJS_STR_LEN(s);
     if (len) fwrite(__TORAJS_STR_CDATA(s), 1, (size_t)len, stderr);
     fputc('\n', stderr);

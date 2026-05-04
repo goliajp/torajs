@@ -1916,6 +1916,15 @@ impl Checker {
                         vec![Type::String],
                         Box::new(Type::Boolean),
                     )),
+                    // Phase 1c.1 — re.exec(s) returns Array<Str>:
+                    // [matched, group1, group2, ...] on hit, empty
+                    // array on miss. JS spec returns null on miss;
+                    // tr deviates until Nullable<Array<Str>> propagation
+                    // lands (Phase 1c.4 — same gate as s.match).
+                    (Type::RegExp, "exec") => Ok(Type::Function(
+                        vec![Type::String],
+                        Box::new(Type::Array(Box::new(Type::String))),
+                    )),
                     // String namespace static — `String.fromCharCode(n)`.
                     // `fromCodePoint` is the Unicode-aware sibling; in
                     // tr's byte-Str layout the two collapse for code

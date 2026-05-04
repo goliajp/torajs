@@ -2093,6 +2093,8 @@ fn define_str_print<'ctx>(
     let fn_t = void_t.fn_type(&[ptr_t.into()], false);
     let f = m.add_function("__torajs_str_print", fn_t, None);
     let entry = ctx.append_basic_block(f, "entry");
+    let null_b = ctx.append_basic_block(f, "null_print");
+    let nonnull_b = ctx.append_basic_block(f, "nonnull");
     let cond_b = ctx.append_basic_block(f, "cond");
     let body_b = ctx.append_basic_block(f, "body");
     let exit_b = ctx.append_basic_block(f, "exit");
@@ -2100,6 +2102,22 @@ fn define_str_print<'ctx>(
 
     let s = f.get_nth_param(0).unwrap().into_pointer_value();
 
+    // NULL guard — Nullable<Str> slots and uncaptured regex group slots
+    // pass NULL through. Print "null\n" rather than segfault on the
+    // len read at offset +8.
+    let null_check = builder
+        .build_is_null(s, "is_null")
+        .unwrap();
+    builder.build_conditional_branch(null_check, null_b, nonnull_b).unwrap();
+
+    builder.position_at_end(null_b);
+    for ch in b"null\n" {
+        let c32 = i32_t.const_int(*ch as u64, false);
+        builder.build_call(putchar, &[c32.into()], "").unwrap();
+    }
+    builder.build_return(None).unwrap();
+
+    builder.position_at_end(nonnull_b);
     let len = str_len_load(ctx, &builder, s, "len");
     let data = str_data_ptr(ctx, &builder, s, "data");
     // i_slot = 0
