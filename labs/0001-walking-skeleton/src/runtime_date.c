@@ -26,6 +26,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <limits.h>
 
 /* Mirror of runtime_str.c heap header — binary compatible. The
  * date .o links against `__torajs_rc_dec` and `__torajs_str_alloc_pooled`
@@ -78,6 +79,188 @@ void *__torajs_date_now(void) {
 }
 
 void *__torajs_date_from_ms(int64_t ms) {
+    return date_alloc(ms);
+}
+
+/* Phase 2.0b.2 — component ctor `new Date(year, month, day, hour, min,
+ * sec, ms)`. JS spec: LOCAL time interpretation (libc `mktime`).
+ * Missing args default to month=0, day=1, the rest 0. The desugar
+ * pass pads missing args with -1 sentinel, but we restate defaults
+ * here so callers can pass full 7-arg with intentional zeros. */
+int64_t __torajs_date_components_to_local_ms(
+    int64_t year, int64_t month, int64_t day,
+    int64_t hour, int64_t minute, int64_t second, int64_t milli
+) {
+    /* JS quirk: 0-99 year is interpreted as 1900-1999. */
+    if (year >= 0 && year < 100) year += 1900;
+    struct tm tm;
+    memset(&tm, 0, sizeof(tm));
+    tm.tm_year = (int)(year - 1900);
+    tm.tm_mon  = (int)month;       /* JS 0-indexed → tm_mon 0-indexed */
+    tm.tm_mday = (int)day;
+    tm.tm_hour = (int)hour;
+    tm.tm_min  = (int)minute;
+    tm.tm_sec  = (int)second;
+    tm.tm_isdst = -1;              /* let libc decide DST for the zone */
+    time_t t = mktime(&tm);
+    if (t == (time_t)-1) return 0; /* invalid date — return epoch (best effort) */
+    return (int64_t)t * 1000 + milli;
+}
+
+void *__torajs_date_from_components(
+    int64_t year, int64_t month, int64_t day,
+    int64_t hour, int64_t minute, int64_t second, int64_t milli
+) {
+    return date_alloc(__torajs_date_components_to_local_ms(
+        year, month, day, hour, minute, second, milli
+    ));
+}
+
+/* `Date.UTC(year, month, day, hour, min, sec, ms)` — UTC interpretation.
+ * Returns ms. Computed via days_from_civil (inverse of civil_from_days). */
+static int64_t days_from_civil(int32_t y, uint32_t m, uint32_t d) {
+    /* Howard Hinnant — "days_from_civil": inverse of civil_from_days. */
+    if (m <= 2) y -= 1;
+    int64_t era = (y >= 0 ? y : y - 399) / 400;
+    uint32_t yoe = (uint32_t)(y - era * 400);          /* [0, 399] */
+    uint32_t doy = (uint32_t)((153 * (m > 2 ? m - 3 : m + 9) + 2) / 5 + d - 1); /* [0, 365] */
+    uint32_t doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    return era * 146097 + (int64_t)doe - 719468;
+}
+
+int64_t __torajs_date_utc_components(
+    int64_t year, int64_t month, int64_t day,
+    int64_t hour, int64_t minute, int64_t second, int64_t milli
+) {
+    if (year >= 0 && year < 100) year += 1900;
+    /* Normalize month overflow into year (JS `new Date(2020, 13, 1)`
+     * means 2021-02-01). */
+    int64_t y = year + month / 12;
+    int64_t m = month % 12;
+    if (m < 0) { m += 12; y -= 1; }
+    int64_t days = days_from_civil((int32_t)y, (uint32_t)(m + 1), (uint32_t)day);
+    int64_t ms = days * 86400000
+               + hour * 3600000
+               + minute * 60000
+               + second * 1000
+               + milli;
+    return ms;
+}
+
+/* ============================================================
+ * ISO 8601 parser. Phase 2.0b.2 — handles the canonical extended
+ * format `YYYY-MM-DDTHH:MM:SS.sssZ` and the date-only `YYYY-MM-DD`,
+ * plus a few common offset forms (`+HH:MM`, `-HH:MM`, `Z`).
+ *
+ * Returns ms-since-epoch on success, INT64_MIN sentinel on failure
+ * (caller maps to JS's NaN — but tr's i64 has no NaN, so .parse()
+ * returning INT64_MIN is the substrate's choice; a Phase 2.0c
+ * refinement could route through f64 + NaN encoding once
+ * non-Copy NaN values flow cleanly through the type system).
+ * ============================================================ */
+
+#define DATE_PARSE_FAIL INT64_MIN
+
+static int read_int(const uint8_t *s, int64_t len, int64_t *i, int n_digits, int64_t *out) {
+    if (*i + n_digits > len) return 0;
+    int64_t v = 0;
+    for (int k = 0; k < n_digits; k++) {
+        uint8_t c = s[*i + k];
+        if (c < '0' || c > '9') return 0;
+        v = v * 10 + (c - '0');
+    }
+    *i += n_digits;
+    *out = v;
+    return 1;
+}
+
+int64_t __torajs_date_parse_iso(const void *str_ptr) {
+    if (!str_ptr) return DATE_PARSE_FAIL;
+    const uint8_t *s = (const uint8_t *)str_ptr + __TORAJS_STR_HDR_SIZE;
+    int64_t len = *(uint64_t *)((const uint8_t *)str_ptr + 8);
+    int64_t i = 0;
+    int64_t year, mon, day;
+    /* Optional leading sign for extended-year form. */
+    int64_t year_sign = 1;
+    if (i < len && (s[i] == '+' || s[i] == '-')) {
+        if (s[i] == '-') year_sign = -1;
+        i++;
+        /* Extended year is 6 digits per spec. */
+        if (!read_int(s, len, &i, 6, &year)) return DATE_PARSE_FAIL;
+    } else {
+        if (!read_int(s, len, &i, 4, &year)) return DATE_PARSE_FAIL;
+    }
+    year *= year_sign;
+    mon = 1; day = 1;
+    int64_t hour = 0, minute = 0, second = 0, milli = 0;
+    int has_time = 0;
+    int has_z = 0;
+    int tz_sign = 0; int64_t tz_h = 0, tz_m = 0;
+    if (i < len && s[i] == '-') {
+        i++;
+        if (!read_int(s, len, &i, 2, &mon)) return DATE_PARSE_FAIL;
+        if (i < len && s[i] == '-') {
+            i++;
+            if (!read_int(s, len, &i, 2, &day)) return DATE_PARSE_FAIL;
+        }
+    }
+    if (i < len && (s[i] == 'T' || s[i] == ' ')) {
+        i++;
+        has_time = 1;
+        if (!read_int(s, len, &i, 2, &hour)) return DATE_PARSE_FAIL;
+        if (i < len && s[i] == ':') {
+            i++;
+            if (!read_int(s, len, &i, 2, &minute)) return DATE_PARSE_FAIL;
+            if (i < len && s[i] == ':') {
+                i++;
+                if (!read_int(s, len, &i, 2, &second)) return DATE_PARSE_FAIL;
+                if (i < len && s[i] == '.') {
+                    i++;
+                    /* Up to 3 ms digits; pad if shorter. */
+                    int digits = 0;
+                    while (i < len && digits < 3 && s[i] >= '0' && s[i] <= '9') {
+                        milli = milli * 10 + (s[i] - '0');
+                        i++; digits++;
+                    }
+                    while (digits < 3) { milli *= 10; digits++; }
+                    /* Skip remaining sub-ms digits (sub-spec extension). */
+                    while (i < len && s[i] >= '0' && s[i] <= '9') i++;
+                }
+            }
+        }
+        if (i < len) {
+            if (s[i] == 'Z') { has_z = 1; i++; }
+            else if (s[i] == '+' || s[i] == '-') {
+                tz_sign = (s[i] == '+') ? 1 : -1;
+                i++;
+                if (!read_int(s, len, &i, 2, &tz_h)) return DATE_PARSE_FAIL;
+                if (i < len && s[i] == ':') i++;
+                read_int(s, len, &i, 2, &tz_m);
+            }
+        }
+    }
+    if (i != len) return DATE_PARSE_FAIL;
+    /* JS spec: date-only ISO (YYYY-MM-DD) is treated as UTC. With time
+     * and no Z/offset → local time. With Z / offset → UTC adjusted by
+     * the offset. */
+    int64_t ms;
+    if (!has_time) {
+        ms = __torajs_date_utc_components(year, mon - 1, day, 0, 0, 0, 0);
+    } else if (has_z) {
+        ms = __torajs_date_utc_components(year, mon - 1, day, hour, minute, second, milli);
+    } else if (tz_sign != 0) {
+        ms = __torajs_date_utc_components(year, mon - 1, day, hour, minute, second, milli);
+        int64_t off_ms = (tz_h * 60 + tz_m) * 60 * 1000 * tz_sign;
+        ms -= off_ms;  /* offset means "local = UTC + offset" → subtract. */
+    } else {
+        ms = __torajs_date_components_to_local_ms(year, mon - 1, day, hour, minute, second, milli);
+    }
+    return ms;
+}
+
+void *__torajs_date_from_iso(const void *str_ptr) {
+    int64_t ms = __torajs_date_parse_iso(str_ptr);
+    if (ms == DATE_PARSE_FAIL) ms = 0;  /* Best-effort; spec says NaN. */
     return date_alloc(ms);
 }
 

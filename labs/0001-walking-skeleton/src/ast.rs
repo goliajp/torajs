@@ -1674,23 +1674,52 @@ pub fn unwrap_exports(ast: &mut Ast) {
 pub fn desugar_builtin_new(ast: &mut Ast) {
     let n = ast.exprs.len();
     for i in 0..n {
-        let factory_name = match &ast.exprs[i] {
+        let plan = match &ast.exprs[i] {
             Expr::New { class_name, args } if class_name == "Date" => {
-                Some(match args.len() {
-                    0 => "__torajs_date_now".to_string(),
-                    1 => "__torajs_date_from_ms".to_string(),
+                /* `new Date(...)` arity dispatch:
+                 *   0 args → __torajs_date_now
+                 *   1 arg :
+                 *     literal `Expr::String` → __torajs_date_from_iso
+                 *     otherwise → __torajs_date_from_ms (number)
+                 *   2..7 args → __torajs_date_from_components with
+                 *     missing trailing args padded to JS defaults
+                 *     (day=1, hour=min=sec=ms=0).
+                 *   ≥8 args → invalid (JS ignores extras; we panic
+                 *     in Phase 2.0b.2 to surface unexpected idioms). */
+                match args.len() {
+                    0 => Some(("__torajs_date_now".to_string(), false, args.clone())),
+                    1 => {
+                        let is_str = matches!(
+                            ast.exprs[args[0].0 as usize],
+                            Expr::String(_)
+                        );
+                        if is_str {
+                            Some(("__torajs_date_from_iso".to_string(), false, args.clone()))
+                        } else {
+                            Some(("__torajs_date_from_ms".to_string(), false, args.clone()))
+                        }
+                    }
+                    n_args if (2..=7).contains(&n_args) => {
+                        Some(("__torajs_date_from_components".to_string(), true, args.clone()))
+                    }
                     n_args => panic!(
-                        "v0.2 #2 Phase 2.0a: `new Date(...)` with {n_args} args not yet supported"
+                        "v0.2 #2 Phase 2.0b.2: `new Date(...)` with {n_args} args not yet supported"
                     ),
-                })
+                }
             }
             _ => None,
         };
-        if let Some(factory) = factory_name {
-            let args = match &ast.exprs[i] {
-                Expr::New { args, .. } => args.clone(),
-                _ => unreachable!(),
-            };
+        if let Some((factory, pad_components, mut args)) = plan {
+            if pad_components {
+                /* Pad to 7 args with JS-spec defaults. */
+                while args.len() < 7 {
+                    let val = match args.len() {
+                        2 => 1.0, /* day default = 1 */
+                        _ => 0.0, /* hour, minute, second, ms default = 0 */
+                    };
+                    args.push(ast.add_expr(Expr::Number(val)));
+                }
+            }
             let callee = ast.add_expr(Expr::Ident(factory));
             ast.exprs[i] = Expr::Call { callee, args };
         }

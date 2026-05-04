@@ -1644,6 +1644,14 @@ impl Checker {
                         vec![Type::Number],
                         Box::new(Type::Date),
                     )),
+                    "__torajs_date_from_iso" => Ok(Type::Function(
+                        vec![Type::String],
+                        Box::new(Type::Date),
+                    )),
+                    "__torajs_date_from_components" => Ok(Type::Function(
+                        vec![Type::Number; 7],
+                        Box::new(Type::Date),
+                    )),
                     // `undefined` — JS sentinel for "no value". torajs
                     // doesn't have a separate Undefined runtime type;
                     // map it to Type::Null which lowers to the same
@@ -1984,6 +1992,25 @@ impl Checker {
                     // Date.now() — static, returns ms-since-epoch.
                     (Type::Object("Date"), "now") => Ok(Type::Function(
                         Vec::new(),
+                        Box::new(Type::Number),
+                    )),
+                    // Phase 2.0b.2 — Date.parse(s) returns ms-since-epoch
+                    // (or NaN sentinel — tr returns INT64_MIN; spec is NaN).
+                    (Type::Object("Date"), "parse") => Ok(Type::Function(
+                        vec![Type::String],
+                        Box::new(Type::Number),
+                    )),
+                    // Date.UTC(year, month, day, hour, min, sec, ms) — UTC
+                    // interpretation; returns ms-since-epoch. Min 2 args.
+                    // tr accepts the 7-arg form via the same dispatch path
+                    // as `new Date(...)` component ctor; missing trailing
+                    // args default to month=0, day=1, rest=0 — but that
+                    // padding happens at desugar time, which doesn't
+                    // intercept `Date.UTC(...)` (only `new Date(...)`).
+                    // For Phase 2.0b.2, tr's Date.UTC requires explicit
+                    // 7 args; arity-aware desugar comes in 2.0c.
+                    (Type::Object("Date"), "UTC") => Ok(Type::Function(
+                        vec![Type::Number; 7],
                         Box::new(Type::Number),
                     )),
                     // String namespace static — `String.fromCharCode(n)`.

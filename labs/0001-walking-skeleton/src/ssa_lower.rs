@@ -1654,6 +1654,35 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
     let date_get_utc_seconds_id = declare_intrinsic(&mut module, &mut fn_table, "__torajs_date_get_utc_seconds", &[Type::Date], Type::I64);
     let date_get_utc_milliseconds_id = declare_intrinsic(&mut module, &mut fn_table, "__torajs_date_get_utc_milliseconds", &[Type::Date], Type::I64);
     let date_get_utc_day_id = declare_intrinsic(&mut module, &mut fn_table, "__torajs_date_get_utc_day", &[Type::Date], Type::I64);
+    /* Phase 2.0b.2 — component ctor + ISO parse + Date.UTC + Date.parse. */
+    let date_from_components_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_date_from_components",
+        &[Type::I64, Type::I64, Type::I64, Type::I64, Type::I64, Type::I64, Type::I64],
+        Type::Date,
+    );
+    let date_utc_components_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_date_utc_components",
+        &[Type::I64, Type::I64, Type::I64, Type::I64, Type::I64, Type::I64, Type::I64],
+        Type::I64,
+    );
+    let date_from_iso_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_date_from_iso",
+        &[Type::Str],
+        Type::Date,
+    );
+    let date_parse_iso_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_date_parse_iso",
+        &[Type::Str],
+        Type::I64,
+    );
     let substr_create_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -2631,6 +2660,10 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         date_get_utc_seconds: date_get_utc_seconds_id,
         date_get_utc_milliseconds: date_get_utc_milliseconds_id,
         date_get_utc_day: date_get_utc_day_id,
+        date_from_components: date_from_components_id,
+        date_utc_components: date_utc_components_id,
+        date_from_iso: date_from_iso_id,
+        date_parse_iso: date_parse_iso_id,
         arr_from_string: arr_from_string_id,
         str_substring: str_substring_id,
         arr_to_reversed: arr_to_reversed_id,
@@ -3095,6 +3128,10 @@ struct Intrinsics {
     date_get_utc_seconds: FuncId,
     date_get_utc_milliseconds: FuncId,
     date_get_utc_day: FuncId,
+    date_from_components: FuncId,
+    date_utc_components: FuncId,
+    date_from_iso: FuncId,
+    date_parse_iso: FuncId,
     arr_from_string: FuncId,
     str_substring: FuncId,
     arr_to_reversed: FuncId,
@@ -14888,6 +14925,8 @@ impl<'a> LowerCtx<'a> {
                 if is_date {
                     return match name.as_str() {
                         "now" => self.intrinsics.date_now_static,
+                        "parse" => self.intrinsics.date_parse_iso,
+                        "UTC" => self.intrinsics.date_utc_components,
                         other => panic!("ssa-lower: unknown Date static method `{other}`"),
                     };
                 }
