@@ -2180,6 +2180,49 @@ impl Parser<'_> {
             return Ok(self.ast.add_expr(Expr::Regex { pattern, flags }));
         }
         let pos = self.pos;
+        /* Single-param arrow without parens: `x => body`. JS spec
+         * accepts this as shorthand for `(x) => body` (the `x` has
+         * no type annotation; tr's check.rs auto-promotes untyped
+         * params to fresh type params via desugar_implicit_generics).
+         * Detect by peeking Ident + FatArrow before falling through
+         * to the regular Ident expression. */
+        if let Token::Ident(n) = &self.tokens[pos].token {
+            let next_is_arrow = self.tokens.get(pos + 1)
+                .map(|t| matches!(t.token, Token::FatArrow))
+                .unwrap_or(false);
+            if next_is_arrow {
+                let pname = n.clone();
+                self.pos += 2; /* consume Ident + FatArrow */
+                let body = if matches!(self.peek(), Token::LBrace) {
+                    self.pos += 1;
+                    let mut stmts = Vec::new();
+                    while !matches!(self.peek(), Token::RBrace | Token::Eof) {
+                        stmts.push(self.parse_stmt()?);
+                    }
+                    match self.peek() {
+                        Token::RBrace => self.pos += 1,
+                        t => return Err(format!(
+                            "expected `}}` after arrow body, got {t:?} at {}",
+                            self.at()
+                        )),
+                    }
+                    stmts
+                } else {
+                    let e = self.parse_expr()?;
+                    vec![Stmt::Return(Some(e))]
+                };
+                return Ok(self.ast.add_expr(Expr::ArrowFn {
+                    params: vec![Param {
+                        name: pname,
+                        type_ann: None,
+                        default: None,
+                        is_rest: false,
+                    }],
+                    return_type: None,
+                    body,
+                }));
+            }
+        }
         match &self.tokens[pos].token {
             Token::Ident(n) => {
                 let n = n.clone();

@@ -1905,7 +1905,15 @@ impl Checker {
                     // de-facto aliases that ship in every JS engine —
                     // ECMAScript Annex B documents them as legacy of
                     // `trimStart` / `trimEnd`.
-                    | (Type::String, "trimLeft") | (Type::String, "trimRight") => Ok(Type::Function(
+                    | (Type::String, "trimLeft") | (Type::String, "trimRight")
+                    // s.normalize() — Unicode normalization. tr's
+                    // current Str layer is byte-oriented; for ASCII
+                    // strings (the dominant test262 case) all four NFC/
+                    // NFD/NFKC/NFKD forms are byte-identical with the
+                    // input, so an identity stub round-trips correctly.
+                    // Multi-byte UTF-8 strings would need Unicode tables
+                    // — deferred to v1.0 (`\p{...}` + ICU work).
+                    | (Type::String, "normalize") => Ok(Type::Function(
                         Vec::new(),
                         Box::new(Type::String),
                     )),

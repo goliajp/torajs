@@ -10091,6 +10091,7 @@ impl<'a> LowerCtx<'a> {
                         | "reverse" | "toReversed" | "with"
                         | "fill" | "at" | "concat" | "sort" | "toSorted" | "flat"
                         | "lastIndexOf" | "localeCompare" | "copyWithin"
+                        | "normalize"
                     )
                 {
                     let recv_op = self.lower_expr(*obj);
@@ -10332,6 +10333,25 @@ impl<'a> LowerCtx<'a> {
                                 None,
                             )
                         };
+                        return Operand::Value(v);
+                    }
+                    /* v0.2 #6 — s.normalize() ASCII identity stub.
+                     * Returns a clone of the receiver via str_repeat
+                     * with N=1 (already-existing intrinsic). For ASCII
+                     * strings (the dominant test262 case) all four
+                     * NFC/NFD/NFKC/NFKD forms are byte-identical with
+                     * the input. Multi-byte UTF-8 normalization is
+                     * deferred to v1.0 with the rest of Unicode work. */
+                    if recv_ty == Type::Str && method == "normalize" {
+                        let v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.str_repeat,
+                                vec![recv_op, Operand::ConstI64(1)],
+                            ),
+                            Type::Str,
+                            None,
+                        );
                         return Operand::Value(v);
                     }
                     // String methods.
