@@ -3893,10 +3893,39 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
         if closure_args.is_empty() {
             continue;
         }
-        // Resolve obj's type ann.
+        /* Resolve obj's type ann.
+         * - `Ident(n)`        → look up in the all_anns table built
+         *                       from FnDecl params + let-decl annotations.
+         * - `Array(els)`      → infer `T[]` from els[0]'s shape (literal
+         *                       receiver path — `[1,2,3].map(x => ...)`).
+         *                       Empty literal can't infer an element type;
+         *                       skipped. Only homogeneous-typed literals
+         *                       matter here since the existing `T[]` infra
+         *                       requires homogeneous elements.
+         * - `String`          → "string"
+         * - `Number`          → "number"
+         * Anything more exotic falls through unchanged (caller relies on
+         * an explicit annotation upstream). */
+        fn infer_lit_ann(ast: &Ast, eid: ExprId) -> Option<String> {
+            match ast.get_expr(eid) {
+                Expr::Number(_) => Some("number".into()),
+                Expr::String(_) => Some("string".into()),
+                Expr::Bool(_) => Some("boolean".into()),
+                Expr::Array(els) if !els.is_empty() => {
+                    /* Recurse on first element to get its inferred ann,
+                     * then suffix with []. Fails (returns None) if the
+                     * first element isn't a recognized literal shape. */
+                    infer_lit_ann(ast, els[0]).map(|inner| format!("{inner}[]"))
+                }
+                _ => None,
+            }
+        }
         let obj_ann = match ast.get_expr(obj) {
             Expr::Ident(n) => all_anns.get(n).cloned(),
-            _ => None,
+            other => {
+                let _ = other;
+                infer_lit_ann(ast, obj)
+            }
         };
         let Some(ann) = obj_ann else { continue };
         // Only handle T[] receivers for the known Array methods.
