@@ -2053,6 +2053,15 @@ impl Checker {
                         vec![Type::String, Type::String],
                         Box::new(Type::Void),
                     )),
+                    (Type::Object("fs"), "appendFileSync") => Ok(Type::Function(
+                        vec![Type::String, Type::String],
+                        Box::new(Type::Void),
+                    )),
+                    (Type::Object("fs"), "unlinkSync")
+                    | (Type::Object("fs"), "mkdirSync") => Ok(Type::Function(
+                        vec![Type::String],
+                        Box::new(Type::Void),
+                    )),
                     (Type::Object("fs"), "existsSync") => Ok(Type::Function(
                         vec![Type::String],
                         Box::new(Type::Boolean),

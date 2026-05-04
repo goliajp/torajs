@@ -1331,6 +1331,26 @@ _Bool __torajs_fs_exists_sync(const void *path_str) {
     return 1;
 }
 
+void __torajs_fs_append_file_sync(const void *path_str, const void *data_str) {
+    char path[4096];
+    path_copy_to_buf(path_str, path, sizeof(path));
+    FILE *f = fopen(path, "ab");
+    if (!f) {
+        fputs("not yet supported: fs.appendFileSync open failed: ", stderr);
+        fputs(path, stderr);
+        fputc('\n', stderr);
+        exit(1);
+    }
+    const uint8_t *d = __TORAJS_STR_CDATA(data_str);
+    uint64_t dlen = __TORAJS_STR_LEN(data_str);
+    size_t put = fwrite(d, 1, (size_t)dlen, f);
+    fclose(f);
+    if (put != (size_t)dlen) {
+        fputs("not yet supported: fs.appendFileSync short write\n", stderr);
+        exit(1);
+    }
+}
+
 /* ============================================================
  * v0.3 #3 — process surface (minimum). Synchronous shape:
  *   process.exit(code)  → calls libc exit (no return)
@@ -1342,6 +1362,31 @@ _Bool __torajs_fs_exists_sync(const void *path_str) {
  * ============================================================ */
 
 #include <unistd.h>
+#include <sys/stat.h>
+
+void __torajs_fs_unlink_sync(const void *path_str) {
+    char path[4096];
+    path_copy_to_buf(path_str, path, sizeof(path));
+    if (unlink(path) != 0) {
+        fputs("not yet supported: fs.unlinkSync failed: ", stderr);
+        fputs(path, stderr);
+        fputc('\n', stderr);
+        exit(1);
+    }
+}
+
+void __torajs_fs_mkdir_sync(const void *path_str) {
+    char path[4096];
+    path_copy_to_buf(path_str, path, sizeof(path));
+    if (mkdir(path, 0755) != 0) {
+        /* JS spec throws on existing dir unless `recursive: true` —
+         * we mirror by aborting (typed-throw is Phase 2.0c). */
+        fputs("not yet supported: fs.mkdirSync failed: ", stderr);
+        fputs(path, stderr);
+        fputc('\n', stderr);
+        exit(1);
+    }
+}
 
 void __torajs_process_exit(int64_t code) {
     exit((int)code);

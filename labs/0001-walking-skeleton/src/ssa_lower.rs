@@ -1705,6 +1705,27 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         &[Type::Str],
         Type::Bool,
     );
+    let fs_append_file_sync_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_fs_append_file_sync",
+        &[Type::Str, Type::Str],
+        Type::Void,
+    );
+    let fs_unlink_sync_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_fs_unlink_sync",
+        &[Type::Str],
+        Type::Void,
+    );
+    let fs_mkdir_sync_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_fs_mkdir_sync",
+        &[Type::Str],
+        Type::Void,
+    );
     /* v0.3 #3 — process surface (minimum). */
     let process_exit_id = declare_intrinsic(
         &mut module,
@@ -2711,6 +2732,9 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         fs_read_file_sync: fs_read_file_sync_id,
         fs_write_file_sync: fs_write_file_sync_id,
         fs_exists_sync: fs_exists_sync_id,
+        fs_append_file_sync: fs_append_file_sync_id,
+        fs_unlink_sync: fs_unlink_sync_id,
+        fs_mkdir_sync: fs_mkdir_sync_id,
         process_exit: process_exit_id,
         process_cwd: process_cwd_id,
         process_platform: process_platform_id,
@@ -3185,6 +3209,9 @@ struct Intrinsics {
     fs_read_file_sync: FuncId,
     fs_write_file_sync: FuncId,
     fs_exists_sync: FuncId,
+    fs_append_file_sync: FuncId,
+    fs_unlink_sync: FuncId,
+    fs_mkdir_sync: FuncId,
     process_exit: FuncId,
     process_cwd: FuncId,
     process_platform: FuncId,
@@ -15055,6 +15082,9 @@ impl<'a> LowerCtx<'a> {
                         "readFileSync" => self.intrinsics.fs_read_file_sync,
                         "writeFileSync" => self.intrinsics.fs_write_file_sync,
                         "existsSync" => self.intrinsics.fs_exists_sync,
+                        "appendFileSync" => self.intrinsics.fs_append_file_sync,
+                        "unlinkSync" => self.intrinsics.fs_unlink_sync,
+                        "mkdirSync" => self.intrinsics.fs_mkdir_sync,
                         other => panic!("ssa-lower: unknown fs method `{other}`"),
                     };
                 }
