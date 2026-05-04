@@ -1959,6 +1959,28 @@ impl Checker {
                         Vec::new(),
                         Box::new(Type::String),
                     )),
+                    // v0.2 #2 Phase 2.0b — UTC getters. Local-time
+                    // siblings (getFullYear etc.) collapse to UTC
+                    // until timezone awareness ships in Phase 2.0c.
+                    (Type::Date, "getFullYear")
+                    | (Type::Date, "getUTCFullYear")
+                    | (Type::Date, "getMonth")
+                    | (Type::Date, "getUTCMonth")
+                    | (Type::Date, "getDate")
+                    | (Type::Date, "getUTCDate")
+                    | (Type::Date, "getHours")
+                    | (Type::Date, "getUTCHours")
+                    | (Type::Date, "getMinutes")
+                    | (Type::Date, "getUTCMinutes")
+                    | (Type::Date, "getSeconds")
+                    | (Type::Date, "getUTCSeconds")
+                    | (Type::Date, "getMilliseconds")
+                    | (Type::Date, "getUTCMilliseconds")
+                    | (Type::Date, "getDay")
+                    | (Type::Date, "getUTCDay") => Ok(Type::Function(
+                        Vec::new(),
+                        Box::new(Type::Number),
+                    )),
                     // Date.now() — static, returns ms-since-epoch.
                     (Type::Object("Date"), "now") => Ok(Type::Function(
                         Vec::new(),

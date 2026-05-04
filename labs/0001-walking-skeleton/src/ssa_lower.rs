@@ -1589,6 +1589,71 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         &[Type::Date],
         Type::Str,
     );
+    /* Phase 2.0b — UTC getter intrinsics. */
+    let date_get_full_year_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_date_get_full_year",
+        &[Type::Date],
+        Type::I64,
+    );
+    let date_get_month_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_date_get_month",
+        &[Type::Date],
+        Type::I64,
+    );
+    let date_get_date_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_date_get_date",
+        &[Type::Date],
+        Type::I64,
+    );
+    let date_get_hours_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_date_get_hours",
+        &[Type::Date],
+        Type::I64,
+    );
+    let date_get_minutes_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_date_get_minutes",
+        &[Type::Date],
+        Type::I64,
+    );
+    let date_get_seconds_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_date_get_seconds",
+        &[Type::Date],
+        Type::I64,
+    );
+    let date_get_milliseconds_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_date_get_milliseconds",
+        &[Type::Date],
+        Type::I64,
+    );
+    let date_get_day_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_date_get_day",
+        &[Type::Date],
+        Type::I64,
+    );
+    let date_get_utc_full_year_id = declare_intrinsic(&mut module, &mut fn_table, "__torajs_date_get_utc_full_year", &[Type::Date], Type::I64);
+    let date_get_utc_month_id = declare_intrinsic(&mut module, &mut fn_table, "__torajs_date_get_utc_month", &[Type::Date], Type::I64);
+    let date_get_utc_date_id = declare_intrinsic(&mut module, &mut fn_table, "__torajs_date_get_utc_date", &[Type::Date], Type::I64);
+    let date_get_utc_hours_id = declare_intrinsic(&mut module, &mut fn_table, "__torajs_date_get_utc_hours", &[Type::Date], Type::I64);
+    let date_get_utc_minutes_id = declare_intrinsic(&mut module, &mut fn_table, "__torajs_date_get_utc_minutes", &[Type::Date], Type::I64);
+    let date_get_utc_seconds_id = declare_intrinsic(&mut module, &mut fn_table, "__torajs_date_get_utc_seconds", &[Type::Date], Type::I64);
+    let date_get_utc_milliseconds_id = declare_intrinsic(&mut module, &mut fn_table, "__torajs_date_get_utc_milliseconds", &[Type::Date], Type::I64);
+    let date_get_utc_day_id = declare_intrinsic(&mut module, &mut fn_table, "__torajs_date_get_utc_day", &[Type::Date], Type::I64);
     let substr_create_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -2550,6 +2615,22 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         date_now_static: date_now_static_id,
         date_get_time: date_get_time_id,
         date_to_iso_string: date_to_iso_string_id,
+        date_get_full_year: date_get_full_year_id,
+        date_get_month: date_get_month_id,
+        date_get_date: date_get_date_id,
+        date_get_hours: date_get_hours_id,
+        date_get_minutes: date_get_minutes_id,
+        date_get_seconds: date_get_seconds_id,
+        date_get_milliseconds: date_get_milliseconds_id,
+        date_get_day: date_get_day_id,
+        date_get_utc_full_year: date_get_utc_full_year_id,
+        date_get_utc_month: date_get_utc_month_id,
+        date_get_utc_date: date_get_utc_date_id,
+        date_get_utc_hours: date_get_utc_hours_id,
+        date_get_utc_minutes: date_get_utc_minutes_id,
+        date_get_utc_seconds: date_get_utc_seconds_id,
+        date_get_utc_milliseconds: date_get_utc_milliseconds_id,
+        date_get_utc_day: date_get_utc_day_id,
         arr_from_string: arr_from_string_id,
         str_substring: str_substring_id,
         arr_to_reversed: arr_to_reversed_id,
@@ -2998,6 +3079,22 @@ struct Intrinsics {
     date_now_static: FuncId,
     date_get_time: FuncId,
     date_to_iso_string: FuncId,
+    date_get_full_year: FuncId,
+    date_get_month: FuncId,
+    date_get_date: FuncId,
+    date_get_hours: FuncId,
+    date_get_minutes: FuncId,
+    date_get_seconds: FuncId,
+    date_get_milliseconds: FuncId,
+    date_get_day: FuncId,
+    date_get_utc_full_year: FuncId,
+    date_get_utc_month: FuncId,
+    date_get_utc_date: FuncId,
+    date_get_utc_hours: FuncId,
+    date_get_utc_minutes: FuncId,
+    date_get_utc_seconds: FuncId,
+    date_get_utc_milliseconds: FuncId,
+    date_get_utc_day: FuncId,
     arr_from_string: FuncId,
     str_substring: FuncId,
     arr_to_reversed: FuncId,
@@ -9716,7 +9813,18 @@ impl<'a> LowerCtx<'a> {
                 // v0.2 #2 — Date instance methods (.getTime / .valueOf /
                 // .toISOString). Recognized via receiver type Type::Date.
                 if let Expr::Member { obj, name } = self.ast.get_expr(*callee)
-                    && matches!(name.as_str(), "getTime" | "valueOf" | "toISOString")
+                    && matches!(
+                        name.as_str(),
+                        "getTime" | "valueOf" | "toISOString"
+                        | "getFullYear" | "getUTCFullYear"
+                        | "getMonth" | "getUTCMonth"
+                        | "getDate" | "getUTCDate"
+                        | "getHours" | "getUTCHours"
+                        | "getMinutes" | "getUTCMinutes"
+                        | "getSeconds" | "getUTCSeconds"
+                        | "getMilliseconds" | "getUTCMilliseconds"
+                        | "getDay" | "getUTCDay"
+                    )
                 {
                     let recv_op = self.lower_expr(*obj);
                     let recv_ty = self.operand_ty(&recv_op);
@@ -9725,6 +9833,22 @@ impl<'a> LowerCtx<'a> {
                         let (target, ret_ty) = match method.as_str() {
                             "getTime" | "valueOf" => (self.intrinsics.date_get_time, Type::I64),
                             "toISOString" => (self.intrinsics.date_to_iso_string, Type::Str),
+                            "getFullYear" => (self.intrinsics.date_get_full_year, Type::I64),
+                            "getUTCFullYear" => (self.intrinsics.date_get_utc_full_year, Type::I64),
+                            "getMonth" => (self.intrinsics.date_get_month, Type::I64),
+                            "getUTCMonth" => (self.intrinsics.date_get_utc_month, Type::I64),
+                            "getDate" => (self.intrinsics.date_get_date, Type::I64),
+                            "getUTCDate" => (self.intrinsics.date_get_utc_date, Type::I64),
+                            "getHours" => (self.intrinsics.date_get_hours, Type::I64),
+                            "getUTCHours" => (self.intrinsics.date_get_utc_hours, Type::I64),
+                            "getMinutes" => (self.intrinsics.date_get_minutes, Type::I64),
+                            "getUTCMinutes" => (self.intrinsics.date_get_utc_minutes, Type::I64),
+                            "getSeconds" => (self.intrinsics.date_get_seconds, Type::I64),
+                            "getUTCSeconds" => (self.intrinsics.date_get_utc_seconds, Type::I64),
+                            "getMilliseconds" => (self.intrinsics.date_get_milliseconds, Type::I64),
+                            "getUTCMilliseconds" => (self.intrinsics.date_get_utc_milliseconds, Type::I64),
+                            "getDay" => (self.intrinsics.date_get_day, Type::I64),
+                            "getUTCDay" => (self.intrinsics.date_get_utc_day, Type::I64),
                             _ => unreachable!(),
                         };
                         let v = self.f.append_inst(

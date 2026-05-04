@@ -108,6 +108,143 @@ int64_t __torajs_date_get_time(const void *d_ptr) {
     return ((const Date *)d_ptr)->ms;
 }
 
+/* Forward decl — civil_from_days is below toISOString. */
+static void civil_from_days(int64_t z, int32_t *out_y, uint32_t *out_m, uint32_t *out_d);
+
+/* Decompose ms-since-epoch into {y, m, d, hour, min, sec, ms}.
+ * Used by every getX accessor and by toISOString. UTC by design;
+ * locale-time variants come with timezone work in Phase 2.0c. */
+static void decompose(int64_t ms,
+                      int32_t *y, uint32_t *m, uint32_t *d,
+                      int32_t *hour, int32_t *minute,
+                      int32_t *second, int32_t *milli) {
+    int64_t day_ms = 86400000;
+    int64_t days = ms / day_ms;
+    int64_t tod  = ms - days * day_ms;
+    if (tod < 0) { tod += day_ms; days -= 1; }
+    civil_from_days(days, y, m, d);
+    *hour = (int32_t)(tod / 3600000);
+    int64_t rem = tod - (int64_t)(*hour) * 3600000;
+    *minute = (int32_t)(rem / 60000);
+    rem -= (int64_t)(*minute) * 60000;
+    *second = (int32_t)(rem / 1000);
+    *milli  = (int32_t)(rem - (int64_t)(*second) * 1000);
+}
+
+/* Phase 2.0b — UTC getters. JS spec separates local-time accessors
+ * (`getFullYear`, etc.) from UTC accessors (`getUTCFullYear` etc.).
+ * tr maps both to per-direction helpers below: UTC variants run the
+ * branch-free civil_from_days arithmetic; local variants delegate to
+ * libc's `localtime_r` so they honor the TZ environment. */
+int64_t __torajs_date_get_utc_full_year(const void *d_ptr) {
+    if (!d_ptr) return 0;
+    int32_t y; uint32_t m, d; int32_t h, mi, s, ms;
+    decompose(((const Date *)d_ptr)->ms, &y, &m, &d, &h, &mi, &s, &ms);
+    return y;
+}
+int64_t __torajs_date_get_utc_month(const void *d_ptr) {
+    if (!d_ptr) return 0;
+    int32_t y; uint32_t m, d; int32_t h, mi, s, ms;
+    decompose(((const Date *)d_ptr)->ms, &y, &m, &d, &h, &mi, &s, &ms);
+    return (int64_t)m - 1; /* JS 0-indexed */
+}
+int64_t __torajs_date_get_utc_date(const void *d_ptr) {
+    if (!d_ptr) return 0;
+    int32_t y; uint32_t m, d; int32_t h, mi, s, ms;
+    decompose(((const Date *)d_ptr)->ms, &y, &m, &d, &h, &mi, &s, &ms);
+    return d;
+}
+int64_t __torajs_date_get_utc_hours(const void *d_ptr) {
+    if (!d_ptr) return 0;
+    int32_t y; uint32_t m, d; int32_t h, mi, s, ms;
+    decompose(((const Date *)d_ptr)->ms, &y, &m, &d, &h, &mi, &s, &ms);
+    return h;
+}
+int64_t __torajs_date_get_utc_minutes(const void *d_ptr) {
+    if (!d_ptr) return 0;
+    int32_t y; uint32_t m, d; int32_t h, mi, s, ms;
+    decompose(((const Date *)d_ptr)->ms, &y, &m, &d, &h, &mi, &s, &ms);
+    return mi;
+}
+int64_t __torajs_date_get_utc_seconds(const void *d_ptr) {
+    if (!d_ptr) return 0;
+    int32_t y; uint32_t m, d; int32_t h, mi, s, ms;
+    decompose(((const Date *)d_ptr)->ms, &y, &m, &d, &h, &mi, &s, &ms);
+    return s;
+}
+int64_t __torajs_date_get_utc_milliseconds(const void *d_ptr) {
+    if (!d_ptr) return 0;
+    int32_t y; uint32_t m, d; int32_t h, mi, s, ms;
+    decompose(((const Date *)d_ptr)->ms, &y, &m, &d, &h, &mi, &s, &ms);
+    return ms;
+}
+int64_t __torajs_date_get_utc_day(const void *d_ptr) {
+    if (!d_ptr) return 0;
+    int64_t day_ms = 86400000;
+    int64_t days = ((const Date *)d_ptr)->ms / day_ms;
+    int64_t tod  = ((const Date *)d_ptr)->ms - days * day_ms;
+    if (tod < 0) days -= 1;
+    int64_t dow = (days + 4) % 7;
+    if (dow < 0) dow += 7;
+    return dow;
+}
+
+/* Local-time getters — use localtime_r so the result honors the TZ
+ * env var. Match bun (and every other JS engine) which reports
+ * the user's local-zone interpretation of the underlying ms. */
+static void localtime_decompose(int64_t ms, struct tm *out) {
+    /* JS Date allows ms to be larger than libc time_t on some
+     * platforms; clamp by truncating to the i64 second value
+     * libc accepts on the host. We split so sub-second stays
+     * accessible to getMilliseconds. */
+    time_t secs = (time_t)(ms / 1000);
+    /* localtime_r is POSIX-thread-safe and what JS engines lean on. */
+    localtime_r(&secs, out);
+}
+int64_t __torajs_date_get_full_year(const void *d_ptr) {
+    if (!d_ptr) return 0;
+    struct tm tm; localtime_decompose(((const Date *)d_ptr)->ms, &tm);
+    return tm.tm_year + 1900;
+}
+int64_t __torajs_date_get_month(const void *d_ptr) {
+    if (!d_ptr) return 0;
+    struct tm tm; localtime_decompose(((const Date *)d_ptr)->ms, &tm);
+    return tm.tm_mon; /* libc tm_mon is already 0-indexed */
+}
+int64_t __torajs_date_get_date(const void *d_ptr) {
+    if (!d_ptr) return 0;
+    struct tm tm; localtime_decompose(((const Date *)d_ptr)->ms, &tm);
+    return tm.tm_mday;
+}
+int64_t __torajs_date_get_hours(const void *d_ptr) {
+    if (!d_ptr) return 0;
+    struct tm tm; localtime_decompose(((const Date *)d_ptr)->ms, &tm);
+    return tm.tm_hour;
+}
+int64_t __torajs_date_get_minutes(const void *d_ptr) {
+    if (!d_ptr) return 0;
+    struct tm tm; localtime_decompose(((const Date *)d_ptr)->ms, &tm);
+    return tm.tm_min;
+}
+int64_t __torajs_date_get_seconds(const void *d_ptr) {
+    if (!d_ptr) return 0;
+    struct tm tm; localtime_decompose(((const Date *)d_ptr)->ms, &tm);
+    return tm.tm_sec;
+}
+int64_t __torajs_date_get_milliseconds(const void *d_ptr) {
+    if (!d_ptr) return 0;
+    /* Sub-second is timezone-invariant. */
+    int64_t ms = ((const Date *)d_ptr)->ms;
+    int64_t r = ms % 1000;
+    if (r < 0) r += 1000;
+    return r;
+}
+int64_t __torajs_date_get_day(const void *d_ptr) {
+    if (!d_ptr) return 0;
+    struct tm tm; localtime_decompose(((const Date *)d_ptr)->ms, &tm);
+    return tm.tm_wday;
+}
+
 /* ============================================================
  * toISOString — `YYYY-MM-DDTHH:MM:SS.sssZ` (UTC, ISO 8601 spec).
  *
