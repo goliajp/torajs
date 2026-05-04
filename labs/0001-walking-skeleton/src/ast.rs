@@ -4233,10 +4233,22 @@ fn rewrite_arguments_in_expr(ast: &mut Ast, eid: ExprId, params: &[String]) -> E
         }
         Expr::Call { callee, args } => {
             let c = rewrite_arguments_in_expr(ast, callee, params);
-            let new_args: Vec<ExprId> = args
-                .iter()
-                .map(|a| rewrite_arguments_in_expr(ast, *a, params))
-                .collect();
+            /* `f(...arguments)` — expand the spread inline into the
+             * call arg list as `f(p0, p1, ...)`. Handles arbitrary
+             * mix of regular args and the spread. */
+            let mut new_args: Vec<ExprId> = Vec::with_capacity(args.len());
+            for a in &args {
+                if let Expr::Spread { expr } = ast.get_expr(*a)
+                    && let Expr::Ident(n) = ast.get_expr(*expr)
+                    && n == "arguments"
+                {
+                    for p in params {
+                        new_args.push(ast.add_expr(Expr::Ident(p.clone())));
+                    }
+                    continue;
+                }
+                new_args.push(rewrite_arguments_in_expr(ast, *a, params));
+            }
             ast.add_expr(Expr::Call { callee: c, args: new_args })
         }
         Expr::Member { obj, name } => {
@@ -4249,10 +4261,22 @@ fn rewrite_arguments_in_expr(ast: &mut Ast, eid: ExprId, params: &[String]) -> E
             ast.add_expr(Expr::Assign { target: t, value: v })
         }
         Expr::Array(elems) => {
-            let new_elems: Vec<ExprId> = elems
-                .iter()
-                .map(|e| rewrite_arguments_in_expr(ast, *e, params))
-                .collect();
+            /* `[...arguments]` — expand the spread inline. Same shape
+             * as the Call arm above. Mixed elems (regular + spread)
+             * supported by interleaving. */
+            let mut new_elems: Vec<ExprId> = Vec::with_capacity(elems.len());
+            for e in &elems {
+                if let Expr::Spread { expr } = ast.get_expr(*e)
+                    && let Expr::Ident(n) = ast.get_expr(*expr)
+                    && n == "arguments"
+                {
+                    for p in params {
+                        new_elems.push(ast.add_expr(Expr::Ident(p.clone())));
+                    }
+                    continue;
+                }
+                new_elems.push(rewrite_arguments_in_expr(ast, *e, params));
+            }
             ast.add_expr(Expr::Array(new_elems))
         }
         Expr::ObjectLit { fields } => {
