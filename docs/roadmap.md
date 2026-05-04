@@ -2,7 +2,7 @@
 
 > Canonical implementation plan. Living document — update as work progresses, decisions change, or steps reveal new sub-steps.
 >
-> Last revised: 2026-05-04 (re-framed to drop the "subset" framing per `feedback_no_subset_word`; goal is full TS coverage, not partial. Earlier 2026-04-30 pivot discarded "Rust-shaped semantics" framing and rewrote milestones around bun-shape feature parity with compile-time ownership inference.)
+> Last revised: 2026-05-04 (rewrote forward plan around the v0.1.0-beta release: retrospective of what shipped, then explicit `v0.2` / `v0.3` / `v0.5` / `v1.0` milestone boundaries with exit gates. Earlier 2026-05-04 pass dropped the "subset" framing per `feedback_no_subset_word`; the 2026-04-30 pivot discarded "Rust-shaped semantics" framing and rewrote milestones around bun-shape feature parity with compile-time ownership inference.)
 >
 > Provenance audit trail: `.claude/researches/0001-direction.md` through `0005-roadmap.md` (early discussion logs — note: pre-2026-04-30 they used a "TS syntax + Rust semantics" framing that was takagi-corrected on 2026-04-30; treat them as historical context, not as design source-of-truth).
 
@@ -69,203 +69,314 @@ The compiler still does ownership analysis under the hood (the no-GC requirement
 
 ---
 
-## Status snapshot (2026-04-30)
+## Status snapshot (2026-05-04, HEAD `5434f12`)
 
-After the 2026-04-30 framing pivot — revert of P2.3 (`Rc<T>` chain) + alias-aware ownership inference shipped.
+`v0.1.0-beta` shipped externally on 2026-05-04: tr is publicly installable and a non-trivial slice of TS programs run on it byte-identically with bun.
 
 ### What works end-to-end
 
 ```
-$ tr build foo.tora.ts -o foo  # AOT — LLVM 22 + Inkwell, ~33 KB binary
-$ ./foo                         # native execution, perf-leading on bench
-$ tr run foo.tora.ts            # AOT + cache — first run compiles (~50 ms),
-                                 # subsequent runs hit ~/.torajs/cache (~10 ms)
+$ curl -fsSL https://install.torajs.com | bash    # darwin-arm64 / linux-x64
+$ tr build foo.ts -o foo                          # AOT — LLVM 22 + Inkwell, ~33 KB
+$ ./foo                                            # native, bench-leading
+$ tr run foo.ts                                    # AOT + cache (~10 ms reruns)
 ```
 
-A program of this shape compiles and runs end-to-end:
+The 5 example projects under `examples/` (sha256, prime-sieve, fizz-buzz, wc-clone, json-pretty) compile and run on tr with byte-identical output to bun.
 
-```ts
-type Person = { name: string, age: number };
+### Numbers (HEAD `5434f12`)
 
-function greet(p: Person): string {
-  return p.name;
-}
-
-let alice: Person = { name: "alice", age: 30 };
-let bob: Person = alice;
-console.log(greet(alice));
-console.log(bob.name);
-console.log(Math.PI);
-console.log(Math.floor(Math.sqrt(alice.age * alice.age)));
-//                                                   ↑
-// scope ends — one drop fires (the struct + its inner string),
-// no .clone() ever written by the user, no GC pause.
-```
-
-`alice` and `bob` are TS-style aliases of the same heap. `console.log(alice.name)` and `console.log(bob.name)` both work. The compiler infers that `bob` owns at scope-end (`alice` transferred at the let), drops once, no leak (verified via `leaks --atExit`).
-
-### Phases done
-
-| phase | what | done? |
+| metric | value | note |
 |---|---|---|
-| **P0**     | walking skeleton (`tr run hello.ts`) | ✓ |
-| **P1**     | core language (10 sub-steps) | ✓ |
-| **P2.1+** | alias-aware ownership inference (no GC, TS-shape shared reads) | ✓ 2026-04-30 |
-| **P2.2**   | string runtime + drop emission (concat doesn't consume; TS-shape) | ✓ |
-| **P2.4**   | object literals + structural types | ✓ |
-| **P3**     | LLVM AOT backend (one SSA IR → Inkwell). Cranelift JIT prototype shipped P3.6, removed 2026-05-01 — `tr run` is now AOT-with-cache against the same backend. | ✓ |
-| **stdlib slice 1** | `console.log`, `Math.{sqrt,abs,floor,ceil,log,exp,pow,min,max,PI,E}`, `String.length`, `print_f64` | ✓ |
-| **M1**     | core surface (comments / Array runtime / block drops / `p.x = v` / `&&` `\|\|` `!` / for-loop / break+continue) | ✓ |
-| **M2 Phase A/B** | non-capturing arrow fns + first-class fn pointers (`__fn(P)->R` annotation, FnSig, FnAddr+CallIndirect) | ✓ |
-| **M2 Phase C** | closures with **implicit captures** — heap env block `[fn_ptr, cap_0, cap_1, ...]`, env-load preamble in lifted body, `Type::Closure(SigId)` | ✓ 2026-04-30 |
-| **M3.1+M3.2+M3.3** | generics — `function id<T>(x: T): T`, type-arg inference at call sites, monomorphization pre-pass | ✓ 2026-04-30 |
-| **M3.4** | generic struct types — `type Pair<A, B> = { fst: A, snd: B }` instantiated on-demand into concrete `Type::Obj(StructId)` | ✓ 2026-04-30 |
-| **M4.1+M4.2** | error model — `throw` / `try { } catch (e) { } finally { }` via module-level throw_active+throw_value globals; throw_check after every user-fn call | ✓ 2026-04-30 |
-| **M6.2** | Array methods — `xs.map / filter / reduce / forEach (fn)` via lowered loop + closure-call dispatch; method chains compose | ✓ 2026-04-30 |
-| **M6.2 fast-path** | one-shot `arr_reserve(src.length)` + `arr_push_unchecked` in the lowered map/filter loop — eliminates the per-element capacity check / realloc | ✓ 2026-04-30 |
-| **unary minus + M6.1** | `-x` for i64/f64 + AOT `print_i64` neg-handler; string methods slice/charCodeAt/startsWith/endsWith/includes/indexOf as borrow-shaped runtime intrinsics; `print_bool` for `console.log(true)` | ✓ 2026-05-01 |
-| **Array&lt;string&gt; + split / join** | implicit ptr↔i64 cast at AOT call boundary unblocks heap-element arrays; `s.split(sep) → string[]` and `arr.join(sep) → string` via a small C runtime (`runtime_str.c`) compiled+linked per `tr build`. Index-borrow fix on console.log dispatch (parts[i] no longer drops the array's element). | ✓ 2026-05-01 |
-| **M4.3.a + .b** | non-number throws (`throw "msg"` / `catch (e: string)` / `catch (e: Err)` for struct types) + may-throw escape analysis (transitive call graph, throw_check skipped on verified-non-throwing callees, fib40 recovers from M4.1's 5% slowdown). Cross-frame drops verified leak-free via `leaks --atExit`. | ✓ 2026-05-01 |
-| ~~P2.3~~ | ~~`Rc<T>` first-class~~ | **REMOVED** — Rust idiom not exposed at the source level (per 2026-04-30 framing pivot) |
+| conformance suite | **301/301** pass | tr's own regression net |
+| test262 in-scope pass | **651/23941 (2.72 %)** | full test262 run; ~50 K total cases, in-scope slice ≈ ~5K-15K |
+| **tr-accepted parity** | **100.00 %** | every case tr accepts produces bun-equivalent output — zero silent wrong |
+| bug bucket | **0** | accepted-but-diverges cases |
+| compile-error bucket | **0** | accepted-but-LLVM-rejects cases |
+| bench scoreboard | **19/19** `tr build` wins vs bun | full sweep, M4 Pro hyperfine n=5 |
 
-### Bench position (M4 Pro, hyperfine n=5)
-
-15 of 15 cases green on `torajs` (AOT) + `torajs-jit`. Vs **rust**: 13 wins / 1 tie (array-map-1m, after the fast-path) / 1 loss (closure-counter ~17%) on AOT. `throw-catch-100k` at torajs 1.41 ms vs rust 432 ms (306× faster, with the noted feature-parity caveat). `array-map-1m` at torajs 31.42 ms vs rust 31.56 ms (parity, after one-shot reserve + push_unchecked) vs go 25.71 ms (1.22× behind go) vs bun ~63 ms (2× faster). Vs **bun**: 15/15 wins. Vs **node-v8**: 15/15 wins (4-108×). See `README.md` for the full table.
+The two empty buckets (bug + compile-error) mean: when tr says "yes I accept this", the produced binary is correct. The remaining ~23K test262 cases are rejected with a clean message pointing at the missing substrate (regex matching, Date, Symbol, Function constructor, etc.) — no silent failures.
 
 ### Code size
 
 ```
-labs/0001-walking-skeleton/src/   ~6000 LOC across 9 files
-docs/                              roadmap.md + stdlib.md + language-status.md
-bench/                             11 cases × 5 langs + harness + runners + results
+labs/0001-walking-skeleton/src/   ~9000 LOC across ~12 files
+docs/                              roadmap + language-status + getting-started + perf + stdlib
+bench/                             19 cases × 7 runtimes + harness + scoreboard
+examples/                          5 projects, byte-identical with bun
 ```
 
-### Currently executing
-
-M4 fully shipped: `throw / try / catch / finally` with non-number values, transitive may-throw analysis (zero per-call cost on non-throwing programs), cross-frame drops leak-free. Recent commits: `f334dec` (string throws) → `bb27682` (may-throw analysis). Up next: M5 (modules), M6.3 (JSON), M7 (async), or M8 (wasm32) — pick by user value, not dependency.
+> **Graduation status**: `labs/0001-walking-skeleton/` is still where the engine lives. v0.1.0-beta released without promoting to `crates/` — the API surface is settled enough for a `beta` tag but not for a stable crate boundary. Promotion to `crates/torajs-{core,cli,runtime}` is a v0.3 work item, not a v0.1 blocker.
 
 ---
 
 ## Execution path — committed order, no per-step ask
 
-The single committed path through the TS implementation. Each milestone is a coherent chunk of TS-surface coverage; sub-steps within a milestone roll up to one observable feature shipping. The agent runs each step end-to-end (code + tests + commit) without checkpointing back unless a real fork appears.
+The single committed plan from v0.1.0-beta to v1.0. Each milestone is a coherent slice of value the user can install and run; sub-steps roll up to it. The agent executes each step end-to-end (code + tests + commit) and then takes the next ordered item without checkpointing back, except on a real fork (genuine design question, irreversible decision, ambiguous-recovery failure).
 
-### M1 — finish the core surface
+### v0.1.0-beta — released 2026-05-04 (retrospective)
 
-Plug remaining holes in the language surface so non-trivial TS programs run.
+The `beta` tag means: tr is publicly installable, the surface is real, and every program tr accepts is bun-equivalent. Not yet stable enough for `crates/` graduation; not yet broad enough for "drop-in bun replacement"; broad enough to be useful for a meaningful slice of TS programs and to have its own test262 baseline.
 
-| step | what | exit gate |
-|---|---|---|
-| **M1.1** | line + block comments (`//`, `/* */`) in lexer | bench cases with comments parse + run |
-| **M1.2** | `Array<T>` runtime — alloc, `push`, `length`, indexing, drop | `let xs: number[] = []; xs.push(1); xs.push(2); console.log(xs.length);` works end-to-end on JIT + AOT |
-| **M1.3** | block-scope drops (currently only fn-level — `if (cond) { let x = ...; }` leaks until fn end) | inner-block heap drops at `}` boundary; verified via `leaks --atExit` |
-| **M1.4** | mutable struct field write `p.x = v` (currently rejected at Assign target check) | enable Member targets in Assign; emit drop for old field value if non-Copy |
-| **M1.5** | boolean ops `&&`, `\|\|`, `!` with TS truthy/falsy semantics | `if (a && b) { ... }` works |
-| **M1.6** | `for (let i = 0; i < n; i++)` C-style for-loop | bench cases use this idiomatically; currently rewritten to `while` |
-| **M1.7** | `break` / `continue` | currently no loop control |
+#### Public release surface
 
-Exit gate for M1: a non-trivial TS program (linked-list traversal, fibonacci with memoization via array, simple state machine) runs in torajs end-to-end on JIT + AOT, no leaks.
+- **Repo**: [github.com/goliajp/torajs](https://github.com/goliajp/torajs) (public, default branch `main`)
+- **Site**: [torajs.com](https://torajs.com) — Caddy on t01 serving the landing page (Fraunces serif + JetBrains Mono + tiger orange `#ff6f1a` accent)
+- **Install**: `curl -fsSL https://install.torajs.com | bash` — verified darwin-arm64 end-to-end; routes via Caddy 302 to the GitHub release tarball
+- **Release**: [v0.1.0-beta](https://github.com/goliajp/torajs/releases/tag/v0.1.0-beta) — GH Actions builds darwin-arm64 + linux-x64 tarballs on tag push
+- **Docs**: `docs/getting-started.md` / `docs/language-status.md` / `docs/perf.md` + `CHANGELOG.md`
+- **Examples**: 5 byte-identical-with-bun TS programs under `examples/`
 
-### M2 — Closures with implicit captures
+#### Language coverage shipped
 
-| step | what | exit gate |
-|---|---|---|
-| **M2.1** ✓ | free-variable analysis in `lift_arrow_fns` (TS-shape: name-only — no Move/Borrow distinction) | each capturing arrow becomes `Expr::Closure { fn_name, captures }` |
-| **M2.2** ✓ | closure environment lowering: heap env block `[i64 fn_ptr, cap_0, cap_1, ...]`, `Type::Closure(SigId)`, env-first call dispatch | capturing closure (single + multi capture, primitive types) runs end-to-end on JIT + AOT |
-| **M2.3** | non-Copy captures (string / Array / struct) — capture-by-alias semantics, env-side recursive drop walk | a closure that captures a string runs without leaking |
-| **M2.4** | mutable captures: `let count = 0; let inc = () => { count = count + 1; };` — boxed-cell lowering for write-shared bindings | shared-counter pattern works on JIT + AOT |
-| **M2.5** | additional bench cases: `closure-iter-fold` | row green |
-| ✓ shipped |  |  |
-| ✓ closure-counter bench (10M-iter capturing-closure tight loop) lands at torajs 20.83 ms vs rust 17.85 ms (1.17× behind), vs go 32 ms (1.55× faster), vs bun 46 ms (2.2× faster), vs node-v8 164 ms (7.9× faster) |  |  |
+- **Core surface**: `let` / `const` / uninit `let x;` / `if-else` / `while` / `do-while` / `for` / `for-of` / `break` / `continue` / `return` / block scope
+- **Types**: `number` (i64 default, f64 promotion on Math intrinsics / decimal lits / div), `boolean`, `string`, `void`, `null`, `Nullable<T>`, object literal types, homogeneous arrays `T[]`, function types `(args) => R`
+- **Generics**: `function f<T>(x: T): T` + `type Pair<A, B>` — monomorphized per call site; `any` / untyped fn params auto-promoted to fresh type-params
+- **Closures**: implicit captures, mutable captures via boxed-cell, escape-aware env-drop machinery
+- **Classes**: full feature set — fields, ctor, methods, single inheritance + `super(...)`, virtual dispatch (tag-switch today, vtable pending), static fields/methods, `private` / `protected`, abstract classes
+- **Error model**: `throw` / `try` / `catch` / `finally` with non-number throws (`string` / struct via `catch (e: T)`); transitive may-throw analysis skips throw-check on non-throwing callees
+- **Generators**: `function* g(): T` and `yield` / `yield *` via state-machine lowering
+- **Modules**: `import` / `export` (named imports across files)
+- **Operators**: `+ - * / % ** **=`, `& | ^ << >> >>>`, `< > <= >= === !==`, `&& || !`, optional chaining `?.`, nullish coalescing (basic), unary minus
+- **Stdlib**: variadic `console.{log, error, warn}`, full `Math.*` (35+ methods + 8 constants), `Number.*` (parseInt / parseFloat / isNaN / isFinite / isInteger + constants), 21 `String` methods (slice / charCodeAt / startsWith / endsWith / includes / indexOf / split / repeat / padStart / padEnd / trim / trimStart / trimEnd / toLowerCase / toUpperCase / replace (string-only) / replaceAll (string-only) / concat / at / fromCharCode / charAt), `Array<T>.{push, pop, shift, unshift, length, map, filter, reduce, forEach, indexOf, includes, join, sort (basic comparator), reverse, slice}`, full `JSON.{stringify, parse}` (caller-driven typing — no `<T>` needed), `arguments.length` / `arguments[N]` (literal index)
+- **Regex**: literal lex + AST + clean typecheck rejection (matching engine pending — see v0.2)
 
-### M3 — Generics in user code
+#### Substrate milestones
 
-The compiler already has `Array<T>` natively after M1. M3 generalizes the mechanism so users can write generic functions and types.
+- **Universal heap header + ARC** — every non-Copy heap object shares one 16-byte header (`refcount`, `type_tag`); `__torajs_rc_inc` / `__torajs_rc_dec` are the single ARC entry points; Array / String / Closure / Substr all participate. Aliasing of `Array<non-Copy>` end-to-end correct.
+- **Compile-time ownership inference** — single-owner paths drop deterministically at scope exit; multi-owner paths (Array<T>, throw/catch shared structs, closure captures crossing scopes) routed through hidden ARC. No user-visible `Rc<T>` / `.clone()`.
+- **LLVM AOT backend with cache** — single SSA → Inkwell pipeline serves both `tr build` (write to user path) and `tr run` (write to `~/.torajs/cache/<hash>`, exec). Cranelift JIT prototype tried at P3.6 and removed 2026-05-01 — weaker codegen lost compute benchmarks.
+- **String runtime**: small-Str 32-slot LIFO pool, view-aware split/concat (1 malloc per split), `Substr` as independent `Type::Substr` (Swift / .NET pattern) — view ops zero-alloc.
+- **Width-aware monomorphization + bidirectional F64↔I64 call-site coercion** — Math.* in generic fns + numeric mixed call sites compile cleanly without manual annotations.
+- **Source-rewrite layer** — `==` / `!=` rewritten to strict; small set of substrate normalizations applied pre-typecheck.
+- **Panic hook** — every `unimplemented!` / `unreachable!` is reclassified into a typed "not yet supported" reject with the phase that will close it.
 
-| step | what | exit gate |
-|---|---|---|
-| **M3.1** ✓ | parser/AST: type params on fn decls (`function id<T, U>(...)`) | parses + typechecks; `Stmt::FnDecl.type_params` populated |
-| **M3.2** ✓ | call-site type inference + `Type::TypeVar` placeholder; generic body skipped in pass-2 typecheck | `id(5)` infers `T = number`, `id("x")` infers `T = string`; substitution recorded per-`ExprId` |
-| **M3.3** ✓ | monomorphization pre-pass in ssa_lower: clone the generic FnDecl per unique `(name, type_args)`, substitute type-param annotations, retarget call sites to mono name | `id<number>(5)` and `id<string>("hi")` lower to distinct concrete fns; multi-param generics (`fst<A, B>`, `snd<A, B>`) work on JIT + AOT |
-| **M3.4** ✓ | generic structs: `type Pair<A, B> = { fst: A, snd: B }` instantiated on-demand into concrete `Type::Obj(sid)` via flat-string `Foo<arg|arg>` annotation + per-lowerer mutable `struct_layouts` | round-trips on JIT + AOT; generic-pair-1m bench at torajs (AOT) 1.47 ms vs rust 2.51 ms |
+#### Bench position (M4 Pro, hyperfine n=5)
 
-### M4 — Error model: try / catch / throw
+`tr build` wins **all 19 cases** vs bun on the current scoreboard (latest sweep includes csv-rebuild +18 % over bun). Vs `rust`: parity to small wins on most cases, large wins on throw-catch-100k (feature-asymmetric); `closure-counter` ~17 % behind rust is the remaining loss. `tr run` (cache hit) trails `tr build` by ~8 ms exec floor, still beats bun-jsc on every compute case.
 
-| step | what | exit gate |
-|---|---|---|
-| **M4.1** ✓ | parser/AST/typecheck for `throw`, `try`, `catch`; module-level throw-state globals (`throw_active`, `throw_value`); per-call-site throw_check + cond_br to active try's catch or fn-level propagate | `safe(5) → 6, safe(-5) → 0`; 2-level propagation across fn boundaries works |
-| **M4.2** ✓ | `finally` block — runs on try fall-through, catch fall-through, and catch-rethrow path; cond_br on throw_check at finally end | `try { log = inner(n) } catch (e) { log = e+1; throw 200 } finally { console.log(log) }` runs finally on every path; throw-catch-100k bench at torajs (AOT) 1.41 ms vs rust 432 ms |
-| **M4.3** ✓ | non-number throw values (string + struct), `catch (e: T)` annotation drives reinterpretation of the i64 throw_value, may-throw escape analysis to skip the per-call `throw_check` on verified-non-throwing callees, cross-frame drops verified leak-free | `throw { message: "..." }` + `catch (e: Err)` works; fib40 recovers from M4.1's 5% slowdown; `leaks --atExit` reports 0 leaks |
+See `README.md` and `bench/results/` for the full table.
 
-### M-OO — Class / OO surface (cross-cutting; ran 2026-05-01)
+---
 
-| step | what | exit gate |
-|---|---|---|
-| **M-OO.1** ✓ | single class — fields, constructor, methods, `new C()`, `c.method()`, `this`. Desugared post-parse into `type C = {...}` + `function __cm_C__m(__this, ...)`. Receiver borrows; `__cm_` prefix marks borrow-receiver in check.rs / ssa_lower. | 5 conformance cases + bun 3-way agreement. 1M-iter counter loop: 10 ms (cache-hit) vs bun 15 ms |
-| **M-OO.2** ✓ | single inheritance — `class Sub extends Base { ... }` + `super(args)` in subclass ctor. Field flattening (parent fields + own); declaration-order check; method-name uniqueness across the chain (override is M-OO.3). Receiver type-check accepts struct-prefix subtypes (Dog → Animal). | 3 conformance cases + multi-level chain works |
-| **M-OO.3** ✓ | virtual dispatch — `[header][class_tag][vtable_ptr][fields...]` layout (24 B prefix); behavioral exit met via inline tag-switch over chain owners (deepest-first) at every `__dispatch_<M>` interception. vtable_ptr slot reserved at offset 16 but null today; converting tag-switch → vtable indirect call is a perf cleanup task (O(chain depth) → O(1)) deferred until profile shows it on a hot path. `instanceof-005-method-override.ts` exercises full chain (Animal → Dog → Puppy + side-branch Cat) including upcasting through `Animal[]`. | shipped via tag-switch; vtable upgrade tracked separately |
-| **M-OO.4** ✓ | static fields/methods — `static fieldName: T = init` desugars to `let __sf_<C>__<n>: T = init` (K.3/K.4 globals); `static methodName(...)` desugars to top-level `__sm_<C>__<n>` FnDecl. `<Class>.<member>` rewritten by `desugar_classes` to flat Ident before downstream passes. Init required on static fields (no ctor). | shipped — `m-oo-04-static.ts` exercises number/string fields + static-method-returning-instance + cross-fn reads + nested static calls |
-| **M-OO.5** ✓ | public / private / protected modifiers — parser + AST metadata + check.rs enforcement. Caller class context tracked via `Checker.current_class` (set on `__cm_<C>__*` / `__sm_<C>__*` fn entry); `LocalInfo.declared_class` carries nominal class info on bindings whose type ann matches a known class (no `Type::Class(name, fields)` substrate change needed). Member access looks up `ast.member_visibility` and rejects Private from outside the declaring class / Protected from outside the class-and-descendants chain. `readonly` field write enforcement deferred. | shipped — `m-oo-05-modifiers-syntax.ts` exercises legal patterns (private via `this`, protected via subclass `this`); negative paths verified by hand-built reject probes |
-| **M-OO.6** ✓ | abstract classes — `abstract class`, `abstract method` | shipped — `m-oo-06-abstract.ts` exercises Shape/Circle/Square chain with concrete describe() + abstract area() override; concrete subclass missing-override and `new AbstractClass()` both rejected at desugar time |
+### v0.2 — substrate completeness
 
-### M5 — Module system
+**Goal**: every TS program bun runs either runs on tr or hits a clean rejection pointing at a known v0.3+ phase. The 100 % tr-accepted parity guarantee from v0.1 is preserved; what grows is the *accepted* set.
 
-| step | what | exit gate |
-|---|---|---|
-| **M5.1** | `import { x } from "./y.ts"` parser + AST | parses |
-| **M5.2** | path resolution from `tora.toml` project root | cross-file references resolve |
-| **M5.3** | per-module typecheck + cross-module type unification | type defined in `a.ts`, used in `b.ts`, structurally equal |
-| **M5.4** | incremental compilation: cache per-module SSA | second `tr build` of unchanged code finishes < 50 ms |
-| **M5.5** | stdlib reorganization: `Math.*` etc. become `import { ... } from "@torajs/std"` | bench unchanged |
+**Exit gate**:
+- test262 in-scope pass ≥ **2500/23941** (~10 % of full-suite, ~25–50 % of in-scope slice depending on size estimate)
+- `tr-accepted parity` stays at 100.00 % (zero regressions on the bun-equivalence guarantee)
+- bench scoreboard: `tr build` wins all 19+ existing cases vs bun (no regression); 5+ new cases added covering regex / Date / Object stdlib
 
-**Graduation point**: end of M5, `labs/0001-walking-skeleton/` promotes to `crates/torajs-core/` + `crates/tr-cli/`. `v0.1` tag.
+#### Ordered execution
 
-### M6 — Standard library expansion (bun-shape stdlib)
+1. **Regex matching engine** *(highest leverage; multi-day phase)*
+   - Regex literal lex + AST already shipped (commit `5434f12`)
+   - Build: NFA construction → DFA conversion (Thompson + subset construction) in C runtime (`__torajs_regex_*`); textbook PL approach, no external dep
+   - Surface: `RegExp` type + `s.match(re)` / `s.replace(re, repl)` / `s.replaceAll(re, repl)` / `re.test(s)` / `re.exec(s)` / `s.split(re)` / `s.matchAll(re)`
+   - Flags: `g`, `i`, `m`, `s`, `u`, `y` (Unicode property escapes `\p{...}` deferred to v1.0 unless test262 forces earlier)
+   - Exit gate: regex bench cases at bun parity; test262 regex-syntax cases that don't require Unicode property escapes pass
 
-| step | what | exit gate |
-|---|---|---|
-| **M6.1** ✓ | `String` methods — `slice`, `charCodeAt`, `startsWith`, `endsWith`, `includes`, `indexOf`, `split`, plus `Array<string>.join`. All borrow-shaped, both backends. (`substring` is a slice alias and deferred; arrays of arbitrary element types are unblocked.) | inline test exercises all 8 methods; round-trip `s.split(",").join("-")` works on JIT + AOT |
-| **M6.2** ✓ (partial) | `Array` methods: `map`, `filter`, `reduce`, `forEach` shipped — `(T) => T` uniform map only, method chains compose, capturing closures + top-level fn callables both work; `find` / `slice` deferred | array-map-1m bench at torajs (AOT) 37.49 ms vs rust 27.40 ms / go 21.45 ms; trails rust+go on per-push capacity check, beats bun (1.6×) and node-v8 (6.7×) |
-| **M6.3** ◐ | `Date`, `JSON.parse` / `JSON.stringify` | **`JSON.stringify` + `JSON.parse` shipped end-to-end** — primitive / array / object / class instance / nested. Caller-driven typing: `let v: T = JSON.parse(text)` reads the slot's annotation `T` at lower-time, so no explicit `<T>` syntax needed. Runtime helpers in `runtime_str.c` (`__torajs_json_*`); ssa_lower compiles per-shape recursive parser/encoder. `m6-09-json-stringify-primitives.ts` / `m6-10-json-stringify-arr-obj.ts` / `m6-11-json-parse.ts`. Surrogate-pair `\uXXXX` decoding, custom revivers, JSON.parse on number-typed `1.5` (currently I64 path only) — follow-ups. **`Date` not yet started.** |
-| **M6.4** | `fs` (initial scope: `readFileSync`, `writeFileSync`) | reads/writes a file end-to-end |
-| **M6.5** | `Bun.file`, `Bun.write` (initial Bun namespace surface) | matches bun's surface |
+2. **Date class**
+   - Constructor: full arity (no-arg = now, ms-since-epoch, ISO 8601 string, year/month/day/...); ISO 8601 parser hand-written
+   - Methods: getFullYear / getMonth / getDate / getHours / getMinutes / getSeconds / getMilliseconds / getDay / getTime / valueOf / toISOString / toString / toLocaleString (basic) / setX-counterparts
+   - Static: Date.now() / Date.parse() / Date.UTC()
+   - Timezone: local + UTC; full Intl.DateTimeFormat deferred
+   - Exit gate: ISO round-trip works; date-arithmetic bench cases run on tr at bun parity
 
-### M7 — Async / await
+3. **Object stdlib (real implementations, not stubs)**
+   - `Object.{keys, values, entries, assign, freeze, isFrozen, getPrototypeOf, setPrototypeOf, getOwnPropertyDescriptor, defineProperty, defineProperties, fromEntries, hasOwn}`
+   - Requires runtime introspection on the universal heap header → expose declared field list per `Type::Obj(StructId)`
+   - Exit gate: programs that iterate over object properties work without source rewrite
 
-| step | what | exit gate |
-|---|---|---|
-| **M7.1** | parser/AST/typecheck for `async fn` and `await` | async fn signatures typecheck; await on non-Future errors |
-| **M7.2** | state machine lowering: each `await` yields control to the executor | runtime can poll a state machine to completion |
-| **M7.3** | single-threaded executor (Tokio-shape, no thread pool) | `tr run` of an async program executes to completion |
-| **M7.4** | `Promise.all` / `Promise.race` / `Promise.allSettled` | combinator bench passes |
-| **M7.5** | async closures (gates on M2) | works |
-| **M7.6** | `fetch` (HTTP via reqwest) | round-trip a real GET request |
+4. **`arguments` full materialization**
+   - Runtime heterogeneous `arguments` array (vs current literal-index rewriting)
+   - `arguments.callee` (basic), `arguments.length`, `arguments[N]` (dynamic index), `[...arguments]` spread
+   - Exit gate: variadic non-arrow function parity with bun
 
-Multi-threaded executor + `Send` / `Sync` deferred to M9 (post-v1.0); single-threaded async covers the bun-parity surface for v1.0.
+5. **`JSON.parse` number path**
+   - Today: `JSON.parse(...)` only handles I64 default; `1.5` truncates
+   - Add f64 path + auto-promote based on caller-side type annotation (extends the caller-driven typing already shipped for `JSON.parse`)
+   - Exit gate: `JSON.parse("1.5")` returns `1.5`; round-trip `JSON.stringify(JSON.parse(s))` byte-identical with bun on a fixture set
 
-### M8 — Playground + tooling
+6. **String method gaps test262 surfaces**
+   - Likely: `s.normalize()`, `s.codePointAt`, `String.raw`, `s.replace` / `s.replaceAll` with regex (gates on item 1)
+   - Exit gate: residual test262 string failures bucket drops to < 50 cases
 
-| step | what | exit gate |
-|---|---|---|
-| **M8.1** | wasm32 target: engine compiles to wasm, runs in browser | `tr run "console.log('hi')"` in a worker page |
-| **M8.2** | torajs.com/playground: editor + run button + share-link | live |
-| **M8.3** | bench scoreboard auto-rendered from `bench/results/` | auto-update on commit |
-| **M8.4** | LSP server: hover / goto-def / diagnostics | VS Code extension shows hovers + jumps |
-| **M8.5** | formatter, linter, `tr test` runner | `tr fmt`, `tr lint`, `tr test` work |
+7. **Array method gaps test262 surfaces**
+   - Likely: `arr.flat`, `arr.flatMap`, `arr.findLast`, `arr.findLastIndex`, `Array.from`, `Array.of`
+   - Exit gate: residual test262 array failures bucket drops to < 100 cases
 
-### M9 — Polish + integration → v1.0
+---
 
-| step | what | exit gate |
-|---|---|---|
-| **M9.1** | DWARF debug info on AOT; source-mapped panic backtraces | crash backtrace points at `.tora.ts` line |
-| **M9.2** | `tr debug` step-debugger (DWARF-driven, on the AOT-cache binary) | step into / step over works |
-| **M9.3** | `tr repl` interactive loop | `tr repl` evaluates expressions live |
-| **M9.4** | `libtora.a` + `tora_eval()` for embedding in Rust hosts | embed in a Rust app, run a script |
-| **M9.5** | multi-threaded executor + `Send`/`Sync` (post-v1.0 stretch) | parallel mandelbrot scales linearly |
+### v0.3 — stdlib expansion + dev tooling base
 
-`v1.0` tag at end of M9.
+**Goal**: tr can run a real-world TS program (an npm-equivalent slice — small CLI, file processor, log-line transformer) end-to-end, and the dev workflow has first-class IDE + debugger story.
 
-Total time-to-v1.0 estimate: 12–24 months, depending on stdlib scope creep at M6.
+**Exit gate**:
+- 5 real-world TS programs (chosen from popular npm CLIs, rewritten in idiomatic TS) run on tr byte-identical with bun
+- LSP server provides hover + goto-def + diagnostics in VS Code; round-trip latency < 50 ms on 1 K-line file
+- DWARF debug info maps panic backtraces back to `.ts` source `file:line:col`
+- Engine has graduated from `labs/0001-walking-skeleton/` to `crates/torajs-{core,cli,runtime}/`
+
+#### Ordered execution
+
+1. **`fs` module**
+   - `readFileSync`, `writeFileSync`, `appendFileSync`, `existsSync`, `readdirSync`, `statSync`, `mkdirSync`, `unlinkSync`
+   - Async equivalents (gates on v0.5 async/await; sync surface ships first)
+   - Exit gate: file-processing CLIs work end-to-end on tr
+
+2. **`Bun` namespace surface**
+   - `Bun.file(path).text()` / `.arrayBuffer()` / `.json()`
+   - `Bun.write(path, data)`
+   - `Bun.argv`, `Bun.env` (Bun-style env access on top of `process.env`-equivalent)
+   - Exit gate: bun-compatible file I/O programs run on tr
+
+3. **`process` surface**
+   - `process.argv`, `process.env`, `process.exit`, `process.cwd`, `process.platform`, `process.stdout.write`, `process.stderr.write`, `process.stdin.read` (sync)
+   - Exit gate: node/bun CLI patterns work
+
+4. **DWARF debug info on AOT**
+   - Emit DWARF for ssa_lower output; map LLVM IR back to `.ts` source (line + col)
+   - Panic backtrace shows source location
+   - Exit gate: panic on a `.ts` program shows the right `file:line:col`
+
+5. **LSP server skeleton**
+   - Per-edit incremental typecheck against tr's own check.rs
+   - Hover (type + JSDoc passthrough)
+   - Goto-def (functions, types, classes, methods)
+   - Diagnostics (errors + warnings from check.rs, mapped to LSP severity)
+   - VS Code extension scaffold + publish to marketplace as "torajs (preview)"
+   - Exit gate: VS Code extension provides hovers + jump-to-def; round-trip latency < 50 ms on a 1 K-line file
+
+6. **Graduation: `labs/0001-walking-skeleton/` → `crates/`**
+   - `crates/torajs-core` (engine: lex, parse, check, ssa, ssa_lower, ssa_inkwell)
+   - `crates/torajs-cli` (the `tr` binary)
+   - `crates/torajs-runtime` (the C runtime, built as a static lib + linked at AOT)
+   - Cargo workspace builds cleanly; tr binary byte-identical to the pre-graduation build
+   - Exit gate: `cargo build --workspace` green; existing tests + bench + test262 numbers preserved
+
+7. **`tr fmt` + `tr lint`**
+   - `tr fmt` (deterministic source reformatter — no config, prettier-shape opinionated)
+   - `tr lint` (surfaces the warning set check.rs already emits, plus 5–10 hand-picked rules: unused-let, dead-code-after-return, unreachable-catch, etc.)
+   - Exit gate: `tr fmt` formats valid TS; `tr lint` reports diagnostics on a curated bad-code suite
+
+---
+
+### v0.5 — playground + async/await
+
+**Goal**: torajs.com/playground is live (people can try tr without installing), async/await + Promise + fetch work, async bench cases land on the scoreboard.
+
+**Exit gate**:
+- torajs.com/playground compiles + runs TS in-browser and supports share links
+- A non-trivial async program (HTTP request + JSON parse + Promise.all over 10 fetches) runs end-to-end
+- Bench scoreboard adds 5+ async cases; tr at bun parity or better
+- Bench scoreboard auto-rendered from `bench/results/` on every commit
+
+#### Ordered execution
+
+1. **wasm32-wasi target for the engine**
+   - Cargo target `wasm32-wasi`; Inkwell → wasm IR; engine runs inside a wasm worker
+   - Exit gate: `tr run "console.log('hi')"` in a worker page
+
+2. **`async` / `await`**
+   - Parser/AST/typecheck for `async fn` and `await`
+   - State-machine lowering: each `await` yields control to the executor (textbook PL approach — same shape as Rust async, Swift async, Kotlin coroutines)
+   - Single-threaded executor (Tokio-shape, no thread pool — multi-threaded deferred to v1.x)
+   - `Promise.all`, `Promise.race`, `Promise.allSettled`, `Promise.any`, `Promise.resolve`, `Promise.reject`
+   - Async closures (gates on v0.1 closure machinery, already shipped)
+   - Exit gate: 5 async bench cases at bun parity or better
+
+3. **`fetch` (HTTP)**
+   - Host (CLI): via `reqwest` — bundled in the runtime, not a runtime-time dep
+   - wasm32: via browser `fetch`
+   - Streaming response body (basic forms)
+   - Exit gate: round-trip a real GET request; bench case `fetch-100-urls` at bun parity
+
+4. **Playground UI**
+   - Editor (Monaco) + run button + share-link (URL-encoded source)
+   - Output panel + bench scoreboard (auto-rendered from `bench/results/`)
+   - Hosted at `torajs.com/playground`
+   - Exit gate: `playground.torajs.com` live; share link round-trips work
+
+5. **Bench scoreboard auto-render**
+   - Reads `bench/results/*.json` at build time; renders to a static page
+   - Updates on every commit to `develop`
+   - Exit gate: scoreboard live on torajs.com/bench
+
+---
+
+### v1.0 — polish + integration + 90 % test262
+
+**Goal**: production-grade developer experience; the long-tail substrate (Symbol, BigInt, Function constructor, WeakRef family) closed; test262 in-scope slice ≥ 90 % pass.
+
+**Exit gate**:
+- test262 in-scope pass ≥ **90 %** (per `feedback_test262_v1_target.md`)
+- `tr debug` step-debugger usable for non-trivial programs
+- `libtora.a` + `tora_eval()` lets Rust hosts embed the runtime
+- Multi-platform release: darwin-arm64 + linux-x86_64 + linux-aarch64 + windows-x86_64
+- Bench scoreboard: `tr build` wins all cases on M-series + linux-x64 + linux-aarch64
+
+#### Ordered execution
+
+1. **`tr debug` step-debugger** (DWARF-driven, on the AOT-cache binary)
+   - Step into / step over / step out
+   - Breakpoint at `file:line`
+   - Variable inspection (primitives + structs + arrays)
+   - Exit gate: step through a non-trivial TS program; integrates with VS Code DAP
+
+2. **`tr repl` interactive loop**
+   - State preservation across lines; history; multi-line input
+   - Exit gate: repl evaluates expressions live; can define functions / classes and call them across lines
+
+3. **`libtora.a` + `tora_eval()` (embedding API)**
+   - C ABI: `tora_eval(source, &result, &error)` + per-context state
+   - Rust crate `torajs-embed` wraps it; idiomatic Rust API on top
+   - Sandboxing knobs (no fs / no net / memory cap) — off-by-default = unsafe; embedders opt out explicitly
+   - Exit gate: embed in a Rust app, run a TS script, read the result back
+
+4. **Symbol + BigInt + Function constructor**
+   - `Symbol` with metadata machinery (well-known symbols: `Symbol.iterator`, `Symbol.asyncIterator`, `Symbol.toPrimitive`)
+   - `BigInt` via self-hosted arbitrary-precision integers (libgmp considered and rejected — violates pillar 2 "自研")
+   - `Function` constructor via runtime eval — gates on a JIT-shaped pipeline; design open between (a) runtime invocation of the AOT pipeline + dlopen, (b) keeping an interpreter slice for `Function` only. Decision deferred to mid-v1.0
+   - Exit gate: test262 cases requiring these features pass; the Symbol-and-friends bucket drops to < 100 cases
+
+5. **WeakRef / WeakMap / WeakSet (cycle-collecting)**
+   - ARC-aware cycle collector (textbook approach: trial deletion — Bacon & Rajan 2001)
+   - Exit gate: cyclic data structures don't leak; bench case `cycle-1k` doesn't grow RSS
+
+6. **vtable upgrade for virtual dispatch** (perf cleanup)
+   - Today: tag-switch per virtual call site (`O(chain depth)`)
+   - v1.0: vtable indirect call (`O(1)`) — vtable_ptr slot already reserved at offset 16 of the class layout
+   - Exit gate: virtual-dispatch micro-bench shows the speedup; existing OO bench cases don't regress
+
+7. **Multi-platform release pipeline**
+   - darwin-arm64 (already shipping)
+   - linux-x86_64, linux-aarch64
+   - windows-x86_64
+   - `install.torajs.com` script updated to detect platform + pull the right tarball
+   - Exit gate: install + run on 4 platforms; CI matrix green
+
+8. **test262 push to 90 %**
+   - Close remaining substrate gaps as test262 surfaces them (running test262 every commit on `develop` since v0.1, so this is mostly catch-up work)
+   - Likely large buckets: regex Unicode property escapes, Intl.*, advanced async edge cases, Tagged template edge cases
+   - Exit gate: ≥ 90 % pass on in-scope slice; final number reported in CHANGELOG
+
+`v1.0` tag at end.
+
+**Time-to-v1.0 estimate (revised from v0.1.0-beta)**: 9–15 months, depending on stdlib scope creep at v0.3 and how much of the long-tail substrate (Symbol, BigInt, Function ctor) needs design rework.
+
+---
+
+### Beyond v1.0 — stretch goals
+
+Not committed; tracked here so they don't get lost.
+
+- **Multi-threaded executor + `Send` / `Sync`** — parallel mandelbrot scales linearly; requires per-actor heap or shared-heap concurrent ARC
+- **WebAssembly user-code target** — emit wasm artifacts from `.ts` source for non-browser deployment (different from v0.5's "engine-as-wasm")
+- **torajs package manager** (`tora install`) — npm-shape; tarball + lockfile; resolves from registry. Gates on a security/supply-chain story
+- **Decorators** — if user demand surfaces post-v1.0
+- **Intl.*** — full ICU integration (basic Intl shipped at v0.3 / v1.0 as test262 forces)
 
 ---
 
@@ -276,7 +387,7 @@ Total time-to-v1.0 estimate: 12–24 months, depending on stdlib scope creep at 
 - **Front-loaded detail** — milestones close to now are spelled out per-step; far milestones are headers + exit gates. We re-detail later milestones when we get there.
 - **Each step is potentially throwaway** — research mode. If a step's outcome surprises us, we revisit before continuing.
 - **bun is the oracle** — when behavior is ambiguous, write the TS equivalent, run in `bun`, match.
-- **All P0-P3 work lives in `labs/0001-walking-skeleton/`**. Graduation to `crates/` happens at end of M5 (modules) when the API surface stabilizes.
+- **All v0.1 work lives in `labs/0001-walking-skeleton/`**. Graduation to `crates/torajs-{core,cli,runtime}/` is a v0.3 work item, when the API surface is stable enough to commit to crate boundaries.
 
 ---
 
@@ -323,19 +434,11 @@ Picking LLVM solved the codegen layer. The runtime layer (no GC, deterministic d
 
 A horizontal track running alongside every milestone, not numbered as a phase. Lives at `bench/` (top-level), implemented as a Rust harness crate that drives **bun, node, rust, go, python**, and torajs through a uniform per-case workload.
 
-### Status (2026-05-01 — post Cranelift drop)
+### Status (2026-05-04, HEAD `5434f12`)
 
-`torajs-jit` row replaced by `torajs-run` (same `tr run` command, but the implementation is now AOT-with-cache against LLVM, not a Cranelift JIT). Hyperfine warmup measures the steady-state cache hit. Spot-check across 4 cases:
+`tr build` wins **all 19 cases** vs bun on the current scoreboard (latest sweep includes csv-rebuild +18 % over bun). `tr run` (cache hit) trails `tr build` by ~8 ms exec floor but still beats bun-jsc on every compute case. The seven runtimes compared: `rust`, `go`, `node-v8`, `bun-aot`, `bun-jsc`, `torajs` (`tr build` AOT), `torajs-run` (`tr run` cache hit).
 
-```
-case          torajs (AOT)  torajs-run  rust    go     bun-jsc  bun-aot  node-v8
-popcount           3.03       11.09     3.07    54.82  56.61    56.59    131.46
-fib40            153.41      225.99   183.30   232.31 395.27   391.54    669.52
-mandelbrot        35.21       43.78    35.70    38.46  53.88    53.42    132.21
-startup            1.70       10.93     1.72     2.60  10.93    11.36     88.00
-```
-
-`torajs-run` beats bun-jsc on every compute case (5× on popcount, 1.75× on fib40, 1.23× on mandelbrot) and ties bun on startup (both ~11 ms — exec + dyld floor). The 8 ms cache-hit overhead is the new `tr run` floor; pure `torajs` AOT is at Rust parity.
+See `bench/results/` for the full per-case table; `README.md` carries the rendered scoreboard.
 
 ### Adding a case
 
@@ -360,56 +463,64 @@ Work that runs **alongside** every milestone, not as one of them. Tracked here s
 ### CI / release process
 
 - **GitHub Actions on `develop`**: per-commit `cargo build` + `cargo test` + `cargo clippy --workspace --all-targets -- -D warnings` + `bun run check` for `web/`. Gates merge.
-- **Release branches** per `git-flow`. `main` is production; `develop` is integration; milestones close on `develop` and roll up to `main` at tags (`v0.1` after M5, `v0.5` after M8, `v1.0` after M9).
+- **Release branches** per `git-flow`. `main` is production; `develop` is integration; milestones close on `develop` and roll up to `main` at version tags (`v0.1.0-beta` shipped 2026-05-04 from `develop` directly; subsequent stable tags follow git-flow `release/*` branches).
 - **Tag-driven artifact publishing** on tag: build `tr` binary for darwin-aarch64 + linux-x86_64 + linux-aarch64 + windows-x86_64, package as a tarball, attach to GH release. Distributed via a future `tora-up` install script.
 
 ### Documentation
 
 - **`docs/` is canonical** — this roadmap, `stdlib.md`, `language-status.md`, future `lang-reference.md`, `embedding.md`. Versioned with the code.
-- **Public website** at `torajs.com` — landing + playground (M8) + docs + bench scoreboard (auto-generated from `bench/results/`).
+- **Public website** at `torajs.com` — landing (live since v0.1) + playground (v0.5) + docs + bench scoreboard (auto-generated from `bench/results/`).
 - **No external blog/marketing** during research phase. Communications happen on takagi's discretion.
 
 ### Performance work as a continuous track
 
 Perf work happens incrementally:
-- After P3 closeout: codegen baseline established.
-- During M1-M5: avoid regressing existing bench cases as features land.
-- After M5 (graduation): formal perf RFCs land — bit-packing for bool, SoA layouts for hot loops.
-- After M3 (generics): monomorphization-driven inlining tweaks.
-- After M9: source maps unlock profiler workflows — perf work becomes profile-guided.
+- v0.1 (shipped): codegen baseline established (LLVM AOT + cache); 19/19 bench wins vs bun.
+- v0.2 / v0.3: avoid regressing existing bench cases as features land; new substrate (regex, Date, fs) gets its own bench cases.
+- v0.3 (graduation to `crates/`): formal perf RFCs land — bit-packing for bool, SoA layouts for hot loops, vtable for virtual dispatch.
+- v0.5 (DWARF / source maps): perf work becomes profile-guided as DWARF unlocks profiler workflows.
+- v1.0+: monomorphization-driven inlining tweaks, ARC-aware cycle collector tuning.
 
 ### Security / threat model (for embedding + playground)
 
-- **CLI binary** — runs trusted user code; same threat model as Node/Bun.
-- **Embedding API** (M9) — runs partially-trusted scripts. Sandboxing knobs mandatory; off-by-default = unsafe.
-- **Playground** (M8) — runs untrusted code in an isolated wasm worker, hard memory + CPU caps. Fresh instance per Run.
-- **No supply-chain story** until package manager exists. Stdlib + user-relative imports only — no third-party packages can introduce vulnerabilities.
+- **CLI binary** (shipped) — runs trusted user code; same threat model as Node/Bun.
+- **Embedding API** (v1.0) — runs partially-trusted scripts. Sandboxing knobs mandatory; off-by-default = unsafe.
+- **Playground** (v0.5) — runs untrusted code in an isolated wasm worker, hard memory + CPU caps. Fresh instance per Run.
+- **No supply-chain story** until package manager exists (post-v1.0). Stdlib + user-relative imports only — no third-party packages can introduce vulnerabilities.
 
 ---
 
 ## Out-of-scope features
 
-Things explicitly NOT planned. Some have been demoted from earlier drafts (under the wrong "Rust semantics" framing):
+Things explicitly NOT in the v1.0 path. Some have been demoted from earlier drafts (under the wrong "Rust semantics" framing) or restored after a corrected understanding (`feedback_torajs_ambition`).
 
-- ~~**`null` / `undefined`** — dropped by design.~~ `null` is supported (since 2026-05-04, `Type::Ptr` becomes Copy + null sentinel handling). `undefined` is a roadmap item — until it lands, use `Nullable<T>` (`T | null`).
-- **`==` / `!=`** — only `===` / `!==`.
+- **`==` / `!=`** — only `===` / `!==`. Source-rewrite layer normalizes loose equality to strict before typecheck.
 - **`var` keyword** — only `let` / `const`.
-- **Decorators** — not planned. Use cases are better served by macros (far) or manual code.
-- **JSX** — out of scope.
-- **`Symbol` / `Proxy` / `Reflect` / `WeakMap` / `WeakRef`** — dropped. Static typing makes most unnecessary; no-GC runtime makes the rest unsound.
-- **`eval` / `Function` constructor** — dropped.
-- **Class syntax (initial)** — possibly later as desugaring to `type` + `impl`-style methods. Not in M1-M9 critical path.
-- **Conditional / mapped types** (`Pick<T, K>`, `Partial<T>`, `T extends U ? X : Y`) — TS-specific compiler tricks bound to its inference model. Probably never.
-- **Cycle-collecting weak references** — no-tracing-GC contract. Cycles are a roadmap item: v1.0 must support them (bun does, via V8). The implementation will be ARC-aware cycle collector or similar; not a "users restructure to avoid" surface.
-- **`Rc<T>` / `Arc<T>` / `RefCell<T>` user-visible types** — corrected on 2026-04-30. The runtime implementation may use refcount-like techniques internally, but these are NEVER user-facing.
-- ~~**Test262 conformance** — out of scope.~~ **Restored as a hard requirement on 2026-05-03** (see `Hard requirements #7`). The in-scope slice of test262 (~5K–15K cases) is a v1.0 gate at ≥ 90 % pass.
-- **WebAssembly user-code target** (different from "engine-as-wasm" in M8) — emit wasm artifacts from user `.tora.ts` source for non-browser deployment. Beyond v1.0 timeline.
-- **Multi-threaded executor + `Send`/`Sync`** — single-threaded async is enough for v1.0 (matches bun's main path). Multi-threaded deferred to M9.5 (post-v1.0).
+- **Decorators** — not in v1.0 path. Use cases are better served by macros (far) or manual code; if user demand surfaces post-v1.0, revisit.
+- **JSX** — out of scope. Use plain TS or a build-time preprocessor.
+- **`Proxy` / `Reflect`** — dropped. No-GC runtime makes Proxy's interception model expensive; static typing covers the Reflect surface in 95 % of cases.
+- **Conditional / mapped types** (`Pick<T, K>`, `Partial<T>`, `T extends U ? X : Y`) — TS-specific compiler tricks bound to its inference model. Probably never; the bun-equivalence guarantee is observable behavior, not type-system identity.
+- **`Rc<T>` / `Arc<T>` / `RefCell<T>` user-visible types** — the runtime uses refcount-like techniques internally on the universal heap header, but these are NEVER user-facing.
+- **WebAssembly user-code target** (different from "engine-as-wasm" in v0.5) — emit wasm artifacts from `.ts` source for non-browser deployment. Post-v1.0.
+- **Multi-threaded executor + `Send` / `Sync`** — single-threaded async is enough for v1.0 (matches bun's main path). Multi-threaded deferred to post-v1.0.
+
+### Restored to the path (corrections from earlier drafts)
+
+- ~~`null` dropped by design~~ — `null` is supported (since 2026-05-04, `Type::Ptr` becomes Copy + null sentinel handling). `undefined` is a v1.0 work item — until it lands, use `Nullable<T>` (`T | null`).
+- ~~Class syntax (initial) — possibly later~~ — class is **fully shipped in v0.1.0-beta** (instance + static fields/methods, single inheritance + super, virtual dispatch, abstract classes, `private`/`protected` modifiers).
+- ~~`Symbol` / `WeakMap` / `WeakRef` dropped~~ — moved to v1.0 with a self-hosted ARC-aware cycle collector; bun supports them via V8 so tr must too.
+- ~~`eval` / `Function` constructor dropped~~ — `Function` constructor is a v1.0 work item; the design is open between (a) runtime invocation of the AOT pipeline + dlopen and (b) keeping an interpreter slice for `Function` only. `eval` follows the same path.
+- ~~Test262 conformance out of scope~~ — restored as a hard requirement on 2026-05-03. The in-scope slice of test262 (~5K-15K cases) is a v1.0 gate at ≥ 90 % pass; v0.1 baseline is 651/23941, v0.2 target is ≥ 2500/23941.
+- ~~Cycle-collecting weak references~~ — v1.0 must support them; the implementation is an ARC-aware cycle collector (Bacon & Rajan trial-deletion approach), not a "users restructure to avoid" surface.
 
 ---
 
-## Historical phase numbering (P0–P17)
+## Historical phase numbering
 
-Pre-2026-04-30 the roadmap used phase-numbered sections (P0, P1, P2, ..., P17) with detailed sub-step breakdowns. Those sections were written under the now-discarded "TS syntax + Rust semantics" framing. They contained accurate descriptions of P0/P1/P2.4/P3/stdlib slice 1 (which all shipped under TS-shape semantics regardless of framing), but the P2/P4-P17 plans baked in Rust-specific concepts (`Rc<T>`, affine moves, `Send`/`Sync` ownership types, `'a` lifetimes) that were corrected.
+The roadmap has been through three numbering schemes:
 
-The committed forward-looking plan is **M1-M9 above**. The P0-P17 sections have been removed from this document; for archival reference of what was discussed pre-pivot, see git history (commit `4892919` for the P3-onward industrial plan; commit `84241d9` for the M1-M9 pre-pivot version).
+- **Pre-2026-04-30**: phase-numbered sections (P0, P1, ..., P17) under the now-discarded "TS syntax + Rust semantics" framing. P0/P1/P2.4/P3/stdlib slice 1 descriptions were accurate (those shipped under TS-shape semantics regardless of framing); P2/P4-P17 baked in Rust-specific concepts (`Rc<T>`, affine moves, `Send`/`Sync` ownership types, `'a` lifetimes) that were corrected on 2026-04-30.
+- **2026-04-30 to 2026-05-04**: milestone-numbered sections (M1, M2, ..., M9 + M-OO) targeting bun-shape feature parity with compile-time ownership inference. M1 / M2 / M3 / M4 / M-OO / M6.1 / M6.2 shipped under this scheme; M5 / M6.3 partial / M7 / M8 / M9 were planned but never fully executed under that numbering.
+- **From 2026-05-04**: version-numbered milestones (v0.1.0-beta retro + v0.2 / v0.3 / v0.5 / v1.0 forward) — the **current committed plan above**. M-numbering was dropped because the v0.1.0-beta release coincided with several M-numbered milestones being either complete (M1-M4, M-OO, M6.1) or partially complete (M5, M6.2, M6.3) or not yet started (M7, M8, M9), and re-numbering around the public release boundary made the plan more legible than continuing to mix M-state.
+
+For archival reference of what was discussed pre-pivot, see git history: commit `4892919` for the P3-onward industrial plan; commit `84241d9` for the M1-M9 pre-pivot version; commit `5434f12` for the M1-M9 + M-OO version (last revision before the v0.x rewrite).
