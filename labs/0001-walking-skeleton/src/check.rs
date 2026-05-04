@@ -1870,7 +1870,10 @@ impl Checker {
                     // "any-struct" as a constraint; ssa_lower verifies
                     // the arg actually carries Type::Obj at lower-time
                     // and panics on non-struct args.
-                    (Type::Object("Object"), "keys") => Ok(Type::Function(
+                    (Type::Object("Object"), "keys")
+                    // tr has no prototype chain, so own == all; alias
+                    // getOwnPropertyNames to keys at lower time.
+                    | (Type::Object("Object"), "getOwnPropertyNames") => Ok(Type::Function(
                         vec![Type::Any],
                         Box::new(Type::Array(Box::new(Type::String))),
                     )),
@@ -1885,6 +1888,17 @@ impl Checker {
                      * frozen bit on the universal heap header (v0.3). */
                     (Type::Object("Object"), "hasOwn") => Ok(Type::Function(
                         vec![Type::Any, Type::String],
+                        Box::new(Type::Boolean),
+                    )),
+                    // Object.is(a, b) — strict equality with two
+                    // corner-case overrides vs `===`: NaN is equal to
+                    // NaN, and +0 is NOT equal to -0. Lowered per arg
+                    // SSA type (Type::Number → __torajs_object_is_f64
+                    // runtime helper that bitcasts the ±0 case;
+                    // Type::String → __torajs_str_eq; everything else
+                    // falls back to SSA-level == compare).
+                    (Type::Object("Object"), "is") => Ok(Type::Function(
+                        vec![Type::Any, Type::Any],
                         Box::new(Type::Boolean),
                     )),
                     (Type::String, "length") | (Type::Array(_), "length") => Ok(Type::Number),

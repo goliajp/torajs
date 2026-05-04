@@ -694,6 +694,22 @@ int64_t __torajs_str_eq(const uint8_t *a, const uint8_t *b) {
     return memcmp(__TORAJS_STR_CDATA(a), __TORAJS_STR_CDATA(b), (size_t)a_len) == 0 ? 1 : 0;
 }
 
+/* v0.2 #3 — Object.is(a, b) for Type::Number arguments. ECMA-262
+ * §7.2.10 SameValue: behaves like `===` except (i) NaN is the same
+ * value as NaN, and (ii) +0 and -0 are different values. The ±0
+ * check is bit-level since IEEE 754 says 0.0 == -0.0 evaluates true
+ * under FCmp. */
+int64_t __torajs_object_is_f64(double a, double b) {
+    if (a != a && b != b) return 1;
+    if (a == 0.0 && b == 0.0) {
+        uint64_t ai, bi;
+        memcpy(&ai, &a, sizeof(ai));
+        memcpy(&bi, &b, sizeof(bi));
+        return (ai == bi) ? 1 : 0;
+    }
+    return (a == b) ? 1 : 0;
+}
+
 /* `__torajs_arr_push_unchecked` is inkwell-defined and exported as a
  * regular extern symbol; declare it here so the C runtime can call it
  * from split's pre-sized fast path (skips per-push capacity check +

@@ -1775,6 +1775,19 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         &[],
         Type::Ptr,
     );
+    /* v0.2 #3 — Object.is(a, b) for Type::Number arguments. Diverges
+     * from `===` on two corner cases:
+     *   - Object.is(NaN, NaN) === true
+     *   - Object.is(+0, -0) === false
+     * The ±0 case requires a bit-level compare (IEEE 754 0.0 == -0.0),
+     * which can't be expressed via FCmp alone. */
+    let object_is_f64_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_object_is_f64",
+        &[Type::F64, Type::F64],
+        Type::Bool,
+    );
     let substr_create_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -2768,6 +2781,7 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         process_getenv: process_getenv_id,
         argv_init: argv_init_id,
         process_argv: process_argv_id,
+        object_is_f64: object_is_f64_id,
         arr_from_string: arr_from_string_id,
         str_substring: str_substring_id,
         arr_to_reversed: arr_to_reversed_id,
@@ -3248,6 +3262,7 @@ struct Intrinsics {
     process_getenv: FuncId,
     argv_init: FuncId,
     process_argv: FuncId,
+    object_is_f64: FuncId,
     arr_from_string: FuncId,
     str_substring: FuncId,
     arr_to_reversed: FuncId,
@@ -8433,6 +8448,21 @@ impl<'a> LowerCtx<'a> {
                 // M6.1 prereq — `-x` lowers to `0 - x`. f64 path emits
                 // fsub from 0.0 (no SItoFP needed since both ops are
                 // f64); i64 path emits sub from 0.
+                //
+                // Special case for `-NumberLit(0)`: the i64 narrowing
+                // path collapses both `+0` and `-0` to `ConstI64(0)`,
+                // losing IEEE 754 sign. We need `-0` to survive so
+                // `Object.is(0, -0) === false` and `1 / -0 === -Infinity`
+                // hold. Detect the AST shape `Unary(Neg, Number(0.0))`
+                // and emit `ConstF64(-0.0)` directly, bypassing the
+                // i64 path entirely.
+                if matches!(op, crate::ast::UnaryOp::Neg)
+                    && let Expr::Number(n) = self.ast.get_expr(*expr)
+                    && *n == 0.0
+                    && n.fract() == 0.0
+                {
+                    return Operand::ConstF64(-0.0);
+                }
                 let v = self.lower_expr(*expr);
                 match op {
                     crate::ast::UnaryOp::Not => {
@@ -8452,11 +8482,18 @@ impl<'a> LowerCtx<'a> {
                         let v_ty = self.operand_ty(&v);
                         match v_ty {
                             Type::F64 => {
+                                // Use -0.0 (not +0.0) as the LHS so the
+                                // ±0 sign is preserved: IEEE 754 gives
+                                // (+0) - (+0) = +0 but (-0) - (+0) = -0,
+                                // and (-0) - x = -x for all finite x.
+                                // Required by `Object.is(0, -0) === false`
+                                // and any other code that distinguishes
+                                // signed zeros.
                                 let r = self.f.append_inst(
                                     self.cur_block,
                                     InstKind::BinOp(
                                         SsaBinOp::FSub,
-                                        Operand::ConstF64(0.0),
+                                        Operand::ConstF64(-0.0),
                                         v,
                                     ),
                                     Type::F64,
@@ -9389,14 +9426,16 @@ impl<'a> LowerCtx<'a> {
                         return Operand::ConstBool(has);
                     }
                 }
-// `Object.keys(obj)` — emits a compile-time constant
-                // string array of obj's struct field names. Zero-cost
-                // reflection: the struct layout is known at lower time,
-                // so the result is just an `arr_alloc(N)` + N direct
-                // stores, identical to writing `["x", "y", ...]` by
-                // hand.
+// `Object.keys(obj)` / `Object.getOwnPropertyNames(obj)` —
+                // emit a compile-time constant string array of obj's
+                // struct field names. Zero-cost reflection: the struct
+                // layout is known at lower time, so the result is just
+                // an `arr_alloc(N)` + N direct stores, identical to
+                // writing `["x", "y", ...]` by hand. tr has no
+                // prototype chain, so own == all and the two surfaces
+                // share this lowering.
                 if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
-                    && m_name == "keys"
+                    && (m_name == "keys" || m_name == "getOwnPropertyNames")
                     && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
                     && ns == "Object"
                     && args.len() == 1
@@ -9409,7 +9448,7 @@ impl<'a> LowerCtx<'a> {
                             .map(|(n, _)| n.clone())
                             .collect(),
                         other => panic!(
-                            "ssa-lower: Object.keys requires a struct arg, got {other:?}"
+                            "ssa-lower: Object.{m_name} requires a struct arg, got {other:?}"
                         ),
                     };
                     let n = field_names.len() as i64;
@@ -9445,6 +9484,68 @@ impl<'a> LowerCtx<'a> {
                         );
                     }
                     return Operand::Value(arr_ptr);
+                }
+                /* v0.2 #3 — Object.is(a, b). Dispatches by arg SSA
+                 * type:
+                 *   - Type::F64       → __torajs_object_is_f64
+                 *     (NaN/NaN → true, +0/-0 → false; bit-level compare)
+                 *   - Type::Str       → __torajs_str_eq (value compare)
+                 *   - Type::I64/Bool  → ICmp Eq directly
+                 *   - heap pointers   → ICmp Eq on i64 representation
+                 *
+                 * Mismatched-type args (e.g. Object.is("1", 1)) return
+                 * a constant `false` since `===` says so.
+                 */
+                if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
+                    && m_name == "is"
+                    && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
+                    && ns == "Object"
+                    && args.len() == 2
+                {
+                    let a_op = self.lower_expr(args[0]);
+                    let b_op = self.lower_expr(args[1]);
+                    let a_ty = self.operand_ty(&a_op);
+                    let b_ty = self.operand_ty(&b_op);
+                    if a_ty != b_ty {
+                        // === yields false on differing types; same
+                        // for Object.is. Drop both args (refcounted
+                        // ones need it) and return false.
+                        self.emit_drop_value(a_op, a_ty);
+                        self.emit_drop_value(b_op, b_ty);
+                        return Operand::ConstBool(false);
+                    }
+                    let result_v = match a_ty {
+                        Type::F64 => self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.object_is_f64,
+                                vec![a_op, b_op],
+                            ),
+                            Type::Bool,
+                            None,
+                        ),
+                        Type::Str => self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.str_eq,
+                                vec![a_op, b_op],
+                            ),
+                            Type::Bool,
+                            None,
+                        ),
+                        // Type::I64 / Bool / heap-pointer types all
+                        // collapse to a direct ICmp Eq — same memory
+                        // representation, so equality is identity.
+                        _ => self.f.append_inst(
+                            self.cur_block,
+                            InstKind::ICmp(IPred::Eq, a_op, b_op),
+                            Type::Bool,
+                            None,
+                        ),
+                    };
+                    self.emit_drop_value(a_op, a_ty);
+                    self.emit_drop_value(b_op, b_ty);
+                    return Operand::Value(result_v);
                 }
                 if let Some(method) = self.console_method_member(*callee)
                     && args.len() == 1
