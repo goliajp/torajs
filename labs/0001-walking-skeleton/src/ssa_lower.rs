@@ -9246,7 +9246,34 @@ impl<'a> LowerCtx<'a> {
                     }
                     return Operand::Value(arr_ptr);
                 }
-                // `Object.keys(obj)` — emits a compile-time constant
+                /* v0.2 #3 — Object.hasOwn(obj, key) compile-time path:
+                 * if key is a Str literal and obj is statically a
+                 * struct, the answer is a constant Bool (the field is
+                 * either declared on the struct or not). Variable-key
+                 * paths are deferred to a runtime helper that does
+                 * field-name string comparison against the struct layout. */
+                if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
+                    && m_name == "hasOwn"
+                    && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
+                    && ns == "Object"
+                    && args.len() == 2
+                    && let Expr::String(key_lit) = self.ast.get_expr(args[1])
+                {
+                    let key = key_lit.clone();
+                    /* Borrow-only read of the obj — lower_expr loads
+                     * the local slot but ownership stays with the
+                     * caller's scope (which will drop on exit).
+                     * No emit_drop_value here. */
+                    let obj_op = self.lower_expr(args[0]);
+                    let obj_ty = self.operand_ty(&obj_op);
+                    if let Type::Obj(sid) = obj_ty {
+                        let has = self.struct_layouts[sid.0 as usize]
+                            .iter()
+                            .any(|(n, _)| n == &key);
+                        return Operand::ConstBool(has);
+                    }
+                }
+// `Object.keys(obj)` — emits a compile-time constant
                 // string array of obj's struct field names. Zero-cost
                 // reflection: the struct layout is known at lower time,
                 // so the result is just an `arr_alloc(N)` + N direct

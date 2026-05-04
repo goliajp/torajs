@@ -1869,6 +1869,19 @@ impl Checker {
                         vec![Type::Any],
                         Box::new(Type::Array(Box::new(Type::String))),
                     )),
+                    /* v0.2 #3 — Object.hasOwn(obj, key) — compile-time
+                     * resolved when key is a Str literal (struct layout
+                     * known at lower time). Boolean result.
+                     *
+                     * Object.freeze / isFrozen are deferred — pairing
+                     * them as a no-op returning false would break
+                     * `Object.isFrozen(Object.freeze(o)) === true`
+                     * test262 cases. Real implementation needs a
+                     * frozen bit on the universal heap header (v0.3). */
+                    (Type::Object("Object"), "hasOwn") => Ok(Type::Function(
+                        vec![Type::Any, Type::String],
+                        Box::new(Type::Boolean),
+                    )),
                     (Type::String, "length") | (Type::Array(_), "length") => Ok(Type::Number),
                     // M6.1 — String methods. All borrow `this` and any
                     // String args (consumption only fires at concat,
