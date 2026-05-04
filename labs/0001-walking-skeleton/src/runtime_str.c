@@ -1331,6 +1331,50 @@ _Bool __torajs_fs_exists_sync(const void *path_str) {
     return 1;
 }
 
+/* ============================================================
+ * v0.3 #3 — process surface (minimum). Synchronous shape:
+ *   process.exit(code)  → calls libc exit (no return)
+ *   process.cwd()       → string of getcwd()
+ *   process.platform    → static "darwin" / "linux" / etc.
+ *
+ * argv / env are deferred to v0.3.b (need to thread main()'s argc/argv
+ * into the user program — extra plumbing through ssa_lower's main entry).
+ * ============================================================ */
+
+#include <unistd.h>
+
+void __torajs_process_exit(int64_t code) {
+    exit((int)code);
+}
+
+void *__torajs_process_cwd(void) {
+    char buf[4096];
+    if (getcwd(buf, sizeof(buf)) == NULL) {
+        uint8_t *empty = __torajs_str_alloc_pooled(0);
+        return empty;
+    }
+    uint64_t len = strlen(buf);
+    uint8_t *out = __torajs_str_alloc_pooled(len);
+    memcpy(out + __TORAJS_STR_HDR_SIZE, buf, (size_t)len);
+    return out;
+}
+
+void *__torajs_process_platform(void) {
+#if defined(__APPLE__)
+    static const char p[] = "darwin";
+#elif defined(__linux__)
+    static const char p[] = "linux";
+#elif defined(_WIN32)
+    static const char p[] = "win32";
+#else
+    static const char p[] = "unknown";
+#endif
+    uint64_t len = sizeof(p) - 1;
+    uint8_t *out = __torajs_str_alloc_pooled(len);
+    memcpy(out + __TORAJS_STR_HDR_SIZE, p, (size_t)len);
+    return out;
+}
+
 /* `a.flat()` — single-level array flattening. Outer array holds inner
  * array pointers (8 bytes each); we sum their lengths in pass 1, then
  * memcpy each into the result in pass 2. Element-type-agnostic.

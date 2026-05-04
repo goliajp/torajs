@@ -1705,6 +1705,28 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         &[Type::Str],
         Type::Bool,
     );
+    /* v0.3 #3 — process surface (minimum). */
+    let process_exit_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_process_exit",
+        &[Type::I64],
+        Type::Void,
+    );
+    let process_cwd_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_process_cwd",
+        &[],
+        Type::Str,
+    );
+    let process_platform_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_process_platform",
+        &[],
+        Type::Str,
+    );
     let substr_create_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -2689,6 +2711,9 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         fs_read_file_sync: fs_read_file_sync_id,
         fs_write_file_sync: fs_write_file_sync_id,
         fs_exists_sync: fs_exists_sync_id,
+        process_exit: process_exit_id,
+        process_cwd: process_cwd_id,
+        process_platform: process_platform_id,
         arr_from_string: arr_from_string_id,
         str_substring: str_substring_id,
         arr_to_reversed: arr_to_reversed_id,
@@ -3160,6 +3185,9 @@ struct Intrinsics {
     fs_read_file_sync: FuncId,
     fs_write_file_sync: FuncId,
     fs_exists_sync: FuncId,
+    process_exit: FuncId,
+    process_cwd: FuncId,
+    process_platform: FuncId,
     arr_from_string: FuncId,
     str_substring: FuncId,
     arr_to_reversed: FuncId,
@@ -13033,6 +13061,21 @@ impl<'a> LowerCtx<'a> {
                 Operand::Value(obj_ptr)
             }
             Expr::Member { obj, name } => {
+                /* v0.3 #3 — `process.platform` — runtime call to the
+                 * platform-string helper. Other process.* are calls (handled
+                 * via resolve_callee). */
+                if let Expr::Ident(n) = self.ast.get_expr(*obj)
+                    && n == "process"
+                    && name == "platform"
+                {
+                    let v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(self.intrinsics.process_platform, Vec::new()),
+                        Type::Str,
+                        None,
+                    );
+                    return Operand::Value(v);
+                }
                 // `Math.PI` and friends — compile-time constants synthesized
                 // as ConstF64 operands. Same for the Number-namespace
                 // limits below.
@@ -15013,6 +15056,15 @@ impl<'a> LowerCtx<'a> {
                         "writeFileSync" => self.intrinsics.fs_write_file_sync,
                         "existsSync" => self.intrinsics.fs_exists_sync,
                         other => panic!("ssa-lower: unknown fs method `{other}`"),
+                    };
+                }
+                /* v0.3 #3 — process.<method>. */
+                let is_process = matches!(self.ast.get_expr(*obj), Expr::Ident(n) if n == "process");
+                if is_process {
+                    return match name.as_str() {
+                        "exit" => self.intrinsics.process_exit,
+                        "cwd" => self.intrinsics.process_cwd,
+                        other => panic!("ssa-lower: unknown process method `{other}`"),
                     };
                 }
                 panic!("ssa-lower: unsupported member call shape: {name}")

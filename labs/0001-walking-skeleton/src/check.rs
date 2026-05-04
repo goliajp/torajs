@@ -1634,6 +1634,7 @@ impl Checker {
                     /* v0.3 #1 — fs module global. Methods routed via
                      * the (Type::Object("fs"), ...) member arm below. */
                     "fs" => Ok(Type::Object("fs")),
+                    "process" => Ok(Type::Object("process")),
                     // Intrinsic fns synthesized by the desugar pass
                     // for `new Date(...)`. They take their args
                     // through the regular Call check arm and return
@@ -2018,6 +2019,20 @@ impl Checker {
                         Vec::new(),
                         Box::new(Type::Number),
                     )),
+                    /* v0.3 #3 — process surface (minimum). */
+                    (Type::Object("process"), "exit") => Ok(Type::Function(
+                        vec![Type::Number],
+                        Box::new(Type::Void),
+                    )),
+                    (Type::Object("process"), "cwd") => Ok(Type::Function(
+                        Vec::new(),
+                        Box::new(Type::String),
+                    )),
+                    /* `process.platform` — value access, not a Call.
+                     * Returned as Type::String; ssa_lower's Member arm
+                     * emits a runtime call to __torajs_process_platform. */
+                    (Type::Object("process"), "platform") => Ok(Type::String),
+
                     /* v0.3 #1 — fs module surface (Phase 2.0a substrate).
                      * Synchronous file I/O; throw on error is Phase 2.0b. */
                     (Type::Object("fs"), "readFileSync") => Ok(Type::Function(
@@ -3515,6 +3530,8 @@ impl Checker {
     fn member_type(&mut self, obj_ty: &Type, name: &str) -> Result<Type, String> {
         match (obj_ty, name) {
             (Type::String, "length") | (Type::Array(_), "length") => Ok(Type::Number),
+            /* v0.3 #3 — process.platform constant string read. */
+            (Type::Object("process"), "platform") => Ok(Type::String),
             (Type::Struct(fields), n) => fields
                 .iter()
                 .find(|(fn_, _)| fn_ == n)
