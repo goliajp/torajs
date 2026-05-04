@@ -71,6 +71,13 @@ pub fn resolve_imports(
             namespace,
         } = s
         {
+            /* Built-in modules (`fs`, `node:fs`, ...) skip filesystem
+             * resolution — `desugar_builtin_imports` rewrites their
+             * imported names into namespace-method calls before
+             * downstream passes run. */
+            if is_builtin_module_source(source) {
+                continue;
+            }
             check_k2_form(source, default, namespace, named)?;
             let path = resolve_path(base_dir, source)?;
             work.push_back((path, named.clone()));
@@ -111,6 +118,9 @@ pub fn resolve_imports(
                     default,
                     namespace,
                 } => {
+                    if is_builtin_module_source(&source) {
+                        continue;
+                    }
                     check_k2_form(&source, &default, &namespace, &named)?;
                     let path = resolve_path(&target_dir, &source)?;
                     work.push_back((path, named));
@@ -181,6 +191,13 @@ fn check_k2_form(
         ));
     }
     Ok(())
+}
+
+/// True for module sources that map to runtime built-ins instead of
+/// user files. Mirrored by `ast::desugar_builtin_imports`. Keep the
+/// two lists in sync.
+fn is_builtin_module_source(source: &str) -> bool {
+    matches!(source, "fs" | "node:fs")
 }
 
 /// Resolve a relative or absolute import path against the importer's

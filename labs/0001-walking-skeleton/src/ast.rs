@@ -1671,6 +1671,71 @@ pub fn unwrap_exports(ast: &mut Ast) {
 /// `class` declarations exist) so built-in News still get rewritten
 /// in pure-builtin programs. v0.2 #2 covers Date; future built-ins
 /// (BigInt, Map, Set, ...) extend the match arm.
+/* Built-in module names whose `import` statements register the
+ * imported names as aliases for `<module>.<name>` member access.
+ * E.g. `import { readFileSync } from "fs"` is desugared so any later
+ * `readFileSync(path)` call lowers as `fs.readFileSync(path)` —
+ * routed through the existing fs-namespace dispatch in ssa_lower.
+ *
+ * Cross-file user imports are unaffected; this pass only acts when
+ * `source` is one of the known built-in module names. */
+fn is_builtin_module(source: &str) -> bool {
+    matches!(source, "fs" | "node:fs")
+}
+
+pub fn desugar_builtin_imports(ast: &mut Ast) {
+    use std::collections::HashMap;
+    /* Build name → (module, original_name). The local alias (if
+     * the user wrote `import { x as y }`) is the lookup key; the
+     * original name is the field used in the Member rewrite. */
+    let mut imported: HashMap<String, (String, String)> = HashMap::new();
+    let mut to_drop: Vec<usize> = Vec::new();
+    for (idx, s) in ast.stmts.iter().enumerate() {
+        if let Stmt::ImportDecl { source, named, default: _, namespace } = s
+            && is_builtin_module(source)
+        {
+            let module_name = source.strip_prefix("node:").unwrap_or(source).to_string();
+            for (orig, alias) in named {
+                let local = alias.clone().unwrap_or_else(|| orig.clone());
+                imported.insert(local, (module_name.clone(), orig.clone()));
+            }
+            /* `import * as ns from "fs"` — bind ns directly to the
+             * fs namespace ident. */
+            if let Some(ns) = namespace {
+                imported.insert(ns.clone(), (module_name.clone(), String::new()));
+            }
+            to_drop.push(idx);
+        }
+    }
+    if imported.is_empty() {
+        return;
+    }
+    /* Drop the import stmts in reverse so indices stay valid. */
+    for &idx in to_drop.iter().rev() {
+        ast.stmts.remove(idx);
+    }
+    /* Rewrite Ident(local) → Member(Ident(module), original) across
+     * the whole expr arena. Skip the rewrite when the Ident is the
+     * `obj` field of a Member (already a member-access target —
+     * leave shape alone). */
+    let n = ast.exprs.len();
+    for i in 0..n {
+        let plan = match &ast.exprs[i] {
+            Expr::Ident(name) => imported.get(name).cloned(),
+            _ => None,
+        };
+        if let Some((module, orig)) = plan {
+            if orig.is_empty() {
+                /* Namespace import — bind to the module ident. */
+                ast.exprs[i] = Expr::Ident(module);
+            } else {
+                let module_id = ast.add_expr(Expr::Ident(module));
+                ast.exprs[i] = Expr::Member { obj: module_id, name: orig };
+            }
+        }
+    }
+}
+
 pub fn desugar_builtin_new(ast: &mut Ast) {
     /* Pass 1 — handle `Array.of(a, b, c)` rewrites. Walk every Call
      * whose callee is the Member shape `Array.of`, and replace the

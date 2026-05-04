@@ -1245,6 +1245,92 @@ void __torajs_str_print_err(const uint8_t *s) {
     fputc('\n', stderr);
 }
 
+/* ============================================================
+ * v0.3 #1 — fs module helpers. Synchronous file I/O surfaces:
+ *   readFileSync(path) → string of file contents
+ *   writeFileSync(path, data) → void (truncates)
+ *   existsSync(path) → boolean
+ *
+ * Path is a NUL-terminated copy on the stack so we can pass it
+ * straight to libc; tr's Str isn't NUL-terminated by default.
+ * Files are read in one shot via fseek/ftell/fread; writes go
+ * through a single fwrite. v0.3.b will add streaming readers /
+ * appendFileSync / readdirSync / statSync; for now this trio
+ * unlocks the most common CLI idioms (read input, write output,
+ * existence check). Errors (file not found, permission denied,
+ * etc.) currently abort with stderr — typed throw integration
+ * comes in v0.3.b.
+ * ============================================================ */
+
+static void path_copy_to_buf(const void *path_str, char *buf, size_t bufsz) {
+    const uint8_t *p = __TORAJS_STR_CDATA(path_str);
+    uint64_t plen = __TORAJS_STR_LEN(path_str);
+    if (plen >= bufsz) plen = bufsz - 1;
+    memcpy(buf, p, (size_t)plen);
+    buf[plen] = '\0';
+}
+
+void *__torajs_fs_read_file_sync(const void *path_str) {
+    char path[4096];
+    path_copy_to_buf(path_str, path, sizeof(path));
+    FILE *f = fopen(path, "rb");
+    if (!f) {
+        fputs("not yet supported: fs.readFileSync open failed: ", stderr);
+        fputs(path, stderr);
+        fputc('\n', stderr);
+        exit(1);
+    }
+    if (fseek(f, 0, SEEK_END) != 0) {
+        fclose(f);
+        fputs("not yet supported: fs.readFileSync seek failed\n", stderr);
+        exit(1);
+    }
+    long sz = ftell(f);
+    if (sz < 0) {
+        fclose(f);
+        fputs("not yet supported: fs.readFileSync ftell failed\n", stderr);
+        exit(1);
+    }
+    rewind(f);
+    uint8_t *out = __torajs_str_alloc_pooled((uint64_t)sz);
+    size_t got = fread(out + __TORAJS_STR_HDR_SIZE, 1, (size_t)sz, f);
+    fclose(f);
+    if (got != (size_t)sz) {
+        fputs("not yet supported: fs.readFileSync short read\n", stderr);
+        exit(1);
+    }
+    return out;
+}
+
+void __torajs_fs_write_file_sync(const void *path_str, const void *data_str) {
+    char path[4096];
+    path_copy_to_buf(path_str, path, sizeof(path));
+    FILE *f = fopen(path, "wb");
+    if (!f) {
+        fputs("not yet supported: fs.writeFileSync open failed: ", stderr);
+        fputs(path, stderr);
+        fputc('\n', stderr);
+        exit(1);
+    }
+    const uint8_t *d = __TORAJS_STR_CDATA(data_str);
+    uint64_t dlen = __TORAJS_STR_LEN(data_str);
+    size_t put = fwrite(d, 1, (size_t)dlen, f);
+    fclose(f);
+    if (put != (size_t)dlen) {
+        fputs("not yet supported: fs.writeFileSync short write\n", stderr);
+        exit(1);
+    }
+}
+
+_Bool __torajs_fs_exists_sync(const void *path_str) {
+    char path[4096];
+    path_copy_to_buf(path_str, path, sizeof(path));
+    FILE *f = fopen(path, "rb");
+    if (!f) return 0;
+    fclose(f);
+    return 1;
+}
+
 /* `a.flat()` — single-level array flattening. Outer array holds inner
  * array pointers (8 bytes each); we sum their lengths in pass 1, then
  * memcpy each into the result in pass 2. Element-type-agnostic.

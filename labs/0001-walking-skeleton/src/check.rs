@@ -1631,6 +1631,9 @@ impl Checker {
                     "JSON" => Ok(Type::Object("JSON")),
                     "Array" => Ok(Type::Object("Array")),
                     "Date" => Ok(Type::Object("Date")),
+                    /* v0.3 #1 — fs module global. Methods routed via
+                     * the (Type::Object("fs"), ...) member arm below. */
+                    "fs" => Ok(Type::Object("fs")),
                     // Intrinsic fns synthesized by the desugar pass
                     // for `new Date(...)`. They take their args
                     // through the regular Call check arm and return
@@ -2014,6 +2017,20 @@ impl Checker {
                     (Type::Object("Date"), "now") => Ok(Type::Function(
                         Vec::new(),
                         Box::new(Type::Number),
+                    )),
+                    /* v0.3 #1 — fs module surface (Phase 2.0a substrate).
+                     * Synchronous file I/O; throw on error is Phase 2.0b. */
+                    (Type::Object("fs"), "readFileSync") => Ok(Type::Function(
+                        vec![Type::String],
+                        Box::new(Type::String),
+                    )),
+                    (Type::Object("fs"), "writeFileSync") => Ok(Type::Function(
+                        vec![Type::String, Type::String],
+                        Box::new(Type::Void),
+                    )),
+                    (Type::Object("fs"), "existsSync") => Ok(Type::Function(
+                        vec![Type::String],
+                        Box::new(Type::Boolean),
                     )),
                     // Phase 2.0b.2 — Date.parse(s) returns ms-since-epoch
                     // (or NaN sentinel — tr returns INT64_MIN; spec is NaN).

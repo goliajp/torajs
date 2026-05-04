@@ -1683,6 +1683,28 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         &[Type::Str],
         Type::I64,
     );
+    /* v0.3 #1 — fs module substrate. */
+    let fs_read_file_sync_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_fs_read_file_sync",
+        &[Type::Str],
+        Type::Str,
+    );
+    let fs_write_file_sync_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_fs_write_file_sync",
+        &[Type::Str, Type::Str],
+        Type::Void,
+    );
+    let fs_exists_sync_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_fs_exists_sync",
+        &[Type::Str],
+        Type::Bool,
+    );
     let substr_create_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -2664,6 +2686,9 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         date_utc_components: date_utc_components_id,
         date_from_iso: date_from_iso_id,
         date_parse_iso: date_parse_iso_id,
+        fs_read_file_sync: fs_read_file_sync_id,
+        fs_write_file_sync: fs_write_file_sync_id,
+        fs_exists_sync: fs_exists_sync_id,
         arr_from_string: arr_from_string_id,
         str_substring: str_substring_id,
         arr_to_reversed: arr_to_reversed_id,
@@ -3132,6 +3157,9 @@ struct Intrinsics {
     date_utc_components: FuncId,
     date_from_iso: FuncId,
     date_parse_iso: FuncId,
+    fs_read_file_sync: FuncId,
+    fs_write_file_sync: FuncId,
+    fs_exists_sync: FuncId,
     arr_from_string: FuncId,
     str_substring: FuncId,
     arr_to_reversed: FuncId,
@@ -14975,6 +15003,16 @@ impl<'a> LowerCtx<'a> {
                         "parse" => self.intrinsics.date_parse_iso,
                         "UTC" => self.intrinsics.date_utc_components,
                         other => panic!("ssa-lower: unknown Date static method `{other}`"),
+                    };
+                }
+                /* v0.3 #1 — fs.<method>. */
+                let is_fs = matches!(self.ast.get_expr(*obj), Expr::Ident(n) if n == "fs");
+                if is_fs {
+                    return match name.as_str() {
+                        "readFileSync" => self.intrinsics.fs_read_file_sync,
+                        "writeFileSync" => self.intrinsics.fs_write_file_sync,
+                        "existsSync" => self.intrinsics.fs_exists_sync,
+                        other => panic!("ssa-lower: unknown fs method `{other}`"),
                     };
                 }
                 panic!("ssa-lower: unsupported member call shape: {name}")

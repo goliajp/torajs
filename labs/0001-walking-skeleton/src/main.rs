@@ -153,6 +153,7 @@ fn pipeline(src: &str, base_dir: &Path, stage: Stage) -> ExitCode {
     ast::unwrap_exports(&mut ast);
     ast::desugar_generators(&mut ast);
     ast::desugar_async(&mut ast);
+    ast::desugar_builtin_imports(&mut ast);
     ast::desugar_builtin_new(&mut ast);
     ast::desugar_classes(&mut ast);
     ast::lift_arrow_fns(&mut ast);
@@ -295,6 +296,7 @@ fn run_build_llvm(args: &[String]) -> ExitCode {
     ast::unwrap_exports(&mut ast);
     ast::desugar_generators(&mut ast);
     ast::desugar_async(&mut ast);
+    ast::desugar_builtin_imports(&mut ast);
     ast::desugar_builtin_new(&mut ast);
     ast::desugar_classes(&mut ast);
     ast::lift_arrow_fns(&mut ast);
@@ -435,6 +437,7 @@ fn run_jit(file_arg: Option<&String>) -> ExitCode {
     ast::unwrap_exports(&mut ast);
     ast::desugar_generators(&mut ast);
     ast::desugar_async(&mut ast);
+    ast::desugar_builtin_imports(&mut ast);
     ast::desugar_builtin_new(&mut ast);
     ast::desugar_classes(&mut ast);
     ast::lift_arrow_fns(&mut ast);
