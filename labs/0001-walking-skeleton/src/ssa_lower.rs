@@ -1531,6 +1531,15 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         &[Type::RegExp, Type::Str],
         Type::Ptr,
     );
+    // Phase 1c.3 — s.matchAll(re) returns Array<Array<Str>> (one
+    // exec-shape array per match). Iterator protocol stand-in.
+    let regex_match_all_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_str_match_all_regex",
+        &[Type::Str, Type::RegExp],
+        Type::Ptr,
+    );
     let substr_create_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -2485,6 +2494,7 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         regex_replace_all: regex_replace_all_id,
         regex_split: regex_split_id,
         regex_exec: regex_exec_id,
+        regex_match_all: regex_match_all_id,
         arr_from_string: arr_from_string_id,
         str_substring: str_substring_id,
         arr_to_reversed: arr_to_reversed_id,
@@ -2926,6 +2936,7 @@ struct Intrinsics {
     regex_replace_all: FuncId,
     regex_split: FuncId,
     regex_exec: FuncId,
+    regex_match_all: FuncId,
     arr_from_string: FuncId,
     str_substring: FuncId,
     arr_to_reversed: FuncId,
@@ -9697,7 +9708,7 @@ impl<'a> LowerCtx<'a> {
                 // the dominant idioms and all the test262 cases at
                 // hand use these shapes.
                 if let Expr::Member { obj, name } = self.ast.get_expr(*callee)
-                    && matches!(name.as_str(), "replace" | "replaceAll" | "split" | "match")
+                    && matches!(name.as_str(), "replace" | "replaceAll" | "split" | "match" | "matchAll")
                     && !args.is_empty()
                 {
                     let arg0_is_regex = match self.ast.get_expr(args[0]) {
@@ -9723,6 +9734,24 @@ impl<'a> LowerCtx<'a> {
                                         vec![recv_op, re_op],
                                     ),
                                     Type::Arr(arr_id),
+                                    None,
+                                );
+                                return Operand::Value(v);
+                            }
+                            "matchAll" => {
+                                /* outer = Array<Array<Str>>, inner arr_id
+                                 * = Array<Str> from above. */
+                                let outer_id = intern_arr_layout(
+                                    self.arr_layouts,
+                                    Type::Arr(arr_id),
+                                );
+                                let v = self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::Call(
+                                        self.intrinsics.regex_match_all,
+                                        vec![recv_op, re_op],
+                                    ),
+                                    Type::Arr(outer_id),
                                     None,
                                 );
                                 return Operand::Value(v);

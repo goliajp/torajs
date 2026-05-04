@@ -1971,6 +1971,18 @@ impl Checker {
                         vec![Type::RegExp],
                         Box::new(Type::Array(Box::new(Type::String))),
                     )),
+                    // s.matchAll(re) — Phase 1c.3 returns
+                    // Array<Array<Str>>: outer = one entry per match,
+                    // each inner = exec-shape [match, g1, g2, ...].
+                    // JS spec returns an iterator; tr's array stand-in
+                    // covers the dominant test262 usage pattern (a for-of
+                    // loop or [...m]) until iterator protocol lands.
+                    (Type::String, "matchAll") => Ok(Type::Function(
+                        vec![Type::RegExp],
+                        Box::new(Type::Array(Box::new(
+                            Type::Array(Box::new(Type::String))
+                        ))),
+                    )),
                     // arr.join(sep): string — receiver is Array<string>,
                     // sep borrowed; result is freshly allocated.
                     (Type::Array(elem), "join") if **elem == Type::String => {

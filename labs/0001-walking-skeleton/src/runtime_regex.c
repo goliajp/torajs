@@ -1593,3 +1593,56 @@ void *__torajs_regex_exec(const void *re_ptr, const void *str_ptr) {
     }
     return out;
 }
+
+/* `s.matchAll(re)` — Phase 1c.3.
+ *
+ * JS spec: returns an iterator that yields RegExp.exec-shape arrays
+ * for each non-overlapping match (and throws TypeError if `re` lacks
+ * the `g` flag). tr returns Array<Array<Str>> instead — array of
+ * exec-shape arrays — until iterator protocol lands at the surface
+ * (Phase 1c.4+). The `g`-required check is also Phase 1c.4 work;
+ * for now matchAll iterates regardless of flag (over-permissive vs
+ * spec but doesn't produce wrong matches when `g` is set, which is
+ * the dominant test262 idiom). */
+void *__torajs_str_match_all_regex(const void *str_ptr, const void *re_ptr) {
+    void *outer = __torajs_arr_alloc(0);
+    if (!re_ptr || !str_ptr) return outer;
+    const RegExp *re = (const RegExp *)re_ptr;
+    if (re->rejected) abort_unsupported(re);
+    const uint8_t *s = __TORAJS_STR_CDATA(str_ptr);
+    int64_t slen = (int64_t)__TORAJS_STR_LEN(str_ptr);
+
+    Thread *cur = (Thread *)malloc(sizeof(Thread) * (size_t)re->prog.n_insts);
+    Thread *nxt = (Thread *)malloc(sizeof(Thread) * (size_t)re->prog.n_insts);
+    uint32_t *vc = (uint32_t *)calloc((size_t)re->prog.n_insts, sizeof(uint32_t));
+    uint32_t *vn = (uint32_t *)calloc((size_t)re->prog.n_insts, sizeof(uint32_t));
+    uint32_t step_id = 0;
+
+    int64_t pos = 0;
+    int64_t saves[REGEX_SAVE_SLOTS];
+    while (pos <= slen) {
+        int64_t st, en;
+        if (!vm_search_from_with_ws(&re->prog, s, slen, pos, re->flags,
+                                    cur, nxt, vc, vn, &step_id, &st, &en, saves)) break;
+        /* Build exec-shape inner array [match, g1, g2, ...]. */
+        void *inner = __torajs_arr_alloc(0);
+        uint8_t *whole = str_from_bytes(s + st, en - st);
+        inner = __torajs_arr_push(inner, (int64_t)(intptr_t)whole);
+        for (int i = 1; i <= re->n_captures && i < REGEX_MAX_CAPTURES; i++) {
+            int64_t gs = saves[2 * i];
+            int64_t ge = saves[2 * i + 1];
+            if (gs < 0 || ge < 0) {
+                inner = __torajs_arr_push(inner, 0);
+            } else {
+                uint8_t *grp = str_from_bytes(s + gs, ge - gs);
+                inner = __torajs_arr_push(inner, (int64_t)(intptr_t)grp);
+            }
+        }
+        outer = __torajs_arr_push(outer, (int64_t)(intptr_t)inner);
+        /* Empty match — bump pos by 1. */
+        pos = (en == st) ? en + 1 : en;
+    }
+
+    free(cur); free(nxt); free(vc); free(vn);
+    return outer;
+}
