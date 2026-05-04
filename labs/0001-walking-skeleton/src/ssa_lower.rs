@@ -1540,6 +1540,55 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         &[Type::Str, Type::RegExp],
         Type::Ptr,
     );
+    // v0.2 #2 — Date class. Phase 2.0a substrate:
+    //   __torajs_date_now()             → Date  (`new Date()`)
+    //   __torajs_date_from_ms(i64)      → Date  (`new Date(ms)`)
+    //   __torajs_date_drop(Date)        → void  (universal-header drop)
+    //   __torajs_date_now_static()      → i64   (`Date.now()`)
+    //   __torajs_date_get_time(Date)    → i64   (`d.getTime()` / `.valueOf()`)
+    //   __torajs_date_to_iso_string(Date) → Str (`d.toISOString()`)
+    let date_now_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_date_now",
+        &[],
+        Type::Date,
+    );
+    let date_from_ms_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_date_from_ms",
+        &[Type::I64],
+        Type::Date,
+    );
+    let date_drop_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_date_drop",
+        &[Type::Date],
+        Type::Void,
+    );
+    let date_now_static_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_date_now_static",
+        &[],
+        Type::I64,
+    );
+    let date_get_time_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_date_get_time",
+        &[Type::Date],
+        Type::I64,
+    );
+    let date_to_iso_string_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_date_to_iso_string",
+        &[Type::Date],
+        Type::Str,
+    );
     let substr_create_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -2495,6 +2544,12 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         regex_split: regex_split_id,
         regex_exec: regex_exec_id,
         regex_match_all: regex_match_all_id,
+        date_now: date_now_id,
+        date_from_ms: date_from_ms_id,
+        date_drop: date_drop_id,
+        date_now_static: date_now_static_id,
+        date_get_time: date_get_time_id,
+        date_to_iso_string: date_to_iso_string_id,
         arr_from_string: arr_from_string_id,
         str_substring: str_substring_id,
         arr_to_reversed: arr_to_reversed_id,
@@ -2937,6 +2992,12 @@ struct Intrinsics {
     regex_split: FuncId,
     regex_exec: FuncId,
     regex_match_all: FuncId,
+    date_now: FuncId,
+    date_from_ms: FuncId,
+    date_drop: FuncId,
+    date_now_static: FuncId,
+    date_get_time: FuncId,
+    date_to_iso_string: FuncId,
     arr_from_string: FuncId,
     str_substring: FuncId,
     arr_to_reversed: FuncId,
@@ -3618,6 +3679,7 @@ fn parse_type(
         "string" => Type::Str,
         "void" => Type::Void,
         "regex" => Type::RegExp,
+        "date" => Type::Date,
         other => match aliases.get(other) {
             Some(ty) => *ty,
             None => panic!("ssa-lower: unsupported type annotation `{other}`"),
@@ -6027,6 +6089,14 @@ impl<'a> LowerCtx<'a> {
                 self.f.append_void(
                     self.cur_block,
                     InstKind::Call(self.intrinsics.regex_drop, vec![val]),
+                );
+            }
+            Type::Date => {
+                // v0.2 #2 — Date heap object (16 bytes; { header, ms }).
+                // Drop routes through __torajs_date_drop → __torajs_rc_dec.
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.date_drop, vec![val]),
                 );
             }
             other if other.is_copy() => {
@@ -9643,6 +9713,29 @@ impl<'a> LowerCtx<'a> {
                 // matching `__torajs_regex_*` runtime intrinsic. Args
                 // are borrow-shaped (the runtime helpers don't take
                 // ownership — the caller's drop walk handles it).
+                // v0.2 #2 — Date instance methods (.getTime / .valueOf /
+                // .toISOString). Recognized via receiver type Type::Date.
+                if let Expr::Member { obj, name } = self.ast.get_expr(*callee)
+                    && matches!(name.as_str(), "getTime" | "valueOf" | "toISOString")
+                {
+                    let recv_op = self.lower_expr(*obj);
+                    let recv_ty = self.operand_ty(&recv_op);
+                    if recv_ty == Type::Date {
+                        let method = name.clone();
+                        let (target, ret_ty) = match method.as_str() {
+                            "getTime" | "valueOf" => (self.intrinsics.date_get_time, Type::I64),
+                            "toISOString" => (self.intrinsics.date_to_iso_string, Type::Str),
+                            _ => unreachable!(),
+                        };
+                        let v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(target, vec![recv_op]),
+                            ret_ty,
+                            None,
+                        );
+                        return Operand::Value(v);
+                    }
+                }
                 if let Expr::Member { obj, name } = self.ast.get_expr(*callee)
                     && matches!(name.as_str(), "test" | "exec")
                 {
@@ -13464,7 +13557,8 @@ impl<'a> LowerCtx<'a> {
                     | Type::Arr(_)
                     | Type::Closure(_)
                     | Type::FnSig(_)
-                    | Type::RegExp => "object",
+                    | Type::RegExp
+                    | Type::Date => "object",
                     Type::Void | Type::Ptr => "object",
                 };
                 Operand::Value(self.intern_string_literal(s))
@@ -14663,6 +14757,14 @@ impl<'a> LowerCtx<'a> {
                         other => {
                             panic!("ssa-lower: unknown Math method `{other}`")
                         }
+                    };
+                }
+                /* v0.2 #2 — Date.<static>. */
+                let is_date = matches!(self.ast.get_expr(*obj), Expr::Ident(n) if n == "Date");
+                if is_date {
+                    return match name.as_str() {
+                        "now" => self.intrinsics.date_now_static,
+                        other => panic!("ssa-lower: unknown Date static method `{other}`"),
                     };
                 }
                 panic!("ssa-lower: unsupported member call shape: {name}")

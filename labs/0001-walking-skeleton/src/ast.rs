@@ -1665,6 +1665,38 @@ pub fn unwrap_exports(ast: &mut Ast) {
     ast.stmts = new_stmts;
 }
 
+/// Rewrite `new <BuiltinClass>(args)` into a direct call to the
+/// matching `__torajs_<class>_*` intrinsic. Runs before
+/// `desugar_classes` (which has an early-return when no user
+/// `class` declarations exist) so built-in News still get rewritten
+/// in pure-builtin programs. v0.2 #2 covers Date; future built-ins
+/// (BigInt, Map, Set, ...) extend the match arm.
+pub fn desugar_builtin_new(ast: &mut Ast) {
+    let n = ast.exprs.len();
+    for i in 0..n {
+        let factory_name = match &ast.exprs[i] {
+            Expr::New { class_name, args } if class_name == "Date" => {
+                Some(match args.len() {
+                    0 => "__torajs_date_now".to_string(),
+                    1 => "__torajs_date_from_ms".to_string(),
+                    n_args => panic!(
+                        "v0.2 #2 Phase 2.0a: `new Date(...)` with {n_args} args not yet supported"
+                    ),
+                })
+            }
+            _ => None,
+        };
+        if let Some(factory) = factory_name {
+            let args = match &ast.exprs[i] {
+                Expr::New { args, .. } => args.clone(),
+                _ => unreachable!(),
+            };
+            let callee = ast.add_expr(Expr::Ident(factory));
+            ast.exprs[i] = Expr::Call { callee, args };
+        }
+    }
+}
+
 pub fn desugar_classes(ast: &mut Ast) {
     // Pass 1 — extract every ClassDecl. After this loop the original
     // ClassDecl stmts are replaced by their generated TypeDecl in-place;
@@ -2068,6 +2100,9 @@ pub fn desugar_classes(ast: &mut Ast) {
                 ast.exprs[i] = Expr::Ident("__this".into());
             }
             Expr::New { class_name, args } => {
+                /* Builtin News (Date, ...) are rewritten by
+                 * `desugar_builtin_new` BEFORE this pass, so any
+                 * remaining Expr::New here is a user class. */
                 let factory = format!("__new_{class_name}");
                 let args = args.clone();
                 let callee = ast.add_expr(Expr::Ident(factory));

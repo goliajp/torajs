@@ -136,6 +136,13 @@ pub enum Type {
     /// through `__torajs_rc_dec` like every other heap object. Lowers
     /// to a single pointer at codegen.
     RegExp,
+    /// Date instance — heap pointer to `{ universal_heap_header; i64
+    /// ms_since_epoch }` (16 bytes). Built by `new Date(...)` lowering
+    /// through `__torajs_date_now` / `__torajs_date_from_ms`. Member
+    /// calls (`.getTime`, `.toISOString`, ...) lower to
+    /// `__torajs_date_*` runtime helpers. ARC-owned via universal
+    /// heap header.
+    Date,
 }
 
 impl Type {
@@ -150,6 +157,7 @@ impl Type {
             Type::Str => "str",
             Type::Substr => "substr",
             Type::RegExp => "regex",
+            Type::Date => "date",
             Type::Obj(_) => "obj",
             Type::Arr(_) => "arr",
             Type::FnSig(_) => "fnsig",
@@ -197,6 +205,7 @@ impl Type {
                 | Type::Obj(_)
                 | Type::Closure(_)
                 | Type::RegExp
+                | Type::Date
         )
     }
 }

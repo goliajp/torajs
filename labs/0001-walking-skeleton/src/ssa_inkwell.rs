@@ -392,16 +392,16 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
     // future where IR builder verbosity outweighs the link-cost gain).
     // Embedded via include_str! and recompiled fresh per `tr build`;
     // adds ~10-30 ms to the AOT pipeline (negligible vs LLVM optimize).
-    // Two C runtime translation units:
+    // Three C runtime translation units:
     //   - runtime_str.c   — strings / arrays / objs / numbers / json / arc
-    //   - runtime_regex.c — v0.2 #1 regex matching engine (NFA build +
-    //                       backtrack matcher). Self-contained; declares
-    //                       its own copy of __torajs_heap_header_t (binary
-    //                       compatible) and links against __torajs_rc_dec
-    //                       from runtime_str.c.
-    // Each compiles to its own .o; both link with the LLVM-emitted main .o.
+    //   - runtime_regex.c — v0.2 #1 regex matching engine
+    //   - runtime_date.c  — v0.2 #2 Date class
+    // Each .c declares its own copy of __torajs_heap_header_t (binary
+    // compatible) and links against __torajs_rc_dec from runtime_str.c.
+    // Each compiles to its own .o; all three link with the LLVM-emitted main .o.
     let c_str_src: &str = include_str!("runtime_str.c");
     let c_regex_src: &str = include_str!("runtime_regex.c");
+    let c_date_src: &str = include_str!("runtime_date.c");
     let c_str_path: PathBuf = std::env::temp_dir().join(format!(
         "torajs-runtime-str-{}-{}.c",
         std::process::id(),
@@ -409,6 +409,11 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
     ));
     let c_regex_path: PathBuf = std::env::temp_dir().join(format!(
         "torajs-runtime-regex-{}-{}.c",
+        std::process::id(),
+        rand_suffix()
+    ));
+    let c_date_path: PathBuf = std::env::temp_dir().join(format!(
+        "torajs-runtime-date-{}-{}.c",
         std::process::id(),
         rand_suffix()
     ));
@@ -422,14 +427,19 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
         std::process::id(),
         rand_suffix()
     ));
+    let c_date_obj: PathBuf = std::env::temp_dir().join(format!(
+        "torajs-runtime-date-{}-{}.o",
+        std::process::id(),
+        rand_suffix()
+    ));
     std::fs::write(&c_str_path, c_str_src)
         .map_err(|e| CompileError::Link(format!("write runtime_str.c: {e}")))?;
     std::fs::write(&c_regex_path, c_regex_src)
         .map_err(|e| CompileError::Link(format!("write runtime_regex.c: {e}")))?;
+    std::fs::write(&c_date_path, c_date_src)
+        .map_err(|e| CompileError::Link(format!("write runtime_date.c: {e}")))?;
     // -flto lets the linker inline cross-TU calls between the
-    // LLVM-emitted object and the C runtime — chiefly the per-iter hot
-    // helpers (substr_char_code_at, substr_drop, arr_join_substr) that
-    // would otherwise stay as fn calls into the C TU.
+    // LLVM-emitted object and the C runtime.
     let str_status = Command::new("cc")
         .args(["-c", "-O2", "-flto", "-o"])
         .arg(&c_str_obj)
@@ -439,6 +449,7 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
     if !str_status.success() {
         let _ = std::fs::remove_file(&c_str_path);
         let _ = std::fs::remove_file(&c_regex_path);
+        let _ = std::fs::remove_file(&c_date_path);
         return Err(CompileError::Link(format!(
             "cc -c runtime_str.c exited {str_status}"
         )));
@@ -452,9 +463,26 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
     if !regex_status.success() {
         let _ = std::fs::remove_file(&c_str_path);
         let _ = std::fs::remove_file(&c_regex_path);
+        let _ = std::fs::remove_file(&c_date_path);
         let _ = std::fs::remove_file(&c_str_obj);
         return Err(CompileError::Link(format!(
             "cc -c runtime_regex.c exited {regex_status}"
+        )));
+    }
+    let date_status = Command::new("cc")
+        .args(["-c", "-O2", "-flto", "-o"])
+        .arg(&c_date_obj)
+        .arg(&c_date_path)
+        .status()
+        .map_err(|e| CompileError::Link(format!("spawning cc -c (date): {e}")))?;
+    if !date_status.success() {
+        let _ = std::fs::remove_file(&c_str_path);
+        let _ = std::fs::remove_file(&c_regex_path);
+        let _ = std::fs::remove_file(&c_date_path);
+        let _ = std::fs::remove_file(&c_str_obj);
+        let _ = std::fs::remove_file(&c_regex_obj);
+        return Err(CompileError::Link(format!(
+            "cc -c runtime_date.c exited {date_status}"
         )));
     }
 
@@ -463,6 +491,7 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
         .arg(&obj_path)
         .arg(&c_str_obj)
         .arg(&c_regex_obj)
+        .arg(&c_date_obj)
         .arg("-o")
         .arg(out_path)
         .status()
@@ -470,8 +499,10 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
     let _ = std::fs::remove_file(&obj_path);
     let _ = std::fs::remove_file(&c_str_path);
     let _ = std::fs::remove_file(&c_regex_path);
+    let _ = std::fs::remove_file(&c_date_path);
     let _ = std::fs::remove_file(&c_str_obj);
     let _ = std::fs::remove_file(&c_regex_obj);
+    let _ = std::fs::remove_file(&c_date_obj);
     if !status.success() {
         return Err(CompileError::Link(format!("cc exited {status}")));
     }
@@ -2350,7 +2381,7 @@ fn build_fn_type<'ctx>(ctx: &'ctx Context, params: &[Type], ret: Type) -> Functi
         Type::I32 => ctx.i32_type().fn_type(&param_metas, false),
         Type::F64 => ctx.f64_type().fn_type(&param_metas, false),
         Type::Bool => ctx.bool_type().fn_type(&param_metas, false),
-        Type::Ptr | Type::Str | Type::Substr | Type::Obj(_) | Type::Arr(_) | Type::FnSig(_) | Type::Closure(_) | Type::RegExp => {
+        Type::Ptr | Type::Str | Type::Substr | Type::Obj(_) | Type::Arr(_) | Type::FnSig(_) | Type::Closure(_) | Type::RegExp | Type::Date => {
             ctx.ptr_type(AddressSpace::default()).fn_type(&param_metas, false)
         }
     }
@@ -2365,7 +2396,7 @@ fn basic_meta_type<'ctx>(ctx: &'ctx Context, t: Type) -> BasicMetadataTypeEnum<'
         // Str + Ptr both lower to a single opaque pointer. The SSA-level
         // distinction matters for the lowerer's dispatch decisions, not for
         // codegen.
-        Type::Ptr | Type::Str | Type::Substr | Type::Obj(_) | Type::Arr(_) | Type::FnSig(_) | Type::Closure(_) | Type::RegExp => {
+        Type::Ptr | Type::Str | Type::Substr | Type::Obj(_) | Type::Arr(_) | Type::FnSig(_) | Type::Closure(_) | Type::RegExp | Type::Date => {
             ctx.ptr_type(AddressSpace::default()).into()
         }
         Type::Void => panic!("void cannot be a parameter type"),
@@ -2380,7 +2411,7 @@ fn basic_type<'ctx>(ctx: &'ctx Context, t: Type) -> BasicTypeEnum<'ctx> {
         Type::I32 => ctx.i32_type().into(),
         Type::F64 => ctx.f64_type().into(),
         Type::Bool => ctx.bool_type().into(),
-        Type::Ptr | Type::Str | Type::Substr | Type::Obj(_) | Type::Arr(_) | Type::FnSig(_) | Type::Closure(_) | Type::RegExp => {
+        Type::Ptr | Type::Str | Type::Substr | Type::Obj(_) | Type::Arr(_) | Type::FnSig(_) | Type::Closure(_) | Type::RegExp | Type::Date => {
             ctx.ptr_type(AddressSpace::default()).into()
         }
         Type::Void => panic!("void cannot be a basic type (alloca/load/store)"),

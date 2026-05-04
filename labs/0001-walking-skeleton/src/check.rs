@@ -51,6 +51,15 @@ pub enum Type {
     /// in `let re = /foo/i;`. Method dispatch (`.test`, `.exec`, ...)
     /// resolves through the Member arm against this variant.
     RegExp,
+    /// Date instance produced by `new Date(...)` or
+    /// `Date.parse(...)` (the latter returns Number, not Date).
+    /// Heap-owned, non-Copy, ARC under the universal heap header.
+    /// Underlying storage is `int64_t ms_since_epoch`. Method
+    /// dispatch (`.getTime`, `.toISOString`, `.getFullYear`, ...)
+    /// resolves through the Member arm against this variant.
+    /// Distinct from `Type::Object("Date")` (the global constructor +
+    /// static methods like `Date.now()`).
+    Date,
 }
 
 impl Type {
@@ -560,6 +569,7 @@ pub fn type_to_ann(ty: &Type) -> String {
         // RegExp is its own SSA type (Type::RegExp); the annotation
         // round-trips through ssa_lower's parse_type back to the same.
         Type::RegExp => "regex".into(),
+        Type::Date => "date".into(),
     }
 }
 
@@ -1620,6 +1630,20 @@ impl Checker {
                     "String" => Ok(Type::Object("String")),
                     "JSON" => Ok(Type::Object("JSON")),
                     "Array" => Ok(Type::Object("Array")),
+                    "Date" => Ok(Type::Object("Date")),
+                    // Intrinsic fns synthesized by the desugar pass
+                    // for `new Date(...)`. They take their args
+                    // through the regular Call check arm and return
+                    // Type::Date — the synthesis already happened, so
+                    // typecheck just needs to know the signature.
+                    "__torajs_date_now" => Ok(Type::Function(
+                        Vec::new(),
+                        Box::new(Type::Date),
+                    )),
+                    "__torajs_date_from_ms" => Ok(Type::Function(
+                        vec![Type::Number],
+                        Box::new(Type::Date),
+                    )),
                     // `undefined` — JS sentinel for "no value". torajs
                     // doesn't have a separate Undefined runtime type;
                     // map it to Type::Null which lowers to the same
@@ -1924,6 +1948,21 @@ impl Checker {
                     (Type::RegExp, "exec") => Ok(Type::Function(
                         vec![Type::String],
                         Box::new(Type::Array(Box::new(Type::String))),
+                    )),
+                    // v0.2 #2 Phase 2.0a — Date instance methods.
+                    (Type::Date, "getTime")
+                    | (Type::Date, "valueOf") => Ok(Type::Function(
+                        Vec::new(),
+                        Box::new(Type::Number),
+                    )),
+                    (Type::Date, "toISOString") => Ok(Type::Function(
+                        Vec::new(),
+                        Box::new(Type::String),
+                    )),
+                    // Date.now() — static, returns ms-since-epoch.
+                    (Type::Object("Date"), "now") => Ok(Type::Function(
+                        Vec::new(),
+                        Box::new(Type::Number),
                     )),
                     // String namespace static — `String.fromCharCode(n)`.
                     // `fromCodePoint` is the Unicode-aware sibling; in
