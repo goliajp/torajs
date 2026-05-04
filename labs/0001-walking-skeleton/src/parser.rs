@@ -2168,6 +2168,17 @@ impl Parser<'_> {
         if matches!(self.peek(), Token::Function) {
             return self.parse_fn_expr();
         }
+        // Regex literal `/pattern/flags`. The lexer already
+        // disambiguated regex vs division by inspecting the previous
+        // token; the parser just unwraps the carried pattern + flags
+        // into the AST node. check.rs rejects the resulting Expr::Regex
+        // with a "regex literals not yet implemented" message — the
+        // matching engine is a follow-up phase. Parsing accept here
+        // unblocks the lex / parse error buckets ahead of that work.
+        if let Token::Regex { pattern, flags } = self.peek().clone() {
+            self.pos += 1;
+            return Ok(self.ast.add_expr(Expr::Regex { pattern, flags }));
+        }
         let pos = self.pos;
         match &self.tokens[pos].token {
             Token::Ident(n) => {

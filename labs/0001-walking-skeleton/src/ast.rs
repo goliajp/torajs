@@ -52,6 +52,15 @@ pub enum Expr {
     /// which the typechecker rejects with a clear "declared but never
     /// assigned" message — better than the previous parse-error wall.
     Uninit,
+    /// `/pattern/flags` regex literal. Lexer carries the raw pattern
+    /// + flag bytes; the parser wraps them here so check.rs can give
+    /// a clean roadmap-phase rejection. Actual matching engine is
+    /// future work — the typechecker today rejects regex use with a
+    /// "regex literals not yet implemented (planned)" message.
+    Regex {
+        pattern: String,
+        flags: String,
+    },
     /// `null` — the in-band 0 sentinel for any pointer-shaped slot.
     /// Lowered to `Operand::ConstPtrNull`. Comparable against pointer
     /// values via `=== null` / `!== null` and the implicit `?.`/`??`
@@ -2703,6 +2712,7 @@ fn collect_super_in_expr(
         | Expr::String(_)
         | Expr::Number(_)
         | Expr::Bool(_)
+        | Expr::Regex { .. }
         | Expr::Null
         | Expr::Uninit => {}
     }
@@ -5007,7 +5017,7 @@ fn scan_expr_for_calls(ast: &Ast, eid: ExprId, out: &mut Vec<String>) {
         Expr::PostIncr { target, .. } => scan_expr_for_calls(ast, *target, out),
         Expr::This => {}
         Expr::Ident(_) | Expr::String(_) | Expr::Number(_) | Expr::Bool(_)
-        | Expr::Null | Expr::Uninit => {}
+        | Expr::Null | Expr::Uninit | Expr::Regex { .. } => {}
     }
 }
 
@@ -5022,7 +5032,7 @@ fn walk_expr(ast: &Ast, eid: ExprId, bound: &mut Vec<String>, out: &mut Vec<Stri
             }
         }
         Expr::String(_) | Expr::Number(_) | Expr::Bool(_)
-        | Expr::Null | Expr::Uninit => {}
+        | Expr::Null | Expr::Uninit | Expr::Regex { .. } => {}
         Expr::BinOp { left, right, .. } => {
             walk_expr(ast, *left, bound, out);
             walk_expr(ast, *right, bound, out);
@@ -5378,6 +5388,9 @@ impl Ast {
             Expr::Bool(b) => println!("{pad}Bool({b})"),
             Expr::Null => println!("{pad}Null"),
             Expr::Uninit => println!("{pad}Uninit"),
+            Expr::Regex { pattern, flags } => {
+                println!("{pad}Regex /{pattern}/{flags}")
+            }
             Expr::BinOp { op, left, right } => {
                 println!("{pad}BinOp({op:?})");
                 self.print_expr(*left, indent + 1);

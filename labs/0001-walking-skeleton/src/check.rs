@@ -1584,6 +1584,14 @@ impl Checker {
             Expr::Uninit => Err(
                 "let binding declared without initializer and never assigned in scope".into(),
             ),
+            // Regex literals parse cleanly (commit shipping the lexer
+            // contextual-tokenization + Expr::Regex node) but the
+            // matching engine is a follow-up phase — reject at
+            // typecheck so the case lands in the not-yet-supported
+            // bucket rather than a panic.
+            Expr::Regex { pattern, flags } => Err(format!(
+                "regex literals not yet implemented (planned): /{pattern}/{flags}"
+            )),
             Expr::Ident(name) => {
                 if let Some(info) = self.lookup(name) {
                     // TS-shape: reads of an aliased / moved binding succeed

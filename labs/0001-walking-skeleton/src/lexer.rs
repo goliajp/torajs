@@ -65,6 +65,19 @@ pub enum Token {
     /// parser maps it to `BinOp::UShr` which the SSA layer lowers to
     /// LLVM's `lshr` instruction.
     ShrShrShr,
+    /// `/pattern/flags` — regex literal. JS lexer disambiguates `/`
+    /// between division and the start of a regex by inspecting the
+    /// previous token: regex if the prev is missing / a punctuator /
+    /// a recognized keyword (return, typeof, ...), division otherwise.
+    /// The pattern + flags are kept as raw strings; the parser wraps
+    /// the token in `Expr::Regex { pattern, flags }`. Actual matching
+    /// machinery is a follow-up phase — for now, ssa_lower rejects
+    /// regex emission with a "regex matching not yet implemented"
+    /// message.
+    Regex {
+        pattern: String,
+        flags: String,
+    },
     Bang,
     /// `~` — bitwise not.
     Tilde,
@@ -260,9 +273,11 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                 }
             }
             b'/' => {
-                // `//` line comment, `/* */` block comment, or division.
-                // TS grammar puts comments at the lexer level (whitespace-
-                // equivalent); we skip past them without emitting a token.
+                // `//` line comment, `/* */` block comment, regex
+                // literal, or division. Disambiguation between regex
+                // and division uses the previous token: regex when prev
+                // is None / a punctuator / a keyword that can start an
+                // expression on its right.
                 match peek(bytes, i + 1) {
                     Some(b'/') => {
                         // Line comment — consume to end-of-line / EOF.
@@ -292,6 +307,59 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                             }
                             i += 1;
                         }
+                    }
+                    _ if regex_context(out.last().map(|s| &s.token)) => {
+                        // Scan a regex literal: `/pattern/flags`.
+                        // Pattern body: read until an unescaped `/`,
+                        // honoring `\\.` escapes and `[...]` character
+                        // classes (where `/` is allowed bare).
+                        let body_start = (i + 1) as usize;
+                        let mut p = body_start;
+                        let mut in_class = false;
+                        loop {
+                            if p >= len as usize {
+                                return Err(format!(
+                                    "unterminated regex literal starting at {start}"
+                                ));
+                            }
+                            let c = bytes[p];
+                            if c == b'\n' {
+                                return Err(format!(
+                                    "unterminated regex literal at {start} (line break before closing `/`)"
+                                ));
+                            }
+                            if c == b'\\' {
+                                // Skip the escape sequence's next byte.
+                                p += 2;
+                                continue;
+                            }
+                            if c == b'[' {
+                                in_class = true;
+                                p += 1;
+                                continue;
+                            }
+                            if c == b']' && in_class {
+                                in_class = false;
+                                p += 1;
+                                continue;
+                            }
+                            if c == b'/' && !in_class {
+                                break;
+                            }
+                            p += 1;
+                        }
+                        let pattern =
+                            String::from_utf8_lossy(&bytes[body_start..p]).into_owned();
+                        // Flags: any trailing ASCII letters.
+                        let flags_start = p + 1;
+                        let mut q = flags_start;
+                        while q < len as usize && bytes[q].is_ascii_alphabetic() {
+                            q += 1;
+                        }
+                        let flags =
+                            String::from_utf8_lossy(&bytes[flags_start..q]).into_owned();
+                        i = q as u32;
+                        emit(&mut out, Token::Regex { pattern, flags }, start, i);
                     }
                     Some(b'=') => {
                         i += 2;
@@ -636,6 +704,73 @@ fn advance(i: &mut u32) -> u32 {
 
 fn peek(bytes: &[u8], i: u32) -> Option<u8> {
     bytes.get(i as usize).copied()
+}
+
+/// JS lexer ambiguity: `/` is a regex-literal start when the previous
+/// token is a punctuator that can begin an expression on its right
+/// or a keyword like `return` / `typeof` / etc.; otherwise it's a
+/// division operator. Mirrors what V8 / SpiderMonkey / JSC do.
+fn regex_context(prev: Option<&Token>) -> bool {
+    let Some(t) = prev else {
+        // Start of file — anything goes; default-yes.
+        return true;
+    };
+    matches!(
+        t,
+        // Punctuators
+        Token::LParen
+            | Token::LBrace
+            | Token::LBracket
+            | Token::Comma
+            | Token::Semi
+            | Token::Colon
+            | Token::Question
+            | Token::QuestionQuestion
+            | Token::QuestionDot
+            | Token::Bang
+            | Token::Tilde
+            | Token::Plus
+            | Token::Minus
+            | Token::Star
+            | Token::Slash
+            | Token::Percent
+            | Token::Eq
+            | Token::EqEqEq
+            | Token::BangEqEq
+            | Token::Lt
+            | Token::Gt
+            | Token::LtEq
+            | Token::GtEq
+            | Token::Amp
+            | Token::AmpAmp
+            | Token::Pipe
+            | Token::PipePipe
+            | Token::Caret
+            | Token::ShlShl
+            | Token::ShrShr
+            | Token::ShrShrShr
+            | Token::FatArrow
+            | Token::DotDotDot
+            | Token::SlashEq
+            | Token::PlusEq
+            | Token::MinusEq
+            | Token::StarEq
+            | Token::PercentEq
+            // Expression-starting keywords
+            | Token::Return
+            | Token::TypeOf
+            | Token::InstanceOf
+            | Token::New
+            | Token::Throw
+            | Token::Case
+            | Token::Yield
+            | Token::Await
+            | Token::Else
+            | Token::Do
+            | Token::If
+            | Token::While
+            | Token::For
+    )
 }
 
 fn emit(out: &mut Vec<Spanned>, token: Token, start: u32, end: u32) {

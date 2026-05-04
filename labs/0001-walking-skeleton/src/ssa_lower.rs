@@ -648,6 +648,10 @@ fn deep_clone_expr(ast: &mut Ast, eid: ExprId) -> ExprId {
         Expr::Bool(b) => Expr::Bool(*b),
         Expr::Null => Expr::Null,
         Expr::Uninit => Expr::Uninit,
+        Expr::Regex { pattern, flags } => Expr::Regex {
+            pattern: pattern.clone(),
+            flags: flags.clone(),
+        },
         Expr::This => Expr::This,
         Expr::BinOp { op, left, right } => {
             let op = *op; let l = *left; let r = *right;
