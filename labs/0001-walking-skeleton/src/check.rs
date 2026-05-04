@@ -2042,6 +2042,13 @@ impl Checker {
                      * Returned as Type::String; ssa_lower's Member arm
                      * emits a runtime call to __torajs_process_platform. */
                     (Type::Object("process"), "platform") => Ok(Type::String),
+                    /* `process.argv` / `Bun.argv` — runtime array of
+                     * argv strings. Lowered by ssa_lower's Member arm
+                     * to __torajs_process_argv(). */
+                    (Type::Object("process"), "argv")
+                    | (Type::Object("Bun"), "argv") => {
+                        Ok(Type::Array(Box::new(Type::String)))
+                    }
                     /* `process.env` — env-namespace Object; member
                      * access on it (`process.env.NAME`) routes through
                      * the (Object("env"), _) arm below to runtime getenv. */
@@ -3559,6 +3566,10 @@ impl Checker {
             (Type::String, "length") | (Type::Array(_), "length") => Ok(Type::Number),
             /* v0.3 #3 — process.platform constant string read. */
             (Type::Object("process"), "platform") => Ok(Type::String),
+            (Type::Object("process"), "argv")
+            | (Type::Object("Bun"), "argv") => {
+                Ok(Type::Array(Box::new(Type::String)))
+            }
             /* `process.env` — returns the env namespace, used as
              * the receiver for further `process.env.NAME` access. */
             (Type::Object("process"), "env") => Ok(Type::Object("env")),

@@ -2367,6 +2367,18 @@ fn declare_ssa_fn<'ctx>(
     m: &LlvmModule<'ctx>,
     f: &s::Function,
 ) -> FunctionValue<'ctx> {
+    /* The synthesized `main` entry takes argc/argv at the LLVM ABI
+     * level so the C runtime can capture them for `process.argv`.
+     * SSA-side `main` has no params; the LLVM signature is widened
+     * here, and the entry block emits a call to
+     * `__torajs_argv_init(argc, argv)` before running user code
+     * (see lower_user_fn for the init-call emission). */
+    if f.name == "main" {
+        let i32_t = ctx.i32_type();
+        let ptr_t = ctx.ptr_type(AddressSpace::default());
+        let fn_t = i32_t.fn_type(&[i32_t.into(), ptr_t.into()], false);
+        return m.add_function(&f.name, fn_t, None);
+    }
     let param_tys: Vec<Type> = f.params.iter().map(|&p| f.value_type(p)).collect();
     let fn_t = build_fn_type(ctx, &param_tys, f.ret);
     m.add_function(&f.name, fn_t, None)
@@ -2454,9 +2466,33 @@ impl<'a, 'ctx> FnLower<'a, 'ctx> {
             self.value_map.insert(p.0, v);
         }
         // Phase 2: lower each block.
-        for b in &self.ssa_fn.blocks {
+        for (b_idx, b) in self.ssa_fn.blocks.iter().enumerate() {
             let bb = self.block_map[&b.id.0];
             self.builder.position_at_end(bb);
+            /* v0.3 #3.c — at the start of `main`'s entry block, emit
+             * an init call to capture argc/argv into runtime globals
+             * for `process.argv` / `Bun.argv` access. The LLVM main
+             * is widened to `(i32 argc, ptr argv)` by declare_ssa_fn;
+             * here we forward those params to __torajs_argv_init.
+             * Done before the user's main body runs. */
+            if b_idx == 0 && self.ssa_fn.name == "main" {
+                if let (Some(argc), Some(argv)) = (
+                    self.llvm_fn.get_nth_param(0),
+                    self.llvm_fn.get_nth_param(1),
+                ) {
+                    /* fn_map indexes by the SSA module's func order;
+                     * find __torajs_argv_init by name in the SSA fns. */
+                    for (i, sf) in self.ssa_module.funcs.iter().enumerate() {
+                        if sf.name == "__torajs_argv_init" {
+                            let init_fn = self.fn_map[i];
+                            self.builder
+                                .build_call(init_fn, &[argc.into(), argv.into()], "")
+                                .unwrap();
+                            break;
+                        }
+                    }
+                }
+            }
             for inst in &b.insts {
                 self.lower_inst(inst);
             }

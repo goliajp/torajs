@@ -1755,6 +1755,26 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         &[Type::Str],
         Type::Str,
     );
+    /* v0.3 #3.c — argv plumbing.
+     * - __torajs_argv_init(i32 argc, ptr argv): called once at the
+     *   start of main with the LLVM-widened argc/argv params; stores
+     *   them into runtime globals.
+     * - __torajs_process_argv(): returns Array<Str> built from the
+     *   captured globals. Called by `process.argv` / `Bun.argv`. */
+    let argv_init_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_argv_init",
+        &[Type::I32, Type::Ptr],
+        Type::Void,
+    );
+    let process_argv_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_process_argv",
+        &[],
+        Type::Ptr,
+    );
     let substr_create_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -2746,6 +2766,8 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         process_cwd: process_cwd_id,
         process_platform: process_platform_id,
         process_getenv: process_getenv_id,
+        argv_init: argv_init_id,
+        process_argv: process_argv_id,
         arr_from_string: arr_from_string_id,
         str_substring: str_substring_id,
         arr_to_reversed: arr_to_reversed_id,
@@ -3224,6 +3246,8 @@ struct Intrinsics {
     process_cwd: FuncId,
     process_platform: FuncId,
     process_getenv: FuncId,
+    argv_init: FuncId,
+    process_argv: FuncId,
     arr_from_string: FuncId,
     str_substring: FuncId,
     arr_to_reversed: FuncId,
@@ -13108,6 +13132,21 @@ impl<'a> LowerCtx<'a> {
                         self.cur_block,
                         InstKind::Call(self.intrinsics.process_platform, Vec::new()),
                         Type::Str,
+                        None,
+                    );
+                    return Operand::Value(v);
+                }
+                /* v0.3 #3.c — `process.argv` / `Bun.argv` — runtime
+                 * call to the argv-array builder. */
+                if let Expr::Ident(n) = self.ast.get_expr(*obj)
+                    && (n == "process" || n == "Bun")
+                    && name == "argv"
+                {
+                    let arr_id = intern_arr_layout(self.arr_layouts, Type::Str);
+                    let v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(self.intrinsics.process_argv, Vec::new()),
+                        Type::Arr(arr_id),
                         None,
                     );
                     return Operand::Value(v);

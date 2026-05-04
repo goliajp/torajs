@@ -1420,6 +1420,32 @@ void *__torajs_process_getenv(const void *name_str) {
     return out;
 }
 
+/* v0.3 #3.c — argv plumbing.
+ * `__torajs_argv_init` is called once at the start of LLVM-emitted
+ * `main(argc, argv)` (declare_ssa_fn widens the signature; the
+ * FnLower main-entry hook emits the call). The captured argc/argv
+ * stay valid for the program's lifetime — they live on the kernel-
+ * provided stack frame, which outlives any user code. */
+static int g_argc = 0;
+static char **g_argv = NULL;
+
+void __torajs_argv_init(int32_t argc, char **argv) {
+    g_argc = (int)argc;
+    g_argv = argv;
+}
+
+void *__torajs_process_argv(void) {
+    void *out = __torajs_arr_alloc((uint64_t)g_argc);
+    for (int i = 0; i < g_argc; i++) {
+        const char *s = g_argv[i];
+        uint64_t len = strlen(s);
+        uint8_t *str_v = __torajs_str_alloc_pooled(len);
+        memcpy(str_v + __TORAJS_STR_HDR_SIZE, s, (size_t)len);
+        out = __torajs_arr_push(out, (int64_t)(intptr_t)str_v);
+    }
+    return out;
+}
+
 void *__torajs_process_platform(void) {
 #if defined(__APPLE__)
     static const char p[] = "darwin";
