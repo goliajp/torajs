@@ -2415,6 +2415,51 @@ impl Parser<'_> {
             }
         };
         self.pos += 1;
+        // Method shorthand: `{ valueOf() { ... } }` is sugar for
+        // `{ valueOf: function () { ... } }`. The parser was rejecting
+        // these with "expected `:`, got LParen" — accept the shorthand
+        // by routing through `parse_fn_expr`-equivalent shape, then
+        // sticking the resulting `Expr::ArrowFn` under the field name.
+        if matches!(self.peek(), Token::LParen) {
+            let params = self.parse_param_list()?;
+            let return_type = if matches!(self.peek(), Token::Colon) {
+                self.pos += 1;
+                Some(self.parse_type_ann()?)
+            } else {
+                None
+            };
+            match self.peek() {
+                Token::LBrace => self.pos += 1,
+                t => {
+                    return Err(format!(
+                        "expected `{{` after method shorthand `{name}` header, got {t:?} at {}",
+                        self.at()
+                    ));
+                }
+            }
+            let mut body = Vec::new();
+            while !matches!(self.peek(), Token::RBrace | Token::Eof) {
+                body.push(self.parse_stmt()?);
+            }
+            match self.peek() {
+                Token::RBrace => self.pos += 1,
+                t => {
+                    return Err(format!(
+                        "expected `}}` after method shorthand `{name}` body, got {t:?} at {}",
+                        self.at()
+                    ));
+                }
+            }
+            let value = self.ast.add_expr(Expr::ArrowFn { params, return_type, body });
+            return Ok((name, value));
+        }
+        // Property shorthand: `{ x }` is sugar for `{ x: x }`. Triggers
+        // when the field name isn't followed by `:` AND isn't followed
+        // by `(` (the method shorthand path above).
+        if matches!(self.peek(), Token::Comma | Token::RBrace) {
+            let value = self.ast.add_expr(Expr::Ident(name.clone()));
+            return Ok((name, value));
+        }
         match self.peek() {
             Token::Colon => self.pos += 1,
             t => {
