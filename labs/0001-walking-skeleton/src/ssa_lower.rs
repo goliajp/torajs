@@ -7609,6 +7609,15 @@ impl<'a> LowerCtx<'a> {
                     );
                     return Operand::Value(v);
                 }
+                // `undefined` — accepted at typecheck as Type::Null
+                // (see check.rs's bare-name globals). Lower it the
+                // same way as the `null` literal: a 0-shaped pointer
+                // sentinel. Pointer-shaped slots accept it directly;
+                // primitive-shaped slots will already have been
+                // rejected by check.rs.
+                if name == "undefined" {
+                    return Operand::ConstPtrNull;
+                }
                 let info = match self.locals.get(name) {
                     Some(i) => *i,
                     None => panic!("ssa-lower: unknown ident `{name}`"),

@@ -1611,6 +1611,18 @@ impl Checker {
                     "String" => Ok(Type::Object("String")),
                     "JSON" => Ok(Type::Object("JSON")),
                     "Array" => Ok(Type::Object("Array")),
+                    // `undefined` — JS sentinel for "no value". torajs
+                    // doesn't have a separate Undefined runtime type;
+                    // map it to Type::Null which lowers to the same
+                    // pointer-shaped 0-sentinel and is comparable
+                    // against Nullable<T> in the same way. This trades
+                    // some spec edge cases (`typeof undefined === "undefined"`
+                    // vs `typeof null === "object"`) for letting the
+                    // common `let x = undefined` / `=== undefined`
+                    // patterns parse and typecheck cleanly. A fully
+                    // separate `Type::Undefined` is on the roadmap
+                    // alongside the typeof-string accuracy work.
+                    "undefined" => Ok(Type::Null),
                     other => Err(format!("unknown identifier `{other}`")),
                 }
             }
