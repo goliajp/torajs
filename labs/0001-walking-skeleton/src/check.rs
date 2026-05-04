@@ -1635,6 +1635,7 @@ impl Checker {
                      * the (Type::Object("fs"), ...) member arm below. */
                     "fs" => Ok(Type::Object("fs")),
                     "process" => Ok(Type::Object("process")),
+                    "Bun" => Ok(Type::Object("Bun")),
                     // Intrinsic fns synthesized by the desugar pass
                     // for `new Date(...)`. They take their args
                     // through the regular Call check arm and return
@@ -2018,6 +2019,15 @@ impl Checker {
                     (Type::Object("Date"), "now") => Ok(Type::Function(
                         Vec::new(),
                         Box::new(Type::Number),
+                    )),
+                    /* v0.3 #2 — Bun namespace (minimum).
+                     * Bun.write(path, data) — bun-shape file write,
+                     * routes to the same fs intrinsic. Bun.file(path)
+                     * (chained-method shape returning a File object)
+                     * lands when the surface gains object-result Calls. */
+                    (Type::Object("Bun"), "write") => Ok(Type::Function(
+                        vec![Type::String, Type::String],
+                        Box::new(Type::Void),
                     )),
                     /* v0.3 #3 — process surface (minimum). */
                     (Type::Object("process"), "exit") => Ok(Type::Function(

@@ -15067,6 +15067,14 @@ impl<'a> LowerCtx<'a> {
                         other => panic!("ssa-lower: unknown process method `{other}`"),
                     };
                 }
+                /* v0.3 #2 — Bun.<method>. Aliases to existing intrinsics. */
+                let is_bun = matches!(self.ast.get_expr(*obj), Expr::Ident(n) if n == "Bun");
+                if is_bun {
+                    return match name.as_str() {
+                        "write" => self.intrinsics.fs_write_file_sync,
+                        other => panic!("ssa-lower: unknown Bun method `{other}`"),
+                    };
+                }
                 panic!("ssa-lower: unsupported member call shape: {name}")
             }
             other => panic!("ssa-lower: unsupported callee form: {other:?}"),
