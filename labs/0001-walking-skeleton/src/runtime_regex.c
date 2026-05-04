@@ -147,6 +147,8 @@ typedef enum {
     NK_ALT,
     NK_REPEAT,
     NK_GROUP, /* non-capturing — child only; capturing semantics later */
+    NK_LOOKAHEAD,     /* (?=X) — zero-width positive assertion */
+    NK_NEG_LOOKAHEAD, /* (?!X) — zero-width negative assertion */
 } NodeKind;
 
 typedef struct Node {
@@ -398,26 +400,30 @@ static Node *parse_atom(Parser *ps) {
     uint8_t c = p_peek(ps);
     if (c == '(') {
         p_get(ps);
-        /* `(?:...)` non-capturing prefix — peek and consume.
-         * `(?=...)` / `(?!...)` lookahead and `(?<...)` lookbehind /
-         * named groups land in Phase 1c.4+. Detect those forms and
-         * fail compile cleanly so the runtime emits a "not yet
-         * supported" stderr (test262 runner classifies as
-         * incompatible rather than bug — see __torajs_regex_compile
-         * for the err-path emission). Otherwise the group is
-         * capturing and gets the next sequential index (1-based;
-         * 0 is reserved for the whole match). */
+        /* `(?:...)` non-capturing.
+         * `(?=...)` positive lookahead — Phase 1c.4.
+         * `(?!...)` negative lookahead — Phase 1c.4.
+         * `(?<=...)` / `(?<!...)` lookbehind — Phase 1c.4.b (reverse
+         *   matcher needed; rejected for now).
+         * `(?<name>...)` named capture group — Phase 1c.4.c (rejected).
+         * Otherwise capturing group; gets next sequential index. */
+        NodeKind kind = NK_GROUP;
         int capture_idx = -1;
         if (!p_eof(ps) && p_peek(ps) == '?') {
             uint8_t after = (ps->i + 1 < ps->len) ? ps->p[ps->i + 1] : 0;
             if (after == ':') {
                 p_get(ps); p_get(ps);
-            } else if (after == '=' || after == '!' || after == '<') {
-                /* lookahead / lookbehind / named group — Phase 1c.4+. */
+            } else if (after == '=') {
+                p_get(ps); p_get(ps);
+                kind = NK_LOOKAHEAD;
+            } else if (after == '!') {
+                p_get(ps); p_get(ps);
+                kind = NK_NEG_LOOKAHEAD;
+            } else if (after == '<') {
+                /* lookbehind / named group — Phase 1c.4.b/c. */
                 ps->err = 1;
                 return NULL;
             } else {
-                /* Unknown `(?X` — treat as parse failure for safety. */
                 ps->err = 1;
                 return NULL;
             }
@@ -427,7 +433,7 @@ static Node *parse_atom(Parser *ps) {
         Node *inner = parse_alt(ps);
         if (!inner) return NULL;
         if (!p_match(ps, ')')) { ps->err = 1; node_free(inner); return NULL; }
-        Node *g = node_new(NK_GROUP);
+        Node *g = node_new(kind);
         g->child = inner;
         g->capture_idx = capture_idx;
         return g;
@@ -598,6 +604,14 @@ typedef enum {
     OP_SPLIT,
     OP_MATCH,
     OP_SAVE, /* a = save slot index (2*capture_idx for start, +1 for end) */
+    /* Phase 1c.4 — zero-width assertions. The lookahead body is
+     * compiled into a separate sub-Program (with its own MATCH at end);
+     * a = sub-program index into Program.sub_progs[]. The lookahead
+     * resolves at add_thread time (epsilon-style) by recursively
+     * running vm_match_at on the sub-program at the current pos.
+     * Positive: continue if sub matched. Negative: continue if not. */
+    OP_LOOKAHEAD,
+    OP_NEG_LOOKAHEAD,
 } Op;
 
 typedef struct {
@@ -608,14 +622,21 @@ typedef struct {
     int32_t b;        /* SPLIT=target2 */
 } Inst;
 
-typedef struct {
+typedef struct Program Program;
+struct Program {
     Inst *insts;
     int n_insts;
     int cap_insts;
     CharClass *classes;
     int n_classes;
     int cap_classes;
-} Program;
+    /* Sub-programs for lookahead bodies. Each `(?=X)` / `(?!X)` in the
+     * pattern compiles X into its own Program (with OP_MATCH at end).
+     * Owned; recursively freed in regex_drop. */
+    Program **sub_progs;
+    int n_sub_progs;
+    int cap_sub_progs;
+};
 
 static int prog_emit(Program *p, Inst i) {
     if (p->n_insts == p->cap_insts) {
@@ -638,6 +659,29 @@ static int prog_intern_class(Program *p, const CharClass *cc) {
     int idx = p->n_classes++;
     p->classes[idx] = *cc;
     return idx;
+}
+
+/* Append a sub-program (caller-allocated, ownership transferred).
+ * Returns the index into prog.sub_progs[]. */
+static int prog_add_sub(Program *p, Program *sub) {
+    if (p->n_sub_progs == p->cap_sub_progs) {
+        int nc = p->cap_sub_progs ? p->cap_sub_progs * 2 : 2;
+        p->sub_progs = (Program **)realloc(p->sub_progs, (size_t)nc * sizeof(Program *));
+        p->cap_sub_progs = nc;
+    }
+    int idx = p->n_sub_progs++;
+    p->sub_progs[idx] = sub;
+    return idx;
+}
+
+/* Recursively free a Program (its insts, classes, and sub-programs).
+ * Used both by regex_drop and by sub-program cleanup paths. */
+static void prog_free(Program *p) {
+    if (!p) return;
+    if (p->insts) free(p->insts);
+    if (p->classes) free(p->classes);
+    for (int i = 0; i < p->n_sub_progs; i++) prog_free(p->sub_progs[i]);
+    if (p->sub_progs) free(p->sub_progs);
 }
 
 /* Compile one AST node. Emits all needed instructions; the very last
@@ -799,6 +843,23 @@ static void compile_node(Program *p, const Node *n) {
             }
             break;
         }
+        case NK_LOOKAHEAD:
+        case NK_NEG_LOOKAHEAD: {
+            /* Compile the lookahead body into its own sub-Program with
+             * an OP_MATCH at the end. Main bytecode emits OP_LOOKAHEAD
+             * (or OP_NEG_LOOKAHEAD) with `a` = sub-program index.
+             * The matcher resolves the assertion at add_thread time
+             * by recursively running vm_match_at on the sub-program. */
+            Program *sub = (Program *)calloc(1, sizeof(Program));
+            compile_node(sub, n->child);
+            Inst m = { OP_MATCH, 0, 0, 0, 0 };
+            prog_emit(sub, m);
+            int sub_idx = prog_add_sub(p, sub);
+            uint8_t op = (n->kind == NK_LOOKAHEAD) ? OP_LOOKAHEAD : OP_NEG_LOOKAHEAD;
+            Inst la = { op, 0, 0, sub_idx, 0 };
+            prog_emit(p, la);
+            break;
+        }
     }
 }
 
@@ -896,8 +957,12 @@ void __torajs_regex_drop(void *re_ptr) {
     if (!re_ptr) return;
     if (!__torajs_rc_dec(re_ptr)) return;
     RegExp *re = (RegExp *)re_ptr;
+    /* Free main prog (insts + classes) and recursively all
+     * lookahead sub-programs — prog_free walks sub_progs[]. */
     if (re->prog.insts) free(re->prog.insts);
     if (re->prog.classes) free(re->prog.classes);
+    for (int i = 0; i < re->prog.n_sub_progs; i++) prog_free(re->prog.sub_progs[i]);
+    if (re->prog.sub_progs) free(re->prog.sub_progs);
     if (re->src_bytes) free(re->src_bytes);
     free(re);
 }
@@ -955,11 +1020,44 @@ static int char_eq(uint8_t a, uint8_t b, uint8_t flags) {
     return 0;
 }
 
+/* Forward decl — vm_match_at is below; lookahead resolution recurses. */
+static int64_t vm_match_at(
+    const Program *p,
+    const uint8_t *s, int64_t slen,
+    int64_t start_pos,
+    uint8_t flags,
+    Thread *cur, Thread *nxt,
+    uint32_t *visited_cur, uint32_t *visited_nxt,
+    uint32_t *step_id_ref,
+    int64_t *out_saves
+);
+
+/* Phase 1c.4 — sub-pattern probe for lookahead resolution. Allocates
+ * its own VM workspace (small — sub-program inst count is bounded by
+ * the body size) and returns 1 if the sub matches at `pos`, 0 if not.
+ * No saves out; lookahead doesn't emit captures into the outer
+ * thread's save state (per JS spec — captures inside lookahead are
+ * scoped to the lookahead body and discarded after). */
+static int sub_probe(const Program *sub, const uint8_t *s, int64_t slen,
+                     int64_t pos, uint8_t flags) {
+    if (sub->n_insts == 0) return 1; /* empty body always matches */
+    Thread *cur = (Thread *)malloc(sizeof(Thread) * (size_t)sub->n_insts);
+    Thread *nxt = (Thread *)malloc(sizeof(Thread) * (size_t)sub->n_insts);
+    uint32_t *vc = (uint32_t *)calloc((size_t)sub->n_insts, sizeof(uint32_t));
+    uint32_t *vn = (uint32_t *)calloc((size_t)sub->n_insts, sizeof(uint32_t));
+    uint32_t step_id = 0;
+    int64_t end = vm_match_at(sub, s, slen, pos, flags, cur, nxt, vc, vn,
+                              &step_id, NULL);
+    free(cur); free(nxt); free(vc); free(vn);
+    return end >= 0 ? 1 : 0;
+}
+
 /* Add `pc` (carrying `saves`) to `tl`, transitively expanding
- * epsilon ops (JMP, SPLIT, SAVE, anchors, word-bounds). Saves are
- * passed by const pointer; SPLIT/SAVE create modified copies on
- * the local stack before recursing. The resulting list contains only
- * "real" waiting-for-input PCs each carrying their own snapshot. */
+ * epsilon ops (JMP, SPLIT, SAVE, anchors, word-bounds, LOOKAHEAD).
+ * Saves are passed by const pointer; SPLIT/SAVE create modified
+ * copies on the local stack before recursing. The resulting list
+ * contains only "real" waiting-for-input PCs each carrying their own
+ * snapshot. */
 static void add_thread(
     ThreadList *tl, VisitedTable *vt, int pc, const Program *p,
     const uint8_t *s, int64_t slen, int64_t pos, uint8_t flags,
@@ -1006,6 +1104,20 @@ static void add_thread(
             int left = (pos > 0) && is_word_byte(s[pos - 1]);
             int right = (pos < slen) && is_word_byte(s[pos]);
             if (left == right) add_thread(tl, vt, pc + 1, p, s, slen, pos, flags, saves);
+            return;
+        }
+        case OP_LOOKAHEAD: {
+            const Program *sub = p->sub_progs[ins.a];
+            if (sub_probe(sub, s, slen, pos, flags)) {
+                add_thread(tl, vt, pc + 1, p, s, slen, pos, flags, saves);
+            }
+            return;
+        }
+        case OP_NEG_LOOKAHEAD: {
+            const Program *sub = p->sub_progs[ins.a];
+            if (!sub_probe(sub, s, slen, pos, flags)) {
+                add_thread(tl, vt, pc + 1, p, s, slen, pos, flags, saves);
+            }
             return;
         }
         default: {
