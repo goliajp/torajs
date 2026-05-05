@@ -1,0 +1,49 @@
+{
+  "name": "torajs",
+  "displayName": "torajs (preview)",
+  "description": "Language Server for the torajs runtime — diagnostics, hover, goto-def for .ts files run by `tr`.",
+  "version": "0.1.0",
+  "publisher": "torajs",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/goliajp/torajs.git",
+    "directory": "web/torajs-vscode"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onLanguage:typescript"
+  ],
+  "contributes": {
+    "configuration": {
+      "title": "torajs",
+      "properties": {
+        "torajs.path": {
+          "type": "string",
+          "default": "tr",
+          "description": "Path to the `tr` binary. Default: looked up via PATH."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -w -p ./",
+    "package": "vsce package --no-dependencies"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.5.0",
+    "@vscode/vsce": "^3.0.0"
+  }
+}

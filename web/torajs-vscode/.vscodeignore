@@ -1,0 +1,27 @@
+.vscode/**
+.vscode-test/**
+src/**
+.gitignore
+.yarnrc
+vsc-extension-quickstart.md
+**/tsconfig.json
+**/.eslintrc.json
+**/*.map
+**/*.ts
+!out/extension.js
+bun.lock
+package-lock.json
+yarn.lock
+# Strip dev-only sub-packages from node_modules so the .vsix only
+# carries what the runtime needs (vscode-languageclient + its
+# transitive deps). vsce already excludes devDependencies; this
+# narrows further on @types/* test runners that some transitive
+# deps drag in.
+node_modules/.bin/**
+node_modules/**/*.md
+node_modules/**/*.markdown
+node_modules/**/test/**
+node_modules/**/tests/**
+node_modules/**/example/**
+node_modules/**/examples/**
+
