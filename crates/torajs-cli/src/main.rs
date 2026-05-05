@@ -72,6 +72,7 @@ fn main() -> ExitCode {
                 ExitCode::from(1)
             }
         },
+        Some("fmt") => run_fmt(&args[1..]),
         Some("ssa-demo") => {
             ssa::demo_fib40().print();
             ExitCode::SUCCESS
@@ -104,6 +105,7 @@ fn print_usage() {
     println!("    ssa-demo             print a hand-built SSA fib40 (P3.5 step 1 leftover)");
     println!("    lsp                  speak Language Server Protocol over stdio");
     println!("    lsp-bench            measure LSP latency on a synthetic 1K-line fixture");
+    println!("    fmt <file> [--write] reformat source to tr's canonical style (stdout, or in-place with --write)");
     println!();
     println!("    --version, -V        print version");
     println!("    --help, -h           print this help");
@@ -619,4 +621,69 @@ fn base_dir_for(file_arg: &str) -> PathBuf {
         None => PathBuf::from("."),
     };
     dir.canonicalize().unwrap_or(dir)
+}
+
+/// T-05 (v0.3.0) — `tr fmt <file> [--write]` deterministic reformatter.
+/// Reads the source, walks it through `torajs_core::formatter::format`,
+/// emits to stdout (default) or rewrites the file in place (`--write`).
+/// Comment-bearing source is rejected with a clear "v0.4 follow-up"
+/// message — no silent comment loss.
+fn run_fmt(args: &[String]) -> ExitCode {
+    let mut input: Option<&str> = None;
+    let mut write_in_place = false;
+    for a in args {
+        match a.as_str() {
+            "--write" | "-w" => write_in_place = true,
+            "--help" | "-h" => {
+                println!("tr fmt — deterministic source reformatter");
+                println!();
+                println!("USAGE: tr fmt <file|-> [--write]");
+                println!();
+                println!("  --write, -w   rewrite the file in place (default: stdout)");
+                println!();
+                println!("Style: 2-space indent, single quotes, no trailing semicolons.");
+                println!("Comment-bearing source is rejected (comment-aware fmt is a v0.4 follow-up).");
+                return ExitCode::SUCCESS;
+            }
+            other if input.is_none() && !other.starts_with("--") => {
+                input = Some(other);
+            }
+            other => {
+                eprintln!("error: unexpected argument `{other}`");
+                return ExitCode::from(2);
+            }
+        }
+    }
+    let Some(path) = input else {
+        eprintln!("error: missing file argument (use `-` for stdin)");
+        return ExitCode::from(2);
+    };
+    let src = match read_source(path) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("error: {e}");
+            return ExitCode::from(2);
+        }
+    };
+    match torajs_core::formatter::format(&src) {
+        Ok(out) => {
+            if write_in_place {
+                if path == "-" {
+                    eprintln!("error: --write incompatible with stdin input");
+                    return ExitCode::from(2);
+                }
+                if let Err(e) = std::fs::write(path, &out) {
+                    eprintln!("error: writing {path}: {e}");
+                    return ExitCode::from(1);
+                }
+            } else {
+                print!("{out}");
+            }
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("{e}");
+            ExitCode::from(1)
+        }
+    }
 }
