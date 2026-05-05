@@ -671,6 +671,25 @@ pub fn compile(
         .arg(out_path)
         .status()
         .map_err(|e| CompileError::Link(format!("spawning cc: {e}")))?;
+    // v0.3 #4 D-2 — macOS: consolidate DWARF from per-TU .o files
+    // into a `.dSYM` bundle alongside the binary. atos / lldb find
+    // it automatically by name. Without this, the .o files we're
+    // about to delete take their DWARF with them and backtraces
+    // can't resolve to source. linux embeds DWARF directly in the
+    // binary so no consolidation step is needed.
+    #[cfg(target_os = "macos")]
+    if source_path.is_some() {
+        // Silence dsymutil's `warning: (arm64) /tmp/lto.o unable to
+        // open object file` — that's the LTO temp .o which the
+        // linker has already deleted by the time dsymutil runs;
+        // benign but pollutes stderr's first line and breaks
+        // test262's classifier (it reads the leading line to
+        // decide incompat vs bug).
+        let _ = Command::new("dsymutil")
+            .arg(out_path)
+            .stderr(std::process::Stdio::null())
+            .status();
+    }
     let _ = std::fs::remove_file(&obj_path);
     let _ = std::fs::remove_file(&c_str_path);
     let _ = std::fs::remove_file(&c_regex_path);
