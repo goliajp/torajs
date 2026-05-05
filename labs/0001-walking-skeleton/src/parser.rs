@@ -101,6 +101,24 @@ impl Parser<'_> {
         self.tokens[self.pos].span.start
     }
 
+    /// v0.3 #4 DWARF — add an Expr to the arena AND record its source
+    /// byte range. `start_pos` is the *token index* where the expr
+    /// began (typically captured before recursive descent); end byte
+    /// is taken from the token just consumed (`self.pos - 1`).
+    /// Defaults to (0, 0) sentinel if either index is OOB so callers
+    /// don't have to thread Option through.
+    fn add_expr_at(&mut self, start_pos: usize, e: Expr) -> ExprId {
+        let start = self.tokens.get(start_pos).map(|t| t.span.start).unwrap_or(0);
+        let end = if self.pos > 0 {
+            self.tokens.get(self.pos - 1).map(|t| t.span.end).unwrap_or(start)
+        } else {
+            start
+        };
+        let id = self.ast.add_expr(e);
+        self.ast.set_expr_span(id, crate::lexer::Span { start, end });
+        id
+    }
+
     /// Parse a type annotation. Supports IDENT, array suffixes (`T[]`,
     /// `T[][]`), and function types (`(p1: T1, p2: T2) => R`). Returns the
     /// annotation as a flat string. Encoding for fn types: `__fn(T1|T2)->R`
@@ -2076,6 +2094,7 @@ impl Parser<'_> {
     }
 
     fn parse_postfix(&mut self) -> Result<ExprId, String> {
+        let start_pos = self.pos;
         let mut node = self.parse_primary()?;
         loop {
             match self.peek() {
@@ -2091,7 +2110,7 @@ impl Parser<'_> {
                             ));
                         }
                     };
-                    node = self.ast.add_expr(Expr::Member { obj: node, name });
+                    node = self.add_expr_at(start_pos, Expr::Member { obj: node, name });
                 }
                 Token::QuestionDot => {
                     self.pos += 1;
@@ -2105,7 +2124,7 @@ impl Parser<'_> {
                             ));
                         }
                     };
-                    node = self.ast.add_expr(Expr::OptChain { obj: node, name });
+                    node = self.add_expr_at(start_pos, Expr::OptChain { obj: node, name });
                 }
                 Token::LParen => {
                     self.pos += 1;
@@ -2121,7 +2140,7 @@ impl Parser<'_> {
                         Token::RParen => self.pos += 1,
                         t => return Err(format!("expected `)`, got {t:?} at {}", self.at())),
                     }
-                    node = self.ast.add_expr(Expr::Call { callee: node, args });
+                    node = self.add_expr_at(start_pos, Expr::Call { callee: node, args });
                 }
                 Token::LBracket => {
                     self.pos += 1;
@@ -2130,7 +2149,7 @@ impl Parser<'_> {
                         Token::RBracket => self.pos += 1,
                         t => return Err(format!("expected `]`, got {t:?} at {}", self.at())),
                     }
-                    node = self.ast.add_expr(Expr::Index { obj: node, index });
+                    node = self.add_expr_at(start_pos, Expr::Index { obj: node, index });
                 }
                 Token::PlusPlus | Token::MinusMinus => {
                     // Post-increment / post-decrement: `x++` / `x--`.

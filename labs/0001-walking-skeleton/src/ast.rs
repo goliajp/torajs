@@ -528,6 +528,20 @@ pub struct Ast {
     /// AllocaBytes path (stack) and the heap path. Empty before the
     /// pass runs and for programs with no qualifying literals.
     pub stack_array_literals: std::collections::HashSet<ExprId>,
+    /// v0.3 #4 DWARF — per-Expr source byte ranges. Indexed by
+    /// ExprId.0; `Span { start: 0, end: 0 }` is the sentinel for
+    /// "not set" (parser fills these on key Expr-emit sites; fallback
+    /// chain at panic time uses the nearest enclosing set-span when
+    /// a leaf has none). Source-buffer `source` lets the byte-range
+    /// translate to (line, col) on demand.
+    pub expr_spans: Vec<crate::lexer::Span>,
+    /// Original source text for the file this Ast was parsed from.
+    /// Empty before the parser fills it. Used by `byte_to_line_col`
+    /// to derive DWARF DILocation values without re-reading files.
+    pub source: String,
+    /// Cached newline byte offsets, lazily built on first
+    /// `byte_to_line_col` call. Empty before that.
+    pub newline_offsets: Vec<u32>,
 }
 
 /// M5.1 — desugar `class C { ... }` into `type C = {...}` + a series of
@@ -6298,7 +6312,59 @@ impl Ast {
     pub fn add_expr(&mut self, e: Expr) -> ExprId {
         let id = ExprId(self.exprs.len() as u32);
         self.exprs.push(e);
+        // Sentinel span until parser (or a desugar pass) sets a real
+        // one via `set_expr_span`. Both fields zero means "unknown".
+        self.expr_spans.push(crate::lexer::Span { start: 0, end: 0 });
         id
+    }
+
+    /// v0.3 #4 — record the source byte range of `eid`'s originating
+    /// token (or sub-token range). Idempotent in the sense that
+    /// later calls overwrite earlier ones; parser is the canonical
+    /// caller, but desugar passes that emit synthetic Exprs may also
+    /// inherit a span from their originating user node.
+    pub fn set_expr_span(&mut self, eid: ExprId, span: crate::lexer::Span) {
+        if (eid.0 as usize) < self.expr_spans.len() {
+            self.expr_spans[eid.0 as usize] = span;
+        }
+    }
+
+    /// Translate a source byte offset into a (line, col) pair, both
+    /// 1-indexed (DWARF / editor convention). Returns (0, 0) if the
+    /// offset is past end-of-source (sentinel for "no location").
+    /// First call lazily builds + caches `newline_offsets`.
+    pub fn byte_to_line_col(&mut self, byte: u32) -> (u32, u32) {
+        if byte == 0 || (byte as usize) > self.source.len() {
+            return (0, 0);
+        }
+        if self.newline_offsets.is_empty() && !self.source.is_empty() {
+            for (i, b) in self.source.as_bytes().iter().enumerate() {
+                if *b == b'\n' {
+                    self.newline_offsets.push(i as u32);
+                }
+            }
+        }
+        // Find the largest newline_offsets[k] < byte; line = k + 2 (lines
+        // are 1-indexed; line 1 has no preceding newline; lines after
+        // newline N are line N+2 because newline ends line N+1).
+        // Wait — clarify: if newline_offsets[0] is at byte 10, that
+        // ends line 1; lines 1..2 split at byte 10. So byte=5 → line 1.
+        // byte=11 → line 2.
+        let nl = &self.newline_offsets;
+        let line = match nl.binary_search(&byte) {
+            // byte == newline pos → newline char is at end of prior line
+            Ok(k) => (k as u32) + 1,
+            // byte falls between newline[k-1] and newline[k]
+            Err(k) => (k as u32) + 1,
+        };
+        // Find line start: byte after the previous newline (or 0 for line 1).
+        let line_start = if line == 1 {
+            0u32
+        } else {
+            nl[(line - 2) as usize] + 1
+        };
+        let col = byte - line_start + 1; // 1-indexed col
+        (line, col)
     }
 
     pub fn get_expr(&self, id: ExprId) -> &Expr {

@@ -140,6 +140,10 @@ fn pipeline(src: &str, base_dir: &Path, stage: Stage) -> ExitCode {
             return ExitCode::from(1);
         }
     };
+    // v0.3 #4 DWARF — retain source bytes so byte_to_line_col can
+    // resolve Expr spans into DILocation values during ssa_inkwell
+    // emission and during runtime panic backtraces.
+    ast.source = src.to_string();
     // K.2 — resolve cross-file imports BEFORE the desugar pipeline so
     // imported decls go through the same downstream passes (class
     // desugar, arrow lift, etc.) as same-file decls.
@@ -286,6 +290,10 @@ fn run_build_llvm(args: &[String]) -> ExitCode {
             return ExitCode::from(1);
         }
     };
+    // v0.3 #4 DWARF — retain source bytes so byte_to_line_col can
+    // resolve Expr spans into DILocation values during ssa_inkwell
+    // emission and during runtime panic backtraces.
+    ast.source = src.to_string();
     // K.2 — resolve cross-file imports before the desugar pipeline.
     let base_dir = base_dir_for(input);
     if let Err(e) = modules::resolve_imports(&mut ast, &base_dir) {
@@ -402,6 +410,10 @@ fn run_jit(file_arg: Option<&String>) -> ExitCode {
             return ExitCode::from(1);
         }
     };
+    // v0.3 #4 DWARF — retain source bytes so byte_to_line_col can
+    // resolve Expr spans into DILocation values during ssa_inkwell
+    // emission and during runtime panic backtraces.
+    ast.source = src.to_string();
     let base_dir = base_dir_for(path);
     let import_closure = match modules::resolve_imports(&mut ast, &base_dir) {
         Ok(files) => files,
