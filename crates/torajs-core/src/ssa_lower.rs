@@ -6549,10 +6549,26 @@ impl<'a> LowerCtx<'a> {
                 // path and will need a similar caller-driven hook
                 // when those shapes show up — for now, only LetDecl
                 // form is wired.
-                if let Some(slot_ty_for_parse) =
+                if let Some(mut slot_ty_for_parse) =
                     self.try_resolve_type_ann(type_ann.as_deref())
                     && self.is_json_parse_call(*init)
                 {
+                    // T-02 (v0.3.0) — `let v: number = JSON.parse(...)`
+                    // must match bun: JS spec Number is f64, and the
+                    // JSON grammar carries no compile-time hint about
+                    // whether the literal is integer-valued. Without
+                    // this promotion `JSON.parse("1.5")` truncates to
+                    // `1` because `number` resolves to I64 by tr's
+                    // i64-default rule. Explicit `: i64` opts back into
+                    // the integer parser; explicit `: f64` was already
+                    // f64. Wider question of `number` everywhere being
+                    // f64 is out of scope (would force a re-baseline of
+                    // the bench scoreboard).
+                    if matches!(slot_ty_for_parse, Type::I64)
+                        && type_ann.as_deref() == Some("number")
+                    {
+                        slot_ty_for_parse = Type::F64;
+                    }
                     let text_eid = if let Expr::Call { args, .. } =
                         self.ast.get_expr(*init).clone()
                     {
