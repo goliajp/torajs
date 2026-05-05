@@ -15,13 +15,14 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use lsp_server::{Connection, Message, Notification, Response};
+use lsp_server::{Connection, Message, Notification, Request, Response};
 use lsp_types::{
     Diagnostic, DiagnosticSeverity, DidChangeTextDocumentParams,
-    DidCloseTextDocumentParams, DidOpenTextDocumentParams, InitializeParams,
-    InitializeResult, Position, PublishDiagnosticsParams, Range,
-    ServerCapabilities, ServerInfo, TextDocumentSyncCapability,
-    TextDocumentSyncKind, Url,
+    DidCloseTextDocumentParams, DidOpenTextDocumentParams, Hover,
+    HoverContents, HoverParams, HoverProviderCapability, InitializeParams,
+    InitializeResult, MarkupContent, MarkupKind, Position,
+    PublishDiagnosticsParams, Range, ServerCapabilities, ServerInfo,
+    TextDocumentSyncCapability, TextDocumentSyncKind, Url,
 };
 
 const SERVER_NAME: &str = "tr";
@@ -34,6 +35,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
         text_document_sync: Some(TextDocumentSyncCapability::Kind(
             TextDocumentSyncKind::FULL,
         )),
+        hover_provider: Some(HoverProviderCapability::Simple(true)),
         ..Default::default()
     };
 
@@ -63,12 +65,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
                 if connection.handle_shutdown(&req)? {
                     break;
                 }
-                let resp = Response::new_err(
-                    req.id.clone(),
-                    lsp_server::ErrorCode::MethodNotFound as i32,
-                    format!("tr lsp does not yet handle request `{}`", req.method),
-                );
-                connection.sender.send(Message::Response(resp))?;
+                handle_request(&connection, &docs, req)?;
             }
             Message::Notification(notif) => {
                 handle_notification(&connection, &mut docs, notif)?;
@@ -237,4 +234,149 @@ fn error_at_origin(message: String) -> Diagnostic {
         tags: None,
         data: None,
     }
+}
+
+fn handle_request(
+    connection: &Connection,
+    docs: &HashMap<Url, String>,
+    req: Request,
+) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
+    let response = match req.method.as_str() {
+        "textDocument/hover" => {
+            let p: HoverParams = match serde_json::from_value(req.params) {
+                Ok(p) => p,
+                Err(e) => {
+                    return send_err(connection, req.id, format!("hover params: {e}"));
+                }
+            };
+            let uri = p.text_document_position_params.text_document.uri;
+            let pos = p.text_document_position_params.position;
+            let hover = docs
+                .get(&uri)
+                .and_then(|text| compute_hover(text, pos));
+            Response::new_ok(req.id, hover)
+        }
+        _ => Response::new_err(
+            req.id.clone(),
+            lsp_server::ErrorCode::MethodNotFound as i32,
+            format!("tr lsp does not yet handle request `{}`", req.method),
+        ),
+    };
+    connection.sender.send(Message::Response(response))?;
+    Ok(())
+}
+
+fn send_err(
+    connection: &Connection,
+    id: lsp_server::RequestId,
+    msg: String,
+) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
+    let resp = Response::new_err(id, lsp_server::ErrorCode::InvalidParams as i32, msg);
+    connection.sender.send(Message::Response(resp))?;
+    Ok(())
+}
+
+/// L-3 — hover handler. Re-runs the typecheck pipeline (cached
+/// types not yet implemented; that's L-6 perf), translates the
+/// LSP (line, char) position to a byte offset, finds the smallest
+/// Expr whose source span contains that offset, and looks up its
+/// inferred type from the side table that `collect_types_and_errors`
+/// populates as it walks. Returns None when the position doesn't
+/// land on any typed Expr.
+fn compute_hover(text: &str, pos: Position) -> Option<Hover> {
+    let computation = std::panic::AssertUnwindSafe(|| {
+        let tokens = crate::lexer::tokenize(text).ok()?;
+        let mut ast = crate::parser::parse(&tokens).ok()?;
+        ast.source = text.to_string();
+        ast.warm_newline_cache();
+        // No cross-file resolution + no desugars on the hover path;
+        // they could mutate spans in ways that confuse the (line, col)
+        // → ExprId lookup. The base parsed AST has the spans the user
+        // sees in the editor.
+        let (expr_types, _errs) = crate::check::collect_types_and_errors(&ast);
+
+        // Convert (line, char) to byte offset. LSP positions are
+        // 0-indexed, UTF-16 code units; we treat them as UTF-8
+        // byte offsets (good enough for ASCII; multibyte support
+        // is a follow-up).
+        let byte = position_to_byte(text, pos)?;
+        let eid = smallest_containing_expr(&ast, byte)?;
+        let ty = expr_types.get(&eid)?;
+        let formatted = crate::check::type_to_ann(ty);
+        let span = ast.expr_spans.get(eid.0 as usize)?;
+        let start_pos = byte_to_position(text, span.start);
+        let end_pos = byte_to_position(text, span.end);
+        Some(Hover {
+            contents: HoverContents::Markup(MarkupContent {
+                kind: MarkupKind::Markdown,
+                value: format!("```typescript\n{formatted}\n```"),
+            }),
+            range: Some(Range {
+                start: start_pos,
+                end: end_pos,
+            }),
+        })
+    });
+    std::panic::catch_unwind(computation).ok().flatten()
+}
+
+fn position_to_byte(text: &str, pos: Position) -> Option<u32> {
+    let mut line = 0u32;
+    let mut col = 0u32;
+    for (i, ch) in text.char_indices() {
+        if line == pos.line && col == pos.character {
+            return Some(i as u32);
+        }
+        if ch == '\n' {
+            line += 1;
+            col = 0;
+        } else {
+            col += 1;
+        }
+    }
+    if line == pos.line && col == pos.character {
+        return Some(text.len() as u32);
+    }
+    None
+}
+
+fn byte_to_position(text: &str, byte: u32) -> Position {
+    let mut line = 0u32;
+    let mut col = 0u32;
+    let target = byte as usize;
+    for (i, ch) in text.char_indices() {
+        if i >= target {
+            break;
+        }
+        if ch == '\n' {
+            line += 1;
+            col = 0;
+        } else {
+            col += 1;
+        }
+    }
+    Position { line, character: col }
+}
+
+/// Walk every Expr looking for the smallest span containing `byte`.
+/// O(n) over the arena — fine for hover latency on 1 K-line files;
+/// L-6 may add a position index if needed.
+fn smallest_containing_expr(ast: &crate::ast::Ast, byte: u32) -> Option<crate::ast::ExprId> {
+    let mut best: Option<(crate::ast::ExprId, u32)> = None;
+    for (i, span) in ast.expr_spans.iter().enumerate() {
+        if span.start == 0 && span.end == 0 {
+            continue;
+        }
+        if byte >= span.start && byte < span.end {
+            let width = span.end - span.start;
+            match best {
+                None => best = Some((crate::ast::ExprId(i as u32), width)),
+                Some((_, prev_w)) if width < prev_w => {
+                    best = Some((crate::ast::ExprId(i as u32), width));
+                }
+                _ => {}
+            }
+        }
+    }
+    best.map(|(id, _)| id)
 }

@@ -574,21 +574,61 @@ pub fn type_to_ann(ty: &Type) -> String {
 }
 
 pub fn check(ast: &Ast) -> Result<GenericCallSites, String> {
-    let mut c = Checker {
-        globals: HashMap::new(),
-        scopes: vec![HashMap::new()],
-        aliases: HashMap::new(),
-        errors: Vec::new(),
-        expected_return: None,
-        current_class: None,
-        closure_captures: HashMap::new(),
-        closure_fn_names: std::collections::HashSet::new(),
-        generic_type_params: HashMap::new(),
-        generic_call_sites: HashMap::new(),
-        generic_alias_decls: HashMap::new(),
-        fn_defaults: HashMap::new(),
-        consumed_calls: std::collections::HashSet::new(),
-    };
+    let mut c = Checker::new();
+    c.run_full_pipeline(ast);
+    if c.errors.is_empty() {
+        Ok(c.generic_call_sites)
+    } else {
+        Err(c.errors.join("\n"))
+    }
+}
+
+/// v0.3 #5 LSP — variant that runs the same typecheck pipeline as
+/// `check` but returns ALL accumulated errors as a Vec rather than
+/// joining the first into the Result::Err. The LSP server uses this
+/// to publish multiple diagnostics per file. Each error is currently
+/// a bare string with no source span attached; L-2.b will add per-
+/// site spans (Vec<(Span, String)>) once the ~80-100 push sites are
+/// migrated to carry their originating ExprId.
+pub fn collect_errors(ast: &Ast) -> Vec<String> {
+    let mut c = Checker::new();
+    c.run_full_pipeline(ast);
+    c.errors
+}
+
+/// v0.3 #5 LSP L-3 — run the full typecheck pipeline and return
+/// the per-Expr type table (populated as a side-effect by every
+/// `type_of` call). Caller looks up by ExprId. Errors during
+/// typecheck don't abort the table — partial coverage on the
+/// reachable Exprs is still useful for hover.
+pub fn collect_types_and_errors(ast: &Ast) -> (HashMap<ExprId, Type>, Vec<String>) {
+    let mut c = Checker::new();
+    c.run_full_pipeline(ast);
+    (c.expr_types, c.errors)
+}
+
+impl Checker {
+    fn new() -> Self {
+        Self {
+            globals: HashMap::new(),
+            scopes: vec![HashMap::new()],
+            aliases: HashMap::new(),
+            errors: Vec::new(),
+            expected_return: None,
+            current_class: None,
+            closure_captures: HashMap::new(),
+            closure_fn_names: std::collections::HashSet::new(),
+            generic_type_params: HashMap::new(),
+            generic_call_sites: HashMap::new(),
+            generic_alias_decls: HashMap::new(),
+            fn_defaults: HashMap::new(),
+            consumed_calls: std::collections::HashSet::new(),
+            expr_types: HashMap::new(),
+        }
+    }
+
+    fn run_full_pipeline(&mut self, ast: &Ast) {
+        let c = self;
 
     // Pass 0: register type aliases first so fn signatures + let
     // annotations can reference them. `type Point = { x: number, y: number }`
@@ -738,25 +778,6 @@ pub fn check(ast: &Ast) -> Result<GenericCallSites, String> {
         }
         c.check_stmt(ast, stmt);
     }
-
-    if c.errors.is_empty() {
-        Ok(c.generic_call_sites)
-    } else {
-        Err(c.errors.join("\n"))
-    }
-}
-
-/// v0.3 #5 LSP — variant that runs the same typecheck pipeline as
-/// `check` but returns ALL accumulated errors as a Vec rather than
-/// joining the first into the Result::Err. The LSP server uses this
-/// to publish multiple diagnostics per file. Each error is currently
-/// a bare string with no source span attached; L-2.b will add per-
-/// site spans (Vec<(Span, String)>) once the ~80-100 push sites are
-/// migrated to carry their originating ExprId.
-pub fn collect_errors(ast: &Ast) -> Vec<String> {
-    match check(ast) {
-        Ok(_) => Vec::new(),
-        Err(joined) => joined.split('\n').map(String::from).collect(),
     }
 }
 
@@ -821,6 +842,14 @@ struct Checker {
     /// inside the throw expression would consume its args twice and
     /// trip the affine tracker on the second pass.
     consumed_calls: std::collections::HashSet<ExprId>,
+    /// v0.3 #5 LSP — every successful `type_of(eid)` call records
+    /// its result here so the LSP `hover` handler can answer "what
+    /// is the type of the expression at this position?" by looking
+    /// up the smallest-containing ExprId in the side table.
+    /// Empty / unused outside the LSP entry point. Stays per-check
+    /// (rebuilt each `collect_types_and_errors` call) so stale
+    /// entries from edits don't surface.
+    pub expr_types: HashMap<ExprId, Type>,
 }
 
 /// Walk `pattern` and `actual` in lockstep; whenever a `TypeVar(name)` is
@@ -1633,7 +1662,20 @@ impl Checker {
         }
     }
 
+    /// v0.3 #5 LSP — outer wrapper that records every successful
+    /// type-of result into `expr_types` so the LSP hover handler
+    /// can answer position queries without re-running the typecheck
+    /// pipeline. Recursive calls hit this same wrapper, so deeply
+    /// nested Exprs all get their inferred type cached.
     fn type_of(&mut self, ast: &Ast, eid: ExprId) -> Result<Type, String> {
+        let result = self.type_of_inner(ast, eid);
+        if let Ok(t) = &result {
+            self.expr_types.insert(eid, t.clone());
+        }
+        result
+    }
+
+    fn type_of_inner(&mut self, ast: &Ast, eid: ExprId) -> Result<Type, String> {
         match ast.get_expr(eid) {
             Expr::String(_) => Ok(Type::String),
             Expr::Number(_) => Ok(Type::Number),
