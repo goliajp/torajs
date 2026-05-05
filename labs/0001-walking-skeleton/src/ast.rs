@@ -4182,25 +4182,170 @@ struct SplitForICtx {
 }
 
 fn rewrite_sfi_walk_list(ast: &mut Ast, stmts: &mut Vec<Stmt>, ctx: &mut SplitForICtx) {
-    // Pass 1: rewrite adjacent pairs at this level (collect into out).
-    let mut out: Vec<Stmt> = Vec::with_capacity(stmts.len());
-    let mut i = 0;
-    while i < stmts.len() {
-        if i + 1 < stmts.len() {
-            if let Some(rw) = try_rewrite_sfi(ast, &stmts[i], &stmts[i + 1], &stmts[i + 2..], ctx) {
-                out.push(rw);
-                i += 2;
-                continue;
+    // Forward scan: for each Stmt::For matching the for-i+.length
+    // pattern, look back through prior stmts in the same block for
+    // the matching `let X = E.split(LIT)` declaration. Intermediate
+    // stmts (e.g. unrelated `let total = 0`) are allowed as long as
+    // they don't reference X. Once both endpoints are found and all
+    // escape conditions hold, splice: drop X-decl at j and replace
+    // For at i with the rewritten Block.
+    let mut to_remove: std::collections::HashSet<usize> = std::collections::HashSet::new();
+    let mut replacements: std::collections::HashMap<usize, Stmt> = std::collections::HashMap::new();
+    for i in 0..stmts.len() {
+        if to_remove.contains(&i) {
+            continue;
+        }
+        // Try to extract i_name + x_name from the For pattern at
+        // stmts[i]. Bails on any non-canonical shape.
+        let (i_name, x_name) = match for_i_x_length_match(ast, &stmts[i]) {
+            Some(t) => t,
+            None => continue,
+        };
+        // Look back for `let X = E.split(LIT)` in this block. Scan
+        // i-1 → 0; bail at the first stmt that references X with a
+        // shape other than the X-declaration.
+        let mut found_j: Option<usize> = None;
+        let mut hit_blocker = false;
+        for j in (0..i).rev() {
+            if to_remove.contains(&j) {
+                hit_blocker = true;
+                break;
+            }
+            // Is this the matching X-decl?
+            if let Stmt::LetDecl { name, init, .. } = &stmts[j]
+                && name == &x_name
+            {
+                if match_split_call_with_lit_sep(ast, *init).is_some() {
+                    found_j = Some(j);
+                }
+                break;
+            }
+            // Otherwise, intermediate stmt must not reference X.
+            if sfi_stmt_uses_ident(ast, &stmts[j], &x_name) {
+                hit_blocker = true;
+                break;
             }
         }
-        out.push(stmts[i].clone());
-        i += 1;
+        let _ = hit_blocker;
+        let Some(j) = found_j else { continue };
+        // Verify body / trailing escape constraints.
+        let (parent_eid, sep_eid) = match &stmts[j] {
+            Stmt::LetDecl { init, .. } => match_split_call_with_lit_sep(ast, *init).unwrap(),
+            _ => unreachable!(),
+        };
+        let body_box = match &stmts[i] {
+            Stmt::For { body, .. } => body.clone(),
+            _ => continue,
+        };
+        if !sfi_body_x_safe(ast, &body_box, &x_name, &i_name) {
+            continue;
+        }
+        if stmts
+            .iter()
+            .skip(i + 1)
+            .any(|s| sfi_stmt_uses_ident(ast, s, &x_name))
+        {
+            continue;
+        }
+        // Build the rewrite: Block([let mut I = 0, ForOfSplitIter])
+        let id = ctx.counter;
+        ctx.counter += 1;
+        let v_name = format!("__sfi_v_{id}");
+        let new_body = sfi_rewrite_body(ast, &body_box, &x_name, &i_name, &v_name);
+        // Append `I = I + 1` step so the body's manual counter ticks.
+        let i_ref_step_l = ast.add_expr(Expr::Ident(i_name.clone()));
+        let i_ref_step_r = ast.add_expr(Expr::Ident(i_name.clone()));
+        let one_eid = ast.add_expr(Expr::Number(1.0));
+        let inc_eid = ast.add_expr(Expr::BinOp {
+            op: BinOp::Add,
+            left: i_ref_step_r,
+            right: one_eid,
+        });
+        let assign_eid = ast.add_expr(Expr::Assign {
+            target: i_ref_step_l,
+            value: inc_eid,
+        });
+        let body_with_inc = match new_body {
+            Stmt::Block(mut inner) => {
+                inner.push(Stmt::Expr(assign_eid));
+                Stmt::Block(inner)
+            }
+            other => Stmt::Block(vec![other, Stmt::Expr(assign_eid)]),
+        };
+        let zero_eid = ast.add_expr(Expr::Number(0.0));
+        let counter_decl = Stmt::LetDecl {
+            mutable: true,
+            name: i_name.clone(),
+            type_ann: Some("number".into()),
+            init: zero_eid,
+        };
+        let forof = Stmt::ForOfSplitIter {
+            var_name: v_name,
+            parent: parent_eid,
+            sep: sep_eid,
+            body: Box::new(body_with_inc),
+        };
+        let new_block = Stmt::Block(vec![counter_decl, forof]);
+        to_remove.insert(j);
+        replacements.insert(i, new_block);
     }
-    *stmts = out;
-    // Pass 2: recurse into each child stmt.
+    // Apply: keep stmts not in to_remove; for indices in replacements,
+    // swap to the new Stmt; otherwise clone original.
+    if !to_remove.is_empty() || !replacements.is_empty() {
+        let mut out: Vec<Stmt> = Vec::with_capacity(stmts.len());
+        for (idx, s) in stmts.iter().enumerate() {
+            if to_remove.contains(&idx) {
+                continue;
+            }
+            if let Some(rw) = replacements.remove(&idx) {
+                out.push(rw);
+            } else {
+                out.push(s.clone());
+            }
+        }
+        *stmts = out;
+    }
+    // Recurse into each child stmt's nested lists.
     for s in stmts.iter_mut() {
         rewrite_sfi_walk_stmt(ast, s, ctx);
     }
+}
+
+/// Returns Some((i_name, x_name)) if the Stmt is a canonical
+/// `for (let mut I = 0; I < X.length; I = I + 1) BODY`. None on any
+/// shape mismatch.
+fn for_i_x_length_match(ast: &Ast, s: &Stmt) -> Option<(String, String)> {
+    let Stmt::For { init, cond, step, .. } = s else {
+        return None;
+    };
+    // init: let mut I = 0
+    let i_name = match init.as_deref() {
+        Some(Stmt::LetDecl {
+            mutable: true, name, init: init_eid, ..
+        }) if is_zero_lit(ast, *init_eid) => name.clone(),
+        _ => return None,
+    };
+    let cond_eid = (*cond)?;
+    // cond: I < X.length
+    let x_name = match ast.get_expr(cond_eid) {
+        Expr::BinOp { op: BinOp::Lt, left, right }
+            if matches!(ast.get_expr(*left), Expr::Ident(n) if *n == i_name) =>
+        {
+            match ast.get_expr(*right) {
+                Expr::Member { obj, name } if name == "length" => match ast.get_expr(*obj) {
+                    Expr::Ident(n) => n.clone(),
+                    _ => return None,
+                },
+                _ => return None,
+            }
+        }
+        _ => return None,
+    };
+    let step_eid = (*step)?;
+    if !is_i_plus_eq_1(ast, step_eid, &i_name) {
+        return None;
+    }
+    Some((i_name, x_name))
 }
 
 fn rewrite_sfi_walk_stmt(ast: &mut Ast, s: &mut Stmt, ctx: &mut SplitForICtx) {
@@ -4258,99 +4403,6 @@ fn rewrite_sfi_walk_stmt(ast: &mut Ast, s: &mut Stmt, ctx: &mut SplitForICtx) {
     }
 }
 
-fn try_rewrite_sfi(
-    ast: &mut Ast,
-    let_stmt: &Stmt,
-    for_stmt: &Stmt,
-    trailing: &[Stmt],
-    ctx: &mut SplitForICtx,
-) -> Option<Stmt> {
-    // (1) LetDecl pattern.
-    let (x_name, parent_eid, sep_eid) = match let_stmt {
-        Stmt::LetDecl { name, init, .. } => {
-            let (parent, sep) = match_split_call_with_lit_sep(ast, *init)?;
-            (name.clone(), parent, sep)
-        }
-        _ => return None,
-    };
-    // (2) For pattern.
-    let (i_name, body_box) = match for_stmt {
-        Stmt::For { init, cond, step, body } => {
-            // init: let mut I = 0
-            let i_name = match init.as_deref() {
-                Some(Stmt::LetDecl { mutable: true, name, init: init_eid, .. }) => {
-                    if !is_zero_lit(ast, *init_eid) {
-                        return None;
-                    }
-                    name.clone()
-                }
-                _ => return None,
-            };
-            // cond: I < X.length
-            let cond = (*cond)?;
-            if !is_lt_i_lt_x_length(ast, cond, &i_name, &x_name) {
-                return None;
-            }
-            // step: I = I + 1
-            let step = (*step)?;
-            if !is_i_plus_eq_1(ast, step, &i_name) {
-                return None;
-            }
-            (i_name, body.clone())
-        }
-        _ => return None,
-    };
-    // (3) Escape check on body + trailing stmts. body is allowed to
-    // reference X only via Index(Ident(X), Ident(I)). trailing stmts
-    // must not reference X at all.
-    if !sfi_body_x_safe(ast, &body_box, &x_name, &i_name) {
-        return None;
-    }
-    if trailing.iter().any(|s| sfi_stmt_uses_ident(ast, s, &x_name)) {
-        return None;
-    }
-    // (4) Build the rewrite.
-    let id = ctx.counter;
-    ctx.counter += 1;
-    let v_name = format!("__sfi_v_{id}");
-    // Walk body, replace `Index(Ident(X), Ident(I))` with `Ident(v_name)`.
-    let new_body = sfi_rewrite_body(ast, &body_box, &x_name, &i_name, &v_name);
-    // Append `I = I + 1` to the body (preserve counter semantics).
-    let i_ref_step_l = ast.add_expr(Expr::Ident(i_name.clone()));
-    let i_ref_step_r = ast.add_expr(Expr::Ident(i_name.clone()));
-    let one_eid = ast.add_expr(Expr::Number(1.0));
-    let inc_eid = ast.add_expr(Expr::BinOp {
-        op: BinOp::Add,
-        left: i_ref_step_r,
-        right: one_eid,
-    });
-    let assign_eid = ast.add_expr(Expr::Assign {
-        target: i_ref_step_l,
-        value: inc_eid,
-    });
-    let body_with_inc = match new_body {
-        Stmt::Block(mut inner) => {
-            inner.push(Stmt::Expr(assign_eid));
-            Stmt::Block(inner)
-        }
-        other => Stmt::Block(vec![other, Stmt::Expr(assign_eid)]),
-    };
-    let zero_eid = ast.add_expr(Expr::Number(0.0));
-    let counter_decl = Stmt::LetDecl {
-        mutable: true,
-        name: i_name.clone(),
-        type_ann: Some("number".into()),
-        init: zero_eid,
-    };
-    let forof = Stmt::ForOfSplitIter {
-        var_name: v_name,
-        parent: parent_eid,
-        sep: sep_eid,
-        body: Box::new(body_with_inc),
-    };
-    Some(Stmt::Block(vec![counter_decl, forof]))
-}
-
 fn match_split_call_with_lit_sep(ast: &Ast, eid: ExprId) -> Option<(ExprId, ExprId)> {
     if let Expr::Call { callee, args } = ast.get_expr(eid)
         && args.len() == 1
@@ -4365,18 +4417,6 @@ fn match_split_call_with_lit_sep(ast: &Ast, eid: ExprId) -> Option<(ExprId, Expr
 
 fn is_zero_lit(ast: &Ast, eid: ExprId) -> bool {
     matches!(ast.get_expr(eid), Expr::Number(n) if *n == 0.0)
-}
-
-fn is_lt_i_lt_x_length(ast: &Ast, eid: ExprId, i_name: &str, x_name: &str) -> bool {
-    if let Expr::BinOp { op: BinOp::Lt, left, right } = ast.get_expr(eid)
-        && matches!(ast.get_expr(*left), Expr::Ident(n) if n == i_name)
-        && let Expr::Member { obj, name: m_name } = ast.get_expr(*right)
-        && m_name == "length"
-        && matches!(ast.get_expr(*obj), Expr::Ident(n) if n == x_name)
-    {
-        return true;
-    }
-    false
 }
 
 fn is_i_plus_eq_1(ast: &Ast, eid: ExprId, i_name: &str) -> bool {
