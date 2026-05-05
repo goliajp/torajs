@@ -91,6 +91,7 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
     let str_free = declare_str_free(&ctx, &llvm_module);
     let str_alloc_pooled = declare_str_alloc_pooled(&ctx, &llvm_module);
     let arr_free = declare_arr_free(&ctx, &llvm_module);
+    let arr_alloc_pooled = declare_arr_alloc_pooled(&ctx, &llvm_module);
     let mut fn_map: Vec<FunctionValue> = Vec::with_capacity(ssa_module.funcs.len());
     for f in &ssa_module.funcs {
         let llvm_fn = match f.name.as_str() {
@@ -118,7 +119,14 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
             }
             "__torajs_obj_alloc" => define_obj_alloc(&ctx, &llvm_module, malloc),
             "__torajs_obj_drop" => define_obj_drop(&ctx, &llvm_module, free),
-            "__torajs_arr_alloc" => define_arr_alloc(&ctx, &llvm_module, malloc),
+            "__torajs_arr_alloc" => {
+                // hot — every Array literal materialization. Body is
+                // a single tail call into the pool-aware C runtime
+                // helper; alwaysinline so the call collapses at LTO.
+                let f = define_arr_alloc(&ctx, &llvm_module, arr_alloc_pooled);
+                mark_alwaysinline(&ctx, f);
+                f
+            }
             "__torajs_arr_push" => define_arr_push(&ctx, &llvm_module, realloc),
             "__torajs_arr_reserve" => {
                 define_arr_reserve(&ctx, &llvm_module, realloc)
@@ -580,6 +588,20 @@ fn declare_str_alloc_pooled<'ctx>(ctx: &'ctx Context, m: &LlvmModule<'ctx>) -> F
     m.add_function("__torajs_str_alloc_pooled", fn_t, None)
 }
 
+/// `__torajs_arr_alloc_pooled(uint64_t cap) -> void*` — pool-aware
+/// Array alloc. For cap ≤ POOL_CAP_MAX, scans the cap-indexed LIFO
+/// for a matching block; falls through to malloc + header init on
+/// miss. Defined in runtime_str.c. Inkwell's arr_alloc IR fn
+/// delegates here so fn-local literal allocs (`let xs = [a, b, c]`
+/// inside a tight loop) reuse the same block per iter instead of
+/// mallocing.
+fn declare_arr_alloc_pooled<'ctx>(ctx: &'ctx Context, m: &LlvmModule<'ctx>) -> FunctionValue<'ctx> {
+    let i64_t = ctx.i64_type();
+    let ptr_t = ctx.ptr_type(AddressSpace::default());
+    let fn_t = ptr_t.fn_type(&[i64_t.into()], false);
+    m.add_function("__torajs_arr_alloc_pooled", fn_t, None)
+}
+
 fn declare_memcmp<'ctx>(ctx: &'ctx Context, m: &LlvmModule<'ctx>) -> FunctionValue<'ctx> {
     let i32_t = ctx.i32_type();
     let i64_t = ctx.i64_type();
@@ -764,6 +786,7 @@ const ARR_HDR_TAG_ARR: u64 = 2;
 /// Emit `malloc(ARR_HDR_DATA_OFF + cap*8)` + universal-header init
 /// (refcount=1 / type_tag=ARR / flags=0) + len/cap stores. Caller
 /// fills slot data starting at `p + ARR_HDR_DATA_OFF`.
+#[allow(dead_code)]
 fn emit_arr_alloc_header<'ctx>(
     ctx: &'ctx Context,
     builder: &inkwell::builder::Builder<'ctx>,
@@ -1691,15 +1714,15 @@ fn define_obj_drop<'ctx>(
 
 /// `__torajs_arr_alloc(u64 initial_cap) -> *u8`
 ///
-///     total = 16 + initial_cap * 8
-///     p = malloc(total)
-///     *(u64*)p       = 0              // len = 0
-///     *((u64*)p + 1) = initial_cap    // cap
-///     return p
+/// Body is a single tail call into `__torajs_arr_alloc_pooled`
+/// (runtime_str.c). The C-side helper owns the pool fast-path and
+/// the malloc + header init slow-path; LTO inlines it back into the
+/// caller so this stays the same shape as the str_alloc / str_drop
+/// pattern.
 fn define_arr_alloc<'ctx>(
     ctx: &'ctx Context,
     m: &LlvmModule<'ctx>,
-    malloc: FunctionValue<'ctx>,
+    arr_alloc_pooled: FunctionValue<'ctx>,
 ) -> FunctionValue<'ctx> {
     let builder = ctx.create_builder();
     let i64_t = ctx.i64_type();
@@ -1710,8 +1733,12 @@ fn define_arr_alloc<'ctx>(
     builder.position_at_end(entry);
 
     let cap = f.get_nth_param(0).unwrap().into_int_value();
-    let len_zero = i64_t.const_int(0, false);
-    let p = emit_arr_alloc_header(ctx, &builder, malloc, len_zero, cap);
+    let p = builder
+        .build_call(arr_alloc_pooled, &[cap.into()], "arr_p")
+        .unwrap()
+        .try_as_basic_value()
+        .unwrap_basic()
+        .into_pointer_value();
     builder.build_return(Some(&p)).unwrap();
     f
 }

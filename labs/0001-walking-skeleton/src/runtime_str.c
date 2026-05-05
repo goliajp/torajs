@@ -243,6 +243,30 @@ static uint8_t *split_pool_blocks_[__TORAJS_SPLIT_POOL_SLOTS];
 static uint64_t split_pool_caps_[__TORAJS_SPLIT_POOL_SLOTS];
 static int split_pool_count_ = 0;
 
+/* Generic Array LIFO pool — keyed by cap, bounded slot count.
+ *
+ * Hot in any code path that produces fresh small arrays inside a
+ * tight loop (literal `[a, b, c]` allocations in fn-local scopes,
+ * working-set scratch arrays, etc.). Earlier benchmarks (rpn-eval-
+ * 100k, 16-elem stack literal allocated per call) showed every
+ * iter paying a malloc + 24-byte header init; pool turns that into
+ * a pointer-pop + cap-match scan.
+ *
+ * Cap-indexed (not size-class-rounded) so `[1,2,3]` (cap 3) and
+ * `[1,2,3,4]` (cap 4) don't share a slot — keeps every block right-
+ * sized for its caller. The cap match is O(arr_pool_count_) but
+ * tight loops typically see one dominant cap value, so the LIFO
+ * head matches on the first compare.
+ *
+ * Cap > __TORAJS_ARR_POOL_CAP_MAX bypasses the pool and pays a
+ * direct malloc/free — the leverage is concentrated in small literal
+ * allocs, large arrays' alloc cost is amortized across their use. */
+#define __TORAJS_ARR_POOL_SLOTS    16
+#define __TORAJS_ARR_POOL_CAP_MAX  32
+static uint8_t *arr_pool_blocks_[__TORAJS_ARR_POOL_SLOTS];
+static uint64_t arr_pool_caps_[__TORAJS_ARR_POOL_SLOTS];
+static int arr_pool_count_ = 0;
+
 /* Hardcoded constants — Arr layout macros are declared further down
  * in this file but the split pool needs them now. Keep in sync with
  * `__TORAJS_ARR_HDR_SIZE` (24) + `__TORAJS_ARR_CAP_OFF` (16). */
@@ -262,22 +286,72 @@ static inline uint8_t *split_block_alloc_(uint64_t out_count) {
     return (uint8_t *)malloc(total);
 }
 
-/* Free path for split blocks. arr_drop (inkwell IR) calls
- * __torajs_arr_free which dispatches here when the SPLIT flag is
- * set in the universal header. */
+/* Free path for Array blocks. arr_drop (inkwell IR) calls
+ * __torajs_arr_free at refcount=0. Dispatch order:
+ *   - SPLIT_BLOCK flag set → split_pool (split.c built block,
+ *     contains inline substr structs; size class includes the
+ *     substr area)
+ *   - cap ≤ POOL_CAP_MAX, pool not full → arr_pool (small
+ *     fn-local literal arrays; recycled by next equal-cap alloc)
+ *   - otherwise → libc free
+ *
+ * Hardcoded `(uint8_t *)p + 16` reads cap (ARR_HDR_CAP_OFF). */
 void __torajs_arr_free(void *p) {
     if (p == NULL) return;
     __torajs_heap_header_t *h = (__torajs_heap_header_t *)p;
+    uint64_t cap = *(uint64_t *)((uint8_t *)p + 16);
     if (h->flags & __TORAJS_FLAG_SPLIT_BLOCK) {
-        uint64_t cap = *(uint64_t *)((uint8_t *)p + 16);
         if (split_pool_count_ < __TORAJS_SPLIT_POOL_SLOTS) {
             split_pool_blocks_[split_pool_count_] = (uint8_t *)p;
             split_pool_caps_[split_pool_count_] = cap;
             split_pool_count_++;
             return;
         }
+    } else if (cap <= __TORAJS_ARR_POOL_CAP_MAX
+               && arr_pool_count_ < __TORAJS_ARR_POOL_SLOTS) {
+        arr_pool_blocks_[arr_pool_count_] = (uint8_t *)p;
+        arr_pool_caps_[arr_pool_count_] = cap;
+        arr_pool_count_++;
+        return;
     }
     free(p);
+}
+
+/* Pool-aware Array alloc. Counterpart to inkwell's old
+ * `__torajs_arr_alloc` body — the IR side now collapses to a
+ * single tail call here.
+ *
+ * cap ≤ POOL_CAP_MAX → scan arr_pool LIFO-end-first for a matching
+ * cap; hit pops the slot in O(1) (the LIFO head is what tight
+ * loops produce/consume). Miss falls through to malloc.
+ *
+ * Header init: rc=1 / tag=ARR / flags=0 / len=0 / cap as passed.
+ * Same field layout the inkwell-emitted version used. */
+void *__torajs_arr_alloc_pooled(uint64_t cap) {
+    uint8_t *p = NULL;
+    if (cap <= __TORAJS_ARR_POOL_CAP_MAX && arr_pool_count_ > 0) {
+        for (int i = arr_pool_count_ - 1; i >= 0; i--) {
+            if (arr_pool_caps_[i] == cap) {
+                p = arr_pool_blocks_[i];
+                int last = --arr_pool_count_;
+                arr_pool_blocks_[i] = arr_pool_blocks_[last];
+                arr_pool_caps_[i] = arr_pool_caps_[last];
+                break;
+            }
+        }
+    }
+    if (p == NULL) {
+        /* 24 = __TORAJS_ARR_HDR_SIZE (defined further down; same
+         * forward-decl trick as split_block_alloc_ uses). */
+        p = (uint8_t *)malloc(24 + (size_t)cap * 8);
+    }
+    __torajs_heap_header_t *h = (__torajs_heap_header_t *)p;
+    h->refcount = 1;
+    h->type_tag = __TORAJS_TAG_ARR;
+    h->flags = 0;
+    *(uint64_t *)(p + 8) = 0;       /* len */
+    *(uint64_t *)(p + 16) = cap;
+    return p;
 }
 
 /* Create a substring view of `parent` (an OWNED Str) starting at
