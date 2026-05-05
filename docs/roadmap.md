@@ -399,7 +399,7 @@ The v0.x sections above describe the **milestone shape** (exit gates, scope). Th
 | T-04 | LSP L-2.b: `Checker.errors: Vec<String>` → `Vec<(Span, Severity, String)>` | ~80–100 push-site refactor; same change unlocks `tr lint`'s warning bucket |
 | T-05 | v0.3 #7a `tr fmt` | deterministic prettier-shape; reuses `torajs_core::{lexer, parser, ast}` already exported |
 | T-06 | v0.3 #7b `tr lint` (5 starting rules) | unused-let / dead-code-after-return / unreachable-catch / shadowed-let / unused-import; depends on T-04 |
-| T-07 | Perf debt: rpn-eval-100k escape→alloca | only remaining vs-rust loss (1.54x); diagnosed as 16-elem stack array literal heap alloc; fix unblocks "21/21 vs rust" target |
+| T-07 | Perf debt audit: rpn-eval ✓ (already at parity), fifo-queue-100k tracked → v0.4 | original target rpn-eval-100k 1.54x rust turned out to have been fixed during earlier perf checkpoint (current ratio 0.999, parity); status memory was stale. New only-loss surfaced: fifo-queue-100k 1.17x rust (5-run mean), root cause = tr Array `.shift()` is O(n) memmove vs Rust VecDeque O(1) ring-buffer. Theoretical floor ≈0.24 ms (12 MB memmove ÷ 50 GB/s); observed gap 0.31 ms — within ~30% of inherent algorithmic floor. Fix path is documented (Array deque header w/ `head_offset` field); high LOC + high blast-radius, scheduled into v0.4 substrate sprint. |
 | **T-08** | `git tag v0.3.0` | CHANGELOG.md + GH release note + multi-platform tarball |
 
 → **Mid gate** after T-04, T-06, T-07 → **Full gate** before T-08
@@ -413,8 +413,9 @@ The v0.x sections above describe the **milestone shape** (exit gates, scope). Th
 | T-11 | `arguments` full materialization | dynamic index, `arguments.callee`, runtime heterogeneous array; depends on T-10 |
 | T-12 | `String.raw` + template literal raw-strings array | template literal lower extended to expose `raw` array |
 | **T-13** | Symbol substrate | per-Type metadata slot in universal heap header; well-known symbols `Symbol.iterator / asyncIterator / toPrimitive`; `Symbol(desc)` + `Symbol.for(key)` registry |
+| **T-13.5** | Perf debt: Array deque substrate (`head_offset`) | inherited from T-07. Add `head_offset: u32` to Array universal header, change `arr_shift` from O(n) memmove to O(1) head++; opportunistic compact when `head + len == cap`. Touches every Array slot read/write; goal: drive fifo-queue-100k from 1.17x rust to ≤1.05x. May regress micro-bench startup if header grows; gate on bench scoreboard not regressing geomean tr/rust ≤ 0.66. |
 
-→ **Mid gate** after T-09, T-11, T-13 → **Full gate** before v0.4.0 tag
+→ **Mid gate** after T-09, T-11, T-13.5 → **Full gate** before v0.4.0 tag
 
 ### v0.5.0 tag — async/await + Promise (T-14..T-19)
 
