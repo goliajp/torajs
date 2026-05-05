@@ -1,6 +1,7 @@
 mod ast;
 mod check;
 mod lexer;
+mod lsp;
 mod modules;
 mod parser;
 mod ssa;
@@ -62,6 +63,13 @@ fn main() -> ExitCode {
         // `jit` is kept as a back-compat alias.
         Some("run") | Some("jit") => run_jit(args.get(1)),
         Some("build") => run_build_llvm(&args[1..]),
+        Some("lsp") => match lsp::run() {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("lsp error: {e}");
+                ExitCode::from(1)
+            }
+        },
         Some("ssa-demo") => {
             ssa::demo_fib40().print();
             ExitCode::SUCCESS
@@ -92,6 +100,7 @@ fn print_usage() {
     );
     println!("                         AOT-compile via LLVM 22 → native binary");
     println!("    ssa-demo             print a hand-built SSA fib40 (P3.5 step 1 leftover)");
+    println!("    lsp                  speak Language Server Protocol over stdio");
     println!();
     println!("    --version, -V        print version");
     println!("    --help, -h           print this help");

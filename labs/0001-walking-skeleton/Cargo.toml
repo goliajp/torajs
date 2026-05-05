@@ -8,3 +8,10 @@ edition = "2024"
 # AOT-with-cache. Build needs LLVM_SYS_221_PREFIX=/opt/homebrew/opt/llvm
 # in the environment.
 inkwell = { version = "0.9", features = ["llvm22-1-prefer-dynamic"] }
+
+# v0.3 #5 LSP — JSON-RPC framing + LSP type definitions for the
+# `tr lsp` subcommand. Dev-tooling dep, not in any runtime path.
+lsp-server = "0.7"
+lsp-types = "0.95"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
