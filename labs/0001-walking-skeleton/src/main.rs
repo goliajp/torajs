@@ -353,7 +353,12 @@ fn run_build_llvm(args: &[String]) -> ExitCode {
         }
     };
 
-    match ssa_inkwell::compile(&ssa_module, std::path::Path::new(output), &opt) {
+    match ssa_inkwell::compile(
+        &ssa_module,
+        std::path::Path::new(output),
+        &opt,
+        Some(std::path::Path::new(input)),
+    ) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("build error: {e}");
@@ -510,7 +515,12 @@ fn run_jit(file_arg: Option<&String>) -> ExitCode {
             rand_suffix()
         )),
     };
-    if let Err(e) = ssa_inkwell::compile(&ssa_module, &target_path, "O3") {
+    if let Err(e) = ssa_inkwell::compile(
+        &ssa_module,
+        &target_path,
+        "O3",
+        Some(std::path::Path::new(path)),
+    ) {
         eprintln!("compile error: {e}");
         return ExitCode::from(1);
     }

@@ -21,6 +21,7 @@ use inkwell::{FloatPredicate, IntPredicate};
 use inkwell::OptimizationLevel;
 use inkwell::attributes::{Attribute, AttributeLoc};
 use inkwell::context::Context;
+use inkwell::debug_info::{AsDIScope, DIFlagsConstants};
 use inkwell::module::Module as LlvmModule;
 use inkwell::passes::PassBuilderOptions;
 use inkwell::targets::{
@@ -40,6 +41,16 @@ pub enum CompileError {
     Link(String),
 }
 
+/// v0.3 #4 D-2 — DWARF emission state. Created when caller passes a
+/// `source_path` to `compile`; threaded into pass C / pass D so each
+/// fn body can attach a DISubprogram and (D-3) per-instruction
+/// DILocation. Finalized once at end-of-compile so the .o ships
+/// the dwarf section.
+struct DebugCtx<'ctx> {
+    dibuilder: inkwell::debug_info::DebugInfoBuilder<'ctx>,
+    compile_unit: inkwell::debug_info::DICompileUnit<'ctx>,
+}
+
 impl std::fmt::Display for CompileError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -54,10 +65,56 @@ impl std::fmt::Display for CompileError {
 /// Compile an SSA module to a native binary at `out_path`. `opt` selects the
 /// LLVM new-pass-manager pipeline ("O0" / "O1" / "O2" / "O3"); the default
 /// is "O1" because that's the bench-tuned setting for fib40.
-pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), CompileError> {
+///
+/// `source_path` (v0.3 #4 D-2) — when supplied, emits DWARF
+/// debug-info: a DICompileUnit + DIFile pinned to the .ts source,
+/// and per-fn DISubprogram so backtrace tools (atos, addr2line) see
+/// `tr` fns as proper named scopes. D-3 will plumb per-instruction
+/// DILocation; D-4 wires runtime panic backtraces into this.
+pub fn compile(
+    ssa_module: &Module,
+    out_path: &Path,
+    opt: &str,
+    source_path: Option<&Path>,
+) -> Result<(), CompileError> {
     let ctx = Context::create();
     let llvm_module = ctx.create_module("torajs");
     let builder = ctx.create_builder();
+
+    // v0.3 #4 D-2 — set up DIBuilder when caller provided a source
+    // path. `Debug Info Version` module flag (= LLVM 3 today) is
+    // mandatory; without it the linker drops the DWARF section.
+    let debug_ctx = source_path.and_then(|p| {
+        let i32_t = ctx.i32_type();
+        llvm_module.add_basic_value_flag(
+            "Debug Info Version",
+            inkwell::module::FlagBehavior::Warning,
+            i32_t.const_int(3, false),
+        );
+        let filename = p.file_name().and_then(|s| s.to_str()).unwrap_or("(stdin)");
+        let directory = p
+            .parent()
+            .and_then(|d| d.to_str())
+            .unwrap_or(".");
+        let (dibuilder, compile_unit) = llvm_module.create_debug_info_builder(
+            true,
+            inkwell::debug_info::DWARFSourceLanguage::C,
+            filename,
+            directory,
+            "torajs",
+            /* is_optimized */ opt != "O0",
+            /* compile-line flags */ "",
+            /* runtime_ver */ 0,
+            /* split_name */ "",
+            inkwell::debug_info::DWARFEmissionKind::Full,
+            /* dwo_id */ 0,
+            /* split_debug_inlining */ false,
+            /* debug_info_for_profiling */ false,
+            /* sysroot (LLVM 22) */ "",
+            /* sdk (LLVM 22) */ "",
+        );
+        Some(DebugCtx { dibuilder, compile_unit })
+    });
 
     // Pass A: declare libc decls + the intrinsics whose body the backend owns.
     let putchar = declare_putchar(&ctx, &llvm_module);
@@ -377,9 +434,67 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
         "__torajs_throw_check",
         "__torajs_throw_take",
     ];
+
+    // v0.3 #4 D-2 — attach DISubprogram to every fn that's about to
+    // lower its body via FnLower (i.e. user fns + runtime fns
+    // synthesized at SSA layer). Done BEFORE the lowering loop so
+    // each FnLower::run can pick up the subprogram and emit
+    // !dbg-equipped instructions. Backend-owned intrinsics
+    // (str_alloc, str_drop, ...) skip this — they're emitted by
+    // their `define_*` fns which don't take a debug ctx; LLVM is
+    // happy to leave them DI-less since they have no DISubprogram.
+    let sub_ty_opt = debug_ctx.as_ref().map(|dctx| {
+        dctx.dibuilder.create_subroutine_type(
+            dctx.compile_unit.get_file(),
+            None,
+            &[],
+            inkwell::debug_info::DIFlags::PUBLIC,
+        )
+    });
+    if let (Some(dctx), Some(sub_ty)) = (debug_ctx.as_ref(), sub_ty_opt.as_ref()) {
+        for (i, f) in ssa_module.funcs.iter().enumerate() {
+            if f.is_declaration() || intrinsics.contains(&f.name.as_str()) {
+                continue;
+            }
+            let llvm_fn = fn_map[i];
+            // line_no = 0 placeholder until D-3 carries fn-decl line.
+            // 0 is DWARF's "unknown"; tools fall back to scope-only.
+            let sp = dctx.dibuilder.create_function(
+                dctx.compile_unit.as_debug_info_scope(),
+                &f.name,
+                None,
+                dctx.compile_unit.get_file(),
+                0,
+                *sub_ty,
+                /* is_local_to_unit */ false,
+                /* is_definition */ true,
+                /* scope_line */ 0,
+                inkwell::debug_info::DIFlags::PUBLIC,
+                /* is_optimized */ opt != "O0",
+            );
+            llvm_fn.set_subprogram(sp);
+        }
+    }
+
     for (i, f) in ssa_module.funcs.iter().enumerate() {
         if f.is_declaration() || intrinsics.contains(&f.name.as_str()) {
             continue;
+        }
+        // v0.3 #4 D-2 — set a default DILocation for this fn so
+        // LLVM verify's "inlinable call needs !dbg" rule is
+        // satisfied. line=0 / col=0 is a placeholder; D-3 will
+        // override per-instruction with actual span lookup.
+        if let Some(dctx) = debug_ctx.as_ref()
+            && let Some(sp) = fn_map[i].get_subprogram()
+        {
+            let loc = dctx.dibuilder.create_debug_location(
+                &ctx,
+                0,
+                0,
+                sp.as_debug_info_scope(),
+                None,
+            );
+            builder.set_current_debug_location(loc);
         }
         let lower = FnLower {
             ctx: &ctx,
@@ -395,6 +510,12 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
             value_map: HashMap::new(),
         };
         lower.run();
+    }
+
+    // v0.3 #4 D-2 — finalize DI metadata before LLVM verify (which
+    // rejects incomplete DICompileUnits).
+    if let Some(dctx) = &debug_ctx {
+        dctx.dibuilder.finalize();
     }
 
     // Pass D: verify, optimize, emit, link.
@@ -486,7 +607,7 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
     // -flto lets the linker inline cross-TU calls between the
     // LLVM-emitted object and the C runtime.
     let str_status = Command::new("cc")
-        .args(["-c", "-O3", "-flto", "-o"])
+        .args(["-c", "-O3", "-flto", "-g", "-o"])
         .arg(&c_str_obj)
         .arg(&c_str_path)
         .status()
@@ -500,7 +621,7 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
         )));
     }
     let regex_status = Command::new("cc")
-        .args(["-c", "-O3", "-flto", "-o"])
+        .args(["-c", "-O3", "-flto", "-g", "-o"])
         .arg(&c_regex_obj)
         .arg(&c_regex_path)
         .status()
@@ -515,7 +636,7 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
         )));
     }
     let date_status = Command::new("cc")
-        .args(["-c", "-O3", "-flto", "-o"])
+        .args(["-c", "-O3", "-flto", "-g", "-o"])
         .arg(&c_date_obj)
         .arg(&c_date_path)
         .status()
@@ -531,8 +652,14 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
         )));
     }
 
+    // v0.3 #4 D-2 — `-g` keeps DWARF live through the link stage.
+    // On macOS the linker writes a separate `.dSYM` bundle alongside
+    // the binary by default; D-4 will pick the right resolver path
+    // for `atos` symbolication. Cost is link-time only — runtime
+    // perf unaffected.
     let status = Command::new("cc")
         .arg("-flto")
+        .arg("-g")
         .arg(&obj_path)
         .arg(&c_str_obj)
         .arg(&c_regex_obj)
