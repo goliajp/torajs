@@ -1008,71 +1008,12 @@ void __torajs_split_iter_drop(__torajs_split_iter_t *iter) {
     }
 }
 
-/* Helper — populate a caller-provided 32-byte substr slot with a
- * (parent, offset, len) view. Marked STATIC_LITERAL so no rc op or
- * drop call on the slot ever touches it. */
-static inline void split_iter_emit_(
-    uint8_t *out_substr,
-    const uint8_t *parent,
-    uint64_t offset,
-    uint64_t len
-) {
-    __torajs_heap_header_t *h = (__torajs_heap_header_t *)out_substr;
-    h->refcount = 0;
-    h->type_tag = __TORAJS_TAG_STR;
-    h->flags = __TORAJS_FLAG_STATIC_LITERAL;
-    __TORAJS_SUBSTR_LEN(out_substr) = len;
-    *(const uint8_t **)(out_substr + __TORAJS_SUBSTR_PARENT_OFF) = parent;
-    *(uint64_t *)(out_substr + __TORAJS_SUBSTR_OFFSET_OFF) = offset;
-}
-
-int __torajs_split_iter_next(
-    __torajs_split_iter_t *iter,
-    uint8_t *out_substr
-) {
-    if (iter->exhausted) return 0;
-    uint64_t pos = iter->pos;
-    uint64_t parent_len = iter->parent_len;
-    uint64_t sep_len = iter->sep_len;
-    const uint8_t *parent_data = __TORAJS_STR_CDATA(iter->parent);
-
-    /* Empty sep — per-char split; bun returns ["a","b"] for "ab".split(""). */
-    if (sep_len == 0) {
-        if (pos >= parent_len) { iter->exhausted = 1; return 0; }
-        split_iter_emit_(out_substr, iter->parent, pos, 1);
-        iter->pos = pos + 1;
-        return 1;
-    }
-
-    /* Find next sep occurrence at or after `pos`. Two paths mirror
-     * __torajs_str_split's hot 1-byte case + memcmp fallback. */
-    uint64_t k;
-    if (sep_len == 1) {
-        uint8_t b = iter->sep_data[0];
-        k = pos;
-        while (k < parent_len && parent_data[k] != b) k++;
-    } else {
-        k = pos;
-        while (k + sep_len <= parent_len) {
-            if (memcmp(parent_data + k, iter->sep_data, (size_t)sep_len) == 0) {
-                break;
-            }
-            k++;
-        }
-        if (k + sep_len > parent_len) k = parent_len;
-    }
-
-    /* Always emit one substring per call (including trailing empty
-     * after a final separator — matches eager split's N+1-yield
-     * convention). */
-    split_iter_emit_(out_substr, iter->parent, pos, k - pos);
-    if (k == parent_len) {
-        iter->exhausted = 1;
-    } else {
-        iter->pos = k + sep_len;
-    }
-    return 1;
-}
+/* `__torajs_split_iter_next` body is now defined directly in inkwell
+ * IR (ssa_inkwell.rs `define_split_iter_next`) so LLVM can inline
+ * the byte scan + emit_substr into the caller's loop. The IR
+ * version is logically identical to what was here; if the inkwell
+ * side ever needs to fall back to a C call, restore this body and
+ * change the dispatch in pass C. */
 
 void *__torajs_arr_join(const uint8_t *arr, const uint8_t *sep) {
     uint64_t len = __TORAJS_ARR_LEN(arr);
