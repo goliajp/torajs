@@ -294,6 +294,17 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
             }
             _ => declare_ssa_fn(&ctx, &llvm_module, f),
         };
+        // Tag malloc-shaped intrinsics with `noalias` on the return so
+        // LLVM can hoist invariant loads through stores via other heap
+        // pointers. Concrete win: in tight loops over `arr.length`
+        // where the body writes to a different array, the length load
+        // moves out of the loop because the two pointers are provably
+        // disjoint. See `mark_noalias_ret` for the criterion (only
+        // genuine fresh-pointer producers — not arr_push / arr_reserve
+        // which can return the same input ptr on the no-grow path).
+        if is_alloc_intrinsic(&f.name) {
+            mark_noalias_ret(&ctx, llvm_fn);
+        }
         fn_map.push(llvm_fn);
     }
 
@@ -785,6 +796,89 @@ fn mark_alwaysinline<'ctx>(ctx: &'ctx Context, f: FunctionValue<'ctx>) {
     let kind = Attribute::get_named_enum_kind_id("alwaysinline");
     let attr = ctx.create_enum_attribute(kind, 0);
     f.add_attribute(AttributeLoc::Function, attr);
+}
+
+/// Tag a function as returning a fresh, non-aliasing pointer (libc
+/// `malloc` semantics). Lets LLVM hoist invariant loads through
+/// foreign writes — e.g. in rpn-eval-100k, `parts.length` (parts
+/// from str_split) gets hoisted out of the inner loop because the
+/// stack writes (stack from arr_alloc) provably can't alias it.
+///
+/// Apply only to allocators that genuinely return a fresh ptr each
+/// call (str_alloc, arr_alloc, str_split, substr_create, ...).
+/// `arr_push` / `arr_reserve` return the same ptr they got OR a
+/// reallocated one — those are NOT noalias.
+fn mark_noalias_ret<'ctx>(ctx: &'ctx Context, f: FunctionValue<'ctx>) {
+    let kind = Attribute::get_named_enum_kind_id("noalias");
+    let attr = ctx.create_enum_attribute(kind, 0);
+    f.add_attribute(AttributeLoc::Return, attr);
+}
+
+/// Whitelist of intrinsics whose return is a fresh-from-alloc pointer
+/// suitable for `noalias` tagging. The list is conservative — anything
+/// that *might* return an existing pointer (arr_push / arr_reserve /
+/// arr_unshift / arr_extend_unchecked) is excluded. Misuse here is
+/// undefined behavior at the LLVM level (silent miscompile under
+/// alias analysis), so additions need clear "always fresh" semantics.
+fn is_alloc_intrinsic(name: &str) -> bool {
+    matches!(
+        name,
+        // Str constructors
+        "__torajs_str_alloc"
+        | "__torajs_str_alloc_pooled"
+        | "__torajs_str_concat"
+        | "__torajs_str_slice"
+        | "__torajs_str_substring"
+        | "__torajs_str_repeat"
+        | "__torajs_str_to_upper"
+        | "__torajs_str_to_lower"
+        | "__torajs_str_trim"
+        | "__torajs_str_trim_start"
+        | "__torajs_str_trim_end"
+        | "__torajs_str_pad_start"
+        | "__torajs_str_pad_end"
+        | "__torajs_str_at"
+        | "__torajs_str_from_char_code"
+        | "__torajs_str_replace"
+        | "__torajs_str_replace_all"
+        | "__torajs_substr_to_owned"
+        // Substr constructors
+        | "__torajs_substr_create"
+        | "__torajs_substr_slice"
+        | "__torajs_substr_substring"
+        | "__torajs_substr_trim"
+        | "__torajs_substr_trim_start"
+        | "__torajs_substr_trim_end"
+        | "__torajs_substr_concat_substr_str"
+        | "__torajs_substr_concat_str_substr"
+        | "__torajs_substr_concat_substr_substr"
+        // Array constructors that always return a fresh block
+        | "__torajs_arr_alloc"
+        | "__torajs_arr_alloc_pooled"
+        | "__torajs_arr_slice"
+        // Object / closure / regex / date constructors
+        | "__torajs_obj_alloc"
+        // String split returns a single fresh block (header + slots
+        // + inline substr structs); does not alias its inputs.
+        | "__torajs_str_split"
+        | "__torajs_str_match_regex"
+        | "__torajs_str_replace_regex"
+        | "__torajs_str_replace_all_regex"
+        | "__torajs_str_split_regex"
+        | "__torajs_str_match_all_regex"
+        | "__torajs_regex_compile"
+        | "__torajs_regex_exec"
+        | "__torajs_date_alloc_now"
+        | "__torajs_date_alloc_ms"
+        | "__torajs_date_alloc_iso"
+        | "__torajs_date_alloc_components"
+        | "__torajs_date_to_iso_string"
+        | "__torajs_process_argv"
+        | "__torajs_process_cwd"
+        | "__torajs_process_platform"
+        | "__torajs_process_getenv"
+        | "__torajs_fs_read_file_sync"
+    )
 }
 
 /// Phase 2A refcount: every Arr heap object begins with the same
