@@ -43,7 +43,11 @@ jobs:
         run: |
           brew update
           brew install llvm@22
-          echo "LLVM_SYS_220_PREFIX=$(brew --prefix llvm@22)" >> $GITHUB_ENV
+          # llvm-sys-221 is what inkwell 0.9 + the `llvm22-1-prefer-dynamic`
+          # feature pull in (per crates/torajs-core/Cargo.toml). Earlier
+          # workflow versions said _220_PREFIX which silently failed-back
+          # to a system LLVM lookup and was unreliable.
+          echo "LLVM_SYS_221_PREFIX=$(brew --prefix llvm@22)" >> $GITHUB_ENV
           echo "$(brew --prefix llvm@22)/bin" >> $GITHUB_PATH
 
       - name: install LLVM 22 (Linux)
@@ -53,7 +57,7 @@ jobs:
           echo 'deb http://apt.llvm.org/noble/ llvm-toolchain-noble-22 main' | sudo tee /etc/apt/sources.list.d/llvm.list
           sudo apt-get update
           sudo apt-get install -y llvm-22-dev llvm-22-tools libpolly-22-dev clang-22
-          echo "LLVM_SYS_220_PREFIX=/usr/lib/llvm-22" >> $GITHUB_ENV
+          echo "LLVM_SYS_221_PREFIX=/usr/lib/llvm-22" >> $GITHUB_ENV
           echo "/usr/lib/llvm-22/bin" >> $GITHUB_PATH
 
       - uses: dtolnay/rust-toolchain@stable
@@ -65,7 +69,9 @@ jobs:
           shared-key: release-${{ matrix.target }}
 
       - name: build tr release
-        run: cargo build --release -p tr --target ${{ matrix.target }}
+        # v0.3 #6 Graduation moved the binary to the `torajs-cli` package
+        # (the bin name remains `tr`). Original `-p tr` no longer matches.
+        run: cargo build --release --bin tr --target ${{ matrix.target }}
 
       - name: stage artifact
         run: |
@@ -97,20 +103,37 @@ jobs:
           merge-multiple: true
 
       - name: assemble release notes
+        # Pull the matching CHANGELOG.md section so the GH release page
+        # mirrors what's checked in. Falls back to a generic header if
+        # the awk extraction yields nothing (unknown tag, malformed file).
         run: |
-          echo "torajs ${{ github.ref_name }}" > release-notes.md
-          echo "" >> release-notes.md
-          echo "Beta release. See:" >> release-notes.md
-          echo "" >> release-notes.md
-          echo "- [docs/getting-started.md](docs/getting-started.md) — install + hello world" >> release-notes.md
-          echo "- [docs/language-status.md](docs/language-status.md) — what works today + what's planned" >> release-notes.md
-          echo "- [docs/perf.md](docs/perf.md) — bench scoreboard + reproduction" >> release-notes.md
-          echo "" >> release-notes.md
-          echo "## Verify your download" >> release-notes.md
-          echo "" >> release-notes.md
-          echo '```' >> release-notes.md
-          echo 'shasum -a 256 -c <archive>.sha256' >> release-notes.md
-          echo '```' >> release-notes.md
+          set -euo pipefail
+          {
+            echo "torajs ${{ github.ref_name }}"
+            echo ""
+            tag="${{ github.ref_name }}"
+            extracted=$(awk -v target="## $tag" '
+              $0 ~ "^## " {
+                if ($0 == target) { collecting = 1; next }
+                else if (collecting) { exit }
+              }
+              collecting { print }
+            ' CHANGELOG.md)
+            if [ -n "$extracted" ]; then
+              echo "$extracted"
+            else
+              echo "See [CHANGELOG.md](CHANGELOG.md) for the full release notes,"
+              echo "[docs/getting-started.md](docs/getting-started.md) for install,"
+              echo "[docs/language-status.md](docs/language-status.md) for what works today,"
+              echo "and [docs/perf.md](docs/perf.md) for the bench scoreboard."
+            fi
+            echo ""
+            echo "## Verify your download"
+            echo ""
+            echo '```'
+            echo 'shasum -a 256 -c <archive>.sha256'
+            echo '```'
+          } > release-notes.md
 
       - uses: softprops/action-gh-release@v2
         with:
