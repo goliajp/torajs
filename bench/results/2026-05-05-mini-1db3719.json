@@ -1,0 +1,31 @@
+{
+  "started_at": "2026-05-05T18:05:53Z",
+  "host": "mini.local",
+  "git_sha": "1db3719a18d630974173ef92a901d7571ed86405",
+  "rows": [
+    {
+      "case": "fifo-queue-100k",
+      "runtime": "rust",
+      "runtime_version": "rustc 1.95.0 (59807616e 2026-04-14)",
+      "status": "ok",
+      "compile_ms": 99.012916,
+      "run_ms": 1.778833,
+      "run_stddev_ms": 0.0655499810694099,
+      "artifact_bytes": 466728,
+      "stdout_match": true,
+      "error": null
+    },
+    {
+      "case": "fifo-queue-100k",
+      "runtime": "torajs",
+      "runtime_version": "tr 0.1.0",
+      "status": "ok",
+      "compile_ms": 446.047875,
+      "run_ms": 2.244458,
+      "run_stddev_ms": 0.24403277349938063,
+      "artifact_bytes": 36232,
+      "stdout_match": true,
+      "error": null
+    }
+  ]
+}

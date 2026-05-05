@@ -7,6 +7,86 @@
 use std::collections::HashMap;
 
 use crate::ast::{Ast, BinOp, Expr, ExprId, Param, Stmt, Visibility};
+use crate::lexer::Span;
+
+/// T-04 (v0.3.0) — typechecker diagnostic with source span + severity.
+/// Replaces the previous `Vec<String>` error bucket. `span = (0, 0)`
+/// is the sentinel for "no source location attached" — the LSP and
+/// the CLI both render that as the file's first character. Per-site
+/// span attachment lands incrementally as each push site gets an
+/// ExprId in scope.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Diagnostic {
+    pub span: Span,
+    pub severity: Severity,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Severity {
+    Error,
+    Warning,
+}
+
+impl Diagnostic {
+    pub fn error(message: String) -> Self {
+        Self {
+            span: Span { start: 0, end: 0 },
+            severity: Severity::Error,
+            message,
+        }
+    }
+
+    pub fn warning(message: String) -> Self {
+        Self {
+            span: Span { start: 0, end: 0 },
+            severity: Severity::Warning,
+            message,
+        }
+    }
+
+    /// Same as `error` but attaches the source span of the offending
+    /// `ExprId`. The Ast's `expr_spans` table is consulted; if the
+    /// ExprId predates a span (common for synthesized exprs from the
+    /// desugar passes), the diagnostic falls back to `(0, 0)`.
+    pub fn error_at(ast: &Ast, eid: ExprId, message: String) -> Self {
+        let span = ast
+            .expr_spans
+            .get(eid.0 as usize)
+            .copied()
+            .unwrap_or(Span { start: 0, end: 0 });
+        Self {
+            span,
+            severity: Severity::Error,
+            message,
+        }
+    }
+}
+
+/// T-04 — extension trait so the 35 `errors.push(format!(...))` sites
+/// stay one mechanical rename (`push` → `push_err`) rather than each
+/// growing a `Diagnostic::error(...)` wrapper. Future per-site span
+/// attachment swaps `push_err(msg)` for `push_err_at(eid, msg)`.
+trait DiagPush {
+    fn push_err(&mut self, msg: String);
+    #[allow(dead_code)] // T-06 lint will populate
+    fn push_warn(&mut self, msg: String);
+    /// Span-aware variant. Looks up the source span from `ast.expr_spans`.
+    #[allow(dead_code)]
+    fn push_err_at(&mut self, ast: &Ast, eid: ExprId, msg: String);
+}
+
+impl DiagPush for Vec<Diagnostic> {
+    fn push_err(&mut self, msg: String) {
+        self.push(Diagnostic::error(msg));
+    }
+    fn push_warn(&mut self, msg: String) {
+        self.push(Diagnostic::warning(msg));
+    }
+    fn push_err_at(&mut self, ast: &Ast, eid: ExprId, msg: String) {
+        self.push(Diagnostic::error_at(ast, eid, msg));
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Type {
@@ -576,21 +656,37 @@ pub fn type_to_ann(ty: &Type) -> String {
 pub fn check(ast: &Ast) -> Result<GenericCallSites, String> {
     let mut c = Checker::new();
     c.run_full_pipeline(ast);
-    if c.errors.is_empty() {
+    let error_messages: Vec<String> = c
+        .errors
+        .iter()
+        .filter(|d| d.severity == Severity::Error)
+        .map(|d| d.message.clone())
+        .collect();
+    if error_messages.is_empty() {
         Ok(c.generic_call_sites)
     } else {
-        Err(c.errors.join("\n"))
+        Err(error_messages.join("\n"))
     }
 }
 
-/// v0.3 #5 LSP — variant that runs the same typecheck pipeline as
-/// `check` but returns ALL accumulated errors as a Vec rather than
-/// joining the first into the Result::Err. The LSP server uses this
-/// to publish multiple diagnostics per file. Each error is currently
-/// a bare string with no source span attached; L-2.b will add per-
-/// site spans (Vec<(Span, String)>) once the ~80-100 push sites are
-/// migrated to carry their originating ExprId.
+/// v0.3 #5 LSP — string-typed errors-only collector kept for back-
+/// compat. Filters out warnings so callers that historically only
+/// surfaced errors keep the same shape. New callers should prefer
+/// `collect_diagnostics` (T-04).
 pub fn collect_errors(ast: &Ast) -> Vec<String> {
+    let mut c = Checker::new();
+    c.run_full_pipeline(ast);
+    c.errors
+        .into_iter()
+        .filter(|d| d.severity == Severity::Error)
+        .map(|d| d.message)
+        .collect()
+}
+
+/// T-04 (v0.3.0) — full diagnostic stream with source spans + severity.
+/// LSP consumes this to publish per-site squiggles + warning bucket
+/// (lint also reads this same stream once it lands in T-06).
+pub fn collect_diagnostics(ast: &Ast) -> Vec<Diagnostic> {
     let mut c = Checker::new();
     c.run_full_pipeline(ast);
     c.errors
@@ -600,11 +696,19 @@ pub fn collect_errors(ast: &Ast) -> Vec<String> {
 /// the per-Expr type table (populated as a side-effect by every
 /// `type_of` call). Caller looks up by ExprId. Errors during
 /// typecheck don't abort the table — partial coverage on the
-/// reachable Exprs is still useful for hover.
+/// reachable Exprs is still useful for hover. Errors are stringified
+/// (errors-only, no warnings) for back-compat with existing LSP
+/// hover code; full diagnostics flow through `collect_diagnostics`.
 pub fn collect_types_and_errors(ast: &Ast) -> (HashMap<ExprId, Type>, Vec<String>) {
     let mut c = Checker::new();
     c.run_full_pipeline(ast);
-    (c.expr_types, c.errors)
+    let errs: Vec<String> = c
+        .errors
+        .into_iter()
+        .filter(|d| d.severity == Severity::Error)
+        .map(|d| d.message)
+        .collect();
+    (c.expr_types, errs)
 }
 
 impl Checker {
@@ -644,7 +748,7 @@ impl Checker {
         } = stmt
         {
             if c.aliases.contains_key(name) || c.generic_alias_decls.contains_key(name) {
-                c.errors.push(format!("redeclaration of type `{name}`"));
+                c.errors.push_err(format!("redeclaration of type `{name}`"));
                 continue;
             }
             if !type_params.is_empty() {
@@ -658,7 +762,7 @@ impl Checker {
                 match resolve_type_ann_full(fty_ann, &c.aliases, &[], &c.generic_alias_decls) {
                     Some(ty) => field_tys.push((fname.clone(), ty)),
                     None => {
-                        c.errors.push(format!(
+                        c.errors.push_err(format!(
                             "unknown type `{fty_ann}` for field `{fname}` of `{name}`"
                         ));
                         had_err = true;
@@ -699,7 +803,7 @@ impl Checker {
             ) {
                 Ok(ty) => {
                     if c.globals.contains_key(name) {
-                        c.errors.push(format!("redeclaration of function `{name}`"));
+                        c.errors.push_err(format!("redeclaration of function `{name}`"));
                     } else {
                         c.globals.insert(name.clone(), ty);
                         if is_closure {
@@ -720,7 +824,7 @@ impl Checker {
                         }
                     }
                 }
-                Err(e) => c.errors.push(e),
+                Err(e) => c.errors.push_err(e),
             }
         }
     }
@@ -787,7 +891,10 @@ struct Checker {
     /// User-declared type aliases — populated in pass 0 from
     /// `Stmt::TypeDecl`. `Point → Type::Struct(...)`.
     aliases: HashMap<String, Type>,
-    errors: Vec<String>,
+    /// T-04 — was `Vec<String>`; now carries severity + span. The
+    /// public APIs (`check`, `collect_errors`) stringify back to the
+    /// caller's expected shape; LSP consumes via `collect_diagnostics`.
+    errors: Vec<Diagnostic>,
     expected_return: Option<Type>,
     /// M-OO.5 — when typechecking a fn body whose name follows the
     /// `__cm_<Class>__<method>` / `__sm_<Class>__<method>` shape that
@@ -1120,7 +1227,7 @@ impl Checker {
                     return;
                 }
                 if info.moved {
-                    self.errors.push(format!(
+                    self.errors.push_err(format!(
                         "cannot transfer `{name}` — value was already aliased or moved earlier; transfer from the most recent binding instead"
                     ));
                     return;
@@ -1160,7 +1267,7 @@ impl Checker {
         match stmt {
             Stmt::Expr(eid) => {
                 if let Err(e) = self.type_of(ast, *eid) {
-                    self.errors.push(e);
+                    self.errors.push_err(e);
                 }
             }
             Stmt::Yield(_) | Stmt::YieldInto { .. } => {
@@ -1170,7 +1277,7 @@ impl Checker {
                 // a raw Yield here means desugar didn't run / didn't
                 // catch this node — surface as a typecheck error rather
                 // than panicking at SSA lower time.
-                self.errors.push(
+                self.errors.push_err(
                     "yield is only valid inside a `function*` generator body".into(),
                 );
             }
@@ -1183,8 +1290,8 @@ impl Checker {
                     Ok(Type::Boolean) => {}
                     Ok(other) => self
                         .errors
-                        .push(format!("if condition must be boolean, got {other:?}")),
-                    Err(e) => self.errors.push(e),
+                        .push_err(format!("if condition must be boolean, got {other:?}")),
+                    Err(e) => self.errors.push_err(e),
                 }
                 // CFG-aware moved tracking: snapshot the moved-state
                 // before each branch, run the branch, capture its
@@ -1222,8 +1329,8 @@ impl Checker {
                     Ok(Type::Boolean) => {}
                     Ok(other) => self
                         .errors
-                        .push(format!("while condition must be boolean, got {other:?}")),
-                    Err(e) => self.errors.push(e),
+                        .push_err(format!("while condition must be boolean, got {other:?}")),
+                    Err(e) => self.errors.push_err(e),
                 }
                 self.check_stmt(ast, body);
             }
@@ -1233,25 +1340,25 @@ impl Checker {
                     Ok(Type::Boolean) => {}
                     Ok(other) => self
                         .errors
-                        .push(format!("do-while condition must be boolean, got {other:?}")),
-                    Err(e) => self.errors.push(e),
+                        .push_err(format!("do-while condition must be boolean, got {other:?}")),
+                    Err(e) => self.errors.push_err(e),
                 }
             }
             Stmt::Switch { scrutinee, cases, default } => {
                 let scrut_ty = match self.type_of(ast, *scrutinee) {
                     Ok(t) => t,
                     Err(e) => {
-                        self.errors.push(e);
+                        self.errors.push_err(e);
                         return;
                     }
                 };
                 for c in cases {
                     match self.type_of(ast, c.value) {
                         Ok(t) if t == scrut_ty => {}
-                        Ok(t) => self.errors.push(format!(
+                        Ok(t) => self.errors.push_err(format!(
                             "switch case value type {t:?} differs from scrutinee {scrut_ty:?}"
                         )),
-                        Err(e) => self.errors.push(e),
+                        Err(e) => self.errors.push_err(e),
                     }
                     self.scopes.push(HashMap::new());
                     for s in &c.body {
@@ -1278,15 +1385,15 @@ impl Checker {
                 if let Some(c) = cond {
                     match self.type_of(ast, *c) {
                         Ok(Type::Boolean) => {}
-                        Ok(other) => self.errors.push(format!(
+                        Ok(other) => self.errors.push_err(format!(
                             "for condition must be boolean, got {other:?}"
                         )),
-                        Err(e) => self.errors.push(e),
+                        Err(e) => self.errors.push_err(e),
                     }
                 }
                 if let Some(st) = step {
                     if let Err(e) = self.type_of(ast, *st) {
-                        self.errors.push(e);
+                        self.errors.push_err(e);
                     }
                 }
                 self.check_stmt(ast, body);
@@ -1313,10 +1420,10 @@ impl Checker {
                     // `catch (e: number)` against an actual null throw
                     // is the user's bug, not the runtime's).
                     Ok(Type::Null) | Ok(Type::Nullable(_)) => {}
-                    Ok(other) => self.errors.push(format!(
+                    Ok(other) => self.errors.push_err(format!(
                         "throw value must be 8-byte-shaped, got {other:?}"
                     )),
-                    Err(e) => self.errors.push(e.clone()),
+                    Err(e) => self.errors.push_err(e.clone()),
                 }
                 // Throw consumes a non-Copy value (its heap is now
                 // owned by the catch site, which is responsible for
@@ -1353,7 +1460,7 @@ impl Checker {
                     ) {
                         Some(t) => t,
                         None => {
-                            self.errors.push(format!(
+                            self.errors.push_err(format!(
                                 "unknown type `{ann}` in catch param"
                             ));
                             Type::Number
@@ -1394,17 +1501,17 @@ impl Checker {
                 // binds a Substr borrow per iteration.
                 match self.type_of(ast, *parent) {
                     Ok(Type::String) => {}
-                    Ok(other) => self.errors.push(format!(
+                    Ok(other) => self.errors.push_err(format!(
                         "for-of split parent must be string, got {other:?}"
                     )),
-                    Err(e) => self.errors.push(e),
+                    Err(e) => self.errors.push_err(e),
                 }
                 match self.type_of(ast, *sep) {
                     Ok(Type::String) => {}
-                    Ok(other) => self.errors.push(format!(
+                    Ok(other) => self.errors.push_err(format!(
                         "for-of split separator must be string, got {other:?}"
                     )),
-                    Err(e) => self.errors.push(e),
+                    Err(e) => self.errors.push_err(e),
                 }
                 self.scopes.push(HashMap::new());
                 let _ = self.declare(
@@ -1446,17 +1553,17 @@ impl Checker {
                     matches!(ast.get_expr(*init), Expr::Array(els) if els.is_empty());
                 let init_ty = if is_empty_array {
                     let Some(ann) = type_ann else {
-                        self.errors.push(format!(
+                        self.errors.push_err(format!(
                             "empty array literal `{name}` needs an explicit type annotation, e.g. `let {name}: number[] = []`"
                         ));
                         return;
                     };
                     let Some(ann_ty) = resolve_type_ann_full(ann, &self.aliases, &[], &self.generic_alias_decls) else {
-                        self.errors.push(format!("unknown type `{ann}`"));
+                        self.errors.push_err(format!("unknown type `{ann}`"));
                         return;
                     };
                     if !matches!(ann_ty, Type::Array(_)) {
-                        self.errors.push(format!(
+                        self.errors.push_err(format!(
                             "empty array literal `{name}` needs an array type annotation, got `{ann}`"
                         ));
                         return;
@@ -1466,7 +1573,7 @@ impl Checker {
                     match self.type_of(ast, *init) {
                         Ok(t) => t,
                         Err(e) => {
-                            self.errors.push(e);
+                            self.errors.push_err(e);
                             return;
                         }
                     }
@@ -1475,11 +1582,11 @@ impl Checker {
                     None => init_ty,
                     Some(ann) => {
                         let Some(ann_ty) = resolve_type_ann_full(ann, &self.aliases, &[], &self.generic_alias_decls) else {
-                            self.errors.push(format!("unknown type `{ann}`"));
+                            self.errors.push_err(format!("unknown type `{ann}`"));
                             return;
                         };
                         if !is_assignable_to(&ann_ty, &init_ty) {
-                            self.errors.push(format!(
+                            self.errors.push_err(format!(
                                 "type mismatch on `{name}`: declared {ann_ty:?}, init has {init_ty:?}"
                             ));
                             return;
@@ -1521,7 +1628,7 @@ impl Checker {
                         declared_class,
                     },
                 ) {
-                    self.errors.push(e);
+                    self.errors.push_err(e);
                 }
                 // Transfer ownership from the rhs only on owner-init
                 // (alias-init keeps the source as owner). M1.3: this
@@ -1597,7 +1704,7 @@ impl Checker {
                             declared_class,
                         },
                     ) {
-                        self.errors.push(e);
+                        self.errors.push_err(e);
                     }
                 }
                 for s in body {
@@ -1614,7 +1721,7 @@ impl Checker {
             }
             Stmt::Return(maybe_expr) => {
                 let Some(expected) = self.expected_return.clone() else {
-                    self.errors.push("`return` outside of a function".into());
+                    self.errors.push_err("`return` outside of a function".into());
                     return;
                 };
                 let actual = match maybe_expr {
@@ -1622,13 +1729,13 @@ impl Checker {
                     Some(eid) => match self.type_of(ast, *eid) {
                         Ok(t) => t,
                         Err(e) => {
-                            self.errors.push(e);
+                            self.errors.push_err(e);
                             return;
                         }
                     },
                 };
                 if actual != expected {
-                    self.errors.push(format!(
+                    self.errors.push_err(format!(
                         "return type mismatch: function expects {expected:?}, got {actual:?}"
                     ));
                 }
@@ -3486,7 +3593,7 @@ impl Checker {
                             declared_class: None,
                         },
                     ) {
-                        self.errors.push(e);
+                        self.errors.push_err(e);
                     }
                 }
                 for s in &body {

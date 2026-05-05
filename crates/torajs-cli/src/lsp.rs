@@ -198,9 +198,14 @@ fn compute_diagnostics(uri: &Url, text: &str) -> Vec<Diagnostic> {
         torajs_core::ast::apply_rest_args(&mut ast);
         torajs_core::ast::compute_consuming_params(&mut ast);
 
-        torajs_core::check::collect_errors(&ast)
+        // T-04 (v0.3.0) — switch to the diagnostic stream so warnings
+        // surface alongside errors and per-site spans (where attached)
+        // anchor the editor squiggle. Sentinel span (0, 0) still falls
+        // back to file:1:1 via `byte_to_position` returning (0, 0).
+        let text_for_pos = ast.source.clone();
+        torajs_core::check::collect_diagnostics(&ast)
             .into_iter()
-            .map(error_at_origin)
+            .map(|d| diagnostic_from_core(&text_for_pos, d))
             .collect()
     });
 
@@ -219,8 +224,10 @@ fn compute_diagnostics(uri: &Url, text: &str) -> Vec<Diagnostic> {
     }
 }
 
-/// Build a single-character diagnostic at file:1:1 — the L-2
-/// anchor used while errors don't carry per-site spans.
+/// Build a single-character diagnostic at file:1:1 — used by the
+/// pre-typecheck error paths (lex / parse / import resolution) where
+/// no Diagnostic span is available because the typechecker hasn't
+/// run yet.
 fn error_at_origin(message: String) -> Diagnostic {
     Diagnostic {
         range: Range {
@@ -232,6 +239,41 @@ fn error_at_origin(message: String) -> Diagnostic {
         code_description: None,
         source: Some(SERVER_NAME.into()),
         message,
+        related_information: None,
+        tags: None,
+        data: None,
+    }
+}
+
+/// T-04 (v0.3.0) — convert torajs_core::check::Diagnostic to LSP
+/// Diagnostic. Span (start = 0, end = 0) is the sentinel for
+/// "no source location attached" and renders as the file:1:1
+/// single-char range; once a push site attaches a real span via
+/// `push_err_at(eid, msg)`, the squiggle lands at the correct
+/// `byte_to_position(span.start)..byte_to_position(span.end)`.
+fn diagnostic_from_core(text: &str, d: torajs_core::check::Diagnostic) -> Diagnostic {
+    let range = if d.span.start == 0 && d.span.end == 0 {
+        Range {
+            start: Position { line: 0, character: 0 },
+            end: Position { line: 0, character: 1 },
+        }
+    } else {
+        Range {
+            start: byte_to_position(text, d.span.start),
+            end: byte_to_position(text, d.span.end),
+        }
+    };
+    let severity = Some(match d.severity {
+        torajs_core::check::Severity::Error => DiagnosticSeverity::ERROR,
+        torajs_core::check::Severity::Warning => DiagnosticSeverity::WARNING,
+    });
+    Diagnostic {
+        range,
+        severity,
+        code: None,
+        code_description: None,
+        source: Some(SERVER_NAME.into()),
+        message: d.message,
         related_information: None,
         tags: None,
         data: None,
