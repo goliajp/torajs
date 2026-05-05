@@ -2980,6 +2980,17 @@ impl<'a, 'ctx> FnLower<'a, 'ctx> {
                 let p = self.builder.build_alloca(bt, "").unwrap();
                 Some(BasicValueEnum::PointerValue(p))
             }
+            InstKind::AllocaBytes(n) => {
+                // i8 array of n elements — yields a `[N x i8]*` of
+                // exactly N bytes, 1-byte aligned by default. We bump
+                // alignment to 8 since both SplitIter and Substr have
+                // 8-byte fields.
+                let i8_t = self.ctx.i8_type();
+                let arr_t = i8_t.array_type(*n as u32);
+                let p = self.builder.build_alloca(arr_t, "").unwrap();
+                p.as_instruction().unwrap().set_alignment(8).unwrap();
+                Some(BasicValueEnum::PointerValue(p))
+            }
             InstKind::Load(t, ptr, offset) => {
                 let bt = basic_type(self.ctx, *t);
                 let p = self.operand(ptr).into_pointer_value();

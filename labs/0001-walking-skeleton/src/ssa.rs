@@ -323,6 +323,11 @@ pub enum InstKind {
     /// `%p = alloca <ty>` — stack-allocate a slot of `ty`. Result type is Ptr.
     /// Used for mutable locals; mem2reg lifts these to SSA values at -O1+.
     Alloca(Type),
+    /// `%p = alloca_bytes <n>` — stack-allocate `n` raw bytes (8-byte
+    /// aligned). Result type is Ptr. Used for ABI-shaped buffers like
+    /// the 48-byte SplitIter struct or the 32-byte Substr borrow slot
+    /// where the SSA Type system can't express the precise byte size.
+    AllocaBytes(u64),
     /// `%v = load <ty>, <ptr>+<offset>` — load a value of `ty` from
     /// pointer + byte_offset. Offset is 0 for plain alloca-slot loads;
     /// non-zero for object field reads (offset = field_index * 8 in the
@@ -712,6 +717,9 @@ impl Function {
             }
             InstKind::Alloca(t) => {
                 write!(w, "alloca {}", t.as_str())?;
+            }
+            InstKind::AllocaBytes(n) => {
+                write!(w, "alloca_bytes {n}")?;
             }
             InstKind::Load(t, ptr, offset) => {
                 write!(w, "load {}, ", t.as_str())?;

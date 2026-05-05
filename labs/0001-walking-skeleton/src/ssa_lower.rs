@@ -1788,6 +1788,33 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         &[Type::F64, Type::F64],
         Type::Bool,
     );
+    /* P-iter — SplitIter ABI. State + yielded substr both live in
+     * caller-stack alloca slots; init/drop manage one parent rc.
+     * `iter_slot` is an opaque 48-byte buffer (treated as Type::Ptr
+     * so the caller can pass its alloca'd address); `out_substr` is
+     * a 32-byte caller-allocated Substr slot. See runtime_str.c
+     * docstring for full semantics. */
+    let split_iter_init_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_split_iter_init",
+        &[Type::Ptr, Type::Str, Type::Str],
+        Type::Void,
+    );
+    let split_iter_next_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_split_iter_next",
+        &[Type::Ptr, Type::Ptr],
+        Type::Bool,
+    );
+    let split_iter_drop_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_split_iter_drop",
+        &[Type::Ptr],
+        Type::Void,
+    );
     let substr_create_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -2782,6 +2809,9 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         argv_init: argv_init_id,
         process_argv: process_argv_id,
         object_is_f64: object_is_f64_id,
+        split_iter_init: split_iter_init_id,
+        split_iter_next: split_iter_next_id,
+        split_iter_drop: split_iter_drop_id,
         arr_from_string: arr_from_string_id,
         str_substring: str_substring_id,
         arr_to_reversed: arr_to_reversed_id,
@@ -3263,6 +3293,9 @@ struct Intrinsics {
     argv_init: FuncId,
     process_argv: FuncId,
     object_is_f64: FuncId,
+    split_iter_init: FuncId,
+    split_iter_next: FuncId,
+    split_iter_drop: FuncId,
     arr_from_string: FuncId,
     str_substring: FuncId,
     arr_to_reversed: FuncId,
@@ -6879,6 +6912,148 @@ impl<'a> LowerCtx<'a> {
                 self.loop_stack.pop();
 
                 self.cur_block = after;
+            }
+            Stmt::ForOfSplitIter { var_name, parent, sep, body } => {
+                // P-iter — `for (let v of <parent>.split(<sep_lit>)) body`.
+                // Layout:
+                //
+                //   parent_op = lower parent (Type::Str, ARC-managed)
+                //   sep_op    = lower sep    (Type::Str, STATIC literal)
+                //   iter_slot = alloca_bytes 48     (SplitIter struct)
+                //   sub_slot  = alloca_bytes 32     (Substr borrow)
+                //   v_slot    = alloca Substr ptr
+                //   store sub_slot, v_slot
+                //   call __torajs_split_iter_init(iter_slot, parent_op, sep_op)
+                //
+                //   br header
+                //   header:
+                //     ok = call __torajs_split_iter_next(iter_slot, sub_slot)
+                //     cond_br ok, body_blk, after
+                //   body_blk:
+                //     <body — `v` reads load v_slot which always returns
+                //       the same sub_slot ptr; sub_slot's contents are
+                //       refilled by next() each iter>
+                //     br header
+                //   after:
+                //     call __torajs_split_iter_drop(iter_slot)
+                //
+                // init bumps parent's rc once; drop dec's it once. Each
+                // yielded substr carries STATIC_LITERAL flag (set by C
+                // helper) so rc_inc / rc_dec / substr_drop on `v` no-op
+                // — exactly matches the borrow semantics.
+                let parent_op = self.lower_expr(*parent);
+                let sep_op = self.lower_expr(*sep);
+
+                let iter_slot = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::AllocaBytes(48),
+                    Type::Ptr,
+                    None,
+                );
+                let sub_slot = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::AllocaBytes(32),
+                    Type::Ptr,
+                    None,
+                );
+
+                // Open a scope frame for `var_name`. v_slot stores the
+                // ptr to sub_slot; reads of `v` load that ptr.
+                self.scope_stack.push(Vec::new());
+                self.shadow_stack.push(Vec::new());
+                let v_slot = self.alloca(Type::Substr, Some(var_name));
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Store(
+                        Operand::Value(sub_slot),
+                        Operand::Value(v_slot),
+                        0,
+                    ),
+                );
+                {
+                    let cur_depth = self.scope_stack.len() - 1;
+                    self.locals.insert(
+                        var_name.clone(),
+                        LocalInfo {
+                            slot: v_slot,
+                            ty: Type::Substr,
+                            moved: false,
+                            scope_depth: cur_depth,
+                        },
+                    );
+                    self.scope_stack
+                        .last_mut()
+                        .expect("scope frame")
+                        .push(var_name.clone());
+                }
+
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Call(
+                        self.intrinsics.split_iter_init,
+                        vec![
+                            Operand::Value(iter_slot),
+                            parent_op,
+                            sep_op,
+                        ],
+                    ),
+                );
+
+                let header = self.f.add_block();
+                let body_blk = self.f.add_block();
+                let after = self.f.add_block();
+
+                self.f.set_term(self.cur_block, Terminator::Br(header));
+
+                self.cur_block = header;
+                let ok = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(
+                        self.intrinsics.split_iter_next,
+                        vec![
+                            Operand::Value(iter_slot),
+                            Operand::Value(sub_slot),
+                        ],
+                    ),
+                    Type::Bool,
+                    None,
+                );
+                self.f.set_term(
+                    self.cur_block,
+                    Terminator::CondBr {
+                        cond: Operand::Value(ok),
+                        then_blk: body_blk,
+                        else_blk: after,
+                    },
+                );
+
+                self.loop_stack.push((header, after));
+                self.cur_block = body_blk;
+                self.lower_stmt(body);
+                if self.cur_open() {
+                    self.f.set_term(self.cur_block, Terminator::Br(header));
+                }
+                self.loop_stack.pop();
+
+                self.cur_block = after;
+                // Drop the iter — releases parent's rc reference exactly
+                // once. `v` is a STATIC borrow so no per-iter substr_drop
+                // ran; iter_drop is the symmetric counterpart of init.
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Call(
+                        self.intrinsics.split_iter_drop,
+                        vec![Operand::Value(iter_slot)],
+                    ),
+                );
+
+                // Pop var's scope frame. v_slot held a Substr ptr to
+                // sub_slot; emit_drop_value would call substr_drop on
+                // it, which no-ops thanks to the STATIC flag. Skip the
+                // drop emission entirely since it'd be wasted IR.
+                let _ = self.scope_stack.pop().expect("for-of-split scope");
+                let _ = self.shadow_stack.pop().expect("shadow frame");
+                self.locals.remove(var_name);
             }
             Stmt::DoWhile { body, cond } => {
                 // Body executes at least once, then `cond` decides

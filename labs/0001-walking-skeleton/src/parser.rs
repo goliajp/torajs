@@ -1192,6 +1192,32 @@ impl Parser<'_> {
         }
         let body = self.parse_stmt()?;
 
+        // P-iter — `for (let v of <expr>.split(<literal_sep>))` →
+        // emit Stmt::ForOfSplitIter. ssa_lower handles via stack
+        // alloca'd SplitIter struct + per-iter substr borrow,
+        // skipping eager Array<Substr> materialization.
+        //
+        // Conservative match: sep MUST be a string-literal Expr so the
+        // iter's borrow of sep_data is guaranteed alive (literals are
+        // STATIC_LITERAL globals with infinite refcount). Variable
+        // sep falls back to the generic for-of array path below.
+        if kind == "of"
+            && let Expr::Call { callee, args } = self.ast.get_expr(src)
+            && let Expr::Member { obj: parent, name: m_name } = self.ast.get_expr(*callee)
+            && m_name == "split"
+            && args.len() == 1
+            && matches!(self.ast.get_expr(args[0]), Expr::String(_))
+        {
+            let parent_id = *parent;
+            let sep_id = args[0];
+            return Ok(Some(Stmt::ForOfSplitIter {
+                var_name,
+                parent: parent_id,
+                sep: sep_id,
+                body: Box::new(body),
+            }));
+        }
+
         // I.2 — for-of over a user iterable. Triggered when `kind == "of"`
         // and the source is a direct call to a known generator factory
         // (parser-tracked `function*` declarations). Desugars to a

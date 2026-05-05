@@ -1346,6 +1346,36 @@ impl Checker {
                 // No type-side state to track; the lowerer enforces that
                 // these only appear inside loops.
             }
+            Stmt::ForOfSplitIter { var_name, parent, sep, body } => {
+                // P-iter — parent and sep must both be strings; var
+                // binds a Substr borrow per iteration.
+                match self.type_of(ast, *parent) {
+                    Ok(Type::String) => {}
+                    Ok(other) => self.errors.push(format!(
+                        "for-of split parent must be string, got {other:?}"
+                    )),
+                    Err(e) => self.errors.push(e),
+                }
+                match self.type_of(ast, *sep) {
+                    Ok(Type::String) => {}
+                    Ok(other) => self.errors.push(format!(
+                        "for-of split separator must be string, got {other:?}"
+                    )),
+                    Err(e) => self.errors.push(e),
+                }
+                self.scopes.push(HashMap::new());
+                let _ = self.declare(
+                    var_name.clone(),
+                    LocalInfo {
+                        ty: Type::String,
+                        mutable: false,
+                        moved: false,
+                        declared_class: None,
+                    },
+                );
+                self.check_stmt(ast, body);
+                self.scopes.pop();
+            }
             Stmt::Block(stmts) => {
                 self.scopes.push(HashMap::new());
                 for s in stmts {

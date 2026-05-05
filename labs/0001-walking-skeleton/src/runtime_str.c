@@ -951,6 +951,129 @@ void *__torajs_str_split(const uint8_t *s, const uint8_t *sep) {
     return arr;
 }
 
+/* ============================================================
+ * SplitIter — zero-alloc iterator counterpart of __torajs_str_split.
+ *
+ * State lives in a 48-byte struct that the caller stack-allocates.
+ * Each `next()` call writes the next yielded substring into a
+ * 32-byte caller-provided slot and returns 1, or 0 once all tokens
+ * (including the trailing one) have been yielded. Used by the
+ * `for-of expr.split(s)` lowering and the SSA-level
+ * `for-i + .length` rewrite pass — both consume substrings
+ * sequentially, so eager Array<Substr> materialization is pure
+ * overhead.
+ *
+ * Lifetime:
+ *   - init() bumps parent's refcount once. drop() decrements once.
+ *     The iter holds the only iter-side share; per-yield substrs
+ *     are borrows that share parent's lifetime.
+ *   - sep is borrowed (no rc bump). Caller must keep sep alive
+ *     for the iter's lifetime. The current SSA lowering only
+ *     emits the iter form when sep is a STATIC_LITERAL (.rodata
+ *     global with infinite refcount), so this is naturally
+ *     satisfied.
+ *   - The yielded out_substr carries STATIC_LITERAL flag so any
+ *     stray rc_inc / rc_dec / substr_drop on it no-ops. Bytes
+ *     stay valid as long as parent is alive (handled by iter's
+ *     parent rc).
+ * ============================================================ */
+
+typedef struct {
+    const uint8_t *parent;       /* *Str — owns one iter-side ref */
+    uint64_t parent_len;         /* cached __TORAJS_STR_LEN(parent) */
+    const uint8_t *sep_data;     /* *Str CDATA — borrowed */
+    uint64_t sep_len;
+    uint64_t pos;                /* current scan position into parent */
+    uint8_t exhausted;           /* 1 once trailing token has been yielded */
+    uint8_t pad[7];              /* total 48B, 8-byte aligned */
+} __torajs_split_iter_t;
+
+void __torajs_split_iter_init(
+    __torajs_split_iter_t *iter,
+    const uint8_t *parent,
+    const uint8_t *sep
+) {
+    iter->parent = parent;
+    iter->parent_len = __TORAJS_STR_LEN(parent);
+    iter->sep_data = __TORAJS_STR_CDATA(sep);
+    iter->sep_len = __TORAJS_STR_LEN(sep);
+    iter->pos = 0;
+    iter->exhausted = 0;
+    __torajs_rc_inc((void *)parent);
+}
+
+void __torajs_split_iter_drop(__torajs_split_iter_t *iter) {
+    if (__torajs_rc_dec((void *)iter->parent)) {
+        __torajs_str_free((uint8_t *)iter->parent);
+    }
+}
+
+/* Helper — populate a caller-provided 32-byte substr slot with a
+ * (parent, offset, len) view. Marked STATIC_LITERAL so no rc op or
+ * drop call on the slot ever touches it. */
+static inline void split_iter_emit_(
+    uint8_t *out_substr,
+    const uint8_t *parent,
+    uint64_t offset,
+    uint64_t len
+) {
+    __torajs_heap_header_t *h = (__torajs_heap_header_t *)out_substr;
+    h->refcount = 0;
+    h->type_tag = __TORAJS_TAG_STR;
+    h->flags = __TORAJS_FLAG_STATIC_LITERAL;
+    __TORAJS_SUBSTR_LEN(out_substr) = len;
+    *(const uint8_t **)(out_substr + __TORAJS_SUBSTR_PARENT_OFF) = parent;
+    *(uint64_t *)(out_substr + __TORAJS_SUBSTR_OFFSET_OFF) = offset;
+}
+
+int __torajs_split_iter_next(
+    __torajs_split_iter_t *iter,
+    uint8_t *out_substr
+) {
+    if (iter->exhausted) return 0;
+    uint64_t pos = iter->pos;
+    uint64_t parent_len = iter->parent_len;
+    uint64_t sep_len = iter->sep_len;
+    const uint8_t *parent_data = __TORAJS_STR_CDATA(iter->parent);
+
+    /* Empty sep — per-char split; bun returns ["a","b"] for "ab".split(""). */
+    if (sep_len == 0) {
+        if (pos >= parent_len) { iter->exhausted = 1; return 0; }
+        split_iter_emit_(out_substr, iter->parent, pos, 1);
+        iter->pos = pos + 1;
+        return 1;
+    }
+
+    /* Find next sep occurrence at or after `pos`. Two paths mirror
+     * __torajs_str_split's hot 1-byte case + memcmp fallback. */
+    uint64_t k;
+    if (sep_len == 1) {
+        uint8_t b = iter->sep_data[0];
+        k = pos;
+        while (k < parent_len && parent_data[k] != b) k++;
+    } else {
+        k = pos;
+        while (k + sep_len <= parent_len) {
+            if (memcmp(parent_data + k, iter->sep_data, (size_t)sep_len) == 0) {
+                break;
+            }
+            k++;
+        }
+        if (k + sep_len > parent_len) k = parent_len;
+    }
+
+    /* Always emit one substring per call (including trailing empty
+     * after a final separator — matches eager split's N+1-yield
+     * convention). */
+    split_iter_emit_(out_substr, iter->parent, pos, k - pos);
+    if (k == parent_len) {
+        iter->exhausted = 1;
+    } else {
+        iter->pos = k + sep_len;
+    }
+    return 1;
+}
+
 void *__torajs_arr_join(const uint8_t *arr, const uint8_t *sep) {
     uint64_t len = __TORAJS_ARR_LEN(arr);
     uint64_t sep_len = __TORAJS_STR_LEN(sep);

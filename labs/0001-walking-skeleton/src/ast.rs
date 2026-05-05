@@ -255,6 +255,20 @@ pub enum Stmt {
         step: Option<ExprId>,
         body: Box<Stmt>,
     },
+    /// P-iter — `for (let v of <parent>.split(<sep>)) body` — emitted
+    /// by the parser when both source forms (parent expression and sep
+    /// literal) match the SplitIter fast path. ssa_lower expands to
+    /// stack alloca'd iter / substr slots + init / next-loop / drop
+    /// calls. `var_name` binds the per-iter Substr borrow; type is
+    /// always Substr (caller-side annotation `string` is honored).
+    /// Falls back to the generic for-of (Array<Substr> walk) when the
+    /// parser can't detect the split shape.
+    ForOfSplitIter {
+        var_name: String,
+        parent: ExprId,
+        sep: ExprId,
+        body: Box<Stmt>,
+    },
     /// `break;` — exits the innermost enclosing loop. M1.7.
     Break,
     /// `continue;` — jumps to the innermost loop's step (for) or
@@ -2783,6 +2797,11 @@ fn collect_super_in_stmt(
             }
         }
         Stmt::Break | Stmt::Continue => {}
+        Stmt::ForOfSplitIter { parent, sep, body, .. } => {
+            collect_super_in_expr(ast, *parent, out);
+            collect_super_in_expr(ast, *sep, out);
+            collect_super_in_stmt(ast, body, out);
+        }
         Stmt::FnDecl { .. } | Stmt::TypeDecl { .. } | Stmt::ClassDecl { .. } => {}
         Stmt::ImportDecl { .. } => {}
         Stmt::ExportDecl { inner, .. } => {
@@ -4118,6 +4137,634 @@ pub fn desugar_uninit_let(ast: &mut Ast) {
 /// values, and changes per call site. A faithful implementation needs
 /// runtime support (heterogeneous array, per-call materialization).
 ///
+/// P-iter Phase 3 — rewrite `let X = E.split(LIT); for (let I = 0; I <
+/// X.length; I = I + 1) { ... X[I] ... }` into a `for-of E.split(LIT)`
+/// shape so the SplitIter substrate (Phase 1+2) eliminates the
+/// per-call Array<Substr> allocation. Conservative: bails to the
+/// untouched original if the body or trailing stmts could see X as a
+/// random-access Array.
+///
+/// Pattern (must hold over an adjacent stmt pair):
+///   1. `Stmt::LetDecl { name: X, init: Call { Member { obj: E,
+///      name: "split" }, args: [SEP] } }` where SEP is `Expr::String(_)`
+///      (literal sep — guarantees lifetime via STATIC_LITERAL globals).
+///   2. `Stmt::For { init: Some(LetDecl { name: I, init: Number(0),
+///      mutable: true }), cond: Some(BinOp::Lt(Ident(I), Member { obj:
+///      Ident(X), name: "length" })), step: Some(Assign { target:
+///      Ident(I), value: BinOp::Add(Ident(I), Number(1)) }), body: ... }`.
+///
+/// Escape verification on body + trailing stmts:
+///   - Every read of X must be `Index { obj: Ident(X), index: Ident(I) }`
+///     (sequential access only). X used elsewhere — `X[i+1]`, `X.length`
+///     inside body, `X` as fn arg, `X` stored to outer slot, X read
+///     after the loop — disqualifies the rewrite.
+///   - The `I` counter may be read freely (e.g. as a position argument);
+///     the rewrite preserves it via a manual mut counter.
+///
+/// Rewrite emits:
+///   Stmt::Block([
+///     LetDecl mutable I = 0,
+///     ForOfSplitIter { var: <fresh>, parent: E, sep: SEP, body: BODY' },
+///   ])
+///
+/// where BODY' is the original body with `X[I]` index reads replaced
+/// by `Ident(<fresh>)` and a trailing `I = I + 1` appended so the
+/// counter still advances per iter.
+pub fn rewrite_split_for_i_to_iter(ast: &mut Ast) {
+    let mut ctx = SplitForICtx { counter: 0 };
+    let mut top = std::mem::take(&mut ast.stmts);
+    rewrite_sfi_walk_list(ast, &mut top, &mut ctx);
+    ast.stmts = top;
+}
+
+struct SplitForICtx {
+    counter: u32,
+}
+
+fn rewrite_sfi_walk_list(ast: &mut Ast, stmts: &mut Vec<Stmt>, ctx: &mut SplitForICtx) {
+    // Pass 1: rewrite adjacent pairs at this level (collect into out).
+    let mut out: Vec<Stmt> = Vec::with_capacity(stmts.len());
+    let mut i = 0;
+    while i < stmts.len() {
+        if i + 1 < stmts.len() {
+            if let Some(rw) = try_rewrite_sfi(ast, &stmts[i], &stmts[i + 1], &stmts[i + 2..], ctx) {
+                out.push(rw);
+                i += 2;
+                continue;
+            }
+        }
+        out.push(stmts[i].clone());
+        i += 1;
+    }
+    *stmts = out;
+    // Pass 2: recurse into each child stmt.
+    for s in stmts.iter_mut() {
+        rewrite_sfi_walk_stmt(ast, s, ctx);
+    }
+}
+
+fn rewrite_sfi_walk_stmt(ast: &mut Ast, s: &mut Stmt, ctx: &mut SplitForICtx) {
+    match s {
+        Stmt::Block(inner) | Stmt::Multi(inner) => {
+            rewrite_sfi_walk_list(ast, inner, ctx);
+        }
+        Stmt::If { then_branch, else_branch, .. } => {
+            rewrite_sfi_walk_stmt(ast, then_branch, ctx);
+            if let Some(eb) = else_branch {
+                rewrite_sfi_walk_stmt(ast, eb, ctx);
+            }
+        }
+        Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
+            rewrite_sfi_walk_stmt(ast, body, ctx);
+        }
+        Stmt::For { init, body, .. } => {
+            if let Some(i) = init {
+                rewrite_sfi_walk_stmt(ast, i, ctx);
+            }
+            rewrite_sfi_walk_stmt(ast, body, ctx);
+        }
+        Stmt::ForOfSplitIter { body, .. } => {
+            rewrite_sfi_walk_stmt(ast, body, ctx);
+        }
+        Stmt::Switch { cases, default, .. } => {
+            for c in cases.iter_mut() {
+                rewrite_sfi_walk_list(ast, &mut c.body, ctx);
+            }
+            if let Some(db) = default {
+                rewrite_sfi_walk_list(ast, db, ctx);
+            }
+        }
+        Stmt::Try { body, catch_body, finally_body, .. } => {
+            rewrite_sfi_walk_list(ast, body, ctx);
+            rewrite_sfi_walk_list(ast, catch_body, ctx);
+            if let Some(fb) = finally_body {
+                rewrite_sfi_walk_list(ast, fb, ctx);
+            }
+        }
+        Stmt::FnDecl { body, .. } => {
+            rewrite_sfi_walk_list(ast, body, ctx);
+        }
+        Stmt::ClassDecl { methods, .. } => {
+            for m in methods.iter_mut() {
+                rewrite_sfi_walk_list(ast, &mut m.body, ctx);
+            }
+        }
+        Stmt::ExportDecl { inner, .. } => {
+            if let Some(inner) = inner {
+                rewrite_sfi_walk_stmt(ast, inner, ctx);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn try_rewrite_sfi(
+    ast: &mut Ast,
+    let_stmt: &Stmt,
+    for_stmt: &Stmt,
+    trailing: &[Stmt],
+    ctx: &mut SplitForICtx,
+) -> Option<Stmt> {
+    // (1) LetDecl pattern.
+    let (x_name, parent_eid, sep_eid) = match let_stmt {
+        Stmt::LetDecl { name, init, .. } => {
+            let (parent, sep) = match_split_call_with_lit_sep(ast, *init)?;
+            (name.clone(), parent, sep)
+        }
+        _ => return None,
+    };
+    // (2) For pattern.
+    let (i_name, body_box) = match for_stmt {
+        Stmt::For { init, cond, step, body } => {
+            // init: let mut I = 0
+            let i_name = match init.as_deref() {
+                Some(Stmt::LetDecl { mutable: true, name, init: init_eid, .. }) => {
+                    if !is_zero_lit(ast, *init_eid) {
+                        return None;
+                    }
+                    name.clone()
+                }
+                _ => return None,
+            };
+            // cond: I < X.length
+            let cond = (*cond)?;
+            if !is_lt_i_lt_x_length(ast, cond, &i_name, &x_name) {
+                return None;
+            }
+            // step: I = I + 1
+            let step = (*step)?;
+            if !is_i_plus_eq_1(ast, step, &i_name) {
+                return None;
+            }
+            (i_name, body.clone())
+        }
+        _ => return None,
+    };
+    // (3) Escape check on body + trailing stmts. body is allowed to
+    // reference X only via Index(Ident(X), Ident(I)). trailing stmts
+    // must not reference X at all.
+    if !sfi_body_x_safe(ast, &body_box, &x_name, &i_name) {
+        return None;
+    }
+    if trailing.iter().any(|s| sfi_stmt_uses_ident(ast, s, &x_name)) {
+        return None;
+    }
+    // (4) Build the rewrite.
+    let id = ctx.counter;
+    ctx.counter += 1;
+    let v_name = format!("__sfi_v_{id}");
+    // Walk body, replace `Index(Ident(X), Ident(I))` with `Ident(v_name)`.
+    let new_body = sfi_rewrite_body(ast, &body_box, &x_name, &i_name, &v_name);
+    // Append `I = I + 1` to the body (preserve counter semantics).
+    let i_ref_step_l = ast.add_expr(Expr::Ident(i_name.clone()));
+    let i_ref_step_r = ast.add_expr(Expr::Ident(i_name.clone()));
+    let one_eid = ast.add_expr(Expr::Number(1.0));
+    let inc_eid = ast.add_expr(Expr::BinOp {
+        op: BinOp::Add,
+        left: i_ref_step_r,
+        right: one_eid,
+    });
+    let assign_eid = ast.add_expr(Expr::Assign {
+        target: i_ref_step_l,
+        value: inc_eid,
+    });
+    let body_with_inc = match new_body {
+        Stmt::Block(mut inner) => {
+            inner.push(Stmt::Expr(assign_eid));
+            Stmt::Block(inner)
+        }
+        other => Stmt::Block(vec![other, Stmt::Expr(assign_eid)]),
+    };
+    let zero_eid = ast.add_expr(Expr::Number(0.0));
+    let counter_decl = Stmt::LetDecl {
+        mutable: true,
+        name: i_name.clone(),
+        type_ann: Some("number".into()),
+        init: zero_eid,
+    };
+    let forof = Stmt::ForOfSplitIter {
+        var_name: v_name,
+        parent: parent_eid,
+        sep: sep_eid,
+        body: Box::new(body_with_inc),
+    };
+    Some(Stmt::Block(vec![counter_decl, forof]))
+}
+
+fn match_split_call_with_lit_sep(ast: &Ast, eid: ExprId) -> Option<(ExprId, ExprId)> {
+    if let Expr::Call { callee, args } = ast.get_expr(eid)
+        && args.len() == 1
+        && let Expr::Member { obj: parent, name } = ast.get_expr(*callee)
+        && name == "split"
+        && matches!(ast.get_expr(args[0]), Expr::String(_))
+    {
+        return Some((*parent, args[0]));
+    }
+    None
+}
+
+fn is_zero_lit(ast: &Ast, eid: ExprId) -> bool {
+    matches!(ast.get_expr(eid), Expr::Number(n) if *n == 0.0)
+}
+
+fn is_lt_i_lt_x_length(ast: &Ast, eid: ExprId, i_name: &str, x_name: &str) -> bool {
+    if let Expr::BinOp { op: BinOp::Lt, left, right } = ast.get_expr(eid)
+        && matches!(ast.get_expr(*left), Expr::Ident(n) if n == i_name)
+        && let Expr::Member { obj, name: m_name } = ast.get_expr(*right)
+        && m_name == "length"
+        && matches!(ast.get_expr(*obj), Expr::Ident(n) if n == x_name)
+    {
+        return true;
+    }
+    false
+}
+
+fn is_i_plus_eq_1(ast: &Ast, eid: ExprId, i_name: &str) -> bool {
+    // Either `I = I + 1` (Assign) or `I++` (PostIncr) — accept both.
+    if let Expr::Assign { target, value } = ast.get_expr(eid)
+        && matches!(ast.get_expr(*target), Expr::Ident(n) if n == i_name)
+        && let Expr::BinOp { op: BinOp::Add, left, right } = ast.get_expr(*value)
+        && matches!(ast.get_expr(*left), Expr::Ident(n) if n == i_name)
+        && matches!(ast.get_expr(*right), Expr::Number(n) if *n == 1.0)
+    {
+        return true;
+    }
+    if let Expr::PostIncr { target, .. } = ast.get_expr(eid)
+        && matches!(ast.get_expr(*target), Expr::Ident(n) if n == i_name)
+    {
+        return true;
+    }
+    false
+}
+
+/// Walk body, return false if any reference to `x_name` appears that
+/// is NOT exactly `Index(Ident(x_name), Ident(i_name))` (sequential
+/// access). Conservative — false on any uncertain shape.
+fn sfi_body_x_safe(ast: &Ast, body: &Stmt, x_name: &str, i_name: &str) -> bool {
+    sfi_stmt_x_safe(ast, body, x_name, i_name)
+}
+
+fn sfi_stmt_x_safe(ast: &Ast, s: &Stmt, x_name: &str, i_name: &str) -> bool {
+    match s {
+        Stmt::Expr(eid) | Stmt::Throw(eid) | Stmt::Yield(eid) => {
+            sfi_expr_x_safe(ast, *eid, x_name, i_name)
+        }
+        Stmt::Return(Some(eid)) => sfi_expr_x_safe(ast, *eid, x_name, i_name),
+        Stmt::Return(None) | Stmt::Break | Stmt::Continue => true,
+        Stmt::LetDecl { init, .. } => sfi_expr_x_safe(ast, *init, x_name, i_name),
+        Stmt::If { cond, then_branch, else_branch } => {
+            sfi_expr_x_safe(ast, *cond, x_name, i_name)
+                && sfi_stmt_x_safe(ast, then_branch, x_name, i_name)
+                && else_branch
+                    .as_deref()
+                    .map_or(true, |eb| sfi_stmt_x_safe(ast, eb, x_name, i_name))
+        }
+        Stmt::While { cond, body } | Stmt::DoWhile { body, cond } => {
+            sfi_expr_x_safe(ast, *cond, x_name, i_name)
+                && sfi_stmt_x_safe(ast, body, x_name, i_name)
+        }
+        Stmt::For { init, cond, step, body } => {
+            init.as_deref()
+                .map_or(true, |i| sfi_stmt_x_safe(ast, i, x_name, i_name))
+                && cond.map_or(true, |c| sfi_expr_x_safe(ast, c, x_name, i_name))
+                && step.map_or(true, |st| sfi_expr_x_safe(ast, st, x_name, i_name))
+                && sfi_stmt_x_safe(ast, body, x_name, i_name)
+        }
+        Stmt::ForOfSplitIter { parent, sep, body, .. } => {
+            sfi_expr_x_safe(ast, *parent, x_name, i_name)
+                && sfi_expr_x_safe(ast, *sep, x_name, i_name)
+                && sfi_stmt_x_safe(ast, body, x_name, i_name)
+        }
+        Stmt::Switch { scrutinee, cases, default } => {
+            sfi_expr_x_safe(ast, *scrutinee, x_name, i_name)
+                && cases.iter().all(|c| {
+                    sfi_expr_x_safe(ast, c.value, x_name, i_name)
+                        && c.body.iter().all(|s| sfi_stmt_x_safe(ast, s, x_name, i_name))
+                })
+                && default.as_ref().map_or(true, |db| {
+                    db.iter().all(|s| sfi_stmt_x_safe(ast, s, x_name, i_name))
+                })
+        }
+        Stmt::Try { body, catch_body, finally_body, .. } => {
+            body.iter().all(|s| sfi_stmt_x_safe(ast, s, x_name, i_name))
+                && catch_body.iter().all(|s| sfi_stmt_x_safe(ast, s, x_name, i_name))
+                && finally_body
+                    .as_ref()
+                    .map_or(true, |fb| fb.iter().all(|s| sfi_stmt_x_safe(ast, s, x_name, i_name)))
+        }
+        Stmt::Block(stmts) | Stmt::Multi(stmts) => {
+            stmts.iter().all(|s| sfi_stmt_x_safe(ast, s, x_name, i_name))
+        }
+        Stmt::YieldInto { value, .. } => sfi_expr_x_safe(ast, *value, x_name, i_name),
+        Stmt::FnDecl { .. }
+        | Stmt::TypeDecl { .. }
+        | Stmt::ClassDecl { .. }
+        | Stmt::ImportDecl { .. } => true,
+        Stmt::ExportDecl { inner, .. } => inner
+            .as_deref()
+            .map_or(true, |s| sfi_stmt_x_safe(ast, s, x_name, i_name)),
+    }
+}
+
+/// Returns true iff every reference to `x_name` in `eid` is the safe
+/// shape `Index(Ident(x_name), Ident(i_name))`. Conservative — any
+/// shape we can't analyze cleanly returns false.
+fn sfi_expr_x_safe(ast: &Ast, eid: ExprId, x_name: &str, i_name: &str) -> bool {
+    match ast.get_expr(eid) {
+        Expr::Ident(n) => n != x_name,
+        Expr::Index { obj, index } => {
+            if let Expr::Ident(n) = ast.get_expr(*obj)
+                && n == x_name
+            {
+                return matches!(
+                    ast.get_expr(*index),
+                    Expr::Ident(in_) if in_ == i_name
+                );
+            }
+            sfi_expr_x_safe(ast, *obj, x_name, i_name)
+                && sfi_expr_x_safe(ast, *index, x_name, i_name)
+        }
+        Expr::Member { obj, .. } => {
+            if let Expr::Ident(n) = ast.get_expr(*obj)
+                && n == x_name
+            {
+                return false;
+            }
+            sfi_expr_x_safe(ast, *obj, x_name, i_name)
+        }
+        Expr::Call { callee, args } => {
+            sfi_expr_x_safe(ast, *callee, x_name, i_name)
+                && args.iter().all(|a| sfi_expr_x_safe(ast, *a, x_name, i_name))
+        }
+        Expr::Number(_)
+        | Expr::String(_)
+        | Expr::Bool(_)
+        | Expr::Null
+        | Expr::Uninit
+        | Expr::This
+        | Expr::Regex { .. } => true,
+        Expr::Array(els) => els.iter().all(|e| sfi_expr_x_safe(ast, *e, x_name, i_name)),
+        Expr::ObjectLit { fields } => {
+            fields.iter().all(|(_, e)| sfi_expr_x_safe(ast, *e, x_name, i_name))
+        }
+        Expr::Spread { expr } => sfi_expr_x_safe(ast, *expr, x_name, i_name),
+        Expr::BinOp { left, right, .. } => {
+            sfi_expr_x_safe(ast, *left, x_name, i_name)
+                && sfi_expr_x_safe(ast, *right, x_name, i_name)
+        }
+        Expr::Assign { target, value } => {
+            sfi_expr_x_safe(ast, *target, x_name, i_name)
+                && sfi_expr_x_safe(ast, *value, x_name, i_name)
+        }
+        Expr::Unary { expr, .. } => sfi_expr_x_safe(ast, *expr, x_name, i_name),
+        Expr::Ternary { cond, then_branch, else_branch } => {
+            sfi_expr_x_safe(ast, *cond, x_name, i_name)
+                && sfi_expr_x_safe(ast, *then_branch, x_name, i_name)
+                && sfi_expr_x_safe(ast, *else_branch, x_name, i_name)
+        }
+        Expr::TypeOf { expr } => sfi_expr_x_safe(ast, *expr, x_name, i_name),
+        Expr::InstanceOf { expr, .. } => sfi_expr_x_safe(ast, *expr, x_name, i_name),
+        Expr::ArrowFn { .. } | Expr::Closure { .. } => {
+            // Conservative — captured X inside a closure is hard to
+            // verify safe since the closure body could index X[k]
+            // for arbitrary k. Disqualify any X-mention by treating
+            // closures as black boxes.
+            true
+        }
+        Expr::Super { args } => args.iter().all(|a| sfi_expr_x_safe(ast, *a, x_name, i_name)),
+        Expr::New { args, .. } => args.iter().all(|a| sfi_expr_x_safe(ast, *a, x_name, i_name)),
+        Expr::Nullish { lhs, rhs } => {
+            sfi_expr_x_safe(ast, *lhs, x_name, i_name)
+                && sfi_expr_x_safe(ast, *rhs, x_name, i_name)
+        }
+        Expr::OptChain { obj, .. } => {
+            if let Expr::Ident(n) = ast.get_expr(*obj)
+                && n == x_name
+            {
+                return false;
+            }
+            sfi_expr_x_safe(ast, *obj, x_name, i_name)
+        }
+        Expr::PostIncr { target, .. } => sfi_expr_x_safe(ast, *target, x_name, i_name),
+    }
+}
+
+fn sfi_stmt_uses_ident(ast: &Ast, s: &Stmt, name: &str) -> bool {
+    !sfi_stmt_x_safe(ast, s, name, "<<UNUSED>>")
+}
+
+/// Build a fresh body where every `Index(Ident(x_name), Ident(i_name))`
+/// becomes `Ident(v_name)`. The escape check has already verified all
+/// X-references match this exact shape.
+fn sfi_rewrite_body(ast: &mut Ast, body: &Stmt, x_name: &str, i_name: &str, v_name: &str) -> Stmt {
+    sfi_rewrite_stmt(ast, body, x_name, i_name, v_name)
+}
+
+fn sfi_rewrite_stmt(ast: &mut Ast, s: &Stmt, x_name: &str, i_name: &str, v_name: &str) -> Stmt {
+    match s {
+        Stmt::Expr(eid) => Stmt::Expr(sfi_rewrite_expr(ast, *eid, x_name, i_name, v_name)),
+        Stmt::Throw(eid) => Stmt::Throw(sfi_rewrite_expr(ast, *eid, x_name, i_name, v_name)),
+        Stmt::Yield(eid) => Stmt::Yield(sfi_rewrite_expr(ast, *eid, x_name, i_name, v_name)),
+        Stmt::YieldInto { var, type_ann, value } => Stmt::YieldInto {
+            var: var.clone(),
+            type_ann: type_ann.clone(),
+            value: sfi_rewrite_expr(ast, *value, x_name, i_name, v_name),
+        },
+        Stmt::Return(Some(eid)) => {
+            Stmt::Return(Some(sfi_rewrite_expr(ast, *eid, x_name, i_name, v_name)))
+        }
+        Stmt::Return(None) => Stmt::Return(None),
+        Stmt::LetDecl { mutable, name, type_ann, init } => Stmt::LetDecl {
+            mutable: *mutable,
+            name: name.clone(),
+            type_ann: type_ann.clone(),
+            init: sfi_rewrite_expr(ast, *init, x_name, i_name, v_name),
+        },
+        Stmt::If { cond, then_branch, else_branch } => Stmt::If {
+            cond: sfi_rewrite_expr(ast, *cond, x_name, i_name, v_name),
+            then_branch: Box::new(sfi_rewrite_stmt(ast, then_branch, x_name, i_name, v_name)),
+            else_branch: else_branch
+                .as_ref()
+                .map(|eb| Box::new(sfi_rewrite_stmt(ast, eb, x_name, i_name, v_name))),
+        },
+        Stmt::While { cond, body } => Stmt::While {
+            cond: sfi_rewrite_expr(ast, *cond, x_name, i_name, v_name),
+            body: Box::new(sfi_rewrite_stmt(ast, body, x_name, i_name, v_name)),
+        },
+        Stmt::DoWhile { body, cond } => Stmt::DoWhile {
+            body: Box::new(sfi_rewrite_stmt(ast, body, x_name, i_name, v_name)),
+            cond: sfi_rewrite_expr(ast, *cond, x_name, i_name, v_name),
+        },
+        Stmt::Switch { scrutinee, cases, default } => Stmt::Switch {
+            scrutinee: sfi_rewrite_expr(ast, *scrutinee, x_name, i_name, v_name),
+            cases: cases
+                .iter()
+                .map(|c| SwitchCase {
+                    value: sfi_rewrite_expr(ast, c.value, x_name, i_name, v_name),
+                    body: c
+                        .body
+                        .iter()
+                        .map(|s| sfi_rewrite_stmt(ast, s, x_name, i_name, v_name))
+                        .collect(),
+                })
+                .collect(),
+            default: default.as_ref().map(|db| {
+                db.iter()
+                    .map(|s| sfi_rewrite_stmt(ast, s, x_name, i_name, v_name))
+                    .collect()
+            }),
+        },
+        Stmt::For { init, cond, step, body } => Stmt::For {
+            init: init
+                .as_ref()
+                .map(|i| Box::new(sfi_rewrite_stmt(ast, i, x_name, i_name, v_name))),
+            cond: cond.map(|c| sfi_rewrite_expr(ast, c, x_name, i_name, v_name)),
+            step: step.map(|st| sfi_rewrite_expr(ast, st, x_name, i_name, v_name)),
+            body: Box::new(sfi_rewrite_stmt(ast, body, x_name, i_name, v_name)),
+        },
+        Stmt::ForOfSplitIter { var_name, parent, sep, body } => Stmt::ForOfSplitIter {
+            var_name: var_name.clone(),
+            parent: sfi_rewrite_expr(ast, *parent, x_name, i_name, v_name),
+            sep: sfi_rewrite_expr(ast, *sep, x_name, i_name, v_name),
+            body: Box::new(sfi_rewrite_stmt(ast, body, x_name, i_name, v_name)),
+        },
+        Stmt::Try { body, had_catch, catch_param, catch_type, catch_body, finally_body } => {
+            Stmt::Try {
+                body: body
+                    .iter()
+                    .map(|s| sfi_rewrite_stmt(ast, s, x_name, i_name, v_name))
+                    .collect(),
+                had_catch: *had_catch,
+                catch_param: catch_param.clone(),
+                catch_type: catch_type.clone(),
+                catch_body: catch_body
+                    .iter()
+                    .map(|s| sfi_rewrite_stmt(ast, s, x_name, i_name, v_name))
+                    .collect(),
+                finally_body: finally_body.as_ref().map(|fb| {
+                    fb.iter()
+                        .map(|s| sfi_rewrite_stmt(ast, s, x_name, i_name, v_name))
+                        .collect()
+                }),
+            }
+        }
+        Stmt::Block(stmts) => Stmt::Block(
+            stmts
+                .iter()
+                .map(|s| sfi_rewrite_stmt(ast, s, x_name, i_name, v_name))
+                .collect(),
+        ),
+        Stmt::Multi(stmts) => Stmt::Multi(
+            stmts
+                .iter()
+                .map(|s| sfi_rewrite_stmt(ast, s, x_name, i_name, v_name))
+                .collect(),
+        ),
+        Stmt::Break | Stmt::Continue => s.clone(),
+        Stmt::FnDecl { .. }
+        | Stmt::TypeDecl { .. }
+        | Stmt::ClassDecl { .. }
+        | Stmt::ImportDecl { .. }
+        | Stmt::ExportDecl { .. } => s.clone(),
+    }
+}
+
+fn sfi_rewrite_expr(ast: &mut Ast, eid: ExprId, x_name: &str, i_name: &str, v_name: &str) -> ExprId {
+    let cur = ast.get_expr(eid).clone();
+    match cur {
+        Expr::Index { obj, index } => {
+            // X[I] → Ident(v_name). Otherwise descend.
+            if let Expr::Ident(n) = ast.get_expr(obj).clone()
+                && n == x_name
+                && let Expr::Ident(in_) = ast.get_expr(index).clone()
+                && in_ == i_name
+            {
+                return ast.add_expr(Expr::Ident(v_name.to_string()));
+            }
+            let new_obj = sfi_rewrite_expr(ast, obj, x_name, i_name, v_name);
+            let new_index = sfi_rewrite_expr(ast, index, x_name, i_name, v_name);
+            ast.add_expr(Expr::Index { obj: new_obj, index: new_index })
+        }
+        Expr::Member { obj, name } => {
+            let new_obj = sfi_rewrite_expr(ast, obj, x_name, i_name, v_name);
+            ast.add_expr(Expr::Member { obj: new_obj, name })
+        }
+        Expr::Call { callee, args } => {
+            let new_callee = sfi_rewrite_expr(ast, callee, x_name, i_name, v_name);
+            let new_args: Vec<ExprId> = args
+                .iter()
+                .map(|a| sfi_rewrite_expr(ast, *a, x_name, i_name, v_name))
+                .collect();
+            ast.add_expr(Expr::Call { callee: new_callee, args: new_args })
+        }
+        Expr::BinOp { op, left, right } => {
+            let l = sfi_rewrite_expr(ast, left, x_name, i_name, v_name);
+            let r = sfi_rewrite_expr(ast, right, x_name, i_name, v_name);
+            ast.add_expr(Expr::BinOp { op, left: l, right: r })
+        }
+        Expr::Assign { target, value } => {
+            let t = sfi_rewrite_expr(ast, target, x_name, i_name, v_name);
+            let v = sfi_rewrite_expr(ast, value, x_name, i_name, v_name);
+            ast.add_expr(Expr::Assign { target: t, value: v })
+        }
+        Expr::Unary { op, expr } => {
+            let e = sfi_rewrite_expr(ast, expr, x_name, i_name, v_name);
+            ast.add_expr(Expr::Unary { op, expr: e })
+        }
+        Expr::Ternary { cond, then_branch, else_branch } => {
+            let c = sfi_rewrite_expr(ast, cond, x_name, i_name, v_name);
+            let t = sfi_rewrite_expr(ast, then_branch, x_name, i_name, v_name);
+            let e = sfi_rewrite_expr(ast, else_branch, x_name, i_name, v_name);
+            ast.add_expr(Expr::Ternary {
+                cond: c,
+                then_branch: t,
+                else_branch: e,
+            })
+        }
+        Expr::Array(els) => {
+            let new_els: Vec<ExprId> = els
+                .iter()
+                .map(|e| sfi_rewrite_expr(ast, *e, x_name, i_name, v_name))
+                .collect();
+            ast.add_expr(Expr::Array(new_els))
+        }
+        Expr::Spread { expr } => {
+            let e = sfi_rewrite_expr(ast, expr, x_name, i_name, v_name);
+            ast.add_expr(Expr::Spread { expr: e })
+        }
+        Expr::ObjectLit { fields } => {
+            let new_fields: Vec<(String, ExprId)> = fields
+                .iter()
+                .map(|(n, e)| (n.clone(), sfi_rewrite_expr(ast, *e, x_name, i_name, v_name)))
+                .collect();
+            ast.add_expr(Expr::ObjectLit { fields: new_fields })
+        }
+        Expr::PostIncr { target, is_inc } => {
+            let t = sfi_rewrite_expr(ast, target, x_name, i_name, v_name);
+            ast.add_expr(Expr::PostIncr { target: t, is_inc })
+        }
+        Expr::OptChain { obj, name } => {
+            let o = sfi_rewrite_expr(ast, obj, x_name, i_name, v_name);
+            ast.add_expr(Expr::OptChain { obj: o, name })
+        }
+        Expr::Nullish { lhs, rhs } => {
+            let l = sfi_rewrite_expr(ast, lhs, x_name, i_name, v_name);
+            let r = sfi_rewrite_expr(ast, rhs, x_name, i_name, v_name);
+            ast.add_expr(Expr::Nullish { lhs: l, rhs: r })
+        }
+        Expr::New { class_name, args } => {
+            let new_args: Vec<ExprId> = args
+                .iter()
+                .map(|a| sfi_rewrite_expr(ast, *a, x_name, i_name, v_name))
+                .collect();
+            ast.add_expr(Expr::New { class_name, args: new_args })
+        }
+        // Leaves and shapes that don't carry X-referencing children
+        // (Ident / Number / String / Bool / Null / closures / etc) — clone.
+        _ => eid,
+    }
+}
+
 /// This pass implements two static-rewrite shapes that cover the bulk
 /// of test262's `arguments-object/*` cases without runtime changes:
 ///
@@ -4988,6 +5635,16 @@ fn walk_stmt(ast: &Ast, s: &Stmt, bound: &mut Vec<String>, out: &mut Vec<String>
                 walk_stmt(ast, st, bound, out);
             }
         }
+        Stmt::ForOfSplitIter { var_name, parent, sep, body } => {
+            // Same scope hygiene as Stmt::For — var_name binds inside
+            // the body only.
+            walk_expr(ast, *parent, bound, out);
+            walk_expr(ast, *sep, bound, out);
+            let saved = bound.len();
+            bound.push(var_name.clone());
+            walk_stmt(ast, body, bound, out);
+            bound.truncate(saved);
+        }
         Stmt::Break | Stmt::Continue => {}
         Stmt::Throw(eid) => walk_expr(ast, *eid, bound, out),
         Stmt::Try {
@@ -5129,6 +5786,11 @@ fn scan_stmt_for_throws(
             for st in stmts {
                 scan_stmt_for_throws(ast, st, direct, called);
             }
+        }
+        Stmt::ForOfSplitIter { parent, sep, body, .. } => {
+            scan_expr_for_calls(ast, *parent, called);
+            scan_expr_for_calls(ast, *sep, called);
+            scan_stmt_for_throws(ast, body, direct, called);
         }
         Stmt::Try {
             body,
@@ -5428,6 +6090,15 @@ impl Ast {
             }
             Stmt::Break => println!("{pad}Break"),
             Stmt::Continue => println!("{pad}Continue"),
+            Stmt::ForOfSplitIter { var_name, parent, sep, body } => {
+                println!("{pad}ForOfSplitIter {var_name}");
+                println!("{pad}  parent:");
+                self.print_expr(*parent, indent + 2);
+                println!("{pad}  sep:");
+                self.print_expr(*sep, indent + 2);
+                println!("{pad}  body:");
+                self.print_stmt(body, indent + 2);
+            }
             Stmt::Throw(eid) => {
                 println!("{pad}Throw");
                 self.print_expr(*eid, indent + 1);
