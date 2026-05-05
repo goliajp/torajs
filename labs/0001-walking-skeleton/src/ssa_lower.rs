@@ -13651,15 +13651,53 @@ impl<'a> LowerCtx<'a> {
                     }
                     let elem_ty = anchor_ty.unwrap_or_else(|| self.operand_ty(&elem_vals[0]));
                     let arr_id = intern_arr_layout(self.arr_layouts, elem_ty);
-                    let arr_ptr = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Call(
-                            self.intrinsics.arr_alloc,
-                            vec![Operand::ConstI64(n)],
-                        ),
-                        Type::Arr(arr_id),
-                        None,
-                    );
+                    // Plan A — stack-alloca path. Triggered when the
+                    // escape verifier flagged this Array literal AND
+                    // elements are non-refcounted (Copy types: i64,
+                    // f64, bool). Refcounted elements are bailed to
+                    // heap because the STATIC_LITERAL flag short-
+                    // circuits arr_drop's element-walk, leaking rc
+                    // refs to those elements.
+                    let on_stack = self.ast.stack_array_literals.contains(&eid)
+                        && !elem_ty.is_refcounted();
+                    let arr_ptr = if on_stack {
+                        // Layout: [hdr:8][len:8][cap:8][slots:N*8].
+                        // Header packed as one i64 store: rc=0 in low
+                        // 32 bits, tag=ARR(2) in [32..48], flags=
+                        // STATIC_LITERAL(4) in [48..64]. STATIC flag
+                        // means rc_inc / rc_dec / arr_drop / arr_free
+                        // all no-op on this pointer — stack reclaim
+                        // is automatic at fn return.
+                        let total_bytes = 24u64 + (n as u64) * 8;
+                        let p = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::AllocaBytes(total_bytes),
+                            Type::Arr(arr_id),
+                            None,
+                        );
+                        // Header packed: tag=2 (ARR) in bits 32..48, flags=4 (STATIC) in bits 48..64.
+                        let hdr_packed: i64 = (2i64 << 32) | (4i64 << 48);
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Store(Operand::ConstI64(hdr_packed), Operand::Value(p), 0),
+                        );
+                        // cap at +16
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Store(Operand::ConstI64(n), Operand::Value(p), 16),
+                        );
+                        p
+                    } else {
+                        self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.arr_alloc,
+                                vec![Operand::ConstI64(n)],
+                            ),
+                            Type::Arr(arr_id),
+                            None,
+                        )
+                    };
                     self.f.append_void(
                         self.cur_block,
                         InstKind::Store(
