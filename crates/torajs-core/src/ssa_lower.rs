@@ -4002,6 +4002,12 @@ fn parse_type(
         "void" => Type::Void,
         "regex" => Type::RegExp,
         "date" => Type::Date,
+        // T-10.a (v0.4.0) — Any plumbing. Lowers to a single 64-bit
+        // pointer slot at codegen (same as Ptr); the runtime carries
+        // the type tag via the universal heap header. T-10.a only
+        // wires empty-Array<Any>; T-10.c lands the heterogeneous
+        // literal codegen.
+        "any" => Type::Any,
         other => match aliases.get(other) {
             Some(ty) => *ty,
             None => panic!("ssa-lower: unsupported type annotation `{other}`"),
@@ -14315,6 +14321,14 @@ impl<'a> LowerCtx<'a> {
                     | Type::RegExp
                     | Type::Date => "object",
                     Type::Void | Type::Ptr => "object",
+                    // T-10.a — typeof on a Type::Any operand needs
+                    // runtime tag dispatch (not compile-time literal).
+                    // Lands with T-10.b's tag-aware runtime helpers.
+                    // For now: panic so the user gets a clear "not yet
+                    // supported" rather than a silently-wrong literal.
+                    Type::Any => panic!(
+                        "not yet supported: typeof on Type::Any operand (lands with T-10.b)"
+                    ),
                 };
                 Operand::Value(self.intern_string_literal(s))
             }

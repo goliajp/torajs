@@ -143,6 +143,18 @@ pub enum Type {
     /// `__torajs_date_*` runtime helpers. ARC-owned via universal
     /// heap header.
     Date,
+    /// T-10 (v0.4.0) — `Type::Any` carries a tagged value at runtime:
+    /// either a primitive (i64 / f64 / bool / null) or a heap pointer
+    /// (Str / Obj / Arr / Closure / RegExp / Date). At the SSA layer
+    /// it lowers to a single 64-bit pointer so existing slot / param /
+    /// return paths work unchanged; the type tag lives in the runtime
+    /// representation (heap-allocated Any-box for primitives;
+    /// pointer-only for already-heap values, with the type discoverable
+    /// via the universal heap header's `type_tag` field). T-10.a only
+    /// wires the type-system plumbing — `let xs: any[] = []` accepted
+    /// + length() works. T-10.b lands the tagged-slot Array<Any>
+    /// runtime; T-10.c the codegen for heterogeneous Array literals.
+    Any,
 }
 
 impl Type {
@@ -162,6 +174,7 @@ impl Type {
             Type::Arr(_) => "arr",
             Type::FnSig(_) => "fnsig",
             Type::Closure(_) => "closure",
+            Type::Any => "any",
         }
     }
 

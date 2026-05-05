@@ -404,18 +404,26 @@ The v0.x sections above describe the **milestone shape** (exit gates, scope). Th
 
 → **Mid gate** after T-04, T-06, T-07 → **Full gate** before T-08
 
-### v0.4.0 tag — Object/arguments/Symbol substrate (T-09..T-13)
+### v0.4.0 tag — Object/arguments/Symbol substrate (T-10..T-13.5)
+
+> **Reorder note (2026-05-06)**: original RFC put T-09 (Object
+> stdlib) first, but a pre-execution dependency audit found that 6 of
+> the 9 Object methods (`entries / fromEntries / freeze / isFrozen /
+> defineProperty / defineProperties / getOwnPropertyDescriptor`) all
+> need T-10's heterogeneous-array / runtime-mutation-guard
+> substrate to ship spec-compliant. Repositioned T-10 to v0.4.0
+> opener; T-09 / T-11 then ride T-10's substrate.
 
 | ID | Item | Notes / Exit gate |
 |---|---|---|
-| T-09 | Object stdlib completion | `entries / freeze / isFrozen / getPrototypeOf / setPrototypeOf / defineProperty / defineProperties / getOwnPropertyDescriptor / fromEntries` |
-| T-10 | `Type::Any` boxing substrate | universal heap header gains type-tagged untyped slot; unlocks `arguments` / `Function` ctor / heterogeneous arrays |
+| **T-10** | `Type::Any` boxing substrate | universal heap header gains type-tagged untyped slot; unlocks T-09 (Object methods that need heterogeneous arrays) / T-11 (`arguments`) / T-13 (Symbol metadata) / T-27 (Function ctor). Sub-tasks: T-10.a Type::Any in check.rs / T-10.b heap header type tag + boxing intrinsic / T-10.c `Array<Any>` runtime / T-10.d codegen sites. Mid gate after T-10.d (full bench scoreboard — must NOT regress geomean tr/rust ≤ 0.66 on the existing 21 cases). |
+| T-09 | Object stdlib completion (depends on T-10) | `entries / freeze / isFrozen / getPrototypeOf / setPrototypeOf / defineProperty / defineProperties / getOwnPropertyDescriptor / fromEntries`. setPrototypeOf rejects with phase pointer (nominal class system; out of scope for v0.4). |
 | T-11 | `arguments` full materialization | dynamic index, `arguments.callee`, runtime heterogeneous array; depends on T-10 |
 | T-12 | `String.raw` + template literal raw-strings array | template literal lower extended to expose `raw` array |
 | **T-13** | Symbol substrate | per-Type metadata slot in universal heap header; well-known symbols `Symbol.iterator / asyncIterator / toPrimitive`; `Symbol(desc)` + `Symbol.for(key)` registry |
 | **T-13.5** | Perf debt: Array deque substrate (`head_offset`) | inherited from T-07. Add `head_offset: u32` to Array universal header, change `arr_shift` from O(n) memmove to O(1) head++; opportunistic compact when `head + len == cap`. Touches every Array slot read/write; goal: drive fifo-queue-100k from 1.17x rust to ≤1.05x. May regress micro-bench startup if header grows; gate on bench scoreboard not regressing geomean tr/rust ≤ 0.66. |
 
-→ **Mid gate** after T-09, T-11, T-13.5 → **Full gate** before v0.4.0 tag
+→ **Mid gate** after T-10.d, T-09, T-11, T-13.5 → **Full gate** before v0.4.0 tag
 
 ### v0.5.0 tag — async/await + Promise (T-14..T-19)
 
