@@ -746,6 +746,20 @@ pub fn check(ast: &Ast) -> Result<GenericCallSites, String> {
     }
 }
 
+/// v0.3 #5 LSP — variant that runs the same typecheck pipeline as
+/// `check` but returns ALL accumulated errors as a Vec rather than
+/// joining the first into the Result::Err. The LSP server uses this
+/// to publish multiple diagnostics per file. Each error is currently
+/// a bare string with no source span attached; L-2.b will add per-
+/// site spans (Vec<(Span, String)>) once the ~80-100 push sites are
+/// migrated to carry their originating ExprId.
+pub fn collect_errors(ast: &Ast) -> Vec<String> {
+    match check(ast) {
+        Ok(_) => Vec::new(),
+        Err(joined) => joined.split('\n').map(String::from).collect(),
+    }
+}
+
 struct Checker {
     globals: HashMap<String, Type>,
     scopes: Vec<HashMap<String, LocalInfo>>,
