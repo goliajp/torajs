@@ -2,9 +2,9 @@
 
 > Canonical implementation plan. Living document — update as work progresses, decisions change, or steps reveal new sub-steps.
 >
-> Last revised: 2026-05-04 (rewrote forward plan around the v0.1.0-beta release: retrospective of what shipped, then explicit `v0.2` / `v0.3` / `v0.5` / `v1.0` milestone boundaries with exit gates. Earlier 2026-05-04 pass dropped the "subset" framing per `feedback_no_subset_word`; the 2026-04-30 pivot discarded "Rust-shaped semantics" framing and rewrote milestones around bun-shape feature parity with compile-time ownership inference.)
+> Last revised: 2026-05-06 (full rewrite of the forward plan into 33 ordered items + three-layer perf-gate mechanism per `.claude/rfcs/20260506-roadmap-v2-perf-gated.md`. Status snapshot refreshed to HEAD `ba3c19d` — bench is now **21 cases** (was 19), test262 is **805/23941 (3.36%)** with 100% tr-accepted parity (was 651/23941), workspace has graduated to `crates/torajs-{runtime,core,cli}/`. v0.3 #4 DWARF + #5 LSP + #6 Graduation all shipped this session.)
 >
-> Provenance audit trail: `.claude/researches/0001-direction.md` through `0005-roadmap.md` (early discussion logs — note: pre-2026-04-30 they used a "TS syntax + Rust semantics" framing that was takagi-corrected on 2026-04-30; treat them as historical context, not as design source-of-truth).
+> Provenance audit trail: `.claude/researches/0001-direction.md` through `0005-roadmap.md` (early discussion logs — note: pre-2026-04-30 they used a "TS syntax + Rust semantics" framing that was takagi-corrected on 2026-04-30; treat them as historical context, not as design source-of-truth). For the 2026-05-04 v0.x rewrite see git history at commit `fa69c31`.
 
 ---
 
@@ -69,9 +69,9 @@ The compiler still does ownership analysis under the hood (the no-GC requirement
 
 ---
 
-## Status snapshot (2026-05-04, HEAD `5434f12`)
+## Status snapshot (2026-05-06, HEAD `ba3c19d`)
 
-`v0.1.0-beta` shipped externally on 2026-05-04: tr is publicly installable and a non-trivial slice of TS programs run on it byte-identically with bun.
+`v0.1.0-beta` shipped externally on 2026-05-04: tr is publicly installable and a non-trivial slice of TS programs run on it byte-identically with bun. Since the beta tag, v0.2 substrate work, v0.3 #4 DWARF, #5 LSP (L-1..L-6), and #6 Graduation have all landed on develop.
 
 ### What works end-to-end
 
@@ -80,20 +80,24 @@ $ curl -fsSL https://install.torajs.com | bash    # darwin-arm64 / linux-x64
 $ tr build foo.ts -o foo                          # AOT — LLVM 22 + Inkwell, ~33 KB
 $ ./foo                                            # native, bench-leading
 $ tr run foo.ts                                    # AOT + cache (~10 ms reruns)
+$ tr lsp                                           # LSP server over stdio for VS Code
 ```
 
 The 5 example projects under `examples/` (sha256, prime-sieve, fizz-buzz, wc-clone, json-pretty) compile and run on tr with byte-identical output to bun.
 
-### Numbers (HEAD `5434f12`)
+### Numbers (HEAD `ba3c19d`, 2026-05-06)
 
 | metric | value | note |
 |---|---|---|
-| conformance suite | **301/301** pass | tr's own regression net |
-| test262 in-scope pass | **651/23941 (2.72 %)** | full test262 run; ~50 K total cases, in-scope slice ≈ ~5K-15K |
+| conformance suite | **326/326** pass + 1 skip | tr's own regression net |
+| test262 in-scope pass | **805/23941 (3.36 %)** | full test262 run; ~50 K total cases, in-scope slice ≈ ~5K-15K |
 | **tr-accepted parity** | **100.00 %** | every case tr accepts produces bun-equivalent output — zero silent wrong |
 | bug bucket | **0** | accepted-but-diverges cases |
 | compile-error bucket | **0** | accepted-but-LLVM-rejects cases |
-| bench scoreboard | **19/19** `tr build` wins vs bun | full sweep, M4 Pro hyperfine n=5 |
+| bench scoreboard | **21/21** `tr build` wins vs bun-aot | full sweep, M4 Pro hyperfine n=5 |
+| bench geomean tr/rust | **0.656x** | tr 比 rust 平均快 ~34% |
+| bench geomean tr/bun-aot | **0.245x** | tr 比 bun 平均快 ~4.1x |
+| LSP hover P95 (1K-line file) | **0.49 ms** | budget < 50 ms; ~100x margin |
 
 The two empty buckets (bug + compile-error) mean: when tr says "yes I accept this", the produced binary is correct. The remaining ~23K test262 cases are rejected with a clean message pointing at the missing substrate (regex matching, Date, Symbol, Function constructor, etc.) — no silent failures.
 
@@ -161,7 +165,7 @@ See `README.md` and `bench/results/` for the full table.
 
 ---
 
-### v0.2 — substrate completeness
+### v0.2 — substrate completeness (mostly shipped on develop, not yet tagged)
 
 **Goal**: every TS program bun runs either runs on tr or hits a clean rejection pointing at a known v0.3+ phase. The 100 % tr-accepted parity guarantee from v0.1 is preserved; what grows is the *accepted* set.
 
@@ -169,6 +173,8 @@ See `README.md` and `bench/results/` for the full table.
 - test262 in-scope pass ≥ **2500/23941** (~10 % of full-suite, ~25–50 % of in-scope slice depending on size estimate)
 - `tr-accepted parity` stays at 100.00 % (zero regressions on the bun-equivalence guarantee)
 - bench scoreboard: `tr build` wins all 19+ existing cases vs bun (no regression); 5+ new cases added covering regex / Date / Object stdlib
+
+> **Status (2026-05-06, HEAD `ba3c19d`)**: 6 ✅ shipped + 1 partial (`JSON.parse` f64 path needs verify + fixture). Object stdlib / `arguments` / `String.raw` partials roll forward into v0.4. test262 currently 805/23941 — full v0.2 exit gate (≥ 2500) deferred to v0.4 as substrate-driven; the milestone closes with v0.3.0 tag.
 
 #### Ordered execution
 
@@ -366,6 +372,99 @@ See `README.md` and `bench/results/` for the full table.
 `v1.0` tag at end.
 
 **Time-to-v1.0 estimate (revised from v0.1.0-beta)**: 9–15 months, depending on stdlib scope creep at v0.3 and how much of the long-tail substrate (Symbol, BigInt, Function ctor) needs design rework.
+
+---
+
+## Roadmap v2: 33-item linear plan + three-layer perf gate (2026-05-06 rewrite)
+
+The v0.x sections above describe the **milestone shape** (exit gates, scope). This section is the **execution checklist** — 33 items in strict dependency order, with three layers of perf gate that **block** advancing to the next item on regression. Source: [.claude/rfcs/20260506-roadmap-v2-perf-gated.md](../.claude/rfcs/20260506-roadmap-v2-perf-gated.md).
+
+### Three-layer perf gate
+
+| Layer | Frequency | Cost | Contents |
+|---|---|---|---|
+| **Mini** | Every commit | Seconds | `cargo build --workspace --release` clean + conformance 326+/0/1skip + `tr lsp-bench 1000` hover P95 ≤ 0.55 ms |
+| **Mid** | Every 2-3 functional items | Minutes | Mini + full bench scoreboard sweep — every case `tr build` run_ms ≤ baseline × 1.10, 21+/21+ vs bun-aot, geomean tr/rust ≤ 0.66 |
+| **Full** | Every version tag | ~30 min | Mid + full test262 — pass count ≥ baseline (805 minimum), bug bucket = 0, tr-accepted parity = 100.00 %, harness-error = 0 |
+
+**Hard rule**: any gate fail → block next item; fix root cause → re-run gate → only on pass advance. No "I'll fix it later" — `feedback_no_tech_debt`.
+
+### v0.3.0 tag — close partials + dev tooling completion (T-01..T-08)
+
+| ID | Item | Notes / Exit gate |
+|---|---|---|
+| **T-01** | Documentation debt cleanup | This RFC + roadmap.md (this rewrite) + language-status.md table corrected to HEAD reality |
+| T-02 | v0.2 #5 `JSON.parse` f64 path verify + fixture | substrate already in `runtime_str.c:2284` (`__torajs_json_parse_float`); needs caller-driven typing wired + `json-parse-float-001.ts` |
+| T-03 | v0.3 #3 finish: `process.{stdout, stderr}.write` + `process.stdin.read` (sync) | runtime helpers + check.rs intrinsic decl + fixtures |
+| T-04 | LSP L-2.b: `Checker.errors: Vec<String>` → `Vec<(Span, Severity, String)>` | ~80–100 push-site refactor; same change unlocks `tr lint`'s warning bucket |
+| T-05 | v0.3 #7a `tr fmt` | deterministic prettier-shape; reuses `torajs_core::{lexer, parser, ast}` already exported |
+| T-06 | v0.3 #7b `tr lint` (5 starting rules) | unused-let / dead-code-after-return / unreachable-catch / shadowed-let / unused-import; depends on T-04 |
+| T-07 | Perf debt: rpn-eval-100k escape→alloca | only remaining vs-rust loss (1.54x); diagnosed as 16-elem stack array literal heap alloc; fix unblocks "21/21 vs rust" target |
+| **T-08** | `git tag v0.3.0` | CHANGELOG.md + GH release note + multi-platform tarball |
+
+→ **Mid gate** after T-04, T-06, T-07 → **Full gate** before T-08
+
+### v0.4.0 tag — Object/arguments/Symbol substrate (T-09..T-13)
+
+| ID | Item | Notes / Exit gate |
+|---|---|---|
+| T-09 | Object stdlib completion | `entries / freeze / isFrozen / getPrototypeOf / setPrototypeOf / defineProperty / defineProperties / getOwnPropertyDescriptor / fromEntries` |
+| T-10 | `Type::Any` boxing substrate | universal heap header gains type-tagged untyped slot; unlocks `arguments` / `Function` ctor / heterogeneous arrays |
+| T-11 | `arguments` full materialization | dynamic index, `arguments.callee`, runtime heterogeneous array; depends on T-10 |
+| T-12 | `String.raw` + template literal raw-strings array | template literal lower extended to expose `raw` array |
+| **T-13** | Symbol substrate | per-Type metadata slot in universal heap header; well-known symbols `Symbol.iterator / asyncIterator / toPrimitive`; `Symbol(desc)` + `Symbol.for(key)` registry |
+
+→ **Mid gate** after T-09, T-11, T-13 → **Full gate** before v0.4.0 tag
+
+### v0.5.0 tag — async/await + Promise (T-14..T-19)
+
+| ID | Item | Notes / Exit gate |
+|---|---|---|
+| T-14 | `Type::Promise<T>` in check.rs | type-system support, no runtime semantics yet |
+| T-15 | Single-thread executor in runtime crate | Tokio-shape, no thread pool (multi-thread post-v1.0) |
+| T-16 | `async` / `await` state-machine lowering | reuse existing generator state-machine framework |
+| T-17 | `Promise.all / race / allSettled / any / resolve / reject` | combinators on top of T-16 |
+| T-18 | fs async API: `readFile / writeFile / readdir / stat / unlink / mkdir / append` | depends on T-15 |
+| T-19 | `Bun.file(p).text() / .arrayBuffer() / .json()` | depends on T-15 + T-18 |
+
+→ **Mid gate** after T-16, T-18, T-19 → **Full gate** before v0.5.0 tag (5+ new async bench cases required)
+
+### v0.6.0 tag — playground (T-20..T-23)
+
+| ID | Item | Notes / Exit gate |
+|---|---|---|
+| T-20 | wasm32-wasi target enabled | inkwell wasm config + runtime C compiles for wasm32-wasi |
+| T-21 | `fetch` (HTTP) | CLI via reqwest (bundled into runtime crate); wasm via browser fetch |
+| T-22 | Playground UI | Monaco editor + URL-encoded share-link + output panel; hosted at torajs.com/playground |
+| T-23 | Bench scoreboard auto-render | static page from `bench/results/*.json`, updates on every commit; live at torajs.com/bench |
+
+→ **Mid gate** after T-21, T-23 → **Full gate** before v0.6.0 tag
+
+### v1.0.0 tag — polish + 90% test262 (T-24..T-33)
+
+| ID | Item | Notes / Exit gate |
+|---|---|---|
+| T-24 | vtable upgrade for virtual dispatch | vtable_ptr slot already at offset 16; O(chain depth) → O(1) |
+| T-25 | BigInt self-hosted substrate | hand-roll arbitrary-precision int (libgmp rejected per pillar 2 自研) |
+| T-26 | WeakRef / WeakMap / WeakSet + ARC-aware cycle collector | Bacon & Rajan 2001 trial-deletion |
+| T-27 | Function constructor / `eval` | runtime invocation of LLVM pipeline + dlopen (depends on T-10 Type::Any) |
+| T-28 | Multi-platform release | linux-x86_64 / linux-aarch64 / windows-x86_64 + install.torajs.com platform detection |
+| T-29 | `tr debug` step debugger | DWARF + DAP adapter (DWARF already shipped v0.3 #4) |
+| T-30 | `tr repl` | cross-line state preservation + history + multi-line input |
+| T-31 | `libtora.a` + `tora_eval()` embedding API | C ABI + `torajs-embed` Rust crate |
+| T-32 | test262 push to 90% | catch-up on regex Unicode property escapes / Intl.* / async edge cases / tagged-template edges |
+| **T-33** | `git tag v1.0.0` | CHANGELOG + multi-platform release |
+
+→ **Mid gate** after T-24, T-26, T-28, T-30 → **Full gate** before v1.0.0 tag (test262 in-scope ≥ 90% is the milestone hard exit gate)
+
+### Items deliberately **not** in the 33-item plan
+
+- **LSP L-4.b** (scope-aware local goto-def) — polish, not substrate; deferred with semantic tokens / inlay hints / completion as a post-v1.0 LSP polish pass
+- **LSP L-4.c** (cross-file goto-def) — same bucket
+- **Decorators** — out of scope (per Out-of-scope features section below)
+- **JSX** — out of scope
+- **Mapped / conditional types** — out of scope
+- **Multi-threaded executor** — post-v1.0 stretch
 
 ---
 

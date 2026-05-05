@@ -82,14 +82,34 @@ documented perf differentiators below), that's a bug — file an issue.
 - String methods: `length, slice, substring, repeat, toUpperCase,
   toLowerCase, trim{,Start,End,Left,Right}, padStart, padEnd, replace,
   replaceAll, charAt, at, charCodeAt, codePointAt, startsWith,
-  endsWith, includes, indexOf, lastIndexOf, localeCompare, split, join`
+  endsWith, includes, indexOf, lastIndexOf, localeCompare, split, join,
+  normalize, matchAll, match`
 - Array methods: `length, push, pop, shift, unshift, slice, splice,
   concat, indexOf, lastIndexOf, includes, find, findLast, findIndex,
-  findLastIndex, some, every, map, filter, forEach, flatMap, reduce,
-  reduceRight, sort, reverse, fill, at, join`
+  findLastIndex, some, every, map, filter, forEach, flatMap, flat,
+  reduce, reduceRight, sort, reverse, fill, at, join` +
+  `Array.from / Array.of`
 - `JSON.stringify(value)` and `JSON.parse(text)` (with caller-driven
   type inference for class / array / nested object shapes)
-- `Object.keys(obj)`, `Object.assign(target, source)`
+- `Object.{keys, values, hasOwn, is, getOwnPropertyNames, assign}`
+  (assign is single-source MVP)
+- **Regex (v0.2 #1)**: literal `/pattern/flags` + `new RegExp(...)`;
+  flags `g i m s y` (full `u` Unicode property escapes deferred to v1.0);
+  methods: `re.test(s)`, `re.exec(s)`, `s.match(re)`, `s.matchAll(re)`,
+  `s.replace(re, repl)`, `s.replaceAll(re, repl)`, `s.split(re)`;
+  NFA → DFA in `runtime_regex.c` (1760 LOC, self-hosted; pillar 2 自研)
+- **Date (v0.2 #2)**: full constructor arity + ISO 8601 round-trip;
+  `getFullYear / getMonth / getDate / getHours / getMinutes /
+  getSeconds / getMilliseconds / getDay / getTime / valueOf /
+  toISOString / toString` (local + UTC variants); static
+  `Date.now() / Date.parse() / Date.UTC()`
+- **fs sync (v0.3 #1)**: `readFileSync, writeFileSync, appendFileSync,
+  unlinkSync, mkdirSync, existsSync` (async forms gate on v0.5)
+- **Bun namespace (v0.3 #2)**: `Bun.write(path, data)`, `Bun.argv`
+  (`Bun.file(p)` async API gates on v0.5)
+- **process surface (v0.3 #3)**: `process.{argv, env, env.NAME,
+  platform, cwd, exit}` (`process.{stdout, stderr}.write` /
+  `process.stdin.read` planned T-03 of v0.3.0)
 
 ### Memory
 TS reference semantics — heap-allocated values (strings, objects,
@@ -100,29 +120,44 @@ this is an implementation detail invisible to the user.
 
 ## Roadmap items (not yet implemented)
 
-Each unimplemented TS feature lives in a roadmap phase. The phase IDs
-below correspond to entries in `docs/roadmap.md`.
+Each unimplemented TS feature lives in a roadmap phase. The T-IDs
+below correspond to the 33-item linear plan in `docs/roadmap.md` →
+"Roadmap v2: 33-item linear plan".
 
 | Feature | Phase | Status |
 |---|---|---|
-| `arguments` object (full materialization) | M-arguments | partial — only `arguments.length` / `arguments[N]` literal-index rewrites |
-| `Object.{getPrototypeOf, getOwnPropertyDescriptor, defineProperty, freeze, ...}` | M-stdlib-object | not started |
-| `Symbol`, `Proxy`, `WeakMap`, `WeakSet`, `WeakRef` | M-meta | not started — gated on metadata machinery |
-| Regex literal `/...../` and `new RegExp(...)` | M-regex | not started |
-| `BigInt` | M-bigint | not started |
-| `async` / `await` / `Promise` | M7 | not started |
-| Microtask queue + top-level `await` | L.3 / L.4 | not started |
-| `eval` / `Function` constructor | M-dynamic | substrate-dependent, not in v0.1 |
-| ESM `import x from "./y"` (default), `import * as ns`, side-effect imports | K.9 | not started — only named imports today |
-| `Date` | M6.3-date | not started |
-| `fs` / `Bun.file` | M6.4 / M6.5 | not started |
-| Mutable refcount globals (`let xs: T[] = []; xs.push(...)` at top level) | K.8 | not started — workaround: wrap top-level driver in a `main()` |
-| Top-level `await` | L.4 | not started |
-| Decorators | M-decorators | not in v0.1 |
-| Mapped / conditional types | M-types-advanced | not in v0.1 |
-| `JSON.stringify(value, replacer, indent)` indent-aware emission | M-json-pretty | parsed but not pretty — emits compact form |
-| Array of fully-mixed types | M-tuple | not started — current arrays are homogeneous |
-| Function statement hoisting (nested `function` inside blocks) | M-hoist | not started |
+| `JSON.parse` f64 path (caller-typed) | T-02 (v0.3.0) | substrate ready (`__torajs_json_parse_float` in `runtime_str.c`); needs caller-driven typing wired + fixture |
+| `process.{stdout, stderr}.write` + `process.stdin.read` (sync) | T-03 (v0.3.0) | not started |
+| `tr fmt` deterministic source reformatter | T-05 (v0.3.0) | not started |
+| `tr lint` (5 starting rules) | T-06 (v0.3.0) | not started — depends on T-04 (Checker.errors → Vec<(Span, Severity, String)>) |
+| Object stdlib completion (`entries / freeze / isFrozen / getPrototypeOf / setPrototypeOf / defineProperty / defineProperties / getOwnPropertyDescriptor / fromEntries`) | T-09 (v0.4.0) | not started |
+| `Type::Any` boxing substrate | T-10 (v0.4.0) | not started — unlocks heterogeneous arrays + `arguments` + `Function` ctor |
+| `arguments` full materialization (dynamic index, `arguments.callee`, runtime heterogeneous array) | T-11 (v0.4.0) | partial — only `arguments.length` / `arguments[N]` literal-index + `[...arguments]` spread |
+| `String.raw` + template literal raw-strings array | T-12 (v0.4.0) | not started |
+| `Symbol` / `Symbol.iterator` / `Symbol.asyncIterator` / `Symbol.toPrimitive` / `Symbol.for` | T-13 (v0.4.0) | not started |
+| `Type::Promise<T>` | T-14 (v0.5.0) | not started |
+| Single-thread executor (Tokio-shape) | T-15 (v0.5.0) | not started |
+| `async` / `await` state-machine lowering | T-16 (v0.5.0) | not started |
+| `Promise.{all, race, allSettled, any, resolve, reject}` | T-17 (v0.5.0) | not started |
+| fs async (`readFile / writeFile / readdir / stat / unlink / mkdir / append`) | T-18 (v0.5.0) | not started — gates on v0.5 async/await |
+| `Bun.file(p).text() / .arrayBuffer() / .json()` | T-19 (v0.5.0) | not started — gates on v0.5 |
+| wasm32-wasi target | T-20 (v0.6.0) | not started |
+| `fetch` (HTTP) | T-21 (v0.6.0) | not started |
+| Playground UI (Monaco + share-link) | T-22 (v0.6.0) | not started |
+| vtable upgrade for virtual dispatch (currently tag-switch) | T-24 (v1.0.0) | not started — vtable_ptr slot already reserved |
+| `BigInt` (self-hosted arbitrary precision) | T-25 (v1.0.0) | not started |
+| `WeakRef` / `WeakMap` / `WeakSet` + ARC-aware cycle collector | T-26 (v1.0.0) | not started |
+| `Function` constructor / `eval` | T-27 (v1.0.0) | not started — depends on T-10 |
+| Multi-platform release (linux-x86_64 / aarch64, windows-x86_64) | T-28 (v1.0.0) | not started |
+| `tr debug` step debugger (DWARF + DAP) | T-29 (v1.0.0) | not started — DWARF substrate shipped v0.3 #4 |
+| `tr repl` interactive loop | T-30 (v1.0.0) | not started |
+| `libtora.a` + `tora_eval()` embedding API | T-31 (v1.0.0) | not started |
+| ESM `import x from "./y"` (default), `import * as ns`, side-effect imports | post-v1.0 polish | not started — only named imports today |
+| Mutable refcount globals (`let xs: T[] = []; xs.push(...)` at top level) | post-v1.0 polish | not started — workaround: wrap top-level driver in a `main()` |
+| `JSON.stringify(value, replacer, indent)` indent-aware emission | post-v1.0 polish | parsed but not pretty — emits compact form |
+| Array of fully-mixed types (tuple) | (not in v1.0 path) | needs T-10 Type::Any; revisit post-v1.0 |
+| Function statement hoisting (nested `function` inside blocks) | post-v1.0 polish | not started |
+| Decorators / Mapped & conditional types / `Proxy` / JSX | out of scope | see `docs/roadmap.md` Out-of-scope features |
 
 ## Differences from bun (intentional)
 
@@ -130,8 +165,9 @@ below correspond to entries in `docs/roadmap.md`.
   linked binary; bun bundles its V8 runtime.
 - **Cold-start time**: torajs starts in ~1.2 ms; bun in ~7–8 ms;
   node-v8 in ~80 ms.
-- **Bench scoreboard**: tr wins on all 19 committed bench cases
-  (see `docs/perf.md`).
+- **Bench scoreboard**: `tr build` wins on all 21 committed bench
+  cases vs bun-aot (geomean 0.245x); vs rust geomean 0.656x — tr is
+  ~34% faster than rust on average. See `docs/perf.md`.
 - **Type checking is real**: torajs typechecks the full program;
   untyped TS that bun runs without complaint may produce a
   type-error rejection in tr until the corresponding inference path
