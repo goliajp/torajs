@@ -48,7 +48,7 @@ fn main() {
     if cases.is_empty() {
         die("no .ts files under conformance/cases/ or conformance/test262-port/");
     }
-    let manifest = repo_root.join("labs/0001-walking-skeleton/Cargo.toml");
+    let manifest = repo_root.join("crates/torajs-cli/Cargo.toml");
     if !manifest.is_file() {
         die("torajs CLI not found — run from repo root");
     }

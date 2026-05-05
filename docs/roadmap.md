@@ -100,13 +100,15 @@ The two empty buckets (bug + compile-error) mean: when tr says "yes I accept thi
 ### Code size
 
 ```
-labs/0001-walking-skeleton/src/   ~9000 LOC across ~12 files
+crates/torajs-runtime/             C source for refcount / str / arr / json / regex / Date
+crates/torajs-core/                compiler library — lex / parse / check / ssa / inkwell
+crates/torajs-cli/                 `tr` binary — build / run / lsp / lsp-bench
 docs/                              roadmap + language-status + getting-started + perf + stdlib
 bench/                             19 cases × 7 runtimes + harness + scoreboard
 examples/                          5 projects, byte-identical with bun
 ```
 
-> **Graduation status**: `labs/0001-walking-skeleton/` is still where the engine lives. v0.1.0-beta released without promoting to `crates/` — the API surface is settled enough for a `beta` tag but not for a stable crate boundary. Promotion to `crates/torajs-{core,cli,runtime}` is a v0.3 work item, not a v0.1 blocker.
+> **Graduation status**: ✅ engine graduated in v0.3 #6 — `labs/0001-walking-skeleton/` was promoted to `crates/torajs-{runtime,core,cli}/`. The runtime crate locks the C-side ABI behind a stable boundary so the compiler can evolve without breaking already-shipped binaries.
 
 ---
 
@@ -249,12 +251,11 @@ See `README.md` and `bench/results/` for the full table.
    - VS Code extension scaffold + publish to marketplace as "torajs (preview)"
    - Exit gate: VS Code extension provides hovers + jump-to-def; round-trip latency < 50 ms on a 1 K-line file
 
-6. **Graduation: `labs/0001-walking-skeleton/` → `crates/`**
-   - `crates/torajs-core` (engine: lex, parse, check, ssa, ssa_lower, ssa_inkwell)
-   - `crates/torajs-cli` (the `tr` binary)
-   - `crates/torajs-runtime` (the C runtime, built as a static lib + linked at AOT)
-   - Cargo workspace builds cleanly; tr binary byte-identical to the pre-graduation build
-   - Exit gate: `cargo build --workspace` green; existing tests + bench + test262 numbers preserved
+6. **Graduation: `labs/0001-walking-skeleton/` → `crates/`** ✅
+   - `crates/torajs-runtime` — C source files (refcount, str/arr/json, regex, Date) exposed as `pub const SOURCES`; locks the runtime ABI behind a stable crate boundary
+   - `crates/torajs-core` — compiler library (lex, parse, check, modules, ssa, ssa_lower, ssa_inkwell); depends on torajs-runtime
+   - `crates/torajs-cli` — the `tr` binary (build / run / lsp / lsp-bench); depends on torajs-core
+   - Exit gate met: cargo workspace builds clean, conformance 326/326 + 1 skip preserved, test262 805/0 parity preserved
 
 7. **`tr fmt` + `tr lint`**
    - `tr fmt` (deterministic source reformatter — no config, prettier-shape opinionated)
@@ -387,7 +388,7 @@ Not committed; tracked here so they don't get lost.
 - **Front-loaded detail** — milestones close to now are spelled out per-step; far milestones are headers + exit gates. We re-detail later milestones when we get there.
 - **Each step is potentially throwaway** — research mode. If a step's outcome surprises us, we revisit before continuing.
 - **bun is the oracle** — when behavior is ambiguous, write the TS equivalent, run in `bun`, match.
-- **All v0.1 work lives in `labs/0001-walking-skeleton/`**. Graduation to `crates/torajs-{core,cli,runtime}/` is a v0.3 work item, when the API surface is stable enough to commit to crate boundaries.
+- **Engine lives under `crates/torajs-{runtime,core,cli}/`** as of v0.3 #6. Pre-graduation history is preserved in git; the v0.1.x bench + test262 numbers in this doc were measured under the prior `labs/0001-walking-skeleton/` layout.
 
 ---
 

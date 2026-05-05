@@ -1,13 +1,18 @@
 [package]
-name = "tr"
+name = "torajs-cli"
 version = "0.1.0"
 edition = "2024"
 
+# v0.3 #6 Graduation — `tr` binary crate. Owns the CLI dispatch,
+# `tr lsp` Language Server, and `tr lsp-bench` latency harness.
+# Compiler internals live in torajs-core.
+
+[[bin]]
+name = "tr"
+path = "src/main.rs"
+
 [dependencies]
-# Inkwell drives LLVM 22 (brew) for both `tr build` AOT and `tr run`
-# AOT-with-cache. Build needs LLVM_SYS_221_PREFIX=/opt/homebrew/opt/llvm
-# in the environment.
-inkwell = { version = "0.9", features = ["llvm22-1-prefer-dynamic"] }
+torajs-core = { path = "../torajs-core" }
 
 # v0.3 #5 LSP — JSON-RPC framing + LSP type definitions for the
 # `tr lsp` subcommand. Dev-tooling dep, not in any runtime path.

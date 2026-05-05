@@ -531,23 +531,35 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "756daf9b1013ebe47a8776667b466417e2d4c5679d441c26230efd9ef78692db"
 
 [[package]]
+name = "torajs-cli"
+version = "0.1.0"
+dependencies = [
+ "lsp-server",
+ "lsp-types",
+ "serde",
+ "serde_json",
+ "torajs-core",
+]
+
+[[package]]
 name = "torajs-conformance"
+version = "0.1.0"
+
+[[package]]
+name = "torajs-core"
+version = "0.1.0"
+dependencies = [
+ "inkwell",
+ "torajs-runtime",
+]
+
+[[package]]
+name = "torajs-runtime"
 version = "0.1.0"
 
 [[package]]
 name = "torajs-test262"
 version = "0.1.0"
-
-[[package]]
-name = "tr"
-version = "0.1.0"
-dependencies = [
- "inkwell",
- "lsp-server",
- "lsp-types",
- "serde",
- "serde_json",
-]
 
 [[package]]
 name = "unicode-ident"

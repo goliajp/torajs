@@ -386,14 +386,15 @@ Add a case: drop a directory under `bench/cases/<name>/` with `main.<lang>` file
 
 ```
 torajs/
-├── labs/0001-walking-skeleton/   ← the compiler (~8000 LOC of Rust)
+├── crates/torajs-runtime/        ← C runtime sources (refcount, str/arr/json, regex, Date)
+├── crates/torajs-core/           ← compiler library (lex / parse / check / ssa / inkwell)
 │   ├── src/lexer.rs
 │   ├── src/parser.rs
 │   ├── src/check.rs              ← typechecker + alias-aware ownership inference
 │   ├── src/ssa.rs                ← SSA IR types + pretty printer
 │   ├── src/ssa_lower.rs          ← AST → SSA
-│   ├── src/ssa_inkwell.rs        ← SSA → LLVM 22 (Inkwell)
-│   └── src/ssa_cranelift.rs     ← SSA → Cranelift CLIF (JIT)
+│   └── src/ssa_inkwell.rs        ← SSA → LLVM 22 (Inkwell)
+├── crates/torajs-cli/            ← `tr` binary (build / run / lsp / lsp-bench)
 ├── labs/0002-inkwell-spike/      ← throwaway: LLVM gate validation
 ├── bench/                        ← cross-runtime perf harness
 ├── docs/roadmap.md               ← canonical implementation plan
@@ -403,7 +404,7 @@ torajs/
 └── web/                          ← torajs.com website (Vite + React)
 ```
 
-`labs/` is intentionally throwaway-friendly. Code graduates to `crates/` when it stabilizes.
+Engine graduated from `labs/0001-walking-skeleton/` to `crates/torajs-{runtime,core,cli}/` in v0.3 #6 — see `docs/roadmap.md`. `labs/` remains throwaway-friendly for new experiments.
 
 ## Conventions
 

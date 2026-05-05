@@ -1,0 +1,20 @@
+[package]
+name = "torajs-core"
+version = "0.1.0"
+edition = "2024"
+
+# v0.3 #6 Graduation — compiler internals as a library crate. Owns
+# the lex / parse / desugar / typecheck / SSA-lower / inkwell-emit
+# pipeline. Depends on torajs-runtime for the C source files
+# embedded into each `tr build` artifact.
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+# Inkwell drives LLVM 22 (brew) for both `tr build` AOT and `tr run`
+# AOT-with-cache. Build needs LLVM_SYS_221_PREFIX=/opt/homebrew/opt/llvm
+# in the environment.
+inkwell = { version = "0.9", features = ["llvm22-1-prefer-dynamic"] }
+
+torajs-runtime = { path = "../torajs-runtime" }

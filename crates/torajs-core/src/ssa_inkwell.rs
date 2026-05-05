@@ -568,9 +568,12 @@ pub fn compile(
     // Each .c declares its own copy of __torajs_heap_header_t (binary
     // compatible) and links against __torajs_rc_dec from runtime_str.c.
     // Each compiles to its own .o; all three link with the LLVM-emitted main .o.
-    let c_str_src: &str = include_str!("runtime_str.c");
-    let c_regex_src: &str = include_str!("runtime_regex.c");
-    let c_date_src: &str = include_str!("runtime_date.c");
+    // v0.3 #6 Graduation — C sources now live in the torajs-runtime
+    // crate so their ABI is locked behind a stable crate boundary.
+    // Same content, just sourced via the runtime crate's pub consts.
+    let c_str_src: &str = torajs_runtime::RUNTIME_STR_C;
+    let c_regex_src: &str = torajs_runtime::RUNTIME_REGEX_C;
+    let c_date_src: &str = torajs_runtime::RUNTIME_DATE_C;
     let c_str_path: PathBuf = std::env::temp_dir().join(format!(
         "torajs-runtime-str-{}-{}.c",
         std::process::id(),

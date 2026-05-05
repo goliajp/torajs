@@ -1,18 +1,12 @@
-mod ast;
-mod check;
-mod lexer;
 mod lsp;
 mod lsp_bench;
-mod modules;
-mod parser;
-mod ssa;
-mod ssa_inkwell;
-mod ssa_lower;
 
 use std::env;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+
+use torajs_core::{ast, check, lexer, modules, parser, ssa, ssa_inkwell, ssa_lower};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 

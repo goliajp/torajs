@@ -1,0 +1,14 @@
+[package]
+name = "torajs-runtime"
+version = "0.1.0"
+edition = "2024"
+
+# v0.3 #6 Graduation — runtime crate. Owns the C source files that
+# ssa_inkwell embeds into every `tr build` artifact (refcount, string
+# / array helpers, regex engine, Date class). Pure data: re-exports
+# the C bytes via `pub const SOURCES: &[(&str, &str)]` so the core
+# compiler crate can write them out + cc them per-build without
+# depending on a build.rs.
+
+[lib]
+path = "src/lib.rs"

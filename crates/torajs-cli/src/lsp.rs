@@ -157,11 +157,11 @@ fn compute_diagnostics(uri: &Url, text: &str) -> Vec<Diagnostic> {
     // Catch panics from lex/parse/desugar so the server stays alive
     // even when the user types syntactically invalid code.
     let computation = std::panic::AssertUnwindSafe(|| {
-        let tokens = match crate::lexer::tokenize(text) {
+        let tokens = match torajs_core::lexer::tokenize(text) {
             Ok(t) => t,
             Err(e) => return vec![error_at_origin(format!("lex error: {e}"))],
         };
-        let mut ast = match crate::parser::parse(&tokens) {
+        let mut ast = match torajs_core::parser::parse(&tokens) {
             Ok(a) => a,
             Err(e) => return vec![error_at_origin(format!("parse error: {e}"))],
         };
@@ -176,29 +176,29 @@ fn compute_diagnostics(uri: &Url, text: &str) -> Vec<Diagnostic> {
             .ok()
             .and_then(|p| p.parent().map(PathBuf::from))
             .unwrap_or_else(|| PathBuf::from("."));
-        if let Err(e) = crate::modules::resolve_imports(&mut ast, &base_dir) {
+        if let Err(e) = torajs_core::modules::resolve_imports(&mut ast, &base_dir) {
             return vec![error_at_origin(format!("import error: {e}"))];
         }
 
-        crate::ast::unwrap_exports(&mut ast);
-        crate::ast::desugar_generators(&mut ast);
-        crate::ast::desugar_async(&mut ast);
-        crate::ast::desugar_builtin_imports(&mut ast);
-        crate::ast::desugar_builtin_new(&mut ast);
-        crate::ast::desugar_classes(&mut ast);
-        crate::ast::lift_arrow_fns(&mut ast);
-        crate::ast::infer_anonymous_closure_params(&mut ast);
-        crate::ast::synthesize_forwarders(&mut ast);
-        crate::ast::desugar_uninit_let(&mut ast);
-        crate::ast::desugar_arguments_object(&mut ast);
-        crate::ast::rewrite_split_for_i_to_iter(&mut ast);
-        crate::ast::escape_analyze_array_literals(&mut ast);
-        crate::ast::desugar_implicit_generics(&mut ast);
-        crate::ast::apply_default_args(&mut ast);
-        crate::ast::apply_rest_args(&mut ast);
-        crate::ast::compute_consuming_params(&mut ast);
+        torajs_core::ast::unwrap_exports(&mut ast);
+        torajs_core::ast::desugar_generators(&mut ast);
+        torajs_core::ast::desugar_async(&mut ast);
+        torajs_core::ast::desugar_builtin_imports(&mut ast);
+        torajs_core::ast::desugar_builtin_new(&mut ast);
+        torajs_core::ast::desugar_classes(&mut ast);
+        torajs_core::ast::lift_arrow_fns(&mut ast);
+        torajs_core::ast::infer_anonymous_closure_params(&mut ast);
+        torajs_core::ast::synthesize_forwarders(&mut ast);
+        torajs_core::ast::desugar_uninit_let(&mut ast);
+        torajs_core::ast::desugar_arguments_object(&mut ast);
+        torajs_core::ast::rewrite_split_for_i_to_iter(&mut ast);
+        torajs_core::ast::escape_analyze_array_literals(&mut ast);
+        torajs_core::ast::desugar_implicit_generics(&mut ast);
+        torajs_core::ast::apply_default_args(&mut ast);
+        torajs_core::ast::apply_rest_args(&mut ast);
+        torajs_core::ast::compute_consuming_params(&mut ast);
 
-        crate::check::collect_errors(&ast)
+        torajs_core::check::collect_errors(&ast)
             .into_iter()
             .map(error_at_origin)
             .collect()
@@ -304,15 +304,15 @@ fn send_err(
 /// land on any typed Expr.
 fn compute_hover(text: &str, pos: Position) -> Option<Hover> {
     let computation = std::panic::AssertUnwindSafe(|| {
-        let tokens = crate::lexer::tokenize(text).ok()?;
-        let mut ast = crate::parser::parse(&tokens).ok()?;
+        let tokens = torajs_core::lexer::tokenize(text).ok()?;
+        let mut ast = torajs_core::parser::parse(&tokens).ok()?;
         ast.source = text.to_string();
         ast.warm_newline_cache();
         // No cross-file resolution + no desugars on the hover path;
         // they could mutate spans in ways that confuse the (line, col)
         // → ExprId lookup. The base parsed AST has the spans the user
         // sees in the editor.
-        let (expr_types, _errs) = crate::check::collect_types_and_errors(&ast);
+        let (expr_types, _errs) = torajs_core::check::collect_types_and_errors(&ast);
 
         // Convert (line, char) to byte offset. LSP positions are
         // 0-indexed, UTF-16 code units; we treat them as UTF-8
@@ -321,7 +321,7 @@ fn compute_hover(text: &str, pos: Position) -> Option<Hover> {
         let byte = position_to_byte(text, pos)?;
         let eid = smallest_containing_expr(&ast, byte)?;
         let ty = expr_types.get(&eid)?;
-        let formatted = crate::check::type_to_ann(ty);
+        let formatted = torajs_core::check::type_to_ann(ty);
         let span = ast.expr_spans.get(eid.0 as usize)?;
         let start_pos = byte_to_position(text, span.start);
         let end_pos = byte_to_position(text, span.end);
@@ -526,8 +526,8 @@ fn scan_top_level_symbols(text: &str) -> HashMap<String, u32> {
 /// Walk every Expr looking for the smallest span containing `byte`.
 /// O(n) over the arena — fine for hover latency on 1 K-line files;
 /// L-6 may add a position index if needed.
-fn smallest_containing_expr(ast: &crate::ast::Ast, byte: u32) -> Option<crate::ast::ExprId> {
-    let mut best: Option<(crate::ast::ExprId, u32)> = None;
+fn smallest_containing_expr(ast: &torajs_core::ast::Ast, byte: u32) -> Option<torajs_core::ast::ExprId> {
+    let mut best: Option<(torajs_core::ast::ExprId, u32)> = None;
     for (i, span) in ast.expr_spans.iter().enumerate() {
         if span.start == 0 && span.end == 0 {
             continue;
@@ -535,9 +535,9 @@ fn smallest_containing_expr(ast: &crate::ast::Ast, byte: u32) -> Option<crate::a
         if byte >= span.start && byte < span.end {
             let width = span.end - span.start;
             match best {
-                None => best = Some((crate::ast::ExprId(i as u32), width)),
+                None => best = Some((torajs_core::ast::ExprId(i as u32), width)),
                 Some((_, prev_w)) if width < prev_w => {
-                    best = Some((crate::ast::ExprId(i as u32), width));
+                    best = Some((torajs_core::ast::ExprId(i as u32), width));
                 }
                 _ => {}
             }
