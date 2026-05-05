@@ -357,6 +357,14 @@ pub enum InstKind {
     /// constant. Result type is Ptr; the length lives in the module's
     /// `strings` table alongside the bytes.
     StringRef(StringId),
+    /// `%v = static_str_ref <id>` — yields a Type::Str ptr to a static
+    /// Str-shaped global (`[hdr:8 STATIC flag set][len:8][bytes:N]`),
+    /// drop-in compatible with a heap-alloc'd Str. rc_inc / rc_dec /
+    /// str_free / arr_free no-op via the STATIC flag, so the same global
+    /// can serve every callsite of a literal in a hot loop without per-
+    /// iter alloc + memcpy + drop. Used by `intern_string_literal` to
+    /// short-circuit the `StringRef + str_alloc` pair.
+    StaticStrRef(StringId),
     /// Phase K.3 — `%v = global_ref <name>` — pointer to a module-level
     /// data global slot (top-level `let X: T = init`). Result type is
     /// always Ptr; the slot's value type is stored in `Module::data_globals`
@@ -749,6 +757,9 @@ impl Function {
             }
             InstKind::StringRef(s) => {
                 write!(w, "string_ref @str{}", s.0)?;
+            }
+            InstKind::StaticStrRef(s) => {
+                write!(w, "static_str_ref @str{}", s.0)?;
             }
             InstKind::GlobalRef(name) => {
                 write!(w, "global_ref @{name}")?;

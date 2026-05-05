@@ -49,12 +49,26 @@ typedef struct __attribute__((aligned(8))) {
 #define __TORAJS_TAG_REGEX   4  /* runtime_regex.c — compiled NFA + flags */
 #define __TORAJS_TAG_DATE    5  /* runtime_date.c — { ms_since_epoch } */
 
+/* Universal heap header flag bits.
+ *   bit 1 (=2): SPLIT_BLOCK — single-malloc block produced by str_split,
+ *               carries N inline substr structs; routed to split_pool on free.
+ *   bit 2 (=4): STATIC_LITERAL — block lives in the LLVM module's .rodata
+ *               (emitted by ssa_inkwell as a static Str-shaped global).
+ *               rc_inc / rc_dec / str_free / arr_free no-op so the same
+ *               global serves every callsite of a literal across a hot
+ *               loop without per-iter alloc + memcpy + drop. Initial
+ *               refcount value is irrelevant since rc_inc/dec skip it.
+ */
+#define __TORAJS_FLAG_STATIC_LITERAL 4u
+
 /* Increment refcount of any non-Copy heap object. NULL passes through
  * (sentinel for "no value"). Used by ssa_lower at every slot-copy /
  * borrow-promotion site where ownership becomes shared. */
 void __torajs_rc_inc(void *p) {
     if (p == NULL) return;
-    ((__torajs_heap_header_t *)p)->refcount += 1;
+    __torajs_heap_header_t *h = (__torajs_heap_header_t *)p;
+    if (h->flags & __TORAJS_FLAG_STATIC_LITERAL) return;
+    h->refcount += 1;
 }
 
 /* Decrement refcount; return 1 iff it reached zero (caller's per-type
@@ -63,6 +77,7 @@ void __torajs_rc_inc(void *p) {
 int __torajs_rc_dec(void *p) {
     if (p == NULL) return 0;
     __torajs_heap_header_t *h = (__torajs_heap_header_t *)p;
+    if (h->flags & __TORAJS_FLAG_STATIC_LITERAL) return 0;
     h->refcount -= 1;
     return h->refcount == 0 ? 1 : 0;
 }
@@ -160,6 +175,10 @@ static inline uint8_t *str_alloc_(uint64_t len) {
  * inkwell-emitted str_drop can call it instead of libc free. */
 void __torajs_str_free(uint8_t *p) {
     if (p == NULL) return;
+    /* Defense-in-depth: rc_dec already short-circuits STATIC_LITERAL
+     * blocks, but a stray direct call would otherwise try to free
+     * .rodata. Keep in sync with rc_inc / rc_dec / arr_free. */
+    if (((__torajs_heap_header_t *)p)->flags & __TORAJS_FLAG_STATIC_LITERAL) return;
     uint64_t len = __TORAJS_STR_LEN(p);
     if (len <= __TORAJS_STR_POOL_PAYLOAD && str_pool_count_ < __TORAJS_STR_POOL_SLOTS) {
         str_pool_[str_pool_count_++] = p;
@@ -299,6 +318,8 @@ static inline uint8_t *split_block_alloc_(uint64_t out_count) {
 void __torajs_arr_free(void *p) {
     if (p == NULL) return;
     __torajs_heap_header_t *h = (__torajs_heap_header_t *)p;
+    /* Defense-in-depth: keep in sync with str_free / rc_inc / rc_dec. */
+    if (h->flags & __TORAJS_FLAG_STATIC_LITERAL) return;
     uint64_t cap = *(uint64_t *)((uint8_t *)p + 16);
     if (h->flags & __TORAJS_FLAG_SPLIT_BLOCK) {
         if (split_pool_count_ < __TORAJS_SPLIT_POOL_SLOTS) {

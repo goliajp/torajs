@@ -7946,24 +7946,25 @@ impl<'a> LowerCtx<'a> {
     /// (P2.2.b.2 wires that up; this sub-step intentionally leaks one
     /// alloc per literal use, which is fine for one-shot bench programs).
     fn intern_string_literal(&mut self, s: &str) -> ValueId {
+        // Phase P-rpn — every string-literal expression now resolves to
+        // a Str-shaped global (`StaticStrRef`) instead of a per-call
+        // `str_alloc + memcpy + str_drop` pair. The global is marked
+        // STATIC_LITERAL in its universal heap header, so rc_inc /
+        // rc_dec / str_free / arr_free all no-op via runtime flag check.
+        // Hot loops over the same literal turn into a single ptr load
+        // per call.
+        //
+        // Caveat for downstream code: the returned Type::Str ptr is
+        // shared across all callers of the same literal. Anything that
+        // intends to mutate the bytes in place (none today, but a
+        // future builder might) must clone first.
         let bytes = s.as_bytes().to_vec();
-        let len = bytes.len() as i64;
         let sid =
             ssa::StringId((self.string_id_base + self.new_strings.len()) as u32);
         self.new_strings.push(bytes);
-        let static_ptr = self.f.append_inst(
-            self.cur_block,
-            InstKind::StringRef(sid),
-            Type::Ptr,
-            None,
-        );
-        let alloc = self.intrinsics.str_alloc;
         self.f.append_inst(
             self.cur_block,
-            InstKind::Call(
-                alloc,
-                vec![Operand::Value(static_ptr), Operand::ConstI64(len)],
-            ),
+            InstKind::StaticStrRef(sid),
             Type::Str,
             None,
         )

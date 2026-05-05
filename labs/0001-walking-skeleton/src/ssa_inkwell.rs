@@ -74,6 +74,18 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
         .map(|(i, bytes)| emit_string_global(&ctx, &llvm_module, i, bytes))
         .collect();
 
+    // Pass B.1: per-literal Str-shaped static. Same bytes wrapped in
+    // `[hdr:8 STATIC flag][len:8][bytes:N]` — drop-in compatible with
+    // a heap Str. Used by `static_str_ref` to short-circuit hot-loop
+    // literal allocs (every callsite shares the same global, rc_inc
+    // and rc_dec no-op via the STATIC flag).
+    let static_str_globals: Vec<inkwell::values::GlobalValue> = ssa_module
+        .strings
+        .iter()
+        .enumerate()
+        .map(|(i, bytes)| emit_static_str_global(&ctx, &llvm_module, i, bytes))
+        .collect();
+
     // Pass B' (K.3): emit module-level data globals (top-level `let X: T`
     // where T is a primitive Copy type). Keyed by name so `InstKind::GlobalRef`
     // resolves via lookup.
@@ -352,6 +364,7 @@ pub fn compile(ssa_module: &Module, out_path: &Path, opt: &str) -> Result<(), Co
             llvm_fn: fn_map[i],
             fn_map: &fn_map,
             string_globals: &string_globals,
+            static_str_globals: &static_str_globals,
             data_globals: &data_globals,
             ssa_module,
             block_map: HashMap::new(),
@@ -937,6 +950,60 @@ fn emit_string_global<'ctx>(
     g.set_unnamed_addr(true);
     g
 }
+
+/// `[hdr:8 (rc=1, tag=STR, flags=STATIC_LITERAL)] [len:8] [bytes:N]` —
+/// drop-in Str object that lives in `.rodata`. rc_inc / rc_dec /
+/// str_free / arr_free all short-circuit via the STATIC flag in the
+/// header so the global is never written to (safe to mark constant).
+///
+/// Serves `intern_string_literal` callsites — every literal in a hot
+/// loop now resolves to the same global ptr instead of paying a
+/// per-iter str_alloc + memcpy + str_drop. Memory cost: one extra
+/// 16-byte header per unique literal, paid once at link time.
+fn emit_static_str_global<'ctx>(
+    ctx: &'ctx Context,
+    m: &LlvmModule<'ctx>,
+    idx: usize,
+    bytes: &[u8],
+) -> inkwell::values::GlobalValue<'ctx> {
+    let i8_t = ctx.i8_type();
+    let i64_t = ctx.i64_type();
+    let len = bytes.len() as u64;
+
+    // Universal heap header packed into a single u64:
+    //   refcount (u32) @ [0..32]   = 1 (irrelevant — rc_inc/dec no-op)
+    //   type_tag (u16) @ [32..48]  = TAG_STR (= 0)
+    //   flags    (u16) @ [48..64]  = STATIC_LITERAL (= 4)
+    let header_u64: u64 = 1u64 | ((STATIC_LITERAL_FLAG as u64) << 48);
+    let hdr = i64_t.const_int(header_u64, false);
+    let len_v = i64_t.const_int(len, false);
+    let bytes_arr = ctx.const_string(bytes, false);
+
+    // Anonymous struct so the layout exactly matches `[u64, u64, [N x i8]]`
+    // — the runtime reads the header at offset 0 and the bytes at offset 16.
+    let body = ctx.const_struct(
+        &[hdr.into(), len_v.into(), bytes_arr.into()],
+        true, // packed — prevent LLVM from inserting padding between fields
+    );
+    let body_t = ctx.struct_type(
+        &[
+            i64_t.into(),
+            i64_t.into(),
+            i8_t.array_type(len as u32).into(),
+        ],
+        true,
+    );
+    let g = m.add_global(body_t, None, &format!(".sstr{idx}"));
+    g.set_initializer(&body);
+    g.set_constant(true);
+    g.set_linkage(inkwell::module::Linkage::Private);
+    g.set_unnamed_addr(true);
+    g
+}
+
+/// Mirror of `__TORAJS_FLAG_STATIC_LITERAL` in runtime_str.c. Encoded
+/// here so the header u64 above can be built without a runtime lookup.
+const STATIC_LITERAL_FLAG: u16 = 4;
 
 /// Phase K.3 — emit one LLVM module-level data global per
 /// `s::DataGlobal`. Zero-initialized; the SSA `main` fn lowers the
@@ -1998,6 +2065,7 @@ fn define_arr_drop<'ctx>(
     let fn_t = void_t.fn_type(&[ptr_t.into()], false);
     let f = m.add_function("__torajs_arr_drop", fn_t, None);
     let entry = ctx.append_basic_block(f, "entry");
+    let static_check_blk = ctx.append_basic_block(f, "static_check");
     let dec_blk = ctx.append_basic_block(f, "dec");
     let free_blk = ctx.append_basic_block(f, "free");
     let ret_blk = ctx.append_basic_block(f, "ret");
@@ -2008,7 +2076,36 @@ fn define_arr_drop<'ctx>(
         .build_int_compare(IntPredicate::EQ, arg, null, "is_null")
         .unwrap();
     builder
-        .build_conditional_branch(is_null, ret_blk, dec_blk)
+        .build_conditional_branch(is_null, ret_blk, static_check_blk)
+        .unwrap();
+
+    // STATIC_LITERAL flag check — `.rodata` Str-shaped globals must
+    // never have rc decremented (the store would page-fault) or be
+    // freed. Cheap u16 load + bit test, branch to ret on match.
+    builder.position_at_end(static_check_blk);
+    let i16_t = ctx.i16_type();
+    let flags_ptr = unsafe {
+        builder
+            .build_in_bounds_gep(
+                i8_t,
+                arg,
+                &[i64_t.const_int(STR_HDR_FLAGS_OFF, false)],
+                "flags_p",
+            )
+            .unwrap()
+    };
+    let flags = builder
+        .build_load(i16_t, flags_ptr, "flags")
+        .unwrap()
+        .into_int_value();
+    let masked = builder
+        .build_and(flags, i16_t.const_int(STATIC_LITERAL_FLAG as u64, false), "masked")
+        .unwrap();
+    let is_static = builder
+        .build_int_compare(IntPredicate::NE, masked, i16_t.const_int(0, false), "is_static")
+        .unwrap();
+    builder
+        .build_conditional_branch(is_static, ret_blk, dec_blk)
         .unwrap();
 
     builder.position_at_end(dec_blk);
@@ -2068,6 +2165,7 @@ fn define_str_drop<'ctx>(
     let fn_t = void_t.fn_type(&[ptr_t.into()], false);
     let f = m.add_function("__torajs_str_drop", fn_t, None);
     let entry = ctx.append_basic_block(f, "entry");
+    let static_check_blk = ctx.append_basic_block(f, "static_check");
     let dec_blk = ctx.append_basic_block(f, "dec");
     let free_blk = ctx.append_basic_block(f, "free");
     let ret_blk = ctx.append_basic_block(f, "ret");
@@ -2078,12 +2176,42 @@ fn define_str_drop<'ctx>(
         .build_int_compare(IntPredicate::EQ, arg, null, "is_null")
         .unwrap();
     builder
-        .build_conditional_branch(is_null, ret_blk, dec_blk)
+        .build_conditional_branch(is_null, ret_blk, static_check_blk)
+        .unwrap();
+
+    let i64_t = ctx.i64_type();
+    let i8_t = ctx.i8_type();
+    let i16_t = ctx.i16_type();
+
+    // STATIC_LITERAL flag check — same shape as define_arr_drop's;
+    // see that fn for rationale. Without this the rc-store below
+    // SIGBUS's on .rodata.
+    builder.position_at_end(static_check_blk);
+    let flags_ptr = unsafe {
+        builder
+            .build_in_bounds_gep(
+                i8_t,
+                arg,
+                &[i64_t.const_int(STR_HDR_FLAGS_OFF, false)],
+                "flags_p",
+            )
+            .unwrap()
+    };
+    let flags = builder
+        .build_load(i16_t, flags_ptr, "flags")
+        .unwrap()
+        .into_int_value();
+    let masked = builder
+        .build_and(flags, i16_t.const_int(STATIC_LITERAL_FLAG as u64, false), "masked")
+        .unwrap();
+    let is_static = builder
+        .build_int_compare(IntPredicate::NE, masked, i16_t.const_int(0, false), "is_static")
+        .unwrap();
+    builder
+        .build_conditional_branch(is_static, ret_blk, dec_blk)
         .unwrap();
 
     builder.position_at_end(dec_blk);
-    let i64_t = ctx.i64_type();
-    let i8_t = ctx.i8_type();
     // refcount @ STR_HDR_REFCOUNT_OFF (offset 0). Explicit GEP so the
     // const documents the layout; LLVM mem2reg collapses the zero GEP.
     let rc_ptr = unsafe {
@@ -2464,6 +2592,9 @@ struct FnLower<'a, 'ctx> {
     llvm_fn: FunctionValue<'ctx>,
     fn_map: &'a [FunctionValue<'ctx>],
     string_globals: &'a [inkwell::values::GlobalValue<'ctx>],
+    /// Phase P-rpn — per-literal Str-shaped statics; same indexing as
+    /// `string_globals`. Resolved by `InstKind::StaticStrRef`.
+    static_str_globals: &'a [inkwell::values::GlobalValue<'ctx>],
     /// Phase K.3 — module-level data globals indexed by name. Looked
     /// up by `InstKind::GlobalRef` to yield the slot's pointer value.
     data_globals: &'a HashMap<String, inkwell::values::GlobalValue<'ctx>>,
@@ -2662,6 +2793,10 @@ impl<'a, 'ctx> FnLower<'a, 'ctx> {
             }
             InstKind::StringRef(sid) => {
                 let g = self.string_globals[sid.0 as usize];
+                Some(BasicValueEnum::PointerValue(g.as_pointer_value()))
+            }
+            InstKind::StaticStrRef(sid) => {
+                let g = self.static_str_globals[sid.0 as usize];
                 Some(BasicValueEnum::PointerValue(g.as_pointer_value()))
             }
             InstKind::GlobalRef(name) => {
