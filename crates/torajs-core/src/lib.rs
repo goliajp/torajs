@@ -13,6 +13,7 @@ pub mod ast;
 pub mod check;
 pub mod formatter;
 pub mod lexer;
+pub mod linter;
 pub mod modules;
 pub mod parser;
 pub mod ssa;

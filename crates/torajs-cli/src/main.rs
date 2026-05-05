@@ -73,6 +73,7 @@ fn main() -> ExitCode {
             }
         },
         Some("fmt") => run_fmt(&args[1..]),
+        Some("lint") => run_lint(&args[1..]),
         Some("ssa-demo") => {
             ssa::demo_fib40().print();
             ExitCode::SUCCESS
@@ -106,6 +107,7 @@ fn print_usage() {
     println!("    lsp                  speak Language Server Protocol over stdio");
     println!("    lsp-bench            measure LSP latency on a synthetic 1K-line fixture");
     println!("    fmt <file> [--write] reformat source to tr's canonical style (stdout, or in-place with --write)");
+    println!("    lint <file> [--deny] surface 5 lint warnings (unused-let, dead-code-after-return, unreachable-catch, shadowed-let, unused-import); --deny exits non-zero on any warning");
     println!();
     println!("    --version, -V        print version");
     println!("    --help, -h           print this help");
@@ -686,4 +688,93 @@ fn run_fmt(args: &[String]) -> ExitCode {
             ExitCode::from(1)
         }
     }
+}
+
+/// T-06 (v0.3.0) — `tr lint <file> [--deny]` runs the 5 starter
+/// rules (unused-let / dead-code-after-return / unreachable-catch /
+/// shadowed-let / unused-import). Default exit 0 even with warnings;
+/// `--deny` makes any warning exit non-zero (CI gate shape).
+fn run_lint(args: &[String]) -> ExitCode {
+    let mut input: Option<&str> = None;
+    let mut deny = false;
+    for a in args {
+        match a.as_str() {
+            "--deny" | "-D" => deny = true,
+            "--help" | "-h" => {
+                println!("tr lint — surface lint warnings");
+                println!();
+                println!("USAGE: tr lint <file|-> [--deny]");
+                println!();
+                println!("Rules:");
+                println!("  unused-let               top-level let / const declared but never read");
+                println!("  dead-code-after-return   stmt after return / throw / break / continue");
+                println!("  unreachable-catch        catch on a try whose body cannot throw");
+                println!("  shadowed-let             inner-scope let shadows enclosing-scope binding");
+                println!("  unused-import            import binding never referenced");
+                println!();
+                println!("  --deny, -D    exit non-zero if any warning is reported");
+                return ExitCode::SUCCESS;
+            }
+            other if input.is_none() && !other.starts_with("--") => {
+                input = Some(other);
+            }
+            other => {
+                eprintln!("error: unexpected argument `{other}`");
+                return ExitCode::from(2);
+            }
+        }
+    }
+    let Some(path) = input else {
+        eprintln!("error: missing file argument (use `-` for stdin)");
+        return ExitCode::from(2);
+    };
+    let src = match read_source(path) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("error: {e}");
+            return ExitCode::from(2);
+        }
+    };
+    match torajs_core::linter::lint(&src) {
+        Ok(diags) => {
+            if diags.is_empty() {
+                return ExitCode::SUCCESS;
+            }
+            for d in &diags {
+                let (line, col) = byte_to_line_col(&src, d.span.start);
+                let severity = match d.severity {
+                    torajs_core::check::Severity::Warning => "warning",
+                    torajs_core::check::Severity::Error => "error",
+                };
+                eprintln!("{path}:{line}:{col}: {severity}: {}", d.message);
+            }
+            if deny { ExitCode::from(1) } else { ExitCode::SUCCESS }
+        }
+        Err(e) => {
+            eprintln!("{e}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+/// Tiny utility: convert a byte offset to (line, col) (both 1-based).
+/// `(0, 0)` byte offset (the no-source-location sentinel from the
+/// Diagnostic substrate) maps to line 1, col 1 — same convention as
+/// the LSP's file:1:1 anchor.
+fn byte_to_line_col(text: &str, byte: u32) -> (u32, u32) {
+    let target = byte as usize;
+    let mut line = 1u32;
+    let mut col = 1u32;
+    for (i, ch) in text.char_indices() {
+        if i >= target {
+            break;
+        }
+        if ch == '\n' {
+            line += 1;
+            col = 1;
+        } else {
+            col += 1;
+        }
+    }
+    (line, col)
 }
