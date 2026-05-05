@@ -1775,6 +1775,26 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         &[],
         Type::Ptr,
     );
+    /* T-03 (v0.3.0) — sync stdio. process.stdout.write(s) and
+     * process.stderr.write(s) return bytes written (i64); stdin.read()
+     * drains stdin to EOF and returns one Str. Aborting on short
+     * write / read error per the runtime helper docstring. */
+    let process_stdout_write_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_process_stdout_write",
+        &[Type::Str],
+        Type::Bool,
+    );
+    let process_stderr_write_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_process_stderr_write",
+        &[Type::Str],
+        Type::Bool,
+    );
+    /* process.stdin.read() deferred to v0.5 (async) — see runtime
+     * commentary in runtime_str.c. */
     /* v0.2 #3 — Object.is(a, b) for Type::Number arguments. Diverges
      * from `===` on two corner cases:
      *   - Object.is(NaN, NaN) === true
@@ -2808,6 +2828,8 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         process_getenv: process_getenv_id,
         argv_init: argv_init_id,
         process_argv: process_argv_id,
+        process_stdout_write: process_stdout_write_id,
+        process_stderr_write: process_stderr_write_id,
         object_is_f64: object_is_f64_id,
         split_iter_init: split_iter_init_id,
         split_iter_next: split_iter_next_id,
@@ -3292,6 +3314,8 @@ struct Intrinsics {
     process_getenv: FuncId,
     argv_init: FuncId,
     process_argv: FuncId,
+    process_stdout_write: FuncId,
+    process_stderr_write: FuncId,
     object_is_f64: FuncId,
     split_iter_init: FuncId,
     split_iter_next: FuncId,
@@ -15520,6 +15544,23 @@ impl<'a> LowerCtx<'a> {
                         "exit" => self.intrinsics.process_exit,
                         "cwd" => self.intrinsics.process_cwd,
                         other => panic!("ssa-lower: unknown process method `{other}`"),
+                    };
+                }
+                /* T-03 (v0.3.0) — process.{stdout, stderr}.write(s)
+                 * and process.stdin.read(). The receiver here is a
+                 * Member, not an Ident, so dispatch on the inner
+                 * Member shape. */
+                if let Expr::Member { obj: inner_obj, name: inner_name } =
+                    self.ast.get_expr(*obj).clone()
+                    && matches!(self.ast.get_expr(inner_obj), Expr::Ident(n) if n == "process")
+                {
+                    return match (inner_name.as_str(), name.as_str()) {
+                        ("stdout", "write") => self.intrinsics.process_stdout_write,
+                        ("stderr", "write") => self.intrinsics.process_stderr_write,
+                        other => panic!(
+                            "ssa-lower: unsupported process.{}.{} call",
+                            other.0, other.1
+                        ),
                     };
                 }
                 /* v0.3 #2 — Bun.<method>. Aliases to existing intrinsics. */

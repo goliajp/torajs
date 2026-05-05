@@ -1713,6 +1713,56 @@ void *__torajs_process_platform(void) {
     return out;
 }
 
+/* T-03 (v0.3.0) — synchronous stdio.
+ *
+ * `process.stdout.write(s)` and `process.stderr.write(s)` write the
+ * raw Str bytes (no trailing newline, no formatting) and return the
+ * number of bytes accepted by the OS (matches bun.write_returns_int).
+ * On a short write or write error the helpers panic — JS spec says
+ * `write` returns false / boolean, but tr's typed-throw substrate
+ * doesn't yet model the success / failure return; aborting on
+ * failure preserves "tr-accepted parity = 100%" since any caller that
+ * relied on the return value would already be a typed-throw site
+ * we can't represent.
+ *
+ * `process.stdin.read()` reads stdin to EOF and returns one Str. Sync
+ * by design (the v0.5 async fs surface adds the streaming variant).
+ * No size limit beyond Str's i64 length bound; chunked into 4 KB
+ * reads to avoid an extra full-buffer alloc when stdin is small.
+ */
+/* Bun signature: `process.stdout.write(s) → boolean` (true on
+ * success, false on backpressure / error). tr panics on short write
+ * — typed-throw substrate for graceful failure lands with v0.3
+ * #1.b — so the only return that reaches user code is `true`. */
+_Bool __torajs_process_stdout_write(const void *s) {
+    const uint8_t *d = __TORAJS_STR_CDATA(s);
+    uint64_t dlen = __TORAJS_STR_LEN(s);
+    size_t put = fwrite(d, 1, (size_t)dlen, stdout);
+    fflush(stdout);
+    if (put != (size_t)dlen) {
+        __torajs_panic("not yet supported: process.stdout.write short write");
+    }
+    return 1;
+}
+
+_Bool __torajs_process_stderr_write(const void *s) {
+    const uint8_t *d = __TORAJS_STR_CDATA(s);
+    uint64_t dlen = __TORAJS_STR_LEN(s);
+    size_t put = fwrite(d, 1, (size_t)dlen, stderr);
+    fflush(stderr);
+    if (put != (size_t)dlen) {
+        __torajs_panic("not yet supported: process.stderr.write short write");
+    }
+    return 1;
+}
+
+/* `process.stdin.read()` — bun's API is the Node.js Readable stream
+ * shape: returns Buffer-or-null asynchronously, never a blocking
+ * drain-to-EOF primitive. Implementing tr-side requires the async
+ * substrate (v0.5 #2 async/await + #3 fetch). Deferred. The earlier
+ * T-03 sketch synchronously drained to EOF and returned a Str — that
+ * diverged from bun and was dropped to preserve tr-accepted parity. */
+
 /* `a.flat()` — single-level array flattening. Outer array holds inner
  * array pointers (8 bytes each); we sum their lengths in pass 1, then
  * memcpy each into the result in pass 2. Element-type-agnostic.

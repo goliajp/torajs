@@ -2157,6 +2157,33 @@ impl Checker {
                      * var unset; tr's undefined→null bridge keeps
                      * `=== undefined` round-tripping). */
                     (Type::Object("env"), _) => Ok(Type::Nullable(Box::new(Type::String))),
+                    /* T-03 (v0.3.0) — process.{stdout, stderr, stdin}
+                     * value-Member: each exposes its own Object so the
+                     * downstream `.write` / `.read` Call resolves at
+                     * the (Object("process_stdout"), "write") arm
+                     * below. (`process.stdout` itself is also a legal
+                     * value reference — e.g. `let s = process.stdout`
+                     * — so the value-Member must be type-able too.) */
+                    (Type::Object("process"), "stdout") => Ok(Type::Object("process_stdout")),
+                    (Type::Object("process"), "stderr") => Ok(Type::Object("process_stderr")),
+                    /* `process.stdin` deferred — see comment on .read above. */
+                    /* T-03 — process.stdout / process.stderr.write(s)
+                     * Call shape. Returns Boolean to match bun's
+                     * `process.stdout.write(s)` signature (true on
+                     * success, false on backpressure / error — tr
+                     * panics on short write so it always returns true
+                     * when control returns). */
+                    (Type::Object("process_stdout"), "write")
+                    | (Type::Object("process_stderr"), "write") => {
+                        Ok(Type::Function(
+                            vec![Type::String],
+                            Box::new(Type::Boolean),
+                        ))
+                    }
+                    /* `process.stdin.read()` deferred to v0.5 — bun's
+                     * API is Node Readable async (returns Buffer-or-
+                     * null), so a sync drain-to-EOF would diverge from
+                     * the oracle. Lands with the async substrate. */
 
                     /* v0.3 #1 — fs module surface (Phase 2.0a substrate).
                      * Synchronous file I/O; throw on error is Phase 2.0b. */
@@ -3675,6 +3702,12 @@ impl Checker {
             (Type::Object("process"), "env") => Ok(Type::Object("env")),
             /* `process.env.NAME` — runtime getenv, Nullable<String>. */
             (Type::Object("env"), _name) => Ok(Type::Nullable(Box::new(Type::String))),
+            /* T-03 (v0.3.0) — process.{stdout, stderr, stdin} expose
+             * their own Object so `.write` / `.read` resolve at the
+             * Call type-check arm (see member-Call dispatch above). */
+            (Type::Object("process"), "stdout") => Ok(Type::Object("process_stdout")),
+            (Type::Object("process"), "stderr") => Ok(Type::Object("process_stderr")),
+            (Type::Object("process"), "stdin") => Ok(Type::Object("process_stdin")),
             (Type::Struct(fields), n) => fields
                 .iter()
                 .find(|(fn_, _)| fn_ == n)
