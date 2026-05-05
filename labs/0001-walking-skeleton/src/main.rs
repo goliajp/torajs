@@ -144,6 +144,7 @@ fn pipeline(src: &str, base_dir: &Path, stage: Stage) -> ExitCode {
     // resolve Expr spans into DILocation values during ssa_inkwell
     // emission and during runtime panic backtraces.
     ast.source = src.to_string();
+    ast.warm_newline_cache();
     // K.2 — resolve cross-file imports BEFORE the desugar pipeline so
     // imported decls go through the same downstream passes (class
     // desugar, arrow lift, etc.) as same-file decls.
@@ -294,6 +295,7 @@ fn run_build_llvm(args: &[String]) -> ExitCode {
     // resolve Expr spans into DILocation values during ssa_inkwell
     // emission and during runtime panic backtraces.
     ast.source = src.to_string();
+    ast.warm_newline_cache();
     // K.2 — resolve cross-file imports before the desugar pipeline.
     let base_dir = base_dir_for(input);
     if let Err(e) = modules::resolve_imports(&mut ast, &base_dir) {
@@ -358,6 +360,7 @@ fn run_build_llvm(args: &[String]) -> ExitCode {
         std::path::Path::new(output),
         &opt,
         Some(std::path::Path::new(input)),
+        Some(&ast),
     ) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
@@ -419,6 +422,7 @@ fn run_jit(file_arg: Option<&String>) -> ExitCode {
     // resolve Expr spans into DILocation values during ssa_inkwell
     // emission and during runtime panic backtraces.
     ast.source = src.to_string();
+    ast.warm_newline_cache();
     let base_dir = base_dir_for(path);
     let import_closure = match modules::resolve_imports(&mut ast, &base_dir) {
         Ok(files) => files,
@@ -520,6 +524,7 @@ fn run_jit(file_arg: Option<&String>) -> ExitCode {
         &target_path,
         "O3",
         Some(std::path::Path::new(path)),
+        Some(&ast),
     ) {
         eprintln!("compile error: {e}");
         return ExitCode::from(1);

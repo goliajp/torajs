@@ -8145,7 +8145,21 @@ impl<'a> LowerCtx<'a> {
         )
     }
 
+    /// v0.3 #4 D-3 — outer wrapper that stamps every Inst emitted
+    /// while lowering `eid` with `current_origin = Some(eid)` so
+    /// ssa_inkwell can resolve the source span for DWARF DILocation.
+    /// Recursive `self.lower_expr(...)` calls re-enter this wrapper
+    /// so nested exprs get their own tighter origin scoped to the
+    /// inner subtree (RAII-style save/restore on the prev value).
     fn lower_expr(&mut self, eid: ExprId) -> Operand {
+        let prev = self.f.current_origin;
+        self.f.current_origin = Some(eid);
+        let result = self.lower_expr_inner(eid);
+        self.f.current_origin = prev;
+        result
+    }
+
+    fn lower_expr_inner(&mut self, eid: ExprId) -> Operand {
         let e = self.ast.get_expr(eid);
         match e {
             // Number literals coerce to i64 — type inference lifts them to

@@ -76,6 +76,7 @@ pub fn compile(
     out_path: &Path,
     opt: &str,
     source_path: Option<&Path>,
+    ast: Option<&crate::ast::Ast>,
 ) -> Result<(), CompileError> {
     let ctx = Context::create();
     let llvm_module = ctx.create_module("torajs");
@@ -506,6 +507,8 @@ pub fn compile(
             static_str_globals: &static_str_globals,
             data_globals: &data_globals,
             ssa_module,
+            ast,
+            debug_ctx: debug_ctx.as_ref(),
             block_map: HashMap::new(),
             value_map: HashMap::new(),
         };
@@ -3114,6 +3117,13 @@ struct FnLower<'a, 'ctx> {
     /// Whole SSA module — needed by `InstKind::CallIndirect` to look up
     /// the signature interner. Read-only; no mutation. M2 Phase B Stage 3.
     ssa_module: &'a s::Module,
+    /// v0.3 #4 D-3 — Optional source-location resolver. When present,
+    /// per-Inst `lower_inst` looks up `inst.origin` → `ast.expr_spans`
+    /// → `byte_to_line_col` → DILocation, attaching it to subsequent
+    /// build_* calls so DWARF backtraces resolve to `.ts:line:col`.
+    /// None when the caller didn't supply ast / source_path.
+    ast: Option<&'a crate::ast::Ast>,
+    debug_ctx: Option<&'a DebugCtx<'ctx>>,
     block_map: HashMap<u32, inkwell::basic_block::BasicBlock<'ctx>>,
     value_map: HashMap<u32, BasicValueEnum<'ctx>>,
 }
@@ -3172,6 +3182,34 @@ impl<'a, 'ctx> FnLower<'a, 'ctx> {
     }
 
     fn lower_inst(&mut self, inst: &s::Inst) {
+        // v0.3 #4 D-3 — when DWARF debug info is enabled, look up
+        // this Inst's `origin` ExprId, translate its byte span to
+        // (line, col), and stamp a DILocation on the builder so all
+        // build_* calls until the next override carry !dbg.
+        // origin == None (synthetic Insts not tied to a user-Expr)
+        // inherits the previous DILocation; this matches DWARF's
+        // intent for compiler-emitted helper sequences.
+        if let (Some(dctx), Some(ast), Some(eid), Some(sp)) = (
+            self.debug_ctx,
+            self.ast,
+            inst.origin,
+            self.llvm_fn.get_subprogram(),
+        ) {
+            let span = ast.expr_spans.get(eid.0 as usize).copied();
+            if let Some(span) = span {
+                let (line, col) = ast.byte_to_line_col(span.start);
+                if line > 0 {
+                    let loc = dctx.dibuilder.create_debug_location(
+                        self.ctx,
+                        line,
+                        col,
+                        sp.as_debug_info_scope(),
+                        None,
+                    );
+                    self.builder.set_current_debug_location(loc);
+                }
+            }
+        }
         let result_val = match &inst.kind {
             InstKind::BinOp(op, a, b) => {
                 let r: BasicValueEnum = match op {

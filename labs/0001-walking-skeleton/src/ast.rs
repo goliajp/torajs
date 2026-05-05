@@ -6329,41 +6329,45 @@ impl Ast {
         }
     }
 
+    /// Build the newline offset table once. Idempotent. Call this
+    /// after setting `self.source`; subsequent `byte_to_line_col`
+    /// lookups become `&self`-only and can be invoked from
+    /// borrow-restricted contexts (ssa_inkwell, etc).
+    pub fn warm_newline_cache(&mut self) {
+        if !self.newline_offsets.is_empty() || self.source.is_empty() {
+            return;
+        }
+        for (i, b) in self.source.as_bytes().iter().enumerate() {
+            if *b == b'\n' {
+                self.newline_offsets.push(i as u32);
+            }
+        }
+    }
+
     /// Translate a source byte offset into a (line, col) pair, both
     /// 1-indexed (DWARF / editor convention). Returns (0, 0) if the
     /// offset is past end-of-source (sentinel for "no location").
-    /// First call lazily builds + caches `newline_offsets`.
-    pub fn byte_to_line_col(&mut self, byte: u32) -> (u32, u32) {
+    /// Requires `warm_newline_cache` to have been called when source
+    /// is non-empty; otherwise returns (0, 0) for non-zero offsets.
+    pub fn byte_to_line_col(&self, byte: u32) -> (u32, u32) {
         if byte == 0 || (byte as usize) > self.source.len() {
             return (0, 0);
         }
-        if self.newline_offsets.is_empty() && !self.source.is_empty() {
-            for (i, b) in self.source.as_bytes().iter().enumerate() {
-                if *b == b'\n' {
-                    self.newline_offsets.push(i as u32);
-                }
-            }
-        }
-        // Find the largest newline_offsets[k] < byte; line = k + 2 (lines
-        // are 1-indexed; line 1 has no preceding newline; lines after
-        // newline N are line N+2 because newline ends line N+1).
-        // Wait — clarify: if newline_offsets[0] is at byte 10, that
-        // ends line 1; lines 1..2 split at byte 10. So byte=5 → line 1.
-        // byte=11 → line 2.
         let nl = &self.newline_offsets;
+        if nl.is_empty() && !self.source.is_empty() {
+            // Cache not warmed; line 1, col=byte+1 as fallback.
+            return (1, byte + 1);
+        }
         let line = match nl.binary_search(&byte) {
-            // byte == newline pos → newline char is at end of prior line
             Ok(k) => (k as u32) + 1,
-            // byte falls between newline[k-1] and newline[k]
             Err(k) => (k as u32) + 1,
         };
-        // Find line start: byte after the previous newline (or 0 for line 1).
         let line_start = if line == 1 {
             0u32
         } else {
             nl[(line - 2) as usize] + 1
         };
-        let col = byte - line_start + 1; // 1-indexed col
+        let col = byte - line_start + 1;
         (line, col)
     }
 

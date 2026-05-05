@@ -391,6 +391,12 @@ pub enum InstKind {
 pub struct Inst {
     pub result: Option<ValueId>, // None for void calls
     pub kind: InstKind,
+    /// v0.3 #4 D-3 — AST ExprId this instruction was lowered from
+    /// (or None for synthetic insts emitted between lower_expr
+    /// calls). ssa_inkwell looks this up to attach a DILocation
+    /// derived from `ast.expr_spans[origin]` so DWARF backtraces
+    /// resolve to the right `.ts:line:col`.
+    pub origin: Option<crate::ast::ExprId>,
 }
 
 #[derive(Debug, Clone)]
@@ -427,6 +433,12 @@ pub struct Function {
     pub ret: Type,
     pub blocks: Vec<Block>,
     pub values: Vec<ValueInfo>, // index = ValueId.0
+    /// v0.3 #4 D-3 — current AST ExprId being lowered. ssa_lower's
+    /// `lower_expr(eid)` sets/restores this; `append_inst` /
+    /// `append_void` stamp it as the new Inst's `origin`.
+    /// `#[serde(skip)]`-equivalent: not part of any persistent SSA
+    /// dump, just a transient build-time slot.
+    pub current_origin: Option<crate::ast::ExprId>,
 }
 
 impl Function {
@@ -437,6 +449,7 @@ impl Function {
             ret,
             blocks: Vec::new(),
             values: Vec::new(),
+            current_origin: None,
         }
     }
 
@@ -473,18 +486,22 @@ impl Function {
         name: Option<&str>,
     ) -> ValueId {
         let result = self.alloc_value(result_ty, name);
+        let origin = self.current_origin;
         self.blocks[block.0 as usize].insts.push(Inst {
             result: Some(result),
             kind,
+            origin,
         });
         result
     }
 
     /// Append a void-result instruction (currently only `Call` to a void-returning function).
     pub fn append_void(&mut self, block: BlockId, kind: InstKind) {
+        let origin = self.current_origin;
         self.blocks[block.0 as usize].insts.push(Inst {
             result: None,
             kind,
+            origin,
         });
     }
 
