@@ -2,6 +2,7 @@ mod ast;
 mod check;
 mod lexer;
 mod lsp;
+mod lsp_bench;
 mod modules;
 mod parser;
 mod ssa;
@@ -70,6 +71,13 @@ fn main() -> ExitCode {
                 ExitCode::from(1)
             }
         },
+        Some("lsp-bench") => match env::current_exe() {
+            Ok(p) => lsp_bench::run(&p),
+            Err(e) => {
+                eprintln!("lsp-bench: cannot locate self exe: {e}");
+                ExitCode::from(1)
+            }
+        },
         Some("ssa-demo") => {
             ssa::demo_fib40().print();
             ExitCode::SUCCESS
@@ -101,6 +109,7 @@ fn print_usage() {
     println!("                         AOT-compile via LLVM 22 → native binary");
     println!("    ssa-demo             print a hand-built SSA fib40 (P3.5 step 1 leftover)");
     println!("    lsp                  speak Language Server Protocol over stdio");
+    println!("    lsp-bench            measure LSP latency on a synthetic 1K-line fixture");
     println!();
     println!("    --version, -V        print version");
     println!("    --help, -h           print this help");
