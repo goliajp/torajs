@@ -1775,6 +1775,34 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         &[],
         Type::Ptr,
     );
+    /* T-10.b (v0.4.0) — Array<Any> tagged-slot helpers. arr_alloc_any
+     * allocates a 16-byte-stride array (vs 8 for regular Array<T>);
+     * arr_push_any appends a tagged slot {tag, value}. T-10.c wires
+     * these from the Expr::Array codegen path when the element type
+     * is Type::Any. Drop walks via __torajs_arr_drop_any (called by
+     * the regular Array drop path when ARR_FLAG_ANY is set; not yet
+     * wired — T-10.d). */
+    let arr_alloc_any_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_arr_alloc_any",
+        &[Type::I64],
+        Type::Ptr,
+    );
+    let arr_push_any_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_arr_push_any",
+        &[Type::Ptr, Type::I64, Type::I64],
+        Type::Ptr,
+    );
+    let arr_drop_any_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_arr_drop_any",
+        &[Type::Ptr],
+        Type::Void,
+    );
     /* T-03 (v0.3.0) — sync stdio. process.stdout.write(s) and
      * process.stderr.write(s) return bytes written (i64); stdin.read()
      * drains stdin to EOF and returns one Str. Aborting on short
@@ -2830,6 +2858,9 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         process_argv: process_argv_id,
         process_stdout_write: process_stdout_write_id,
         process_stderr_write: process_stderr_write_id,
+        arr_alloc_any: arr_alloc_any_id,
+        arr_push_any: arr_push_any_id,
+        arr_drop_any: arr_drop_any_id,
         object_is_f64: object_is_f64_id,
         split_iter_init: split_iter_init_id,
         split_iter_next: split_iter_next_id,
@@ -3316,6 +3347,9 @@ struct Intrinsics {
     process_argv: FuncId,
     process_stdout_write: FuncId,
     process_stderr_write: FuncId,
+    arr_alloc_any: FuncId,
+    arr_push_any: FuncId,
+    arr_drop_any: FuncId,
     object_is_f64: FuncId,
     split_iter_init: FuncId,
     split_iter_next: FuncId,
@@ -6816,10 +6850,23 @@ impl<'a> LowerCtx<'a> {
                             "ssa-lower: empty `[]` literal needs an array type annotation; got {ty:?}"
                         );
                     }
+                    // T-10.c (v0.4.0) — `let xs: any[] = []` routes
+                    // through `__torajs_arr_alloc_any` so the slot
+                    // stride matches the tagged-slot Array<Any> layout.
+                    // Without this, a follow-up push_any (which writes
+                    // 16-byte slots) would corrupt the regular Array<T>
+                    // pool block (which has 8-byte slots).
+                    let alloc_fn = if let Type::Arr(arr_id) = ty
+                        && self.arr_layouts[arr_id.0 as usize] == Type::Any
+                    {
+                        self.intrinsics.arr_alloc_any
+                    } else {
+                        self.intrinsics.arr_alloc
+                    };
                     let v = self.f.append_inst(
                         self.cur_block,
                         InstKind::Call(
-                            self.intrinsics.arr_alloc,
+                            alloc_fn,
                             vec![Operand::ConstI64(0)],
                         ),
                         ty,
@@ -8189,6 +8236,114 @@ impl<'a> LowerCtx<'a> {
             Type::Str,
             None,
         )
+    }
+
+    /// T-10.c (v0.4.0) — cheap AST-shape probe for Array literal
+    /// heterogeneity. Returns true iff the literal mixes DIFFERENT
+    /// static-known kinds (Number vs String vs Bool vs Null among
+    /// LITERAL elements only). Non-literal elements (Identifier,
+    /// Call, Member, BinOp, ...) are treated as "kind unknown" and
+    /// don't trigger the Any path — those route through the regular
+    /// homogeneous codegen which already understands them. This
+    /// means `[1, 'a', true]` → Any, but `[1, x, 3]` (where x is an
+    /// `i64` ident) → regular Array<I64>. Matching the operand types
+    /// of mixed expressions to the Any path is T-10.d work.
+    fn array_literal_is_heterogeneous(&self, ids: &[ExprId]) -> bool {
+        let kind_of = |eid: ExprId| -> Option<u8> {
+            match self.ast.get_expr(eid) {
+                Expr::Number(n) => {
+                    if n.is_finite() && n.fract() == 0.0 && n.abs() < 1e18 {
+                        Some(1) // i64 literal kind
+                    } else {
+                        Some(2) // f64 literal kind
+                    }
+                }
+                Expr::String(_) => Some(3),
+                Expr::Bool(_) => Some(4),
+                Expr::Null => Some(5),
+                _ => None, // unknown kind — fall back to homogeneous path
+            }
+        };
+        let mut anchor: Option<u8> = None;
+        for &eid in ids {
+            if let Some(k) = kind_of(eid) {
+                match anchor {
+                    None => anchor = Some(k),
+                    Some(a) if a != k => return true,
+                    _ => {}
+                }
+            }
+        }
+        false
+    }
+
+    /// T-10.c (v0.4.0) — emit codegen for a heterogeneous Array
+    /// literal. alloc_any(N) sized to fit, then per-element box +
+    /// push_any with the matching tag. Returns the (possibly grown)
+    /// array pointer as Operand::Value.
+    fn lower_array_any_literal(&mut self, ids: &[ExprId]) -> Operand {
+        let n = ids.len() as i64;
+        // alloc_any(N). Bypasses arr_pool (different stride).
+        let arr_id = intern_arr_layout(self.arr_layouts, Type::Any);
+        let mut arr = self.f.append_inst(
+            self.cur_block,
+            InstKind::Call(self.intrinsics.arr_alloc_any, vec![Operand::ConstI64(n)]),
+            Type::Arr(arr_id),
+            None,
+        );
+        for &eid in ids {
+            let val = self.lower_expr(eid);
+            let val_ty = self.operand_ty(&val);
+            // ANY_NULL=0, ANY_BOOL=1, ANY_I64=2, ANY_F64=3, ANY_HEAP=4
+            // (matches __TORAJS_ANY_* in runtime_str.c).
+            let (tag, value_op): (i64, Operand) = match val_ty {
+                Type::I64 | Type::I32 => (2, val),
+                Type::Bool => {
+                    let zext = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::ZExtBoolToI64(val),
+                        Type::I64,
+                        None,
+                    );
+                    (1, Operand::Value(zext))
+                }
+                _ if val_ty.is_refcounted() => {
+                    // Heap-typed value: rc_inc to hold an owning ref
+                    // for the array slot. push_any's third param is
+                    // i64 in the SSA decl; LLVM treats ptr ↔ i64 as
+                    // ABI-compatible (same machine word), so passing
+                    // the ptr operand directly works at the call site
+                    // without an explicit PtrToInt SSA op (which the
+                    // current InstKind enum doesn't expose). Drop
+                    // walks via __torajs_arr_drop_any when the array
+                    // dies.
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Call(self.intrinsics.rc_inc, vec![val.clone()]),
+                    );
+                    (4, val)
+                }
+                Type::Ptr => {
+                    // Ptr that's null (Type::Null lowers to ConstPtrNull
+                    // → Type::Ptr). Tag as ANY_NULL with value 0.
+                    (0, Operand::ConstI64(0))
+                }
+                other => panic!(
+                    "not yet supported: lower_array_any_literal element type {other:?} \
+                     (T-10.d will add F64 + boxed-primitive coverage)"
+                ),
+            };
+            arr = self.f.append_inst(
+                self.cur_block,
+                InstKind::Call(
+                    self.intrinsics.arr_push_any,
+                    vec![Operand::Value(arr), Operand::ConstI64(tag), value_op],
+                ),
+                Type::Arr(arr_id),
+                None,
+            );
+        }
+        Operand::Value(arr)
     }
 
     /// v0.3 #4 D-3 — outer wrapper that stamps every Inst emitted
@@ -13636,6 +13791,15 @@ impl<'a> LowerCtx<'a> {
                 let has_spread = element_ids.iter().any(|eid| {
                     matches!(self.ast.get_expr(*eid), Expr::Spread { .. })
                 });
+                // T-10.c (v0.4.0) — heterogeneous Array literal
+                // (`[1, 'a', true]`) routes through the tagged-slot
+                // Array<Any> codegen path. Cheap AST-shape probe: if
+                // element kinds differ, lower as Array<Any>. check.rs
+                // has already widened the slot type to Array<Any>; here
+                // we just emit the matching codegen.
+                if !has_spread && self.array_literal_is_heterogeneous(&element_ids) {
+                    return self.lower_array_any_literal(&element_ids);
+                }
                 if !has_spread {
                     let n = element_ids.len() as i64;
                     // Pre-determine the element type so we can lower

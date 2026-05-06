@@ -2735,17 +2735,26 @@ impl Checker {
                         );
                     }
                 };
+                // T-10.c (v0.4.0) — heterogeneous array literal widens
+                // to `Array<Any>` instead of erroring. Matches bun's
+                // semantics: `[1, 'a', true]` is a valid expression
+                // and binds to `let xs: any[] = ...`. Strict per-slot
+                // typing is preserved when ALL elements share a type.
+                let mut heterogeneous = false;
                 for &eid in ids.iter() {
                     let ty = elem_value_ty(self, eid)?;
                     if let Some(ty) = ty
                         && !is_assignable_to(&first_ty, &ty)
                     {
-                        return Err(format!(
-                            "array element type mismatch: expected {first_ty:?}, got {ty:?}"
-                        ));
+                        heterogeneous = true;
+                        break;
                     }
                 }
-                Ok(Type::Array(Box::new(first_ty)))
+                if heterogeneous {
+                    Ok(Type::Array(Box::new(Type::Any)))
+                } else {
+                    Ok(Type::Array(Box::new(first_ty)))
+                }
             }
             Expr::Spread { .. } => Err(
                 "spread `...` is only valid inside an array literal"
