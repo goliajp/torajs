@@ -100,6 +100,30 @@ uint8_t __torajs_promise_get_state(const void *p) {
     return pp->state;
 }
 
+/* T-15.b state-transition helpers. Move a PENDING Promise to
+ * FULFILLED / REJECTED with the given value/reason. Per ES2015
+ * spec the first resolve/reject wins — subsequent calls are no-ops
+ * (no error thrown, no state change). NULL input is a defensive
+ * no-op. T-15.c will wire callback drain on transition; for T-15.b
+ * the callback list is always NULL so no work to do. */
+void __torajs_promise_resolve(void *p, int64_t value) {
+    if (p == NULL) return;
+    Promise *pp = (Promise *)p;
+    if (pp->state != __TORAJS_PROMISE_PENDING) return;
+    pp->state = __TORAJS_PROMISE_FULFILLED;
+    pp->value = value;
+    /* T-15.c: drain pp->callbacks here once .then chaining lands. */
+}
+
+void __torajs_promise_reject(void *p, int64_t reason) {
+    if (p == NULL) return;
+    Promise *pp = (Promise *)p;
+    if (pp->state != __TORAJS_PROMISE_PENDING) return;
+    pp->state = __TORAJS_PROMISE_REJECTED;
+    pp->value = reason;
+    /* T-15.c: drain pp->callbacks here once .then chaining lands. */
+}
+
 /* Drop hook for the universal heap header's free dispatcher. T-15.a:
  * leaks heap-typed `value` since we don't yet carry the T-drop fn
  * pointer (lands in T-15.f when Type::Promise<T> codegen knows T).
