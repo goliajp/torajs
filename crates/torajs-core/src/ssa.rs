@@ -151,6 +151,16 @@ pub enum Type {
     /// `__torajs_symbol_print` which formats `Symbol(<desc>)`.
     /// Lowers to a single pointer at codegen.
     Symbol,
+    /// T-15 (v0.5.0) — `Type::Promise` value. Heap-allocated 32-byte
+    /// block managed by `runtime_promise.c`: universal heap header +
+    /// state byte + i64 value slot + callbacks linked-list head.
+    /// Lowers to a single pointer at codegen. T-15.f.2 ships only
+    /// the type variant; T-15.g wires Promise.resolve / .then /
+    /// await dispatch through ssa_lower. The element type from
+    /// check.rs's Type::Promise(Box<Type>) is type-erased here at
+    /// the SSA layer — the runtime always sees an i64-shaped value
+    /// slot regardless of T.
+    Promise,
     /// T-10 (v0.4.0) — `Type::Any` carries a tagged value at runtime:
     /// either a primitive (i64 / f64 / bool / null) or a heap pointer
     /// (Str / Obj / Arr / Closure / RegExp / Date). At the SSA layer
@@ -184,6 +194,7 @@ impl Type {
             Type::Closure(_) => "closure",
             Type::Any => "any",
             Type::Symbol => "symbol",
+            Type::Promise => "promise",
         }
     }
 
@@ -230,6 +241,7 @@ impl Type {
                 | Type::Date
                 | Type::Any
                 | Type::Symbol
+                | Type::Promise
         )
     }
 }

@@ -4214,6 +4214,16 @@ fn parse_type(
             struct_layouts.push(layout);
             return Type::Obj(id);
         }
+        // T-15.f.2 — `Promise<T>` is a built-in generic that lowers
+        // to a single ptr-shaped Type::Promise (the inner T is type-
+        // erased at SSA — the runtime block always carries an i64
+        // value slot). Falls through to here when generic_struct_decls
+        // doesn't match (i.e. user didn't shadow `Promise` with a
+        // class declaration). check.rs::resolve_type_ann_full applies
+        // the same ordering on its side.
+        if head == "Promise" {
+            return Type::Promise;
+        }
     }
     match s {
         // `number` defaults to i64 — best for the integer-heavy cases
@@ -15242,7 +15252,8 @@ impl<'a> LowerCtx<'a> {
                     | Type::Closure(_)
                     | Type::FnSig(_)
                     | Type::RegExp
-                    | Type::Date => "object",
+                    | Type::Date
+                    | Type::Promise => "object",
                     Type::Void | Type::Ptr => "object",
                     // T-10.a — typeof on a Type::Any operand needs
                     // runtime tag dispatch (not compile-time literal).
