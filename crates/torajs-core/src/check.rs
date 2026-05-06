@@ -2094,6 +2094,33 @@ impl Checker {
                         vec![Type::Any, Type::Any],
                         Box::new(Type::Boolean),
                     )),
+                    /* T-09.a (v0.4.0) — 5 Object methods that don't fit
+                     * tr's nominal class system / fixed struct schema.
+                     * Reject at typecheck with a clear phase pointer
+                     * rather than ship a silently-wrong implementation.
+                     *
+                     * - getPrototypeOf / setPrototypeOf: bun returns the
+                     *   prototype object (a runtime value); tr's nominal
+                     *   class system has no equivalent runtime concept.
+                     *   Lands with T-27 (Function constructor era) when
+                     *   dynamic substrate becomes available.
+                     * - defineProperty / defineProperties /
+                     *   getOwnPropertyDescriptor: dynamic property add /
+                     *   descriptor introspection requires schema
+                     *   mutation; tr's struct layout is fixed at class
+                     *   declaration. Lands with T-27 / Type::Any field
+                     *   substrate post-v0.5.
+                     */
+                    (Type::Object("Object"), "getPrototypeOf")
+                    | (Type::Object("Object"), "setPrototypeOf")
+                    | (Type::Object("Object"), "defineProperty")
+                    | (Type::Object("Object"), "defineProperties")
+                    | (Type::Object("Object"), "getOwnPropertyDescriptor") => {
+                        Err(format!(
+                            "Object.{name} not supported in nominal class system; \
+                             planned for T-27 (Function constructor / dynamic substrate)"
+                        ))
+                    }
                     (Type::String, "length") | (Type::Array(_), "length") => Ok(Type::Number),
                     // M6.1 — String methods. All borrow `this` and any
                     // String args (consumption only fires at concat,
