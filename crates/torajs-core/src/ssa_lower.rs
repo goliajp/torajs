@@ -1967,6 +1967,33 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         &[],
         Type::Void,
     );
+    /* T-15.g.1 — Promise.resolve / Promise.reject statics. Both
+     * take an i64-shaped value (caller is responsible for packing
+     * heap pointers / bools / f64-bitcasts before the call) and
+     * return a fresh fulfilled / rejected Promise. T-15.g.2 wires
+     * the call sites in check.rs's static-method table + ssa_lower's
+     * Member-call dispatch. */
+    let promise_alloc_fulfilled_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_promise_alloc_fulfilled",
+        &[Type::I64],
+        Type::Promise,
+    );
+    let promise_alloc_rejected_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_promise_alloc_rejected",
+        &[Type::I64],
+        Type::Promise,
+    );
+    let promise_drop_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_promise_drop",
+        &[Type::Promise],
+        Type::Void,
+    );
     /* v0.2 #3 — Object.is(a, b) for Type::Number arguments. Diverges
      * from `===` on two corner cases:
      *   - Object.is(NaN, NaN) === true
@@ -3014,6 +3041,9 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         obj_is_frozen: obj_is_frozen_id,
         obj_check_not_frozen: obj_check_not_frozen_id,
         microtask_drain: microtask_drain_id,
+        promise_alloc_fulfilled: promise_alloc_fulfilled_id,
+        promise_alloc_rejected: promise_alloc_rejected_id,
+        promise_drop: promise_drop_id,
         symbol_alloc: symbol_alloc_id,
         symbol_drop: symbol_drop_id,
         symbol_print: symbol_print_id,
@@ -3523,6 +3553,12 @@ struct Intrinsics {
     /// main exit so chained Promise callbacks run before the
     /// process returns.
     microtask_drain: FuncId,
+    /// v0.5 T-15.g — Promise.resolve / Promise.reject runtime
+    /// constructors + drop. The arg value is i64-packed (heap-ptr
+    /// cast, bool widened, f64 bitcast).
+    promise_alloc_fulfilled: FuncId,
+    promise_alloc_rejected: FuncId,
+    promise_drop: FuncId,
     symbol_alloc: FuncId,
     symbol_drop: FuncId,
     symbol_print: FuncId,
@@ -6812,6 +6848,16 @@ impl<'a> LowerCtx<'a> {
                 self.f.append_void(
                     self.cur_block,
                     InstKind::Call(self.intrinsics.symbol_drop, vec![val]),
+                );
+            }
+            Type::Promise => {
+                // T-15.g.1 — Promise value: drop frees the residual
+                // callbacks list + the Promise block. Heap-typed
+                // value slot is leaked at T-15 MVP (see runtime
+                // commentary; T-15.h adds per-T drop fn pointer).
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.promise_drop, vec![val]),
                 );
             }
             other if other.is_copy() => {
@@ -10443,6 +10489,33 @@ impl<'a> LowerCtx<'a> {
                         self.cur_block,
                         InstKind::Call(fid, vec![arg_op]),
                         ret_ty,
+                        None,
+                    );
+                    return Operand::Value(v);
+                }
+                /* T-15.g.1 (v0.5.0) — Promise.resolve(v) / Promise.reject(e)
+                 * static constructors. MVP path: arg is i64-shaped (Number).
+                 * Heap / Bool / F64 args land in T-15.g.2 with packing
+                 * coercions. Returns a fresh fulfilled / rejected
+                 * Promise (Type::Promise at SSA, Type::Promise(Number)
+                 * at check). */
+                if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
+                    && (m_name == "resolve" || m_name == "reject")
+                    && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
+                    && ns == "Promise"
+                    && args.len() == 1
+                {
+                    let arg_op = self.lower_expr(args[0]);
+                    self.consume_if_ident(args[0]);
+                    let fid = if m_name == "resolve" {
+                        self.intrinsics.promise_alloc_fulfilled
+                    } else {
+                        self.intrinsics.promise_alloc_rejected
+                    };
+                    let v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(fid, vec![arg_op]),
+                        Type::Promise,
                         None,
                     );
                     return Operand::Value(v);

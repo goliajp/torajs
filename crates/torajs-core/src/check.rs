@@ -1886,6 +1886,12 @@ impl Checker {
                      * (`Symbol.for`, `Symbol.iterator`, ...) land in
                      * T-13.b/c via the Member arm. */
                     "Symbol" => Ok(Type::Object("Symbol")),
+                    /* T-15 (v0.5.0) — Promise global. Static methods
+                     * Promise.resolve / .reject / .all / etc. routed
+                     * via the (Type::Object("Promise"), ...) member
+                     * arm. New Promise(executor) constructor lands
+                     * in T-15.h alongside the user-class deprecation. */
+                    "Promise" => Ok(Type::Object("Promise")),
                     /* v0.3 #1 — fs module global. Methods routed via
                      * the (Type::Object("fs"), ...) member arm below. */
                     "fs" => Ok(Type::Object("fs")),
@@ -2193,6 +2199,24 @@ impl Checker {
                     (Type::Object("Object"), "isFrozen") => Ok(Type::Function(
                         vec![Type::Any],
                         Box::new(Type::Boolean),
+                    )),
+                    /* T-15.g.1 (v0.5.0) — Promise.resolve(v) constructs a
+                     * fulfilled Promise with the given value. MVP only
+                     * supports `Type::Number` arg (v passes through to
+                     * the runtime as i64 via the universal value slot);
+                     * heap-typed args land in T-15.g.2 with proper drop
+                     * fn pointer wiring so the Promise can refcount its
+                     * resolved value. The return type is `Promise<T>`
+                     * with T=Number for now — caller can re-annotate
+                     * `let p: Promise<number> = Promise.resolve(42)` to
+                     * make the static type explicit. */
+                    (Type::Object("Promise"), "resolve") => Ok(Type::Function(
+                        vec![Type::Number],
+                        Box::new(Type::Promise(Box::new(Type::Number))),
+                    )),
+                    (Type::Object("Promise"), "reject") => Ok(Type::Function(
+                        vec![Type::Number],
+                        Box::new(Type::Promise(Box::new(Type::Number))),
                     )),
                     /* T-13.b (v0.4.0) — Symbol.for(key) returns the
                      * registered Symbol for the key (creates one on
