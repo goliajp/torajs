@@ -124,6 +124,99 @@ void __torajs_promise_reject(void *p, int64_t reason) {
     /* T-15.c: drain pp->callbacks here once .then chaining lands. */
 }
 
+/* ============================================================
+ * T-15.c — microtask queue + drain.
+ *
+ * Single-thread (multi-thread post-v1.0). Backing store is a
+ * grow-by-doubling array of {fn, arg} task records. Tasks are
+ * popped FIFO via a head cursor that bumps on each drain step;
+ * compaction happens when head reaches half-capacity. Worst-case
+ * memory is O(N peak queue depth) with O(1) amortized push and
+ * O(1) pop.
+ *
+ * The fn signature is `void (*)(int64_t arg)` — a single i64 slot
+ * carries either a primitive value or a heap pointer cast through
+ * `(int64_t)(intptr_t)`. Codegen for `await` (T-16) and `.then`
+ * (T-15.d) both pack `{Promise *, callback closure}` into the arg
+ * slot via a small heap struct.
+ *
+ * `__torajs_microtask_run_until_idle` drains the queue to empty,
+ * including tasks enqueued during drain. It returns when no more
+ * microtasks are pending. Auto-called from main exit by T-15.e.
+ * ============================================================ */
+
+typedef void (*__torajs_microtask_fn_t)(int64_t arg);
+
+typedef struct {
+    __torajs_microtask_fn_t fn;
+    int64_t arg;
+} __torajs_microtask_t;
+
+/* Single global queue. v0.5 is single-thread; multi-thread support
+ * (one queue per worker) ships post-v1.0 with the thread-pool work. */
+static __torajs_microtask_t *mt_queue_ = NULL;
+static size_t mt_head_ = 0;
+static size_t mt_len_ = 0;
+static size_t mt_cap_ = 0;
+
+static void mt_grow_(void) {
+    size_t new_cap = mt_cap_ == 0 ? 32 : mt_cap_ * 2;
+    __torajs_microtask_t *nq = (__torajs_microtask_t *)realloc(
+        mt_queue_,
+        new_cap * sizeof(__torajs_microtask_t)
+    );
+    mt_queue_ = nq;
+    mt_cap_ = new_cap;
+}
+
+static void mt_compact_(void) {
+    if (mt_head_ == 0 || mt_head_ >= mt_len_) return;
+    size_t live = mt_len_ - mt_head_;
+    if (live > 0) {
+        memmove(mt_queue_, mt_queue_ + mt_head_, live * sizeof(__torajs_microtask_t));
+    }
+    mt_len_ = live;
+    mt_head_ = 0;
+}
+
+void __torajs_microtask_enqueue(__torajs_microtask_fn_t fn, int64_t arg) {
+    if (fn == NULL) return;
+    if (mt_len_ == mt_cap_) {
+        if (mt_head_ > mt_cap_ / 2) {
+            mt_compact_();
+        } else {
+            mt_grow_();
+        }
+    }
+    mt_queue_[mt_len_].fn = fn;
+    mt_queue_[mt_len_].arg = arg;
+    mt_len_++;
+}
+
+void __torajs_microtask_run_until_idle(void) {
+    /* Pop one task, run it, repeat. New tasks enqueued during the
+     * callback land at the tail and get processed in this same
+     * drain — matching JS spec's microtask semantics (drain to
+     * empty before yielding to the event loop / before exit). */
+    while (mt_head_ < mt_len_) {
+        __torajs_microtask_t t = mt_queue_[mt_head_];
+        mt_head_++;
+        t.fn(t.arg);
+        if (mt_head_ > 64 && mt_head_ > mt_cap_ / 2) {
+            mt_compact_();
+        }
+    }
+    /* Reset head to 0 once drained so the next drain starts from
+     * the front of the buffer. mt_len_ is already 0 here when no
+     * new tasks were enqueued during drain. */
+    mt_head_ = 0;
+    mt_len_ = 0;
+}
+
+size_t __torajs_microtask_pending_count(void) {
+    return mt_len_ - mt_head_;
+}
+
 /* Drop hook for the universal heap header's free dispatcher. T-15.a:
  * leaks heap-typed `value` since we don't yet carry the T-drop fn
  * pointer (lands in T-15.f when Type::Promise<T> codegen knows T).
