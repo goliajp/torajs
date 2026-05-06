@@ -10612,17 +10612,25 @@ impl<'a> LowerCtx<'a> {
                             self.cur_block,
                             InstKind::Call(
                                 self.intrinsics.promise_then_simple,
-                                vec![src_op, cb_op],
+                                vec![src_op.clone(), cb_op],
                             ),
                             Type::Promise,
                             None,
                         );
-                        // T-15.g.6 — intermediate `.then` source intentionally
-                        // not dropped here (would free before microtask
-                        // dispatcher runs — `then_simple` doesn't yet
-                        // rc_inc its source ptr). Acceptable leak for
-                        // MVP; T-15.g.7 fixes via runtime-owned source
-                        // ref + dispatcher-drop.
+                        // T-15.g.7 — drop fresh source after .then.
+                        // Now that promise_drop is rc-aware AND
+                        // then_simple inc's source on attach, this
+                        // drop just balances the natural ref of the
+                        // intermediate `.then` result. Skip on
+                        // borrow-source (Ident / Member / Index —
+                        // owner still holds the ref).
+                        let src_is_borrow = matches!(
+                            self.ast.get_expr(*src_id),
+                            Expr::Ident(_) | Expr::Member { .. } | Expr::Index { .. }
+                        );
+                        if !src_is_borrow {
+                            self.emit_drop_value(src_op, Type::Promise);
+                        }
                         return Operand::Value(v);
                     }
                 }

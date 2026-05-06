@@ -59,6 +59,7 @@ typedef struct {
 
 extern void __torajs_value_drop_heap(void *child);
 extern void __torajs_rc_inc(void *p);
+extern int __torajs_rc_dec(void *p);
 void __torajs_promise_drop(void *p);  /* fwd decl — body further down */
 
 /* Forward decls so the T-15.d .then helpers (defined before the
@@ -343,6 +344,12 @@ static void then_simple_dispatch_(int64_t arg) {
     int64_t value = __torajs_promise_get_value(a->source);
     int64_t result = a->cb(value);
     __torajs_promise_resolve(a->result, result);
+    /* T-15.g.7 — release the rc inc'd at attach_then time. Now that
+     * promise_drop is rc-aware (T-15.g.7 above), this decrement
+     * pairs with the inc in __torajs_promise_then_simple without
+     * double-free'ing the source when the user-side ref still
+     * exists. */
+    __torajs_promise_drop(a->source);
     free(a);
 }
 
@@ -355,6 +362,12 @@ void *__torajs_promise_then_simple(void *source, __torajs_then_cb_i64_t cb) {
     a->source = source;
     a->cb = cb;
     a->result = result;
+    /* T-15.g.7 — inc source so it survives across the microtask
+     * delay even if the caller's other refs all drop in the
+     * meantime (e.g. intermediate `.then(...)` source whose only
+     * other ref is the temp from the `.then` call expression).
+     * Dispatcher dec's via promise_drop. */
+    __torajs_rc_inc(source);
     __torajs_promise_attach_then(
         source,
         then_simple_dispatch_,
@@ -364,17 +377,22 @@ void *__torajs_promise_then_simple(void *source, __torajs_then_cb_i64_t cb) {
 }
 
 /* Drop hook for the universal heap header's free dispatcher.
- * T-15.d: free the residual callback list (each unfired cb node)
- * before freeing the Promise block itself.
+ * T-15.g.7: rc-aware — dec the refcount, free only at zero. The
+ * pre-T-15.g.7 implementation always free()'d which broke shared
+ * Promise refs (let-binding + .then both holding a ref ended up
+ * double-free'ing on scope exit).
  *
- * T-15.g.4: when `value_is_heap`, dec the resolved value's
- * refcount via `__torajs_value_drop_heap` (which dispatches by
- * type_tag — Str / Arr today, others fall back to rc_dec+free).
- * The Promise owned one ref on the inner heap value; this drop
- * releases it. Skip when state is PENDING (no value yet) or
- * when value is NULL. */
+ * On free (refcount hit 0):
+ *   - free the residual callback list (each unfired cb node)
+ *   - if `value_is_heap`, dec the resolved value's refcount via
+ *     `__torajs_value_drop_heap` (Str / Arr proper, others fall
+ *     back to rc_dec+free leak-safely).
+ *   - free the Promise block itself.
+ *
+ * NULL passes through. */
 void __torajs_promise_drop(void *p) {
     if (p == NULL) return;
+    if (!__torajs_rc_dec(p)) return;
     Promise *pp = (Promise *)p;
     __torajs_promise_cb_t *node = (__torajs_promise_cb_t *)pp->callbacks;
     while (node != NULL) {
