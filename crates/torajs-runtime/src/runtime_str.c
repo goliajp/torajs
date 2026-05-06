@@ -135,6 +135,26 @@ typedef struct __attribute__((aligned(8))) {
 #define __TORAJS_TAG_REGEX   4  /* runtime_regex.c — compiled NFA + flags */
 #define __TORAJS_TAG_DATE    5  /* runtime_date.c — { ms_since_epoch } */
 
+/* T-10.b (v0.4.0) — Type::Any tagged-slot tags. An Array<Any> stores
+ * 16-byte slots `{ tag: u64 (low 8 bits used), value: u64 }` so each
+ * slot self-describes its contents. ANY_NULL / ANY_BOOL / ANY_I64 /
+ * ANY_F64 stash the value inline; ANY_HEAP stashes a pointer to a
+ * heap object whose actual type is discoverable via the universal
+ * heap header's `type_tag` field (Str / Obj / Arr / Closure / RegExp
+ * / Date / nested Any-array). T-10.c wires the codegen path that
+ * emits these slots from heterogeneous Array literals. */
+#define __TORAJS_ANY_NULL    0
+#define __TORAJS_ANY_BOOL    1
+#define __TORAJS_ANY_I64     2
+#define __TORAJS_ANY_F64     3
+#define __TORAJS_ANY_HEAP    4
+
+/* Array<Any> uses 16-byte slots instead of 8. Marked at alloc time
+ * via this flag bit so arr_drop_any can walk slots correctly and
+ * arr_free can route Any-arrays out of the regular arr_pool (the
+ * pool is sized for 8-byte-slot caps; mixing strides corrupts it). */
+#define __TORAJS_FLAG_ARR_ANY 8u
+
 /* Universal heap header flag bits.
  *   bit 1 (=2): SPLIT_BLOCK — single-malloc block produced by str_split,
  *               carries N inline substr structs; routed to split_pool on free.
@@ -415,7 +435,12 @@ void __torajs_arr_free(void *p) {
             return;
         }
     } else if (cap <= __TORAJS_ARR_POOL_CAP_MAX
-               && arr_pool_count_ < __TORAJS_ARR_POOL_SLOTS) {
+               && arr_pool_count_ < __TORAJS_ARR_POOL_SLOTS
+               && !(h->flags & __TORAJS_FLAG_ARR_ANY)) {
+        /* Array<Any> uses 16-byte slots; the pool is sized for the
+         * regular 8-byte stride so mixing the two corrupts subsequent
+         * pulls. Route Any-arrays straight to libc free.
+         */
         arr_pool_blocks_[arr_pool_count_] = (uint8_t *)p;
         arr_pool_caps_[arr_pool_count_] = cap;
         arr_pool_count_++;
@@ -459,6 +484,124 @@ void *__torajs_arr_alloc_pooled(uint64_t cap) {
     *(uint64_t *)(p + 8) = 0;       /* len */
     *(uint64_t *)(p + 16) = cap;
     return p;
+}
+
+/* ============================================================
+ * T-10.b (v0.4.0) — Array<Any> tagged-slot runtime
+ *
+ * Layout: same 24-byte header (refcount/type_tag/flags + len + cap)
+ * but slot stride is 16 bytes (vs 8 for regular Array<T>):
+ *
+ *     [hdr 24][slot0 16][slot1 16] ...
+ *      where slot = { tag: u64 (low 8 bits used), value: u64 }
+ *
+ * `flags` carries `__TORAJS_FLAG_ARR_ANY` so arr_free routes the
+ * block out of the regular arr_pool (whose slot-stride assumption
+ * doesn't match) and arr_drop_any (vs arr_drop) is the correct
+ * walker. The header's `type_tag` stays `TAG_ARR` so generic ARC
+ * intrinsics (rc_inc / rc_dec / heap walk) treat it like any other
+ * array; the dispatch on Any-vs-non-Any happens at the codegen
+ * call site, which already knows whether it's emitting Array<Any>
+ * or Array<T>.
+ *
+ * T-10.b ships only the runtime helpers — codegen wiring lands
+ * with T-10.c. The helpers are dead code until T-10.c calls into
+ * them; included now so the C side can compile + the symbols are
+ * ready for the inkwell decls.
+ * ============================================================ */
+
+/* Slot stride for Array<Any>. */
+#define __TORAJS_ANY_SLOT_BYTES  16
+
+/* slot[i] tag pointer (writable). */
+static inline uint64_t *any_slot_tag_(void *arr, uint64_t i) {
+    return (uint64_t *)((uint8_t *)arr + 24 /* __TORAJS_ARR_HDR_SIZE */
+                        + i * __TORAJS_ANY_SLOT_BYTES);
+}
+
+/* slot[i] value pointer (writable). */
+static inline uint64_t *any_slot_val_(void *arr, uint64_t i) {
+    return (uint64_t *)((uint8_t *)arr + 24 /* __TORAJS_ARR_HDR_SIZE */
+                        + i * __TORAJS_ANY_SLOT_BYTES + 8);
+}
+
+void *__torajs_arr_alloc_any(uint64_t cap) {
+    /* Allocate header + cap × 16-byte slots. Bypass the pool
+     * (different stride). */
+    uint8_t *p = (uint8_t *)malloc(24 /* __TORAJS_ARR_HDR_SIZE */
+                                   + (size_t)cap * __TORAJS_ANY_SLOT_BYTES);
+    __torajs_heap_header_t *h = (__torajs_heap_header_t *)p;
+    h->refcount = 1;
+    h->type_tag = __TORAJS_TAG_ARR;
+    h->flags = __TORAJS_FLAG_ARR_ANY;
+    *(uint64_t *)(p + 8) = 0;        /* len */
+    *(uint64_t *)(p + 16) = cap;
+    return p;
+}
+
+/* Append a tagged slot. Grows by 2× when len == cap (matches
+ * `__torajs_arr_push`'s growth strategy). Returns the (possibly
+ * realloc'd) array pointer; caller stores it back into the slot,
+ * mirroring the `arr_push` contract.
+ *
+ * For ANY_HEAP slots, the caller is responsible for having
+ * incremented the heap value's refcount BEFORE calling — push
+ * takes ownership of the pre-bumped reference and will dec it via
+ * `arr_drop_any` when the array dies. */
+void *__torajs_arr_push_any(void *arr, uint64_t tag, uint64_t value) {
+    __torajs_heap_header_t *h = (__torajs_heap_header_t *)arr;
+    uint64_t len = *(uint64_t *)((uint8_t *)arr + 8);
+    uint64_t cap = *(uint64_t *)((uint8_t *)arr + 16);
+    if (len == cap) {
+        uint64_t new_cap = cap == 0 ? 4 : cap * 2;
+        uint8_t *grown = (uint8_t *)realloc(
+            arr,
+            24 /* __TORAJS_ARR_HDR_SIZE */ + (size_t)new_cap * __TORAJS_ANY_SLOT_BYTES);
+        arr = grown;
+        h = (__torajs_heap_header_t *)arr;
+        *(uint64_t *)((uint8_t *)arr + 16) = new_cap;
+    }
+    *any_slot_tag_(arr, len) = tag;
+    *any_slot_val_(arr, len) = value;
+    *(uint64_t *)((uint8_t *)arr + 8) = len + 1;
+    /* Suppress unused-h warning when the realloc branch isn't taken. */
+    (void)h;
+    return arr;
+}
+
+uint64_t __torajs_arr_get_any_tag(const void *arr, uint64_t i) {
+    return *any_slot_tag_((void *)arr, i);
+}
+
+uint64_t __torajs_arr_get_any_value(const void *arr, uint64_t i) {
+    return *any_slot_val_((void *)arr, i);
+}
+
+/* Drop an Array<Any>. Walks every slot; for ANY_HEAP slots,
+ * dec's the universal refcount (and triggers per-type free at
+ * zero — done by rc_dec callers up the chain). Then frees the
+ * outer block. The caller must have already determined that the
+ * array's own refcount reached zero (typical pattern: rc_dec
+ * returns 1 → call arr_drop_any). */
+void __torajs_arr_drop_any(void *arr) {
+    if (arr == NULL) return;
+    __torajs_heap_header_t *h = (__torajs_heap_header_t *)arr;
+    if (h->flags & __TORAJS_FLAG_STATIC_LITERAL) return;
+    uint64_t len = *(uint64_t *)((uint8_t *)arr + 8);
+    for (uint64_t i = 0; i < len; i++) {
+        uint64_t tag = *any_slot_tag_(arr, i);
+        if (tag == __TORAJS_ANY_HEAP) {
+            void *child = (void *)(uintptr_t)*any_slot_val_(arr, i);
+            /* rc_dec returns 1 iff the child's refcount hit zero;
+             * in that case we'd need to invoke the child's per-
+             * type free (str_free / arr_free / obj_free / ...).
+             * That dispatch lands with T-10.c when codegen actually
+             * starts producing ANY_HEAP slots — for now the helper
+             * is wired but unused. */
+            (void)__torajs_rc_dec(child);
+        }
+    }
+    free(arr);
 }
 
 /* Create a substring view of `parent` (an OWNED Str) starting at
