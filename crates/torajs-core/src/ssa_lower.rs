@@ -7142,6 +7142,21 @@ impl<'a> LowerCtx<'a> {
                         None,
                     );
                     Operand::Value(v)
+                } else if let Expr::Array(els) = self.ast.get_expr(*init)
+                    && let Type::Arr(arr_id) = ty
+                    && self.arr_layouts[arr_id.0 as usize] == Type::Any
+                    && !els.iter().any(|e| matches!(self.ast.get_expr(*e), Expr::Spread { .. }))
+                {
+                    // T-11 (v0.4.0) — annotated `let xs: any[] =
+                    // [...]` with non-empty literal forces the Any
+                    // codegen path regardless of element kinds. Needed
+                    // for `let __torajs_arguments: any[] = [a, b, ...]`
+                    // synthesized by desugar_arguments_object where
+                    // params are non-literal Idents (which the AST-
+                    // shape probe in `array_literal_is_heterogeneous`
+                    // can't classify).
+                    let ids: Vec<ExprId> = els.clone();
+                    self.lower_array_any_literal(&ids)
                 } else {
                     self.lower_expr(*init)
                 };

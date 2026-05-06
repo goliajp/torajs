@@ -574,6 +574,17 @@ fn is_assignable_to(to: &Type, from: &Type) -> bool {
     if matches!(from, Type::Any) {
         return true;
     }
+    // T-11 (v0.4.0) — `Array<Any>` is the universal element-type
+    // sink; any concrete `Array<T>` widens into it via boxing at
+    // ssa_lower time. Used by the synthesized `let
+    // __torajs_arguments: any[] = [...params]` and by user-written
+    // `let xs: any[] = [...]` whose elements happen to share a
+    // concrete type.
+    if let (Type::Array(to_el), Type::Array(_)) = (to, from)
+        && matches!(**to_el, Type::Any)
+    {
+        return true;
+    }
     if let Type::Nullable(inner) = to {
         if matches!(from, Type::Null) {
             return true;

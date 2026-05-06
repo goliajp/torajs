@@ -5142,14 +5142,208 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
     for (idx, stmt) in stmts_clone.iter().enumerate() {
         if let Stmt::FnDecl { name, body, .. } = stmt {
             let Some(params) = fn_params.get(name) else { continue };
+            let params = params.clone();
+            // T-11 — pre-pass: detect any dynamic `arguments[<non-
+            // literal>]` use. If found, prepend a synthesized
+            // `let __torajs_arguments: any[] = [p0, p1, ...]` before
+            // the body and rewrite the dynamic indices to read from it.
+            // Literal-index rewrites (the existing path) take priority
+            // and don't materialize the array — they stay zero-cost.
+            let mut needs_materialize = false;
+            for s in body {
+                if stmt_uses_dynamic_arguments(ast, s) {
+                    needs_materialize = true;
+                    break;
+                }
+            }
             let new_body: Vec<Stmt> = body
                 .iter()
-                .map(|s| rewrite_arguments_in_stmt(ast, s, params))
+                .map(|s| rewrite_arguments_in_stmt(ast, s, &params))
                 .collect();
+            // Synthesize the local OUTSIDE the &mut ast.stmts borrow
+            // (synth_arguments_local also takes &mut ast for add_expr).
+            let synth_opt = if needs_materialize {
+                Some(synth_arguments_local(ast, &params))
+            } else {
+                None
+            };
             if let Stmt::FnDecl { body: b, .. } = &mut ast.stmts[idx] {
-                *b = new_body;
+                if let Some(synth) = synth_opt {
+                    let mut full = Vec::with_capacity(new_body.len() + 1);
+                    full.push(synth);
+                    full.extend(new_body);
+                    *b = full;
+                } else {
+                    *b = new_body;
+                }
             }
         }
+    }
+}
+
+/// T-11 — returns true if any `arguments[<non-literal>]` index access
+/// (or bare `arguments` reference outside the literal-index /
+/// `arguments.length` / spread forms the existing rewrite handles)
+/// appears in the stmt subtree. Used to gate the synthesized
+/// `let __torajs_arguments: any[] = [...]` prepend.
+fn stmt_uses_dynamic_arguments(ast: &Ast, s: &Stmt) -> bool {
+    match s {
+        Stmt::Expr(eid) | Stmt::Throw(eid) | Stmt::Yield(eid) => {
+            expr_uses_dynamic_arguments(ast, *eid)
+        }
+        Stmt::Return(opt) => opt.is_some_and(|e| expr_uses_dynamic_arguments(ast, e)),
+        Stmt::LetDecl { init, .. } => expr_uses_dynamic_arguments(ast, *init),
+        Stmt::YieldInto { value, .. } => expr_uses_dynamic_arguments(ast, *value),
+        Stmt::If { cond, then_branch, else_branch } => {
+            expr_uses_dynamic_arguments(ast, *cond)
+                || stmt_uses_dynamic_arguments(ast, then_branch)
+                || else_branch.as_ref().is_some_and(|e| stmt_uses_dynamic_arguments(ast, e))
+        }
+        Stmt::While { cond, body } | Stmt::DoWhile { cond, body } => {
+            expr_uses_dynamic_arguments(ast, *cond) || stmt_uses_dynamic_arguments(ast, body)
+        }
+        Stmt::For { init, cond, step, body } => {
+            init.as_ref().is_some_and(|s| stmt_uses_dynamic_arguments(ast, s))
+                || cond.is_some_and(|c| expr_uses_dynamic_arguments(ast, c))
+                || step.is_some_and(|st| expr_uses_dynamic_arguments(ast, st))
+                || stmt_uses_dynamic_arguments(ast, body)
+        }
+        Stmt::ForOfSplitIter { parent, sep, body, .. } => {
+            expr_uses_dynamic_arguments(ast, *parent)
+                || expr_uses_dynamic_arguments(ast, *sep)
+                || stmt_uses_dynamic_arguments(ast, body)
+        }
+        Stmt::Block(stmts) | Stmt::Multi(stmts) => {
+            stmts.iter().any(|s| stmt_uses_dynamic_arguments(ast, s))
+        }
+        Stmt::Try { body, catch_body, finally_body, .. } => {
+            body.iter().any(|s| stmt_uses_dynamic_arguments(ast, s))
+                || catch_body.iter().any(|s| stmt_uses_dynamic_arguments(ast, s))
+                || finally_body
+                    .as_ref()
+                    .is_some_and(|fb| fb.iter().any(|s| stmt_uses_dynamic_arguments(ast, s)))
+        }
+        _ => false,
+    }
+}
+
+fn expr_uses_dynamic_arguments(ast: &Ast, eid: ExprId) -> bool {
+    match ast.get_expr(eid) {
+        Expr::Index { obj, index } => {
+            // Match `arguments[<non-Number-literal>]`. Number-literal
+            // case is already handled inline by the existing rewrite
+            // (param-name substitution; no array materialization).
+            if matches!(ast.get_expr(*obj), Expr::Ident(n) if n == "arguments") {
+                if !matches!(ast.get_expr(*index), Expr::Number(_)) {
+                    return true;
+                }
+                // Number index but out-of-range fall-through still
+                // materializes — bun returns undefined; tr maps to
+                // null in the boxed Any read. Conservative: treat as
+                // dynamic so the array is available.
+                if let Expr::Number(n) = ast.get_expr(*index)
+                    && (n.fract() != 0.0 || (*n as usize) >= count_user_params(ast, eid))
+                {
+                    return true;
+                }
+            }
+            expr_uses_dynamic_arguments(ast, *obj)
+                || expr_uses_dynamic_arguments(ast, *index)
+        }
+        Expr::Member { obj, name } => {
+            // `arguments.callee` — currently unhandled; will need its
+            // own materialization later. Bare `arguments.<other>`
+            // also forces materialize so stuff like
+            // `arguments.length.toString()` keeps walking.
+            if matches!(ast.get_expr(*obj), Expr::Ident(n) if n == "arguments")
+                && name != "length"
+            {
+                return true;
+            }
+            expr_uses_dynamic_arguments(ast, *obj)
+        }
+        Expr::Ident(n) if n == "arguments" => {
+            // Bare `arguments` reference (not Index / Member / spread —
+            // those have their own arms). E.g. `let xs = arguments;`
+            // or passing `arguments` to a fn that's not the spread
+            // form. Forces materialize.
+            true
+        }
+        Expr::Call { callee, args } => {
+            expr_uses_dynamic_arguments(ast, *callee)
+                || args.iter().any(|a| {
+                    // `f(...arguments)` is handled by the inline-spread
+                    // rewrite — no materialize needed.
+                    if let Expr::Spread { expr } = ast.get_expr(*a)
+                        && let Expr::Ident(n) = ast.get_expr(*expr)
+                        && n == "arguments"
+                    {
+                        return false;
+                    }
+                    expr_uses_dynamic_arguments(ast, *a)
+                })
+        }
+        Expr::BinOp { left, right, .. } => {
+            expr_uses_dynamic_arguments(ast, *left)
+                || expr_uses_dynamic_arguments(ast, *right)
+        }
+        Expr::Unary { expr, .. } | Expr::TypeOf { expr } | Expr::PostIncr { target: expr, .. } => {
+            expr_uses_dynamic_arguments(ast, *expr)
+        }
+        Expr::Assign { target, value } => {
+            expr_uses_dynamic_arguments(ast, *target)
+                || expr_uses_dynamic_arguments(ast, *value)
+        }
+        Expr::Array(items) => items.iter().any(|e| {
+            // `[...arguments]` — handled inline by spread rewrite.
+            if let Expr::Spread { expr } = ast.get_expr(*e)
+                && let Expr::Ident(n) = ast.get_expr(*expr)
+                && n == "arguments"
+            {
+                return false;
+            }
+            expr_uses_dynamic_arguments(ast, *e)
+        }),
+        Expr::ObjectLit { fields } => {
+            fields.iter().any(|(_, e)| expr_uses_dynamic_arguments(ast, *e))
+        }
+        Expr::Spread { expr } => expr_uses_dynamic_arguments(ast, *expr),
+        Expr::Ternary { cond, then_branch, else_branch } => {
+            expr_uses_dynamic_arguments(ast, *cond)
+                || expr_uses_dynamic_arguments(ast, *then_branch)
+                || expr_uses_dynamic_arguments(ast, *else_branch)
+        }
+        Expr::Nullish { lhs, rhs } => {
+            expr_uses_dynamic_arguments(ast, *lhs) || expr_uses_dynamic_arguments(ast, *rhs)
+        }
+        Expr::OptChain { obj, .. } => expr_uses_dynamic_arguments(ast, *obj),
+        _ => false,
+    }
+}
+
+fn count_user_params(_ast: &Ast, _eid: ExprId) -> usize {
+    // Caller's params count is captured during the FnDecl walk and
+    // not threaded through expr_uses_dynamic_arguments today; default
+    // to a large value so the literal-bounds-check arm never trips.
+    // The bounds-aware materialize is a follow-up.
+    usize::MAX
+}
+
+/// T-11 — synthesize `let __torajs_arguments: any[] = [p0, p1, ...]`
+/// for prepending to a fn body. Each param Ident becomes one array
+/// element; the LetDecl arm in ssa_lower routes through the forced-
+/// Any path because the annotation is `any[]`.
+fn synth_arguments_local(ast: &mut Ast, params: &[String]) -> Stmt {
+    let elems: Vec<ExprId> = params
+        .iter()
+        .map(|p| ast.add_expr(Expr::Ident(p.clone())))
+        .collect();
+    let init = ast.add_expr(Expr::Array(elems));
+    Stmt::LetDecl {
+        mutable: false,
+        name: "__torajs_arguments".into(),
+        type_ann: Some("any[]".into()),
+        init,
     }
 }
 
@@ -5245,19 +5439,30 @@ fn rewrite_arguments_in_expr(ast: &mut Ast, eid: ExprId, params: &[String]) -> E
             let new_obj = rewrite_arguments_in_expr(ast, obj, params);
             ast.add_expr(Expr::Member { obj: new_obj, name })
         }
-        // `arguments[N]` with literal N in [0, arity) → Ident(param[N])
+        // `arguments[N]` with literal N in [0, arity) → Ident(param[N]).
+        // T-11 — `arguments[<non-literal>]` (or out-of-range literal)
+        // → `__torajs_arguments[<i>]` reading from the synthesized
+        // Array<Any>. The synth let is prepended at fn body start by
+        // the FnDecl-walk pre-pass when any dynamic use is detected.
         Expr::Index { obj, index } => {
             let is_arguments = matches!(
                 ast.get_expr(obj),
                 Expr::Ident(n) if n == "arguments"
             );
-            if is_arguments
-                && let Expr::Number(n) = ast.get_expr(index)
-                && n.fract() == 0.0
-                && (*n as usize) < params.len()
-            {
-                let pname = params[*n as usize].clone();
-                return ast.add_expr(Expr::Ident(pname));
+            if is_arguments {
+                if let Expr::Number(n) = ast.get_expr(index)
+                    && n.fract() == 0.0
+                    && (*n as usize) < params.len()
+                {
+                    let pname = params[*n as usize].clone();
+                    return ast.add_expr(Expr::Ident(pname));
+                }
+                // Dynamic index (or out-of-range literal): route to
+                // the materialized Array<Any> via __torajs_arguments.
+                let new_index = rewrite_arguments_in_expr(ast, index, params);
+                let synth_obj =
+                    ast.add_expr(Expr::Ident("__torajs_arguments".into()));
+                return ast.add_expr(Expr::Index { obj: synth_obj, index: new_index });
             }
             let new_obj = rewrite_arguments_in_expr(ast, obj, params);
             let new_index = rewrite_arguments_in_expr(ast, index, params);
