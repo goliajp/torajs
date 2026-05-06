@@ -2171,6 +2171,14 @@ impl Checker {
                         vec![Type::Symbol],
                         Box::new(Type::Nullable(Box::new(Type::String))),
                     )),
+                    /* T-13.c (v0.4.0) — well-known Symbol singletons.
+                     * Process-level lazy-init pointers; identity
+                     * preserved across all access sites. for-of
+                     * dispatch via `[Symbol.iterator]()` lands with
+                     * v0.5 (iterator protocol substrate). */
+                    (Type::Object("Symbol"), "iterator")
+                    | (Type::Object("Symbol"), "asyncIterator")
+                    | (Type::Object("Symbol"), "toPrimitive") => Ok(Type::Symbol),
                     /* T-09.a (v0.4.0) — 5 Object methods that don't fit
                      * tr's nominal class system / fixed struct schema.
                      * Reject at typecheck with a clear phase pointer

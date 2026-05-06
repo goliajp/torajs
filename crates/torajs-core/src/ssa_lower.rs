@@ -1906,6 +1906,29 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         &[Type::Symbol],
         Type::Str,
     );
+    /* T-13.c (v0.4.0) — well-known Symbol singletons. Each getter
+     * lazy-inits on first call and rc_inc's for the caller. */
+    let symbol_iterator_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_symbol_iterator",
+        &[],
+        Type::Symbol,
+    );
+    let symbol_async_iterator_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_symbol_async_iterator",
+        &[],
+        Type::Symbol,
+    );
+    let symbol_to_primitive_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_symbol_to_primitive",
+        &[],
+        Type::Symbol,
+    );
     /* T-03 (v0.3.0) — sync stdio. process.stdout.write(s) and
      * process.stderr.write(s) return bytes written (i64); stdin.read()
      * drains stdin to EOF and returns one Str. Aborting on short
@@ -2977,6 +3000,9 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         symbol_print: symbol_print_id,
         symbol_for: symbol_for_id,
         symbol_key_for: symbol_key_for_id,
+        symbol_iterator: symbol_iterator_id,
+        symbol_async_iterator: symbol_async_iterator_id,
+        symbol_to_primitive: symbol_to_primitive_id,
         object_is_f64: object_is_f64_id,
         split_iter_init: split_iter_init_id,
         split_iter_next: split_iter_next_id,
@@ -3479,6 +3505,9 @@ struct Intrinsics {
     symbol_print: FuncId,
     symbol_for: FuncId,
     symbol_key_for: FuncId,
+    symbol_iterator: FuncId,
+    symbol_async_iterator: FuncId,
+    symbol_to_primitive: FuncId,
     object_is_f64: FuncId,
     split_iter_init: FuncId,
     split_iter_next: FuncId,
@@ -14226,6 +14255,28 @@ impl<'a> LowerCtx<'a> {
                 Operand::Value(obj_ptr)
             }
             Expr::Member { obj, name } => {
+                /* T-13.c (v0.4.0) — well-known Symbol singletons.
+                 * Each access lowers to a runtime helper call that
+                 * lazy-inits the process-level singleton + rc_inc's
+                 * for the caller. */
+                if let Expr::Ident(n) = self.ast.get_expr(*obj)
+                    && n == "Symbol"
+                    && matches!(name.as_str(), "iterator" | "asyncIterator" | "toPrimitive")
+                {
+                    let fid = match name.as_str() {
+                        "iterator" => self.intrinsics.symbol_iterator,
+                        "asyncIterator" => self.intrinsics.symbol_async_iterator,
+                        "toPrimitive" => self.intrinsics.symbol_to_primitive,
+                        _ => unreachable!(),
+                    };
+                    let v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(fid, Vec::new()),
+                        Type::Symbol,
+                        None,
+                    );
+                    return Operand::Value(v);
+                }
                 /* v0.3 #3 — `process.platform` — runtime call to the
                  * platform-string helper. Other process.* are calls (handled
                  * via resolve_callee). */

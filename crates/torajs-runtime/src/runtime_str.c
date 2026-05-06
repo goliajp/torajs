@@ -1344,6 +1344,56 @@ void *__torajs_symbol_key_for(void *sym) {
     return NULL;
 }
 
+/* T-13.c (v0.4.0) — well-known Symbol singletons. Process-level
+ * cached pointers, lazy-init on first access. Each getter rc_inc's
+ * the singleton for the caller; the cache itself holds a "permanent"
+ * ref (never freed, intentional — these live for process lifetime).
+ *
+ * Description string is constructed via __torajs_str_alloc_pooled +
+ * memcpy from a C literal. for-of integration via
+ * `[Symbol.iterator]()` method dispatch lands with v0.5 (alongside
+ * async/await + iterator protocol substrate). */
+
+static void *well_known_iterator_ = NULL;
+static void *well_known_async_iterator_ = NULL;
+static void *well_known_to_primitive_ = NULL;
+
+static void *make_str_literal_(const char *s, uint64_t len) {
+    uint8_t *p = __torajs_str_alloc_pooled(len);
+    if (len) memcpy(p + __TORAJS_STR_HDR_SIZE, s, (size_t)len);
+    return p;
+}
+
+void *__torajs_symbol_iterator(void) {
+    if (well_known_iterator_ == NULL) {
+        void *desc = make_str_literal_("Symbol.iterator", 15);
+        well_known_iterator_ = __torajs_symbol_alloc(desc);
+        __torajs_str_drop(desc); /* symbol_alloc rc_inc'd it */
+    }
+    __torajs_rc_inc(well_known_iterator_);
+    return well_known_iterator_;
+}
+
+void *__torajs_symbol_async_iterator(void) {
+    if (well_known_async_iterator_ == NULL) {
+        void *desc = make_str_literal_("Symbol.asyncIterator", 20);
+        well_known_async_iterator_ = __torajs_symbol_alloc(desc);
+        __torajs_str_drop(desc);
+    }
+    __torajs_rc_inc(well_known_async_iterator_);
+    return well_known_async_iterator_;
+}
+
+void *__torajs_symbol_to_primitive(void) {
+    if (well_known_to_primitive_ == NULL) {
+        void *desc = make_str_literal_("Symbol.toPrimitive", 18);
+        well_known_to_primitive_ = __torajs_symbol_alloc(desc);
+        __torajs_str_drop(desc);
+    }
+    __torajs_rc_inc(well_known_to_primitive_);
+    return well_known_to_primitive_;
+}
+
 /* `__torajs_arr_push_unchecked` is inkwell-defined and exported as a
  * regular extern symbol; declare it here so the C runtime can call it
  * from split's pre-sized fast path (skips per-push capacity check +
