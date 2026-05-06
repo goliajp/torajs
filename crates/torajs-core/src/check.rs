@@ -2232,6 +2232,22 @@ impl Checker {
                         vec![Type::Number],
                         Box::new(Type::Promise(Box::new(Type::Number))),
                     )),
+                    /* T-15.g.3 (v0.5.0) — `Promise<T>.then(cb)` chains.
+                     * MVP: cb is `(v: number) => number`, return type is
+                     * `Promise<number>`. T-15.g.4 widens to generic T/U
+                     * via TypeVar substitution; T-15.g.5 adds the
+                     * onRejected branch. The arm matches when the
+                     * receiver Type is Type::Promise(Number) (the only
+                     * inner-T the SSA layer can pack today). */
+                    (Type::Promise(inner), "then") if **inner == Type::Number => Ok(
+                        Type::Function(
+                            vec![Type::Function(
+                                vec![Type::Number],
+                                Box::new(Type::Number),
+                            )],
+                            Box::new(Type::Promise(Box::new(Type::Number))),
+                        ),
+                    ),
                     /* T-13.b (v0.4.0) — Symbol.for(key) returns the
                      * registered Symbol for the key (creates one on
                      * first call). Identity preserved across calls. */

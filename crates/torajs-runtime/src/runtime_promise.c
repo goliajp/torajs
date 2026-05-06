@@ -283,6 +283,67 @@ size_t __torajs_microtask_pending_count(void) {
     return mt_len_ - mt_head_;
 }
 
+/* ============================================================
+ * T-15.g.3 — Promise.then(cb) for the i64→i64 MVP.
+ *
+ * `cb: (v: number) => number` — at SSA layer this is Type::FnSig
+ * with signature (i64) -> i64. The fn-ptr value passes through to
+ * the runtime as a regular C fn pointer (same i64-shape as any
+ * other heap pointer cast through `(int64_t)(intptr_t)cb`). T-15.g.4
+ * will widen to Type::Closure (with env block) by storing the
+ * env ptr alongside the fn ptr in the dispatch arg.
+ *
+ * Per .then call:
+ *   1. Alloc result Promise (pending)
+ *   2. Alloc {source, cb, result} struct (heap)
+ *   3. attach_then(source, dispatcher, struct_ptr)
+ *      → enqueues immediately if source already settled
+ *      → appends to source.callbacks if pending
+ *   4. Return result Promise
+ *
+ * Dispatcher (microtask body) reads source's resolved value via
+ * the heap helper, calls cb, resolves result, frees the struct.
+ *
+ * MVP omissions (reach in T-15.g.4 / T-15.g.5):
+ *   - rejection branch is ignored — onRejected param not yet typed
+ *   - source / result rc accounting is leaky; T-15.h adds proper
+ *     refcount inc/dec around chain endpoints
+ *   - cb returns void (no chaining onward) — only i64→i64 today
+ * ============================================================ */
+
+typedef int64_t (*__torajs_then_cb_i64_t)(int64_t);
+
+typedef struct {
+    void *source;
+    __torajs_then_cb_i64_t cb;
+    void *result;
+} __torajs_then_simple_arg_t;
+
+static void then_simple_dispatch_(int64_t arg) {
+    __torajs_then_simple_arg_t *a = (__torajs_then_simple_arg_t *)(intptr_t)arg;
+    int64_t value = __torajs_promise_get_value(a->source);
+    int64_t result = a->cb(value);
+    __torajs_promise_resolve(a->result, result);
+    free(a);
+}
+
+void *__torajs_promise_then_simple(void *source, __torajs_then_cb_i64_t cb) {
+    if (source == NULL || cb == NULL) return NULL;
+    void *result = __torajs_promise_alloc_pending();
+    __torajs_then_simple_arg_t *a = (__torajs_then_simple_arg_t *)malloc(
+        sizeof(*a)
+    );
+    a->source = source;
+    a->cb = cb;
+    a->result = result;
+    __torajs_promise_attach_then(
+        source,
+        then_simple_dispatch_,
+        (int64_t)(intptr_t)a
+    );
+    return result;
+}
+
 /* Drop hook for the universal heap header's free dispatcher.
  * T-15.d: free the residual callback list (each unfired cb node)
  * before freeing the Promise block itself. The cb's `arg` slot

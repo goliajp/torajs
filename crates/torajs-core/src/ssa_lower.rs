@@ -2006,6 +2006,16 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         &[Type::Promise],
         Type::I64,
     );
+    /* T-15.g.3 — `.then(cb)` for the i64→i64 MVP. The cb is passed
+     * as a generic Ptr (FnSig fn ptr at SSA, opaque pointer at C
+     * call boundary). Returns a fresh Promise. */
+    let promise_then_simple_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_promise_then_simple",
+        &[Type::Promise, Type::Ptr],
+        Type::Promise,
+    );
     /* v0.2 #3 — Object.is(a, b) for Type::Number arguments. Diverges
      * from `===` on two corner cases:
      *   - Object.is(NaN, NaN) === true
@@ -3057,6 +3067,7 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         promise_alloc_rejected: promise_alloc_rejected_id,
         promise_drop: promise_drop_id,
         promise_get_value: promise_get_value_id,
+        promise_then_simple: promise_then_simple_id,
         symbol_alloc: symbol_alloc_id,
         symbol_drop: symbol_drop_id,
         symbol_print: symbol_print_id,
@@ -3573,6 +3584,7 @@ struct Intrinsics {
     promise_alloc_rejected: FuncId,
     promise_drop: FuncId,
     promise_get_value: FuncId,
+    promise_then_simple: FuncId,
     symbol_alloc: FuncId,
     symbol_drop: FuncId,
     symbol_print: FuncId,
@@ -10507,6 +10519,64 @@ impl<'a> LowerCtx<'a> {
                     );
                     return Operand::Value(v);
                 }
+                /* T-15.g.3 (v0.5.0) — `p.then(cb)` for built-in Promise.
+                 * MVP: cb is `(v: number) => number`. Lowers to a
+                 * runtime helper that:
+                 *   1. allocates a fresh result Promise (pending)
+                 *   2. heap-allocates a {source, cb, result} struct
+                 *   3. attaches the dispatcher to source's callbacks
+                 *   4. returns result Promise
+                 * The dispatcher reads source's resolved value via
+                 * __torajs_promise_get_value, calls cb, resolves
+                 * result. T-15.g.4 generalizes to non-i64 types and
+                 * Type::Closure (env-carrying) cb. */
+                if let Expr::Member { obj: src_id, name: m_name } = self.ast.get_expr(*callee)
+                    && m_name == "then"
+                    && args.len() == 1
+                {
+                    // Static-type check (no eager lower) — same pattern
+                    // as the await Member dispatch. Only fire when src
+                    // is provably built-in Promise so user-class .then
+                    // keeps working through the regular Member-call path.
+                    let src_is_builtin_promise = match self.ast.get_expr(*src_id) {
+                        Expr::Ident(n) => self
+                            .locals
+                            .get(n)
+                            .map(|info| matches!(info.ty, Type::Promise))
+                            .unwrap_or(false),
+                        Expr::Call { callee: src_callee, .. } => matches!(
+                            self.ast.get_expr(*src_callee),
+                            Expr::Member { obj: ns_id, name: src_m }
+                                if (src_m == "resolve" || src_m == "reject" || src_m == "then")
+                                    && matches!(
+                                        self.ast.get_expr(*ns_id),
+                                        Expr::Ident(ns) if ns == "Promise"
+                                    )
+                        ),
+                        _ => false,
+                    };
+                    if src_is_builtin_promise {
+                        let src_op = self.lower_expr(*src_id);
+                        let cb_op = self.lower_expr(args[0]);
+                        let v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.promise_then_simple,
+                                vec![src_op.clone(), cb_op],
+                            ),
+                            Type::Promise,
+                            None,
+                        );
+                        let src_is_borrow = matches!(
+                            self.ast.get_expr(*src_id),
+                            Expr::Ident(_) | Expr::Member { .. } | Expr::Index { .. }
+                        );
+                        if !src_is_borrow {
+                            self.emit_drop_value(src_op, Type::Promise);
+                        }
+                        return Operand::Value(v);
+                    }
+                }
                 /* T-15.g.1 (v0.5.0) — Promise.resolve(v) / Promise.reject(e)
                  * static constructors. MVP path: arg is i64-shaped (Number).
                  * Heap / Bool / F64 args land in T-15.g.2 with packing
@@ -14389,6 +14459,20 @@ impl<'a> LowerCtx<'a> {
                 };
                 if obj_is_builtin_promise {
                     let obj_op = self.lower_expr(*obj);
+                    // Drain microtasks first — `await p` semantics
+                    // must yield to the event loop so any pending
+                    // .then callbacks scheduled before the await run
+                    // and resolve their result Promises. Without this,
+                    // `await Promise.resolve(21).then(double)` would
+                    // read the still-pending result Promise's value
+                    // (=0) instead of the doubled 42. The drain is
+                    // also called at main exit (T-15.e) so any
+                    // microtasks attached AFTER the last await still
+                    // run before the process returns.
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Call(self.intrinsics.microtask_drain, vec![]),
+                    );
                     let v = self.f.append_inst(
                         self.cur_block,
                         InstKind::Call(
