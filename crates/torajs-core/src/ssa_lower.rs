@@ -1987,6 +1987,26 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         &[Type::I64],
         Type::Promise,
     );
+    /* T-15.g.4 — heap-value variants. The Promise takes ownership
+     * of one refcount on the inner heap value; drop dec's via
+     * __torajs_value_drop_heap. Caller is responsible for any
+     * needed rc_inc before the call (typically zero — the resolved
+     * value flows directly from a fresh expression that already
+     * carries an owned ref). */
+    let promise_alloc_fulfilled_heap_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_promise_alloc_fulfilled_heap",
+        &[Type::I64],
+        Type::Promise,
+    );
+    let promise_alloc_rejected_heap_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_promise_alloc_rejected_heap",
+        &[Type::I64],
+        Type::Promise,
+    );
     let promise_drop_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -3065,6 +3085,8 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         microtask_drain: microtask_drain_id,
         promise_alloc_fulfilled: promise_alloc_fulfilled_id,
         promise_alloc_rejected: promise_alloc_rejected_id,
+        promise_alloc_fulfilled_heap: promise_alloc_fulfilled_heap_id,
+        promise_alloc_rejected_heap: promise_alloc_rejected_heap_id,
         promise_drop: promise_drop_id,
         promise_get_value: promise_get_value_id,
         promise_then_simple: promise_then_simple_id,
@@ -3582,6 +3604,8 @@ struct Intrinsics {
     /// cast, bool widened, f64 bitcast).
     promise_alloc_fulfilled: FuncId,
     promise_alloc_rejected: FuncId,
+    promise_alloc_fulfilled_heap: FuncId,
+    promise_alloc_rejected_heap: FuncId,
     promise_drop: FuncId,
     promise_get_value: FuncId,
     promise_then_simple: FuncId,

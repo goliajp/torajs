@@ -51,10 +51,14 @@ typedef struct __attribute__((aligned(8))) {
 typedef struct {
     __torajs_heap_header_t header;
     uint8_t  state;
-    uint8_t  _pad[7];
+    uint8_t  value_is_heap;
+    uint8_t  _pad[6];
     int64_t  value;
     void    *callbacks;
 } Promise;
+
+extern void __torajs_value_drop_heap(void *child);
+extern void __torajs_rc_inc(void *p);
 
 /* Forward decls so the T-15.d .then helpers (defined before the
  * microtask queue body further down the file) can reference the
@@ -64,12 +68,13 @@ void __torajs_microtask_enqueue(__torajs_microtask_fn_t fn, int64_t arg);
 
 #define __TORAJS_PROMISE_SIZE  32
 
-static Promise *promise_alloc_(uint8_t state, int64_t value) {
+static Promise *promise_alloc_(uint8_t state, int64_t value, uint8_t is_heap) {
     Promise *p = (Promise *)malloc(__TORAJS_PROMISE_SIZE);
     p->header.refcount = 1;
     p->header.type_tag = __TORAJS_TAG_PROMISE;
     p->header.flags = 0;
     p->state = state;
+    p->value_is_heap = is_heap;
     /* zero the padding so memcmp on the whole struct is safe. */
     memset(p->_pad, 0, sizeof(p->_pad));
     p->value = value;
@@ -78,15 +83,28 @@ static Promise *promise_alloc_(uint8_t state, int64_t value) {
 }
 
 void *__torajs_promise_alloc_pending(void) {
-    return promise_alloc_(__TORAJS_PROMISE_PENDING, 0);
+    return promise_alloc_(__TORAJS_PROMISE_PENDING, 0, 0);
 }
 
 void *__torajs_promise_alloc_fulfilled(int64_t value) {
-    return promise_alloc_(__TORAJS_PROMISE_FULFILLED, value);
+    return promise_alloc_(__TORAJS_PROMISE_FULFILLED, value, 0);
 }
 
 void *__torajs_promise_alloc_rejected(int64_t reason) {
-    return promise_alloc_(__TORAJS_PROMISE_REJECTED, reason);
+    return promise_alloc_(__TORAJS_PROMISE_REJECTED, reason, 0);
+}
+
+/* T-15.g.4 — heap-value variants. Caller transfers ONE refcount on
+ * the inner value to the Promise; the Promise drops that ref via
+ * `__torajs_value_drop_heap` when its own refcount hits 0. NULL
+ * value passes through (callers that have a Nullable<T> heap don't
+ * need to special-case). */
+void *__torajs_promise_alloc_fulfilled_heap(int64_t value) {
+    return promise_alloc_(__TORAJS_PROMISE_FULFILLED, value, 1);
+}
+
+void *__torajs_promise_alloc_rejected_heap(int64_t reason) {
+    return promise_alloc_(__TORAJS_PROMISE_REJECTED, reason, 1);
 }
 
 /* Read the resolved value from a fulfilled Promise. T-15.a: callers
@@ -346,15 +364,14 @@ void *__torajs_promise_then_simple(void *source, __torajs_then_cb_i64_t cb) {
 
 /* Drop hook for the universal heap header's free dispatcher.
  * T-15.d: free the residual callback list (each unfired cb node)
- * before freeing the Promise block itself. The cb's `arg` slot
- * may itself carry a heap pointer (e.g. the result-Promise) — for
- * v0.5 MVP we don't recursively drop it; T-16 await codegen
- * carefully balances refs by ensuring all callback nodes drain
- * before the source Promise can be dropped (the source holds
- * refs to the result Promises until resolve/reject fires).
+ * before freeing the Promise block itself.
  *
- * Heap-typed `value` is also leaked at T-15.d — proper drop ships
- * with T-15.f when Type::Promise<T> codegen knows the static T. */
+ * T-15.g.4: when `value_is_heap`, dec the resolved value's
+ * refcount via `__torajs_value_drop_heap` (which dispatches by
+ * type_tag — Str / Arr today, others fall back to rc_dec+free).
+ * The Promise owned one ref on the inner heap value; this drop
+ * releases it. Skip when state is PENDING (no value yet) or
+ * when value is NULL. */
 void __torajs_promise_drop(void *p) {
     if (p == NULL) return;
     Promise *pp = (Promise *)p;
@@ -365,5 +382,11 @@ void __torajs_promise_drop(void *p) {
         node = next;
     }
     pp->callbacks = NULL;
+    if (pp->value_is_heap
+        && pp->state != __TORAJS_PROMISE_PENDING
+        && pp->value != 0)
+    {
+        __torajs_value_drop_heap((void *)(intptr_t)pp->value);
+    }
     free(pp);
 }
