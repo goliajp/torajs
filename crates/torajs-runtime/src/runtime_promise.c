@@ -458,6 +458,40 @@ void *__torajs_promise_race_sync(void *promises_arr) {
     return __torajs_promise_alloc_rejected(0);
 }
 
+/* T-17.d (v0.5.0) — Promise.any<T>(promises: Promise<T>[]) →
+ * Promise<T>. Resolves to the first FULFILLED Promise's value
+ * (skips rejected). All-rejected → rejected (real spec uses an
+ * AggregateError aggregating reasons; MVP just rejects with the
+ * last seen reason). All-pending / empty → rejected with phase-
+ * pointer error. */
+void *__torajs_promise_any_sync(void *promises_arr) {
+    if (promises_arr == NULL) {
+        return __torajs_promise_alloc_rejected(0);
+    }
+    uint8_t *bytes = (uint8_t *)promises_arr;
+    uint64_t len = *(uint64_t *)(bytes + __TORAJS_PROMISE_ARR_LEN_OFF);
+    uint32_t head = *(uint32_t *)(bytes + __TORAJS_PROMISE_ARR_HEAD_OFF);
+    uint8_t *data = bytes + __TORAJS_PROMISE_ARR_HDR_SIZE;
+    int64_t last_rejection = 0;
+    for (uint64_t i = 0; i < len; i++) {
+        Promise *pp = *(Promise **)(data + (head + i) * 8);
+        if (pp == NULL) continue;
+        if (pp->state == __TORAJS_PROMISE_FULFILLED) {
+            if (pp->value_is_heap) {
+                if (pp->value != 0) {
+                    __torajs_rc_inc((void *)(intptr_t)pp->value);
+                }
+                return __torajs_promise_alloc_fulfilled_heap(pp->value);
+            }
+            return __torajs_promise_alloc_fulfilled(pp->value);
+        }
+        if (pp->state == __TORAJS_PROMISE_REJECTED) {
+            last_rejection = pp->value;
+        }
+    }
+    return __torajs_promise_alloc_rejected(last_rejection);
+}
+
 void *__torajs_promise_then_simple(void *source, __torajs_then_cb_i64_t cb) {
     if (source == NULL || cb == NULL) return NULL;
     void *result = __torajs_promise_alloc_pending();

@@ -3058,7 +3058,7 @@ impl Checker {
                  * callback fan-in lands post-T-15.g.6 once PromiseId
                  * interning preserves T element shape. */
                 if let Expr::Member { obj: ns_id, name: m_name } = ast.get_expr(*callee)
-                    && (m_name == "all" || m_name == "race")
+                    && (m_name == "all" || m_name == "race" || m_name == "any")
                     && let Expr::Ident(ns) = ast.get_expr(*ns_id)
                     && ns == "Promise"
                 {
@@ -3080,8 +3080,8 @@ impl Checker {
                             "Promise.{m_name}: arg must be Array<Promise<T>>, got {other:?}"
                         )),
                     };
-                    /* Promise.all returns Promise<T[]>, Promise.race
-                     * returns Promise<T> (the winning value's type). */
+                    /* Promise.all returns Promise<T[]>; Promise.race
+                     * and Promise.any return Promise<T>. */
                     let result = if m_name == "all" {
                         Type::Promise(Box::new(Type::Array(Box::new(inner))))
                     } else {
