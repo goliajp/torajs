@@ -3098,8 +3098,15 @@ impl Checker {
                     let arg_ty = self.type_of(ast, args[0])?;
                     let inner = match &arg_ty {
                         Type::Number | Type::String | Type::Boolean => arg_ty.clone(),
+                        // T-19.b (v0.5.0) — extended to accept heap-typed
+                        // T: Array, Struct (Object literal), Date, RegExp.
+                        // Runtime owns one rc on the inner value; drop
+                        // dispatches via __torajs_value_drop_heap.
+                        Type::Array(_) | Type::Struct(_) | Type::Date | Type::RegExp => {
+                            arg_ty.clone()
+                        }
                         other => return Err(format!(
-                            "Promise.{m_name}: T must be number / string / boolean in v0.5 MVP (got {other:?}); arrays / objects land in T-15.g.6"
+                            "Promise.{m_name}: T must be number / string / boolean / array / struct / Date / RegExp in v0.5 MVP (got {other:?})"
                         )),
                     };
                     return Ok(Type::Promise(Box::new(inner)));
