@@ -1954,6 +1954,19 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
     );
     /* process.stdin.read() deferred to v0.5 (async) — see runtime
      * commentary in runtime_str.c. */
+    /* v0.5 T-15.e — microtask queue drain. Auto-called at the end
+     * of main so any Promise callbacks chained via .then before
+     * exit get a chance to run. The runtime body
+     * (`__torajs_microtask_run_until_idle`) is a no-op when the
+     * queue is empty, so non-async programs pay one fn-call worth
+     * of overhead at exit. */
+    let microtask_drain_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_microtask_run_until_idle",
+        &[],
+        Type::Void,
+    );
     /* v0.2 #3 — Object.is(a, b) for Type::Number arguments. Diverges
      * from `===` on two corner cases:
      *   - Object.is(NaN, NaN) === true
@@ -3000,6 +3013,7 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         obj_freeze: obj_freeze_id,
         obj_is_frozen: obj_is_frozen_id,
         obj_check_not_frozen: obj_check_not_frozen_id,
+        microtask_drain: microtask_drain_id,
         symbol_alloc: symbol_alloc_id,
         symbol_drop: symbol_drop_id,
         symbol_print: symbol_print_id,
@@ -3505,6 +3519,10 @@ struct Intrinsics {
     obj_freeze: FuncId,
     obj_is_frozen: FuncId,
     obj_check_not_frozen: FuncId,
+    /// v0.5 T-15.e — drains the microtask queue. Auto-called at
+    /// main exit so chained Promise callbacks run before the
+    /// process returns.
+    microtask_drain: FuncId,
     symbol_alloc: FuncId,
     symbol_drop: FuncId,
     symbol_print: FuncId,
@@ -3711,6 +3729,16 @@ fn synthesize_main(
         if ctx.cur_open() {
             ctx.emit_drops_for_owned_locals();
             ctx.emit_drops_for_globals();
+            // v0.5 T-15.e — drain pending Promise callbacks before
+            // process exit. Cheap no-op when the queue is empty (one
+            // fn call + one mt_len_ load + branch-not-taken). Emitted
+            // unconditionally so async-unaware programs still get
+            // correct semantics if they import a module that schedules
+            // microtasks at top level.
+            ctx.f.append_void(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.microtask_drain, vec![]),
+            );
             let cb = ctx.cur_block;
             ctx.f
                 .set_term(cb, Terminator::Ret(Some(Operand::ConstI32(0))));

@@ -559,106 +559,59 @@ pub fn compile(
         .write_to_file(&llvm_module, FileType::Object, &obj_path)
         .map_err(|e| CompileError::Emit(e.to_string()))?;
 
-    // M6.1+ — torajs's C runtime. Pieces that are clearer in C than via
-    // the inkwell IR-builder API (string split, array join, anything
-    // future where IR builder verbosity outweighs the link-cost gain).
-    // Embedded via include_str! and recompiled fresh per `tr build`;
-    // adds ~10-30 ms to the AOT pipeline (negligible vs LLVM optimize).
-    // Three C runtime translation units:
-    //   - runtime_str.c   — strings / arrays / objs / numbers / json / arc
-    //   - runtime_regex.c — v0.2 #1 regex matching engine
-    //   - runtime_date.c  — v0.2 #2 Date class
+    // M6.1+ — torajs's C runtime. Pieces that are clearer in C than
+    // via the inkwell IR-builder API (string split, array join,
+    // anything future where IR builder verbosity outweighs the
+    // link-cost gain). Embedded via include_str! in torajs-runtime
+    // and recompiled fresh per `tr build`; adds ~10-30 ms to the
+    // AOT pipeline per C TU (negligible vs LLVM optimize).
+    //
     // Each .c declares its own copy of __torajs_heap_header_t (binary
     // compatible) and links against __torajs_rc_dec from runtime_str.c.
-    // Each compiles to its own .o; all three link with the LLVM-emitted main .o.
-    // v0.3 #6 Graduation — C sources now live in the torajs-runtime
-    // crate so their ABI is locked behind a stable crate boundary.
-    // Same content, just sourced via the runtime crate's pub consts.
-    let c_str_src: &str = torajs_runtime::RUNTIME_STR_C;
-    let c_regex_src: &str = torajs_runtime::RUNTIME_REGEX_C;
-    let c_date_src: &str = torajs_runtime::RUNTIME_DATE_C;
-    let c_str_path: PathBuf = std::env::temp_dir().join(format!(
-        "torajs-runtime-str-{}-{}.c",
-        std::process::id(),
-        rand_suffix()
-    ));
-    let c_regex_path: PathBuf = std::env::temp_dir().join(format!(
-        "torajs-runtime-regex-{}-{}.c",
-        std::process::id(),
-        rand_suffix()
-    ));
-    let c_date_path: PathBuf = std::env::temp_dir().join(format!(
-        "torajs-runtime-date-{}-{}.c",
-        std::process::id(),
-        rand_suffix()
-    ));
-    let c_str_obj: PathBuf = std::env::temp_dir().join(format!(
-        "torajs-runtime-str-{}-{}.o",
-        std::process::id(),
-        rand_suffix()
-    ));
-    let c_regex_obj: PathBuf = std::env::temp_dir().join(format!(
-        "torajs-runtime-regex-{}-{}.o",
-        std::process::id(),
-        rand_suffix()
-    ));
-    let c_date_obj: PathBuf = std::env::temp_dir().join(format!(
-        "torajs-runtime-date-{}-{}.o",
-        std::process::id(),
-        rand_suffix()
-    ));
-    std::fs::write(&c_str_path, c_str_src)
-        .map_err(|e| CompileError::Link(format!("write runtime_str.c: {e}")))?;
-    std::fs::write(&c_regex_path, c_regex_src)
-        .map_err(|e| CompileError::Link(format!("write runtime_regex.c: {e}")))?;
-    std::fs::write(&c_date_path, c_date_src)
-        .map_err(|e| CompileError::Link(format!("write runtime_date.c: {e}")))?;
+    // Each compiles to its own .o; all link with the LLVM-emitted main .o.
+    //
+    // v0.3 #6 Graduation — C sources live in the torajs-runtime crate
+    // so their ABI is locked behind a stable crate boundary. Sources
+    // enumerated in `torajs_runtime::SOURCES` so adding a new TU is
+    // a single line in lib.rs (no per-file scaffolding here). v0.5
+    // T-15 added runtime_promise.c via this path.
+    let pid = std::process::id();
+    let mut c_paths: Vec<PathBuf> = Vec::with_capacity(torajs_runtime::SOURCES.len());
+    let mut o_paths: Vec<PathBuf> = Vec::with_capacity(torajs_runtime::SOURCES.len());
+    for (filename, _) in torajs_runtime::SOURCES {
+        let stem = filename.trim_end_matches(".c");
+        c_paths.push(std::env::temp_dir().join(format!(
+            "torajs-runtime-{stem}-{pid}-{}.c",
+            rand_suffix()
+        )));
+        o_paths.push(std::env::temp_dir().join(format!(
+            "torajs-runtime-{stem}-{pid}-{}.o",
+            rand_suffix()
+        )));
+    }
+    for (idx, (filename, src)) in torajs_runtime::SOURCES.iter().enumerate() {
+        std::fs::write(&c_paths[idx], src).map_err(|e| {
+            CompileError::Link(format!("write {filename}: {e}"))
+        })?;
+    }
     // -flto lets the linker inline cross-TU calls between the
     // LLVM-emitted object and the C runtime.
-    let str_status = Command::new("cc")
-        .args(["-c", "-O3", "-flto", "-g", "-o"])
-        .arg(&c_str_obj)
-        .arg(&c_str_path)
-        .status()
-        .map_err(|e| CompileError::Link(format!("spawning cc -c (str): {e}")))?;
-    if !str_status.success() {
-        let _ = std::fs::remove_file(&c_str_path);
-        let _ = std::fs::remove_file(&c_regex_path);
-        let _ = std::fs::remove_file(&c_date_path);
-        return Err(CompileError::Link(format!(
-            "cc -c runtime_str.c exited {str_status}"
-        )));
-    }
-    let regex_status = Command::new("cc")
-        .args(["-c", "-O3", "-flto", "-g", "-o"])
-        .arg(&c_regex_obj)
-        .arg(&c_regex_path)
-        .status()
-        .map_err(|e| CompileError::Link(format!("spawning cc -c (regex): {e}")))?;
-    if !regex_status.success() {
-        let _ = std::fs::remove_file(&c_str_path);
-        let _ = std::fs::remove_file(&c_regex_path);
-        let _ = std::fs::remove_file(&c_date_path);
-        let _ = std::fs::remove_file(&c_str_obj);
-        return Err(CompileError::Link(format!(
-            "cc -c runtime_regex.c exited {regex_status}"
-        )));
-    }
-    let date_status = Command::new("cc")
-        .args(["-c", "-O3", "-flto", "-g", "-o"])
-        .arg(&c_date_obj)
-        .arg(&c_date_path)
-        .status()
-        .map_err(|e| CompileError::Link(format!("spawning cc -c (date): {e}")))?;
-    if !date_status.success() {
-        let _ = std::fs::remove_file(&c_str_path);
-        let _ = std::fs::remove_file(&c_regex_path);
-        let _ = std::fs::remove_file(&c_date_path);
-        let _ = std::fs::remove_file(&c_str_obj);
-        let _ = std::fs::remove_file(&c_regex_obj);
-        return Err(CompileError::Link(format!(
-            "cc -c runtime_date.c exited {date_status}"
-        )));
+    for (idx, (filename, _)) in torajs_runtime::SOURCES.iter().enumerate() {
+        let status = Command::new("cc")
+            .args(["-c", "-O3", "-flto", "-g", "-o"])
+            .arg(&o_paths[idx])
+            .arg(&c_paths[idx])
+            .status()
+            .map_err(|e| {
+                CompileError::Link(format!("spawning cc -c ({filename}): {e}"))
+            })?;
+        if !status.success() {
+            for p in &c_paths { let _ = std::fs::remove_file(p); }
+            for p in o_paths.iter().take(idx) { let _ = std::fs::remove_file(p); }
+            return Err(CompileError::Link(format!(
+                "cc -c {filename} exited {status}"
+            )));
+        }
     }
 
     // v0.3 #4 D-2 — `-g` keeps DWARF live through the link stage.
@@ -666,15 +619,13 @@ pub fn compile(
     // the binary by default; D-4 will pick the right resolver path
     // for `atos` symbolication. Cost is link-time only — runtime
     // perf unaffected.
-    let status = Command::new("cc")
-        .arg("-flto")
-        .arg("-g")
-        .arg(&obj_path)
-        .arg(&c_str_obj)
-        .arg(&c_regex_obj)
-        .arg(&c_date_obj)
-        .arg("-o")
-        .arg(out_path)
+    let mut link_cmd = Command::new("cc");
+    link_cmd.arg("-flto").arg("-g").arg(&obj_path);
+    for op in &o_paths {
+        link_cmd.arg(op);
+    }
+    link_cmd.arg("-o").arg(out_path);
+    let status = link_cmd
         .status()
         .map_err(|e| CompileError::Link(format!("spawning cc: {e}")))?;
     // v0.3 #4 D-2 — macOS: consolidate DWARF from per-TU .o files
@@ -697,12 +648,8 @@ pub fn compile(
             .status();
     }
     let _ = std::fs::remove_file(&obj_path);
-    let _ = std::fs::remove_file(&c_str_path);
-    let _ = std::fs::remove_file(&c_regex_path);
-    let _ = std::fs::remove_file(&c_date_path);
-    let _ = std::fs::remove_file(&c_str_obj);
-    let _ = std::fs::remove_file(&c_regex_obj);
-    let _ = std::fs::remove_file(&c_date_obj);
+    for p in &c_paths { let _ = std::fs::remove_file(p); }
+    for p in &o_paths { let _ = std::fs::remove_file(p); }
     if !status.success() {
         return Err(CompileError::Link(format!("cc exited {status}")));
     }
