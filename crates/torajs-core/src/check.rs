@@ -147,6 +147,19 @@ pub enum Type {
     /// `=== / !==` on Symbol operands compares ptr; console.log
     /// formats `Symbol(<desc>)`.
     Symbol,
+    /// T-15 (v0.5.0) — built-in `Promise<T>` value. Heap-allocated
+    /// 32-byte block managed by `runtime_promise.c`; carries state
+    /// (PENDING / FULFILLED / REJECTED) + value + callback list.
+    /// Heap-owned, non-Copy, ARC under the universal heap header
+    /// (type_tag=8). Distinct from `Type::Object("Promise")` (the
+    /// constructor + static methods like Promise.resolve).
+    ///
+    /// Type-system support shipped in T-15.f; runtime wiring follows
+    /// in T-15.g (Promise.resolve / .then dispatch). Async function
+    /// desugar (existing in ast.rs) will be migrated to use the
+    /// built-in in T-15.h, replacing the user-class MVP that was
+    /// the only async/await pattern through v0.4.0.
+    Promise(Box<Type>),
 }
 
 impl Type {
@@ -345,6 +358,23 @@ fn resolve_type_ann_full(
                 field_tys.push((fname.clone(), ty));
             }
             return Some(Type::Struct(field_tys));
+        }
+        // T-15 (v0.5.0) — `Promise<T>` is a built-in generic type
+        // when the user hasn't shadowed it with a `class Promise<T>`
+        // (which would have populated generic_aliases above). The
+        // resolver checks user decls FIRST so existing user-class
+        // patterns (e.g. test262-port/promise-001-basic.ts) keep
+        // working through the v0.5 transition. T-15.h reserves
+        // `Promise` as a built-in name and forces migration.
+        if head == "Promise" {
+            let inner = &name[head.len() + 1..name.len() - 1];
+            let inner_ty = resolve_type_ann_full(
+                inner,
+                aliases,
+                type_params,
+                generic_aliases,
+            )?;
+            return Some(Type::Promise(Box::new(inner_ty)));
         }
         return None;
     }
@@ -675,6 +705,7 @@ pub fn type_to_ann(ty: &Type) -> String {
         // round-trips through ssa_lower's parse_type back to the same.
         Type::RegExp => "regex".into(),
         Type::Date => "date".into(),
+        Type::Promise(inner) => format!("Promise<{}>", type_to_ann(inner)),
     }
 }
 
