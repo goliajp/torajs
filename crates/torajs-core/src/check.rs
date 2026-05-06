@@ -2157,6 +2157,20 @@ impl Checker {
                         vec![Type::Any],
                         Box::new(Type::Boolean),
                     )),
+                    /* T-13.b (v0.4.0) — Symbol.for(key) returns the
+                     * registered Symbol for the key (creates one on
+                     * first call). Identity preserved across calls. */
+                    (Type::Object("Symbol"), "for") => Ok(Type::Function(
+                        vec![Type::String],
+                        Box::new(Type::Symbol),
+                    )),
+                    /* Symbol.keyFor(s) — inverse: returns the key
+                     * Symbol.for() registered the symbol under, or
+                     * null for unregistered (Symbol(...)) symbols. */
+                    (Type::Object("Symbol"), "keyFor") => Ok(Type::Function(
+                        vec![Type::Symbol],
+                        Box::new(Type::Nullable(Box::new(Type::String))),
+                    )),
                     /* T-09.a (v0.4.0) — 5 Object methods that don't fit
                      * tr's nominal class system / fixed struct schema.
                      * Reject at typecheck with a clear phase pointer

@@ -1891,6 +1891,21 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         &[Type::Symbol],
         Type::Void,
     );
+    /* T-13.b (v0.4.0) — Symbol.for(key) global registry + keyFor. */
+    let symbol_for_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_symbol_for",
+        &[Type::Str],
+        Type::Symbol,
+    );
+    let symbol_key_for_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_symbol_key_for",
+        &[Type::Symbol],
+        Type::Str,
+    );
     /* T-03 (v0.3.0) — sync stdio. process.stdout.write(s) and
      * process.stderr.write(s) return bytes written (i64); stdin.read()
      * drains stdin to EOF and returns one Str. Aborting on short
@@ -2960,6 +2975,8 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         symbol_alloc: symbol_alloc_id,
         symbol_drop: symbol_drop_id,
         symbol_print: symbol_print_id,
+        symbol_for: symbol_for_id,
+        symbol_key_for: symbol_key_for_id,
         object_is_f64: object_is_f64_id,
         split_iter_init: split_iter_init_id,
         split_iter_next: split_iter_next_id,
@@ -3460,6 +3477,8 @@ struct Intrinsics {
     symbol_alloc: FuncId,
     symbol_drop: FuncId,
     symbol_print: FuncId,
+    symbol_for: FuncId,
+    symbol_key_for: FuncId,
     object_is_f64: FuncId,
     split_iter_init: FuncId,
     split_iter_next: FuncId,
@@ -10259,6 +10278,30 @@ impl<'a> LowerCtx<'a> {
                         );
                     }
                     return Operand::Value(arr_ptr);
+                }
+                /* T-13.b (v0.4.0) — Symbol.for(key) / Symbol.keyFor(s).
+                 * Direct delegation to the runtime registry helpers
+                 * declared in the intrinsics block. */
+                if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
+                    && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
+                    && ns == "Symbol"
+                    && (m_name == "for" || m_name == "keyFor")
+                    && args.len() == 1
+                {
+                    let arg_op = self.lower_expr(args[0]);
+                    self.consume_if_ident(args[0]);
+                    let (fid, ret_ty) = if m_name == "for" {
+                        (self.intrinsics.symbol_for, Type::Symbol)
+                    } else {
+                        (self.intrinsics.symbol_key_for, Type::Str)
+                    };
+                    let v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(fid, vec![arg_op]),
+                        ret_ty,
+                        None,
+                    );
+                    return Operand::Value(v);
                 }
                 /* T-09.d (v0.4.0) — Object.freeze(obj) sets the FROZEN
                  * bit and returns the same obj. Object.isFrozen reads

@@ -1285,6 +1285,65 @@ void __torajs_symbol_print(const void *p) {
     fputs(")\n", stdout);
 }
 
+/* T-13.b (v0.4.0) — global Symbol registry for Symbol.for / keyFor.
+ *
+ * Linear-scan array of Symbol ptrs (no separate key array — the key
+ * is the Symbol's `desc` field, derivable). 256-slot cap covers any
+ * realistic test262 / user-code workload; overflow panics with a
+ * clear message rather than silently truncating.
+ *
+ * Refcount accounting:
+ *   - hit: existing sym's rc bumped for the caller; registry keeps
+ *     its own ref untouched
+ *   - miss: alloc fresh sym (rc=1, caller-owned), then rc_inc to
+ *     hold the registry's ref (rc=2 → caller drops to 1, registry
+ *     to 1 on caller's drop)
+ */
+
+#define __TORAJS_SYMBOL_REG_MAX  256
+static void *symbol_reg_[__TORAJS_SYMBOL_REG_MAX];
+static int symbol_reg_count_ = 0;
+
+void *__torajs_symbol_for(void *key) {
+    if (key == NULL) {
+        __torajs_panic("TypeError: Symbol.for requires a string key");
+    }
+    /* Scan existing entries by str_eq on the symbol's desc field. */
+    for (int i = 0; i < symbol_reg_count_; i++) {
+        void *sym = symbol_reg_[i];
+        void *desc = *(void **)((uint8_t *)sym + __TORAJS_SYMBOL_DESC_OFF);
+        if (desc != NULL
+            && __torajs_str_eq((const uint8_t *)desc, (const uint8_t *)key))
+        {
+            __torajs_rc_inc(sym);
+            return sym;
+        }
+    }
+    if (symbol_reg_count_ >= __TORAJS_SYMBOL_REG_MAX) {
+        __torajs_panic("Symbol.for registry full (>256 unique keys)");
+    }
+    /* Miss — alloc fresh sym (rc=1) + bump rc for registry's ref. */
+    void *sym = __torajs_symbol_alloc(key);
+    __torajs_rc_inc(sym);
+    symbol_reg_[symbol_reg_count_++] = sym;
+    return sym;
+}
+
+/* Symbol.keyFor(s) — returns the registered key string if s is in
+ * the registry; NULL otherwise (caller's Nullable<String> slot maps
+ * to bun's `undefined`). Returned Str is rc'd for the caller. */
+void *__torajs_symbol_key_for(void *sym) {
+    if (sym == NULL) return NULL;
+    for (int i = 0; i < symbol_reg_count_; i++) {
+        if (symbol_reg_[i] == sym) {
+            void *desc = *(void **)((uint8_t *)sym + __TORAJS_SYMBOL_DESC_OFF);
+            __torajs_rc_inc(desc);
+            return desc;
+        }
+    }
+    return NULL;
+}
+
 /* `__torajs_arr_push_unchecked` is inkwell-defined and exported as a
  * regular extern symbol; declare it here so the C runtime can call it
  * from split's pre-sized fast path (skips per-push capacity check +
