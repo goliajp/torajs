@@ -1,0 +1,31 @@
+{
+  "started_at": "2026-05-06T05:44:18Z",
+  "host": "mini.local",
+  "git_sha": "ca19ba0505e1e0d2885c7c650e3f37723424c9ed",
+  "rows": [
+    {
+      "case": "rpn-eval-100k",
+      "runtime": "rust",
+      "runtime_version": "rustc 1.95.0 (59807616e 2026-04-14)",
+      "status": "ok",
+      "compile_ms": 96.738,
+      "run_ms": 3.0441670000000003,
+      "run_stddev_ms": 0.060628049248676916,
+      "artifact_bytes": 466304,
+      "stdout_match": true,
+      "error": null
+    },
+    {
+      "case": "rpn-eval-100k",
+      "runtime": "torajs",
+      "runtime_version": "tr 0.1.0",
+      "status": "ok",
+      "compile_ms": 442.545167,
+      "run_ms": 3.2016660000000003,
+      "run_stddev_ms": 0.23196067875008472,
+      "artifact_bytes": 36008,
+      "stdout_match": true,
+      "error": null
+    }
+  ]
+}
