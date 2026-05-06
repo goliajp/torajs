@@ -3118,8 +3118,22 @@ impl Checker {
                         Type::Array(_) | Type::Struct(_) | Type::Date | Type::RegExp => {
                             arg_ty.clone()
                         }
+                        // T-19.d (v0.5.0) — Nullable<T> + bare null. The
+                        // resolver returns the underlying T at SSA shape
+                        // (null is the in-band 0 sentinel), so the runtime
+                        // path is the same. We surface the inner type as
+                        // Promise<T | null> so caller sites stay
+                        // explicitly-nullable-aware.
+                        Type::Nullable(_) => arg_ty.clone(),
+                        // Bare `null` literal — promote to Type::Nullable
+                        // of an inferred T. For MVP just use Nullable<String>
+                        // which round-trips at the i64-ptr ABI; user code
+                        // typically uses `let p: Promise<T | null> = ...`
+                        // to make the intent explicit, in which case the
+                        // arg_ty above is already Nullable.
+                        Type::Null => Type::Nullable(Box::new(Type::String)),
                         other => return Err(format!(
-                            "Promise.{m_name}: T must be number / string / boolean / array / struct / Date / RegExp in v0.5 MVP (got {other:?})"
+                            "Promise.{m_name}: T must be number / string / boolean / array / struct / Date / RegExp / nullable in v0.5 MVP (got {other:?})"
                         )),
                     };
                     return Ok(Type::Promise(Box::new(inner)));
