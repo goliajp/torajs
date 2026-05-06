@@ -10413,7 +10413,17 @@ impl<'a> LowerCtx<'a> {
                  * bit and returns the same obj. Object.isFrozen reads
                  * the bit. Both pass through the runtime helpers
                  * (which type-erase to Type::Ptr — any heap object
-                 * with a universal heap header is acceptable). */
+                 * with a universal heap header is acceptable).
+                 *
+                 * Primitive guard (v0.4.0 fix): Object.freeze and
+                 * Object.isFrozen on a non-heap value (Bool / I64 /
+                 * F64) MUST short-circuit at compile time — the
+                 * runtime helpers deref `p` as a heap header, which
+                 * SIGSEGVs when `p` is a primitive bit pattern (e.g.
+                 * `true` is the i64 1). Per ES2015 spec these calls
+                 * return the value unchanged (freeze) or `true`
+                 * (isFrozen) on primitives. test262 15.2.3.9-1-3 /
+                 * 15.2.3.9-1-4 / 15.2.3.12-1-3 cover this. */
                 if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
                     && (m_name == "freeze" || m_name == "isFrozen")
                     && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
@@ -10422,6 +10432,19 @@ impl<'a> LowerCtx<'a> {
                 {
                     let arg_op = self.lower_expr(args[0]);
                     let arg_ty = self.operand_ty(&arg_op);
+                    let is_primitive = matches!(
+                        arg_ty,
+                        Type::I64 | Type::F64 | Type::Bool
+                    );
+                    if is_primitive {
+                        if m_name == "freeze" {
+                            // freeze(primitive) → returns primitive as-is
+                            return arg_op;
+                        } else {
+                            // isFrozen(primitive) → true
+                            return Operand::ConstBool(true);
+                        }
+                    }
                     let (fid, ret_ty) = if m_name == "freeze" {
                         (self.intrinsics.obj_freeze, arg_ty)
                     } else {

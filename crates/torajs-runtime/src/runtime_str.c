@@ -1227,19 +1227,32 @@ int64_t __torajs_object_is_f64(double a, double b) {
  * the universal heap header's flags field; returns the same obj
  * pointer (Object.freeze returns its argument per spec). NULL
  * input is a no-op (defensive). The flag is consulted at every
- * field-write site emitted by ssa_lower's Assign-Member arm. */
+ * field-write site emitted by ssa_lower's Assign-Member arm.
+ *
+ * STATIC_LITERAL guard (v0.4.0 fix): static-literal blocks
+ * (string literals, freshly-constructed `[1,2,3]` after escape
+ * analysis) live in `.rodata`; writing the FROZEN bit there
+ * SIGBUSs. Per ES2015 spec Object.freeze is a no-op on values
+ * that aren't extensible — static literals already aren't
+ * extensible by tr's design — so silently skipping the bit set
+ * matches both the spec and prevents the crash. test262
+ * 15.2.3.9-1-3 / 15.2.3.9-1-4 / 15.2.3.9-2-d-1 cover this. */
 void *__torajs_obj_freeze(void *p) {
     if (p == NULL) return NULL;
     __torajs_heap_header_t *h = (__torajs_heap_header_t *)p;
+    if (h->flags & __TORAJS_FLAG_STATIC_LITERAL) return p;
     h->flags |= __TORAJS_FLAG_FROZEN;
     return p;
 }
 
 /* `Object.isFrozen(obj)` — reads the FROZEN bit. Returns 0 / 1
- * (matches the `_Bool` ABI tr's Bool intrinsics use). */
+ * (matches the `_Bool` ABI tr's Bool intrinsics use). Static
+ * literals are conceptually frozen (immutable rodata), so report
+ * `true` for them — matches what test262 expects for primitives. */
 _Bool __torajs_obj_is_frozen(const void *p) {
     if (p == NULL) return 0;
     const __torajs_heap_header_t *h = (const __torajs_heap_header_t *)p;
+    if (h->flags & __TORAJS_FLAG_STATIC_LITERAL) return 1;
     return (h->flags & __TORAJS_FLAG_FROZEN) != 0;
 }
 

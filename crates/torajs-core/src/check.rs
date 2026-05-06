@@ -429,6 +429,12 @@ fn resolve_type_ann_full(
         // accept it rather than reject so the surface stays self-
         // consistent.
         "any" => Some(Type::Any),
+        // T-13.a (v0.4.0) — `symbol` is a primitive type alias for
+        // Type::Symbol. Lower-case `symbol` is the spec spelling
+        // (`typeof Symbol() === "symbol"`); `Symbol` is the constructor
+        // function, not a type. Annotation `let s: symbol = Symbol()`
+        // and `symbol[]` arrays both go through here.
+        "symbol" => Some(Type::Symbol),
         // User-declared struct alias (P2.4): `type Point = { x: number, y: number }`
         // adds `Point` to the aliases map. Resolution returns the
         // structural Type::Struct directly — no nominal layer above.
