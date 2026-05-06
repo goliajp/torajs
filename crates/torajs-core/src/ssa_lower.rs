@@ -14444,7 +14444,8 @@ impl<'a> LowerCtx<'a> {
                             .map(|info| matches!(info.ty, Type::Promise))
                             .unwrap_or(false),
                         Expr::Call { callee, .. } => {
-                            matches!(
+                            // Built-in Promise.resolve / reject statics.
+                            let static_ctor = matches!(
                                 self.ast.get_expr(*callee),
                                 Expr::Member { obj: ns_id, name: m_name }
                                     if (m_name == "resolve" || m_name == "reject")
@@ -14452,7 +14453,28 @@ impl<'a> LowerCtx<'a> {
                                             self.ast.get_expr(*ns_id),
                                             Expr::Ident(ns) if ns == "Promise"
                                         )
-                            )
+                            );
+                            // Built-in Promise<T>.then(...) chain.
+                            let then_chain = matches!(
+                                self.ast.get_expr(*callee),
+                                Expr::Member { name: m_name, .. } if m_name == "then"
+                            );
+                            // User fn whose declared return type is
+                            // Type::Promise (e.g. an `async` body's
+                            // desugared Promise.resolve return).
+                            let fn_returns_promise = if let Expr::Ident(fn_name) =
+                                self.ast.get_expr(*callee)
+                            {
+                                self.fn_table
+                                    .get(fn_name)
+                                    .copied()
+                                    .and_then(|fid| self.signatures.get(&fid).copied())
+                                    .map(|ty| matches!(ty, Type::Promise))
+                                    .unwrap_or(false)
+                            } else {
+                                false
+                            };
+                            static_ctor || then_chain || fn_returns_promise
                         }
                         _ => false,
                     }

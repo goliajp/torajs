@@ -1537,48 +1537,33 @@ pub fn desugar_async(ast: &mut Ast) {
             )
         });
         let promise_ty = format!("Promise<{inner_ty}>");
-        // Same monomorphization-via-name dance the rest of the
-        // codebase uses: type alias `Promise<number>` will get
-        // resolved to the concrete `Promise_number` struct shape by
-        // check.rs's generic-type machinery.
 
-        // let __async_p = new Promise(<default T>)
-        let default_init = default_init_for_type(&inner_ty);
-        let default_id = ast.add_expr(default_init);
-        let new_promise = ast.add_expr(Expr::New {
-            class_name: "Promise".into(),
-            args: vec![default_id],
-        });
-        let p_decl = Stmt::LetDecl {
-            mutable: false,
-            name: "__async_p".into(),
-            type_ann: Some(promise_ty.clone()),
-            init: new_promise,
-        };
-
-        // L.2 — multi-branch returns now work (the underlying tr
-        // ownership tracker bug was fixed by the CFG-aware moved
-        // tracking in check.rs's Stmt::If checker + the return-expr
-        // ident sweep in ssa_lower's Stmt::Return handler).
-
-        // Rewrite returns inside body. Each `return e;` becomes
-        // `__async_p.do_resolve(e); return __async_p;`. Returns with
-        // no value get a default-init injected.
-        let mut new_body: Vec<Stmt> = Vec::with_capacity(body.len() + 2);
-        new_body.push(p_decl);
+        // T-15.h: rewrite each `return e;` to `return Promise.resolve(e);`.
+        // No shared `__async_p` state — every return constructs a
+        // fresh fulfilled built-in Promise. Cleaner than the v0.4.x
+        // user-class MVP and removes the multi-return move-tracker
+        // workaround.
+        let mut new_body: Vec<Stmt> = Vec::with_capacity(body.len() + 1);
         for s in body {
             let mut s = s;
             rewrite_returns_for_async(ast, &mut s, &inner_ty);
             new_body.push(s);
         }
-        // Tail safety: if control flow falls off the end without an
-        // explicit return, hand back the (still-pending) Promise.
-        // Skip emitting if the body trivially ends with a return —
-        // tr's ownership tracker treats the second access as a
-        // double-move even when the path is unreachable.
+        // Tail safety: if control flow falls off the end, return
+        // `Promise.resolve(<default T>)`.
         if !body_ends_in_return(&new_body) {
-            let p_ref = ast.add_expr(Expr::Ident("__async_p".into()));
-            new_body.push(Stmt::Return(Some(p_ref)));
+            let default_init = default_init_for_type(&inner_ty);
+            let default_id = ast.add_expr(default_init);
+            let promise_ident = ast.add_expr(Expr::Ident("Promise".into()));
+            let resolve_member = ast.add_expr(Expr::Member {
+                obj: promise_ident,
+                name: "resolve".into(),
+            });
+            let call = ast.add_expr(Expr::Call {
+                callee: resolve_member,
+                args: vec![default_id],
+            });
+            new_body.push(Stmt::Return(Some(call)));
         }
 
         ast.stmts[idx] = Stmt::FnDecl {
@@ -1605,12 +1590,15 @@ fn body_ends_in_return(body: &[Stmt]) -> bool {
     }
 }
 
-/// Recursively rewrite `Stmt::Return(Some(e))` (and `Stmt::Return(None)`)
-/// inside `s` into the pair `__async_p.do_resolve(e); return __async_p;`.
-/// The desugar guards against multi-branch returns at a higher level
-/// (`count_returns > 1` panics with a clear error) so tr's ownership
-/// tracker only sees one transfer of `__async_p` per body — the
-/// straight-line tail return.
+/// T-15.h (v0.5.0) — recursively rewrite `Stmt::Return(Some(e))` /
+/// `Stmt::Return(None)` inside `s` into `Stmt::Return(Promise.resolve(e))`.
+///
+/// Pre-T-15.h MVP wrapped each return in a user-class `__async_p`
+/// shared across the function body (`__async_p.do_resolve(e); return
+/// __async_p;`). With the built-in Promise<T> from T-15, every return
+/// just constructs a fresh fulfilled Promise — no shared state, no
+/// move-tracker complications, no need for the user to declare
+/// `class Promise<T>` themselves.
 fn rewrite_returns_for_async(ast: &mut Ast, s: &mut Stmt, inner_ty: &str) {
     match s {
         Stmt::Return(maybe) => {
@@ -1621,17 +1609,17 @@ fn rewrite_returns_for_async(ast: &mut Ast, s: &mut Stmt, inner_ty: &str) {
                     ast.add_expr(default)
                 }
             };
-            let p_ref = ast.add_expr(Expr::Ident("__async_p".into()));
-            let do_resolve_m = ast.add_expr(Expr::Member {
-                obj: p_ref,
-                name: "do_resolve".into(),
+            // Build `Promise.resolve(value)` AST.
+            let promise_ident = ast.add_expr(Expr::Ident("Promise".into()));
+            let resolve_member = ast.add_expr(Expr::Member {
+                obj: promise_ident,
+                name: "resolve".into(),
             });
             let call = ast.add_expr(Expr::Call {
-                callee: do_resolve_m,
+                callee: resolve_member,
                 args: vec![value],
             });
-            let p_ret = ast.add_expr(Expr::Ident("__async_p".into()));
-            *s = Stmt::Multi(vec![Stmt::Expr(call), Stmt::Return(Some(p_ret))]);
+            *s = Stmt::Return(Some(call));
         }
         Stmt::If { then_branch, else_branch, .. } => {
             rewrite_returns_for_async(ast, then_branch, inner_ty);
