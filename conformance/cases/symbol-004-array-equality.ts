@@ -28,3 +28,19 @@ for (let i = 0; i < arr.length; i = i + 1) {
   }
 }
 console.log(pairs) // 0 — all five are distinct identities
+
+// Object.is on indexed Symbol-array reads inside a loop — covers the
+// specific test262 staging/sm/Symbol/equality.js crash. Object.is
+// previously rc_dec'd both args unconditionally, freeing the
+// well-known singleton (Symbol.iterator) on the first iter →
+// SIGSEGV reading freed memory on the second iter. Borrow guard now
+// skips the drop when the source expr is Index / Member / Ident.
+let truthy = 0
+for (let i = 0; i < arr.length; i = i + 1) {
+  for (let j = 0; j < arr.length; j = j + 1) {
+    if (Object.is(arr[i], arr[j])) {
+      truthy = truthy + 1
+    }
+  }
+}
+console.log(truthy) // 5 — exactly the diagonal pairs (i===j)

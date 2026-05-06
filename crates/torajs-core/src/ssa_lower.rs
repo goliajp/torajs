@@ -10635,16 +10635,42 @@ impl<'a> LowerCtx<'a> {
                     && ns == "Object"
                     && args.len() == 2
                 {
+                    // Borrow detection (v0.4.0 fix): if an arg is an
+                    // Ident / Member / Index expression, the operand
+                    // returned by lower_expr is a borrow (the array /
+                    // object slot still owns the ref). Calling
+                    // emit_drop_value on it would rc_dec the *owner's*
+                    // ref → eventually frees a still-live element →
+                    // SIGSEGV on the next access. Drop only fresh
+                    // values (call results, literals, etc.). Mirrors
+                    // the borrow guard already used by the
+                    // console.log path below. test262 staging/sm/
+                    // Symbol/equality.js covers this — Object.is on
+                    // two indexed Symbol-array reads inside a loop
+                    // crashed after the first iter because the
+                    // array's element rc was being dec'd by Object.is.
+                    let a_borrow = matches!(
+                        self.ast.get_expr(args[0]),
+                        Expr::Ident(_) | Expr::Member { .. } | Expr::Index { .. }
+                    );
+                    let b_borrow = matches!(
+                        self.ast.get_expr(args[1]),
+                        Expr::Ident(_) | Expr::Member { .. } | Expr::Index { .. }
+                    );
                     let a_op = self.lower_expr(args[0]);
                     let b_op = self.lower_expr(args[1]);
                     let a_ty = self.operand_ty(&a_op);
                     let b_ty = self.operand_ty(&b_op);
                     if a_ty != b_ty {
                         // === yields false on differing types; same
-                        // for Object.is. Drop both args (refcounted
-                        // ones need it) and return false.
-                        self.emit_drop_value(a_op, a_ty);
-                        self.emit_drop_value(b_op, b_ty);
+                        // for Object.is. Drop only fresh args; borrows
+                        // stay owned by their source slot.
+                        if !a_borrow {
+                            self.emit_drop_value(a_op.clone(), a_ty);
+                        }
+                        if !b_borrow {
+                            self.emit_drop_value(b_op, b_ty);
+                        }
                         return Operand::ConstBool(false);
                     }
                     let result_v = match a_ty {
@@ -10652,7 +10678,7 @@ impl<'a> LowerCtx<'a> {
                             self.cur_block,
                             InstKind::Call(
                                 self.intrinsics.object_is_f64,
-                                vec![a_op, b_op],
+                                vec![a_op.clone(), b_op.clone()],
                             ),
                             Type::Bool,
                             None,
@@ -10661,7 +10687,7 @@ impl<'a> LowerCtx<'a> {
                             self.cur_block,
                             InstKind::Call(
                                 self.intrinsics.str_eq,
-                                vec![a_op, b_op],
+                                vec![a_op.clone(), b_op.clone()],
                             ),
                             Type::Bool,
                             None,
@@ -10671,13 +10697,17 @@ impl<'a> LowerCtx<'a> {
                         // representation, so equality is identity.
                         _ => self.f.append_inst(
                             self.cur_block,
-                            InstKind::ICmp(IPred::Eq, a_op, b_op),
+                            InstKind::ICmp(IPred::Eq, a_op.clone(), b_op.clone()),
                             Type::Bool,
                             None,
                         ),
                     };
-                    self.emit_drop_value(a_op, a_ty);
-                    self.emit_drop_value(b_op, b_ty);
+                    if !a_borrow {
+                        self.emit_drop_value(a_op, a_ty);
+                    }
+                    if !b_borrow {
+                        self.emit_drop_value(b_op, b_ty);
+                    }
                     return Operand::Value(result_v);
                 }
                 if let Some(method) = self.console_method_member(*callee)
