@@ -56,6 +56,12 @@ typedef struct {
     void    *callbacks;
 } Promise;
 
+/* Forward decls so the T-15.d .then helpers (defined before the
+ * microtask queue body further down the file) can reference the
+ * queue's enqueue fn. */
+typedef void (*__torajs_microtask_fn_t)(int64_t arg);
+void __torajs_microtask_enqueue(__torajs_microtask_fn_t fn, int64_t arg);
+
 #define __TORAJS_PROMISE_SIZE  32
 
 static Promise *promise_alloc_(uint8_t state, int64_t value) {
@@ -100,19 +106,46 @@ uint8_t __torajs_promise_get_state(const void *p) {
     return pp->state;
 }
 
-/* T-15.b state-transition helpers. Move a PENDING Promise to
- * FULFILLED / REJECTED with the given value/reason. Per ES2015
- * spec the first resolve/reject wins — subsequent calls are no-ops
- * (no error thrown, no state change). NULL input is a defensive
- * no-op. T-15.c will wire callback drain on transition; for T-15.b
- * the callback list is always NULL so no work to do. */
+/* T-15.d callback record. Each `.then(onFulfilled, onRejected?)`
+ * call appends one of these to the source Promise's callbacks
+ * list. On resolve/reject the list is walked and each entry is
+ * enqueued onto the microtask queue (via T-15.c) for FIFO drain.
+ *
+ * `invoke` is a small dispatcher emitted by ssa_lower (T-15.f) that
+ * knows how to pack the source value + the user's onFulfilled
+ * closure + the result Promise into a microtask call. Storing it
+ * here as an opaque fn-ptr keeps the runtime free of codegen
+ * details — the runtime owns FIFO ordering + drain timing, the
+ * compiler owns "what does it mean to invoke this callback". */
+typedef struct __torajs_promise_cb {
+    __torajs_microtask_fn_t invoke;
+    int64_t arg;
+    struct __torajs_promise_cb *next;
+} __torajs_promise_cb_t;
+
+static void promise_drain_callbacks_(Promise *pp) {
+    __torajs_promise_cb_t *node = (__torajs_promise_cb_t *)pp->callbacks;
+    while (node != NULL) {
+        __torajs_microtask_enqueue(node->invoke, node->arg);
+        __torajs_promise_cb_t *next = node->next;
+        free(node);
+        node = next;
+    }
+    pp->callbacks = NULL;
+}
+
+/* T-15.b/d state-transition helpers. Move a PENDING Promise to
+ * FULFILLED / REJECTED with the given value/reason; drain pending
+ * callbacks onto the microtask queue. Per ES2015 the first
+ * resolve/reject wins — subsequent calls are silent no-ops (no
+ * error, no state change, no double-drain). NULL passes through. */
 void __torajs_promise_resolve(void *p, int64_t value) {
     if (p == NULL) return;
     Promise *pp = (Promise *)p;
     if (pp->state != __TORAJS_PROMISE_PENDING) return;
     pp->state = __TORAJS_PROMISE_FULFILLED;
     pp->value = value;
-    /* T-15.c: drain pp->callbacks here once .then chaining lands. */
+    promise_drain_callbacks_(pp);
 }
 
 void __torajs_promise_reject(void *p, int64_t reason) {
@@ -121,7 +154,42 @@ void __torajs_promise_reject(void *p, int64_t reason) {
     if (pp->state != __TORAJS_PROMISE_PENDING) return;
     pp->state = __TORAJS_PROMISE_REJECTED;
     pp->value = reason;
-    /* T-15.c: drain pp->callbacks here once .then chaining lands. */
+    promise_drain_callbacks_(pp);
+}
+
+/* `.then` runtime hook called by ssa_lower (T-15.f). Caller
+ * supplies a dispatcher `invoke(arg)` that knows how to call the
+ * user's onFulfilled closure with the source's resolved value, then
+ * resolve/reject the result Promise. Two timing paths:
+ *
+ *   1. source already fulfilled / rejected: enqueue immediately —
+ *      caller sees the result Promise resolve in the next microtask
+ *      drain.
+ *   2. source still pending: append to source's callbacks list;
+ *      promise_resolve/reject above will enqueue on transition.
+ *
+ * Allocates one cb node per call. Source Promise owns the node
+ * until either it transitions (drain frees) or its drop runs (T-15
+ * substrate's drop hook below frees the residual list). */
+void __torajs_promise_attach_then(
+    void *source_p,
+    __torajs_microtask_fn_t invoke,
+    int64_t arg
+) {
+    if (source_p == NULL || invoke == NULL) return;
+    Promise *pp = (Promise *)source_p;
+    if (pp->state != __TORAJS_PROMISE_PENDING) {
+        /* Already settled — enqueue immediately. */
+        __torajs_microtask_enqueue(invoke, arg);
+        return;
+    }
+    __torajs_promise_cb_t *node = (__torajs_promise_cb_t *)malloc(
+        sizeof(__torajs_promise_cb_t)
+    );
+    node->invoke = invoke;
+    node->arg = arg;
+    node->next = (__torajs_promise_cb_t *)pp->callbacks;
+    pp->callbacks = node;
 }
 
 /* ============================================================
@@ -144,8 +212,6 @@ void __torajs_promise_reject(void *p, int64_t reason) {
  * including tasks enqueued during drain. It returns when no more
  * microtasks are pending. Auto-called from main exit by T-15.e.
  * ============================================================ */
-
-typedef void (*__torajs_microtask_fn_t)(int64_t arg);
 
 typedef struct {
     __torajs_microtask_fn_t fn;
@@ -217,17 +283,26 @@ size_t __torajs_microtask_pending_count(void) {
     return mt_len_ - mt_head_;
 }
 
-/* Drop hook for the universal heap header's free dispatcher. T-15.a:
- * leaks heap-typed `value` since we don't yet carry the T-drop fn
- * pointer (lands in T-15.f when Type::Promise<T> codegen knows T).
- * The Promise block itself is freed unconditionally. */
+/* Drop hook for the universal heap header's free dispatcher.
+ * T-15.d: free the residual callback list (each unfired cb node)
+ * before freeing the Promise block itself. The cb's `arg` slot
+ * may itself carry a heap pointer (e.g. the result-Promise) — for
+ * v0.5 MVP we don't recursively drop it; T-16 await codegen
+ * carefully balances refs by ensuring all callback nodes drain
+ * before the source Promise can be dropped (the source holds
+ * refs to the result Promises until resolve/reject fires).
+ *
+ * Heap-typed `value` is also leaked at T-15.d — proper drop ships
+ * with T-15.f when Type::Promise<T> codegen knows the static T. */
 void __torajs_promise_drop(void *p) {
     if (p == NULL) return;
     Promise *pp = (Promise *)p;
-    if (pp->callbacks != NULL) {
-        /* Callbacks list will be a heap Array once T-15.d wires .then;
-         * for T-15.a it's always NULL so we never enter this branch. */
-        /* TODO T-15.d: dec each pending callback's result promise. */
+    __torajs_promise_cb_t *node = (__torajs_promise_cb_t *)pp->callbacks;
+    while (node != NULL) {
+        __torajs_promise_cb_t *next = node->next;
+        free(node);
+        node = next;
     }
+    pp->callbacks = NULL;
     free(pp);
 }
