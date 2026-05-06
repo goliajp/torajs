@@ -1994,6 +1994,18 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         &[Type::Promise],
         Type::Void,
     );
+    /* T-15.g.2 — `await p` desugars to `p.value` Member access at
+     * parse time. For built-in Type::Promise(T), Member access on
+     * `.value` lowers to this runtime helper which returns the
+     * resolved i64 value (caller bitcasts back to T at the call
+     * site if T isn't already i64). */
+    let promise_get_value_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_promise_get_value",
+        &[Type::Promise],
+        Type::I64,
+    );
     /* v0.2 #3 — Object.is(a, b) for Type::Number arguments. Diverges
      * from `===` on two corner cases:
      *   - Object.is(NaN, NaN) === true
@@ -3044,6 +3056,7 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         promise_alloc_fulfilled: promise_alloc_fulfilled_id,
         promise_alloc_rejected: promise_alloc_rejected_id,
         promise_drop: promise_drop_id,
+        promise_get_value: promise_get_value_id,
         symbol_alloc: symbol_alloc_id,
         symbol_drop: symbol_drop_id,
         symbol_print: symbol_print_id,
@@ -3559,6 +3572,7 @@ struct Intrinsics {
     promise_alloc_fulfilled: FuncId,
     promise_alloc_rejected: FuncId,
     promise_drop: FuncId,
+    promise_get_value: FuncId,
     symbol_alloc: FuncId,
     symbol_drop: FuncId,
     symbol_print: FuncId,
@@ -14337,6 +14351,62 @@ impl<'a> LowerCtx<'a> {
                 Operand::Value(obj_ptr)
             }
             Expr::Member { obj, name } => {
+                /* T-15.g.2 (v0.5.0) — `await p` (= `p.value`) on a
+                 * built-in Type::Promise(T). Lowers to a runtime
+                 * `__torajs_promise_get_value(p)` call which reads
+                 * the resolved i64 value slot.
+                 *
+                 * Static-only dispatch: only fire when we can
+                 * determine obj's type IS Type::Promise without
+                 * lowering. Cases handled:
+                 *   - Ident bound to Type::Promise in self.locals
+                 *   - Direct call result Promise.resolve(...) /
+                 *     Promise.reject(...)
+                 * Anything else falls through to the regular Member
+                 * path so user-class Promise (struct field) keeps
+                 * working. Eager lowering would double-side-effect
+                 * the obj subexpression on fall-through. */
+                let obj_is_builtin_promise = name == "value" && {
+                    match self.ast.get_expr(*obj) {
+                        Expr::Ident(n) => self
+                            .locals
+                            .get(n)
+                            .map(|info| matches!(info.ty, Type::Promise))
+                            .unwrap_or(false),
+                        Expr::Call { callee, .. } => {
+                            matches!(
+                                self.ast.get_expr(*callee),
+                                Expr::Member { obj: ns_id, name: m_name }
+                                    if (m_name == "resolve" || m_name == "reject")
+                                        && matches!(
+                                            self.ast.get_expr(*ns_id),
+                                            Expr::Ident(ns) if ns == "Promise"
+                                        )
+                            )
+                        }
+                        _ => false,
+                    }
+                };
+                if obj_is_builtin_promise {
+                    let obj_op = self.lower_expr(*obj);
+                    let v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.promise_get_value,
+                            vec![obj_op.clone()],
+                        ),
+                        Type::I64,
+                        None,
+                    );
+                    let is_borrow = matches!(
+                        self.ast.get_expr(*obj),
+                        Expr::Ident(_) | Expr::Member { .. } | Expr::Index { .. }
+                    );
+                    if !is_borrow {
+                        self.emit_drop_value(obj_op, Type::Promise);
+                    }
+                    return Operand::Value(v);
+                }
                 /* T-13.c (v0.4.0) — well-known Symbol singletons.
                  * Each access lowers to a runtime helper call that
                  * lazy-inits the process-level singleton + rc_inc's

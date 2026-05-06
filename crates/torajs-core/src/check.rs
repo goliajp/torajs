@@ -1985,6 +1985,20 @@ impl Checker {
                 {
                     return Ok(ty.clone());
                 }
+                /* T-15.g.2 (v0.5.0) — built-in `Promise<T>.value` returns
+                 * T. The parser desugars `await p` to `p.value` (Phase L
+                 * MVP — synchronous read of the resolved value), so this
+                 * Member-access rule is the entire `await` typing for
+                 * built-in promises. ssa_lower's matching arm emits
+                 * `__torajs_promise_get_value(p)` which reads the i64
+                 * value slot from the Promise heap block. The user-class
+                 * Promise pattern keeps working since Type::Object
+                 * structs go through the field-lookup branch above. */
+                if let Type::Promise(inner) = &obj_ty
+                    && name == "value"
+                {
+                    return Ok((**inner).clone());
+                }
                 // Phase I.1 — class method on Type::Struct. Reverse-lookup
                 // the class name from the struct shape (matches the
                 // first-aliased class with that struct), then probe
