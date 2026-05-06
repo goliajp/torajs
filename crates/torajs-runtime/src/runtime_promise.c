@@ -414,6 +414,50 @@ void *__torajs_promise_all_sync(void *promises_arr) {
     return __torajs_promise_alloc_fulfilled_heap((int64_t)(intptr_t)result_arr);
 }
 
+/* T-17.b (v0.5.0) — Promise.race<T>(promises: Promise<T>[]) →
+ * Promise<T>. First settled (fulfilled OR rejected) wins. MVP
+ * walks the input array left-to-right and returns the first
+ * non-pending Promise's value/reason mirror.
+ *
+ * Empty input → forever-pending per spec; we return rejected
+ * (no real microtask-event-loop yet to keep promises pending).
+ * All-pending → rejected with phase-pointer error (full fan-in
+ * post-T-15.g.6). */
+void *__torajs_promise_race_sync(void *promises_arr) {
+    if (promises_arr == NULL) {
+        return __torajs_promise_alloc_rejected(0);
+    }
+    uint8_t *bytes = (uint8_t *)promises_arr;
+    uint64_t len = *(uint64_t *)(bytes + __TORAJS_PROMISE_ARR_LEN_OFF);
+    uint32_t head = *(uint32_t *)(bytes + __TORAJS_PROMISE_ARR_HEAD_OFF);
+    uint8_t *data = bytes + __TORAJS_PROMISE_ARR_HDR_SIZE;
+    for (uint64_t i = 0; i < len; i++) {
+        Promise *pp = *(Promise **)(data + (head + i) * 8);
+        if (pp == NULL) continue;
+        if (pp->state == __TORAJS_PROMISE_FULFILLED) {
+            if (pp->value_is_heap) {
+                /* Mirror the inc — result Promise owns one ref now. */
+                if (pp->value != 0) {
+                    __torajs_rc_inc((void *)(intptr_t)pp->value);
+                }
+                return __torajs_promise_alloc_fulfilled_heap(pp->value);
+            }
+            return __torajs_promise_alloc_fulfilled(pp->value);
+        }
+        if (pp->state == __TORAJS_PROMISE_REJECTED) {
+            if (pp->value_is_heap) {
+                if (pp->value != 0) {
+                    __torajs_rc_inc((void *)(intptr_t)pp->value);
+                }
+                return __torajs_promise_alloc_rejected_heap(pp->value);
+            }
+            return __torajs_promise_alloc_rejected(pp->value);
+        }
+    }
+    /* Empty or all-pending — phase-pointer reject. */
+    return __torajs_promise_alloc_rejected(0);
+}
+
 void *__torajs_promise_then_simple(void *source, __torajs_then_cb_i64_t cb) {
     if (source == NULL || cb == NULL) return NULL;
     void *result = __torajs_promise_alloc_pending();
