@@ -2036,6 +2036,17 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         &[Type::Promise, Type::Ptr],
         Type::Promise,
     );
+    /* T-17.a — Promise.all sync fast path. Input is Array<Promise>;
+     * output is Promise<Array<T>>. Caller is responsible for input
+     * being all-fulfilled at call time; pending elements yield a
+     * rejected Promise (full fan-in support post-T-15.g.6). */
+    let promise_all_sync_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_promise_all_sync",
+        &[Type::Ptr],
+        Type::Promise,
+    );
     /* v0.2 #3 — Object.is(a, b) for Type::Number arguments. Diverges
      * from `===` on two corner cases:
      *   - Object.is(NaN, NaN) === true
@@ -3090,6 +3101,7 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         promise_drop: promise_drop_id,
         promise_get_value: promise_get_value_id,
         promise_then_simple: promise_then_simple_id,
+        promise_all_sync: promise_all_sync_id,
         symbol_alloc: symbol_alloc_id,
         symbol_drop: symbol_drop_id,
         symbol_print: symbol_print_id,
@@ -3609,6 +3621,7 @@ struct Intrinsics {
     promise_drop: FuncId,
     promise_get_value: FuncId,
     promise_then_simple: FuncId,
+    promise_all_sync: FuncId,
     symbol_alloc: FuncId,
     symbol_drop: FuncId,
     symbol_print: FuncId,
@@ -10634,6 +10647,23 @@ impl<'a> LowerCtx<'a> {
                         return Operand::Value(v);
                     }
                 }
+                /* T-17.a (v0.5.0) — Promise.all(promises) sync fast path. */
+                if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
+                    && m_name == "all"
+                    && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
+                    && ns == "Promise"
+                    && args.len() == 1
+                {
+                    let arr_op = self.lower_expr(args[0]);
+                    self.consume_if_ident(args[0]);
+                    let v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(self.intrinsics.promise_all_sync, vec![arr_op]),
+                        Type::Promise,
+                        None,
+                    );
+                    return Operand::Value(v);
+                }
                 /* T-15.g.1 / T-15.g.5 — Promise.resolve(v) / Promise.reject(e).
                  * Dispatch:
                  *   - Type::I64 / Bool / F64 → primitive variant (just
@@ -14518,11 +14548,11 @@ impl<'a> LowerCtx<'a> {
                             .map(|info| matches!(info.ty, Type::Promise))
                             .unwrap_or(false),
                         Expr::Call { callee, .. } => {
-                            // Built-in Promise.resolve / reject statics.
+                            // Built-in Promise.resolve / reject / all statics.
                             let static_ctor = matches!(
                                 self.ast.get_expr(*callee),
                                 Expr::Member { obj: ns_id, name: m_name }
-                                    if (m_name == "resolve" || m_name == "reject")
+                                    if (m_name == "resolve" || m_name == "reject" || m_name == "all")
                                         && matches!(
                                             self.ast.get_expr(*ns_id),
                                             Expr::Ident(ns) if ns == "Promise"

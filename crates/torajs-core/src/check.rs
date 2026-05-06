@@ -3051,6 +3051,37 @@ impl Checker {
                     };
                     return Ok(Type::Promise(Box::new(inner)));
                 }
+                /* T-17.a (v0.5.0) — Promise.all<T>(promises: Promise<T>[])
+                 * → Promise<Array<T>>. Sync fast-path MVP — caller's
+                 * input must be all-fulfilled at call time (pending
+                 * elements yield a rejected outer Promise). Real
+                 * callback fan-in lands post-T-15.g.6 once PromiseId
+                 * interning preserves T element shape. */
+                if let Expr::Member { obj: ns_id, name: m_name } = ast.get_expr(*callee)
+                    && m_name == "all"
+                    && let Expr::Ident(ns) = ast.get_expr(*ns_id)
+                    && ns == "Promise"
+                {
+                    if args.len() != 1 {
+                        return Err(format!(
+                            "Promise.all expects 1 arg (the array of Promises), got {}",
+                            args.len()
+                        ));
+                    }
+                    let arg_ty = self.type_of(ast, args[0])?;
+                    let inner = match &arg_ty {
+                        Type::Array(boxed) => match &**boxed {
+                            Type::Promise(t_box) => (**t_box).clone(),
+                            other => return Err(format!(
+                                "Promise.all: arg must be Array<Promise<T>>, got Array<{other:?}>"
+                            )),
+                        },
+                        other => return Err(format!(
+                            "Promise.all: arg must be Array<Promise<T>>, got {other:?}"
+                        )),
+                    };
+                    return Ok(Type::Promise(Box::new(Type::Array(Box::new(inner)))));
+                }
                 // `Object.assign(target, source)` — single-source MVP.
                 // Subset constraint: both args must be the same struct
                 // type (no field-superset / partial / multi-source yet).

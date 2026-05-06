@@ -60,7 +60,15 @@ typedef struct {
 extern void __torajs_value_drop_heap(void *child);
 extern void __torajs_rc_inc(void *p);
 extern int __torajs_rc_dec(void *p);
+extern void *__torajs_arr_alloc(uint64_t initial_cap);
+extern void *__torajs_arr_push(void *arr, int64_t val);
 void __torajs_promise_drop(void *p);  /* fwd decl — body further down */
+
+/* Array layout (must match runtime_str.c). Re-declared here so the
+ * Promise runtime can iterate input arrays for Promise.all etc. */
+#define __TORAJS_PROMISE_ARR_HDR_SIZE  24
+#define __TORAJS_PROMISE_ARR_LEN_OFF   8
+#define __TORAJS_PROMISE_ARR_HEAD_OFF  20
 
 /* Forward decls so the T-15.d .then helpers (defined before the
  * microtask queue body further down the file) can reference the
@@ -351,6 +359,59 @@ static void then_simple_dispatch_(int64_t arg) {
      * exists. */
     __torajs_promise_drop(a->source);
     free(a);
+}
+
+/* T-17.a (v0.5.0) — Promise.all<T>(promises: Promise<T>[]) →
+ * Promise<T[]>. MVP: synchronous fast path for inputs that are
+ * all already fulfilled at call time. Walks the input array,
+ * pulls each Promise's value, builds a result tora-Array, wraps
+ * in a fulfilled Promise. Rejected input → rejected outer Promise
+ * with that Promise's reason.
+ *
+ * Pending input → for v0.5 MVP returns a rejected Promise with
+ * a phase-pointer error. Real callback-based fan-in (count down
+ * to fire result on last resolve) ships post-T-15.g.6 once
+ * PromiseId interning lets the result type properly carry T[].
+ *
+ * Caller's input array's element refcounts: this fn READS each
+ * Promise's value; caller still owns the input array refs (no
+ * inc/dec on the inputs). The result array's elements share
+ * ownership with the input Promises' inner values for heap T —
+ * value_is_heap propagation TBD; for primitive T (Number/Bool)
+ * the values just copy.
+ */
+void *__torajs_promise_all_sync(void *promises_arr) {
+    if (promises_arr == NULL) {
+        return __torajs_promise_alloc_rejected(0);
+    }
+    uint8_t *bytes = (uint8_t *)promises_arr;
+    uint64_t len = *(uint64_t *)(bytes + __TORAJS_PROMISE_ARR_LEN_OFF);
+    uint32_t head = *(uint32_t *)(bytes + __TORAJS_PROMISE_ARR_HEAD_OFF);
+    uint8_t *data = bytes + __TORAJS_PROMISE_ARR_HDR_SIZE;
+    /* Pre-scan: verify all already fulfilled. Reject (with the
+     * first rejected Promise's reason) on rejected; return a
+     * rejected MVP-pointer Promise on pending. */
+    for (uint64_t i = 0; i < len; i++) {
+        Promise *pp = *(Promise **)(data + (head + i) * 8);
+        if (pp == NULL) continue;
+        if (pp->state == __TORAJS_PROMISE_REJECTED) {
+            return __torajs_promise_alloc_rejected(pp->value);
+        }
+        if (pp->state == __TORAJS_PROMISE_PENDING) {
+            /* Pending input — full fan-in support needs callback
+             * count-down + result Array fan-in. Not yet wired in
+             * this MVP. Reject so the user sees a clear error. */
+            return __torajs_promise_alloc_rejected(0);
+        }
+    }
+    /* All fulfilled. Build result Array. */
+    void *result_arr = __torajs_arr_alloc(len);
+    for (uint64_t i = 0; i < len; i++) {
+        Promise *pp = *(Promise **)(data + (head + i) * 8);
+        int64_t v = (pp == NULL) ? 0 : pp->value;
+        result_arr = __torajs_arr_push(result_arr, v);
+    }
+    return __torajs_promise_alloc_fulfilled_heap((int64_t)(intptr_t)result_arr);
 }
 
 void *__torajs_promise_then_simple(void *source, __torajs_then_cb_i64_t cb) {
