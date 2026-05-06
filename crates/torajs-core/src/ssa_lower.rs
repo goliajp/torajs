@@ -10670,6 +10670,71 @@ impl<'a> LowerCtx<'a> {
                         return Operand::Value(v);
                     }
                 }
+                /* T-19 (v0.5.0) — `Bun.file(path)` is a no-op
+                 * passthrough at SSA: the BunFile handle is just the
+                 * path string. `.text()` / future `.json()` /
+                 * `.arrayBuffer()` dispatch off it use the path
+                 * directly. */
+                if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
+                    && m_name == "file"
+                    && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
+                    && ns == "Bun"
+                    && args.len() == 1
+                {
+                    let arg_op = self.lower_expr(args[0]);
+                    self.consume_if_ident(args[0]);
+                    return arg_op;
+                }
+                /* T-19 (v0.5.0) — `<bunfile>.text()` reads the file at
+                 * the BunFile's path as a string and wraps in
+                 * Promise.resolve(...). MVP routes through
+                 * fs_read_file_sync; real I/O suspension lands with
+                 * T-16 state-machine async/await. */
+                if let Expr::Member { obj: file_id, name: m_name } = self.ast.get_expr(*callee)
+                    && m_name == "text"
+                    && args.is_empty()
+                {
+                    // Static check: only fire when the receiver's
+                    // expression tree shape is `Bun.file(...)` so we
+                    // don't intercept user .text() methods on other
+                    // objects. The receiver lowers as a Str (Bun.file
+                    // passthrough above).
+                    let is_bun_file = matches!(
+                        self.ast.get_expr(*file_id),
+                        Expr::Call { callee: f_callee, .. }
+                            if matches!(
+                                self.ast.get_expr(*f_callee),
+                                Expr::Member { obj: ns_id, name: m }
+                                    if m == "file"
+                                        && matches!(
+                                            self.ast.get_expr(*ns_id),
+                                            Expr::Ident(ns) if ns == "Bun"
+                                        )
+                            )
+                    );
+                    if is_bun_file {
+                        let path_op = self.lower_expr(*file_id);
+                        let str_v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.fs_read_file_sync,
+                                vec![path_op],
+                            ),
+                            Type::Str,
+                            None,
+                        );
+                        let p_v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.promise_alloc_fulfilled_heap,
+                                vec![Operand::Value(str_v)],
+                            ),
+                            Type::Promise,
+                            None,
+                        );
+                        return Operand::Value(p_v);
+                    }
+                }
                 /* T-18.a (v0.5.0) — fs.<method>Async wrappers. Each
                  * calls the matching sync helper then wraps the result
                  * in a fulfilled Promise. MVP "synchronous-then-resolve"
@@ -14666,6 +14731,25 @@ impl<'a> LowerCtx<'a> {
                                         Expr::Ident(ns) if ns == "fs_promises"
                                     )
                             );
+                            // T-19 — Bun.file(...).text() returns Promise<string>.
+                            let bun_file_text = matches!(
+                                self.ast.get_expr(*callee),
+                                Expr::Member { obj: file_id, name: m_name }
+                                    if m_name == "text"
+                                        && matches!(
+                                            self.ast.get_expr(*file_id),
+                                            Expr::Call { callee: f_callee, .. }
+                                                if matches!(
+                                                    self.ast.get_expr(*f_callee),
+                                                    Expr::Member { obj: ns_id, name: fm }
+                                                        if fm == "file"
+                                                            && matches!(
+                                                                self.ast.get_expr(*ns_id),
+                                                                Expr::Ident(ns) if ns == "Bun"
+                                                            )
+                                                )
+                                        )
+                            );
                             // Built-in Promise<T>.then(...) chain.
                             let then_chain = matches!(
                                 self.ast.get_expr(*callee),
@@ -14687,6 +14771,7 @@ impl<'a> LowerCtx<'a> {
                                 false
                             };
                             static_ctor || then_chain || fn_returns_promise || fs_async
+                                || bun_file_text
                         }
                         _ => false,
                     }

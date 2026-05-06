@@ -2440,6 +2440,22 @@ impl Checker {
                         vec![Type::String, Type::String],
                         Box::new(Type::Void),
                     )),
+                    /* T-19 (v0.5.0) — `Bun.file(path)` returns an
+                     * opaque BunFile handle. The user calls `.text()`
+                     * (or future `.json()` / `.arrayBuffer()`) on it
+                     * to actually read. The handle is internally
+                     * `Type::String` (just the path) since the
+                     * methods all dispatch through fs.readFileSync.
+                     * Type::Object("BunFile") sentinel keeps the
+                     * methods scoped so plain Strings don't match. */
+                    (Type::Object("Bun"), "file") => Ok(Type::Function(
+                        vec![Type::String],
+                        Box::new(Type::Object("BunFile")),
+                    )),
+                    (Type::Object("BunFile"), "text") => Ok(Type::Function(
+                        Vec::new(),
+                        Box::new(Type::Promise(Box::new(Type::String))),
+                    )),
                     /* v0.3 #3 — process surface (minimum). */
                     (Type::Object("process"), "exit") => Ok(Type::Function(
                         vec![Type::Number],
