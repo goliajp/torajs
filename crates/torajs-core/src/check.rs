@@ -140,6 +140,13 @@ pub enum Type {
     /// Distinct from `Type::Object("Date")` (the global constructor +
     /// static methods like `Date.now()`).
     Date,
+    /// T-13.a (v0.4.0) — Symbol value. Each `Symbol(desc?)` call
+    /// allocates a fresh heap block; identity is pointer identity.
+    /// Heap-owned, non-Copy, ARC. Distinct from `Type::Object("Symbol")`
+    /// (the constructor + future Symbol.for / well-known statics).
+    /// `=== / !==` on Symbol operands compares ptr; console.log
+    /// formats `Symbol(<desc>)`.
+    Symbol,
 }
 
 impl Type {
@@ -629,6 +636,7 @@ pub fn type_to_ann(ty: &Type) -> String {
         Type::String => "string".into(),
         Type::Void => "void".into(),
         Type::Any => "number".into(), // SSA-side has no Any; fall back to number
+        Type::Symbol => "symbol".into(),
         Type::Array(inner) => format!("{}[]", type_to_ann(inner)),
         // Structs encode structurally as `__struct(field_name1:T1|...)`.
         // ssa_lower's `parse_type` decodes the same shape, looks up
@@ -1835,6 +1843,12 @@ impl Checker {
                     "JSON" => Ok(Type::Object("JSON")),
                     "Array" => Ok(Type::Object("Array")),
                     "Date" => Ok(Type::Object("Date")),
+                    /* T-13.a (v0.4.0) — Symbol global. As-callable
+                     * (`Symbol(desc?)` constructor) routed via the
+                     * Call arm below to Type::Symbol. Static methods
+                     * (`Symbol.for`, `Symbol.iterator`, ...) land in
+                     * T-13.b/c via the Member arm. */
+                    "Symbol" => Ok(Type::Object("Symbol")),
                     /* v0.3 #1 — fs module global. Methods routed via
                      * the (Type::Object("fs"), ...) member arm below. */
                     "fs" => Ok(Type::Object("fs")),
@@ -2882,6 +2896,27 @@ impl Checker {
                 Ok(Type::Struct(field_tys))
             }
             Expr::Call { callee, args } => {
+                // T-13.a (v0.4.0) — `Symbol(desc?)` constructor call.
+                // Returns Type::Symbol. Optional desc Str arg; missing
+                // desc = NULL pointer at runtime, prints `Symbol()`.
+                if let Expr::Ident(n) = ast.get_expr(*callee)
+                    && n == "Symbol"
+                {
+                    if args.len() > 1 {
+                        return Err(format!(
+                            "Symbol() expects 0 or 1 arg, got {}", args.len()
+                        ));
+                    }
+                    if args.len() == 1 {
+                        let arg_ty = self.type_of(ast, args[0])?;
+                        if !matches!(arg_ty, Type::String) {
+                            return Err(format!(
+                                "Symbol(desc) — desc must be string, got {arg_ty:?}"
+                            ));
+                        }
+                    }
+                    return Ok(Type::Symbol);
+                }
                 // `Object.assign(target, source)` — single-source MVP.
                 // Subset constraint: both args must be the same struct
                 // type (no field-superset / partial / multi-source yet).
@@ -3441,6 +3476,15 @@ impl Checker {
                     BinOp::Eq | BinOp::Neq => {
                         // Same primitive type → bool.
                         if l == r && matches!(l, Type::Number | Type::String | Type::Boolean) {
+                            return Ok(Type::Boolean);
+                        }
+                        // T-13.a (v0.4.0) — Symbol === Symbol is
+                        // pointer identity (each Symbol() call yields
+                        // a fresh heap-allocated handle). Same-object
+                        // comparison returns true; distinct-allocation
+                        // comparison returns false. Lowers to ICmp Eq
+                        // on Ptr operands.
+                        if l == r && matches!(l, Type::Symbol) {
                             return Ok(Type::Boolean);
                         }
                         // `Nullable(T) === null` and `null === Nullable(T)`

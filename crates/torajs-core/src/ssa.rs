@@ -143,6 +143,14 @@ pub enum Type {
     /// `__torajs_date_*` runtime helpers. ARC-owned via universal
     /// heap header.
     Date,
+    /// T-13.a (v0.4.0) — `Type::Symbol` value. Heap-allocated 16-byte
+    /// block: universal heap header + owned description Str ptr (NULL
+    /// when no description supplied). Identity is pointer identity —
+    /// each `Symbol(desc)` call allocates fresh, so equality is the
+    /// natural ICmp Eq on Ptr operands. console.log dispatches to
+    /// `__torajs_symbol_print` which formats `Symbol(<desc>)`.
+    /// Lowers to a single pointer at codegen.
+    Symbol,
     /// T-10 (v0.4.0) — `Type::Any` carries a tagged value at runtime:
     /// either a primitive (i64 / f64 / bool / null) or a heap pointer
     /// (Str / Obj / Arr / Closure / RegExp / Date). At the SSA layer
@@ -175,6 +183,7 @@ impl Type {
             Type::FnSig(_) => "fnsig",
             Type::Closure(_) => "closure",
             Type::Any => "any",
+            Type::Symbol => "symbol",
         }
     }
 
@@ -220,6 +229,7 @@ impl Type {
                 | Type::RegExp
                 | Type::Date
                 | Type::Any
+                | Type::Symbol
         )
     }
 }

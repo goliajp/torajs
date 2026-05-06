@@ -1867,6 +1867,30 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         &[Type::Ptr],
         Type::Void,
     );
+    /* T-13.a (v0.4.0) — Symbol value runtime. alloc takes optional
+     * desc Str (NULL when omitted); drop is rc-aware + dec's desc;
+     * print formats `Symbol(<desc>)` for console.log. */
+    let symbol_alloc_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_symbol_alloc",
+        &[Type::Str],
+        Type::Symbol,
+    );
+    let symbol_drop_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_symbol_drop",
+        &[Type::Symbol],
+        Type::Void,
+    );
+    let symbol_print_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_symbol_print",
+        &[Type::Symbol],
+        Type::Void,
+    );
     /* T-03 (v0.3.0) — sync stdio. process.stdout.write(s) and
      * process.stderr.write(s) return bytes written (i64); stdin.read()
      * drains stdin to EOF and returns one Str. Aborting on short
@@ -2933,6 +2957,9 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         obj_freeze: obj_freeze_id,
         obj_is_frozen: obj_is_frozen_id,
         obj_check_not_frozen: obj_check_not_frozen_id,
+        symbol_alloc: symbol_alloc_id,
+        symbol_drop: symbol_drop_id,
+        symbol_print: symbol_print_id,
         object_is_f64: object_is_f64_id,
         split_iter_init: split_iter_init_id,
         split_iter_next: split_iter_next_id,
@@ -3430,6 +3457,9 @@ struct Intrinsics {
     obj_freeze: FuncId,
     obj_is_frozen: FuncId,
     obj_check_not_frozen: FuncId,
+    symbol_alloc: FuncId,
+    symbol_drop: FuncId,
+    symbol_print: FuncId,
     object_is_f64: FuncId,
     split_iter_init: FuncId,
     split_iter_next: FuncId,
@@ -4122,6 +4152,9 @@ fn parse_type(
         // wires empty-Array<Any>; T-10.c lands the heterogeneous
         // literal codegen.
         "any" => Type::Any,
+        // T-13.a (v0.4.0) — Symbol value. Heap-allocated 16-byte
+        // block, identity is pointer identity. Lowers to ptr.
+        "symbol" => Type::Symbol,
         other => match aliases.get(other) {
             Some(ty) => *ty,
             None => panic!("ssa-lower: unsupported type annotation `{other}`"),
@@ -5092,6 +5125,11 @@ impl<'a> LowerCtx<'a> {
             // conformance fixture that exercises Any operands.
             (Type::Any, false) => self.intrinsics.print_any,
             (Type::Any, true) => self.intrinsics.print_any,
+            // T-13.a — Type::Symbol prints `Symbol(<desc>)` via the
+            // dedicated runtime helper. stderr variant uses stdout for
+            // now (no separate _err helper; matches console.error's
+            // partial behavior on rare types).
+            (Type::Symbol, _) => self.intrinsics.symbol_print,
             (_, false) => self.intrinsics.print_i64,
             (_, true) => self.intrinsics.print_i64_err,
         }
@@ -6589,6 +6627,14 @@ impl<'a> LowerCtx<'a> {
                 self.f.append_void(
                     self.cur_block,
                     InstKind::Call(self.intrinsics.any_box_drop, vec![val]),
+                );
+            }
+            Type::Symbol => {
+                // T-13.a — Symbol value: rc-aware drop (dec self,
+                // dec desc str on last owner, free).
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.symbol_drop, vec![val]),
                 );
             }
             other if other.is_copy() => {
@@ -9244,6 +9290,27 @@ impl<'a> LowerCtx<'a> {
                 }
             }
             Expr::Call { callee, args } => {
+                // T-13.a (v0.4.0) — `Symbol(desc?)` direct constructor
+                // call. Returns Type::Symbol. desc is optional; missing
+                // = NULL pointer (rc_inc no-ops + print formats `Symbol()`).
+                if let Expr::Ident(n) = self.ast.get_expr(*callee)
+                    && n == "Symbol"
+                {
+                    let desc_op: Operand = if args.is_empty() {
+                        Operand::ConstPtrNull
+                    } else {
+                        let v = self.lower_expr(args[0]);
+                        self.consume_if_ident(args[0]);
+                        v
+                    };
+                    let v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(self.intrinsics.symbol_alloc, vec![desc_op]),
+                        Type::Symbol,
+                        None,
+                    );
+                    return Operand::Value(v);
+                }
                 // Phase H.3.b — virtual-dispatch interception. Desugar
                 // rewrites `obj.M()` for multi-owner methods to a call
                 // to the synthetic `__dispatch_<M>` fn whose body is a
@@ -15042,6 +15109,7 @@ impl<'a> LowerCtx<'a> {
                     Type::I64 | Type::F64 | Type::I32 => "number",
                     Type::Bool => "boolean",
                     Type::Str | Type::Substr => "string",
+                    Type::Symbol => "symbol",
                     Type::Obj(_)
                     | Type::Arr(_)
                     | Type::Closure(_)

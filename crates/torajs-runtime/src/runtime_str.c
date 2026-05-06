@@ -135,6 +135,7 @@ typedef struct __attribute__((aligned(8))) {
 #define __TORAJS_TAG_REGEX   4  /* runtime_regex.c — compiled NFA + flags */
 #define __TORAJS_TAG_DATE    5  /* runtime_date.c — { ms_since_epoch } */
 #define __TORAJS_TAG_ANY_BOX 6  /* T-10.d — boxed Type::Any: header + tag + value */
+#define __TORAJS_TAG_SYMBOL  7  /* T-13.a — Symbol value: header + desc str ptr */
 
 /* T-10.b (v0.4.0) — Type::Any tagged-slot tags. An Array<Any> stores
  * 16-byte slots `{ tag: u64 (low 8 bits used), value: u64 }` so each
@@ -1224,6 +1225,64 @@ void __torajs_obj_check_not_frozen(const void *p) {
     if (h->flags & __TORAJS_FLAG_FROZEN) {
         __torajs_panic("TypeError: Attempted to assign to readonly property");
     }
+}
+
+/* T-13.a (v0.4.0) — Symbol value runtime.
+ *
+ * Layout: 16 bytes — [hdr 8: refcount/type_tag=SYMBOL/flags]
+ *                    [desc: void* @ offset 8]
+ *
+ * Each Symbol() call allocates a fresh heap block — Symbol identity
+ * is pointer identity (`Symbol('x') === Symbol('x')` is false; same
+ * Symbol compared by identity is true). The description (if any)
+ * is an owning rc'd Str ref; NULL means undefined description.
+ * Drop dec's the desc str via __torajs_str_drop. */
+
+#define __TORAJS_SYMBOL_DESC_OFF  8
+#define __TORAJS_SYMBOL_SIZE      16
+
+void *__torajs_symbol_alloc(void *desc) {
+    uint8_t *p = (uint8_t *)malloc(__TORAJS_SYMBOL_SIZE);
+    __torajs_heap_header_t *h = (__torajs_heap_header_t *)p;
+    h->refcount = 1;
+    h->type_tag = __TORAJS_TAG_SYMBOL;
+    h->flags = 0;
+    /* Symbol owns its desc str — bump rc so the Symbol's lifetime
+     * doesn't depend on the original literal's. NULL desc passes
+     * through (rc_inc no-ops on NULL). */
+    __torajs_rc_inc(desc);
+    *(void **)(p + __TORAJS_SYMBOL_DESC_OFF) = desc;
+    return p;
+}
+
+void __torajs_symbol_drop(void *p) {
+    if (p == NULL) return;
+    __torajs_heap_header_t *h = (__torajs_heap_header_t *)p;
+    if (h->flags & __TORAJS_FLAG_STATIC_LITERAL) return;
+    if (!__torajs_rc_dec(p)) return;
+    void *desc = *(void **)((uint8_t *)p + __TORAJS_SYMBOL_DESC_OFF);
+    if (desc != NULL) {
+        __torajs_str_drop(desc);
+    }
+    free(p);
+}
+
+/* console.log dispatch for Type::Symbol — prints "Symbol(<desc>)"
+ * or "Symbol()" when desc is NULL. Matches bun's format. */
+void __torajs_symbol_print(const void *p) {
+    if (p == NULL) {
+        fputs("undefined\n", stdout);
+        return;
+    }
+    void *desc = *(void *const *)((const uint8_t *)p + __TORAJS_SYMBOL_DESC_OFF);
+    fputs("Symbol(", stdout);
+    if (desc != NULL) {
+        uint64_t len = __TORAJS_STR_LEN(desc);
+        if (len) {
+            fwrite(__TORAJS_STR_CDATA(desc), 1, (size_t)len, stdout);
+        }
+    }
+    fputs(")\n", stdout);
 }
 
 /* `__torajs_arr_push_unchecked` is inkwell-defined and exported as a
