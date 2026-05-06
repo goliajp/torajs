@@ -1803,6 +1803,46 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         &[Type::Ptr],
         Type::Void,
     );
+    /* T-10.d.i — Type::Any boxed-value runtime. `any_box` allocates
+     * a 24-byte heap (header + tag + value); `unbox_tag` / `unbox_value`
+     * are field reads; `any_box_drop` is the rc-aware free that also
+     * decs heap-typed children; `print_any` is console.log Any
+     * dispatch. */
+    let any_box_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_any_box",
+        &[Type::I64, Type::I64],
+        Type::Any,
+    );
+    let any_unbox_tag_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_any_unbox_tag",
+        &[Type::Any],
+        Type::I64,
+    );
+    let any_unbox_value_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_any_unbox_value",
+        &[Type::Any],
+        Type::I64,
+    );
+    let any_box_drop_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_any_box_drop",
+        &[Type::Any],
+        Type::Void,
+    );
+    let print_any_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_print_any",
+        &[Type::Any],
+        Type::Void,
+    );
     /* T-03 (v0.3.0) — sync stdio. process.stdout.write(s) and
      * process.stderr.write(s) return bytes written (i64); stdin.read()
      * drains stdin to EOF and returns one Str. Aborting on short
@@ -2861,6 +2901,11 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         arr_alloc_any: arr_alloc_any_id,
         arr_push_any: arr_push_any_id,
         arr_drop_any: arr_drop_any_id,
+        any_box: any_box_id,
+        any_unbox_tag: any_unbox_tag_id,
+        any_unbox_value: any_unbox_value_id,
+        any_box_drop: any_box_drop_id,
+        print_any: print_any_id,
         object_is_f64: object_is_f64_id,
         split_iter_init: split_iter_init_id,
         split_iter_next: split_iter_next_id,
@@ -3350,6 +3395,11 @@ struct Intrinsics {
     arr_alloc_any: FuncId,
     arr_push_any: FuncId,
     arr_drop_any: FuncId,
+    any_box: FuncId,
+    any_unbox_tag: FuncId,
+    any_unbox_value: FuncId,
+    any_box_drop: FuncId,
+    print_any: FuncId,
     object_is_f64: FuncId,
     split_iter_init: FuncId,
     split_iter_next: FuncId,
@@ -4985,6 +5035,14 @@ impl<'a> LowerCtx<'a> {
             (Type::F64, true) => self.intrinsics.print_f64_err,
             (Type::Bool, false) => self.intrinsics.print_bool,
             (Type::Bool, true) => self.intrinsics.print_bool_err,
+            // T-10.d.i — Type::Any operand routes through the
+            // tag-aware `__torajs_print_any` runtime helper. stderr
+            // variant deferred to T-10.d.ii alongside the multi-arg
+            // joiner; for v0.4 the boxed-Any path is single-arg-only,
+            // and console.error/warn don't yet show up in any
+            // conformance fixture that exercises Any operands.
+            (Type::Any, false) => self.intrinsics.print_any,
+            (Type::Any, true) => self.intrinsics.print_any,
             (_, false) => self.intrinsics.print_i64,
             (_, true) => self.intrinsics.print_i64_err,
         }
@@ -6396,6 +6454,19 @@ impl<'a> LowerCtx<'a> {
                 // migrate them to the universal heap header so they
                 // join this path.
                 let elem_ty = self.arr_layouts[arr_id.0 as usize];
+                // T-10.d.i — Array<Any> uses 16-byte slot stride and
+                // a tagged-slot layout that the regular arr_drop
+                // walker can't decode. Route to the dedicated
+                // `__torajs_arr_drop_any` helper which handles the
+                // slot walk + per-tag child drop + free.
+                if elem_ty == Type::Any {
+                    let drop_fid = self.intrinsics.arr_drop_any;
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Call(drop_fid, vec![val]),
+                    );
+                    return;
+                }
                 if elem_ty.is_refcounted() {
                     let len_v = self.f.append_inst(
                         self.cur_block,
@@ -6459,6 +6530,16 @@ impl<'a> LowerCtx<'a> {
                 self.f.append_void(
                     self.cur_block,
                     InstKind::Call(self.intrinsics.date_drop, vec![val]),
+                );
+            }
+            Type::Any => {
+                // T-10.d.i — Type::Any boxed value. `any_box_drop` is
+                // rc-aware: dec, free at zero. If the box's tag is
+                // ANY_HEAP, the runtime helper also dispatches the
+                // child's per-type free via `__torajs_value_drop_heap`.
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.any_box_drop, vec![val]),
                 );
             }
             other if other.is_copy() => {
@@ -14159,6 +14240,67 @@ impl<'a> LowerCtx<'a> {
                     ),
                 };
                 let idx_val = self.lower_expr(*index);
+                // T-10.d.i — `xs[i]` on Array<Any>: 16-byte slot stride
+                // (tag at offset 24+i*16, value at offset 24+i*16+8).
+                // Dual-load + box into a fresh Any-box so the lowered
+                // operand is a single ptr the SSA layer can carry.
+                // Per-read alloc is the trade-off vs SSA-layer pair
+                // passing complexity; T-10.e may inline use-site fast
+                // paths (`console.log(xs[i])` direct dispatch w/o box).
+                if elem_ty == Type::Any {
+                    let scaled = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::BinOp(
+                            SsaBinOp::Shl,
+                            idx_val.clone(),
+                            Operand::ConstI64(4),
+                        ),
+                        Type::I64,
+                        None,
+                    );
+                    let tag_off = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::BinOp(
+                            SsaBinOp::Add,
+                            Operand::Value(scaled),
+                            Operand::ConstI64(ARR_DATA_OFF as i64),
+                        ),
+                        Type::I64,
+                        None,
+                    );
+                    let val_off = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::BinOp(
+                            SsaBinOp::Add,
+                            Operand::Value(tag_off),
+                            Operand::ConstI64(8),
+                        ),
+                        Type::I64,
+                        None,
+                    );
+                    let tag = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::LoadDyn(Type::I64, arr_val.clone(), Operand::Value(tag_off)),
+                        Type::I64,
+                        None,
+                    );
+                    let value = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::LoadDyn(Type::I64, arr_val, Operand::Value(val_off)),
+                        Type::I64,
+                        None,
+                    );
+                    let box_v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.any_box,
+                            vec![Operand::Value(tag), Operand::Value(value)],
+                        ),
+                        Type::Any,
+                        None,
+                    );
+                    return Operand::Value(box_v);
+                }
                 // offset = 16 + idx * 8
                 let scaled = self.f.append_inst(
                     self.cur_block,

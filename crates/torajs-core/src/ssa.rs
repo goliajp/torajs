@@ -219,6 +219,7 @@ impl Type {
                 | Type::Closure(_)
                 | Type::RegExp
                 | Type::Date
+                | Type::Any
         )
     }
 }

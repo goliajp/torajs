@@ -134,6 +134,7 @@ typedef struct __attribute__((aligned(8))) {
 #define __TORAJS_TAG_CLOSURE 3
 #define __TORAJS_TAG_REGEX   4  /* runtime_regex.c — compiled NFA + flags */
 #define __TORAJS_TAG_DATE    5  /* runtime_date.c — { ms_since_epoch } */
+#define __TORAJS_TAG_ANY_BOX 6  /* T-10.d — boxed Type::Any: header + tag + value */
 
 /* T-10.b (v0.4.0) — Type::Any tagged-slot tags. An Array<Any> stores
  * 16-byte slots `{ tag: u64 (low 8 bits used), value: u64 }` so each
@@ -577,31 +578,180 @@ uint64_t __torajs_arr_get_any_value(const void *arr, uint64_t i) {
     return *any_slot_val_((void *)arr, i);
 }
 
-/* Drop an Array<Any>. Walks every slot; for ANY_HEAP slots,
- * dec's the universal refcount (and triggers per-type free at
- * zero — done by rc_dec callers up the chain). Then frees the
- * outer block. The caller must have already determined that the
- * array's own refcount reached zero (typical pattern: rc_dec
- * returns 1 → call arr_drop_any). */
+/* Forward decls for the inkwell-emitted *_drop helpers. They live
+ * in the AOT binary's IR module; cc -c sees them via the linker
+ * after the link step, so an implicit-function-declaration warning
+ * here is harmless but noisy. Forward-decling keeps the C runtime
+ * tidy + avoids -Wint-conversion on call sites. */
+void __torajs_str_drop(void *s);
+void __torajs_arr_drop(void *a);
+
+/* Universal heap-typed value drop. Reads the value's `type_tag`
+ * and routes to the matching `__torajs_*_drop` (which itself does
+ * rc_dec + per-type free at zero). Used by Any-box drop and by
+ * Array<Any> slot walk to release ANY_HEAP-tagged children. NULL
+ * input is a no-op. T-10.d.i covers Str + Arr; Obj / Substr /
+ * Closure / RegExp / Date land as the corresponding `*_drop`s
+ * acquire C linkage — for now those tags fall back to `free()`
+ * which is leak-safe (frees the outer block; misses inner
+ * refcounted fields). T-10.e tightens the dispatch. */
+void __torajs_value_drop_heap(void *child) {
+    if (child == NULL) return;
+    __torajs_heap_header_t *h = (__torajs_heap_header_t *)child;
+    switch (h->type_tag) {
+        case __TORAJS_TAG_STR:  __torajs_str_drop(child); break;
+        case __TORAJS_TAG_ARR:  __torajs_arr_drop(child); break;
+        default:                /* Obj / Substr / Closure / RegExp /
+                                 * Date / ANY_BOX — fallback rc_dec +
+                                 * free; may leak inner refs. */
+            if (__torajs_rc_dec(child)) free(child);
+            break;
+    }
+}
+
+/* Drop an Array<Any>. rc-aware: dec, return early if shared.
+ * On last-owner (rc hit 0), walks every slot — for ANY_HEAP slots
+ * routes through `__torajs_value_drop_heap` so the child's per-type
+ * free runs. Then frees the outer block. Mirrors regular arr_drop's
+ * rc-awareness so emit_drop_value Type::Arr(Any) can call this once
+ * per scope-exit without manual rc bookkeeping. */
 void __torajs_arr_drop_any(void *arr) {
     if (arr == NULL) return;
     __torajs_heap_header_t *h = (__torajs_heap_header_t *)arr;
     if (h->flags & __TORAJS_FLAG_STATIC_LITERAL) return;
+    if (!__torajs_rc_dec(arr)) return; /* shared, keep alive */
     uint64_t len = *(uint64_t *)((uint8_t *)arr + 8);
     for (uint64_t i = 0; i < len; i++) {
         uint64_t tag = *any_slot_tag_(arr, i);
         if (tag == __TORAJS_ANY_HEAP) {
             void *child = (void *)(uintptr_t)*any_slot_val_(arr, i);
-            /* rc_dec returns 1 iff the child's refcount hit zero;
-             * in that case we'd need to invoke the child's per-
-             * type free (str_free / arr_free / obj_free / ...).
-             * That dispatch lands with T-10.c when codegen actually
-             * starts producing ANY_HEAP slots — for now the helper
-             * is wired but unused. */
-            (void)__torajs_rc_dec(child);
+            __torajs_value_drop_heap(child);
         }
     }
     free(arr);
+}
+
+/* T-10.d.i — Type::Any boxed-value runtime.
+ *
+ * Layout: 24 bytes — [hdr 8: refcount/type_tag=ANY_BOX/flags]
+ *                    [tag: u64 @ offset 8]
+ *                    [value: u64 @ offset 16]
+ *
+ * Created by `xs[i]` reads on Array<Any> — the slot's (tag, value)
+ * pair is copied into a fresh box so the SSA layer can carry it as
+ * a single pointer Operand. Heap-typed (ANY_HEAP) values get an
+ * extra rc_inc on box creation so the boxed-value owns its child
+ * independent of the source array's lifetime; box drop reverses it.
+ *
+ * Per-read box allocation is the trade-off vs holding the SSA-layer
+ * pair-passing complexity. T-10.e or v0.5+ may inline use-site fast
+ * paths for `console.log(xs[i])` to avoid the box allocation. */
+
+/* Box layout offsets. Universal heap header is 8 bytes. */
+#define __TORAJS_ANY_BOX_TAG_OFF   8
+#define __TORAJS_ANY_BOX_VAL_OFF   16
+#define __TORAJS_ANY_BOX_SIZE      24
+
+void *__torajs_any_box(int64_t tag, int64_t value) {
+    uint8_t *p = (uint8_t *)malloc(__TORAJS_ANY_BOX_SIZE);
+    __torajs_heap_header_t *h = (__torajs_heap_header_t *)p;
+    h->refcount = 1;
+    h->type_tag = __TORAJS_TAG_ANY_BOX;
+    h->flags = 0;
+    *(int64_t *)(p + __TORAJS_ANY_BOX_TAG_OFF) = tag;
+    *(int64_t *)(p + __TORAJS_ANY_BOX_VAL_OFF) = value;
+    /* If value is a heap pointer, hold an owning ref. The drop
+     * helper releases it. ANY_HEAP children whose ptr is NULL
+     * are still safe — rc_inc no-ops on NULL. */
+    if (tag == __TORAJS_ANY_HEAP) {
+        __torajs_rc_inc((void *)(uintptr_t)value);
+    }
+    return p;
+}
+
+int64_t __torajs_any_unbox_tag(const void *box) {
+    return *(const int64_t *)((const uint8_t *)box + __TORAJS_ANY_BOX_TAG_OFF);
+}
+
+int64_t __torajs_any_unbox_value(const void *box) {
+    return *(const int64_t *)((const uint8_t *)box + __TORAJS_ANY_BOX_VAL_OFF);
+}
+
+void __torajs_any_box_drop(void *box) {
+    if (box == NULL) return;
+    __torajs_heap_header_t *h = (__torajs_heap_header_t *)box;
+    if (h->flags & __TORAJS_FLAG_STATIC_LITERAL) return;
+    if (!__torajs_rc_dec(box)) return; /* shared box, keep alive */
+    int64_t tag = *(int64_t *)((uint8_t *)box + __TORAJS_ANY_BOX_TAG_OFF);
+    if (tag == __TORAJS_ANY_HEAP) {
+        void *child = (void *)(uintptr_t)*(int64_t *)
+            ((uint8_t *)box + __TORAJS_ANY_BOX_VAL_OFF);
+        __torajs_value_drop_heap(child);
+    }
+    free(box);
+}
+
+/* T-10.d.i — `console.log(any_value)` dispatch. Reads the box's tag
+ * and routes to the matching primitive printer. ANY_HEAP recurses
+ * through the heap value's universal type_tag for Str (the only
+ * pretty-printable heap type covered by T-10.d.i; Obj / Arr / Date
+ * etc. land later — for now those print as a placeholder). Output
+ * matches bun's `console.log` formatting for primitives:
+ *   1        → "1"
+ *   1.5      → "1.5"
+ *   'hello'  → "hello"  (no surrounding quotes for top-level)
+ *   true     → "true"
+ *   null     → "null"
+ *   undefined → tr maps to null → "null"
+ *
+ * Trailing newline matches the existing print_* helpers; multi-arg
+ * console.log goes through ssa_lower's space-joiner which calls
+ * this for each arg in turn (T-10.d adds the multi-arg variant
+ * `__torajs_print_any_no_newline`). For T-10.d.i the single-arg
+ * form is enough to validate the round-trip end-to-end. */
+extern void print_i64(int64_t);
+extern void print_f64(double);
+extern void print_bool(_Bool);
+extern void __torajs_str_print(const uint8_t *);
+
+void __torajs_print_any(const void *box) {
+    if (box == NULL) {
+        fputs("null\n", stdout);
+        return;
+    }
+    int64_t tag = *(const int64_t *)((const uint8_t *)box + __TORAJS_ANY_BOX_TAG_OFF);
+    int64_t v = *(const int64_t *)((const uint8_t *)box + __TORAJS_ANY_BOX_VAL_OFF);
+    switch (tag) {
+        case __TORAJS_ANY_NULL: fputs("null\n", stdout); break;
+        case __TORAJS_ANY_BOOL: print_bool((_Bool)(v != 0)); break;
+        case __TORAJS_ANY_I64:  print_i64(v); break;
+        case __TORAJS_ANY_F64: {
+            double d;
+            memcpy(&d, &v, sizeof(double));
+            print_f64(d);
+            break;
+        }
+        case __TORAJS_ANY_HEAP: {
+            void *child = (void *)(uintptr_t)v;
+            if (child == NULL) {
+                fputs("null\n", stdout);
+                break;
+            }
+            __torajs_heap_header_t *h = (__torajs_heap_header_t *)child;
+            if (h->type_tag == __TORAJS_TAG_STR) {
+                __torajs_str_print((const uint8_t *)child);
+            } else {
+                /* Obj / Arr / Closure / RegExp / Date pretty-print
+                 * lands with T-10.e. For now print a placeholder so
+                 * the user sees something rather than silent / crash. */
+                fputs("[object]\n", stdout);
+            }
+            break;
+        }
+        default:
+            fputs("[unknown-any-tag]\n", stdout);
+            break;
+    }
 }
 
 /* Create a substring view of `parent` (an OWNED Str) starting at
