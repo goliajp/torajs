@@ -25,6 +25,12 @@ pub const RUNTIME_REGEX_C: &str = include_str!("runtime_regex.c");
 /// v0.2 #2 — Date class implementation.
 pub const RUNTIME_DATE_C: &str = include_str!("runtime_date.c");
 
+/// v0.5 T-15 — Promise heap layout + microtask queue + executor.
+/// T-15.a ships only the heap layout; subsequent sub-steps wire the
+/// microtask queue (T-15.c), .then chaining (T-15.d), and main-exit
+/// auto-drain (T-15.e).
+pub const RUNTIME_PROMISE_C: &str = include_str!("runtime_promise.c");
+
 /// All C runtime translation units in (filename, contents) form, in
 /// the order they should be written + cc'd. Filename is the basename
 /// the compiler should write into the per-build temp directory.
@@ -32,4 +38,5 @@ pub const SOURCES: &[(&str, &str)] = &[
     ("runtime_str.c", RUNTIME_STR_C),
     ("runtime_regex.c", RUNTIME_REGEX_C),
     ("runtime_date.c", RUNTIME_DATE_C),
+    ("runtime_promise.c", RUNTIME_PROMISE_C),
 ];
