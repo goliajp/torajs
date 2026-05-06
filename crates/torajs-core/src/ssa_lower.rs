@@ -9974,6 +9974,166 @@ impl<'a> LowerCtx<'a> {
                     }
                     return Operand::Value(arr_ptr);
                 }
+                /* T-09.b (v0.4.0) — `Object.entries(obj)` returns
+                 * Array<Array<Any>> where each inner is `[key, value]`.
+                 * Compile-time unfold using struct_layouts — emit one
+                 * inner Array<Any> per field with two pushes (key Str
+                 * + value tagged-by-type), then push each inner ptr
+                 * into the outer Array<Any>. Mirrors Object.keys's
+                 * zero-cost reflection but yields the (key, value)
+                 * pair shape JS callers expect. */
+                if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
+                    && m_name == "entries"
+                    && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
+                    && ns == "Object"
+                    && args.len() == 1
+                {
+                    let arg_op = self.lower_expr(args[0]);
+                    let arg_ty = self.operand_ty(&arg_op);
+                    let layout: Vec<(String, Type)> = match arg_ty {
+                        Type::Obj(sid) => self.struct_layouts[sid.0 as usize].clone(),
+                        other => panic!(
+                            "ssa-lower: Object.entries requires a struct arg, got {other:?}"
+                        ),
+                    };
+                    let n = layout.len() as i64;
+                    // Outer is Array<Array<Any>> — each slot holds a
+                    // heap pointer to an inner Array<Any>, so 8-byte
+                    // slot stride (regular arr_alloc) is correct.
+                    // Inner uses arr_alloc_any (16-byte tagged slots).
+                    let inner_arr_id = intern_arr_layout(self.arr_layouts, Type::Any);
+                    let outer_arr_id = intern_arr_layout(
+                        self.arr_layouts,
+                        Type::Arr(inner_arr_id),
+                    );
+                    let outer = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.arr_alloc,
+                            vec![Operand::ConstI64(n)],
+                        ),
+                        Type::Arr(outer_arr_id),
+                        None,
+                    );
+                    // Pre-set len so direct stores at offset 16+i*8 work.
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Store(
+                            Operand::ConstI64(n),
+                            Operand::Value(outer),
+                            ARR_LEN_OFF,
+                        ),
+                    );
+                    for (idx, (fname, fty)) in layout.iter().enumerate() {
+                        // Inner Array<Any> with cap=2: [key, value].
+                        let inner = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.arr_alloc_any,
+                                vec![Operand::ConstI64(2)],
+                            ),
+                            Type::Arr(inner_arr_id),
+                            None,
+                        );
+                        let mut inner_op = Operand::Value(inner);
+                        // Push key — Str literal, ANY_HEAP tag (4).
+                        let key_str = self.intern_string_literal(fname);
+                        // rc_inc on key str so push_any takes an
+                        // owning ref (matches T-10.b push_any contract).
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.rc_inc,
+                                vec![Operand::Value(key_str)],
+                            ),
+                        );
+                        let inner_after_key = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.arr_push_any,
+                                vec![
+                                    inner_op.clone(),
+                                    Operand::ConstI64(4), // ANY_HEAP
+                                    Operand::Value(key_str),
+                                ],
+                            ),
+                            Type::Arr(inner_arr_id),
+                            None,
+                        );
+                        inner_op = Operand::Value(inner_after_key);
+                        // Read field value at struct offset, tag per type.
+                        let field_off = OBJ_HEADER_SIZE + (idx as u64) * 8;
+                        let val = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(*fty, arg_op.clone(), field_off),
+                            *fty,
+                            None,
+                        );
+                        let val_op = Operand::Value(val);
+                        let (tag, push_val): (i64, Operand) = match *fty {
+                            Type::I64 | Type::I32 => (2, val_op),
+                            Type::F64 => {
+                                let bits = self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::BitCastF64ToI64(val_op),
+                                    Type::I64,
+                                    None,
+                                );
+                                (3, Operand::Value(bits))
+                            }
+                            Type::Bool => {
+                                let zext = self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::ZExtBoolToI64(val_op),
+                                    Type::I64,
+                                    None,
+                                );
+                                (1, Operand::Value(zext))
+                            }
+                            t if t.is_refcounted() => {
+                                self.f.append_void(
+                                    self.cur_block,
+                                    InstKind::Call(
+                                        self.intrinsics.rc_inc,
+                                        vec![val_op.clone()],
+                                    ),
+                                );
+                                (4, val_op)
+                            }
+                            Type::Ptr => (0, Operand::ConstI64(0)),
+                            other => panic!(
+                                "not yet supported: Object.entries field type {other:?}"
+                            ),
+                        };
+                        let inner_after_val = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.arr_push_any,
+                                vec![
+                                    inner_op,
+                                    Operand::ConstI64(tag),
+                                    push_val,
+                                ],
+                            ),
+                            Type::Arr(inner_arr_id),
+                            None,
+                        );
+                        // Store inner ptr directly into outer slot at
+                        // offset 16+idx*8 (regular Array<T> layout).
+                        // No rc_inc — inner has rc=1 from arr_alloc_any
+                        // and outer takes ownership of that ref.
+                        let off = ARR_DATA_OFF + (idx as u64) * 8;
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Store(
+                                Operand::Value(inner_after_val),
+                                Operand::Value(outer),
+                                off,
+                            ),
+                        );
+                    }
+                    return Operand::Value(outer);
+                }
                 /* v0.2 #3 — Object.is(a, b). Dispatches by arg SSA
                  * type:
                  *   - Type::F64       → __torajs_object_is_f64

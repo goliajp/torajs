@@ -2094,6 +2094,17 @@ impl Checker {
                         vec![Type::Any, Type::Any],
                         Box::new(Type::Boolean),
                     )),
+                    /* T-09.b (v0.4.0) — Object.entries(obj) returns
+                     * `Array<Array<Any>>` (each inner is `[key, value]`).
+                     * Codegen unfolds at compile time using the static
+                     * struct layout from check.rs's struct_layouts —
+                     * zero-cost reflection just like Object.keys. The
+                     * Type::Any tagged-slot path from T-10 carries the
+                     * mixed key (Str) + value (per-field type). */
+                    (Type::Object("Object"), "entries") => Ok(Type::Function(
+                        vec![Type::Any],
+                        Box::new(Type::Array(Box::new(Type::Array(Box::new(Type::Any))))),
+                    )),
                     /* T-09.a (v0.4.0) — 5 Object methods that don't fit
                      * tr's nominal class system / fixed struct schema.
                      * Reject at typecheck with a clear phase pointer
