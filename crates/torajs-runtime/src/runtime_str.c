@@ -435,7 +435,10 @@ void __torajs_arr_free(void *p) {
     __torajs_heap_header_t *h = (__torajs_heap_header_t *)p;
     /* Defense-in-depth: keep in sync with str_free / rc_inc / rc_dec. */
     if (h->flags & __TORAJS_FLAG_STATIC_LITERAL) return;
-    uint64_t cap = *(uint64_t *)((uint8_t *)p + 16);
+    /* T-13.5 — cap shrunk to u32; high 32 bits hold head_offset. Only
+     * read the low 32 here. (For pooled arrays, the head value can
+     * be reset to 0 on next alloc so we don't need to preserve it.) */
+    uint64_t cap = (uint64_t)(*(uint32_t *)((uint8_t *)p + 16));
     if (h->flags & __TORAJS_FLAG_SPLIT_BLOCK) {
         if (split_pool_count_ < __TORAJS_SPLIT_POOL_SLOTS) {
             split_pool_blocks_[split_pool_count_] = (uint8_t *)p;
@@ -490,8 +493,9 @@ void *__torajs_arr_alloc_pooled(uint64_t cap) {
     h->refcount = 1;
     h->type_tag = __TORAJS_TAG_ARR;
     h->flags = 0;
-    *(uint64_t *)(p + 8) = 0;       /* len */
-    *(uint64_t *)(p + 16) = cap;
+    *(uint64_t *)(p + 8) = 0;          /* len */
+    *(uint32_t *)(p + 16) = (uint32_t)cap;  /* cap (u32) */
+    *(uint32_t *)(p + 20) = 0;         /* T-13.5 — head_offset (u32) */
     return p;
 }
 
@@ -543,8 +547,10 @@ void *__torajs_arr_alloc_any(uint64_t cap) {
     h->refcount = 1;
     h->type_tag = __TORAJS_TAG_ARR;
     h->flags = __TORAJS_FLAG_ARR_ANY;
-    *(uint64_t *)(p + 8) = 0;        /* len */
-    *(uint64_t *)(p + 16) = cap;
+    *(uint64_t *)(p + 8) = 0;          /* len */
+    *(uint32_t *)(p + 16) = (uint32_t)cap;  /* cap (u32) */
+    *(uint32_t *)(p + 20) = 0;         /* T-13.5 — head_offset (Array<Any>
+                                        * never shifts; stays 0). */
     return p;
 }
 
@@ -560,15 +566,16 @@ void *__torajs_arr_alloc_any(uint64_t cap) {
 void *__torajs_arr_push_any(void *arr, uint64_t tag, uint64_t value) {
     __torajs_heap_header_t *h = (__torajs_heap_header_t *)arr;
     uint64_t len = *(uint64_t *)((uint8_t *)arr + 8);
-    uint64_t cap = *(uint64_t *)((uint8_t *)arr + 16);
-    if (len == cap) {
-        uint64_t new_cap = cap == 0 ? 4 : cap * 2;
+    uint32_t cap = *(uint32_t *)((uint8_t *)arr + 16);
+    if ((uint32_t)len == cap) {
+        uint32_t new_cap = cap == 0 ? 4 : cap * 2;
         uint8_t *grown = (uint8_t *)realloc(
             arr,
             24 /* __TORAJS_ARR_HDR_SIZE */ + (size_t)new_cap * __TORAJS_ANY_SLOT_BYTES);
         arr = grown;
         h = (__torajs_heap_header_t *)arr;
-        *(uint64_t *)((uint8_t *)arr + 16) = new_cap;
+        *(uint32_t *)((uint8_t *)arr + 16) = new_cap;
+        /* head_offset stays 0 for Any-arrays. */
     }
     *any_slot_tag_(arr, len) = tag;
     *any_slot_val_(arr, len) = value;
@@ -1043,13 +1050,32 @@ void *__torajs_substr_substring(const uint8_t *v, int64_t start, int64_t end) {
  * Type::Arr drop site for refcounted element types.
  * ============================================================ */
 
+/* T-13.5 (v0.4.0) — Array deque substrate. cap shrinks from u64 to
+ * u32 (max ~4 billion elems still way past anything realistic);
+ * the freed 4 bytes hold `head_offset` u32, the front-shift counter.
+ * `slot[i]` now lives at `data + (head + i) * 8` so `arr.shift()`
+ * is O(1) (just bump head) instead of O(n) memmove. Compact-when-
+ * full (push hits cap with head > 0) reclaims the leading slack
+ * via one memmove of the live range; grow falls back when no
+ * slack exists. Same HDR_SIZE = 24 means no .o-layout change for
+ * existing inkwell IR sites that hardcode the data offset. */
 #define __TORAJS_ARR_HDR_SIZE   24
 #define __TORAJS_ARR_LEN(p)     (*(uint64_t *)((const uint8_t *)(p) + 8))
-#define __TORAJS_ARR_CAP(p)     (*(uint64_t *)((const uint8_t *)(p) + 16))
+#define __TORAJS_ARR_CAP(p)     (*(uint32_t *)((const uint8_t *)(p) + 16))
+#define __TORAJS_ARR_HEAD(p)    (*(uint32_t *)((const uint8_t *)(p) + 20))
 #define __TORAJS_ARR_DATA(p)    ((uint8_t *)(p) + __TORAJS_ARR_HDR_SIZE)
 #define __TORAJS_ARR_CDATA(p)   ((const uint8_t *)(p) + __TORAJS_ARR_HDR_SIZE)
-#define __TORAJS_ARR_SLOT(p, i) (__TORAJS_ARR_DATA(p) + (uint64_t)(i) * 8)
-#define __TORAJS_ARR_CSLOT(p, i) (__TORAJS_ARR_CDATA(p) + (uint64_t)(i) * 8)
+/* Head-aware slot macros — `i` is the user-visible index, the
+ * physical slot is `head + i`. Byte offset = HDR_SIZE + (head+i)*8. */
+#define __TORAJS_ARR_SLOT(p, i) \
+    (__TORAJS_ARR_DATA(p) + ((uint64_t)__TORAJS_ARR_HEAD(p) + (uint64_t)(i)) * 8)
+#define __TORAJS_ARR_CSLOT(p, i) \
+    (__TORAJS_ARR_CDATA(p) + ((uint64_t)__TORAJS_ARR_HEAD(p) + (uint64_t)(i)) * 8)
+/* Raw-physical-slot helpers — bypass head_offset, used by arr_free /
+ * compact / fresh-alloc paths that operate on the underlying byte
+ * layout directly. */
+#define __TORAJS_ARR_DATA_RAW_SLOT(p, n) \
+    (__TORAJS_ARR_DATA(p) + (uint64_t)(n) * 8)
 
 /* Append every element of `src` to `dst` via a single memcpy. Caller
  * MUST have pre-sized dst's cap to fit (typical: array literal with
@@ -1060,7 +1086,11 @@ void __torajs_arr_extend_unchecked(uint8_t *dst, const uint8_t *src) {
     uint64_t dst_len = __TORAJS_ARR_LEN(dst);
     uint64_t src_len = __TORAJS_ARR_LEN(src);
     if (src_len == 0) return;
-    memcpy(__TORAJS_ARR_SLOT(dst, dst_len), __TORAJS_ARR_CDATA(src), (size_t)src_len * 8);
+    /* Both source and dst can have head_offset > 0 — the head-aware
+     * SLOT/CSLOT macros handle the offset transparently. (T-13.5.) */
+    memcpy(__TORAJS_ARR_SLOT(dst, dst_len),
+           __TORAJS_ARR_CSLOT(src, 0),
+           (size_t)src_len * 8);
     __TORAJS_ARR_LEN(dst) = dst_len + src_len;
 }
 
@@ -1113,7 +1143,8 @@ static uint8_t *arr_alloc_(uint64_t len, uint64_t cap) {
     h->type_tag = __TORAJS_TAG_ARR;
     h->flags = 0;
     __TORAJS_ARR_LEN(p) = len;
-    __TORAJS_ARR_CAP(p) = cap;
+    __TORAJS_ARR_CAP(p) = (uint32_t)cap;
+    __TORAJS_ARR_HEAD(p) = 0;  /* T-13.5 — fresh alloc starts head=0 */
     return p;
 }
 
@@ -1484,7 +1515,8 @@ void *__torajs_str_split(const uint8_t *s, const uint8_t *sep) {
     ah->type_tag = __TORAJS_TAG_ARR;
     ah->flags = __TORAJS_FLAG_SPLIT_BLOCK;
     __TORAJS_ARR_LEN(arr) = out_count;
-    __TORAJS_ARR_CAP(arr) = out_count;
+    __TORAJS_ARR_CAP(arr) = (uint32_t)out_count;
+    __TORAJS_ARR_HEAD(arr) = 0;  /* T-13.5 — split block builds fresh */
     uint8_t *substrs_base = arr + __TORAJS_ARR_HDR_SIZE + slots_size;
     void **slots = (void **)(arr + __TORAJS_ARR_HDR_SIZE);
 
@@ -1711,8 +1743,8 @@ void *__torajs_arr_to_reversed(const uint8_t *arr) {
  * elsewhere in tr's array runtime). */
 void *__torajs_arr_with(const uint8_t *arr, int64_t i, int64_t v) {
     uint64_t len = __TORAJS_ARR_LEN(arr);
-    uint8_t *p = arr_alloc_(len, len);
-    if (len) memcpy(__TORAJS_ARR_DATA(p), __TORAJS_ARR_CDATA(arr), (size_t)len * 8);
+    uint8_t *p = arr_alloc_(len, len);  /* fresh, head=0 */
+    if (len) memcpy(__TORAJS_ARR_DATA(p), __TORAJS_ARR_CSLOT(arr, 0), (size_t)len * 8);
     int64_t adj = i < 0 ? (int64_t)len + i : i;
     *(uint64_t *)__TORAJS_ARR_SLOT(p, adj) = (uint64_t)v;
     return p;
@@ -2279,13 +2311,15 @@ void *__torajs_arr_flat(const uint8_t *outer) {
         total += __TORAJS_ARR_LEN(inner);
     }
     uint8_t *p = arr_alloc_(total, total);
-    uint8_t *p_data = __TORAJS_ARR_DATA(p);
+    uint8_t *p_data = __TORAJS_ARR_DATA(p);  /* fresh, head=0 */
     uint64_t cursor = 0;
     for (uint64_t i = 0; i < outer_len; i++) {
         const uint8_t *inner = *(const uint8_t *const *)__TORAJS_ARR_CSLOT(outer, i);
         uint64_t inner_len = __TORAJS_ARR_LEN(inner);
         if (inner_len) {
-            memcpy(p_data + cursor, __TORAJS_ARR_CDATA(inner), (size_t)inner_len * 8);
+            memcpy(p_data + cursor,
+                   __TORAJS_ARR_CSLOT(inner, 0),
+                   (size_t)inner_len * 8);
             cursor += inner_len * 8;
         }
     }
@@ -2301,9 +2335,9 @@ void *__torajs_arr_concat(const uint8_t *a, const uint8_t *b) {
     uint64_t b_len = __TORAJS_ARR_LEN(b);
     uint64_t total = a_len + b_len;
     uint8_t *p = arr_alloc_(total, total);
-    uint8_t *p_data = __TORAJS_ARR_DATA(p);
-    if (a_len) memcpy(p_data, __TORAJS_ARR_CDATA(a), (size_t)a_len * 8);
-    if (b_len) memcpy(p_data + (size_t)a_len * 8, __TORAJS_ARR_CDATA(b), (size_t)b_len * 8);
+    uint8_t *p_data = __TORAJS_ARR_DATA(p);  /* fresh alloc, head=0 */
+    if (a_len) memcpy(p_data, __TORAJS_ARR_CSLOT(a, 0), (size_t)a_len * 8);
+    if (b_len) memcpy(p_data + (size_t)a_len * 8, __TORAJS_ARR_CSLOT(b, 0), (size_t)b_len * 8);
     return p;
 }
 
@@ -2324,53 +2358,61 @@ void *__torajs_arr_reverse(uint8_t *arr) {
     return arr;
 }
 
-/* `arr.shift()` — remove and return slot[0]. Memmoves the rest of the
- * slots one slot left, decrements len. Subset convention: empty-array
- * shift is unchecked (no `T | undefined`). Returns the popped value
- * as i64 (the slot's 8-byte payload, reinterpreted by the caller). */
+/* T-13.5 (v0.4.0) — `arr.shift()` is now O(1): bump head_offset
+ * and decrement len. No memmove. The vacated front slot stays
+ * allocated until either compact (push hits cap-with-head>0) or
+ * the array's drop releases the whole block. Identical observable
+ * behavior to the prior memmove version (front slot disappears,
+ * subsequent indexed reads see what was index 1 as the new index 0).
+ * Subset convention preserved: empty-array shift is unchecked. */
 int64_t __torajs_arr_shift(uint8_t *arr) {
     uint64_t len = __TORAJS_ARR_LEN(arr);
     int64_t v = *(int64_t *)__TORAJS_ARR_SLOT(arr, 0);
-    if (len > 1) {
-        memmove(__TORAJS_ARR_SLOT(arr, 0),
-                __TORAJS_ARR_SLOT(arr, 1),
-                (size_t)(len - 1) * 8);
-    }
+    __TORAJS_ARR_HEAD(arr) += 1;
     __TORAJS_ARR_LEN(arr) = len - 1;
     return v;
 }
 
-/* `arr.unshift(v)` — insert `v` at slot[0]. Grows by 1 (realloc if
- * cap < len+1), memmoves existing slots one slot right, writes v at
- * slot[0]. Returns the new array pointer (caller stores it back into
- * the slot, mirroring `push`). Returns the new length is the JS spec,
- * but tr's API matches `push` (returning ptr) for parser symmetry —
- * the return value is typically discarded. */
+/* T-13.5 — `arr.unshift(v)` — insert `v` at slot[0]. Now O(1) when
+ * head_offset > 0 (just decrement head, write into the freed
+ * front slot). Falls back to compact-or-realloc-then-memmove when
+ * head == 0 (true grow path). Returns the (possibly realloc'd)
+ * array pointer, mirroring push's contract. */
 void *__torajs_arr_unshift(uint8_t *arr, int64_t v) {
+    uint32_t head = __TORAJS_ARR_HEAD(arr);
+    if (head > 0) {
+        /* Fast path: reclaim a freed front slot. */
+        head -= 1;
+        __TORAJS_ARR_HEAD(arr) = head;
+        *(int64_t *)__TORAJS_ARR_DATA_RAW_SLOT(arr, head) = v;
+        __TORAJS_ARR_LEN(arr) = __TORAJS_ARR_LEN(arr) + 1;
+        return arr;
+    }
     uint64_t len = __TORAJS_ARR_LEN(arr);
     uint64_t cap = __TORAJS_ARR_CAP(arr);
     if (len >= cap) {
-        /* Reuse arr_push's grow strategy: double cap (or 1 if 0).
-         * Allocate a new block, copy header + slots, free old. */
+        /* Realloc — double cap (or 1 if 0). Live range moves to
+         * physical slot 1; head stays 0 (caller's logical slot 0
+         * is the new value at physical 0). */
         uint64_t new_cap = cap == 0 ? 1 : cap * 2;
         uint8_t *p = arr_alloc_(0, new_cap);
         if (len > 0) {
-            memcpy(__TORAJS_ARR_SLOT(p, 1),
-                   __TORAJS_ARR_CDATA(arr),
+            memcpy(__TORAJS_ARR_DATA_RAW_SLOT(p, 1),
+                   __TORAJS_ARR_DATA(arr),
                    (size_t)len * 8);
         }
-        *(int64_t *)__TORAJS_ARR_SLOT(p, 0) = v;
+        *(int64_t *)__TORAJS_ARR_DATA_RAW_SLOT(p, 0) = v;
         __TORAJS_ARR_LEN(p) = len + 1;
         free(arr);
         return p;
     }
-    /* In-place: memmove right + write slot[0]. */
+    /* In-place: head==0 + cap room — memmove right and prepend. */
     if (len > 0) {
-        memmove(__TORAJS_ARR_SLOT(arr, 1),
-                __TORAJS_ARR_SLOT(arr, 0),
+        memmove(__TORAJS_ARR_DATA_RAW_SLOT(arr, 1),
+                __TORAJS_ARR_DATA(arr),
                 (size_t)len * 8);
     }
-    *(int64_t *)__TORAJS_ARR_SLOT(arr, 0) = v;
+    *(int64_t *)__TORAJS_ARR_DATA_RAW_SLOT(arr, 0) = v;
     __TORAJS_ARR_LEN(arr) = len + 1;
     return arr;
 }
