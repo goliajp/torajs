@@ -2105,6 +2105,17 @@ impl Checker {
                         vec![Type::Any],
                         Box::new(Type::Array(Box::new(Type::Array(Box::new(Type::Any))))),
                     )),
+                    /* T-09.c (v0.4.0) — Object.fromEntries(entries)
+                     * uses caller-driven typing (similar to JSON.parse):
+                     * the typecheck-level return is Any, and ssa_lower's
+                     * LetDecl arm unfolds per the slot struct schema.
+                     * MVP: entries are assumed to be in struct field
+                     * declaration order (matches Object.entries
+                     * round-trip), no key-matching scan. */
+                    (Type::Object("Object"), "fromEntries") => Ok(Type::Function(
+                        vec![Type::Array(Box::new(Type::Array(Box::new(Type::Any))))],
+                        Box::new(Type::Any),
+                    )),
                     /* T-09.a (v0.4.0) — 5 Object methods that don't fit
                      * tr's nominal class system / fixed struct schema.
                      * Reject at typecheck with a clear phase pointer

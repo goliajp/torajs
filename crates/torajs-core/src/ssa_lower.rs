@@ -4888,6 +4888,25 @@ impl<'a> LowerCtx<'a> {
         matches!(self.ast.get_expr(*obj), Expr::Ident(s) if s == "JSON")
     }
 
+    /// T-09.c (v0.4.0) — `Object.fromEntries(entries)` call shape.
+    /// Routes to `lower_fromentries` from ssa_lower's LetDecl arm
+    /// when the slot annotation gives a concrete struct type.
+    fn is_fromentries_call(&self, eid: ExprId) -> bool {
+        let Expr::Call { callee, args } = self.ast.get_expr(eid) else {
+            return false;
+        };
+        if args.len() != 1 {
+            return false;
+        }
+        let Expr::Member { obj, name } = self.ast.get_expr(*callee) else {
+            return false;
+        };
+        if name != "fromEntries" {
+            return false;
+        }
+        matches!(self.ast.get_expr(*obj), Expr::Ident(s) if s == "Object")
+    }
+
     /// M6.3 — wrapper around `parse_type` that returns `None` when the
     /// annotation is missing or doesn't resolve to a concrete Type
     /// the JSON parser knows how to handle. Lets the LetDecl fast-
@@ -6760,6 +6779,145 @@ impl<'a> LowerCtx<'a> {
                         LocalInfo {
                             slot,
                             ty: slot_ty_for_parse,
+                            moved: false,
+                            scope_depth: cur_depth,
+                        },
+                    );
+                    let top = self.scope_stack.last_mut().expect("scope frame");
+                    top.push(name.clone());
+                    return;
+                }
+                // T-09.c (v0.4.0) — `let o: Pair = Object.fromEntries(es)`
+                // caller-driven typing. The slot annotation gives the
+                // target struct schema; ssa_lower unfolds per-field
+                // reads from the entries array (assumed in struct
+                // declaration order — matches Object.entries round-
+                // trip; key-matching scan deferred). Each entry's
+                // value is untagged from the Any box and stored into
+                // the matching struct field at runtime.
+                if let Some(slot_ty) =
+                    self.try_resolve_type_ann(type_ann.as_deref())
+                    && self.is_fromentries_call(*init)
+                    && let Type::Obj(sid) = slot_ty
+                {
+                    let entries_eid = if let Expr::Call { args, .. } =
+                        self.ast.get_expr(*init).clone()
+                    {
+                        args[0]
+                    } else {
+                        unreachable!()
+                    };
+                    let entries_op = self.lower_expr(entries_eid);
+                    let layout = self.struct_layouts[sid.0 as usize].clone();
+                    // Allocate the output struct.
+                    let obj_size = OBJ_HEADER_SIZE + (layout.len() as u64) * 8;
+                    let obj_ptr = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.obj_alloc,
+                            vec![Operand::ConstI64(obj_size as i64)],
+                        ),
+                        slot_ty,
+                        None,
+                    );
+                    let obj_op = Operand::Value(obj_ptr);
+                    self.emit_obj_header_init(obj_op.clone());
+                    // Per-field unfolding. For field i: read entries[i],
+                    // which is Array<Any> with [key, value]. Read the
+                    // value slot (tag at offset 24+1*16, value at +8),
+                    // untag to field type, store into struct.
+                    for (idx, (_fname, fty)) in layout.iter().enumerate() {
+                        // Outer entries is regular Array<Array<Any>>;
+                        // read inner ptr at offset 16+idx*8.
+                        let inner_off = ARR_DATA_OFF + (idx as u64) * 8;
+                        let inner_ptr = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(Type::Ptr, entries_op.clone(), inner_off),
+                            Type::Ptr,
+                            None,
+                        );
+                        // Inner is Array<Any> with 16-byte slots. Read
+                        // value slot (slot index 1): tag at offset
+                        // 24+1*16=40, value at 48.
+                        let val_tag = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(Type::I64, Operand::Value(inner_ptr), 40),
+                            Type::I64,
+                            None,
+                        );
+                        let val_raw = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(Type::I64, Operand::Value(inner_ptr), 48),
+                            Type::I64,
+                            None,
+                        );
+                        // Untag per field type.
+                        let stored: Operand = match *fty {
+                            Type::I64 | Type::I32 => Operand::Value(val_raw),
+                            Type::F64 => {
+                                let f = self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::BitCastI64ToF64(Operand::Value(val_raw)),
+                                    Type::F64,
+                                    None,
+                                );
+                                Operand::Value(f)
+                            }
+                            Type::Bool => {
+                                let b = self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::ICmp(
+                                        IPred::Ne,
+                                        Operand::Value(val_raw),
+                                        Operand::ConstI64(0),
+                                    ),
+                                    Type::Bool,
+                                    None,
+                                );
+                                Operand::Value(b)
+                            }
+                            t if t.is_refcounted() => {
+                                // Heap-typed field — value is a heap
+                                // pointer. rc_inc since the new struct
+                                // takes its own owning ref (the
+                                // entries array still holds one).
+                                self.f.append_void(
+                                    self.cur_block,
+                                    InstKind::Call(
+                                        self.intrinsics.rc_inc,
+                                        vec![Operand::Value(val_raw)],
+                                    ),
+                                );
+                                Operand::Value(val_raw)
+                            }
+                            other => panic!(
+                                "not yet supported: Object.fromEntries field type {other:?}"
+                            ),
+                        };
+                        let off = OBJ_HEADER_SIZE + (idx as u64) * 8;
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Store(stored, obj_op.clone(), off),
+                        );
+                        // Suppress unused-warning on tag (T-09.d may
+                        // add a tag mismatch check at runtime).
+                        let _ = val_tag;
+                    }
+                    // Drop the entries array (was borrowed for reads).
+                    self.emit_drop_value(entries_op.clone(), self.operand_ty(&entries_op));
+                    // Store result into LetDecl slot using the
+                    // synthesized slot pattern (mirrors JSON.parse arm).
+                    let slot = self.alloca(slot_ty, Some(name));
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Store(obj_op, Operand::Value(slot), 0),
+                    );
+                    let cur_depth = self.scope_stack.len() - 1;
+                    self.locals.insert(
+                        name.clone(),
+                        LocalInfo {
+                            slot,
+                            ty: slot_ty,
                             moved: false,
                             scope_depth: cur_depth,
                         },
