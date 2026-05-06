@@ -3024,6 +3024,33 @@ impl Checker {
                     }
                     return Ok(Type::Symbol);
                 }
+                /* T-15.g.5 (v0.5.0) — `Promise.resolve(v)` / `Promise.reject(v)`
+                 * with arg-type-driven return inference. Static-method
+                 * table can't carry generic T (TypeVar isn't auto-
+                 * unified), so we special-case here: inspect arg type,
+                 * return Promise<T>. Subset: T ∈ {Number, String,
+                 * Boolean} for now; arrays / objects in T-15.g.6+.
+                 * (Object.is uses the static-table path because both
+                 * args / return are concrete.) */
+                if let Expr::Member { obj: ns_id, name: m_name } = ast.get_expr(*callee)
+                    && (m_name == "resolve" || m_name == "reject")
+                    && let Expr::Ident(ns) = ast.get_expr(*ns_id)
+                    && ns == "Promise"
+                {
+                    if args.len() != 1 {
+                        return Err(format!(
+                            "Promise.{m_name} expects 1 arg, got {}", args.len()
+                        ));
+                    }
+                    let arg_ty = self.type_of(ast, args[0])?;
+                    let inner = match &arg_ty {
+                        Type::Number | Type::String | Type::Boolean => arg_ty.clone(),
+                        other => return Err(format!(
+                            "Promise.{m_name}: T must be number / string / boolean in v0.5 MVP (got {other:?}); arrays / objects land in T-15.g.6"
+                        )),
+                    };
+                    return Ok(Type::Promise(Box::new(inner)));
+                }
                 // `Object.assign(target, source)` — single-source MVP.
                 // Subset constraint: both args must be the same struct
                 // type (no field-superset / partial / multi-source yet).

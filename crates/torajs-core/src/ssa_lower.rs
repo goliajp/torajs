@@ -10601,12 +10601,15 @@ impl<'a> LowerCtx<'a> {
                         return Operand::Value(v);
                     }
                 }
-                /* T-15.g.1 (v0.5.0) — Promise.resolve(v) / Promise.reject(e)
-                 * static constructors. MVP path: arg is i64-shaped (Number).
-                 * Heap / Bool / F64 args land in T-15.g.2 with packing
-                 * coercions. Returns a fresh fulfilled / rejected
-                 * Promise (Type::Promise at SSA, Type::Promise(Number)
-                 * at check). */
+                /* T-15.g.1 / T-15.g.5 — Promise.resolve(v) / Promise.reject(e).
+                 * Dispatch:
+                 *   - Type::I64 / Bool / F64 → primitive variant (just
+                 *     pack value into i64)
+                 *   - Type::Str / refcounted heap → heap variant
+                 *     (Promise takes ownership of one rc)
+                 * The arg's owned ref transfers to the Promise; the
+                 * Promise drops via __torajs_value_drop_heap on its
+                 * own drop. */
                 if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
                     && (m_name == "resolve" || m_name == "reject")
                     && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
@@ -10615,14 +10618,28 @@ impl<'a> LowerCtx<'a> {
                 {
                     let arg_op = self.lower_expr(args[0]);
                     self.consume_if_ident(args[0]);
-                    let fid = if m_name == "resolve" {
-                        self.intrinsics.promise_alloc_fulfilled
+                    let arg_ty = self.operand_ty(&arg_op);
+                    let is_heap = matches!(arg_ty, Type::Str | Type::Substr | Type::Obj(_)
+                        | Type::Arr(_) | Type::Closure(_) | Type::RegExp | Type::Date
+                        | Type::Symbol | Type::Promise | Type::Any);
+                    let fid = match (m_name.as_str(), is_heap) {
+                        ("resolve", false) => self.intrinsics.promise_alloc_fulfilled,
+                        ("reject",  false) => self.intrinsics.promise_alloc_rejected,
+                        ("resolve", true)  => self.intrinsics.promise_alloc_fulfilled_heap,
+                        ("reject",  true)  => self.intrinsics.promise_alloc_rejected_heap,
+                        _ => unreachable!(),
+                    };
+                    // Bool is i64-shaped via ZExtBoolToI64; the helper
+                    // expects an i64 arg slot. Other primitive types
+                    // (Number/F64) are already i64-compatible at SSA.
+                    let arg_i64 = if matches!(arg_ty, Type::Bool) {
+                        self.coerce_bool_to_i64(arg_op)
                     } else {
-                        self.intrinsics.promise_alloc_rejected
+                        arg_op
                     };
                     let v = self.f.append_inst(
                         self.cur_block,
-                        InstKind::Call(fid, vec![arg_op]),
+                        InstKind::Call(fid, vec![arg_i64]),
                         Type::Promise,
                         None,
                     );
