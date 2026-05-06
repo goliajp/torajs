@@ -372,6 +372,16 @@ pub enum InstKind {
     /// `Object` fields with bool type, etc.) and when passing them to
     /// runtime intrinsics whose signature is i64-shaped.
     ZExtBoolToI64(Operand),
+    /// `%v = bitcast <f64-operand>` — pun an f64's IEEE 754 bit pattern
+    /// into an i64 without value conversion. Used by T-10.d's tagged-slot
+    /// Array<Any>: ANY_F64 slots stash the f64 bits in their value field
+    /// and decode back via the symmetric `BitCastI64ToF64` at read time.
+    /// LLVM lowers to `bitcast double %x to i64`.
+    BitCastF64ToI64(Operand),
+    /// `%v = bitcast <i64-operand>` — symmetric reverse: read an Any
+    /// slot's value field as an f64 bit pattern. LLVM lowers to
+    /// `bitcast i64 %x to double`.
+    BitCastI64ToF64(Operand),
     /// `%v = string_ref <id>` — yields a (ptr, len) pair to a global string
     /// constant. Result type is Ptr; the length lives in the module's
     /// `strings` table alongside the bytes.
@@ -792,6 +802,14 @@ impl Function {
             }
             InstKind::ZExtBoolToI64(op) => {
                 write!(w, "zext_bool ")?;
+                self.write_operand(w, op)?;
+            }
+            InstKind::BitCastF64ToI64(op) => {
+                write!(w, "bitcast_f64_to_i64 ")?;
+                self.write_operand(w, op)?;
+            }
+            InstKind::BitCastI64ToF64(op) => {
+                write!(w, "bitcast_i64_to_f64 ")?;
                 self.write_operand(w, op)?;
             }
             InstKind::StringRef(s) => {

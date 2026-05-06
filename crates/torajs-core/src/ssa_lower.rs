@@ -8330,8 +8330,12 @@ impl<'a> LowerCtx<'a> {
     /// `i64` ident) → regular Array<I64>. Matching the operand types
     /// of mixed expressions to the Any path is T-10.d work.
     fn array_literal_is_heterogeneous(&self, ids: &[ExprId]) -> bool {
-        let kind_of = |eid: ExprId| -> Option<u8> {
-            match self.ast.get_expr(eid) {
+        // Recursive — `Unary{Neg, Number(...)}` like `-3.14` keeps the
+        // inner Number's kind so `[-3.14, 'x']` correctly flags as
+        // heterogeneous (F64-kind vs Str-kind). Same for `+x` /
+        // `~bits` if those ever appear inside an Array literal.
+        fn classify(ast: &Ast, eid: ExprId) -> Option<u8> {
+            match ast.get_expr(eid) {
                 Expr::Number(n) => {
                     if n.is_finite() && n.fract() == 0.0 && n.abs() < 1e18 {
                         Some(1) // i64 literal kind
@@ -8342,12 +8346,13 @@ impl<'a> LowerCtx<'a> {
                 Expr::String(_) => Some(3),
                 Expr::Bool(_) => Some(4),
                 Expr::Null => Some(5),
+                Expr::Unary { expr, .. } => classify(ast, *expr),
                 _ => None, // unknown kind — fall back to homogeneous path
             }
-        };
+        }
         let mut anchor: Option<u8> = None;
         for &eid in ids {
-            if let Some(k) = kind_of(eid) {
+            if let Some(k) = classify(self.ast, eid) {
                 match anchor {
                     None => anchor = Some(k),
                     Some(a) if a != k => return true,
@@ -8379,6 +8384,18 @@ impl<'a> LowerCtx<'a> {
             // (matches __TORAJS_ANY_* in runtime_str.c).
             let (tag, value_op): (i64, Operand) = match val_ty {
                 Type::I64 | Type::I32 => (2, val),
+                Type::F64 => {
+                    // T-10.d.ii — pun f64 bits to i64 so push_any
+                    // (i64 third param) carries them exactly.
+                    // print_any reverses the bitcast at decode time.
+                    let bits = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::BitCastF64ToI64(val),
+                        Type::I64,
+                        None,
+                    );
+                    (3, Operand::Value(bits))
+                }
                 Type::Bool => {
                     let zext = self.f.append_inst(
                         self.cur_block,

@@ -3364,6 +3364,27 @@ impl<'a, 'ctx> FnLower<'a, 'ctx> {
                     .unwrap();
                 Some(BasicValueEnum::IntValue(r))
             }
+            InstKind::BitCastF64ToI64(op) => {
+                // T-10.d.ii — pun the f64's IEEE 754 bit pattern as i64
+                // for the ANY_F64 tagged-slot stash. LLVM `bitcast`
+                // preserves bits exactly (vs `fptosi` which truncates).
+                let v = self.operand(op).into_float_value();
+                let i64_ty = self.ctx.i64_type();
+                let r = self
+                    .builder
+                    .build_bit_cast(v, i64_ty, "")
+                    .unwrap();
+                Some(r)
+            }
+            InstKind::BitCastI64ToF64(op) => {
+                let v = self.operand_int(op);
+                let f64_ty = self.ctx.f64_type();
+                let r = self
+                    .builder
+                    .build_bit_cast(v, f64_ty, "")
+                    .unwrap();
+                Some(r)
+            }
             InstKind::StringRef(sid) => {
                 let g = self.string_globals[sid.0 as usize];
                 Some(BasicValueEnum::PointerValue(g.as_pointer_value()))
