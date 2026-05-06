@@ -59,6 +59,7 @@ typedef struct {
 
 extern void __torajs_value_drop_heap(void *child);
 extern void __torajs_rc_inc(void *p);
+void __torajs_promise_drop(void *p);  /* fwd decl — body further down */
 
 /* Forward decls so the T-15.d .then helpers (defined before the
  * microtask queue body further down the file) can reference the

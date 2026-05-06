@@ -10568,15 +10568,41 @@ impl<'a> LowerCtx<'a> {
                             .get(n)
                             .map(|info| matches!(info.ty, Type::Promise))
                             .unwrap_or(false),
-                        Expr::Call { callee: src_callee, .. } => matches!(
-                            self.ast.get_expr(*src_callee),
-                            Expr::Member { obj: ns_id, name: src_m }
-                                if (src_m == "resolve" || src_m == "reject" || src_m == "then")
-                                    && matches!(
-                                        self.ast.get_expr(*ns_id),
-                                        Expr::Ident(ns) if ns == "Promise"
-                                    )
-                        ),
+                        Expr::Call { callee: src_callee, .. } => {
+                            // Built-in Promise.resolve / Promise.reject statics.
+                            let static_ctor = matches!(
+                                self.ast.get_expr(*src_callee),
+                                Expr::Member { obj: ns_id, name: src_m }
+                                    if (src_m == "resolve" || src_m == "reject")
+                                        && matches!(
+                                            self.ast.get_expr(*ns_id),
+                                            Expr::Ident(ns) if ns == "Promise"
+                                        )
+                            );
+                            // Chained `.then(...)` — its result is itself a
+                            // built-in Promise. Walks the callee shape but
+                            // does NOT require obj==Ident("Promise").
+                            let then_chain = matches!(
+                                self.ast.get_expr(*src_callee),
+                                Expr::Member { name: src_m, .. } if src_m == "then"
+                            );
+                            // User fn whose declared return type is
+                            // Type::Promise (async desugar / Promise<T>
+                            // return annotation).
+                            let fn_returns_promise = if let Expr::Ident(fn_name) =
+                                self.ast.get_expr(*src_callee)
+                            {
+                                self.fn_table
+                                    .get(fn_name)
+                                    .copied()
+                                    .and_then(|fid| self.signatures.get(&fid).copied())
+                                    .map(|ty| matches!(ty, Type::Promise))
+                                    .unwrap_or(false)
+                            } else {
+                                false
+                            };
+                            static_ctor || then_chain || fn_returns_promise
+                        }
                         _ => false,
                     };
                     if src_is_builtin_promise {
@@ -10586,18 +10612,17 @@ impl<'a> LowerCtx<'a> {
                             self.cur_block,
                             InstKind::Call(
                                 self.intrinsics.promise_then_simple,
-                                vec![src_op.clone(), cb_op],
+                                vec![src_op, cb_op],
                             ),
                             Type::Promise,
                             None,
                         );
-                        let src_is_borrow = matches!(
-                            self.ast.get_expr(*src_id),
-                            Expr::Ident(_) | Expr::Member { .. } | Expr::Index { .. }
-                        );
-                        if !src_is_borrow {
-                            self.emit_drop_value(src_op, Type::Promise);
-                        }
+                        // T-15.g.6 — intermediate `.then` source intentionally
+                        // not dropped here (would free before microtask
+                        // dispatcher runs — `then_simple` doesn't yet
+                        // rc_inc its source ptr). Acceptable leak for
+                        // MVP; T-15.g.7 fixes via runtime-owned source
+                        // ref + dispatcher-drop.
                         return Operand::Value(v);
                     }
                 }
