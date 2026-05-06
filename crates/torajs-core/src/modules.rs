@@ -197,7 +197,10 @@ fn check_k2_form(
 /// user files. Mirrored by `ast::desugar_builtin_imports`. Keep the
 /// two lists in sync.
 fn is_builtin_module_source(source: &str) -> bool {
-    matches!(source, "fs" | "node:fs")
+    matches!(
+        source,
+        "fs" | "node:fs" | "fs/promises" | "node:fs/promises"
+    )
 }
 
 /// Resolve a relative or absolute import path against the importer's

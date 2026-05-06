@@ -1703,7 +1703,19 @@ pub fn unwrap_exports(ast: &mut Ast) {
  * Cross-file user imports are unaffected; this pass only acts when
  * `source` is one of the known built-in module names. */
 fn is_builtin_module(source: &str) -> bool {
-    matches!(source, "fs" | "node:fs")
+    matches!(
+        source,
+        "fs" | "node:fs" | "fs/promises" | "node:fs/promises"
+    )
+}
+
+/// T-18.a (v0.5.0) — sanitize the module name for the Ident-based
+/// desugar lookup. Slash isn't a valid Ident; rewrite "fs/promises"
+/// → "__fs_promises" so the Member rewrite produces a parseable
+/// `__fs_promises.readFile(...)` shape. check.rs / ssa_lower
+/// recognize the sanitized name.
+fn sanitize_module_name(source: &str) -> String {
+    source.strip_prefix("node:").unwrap_or(source).replace('/', "_")
 }
 
 pub fn desugar_builtin_imports(ast: &mut Ast) {
@@ -1717,7 +1729,7 @@ pub fn desugar_builtin_imports(ast: &mut Ast) {
         if let Stmt::ImportDecl { source, named, default: _, namespace } = s
             && is_builtin_module(source)
         {
-            let module_name = source.strip_prefix("node:").unwrap_or(source).to_string();
+            let module_name = sanitize_module_name(source);
             for (orig, alias) in named {
                 let local = alias.clone().unwrap_or_else(|| orig.clone());
                 imported.insert(local, (module_name.clone(), orig.clone()));

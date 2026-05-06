@@ -1895,6 +1895,13 @@ impl Checker {
                     /* v0.3 #1 — fs module global. Methods routed via
                      * the (Type::Object("fs"), ...) member arm below. */
                     "fs" => Ok(Type::Object("fs")),
+                    /* T-18.a (v0.5.0) — `fs/promises` module. The
+                     * desugar pass sanitizes the module name (slash
+                     * isn't a valid Ident) so the Member rewrite
+                     * produces `__fs_promises.X` calls. The async
+                     * methods register under Type::Object("fs_promises")
+                     * in the Member arm below. */
+                    "fs_promises" => Ok(Type::Object("fs_promises")),
                     "process" => Ok(Type::Object("process")),
                     "Bun" => Ok(Type::Object("Bun")),
                     // Intrinsic fns synthesized by the desugar pass
@@ -2511,6 +2518,36 @@ impl Checker {
                     (Type::Object("fs"), "existsSync") => Ok(Type::Function(
                         vec![Type::String],
                         Box::new(Type::Boolean),
+                    )),
+                    /* T-18.a (v0.5.0) — `fs/promises` module. Each
+                     * method calls the matching sync helper from
+                     * `fs.<X>Sync` then wraps the result in
+                     * Promise.resolve(...). MVP "synchronous-then-
+                     * resolve" — real I/O suspension needs T-16
+                     * state-machine async/await. Bun-parity:
+                     * `import { readFile } from "fs/promises"; await
+                     * readFile(p)` yields the file contents
+                     * byte-identical with bun. */
+                    (Type::Object("fs_promises"), "readFile") => Ok(Type::Function(
+                        vec![Type::String],
+                        Box::new(Type::Promise(Box::new(Type::String))),
+                    )),
+                    (Type::Object("fs_promises"), "writeFile") => Ok(Type::Function(
+                        vec![Type::String, Type::String],
+                        Box::new(Type::Promise(Box::new(Type::Void))),
+                    )),
+                    (Type::Object("fs_promises"), "appendFile") => Ok(Type::Function(
+                        vec![Type::String, Type::String],
+                        Box::new(Type::Promise(Box::new(Type::Void))),
+                    )),
+                    (Type::Object("fs_promises"), "unlink")
+                    | (Type::Object("fs_promises"), "mkdir") => Ok(Type::Function(
+                        vec![Type::String],
+                        Box::new(Type::Promise(Box::new(Type::Void))),
+                    )),
+                    (Type::Object("fs_promises"), "exists") => Ok(Type::Function(
+                        vec![Type::String],
+                        Box::new(Type::Promise(Box::new(Type::Boolean))),
                     )),
                     // Phase 2.0b.2 — Date.parse(s) returns ms-since-epoch
                     // (or NaN sentinel — tr returns INT64_MIN; spec is NaN).

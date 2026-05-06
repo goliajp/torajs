@@ -10670,6 +10670,69 @@ impl<'a> LowerCtx<'a> {
                         return Operand::Value(v);
                     }
                 }
+                /* T-18.a (v0.5.0) — fs.<method>Async wrappers. Each
+                 * calls the matching sync helper then wraps the result
+                 * in a fulfilled Promise. MVP "synchronous-then-resolve"
+                 * — real I/O suspension needs T-16 state-machine
+                 * async/await. The user-visible Promise<T> contract is
+                 * preserved so `await fs.readFile(p)` yields the
+                 * file contents. */
+                if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
+                    && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
+                    && ns == "fs_promises"
+                    && matches!(
+                        m_name.as_str(),
+                        "readFile" | "writeFile" | "appendFile" | "unlink" | "mkdir" | "exists"
+                    )
+                {
+                    let arg_ops: Vec<Operand> = args
+                        .iter()
+                        .map(|a| {
+                            let op = self.lower_expr(*a);
+                            self.consume_if_ident(*a);
+                            op
+                        })
+                        .collect();
+                    let (sync_fid, sync_ret_ty) = match m_name.as_str() {
+                        "readFile" => (self.intrinsics.fs_read_file_sync, Type::Str),
+                        "writeFile" => (self.intrinsics.fs_write_file_sync, Type::Void),
+                        "appendFile" => (self.intrinsics.fs_append_file_sync, Type::Void),
+                        "unlink" => (self.intrinsics.fs_unlink_sync, Type::Void),
+                        "mkdir" => (self.intrinsics.fs_mkdir_sync, Type::Void),
+                        "exists" => (self.intrinsics.fs_exists_sync, Type::Bool),
+                        _ => unreachable!(),
+                    };
+                    let sync_v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(sync_fid, arg_ops),
+                        sync_ret_ty,
+                        None,
+                    );
+                    // Wrap the sync result in a Promise.
+                    let (promise_alloc_fid, value_op) = match sync_ret_ty {
+                        Type::Str => (
+                            self.intrinsics.promise_alloc_fulfilled_heap,
+                            Operand::Value(sync_v),
+                        ),
+                        Type::Bool => (
+                            self.intrinsics.promise_alloc_fulfilled,
+                            self.coerce_bool_to_i64(Operand::Value(sync_v)),
+                        ),
+                        Type::Void => (
+                            // For void returns, just pass 0 as the value.
+                            self.intrinsics.promise_alloc_fulfilled,
+                            Operand::ConstI64(0),
+                        ),
+                        _ => unreachable!(),
+                    };
+                    let p_v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(promise_alloc_fid, vec![value_op]),
+                        Type::Promise,
+                        None,
+                    );
+                    return Operand::Value(p_v);
+                }
                 /* T-17.a / T-17.b / T-17.d (v0.5.0) — Promise.all /
                  * .race / .any sync fast paths. */
                 if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
@@ -14590,6 +14653,19 @@ impl<'a> LowerCtx<'a> {
                                             Expr::Ident(ns) if ns == "Promise"
                                         )
                             );
+                            // T-18.a fs/promises async methods returning Promise.
+                            let fs_async = matches!(
+                                self.ast.get_expr(*callee),
+                                Expr::Member { obj: ns_id, name: m_name }
+                                    if matches!(
+                                        m_name.as_str(),
+                                        "readFile" | "writeFile" | "appendFile"
+                                            | "unlink" | "mkdir" | "exists"
+                                    ) && matches!(
+                                        self.ast.get_expr(*ns_id),
+                                        Expr::Ident(ns) if ns == "fs_promises"
+                                    )
+                            );
                             // Built-in Promise<T>.then(...) chain.
                             let then_chain = matches!(
                                 self.ast.get_expr(*callee),
@@ -14610,7 +14686,7 @@ impl<'a> LowerCtx<'a> {
                             } else {
                                 false
                             };
-                            static_ctor || then_chain || fn_returns_promise
+                            static_ctor || then_chain || fn_returns_promise || fs_async
                         }
                         _ => false,
                     }
