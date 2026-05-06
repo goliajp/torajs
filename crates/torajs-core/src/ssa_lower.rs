@@ -1731,6 +1731,17 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         &[Type::Str],
         Type::Void,
     );
+    /* T-18.b — fs.readdirSync returns Array<string>. ABI-typed as
+     * Type::Ptr at the intrinsic boundary (mirrors arr_alloc's Ptr-
+     * return convention); the call site re-types the result via the
+     * Member-call dispatch which knows the static return type. */
+    let fs_readdir_sync_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_fs_readdir_sync",
+        &[Type::Str],
+        Type::Ptr,
+    );
     /* v0.3 #3 — process surface (minimum). */
     let process_exit_id = declare_intrinsic(
         &mut module,
@@ -3093,6 +3104,7 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         fs_append_file_sync: fs_append_file_sync_id,
         fs_unlink_sync: fs_unlink_sync_id,
         fs_mkdir_sync: fs_mkdir_sync_id,
+        fs_readdir_sync: fs_readdir_sync_id,
         process_exit: process_exit_id,
         process_cwd: process_cwd_id,
         process_platform: process_platform_id,
@@ -3609,6 +3621,7 @@ struct Intrinsics {
     fs_append_file_sync: FuncId,
     fs_unlink_sync: FuncId,
     fs_mkdir_sync: FuncId,
+    fs_readdir_sync: FuncId,
     process_exit: FuncId,
     process_cwd: FuncId,
     process_platform: FuncId,
@@ -10747,7 +10760,8 @@ impl<'a> LowerCtx<'a> {
                     && ns == "fs_promises"
                     && matches!(
                         m_name.as_str(),
-                        "readFile" | "writeFile" | "appendFile" | "unlink" | "mkdir" | "exists"
+                        "readFile" | "writeFile" | "appendFile" | "unlink"
+                            | "mkdir" | "exists" | "readdir"
                     )
                 {
                     let arg_ops: Vec<Operand> = args
@@ -10765,6 +10779,10 @@ impl<'a> LowerCtx<'a> {
                         "unlink" => (self.intrinsics.fs_unlink_sync, Type::Void),
                         "mkdir" => (self.intrinsics.fs_mkdir_sync, Type::Void),
                         "exists" => (self.intrinsics.fs_exists_sync, Type::Bool),
+                        "readdir" => {
+                            let arr_id = intern_arr_layout(self.arr_layouts, Type::Str);
+                            (self.intrinsics.fs_readdir_sync, Type::Arr(arr_id))
+                        }
                         _ => unreachable!(),
                     };
                     let sync_v = self.f.append_inst(
@@ -10773,9 +10791,11 @@ impl<'a> LowerCtx<'a> {
                         sync_ret_ty,
                         None,
                     );
-                    // Wrap the sync result in a Promise.
+                    // Wrap the sync result in a Promise. Heap variants
+                    // (Str / Arr) take ownership; primitive (Bool /
+                    // Void) just packs into i64.
                     let (promise_alloc_fid, value_op) = match sync_ret_ty {
-                        Type::Str => (
+                        Type::Str | Type::Arr(_) => (
                             self.intrinsics.promise_alloc_fulfilled_heap,
                             Operand::Value(sync_v),
                         ),
@@ -10784,7 +10804,6 @@ impl<'a> LowerCtx<'a> {
                             self.coerce_bool_to_i64(Operand::Value(sync_v)),
                         ),
                         Type::Void => (
-                            // For void returns, just pass 0 as the value.
                             self.intrinsics.promise_alloc_fulfilled,
                             Operand::ConstI64(0),
                         ),
@@ -14725,7 +14744,7 @@ impl<'a> LowerCtx<'a> {
                                     if matches!(
                                         m_name.as_str(),
                                         "readFile" | "writeFile" | "appendFile"
-                                            | "unlink" | "mkdir" | "exists"
+                                            | "unlink" | "mkdir" | "exists" | "readdir"
                                     ) && matches!(
                                         self.ast.get_expr(*ns_id),
                                         Expr::Ident(ns) if ns == "fs_promises"
@@ -17013,6 +17032,7 @@ impl<'a> LowerCtx<'a> {
                         "appendFileSync" => self.intrinsics.fs_append_file_sync,
                         "unlinkSync" => self.intrinsics.fs_unlink_sync,
                         "mkdirSync" => self.intrinsics.fs_mkdir_sync,
+                        "readdirSync" => self.intrinsics.fs_readdir_sync,
                         other => panic!("ssa-lower: unknown fs method `{other}`"),
                     };
                 }

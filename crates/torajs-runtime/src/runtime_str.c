@@ -2187,6 +2187,39 @@ void __torajs_fs_mkdir_sync(const void *path_str) {
     }
 }
 
+/* T-18.b (v0.5.0) — fs.readdirSync(path) returns Array<string> with
+ * one entry per directory child (excluding `.` and `..`, matching
+ * bun / node spec). Caller owns the result Array; each Str element
+ * has rc=1. Order matches the OS's readdir() ordering (typically
+ * inode-order on ext4 / btrfs, deterministic on test setups). */
+#include <dirent.h>
+void *__torajs_fs_readdir_sync(const void *path_str) {
+    char path[4096];
+    path_copy_to_buf(path_str, path, sizeof(path));
+    DIR *d = opendir(path);
+    if (!d) {
+        char msg[4200];
+        snprintf(msg, sizeof(msg), "not yet supported: fs.readdirSync open failed: %s", path);
+        __torajs_panic(msg);
+    }
+    void *arr = __torajs_arr_alloc(0);
+    struct dirent *ent;
+    while ((ent = readdir(d)) != NULL) {
+        const char *name = ent->d_name;
+        if (name[0] == '.' && (name[1] == '\0'
+            || (name[1] == '.' && name[2] == '\0')))
+        {
+            continue; /* skip "." and ".." per spec */
+        }
+        uint64_t nlen = strlen(name);
+        uint8_t *s = __torajs_str_alloc_pooled(nlen);
+        if (nlen) memcpy(s + __TORAJS_STR_HDR_SIZE, name, (size_t)nlen);
+        arr = __torajs_arr_push(arr, (int64_t)(intptr_t)s);
+    }
+    closedir(d);
+    return arr;
+}
+
 void __torajs_process_exit(int64_t code) {
     exit((int)code);
 }

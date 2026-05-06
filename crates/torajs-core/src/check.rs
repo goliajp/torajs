@@ -2535,6 +2535,19 @@ impl Checker {
                         vec![Type::String],
                         Box::new(Type::Boolean),
                     )),
+                    /* T-18.b (v0.5.0) — fs.readdirSync(path) returns
+                     * Array<string> with one entry per child (`.` /
+                     * `..` filtered, matching bun spec). */
+                    (Type::Object("fs"), "readdirSync") => Ok(Type::Function(
+                        vec![Type::String],
+                        Box::new(Type::Array(Box::new(Type::String))),
+                    )),
+                    (Type::Object("fs_promises"), "readdir") => Ok(Type::Function(
+                        vec![Type::String],
+                        Box::new(Type::Promise(Box::new(
+                            Type::Array(Box::new(Type::String))
+                        ))),
+                    )),
                     /* T-18.a (v0.5.0) — `fs/promises` module. Each
                      * method calls the matching sync helper from
                      * `fs.<X>Sync` then wraps the result in
