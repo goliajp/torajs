@@ -1843,6 +1843,30 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         &[Type::Any],
         Type::Void,
     );
+    /* T-09.d (v0.4.0) — Object.freeze sets FROZEN bit; isFrozen
+     * reads it. Field-write codegen consults the bit inline (no
+     * runtime call) for the silent-ignore mutation guard. */
+    let obj_freeze_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_obj_freeze",
+        &[Type::Ptr],
+        Type::Ptr,
+    );
+    let obj_is_frozen_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_obj_is_frozen",
+        &[Type::Ptr],
+        Type::Bool,
+    );
+    let obj_check_not_frozen_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_obj_check_not_frozen",
+        &[Type::Ptr],
+        Type::Void,
+    );
     /* T-03 (v0.3.0) — sync stdio. process.stdout.write(s) and
      * process.stderr.write(s) return bytes written (i64); stdin.read()
      * drains stdin to EOF and returns one Str. Aborting on short
@@ -2906,6 +2930,9 @@ pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
         any_unbox_value: any_unbox_value_id,
         any_box_drop: any_box_drop_id,
         print_any: print_any_id,
+        obj_freeze: obj_freeze_id,
+        obj_is_frozen: obj_is_frozen_id,
+        obj_check_not_frozen: obj_check_not_frozen_id,
         object_is_f64: object_is_f64_id,
         split_iter_init: split_iter_init_id,
         split_iter_next: split_iter_next_id,
@@ -3400,6 +3427,9 @@ struct Intrinsics {
     any_unbox_value: FuncId,
     any_box_drop: FuncId,
     print_any: FuncId,
+    obj_freeze: FuncId,
+    obj_is_frozen: FuncId,
+    obj_check_not_frozen: FuncId,
     object_is_f64: FuncId,
     split_iter_init: FuncId,
     split_iter_next: FuncId,
@@ -8944,6 +8974,22 @@ impl<'a> LowerCtx<'a> {
                                 )
                             });
                         let offset = OBJ_HEADER_SIZE + (idx as u64) * 8;
+                        // T-09.d (v0.4.0) — frozen mutation guard.
+                        // Inline call to runtime helper that panics
+                        // with a TypeError-shaped message if the
+                        // object's universal heap header has the
+                        // FROZEN bit set. Matches bun's strict-mode
+                        // throw on `Object.freeze(o); o.field = ...`.
+                        // ~3-cycle overhead on the unfrozen path
+                        // (single load + and + cmp + branch-not-taken
+                        // after LLVM inlines the call body).
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.obj_check_not_frozen,
+                                vec![obj_val.clone()],
+                            ),
+                        );
                         let v = self.lower_expr(*value);
                         self.consume_if_ident(*value);
                         // Drop the old field value if non-Copy.
@@ -10131,6 +10177,32 @@ impl<'a> LowerCtx<'a> {
                         );
                     }
                     return Operand::Value(arr_ptr);
+                }
+                /* T-09.d (v0.4.0) — Object.freeze(obj) sets the FROZEN
+                 * bit and returns the same obj. Object.isFrozen reads
+                 * the bit. Both pass through the runtime helpers
+                 * (which type-erase to Type::Ptr — any heap object
+                 * with a universal heap header is acceptable). */
+                if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
+                    && (m_name == "freeze" || m_name == "isFrozen")
+                    && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
+                    && ns == "Object"
+                    && args.len() == 1
+                {
+                    let arg_op = self.lower_expr(args[0]);
+                    let arg_ty = self.operand_ty(&arg_op);
+                    let (fid, ret_ty) = if m_name == "freeze" {
+                        (self.intrinsics.obj_freeze, arg_ty)
+                    } else {
+                        (self.intrinsics.obj_is_frozen, Type::Bool)
+                    };
+                    let v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(fid, vec![arg_op]),
+                        ret_ty,
+                        None,
+                    );
+                    return Operand::Value(v);
                 }
                 /* T-09.b (v0.4.0) — `Object.entries(obj)` returns
                  * Array<Array<Any>> where each inner is `[key, value]`.

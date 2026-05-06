@@ -2116,6 +2116,22 @@ impl Checker {
                         vec![Type::Array(Box::new(Type::Array(Box::new(Type::Any))))],
                         Box::new(Type::Any),
                     )),
+                    /* T-09.d (v0.4.0) — Object.freeze(obj) sets the
+                     * FROZEN bit on the universal heap header. Returns
+                     * the same obj per spec. Subsequent field writes
+                     * are silently ignored (matches non-strict mode;
+                     * tr has no `"use strict"` directive). The arg
+                     * type is permissive (Type::Any) — runtime accepts
+                     * any heap object pointer. */
+                    (Type::Object("Object"), "freeze") => Ok(Type::Function(
+                        vec![Type::Any],
+                        Box::new(Type::Any),
+                    )),
+                    /* Object.isFrozen(obj) — reads the FROZEN bit. */
+                    (Type::Object("Object"), "isFrozen") => Ok(Type::Function(
+                        vec![Type::Any],
+                        Box::new(Type::Boolean),
+                    )),
                     /* T-09.a (v0.4.0) — 5 Object methods that don't fit
                      * tr's nominal class system / fixed struct schema.
                      * Reject at typecheck with a clear phase pointer

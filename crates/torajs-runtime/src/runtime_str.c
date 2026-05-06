@@ -156,6 +156,13 @@ typedef struct __attribute__((aligned(8))) {
  * pool is sized for 8-byte-slot caps; mixing strides corrupts it). */
 #define __TORAJS_FLAG_ARR_ANY 8u
 
+/* T-09.d (v0.4.0) — `Object.freeze(obj)` sets this bit. Field write
+ * codegen emits a runtime check: if set, skip the store (silent
+ * ignore matches JS spec non-strict mode, which tr defaults to —
+ * tr has no `"use strict"` directive). isFrozen reads this bit
+ * directly. */
+#define __TORAJS_FLAG_FROZEN 16u
+
 /* Universal heap header flag bits.
  *   bit 1 (=2): SPLIT_BLOCK — single-malloc block produced by str_split,
  *               carries N inline substr structs; routed to split_pool on free.
@@ -1182,6 +1189,41 @@ int64_t __torajs_object_is_f64(double a, double b) {
         return (ai == bi) ? 1 : 0;
     }
     return (a == b) ? 1 : 0;
+}
+
+/* T-09.d (v0.4.0) — `Object.freeze(obj)` sets the FROZEN bit in
+ * the universal heap header's flags field; returns the same obj
+ * pointer (Object.freeze returns its argument per spec). NULL
+ * input is a no-op (defensive). The flag is consulted at every
+ * field-write site emitted by ssa_lower's Assign-Member arm. */
+void *__torajs_obj_freeze(void *p) {
+    if (p == NULL) return NULL;
+    __torajs_heap_header_t *h = (__torajs_heap_header_t *)p;
+    h->flags |= __TORAJS_FLAG_FROZEN;
+    return p;
+}
+
+/* `Object.isFrozen(obj)` — reads the FROZEN bit. Returns 0 / 1
+ * (matches the `_Bool` ABI tr's Bool intrinsics use). */
+_Bool __torajs_obj_is_frozen(const void *p) {
+    if (p == NULL) return 0;
+    const __torajs_heap_header_t *h = (const __torajs_heap_header_t *)p;
+    return (h->flags & __TORAJS_FLAG_FROZEN) != 0;
+}
+
+/* Mutation guard called by ssa_lower at every Member-target Assign
+ * site (`obj.field = value`). If the FROZEN bit is set, panics with
+ * a TypeError-shaped message — matching bun's strict-mode behavior
+ * (TypeScript files run in strict mode in bun, throwing
+ * "Attempted to assign to readonly property"). NULL passes through
+ * (defensive — assigning to a Nullable target hits the null-deref
+ * panic elsewhere). */
+void __torajs_obj_check_not_frozen(const void *p) {
+    if (p == NULL) return;
+    const __torajs_heap_header_t *h = (const __torajs_heap_header_t *)p;
+    if (h->flags & __TORAJS_FLAG_FROZEN) {
+        __torajs_panic("TypeError: Attempted to assign to readonly property");
+    }
 }
 
 /* `__torajs_arr_push_unchecked` is inkwell-defined and exported as a
