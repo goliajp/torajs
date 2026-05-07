@@ -10817,7 +10817,45 @@ impl<'a> LowerCtx<'a> {
                             } else {
                                 false
                             };
+                            // T-19.g — fs/promises async returns +
+                            // Bun.file(...).text/.exists also produce
+                            // built-in Promise. Mirrors the
+                            // `await p.value` site's source detection
+                            // so `Bun.file(p).text().then(cb)` lowers
+                            // through the runtime helper instead of
+                            // bouncing off the user-class fallback.
+                            let fs_async = matches!(
+                                self.ast.get_expr(*src_callee),
+                                Expr::Member { obj: ns_id, name: m_name }
+                                    if matches!(
+                                        m_name.as_str(),
+                                        "readFile" | "writeFile" | "appendFile"
+                                            | "unlink" | "mkdir" | "exists" | "readdir"
+                                    ) && matches!(
+                                        self.ast.get_expr(*ns_id),
+                                        Expr::Ident(ns) if ns == "fs_promises"
+                                    )
+                            );
+                            let bun_file_text = matches!(
+                                self.ast.get_expr(*src_callee),
+                                Expr::Member { obj: file_id, name: m_name }
+                                    if (m_name == "text" || m_name == "exists")
+                                        && matches!(
+                                            self.ast.get_expr(*file_id),
+                                            Expr::Call { callee: f_callee, .. }
+                                                if matches!(
+                                                    self.ast.get_expr(*f_callee),
+                                                    Expr::Member { obj: ns_id, name: fm }
+                                                        if fm == "file"
+                                                            && matches!(
+                                                                self.ast.get_expr(*ns_id),
+                                                                Expr::Ident(ns) if ns == "Bun"
+                                                            )
+                                                )
+                                        )
+                            );
                             static_ctor || then_chain || fn_returns_promise
+                                || fs_async || bun_file_text
                         }
                         _ => false,
                     };
