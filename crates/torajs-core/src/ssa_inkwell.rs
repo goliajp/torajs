@@ -715,6 +715,13 @@ pub fn compile_for(
             for op in &o_paths {
                 link_cmd.arg(op);
             }
+            // T-21 (v0.6.0) — runtime_fetch.c uses libcurl for the
+            // sync HTTP fetch. macOS + linux both ship libcurl in
+            // their default toolchain (system libcurl on macOS,
+            // libcurl4 via apt on linux). Static linking is feasible
+            // post-T-21 once we figure out how to bundle the TLS
+            // root store cleanly.
+            link_cmd.arg("-lcurl");
             link_cmd.arg("-o").arg(out_path);
         }
         CompileTarget::Wasm32Wasi => {

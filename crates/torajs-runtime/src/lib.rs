@@ -31,6 +31,12 @@ pub const RUNTIME_DATE_C: &str = include_str!("runtime_date.c");
 /// auto-drain (T-15.e).
 pub const RUNTIME_PROMISE_C: &str = include_str!("runtime_promise.c");
 
+/// v0.6 T-21 — `fetch(url)` HTTP client (sync MVP via libcurl).
+/// Native target only; wasm32-wasi gates the whole TU on
+/// `#ifndef __wasi__` and routes through the browser's fetch
+/// API instead (T-21.b).
+pub const RUNTIME_FETCH_C: &str = include_str!("runtime_fetch.c");
+
 /// All C runtime translation units in (filename, contents) form, in
 /// the order they should be written + cc'd. Filename is the basename
 /// the compiler should write into the per-build temp directory.
@@ -39,4 +45,5 @@ pub const SOURCES: &[(&str, &str)] = &[
     ("runtime_regex.c", RUNTIME_REGEX_C),
     ("runtime_date.c", RUNTIME_DATE_C),
     ("runtime_promise.c", RUNTIME_PROMISE_C),
+    ("runtime_fetch.c", RUNTIME_FETCH_C),
 ];

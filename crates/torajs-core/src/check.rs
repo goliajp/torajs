@@ -465,6 +465,11 @@ fn resolve_type_ann_full(
         // function, not a type. Annotation `let s: symbol = Symbol()`
         // and `symbol[]` arrays both go through here.
         "symbol" => Some(Type::Symbol),
+        // T-21 (v0.6.0) — `Response` is the heap struct returned by
+        // `fetch(url)`. Its surface (.text() / .status) is wired in
+        // the method-table arm; the type-resolver entry lets users
+        // write `let r: Response = await fetch(url)` explicitly.
+        "Response" => Some(Type::Object("Response")),
         // User-declared struct alias (P2.4): `type Point = { x: number, y: number }`
         // adds `Point` to the aliases map. Resolution returns the
         // structural Type::Struct directly — no nominal layer above.
@@ -2529,6 +2534,17 @@ impl Checker {
                      * uses -1 to keep the missing case observable
                      * until typed-throw fs lands). */
                     (Type::Object("BunFile"), "size") => Ok(Type::Number),
+                    /* T-21 (v0.6.0) — `fetch(url)` Response surface.
+                     * `.text()` returns the (already-loaded) body as
+                     * `Promise<string>`; `.status` is the HTTP status
+                     * code (0 on transport error). `.ok` and JSON
+                     * parsing land alongside the fetch options
+                     * follow-up. */
+                    (Type::Object("Response"), "text") => Ok(Type::Function(
+                        Vec::new(),
+                        Box::new(Type::Promise(Box::new(Type::String))),
+                    )),
+                    (Type::Object("Response"), "status") => Ok(Type::Number),
                     /* v0.3 #3 — process surface (minimum). */
                     (Type::Object("process"), "exit") => Ok(Type::Function(
                         vec![Type::Number],
@@ -3214,6 +3230,28 @@ impl Checker {
                             return Ok(Type::Promise(ret.clone()));
                         }
                     }
+                }
+                /* T-21 (v0.6.0) — `fetch(url)` returns Promise<Response>.
+                 * Response has `.text(): Promise<string>` and a `status:
+                 * number` property; both are SSA-level operations on
+                 * the heap-alloc'd Response struct populated by
+                 * `__torajs_fetch_sync`. POST / headers / method /
+                 * body land in a fetch options follow-up. */
+                if let Expr::Ident(n) = ast.get_expr(*callee)
+                    && n == "fetch"
+                {
+                    if args.len() != 1 {
+                        return Err(format!(
+                            "fetch(url) expects 1 string arg, got {}", args.len()
+                        ));
+                    }
+                    let url_ty = self.type_of(ast, args[0])?;
+                    if !matches!(url_ty, Type::String) {
+                        return Err(format!(
+                            "fetch(url) — url must be string, got {url_ty:?}"
+                        ));
+                    }
+                    return Ok(Type::Promise(Box::new(Type::Object("Response"))));
                 }
                 // T-13.a (v0.4.0) — `Symbol(desc?)` constructor call.
                 // Returns Type::Symbol. Optional desc Str arg; missing

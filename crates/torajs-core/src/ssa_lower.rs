@@ -2150,6 +2150,17 @@ fn lower_inner(
         &[Type::Promise, Type::Ptr],
         Type::Promise,
     );
+    /* T-21 (v0.6.0) — `fetch(url)` runs a sync libcurl GET and
+     * returns a Response* heap struct (status @ 8, body Str* @ 16).
+     * The user-side `fetch(url)` lowers as
+     * `Promise.resolve_heap(__torajs_fetch_sync(url))`. */
+    let fetch_sync_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_fetch_sync",
+        &[Type::Str],
+        Type::Ptr,
+    );
     /* T-19.n — closure-cb variants of .catch / .finally. Same
      * env-pointer ABI as promise_then_closure: env+8 holds the
      * lifted body's fn_addr; runtime calls (env, value) -> i64
@@ -3277,6 +3288,7 @@ fn lower_inner(
         promise_finally: promise_finally_id,
         promise_catch_closure: promise_catch_closure_id,
         promise_finally_closure: promise_finally_closure_id,
+        fetch_sync: fetch_sync_id,
         promise_all_sync: promise_all_sync_id,
         promise_race_sync: promise_race_sync_id,
         promise_any_sync: promise_any_sync_id,
@@ -3865,6 +3877,7 @@ struct Intrinsics {
     promise_finally: FuncId,
     promise_catch_closure: FuncId,
     promise_finally_closure: FuncId,
+    fetch_sync: FuncId,
     promise_all_sync: FuncId,
     promise_race_sync: FuncId,
     promise_any_sync: FuncId,
@@ -4596,6 +4609,12 @@ fn parse_type(
         "void" => Type::Void,
         "regex" => Type::RegExp,
         "date" => Type::Date,
+        // T-21 (v0.6.0) — `fetch(url)` Response heap struct. Maps
+        // to a plain heap pointer at SSA (Type::Ptr); field access
+        // (status @ 8, body Str* @ 16) is via direct Load with
+        // hardcoded offsets at the call site. Drop is routed via
+        // value_drop_heap's TAG_RESPONSE case.
+        "Response" => Type::Ptr,
         // T-10.a (v0.4.0) — Any plumbing. Lowers to a single 64-bit
         // pointer slot at codegen (same as Ptr); the runtime carries
         // the type tag via the universal heap header. T-10.a only
@@ -11188,6 +11207,74 @@ impl<'a> LowerCtx<'a> {
                     self.consume_if_ident(args[0]);
                     return arg_op;
                 }
+                /* T-21 (v0.6.0) — `fetch(url)` lowers to:
+                 *   resp_ptr = __torajs_fetch_sync(url)  (heap Response*)
+                 *   p        = Promise.resolve_heap(resp_ptr)
+                 *   return p
+                 * The Response heap struct's drop hook (TAG_RESPONSE in
+                 * value_drop_heap) frees the body Str + the struct
+                 * itself when the Promise drops. */
+                if let Expr::Ident(n) = self.ast.get_expr(*callee)
+                    && n == "fetch"
+                    && args.len() == 1
+                {
+                    let url_op = self.lower_expr(args[0]);
+                    self.consume_if_ident(args[0]);
+                    let resp_v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(self.intrinsics.fetch_sync, vec![url_op]),
+                        Type::Ptr,
+                        None,
+                    );
+                    let p_v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.promise_alloc_fulfilled_heap,
+                            vec![Operand::Value(resp_v)],
+                        ),
+                        Type::Promise,
+                        None,
+                    );
+                    return Operand::Value(p_v);
+                }
+                /* T-21 (v0.6.0) — `<response>.text()` returns
+                 * `Promise<string>` wrapping the response body Str.
+                 * The body is already alloc'd at fetch time
+                 * (offset 16); .text() reads + bumps its rc + wraps
+                 * in a fulfilled Promise. */
+                if let Expr::Member { obj: resp_id, name: m_name } = self.ast.get_expr(*callee)
+                    && m_name == "text"
+                    && args.is_empty()
+                    && matches!(
+                        self.expr_types.get(resp_id),
+                        Some(crate::check::Type::Object("Response"))
+                    )
+                {
+                    let resp_op = self.lower_expr(*resp_id);
+                    let body_v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Load(Type::Str, resp_op, 16),
+                        Type::Str,
+                        None,
+                    );
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.rc_inc,
+                            vec![Operand::Value(body_v)],
+                        ),
+                    );
+                    let p_v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.promise_alloc_fulfilled_heap,
+                            vec![Operand::Value(body_v)],
+                        ),
+                        Type::Promise,
+                        None,
+                    );
+                    return Operand::Value(p_v);
+                }
                 /* T-19 (v0.5.0) — `<bunfile>.text()` reads the file at
                  * the BunFile's path as a string and wraps in
                  * Promise.resolve(...). MVP routes through
@@ -15325,8 +15412,27 @@ impl<'a> LowerCtx<'a> {
                             } else {
                                 false
                             };
+                            // T-21 — `fetch(url)` returns a built-in
+                            // Promise<Response>; same lower path as
+                            // the other Promise-producing call sites.
+                            let fetch_call = matches!(
+                                self.ast.get_expr(*callee),
+                                Expr::Ident(n) if n == "fetch"
+                            );
+                            // T-21 — `<response>.text()` returns
+                            // Promise<string> (the body Str wrapped
+                            // in promise_alloc_fulfilled_heap).
+                            let response_text = matches!(
+                                self.ast.get_expr(*callee),
+                                Expr::Member { obj: resp_id, name: m_name }
+                                    if m_name == "text"
+                                        && matches!(
+                                            self.expr_types.get(resp_id),
+                                            Some(crate::check::Type::Object("Response"))
+                                        )
+                            );
                             static_ctor || then_chain || fn_returns_promise || fs_async
-                                || bun_file_text
+                                || bun_file_text || fetch_call || response_text
                         }
                         _ => false,
                     }
@@ -15386,11 +15492,17 @@ impl<'a> LowerCtx<'a> {
                     );
                     let v = match inner_ssa_ty {
                         // Heap-shaped T: cast i64 → ptr via IntToPtr.
+                        // Type::Ptr is the catch-all for built-in heap
+                        // structs that don't have their own SSA type
+                        // (Response from T-21 fetch — body Str at +16,
+                        // status i64 at +8 read via direct Load with
+                        // hardcoded offsets at the call site).
                         Some(t) if matches!(
                             t,
                             Type::Str | Type::Substr | Type::Obj(_) | Type::Arr(_)
                                 | Type::Closure(_) | Type::RegExp | Type::Date
                                 | Type::Symbol | Type::Promise | Type::Any
+                                | Type::Ptr
                         ) => {
                             let ptr = self.f.append_inst(
                                 self.cur_block,
@@ -15494,6 +15606,29 @@ impl<'a> LowerCtx<'a> {
                     let v = self.f.append_inst(
                         self.cur_block,
                         InstKind::Call(self.intrinsics.fs_size_sync, vec![path_op]),
+                        Type::I64,
+                        None,
+                    );
+                    return Operand::Value(v);
+                }
+                /* T-21 (v0.6.0) — `<response>.status` — Response struct
+                 * field at offset 8 (i32). The receiver is whatever
+                 * the user code chose to bind the awaited fetch to;
+                 * we identify it by check.rs's per-Expr type side-
+                 * channel showing `Type::Object("Response")`. */
+                if name == "status"
+                    && matches!(
+                        self.expr_types.get(obj),
+                        Some(crate::check::Type::Object("Response"))
+                    )
+                {
+                    let resp_op = self.lower_expr(*obj);
+                    /* Status is i64 at offset 8 — runtime stores the
+                     * full HTTP code as 8 bytes so the load lines up
+                     * with tora's Number ABI directly (no zext). */
+                    let v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Load(Type::I64, resp_op, 8),
                         Type::I64,
                         None,
                     );

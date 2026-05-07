@@ -148,6 +148,9 @@ typedef struct __attribute__((aligned(8))) {
 #define __TORAJS_TAG_DATE    5  /* runtime_date.c — { ms_since_epoch } */
 #define __TORAJS_TAG_ANY_BOX 6  /* T-10.d — boxed Type::Any: header + tag + value */
 #define __TORAJS_TAG_SYMBOL  7  /* T-13.a — Symbol value: header + desc str ptr */
+/* TAG 8 = Promise (runtime_promise.c) — its drop hook handles its own
+ * universal-header free dispatch, not routed through value_drop_heap. */
+#define __TORAJS_TAG_RESPONSE 9 /* T-21 — fetch() Response: header + status + body Str* */
 
 /* T-10.b (v0.4.0) — Type::Any tagged-slot tags. An Array<Any> stores
  * 16-byte slots `{ tag: u64 (low 8 bits used), value: u64 }` so each
@@ -622,12 +625,19 @@ void __torajs_arr_drop(void *a);
  * acquire C linkage — for now those tags fall back to `free()`
  * which is leak-safe (frees the outer block; misses inner
  * refcounted fields). T-10.e tightens the dispatch. */
+#ifndef __wasi__
+extern void __torajs_response_drop(void *p);
+#endif
+
 void __torajs_value_drop_heap(void *child) {
     if (child == NULL) return;
     __torajs_heap_header_t *h = (__torajs_heap_header_t *)child;
     switch (h->type_tag) {
         case __TORAJS_TAG_STR:  __torajs_str_drop(child); break;
         case __TORAJS_TAG_ARR:  __torajs_arr_drop(child); break;
+#ifndef __wasi__
+        case __TORAJS_TAG_RESPONSE: __torajs_response_drop(child); break;
+#endif
         default:                /* Obj / Substr / Closure / RegExp /
                                  * Date / ANY_BOX — fallback rc_dec +
                                  * free; may leak inner refs. */
