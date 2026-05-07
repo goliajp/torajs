@@ -1,5 +1,118 @@
 # Changelog
 
+## v0.5.0 — 2026-05-08
+
+Fourth release after `v0.4.0`. Closes the **v0.5.0 sequence**
+(T-14 / T-15 / T-17 / T-18 / T-19; T-16 deferred — see "Scope notes"
+below) of the perf-gated 33-item plan from `v0.3.0` (see
+[`docs/roadmap.md`](docs/roadmap.md) → "Roadmap v2").
+
+Theme: **async/await + Promise substrate**. tr ships its own Promise
+implementation (32-byte heap layout + microtask queue + drain-on-await
++ auto-drain at main exit), the full ES2015/2018 Promise prototype
+(`.then` / `.catch` / `.finally` / 2-arg `.then(onOk, onErr)`),
+combinators (`Promise.all` / `.race` / `.any` / `.allSettled`),
+thenable absorption, fs/promises (`readFile` / `writeFile` /
+`appendFile` / `unlink` / `mkdir` / `exists` / `readdir`), Bun.file
+(`text` / `exists` / `json` / `size`), and async-fn desugar.
+**5 new async bench cases** added — tr crushes bun-aot on every one
+(geomean tr/bun-aot 0.16x on async paths, 4–12x faster).
+
+### Headlines
+
+- **Promise<T> as a first-class type** — `Type::Promise<T>` in
+  check.rs flows the inner T through the type system; the SSA layer
+  type-erases to a unit `Type::Promise` (heap ptr) but preserves T
+  via a per-Expr type side-channel (T-15.g.6) for await-result
+  recovery (`IntToPtr` for heap T, `TruncI64ToBool` for Bool).
+- **Microtask queue + drain-on-await** — single-thread executor with
+  grow-by-doubling backing; `await` drains pending microtasks before
+  reading the resolved value so `.then` chains fire in spec FIFO
+  order. Auto-drain on main exit so async-unaware programs that
+  schedule top-level microtasks still settle correctly.
+- **Capture-box ARC for closures** — escape-captured Copy lets are
+  now refcounted heap boxes (8-byte rc header + 8-byte value); each
+  Closure construction inc's, each env_drop dec's, free at zero.
+  Fixes the multi-closure shared-capture double-free.
+- **Promise.then / .catch / .finally** — both raw-fn and capturing-
+  closure cb shapes; heterogeneous T → U inferred from cb's actual
+  signature (Number / String / Boolean); 2-arg `.then(onOk, onErr)`
+  desugars to `.then(onOk).catch(onErr)`.
+- **Promise combinators (Promise.all / .race / .any / .allSettled)**
+  on already-fulfilled inputs (sync fast-path); pending inputs
+  yield a rejected outer Promise per the v0.5 MVP — full callback
+  fan-in lands with v0.6's real-IO substrate.
+- **fs/promises module + Bun.file substrate** — readFile / writeFile
+  / appendFile / unlink / mkdir / exists / readdir; Bun.file(p) with
+  `.text()` / `.exists()` / `.json()` / `.size`. The async surfaces
+  ride on top of the existing sync helpers + Promise.resolve wrap;
+  real-suspension I/O lands with v0.6.
+- **Capturing arrow expr-body return-type inference** —
+  `(v: number) => v + cap` no longer requires `: T` annotation; the
+  desugar pass pre-collects all top-level let-decl + FnDecl-param
+  annotations and seeds the return-type sniff.
+- **`function main()` rename** — user-declared `main` no longer
+  collides with the synthesized OS-entry symbol; renamed internally
+  to `__user_main` with all references rewritten.
+- **5 new async bench cases** (`promise-then-100k`, `promise-await-
+  100k`, `promise-all-1k`, `promise-chain-1k`, `async-fn-call-100k`)
+  — every one is `ok` on torajs AOT, geomean tr/bun-aot 0.16x.
+
+### Numbers (HEAD `21d9783`, 2026-05-08)
+
+| metric | value |
+|---|---|
+| conformance suite | **370 pass / 0 fail / 1 skip** (was 343/0/1 at v0.4.0) |
+| bug bucket | **0** (preserved through 27 substrate steps) |
+| compile-error bucket | **0** |
+| bench scoreboard | **21 / 21** `tr build` ≥ ok vs bun-aot (preserved) |
+| async bench | **5 / 5** `tr build` ≥ ok vs bun-aot |
+| bench geomean tr/rust | **0.669** (was 0.671 — flat within noise) |
+| bench geomean tr/bun-aot | **0.231** (tr ~4.3x faster than bun-aot) |
+| **async geomean tr/bun-aot** | **0.16x** (tr ~6x faster than bun-aot) |
+| binary size (typical bench) | **37–38 KB** (vs bun-aot 63 MB) |
+
+### Async bench detail
+
+| case | tr (ms) | bun-aot | bun-jsc | node-v8 | tr vs bun-aot |
+|---|---|---|---|---|---|
+| promise-then-100k | 5.94 | 21.69 | — | — | **3.7x** |
+| promise-await-100k | 8.48 | 17.93 | — | — | **2.1x** |
+| promise-all-1k | 1.56 | 12.93 | — | — | **8.3x** |
+| promise-chain-1k | 1.47 | 17.75 | — | — | **12.1x** |
+| async-fn-call-100k | 2.81 | 16.81 | — | — | **6.0x** |
+
+### Substrate steps (T-NN.x sub-items)
+
+T-14 Promise<T> → T-15 (a–h + g.5 closure-cb-ARC) substrate →
+T-17 combinators → T-18 (a–c) fs/promises → T-19 (a–p) Bun.file
++ thenable absorption + .catch/.finally + closure variants +
+T → U + capturing-arrow inference + user-main rename.
+
+### Scope notes
+
+- **T-16 (state-machine async/await) DEFERRED** — the v0.5 MVP uses
+  sync-resolve + microtask drain at every `await`. Spec-correct
+  for every Promise that's settled by the time control reaches its
+  await (which is every Promise constructible in v0.5 — chained
+  `.then` middle-state Promises are drained by the same await).
+  Real PENDING sources only appear with v0.6's real-IO substrate
+  (`fetch`, `setTimeout`, real async fs); T-16 ships in lockstep
+  with the first such API to avoid premature substrate.
+- **`Promise.all` / `.race` / `.any` PENDING fan-in** — same
+  reasoning; sync fast-path covers every case constructible
+  pre-v0.6.
+- **Heap T → U for `.then` / `.catch`** — Number / String / Boolean
+  ship now; Array / Struct / Date / RegExp lands with the full
+  generic-method substrate (T-15.g.4 TypeVar substitution at
+  method call sites).
+
+### Roadmap
+
+v0.6 = playground + real I/O (`fetch` via reqwest; wasm32-wasi
+target; Playground UI on `torajs.com`; auto-rendered bench
+scoreboard from `bench/results/*.json`).
+
 ## v0.4.0 — 2026-05-06
 
 Third release after `v0.3.0` (same day). Closes the **v0.4.0 sequence**
