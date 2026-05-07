@@ -5647,20 +5647,38 @@ pub fn desugar_implicit_generics(ast: &mut Ast) {
 
         // Skip lifted closures and class-method synthesized shapes —
         // both keep their concrete first-param annotation as-is.
+        // Capturing arrows arrive here with `__env` as the first
+        // param; un-annotated expr-body still needs return-type
+        // inference for the `(v: number) => v + capture` shape, so
+        // run that branch before continuing. `__this` (class methods)
+        // already has explicit declared return types in practice.
         if let Some(first) = params.first()
             && (first.name == "__env" || first.name == "__this")
         {
+            if first.name == "__env"
+                && return_type.is_none()
+                && body_has_value_return(body)
+            {
+                if let Some(inferred) = infer_return_ann(ast_exprs_view, body, params) {
+                    *return_type = Some(inferred);
+                }
+            }
             continue;
         }
         // Lifted arrow / function-expression bodies (`__closure_<N>`)
         // are stored in locals and called indirectly — the M3 generic
         // call-site retargeting only fires for bare-Ident callees that
-        // name a global generic FnDecl, so adding TypeVars here would
-        // produce a generic signature with no path to monomorphize.
-        // Leave their params un-genericized; the typechecker still
-        // requires explicit annotations on captured-arrow params, which
-        // matches the long-standing surface.
+        // name a global generic FnDecl, so adding TypeVars to PARAMS
+        // here would produce a generic signature with no path to
+        // monomorphize. Return-type sniff is still safe and useful
+        // for arrow expr-body inference (`(v: number) => v + 1`),
+        // so we run that branch then continue without touching params.
         if name.starts_with("__closure_") {
+            if return_type.is_none() && body_has_value_return(body) {
+                if let Some(inferred) = infer_return_ann(ast_exprs_view, body, params) {
+                    *return_type = Some(inferred);
+                }
+            }
             continue;
         }
 
@@ -5964,10 +5982,16 @@ fn infer_expr_ann_with(
             BinOp::Add => {
                 let l = infer_expr_ann_with(exprs, *left, params, binds)?;
                 let r = infer_expr_ann_with(exprs, *right, params, binds)?;
-                if l == "number" && r == "number" {
-                    Some("number".into())
-                } else if l == "string" && r == "string" {
+                // JS spec: `string + anything` and `anything + string`
+                // both coerce to string concat; `number + number` stays
+                // number. Other shapes (e.g. number+boolean → number,
+                // boolean+boolean → number) are handled by the
+                // typechecker's regular path — leave None so we don't
+                // commit to a guess that conflicts with the deeper rules.
+                if l == "string" || r == "string" {
                     Some("string".into())
+                } else if l == "number" && r == "number" {
+                    Some("number".into())
                 } else {
                     None
                 }
