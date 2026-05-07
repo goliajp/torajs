@@ -2130,6 +2130,26 @@ fn lower_inner(
         &[Type::Promise, Type::Ptr],
         Type::Promise,
     );
+    /* T-19.k — `.catch(cb)` invokes cb only on REJECTED state;
+     * FULFILLED passes through. Same i64-roundtripping cb shape as
+     * .then. */
+    let promise_catch_simple_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_promise_catch_simple",
+        &[Type::Promise, Type::Ptr],
+        Type::Promise,
+    );
+    /* T-19.k — `.finally(cb)` invokes cb on either settled state;
+     * cb is `() -> void` — no value in, return ignored. Source
+     * state + value propagate unchanged after cb runs. */
+    let promise_finally_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_promise_finally",
+        &[Type::Promise, Type::Ptr],
+        Type::Promise,
+    );
     /* T-17.a — Promise.all sync fast path. Input is Array<Promise>;
      * output is Promise<Array<T>>. Caller is responsible for input
      * being all-fulfilled at call time; pending elements yield a
@@ -3234,6 +3254,8 @@ fn lower_inner(
         promise_get_value: promise_get_value_id,
         promise_then_simple: promise_then_simple_id,
         promise_then_closure: promise_then_closure_id,
+        promise_catch_simple: promise_catch_simple_id,
+        promise_finally: promise_finally_id,
         promise_all_sync: promise_all_sync_id,
         promise_race_sync: promise_race_sync_id,
         promise_any_sync: promise_any_sync_id,
@@ -3818,6 +3840,8 @@ struct Intrinsics {
     promise_get_value: FuncId,
     promise_then_simple: FuncId,
     promise_then_closure: FuncId,
+    promise_catch_simple: FuncId,
+    promise_finally: FuncId,
     promise_all_sync: FuncId,
     promise_race_sync: FuncId,
     promise_any_sync: FuncId,
@@ -10949,7 +10973,7 @@ impl<'a> LowerCtx<'a> {
                  * result. T-15.g.4 generalizes to non-i64 types and
                  * Type::Closure (env-carrying) cb. */
                 if let Expr::Member { obj: src_id, name: m_name } = self.ast.get_expr(*callee)
-                    && m_name == "then"
+                    && (m_name == "then" || m_name == "catch" || m_name == "finally")
                     && args.len() == 1
                 {
                     // Static-type check (no eager lower) — same pattern
@@ -10978,7 +11002,8 @@ impl<'a> LowerCtx<'a> {
                             // does NOT require obj==Ident("Promise").
                             let then_chain = matches!(
                                 self.ast.get_expr(*src_callee),
-                                Expr::Member { name: src_m, .. } if src_m == "then"
+                                Expr::Member { name: src_m, .. }
+                                    if src_m == "then" || src_m == "catch" || src_m == "finally"
                             );
                             // User fn whose declared return type is
                             // Type::Promise (async desugar / Promise<T>
@@ -11040,17 +11065,19 @@ impl<'a> LowerCtx<'a> {
                     if src_is_builtin_promise {
                         let src_op = self.lower_expr(*src_id);
                         let cb_op = self.lower_expr(args[0]);
-                        // T-15.g.5 — pick the closure-aware variant when
-                        // cb is a capturing closure (env-pointer value).
-                        // Type::Closure indicates the env layout where
-                        // env+8 holds the lifted body's fn_addr; the
-                        // simple variant treats cb as a raw fn ptr and
-                        // would dispatch to env+0 (heap header) → SEGV.
+                        // T-15.g.5 / T-19.k — pick the right runtime
+                        // helper. .then can take simple-fn or closure
+                        // cb; .catch and .finally currently support
+                        // simple-fn only (closure variants land
+                        // alongside cb-shape generics post-T-15.g.4).
                         let cb_ty = self.operand_ty(&cb_op);
-                        let then_intrinsic = if matches!(cb_ty, Type::Closure(_)) {
-                            self.intrinsics.promise_then_closure
-                        } else {
-                            self.intrinsics.promise_then_simple
+                        let then_intrinsic = match m_name.as_str() {
+                            "then" if matches!(cb_ty, Type::Closure(_)) =>
+                                self.intrinsics.promise_then_closure,
+                            "then" => self.intrinsics.promise_then_simple,
+                            "catch" => self.intrinsics.promise_catch_simple,
+                            "finally" => self.intrinsics.promise_finally,
+                            _ => unreachable!(),
                         };
                         let v = self.f.append_inst(
                             self.cur_block,

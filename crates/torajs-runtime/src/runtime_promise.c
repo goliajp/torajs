@@ -638,6 +638,91 @@ void *__torajs_promise_any_sync(void *promises_arr) {
     return __torajs_promise_alloc_rejected(last_rejection);
 }
 
+/* T-19.k (v0.5.0) — `.catch(cb)` dispatcher. Mirrors then_simple
+ * but only invokes cb on REJECTED state; FULFILLED passes through
+ * with original value. cb sig is `(reason: i64) -> i64`, return
+ * resolves the result Promise. */
+typedef struct {
+    void *source;
+    __torajs_then_cb_i64_t cb;
+    void *result;
+} __torajs_catch_simple_arg_t;
+
+static void catch_simple_dispatch_(int64_t arg) {
+    __torajs_catch_simple_arg_t *a = (__torajs_catch_simple_arg_t *)(intptr_t)arg;
+    Promise *src = (Promise *)a->source;
+    if (src->state == __TORAJS_PROMISE_REJECTED) {
+        int64_t result = a->cb(src->value);
+        __torajs_promise_resolve(a->result, result);
+    } else {
+        /* Fulfilled — propagate value unchanged. */
+        __torajs_promise_resolve(a->result, src->value);
+    }
+    __torajs_promise_drop(a->source);
+    free(a);
+}
+
+void *__torajs_promise_catch_simple(void *source, __torajs_then_cb_i64_t cb) {
+    if (source == NULL || cb == NULL) return NULL;
+    void *result = __torajs_promise_alloc_pending();
+    __torajs_catch_simple_arg_t *a = (__torajs_catch_simple_arg_t *)malloc(sizeof(*a));
+    a->source = source;
+    a->cb = cb;
+    a->result = result;
+    __torajs_rc_inc(source);
+    __torajs_promise_attach_then(
+        source,
+        catch_simple_dispatch_,
+        (int64_t)(intptr_t)a
+    );
+    return result;
+}
+
+/* T-19.k — `.finally(cb)` dispatcher. cb is `() -> void` — no
+ * value passed in, return ignored. Source's state + value are
+ * propagated to the result Promise unchanged after cb runs. */
+typedef void (*__torajs_finally_cb_t)(void);
+
+typedef struct {
+    void *source;
+    __torajs_finally_cb_t cb;
+    void *result;
+} __torajs_finally_arg_t;
+
+static void finally_dispatch_(int64_t arg) {
+    __torajs_finally_arg_t *a = (__torajs_finally_arg_t *)(intptr_t)arg;
+    Promise *src = (Promise *)a->source;
+    a->cb();
+    if (src->state == __TORAJS_PROMISE_FULFILLED) {
+        __torajs_promise_resolve(a->result, src->value);
+    } else {
+        /* REJECTED — finally re-rejects with same reason. Use
+         * __torajs_promise_reject so any .catch / .then attached
+         * to the result gets its callback drained onto the
+         * microtask queue (direct field write skipped the drain
+         * and orphaned downstream handlers). */
+        __torajs_promise_reject(a->result, src->value);
+    }
+    __torajs_promise_drop(a->source);
+    free(a);
+}
+
+void *__torajs_promise_finally(void *source, __torajs_finally_cb_t cb) {
+    if (source == NULL || cb == NULL) return NULL;
+    void *result = __torajs_promise_alloc_pending();
+    __torajs_finally_arg_t *a = (__torajs_finally_arg_t *)malloc(sizeof(*a));
+    a->source = source;
+    a->cb = cb;
+    a->result = result;
+    __torajs_rc_inc(source);
+    __torajs_promise_attach_then(
+        source,
+        finally_dispatch_,
+        (int64_t)(intptr_t)a
+    );
+    return result;
+}
+
 void *__torajs_promise_then_simple(void *source, __torajs_then_cb_i64_t cb) {
     if (source == NULL || cb == NULL) return NULL;
     void *result = __torajs_promise_alloc_pending();

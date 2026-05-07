@@ -2264,6 +2264,35 @@ impl Checker {
                             Box::new(Type::Promise(inner.clone())),
                         ))
                     }
+                    /* T-19.k (v0.5.0) — `Promise<T>.catch(onRejected)`.
+                     * cb sig is `(reason: T) => T` — same shape as
+                     * .then's onFulfilled. Returns a Promise<T> that
+                     * resolves with cb's return value on rejection,
+                     * or passes through source's value on fulfillment.
+                     * T scope matches .then (Number / String / Boolean)
+                     * since both share the i64-roundtripping runtime
+                     * helper. spec-strict heterogeneous T → U lands
+                     * with TypeVar substitution post-T-15.g.4. */
+                    (Type::Promise(inner), "catch")
+                        if matches!(**inner, Type::Number | Type::String | Type::Boolean) =>
+                    {
+                        Ok(Type::Function(
+                            vec![Type::Function(
+                                vec![(**inner).clone()],
+                                Box::new((**inner).clone()),
+                            )],
+                            Box::new(Type::Promise(inner.clone())),
+                        ))
+                    }
+                    /* T-19.k — `Promise<T>.finally(onFinally)`. cb sig
+                     * is `() => void` per spec — no value passed in,
+                     * cb's return ignored. Returns a Promise<T> with
+                     * the same state + value as the source (after
+                     * cb runs). cb runs on either settled state. */
+                    (Type::Promise(inner), "finally") => Ok(Type::Function(
+                        vec![Type::Function(vec![], Box::new(Type::Void))],
+                        Box::new(Type::Promise(inner.clone())),
+                    )),
                     /* T-13.b (v0.4.0) — Symbol.for(key) returns the
                      * registered Symbol for the key (creates one on
                      * first call). Identity preserved across calls. */
