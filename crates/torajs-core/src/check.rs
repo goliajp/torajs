@@ -3176,6 +3176,45 @@ impl Checker {
                         return Ok(Type::Promise(Box::new(inner_ty)));
                     }
                 }
+                /* T-19.o (v0.5.0) — generic `Promise<T>.then(cb)` /
+                 * `.catch(cb)` where cb's return type U may differ
+                 * from T (per ES2015). Routed here BEFORE the
+                 * method-table because the table's static signature
+                 * fixes T == U. We probe cb's actual signature: if
+                 * its param matches T and its return is a primitive
+                 * the runtime helper can pack through i64 (Number /
+                 * String / Boolean), the result is Promise<U>.
+                 *
+                 * `.finally` is intentionally not handled here —
+                 * its cb is `() => void` per spec and the table arm
+                 * already covers that shape. */
+                if let Expr::Member { obj: src_id, name: m_name } = ast.get_expr(*callee)
+                    && (m_name == "then" || m_name == "catch")
+                    && args.len() == 1
+                {
+                    let src_ty = self.type_of(ast, *src_id)?;
+                    if let Type::Promise(inner) = &src_ty
+                        && matches!(**inner, Type::Number | Type::String | Type::Boolean)
+                    {
+                        let inner_ty = (**inner).clone();
+                        let cb_ty = self.type_of(ast, args[0])?;
+                        if let Type::Function(params, ret) = &cb_ty
+                            && params.len() == 1
+                            && params[0] == inner_ty
+                            && matches!(
+                                **ret,
+                                Type::Number | Type::String | Type::Boolean
+                            )
+                            && **ret != inner_ty
+                        {
+                            /* Heterogeneous T → U accepted; result is
+                             * Promise<U>. Same-T case falls through to
+                             * the method-table arm below (which still
+                             * handles the common `(T) => T` shape). */
+                            return Ok(Type::Promise(ret.clone()));
+                        }
+                    }
+                }
                 // T-13.a (v0.4.0) — `Symbol(desc?)` constructor call.
                 // Returns Type::Symbol. Optional desc Str arg; missing
                 // desc = NULL pointer at runtime, prints `Symbol()`.
