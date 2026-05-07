@@ -1763,6 +1763,16 @@ fn lower_inner(
         &[Type::Str],
         Type::Ptr,
     );
+    /* T-18.c — fs file-size probe. Returns size in bytes or -1 on
+     * stat failure / non-regular file. Synchronous; consumed by
+     * `Bun.file(p).size` getter + future `fs.statSync(p).size`. */
+    let fs_size_sync_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_fs_size_sync",
+        &[Type::Str],
+        Type::I64,
+    );
     /* v0.3 #3 — process surface (minimum). */
     let process_exit_id = declare_intrinsic(
         &mut module,
@@ -3126,6 +3136,7 @@ fn lower_inner(
         fs_unlink_sync: fs_unlink_sync_id,
         fs_mkdir_sync: fs_mkdir_sync_id,
         fs_readdir_sync: fs_readdir_sync_id,
+        fs_size_sync: fs_size_sync_id,
         process_exit: process_exit_id,
         process_cwd: process_cwd_id,
         process_platform: process_platform_id,
@@ -3645,6 +3656,7 @@ struct Intrinsics {
     fs_unlink_sync: FuncId,
     fs_mkdir_sync: FuncId,
     fs_readdir_sync: FuncId,
+    fs_size_sync: FuncId,
     process_exit: FuncId,
     process_cwd: FuncId,
     process_platform: FuncId,
@@ -15068,6 +15080,44 @@ impl<'a> LowerCtx<'a> {
                         self.cur_block,
                         InstKind::Call(fid, Vec::new()),
                         Type::Symbol,
+                        None,
+                    );
+                    return Operand::Value(v);
+                }
+                /* T-18.c (v0.5.0) — `Bun.file(p).size` synchronous
+                 * property. The receiver shape is
+                 * Call{callee=Bun.file, args=[path]}; lower the
+                 * path, dispatch to fs_size_sync. Returns i64 (-1 on
+                 * missing / non-regular). */
+                if name == "size"
+                    && matches!(
+                        self.ast.get_expr(*obj),
+                        Expr::Call { callee: bf_callee, .. }
+                            if matches!(
+                                self.ast.get_expr(*bf_callee),
+                                Expr::Member { obj: ns_id, name: m }
+                                    if m == "file"
+                                        && matches!(
+                                            self.ast.get_expr(*ns_id),
+                                            Expr::Ident(ns) if ns == "Bun"
+                                        )
+                            )
+                    )
+                {
+                    // The Bun.file(path) lowering passthroughs the
+                    // path Str unchanged. Re-extract path arg.
+                    let path_eid = if let Expr::Call { args, .. } =
+                        self.ast.get_expr(*obj).clone()
+                    {
+                        args[0]
+                    } else {
+                        unreachable!()
+                    };
+                    let path_op = self.lower_expr(path_eid);
+                    let v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(self.intrinsics.fs_size_sync, vec![path_op]),
+                        Type::I64,
                         None,
                     );
                     return Operand::Value(v);

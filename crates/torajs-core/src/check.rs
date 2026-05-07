@@ -2490,6 +2490,13 @@ impl Checker {
                         Vec::new(),
                         Box::new(Type::Promise(Box::new(Type::Any))),
                     )),
+                    /* T-18.c (v0.5.0) — `Bun.file(p).size` synchronous
+                     * property (NOT a method). Returns the file's
+                     * byte size, or -1 if the path is missing or
+                     * non-regular (bun returns 0 for missing — tr
+                     * uses -1 to keep the missing case observable
+                     * until typed-throw fs lands). */
+                    (Type::Object("BunFile"), "size") => Ok(Type::Number),
                     /* v0.3 #3 — process surface (minimum). */
                     (Type::Object("process"), "exit") => Ok(Type::Function(
                         vec![Type::Number],

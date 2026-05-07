@@ -2187,6 +2187,22 @@ void __torajs_fs_mkdir_sync(const void *path_str) {
     }
 }
 
+/* T-18.c (v0.5.0) — fs size probe used by `Bun.file(p).size` and
+ * future `fs.statSync(p).size`. Returns the file's byte size or
+ * -1 on error (missing / unreadable / not a regular file). Doesn't
+ * panic — the bun-spec `size` getter is synchronous AND error-free
+ * (returns 0 for missing files in bun; tr returns -1 to make
+ * "missing" distinguishable). Spec-strict 0-on-missing lands when
+ * we wire a typed fs.exists check at the call site. */
+int64_t __torajs_fs_size_sync(const void *path_str) {
+    char path[4096];
+    path_copy_to_buf(path_str, path, sizeof(path));
+    struct stat st;
+    if (stat(path, &st) != 0) return -1;
+    if (!S_ISREG(st.st_mode)) return -1;
+    return (int64_t)st.st_size;
+}
+
 /* T-18.b (v0.5.0) — fs.readdirSync(path) returns Array<string> with
  * one entry per directory child (excluding `.` and `..`, matching
  * bun / node spec). Caller owns the result Array; each Str element
