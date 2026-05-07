@@ -404,6 +404,15 @@ pub enum InstKind {
     /// slot's value field as an f64 bit pattern. LLVM lowers to
     /// `bitcast i64 %x to double`.
     BitCastI64ToF64(Operand),
+    /// T-15.g.6.c (v0.5.0) — `%v = inttoptr <i64-operand>` — cast
+    /// an i64 to ptr-shape (opaque pointer at LLVM 22). Used by
+    /// the await Member-access dispatch when Promise<T>'s inner T
+    /// is heap-typed: the runtime helper returns `int64_t` per its
+    /// C ABI, but the SSA value-table needs the result typed as
+    /// the actual ptr-shape (Type::Str / Type::Arr / etc.) so
+    /// downstream Member-access / Index instructions dispatch
+    /// correctly. LLVM lowers to `inttoptr i64 %x to ptr`.
+    IntToPtr(Operand),
     /// `%v = string_ref <id>` — yields a (ptr, len) pair to a global string
     /// constant. Result type is Ptr; the length lives in the module's
     /// `strings` table alongside the bytes.
@@ -832,6 +841,10 @@ impl Function {
             }
             InstKind::BitCastI64ToF64(op) => {
                 write!(w, "bitcast_i64_to_f64 ")?;
+                self.write_operand(w, op)?;
+            }
+            InstKind::IntToPtr(op) => {
+                write!(w, "inttoptr ")?;
                 self.write_operand(w, op)?;
             }
             InstKind::StringRef(s) => {

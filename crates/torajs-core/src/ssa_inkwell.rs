@@ -3538,6 +3538,21 @@ impl<'a, 'ctx> FnLower<'a, 'ctx> {
                     .unwrap();
                 Some(r)
             }
+            InstKind::IntToPtr(op) => {
+                // T-15.g.6.c — i64 → ptr (opaque pointer at LLVM 22).
+                // Used by the await Member-access dispatch when
+                // Promise<T>'s inner T is heap-typed: runtime helper
+                // returns int64_t per its C ABI; SSA needs the result
+                // typed as ptr-shape so downstream Member / Index
+                // instructions dispatch correctly.
+                let v = self.operand_int(op);
+                let ptr_ty = self.ctx.ptr_type(AddressSpace::default());
+                let r = self
+                    .builder
+                    .build_int_to_ptr(v, ptr_ty, "")
+                    .unwrap();
+                Some(BasicValueEnum::PointerValue(r))
+            }
             InstKind::StringRef(sid) => {
                 let g = self.string_globals[sid.0 as usize];
                 Some(BasicValueEnum::PointerValue(g.as_pointer_value()))

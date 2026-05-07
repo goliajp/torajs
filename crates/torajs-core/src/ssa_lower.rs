@@ -14849,24 +14849,58 @@ impl<'a> LowerCtx<'a> {
                     // actual T (Str/Arr/Bool/Number) not just I64.
                     // Falls back to I64 when the check map is empty
                     // (legacy `lower(...)` entry point).
-                    // T-15.g.6.c — full T-aware result needs IntToPtr
-                    // cast substrate for heap inner; Bool / F64 also
-                    // need narrow-bitcast (i64 → i1 / f64). Until that
-                    // ships, await result type stays Type::I64 — caller
-                    // re-types via `let s: T = await p` intermediate.
-                    // The expr_types side-channel (T-15.g.6.a + .b
-                    // wiring) is in place; switching it on at the call
-                    // site is one substrate sub-step away.
-                    let result_ty = Type::I64;
-                    let v = self.f.append_inst(
+                    // T-15.g.6.c — flip the switch. Look up the source
+                    // Promise<T>'s inner T via the per-Expr check::Type
+                    // map (wired through in T-15.g.6.b). For heap T,
+                    // emit an IntToPtr cast after the i64-returning
+                    // runtime call so the SSA value-table sees the
+                    // proper ptr-shape (Type::Str / Type::Arr / etc.).
+                    // For primitive Number stays I64 — direct match
+                    // with the runtime ABI. Bool / F64 need narrow-
+                    // bitcast variants (deferred — `let b: boolean =
+                    // await p` intermediate works via the LetDecl
+                    // arm's coercion).
+                    let inner_ssa_ty = self.expr_types.get(obj).and_then(|t| {
+                        if let crate::check::Type::Promise(inner) = t {
+                            let ann = check_mod::type_to_ann(inner);
+                            Some(parse_type(
+                                Some(&ann),
+                                self.aliases,
+                                self.arr_layouts,
+                                self.fn_sigs,
+                                self.generic_struct_decls,
+                                self.struct_layouts,
+                            ))
+                        } else {
+                            None
+                        }
+                    });
+                    let raw_v = self.f.append_inst(
                         self.cur_block,
                         InstKind::Call(
                             self.intrinsics.promise_get_value,
                             vec![obj_op.clone()],
                         ),
-                        result_ty,
+                        Type::I64,
                         None,
                     );
+                    let v = match inner_ssa_ty {
+                        // Heap-shaped T: cast i64 → ptr via IntToPtr.
+                        Some(t) if matches!(
+                            t,
+                            Type::Str | Type::Substr | Type::Obj(_) | Type::Arr(_)
+                                | Type::Closure(_) | Type::RegExp | Type::Date
+                                | Type::Symbol | Type::Promise | Type::Any
+                        ) => {
+                            self.f.append_inst(
+                                self.cur_block,
+                                InstKind::IntToPtr(Operand::Value(raw_v)),
+                                t,
+                                None,
+                            )
+                        }
+                        _ => raw_v,
+                    };
                     let is_borrow = matches!(
                         self.ast.get_expr(*obj),
                         Expr::Ident(_) | Expr::Member { .. } | Expr::Index { .. }
