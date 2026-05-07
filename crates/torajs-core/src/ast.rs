@@ -1492,6 +1492,56 @@ impl<'a> GenSm<'a> {
 ///     this pass doesn't need to touch it.
 ///   - The original return type annotation IS required (no inference).
 ///
+/// T-19.m (v0.5.0) — rename a user-declared `function main()` to
+/// `__user_main` so it doesn't collide with the synthesized OS-entry
+/// `main` (i32 return, top-level statements as body) that ssa_lower
+/// emits unconditionally. Both ended up in the same LLVM module
+/// under the symbol `main` → verify error
+/// `Function return type does not match operand type of return inst`
+/// (the user's i64-returning body vs the entry's required i32).
+///
+/// Walks `ast.stmts` for any FnDecl with `name == "main"`, renames
+/// it AND rewrites every Call/Ident reference in the program. Idents
+/// in nested expression positions (object methods, struct fields,
+/// import aliases) are intentionally left alone — only bare-name
+/// callees and ident references count. After this pass, any user
+/// code that called `main()` calls `__user_main()` with identical
+/// semantics; the synthesized OS-entry retains the `main` symbol.
+pub fn rename_user_main(ast: &mut Ast) {
+    let has_user_main = ast.stmts.iter().any(|s| {
+        matches!(s, Stmt::FnDecl { name, .. } if name == "main")
+    });
+    if !has_user_main {
+        return;
+    }
+    /* Rename FnDecl. */
+    for s in ast.stmts.iter_mut() {
+        if let Stmt::FnDecl { name, .. } = s
+            && name == "main"
+        {
+            *name = "__user_main".into();
+        }
+    }
+    /* Rewrite every Expr::Ident("main") in the expression arena —
+     * call sites resolve via Ident, so this catches both `main()`
+     * and `let f = main; f()`. Member expressions like `obj.main`
+     * stay untouched; their `.main` is a struct field name, not
+     * a top-level fn. */
+    let n = ast.exprs.len();
+    for i in 0..n {
+        if let Expr::Ident(ref mut name) = ast.exprs[i]
+            && name == "main"
+        {
+            *name = "__user_main".into();
+        }
+    }
+    /* Update async_fns side-table — `desugar_async` consults this
+     * and would fail to find the renamed fn otherwise. */
+    if ast.async_fns.remove("main") {
+        ast.async_fns.insert("__user_main".into());
+    }
+}
+
 /// Runs between `desugar_generators` and `desugar_classes` so
 /// `new Promise(...)` is still in pre-desugar shape (desugar_classes
 /// will rewrite it to `__new_Promise(...)`).

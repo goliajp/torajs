@@ -172,6 +172,7 @@ fn pipeline(src: &str, base_dir: &Path, stage: Stage) -> ExitCode {
     // global-fn machinery resolves them. Non-capturing closures only;
     // captures land in Phase B.
     ast::unwrap_exports(&mut ast);
+    ast::rename_user_main(&mut ast);
     ast::desugar_generators(&mut ast);
     ast::desugar_async(&mut ast);
     ast::desugar_builtin_imports(&mut ast);
@@ -322,6 +323,7 @@ fn run_build_llvm(args: &[String]) -> ExitCode {
     // global-fn machinery resolves them. Non-capturing closures only;
     // captures land in Phase B.
     ast::unwrap_exports(&mut ast);
+    ast::rename_user_main(&mut ast);
     ast::desugar_generators(&mut ast);
     ast::desugar_async(&mut ast);
     ast::desugar_builtin_imports(&mut ast);
@@ -476,6 +478,7 @@ fn run_jit(file_arg: Option<&String>) -> ExitCode {
     // Cache miss — compile. resolve_imports already ran above, so this
     // path picks up at the desugar pipeline.
     ast::unwrap_exports(&mut ast);
+    ast::rename_user_main(&mut ast);
     ast::desugar_generators(&mut ast);
     ast::desugar_async(&mut ast);
     ast::desugar_builtin_imports(&mut ast);
