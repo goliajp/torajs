@@ -5682,6 +5682,52 @@ pub fn desugar_implicit_generics(ast: &mut Ast) {
     // single &mut Ast.
     let Ast { stmts, exprs, .. } = ast;
     let ast_exprs_view: AstExprsView = &*exprs;
+
+    /* T-19.p — pre-collect outer bindings the capturing-closure
+     * return-type sniff can use to resolve captured idents. Without
+     * this seed, `(v: number) => v + cap` bails out of the static
+     * sniff and the FnDecl's return_type stays None → Void.
+     *
+     * Sources walked, in order (later overrides earlier):
+     *  1. Top-level let-decls — the common shape `let cap = N; let
+     *     cb = (v) => v + cap`.
+     *  2. Every FnDecl's params (including parent fn's params for
+     *     a closure created inside) — covers `function f(x) {
+     *     return (y) => x + y }`. Lift moves the closure to a
+     *     top-level FnDecl, so by the time we see its body,
+     *     enclosing-fn params live in some other top-level FnDecl
+     *     somewhere; pre-scanning all FnDecls catches them.
+     *
+     * Same-named clashes pick the LAST one observed; tora's
+     * de-shadow at SSA means the bind table just needs ANY
+     * matching annotation, not the lexically-correct one. */
+    let mut outer_binds: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
+    for s in stmts.iter() {
+        if let Stmt::LetDecl { name, type_ann, init, .. } = s {
+            if let Some(ann) = type_ann {
+                outer_binds.insert(name.clone(), ann.clone());
+            } else {
+                let bs: Vec<Param> = binds_to_params(&outer_binds);
+                if let Some(ann) = infer_expr_ann_with(
+                    ast_exprs_view, *init, &bs, &outer_binds,
+                ) {
+                    outer_binds.insert(name.clone(), ann);
+                }
+            }
+        }
+        if let Stmt::FnDecl { params, .. } = s {
+            for p in params {
+                if let Some(ann) = &p.type_ann
+                    && p.name != "__env"
+                    && p.name != "__this"
+                {
+                    outer_binds.insert(p.name.clone(), ann.clone());
+                }
+            }
+        }
+    }
+
     for stmt in stmts.iter_mut() {
         let Stmt::FnDecl {
             name,
@@ -5709,7 +5755,9 @@ pub fn desugar_implicit_generics(ast: &mut Ast) {
                 && return_type.is_none()
                 && body_has_value_return(body)
             {
-                if let Some(inferred) = infer_return_ann(ast_exprs_view, body, params) {
+                if let Some(inferred) = infer_return_ann_seeded(
+                    ast_exprs_view, body, params, &outer_binds,
+                ) {
                     *return_type = Some(inferred);
                 }
             }
@@ -5826,8 +5874,28 @@ fn infer_return_ann(
     body: &[Stmt],
     params: &[Param],
 ) -> Option<String> {
-    let mut binds: std::collections::HashMap<String, String> =
-        std::collections::HashMap::new();
+    infer_return_ann_seeded(
+        exprs,
+        body,
+        params,
+        &std::collections::HashMap::new(),
+    )
+}
+
+/// T-19.p — variant that takes a pre-seeded binds map. Used by the
+/// capturing-closure FnDecl path so outer-scope let-decls (where
+/// the captures actually live) flow into the body's static return
+/// sniff. The pre-T-19.p path passed only the body's params + body
+/// let-decls — captured idents had no entry in binds and the sniff
+/// bailed to None. Idempotent: explicit body-local lets shadow the
+/// outer seed via collect_let_binding_anns running afterwards.
+fn infer_return_ann_seeded(
+    exprs: AstExprsView,
+    body: &[Stmt],
+    params: &[Param],
+    outer_binds: &std::collections::HashMap<String, String>,
+) -> Option<String> {
+    let mut binds: std::collections::HashMap<String, String> = outer_binds.clone();
     for p in params {
         if let Some(ann) = &p.type_ann {
             binds.insert(p.name.clone(), ann.clone());
