@@ -991,6 +991,24 @@ fn rewrite_inner_generic_calls(
 }
 
 pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
+    let empty: HashMap<crate::ast::ExprId, crate::check::Type> = HashMap::new();
+    lower_with_types(ast, generic_call_sites, &empty)
+}
+
+/// T-15.g.6 (v0.5.0) — typed-aware lower. The per-Expr check::Type
+/// map (from `check::check_with_types`) lets the await Member-access
+/// dispatch recover Promise<T>'s inner T at the call site without
+/// PromiseId interning.
+pub fn lower_with_types(
+    ast: &Ast,
+    generic_call_sites: &GenericCallSites,
+    expr_types: &HashMap<crate::ast::ExprId, crate::check::Type>,
+) -> Module {
+    let _ = expr_types; // wired through to LowerCtx in a follow-up sub-step
+    lower_inner(ast, generic_call_sites)
+}
+
+fn lower_inner(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
     // M3 — produce monomorphized FnDecls from each generic call site,
     // and a per-call-site `ExprId → mono_name` retarget map. We clone
     // the AST so the appended mono FnDecls don't mutate the caller's

@@ -710,6 +710,18 @@ pub fn type_to_ann(ty: &Type) -> String {
 }
 
 pub fn check(ast: &Ast) -> Result<GenericCallSites, String> {
+    check_with_types(ast).map(|(g, _)| g)
+}
+
+/// T-15.g.6 (v0.5.0) — typed variant of `check`. Also returns the
+/// per-Expr type map so ssa_lower can recover Promise<T>'s inner T
+/// at the await Member-access site (Type::Promise is unit at SSA;
+/// PromiseId interning would be the cleaner fix but threads through
+/// 22+ parse_type call sites — this side-channel is the smaller
+/// change).
+pub fn check_with_types(
+    ast: &Ast,
+) -> Result<(GenericCallSites, HashMap<ExprId, Type>), String> {
     let mut c = Checker::new();
     c.run_full_pipeline(ast);
     let error_messages: Vec<String> = c
@@ -719,7 +731,7 @@ pub fn check(ast: &Ast) -> Result<GenericCallSites, String> {
         .map(|d| d.message.clone())
         .collect();
     if error_messages.is_empty() {
-        Ok(c.generic_call_sites)
+        Ok((c.generic_call_sites, c.expr_types))
     } else {
         Err(error_messages.join("\n"))
     }
