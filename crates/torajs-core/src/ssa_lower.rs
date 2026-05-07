@@ -1107,6 +1107,33 @@ fn lower_inner(
         &[Type::Ptr],
         Type::Void,
     );
+    /* T-15.g.5 — refcounted capture box for escape-captured Copy
+     * lets (number / boolean). Replaces the previous `obj_alloc(8) +
+     * Store init_val` pair so the box can be safely shared across
+     * multiple capturing closures. Layout: 8-byte rc header + 8-byte
+     * value; the returned pointer points at the VALUE slot so all
+     * existing Load/Store sites in the body still use offset 0. */
+    let capture_box_alloc_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_capture_box_alloc",
+        &[Type::I64],
+        Type::Ptr,
+    );
+    let capture_box_inc_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_capture_box_inc",
+        &[Type::Ptr],
+        Type::Void,
+    );
+    let capture_box_drop_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_capture_box_drop",
+        &[Type::Ptr],
+        Type::Void,
+    );
     // M1.2 — Array<T> runtime. Layout `{u64 len, u64 cap, T data[cap]}`
     // with uniform 8-byte slots regardless of element type. MVP only
     // supports i64 elements; non-primitive elements (string, obj, nested
@@ -2078,6 +2105,20 @@ fn lower_inner(
         &[Type::Promise, Type::Ptr],
         Type::Promise,
     );
+    /* T-15.g.5 — `.then(cb)` when cb is a capturing closure. cb is
+     * the env block pointer; runtime loads fn_addr from env+8 and
+     * calls `(env, value) -> i64`. Distinct intrinsic from the
+     * simple variant because the dispatcher signature differs
+     * (`(void*, int64_t) -> int64_t` vs `(int64_t) -> int64_t`).
+     * Selection happens at the call site based on cb's static type
+     * (Type::Closure vs Type::FnSig). */
+    let promise_then_closure_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_promise_then_closure",
+        &[Type::Promise, Type::Ptr],
+        Type::Promise,
+    );
     /* T-17.a — Promise.all sync fast path. Input is Array<Promise>;
      * output is Promise<Array<T>>. Caller is responsible for input
      * being all-fulfilled at call time; pending elements yield a
@@ -2958,10 +2999,14 @@ fn lower_inner(
     // `closure_captures` populated by the construction). Without this
     // reorder, nested capturing closures crashed: __closure_0 (innermost)
     // is appended first by lift_arrow_fns and would lower first, but its
-    // captures are populated by __closure_1 (outer)'s body lowering. We
-    // partition decl_indices: user fns in source order, then lifted
-    // closures in reverse-append order. Outermost closure lowers right
-    // after its enclosing user fn; innermost closure lowers last.
+    // captures are populated by __closure_1 (outer)'s body lowering.
+    //
+    // T-15.g.5 extension: closure construction can also live at module
+    // top-level (`let cb = function(v) { return v + cap }` directly in
+    // implicit main). Top-level construction only runs when synthesize_
+    // main lowers, so closure bodies that depend on top-level captures
+    // must lower AFTER main, not just after user fns. Pipeline now:
+    // Pass 2A user fns → Pass 3 main → Pass 2B closure bodies (reverse).
     let (user_decls, mut closure_decls): (Vec<_>, Vec<_>) = decl_indices
         .into_iter()
         .partition(|(stmt_idx, _)| match &ast.stmts[*stmt_idx] {
@@ -2969,7 +3014,7 @@ fn lower_inner(
             _ => true,
         });
     closure_decls.reverse();
-    let decl_indices: Vec<_> = user_decls.into_iter().chain(closure_decls).collect();
+    let decl_indices: Vec<_> = user_decls;
 
     // Pre-allocate FuncIds for per-closure env-drop fns. Each lifted
     // `__closure_N` gets a paired `__env_drop___closure_N` FuncId.
@@ -3037,6 +3082,9 @@ fn lower_inner(
         str_concat: str_concat_id,
         rc_inc: rc_inc_id,
         obj_alloc: obj_alloc_id,
+        capture_box_alloc: capture_box_alloc_id,
+        capture_box_inc: capture_box_inc_id,
+        capture_box_drop: capture_box_drop_id,
         obj_drop: obj_drop_id,
         arr_alloc: arr_alloc_id,
         arr_push: arr_push_id,
@@ -3173,6 +3221,7 @@ fn lower_inner(
         promise_drop: promise_drop_id,
         promise_get_value: promise_get_value_id,
         promise_then_simple: promise_then_simple_id,
+        promise_then_closure: promise_then_closure_id,
         promise_all_sync: promise_all_sync_id,
         promise_race_sync: promise_race_sync_id,
         promise_any_sync: promise_any_sync_id,
@@ -3440,6 +3489,52 @@ fn lower_inner(
         module.funcs.push(main_fn);
     }
 
+    // Pass 2B (T-15.g.5): lower lifted-closure bodies. Deferred until
+    // after main-synth so top-level construction sites (`let cb =
+    // function(v) { ... }` at module scope) have populated
+    // closure_captures. Closures still lower in reverse append order
+    // among themselves so an outer closure's body (which constructs
+    // the inner closure) runs before the inner closure's body.
+    for (stmt_idx, fid) in closure_decls {
+        if let Stmt::FnDecl {
+            name,
+            params,
+            return_type,
+            body,
+            ..
+        } = &ast.stmts[stmt_idx]
+        {
+            let string_id_base = module.strings.len();
+            let (f, new_strings) = lower_fn(
+                name,
+                params,
+                return_type.as_deref(),
+                body,
+                ast,
+                &fn_table,
+                &signatures,
+                &fn_sig_ids,
+                &intrinsics,
+                &aliases,
+                &mut arr_layouts,
+                &mut fn_sigs,
+                &mut struct_layouts,
+                &generic_struct_decls,
+                string_id_base,
+                &mut closure_captures,
+                &call_retargets,
+                &may_throw,
+                &sid_to_class_tag,
+                &globals,
+                expr_types,
+            );
+            module.funcs[fid.0 as usize] = f;
+            for s in new_strings {
+                module.strings.push(s);
+            }
+        }
+    }
+
     // Pass 2.5: synthesize each pre-registered env-drop fn body now
     // that closure_captures is populated. The drop fn frees each
     // capture slot (heap-promoted Copy boxes via obj_drop, non-Copy
@@ -3495,8 +3590,11 @@ fn synthesize_env_drop(
     for (i, (cap_ty, _is_byref)) in cap_meta.iter().enumerate() {
         let offset = CLOSURE_CAP_BASE_OFF + (i as u64) * 8;
         if cap_ty.is_copy() {
-            // Copy capture: env+offset stores a heap-allocated 8-byte
-            // slot pointer. Free the slot.
+            // T-15.g.5 — Copy capture box is refcounted. env+offset
+            // holds a pointer at the value slot (= alloc_base + 8).
+            // capture_box_drop steps back to read/dec the rc and
+            // free's the underlying allocation when the last
+            // capturing closure releases.
             let slot_ptr = f.append_inst(
                 entry,
                 InstKind::Load(Type::Ptr, env_op, offset),
@@ -3505,7 +3603,10 @@ fn synthesize_env_drop(
             );
             f.append_void(
                 entry,
-                InstKind::Call(intrinsics.obj_drop, vec![Operand::Value(slot_ptr)]),
+                InstKind::Call(
+                    intrinsics.capture_box_drop,
+                    vec![Operand::Value(slot_ptr)],
+                ),
             );
         }
         // Non-Copy captures: env borrows the heap pointer; outer
@@ -3551,6 +3652,9 @@ struct Intrinsics {
     /// slot-copy / shared-ownership site for non-Copy heap values.
     rc_inc: FuncId,
     obj_alloc: FuncId,
+    capture_box_alloc: FuncId,
+    capture_box_inc: FuncId,
+    capture_box_drop: FuncId,
     obj_drop: FuncId,
     arr_alloc: FuncId,
     arr_push: FuncId,
@@ -3700,6 +3804,7 @@ struct Intrinsics {
     promise_drop: FuncId,
     promise_get_value: FuncId,
     promise_then_simple: FuncId,
+    promise_then_closure: FuncId,
     promise_all_sync: FuncId,
     promise_race_sync: FuncId,
     promise_any_sync: FuncId,
@@ -3906,6 +4011,17 @@ fn synthesize_main(
             globals,
             is_main_fn: true,
         };
+        // T-15.g.5 fix: prime escape_captured_lets BEFORE lowering any
+        // top-level let-decl. Without this, top-level `let x = 10` in
+        // a program that later does `let cb = function() { return x }`
+        // alloca's x on stack; the closure construction stores that
+        // stack pointer into env+CAP_OFFSET; env_drop then calls
+        // obj_drop(stack_ptr) → "pointer being freed was not allocated"
+        // SIGABRT during shutdown. lower_fn does the same prime walk
+        // for user fn bodies; synthesize_main was missing it.
+        for s in stmts {
+            collect_closure_captures_in_stmt(ctx.ast, s, &mut ctx.escape_captured_lets);
+        }
         for s in stmts {
             ctx.lower_top_stmt(s);
         }
@@ -4745,20 +4861,37 @@ fn lower_fn(
         // no slot promotion needed.
         let escape_captured = ty.is_copy() && ctx.escape_captured_lets.contains(&pname);
         let slot = if escape_captured {
-            let s = ctx.f.append_inst(
+            // T-15.g.5 — refcounted capture box (mirrors the let-decl
+            // path). Same i64 helper signature, so widen Bool / bitcast
+            // F64 first.
+            let init_i64 = if matches!(ty, Type::F64) {
+                let v = ctx.f.append_inst(
+                    ctx.cur_block,
+                    InstKind::BitCastF64ToI64(Operand::Value(pid)),
+                    Type::I64,
+                    None,
+                );
+                Operand::Value(v)
+            } else if matches!(ty, Type::Bool) {
+                let v = ctx.f.append_inst(
+                    ctx.cur_block,
+                    InstKind::ZExtBoolToI64(Operand::Value(pid)),
+                    Type::I64,
+                    None,
+                );
+                Operand::Value(v)
+            } else {
+                Operand::Value(pid)
+            };
+            ctx.f.append_inst(
                 ctx.cur_block,
                 InstKind::Call(
-                    ctx.intrinsics.obj_alloc,
-                    vec![Operand::ConstI64(8)],
+                    ctx.intrinsics.capture_box_alloc,
+                    vec![init_i64],
                 ),
                 Type::Ptr,
                 None,
-            );
-            ctx.f.append_void(
-                ctx.cur_block,
-                InstKind::Store(Operand::Value(pid), Operand::Value(s), 0),
-            );
-            s
+            )
         } else {
             let s = ctx.alloca(ty, Some(&pname));
             ctx.f.append_void(
@@ -7744,22 +7877,54 @@ impl<'a> LowerCtx<'a> {
                 let escape_captured =
                     ty.is_copy() && self.escape_captured_lets.contains(name);
                 let slot = if escape_captured {
+                    // T-15.g.5 — refcounted capture box (16 bytes:
+                    // 8-byte rc + 8-byte value). The helper writes
+                    // the init value internally and returns a
+                    // pointer at the value slot, so the existing
+                    // Load/Store(slot, 0) sites in the body still
+                    // address the value correctly. rc=0 at alloc;
+                    // each Closure construction inc's, each
+                    // env_drop dec's, free at zero. Helper takes
+                    // i64; F64 inits bit-cast through (8-byte slot
+                    // stays the same, body's Load(F64) reads bits
+                    // back as F64 via LLVM type-aware load).
+                    let init_i64 = if matches!(ty, Type::F64) {
+                        let v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::BitCastF64ToI64(init_val.clone()),
+                            Type::I64,
+                            None,
+                        );
+                        Operand::Value(v)
+                    } else if matches!(ty, Type::Bool) {
+                        // Widen i1 → i64 so the helper signature matches.
+                        let v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::ZExtBoolToI64(init_val.clone()),
+                            Type::I64,
+                            None,
+                        );
+                        Operand::Value(v)
+                    } else {
+                        init_val.clone()
+                    };
                     self.f.append_inst(
                         self.cur_block,
                         InstKind::Call(
-                            self.intrinsics.obj_alloc,
-                            vec![Operand::ConstI64(8)],
+                            self.intrinsics.capture_box_alloc,
+                            vec![init_i64],
                         ),
                         Type::Ptr,
                         None,
                     )
                 } else {
-                    self.alloca(ty, Some(name))
+                    let slot = self.alloca(ty, Some(name));
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Store(init_val, Operand::Value(slot), 0),
+                    );
+                    slot
                 };
-                self.f.append_void(
-                    self.cur_block,
-                    InstKind::Store(init_val, Operand::Value(slot), 0),
-                );
                 // Shadowing: if `name` is bound in an outer scope (any
                 // scope depth strictly less than this one), capture the
                 // outer LocalInfo so it can be reinstated when this
@@ -10862,10 +11027,22 @@ impl<'a> LowerCtx<'a> {
                     if src_is_builtin_promise {
                         let src_op = self.lower_expr(*src_id);
                         let cb_op = self.lower_expr(args[0]);
+                        // T-15.g.5 — pick the closure-aware variant when
+                        // cb is a capturing closure (env-pointer value).
+                        // Type::Closure indicates the env layout where
+                        // env+8 holds the lifted body's fn_addr; the
+                        // simple variant treats cb as a raw fn ptr and
+                        // would dispatch to env+0 (heap header) → SEGV.
+                        let cb_ty = self.operand_ty(&cb_op);
+                        let then_intrinsic = if matches!(cb_ty, Type::Closure(_)) {
+                            self.intrinsics.promise_then_closure
+                        } else {
+                            self.intrinsics.promise_then_simple
+                        };
                         let v = self.f.append_inst(
                             self.cur_block,
                             InstKind::Call(
-                                self.intrinsics.promise_then_simple,
+                                then_intrinsic,
                                 vec![src_op.clone(), cb_op],
                             ),
                             Type::Promise,
@@ -16021,6 +16198,21 @@ impl<'a> LowerCtx<'a> {
                     let info = *self.locals.get(cap_name).expect("capture in scope");
                     let offset = CLOSURE_CAP_BASE_OFF + (i as u64) * 8;
                     if cap_ty.is_copy() {
+                        // T-15.g.5 — inc the capture box's refcount
+                        // before stashing the pointer in env. This
+                        // closure's env_drop will dec at cleanup,
+                        // freeing the box once the LAST capturing
+                        // closure releases. Without the inc, two
+                        // closures sharing the same capture would
+                        // both dec a box that started at rc=0,
+                        // free()-ing it twice → libmalloc abort.
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.capture_box_inc,
+                                vec![Operand::Value(info.slot)],
+                            ),
+                        );
                         self.f.append_void(
                             self.cur_block,
                             InstKind::Store(

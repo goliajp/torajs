@@ -608,6 +608,140 @@ void *__torajs_promise_then_simple(void *source, __torajs_then_cb_i64_t cb) {
     return result;
 }
 
+/* T-15.g.5 (v0.5.0) — `Promise<T>.then(closure_cb)` for closures
+ * that capture (env pointer instead of raw fn pointer). The env
+ * layout is fixed by ssa_lower's CLOSURE_*_OFF constants:
+ *   env+0   : universal heap header (refcount u32 / type_tag u16 / flags u16)
+ *   env+8   : fn_addr (the lifted closure body, signature is
+ *             `(env: ptr, v: i64) -> i64` — first arg is the env
+ *             pointer the body uses to load captures)
+ *   env+16  : drop_fn ptr (per-closure env-drop)
+ *   env+24+ : capture slots
+ *
+ * Dispatcher flavor: load fn_addr from env+8, call it with
+ * (env, value). Same shape as the simple variant; only the
+ * indirection through the env layout differs. Closure rc is inc'd
+ * at attach so it survives the microtask delay; dec'd by the
+ * dispatcher via __torajs_value_drop_heap so the env block (and
+ * its captures via the universal drop dispatcher) is freed
+ * exactly once when both the user-side ref and the in-flight
+ * dispatcher arg release. */
+typedef int64_t (*__torajs_then_closure_fn_t)(void *, int64_t);
+
+typedef struct {
+    void *source;
+    void *env;       /* the closure env block — fn_addr at env+8 */
+    void *result;
+} __torajs_then_closure_arg_t;
+
+static void then_closure_dispatch_(int64_t arg) {
+    __torajs_then_closure_arg_t *a = (__torajs_then_closure_arg_t *)(intptr_t)arg;
+    int64_t value = __torajs_promise_get_value(a->source);
+    /* Load fn_addr from env+8. Cast to (env*, i64) -> i64 — closure
+     * body's first param is __env, the rest are user params. */
+    void *fn_ptr = *(void **)((uint8_t *)a->env + 8);
+    __torajs_then_closure_fn_t cb = (__torajs_then_closure_fn_t)fn_ptr;
+    int64_t result = cb(a->env, value);
+    __torajs_promise_resolve(a->result, result);
+    __torajs_promise_drop(a->source);
+    /* Release the closure ref inc'd at attach time. The universal
+     * heap-header drop dispatcher routes type_tag=CLOSURE through
+     * the per-closure __env_drop fn so captures and the env block
+     * itself get freed when the last ref releases. */
+    __torajs_value_drop_heap(a->env);
+    free(a);
+}
+
+void *__torajs_promise_then_closure(void *source, void *env) {
+    if (source == NULL || env == NULL) return NULL;
+    void *result = __torajs_promise_alloc_pending();
+    __torajs_then_closure_arg_t *a = (__torajs_then_closure_arg_t *)malloc(
+        sizeof(*a)
+    );
+    a->source = source;
+    a->env = env;
+    a->result = result;
+    __torajs_rc_inc(source);
+    __torajs_rc_inc(env);
+    __torajs_promise_attach_then(
+        source,
+        then_closure_dispatch_,
+        (int64_t)(intptr_t)a
+    );
+    return result;
+}
+
+/* ============================================================
+ * T-15.g.5 — Capture-box ARC for Copy escape-captured lets.
+ *
+ * When a top-level `let x = 10` is captured by a closure, the
+ * let-decl pre-pass heap-promotes its slot so the closure env
+ * can hold a stable pointer that outlives the construction
+ * frame. With ONE capturing closure that's straightforward:
+ * env_drop free's the slot. With TWO closures both capturing
+ * the same `x`, each env_drop independently free's → libmalloc
+ * "pointer being freed was not allocated" SIGABRT.
+ *
+ * Refcount fix: the slot is now a 16-byte block:
+ *   base+0  : refcount u64 (rc starts at 0; each construction
+ *             that captures inc's, each env_drop dec's)
+ *   base+8  : the actual i64 value (Number / Bool widened / ...)
+ *
+ * Crucially, the pointer SSA-lower threads around (info.slot)
+ * still points at the VALUE slot (= base + 8). All Load/Store
+ * sites in the body remain `slot+0` reads/writes; ARC bookkeeping
+ * just adjusts back by 8 inside the helper. This keeps the
+ * substrate footprint small — no Load/Store offset sweep.
+ *
+ * The rc=0 initial state is intentional: a let that gets
+ * heap-promoted but never captured (escape_captured_lets
+ * conservative pre-pass collects all captures) still wouldn't
+ * leak, since the box would never be inc'd nor dec'd, and would
+ * be reclaimed when the process exits. Captured paths inc on
+ * each construction (rc=N for N closures) and dec on each
+ * env_drop, freeing exactly when the last closure's env drops.
+ * ============================================================ */
+
+/* Allocate a 16-byte capture box, write `init_value` at base+8,
+ * return ptr at base+8 (the value slot). rc starts at 0; the
+ * caller (closure construction site) inc's per use. */
+void *__torajs_capture_box_alloc(int64_t init_value) {
+    uint64_t *base = (uint64_t *)malloc(16);
+    base[0] = 0;
+    *(int64_t *)(base + 1) = init_value;
+    return (void *)(base + 1);
+}
+
+/* Inc the refcount of a capture box. `slot_ptr` is the value-slot
+ * pointer (base + 8); we step back to read/write the rc word. */
+void __torajs_capture_box_inc(void *slot_ptr) {
+    if (slot_ptr == NULL) return;
+    uint64_t *base = ((uint64_t *)slot_ptr) - 1;
+    base[0] += 1;
+}
+
+/* Dec the refcount; free the underlying allocation when it hits
+ * zero. Mirrors capture_box_inc — slot_ptr is the value slot, base
+ * is one u64 earlier. */
+void __torajs_capture_box_drop(void *slot_ptr) {
+    if (slot_ptr == NULL) return;
+    uint64_t *base = ((uint64_t *)slot_ptr) - 1;
+    if (base[0] == 0) {
+        /* Never inc'd — heap-promoted let that wasn't actually
+         * captured at runtime, or rc bookkeeping bug. Free here
+         * to avoid leaking; the inc-then-dec invariant means a
+         * correctly-captured box always lands here at rc=1 (last
+         * dropper), so an at-zero observation is the unused-but-
+         * promoted edge case. */
+        free(base);
+        return;
+    }
+    base[0] -= 1;
+    if (base[0] == 0) {
+        free(base);
+    }
+}
+
 /* Drop hook for the universal heap header's free dispatcher.
  * T-15.g.7: rc-aware — dec the refcount, free only at zero. The
  * pre-T-15.g.7 implementation always free()'d which broke shared
