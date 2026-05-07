@@ -413,6 +413,13 @@ pub enum InstKind {
     /// downstream Member-access / Index instructions dispatch
     /// correctly. LLVM lowers to `inttoptr i64 %x to ptr`.
     IntToPtr(Operand),
+    /// T-15.g.6.c (v0.5.0) — `%v = trunc <i64-operand> to i1` —
+    /// narrow an i64 (typically a Promise-packed Bool: 0 or 1)
+    /// back to i1. Used by the await Member-access dispatch when
+    /// Promise<boolean> is awaited; the helper returns int64_t per
+    /// its C ABI, but `print_bool` expects i1 / Bool ssa-type.
+    /// Symmetric reverse of `ZExtBoolToI64`.
+    TruncI64ToBool(Operand),
     /// `%v = string_ref <id>` — yields a (ptr, len) pair to a global string
     /// constant. Result type is Ptr; the length lives in the module's
     /// `strings` table alongside the bytes.
@@ -845,6 +852,10 @@ impl Function {
             }
             InstKind::IntToPtr(op) => {
                 write!(w, "inttoptr ")?;
+                self.write_operand(w, op)?;
+            }
+            InstKind::TruncI64ToBool(op) => {
+                write!(w, "trunc_i64_to_bool ")?;
                 self.write_operand(w, op)?;
             }
             InstKind::StringRef(s) => {

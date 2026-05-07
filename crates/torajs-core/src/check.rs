@@ -2468,6 +2468,14 @@ impl Checker {
                         Vec::new(),
                         Box::new(Type::Promise(Box::new(Type::String))),
                     )),
+                    /* T-19.c (v0.5.0) — `Bun.file(p).exists()`. Bun
+                     * exposes this as a fast existence-probe that
+                     * doesn't open the file. Maps to fs.existsSync
+                     * in the MVP "synchronous-then-resolve" model. */
+                    (Type::Object("BunFile"), "exists") => Ok(Type::Function(
+                        Vec::new(),
+                        Box::new(Type::Promise(Box::new(Type::Boolean))),
+                    )),
                     /* v0.3 #3 — process surface (minimum). */
                     (Type::Object("process"), "exit") => Ok(Type::Function(
                         vec![Type::Number],

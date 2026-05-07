@@ -10740,7 +10740,7 @@ impl<'a> LowerCtx<'a> {
                  * fs_read_file_sync; real I/O suspension lands with
                  * T-16 state-machine async/await. */
                 if let Expr::Member { obj: file_id, name: m_name } = self.ast.get_expr(*callee)
-                    && m_name == "text"
+                    && (m_name == "text" || m_name == "exists")
                     && args.is_empty()
                 {
                     // Static check: only fire when the receiver's
@@ -10763,20 +10763,44 @@ impl<'a> LowerCtx<'a> {
                     );
                     if is_bun_file {
                         let path_op = self.lower_expr(*file_id);
-                        let str_v = self.f.append_inst(
+                        if m_name == "text" {
+                            let str_v = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(
+                                    self.intrinsics.fs_read_file_sync,
+                                    vec![path_op],
+                                ),
+                                Type::Str,
+                                None,
+                            );
+                            let p_v = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(
+                                    self.intrinsics.promise_alloc_fulfilled_heap,
+                                    vec![Operand::Value(str_v)],
+                                ),
+                                Type::Promise,
+                                None,
+                            );
+                            return Operand::Value(p_v);
+                        }
+                        // m_name == "exists": fs.existsSync → Bool →
+                        // wrap in Promise (primitive variant).
+                        let bool_v = self.f.append_inst(
                             self.cur_block,
                             InstKind::Call(
-                                self.intrinsics.fs_read_file_sync,
+                                self.intrinsics.fs_exists_sync,
                                 vec![path_op],
                             ),
-                            Type::Str,
+                            Type::Bool,
                             None,
                         );
+                        let arg_i64 = self.coerce_bool_to_i64(Operand::Value(bool_v));
                         let p_v = self.f.append_inst(
                             self.cur_block,
                             InstKind::Call(
-                                self.intrinsics.promise_alloc_fulfilled_heap,
-                                vec![Operand::Value(str_v)],
+                                self.intrinsics.promise_alloc_fulfilled,
+                                vec![arg_i64],
                             ),
                             Type::Promise,
                             None,
@@ -14786,11 +14810,12 @@ impl<'a> LowerCtx<'a> {
                                         Expr::Ident(ns) if ns == "fs_promises"
                                     )
                             );
-                            // T-19 — Bun.file(...).text() returns Promise<string>.
+                            // T-19 / T-19.c — Bun.file(...).text() and
+                            // Bun.file(...).exists() return Promises.
                             let bun_file_text = matches!(
                                 self.ast.get_expr(*callee),
                                 Expr::Member { obj: file_id, name: m_name }
-                                    if m_name == "text"
+                                    if (m_name == "text" || m_name == "exists")
                                         && matches!(
                                             self.ast.get_expr(*file_id),
                                             Expr::Call { callee: f_callee, .. }
@@ -14899,6 +14924,13 @@ impl<'a> LowerCtx<'a> {
                                 None,
                             )
                         }
+                        // Bool: narrow i64 → i1 via TruncI64ToBool.
+                        Some(Type::Bool) => self.f.append_inst(
+                            self.cur_block,
+                            InstKind::TruncI64ToBool(Operand::Value(raw_v)),
+                            Type::Bool,
+                            None,
+                        ),
                         _ => raw_v,
                     };
                     let is_borrow = matches!(

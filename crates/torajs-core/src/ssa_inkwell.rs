@@ -3553,6 +3553,18 @@ impl<'a, 'ctx> FnLower<'a, 'ctx> {
                     .unwrap();
                 Some(BasicValueEnum::PointerValue(r))
             }
+            InstKind::TruncI64ToBool(op) => {
+                // T-15.g.6.c — i64 → i1 narrow. Symmetric reverse
+                // of ZExtBoolToI64. Pack/unpack across the Promise's
+                // int64_t value slot.
+                let v = self.operand_int(op);
+                let i1_ty = self.ctx.bool_type();
+                let r = self
+                    .builder
+                    .build_int_truncate(v, i1_ty, "")
+                    .unwrap();
+                Some(BasicValueEnum::IntValue(r))
+            }
             InstKind::StringRef(sid) => {
                 let g = self.string_globals[sid.0 as usize];
                 Some(BasicValueEnum::PointerValue(g.as_pointer_value()))
