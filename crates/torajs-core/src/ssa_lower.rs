@@ -2062,6 +2062,17 @@ fn lower_inner(
      * needed rc_inc before the call (typically zero — the resolved
      * value flows directly from a fresh expression that already
      * carries an owned ref). */
+    /* T-19.f — thenable absorption. `Promise.resolve(p)` when p is
+     * itself a Promise must return a Promise with p's state + value;
+     * the helper inc's the inner's resolved-value rc and forwards
+     * the (state, value, value_is_heap) tuple. */
+    let promise_resolve_thenable_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_promise_resolve_thenable",
+        &[Type::Promise],
+        Type::Promise,
+    );
     let promise_alloc_fulfilled_heap_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -3215,6 +3226,7 @@ fn lower_inner(
         obj_check_not_frozen: obj_check_not_frozen_id,
         microtask_drain: microtask_drain_id,
         promise_alloc_fulfilled: promise_alloc_fulfilled_id,
+        promise_resolve_thenable: promise_resolve_thenable_id,
         promise_alloc_rejected: promise_alloc_rejected_id,
         promise_alloc_fulfilled_heap: promise_alloc_fulfilled_heap_id,
         promise_alloc_rejected_heap: promise_alloc_rejected_heap_id,
@@ -3798,6 +3810,7 @@ struct Intrinsics {
     /// constructors + drop. The arg value is i64-packed (heap-ptr
     /// cast, bool widened, f64 bitcast).
     promise_alloc_fulfilled: FuncId,
+    promise_resolve_thenable: FuncId,
     promise_alloc_rejected: FuncId,
     promise_alloc_fulfilled_heap: FuncId,
     promise_alloc_rejected_heap: FuncId,
@@ -11267,6 +11280,25 @@ impl<'a> LowerCtx<'a> {
                     let arg_op = self.lower_expr(args[0]);
                     self.consume_if_ident(args[0]);
                     let arg_ty = self.operand_ty(&arg_op);
+                    // T-19.f — thenable absorption. Promise.resolve(p)
+                    // where p is already a Promise routes to the
+                    // unwrap helper instead of wrapping the inner
+                    // pointer as an i64 value. Reject side gets the
+                    // simple-heap path: Promise.reject(p) where p is
+                    // a Promise rejects with that Promise as the
+                    // reason — does NOT unwrap (spec).
+                    if matches!(arg_ty, Type::Promise) && m_name == "resolve" {
+                        let v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.promise_resolve_thenable,
+                                vec![arg_op],
+                            ),
+                            Type::Promise,
+                            None,
+                        );
+                        return Operand::Value(v);
+                    }
                     let is_heap = matches!(arg_ty, Type::Str | Type::Substr | Type::Obj(_)
                         | Type::Arr(_) | Type::Closure(_) | Type::RegExp | Type::Date
                         | Type::Symbol | Type::Promise | Type::Any);

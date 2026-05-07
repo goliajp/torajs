@@ -121,6 +121,47 @@ void *__torajs_promise_alloc_rejected_heap(int64_t reason) {
     return promise_alloc_(__TORAJS_PROMISE_REJECTED, reason, 1);
 }
 
+/* T-19.f (v0.5.0) — thenable absorption. `Promise.resolve(p)` when
+ * `p` is itself a Promise must return a Promise with `p`'s state +
+ * value (per ES2015: `Promise.resolve(thenable)` returns `thenable`
+ * unchanged when it's already a Promise). The type system's
+ * Promise<Promise<T>> → Promise<T> collapse alone is not enough —
+ * runtime must unwrap so `await` sees T's resolved value rather
+ * than treating the inner Promise's pointer as an i64.
+ *
+ * MVP scope (sync-resolve): inner is always FULFILLED or REJECTED
+ * by the time we observe it (no real suspension yet). Pending
+ * inner → rejected outer with placeholder reason; full callback
+ * fan-in lands with T-16 state-machine async/await.
+ *
+ * rc accounting: outer takes one ref on the inner's resolved
+ * value (calling rc_inc on the heap value if value_is_heap so
+ * outer's drop and inner's drop don't race). Caller still owns
+ * the original `p` ref — we don't dec it here. */
+void *__torajs_promise_resolve_thenable(void *p) {
+    if (p == NULL) return __torajs_promise_alloc_fulfilled(0);
+    Promise *pp = (Promise *)p;
+    if (pp->state == __TORAJS_PROMISE_FULFILLED) {
+        if (pp->value_is_heap && pp->value != 0) {
+            __torajs_rc_inc((void *)(intptr_t)pp->value);
+            return __torajs_promise_alloc_fulfilled_heap(pp->value);
+        }
+        return __torajs_promise_alloc_fulfilled(pp->value);
+    }
+    if (pp->state == __TORAJS_PROMISE_REJECTED) {
+        if (pp->value_is_heap && pp->value != 0) {
+            __torajs_rc_inc((void *)(intptr_t)pp->value);
+            return __torajs_promise_alloc_rejected_heap(pp->value);
+        }
+        return __torajs_promise_alloc_rejected(pp->value);
+    }
+    /* Pending — needs callback fan-in to forward state when inner
+     * resolves. Out of scope for sync MVP; surface a rejected
+     * placeholder so the user sees a clear test failure rather
+     * than silent wrong-value. T-16 wires the real attach_then. */
+    return __torajs_promise_alloc_rejected(0);
+}
+
 /* Read the resolved value from a fulfilled Promise. T-15.a: callers
  * are responsible for verifying the Promise is fulfilled before
  * calling this. Returns 0 if pending/rejected (placeholder until

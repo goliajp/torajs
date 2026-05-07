@@ -3176,8 +3176,20 @@ impl Checker {
                         // to make the intent explicit, in which case the
                         // arg_ty above is already Nullable.
                         Type::Null => Type::Nullable(Box::new(Type::String)),
+                        // T-19.f (v0.5.0) — thenable absorption.
+                        // `Promise.resolve(Promise<T>)` returns the
+                        // inner Promise<T> per spec (the resolved
+                        // value of the outer Promise IS the inner
+                        // Promise's resolved value). Type system
+                        // collapses Promise<Promise<T>> → Promise<T>
+                        // so caller sites see a flat shape; the
+                        // runtime side detects the nested-Promise
+                        // arg via type_tag and unwraps state +
+                        // value (rc-aware) instead of treating the
+                        // inner ptr as an i64 value.
+                        Type::Promise(boxed_inner) => (**boxed_inner).clone(),
                         other => return Err(format!(
-                            "Promise.{m_name}: T must be number / string / boolean / array / struct / Date / RegExp / nullable in v0.5 MVP (got {other:?})"
+                            "Promise.{m_name}: T must be number / string / boolean / array / struct / Date / RegExp / nullable / Promise<T> in v0.5 MVP (got {other:?})"
                         )),
                     };
                     return Ok(Type::Promise(Box::new(inner)));
