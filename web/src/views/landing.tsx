@@ -569,14 +569,11 @@ function Bench() {
           </h2>
           <p className="text-bone-dim mt-5 max-w-[600px] text-[15.5px] leading-[1.6]">
             Cross-runtime perf, Apple M4 Pro, hyperfine n=10 with 3 warmup runs. Eight
-            representative rows below — full table in{' '}
-            <a
-              className="link-amber"
-              href="https://github.com/goliajp/torajs/blob/main/docs/perf.md"
-            >
-              docs / perf.md
-            </a>
-            .
+            representative rows below — full cross-runtime table at{' '}
+            <a className="link-amber" href="/bench">
+              /bench
+            </a>{' '}
+            (auto-rendered from <code className="font-mono">bench/results/*.json</code>).
           </p>
         </div>
         <div className="text-bone-faint font-mono text-[11px] tracking-[0.2em] uppercase">

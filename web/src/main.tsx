@@ -2,11 +2,19 @@ import './index.css'
 
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
+import { createBrowserRouter, Navigate, RouterProvider } from 'react-router'
 
+import { Bench } from './views/bench'
 import { Landing } from './views/landing'
+
+const router = createBrowserRouter([
+  { path: '/', element: <Landing /> },
+  { path: '/bench', element: <Bench /> },
+  { path: '*', element: <Navigate replace to="/" /> },
+])
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <Landing />
+    <RouterProvider router={router} />
   </StrictMode>
 )
