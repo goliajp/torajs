@@ -10974,7 +10974,8 @@ impl<'a> LowerCtx<'a> {
                  * Type::Closure (env-carrying) cb. */
                 if let Expr::Member { obj: src_id, name: m_name } = self.ast.get_expr(*callee)
                     && (m_name == "then" || m_name == "catch" || m_name == "finally")
-                    && args.len() == 1
+                    && (args.len() == 1
+                        || (m_name == "then" && args.len() == 2))
                 {
                     // Static-type check (no eager lower) — same pattern
                     // as the await Member dispatch. Only fire when src
@@ -11064,30 +11065,71 @@ impl<'a> LowerCtx<'a> {
                     };
                     if src_is_builtin_promise {
                         let src_op = self.lower_expr(*src_id);
-                        let cb_op = self.lower_expr(args[0]);
-                        // T-15.g.5 / T-19.k — pick the right runtime
-                        // helper. .then can take simple-fn or closure
-                        // cb; .catch and .finally currently support
-                        // simple-fn only (closure variants land
-                        // alongside cb-shape generics post-T-15.g.4).
-                        let cb_ty = self.operand_ty(&cb_op);
-                        let then_intrinsic = match m_name.as_str() {
-                            "then" if matches!(cb_ty, Type::Closure(_)) =>
-                                self.intrinsics.promise_then_closure,
-                            "then" => self.intrinsics.promise_then_simple,
-                            "catch" => self.intrinsics.promise_catch_simple,
-                            "finally" => self.intrinsics.promise_finally,
-                            _ => unreachable!(),
+                        // T-19.l — 2-arg `.then(onOk, onErr)` form is
+                        // spec equivalent of `.then(onOk).catch(onErr)`.
+                        // Lower as a chained pair of helper calls; the
+                        // intermediate Promise is the bridge between
+                        // the two stages and gets dropped after the
+                        // catch attaches. Only fires for `.then` —
+                        // `.catch` / `.finally` are 1-arg only.
+                        let v = if m_name == "then" && args.len() == 2 {
+                            let on_ok = self.lower_expr(args[0]);
+                            let on_err = self.lower_expr(args[1]);
+                            let on_ok_ty = self.operand_ty(&on_ok);
+                            let then_fid = if matches!(on_ok_ty, Type::Closure(_)) {
+                                self.intrinsics.promise_then_closure
+                            } else {
+                                self.intrinsics.promise_then_simple
+                            };
+                            let mid = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(
+                                    then_fid,
+                                    vec![src_op.clone(), on_ok],
+                                ),
+                                Type::Promise,
+                                None,
+                            );
+                            let v = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(
+                                    self.intrinsics.promise_catch_simple,
+                                    vec![Operand::Value(mid), on_err],
+                                ),
+                                Type::Promise,
+                                None,
+                            );
+                            // The `mid` Promise is consumed by .catch
+                            // (which inc's its source's rc); drop the
+                            // chain's natural ref so the count balances.
+                            self.emit_drop_value(Operand::Value(mid), Type::Promise);
+                            v
+                        } else {
+                            let cb_op = self.lower_expr(args[0]);
+                            // T-15.g.5 / T-19.k — pick the right runtime
+                            // helper. .then can take simple-fn or closure
+                            // cb; .catch and .finally currently support
+                            // simple-fn only (closure variants land
+                            // alongside cb-shape generics post-T-15.g.4).
+                            let cb_ty = self.operand_ty(&cb_op);
+                            let then_intrinsic = match m_name.as_str() {
+                                "then" if matches!(cb_ty, Type::Closure(_)) =>
+                                    self.intrinsics.promise_then_closure,
+                                "then" => self.intrinsics.promise_then_simple,
+                                "catch" => self.intrinsics.promise_catch_simple,
+                                "finally" => self.intrinsics.promise_finally,
+                                _ => unreachable!(),
+                            };
+                            self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(
+                                    then_intrinsic,
+                                    vec![src_op.clone(), cb_op],
+                                ),
+                                Type::Promise,
+                                None,
+                            )
                         };
-                        let v = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Call(
-                                then_intrinsic,
-                                vec![src_op.clone(), cb_op],
-                            ),
-                            Type::Promise,
-                            None,
-                        );
                         // T-15.g.7 — drop fresh source after .then.
                         // Now that promise_drop is rc-aware AND
                         // then_simple inc's source on attach, this

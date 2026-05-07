@@ -3142,6 +3142,40 @@ impl Checker {
                 Ok(Type::Struct(field_tys))
             }
             Expr::Call { callee, args } => {
+                /* T-19.l (v0.5.0) — `Promise<T>.then(onOk, onRejected)`
+                 * 2-arg form. Spec equivalent of `.then(onOk).catch
+                 * (onRejected)`. Both cbs share the simple cb shape
+                 * `(v: T) => T`. Routed here BEFORE the regular method
+                 * table because the method table's static signature
+                 * carries a fixed param count (1) and the generic arg-
+                 * count check below would reject 2-arg calls. ssa_lower
+                 * picks up the 2-arg shape and emits a then→catch
+                 * chain at the call site. */
+                if let Expr::Member { obj: src_id, name: m_name } = ast.get_expr(*callee)
+                    && m_name == "then"
+                    && args.len() == 2
+                {
+                    let src_ty = self.type_of(ast, *src_id)?;
+                    if let Type::Promise(inner) = &src_ty
+                        && matches!(**inner, Type::Number | Type::String | Type::Boolean)
+                    {
+                        let inner_ty = (**inner).clone();
+                        let expected_cb = Type::Function(
+                            vec![inner_ty.clone()],
+                            Box::new(inner_ty.clone()),
+                        );
+                        for (i, a) in args.iter().enumerate() {
+                            let aty = self.type_of(ast, *a)?;
+                            if aty != expected_cb {
+                                return Err(format!(
+                                    "Promise.then arg {i}: expected {:?}, got {aty:?}",
+                                    expected_cb
+                                ));
+                            }
+                        }
+                        return Ok(Type::Promise(Box::new(inner_ty)));
+                    }
+                }
                 // T-13.a (v0.4.0) — `Symbol(desc?)` constructor call.
                 // Returns Type::Symbol. Optional desc Str arg; missing
                 // desc = NULL pointer at runtime, prints `Symbol()`.

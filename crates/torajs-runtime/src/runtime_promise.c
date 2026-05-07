@@ -406,9 +406,21 @@ typedef struct {
 
 static void then_simple_dispatch_(int64_t arg) {
     __torajs_then_simple_arg_t *a = (__torajs_then_simple_arg_t *)(intptr_t)arg;
-    int64_t value = __torajs_promise_get_value(a->source);
-    int64_t result = a->cb(value);
-    __torajs_promise_resolve(a->result, result);
+    Promise *src = (Promise *)a->source;
+    /* T-19.l — `.then(onOk)` is the FULFILLED-only branch. On
+     * REJECTED, propagate the rejection to the result Promise
+     * unchanged (cb is NOT called). Pre-fix the dispatcher
+     * unconditionally invoked cb with src->value, which is 0 for
+     * a rejected source (promise_get_value gates on FULFILLED) —
+     * silent wrong-value. spec: .then(onOk).catch(onErr) is the
+     * canonical desugar, and the .then half MUST forward
+     * rejection so the .catch half can pick it up. */
+    if (src->state == __TORAJS_PROMISE_REJECTED) {
+        __torajs_promise_reject(a->result, src->value);
+    } else {
+        int64_t result = a->cb(src->value);
+        __torajs_promise_resolve(a->result, result);
+    }
     /* T-15.g.7 — release the rc inc'd at attach_then time. Now that
      * promise_drop is rc-aware (T-15.g.7 above), this decrement
      * pairs with the inc in __torajs_promise_then_simple without
@@ -774,7 +786,16 @@ typedef struct {
 
 static void then_closure_dispatch_(int64_t arg) {
     __torajs_then_closure_arg_t *a = (__torajs_then_closure_arg_t *)(intptr_t)arg;
-    int64_t value = __torajs_promise_get_value(a->source);
+    Promise *src = (Promise *)a->source;
+    if (src->state == __TORAJS_PROMISE_REJECTED) {
+        /* T-19.l — see then_simple_dispatch_'s reject branch. */
+        __torajs_promise_reject(a->result, src->value);
+        __torajs_promise_drop(a->source);
+        __torajs_value_drop_heap(a->env);
+        free(a);
+        return;
+    }
+    int64_t value = src->value;
     /* Load fn_addr from env+8. Cast to (env*, i64) -> i64 — closure
      * body's first param is __env, the rest are user params. */
     void *fn_ptr = *(void **)((uint8_t *)a->env + 8);
