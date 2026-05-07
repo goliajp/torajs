@@ -15297,12 +15297,34 @@ impl<'a> LowerCtx<'a> {
                                 | Type::Closure(_) | Type::RegExp | Type::Date
                                 | Type::Symbol | Type::Promise | Type::Any
                         ) => {
-                            self.f.append_inst(
+                            let ptr = self.f.append_inst(
                                 self.cur_block,
                                 InstKind::IntToPtr(Operand::Value(raw_v)),
                                 t,
                                 None,
-                            )
+                            );
+                            // T-19.j (v0.5.0) — share the value's rc.
+                            // The Promise owns ONE ref on its inner
+                            // heap value; when the Promise drops (the
+                            // !is_borrow path below frees a temp Promise
+                            // result like `await Promise.all(arr)`),
+                            // value_drop_heap dec's that one ref. If
+                            // the user's await result has no rc inc,
+                            // the value frees BEFORE the user reads
+                            // it — UAF that worked accidentally for
+                            // n≤32 because pooled blocks kept content
+                            // intact, but corrupted at n>32 where
+                            // libc free is real. Inc here so the user
+                            // gets a live ref independent of the
+                            // Promise's lifetime.
+                            self.f.append_void(
+                                self.cur_block,
+                                InstKind::Call(
+                                    self.intrinsics.rc_inc,
+                                    vec![Operand::Value(ptr)],
+                                ),
+                            );
+                            ptr
                         }
                         // Bool: narrow i64 → i1 via TruncI64ToBool.
                         Some(Type::Bool) => self.f.append_inst(

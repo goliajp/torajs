@@ -1,0 +1,14 @@
+runs = 5
+warmup = 2
+
+# Promise.resolve + .then + await sync-resolve loop. 100k iterations
+# of `total = total + (await Promise.resolve(i).then(add1))`. Tests
+# tr's microtask queue + .then dispatcher + await drain throughput
+# against bun's V8/JSC Promise machinery on the same workload shape.
+#
+# Workload is intentionally sync-resolve: every Promise is already
+# fulfilled at the await point, so the cost is the per-iteration
+# overhead of the Promise/then/microtask substrate rather than real
+# scheduler work. Real-suspension async lands with T-16 (state-
+# machine async/await); a separate bench case will cover that path.
+torajs_opt = "O3"

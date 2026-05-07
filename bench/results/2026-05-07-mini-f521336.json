@@ -1,0 +1,103 @@
+{
+  "started_at": "2026-05-07T09:45:27Z",
+  "host": "mini.local",
+  "git_sha": "f52133605ace1aced4272f98c711a34901d2e55c",
+  "rows": [
+    {
+      "case": "async-fn-call-100k",
+      "runtime": "bun-aot",
+      "runtime_version": "1.3.13",
+      "status": "ok",
+      "compile_ms": 60.93745800000001,
+      "run_ms": 18.167292000000003,
+      "run_stddev_ms": 1.463675666034146,
+      "artifact_bytes": 63072928,
+      "stdout_match": true,
+      "error": null
+    },
+    {
+      "case": "async-fn-call-100k",
+      "runtime": "bun-jsc",
+      "runtime_version": "1.3.13",
+      "status": "ok",
+      "compile_ms": null,
+      "run_ms": 17.504917000000003,
+      "run_stddev_ms": 0.9327797615715613,
+      "artifact_bytes": null,
+      "stdout_match": true,
+      "error": null
+    },
+    {
+      "case": "async-fn-call-100k",
+      "runtime": "go",
+      "runtime_version": null,
+      "status": "skipped",
+      "compile_ms": null,
+      "run_ms": null,
+      "run_stddev_ms": null,
+      "artifact_bytes": null,
+      "stdout_match": null,
+      "error": "no source file: /Users/doracawl/workspace/goliajp/torajs/bench/cases/async-fn-call-100k/main.go"
+    },
+    {
+      "case": "async-fn-call-100k",
+      "runtime": "node-v8",
+      "runtime_version": "v25.9.0",
+      "status": "ok",
+      "compile_ms": null,
+      "run_ms": 91.85062500000001,
+      "run_stddev_ms": 4.256847343339754,
+      "artifact_bytes": null,
+      "stdout_match": true,
+      "error": null
+    },
+    {
+      "case": "async-fn-call-100k",
+      "runtime": "python",
+      "runtime_version": null,
+      "status": "skipped",
+      "compile_ms": null,
+      "run_ms": null,
+      "run_stddev_ms": null,
+      "artifact_bytes": null,
+      "stdout_match": null,
+      "error": "no source file: /Users/doracawl/workspace/goliajp/torajs/bench/cases/async-fn-call-100k/main.py"
+    },
+    {
+      "case": "async-fn-call-100k",
+      "runtime": "rust",
+      "runtime_version": null,
+      "status": "skipped",
+      "compile_ms": null,
+      "run_ms": null,
+      "run_stddev_ms": null,
+      "artifact_bytes": null,
+      "stdout_match": null,
+      "error": "no source file: /Users/doracawl/workspace/goliajp/torajs/bench/cases/async-fn-call-100k/main.rs"
+    },
+    {
+      "case": "async-fn-call-100k",
+      "runtime": "torajs-run",
+      "runtime_version": "tr 0.1.0",
+      "status": "ok",
+      "compile_ms": null,
+      "run_ms": 9.575292,
+      "run_stddev_ms": 0.1943097882750633,
+      "artifact_bytes": null,
+      "stdout_match": true,
+      "error": null
+    },
+    {
+      "case": "async-fn-call-100k",
+      "runtime": "torajs",
+      "runtime_version": "tr 0.1.0",
+      "status": "ok",
+      "compile_ms": 455.932625,
+      "run_ms": 2.8548750000000003,
+      "run_stddev_ms": 0.18134147296826494,
+      "artifact_bytes": 37032,
+      "stdout_match": true,
+      "error": null
+    }
+  ]
+}

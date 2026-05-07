@@ -1,0 +1,9 @@
+runs = 5
+warmup = 2
+
+# 100k calls to a user-declared `async function double(v) { return
+# v + v }`. Each call: build a Promise from the desugared body
+# (Promise.resolve(v + v)), await drain. Tests the async-fn
+# desugar pipeline (async body → Promise.resolve(<expr>)) +
+# call-site await dispatch under tight loop pressure.
+torajs_opt = "O3"

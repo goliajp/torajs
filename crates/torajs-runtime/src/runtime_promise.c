@@ -309,11 +309,23 @@ static void mt_grow_(void) {
 }
 
 static void mt_compact_(void) {
-    if (mt_head_ == 0 || mt_head_ >= mt_len_) return;
-    size_t live = mt_len_ - mt_head_;
-    if (live > 0) {
-        memmove(mt_queue_, mt_queue_ + mt_head_, live * sizeof(__torajs_microtask_t));
+    /* Treat fully-consumed (head >= len) as the queue being logically
+     * empty — reset both to 0 so the next enqueue writes at index 0
+     * inside the existing buffer. The pre-fix branch returned without
+     * touching head/len, which left mt_len_ == mt_cap_; the caller's
+     * enqueue path then unconditionally wrote at mt_queue_[mt_len_]
+     * which is past the buffer, producing SIGBUS at chain length 33+
+     * (head reaches mt_cap exactly when the next .then attaches).
+     * The reset also covers the head==0 fast-skip — a no-op compact
+     * with live==0 simplifies to "queue empty, restart at front". */
+    if (mt_head_ >= mt_len_) {
+        mt_head_ = 0;
+        mt_len_ = 0;
+        return;
     }
+    if (mt_head_ == 0) return;
+    size_t live = mt_len_ - mt_head_;
+    memmove(mt_queue_, mt_queue_ + mt_head_, live * sizeof(__torajs_microtask_t));
     mt_len_ = live;
     mt_head_ = 0;
 }

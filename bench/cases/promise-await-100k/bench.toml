@@ -1,0 +1,8 @@
+runs = 5
+warmup = 2
+
+# 100k bare `await Promise.resolve(i)` — no .then attached. Measures
+# the await drain + Promise alloc + Promise drop hot loop without
+# the .then dispatcher contribution. Pairs with promise-then-100k:
+# the difference between the two reveals .then's per-iteration cost.
+torajs_opt = "O3"

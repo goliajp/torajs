@@ -1,0 +1,9 @@
+runs = 5
+warmup = 2
+
+# Promise.all on a 1k-element array of already-fulfilled Promises.
+# Tests the sync fast-path: Promise.all walks input, pre-checks
+# each Promise's state, builds a result Array, wraps in a fulfilled
+# outer Promise. Per-element overhead = state read + value read +
+# arr_push.
+torajs_opt = "O3"

@@ -1,0 +1,8 @@
+runs = 5
+warmup = 2
+
+# A 1000-deep `.then(...)` chain. Each call attaches a callback to
+# the previous Promise; resolving the head fires a cascade through
+# the whole chain. Stresses microtask FIFO ordering + per-link
+# callback alloc/dispatch/free in steady state.
+torajs_opt = "O3"
