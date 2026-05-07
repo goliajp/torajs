@@ -62,7 +62,11 @@ extern void __torajs_rc_inc(void *p);
 extern int __torajs_rc_dec(void *p);
 extern void *__torajs_arr_alloc(uint64_t initial_cap);
 extern void *__torajs_arr_push(void *arr, int64_t val);
+extern uint8_t *__torajs_str_alloc_pooled(uint64_t len);
 void __torajs_promise_drop(void *p);  /* fwd decl — body further down */
+
+/* Match runtime_str.c's STR layout. */
+#define __TORAJS_STR_HDR_SIZE  16
 
 /* Array layout (must match runtime_str.c). Re-declared here so the
  * Promise runtime can iterate input arrays for Promise.all etc. */
@@ -410,6 +414,95 @@ void *__torajs_promise_all_sync(void *promises_arr) {
         Promise *pp = *(Promise **)(data + (head + i) * 8);
         int64_t v = (pp == NULL) ? 0 : pp->value;
         result_arr = __torajs_arr_push(result_arr, v);
+    }
+    return __torajs_promise_alloc_fulfilled_heap((int64_t)(intptr_t)result_arr);
+}
+
+/* T-17.c (v0.5.0) — Promise.allSettled<number>(promises) → Promise
+ * <Array<{status: string, value: number}>>. MVP shape: T fixed to
+ * Number, single result-element struct used for both fulfilled and
+ * rejected states (status differentiates; value holds resolved
+ * value or rejection reason as i64).
+ *
+ * Spec-strict shape uses {status: 'fulfilled', value: T} for
+ * fulfilled and {status: 'rejected', reason: any} for rejected —
+ * different field names per state. The MVP collapses to one
+ * struct so tora's nominal struct system has a single StructId
+ * to track. Lifting to spec-strict needs union types or
+ * heterogeneous Array<Any>; deferred. */
+
+#define __TORAJS_TAG_OBJ_FOR_ALLSETTLED  1
+#define __TORAJS_OBJ_HEADER_SIZE_AS  24
+
+static const char STATUS_FULFILLED_LIT[] = "fulfilled";
+static const char STATUS_REJECTED_LIT[] = "rejected";
+
+static void *make_settled_str_(const char *literal, size_t len) {
+    uint8_t *s = __torajs_str_alloc_pooled(len);
+    if (len) memcpy(s + __TORAJS_STR_HDR_SIZE, literal, len);
+    return s;
+}
+
+/* Allocate a {status: string, value: number} struct. Status is a
+ * fresh Str ref (pooled); value is an i64. Caller passes a
+ * pre-allocated status-string ptr (one allocation per fulfilled
+ * outcome / rejected outcome rather than per element to avoid
+ * per-iter overhead — but here we re-alloc per element since
+ * tora's per-instance refcount semantics expect each struct to
+ * own its own ref to status). */
+static void *alloc_settled_struct_(uint8_t state, int64_t value) {
+    uint8_t *p = (uint8_t *)malloc(__TORAJS_OBJ_HEADER_SIZE_AS + 16);
+    /* universal heap header */
+    *(uint32_t *)(p + 0) = 1; /* refcount */
+    *(uint16_t *)(p + 4) = __TORAJS_TAG_OBJ_FOR_ALLSETTLED;
+    *(uint16_t *)(p + 6) = 0; /* flags */
+    /* class tag + vtable slots (offsets 8 / 16) — zero them so
+     * obj_drop's class-tag dispatch sees "no class" and skips the
+     * vtable lookup. tora's plain `type` aliases use the same
+     * zero-tag shape. */
+    *(uint64_t *)(p + 8) = 0;
+    *(uint64_t *)(p + 16) = 0;
+    /* field 0: status (Str ptr) at offset 24 — wait, OBJ_HEADER_SIZE
+     * is 24 but the OBJ layout has class_tag@8 and vtable@16. So
+     * fields start at offset 24 only when there's no class. Actually
+     * OBJ_HEADER_SIZE accounts for header(8) + class_tag(8) +
+     * vtable(8) = 24, then field 0 at offset 24. Let's match that. */
+    const char *status_lit = (state == __TORAJS_PROMISE_FULFILLED)
+        ? STATUS_FULFILLED_LIT : STATUS_REJECTED_LIT;
+    size_t status_len = (state == __TORAJS_PROMISE_FULFILLED) ? 9 : 8;
+    void *status_str = make_settled_str_(status_lit, status_len);
+    *(void **)(p + 24) = status_str;
+    *(int64_t *)(p + 32) = value;
+    return p;
+}
+
+void *__torajs_promise_allsettled_sync(void *promises_arr) {
+    if (promises_arr == NULL) {
+        return __torajs_promise_alloc_rejected(0);
+    }
+    uint8_t *bytes = (uint8_t *)promises_arr;
+    uint64_t len = *(uint64_t *)(bytes + __TORAJS_PROMISE_ARR_LEN_OFF);
+    uint32_t head = *(uint32_t *)(bytes + __TORAJS_PROMISE_ARR_HEAD_OFF);
+    uint8_t *data = bytes + __TORAJS_PROMISE_ARR_HDR_SIZE;
+    /* All-pending → reject. */
+    for (uint64_t i = 0; i < len; i++) {
+        Promise *pp = *(Promise **)(data + (head + i) * 8);
+        if (pp == NULL) continue;
+        if (pp->state == __TORAJS_PROMISE_PENDING) {
+            return __torajs_promise_alloc_rejected(0);
+        }
+    }
+    /* Build result Array of {status, value} structs. */
+    void *result_arr = __torajs_arr_alloc(len);
+    for (uint64_t i = 0; i < len; i++) {
+        Promise *pp = *(Promise **)(data + (head + i) * 8);
+        if (pp == NULL) {
+            void *s = alloc_settled_struct_(__TORAJS_PROMISE_REJECTED, 0);
+            result_arr = __torajs_arr_push(result_arr, (int64_t)(intptr_t)s);
+            continue;
+        }
+        void *s = alloc_settled_struct_(pp->state, pp->value);
+        result_arr = __torajs_arr_push(result_arr, (int64_t)(intptr_t)s);
     }
     return __torajs_promise_alloc_fulfilled_heap((int64_t)(intptr_t)result_arr);
 }

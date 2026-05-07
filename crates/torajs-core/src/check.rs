@@ -3186,7 +3186,8 @@ impl Checker {
                  * callback fan-in lands post-T-15.g.6 once PromiseId
                  * interning preserves T element shape. */
                 if let Expr::Member { obj: ns_id, name: m_name } = ast.get_expr(*callee)
-                    && (m_name == "all" || m_name == "race" || m_name == "any")
+                    && (m_name == "all" || m_name == "race" || m_name == "any"
+                        || m_name == "allSettled")
                     && let Expr::Ident(ns) = ast.get_expr(*ns_id)
                     && ns == "Promise"
                 {
@@ -3208,12 +3209,27 @@ impl Checker {
                             "Promise.{m_name}: arg must be Array<Promise<T>>, got {other:?}"
                         )),
                     };
-                    /* Promise.all returns Promise<T[]>; Promise.race
-                     * and Promise.any return Promise<T>. */
-                    let result = if m_name == "all" {
-                        Type::Promise(Box::new(Type::Array(Box::new(inner))))
-                    } else {
-                        Type::Promise(Box::new(inner))
+                    /* Promise.all → Promise<T[]>; .race / .any →
+                     * Promise<T>; .allSettled → Promise<{status,
+                     * value}[]>. The allSettled MVP fixes T to
+                     * Number — the result-element struct shape
+                     * doesn't yet flow inner T through. */
+                    let result = match m_name.as_str() {
+                        "all" => Type::Promise(Box::new(Type::Array(Box::new(inner)))),
+                        "allSettled" => {
+                            if !matches!(inner, Type::Number) {
+                                return Err(format!(
+                                    "Promise.allSettled: T must be number in v0.5 MVP (got {inner:?}); spec-strict T-generic shape ships post-PromiseId interning"
+                                ));
+                            }
+                            Type::Promise(Box::new(Type::Array(Box::new(
+                                Type::Struct(vec![
+                                    ("status".to_string(), Type::String),
+                                    ("value".to_string(), Type::Number),
+                                ]),
+                            ))))
+                        }
+                        _ => Type::Promise(Box::new(inner)), // race / any
                     };
                     return Ok(result);
                 }
