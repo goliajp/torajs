@@ -397,6 +397,7 @@ size_t __torajs_microtask_pending_count(void) {
  * ============================================================ */
 
 typedef int64_t (*__torajs_then_cb_i64_t)(int64_t);
+typedef int64_t (*__torajs_then_closure_fn_t)(void *, int64_t);
 
 typedef struct {
     void *source;
@@ -690,6 +691,49 @@ void *__torajs_promise_catch_simple(void *source, __torajs_then_cb_i64_t cb) {
     return result;
 }
 
+/* T-19.n (v0.5.0) — `.catch(cb)` when cb is a capturing closure.
+ * Mirrors then_closure_dispatch_'s shape: env+8 holds fn_addr,
+ * cb is `(env*, reason: i64) -> i64`. Only invoked on REJECTED;
+ * propagates value unchanged on FULFILLED. */
+typedef struct {
+    void *source;
+    void *env;
+    void *result;
+} __torajs_catch_closure_arg_t;
+
+static void catch_closure_dispatch_(int64_t arg) {
+    __torajs_catch_closure_arg_t *a = (__torajs_catch_closure_arg_t *)(intptr_t)arg;
+    Promise *src = (Promise *)a->source;
+    if (src->state == __TORAJS_PROMISE_REJECTED) {
+        void *fn_ptr = *(void **)((uint8_t *)a->env + 8);
+        __torajs_then_closure_fn_t cb = (__torajs_then_closure_fn_t)fn_ptr;
+        int64_t result = cb(a->env, src->value);
+        __torajs_promise_resolve(a->result, result);
+    } else {
+        __torajs_promise_resolve(a->result, src->value);
+    }
+    __torajs_promise_drop(a->source);
+    __torajs_value_drop_heap(a->env);
+    free(a);
+}
+
+void *__torajs_promise_catch_closure(void *source, void *env) {
+    if (source == NULL || env == NULL) return NULL;
+    void *result = __torajs_promise_alloc_pending();
+    __torajs_catch_closure_arg_t *a = (__torajs_catch_closure_arg_t *)malloc(sizeof(*a));
+    a->source = source;
+    a->env = env;
+    a->result = result;
+    __torajs_rc_inc(source);
+    __torajs_rc_inc(env);
+    __torajs_promise_attach_then(
+        source,
+        catch_closure_dispatch_,
+        (int64_t)(intptr_t)a
+    );
+    return result;
+}
+
 /* T-19.k — `.finally(cb)` dispatcher. cb is `() -> void` — no
  * value passed in, return ignored. Source's state + value are
  * propagated to the result Promise unchanged after cb runs. */
@@ -730,6 +774,51 @@ void *__torajs_promise_finally(void *source, __torajs_finally_cb_t cb) {
     __torajs_promise_attach_then(
         source,
         finally_dispatch_,
+        (int64_t)(intptr_t)a
+    );
+    return result;
+}
+
+/* T-19.n — `.finally(cb)` with capturing closure. cb's runtime
+ * signature is `(env*) -> void` — no value in (finally cb takes
+ * no args), return ignored. Source state + value forward to
+ * result unchanged after cb runs. */
+typedef void (*__torajs_finally_closure_fn_t)(void *);
+
+typedef struct {
+    void *source;
+    void *env;
+    void *result;
+} __torajs_finally_closure_arg_t;
+
+static void finally_closure_dispatch_(int64_t arg) {
+    __torajs_finally_closure_arg_t *a = (__torajs_finally_closure_arg_t *)(intptr_t)arg;
+    Promise *src = (Promise *)a->source;
+    void *fn_ptr = *(void **)((uint8_t *)a->env + 8);
+    __torajs_finally_closure_fn_t cb = (__torajs_finally_closure_fn_t)fn_ptr;
+    cb(a->env);
+    if (src->state == __TORAJS_PROMISE_FULFILLED) {
+        __torajs_promise_resolve(a->result, src->value);
+    } else {
+        __torajs_promise_reject(a->result, src->value);
+    }
+    __torajs_promise_drop(a->source);
+    __torajs_value_drop_heap(a->env);
+    free(a);
+}
+
+void *__torajs_promise_finally_closure(void *source, void *env) {
+    if (source == NULL || env == NULL) return NULL;
+    void *result = __torajs_promise_alloc_pending();
+    __torajs_finally_closure_arg_t *a = (__torajs_finally_closure_arg_t *)malloc(sizeof(*a));
+    a->source = source;
+    a->env = env;
+    a->result = result;
+    __torajs_rc_inc(source);
+    __torajs_rc_inc(env);
+    __torajs_promise_attach_then(
+        source,
+        finally_closure_dispatch_,
         (int64_t)(intptr_t)a
     );
     return result;
@@ -776,8 +865,6 @@ void *__torajs_promise_then_simple(void *source, __torajs_then_cb_i64_t cb) {
  * its captures via the universal drop dispatcher) is freed
  * exactly once when both the user-side ref and the in-flight
  * dispatcher arg release. */
-typedef int64_t (*__torajs_then_closure_fn_t)(void *, int64_t);
-
 typedef struct {
     void *source;
     void *env;       /* the closure env block — fn_addr at env+8 */

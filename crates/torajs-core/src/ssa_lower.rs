@@ -2150,6 +2150,25 @@ fn lower_inner(
         &[Type::Promise, Type::Ptr],
         Type::Promise,
     );
+    /* T-19.n — closure-cb variants of .catch / .finally. Same
+     * env-pointer ABI as promise_then_closure: env+8 holds the
+     * lifted body's fn_addr; runtime calls (env, value) -> i64
+     * for .catch and (env) -> void for .finally. Selection
+     * happens at the call site based on cb's static type. */
+    let promise_catch_closure_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_promise_catch_closure",
+        &[Type::Promise, Type::Ptr],
+        Type::Promise,
+    );
+    let promise_finally_closure_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_promise_finally_closure",
+        &[Type::Promise, Type::Ptr],
+        Type::Promise,
+    );
     /* T-17.a — Promise.all sync fast path. Input is Array<Promise>;
      * output is Promise<Array<T>>. Caller is responsible for input
      * being all-fulfilled at call time; pending elements yield a
@@ -3256,6 +3275,8 @@ fn lower_inner(
         promise_then_closure: promise_then_closure_id,
         promise_catch_simple: promise_catch_simple_id,
         promise_finally: promise_finally_id,
+        promise_catch_closure: promise_catch_closure_id,
+        promise_finally_closure: promise_finally_closure_id,
         promise_all_sync: promise_all_sync_id,
         promise_race_sync: promise_race_sync_id,
         promise_any_sync: promise_any_sync_id,
@@ -3842,6 +3863,8 @@ struct Intrinsics {
     promise_then_closure: FuncId,
     promise_catch_simple: FuncId,
     promise_finally: FuncId,
+    promise_catch_closure: FuncId,
+    promise_finally_closure: FuncId,
     promise_all_sync: FuncId,
     promise_race_sync: FuncId,
     promise_any_sync: FuncId,
@@ -11106,18 +11129,21 @@ impl<'a> LowerCtx<'a> {
                             v
                         } else {
                             let cb_op = self.lower_expr(args[0]);
-                            // T-15.g.5 / T-19.k — pick the right runtime
-                            // helper. .then can take simple-fn or closure
-                            // cb; .catch and .finally currently support
-                            // simple-fn only (closure variants land
-                            // alongside cb-shape generics post-T-15.g.4).
+                            // T-15.g.5 / T-19.k / T-19.n — pick the
+                            // right runtime helper. All three method
+                            // names support both simple-fn and closure
+                            // cb shapes — selection by cb's static type
+                            // (Type::Closure → env-pointer dispatcher,
+                            // else → raw fn-pointer dispatcher).
                             let cb_ty = self.operand_ty(&cb_op);
-                            let then_intrinsic = match m_name.as_str() {
-                                "then" if matches!(cb_ty, Type::Closure(_)) =>
-                                    self.intrinsics.promise_then_closure,
-                                "then" => self.intrinsics.promise_then_simple,
-                                "catch" => self.intrinsics.promise_catch_simple,
-                                "finally" => self.intrinsics.promise_finally,
+                            let is_closure = matches!(cb_ty, Type::Closure(_));
+                            let then_intrinsic = match (m_name.as_str(), is_closure) {
+                                ("then", true) => self.intrinsics.promise_then_closure,
+                                ("then", false) => self.intrinsics.promise_then_simple,
+                                ("catch", true) => self.intrinsics.promise_catch_closure,
+                                ("catch", false) => self.intrinsics.promise_catch_simple,
+                                ("finally", true) => self.intrinsics.promise_finally_closure,
+                                ("finally", false) => self.intrinsics.promise_finally,
                                 _ => unreachable!(),
                             };
                             self.f.append_inst(
