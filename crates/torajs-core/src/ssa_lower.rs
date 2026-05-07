@@ -5213,6 +5213,53 @@ impl<'a> LowerCtx<'a> {
         matches!(self.ast.get_expr(*obj), Expr::Ident(s) if s == "JSON")
     }
 
+    /// T-19.d (v0.5.0) — `await Bun.file(p).json()` shape detection.
+    /// After the parser's `await e` → `e.value` desugar, the init
+    /// is `Member{obj=<Bun.file(p).json() call>, name: "value"}`.
+    /// Returns Some(path_arg_eid) when the chain matches; None
+    /// otherwise. Used by the LetDecl arm to dispatch to the
+    /// caller-driven JSON parser when the slot has a concrete T.
+    fn is_bun_file_json_await(&self, eid: ExprId) -> Option<ExprId> {
+        let Expr::Member { obj: outer_call, name } = self.ast.get_expr(eid) else {
+            return None;
+        };
+        if name != "value" {
+            return None;
+        }
+        let Expr::Call { callee: json_callee, args: json_args } =
+            self.ast.get_expr(*outer_call) else {
+            return None;
+        };
+        if !json_args.is_empty() {
+            return None;
+        }
+        let Expr::Member { obj: file_call, name: jname } =
+            self.ast.get_expr(*json_callee) else {
+            return None;
+        };
+        if jname != "json" {
+            return None;
+        }
+        let Expr::Call { callee: file_callee, args: file_args } =
+            self.ast.get_expr(*file_call) else {
+            return None;
+        };
+        if file_args.len() != 1 {
+            return None;
+        }
+        let Expr::Member { obj: bun_id, name: fname } =
+            self.ast.get_expr(*file_callee) else {
+            return None;
+        };
+        if fname != "file" {
+            return None;
+        }
+        if !matches!(self.ast.get_expr(*bun_id), Expr::Ident(s) if s == "Bun") {
+            return None;
+        }
+        Some(file_args[0])
+    }
+
     /// T-09.c (v0.4.0) — `Object.fromEntries(entries)` call shape.
     /// Routes to `lower_fromentries` from ssa_lower's LetDecl arm
     /// when the slot annotation gives a concrete struct type.
@@ -7147,6 +7194,67 @@ impl<'a> LowerCtx<'a> {
                 // path and will need a similar caller-driven hook
                 // when those shapes show up — for now, only LetDecl
                 // form is wired.
+                /* T-19.d (v0.5.0) — `let X: T = await Bun.file(p).json()`
+                 * routes through the same caller-driven JSON parser
+                 * machinery as `JSON.parse(text)`, but with the file
+                 * read inlined: read file → parse with slot's T. */
+                if let Some(mut slot_ty_for_parse) =
+                    self.try_resolve_type_ann(type_ann.as_deref())
+                    && let Some(path_eid) = self.is_bun_file_json_await(*init)
+                {
+                    if matches!(slot_ty_for_parse, Type::I64)
+                        && type_ann.as_deref() == Some("number")
+                    {
+                        slot_ty_for_parse = Type::F64;
+                    }
+                    let path_op = self.lower_expr(path_eid);
+                    let str_v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.fs_read_file_sync,
+                            vec![path_op],
+                        ),
+                        Type::Str,
+                        None,
+                    );
+                    let cursor = self.alloca(Type::I64, Some("__json_pos"));
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Store(
+                            Operand::ConstI64(0),
+                            Operand::Value(cursor),
+                            0,
+                        ),
+                    );
+                    let result = self.lower_json_parse(
+                        Operand::Value(str_v),
+                        Operand::Value(cursor),
+                        slot_ty_for_parse,
+                    );
+                    // Drop the intermediate Str — fs_read_file_sync
+                    // returns a fresh owned Str.
+                    self.emit_drop_value(Operand::Value(str_v), Type::Str);
+                    let slot = self.alloca(slot_ty_for_parse, Some(name));
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Store(result, Operand::Value(slot), 0),
+                    );
+                    let cur_depth = self.scope_stack.len() - 1;
+                    self.locals.insert(
+                        name.clone(),
+                        LocalInfo {
+                            slot,
+                            ty: slot_ty_for_parse,
+                            moved: false,
+                            scope_depth: cur_depth,
+                        },
+                    );
+                    self.scope_stack
+                        .last_mut()
+                        .unwrap()
+                        .push(name.clone());
+                    return;
+                }
                 if let Some(mut slot_ty_for_parse) =
                     self.try_resolve_type_ann(type_ann.as_deref())
                     && self.is_json_parse_call(*init)

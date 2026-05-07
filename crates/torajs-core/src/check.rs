@@ -2476,6 +2476,20 @@ impl Checker {
                         Vec::new(),
                         Box::new(Type::Promise(Box::new(Type::Boolean))),
                     )),
+                    /* T-19.d (v0.5.0) — `Bun.file(p).json()` returns
+                     * Promise<Any>. The actual return type comes from
+                     * the caller-driven `let X: T = await Bun.file(p)
+                     * .json()` shape detection in ssa_lower's LetDecl
+                     * arm — JSON.parse drives parsing per the slot's
+                     * concrete T (number / string / Struct / Array<T>
+                     * / etc.). At the typecheck layer we accept any
+                     * slot type as long as the JSON parser knows how
+                     * to handle it; concrete validation happens at
+                     * lower time. */
+                    (Type::Object("BunFile"), "json") => Ok(Type::Function(
+                        Vec::new(),
+                        Box::new(Type::Promise(Box::new(Type::Any))),
+                    )),
                     /* v0.3 #3 — process surface (minimum). */
                     (Type::Object("process"), "exit") => Ok(Type::Function(
                         vec![Type::Number],
