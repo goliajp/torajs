@@ -71,12 +71,33 @@ impl std::fmt::Display for CompileError {
 /// and per-fn DISubprogram so backtrace tools (atos, addr2line) see
 /// `tr` fns as proper named scopes. D-3 will plumb per-instruction
 /// DILocation; D-4 wires runtime panic backtraces into this.
+/// Compile target. `Native` (default) emits a native binary for the
+/// host triple via cc + dsymutil; `Wasm32Wasi` (T-20, v0.6.0) emits
+/// a `.wasm` module for the wasm32-wasip1 target via the LLVM 22
+/// clang + wasi-libc sysroot + wasm-ld toolchain.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompileTarget {
+    Native,
+    Wasm32Wasi,
+}
+
 pub fn compile(
     ssa_module: &Module,
     out_path: &Path,
     opt: &str,
     source_path: Option<&Path>,
     ast: Option<&crate::ast::Ast>,
+) -> Result<(), CompileError> {
+    compile_for(ssa_module, out_path, opt, source_path, ast, CompileTarget::Native)
+}
+
+pub fn compile_for(
+    ssa_module: &Module,
+    out_path: &Path,
+    opt: &str,
+    source_path: Option<&Path>,
+    ast: Option<&crate::ast::Ast>,
+    target: CompileTarget,
 ) -> Result<(), CompileError> {
     let ctx = Context::create();
     let llvm_module = ctx.create_module("torajs");
@@ -529,12 +550,32 @@ pub fn compile(
         return Err(CompileError::Verify(e.to_string()));
     }
 
-    Target::initialize_aarch64(&InitializationConfig::default());
-    let triple = TargetMachine::get_default_triple();
-    let target = Target::from_triple(&triple).map_err(|e| CompileError::Emit(e.to_string()))?;
-    let cpu = TargetMachine::get_host_cpu_name().to_string();
-    let features = TargetMachine::get_host_cpu_features().to_string();
-    let machine = target
+    let (triple, cpu, features) = match target {
+        CompileTarget::Native => {
+            Target::initialize_aarch64(&InitializationConfig::default());
+            (
+                TargetMachine::get_default_triple(),
+                TargetMachine::get_host_cpu_name().to_string(),
+                TargetMachine::get_host_cpu_features().to_string(),
+            )
+        }
+        CompileTarget::Wasm32Wasi => {
+            // T-20 (v0.6.0) — initialize the WebAssembly backend in
+            // LLVM 22. wasm32-wasip1 is the canonical target triple
+            // (LLVM 22 deprecated the older "wasm32-wasi" spelling).
+            // No cpu / feature tuning — the default subset works on
+            // every wasm engine.
+            Target::initialize_webassembly(&InitializationConfig::default());
+            (
+                inkwell::targets::TargetTriple::create("wasm32-wasip1"),
+                String::new(),
+                String::new(),
+            )
+        }
+    };
+    let target_obj =
+        Target::from_triple(&triple).map_err(|e| CompileError::Emit(e.to_string()))?;
+    let machine = target_obj
         .create_target_machine(
             &triple,
             &cpu,
@@ -544,6 +585,11 @@ pub fn compile(
             CodeModel::Default,
         )
         .ok_or_else(|| CompileError::Emit("create_target_machine returned None".into()))?;
+    // Pin the module's triple + datalayout so passes / inline asm see
+    // the right ABI. Without this the WebAssembly verify path rejects
+    // mismatched host-vs-target datalayout.
+    llvm_module.set_triple(&triple);
+    llvm_module.set_data_layout(&machine.get_target_data().get_data_layout());
 
     let pipeline = format!("default<{opt}>");
     llvm_module
@@ -594,11 +640,49 @@ pub fn compile(
             CompileError::Link(format!("write {filename}: {e}"))
         })?;
     }
+    // T-20 (v0.6.0) — for wasm32-wasi, use LLVM 22 clang with the
+    // wasm32-wasip1 triple + wasi-libc sysroot from Homebrew. cc on
+    // macOS is Apple's clang which doesn't have the WebAssembly
+    // backend. wasi_paths_for_target() locates the brew-installed
+    // toolchain at runtime so the developer doesn't have to set
+    // env vars (the prefix lookup is one process spawn at compile
+    // time, dominated by LLVM's optimize pass anyway).
+    let (cc_cmd, cc_target_args, cc_opt_arg, link_cmd_name): (
+        &str,
+        Vec<String>,
+        &str,
+        &str,
+    ) = match target {
+        CompileTarget::Native => ("cc", Vec::new(), "-O3", "cc"),
+        CompileTarget::Wasm32Wasi => {
+            let (clang_path, sysroot) = wasi_paths_for_target()?;
+            (
+                Box::leak(clang_path.into_boxed_str()),
+                vec![
+                    "--target=wasm32-wasip1".into(),
+                    format!("--sysroot={sysroot}"),
+                ],
+                "-O2", // wasm-ld + LTO + O3 hits a verifier issue in
+                       // LLVM 22; O2 is the documented stable level
+                       // for the wasm backend (matches Emscripten's
+                       // default).
+                "wasm-ld",
+            )
+        }
+    };
     // -flto lets the linker inline cross-TU calls between the
     // LLVM-emitted object and the C runtime.
     for (idx, (filename, _)) in torajs_runtime::SOURCES.iter().enumerate() {
-        let status = Command::new("cc")
-            .args(["-c", "-O3", "-flto", "-g", "-o"])
+        let mut cmd = Command::new(cc_cmd);
+        cmd.args(["-c"]).arg(cc_opt_arg);
+        for ta in &cc_target_args {
+            cmd.arg(ta);
+        }
+        if matches!(target, CompileTarget::Native) {
+            cmd.arg("-flto").arg("-g");
+        }
+        let status = cmd
+            .arg("-o")
             .arg(&o_paths[idx])
             .arg(&c_paths[idx])
             .status()
@@ -619,15 +703,42 @@ pub fn compile(
     // the binary by default; D-4 will pick the right resolver path
     // for `atos` symbolication. Cost is link-time only — runtime
     // perf unaffected.
-    let mut link_cmd = Command::new("cc");
-    link_cmd.arg("-flto").arg("-g").arg(&obj_path);
-    for op in &o_paths {
-        link_cmd.arg(op);
+    //
+    // T-20 (v0.6.0) — for wasm32-wasi, link via wasm-ld with the
+    // wasi-libc sysroot. The wasi-sdk's libc.a + libwasi-emulated-
+    // mman + crt1-command.o provide the wasi syscall ABI; without
+    // these wasm-ld can't resolve printf / malloc / fopen / etc.
+    let mut link_cmd = Command::new(link_cmd_name);
+    match target {
+        CompileTarget::Native => {
+            link_cmd.arg("-flto").arg("-g").arg(&obj_path);
+            for op in &o_paths {
+                link_cmd.arg(op);
+            }
+            link_cmd.arg("-o").arg(out_path);
+        }
+        CompileTarget::Wasm32Wasi => {
+            let (_clang_path, sysroot) = wasi_paths_for_target()?;
+            // wasm-ld doesn't pull libc on its own; pass the wasi-
+            // sysroot lib directories explicitly + the crt entry
+            // object so `_start` lands at module init.
+            link_cmd.arg(format!("{sysroot}/lib/wasm32-wasip1/crt1-command.o"));
+            link_cmd.arg(&obj_path);
+            for op in &o_paths {
+                link_cmd.arg(op);
+            }
+            link_cmd
+                .arg(format!("-L{sysroot}/lib/wasm32-wasip1"))
+                .arg("-lc")
+                .arg("--no-entry") // crt1-command.o supplies _start
+                .arg("--export=_start")
+                .arg("-o")
+                .arg(out_path);
+        }
     }
-    link_cmd.arg("-o").arg(out_path);
     let status = link_cmd
         .status()
-        .map_err(|e| CompileError::Link(format!("spawning cc: {e}")))?;
+        .map_err(|e| CompileError::Link(format!("spawning {link_cmd_name}: {e}")))?;
     // v0.3 #4 D-2 — macOS: consolidate DWARF from per-TU .o files
     // into a `.dSYM` bundle alongside the binary. atos / lldb find
     // it automatically by name. Without this, the .o files we're
@@ -635,7 +746,7 @@ pub fn compile(
     // can't resolve to source. linux embeds DWARF directly in the
     // binary so no consolidation step is needed.
     #[cfg(target_os = "macos")]
-    if source_path.is_some() {
+    if source_path.is_some() && matches!(target, CompileTarget::Native) {
         // Silence dsymutil's `warning: (arm64) /tmp/lto.o unable to
         // open object file` — that's the LTO temp .o which the
         // linker has already deleted by the time dsymutil runs;
@@ -654,6 +765,38 @@ pub fn compile(
         return Err(CompileError::Link(format!("cc exited {status}")));
     }
     Ok(())
+}
+
+/// T-20 (v0.6.0) — locate the LLVM 22 clang + wasi-libc sysroot
+/// installed by Homebrew. Both are required to compile + link
+/// wasm32-wasip1 binaries; macOS's system clang doesn't have the
+/// WebAssembly backend and there's no canonical wasi sysroot path.
+/// `brew --prefix <pkg>` is one process spawn at compile time —
+/// dominated by LLVM's optimize pass which runs unconditionally.
+fn wasi_paths_for_target() -> Result<(String, String), CompileError> {
+    fn brew_prefix(pkg: &str) -> Result<String, CompileError> {
+        let out = Command::new("brew")
+            .args(["--prefix", pkg])
+            .output()
+            .map_err(|e| {
+                CompileError::Link(format!(
+                    "wasm32-wasi target needs `brew --prefix {pkg}`: {e} \
+                     (install via `brew install {pkg}`)"
+                ))
+            })?;
+        if !out.status.success() {
+            return Err(CompileError::Link(format!(
+                "brew --prefix {pkg} exited {} — install via `brew install {pkg}`",
+                out.status
+            )));
+        }
+        Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+    }
+    let llvm_prefix = brew_prefix("llvm@22")?;
+    let wasi_prefix = brew_prefix("wasi-libc")?;
+    let clang_path = format!("{llvm_prefix}/bin/clang");
+    let sysroot = format!("{wasi_prefix}/share/wasi-sysroot");
+    Ok((clang_path, sysroot))
 }
 
 fn declare_putchar<'ctx>(ctx: &'ctx Context, m: &LlvmModule<'ctx>) -> FunctionValue<'ctx> {

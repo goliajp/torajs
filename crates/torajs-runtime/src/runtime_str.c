@@ -27,8 +27,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <execinfo.h>
 #include <unistd.h>
+
+/* T-20 (v0.6.0) — wasi-libc has neither execinfo.h (no native frame
+ * walk on wasm) nor mach-o/dyld.h (no dyld). Gate both so the C
+ * runtime compiles for wasm32-wasip1; the panic helper degrades
+ * gracefully to "msg + exit(1)" without backtrace. */
+#ifndef __wasi__
+#include <execinfo.h>
+#endif
 
 #ifdef __APPLE__
 #include <mach-o/dyld.h>
@@ -67,6 +74,10 @@ __attribute__((noreturn))
 void __torajs_panic(const char *msg) {
     fputs(msg, stderr);
     fputc('\n', stderr);
+#ifdef __wasi__
+    /* T-20 — wasm32-wasip1 has no backtrace facility; just exit. */
+    exit(1);
+#else
     /* "not yet supported:" prefix is the test262 / conformance
      * runner's signal that this is an intentional substrate-
      * boundary rejection, not a true crash. Emitting a backtrace
@@ -111,6 +122,7 @@ void __torajs_panic(const char *msg) {
 #endif
     }
     exit(1);
+#endif /* !__wasi__ */
 }
 
 

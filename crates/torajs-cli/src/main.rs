@@ -236,6 +236,11 @@ fn run_build_llvm(args: &[String]) -> ExitCode {
     // wins over both.
     let mut opt: String = "O3".into();
     let mut explicit_opt = false;
+    // T-20 (v0.6.0) — `--target wasm32-wasi` opts into the WebAssembly
+    // backend (LLVM 22 clang + wasi-libc sysroot + wasm-ld). The
+    // resulting `.wasm` runs under wasmtime / wasmer / Node's wasi
+    // module. Default = native AOT.
+    let mut compile_target = ssa_inkwell::CompileTarget::Native;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
@@ -256,6 +261,24 @@ fn run_build_llvm(args: &[String]) -> ExitCode {
                 };
                 opt = level.clone();
                 explicit_opt = true;
+                i += 1;
+            }
+            "--target" => {
+                i += 1;
+                let Some(t) = args.get(i) else {
+                    eprintln!("error: `--target` requires a value (native|wasm32-wasi)");
+                    return ExitCode::from(2);
+                };
+                compile_target = match t.as_str() {
+                    "native" => ssa_inkwell::CompileTarget::Native,
+                    "wasm32-wasi" | "wasm32-wasip1" | "wasm" => {
+                        ssa_inkwell::CompileTarget::Wasm32Wasi
+                    }
+                    other => {
+                        eprintln!("error: unknown --target `{other}` (native|wasm32-wasi)");
+                        return ExitCode::from(2);
+                    }
+                };
                 i += 1;
             }
             other if !other.starts_with('-') && input.is_none() => {
@@ -373,12 +396,13 @@ fn run_build_llvm(args: &[String]) -> ExitCode {
         }
     };
 
-    match ssa_inkwell::compile(
+    match ssa_inkwell::compile_for(
         &ssa_module,
         std::path::Path::new(output),
         &opt,
         Some(std::path::Path::new(input)),
         Some(&ast),
+        compile_target,
     ) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
