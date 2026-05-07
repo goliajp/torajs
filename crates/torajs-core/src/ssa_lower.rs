@@ -1004,11 +1004,14 @@ pub fn lower_with_types(
     generic_call_sites: &GenericCallSites,
     expr_types: &HashMap<crate::ast::ExprId, crate::check::Type>,
 ) -> Module {
-    let _ = expr_types; // wired through to LowerCtx in a follow-up sub-step
-    lower_inner(ast, generic_call_sites)
+    lower_inner(ast, generic_call_sites, expr_types)
 }
 
-fn lower_inner(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
+fn lower_inner(
+    ast: &Ast,
+    generic_call_sites: &GenericCallSites,
+    expr_types: &HashMap<crate::ast::ExprId, crate::check::Type>,
+) -> Module {
     // M3 — produce monomorphized FnDecls from each generic call site,
     // and a per-call-site `ExprId → mono_name` retarget map. We clone
     // the AST so the appended mono FnDecls don't mutate the caller's
@@ -3373,6 +3376,7 @@ fn lower_inner(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
                 &may_throw,
                 &sid_to_class_tag,
                 &globals,
+                expr_types,
             );
             module.funcs[fid.0 as usize] = f;
             for s in new_strings {
@@ -3407,6 +3411,7 @@ fn lower_inner(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
             &may_throw,
             &sid_to_class_tag,
             &globals,
+            expr_types,
         );
         for s in new_strings {
             module.strings.push(s);
@@ -3836,6 +3841,7 @@ fn synthesize_main(
     may_throw_fns: &std::collections::HashSet<String>,
     sid_to_class_tag: &HashMap<u32, u32>,
     globals: &HashMap<String, Type>,
+    expr_types: &HashMap<ExprId, crate::check::Type>,
 ) -> (ssa::Function, Vec<Vec<u8>>) {
     let mut f = ssa::Function::new("main", Type::I32);
     let entry = f.add_block();
@@ -3849,6 +3855,7 @@ fn synthesize_main(
             fn_sig_ids,
             intrinsics: *intrinsics,
             aliases,
+            expr_types,
             arr_layouts,
             fn_sigs,
             struct_layouts,
@@ -4614,6 +4621,7 @@ fn lower_fn(
     may_throw_fns: &std::collections::HashSet<String>,
     sid_to_class_tag: &HashMap<u32, u32>,
     globals: &HashMap<String, Type>,
+    expr_types: &HashMap<ExprId, crate::check::Type>,
 ) -> (ssa::Function, Vec<Vec<u8>>) {
     let ret_ty = effective_ret_ty(
         parse_type(
@@ -4662,6 +4670,7 @@ fn lower_fn(
         fn_sig_ids,
         intrinsics: *intrinsics,
         aliases,
+        expr_types,
         arr_layouts,
         fn_sigs,
         struct_layouts,
@@ -4905,6 +4914,15 @@ struct LowerCtx<'a> {
     /// Threaded through so `parse_type("Point", ...)` resolves at let-decl
     /// + function-signature sites.
     aliases: &'a HashMap<String, Type>,
+    /// T-15.g.6.b (v0.5.0) — per-Expr check::Type map (from
+    /// check::check_with_types). Lets the await Member-access
+    /// dispatch recover Promise<T>'s inner T at the call site
+    /// without PromiseId interning. Empty when constructed via
+    /// the legacy `lower(...)` entry — those programs see the
+    /// pre-T-15.g.6.b await-result-type-erased behavior (await on
+    /// a heap-typed Promise yields i64 at SSA, breaking
+    /// console.log direct-form dispatch).
+    expr_types: &'a HashMap<ExprId, crate::check::Type>,
     /// Mutable view of the lowering-phase Array element-type interner.
     /// Let-decl annotations encountered during body lowering may
     /// introduce new `T[]` instantiations; they intern lazily here.
@@ -14818,24 +14836,35 @@ impl<'a> LowerCtx<'a> {
                     // Drain microtasks first — `await p` semantics
                     // must yield to the event loop so any pending
                     // .then callbacks scheduled before the await run
-                    // and resolve their result Promises. Without this,
-                    // `await Promise.resolve(21).then(double)` would
-                    // read the still-pending result Promise's value
-                    // (=0) instead of the doubled 42. The drain is
-                    // also called at main exit (T-15.e) so any
-                    // microtasks attached AFTER the last await still
-                    // run before the process returns.
+                    // and resolve their result Promises.
                     self.f.append_void(
                         self.cur_block,
                         InstKind::Call(self.intrinsics.microtask_drain, vec![]),
                     );
+                    // T-15.g.6.b — recover Promise<T>'s inner T from
+                    // the per-Expr check::Type map. The runtime
+                    // helper returns int64_t regardless of T; the
+                    // SSA-level result type drives downstream
+                    // dispatch (console.log etc.) so it must be the
+                    // actual T (Str/Arr/Bool/Number) not just I64.
+                    // Falls back to I64 when the check map is empty
+                    // (legacy `lower(...)` entry point).
+                    // T-15.g.6.c — full T-aware result needs IntToPtr
+                    // cast substrate for heap inner; Bool / F64 also
+                    // need narrow-bitcast (i64 → i1 / f64). Until that
+                    // ships, await result type stays Type::I64 — caller
+                    // re-types via `let s: T = await p` intermediate.
+                    // The expr_types side-channel (T-15.g.6.a + .b
+                    // wiring) is in place; switching it on at the call
+                    // site is one substrate sub-step away.
+                    let result_ty = Type::I64;
                     let v = self.f.append_inst(
                         self.cur_block,
                         InstKind::Call(
                             self.intrinsics.promise_get_value,
                             vec![obj_op.clone()],
                         ),
-                        Type::I64,
+                        result_ty,
                         None,
                     );
                     let is_borrow = matches!(
