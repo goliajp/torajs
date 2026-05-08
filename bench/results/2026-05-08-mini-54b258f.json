@@ -1,0 +1,103 @@
+{
+  "started_at": "2026-05-08T03:08:50Z",
+  "host": "mini.local",
+  "git_sha": "54b258f5b7f6b88c6770c9cfcfe45415d4ccf722",
+  "rows": [
+    {
+      "case": "popcount",
+      "runtime": "bun-aot",
+      "runtime_version": "1.3.13",
+      "status": "ok",
+      "compile_ms": 62.380041,
+      "run_ms": 59.190458,
+      "run_stddev_ms": 2.2072316006167747,
+      "artifact_bytes": 63072928,
+      "stdout_match": true,
+      "error": null
+    },
+    {
+      "case": "popcount",
+      "runtime": "bun-jsc",
+      "runtime_version": "1.3.13",
+      "status": "ok",
+      "compile_ms": null,
+      "run_ms": 58.582125000000005,
+      "run_stddev_ms": 1.6222091815767152,
+      "artifact_bytes": null,
+      "stdout_match": true,
+      "error": null
+    },
+    {
+      "case": "popcount",
+      "runtime": "go",
+      "runtime_version": "go version go1.25.6 darwin/arm64",
+      "status": "ok",
+      "compile_ms": 37.69350000000001,
+      "run_ms": 54.907833000000004,
+      "run_stddev_ms": 0.9603338823621712,
+      "artifact_bytes": 2371362,
+      "stdout_match": true,
+      "error": null
+    },
+    {
+      "case": "popcount",
+      "runtime": "node-v8",
+      "runtime_version": "v25.9.0",
+      "status": "ok",
+      "compile_ms": null,
+      "run_ms": 131.327167,
+      "run_stddev_ms": 6.10450120786705,
+      "artifact_bytes": null,
+      "stdout_match": true,
+      "error": null
+    },
+    {
+      "case": "popcount",
+      "runtime": "python",
+      "runtime_version": "Python 3.14.4",
+      "status": "ok",
+      "compile_ms": null,
+      "run_ms": 2815.461584,
+      "run_stddev_ms": 31.78889184706901,
+      "artifact_bytes": null,
+      "stdout_match": true,
+      "error": null
+    },
+    {
+      "case": "popcount",
+      "runtime": "rust",
+      "runtime_version": "rustc 1.95.0 (59807616e 2026-04-14)",
+      "status": "ok",
+      "compile_ms": 77.224541,
+      "run_ms": 2.784917,
+      "run_stddev_ms": 0.05599613902940095,
+      "artifact_bytes": 465856,
+      "stdout_match": true,
+      "error": null
+    },
+    {
+      "case": "popcount",
+      "runtime": "torajs-run",
+      "runtime_version": "tr 0.1.0",
+      "status": "ok",
+      "compile_ms": null,
+      "run_ms": 11.429625,
+      "run_stddev_ms": 0.2137046998624507,
+      "artifact_bytes": null,
+      "stdout_match": true,
+      "error": null
+    },
+    {
+      "case": "popcount",
+      "runtime": "torajs",
+      "runtime_version": "tr 0.1.0",
+      "status": "ok",
+      "compile_ms": 519.089959,
+      "run_ms": 3.3791670000000003,
+      "run_stddev_ms": 0.14192910650145021,
+      "artifact_bytes": 35936,
+      "stdout_match": true,
+      "error": null
+    }
+  ]
+}

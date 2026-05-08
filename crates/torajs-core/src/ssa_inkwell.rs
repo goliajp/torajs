@@ -585,11 +585,19 @@ pub fn compile_for(
             CodeModel::Default,
         )
         .ok_or_else(|| CompileError::Emit("create_target_machine returned None".into()))?;
-    // Pin the module's triple + datalayout so passes / inline asm see
-    // the right ABI. Without this the WebAssembly verify path rejects
-    // mismatched host-vs-target datalayout.
-    llvm_module.set_triple(&triple);
-    llvm_module.set_data_layout(&machine.get_target_data().get_data_layout());
+    // Pin the module's triple + datalayout for non-native targets so
+    // the WebAssembly verifier sees a matching ABI. Native target
+    // intentionally skips this — LLVM's implicit host detection picks
+    // the right datalayout AND keeps a faster optimization path that
+    // an explicit `set_data_layout` (even with the same string)
+    // disables. Measured: explicitly setting on native costs ~17% on
+    // the bench geomean (T-20.a regression that only surfaced at the
+    // v0.6.0 perf gate). wasm always needs the explicit set or the
+    // verifier rejects mismatched host-vs-target datalayout.
+    if matches!(target, CompileTarget::Wasm32Wasi) {
+        llvm_module.set_triple(&triple);
+        llvm_module.set_data_layout(&machine.get_target_data().get_data_layout());
+    }
 
     let pipeline = format!("default<{opt}>");
     llvm_module
