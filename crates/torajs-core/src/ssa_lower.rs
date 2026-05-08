@@ -1981,6 +1981,20 @@ fn lower_inner(
         &[Type::BigInt, Type::BigInt],
         Type::BigInt,
     );
+    let bigint_div_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_bigint_div",
+        &[Type::BigInt, Type::BigInt],
+        Type::BigInt,
+    );
+    let bigint_mod_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_bigint_mod",
+        &[Type::BigInt, Type::BigInt],
+        Type::BigInt,
+    );
     let bigint_neg_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -3506,6 +3520,8 @@ fn lower_inner(
         bigint_add: bigint_add_id,
         bigint_sub: bigint_sub_id,
         bigint_mul: bigint_mul_id,
+        bigint_div: bigint_div_id,
+        bigint_mod: bigint_mod_id,
         bigint_neg: bigint_neg_id,
         bigint_cmp: bigint_cmp_id,
         bigint_to_string: bigint_to_string_id,
@@ -4207,6 +4223,8 @@ struct Intrinsics {
     bigint_add: FuncId,
     bigint_sub: FuncId,
     bigint_mul: FuncId,
+    bigint_div: FuncId,
+    bigint_mod: FuncId,
     bigint_neg: FuncId,
     bigint_cmp: FuncId,
     bigint_to_string: FuncId,
@@ -18428,6 +18446,8 @@ impl<'a> LowerCtx<'a> {
                     AstBinOp::Add => Some(self.intrinsics.bigint_add),
                     AstBinOp::Sub => Some(self.intrinsics.bigint_sub),
                     AstBinOp::Mul => Some(self.intrinsics.bigint_mul),
+                    AstBinOp::Div => Some(self.intrinsics.bigint_div),
+                    AstBinOp::Mod => Some(self.intrinsics.bigint_mod),
                     _ => None,
                 };
                 if let Some(fid) = arith {

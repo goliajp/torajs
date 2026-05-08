@@ -342,6 +342,158 @@ void *__torajs_bigint_mul(void *a_, void *b_) {
     return r;
 }
 
+/* ============================================================
+ * Magnitude divmod via bit-by-bit long division.
+ *
+ * Schoolbook Knuth Algorithm D would be asymptotically faster
+ * (one limb per iteration vs. one bit) but bit-by-bit is trivially
+ * correct + bounded by ~64 * n for n-limb magnitudes — fast
+ * enough for the v0.7 conformance + bench targets, where BigInts
+ * rarely exceed a hundred limbs.
+ *
+ * Algorithm:
+ *   q = 0
+ *   r = 0
+ *   for i from a.bits-1 down to 0:
+ *     r = (r << 1) | bit_i(a)
+ *     if r >= b: r -= b; q.bit_i = 1
+ *   return (q, r)
+ *
+ * Pre: b is non-zero. Caller checks (JS spec mandates throw).
+ * Post: (q, r) are fresh +1-rc allocations; q has same magnitude
+ *       width as a; r has at most b's width.
+ * ============================================================ */
+
+static inline uint32_t bigint_bit_count(const BigIntHeader *b) {
+    if (b->len == 0) return 0;
+    uint64_t hi = bigint_words_c(b)[b->len - 1];
+    uint32_t hi_bits = 0;
+    while (hi) { hi_bits++; hi >>= 1; }
+    return (b->len - 1) * 64 + hi_bits;
+}
+
+static inline int bigint_bit_at(const BigIntHeader *b, uint32_t bit) {
+    uint32_t limb = bit / 64;
+    uint32_t off = bit % 64;
+    if (limb >= b->len) return 0;
+    return (int)((bigint_words_c(b)[limb] >> off) & 1);
+}
+
+static void bigint_shl_inplace_one(BigIntHeader **rp) {
+    BigIntHeader *r = *rp;
+    uint64_t carry = 0;
+    uint64_t *w = bigint_words(r);
+    for (uint32_t i = 0; i < r->len; i++) {
+        uint64_t next = (w[i] >> 63) & 1;
+        w[i] = (w[i] << 1) | carry;
+        carry = next;
+    }
+    if (carry) {
+        BigIntHeader *nr = bigint_alloc_raw(r->len + 1);
+        nr->sign = r->sign;
+        memcpy(bigint_words(nr), w, (size_t)r->len * 8);
+        bigint_words(nr)[r->len] = carry;
+        free(r);
+        *rp = nr;
+    }
+}
+
+static void bigint_set_bit(BigIntHeader *b, uint32_t bit) {
+    uint32_t limb = bit / 64;
+    uint32_t off = bit % 64;
+    if (limb >= b->len) return; /* bit beyond allocation; caller bounds it */
+    bigint_words(b)[limb] |= ((uint64_t)1) << off;
+}
+
+/* Magnitude divmod. Returns (q, r) via out-params; both are
+ * fresh +1-rc allocations the caller takes ownership of. Sign
+ * is left at 0 (caller sets per the high-level op). */
+static void bigint_mag_divmod(
+    const BigIntHeader *a,
+    const BigIntHeader *b,
+    BigIntHeader **q_out,
+    BigIntHeader **r_out
+) {
+    BigIntHeader *q = bigint_alloc_raw(a->len == 0 ? 0 : a->len);
+    if (q->len > 0) memset(bigint_words(q), 0, (size_t)q->len * 8);
+    BigIntHeader *r = bigint_alloc_raw(0);
+
+    if (bigint_mag_cmp(a, b) < 0) {
+        /* a < b → q = 0, r = a (clone). */
+        free(r);
+        BigIntHeader *r_clone = bigint_alloc_raw(a->len);
+        if (a->len > 0) memcpy(bigint_words(r_clone), bigint_words_c(a), (size_t)a->len * 8);
+        *q_out = q;
+        *r_out = r_clone;
+        return;
+    }
+
+    uint32_t a_bits = bigint_bit_count(a);
+    for (int32_t i = (int32_t)a_bits - 1; i >= 0; i--) {
+        bigint_shl_inplace_one(&r);
+        if (bigint_bit_at(a, (uint32_t)i)) {
+            /* r |= 1 (set low bit) */
+            if (r->len == 0) {
+                free(r);
+                r = bigint_alloc_raw(1);
+                bigint_words(r)[0] = 1;
+            } else {
+                bigint_words(r)[0] |= 1;
+            }
+        }
+        if (bigint_mag_cmp(r, b) >= 0) {
+            BigIntHeader *new_r = bigint_mag_sub(r, b);
+            free(r);
+            r = new_r;
+            bigint_set_bit(q, (uint32_t)i);
+        }
+    }
+    bigint_normalize(q);
+    bigint_normalize(r);
+    *q_out = q;
+    *r_out = r;
+}
+
+/* `a / b` — JS BigInt division truncates toward zero; result sign
+ * = a.sign XOR b.sign. Throws on b == 0 (JS spec); we route via
+ * `__torajs_panic` to print + exit, mirroring the existing div-by-
+ * zero handling for Number.
+ *
+ * Caller check (in ssa_lower) verifies neither operand is null;
+ * the divide-by-zero check lives here. */
+extern void __torajs_panic(const char *msg);
+void *__torajs_bigint_div(void *a_, void *b_) {
+    const BigIntHeader *a = (const BigIntHeader *)a_;
+    const BigIntHeader *b = (const BigIntHeader *)b_;
+    if (b->len == 0) {
+        __torajs_panic("RangeError: BigInt divide by zero");
+    }
+    BigIntHeader *q;
+    BigIntHeader *r;
+    bigint_mag_divmod(a, b, &q, &r);
+    free(r);
+    q->sign = (a->sign ^ b->sign) ? 1 : 0;
+    bigint_normalize(q);
+    return q;
+}
+
+/* `a % b` — JS BigInt mod result sign = a.sign (truncated
+ * division). Throws on b == 0. */
+void *__torajs_bigint_mod(void *a_, void *b_) {
+    const BigIntHeader *a = (const BigIntHeader *)a_;
+    const BigIntHeader *b = (const BigIntHeader *)b_;
+    if (b->len == 0) {
+        __torajs_panic("RangeError: BigInt divide by zero");
+    }
+    BigIntHeader *q;
+    BigIntHeader *r;
+    bigint_mag_divmod(a, b, &q, &r);
+    free(q);
+    r->sign = a->sign;
+    bigint_normalize(r);
+    return r;
+}
+
 /* Unary negate — fresh allocation. The original is left untouched
  * (caller's drop logic still owns it). */
 void *__torajs_bigint_neg(void *a_) {
