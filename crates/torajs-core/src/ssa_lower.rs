@@ -4081,6 +4081,7 @@ fn synthesize_main(
             may_throw_fns,
             captured_arr_writeback: HashMap::new(),
             escape_captured_lets: std::collections::HashSet::new(),
+            push_unchecked_for: std::collections::HashSet::new(),
             globals,
             is_main_fn: true,
         };
@@ -4913,6 +4914,7 @@ fn lower_fn(
         may_throw_fns,
         captured_arr_writeback: HashMap::new(),
         escape_captured_lets: std::collections::HashSet::new(),
+        push_unchecked_for: std::collections::HashSet::new(),
         globals,
         is_main_fn: false,
     };
@@ -5129,6 +5131,109 @@ fn lower_fn(
     (f, new_strings)
 }
 
+/// v0.6+1 perf checkpoint — detect the canonical "fill loop":
+///
+///   for (let i = 0; i < N; i = i + 1) {
+///     xs.push(_)            // OR a Stmt::Block of pure xs.push(_) calls
+///   }
+///
+/// Returns `Some((bound_eid, [xs_name, ...]))` if every required
+/// shape matches and the body contains only push calls (no other
+/// side-effecting stmts). The caller emits one `arr_reserve` per
+/// detected array and registers the names so per-iter pushes go
+/// through `arr_push_unchecked`.
+///
+/// Conservative on the false-positive side — anything that doesn't
+/// fit the exact pattern returns None and the regular cap-checked
+/// push path runs. False negatives stay safe (just slower).
+fn detect_push_loop_arrays(
+    ast: &Ast,
+    init: Option<&Stmt>,
+    cond: Option<ExprId>,
+    step: Option<ExprId>,
+    body: &Stmt,
+) -> Option<(ExprId, Vec<String>)> {
+    /* init: `let i = 0` (literal 0; const 0 is enough — anything
+     * else means the loop isn't a simple 0..N walk). */
+    let i_name = match init? {
+        Stmt::LetDecl { name, init: init_eid, .. } => match ast.get_expr(*init_eid) {
+            Expr::Number(n) if *n == 0.0 => name.clone(),
+            _ => return None,
+        },
+        _ => return None,
+    };
+    /* cond: `i < bound`. Capture bound expression. */
+    let bound_eid = match ast.get_expr(cond?) {
+        Expr::BinOp { op: crate::ast::BinOp::Lt, left, right } => {
+            match ast.get_expr(*left) {
+                Expr::Ident(n) if n == &i_name => *right,
+                _ => return None,
+            }
+        }
+        _ => return None,
+    };
+    /* step: `i = i + 1` shape (parser desugars i++ / i+=1 to this). */
+    let step_eid = step?;
+    match ast.get_expr(step_eid) {
+        Expr::Assign { target, value } => {
+            let target_is_i = matches!(ast.get_expr(*target), Expr::Ident(n) if n == &i_name);
+            let value_is_i_plus_1 = matches!(
+                ast.get_expr(*value),
+                Expr::BinOp { op: crate::ast::BinOp::Add, left, right }
+                    if matches!(ast.get_expr(*left), Expr::Ident(n) if n == &i_name)
+                        && matches!(ast.get_expr(*right), Expr::Number(v) if *v == 1.0)
+            );
+            if !(target_is_i && value_is_i_plus_1) {
+                return None;
+            }
+        }
+        _ => return None,
+    }
+    /* body: must be Stmt::Expr(push) or Stmt::Block / Multi of
+     * push-only stmts (no conditionals, no other method calls).
+     * Single-array OR multi-array both work — we collect every
+     * `xs.push(_)` target name. */
+    let mut names: Vec<String> = Vec::new();
+    if !collect_push_targets_only(ast, body, &mut names) {
+        return None;
+    }
+    if names.is_empty() {
+        return None;
+    }
+    Some((bound_eid, names))
+}
+
+/// Walk `s` and collect ident names of arrays that are the receiver
+/// of a `xs.push(_)` call. Returns `false` if any non-push stmt is
+/// found (caller bails). Allows nested Blocks / Multi's so user-
+/// formatted bodies parse cleanly.
+fn collect_push_targets_only(ast: &Ast, s: &Stmt, out: &mut Vec<String>) -> bool {
+    match s {
+        Stmt::Expr(eid) => match ast.get_expr(*eid) {
+            Expr::Call { callee, args } if args.len() == 1 => {
+                let Expr::Member { obj, name } = ast.get_expr(*callee) else {
+                    return false;
+                };
+                if name != "push" {
+                    return false;
+                }
+                let Expr::Ident(xs_name) = ast.get_expr(*obj) else {
+                    return false;
+                };
+                if !out.iter().any(|n| n == xs_name) {
+                    out.push(xs_name.clone());
+                }
+                true
+            }
+            _ => false,
+        },
+        Stmt::Block(stmts) | Stmt::Multi(stmts) => {
+            stmts.iter().all(|s| collect_push_targets_only(ast, s, out))
+        }
+        _ => false,
+    }
+}
+
 struct LowerCtx<'a> {
     f: &'a mut ssa::Function,
     ast: &'a Ast,
@@ -5299,6 +5404,20 @@ struct LowerCtx<'a> {
     /// Empty for non-escape-context fns; populated at fn-entry by
     /// scanning `body` for `Expr::Closure` captures.
     escape_captured_lets: std::collections::HashSet<String>,
+    /// v0.6+1 perf checkpoint — when the for-loop lowerer detects a
+    /// canonical "fill loop" (`for (let i = 0; i < N; i++) xs.push(_)`),
+    /// it emits a one-shot `arr_reserve(xs, len + N)` before entering
+    /// the body and pushes `xs` here. The arr.push lower-site reads
+    /// this set and skips the per-iter cap-check + grow-path,
+    /// emitting `arr_push_unchecked` instead. Cleared on for-loop
+    /// exit.
+    ///
+    /// Multi-array support deliberate: a body that pushes to two
+    /// distinct arrays in lockstep still benefits — both got
+    /// reserved up front, both go unchecked. Conservative: only
+    /// fires when the for-loop's full body shape matches the
+    /// detector (single-or-multi push, no other side effects).
+    push_unchecked_for: std::collections::HashSet<String>,
     /// Phase K.3 — module-level data globals (top-level `let X: T = init`
     /// where T is a primitive Copy type). Read by the ident-read fallback
     /// to emit `GlobalRef + Load` for cross-fn reads, and by the LetDecl
@@ -8436,6 +8555,76 @@ impl<'a> LowerCtx<'a> {
                 if let Some(i) = init {
                     self.lower_stmt(i);
                 }
+                /* v0.6+1 perf checkpoint — push-loop pre-reserve.
+                 *
+                 * Detect the canonical `for (let i = 0; i < N; i++)
+                 * { xs.push(_) }` pattern; emit `arr_reserve(xs,
+                 * len + N)` once before the loop, register `xs` as
+                 * a push_unchecked target so the inner arr.push
+                 * lower-site emits arr_push_unchecked (no per-iter
+                 * cap-check or grow path).
+                 *
+                 * Closes 4 vs-rust losses (stack-pop / fifo /
+                 * array-map / generic-id) all of which fill an
+                 * array in a tight 0..N loop. */
+                let pushed_arrays = detect_push_loop_arrays(self.ast, init.as_deref(), *cond, *step, body);
+                let mut reserve_emitted: Vec<String> = Vec::new();
+                if let Some((bound_eid, names)) = &pushed_arrays {
+                    /* Lower the bound expression once before the
+                     * loop entry — guaranteed loop-invariant since
+                     * the cond reads it on every iter unchanged. */
+                    let bound_op = self.lower_expr(*bound_eid);
+                    for name in names {
+                        let Some(info) = self.locals.get(name).copied() else {
+                            continue;
+                        };
+                        if !matches!(info.ty, Type::Arr(_)) {
+                            continue;
+                        }
+                        let cur_arr = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(info.ty, Operand::Value(info.slot), 0),
+                            info.ty,
+                            None,
+                        );
+                        /* Need cap >= len + bound. Read len, add
+                         * bound, pass to arr_reserve. */
+                        let len_v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(Type::I64, Operand::Value(cur_arr), ARR_LEN_OFF),
+                            Type::I64,
+                            None,
+                        );
+                        let target_cap = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::BinOp(SsaBinOp::Add, Operand::Value(len_v), bound_op.clone()),
+                            Type::I64,
+                            None,
+                        );
+                        let reserved = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.arr_reserve,
+                                vec![Operand::Value(cur_arr), Operand::Value(target_cap)],
+                            ),
+                            info.ty,
+                            None,
+                        );
+                        /* arr_reserve returns the (possibly realloc'd)
+                         * pointer — store back so subsequent reads
+                         * see the right block. */
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Store(
+                                Operand::Value(reserved),
+                                Operand::Value(info.slot),
+                                0,
+                            ),
+                        );
+                        self.push_unchecked_for.insert(name.clone());
+                        reserve_emitted.push(name.clone());
+                    }
+                }
                 let header = self.f.add_block();
                 let body_blk = self.f.add_block();
                 let step_blk = self.f.add_block();
@@ -8466,6 +8655,10 @@ impl<'a> LowerCtx<'a> {
                     self.f.set_term(self.cur_block, Terminator::Br(step_blk));
                 }
                 self.loop_stack.pop();
+                /* Restore push_unchecked_for to its pre-loop state. */
+                for name in reserve_emitted {
+                    self.push_unchecked_for.remove(&name);
+                }
 
                 // step block — runs the step expr (if any) then loops back.
                 self.cur_block = step_blk;
@@ -12103,6 +12296,38 @@ impl<'a> LowerCtx<'a> {
                         // Boolean elements need widening to the uniform
                         // 8-byte slot the runtime helper expects.
                         val = self.coerce_bool_to_i64(val);
+                        /* v0.6+1 perf checkpoint — push-loop pre-reserve.
+                         *
+                         * If the enclosing for-loop's lowerer detected
+                         * the canonical fill pattern and emitted an
+                         * `arr_reserve(xs, len + N)` call, this push
+                         * is guaranteed to fit without realloc. Use
+                         * `arr_push_unchecked` (no cap-check, no grow,
+                         * no realloc-writeback) to skip the per-iter
+                         * branch. Returns void, so we don't update
+                         * info.slot (the ptr didn't change). */
+                        let unchecked = self
+                            .push_unchecked_for
+                            .contains(recv_name);
+                        if unchecked {
+                            self.f.append_void(
+                                self.cur_block,
+                                InstKind::Call(
+                                    self.intrinsics.arr_push_unchecked,
+                                    vec![Operand::Value(cur_arr), val.clone()],
+                                ),
+                            );
+                            if elem_ty.is_refcounted() {
+                                self.f.append_void(
+                                    self.cur_block,
+                                    InstKind::Call(
+                                        self.intrinsics.rc_inc,
+                                        vec![val],
+                                    ),
+                                );
+                            }
+                            return Operand::ConstI64(0);
+                        }
                         let new_arr = self.f.append_inst(
                             self.cur_block,
                             InstKind::Call(
