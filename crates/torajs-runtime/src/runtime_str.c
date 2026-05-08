@@ -2442,20 +2442,22 @@ void *__torajs_arr_reverse(uint8_t *arr) {
     return arr;
 }
 
-/* T-13.5 (v0.4.0) — `arr.shift()` is now O(1): bump head_offset
- * and decrement len. No memmove. The vacated front slot stays
- * allocated until either compact (push hits cap-with-head>0) or
- * the array's drop releases the whole block. Identical observable
- * behavior to the prior memmove version (front slot disappears,
- * subsequent indexed reads see what was index 1 as the new index 0).
- * Subset convention preserved: empty-array shift is unchecked. */
-int64_t __torajs_arr_shift(uint8_t *arr) {
-    uint64_t len = __TORAJS_ARR_LEN(arr);
-    int64_t v = *(int64_t *)__TORAJS_ARR_SLOT(arr, 0);
-    __TORAJS_ARR_HEAD(arr) += 1;
-    __TORAJS_ARR_LEN(arr) = len - 1;
-    return v;
-}
+/* T-13.5 (v0.4.0) — `arr.shift()` is O(1): bump head_offset and
+ * decrement len. No memmove. The vacated front slot stays allocated
+ * until either compact (push hits cap-with-head>0) or the array's
+ * drop releases the whole block.
+ *
+ * v0.6+1 perf checkpoint — body PROMOTED to inkwell IR (see
+ * `define_arr_shift` in ssa_inkwell.rs). The C version is gone:
+ * the C-side `__attribute__((always_inline))` doesn't survive the
+ * native-object link boundary (inkwell emits .o not bitcode), so
+ * `bl __torajs_arr_shift` stayed external in the linked binary
+ * even with -flto. Defining the body directly in inkwell + the
+ * IR-level `alwaysinline` attribute fixes that — LLVM splices the
+ * 4-op body in before the .o ever forms.
+ *
+ * Symbol stays exported via inkwell so any (theoretical) cross-TU
+ * caller still resolves. */
 
 /* T-13.5 — `arr.unshift(v)` — insert `v` at slot[0]. Now O(1) when
  * head_offset > 0 (just decrement head, write into the freed

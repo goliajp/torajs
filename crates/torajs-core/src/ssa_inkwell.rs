@@ -245,6 +245,12 @@ pub fn compile_for(
                 mark_alwaysinline(&ctx, f);
                 f
             }
+            "__torajs_arr_shift" => {
+                /* T-13.5 deque shift, body has its own alwaysinline marker
+                 * inside define_arr_shift since it's small AND in a tight
+                 * loop (fifo-queue pattern). */
+                define_arr_shift(&ctx, &llvm_module)
+            }
             "__torajs_arr_drop" => {
                 let f = define_arr_drop(&ctx, &llvm_module, arr_free);
                 // every Array scope-end + every refcounted-elem-walk
@@ -417,6 +423,7 @@ pub fn compile_for(
         "__torajs_obj_drop",
         "__torajs_arr_alloc",
         "__torajs_arr_push",
+        "__torajs_arr_shift",
         "__torajs_arr_reserve",
         "__torajs_arr_push_unchecked",
         "__torajs_arr_drop",
@@ -3040,6 +3047,104 @@ fn define_arr_push_unchecked<'ctx>(
     };
     builder.build_store(len_p, len_p1).unwrap();
     builder.build_return(None).unwrap();
+    f
+}
+
+/// `__torajs_arr_shift(*u8 arr) -> i64`
+///
+/// T-13.5: O(1) deque shift via head_offset. Body is 4 memory ops
+/// (load value + bump head + dec len). Promoted from C runtime to
+/// inkwell-IR + alwaysinline at v0.6+1 perf checkpoint — the C
+/// version's `__attribute__((always_inline))` doesn't survive the
+/// native-object link boundary (inkwell emits `.o` not bitcode), so
+/// the call stayed external in the linked binary even with -flto.
+/// Defining the body in inkwell + alwaysinline = LLVM inlines at the
+/// IR level before the .o ever forms; the `bl __torajs_arr_shift`
+/// in fifo-queue's hot loop disappears.
+fn define_arr_shift<'ctx>(
+    ctx: &'ctx Context,
+    m: &LlvmModule<'ctx>,
+) -> FunctionValue<'ctx> {
+    let builder = ctx.create_builder();
+    let i64_t = ctx.i64_type();
+    let i32_t = ctx.i32_type();
+    let i8_t = ctx.i8_type();
+    let ptr_t = ctx.ptr_type(AddressSpace::default());
+    let fn_t = i64_t.fn_type(&[ptr_t.into()], false);
+    let f = m.add_function("__torajs_arr_shift", fn_t, None);
+    mark_alwaysinline(ctx, f);
+    let entry = ctx.append_basic_block(f, "entry");
+    builder.position_at_end(entry);
+    let arr = f.get_nth_param(0).unwrap().into_pointer_value();
+
+    /* Load value at logical[0] = data + head*8 (data starts at +24). */
+    let head_p = unsafe {
+        builder
+            .build_in_bounds_gep(
+                i8_t,
+                arr,
+                &[i64_t.const_int(ARR_HDR_HEAD_OFF, false)],
+                "head_p",
+            )
+            .unwrap()
+    };
+    let head32 = builder
+        .build_load(i32_t, head_p, "head32")
+        .unwrap()
+        .into_int_value();
+    let head64 = builder
+        .build_int_z_extend(head32, i64_t, "head64")
+        .unwrap();
+    let head_x8 = builder
+        .build_int_mul(head64, i64_t.const_int(8, false), "head_x8")
+        .unwrap();
+    let data = unsafe {
+        builder
+            .build_in_bounds_gep(
+                i8_t,
+                arr,
+                &[i64_t.const_int(ARR_HDR_DATA_OFF, false)],
+                "data",
+            )
+            .unwrap()
+    };
+    let slot = unsafe {
+        builder
+            .build_in_bounds_gep(i8_t, data, &[head_x8], "slot")
+            .unwrap()
+    };
+    let v = builder
+        .build_load(i64_t, slot, "v")
+        .unwrap()
+        .into_int_value();
+
+    /* head_offset += 1 (u32) */
+    let head_inc = builder
+        .build_int_add(head32, i32_t.const_int(1, false), "head_inc")
+        .unwrap();
+    builder.build_store(head_p, head_inc).unwrap();
+
+    /* len -= 1 (u64) */
+    let len_p = unsafe {
+        builder
+            .build_in_bounds_gep(
+                i8_t,
+                arr,
+                &[i64_t.const_int(ARR_HDR_LEN_OFF, false)],
+                "len_p",
+            )
+            .unwrap()
+    };
+    let len = builder
+        .build_load(i64_t, len_p, "len")
+        .unwrap()
+        .into_int_value();
+    let len_dec = builder
+        .build_int_sub(len, i64_t.const_int(1, false), "len_dec")
+        .unwrap();
+    builder.build_store(len_p, len_dec).unwrap();
+
+    builder.build_return(Some(&v)).unwrap();
     f
 }
 
