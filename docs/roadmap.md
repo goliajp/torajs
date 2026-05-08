@@ -477,6 +477,114 @@ The v0.x sections above describe the **milestone shape** (exit gates, scope). Th
 
 ---
 
+## Roadmap v3 — current execution checklist (2026-05-09, HEAD `983243e`)
+
+v2 (2026-05-06 rewrite) projected 33 items through v1.0. As of HEAD
+`983243e`, T-01..T-26 are shipped and the v0.7 substrate phase
+(T-24 / T-25 / T-26 A·B·C) is complete. The checklist below merges the
+remaining v2 items (T-27..T-33) with the post-T-26 follow-ups
+surfaced during ship (BigInt math, cycle-collector class-field
+substrate, perf debt) into a **single strict-order linear plan**.
+status memory's "顺序执行计划" mirrors this list.
+
+Working rule (unchanged from v2): one item ships at a time, mid-gate
+every 2-3 items, full-gate before any tag. No "I'll fix it later" —
+every ✅ has its commit hash + conformance gate recorded below.
+
+### Done (v0.1.0-beta → BigInt div+mod)
+
+| ID | Item | HEAD commit | Conformance gate |
+|---|---|---|---|
+| T-01..T-08 | v0.3.0 closeout (docs / JSON.parse-f64 / process.io / LSP errors / `tr fmt` / `tr lint` / perf debt audit) | `git tag v0.3.0` | mid + full passed |
+| T-09..T-13.5 | v0.4.0 substrate (Type::Any boxing / Object stdlib / arguments / Symbol / Array deque) | `git tag v0.4.0` | mid + full passed |
+| T-14..T-19 | v0.5.0 async/await + Promise + fs/promises + Bun.file | `git tag v0.5.0` | mid + full passed |
+| T-20..T-23 | v0.6.0 wasm32-wasi + fetch + Playground + bench scoreboard | `git tag v0.6.0` (21d9783) | mid + full passed |
+| T-24 | vtable upgrade for virtual dispatch | `0bd8aa1` | 370/0/1 |
+| T-25 | BigInt self-hosted substrate | `30ce155` | 371/0/1 |
+| T-26.A | WeakRef substrate (global registry) | `5420a1b` | 372/0/1 |
+| T-26.B | WeakMap + WeakSet (shared registry) | `f3372fb` | 374/0/1 |
+| T-26.C | Bacon-Rajan cycle collector substrate | `c76b3a3` | 374/0/1 |
+| post-T-25 | BigInt division + modulo | `983243e` | 375/0/1 |
+
+### Phase 1 — close BigInt arithmetic surface
+
+- [ ] **V3-01** BigInt `**` exponent. Square-and-multiply; negative exponent → `RangeError` per spec. ~50 LOC.
+- [ ] **V3-02** BigInt bitwise (`& | ^ ~ << >>`). Two's-complement simulation since BigInt has no fixed width. ~150 LOC.
+- [ ] **V3-03** `BigInt(value)` ctor — string parse / number-with-Math.trunc / bigint-clone. ~80 LOC.
+- [ ] **V3-04** Karatsuba multiplication (perf only; threshold ~32 limbs). Schoolbook stays default below threshold.
+
+→ **Mid gate** after V3-04 (full bench scoreboard; BigInt cases get their own bucket).
+
+### Phase 2 — class typechecker substrate
+
+Currently `class Node { next: Node | null }` is rejected because Node
+isn't yet in `c.aliases` when its own field types resolve. Same root
+cause blocks `class C { f: C[] }`. These three items unblock both the
+gc-001 fixture (Phase 3) and a long tail of common TS class-OO
+patterns.
+
+- [ ] **V3-05** Nominal class types refactor. Pre-register class names with placeholder before resolving fields, OR introduce `Type::ClassRef(String)` for nominal class identity (`Type::Struct` currently structural). Pick the minimum-blast-radius option; not both. ~200 LOC + careful migration.
+- [ ] **V3-06** `class C { f: C[] }` accepted. Same root-cause family as V3-05; typically a free side-effect once V3-05 lands.
+- [ ] **V3-07** `as` cast parser support. Needed for the `arr.push(self as any)` cycle pattern + general TS users.
+
+### Phase 3 — close cycle collector (depends on V3-05..V3-07)
+
+- [ ] **V3-08** `gc-001-basic.ts` conformance fixture — multi-class A↔B cycle, manual `gc()`, verify the cycle frees. Substrate is in place since `c76b3a3`; only the surface needed.
+- [ ] **V3-09** Arr / Closure children visitor — cycle collector descends into Array slots + closure env captures (currently Obj-only).
+- [ ] **V3-10** Cycle collector auto-trigger — buffer-size threshold + main-exit drain.
+
+→ **Mid gate** after V3-10.
+
+### Phase 4 — perf data refresh + outstanding debt
+
+- [ ] **V3-11** Re-run 7-runtime bench scoreboard. Last full sweep at `14b894f` (commit `529143c`); 6 substrate commits since then need a fresh datum.
+- [ ] **V3-12** rpn-eval-100k 1.29x rust — escape → alloca for stack-local 16-elem Array literal. `let stack: number[] = [0,0,...]` currently allocates per inner-loop iter (100k × malloc); promote to alloca when literal doesn't escape.
+
+→ **Mid gate** after V3-12.
+
+### Phase 5 — v1.0 tooling + features
+
+- [ ] **V3-13** T-30 `tr repl`. Cross-line state preservation, multi-line input, history (rustyline). Highest-leverage dev-experience item.
+- [ ] **V3-14** T-31 `libtora.a` + `tora_eval()` C-ABI embed + `torajs-embed` Rust crate. Unlocks third-party embed scenarios; also substrate for V3-16.
+- [ ] **V3-15** T-29 `tr debug` step debugger. DAP adapter atop existing v0.3 #4 DWARF emission. VS Code extension as visible client.
+- [ ] **V3-16** T-27 Function ctor / `eval`. Runtime invocation of LLVM pipeline + dlopen. Depends on V3-14 (eval ≈ embed + run).
+
+→ **Mid gate** after V3-16.
+
+### Phase 6 — multi-platform release infrastructure
+
+- [ ] **V3-17** T-28 multi-platform release.
+  - linux-x86_64, linux-aarch64 cross-compile from darwin-arm64
+  - windows-x86_64 via mingw or native GitHub Actions runner
+  - install.torajs.com platform-detection script
+  - GitHub Actions matrix: build + bench + conformance per platform
+  - Multi-arch tarball + signed release notes
+
+→ **Mid gate** after V3-17.
+
+### Phase 7 — test262 push to 90% (v1.0 hard exit gate)
+
+- [ ] **V3-18** T-32 test262 push to ≥ 90% in-scope pass rate.
+  - Likely large buckets: regex Unicode property escapes / Intl.* basic / async edge cases / tagged-template edge cases / BigInt edge cases (toLocaleString, toString radix).
+  - Each bucket may surface its own substrate need; treat each sub-bucket as its own ship.
+
+→ **Full gate** before V3-19.
+
+### Phase 8 — ship v1.0
+
+- [ ] **V3-19** T-33 `git tag v1.0.0`. CHANGELOG covering v0.7..v1.0 + multi-platform release announcement on torajs.com.
+
+### Phase 9 — post-v1.0 polish (deferred)
+
+- [ ] **V3-20** LSP L-4.b scope-aware local goto-def.
+- [ ] **V3-21** LSP L-4.c cross-file goto-def.
+- [ ] **V3-22** LSP semantic tokens / inlay hints / completion.
+- [ ] **V3-23** Multi-threaded executor + Send/Sync (stretch).
+- [ ] **V3-24** WebAssembly user-code target — distinct from v0.5's engine-as-wasm (stretch).
+- [ ] **V3-25** `tora install` package manager (stretch; gates on a security/supply-chain story).
+
+---
+
 ### Beyond v1.0 — stretch goals
 
 Not committed; tracked here so they don't get lost.
