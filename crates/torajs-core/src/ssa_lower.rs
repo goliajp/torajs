@@ -4081,7 +4081,7 @@ fn synthesize_main(
             may_throw_fns,
             captured_arr_writeback: HashMap::new(),
             escape_captured_lets: std::collections::HashSet::new(),
-            push_unchecked_for: std::collections::HashSet::new(),
+            push_unchecked_for: std::collections::HashMap::new(),
             globals,
             is_main_fn: true,
         };
@@ -4914,7 +4914,7 @@ fn lower_fn(
         may_throw_fns,
         captured_arr_writeback: HashMap::new(),
         escape_captured_lets: std::collections::HashSet::new(),
-        push_unchecked_for: std::collections::HashSet::new(),
+        push_unchecked_for: std::collections::HashMap::new(),
         globals,
         is_main_fn: false,
     };
@@ -5203,6 +5203,25 @@ fn detect_push_loop_arrays(
     Some((bound_eid, names))
 }
 
+/// v0.6+1 perf checkpoint — per-array hoisted state for the push-loop
+/// pre-reserve fast-push. See `LowerCtx::push_unchecked_for`.
+#[derive(Clone, Copy)]
+struct PreReserveState {
+    /// The array's heap pointer at loop entry (= `arr_reserve`'s
+    /// return). Used as the StoreDyn base + post-loop len-writeback
+    /// target.
+    arr_ptr: ValueId,
+    /// Pre-computed `head_x8 + 24` — the byte offset from `arr_ptr`
+    /// to slot[0]. Loop-invariant since the pattern detector
+    /// excludes any body that could shift/unshift the array.
+    head_off: ValueId,
+    /// Local alloca'd i64 holding the running length. Initialized
+    /// to the array's len at loop entry; bumped per push; written
+    /// back to the array's len field at loop exit. mem2reg promotes
+    /// this to a phi-register at -O1+.
+    len_slot: ValueId,
+}
+
 /// Walk `s` and collect ident names of arrays that are the receiver
 /// of a `xs.push(_)` call. Returns `false` if any non-push stmt is
 /// found (caller bails). Allows nested Blocks / Multi's so user-
@@ -5404,20 +5423,27 @@ struct LowerCtx<'a> {
     /// Empty for non-escape-context fns; populated at fn-entry by
     /// scanning `body` for `Expr::Closure` captures.
     escape_captured_lets: std::collections::HashSet<String>,
-    /// v0.6+1 perf checkpoint — when the for-loop lowerer detects a
-    /// canonical "fill loop" (`for (let i = 0; i < N; i++) xs.push(_)`),
-    /// it emits a one-shot `arr_reserve(xs, len + N)` before entering
-    /// the body and pushes `xs` here. The arr.push lower-site reads
-    /// this set and skips the per-iter cap-check + grow-path,
-    /// emitting `arr_push_unchecked` instead. Cleared on for-loop
-    /// exit.
+    /// v0.6+1 perf checkpoint — push-loop pre-reserve fast-push state.
+    ///
+    /// When the for-loop lowerer detects a canonical fill loop
+    /// (`for (let i = 0; i < N; i++) xs.push(_)`), it:
+    ///   1. Emits `arr_reserve(xs, len + N)` once before the loop.
+    ///   2. Hoists `head_x8 + 24` (the byte offset of slot[0] from
+    ///      arr_ptr) into a loop-invariant register; allocas an i64
+    ///      `len_slot` initialized to the array's len.
+    ///   3. Inside the loop, arr.push lower emits inline IR:
+    ///      `StoreDyn val at (arr_ptr + head_off + len*8)` plus
+    ///      `len_slot++`. NO call to arr_push_unchecked, NO per-iter
+    ///      head load — head_off is hoisted, len lives in the
+    ///      mem2reg-promotable alloca.
+    ///   4. After the loop, the final len is written back to the
+    ///      array's len field at +8.
     ///
     /// Multi-array support deliberate: a body that pushes to two
-    /// distinct arrays in lockstep still benefits — both got
-    /// reserved up front, both go unchecked. Conservative: only
-    /// fires when the for-loop's full body shape matches the
-    /// detector (single-or-multi push, no other side effects).
-    push_unchecked_for: std::collections::HashSet<String>,
+    /// distinct arrays in lockstep still benefits — each gets its
+    /// own state entry. Conservative: only fires when the for-loop's
+    /// full body shape matches the detector.
+    push_unchecked_for: std::collections::HashMap<String, PreReserveState>,
     /// Phase K.3 — module-level data globals (top-level `let X: T = init`
     /// where T is a primitive Copy type). Read by the ident-read fallback
     /// to emit `GlobalRef + Load` for cross-fn reads, and by the LetDecl
@@ -8589,7 +8615,7 @@ impl<'a> LowerCtx<'a> {
                         );
                         /* Need cap >= len + bound. Read len, add
                          * bound, pass to arr_reserve. */
-                        let len_v = self.f.append_inst(
+                        let initial_len_v = self.f.append_inst(
                             self.cur_block,
                             InstKind::Load(Type::I64, Operand::Value(cur_arr), ARR_LEN_OFF),
                             Type::I64,
@@ -8597,7 +8623,7 @@ impl<'a> LowerCtx<'a> {
                         );
                         let target_cap = self.f.append_inst(
                             self.cur_block,
-                            InstKind::BinOp(SsaBinOp::Add, Operand::Value(len_v), bound_op.clone()),
+                            InstKind::BinOp(SsaBinOp::Add, Operand::Value(initial_len_v), bound_op.clone()),
                             Type::I64,
                             None,
                         );
@@ -8610,9 +8636,6 @@ impl<'a> LowerCtx<'a> {
                             info.ty,
                             None,
                         );
-                        /* arr_reserve returns the (possibly realloc'd)
-                         * pointer — store back so subsequent reads
-                         * see the right block. */
                         self.f.append_void(
                             self.cur_block,
                             InstKind::Store(
@@ -8621,7 +8644,49 @@ impl<'a> LowerCtx<'a> {
                                 0,
                             ),
                         );
-                        self.push_unchecked_for.insert(name.clone());
+                        /* Hoist head_x8 + ARR_DATA_OFF once. After
+                         * reserve the array's storage is committed;
+                         * the pattern detector verified no shift/
+                         * unshift in body, so head can't change. */
+                        let head_x8 = self.emit_arr_head_x8(Operand::Value(reserved));
+                        let head_off = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::BinOp(
+                                SsaBinOp::Add,
+                                head_x8,
+                                Operand::ConstI64(ARR_DATA_OFF as i64),
+                            ),
+                            Type::I64,
+                            None,
+                        );
+                        /* Re-read len from the (possibly-relocated)
+                         * arr ptr. arr_reserve's realloc may have
+                         * moved the block; pre-reserve len read was
+                         * from the OLD ptr. Cheap: same value but
+                         * via the right block. */
+                        let len_after = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(Type::I64, Operand::Value(reserved), ARR_LEN_OFF),
+                            Type::I64,
+                            None,
+                        );
+                        let len_slot = self.alloca(Type::I64, Some("__push_len"));
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Store(
+                                Operand::Value(len_after),
+                                Operand::Value(len_slot),
+                                0,
+                            ),
+                        );
+                        self.push_unchecked_for.insert(
+                            name.clone(),
+                            PreReserveState {
+                                arr_ptr: reserved,
+                                head_off,
+                                len_slot,
+                            },
+                        );
                         reserve_emitted.push(name.clone());
                     }
                 }
@@ -8655,10 +8720,6 @@ impl<'a> LowerCtx<'a> {
                     self.f.set_term(self.cur_block, Terminator::Br(step_blk));
                 }
                 self.loop_stack.pop();
-                /* Restore push_unchecked_for to its pre-loop state. */
-                for name in reserve_emitted {
-                    self.push_unchecked_for.remove(&name);
-                }
 
                 // step block — runs the step expr (if any) then loops back.
                 self.cur_block = step_blk;
@@ -8670,6 +8731,30 @@ impl<'a> LowerCtx<'a> {
                 }
 
                 self.cur_block = after;
+                /* Sync hoisted len_slot back to the array header
+                 * before any post-loop code reads `arr.length`. */
+                for name in &reserve_emitted {
+                    if let Some(state) = self.push_unchecked_for.get(name).copied() {
+                        let final_len = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(Type::I64, Operand::Value(state.len_slot), 0),
+                            Type::I64,
+                            None,
+                        );
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Store(
+                                Operand::Value(final_len),
+                                Operand::Value(state.arr_ptr),
+                                ARR_LEN_OFF,
+                            ),
+                        );
+                    }
+                }
+                /* Restore push_unchecked_for to its pre-loop state. */
+                for name in &reserve_emitted {
+                    self.push_unchecked_for.remove(name);
+                }
                 // Drop init-scope locals (e.g. the `i` in `for (let i = 0;`).
                 let frame = self.scope_stack.pop().expect("for-init scope");
                 let shadows = self.shadow_stack.pop().expect("shadow frame");
@@ -12306,15 +12391,71 @@ impl<'a> LowerCtx<'a> {
                          * no realloc-writeback) to skip the per-iter
                          * branch. Returns void, so we don't update
                          * info.slot (the ptr didn't change). */
-                        let unchecked = self
+                        let unchecked_state = self
                             .push_unchecked_for
-                            .contains(recv_name);
-                        if unchecked {
+                            .get(recv_name)
+                            .copied();
+                        if let Some(state) = unchecked_state {
+                            /* Inline fast-push: skip the runtime call,
+                             * read the hoisted len from len_slot, write
+                             * the slot at arr_ptr + head_off + len*8,
+                             * and bump len_slot. head_off already
+                             * encodes (head*8 + ARR_DATA_OFF), so the
+                             * full byte offset is head_off + len*8. */
+                            let len_now = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Load(
+                                    Type::I64,
+                                    Operand::Value(state.len_slot),
+                                    0,
+                                ),
+                                Type::I64,
+                                None,
+                            );
+                            let len_x8 = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::BinOp(
+                                    SsaBinOp::Mul,
+                                    Operand::Value(len_now),
+                                    Operand::ConstI64(8),
+                                ),
+                                Type::I64,
+                                None,
+                            );
+                            let byte_off = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::BinOp(
+                                    SsaBinOp::Add,
+                                    Operand::Value(state.head_off),
+                                    Operand::Value(len_x8),
+                                ),
+                                Type::I64,
+                                None,
+                            );
                             self.f.append_void(
                                 self.cur_block,
-                                InstKind::Call(
-                                    self.intrinsics.arr_push_unchecked,
-                                    vec![Operand::Value(cur_arr), val.clone()],
+                                InstKind::StoreDyn(
+                                    val.clone(),
+                                    Operand::Value(state.arr_ptr),
+                                    Operand::Value(byte_off),
+                                ),
+                            );
+                            let len_next = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::BinOp(
+                                    SsaBinOp::Add,
+                                    Operand::Value(len_now),
+                                    Operand::ConstI64(1),
+                                ),
+                                Type::I64,
+                                None,
+                            );
+                            self.f.append_void(
+                                self.cur_block,
+                                InstKind::Store(
+                                    Operand::Value(len_next),
+                                    Operand::Value(state.len_slot),
+                                    0,
                                 ),
                             );
                             if elem_ty.is_refcounted() {
