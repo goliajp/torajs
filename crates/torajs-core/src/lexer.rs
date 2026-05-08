@@ -60,6 +60,8 @@ pub enum Token {
     Plus,
     Minus,
     Star,
+    StarStar,
+    StarStarEq,
     Slash,
     Percent,
     Amp,
@@ -259,7 +261,18 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
             }
             b'*' => {
                 i += 1;
-                if peek(bytes, i) == Some(b'=') {
+                /* V3-01 — `**` exponent operator (and its compound
+                 * assign `**=`). JS spec: right-associative,
+                 * precedence higher than mul / div / mod. */
+                if peek(bytes, i) == Some(b'*') {
+                    i += 1;
+                    if peek(bytes, i) == Some(b'=') {
+                        i += 1;
+                        emit(&mut out, Token::StarStarEq, start, i);
+                    } else {
+                        emit(&mut out, Token::StarStar, start, i);
+                    }
+                } else if peek(bytes, i) == Some(b'=') {
                     i += 1;
                     emit(&mut out, Token::StarEq, start, i);
                 } else {

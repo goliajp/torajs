@@ -494,6 +494,56 @@ void *__torajs_bigint_mod(void *a_, void *b_) {
     return r;
 }
 
+/* `a ** b` — square-and-multiply. JS spec: negative exponent on a
+ * BigInt throws RangeError; ** 0n always yields 1n (including 0n
+ * ** 0n per spec, which is a known oddity that bun + V8 also
+ * implement). Caller is responsible for both operands being non-
+ * NULL BigInts. */
+void *__torajs_bigint_pow(void *base_, void *exp_) {
+    const BigIntHeader *base = (const BigIntHeader *)base_;
+    const BigIntHeader *exp = (const BigIntHeader *)exp_;
+    if (exp->sign) {
+        __torajs_panic("RangeError: BigInt negative exponent");
+    }
+    /* Result starts at 1n. */
+    BigIntHeader *result = bigint_alloc_raw(1);
+    bigint_words(result)[0] = 1;
+    if (exp->len == 0) {
+        /* 1n is the canonical answer for any base ** 0n. */
+        return result;
+    }
+    /* Local mutable copy of base whose magnitude squares each
+     * iteration. Strip sign here — track it separately. */
+    BigIntHeader *cur = bigint_alloc_raw(base->len);
+    if (base->len > 0) memcpy(bigint_words(cur), bigint_words_c(base), (size_t)base->len * 8);
+    /* Sign of base ** exp: if base is negative, result is negative
+     * iff exp is odd (a property of any integer exp). exp's parity
+     * is just the low bit of word[0]. */
+    int result_sign = (base->sign && (bigint_words_c(exp)[0] & 1)) ? 1 : 0;
+    /* Walk exp bit-by-bit, low to high. */
+    uint32_t e_bits = bigint_bit_count(exp);
+    for (uint32_t i = 0; i < e_bits; i++) {
+        if (bigint_bit_at(exp, i)) {
+            BigIntHeader *next = (BigIntHeader *)__torajs_bigint_mul(result, cur);
+            free(result);
+            result = next;
+        }
+        if (i + 1 < e_bits) {
+            BigIntHeader *sq = (BigIntHeader *)__torajs_bigint_mul(cur, cur);
+            free(cur);
+            cur = sq;
+        }
+    }
+    free(cur);
+    /* mul ignores sign during the magnitude loop and sets the
+     * product's sign as the XOR of inputs. We've stripped sign
+     * upfront, so mul kept producing positive products. Stamp the
+     * spec-correct sign now. */
+    result->sign = (result->len == 0) ? 0 : result_sign;
+    bigint_normalize(result);
+    return result;
+}
+
 /* Unary negate — fresh allocation. The original is left untouched
  * (caller's drop logic still owns it). */
 void *__torajs_bigint_neg(void *a_) {

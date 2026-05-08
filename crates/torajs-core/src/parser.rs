@@ -1738,6 +1738,7 @@ impl Parser<'_> {
             Token::PlusEq => Some(BinOp::Add),
             Token::MinusEq => Some(BinOp::Sub),
             Token::StarEq => Some(BinOp::Mul),
+            Token::StarStarEq => Some(BinOp::Pow),
             Token::SlashEq => Some(BinOp::Div),
             Token::PercentEq => Some(BinOp::Mod),
             _ => return Ok(target),
@@ -1966,7 +1967,7 @@ impl Parser<'_> {
     }
 
     fn parse_multiplicative(&mut self) -> Result<ExprId, String> {
-        let mut left = self.parse_unary()?;
+        let mut left = self.parse_pow()?;
         loop {
             let op = match self.peek() {
                 Token::Star => BinOp::Mul,
@@ -1975,9 +1976,30 @@ impl Parser<'_> {
                 _ => return Ok(left),
             };
             self.pos += 1;
-            let right = self.parse_unary()?;
+            let right = self.parse_pow()?;
             left = self.ast.add_expr(Expr::BinOp { op, left, right });
         }
+    }
+
+    /* V3-01 — `**` exponent. JS spec: precedence above mul/div/mod
+     * (which is why parse_multiplicative now defers to this), and
+     * **right-associative** (`2 ** 3 ** 2` = `2 ** (3 ** 2)` =
+     * `2 ** 9` = 512). Spec also requires parens around any unary
+     * operand of `**` (e.g. `-2 ** 2` is a SyntaxError per spec);
+     * we accept it as `-(2 ** 2)` for now and ship a stricter
+     * check alongside the test262 push (V3-18 in the v3 plan). */
+    fn parse_pow(&mut self) -> Result<ExprId, String> {
+        let left = self.parse_unary()?;
+        if matches!(self.peek(), Token::StarStar) {
+            self.pos += 1;
+            let right = self.parse_pow()?;
+            return Ok(self.ast.add_expr(Expr::BinOp {
+                op: BinOp::Pow,
+                left,
+                right,
+            }));
+        }
+        Ok(left)
     }
 
     fn parse_unary(&mut self) -> Result<ExprId, String> {

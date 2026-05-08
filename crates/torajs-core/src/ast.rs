@@ -12,6 +12,11 @@ pub enum BinOp {
     Mul,
     Div,
     Mod,
+    /// V3-01 — `**` exponent. Right-associative; precedence above
+    /// mul/div/mod. Number ** Number → Number (libm pow);
+    /// BigInt ** BigInt → BigInt (square-and-multiply, RangeError
+    /// on negative exponent per spec).
+    Pow,
     Lt,
     Gt,
     Le,
@@ -6134,7 +6139,7 @@ fn infer_expr_ann_with(
             | BinOp::Eq | BinOp::Neq | BinOp::LAnd | BinOp::LOr => {
                 Some("boolean".into())
             }
-            BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod
+            BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod | BinOp::Pow
             | BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor
             | BinOp::Shl | BinOp::Shr | BinOp::UShr => Some("number".into()),
             // `+` is the only ambiguous op (number add OR string

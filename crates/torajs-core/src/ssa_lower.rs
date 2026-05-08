@@ -1995,6 +1995,13 @@ fn lower_inner(
         &[Type::BigInt, Type::BigInt],
         Type::BigInt,
     );
+    let bigint_pow_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_bigint_pow",
+        &[Type::BigInt, Type::BigInt],
+        Type::BigInt,
+    );
     let bigint_neg_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -3522,6 +3529,7 @@ fn lower_inner(
         bigint_mul: bigint_mul_id,
         bigint_div: bigint_div_id,
         bigint_mod: bigint_mod_id,
+        bigint_pow: bigint_pow_id,
         bigint_neg: bigint_neg_id,
         bigint_cmp: bigint_cmp_id,
         bigint_to_string: bigint_to_string_id,
@@ -4225,6 +4233,7 @@ struct Intrinsics {
     bigint_mul: FuncId,
     bigint_div: FuncId,
     bigint_mod: FuncId,
+    bigint_pow: FuncId,
     bigint_neg: FuncId,
     bigint_cmp: FuncId,
     bigint_to_string: FuncId,
@@ -18448,6 +18457,7 @@ impl<'a> LowerCtx<'a> {
                     AstBinOp::Mul => Some(self.intrinsics.bigint_mul),
                     AstBinOp::Div => Some(self.intrinsics.bigint_div),
                     AstBinOp::Mod => Some(self.intrinsics.bigint_mod),
+                    AstBinOp::Pow => Some(self.intrinsics.bigint_pow),
                     _ => None,
                 };
                 if let Some(fid) = arith {
@@ -18682,7 +18692,10 @@ impl<'a> LowerCtx<'a> {
             return Operand::Value(eq_v);
         }
 
-        let force_float = matches!(op, AstBinOp::Div);
+        // V3-01 — `**` for Number lowers via libm `pow`, which always
+        // takes + returns f64. Force both operands into the float
+        // path so downstream consumers see a Number-shaped result.
+        let force_float = matches!(op, AstBinOp::Div | AstBinOp::Pow);
         let either_float =
             self.operand_ty(&a) == Type::F64 || self.operand_ty(&b) == Type::F64;
         let is_float = force_float || either_float;
@@ -18709,6 +18722,15 @@ impl<'a> LowerCtx<'a> {
                 AstBinOp::Sub => self.bin(SsaBinOp::FSub, af, bf, Type::F64),
                 AstBinOp::Mul => self.bin(SsaBinOp::FMul, af, bf, Type::F64),
                 AstBinOp::Div => self.bin(SsaBinOp::FDiv, af, bf, Type::F64),
+                AstBinOp::Pow => {
+                    let v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(self.intrinsics.math_pow, vec![af, bf]),
+                        Type::F64,
+                        None,
+                    );
+                    Operand::Value(v)
+                }
                 AstBinOp::Lt => self.fcmp(FPred::Olt, af, bf),
                 AstBinOp::Gt => self.fcmp(FPred::Ogt, af, bf),
                 AstBinOp::Le => self.fcmp(FPred::Ole, af, bf),
@@ -18733,6 +18755,7 @@ impl<'a> LowerCtx<'a> {
             AstBinOp::Sub => self.bin(SsaBinOp::Sub, a, b, Type::I64),
             AstBinOp::Mul => self.bin(SsaBinOp::Mul, a, b, Type::I64),
             AstBinOp::Div => unreachable!("Div forced into float path above"),
+            AstBinOp::Pow => unreachable!("Pow forced into float path above"),
             AstBinOp::Mod => self.bin(SsaBinOp::SRem, a, b, Type::I64),
             AstBinOp::BitAnd => self.bin(SsaBinOp::And, a, b, Type::I64),
             AstBinOp::BitOr => self.bin(SsaBinOp::Or, a, b, Type::I64),

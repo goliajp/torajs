@@ -4023,6 +4023,20 @@ impl Checker {
                             ))
                         }
                     }
+                    BinOp::Pow => {
+                        // V3-01 — `**` exponent. Number/Number → Number;
+                        // BigInt/BigInt → BigInt. Mixed-type per spec
+                        // is a TypeError, caught by the catch-all.
+                        if l == Type::Number && r == Type::Number {
+                            Ok(Type::Number)
+                        } else if l == Type::BigInt && r == Type::BigInt {
+                            Ok(Type::BigInt)
+                        } else {
+                            Err(format!(
+                                "`**` requires matching number or bigint operands, got {l:?} and {r:?}"
+                            ))
+                        }
+                    }
                     BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor | BinOp::Shl | BinOp::Shr | BinOp::UShr => {
                         if l == Type::Number && r == Type::Number {
                             Ok(Type::Number)
