@@ -43,6 +43,14 @@ pub enum Expr {
     Ident(String),
     String(String),
     Number(f64),
+    /// T-25 — BigInt literal. Carries the digits + radix exactly
+    /// as the lexer parsed them (e.g. `123n` → digits="123" radix=10;
+    /// `0xffn` → digits="ff" radix=16). The runtime parses the
+    /// digits at allocation time via `__torajs_bigint_alloc_from_str`.
+    BigInt {
+        digits: String,
+        radix: u32,
+    },
     Bool(bool),
     /// `let x;` / `let x: T;` — placeholder init the parser emits when
     /// no `= EXPR` is provided. `desugar_uninit_let` walks the
@@ -2975,6 +2983,7 @@ fn collect_super_in_expr(
         | Expr::Ident(_)
         | Expr::String(_)
         | Expr::Number(_)
+        | Expr::BigInt { .. }
         | Expr::Bool(_)
         | Expr::Regex { .. }
         | Expr::Null
@@ -4487,7 +4496,7 @@ fn eal_expr_safe(ast: &Ast, eid: ExprId, x_name: &str) -> bool {
         }
         Expr::New { args, .. } => args.iter().all(|a| eal_expr_safe(ast, *a, x_name)),
         Expr::Super { args } => args.iter().all(|a| eal_expr_safe(ast, *a, x_name)),
-        Expr::This | Expr::Number(_) | Expr::String(_) | Expr::Bool(_) | Expr::Null
+        Expr::This | Expr::Number(_) | Expr::BigInt { .. } | Expr::String(_) | Expr::Bool(_) | Expr::Null
         | Expr::Uninit | Expr::Regex { .. } => true,
     }
 }
@@ -4896,6 +4905,7 @@ fn sfi_expr_x_safe(ast: &Ast, eid: ExprId, x_name: &str, i_name: &str) -> bool {
                 && args.iter().all(|a| sfi_expr_x_safe(ast, *a, x_name, i_name))
         }
         Expr::Number(_)
+        | Expr::BigInt { .. }
         | Expr::String(_)
         | Expr::Bool(_)
         | Expr::Null
@@ -6581,7 +6591,7 @@ fn scan_expr_for_calls(ast: &Ast, eid: ExprId, out: &mut Vec<String>) {
         Expr::OptChain { obj, .. } => scan_expr_for_calls(ast, *obj, out),
         Expr::PostIncr { target, .. } => scan_expr_for_calls(ast, *target, out),
         Expr::This => {}
-        Expr::Ident(_) | Expr::String(_) | Expr::Number(_) | Expr::Bool(_)
+        Expr::Ident(_) | Expr::String(_) | Expr::Number(_) | Expr::BigInt { .. } | Expr::Bool(_)
         | Expr::Null | Expr::Uninit | Expr::Regex { .. } => {}
     }
 }
@@ -6596,7 +6606,7 @@ fn walk_expr(ast: &Ast, eid: ExprId, bound: &mut Vec<String>, out: &mut Vec<Stri
                 out.push(name.clone());
             }
         }
-        Expr::String(_) | Expr::Number(_) | Expr::Bool(_)
+        Expr::String(_) | Expr::Number(_) | Expr::BigInt { .. } | Expr::Bool(_)
         | Expr::Null | Expr::Uninit | Expr::Regex { .. } => {}
         Expr::BinOp { left, right, .. } => {
             walk_expr(ast, *left, bound, out);
@@ -7015,6 +7025,7 @@ impl Ast {
             Expr::Ident(n) => println!("{pad}Ident({n:?})"),
             Expr::String(s) => println!("{pad}String({s:?})"),
             Expr::Number(n) => println!("{pad}Number({n})"),
+            Expr::BigInt { digits, radix } => println!("{pad}BigInt({digits}n, radix={radix})"),
             Expr::Bool(b) => println!("{pad}Bool({b})"),
             Expr::Null => println!("{pad}Null"),
             Expr::Uninit => println!("{pad}Uninit"),

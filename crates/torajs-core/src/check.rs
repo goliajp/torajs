@@ -94,6 +94,10 @@ pub enum Type {
     String,
     Boolean,
     Void,
+    /// T-25 — arbitrary-precision integer (`123n` literal). Only
+    /// equal to other BigInts. Cross-type ops with Number are a
+    /// TypeError per spec; same-type ops produce BigInt.
+    BigInt,
     /// v0 hack — `console.log`'s parameter accepts any printable type.
     /// Replace with a sum/union type later.
     Any,
@@ -451,6 +455,7 @@ fn resolve_type_ann_full(
         "string" => Some(Type::String),
         "boolean" => Some(Type::Boolean),
         "void" => Some(Type::Void),
+        "bigint" => Some(Type::BigInt),
         // `any` is recognized as a real type in the resolver only as a
         // late-stage fallback — `desugar_implicit_generics` rewrites
         // every annotated `: any` to a fresh TypeVar before this layer
@@ -676,6 +681,7 @@ pub fn type_to_ann(ty: &Type) -> String {
         Type::Boolean => "boolean".into(),
         Type::String => "string".into(),
         Type::Void => "void".into(),
+        Type::BigInt => "bigint".into(),
         Type::Any => "number".into(), // SSA-side has no Any; fall back to number
         Type::Symbol => "symbol".into(),
         Type::Array(inner) => format!("{}[]", type_to_ann(inner)),
@@ -925,6 +931,7 @@ impl Checker {
         {
             let lit_ty = match ast.get_expr(*init) {
                 Expr::Number(_) => Some(Type::Number),
+                Expr::BigInt { .. } => Some(Type::BigInt),
                 Expr::String(_) => Some(Type::String),
                 Expr::Bool(_) => Some(Type::Boolean),
                 _ => None,
@@ -1859,6 +1866,7 @@ impl Checker {
         match ast.get_expr(eid) {
             Expr::String(_) => Ok(Type::String),
             Expr::Number(_) => Ok(Type::Number),
+            Expr::BigInt { .. } => Ok(Type::BigInt),
             Expr::Bool(_) => Ok(Type::Boolean),
             Expr::Null => Ok(Type::Null),
             // `Expr::Uninit` only ever appears as a `let x;` placeholder
@@ -3898,6 +3906,11 @@ impl Checker {
                     BinOp::Add => {
                         if l == Type::Number && r == Type::Number {
                             Ok(Type::Number)
+                        } else if l == Type::BigInt && r == Type::BigInt {
+                            // T-25 — BigInt + BigInt → BigInt. Mixed
+                            // BigInt/Number is a TypeError per spec
+                            // (caught by the catch-all below).
+                            Ok(Type::BigInt)
                         } else if l == Type::String && r == Type::String {
                             // TS-shape: `a + b` reads both operands, returns
                             // a fresh string. Operands keep their heaps —
@@ -3913,16 +3926,20 @@ impl Checker {
                             Ok(Type::String)
                         } else {
                             Err(format!(
-                                "`+` requires matching number/string operands or one of each, got {l:?} and {r:?}"
+                                "`+` requires matching number/string/bigint operands or string+number, got {l:?} and {r:?}"
                             ))
                         }
                     }
                     BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod => {
                         if l == Type::Number && r == Type::Number {
                             Ok(Type::Number)
+                        } else if l == Type::BigInt && r == Type::BigInt {
+                            // T-25 — BigInt arithmetic. Mixed with
+                            // Number is a TypeError per spec.
+                            Ok(Type::BigInt)
                         } else {
                             Err(format!(
-                                "arithmetic requires number operands, got {l:?} and {r:?}"
+                                "arithmetic requires number or bigint operands, got {l:?} and {r:?}"
                             ))
                         }
                     }
@@ -3938,15 +3955,17 @@ impl Checker {
                     BinOp::Lt | BinOp::Gt | BinOp::Le | BinOp::Ge => {
                         if l == Type::Number && r == Type::Number {
                             Ok(Type::Boolean)
+                        } else if l == Type::BigInt && r == Type::BigInt {
+                            Ok(Type::Boolean)
                         } else {
                             Err(format!(
-                                "ordering comparison requires number operands, got {l:?} and {r:?}"
+                                "ordering comparison requires number or bigint operands, got {l:?} and {r:?}"
                             ))
                         }
                     }
                     BinOp::Eq | BinOp::Neq => {
                         // Same primitive type → bool.
-                        if l == r && matches!(l, Type::Number | Type::String | Type::Boolean) {
+                        if l == r && matches!(l, Type::Number | Type::String | Type::Boolean | Type::BigInt) {
                             return Ok(Type::Boolean);
                         }
                         // T-13.a (v0.4.0) — Symbol === Symbol is
@@ -4001,8 +4020,12 @@ impl Checker {
                     crate::ast::UnaryOp::Neg => {
                         if t == Type::Number {
                             Ok(Type::Number)
+                        } else if t == Type::BigInt {
+                            // T-25 — `-bigint` flips the sign via
+                            // bigint_neg at the SSA layer.
+                            Ok(Type::BigInt)
                         } else {
-                            Err(format!("`-` requires number operand, got {t:?}"))
+                            Err(format!("`-` requires number or bigint operand, got {t:?}"))
                         }
                     }
                     crate::ast::UnaryOp::BitNot => {

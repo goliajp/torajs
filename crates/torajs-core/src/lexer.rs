@@ -5,6 +5,15 @@ pub enum Token {
     Ident(String),
     String(String),
     Number(f64),
+    /// T-25 — `BigInt` literal. Holds the lexeme's digit body
+    /// (without the trailing `n` and without `0x`/`0b`/`0o` radix
+    /// prefix), plus the radix it was written in. The runtime parses
+    /// the digits at allocation time. Always non-negative — leading
+    /// `-` is tokenized as a unary op.
+    BigInt {
+        digits: String,
+        radix: u32,
+    },
     // keywords
     Let,
     Const,
@@ -646,6 +655,13 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                     }
                     let s = std::str::from_utf8(&bytes[hex_start as usize..i as usize])
                         .expect("ascii hex digits are valid utf-8");
+                    /* T-25 BigInt: `0x...n`. Hex-radix BigInt literal. */
+                    if peek(bytes, i) == Some(b'n') {
+                        let digits = s.to_string();
+                        i += 1;
+                        emit(&mut out, Token::BigInt { digits, radix: 16 }, start, i);
+                        continue;
+                    }
                     let n: u64 = u64::from_str_radix(s, 16)
                         .map_err(|_| format!("invalid hex number at {start}"))?;
                     emit(&mut out, Token::Number(n as f64), start, i);
@@ -685,6 +701,22 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                 }
                 let s = std::str::from_utf8(&bytes[start as usize..i as usize])
                     .expect("ascii digits are valid utf-8");
+                /* T-25 BigInt: `<integer>n` literal. Only matches when
+                 * the lexeme has no `.` or `e/E` (decimal-only integer)
+                 * and is followed by `n`. JS rejects `1.5n` / `1e2n`
+                 * at parse time — same here: the `n` falls through to
+                 * the unexpected-byte branch above on a fractional
+                 * literal. */
+                if peek(bytes, i) == Some(b'n')
+                    && !s.contains('.')
+                    && !s.contains('e')
+                    && !s.contains('E')
+                {
+                    let digits = s.to_string();
+                    i += 1;
+                    emit(&mut out, Token::BigInt { digits, radix: 10 }, start, i);
+                    continue;
+                }
                 let n: f64 = s
                     .parse()
                     .map_err(|_| format!("invalid number at {start}"))?;

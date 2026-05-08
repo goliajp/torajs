@@ -364,6 +364,7 @@ fn expr_can_throw(ast: &Ast, eid: ExprId) -> bool {
         Expr::Ident(_)
         | Expr::String(_)
         | Expr::Number(_)
+        | Expr::BigInt { .. }
         | Expr::Bool(_)
         | Expr::Null
         | Expr::Uninit
@@ -562,6 +563,7 @@ fn count_refs_expr(ast: &Ast, eid: ExprId, refs: &mut HashMap<String, usize>) {
         }
         Expr::String(_)
         | Expr::Number(_)
+        | Expr::BigInt { .. }
         | Expr::Bool(_)
         | Expr::Null
         | Expr::Uninit

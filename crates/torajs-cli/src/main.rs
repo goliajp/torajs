@@ -603,14 +603,20 @@ fn run_cache_key(src: &str, import_closure: &[(PathBuf, Vec<u8>)]) -> String {
     }
     env!("CARGO_PKG_VERSION").hash(&mut h);
     "O3".hash(&mut h);
-    /* Hash the build-time epoch (set in build.rs at compile time) so
-     * a freshly-rebuilt `tr` binary doesn't hit cached binaries
-     * compiled by an earlier (potentially buggy) version of itself.
-     * Without this, a fix to ssa_lower / ssa_inkwell looks like it's
-     * not applied because `tr run` keeps re-executing the stale cache
-     * entry — the trap that hid the dispatch-tag-collision bug for
-     * a full session. */
-    env!("TORAJS_BUILD_EPOCH").hash(&mut h);
+    /* Hash the running tr binary's mtime so a freshly-rebuilt tr
+     * binary doesn't hit cached binaries compiled by an earlier
+     * (potentially buggy) version of itself. CARGO_PKG_VERSION stays
+     * at "0.1.0" through 0.x dev so it doesn't differentiate; the
+     * binary mtime does. Reading from the live binary path (not a
+     * build-time stamp) avoids forcing a relink on every cargo run
+     * — the cache key recomputes per-execution anyway. */
+    if let Ok(exe) = std::env::current_exe()
+        && let Ok(meta) = std::fs::metadata(&exe)
+        && let Ok(mtime) = meta.modified()
+        && let Ok(d) = mtime.duration_since(std::time::UNIX_EPOCH)
+    {
+        d.as_secs().hash(&mut h);
+    }
     format!("torajs-{:016x}", h.finish())
 }
 

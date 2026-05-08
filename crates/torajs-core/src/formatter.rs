@@ -756,6 +756,15 @@ impl<'a> Formatter<'a> {
                     self.write(&format!("{n}"));
                 }
             }
+            Expr::BigInt { digits, radix } => {
+                let prefix = match *radix {
+                    16 => "0x",
+                    2 => "0b",
+                    8 => "0o",
+                    _ => "",
+                };
+                self.write(&format!("{prefix}{digits}n"));
+            }
             Expr::Bool(b) => self.write(if *b { "true" } else { "false" }),
             Expr::Null => self.write("null"),
             Expr::Uninit => {} // declared-but-uninit; handled by LetDecl

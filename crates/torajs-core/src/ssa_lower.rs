@@ -650,6 +650,7 @@ fn deep_clone_expr(ast: &mut Ast, eid: ExprId) -> ExprId {
         Expr::Ident(n) => Expr::Ident(n.clone()),
         Expr::String(s) => Expr::String(s.clone()),
         Expr::Number(n) => Expr::Number(*n),
+        Expr::BigInt { digits, radix } => Expr::BigInt { digits: digits.clone(), radix: *radix },
         Expr::Bool(b) => Expr::Bool(*b),
         Expr::Null => Expr::Null,
         Expr::Uninit => Expr::Uninit,
@@ -1941,6 +1942,74 @@ fn lower_inner(
         &[Type::Ptr],
         Type::Void,
     );
+    /* T-25 (v0.7) — BigInt runtime. The literal-from-string path
+     * is the only allocator we wire from ssa_lower today; arithmetic
+     * intrinsics dispatch from BinOp lowering for Type::BigInt
+     * operands. Sign/cmp helpers expose i64 booleans for ICmp. */
+    let bigint_from_decimal_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_bigint_from_decimal",
+        &[Type::Str, Type::I64],
+        Type::BigInt,
+    );
+    let bigint_from_hex_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_bigint_from_hex",
+        &[Type::Str, Type::I64],
+        Type::BigInt,
+    );
+    let bigint_add_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_bigint_add",
+        &[Type::BigInt, Type::BigInt],
+        Type::BigInt,
+    );
+    let bigint_sub_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_bigint_sub",
+        &[Type::BigInt, Type::BigInt],
+        Type::BigInt,
+    );
+    let bigint_mul_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_bigint_mul",
+        &[Type::BigInt, Type::BigInt],
+        Type::BigInt,
+    );
+    let bigint_neg_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_bigint_neg",
+        &[Type::BigInt],
+        Type::BigInt,
+    );
+    let bigint_cmp_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_bigint_cmp",
+        &[Type::BigInt, Type::BigInt],
+        Type::I64,
+    );
+    let bigint_to_string_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_bigint_to_string",
+        &[Type::BigInt],
+        Type::Str,
+    );
+    let bigint_drop_rc_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_bigint_drop_rc",
+        &[Type::BigInt],
+        Type::Void,
+    );
+
     /* T-13.a (v0.4.0) — Symbol value runtime. alloc takes optional
      * desc Str (NULL when omitted); drop is rc-aware + dec's desc;
      * print formats `Symbol(<desc>)` for console.log. */
@@ -3297,6 +3366,15 @@ fn lower_inner(
         promise_race_sync: promise_race_sync_id,
         promise_any_sync: promise_any_sync_id,
         promise_allsettled_sync: promise_allsettled_sync_id,
+        bigint_from_decimal: bigint_from_decimal_id,
+        bigint_from_hex: bigint_from_hex_id,
+        bigint_add: bigint_add_id,
+        bigint_sub: bigint_sub_id,
+        bigint_mul: bigint_mul_id,
+        bigint_neg: bigint_neg_id,
+        bigint_cmp: bigint_cmp_id,
+        bigint_to_string: bigint_to_string_id,
+        bigint_drop_rc: bigint_drop_rc_id,
         symbol_alloc: symbol_alloc_id,
         symbol_drop: symbol_drop_id,
         symbol_print: symbol_print_id,
@@ -3929,6 +4007,15 @@ struct Intrinsics {
     promise_race_sync: FuncId,
     promise_any_sync: FuncId,
     promise_allsettled_sync: FuncId,
+    bigint_from_decimal: FuncId,
+    bigint_from_hex: FuncId,
+    bigint_add: FuncId,
+    bigint_sub: FuncId,
+    bigint_mul: FuncId,
+    bigint_neg: FuncId,
+    bigint_cmp: FuncId,
+    bigint_to_string: FuncId,
+    bigint_drop_rc: FuncId,
     symbol_alloc: FuncId,
     symbol_drop: FuncId,
     symbol_print: FuncId,
@@ -4672,6 +4759,9 @@ fn parse_type(
         // T-13.a (v0.4.0) — Symbol value. Heap-allocated 16-byte
         // block, identity is pointer identity. Lowers to ptr.
         "symbol" => Type::Symbol,
+        // T-25 (v0.7) — BigInt value. Heap-allocated sign-magnitude
+        // struct (runtime_bigint.c). Lowers to ptr.
+        "bigint" => Type::BigInt,
         other => match aliases.get(other) {
             Some(ty) => *ty,
             None => panic!("ssa-lower: unsupported type annotation `{other}`"),
@@ -5559,6 +5649,41 @@ impl<'a> LowerCtx<'a> {
                 }
                 return;
             }
+            /* T-25 — BigInt prints via bigint_to_string + str_concat
+             * with `"n"` (matches node/bun console.log formatting,
+             * which appends the `n` suffix even though `toString()`
+             * itself doesn't). The two intermediate Strs are
+             * fresh-owned: drop both after print. The BigInt input
+             * drops if the source binding wasn't a borrow target. */
+            if arg_ty == Type::BigInt {
+                let body = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.bigint_to_string, vec![arg]),
+                    Type::Str,
+                    None,
+                );
+                let n_lit = self.intern_string_literal("n");
+                let formatted = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(
+                        self.intrinsics.str_concat,
+                        vec![Operand::Value(body), Operand::Value(n_lit)],
+                    ),
+                    Type::Str,
+                    None,
+                );
+                let target = self.console_print_target(method, Type::Str);
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Call(target, vec![Operand::Value(formatted)]),
+                );
+                self.emit_drop_value(Operand::Value(formatted), Type::Str);
+                self.emit_drop_value(Operand::Value(body), Type::Str);
+                if !is_borrow {
+                    self.emit_drop_value(arg, Type::BigInt);
+                }
+                return;
+            }
             let is_str = arg_ty == Type::Str;
             let target = self.console_print_target(method, arg_ty);
             self.f
@@ -5809,6 +5934,31 @@ impl<'a> LowerCtx<'a> {
                     None,
                 );
                 Operand::Value(v)
+            }
+            Type::BigInt => {
+                /* T-25 — bigint_to_string + concat with `"n"` to
+                 * match node/bun's console.log formatting. The
+                 * caller will drop the resulting Str. The BigInt
+                 * input itself is dropped by the caller's binding-
+                 * lifetime walk; nothing to do here. */
+                let body = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.bigint_to_string, vec![val]),
+                    Type::Str,
+                    None,
+                );
+                let n_lit = self.intern_string_literal("n");
+                let formatted = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(
+                        self.intrinsics.str_concat,
+                        vec![Operand::Value(body), Operand::Value(n_lit)],
+                    ),
+                    Type::Str,
+                    None,
+                );
+                self.emit_drop_value(Operand::Value(body), Type::Str);
+                Operand::Value(formatted)
             }
             other => panic!(
                 "ssa-lower: console multi-arg coercion of type {other:?} not supported"
@@ -7469,6 +7619,14 @@ impl<'a> LowerCtx<'a> {
                 self.f.append_void(
                     self.cur_block,
                     InstKind::Call(self.intrinsics.promise_drop, vec![val]),
+                );
+            }
+            Type::BigInt => {
+                /* T-25 — rc-aware drop. Decrements; frees only on
+                 * last owner. The C side is `bigint_drop_rc`. */
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.bigint_drop_rc, vec![val]),
                 );
             }
             other if other.is_copy() => {
@@ -9791,6 +9949,34 @@ impl<'a> LowerCtx<'a> {
                 let s = s.clone();
                 Operand::Value(self.intern_string_literal(&s))
             }
+            /* T-25 (v0.7) — BigInt literal lowers to a runtime call:
+             *   __torajs_bigint_from_decimal(<str>, <len>)
+             * (or _from_hex for `0xN n` literals). The digit body is
+             * interned as a Str literal whose body lives in `.rodata`;
+             * the runtime walks past the heap header (offset 16) at
+             * the call site to read the digit bytes. Passing the Str
+             * pointer directly keeps the SSA arithmetic clean — no
+             * pointer-to-int casts. */
+            Expr::BigInt { digits, radix } => {
+                let body = digits.clone();
+                let len = body.as_bytes().len() as i64;
+                let s_ptr = self.intern_string_literal(&body);
+                let intrinsic = if *radix == 16 {
+                    self.intrinsics.bigint_from_hex
+                } else {
+                    self.intrinsics.bigint_from_decimal
+                };
+                let v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(
+                        intrinsic,
+                        vec![Operand::Value(s_ptr), Operand::ConstI64(len)],
+                    ),
+                    Type::BigInt,
+                    None,
+                );
+                Operand::Value(v)
+            }
             // v0.2 #1 — regex literal `/pat/flags`. Lower to a runtime
             // call to `__torajs_regex_compile(pat_str, flags_str)`
             // returning a freshly allocated RegExp. Pattern + flags are
@@ -10281,6 +10467,22 @@ impl<'a> LowerCtx<'a> {
                     crate::ast::UnaryOp::Neg => {
                         let v_ty = self.operand_ty(&v);
                         match v_ty {
+                            Type::BigInt => {
+                                // T-25 — fresh +1 rc BigInt with
+                                // sign flipped. Drop responsibility
+                                // matches the rest of the BigInt
+                                // arithmetic path (caller side).
+                                let r = self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::Call(
+                                        self.intrinsics.bigint_neg,
+                                        vec![v],
+                                    ),
+                                    Type::BigInt,
+                                    None,
+                                );
+                                return Operand::Value(r);
+                            }
                             Type::F64 => {
                                 // Use -0.0 (not +0.0) as the LHS so the
                                 // ±0 sign is preserved: IEEE 754 gives
@@ -17005,6 +17207,7 @@ impl<'a> LowerCtx<'a> {
                     Type::Bool => "boolean",
                     Type::Str | Type::Substr => "string",
                     Type::Symbol => "symbol",
+                    Type::BigInt => "bigint",
                     Type::Obj(_)
                     | Type::Arr(_)
                     | Type::Closure(_)
@@ -17750,6 +17953,60 @@ impl<'a> LowerCtx<'a> {
     }
 
     fn lower_binop(&mut self, op: AstBinOp, a: Operand, b: Operand) -> Operand {
+        /* T-25 — BigInt arithmetic / comparison. Routes (BigInt op
+         * BigInt) to the runtime helpers; Add/Sub/Mul return a fresh
+         * BigInt, comparisons return Bool via cmp + ICmp.
+         * lower_binop's caller drops the inputs (BigInt is refcounted),
+         * matching the existing Str/Substr concat ownership shape. */
+        {
+            let a_ty = self.operand_ty(&a);
+            let b_ty = self.operand_ty(&b);
+            if a_ty == Type::BigInt && b_ty == Type::BigInt {
+                let arith = match op {
+                    AstBinOp::Add => Some(self.intrinsics.bigint_add),
+                    AstBinOp::Sub => Some(self.intrinsics.bigint_sub),
+                    AstBinOp::Mul => Some(self.intrinsics.bigint_mul),
+                    _ => None,
+                };
+                if let Some(fid) = arith {
+                    let v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(fid, vec![a, b]),
+                        Type::BigInt,
+                        None,
+                    );
+                    return Operand::Value(v);
+                }
+                if matches!(
+                    op,
+                    AstBinOp::Lt | AstBinOp::Gt | AstBinOp::Le | AstBinOp::Ge
+                        | AstBinOp::Eq | AstBinOp::Neq
+                ) {
+                    let c = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(self.intrinsics.bigint_cmp, vec![a, b]),
+                        Type::I64,
+                        None,
+                    );
+                    let pred = match op {
+                        AstBinOp::Lt => IPred::Slt,
+                        AstBinOp::Gt => IPred::Sgt,
+                        AstBinOp::Le => IPred::Sle,
+                        AstBinOp::Ge => IPred::Sge,
+                        AstBinOp::Eq => IPred::Eq,
+                        AstBinOp::Neq => IPred::Ne,
+                        _ => unreachable!(),
+                    };
+                    let r = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::ICmp(pred, Operand::Value(c), Operand::ConstI64(0)),
+                        Type::Bool,
+                        None,
+                    );
+                    return Operand::Value(r);
+                }
+            }
+        }
         // String concat short-circuit. Routes `str + str` to the runtime
         // concat intrinsic, which takes ownership of both operands.
         // Mixed Number+String / String+Number coerce the number to its

@@ -46,6 +46,11 @@ pub const RUNTIME_FETCH_C: &str = include_str!("runtime_fetch.c");
 /// names when target=Wasm32Wasi; native keeps calling raw libc.
 pub const RUNTIME_LIBC_BRIDGE_C: &str = include_str!("runtime_libc_bridge.c");
 
+/// v0.7 T-25 — BigInt self-hosted substrate. Sign-magnitude with
+/// u64-limb little-endian magnitude; schoolbook add/sub/mul/cmp +
+/// decimal-chunk to-string. No libgmp (pillar 2 自研).
+pub const RUNTIME_BIGINT_C: &str = include_str!("runtime_bigint.c");
+
 /// All C runtime translation units in (filename, contents) form, in
 /// the order they should be written + cc'd. Filename is the basename
 /// the compiler should write into the per-build temp directory.
@@ -56,4 +61,5 @@ pub const SOURCES: &[(&str, &str)] = &[
     ("runtime_promise.c", RUNTIME_PROMISE_C),
     ("runtime_fetch.c", RUNTIME_FETCH_C),
     ("runtime_libc_bridge.c", RUNTIME_LIBC_BRIDGE_C),
+    ("runtime_bigint.c", RUNTIME_BIGINT_C),
 ];

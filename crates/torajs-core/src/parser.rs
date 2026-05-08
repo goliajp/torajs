@@ -2307,6 +2307,12 @@ impl Parser<'_> {
                 self.pos += 1;
                 Ok(self.ast.add_expr(Expr::Number(n)))
             }
+            Token::BigInt { digits, radix } => {
+                let digits = digits.clone();
+                let radix = *radix;
+                self.pos += 1;
+                Ok(self.ast.add_expr(Expr::BigInt { digits, radix }))
+            }
             Token::True => {
                 self.pos += 1;
                 Ok(self.ast.add_expr(Expr::Bool(true)))

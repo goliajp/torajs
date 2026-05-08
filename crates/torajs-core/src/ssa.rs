@@ -161,6 +161,12 @@ pub enum Type {
     /// the SSA layer — the runtime always sees an i64-shaped value
     /// slot regardless of T.
     Promise,
+    /// T-25 (v0.7) — `Type::BigInt`. Sign-magnitude heap struct
+    /// `runtime_bigint.c`: universal heap header + sign u32 + len u32
+    /// + words u64[len]. Lowers to a single pointer at the SSA layer.
+    /// Drop routes through `__torajs_value_drop_heap`'s TAG_BIGINT
+    /// case (rc-aware free).
+    BigInt,
     /// T-10 (v0.4.0) — `Type::Any` carries a tagged value at runtime:
     /// either a primitive (i64 / f64 / bool / null) or a heap pointer
     /// (Str / Obj / Arr / Closure / RegExp / Date). At the SSA layer
@@ -195,6 +201,7 @@ impl Type {
             Type::Any => "any",
             Type::Symbol => "symbol",
             Type::Promise => "promise",
+            Type::BigInt => "bigint",
         }
     }
 
@@ -242,6 +249,7 @@ impl Type {
                 | Type::Any
                 | Type::Symbol
                 | Type::Promise
+                | Type::BigInt
         )
     }
 }

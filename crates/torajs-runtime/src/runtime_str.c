@@ -151,6 +151,7 @@ typedef struct __attribute__((aligned(8))) {
 /* TAG 8 = Promise (runtime_promise.c) — its drop hook handles its own
  * universal-header free dispatch, not routed through value_drop_heap. */
 #define __TORAJS_TAG_RESPONSE 9 /* T-21 — fetch() Response: header + status + body Str* */
+#define __TORAJS_TAG_BIGINT  10 /* T-25 — BigInt: header + sign u32 + len u32 + words[len] (little-endian u64 magnitude) */
 
 /* T-10.b (v0.4.0) — Type::Any tagged-slot tags. An Array<Any> stores
  * 16-byte slots `{ tag: u64 (low 8 bits used), value: u64 }` so each
@@ -628,6 +629,7 @@ void __torajs_arr_drop(void *a);
 #ifndef __wasi__
 extern void __torajs_response_drop(void *p);
 #endif
+extern void __torajs_bigint_drop(void *p);
 
 void __torajs_value_drop_heap(void *child) {
     if (child == NULL) return;
@@ -638,6 +640,12 @@ void __torajs_value_drop_heap(void *child) {
 #ifndef __wasi__
         case __TORAJS_TAG_RESPONSE: __torajs_response_drop(child); break;
 #endif
+        case __TORAJS_TAG_BIGINT: {
+            /* T-25 — BigInt has no inner refs; rc-dec + the
+             * type's drop handle (which just `free`s). */
+            if (__torajs_rc_dec(child)) __torajs_bigint_drop(child);
+            break;
+        }
         default:                /* Obj / Substr / Closure / RegExp /
                                  * Date / ANY_BOX — fallback rc_dec +
                                  * free; may leak inner refs. */
