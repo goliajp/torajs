@@ -1,5 +1,100 @@
 # Changelog
 
+## v0.6.0 — 2026-05-08
+
+Fifth release after `v0.5.0` (same day). Closes the **v0.6.0 sequence**
+(T-20 / T-21 / T-22 / T-23) of the perf-gated 33-item plan from
+`v0.3.0` (see [`docs/roadmap.md`](docs/roadmap.md) → "Roadmap v2").
+
+Theme: **wasm target + HTTP fetch + sandboxed playground at
+torajs.com**. tr now builds three flavors of artifact (native AOT,
+`tr run` cache hit, wasm32-wasi) from the same TS source, ships
+`fetch(url)` as a first-class API, and exposes the whole stack
+through a Monaco editor + sandboxed-compile API at
+torajs.com/playground.
+
+### Headlines
+
+- **`tr build --target wasm32-wasi -o foo.wasm`** — full wasm
+  pipeline. Compiles + links via LLVM 22 + wasi-libc + wasm-ld.
+  Produces a `.wasm` module that runs cleanly under wasmtime /
+  wasmer / Node's wasi module with byte-identical output to the
+  native build (arithmetic, arrays, strings, async/await, Promise
+  chains all verified). Wasm artifact is ~37 KB for the
+  multi-feature stress test (vs 63 MB bun-aot binary).
+  Substrate: a 32-bit ABI bridge (`runtime_libc_bridge.c`) so
+  tora's i64 size_t maps cleanly to wasi-libc's i32; main symbol
+  renamed to `__main_argc_argv` to match wasi-libc's `__main_void`
+  shim.
+- **`fetch(url): Promise<Response>`** — sync MVP via libcurl. The
+  Response heap struct (24 B: header + status i64 + body Str*)
+  exposes `.text(): Promise<string>` and `.status: number`.
+  Follow-redirects on; 30 s total / 10 s connect timeout; HTTPS
+  via system trust store. Wasm-side fetch (browser fetch API)
+  ships post-v0.6 alongside an emscripten-compatible runtime.
+- **torajs.com/playground** — Monaco editor, curated examples,
+  URL-encoded share-link (gzip + base64url so a /playground link
+  carries the program inline), and a sandboxed Run that actually
+  executes user TS:
+  - Frontend: react-router 7 route mounts Monaco from CDN + new
+    `views/playground.tsx`.
+  - Backend (new crate `torajs-playground-api`): axum 0.8 + tokio.
+    `POST /api/run` SHA-256-hashes the source → on-disk cache hit
+    → otherwise `tr build --target wasm32-wasi` → `wasmtime -W
+    fuel=2G timeout=5s max-memory=64MiB` with a 5 s tokio-side
+    wall-clock as defense-in-depth. No filesystem mounts; per-IP
+    rate limit (4-burst / 15 s refill via tower_governor's
+    SmartIpKeyExtractor); 8 KB source cap.
+- **torajs.com/bench** — auto-rendered bench scoreboard from
+  `bench/results/*.json`. Per-cell tone scales with vs-torajs
+  ratio (lighter = slower; darker = faster); hover for hyperfine
+  stddev.
+
+### Numbers (HEAD `69ee342`, 2026-05-08)
+
+| metric | value |
+|---|---|
+| conformance suite | **370 pass / 0 fail / 1 skip** (was 370/0/1 at v0.5.0 — preserved through 8 substrate steps) |
+| bug bucket | **0** (preserved through 50 commits) |
+| compile-error bucket | **0** |
+| wasm32-wasi target | **end-to-end working** (hello / arithmetic / arrays / strings / async fn / Promise chains all byte-identical to native) |
+| bench scoreboard | **21 / 21** `tr build` ≥ ok vs bun-aot (preserved) |
+| async bench | **5 / 5** `tr build` ≥ ok vs bun-aot |
+| binary size (typical bench, native) | **36–38 KB** (vs bun-aot 63 MB) |
+| binary size (wasm) | **15–37 KB** depending on substrate use |
+
+### v0.6 substrate detail
+
+- **T-20** wasm32-wasi target — Phase A toolchain wiring
+  (CompileTarget enum + brew-detection of llvm@22 / wasi-libc /
+  wasi-runtimes), Phase B 32-bit ABI bridge (libc_name resolver
+  + `runtime_libc_bridge.c` `__torajs_libc_*` wrappers + main
+  rename for the wasi-libc `__main_void` shim).
+- **T-21** native fetch — `runtime_fetch.c` libcurl wrapper +
+  TAG_RESPONSE = 9 in value_drop_heap dispatch + check.rs
+  `(Type::Object("Response"), .text/.status)` arms +
+  `parse_type` "Response" → Type::Ptr.
+- **T-22** Playground — Phase A Monaco editor + URL share +
+  examples, Phase B `torajs-playground-api` axum crate with
+  sandboxed compile + run.
+- **T-23** bench scoreboard auto-render at /bench.
+
+### Scope notes
+
+- **Wasm sandbox is bare** — no filesystem, no network. The wasm
+  module's `fs/promises` and `fetch` calls fail cleanly inside
+  the playground's wasmtime invocation. Run locally with
+  `tr run` for the full surface.
+- **Playground deploy** — Caddy + systemd unit on t01 ships as
+  a follow-up doc commit; per-deploy config doesn't belong in
+  the binary.
+
+### Roadmap
+
+v0.7+ = T-24..T-29: vtable upgrade, BigInt, WeakRef + cycle
+collector, Function ctor + eval, multi-platform release expansion,
+`tr debug` (DAP). takagi confirmed v0.6 close → perf focus next.
+
 ## v0.5.0 — 2026-05-08
 
 Fourth release after `v0.4.0`. Closes the **v0.5.0 sequence**
