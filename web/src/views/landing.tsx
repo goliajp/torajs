@@ -65,6 +65,9 @@ function Header() {
         <a className="hover:text-tiger-bright transition-colors" href="#bench">
           Bench
         </a>
+        <a className="hover:text-tiger-bright transition-colors" href="/playground">
+          Playground
+        </a>
         <a className="hover:text-tiger-bright transition-colors" href="#status">
           Status
         </a>
