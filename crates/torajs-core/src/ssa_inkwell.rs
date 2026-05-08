@@ -769,13 +769,22 @@ pub fn compile_for(
             for op in &o_paths {
                 link_cmd.arg(op);
             }
-            // T-21 (v0.6.0) — runtime_fetch.c uses libcurl for the
-            // sync HTTP fetch. macOS + linux both ship libcurl in
-            // their default toolchain (system libcurl on macOS,
-            // libcurl4 via apt on linux). Static linking is feasible
-            // post-T-21 once we figure out how to bundle the TLS
-            // root store cleanly.
-            link_cmd.arg("-lcurl");
+            /* T-21 (v0.6.0) — runtime_fetch.c uses libcurl for the
+             * sync HTTP fetch. Only link libcurl when the user
+             * program actually references `fetch(...)`; otherwise
+             * dyld would still load libcurl + its TLS deps at
+             * process start, regressing every short-running case
+             * by ~0.7ms (fifo-queue-100k / stack-pop-1m / startup).
+             *
+             * Detection: scan the SSA module for any Call whose
+             * callee is the fetch_sync intrinsic (declared by
+             * ssa_lower only when the program contains a `fetch`
+             * call site). Keep this conditional sharp — adding
+             * libcurl for a feature the program doesn't use is
+             * dead weight. */
+            if module_uses_fetch(ssa_module) {
+                link_cmd.arg("-lcurl");
+            }
             link_cmd.arg("-o").arg(out_path);
         }
         CompileTarget::Wasm32Wasi => {
@@ -1495,6 +1504,26 @@ fn mark_memory_none<'ctx>(ctx: &'ctx Context, f: FunctionValue<'ctx>) {
 /// "no read AND no write"; a fn with Load wouldn't qualify here).
 /// We err on the strict side: only fns with literally zero memory
 /// inst kinds get tagged.
+/// T-21 link-time gate. Walk every fn's instructions; return true iff
+/// any Call targets a function named `__torajs_fetch_sync`. The
+/// intrinsic is only declared (and only ever called) when ssa_lower
+/// has lowered a `fetch(url)` site, so this doubles as "does the
+/// program use fetch".
+fn module_uses_fetch(module: &Module) -> bool {
+    for f in &module.funcs {
+        for blk in &f.blocks {
+            for inst in &blk.insts {
+                if let InstKind::Call(fid, _) = &inst.kind
+                    && module.func_name(*fid) == "__torajs_fetch_sync"
+                {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
 fn ssa_fn_is_pure(f: &s::Function) -> bool {
     for blk in &f.blocks {
         for inst in &blk.insts {
