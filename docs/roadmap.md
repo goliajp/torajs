@@ -508,7 +508,7 @@ every ✅ has its commit hash + conformance gate recorded below.
 
 ### Phase 1 — close BigInt arithmetic surface
 
-- [ ] **V3-01** BigInt `**` exponent. Square-and-multiply; negative exponent → `RangeError` per spec. ~50 LOC.
+- [x] **V3-01** BigInt `**` exponent — shipped `cfa85ef` (376/0/1). Also brought up Number `**` end-to-end since `**` token didn't exist. Square-and-multiply over exp bits; negative exp → RangeError; 0n**0n = 1n per spec quirk; sign rule = (base.sign && exp_lowbit) ? neg : pos.
 - [ ] **V3-02** BigInt bitwise (`& | ^ ~ << >>`). Two's-complement simulation since BigInt has no fixed width. ~150 LOC.
 - [ ] **V3-03** `BigInt(value)` ctor — string parse / number-with-Math.trunc / bigint-clone. ~80 LOC.
 - [ ] **V3-04** Karatsuba multiplication (perf only; threshold ~32 limbs). Schoolbook stays default below threshold.
