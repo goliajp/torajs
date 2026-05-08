@@ -37,6 +37,15 @@ pub const RUNTIME_PROMISE_C: &str = include_str!("runtime_promise.c");
 /// API instead (T-21.b).
 pub const RUNTIME_FETCH_C: &str = include_str!("runtime_fetch.c");
 
+/// v0.6 T-20.b — wasm32-wasi libc ABI bridge. The whole TU is
+/// gated on `#ifdef __wasi__` so the native object is empty;
+/// on wasm it provides `__torajs_libc_*` wrappers that take
+/// `int64_t` (matching tora SSA's Type::I64 size) and pass
+/// through to libc with an implicit truncation to size_t (i32
+/// on wasm32). ssa_inkwell switches its libc declares to these
+/// names when target=Wasm32Wasi; native keeps calling raw libc.
+pub const RUNTIME_LIBC_BRIDGE_C: &str = include_str!("runtime_libc_bridge.c");
+
 /// All C runtime translation units in (filename, contents) form, in
 /// the order they should be written + cc'd. Filename is the basename
 /// the compiler should write into the per-build temp directory.
@@ -46,4 +55,5 @@ pub const SOURCES: &[(&str, &str)] = &[
     ("runtime_date.c", RUNTIME_DATE_C),
     ("runtime_promise.c", RUNTIME_PROMISE_C),
     ("runtime_fetch.c", RUNTIME_FETCH_C),
+    ("runtime_libc_bridge.c", RUNTIME_LIBC_BRIDGE_C),
 ];

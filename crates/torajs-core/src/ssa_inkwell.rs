@@ -140,10 +140,10 @@ pub fn compile_for(
 
     // Pass A: declare libc decls + the intrinsics whose body the backend owns.
     let putchar = declare_putchar(&ctx, &llvm_module);
-    let malloc = declare_malloc(&ctx, &llvm_module);
-    let memcpy = declare_memcpy(&ctx, &llvm_module);
-    let memmove = declare_memmove(&ctx, &llvm_module);
-    let memcmp = declare_memcmp(&ctx, &llvm_module);
+    let malloc = declare_malloc(&ctx, &llvm_module, target);
+    let memcpy = declare_memcpy(&ctx, &llvm_module, target);
+    let memmove = declare_memmove(&ctx, &llvm_module, target);
+    let memcmp = declare_memcmp(&ctx, &llvm_module, target);
 
     // Pass B: emit string-literal globals (LLVM `[N x i8]` private constants).
     // Indexed by StringId so callsites resolve via slice indexing.
@@ -178,8 +178,8 @@ pub fn compile_for(
     // Pass C: walk every SSA function and create a corresponding LLVM
     // FunctionValue. Backend-owned intrinsics get a body here; everything
     // else gets a declaration that pass D fills in.
-    let free = declare_free(&ctx, &llvm_module);
-    let realloc = declare_realloc(&ctx, &llvm_module);
+    let free = declare_free(&ctx, &llvm_module, target);
+    let realloc = declare_realloc(&ctx, &llvm_module, target);
     let str_free = declare_str_free(&ctx, &llvm_module);
     let str_alloc_pooled = declare_str_alloc_pooled(&ctx, &llvm_module);
     let arr_free = declare_arr_free(&ctx, &llvm_module);
@@ -228,7 +228,7 @@ pub fn compile_for(
                 // Apple's system clang produces incompatible bitcode
                 // for the C side. alwaysinline makes the inliner
                 // skip cost-model and always splice the body in.
-                let f = define_split_iter_next(&ctx, &llvm_module);
+                let f = define_split_iter_next(&ctx, &llvm_module, target);
                 mark_alwaysinline(&ctx, f);
                 f
             }
@@ -387,7 +387,7 @@ pub fn compile_for(
             "__torajs_throw_take" => {
                 define_throw_take(&ctx, &llvm_module)
             }
-            _ => declare_ssa_fn(&ctx, &llvm_module, f),
+            _ => declare_ssa_fn(&ctx, &llvm_module, f, target),
         };
         // Tag malloc-shaped intrinsics with `noalias` on the return so
         // LLVM can hoist invariant loads through stores via other heap
@@ -604,6 +604,15 @@ pub fn compile_for(
     machine
         .write_to_file(&llvm_module, FileType::Object, &obj_path)
         .map_err(|e| CompileError::Emit(e.to_string()))?;
+    /* T-20.b debug — when env var set, also dump LLVM IR + .o
+     * copy for postmortem of wasm signature errors. */
+    if std::env::var("TR_DEBUG_KEEP").is_ok() {
+        let _ = std::fs::write(
+            "/tmp/torajs-debug.ll",
+            llvm_module.print_to_string().to_string(),
+        );
+        let _ = std::fs::copy(&obj_path, "/tmp/torajs-debug.o");
+    }
 
     // M6.1+ — torajs's C runtime. Pieces that are clearer in C than
     // via the inkwell IR-builder API (string split, array join,
@@ -812,42 +821,84 @@ fn declare_putchar<'ctx>(ctx: &'ctx Context, m: &LlvmModule<'ctx>) -> FunctionVa
     m.add_function("putchar", fn_t, None)
 }
 
-fn declare_malloc<'ctx>(ctx: &'ctx Context, m: &LlvmModule<'ctx>) -> FunctionValue<'ctx> {
+/// T-20.b (v0.6.0) — pick the libc fn name based on target. On
+/// native, IR calls libc directly with `i64` size args (matches
+/// the platform's 64-bit size_t). On wasm32-wasi, libc has 32-bit
+/// size_t and wasm makes function-type identity part of the type
+/// system; routing through the `__torajs_libc_*` bridge in
+/// `runtime_libc_bridge.c` keeps the IR-side i64 ABI uniform
+/// while the C bridge does the (size_t)i64 truncation.
+fn libc_name(native: &'static str, target: CompileTarget) -> &'static str {
+    match target {
+        CompileTarget::Native => native,
+        CompileTarget::Wasm32Wasi => match native {
+            "malloc" => "__torajs_libc_malloc",
+            "realloc" => "__torajs_libc_realloc",
+            "memcpy" => "__torajs_libc_memcpy",
+            "memmove" => "__torajs_libc_memmove",
+            "memcmp" => "__torajs_libc_memcmp",
+            "free" => "__torajs_libc_free",
+            _ => panic!("libc_name: no wasm bridge for `{native}`"),
+        },
+    }
+}
+
+fn declare_malloc<'ctx>(
+    ctx: &'ctx Context,
+    m: &LlvmModule<'ctx>,
+    target: CompileTarget,
+) -> FunctionValue<'ctx> {
     let i64_t = ctx.i64_type();
     let ptr_t = ctx.ptr_type(AddressSpace::default());
     let fn_t = ptr_t.fn_type(&[i64_t.into()], false);
-    m.add_function("malloc", fn_t, None)
+    m.add_function(libc_name("malloc", target), fn_t, None)
 }
 
-fn declare_realloc<'ctx>(ctx: &'ctx Context, m: &LlvmModule<'ctx>) -> FunctionValue<'ctx> {
+fn declare_realloc<'ctx>(
+    ctx: &'ctx Context,
+    m: &LlvmModule<'ctx>,
+    target: CompileTarget,
+) -> FunctionValue<'ctx> {
     let i64_t = ctx.i64_type();
     let ptr_t = ctx.ptr_type(AddressSpace::default());
     // void* realloc(void *p, size_t new_size)
     let fn_t = ptr_t.fn_type(&[ptr_t.into(), i64_t.into()], false);
-    m.add_function("realloc", fn_t, None)
+    m.add_function(libc_name("realloc", target), fn_t, None)
 }
 
-fn declare_memcpy<'ctx>(ctx: &'ctx Context, m: &LlvmModule<'ctx>) -> FunctionValue<'ctx> {
+fn declare_memcpy<'ctx>(
+    ctx: &'ctx Context,
+    m: &LlvmModule<'ctx>,
+    target: CompileTarget,
+) -> FunctionValue<'ctx> {
     let i64_t = ctx.i64_type();
     let ptr_t = ctx.ptr_type(AddressSpace::default());
     // void* memcpy(void *dst, const void *src, size_t n)  — return ignored
     let fn_t = ptr_t.fn_type(&[ptr_t.into(), ptr_t.into(), i64_t.into()], false);
-    m.add_function("memcpy", fn_t, None)
+    m.add_function(libc_name("memcpy", target), fn_t, None)
 }
 
-fn declare_memmove<'ctx>(ctx: &'ctx Context, m: &LlvmModule<'ctx>) -> FunctionValue<'ctx> {
+fn declare_memmove<'ctx>(
+    ctx: &'ctx Context,
+    m: &LlvmModule<'ctx>,
+    target: CompileTarget,
+) -> FunctionValue<'ctx> {
     let i64_t = ctx.i64_type();
     let ptr_t = ctx.ptr_type(AddressSpace::default());
     // void* memmove(void *dst, const void *src, size_t n) — overlap-safe
     let fn_t = ptr_t.fn_type(&[ptr_t.into(), ptr_t.into(), i64_t.into()], false);
-    m.add_function("memmove", fn_t, None)
+    m.add_function(libc_name("memmove", target), fn_t, None)
 }
 
-fn declare_free<'ctx>(ctx: &'ctx Context, m: &LlvmModule<'ctx>) -> FunctionValue<'ctx> {
+fn declare_free<'ctx>(
+    ctx: &'ctx Context,
+    m: &LlvmModule<'ctx>,
+    target: CompileTarget,
+) -> FunctionValue<'ctx> {
     let void_t = ctx.void_type();
     let ptr_t = ctx.ptr_type(AddressSpace::default());
     let fn_t = void_t.fn_type(&[ptr_t.into()], false);
-    m.add_function("free", fn_t, None)
+    m.add_function(libc_name("free", target), fn_t, None)
 }
 
 /// `__torajs_str_free(uint8_t *p)` — pool-aware Str free. Defined in
@@ -902,6 +953,7 @@ fn declare_str_alloc_pooled<'ctx>(ctx: &'ctx Context, m: &LlvmModule<'ctx>) -> F
 fn define_split_iter_next<'ctx>(
     ctx: &'ctx Context,
     m: &LlvmModule<'ctx>,
+    target: CompileTarget,
 ) -> FunctionValue<'ctx> {
     let builder = ctx.create_builder();
     let i64_t = ctx.i64_type();
@@ -1044,7 +1096,12 @@ fn define_split_iter_next<'ctx>(
     builder.position_at_end(multi_check_match);
     // memcmp(parent_bytes + mk, sep_data, sep_len)
     let cand_ptr = unsafe { builder.build_in_bounds_gep(i8_t, parent_bytes, &[mk_val], "cand").unwrap() };
-    let memcmp_fn = m.get_function("memcmp").expect("memcmp declared");
+    // T-20.b — `m.get_function` must use the same target-resolved
+    // name we declared with above. On wasm32-wasi the bridge
+    // intercepts `memcmp` → `__torajs_libc_memcmp`.
+    let memcmp_fn = m
+        .get_function(libc_name("memcmp", target))
+        .expect("memcmp declared");
     let cmp = builder
         .build_call(memcmp_fn, &[cand_ptr.into(), sep_data.into(), sep_len.into()], "cmp")
         .unwrap()
@@ -1178,13 +1235,17 @@ fn declare_arr_alloc_pooled<'ctx>(ctx: &'ctx Context, m: &LlvmModule<'ctx>) -> F
     m.add_function("__torajs_arr_alloc_pooled", fn_t, None)
 }
 
-fn declare_memcmp<'ctx>(ctx: &'ctx Context, m: &LlvmModule<'ctx>) -> FunctionValue<'ctx> {
+fn declare_memcmp<'ctx>(
+    ctx: &'ctx Context,
+    m: &LlvmModule<'ctx>,
+    target: CompileTarget,
+) -> FunctionValue<'ctx> {
     let i32_t = ctx.i32_type();
     let i64_t = ctx.i64_type();
     let ptr_t = ctx.ptr_type(AddressSpace::default());
     // int memcmp(const void *a, const void *b, size_t n)
     let fn_t = i32_t.fn_type(&[ptr_t.into(), ptr_t.into(), i64_t.into()], false);
-    m.add_function("memcmp", fn_t, None)
+    m.add_function(libc_name("memcmp", target), fn_t, None)
 }
 
 /// Phase B refcount: every Str heap object begins with the universal
@@ -3362,6 +3423,7 @@ fn declare_ssa_fn<'ctx>(
     ctx: &'ctx Context,
     m: &LlvmModule<'ctx>,
     f: &s::Function,
+    target: CompileTarget,
 ) -> FunctionValue<'ctx> {
     /* The synthesized `main` entry takes argc/argv at the LLVM ABI
      * level so the C runtime can capture them for `process.argv`.
@@ -3373,7 +3435,17 @@ fn declare_ssa_fn<'ctx>(
         let i32_t = ctx.i32_type();
         let ptr_t = ctx.ptr_type(AddressSpace::default());
         let fn_t = i32_t.fn_type(&[i32_t.into(), ptr_t.into()], false);
-        return m.add_function(&f.name, fn_t, None);
+        // T-20.b — wasi-libc's `__main_void` looks up the user's
+        // entry point under the internal name `__main_argc_argv`
+        // (clang aliases `main` to this on the wasi32 ABI; we
+        // emit IR directly so we have to mint the alias explicitly
+        // by naming our symbol that way). Native keeps the
+        // standard `main` so the OS / cc entry resolves cleanly.
+        let real_name = match target {
+            CompileTarget::Native => "main",
+            CompileTarget::Wasm32Wasi => "__main_argc_argv",
+        };
+        return m.add_function(real_name, fn_t, None);
     }
     let param_tys: Vec<Type> = f.params.iter().map(|&p| f.value_type(p)).collect();
     let fn_t = build_fn_type(ctx, &param_tys, f.ret);
