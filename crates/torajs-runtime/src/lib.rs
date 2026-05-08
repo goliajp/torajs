@@ -51,6 +51,13 @@ pub const RUNTIME_LIBC_BRIDGE_C: &str = include_str!("runtime_libc_bridge.c");
 /// decimal-chunk to-string. No libgmp (pillar 2 自研).
 pub const RUNTIME_BIGINT_C: &str = include_str!("runtime_bigint.c");
 
+/// v0.7 T-26 (slice A) — WeakRef registry. Hashmap-based
+/// (target → list of WeakRef ptrs) gated on a global active count
+/// so non-WeakRef-using programs pay one branch per rc_dec. Cycle
+/// collector + WeakMap/WeakSet build on the same registry in
+/// follow-up slices.
+pub const RUNTIME_WEAKREF_C: &str = include_str!("runtime_weakref.c");
+
 /// All C runtime translation units in (filename, contents) form, in
 /// the order they should be written + cc'd. Filename is the basename
 /// the compiler should write into the per-build temp directory.
@@ -62,4 +69,5 @@ pub const SOURCES: &[(&str, &str)] = &[
     ("runtime_fetch.c", RUNTIME_FETCH_C),
     ("runtime_libc_bridge.c", RUNTIME_LIBC_BRIDGE_C),
     ("runtime_bigint.c", RUNTIME_BIGINT_C),
+    ("runtime_weakref.c", RUNTIME_WEAKREF_C),
 ];

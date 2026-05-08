@@ -167,6 +167,13 @@ pub enum Type {
     /// Drop routes through `__torajs_value_drop_heap`'s TAG_BIGINT
     /// case (rc-aware free).
     BigInt,
+    /// T-26 (v0.7) — `Type::WeakRef`. 16-byte heap struct
+    /// `runtime_weakref.c`: universal heap header + target ptr.
+    /// Target observation is via the global hash registry; no
+    /// strong rc held on the target. `wr.deref()` returns the
+    /// target rc-bumped (caller takes ownership) or null when the
+    /// target has been reclaimed. Lowers to a single pointer.
+    WeakRef,
     /// T-10 (v0.4.0) — `Type::Any` carries a tagged value at runtime:
     /// either a primitive (i64 / f64 / bool / null) or a heap pointer
     /// (Str / Obj / Arr / Closure / RegExp / Date). At the SSA layer
@@ -202,6 +209,7 @@ impl Type {
             Type::Symbol => "symbol",
             Type::Promise => "promise",
             Type::BigInt => "bigint",
+            Type::WeakRef => "weakref",
         }
     }
 
@@ -250,6 +258,7 @@ impl Type {
                 | Type::Symbol
                 | Type::Promise
                 | Type::BigInt
+                | Type::WeakRef
         )
     }
 }

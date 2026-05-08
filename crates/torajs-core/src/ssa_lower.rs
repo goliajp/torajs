@@ -2009,6 +2009,39 @@ fn lower_inner(
         &[Type::BigInt],
         Type::Void,
     );
+    /* T-26 (v0.7) — WeakRef substrate. create takes a target ptr
+     * (any heap type, type-erased to Ptr at the SSA layer); deref
+     * returns the target +1 rc'd on success or NULL when the
+     * target was reclaimed. drop is rc-aware + unregisters from
+     * the runtime's global registry on last owner. */
+    let weakref_create_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_weakref_create",
+        &[Type::Ptr],
+        Type::WeakRef,
+    );
+    let weakref_deref_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_weakref_deref",
+        &[Type::WeakRef],
+        Type::Ptr,
+    );
+    let weakref_drop_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_weakref_drop",
+        &[Type::WeakRef],
+        Type::Void,
+    );
+    let weakref_target_dying_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_weakref_target_dying",
+        &[Type::Ptr],
+        Type::Void,
+    );
 
     /* T-13.a (v0.4.0) — Symbol value runtime. alloc takes optional
      * desc Str (NULL when omitted); drop is rc-aware + dec's desc;
@@ -3375,6 +3408,10 @@ fn lower_inner(
         bigint_cmp: bigint_cmp_id,
         bigint_to_string: bigint_to_string_id,
         bigint_drop_rc: bigint_drop_rc_id,
+        weakref_create: weakref_create_id,
+        weakref_deref: weakref_deref_id,
+        weakref_drop: weakref_drop_id,
+        weakref_target_dying: weakref_target_dying_id,
         symbol_alloc: symbol_alloc_id,
         symbol_drop: symbol_drop_id,
         symbol_print: symbol_print_id,
@@ -4016,6 +4053,10 @@ struct Intrinsics {
     bigint_cmp: FuncId,
     bigint_to_string: FuncId,
     bigint_drop_rc: FuncId,
+    weakref_create: FuncId,
+    weakref_deref: FuncId,
+    weakref_drop: FuncId,
+    weakref_target_dying: FuncId,
     symbol_alloc: FuncId,
     symbol_drop: FuncId,
     symbol_print: FuncId,
@@ -4762,6 +4803,10 @@ fn parse_type(
         // T-25 (v0.7) — BigInt value. Heap-allocated sign-magnitude
         // struct (runtime_bigint.c). Lowers to ptr.
         "bigint" => Type::BigInt,
+        // T-26 (v0.7) — WeakRef. Heap-allocated 16-byte struct.
+        // Type ann is `weakref` (lowercase) since `WeakRef<T>` ann
+        // form isn't parsed at SSA layer yet — type-erased.
+        "weakref" => Type::WeakRef,
         other => match aliases.get(other) {
             Some(ty) => *ty,
             None => panic!("ssa-lower: unsupported type annotation `{other}`"),
@@ -6913,7 +6958,23 @@ impl<'a> LowerCtx<'a> {
                     stack.push(lhs);
                     stack.push(rhs);
                 }
-                Expr::New { args, .. } | Expr::Super { args } => {
+                Expr::New { class_name, args } => {
+                    /* T-26 — `new WeakRef(target)` borrows target;
+                     * skip the recurse so the walk doesn't mark
+                     * the bound ident as moved. The runtime
+                     * registry observes target without a strong
+                     * ref, so the binding's owning scope must keep
+                     * normal drop semantics — which fires
+                     * weakref_target_dying via the inlined Obj
+                     * drop walk_blk. */
+                    if class_name == "WeakRef" {
+                        continue;
+                    }
+                    for e in args {
+                        stack.push(e);
+                    }
+                }
+                Expr::Super { args } => {
                     for e in args {
                         stack.push(e);
                     }
@@ -7483,6 +7544,29 @@ impl<'a> LowerCtx<'a> {
                 // walk_blk: refcount hit 0 — drop owned fields then
                 // free the obj heap.
                 self.cur_block = walk_blk;
+                /* T-26 — clear any WeakRefs registered against
+                 * this about-to-die class instance. Gate on
+                 * `sid` being a declared class (not an anonymous
+                 * `type X = {...}` alias) — those alias values
+                 * reach drop via paths where the pointer passed
+                 * to weakref_target_dying isn't necessarily a
+                 * registered target, and conformance regression
+                 * showed instability in the fromEntries +
+                 * round-trip flow. WeakRef targets are always
+                 * class instances per the surface API today;
+                 * anonymous structs can opt in once the cycle
+                 * collector substrate lands and gives us color-
+                 * bit-based liveness instead of pointer-keyed
+                 * registry. */
+                let is_class_sid = self.ast.class_parents.keys().any(|cn|
+                    matches!(self.aliases.get(cn), Some(Type::Obj(s)) if s.0 == sid.0)
+                );
+                if is_class_sid {
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Call(self.intrinsics.weakref_target_dying, vec![val]),
+                    );
+                }
                 for (i, (_, fty)) in layout.iter().enumerate() {
                     if fty.is_copy() {
                         continue;
@@ -7627,6 +7711,15 @@ impl<'a> LowerCtx<'a> {
                 self.f.append_void(
                     self.cur_block,
                     InstKind::Call(self.intrinsics.bigint_drop_rc, vec![val]),
+                );
+            }
+            Type::WeakRef => {
+                /* T-26 — rc-aware WeakRef drop. Unregisters from
+                 * the runtime's global target → weakref-list
+                 * registry on last owner. */
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.weakref_drop, vec![val]),
                 );
             }
             other if other.is_copy() => {
@@ -9928,6 +10021,27 @@ impl<'a> LowerCtx<'a> {
     fn lower_expr_inner(&mut self, eid: ExprId) -> Operand {
         let e = self.ast.get_expr(eid);
         match e {
+            /* T-26 (v0.7) — `new WeakRef(target)`. Lowered directly
+             * here (not via AST desugar) so the target arg passes
+             * to weakref_create as a borrow — `consume_if_ident`
+             * is deliberately NOT called, the target's owning
+             * binding still drops normally on scope exit, and that
+             * drop fires `weakref_target_dying` to clear any live
+             * WeakRefs pointing at it. */
+            Expr::New { class_name, args } if class_name == "WeakRef" => {
+                let target_op = if args.is_empty() {
+                    Operand::ConstPtrNull
+                } else {
+                    self.lower_expr(args[0])
+                };
+                let v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.weakref_create, vec![target_op]),
+                    Type::WeakRef,
+                    None,
+                );
+                return Operand::Value(v);
+            }
             // Number literals coerce to i64 — type inference lifts them to
             // f64 once we wire numeric-mode detection into the lowerer.
             Expr::Number(n) => {
@@ -11665,6 +11779,32 @@ impl<'a> LowerCtx<'a> {
                     self.consume_if_ident(args[0]);
                     return arg_op;
                 }
+                /* T-26 (v0.7) — `__torajs_weakref_create(target)`.
+                 * Intercept here so the target is NOT consumed: the
+                 * runtime registry observes the target ptr without
+                 * keeping it alive, so the binding the user wrote
+                 * (`new WeakRef(b)` with `b` aliased) must keep
+                 * normal drop semantics on `b`. Going through the
+                 * generic Call path would mark the arg as consumed
+                 * and skip the surrounding scope's drop walk. */
+                if let Expr::Ident(callee_name) = self.ast.get_expr(*callee)
+                    && callee_name == "__torajs_weakref_create"
+                    && args.len() == 1
+                {
+                    let target_op = self.lower_expr(args[0]);
+                    /* Do NOT consume_if_ident — observation only.
+                     * The target's owning binding (if any) drops
+                     * normally on its scope exit, which fires
+                     * weakref_target_dying via the inlined Obj drop
+                     * walk_blk hook. */
+                    let v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(self.intrinsics.weakref_create, vec![target_op]),
+                        Type::WeakRef,
+                        None,
+                    );
+                    return Operand::Value(v);
+                }
                 /* T-21 (v0.6.0) — `fetch(url)` lowers to:
                  *   resp_ptr = __torajs_fetch_sync(url)  (heap Response*)
                  *   p        = Promise.resolve_heap(resp_ptr)
@@ -12878,6 +13018,29 @@ impl<'a> LowerCtx<'a> {
                                 return Operand::Value(v);
                             }
                         }
+                    }
+                }
+                /* T-26 — `wr.deref()` on a WeakRef. Returns target
+                 * (rc-bumped) or null. Receiver isn't consumed —
+                 * caller's drop walk handles the WeakRef binding's
+                 * lifetime. The Ptr-typed result is exposed as
+                 * Type::Ptr at SSA; downstream `as` casts narrow
+                 * back to whatever concrete heap type the user
+                 * stored. */
+                if let Expr::Member { obj, name } = self.ast.get_expr(*callee)
+                    && name == "deref"
+                    && args.is_empty()
+                {
+                    let recv_op = self.lower_expr(*obj);
+                    let recv_ty = self.operand_ty(&recv_op);
+                    if recv_ty == Type::WeakRef {
+                        let v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(self.intrinsics.weakref_deref, vec![recv_op]),
+                            Type::Ptr,
+                            None,
+                        );
+                        return Operand::Value(v);
                     }
                 }
                 // v0.2 #1 — `re.method(args)` for the RegExp stdlib
@@ -17214,7 +17377,8 @@ impl<'a> LowerCtx<'a> {
                     | Type::FnSig(_)
                     | Type::RegExp
                     | Type::Date
-                    | Type::Promise => "object",
+                    | Type::Promise
+                    | Type::WeakRef => "object",
                     Type::Void | Type::Ptr => "object",
                     // T-10.a — typeof on a Type::Any operand needs
                     // runtime tag dispatch (not compile-time literal).

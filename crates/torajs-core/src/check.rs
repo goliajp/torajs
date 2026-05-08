@@ -98,6 +98,12 @@ pub enum Type {
     /// equal to other BigInts. Cross-type ops with Number are a
     /// TypeError per spec; same-type ops produce BigInt.
     BigInt,
+    /// T-26 — observed reference. `new WeakRef(target)` returns
+    /// this; `wr.deref()` returns `Nullable<Any>` (type narrowing
+    /// over generic T deferred — at the SSA layer the target slot
+    /// is ptr-shaped regardless of the original T, and conformance
+    /// cases work fine with `as` casts on the deref result).
+    WeakRef,
     /// v0 hack — `console.log`'s parameter accepts any printable type.
     /// Replace with a sum/union type later.
     Any,
@@ -456,6 +462,7 @@ fn resolve_type_ann_full(
         "boolean" => Some(Type::Boolean),
         "void" => Some(Type::Void),
         "bigint" => Some(Type::BigInt),
+        "weakref" | "WeakRef" => Some(Type::WeakRef),
         // `any` is recognized as a real type in the resolver only as a
         // late-stage fallback — `desugar_implicit_generics` rewrites
         // every annotated `: any` to a fresh TypeVar before this layer
@@ -682,6 +689,7 @@ pub fn type_to_ann(ty: &Type) -> String {
         Type::String => "string".into(),
         Type::Void => "void".into(),
         Type::BigInt => "bigint".into(),
+        Type::WeakRef => "weakref".into(),
         Type::Any => "number".into(), // SSA-side has no Any; fall back to number
         Type::Symbol => "symbol".into(),
         Type::Array(inner) => format!("{}[]", type_to_ann(inner)),
@@ -1905,6 +1913,13 @@ impl Checker {
                     "JSON" => Ok(Type::Object("JSON")),
                     "Array" => Ok(Type::Object("Array")),
                     "Date" => Ok(Type::Object("Date")),
+                    /* T-26 (v0.7) — WeakRef global. As a constructor
+                     * (`new WeakRef(target)`) it's handled in the
+                     * Expr::New arm below; here it's just a known
+                     * identifier so users can write `WeakRef` as a
+                     * type ann via `: WeakRef<T>` — parse_type
+                     * handles the type-side mapping. */
+                    "WeakRef" => Ok(Type::Object("WeakRef")),
                     /* T-13.a (v0.4.0) — Symbol global. As-callable
                      * (`Symbol(desc?)` constructor) routed via the
                      * Call arm below to Type::Symbol. Static methods
@@ -2450,6 +2465,14 @@ impl Checker {
                     (Type::RegExp, "exec") => Ok(Type::Function(
                         vec![Type::String],
                         Box::new(Type::Array(Box::new(Type::String))),
+                    )),
+                    /* T-26 — WeakRef.deref(). Returns the target if
+                     * still alive (rc-bumped on success), or null.
+                     * Type-erased to Type::Any; users `as` cast to
+                     * the original concrete type. */
+                    (Type::WeakRef, "deref") => Ok(Type::Function(
+                        Vec::new(),
+                        Box::new(Type::Nullable(Box::new(Type::Any))),
                     )),
                     // v0.2 #2 Phase 2.0a — Date instance methods.
                     (Type::Date, "getTime")
@@ -4306,6 +4329,24 @@ impl Checker {
             // M5.1 — desugar_classes flattens these out before check runs.
             // Reaching here is an internal compiler error, not a user error.
             Expr::This => panic!("internal: bare `this` reached check.rs (desugar didn't run?)"),
+            Expr::New { class_name, args } if class_name == "WeakRef" => {
+                /* T-26 — `new WeakRef(target)`. Don't desugar at
+                 * AST level (that path consumes the target via the
+                 * generic Call/consuming_params analysis); handle
+                 * here so the SSA intercept can pass the target as
+                 * a borrow. Validate arg shape only. */
+                if args.len() != 1 {
+                    return Err(format!(
+                        "`new WeakRef(...)` requires exactly 1 argument, got {}",
+                        args.len()
+                    ));
+                }
+                /* Eval the arg for type-checking effects but don't
+                 * impose a specific type (target can be any heap-
+                 * shaped value). */
+                let _ = self.type_of(ast, args[0])?;
+                Ok(Type::WeakRef)
+            }
             Expr::New { class_name, .. } => {
                 panic!("internal: `new {class_name}` reached check.rs (desugar didn't run?)")
             }

@@ -152,6 +152,7 @@ typedef struct __attribute__((aligned(8))) {
  * universal-header free dispatch, not routed through value_drop_heap. */
 #define __TORAJS_TAG_RESPONSE 9 /* T-21 — fetch() Response: header + status + body Str* */
 #define __TORAJS_TAG_BIGINT  10 /* T-25 — BigInt: header + sign u32 + len u32 + words[len] (little-endian u64 magnitude) */
+#define __TORAJS_TAG_WEAKREF 11 /* T-26 — WeakRef: header + target ptr (NULL = target reclaimed) */
 
 /* T-10.b (v0.4.0) — Type::Any tagged-slot tags. An Array<Any> stores
  * 16-byte slots `{ tag: u64 (low 8 bits used), value: u64 }` so each
@@ -202,6 +203,14 @@ void __torajs_rc_inc(void *p) {
     h->refcount += 1;
 }
 
+/* T-26 — WeakRef hook. Defined in runtime_weakref.c. Called by
+ * rc_dec when an object's strong rc transitions to zero so any
+ * registered WeakRef can have its target ptr cleared to NULL
+ * before the object is freed. The runtime gates the body on a
+ * global "any WeakRef alive" counter so non-WeakRef-using
+ * programs pay only one untaken branch per dec. */
+extern void __torajs_weakref_target_dying(void *target);
+
 /* Decrement refcount; return 1 iff it reached zero (caller's per-type
  * drop path uses this to walk owned children before free). NULL passes
  * through (returns 0). */
@@ -210,7 +219,11 @@ int __torajs_rc_dec(void *p) {
     __torajs_heap_header_t *h = (__torajs_heap_header_t *)p;
     if (h->flags & __TORAJS_FLAG_STATIC_LITERAL) return 0;
     h->refcount -= 1;
-    return h->refcount == 0 ? 1 : 0;
+    if (h->refcount == 0) {
+        __torajs_weakref_target_dying(p);
+        return 1;
+    }
+    return 0;
 }
 
 /* ============================================================
@@ -630,6 +643,7 @@ void __torajs_arr_drop(void *a);
 extern void __torajs_response_drop(void *p);
 #endif
 extern void __torajs_bigint_drop(void *p);
+extern void __torajs_weakref_drop(void *p);
 
 void __torajs_value_drop_heap(void *child) {
     if (child == NULL) return;
@@ -644,6 +658,13 @@ void __torajs_value_drop_heap(void *child) {
             /* T-25 — BigInt has no inner refs; rc-dec + the
              * type's drop handle (which just `free`s). */
             if (__torajs_rc_dec(child)) __torajs_bigint_drop(child);
+            break;
+        }
+        case __TORAJS_TAG_WEAKREF: {
+            /* T-26 — WeakRef holds no strong ref to target;
+             * weakref_drop dec's its rc + unregisters from the
+             * registry on last owner. */
+            __torajs_weakref_drop(child);
             break;
         }
         default:                /* Obj / Substr / Closure / RegExp /
