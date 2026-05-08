@@ -545,6 +545,36 @@ pub fn compile_for(
         dctx.dibuilder.finalize();
     }
 
+    /* v0.6+1 perf checkpoint — fn-purity attribute pass.
+     *
+     * Walks every user FnDecl's lowered SSA body; if it has zero
+     * memory access (no Load / Store / Call / Alloca etc — see
+     * ssa_fn_is_pure for the exact predicate), tag the LLVM fn
+     * with `memory(none)`. LLVM's LICM / GVN then know calls to
+     * the fn have zero side effects → invariant loads in the
+     * caller's loops can be hoisted past the call.
+     *
+     * Concrete win: `function id<T>(x: T): T { return x }` in a
+     * tight `for (let i = 0; i < xs.length; i++) sum += id(xs[i])`
+     * loop. Pre-tag, LLVM reloads `xs.length` (and the array data
+     * pointer) on every iteration because the call to `id` could,
+     * in principle, modify them. With memory(none) the loads
+     * hoist out and the loop becomes the same shape as rust's
+     * inlined version. */
+    for (i, f) in ssa_module.funcs.iter().enumerate() {
+        if f.is_declaration() || intrinsics.contains(&f.name.as_str()) {
+            continue;
+        }
+        /* `main` always touches memory (top-level user code) and
+         * doesn't benefit from the attr — skip it explicitly. */
+        if f.name == "main" {
+            continue;
+        }
+        if ssa_fn_is_pure(f) {
+            mark_memory_none(&ctx, fn_map[i]);
+        }
+    }
+
     // Pass D: verify, optimize, emit, link.
     if let Err(e) = llvm_module.verify() {
         return Err(CompileError::Verify(e.to_string()));
@@ -1417,6 +1447,64 @@ fn mark_alwaysinline<'ctx>(ctx: &'ctx Context, f: FunctionValue<'ctx>) {
     let kind = Attribute::get_named_enum_kind_id("alwaysinline");
     let attr = ctx.create_enum_attribute(kind, 0);
     f.add_attribute(AttributeLoc::Function, attr);
+}
+
+/// T-24-prep (v0.6+1) — mark a function as `memory(none)` so LLVM's
+/// LICM / GVN can hoist invariant loads through call sites. Applied
+/// to user FnDecls whose SSA body is provably pure: no Store /
+/// StoreDyn / Call / CallIndirect anywhere. The dominant win is
+/// `id<T>(x: T): T { return x }`-shape generic helpers in tight
+/// loops (generic-id-1m: `xs.length` reload through the call site
+/// disappears once LLVM knows the call has zero memory effect).
+///
+/// Conservative on the false-negative side — Load/LoadDyn alone
+/// would qualify for `memory(read)`, but that's harder to apply
+/// safely (caller's stack alloca writes vs callee's heap reads
+/// need explicit alias info LLVM can't infer cheaply); ship the
+/// strict-none variant first, expand to read-only later if a
+/// bench case proves the gap.
+fn mark_memory_none<'ctx>(ctx: &'ctx Context, f: FunctionValue<'ctx>) {
+    /* LLVM 22's memory effect attribute encodes (location, mod-ref)
+     * pairs into a u64. memory(none) is the all-zero bitmask. */
+    let kind = Attribute::get_named_enum_kind_id("memory");
+    let attr = ctx.create_enum_attribute(kind, 0);
+    f.add_attribute(AttributeLoc::Function, attr);
+}
+
+/// Walk a SSA Function's blocks + insts and return true iff the body
+/// performs zero memory mutation AND zero unknown-effect calls.
+/// Pure as defined here:
+///   - no Store / StoreDyn (never writes memory observable to caller)
+///   - no Call (we conservatively treat all callees as having effects;
+///     refining this to "transitive purity" is a follow-up)
+///   - no CallIndirect (function-pointer call → can be anything)
+///   - no Alloca / AllocaBytes (these allocate stack but the caller
+///     doesn't observe; technically pure but LLVM may still see the
+///     `mem(none)` lie — safer to treat as "has memory effect" in
+///     this conservative sweep).
+///
+/// Loads are fine — readonly memory access doesn't break memory(none)
+/// in the strict sense for return values (LLVM treats memory(none) as
+/// "no read AND no write"; a fn with Load wouldn't qualify here).
+/// We err on the strict side: only fns with literally zero memory
+/// inst kinds get tagged.
+fn ssa_fn_is_pure(f: &s::Function) -> bool {
+    for blk in &f.blocks {
+        for inst in &blk.insts {
+            match &inst.kind {
+                InstKind::Store(..)
+                | InstKind::StoreDyn(..)
+                | InstKind::Load(..)
+                | InstKind::LoadDyn(..)
+                | InstKind::Call(..)
+                | InstKind::CallIndirect(..)
+                | InstKind::Alloca(_)
+                | InstKind::AllocaBytes(_) => return false,
+                _ => {}
+            }
+        }
+    }
+    true
 }
 
 /// Tag a function as returning a fresh, non-aliasing pointer (libc

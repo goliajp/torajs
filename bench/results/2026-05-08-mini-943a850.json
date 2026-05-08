@@ -1,0 +1,103 @@
+{
+  "started_at": "2026-05-08T04:15:44Z",
+  "host": "mini.local",
+  "git_sha": "943a850fca3c48309ce5ba0431d3f9d630913aa6",
+  "rows": [
+    {
+      "case": "rpn-eval-100k",
+      "runtime": "bun-aot",
+      "runtime_version": "1.3.13",
+      "status": "ok",
+      "compile_ms": 64.726791,
+      "run_ms": 19.889209,
+      "run_stddev_ms": 0.7939271417035075,
+      "artifact_bytes": 63072928,
+      "stdout_match": true,
+      "error": null
+    },
+    {
+      "case": "rpn-eval-100k",
+      "runtime": "bun-jsc",
+      "runtime_version": "1.3.13",
+      "status": "ok",
+      "compile_ms": null,
+      "run_ms": 21.719041,
+      "run_stddev_ms": 1.2803334564779207,
+      "artifact_bytes": null,
+      "stdout_match": true,
+      "error": null
+    },
+    {
+      "case": "rpn-eval-100k",
+      "runtime": "go",
+      "runtime_version": "go version go1.25.6 darwin/arm64",
+      "status": "ok",
+      "compile_ms": 41.446042000000006,
+      "run_ms": 9.149249999999999,
+      "run_stddev_ms": 0.15869232556050136,
+      "artifact_bytes": 2388338,
+      "stdout_match": true,
+      "error": null
+    },
+    {
+      "case": "rpn-eval-100k",
+      "runtime": "node-v8",
+      "runtime_version": "v25.9.0",
+      "status": "ok",
+      "compile_ms": null,
+      "run_ms": 93.246375,
+      "run_stddev_ms": 1.2218959676746213,
+      "artifact_bytes": null,
+      "stdout_match": true,
+      "error": null
+    },
+    {
+      "case": "rpn-eval-100k",
+      "runtime": "python",
+      "runtime_version": null,
+      "status": "skipped",
+      "compile_ms": null,
+      "run_ms": null,
+      "run_stddev_ms": null,
+      "artifact_bytes": null,
+      "stdout_match": null,
+      "error": "no source file: /Users/doracawl/workspace/goliajp/torajs/bench/cases/rpn-eval-100k/main.py"
+    },
+    {
+      "case": "rpn-eval-100k",
+      "runtime": "rust",
+      "runtime_version": "rustc 1.95.0 (59807616e 2026-04-14)",
+      "status": "ok",
+      "compile_ms": 98.86554100000001,
+      "run_ms": 3.123625,
+      "run_stddev_ms": 0.12884355506077905,
+      "artifact_bytes": 466304,
+      "stdout_match": true,
+      "error": null
+    },
+    {
+      "case": "rpn-eval-100k",
+      "runtime": "torajs-run",
+      "runtime_version": "tr 0.1.0",
+      "status": "ok",
+      "compile_ms": null,
+      "run_ms": 12.736667,
+      "run_stddev_ms": 0.5683965904143863,
+      "artifact_bytes": null,
+      "stdout_match": true,
+      "error": null
+    },
+    {
+      "case": "rpn-eval-100k",
+      "runtime": "torajs",
+      "runtime_version": "tr 0.1.0",
+      "status": "ok",
+      "compile_ms": 547.474417,
+      "run_ms": 3.5384580000000003,
+      "run_stddev_ms": 0.21827004448549508,
+      "artifact_bytes": 36456,
+      "stdout_match": true,
+      "error": null
+    }
+  ]
+}
