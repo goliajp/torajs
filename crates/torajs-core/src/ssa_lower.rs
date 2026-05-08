@@ -2002,6 +2002,48 @@ fn lower_inner(
         &[Type::BigInt, Type::BigInt],
         Type::BigInt,
     );
+    let bigint_and_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_bigint_and",
+        &[Type::BigInt, Type::BigInt],
+        Type::BigInt,
+    );
+    let bigint_or_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_bigint_or",
+        &[Type::BigInt, Type::BigInt],
+        Type::BigInt,
+    );
+    let bigint_xor_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_bigint_xor",
+        &[Type::BigInt, Type::BigInt],
+        Type::BigInt,
+    );
+    let bigint_not_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_bigint_not",
+        &[Type::BigInt],
+        Type::BigInt,
+    );
+    let bigint_shl_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_bigint_shl",
+        &[Type::BigInt, Type::BigInt],
+        Type::BigInt,
+    );
+    let bigint_shr_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_bigint_shr",
+        &[Type::BigInt, Type::BigInt],
+        Type::BigInt,
+    );
     let bigint_neg_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -3530,6 +3572,12 @@ fn lower_inner(
         bigint_div: bigint_div_id,
         bigint_mod: bigint_mod_id,
         bigint_pow: bigint_pow_id,
+        bigint_and: bigint_and_id,
+        bigint_or: bigint_or_id,
+        bigint_xor: bigint_xor_id,
+        bigint_not: bigint_not_id,
+        bigint_shl: bigint_shl_id,
+        bigint_shr: bigint_shr_id,
         bigint_neg: bigint_neg_id,
         bigint_cmp: bigint_cmp_id,
         bigint_to_string: bigint_to_string_id,
@@ -4234,6 +4282,12 @@ struct Intrinsics {
     bigint_div: FuncId,
     bigint_mod: FuncId,
     bigint_pow: FuncId,
+    bigint_and: FuncId,
+    bigint_or: FuncId,
+    bigint_xor: FuncId,
+    bigint_not: FuncId,
+    bigint_shl: FuncId,
+    bigint_shr: FuncId,
     bigint_neg: FuncId,
     bigint_cmp: FuncId,
     bigint_to_string: FuncId,
@@ -10876,6 +10930,19 @@ impl<'a> LowerCtx<'a> {
                         }
                     }
                     crate::ast::UnaryOp::BitNot => {
+                        let v_ty = self.operand_ty(&v);
+                        if v_ty == Type::BigInt {
+                            // V3-02 — BigInt `~x` ≡ `-x - 1n`. Routes
+                            // through the bigint_not runtime helper
+                            // (which uses the same identity).
+                            let r = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(self.intrinsics.bigint_not, vec![v]),
+                                Type::BigInt,
+                                None,
+                            );
+                            return Operand::Value(r);
+                        }
                         // `~x` is `x ^ -1` for integer types — flips
                         // every bit. JS spec coerces to int32 first; tr
                         // works in i64 land but the result agrees on
@@ -18458,6 +18525,11 @@ impl<'a> LowerCtx<'a> {
                     AstBinOp::Div => Some(self.intrinsics.bigint_div),
                     AstBinOp::Mod => Some(self.intrinsics.bigint_mod),
                     AstBinOp::Pow => Some(self.intrinsics.bigint_pow),
+                    AstBinOp::BitAnd => Some(self.intrinsics.bigint_and),
+                    AstBinOp::BitOr => Some(self.intrinsics.bigint_or),
+                    AstBinOp::BitXor => Some(self.intrinsics.bigint_xor),
+                    AstBinOp::Shl => Some(self.intrinsics.bigint_shl),
+                    AstBinOp::Shr => Some(self.intrinsics.bigint_shr),
                     _ => None,
                 };
                 if let Some(fid) = arith {

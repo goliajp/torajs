@@ -4037,9 +4037,27 @@ impl Checker {
                             ))
                         }
                     }
-                    BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor | BinOp::Shl | BinOp::Shr | BinOp::UShr => {
+                    BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor | BinOp::Shl | BinOp::Shr => {
                         if l == Type::Number && r == Type::Number {
                             Ok(Type::Number)
+                        } else if l == Type::BigInt && r == Type::BigInt {
+                            // V3-02 — BigInt bitwise w/ two's-complement
+                            // simulation. Mixed Number/BigInt rejected.
+                            Ok(Type::BigInt)
+                        } else {
+                            Err(format!(
+                                "bitwise op requires matching number or bigint operands, got {l:?} and {r:?}"
+                            ))
+                        }
+                    }
+                    BinOp::UShr => {
+                        if l == Type::Number && r == Type::Number {
+                            Ok(Type::Number)
+                        } else if l == Type::BigInt || r == Type::BigInt {
+                            // V3-02 — `>>>` on BigInt is a TypeError per
+                            // spec (an "infinite-bit unsigned shift"
+                            // makes no sense). Caught here at typecheck.
+                            Err("`>>>` is not defined on BigInt operands per spec".into())
                         } else {
                             Err(format!(
                                 "bitwise op requires number operands, got {l:?} and {r:?}"
@@ -4125,8 +4143,11 @@ impl Checker {
                     crate::ast::UnaryOp::BitNot => {
                         if t == Type::Number {
                             Ok(Type::Number)
+                        } else if t == Type::BigInt {
+                            // V3-02 — BigInt `~x` ≡ `-x - 1n`.
+                            Ok(Type::BigInt)
                         } else {
-                            Err(format!("`~` requires number operand, got {t:?}"))
+                            Err(format!("`~` requires number or bigint operand, got {t:?}"))
                         }
                     }
                 }
