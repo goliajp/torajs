@@ -5,22 +5,19 @@ import { Link, useSearchParams } from 'react-router'
 /**
  * T-22 (v0.6.0) — Playground.
  *
- * Phase 1 (this commit): Monaco editor + curated examples + URL-
- * encoded share-link. The Run button surfaces a clear "run locally
- * with `tr run` — server-side compile lands in v0.6+1" panel
- * instead of a half-implementation; per the project's
- * no-tech-debt rule the actual remote-compile substrate
- * (sandboxing + rate limiting + deploy) ships as a separate
- * sub-step (T-22.b).
+ * Phase 1: Monaco editor + curated examples + URL-encoded share-link.
+ * Phase 2 (T-22.b): Run button hits the torajs-playground-api server
+ * (`POST /api/run`) which `tr build --target wasm32-wasi`'s the source
+ * inside a sandboxed temp dir and runs the wasm under wasmtime with
+ * fuel + wall-clock + memory caps; stdout/stderr stream back as JSON.
  *
  * URL share: source is encoded into the `?src=...` query
- * (compressed via the browser's CompressionStream + base64url) so
- * a torajs.com/playground link can carry the program inline.
+ * (compressed via the browser's CompressionStream + base64url) so a
+ * torajs.com/playground link can carry the program inline.
  *
- * Examples: `web/public/examples/*.ts` are committed alongside
- * the build and lazy-loaded into the editor on click. Adding a
- * new example is a single commit (drop a `.ts` file + add it to
- * the `EXAMPLES` array below).
+ * Examples: `web/public/examples/*.ts` lazy-load on click. Adding a
+ * new example is a single commit (drop a `.ts` file + add to the
+ * `EXAMPLES` array below).
  */
 
 const EXAMPLES = [
@@ -35,23 +32,43 @@ const DEFAULT_SOURCE = `// Welcome to the torajs playground.
 //
 // • Pick an example on the left, or write TS here and copy the
 //   share-link button to send it.
-// • Run locally with \`tr run\`:
-//     curl -fsSL https://install.torajs.com | bash
-//     tr run yourfile.ts
-// • Server-side run in the browser ships in v0.6+1 (T-22.b).
+// • Click ▶ run to compile via tr build --target wasm32-wasi
+//   and execute under a sandboxed wasmtime on the server.
+// • The sandbox has no filesystem, no network — \`fetch\` and
+//   \`fs/promises\` calls fail there. Run locally with \`tr run\`
+//   for the full surface.
 
 console.log('hello from torajs')
 `
+
+/* `import.meta.env.VITE_PLAYGROUND_API` lets local dev point at a
+ * dev API on a different port (e.g. http://localhost:8765/api).
+ * Default = same-origin /api so the prod deploy on torajs.com works
+ * without any build-time config (Caddy routes /api/* to the
+ * torajs-playground-api unit on t01). */
+const API_BASE: string = (import.meta.env.VITE_PLAYGROUND_API as string | undefined) ?? '/api'
 
 loader.config({
   paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.55.1/min/vs' },
 })
 
+type RunResp = {
+  stdout: string
+  stderr: string
+  exit_code: number
+  compile_ms: number
+  run_ms: number
+  cached: boolean
+  error: string | null
+}
+
 export function Playground() {
   const [source, setSource] = useState<string>(DEFAULT_SOURCE)
   const [params, setParams] = useSearchParams()
   const [shareCopied, setShareCopied] = useState(false)
-  const [runOpen, setRunOpen] = useState(false)
+  const [running, setRunning] = useState(false)
+  const [result, setResult] = useState<RunResp | null>(null)
+  const [runError, setRunError] = useState<string | null>(null)
   const initialLoadDone = useRef(false)
 
   /* On first mount, hydrate from `?src=...` if present. The decode
@@ -91,6 +108,37 @@ export function Playground() {
     }
   }, [source, setParams])
 
+  const onRun = useCallback(async () => {
+    setRunning(true)
+    setRunError(null)
+    setResult(null)
+    try {
+      const r = await fetch(`${API_BASE}/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source }),
+      })
+      if (r.status === 429) {
+        setRunError('Rate limit exceeded — wait a few seconds, then retry.')
+        return
+      }
+      if (r.status === 413) {
+        setRunError('Source too large (8 KB cap).')
+        return
+      }
+      if (!r.ok) {
+        setRunError(`API ${r.status}: ${r.statusText}`)
+        return
+      }
+      const j = (await r.json()) as RunResp
+      setResult(j)
+    } catch (e) {
+      setRunError(e instanceof Error ? e.message : 'fetch failed')
+    } finally {
+      setRunning(false)
+    }
+  }, [source])
+
   return (
     <main className="bg-ink text-bone min-h-screen">
       <Header />
@@ -107,10 +155,11 @@ export function Playground() {
               {shareCopied ? 'copied ✓' : 'copy share link'}
             </button>
             <button
-              onClick={() => setRunOpen((v) => !v)}
-              className="border-tiger bg-tiger/10 text-tiger hover:bg-tiger/20 border px-4 py-2 font-mono text-[12px] tracking-[0.14em] uppercase transition-colors"
+              onClick={onRun}
+              disabled={running}
+              className="border-tiger bg-tiger/10 text-tiger hover:bg-tiger/20 border px-4 py-2 font-mono text-[12px] tracking-[0.14em] uppercase transition-colors disabled:opacity-50"
             >
-              ▶ run
+              {running ? '… running' : '▶ run'}
             </button>
           </div>
         </div>
@@ -133,9 +182,9 @@ export function Playground() {
               ))}
             </ul>
             <p className="text-bone-faint mt-8 text-[11px] leading-[1.6]">
-              Tip: any TS that <code className="text-bone">tr run</code> accepts works here. The
-              editor doesn't typecheck against tr's substrate — copy the share link and run locally
-              to see real diagnostics.
+              The sandbox has no filesystem, no network. <code className="text-bone">fetch</code>{' '}
+              and <code className="text-bone">fs/promises</code> calls fail; run locally for the
+              full surface.
             </p>
           </aside>
 
@@ -158,41 +207,88 @@ export function Playground() {
           </div>
         </div>
 
-        {runOpen && (
-          <div className="border-tiger/40 bg-tiger/5 mt-6 border p-5 font-mono text-[12.5px]">
-            <div className="text-tiger mb-3 text-[10.5px] tracking-[0.18em] uppercase">
-              run locally
-            </div>
-            <p className="text-bone-dim leading-[1.7]">
-              The browser-side wasm runner with sandboxed compile lands in{' '}
-              <strong className="text-bone">v0.6+1</strong> (T-22.b). For now, copy the source and
-              run with the local <code className="text-bone">tr</code> CLI:
-            </p>
-            <pre className="text-bone bg-ink/60 mt-4 overflow-x-auto p-4">
-              {`# install (once)
-curl -fsSL https://install.torajs.com | bash
-
-# save your source as foo.ts, then:
-tr run foo.ts
-
-# or AOT to a tiny native binary:
-tr build foo.ts -o foo
-./foo
-
-# wasm32-wasi target:
-tr build foo.ts --target wasm32-wasi -o foo.wasm
-wasmtime foo.wasm`}
-            </pre>
-            <button
-              onClick={() => setRunOpen(false)}
-              className="text-bone-dim hover:text-bone mt-4 text-[11px] tracking-[0.16em] uppercase"
-            >
-              dismiss
-            </button>
-          </div>
+        {(result || runError) && (
+          <OutputPanel
+            result={result}
+            error={runError}
+            onClose={() => {
+              setResult(null)
+              setRunError(null)
+            }}
+          />
         )}
       </section>
     </main>
+  )
+}
+
+function OutputPanel({
+  result,
+  error,
+  onClose,
+}: {
+  result: RunResp | null
+  error: string | null
+  onClose: () => void
+}) {
+  if (error) {
+    return (
+      <div className="mt-6 border border-red-700/50 bg-red-950/20 p-5 font-mono text-[12.5px]">
+        <div className="mb-3 text-[10.5px] tracking-[0.18em] text-red-300 uppercase">error</div>
+        <pre className="text-bone overflow-x-auto whitespace-pre-wrap">{error}</pre>
+        <button
+          onClick={onClose}
+          className="text-bone-dim hover:text-bone mt-4 text-[11px] tracking-[0.16em] uppercase"
+        >
+          dismiss
+        </button>
+      </div>
+    )
+  }
+  if (!result) return null
+
+  const errorTone = result.error
+    ? result.error.startsWith('compile')
+      ? 'text-amber-300'
+      : 'text-red-300'
+    : 'text-tiger'
+
+  return (
+    <div className="mt-6 border border-amber-900/30 bg-amber-950/10 p-5 font-mono text-[12.5px]">
+      <div className="text-bone-faint mb-3 flex flex-wrap gap-x-5 gap-y-1 text-[10.5px] tracking-[0.18em] uppercase">
+        <span className={errorTone}>{result.error ?? 'ok'}</span>
+        <span>exit {result.exit_code}</span>
+        <span>compile {result.compile_ms} ms</span>
+        <span>run {result.run_ms} ms</span>
+        {result.cached && <span className="text-tiger-bright">cached</span>}
+      </div>
+      {result.stdout && (
+        <>
+          <div className="text-bone-faint mt-3 mb-1 text-[10.5px] tracking-[0.18em] uppercase">
+            stdout
+          </div>
+          <pre className="text-bone bg-ink/60 overflow-x-auto p-3 whitespace-pre-wrap">
+            {result.stdout}
+          </pre>
+        </>
+      )}
+      {result.stderr && (
+        <>
+          <div className="text-bone-faint mt-3 mb-1 text-[10.5px] tracking-[0.18em] uppercase">
+            stderr
+          </div>
+          <pre className="bg-ink/60 overflow-x-auto p-3 whitespace-pre-wrap text-amber-300">
+            {result.stderr}
+          </pre>
+        </>
+      )}
+      <button
+        onClick={onClose}
+        className="text-bone-dim hover:text-bone mt-4 text-[11px] tracking-[0.16em] uppercase"
+      >
+        dismiss
+      </button>
+    </div>
   )
 }
 

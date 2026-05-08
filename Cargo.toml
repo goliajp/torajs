@@ -4,6 +4,7 @@ members = [
     "crates/torajs-runtime",
     "crates/torajs-core",
     "crates/torajs-cli",
+    "crates/torajs-playground-api",
     "labs/0002-inkwell-spike",
     "bench/harness",
     "conformance/runner",
