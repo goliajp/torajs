@@ -14513,6 +14513,29 @@ impl<'a> LowerCtx<'a> {
                         Operand::Value(v) => v,
                         _ => unreachable!("Type::Arr can't be a constant operand"),
                     };
+                    /* Devirt opportunity: if args[0]'s AST is a known
+                     * `Expr::Closure { fn_name, .. }` (capturing arrow
+                     * lifted by lift_arrow_fns) or `Expr::Ident(fn_name)`
+                     * resolving to a top-level FnDecl, the callable's
+                     * underlying FuncId is statically known. We can
+                     * skip the env+8 / fn_ptr indirect dispatch and
+                     * emit a direct `Call(fid, [env_or_args])` per
+                     * element. Devirt fires for both shapes; for
+                     * non-capturing fns (`xs.map(add1)`) env is None
+                     * and the call site uses just user args.
+                     *
+                     * Big leverage: array-map-1m's `xs.map(closure)`
+                     * goes from 10M `tail call %fn_ptr(env, x)` to
+                     * 10M `tail call @__closure_N(env, x)` — LLVM
+                     * value-prop now sees a constant call target and
+                     * can inline the closure body when small enough.
+                     * On `(x: number) => x + k` (3-instr body) the
+                     * full map loop folds to a vectorized add. */
+                    let known_fid: Option<FuncId> = match self.ast.get_expr(args[0]) {
+                        Expr::Closure { fn_name, .. } => self.fn_table.get(fn_name).copied(),
+                        Expr::Ident(name) => self.fn_table.get(name).copied(),
+                        _ => None,
+                    };
                     // Lower the callable arg.
                     let fn_val = self.lower_expr(args[0]);
                     let fn_ty = self.operand_ty(&fn_val);
@@ -14672,14 +14695,20 @@ impl<'a> LowerCtx<'a> {
                         elem_ty,
                         None,
                     );
-                    // Per-method work.
+                    /* Per-method work. Closure call goes through the
+                     * devirt path when known_fid is set (caller's
+                     * args[0] was an Expr::Closure literal or a
+                     * top-level Ident — see the `known_fid` resolver
+                     * above). */
+                    let do_call = |this: &mut Self, args: Vec<Operand>| -> ValueId {
+                        match known_fid {
+                            Some(fid) => this.call_fn_value_devirt(fid, fn_val.clone(), fn_ty, args),
+                            None => this.call_fn_value(fn_val.clone(), fn_ty, args),
+                        }
+                    };
                     match method.as_str() {
                         "map" => {
-                            let mapped = self.call_fn_value(
-                                fn_val,
-                                fn_ty,
-                                vec![Operand::Value(elem)],
-                            );
+                            let mapped = do_call(self, vec![Operand::Value(elem)]);
                             // M6.2 fast-path — dst was reserve'd to
                             // src.length above the loop, so the unchecked
                             // push elides the per-call capacity check
@@ -14704,11 +14733,7 @@ impl<'a> LowerCtx<'a> {
                             );
                         }
                         "filter" => {
-                            let keep = self.call_fn_value(
-                                fn_val,
-                                fn_ty,
-                                vec![Operand::Value(elem)],
-                            );
+                            let keep = do_call(self, vec![Operand::Value(elem)]);
                             let push_blk = self.f.add_block();
                             let next_blk = self.f.add_block();
                             self.f.set_term(
@@ -14751,11 +14776,7 @@ impl<'a> LowerCtx<'a> {
                                 elem_ty,
                                 None,
                             );
-                            let new_acc = self.call_fn_value(
-                                fn_val,
-                                fn_ty,
-                                vec![Operand::Value(acc_now), Operand::Value(elem)],
-                            );
+                            let new_acc = do_call(self, vec![Operand::Value(acc_now), Operand::Value(elem)]);
                             self.f.append_void(
                                 self.cur_block,
                                 InstKind::Store(
@@ -14766,11 +14787,7 @@ impl<'a> LowerCtx<'a> {
                             );
                         }
                         "forEach" => {
-                            let _ = self.call_fn_value(
-                                fn_val,
-                                fn_ty,
-                                vec![Operand::Value(elem)],
-                            );
+                            let _ = do_call(self, vec![Operand::Value(elem)]);
                         }
                         _ => unreachable!(),
                     }
@@ -17964,6 +17981,56 @@ impl<'a> LowerCtx<'a> {
     fn call_fn_value(&mut self, fn_val: Operand, fn_ty: Type, args: Vec<Operand>) -> ValueId {
         let (args, drops) = self.materialize_call_args(fn_ty, args);
         let ret = self.call_fn_value_raw(fn_val, fn_ty, args);
+        for d in drops {
+            self.emit_drop_value(d, Type::Str);
+        }
+        ret
+    }
+
+    /// v0.6+1 perf checkpoint — devirt variant of `call_fn_value`.
+    /// When the callable's underlying FuncId is statically known
+    /// (caller resolved Expr::Closure / Expr::Ident at SSA-lower
+    /// time), emit a direct `Call(fid, ...)` instead of the env+8
+    /// fn_ptr load + CallIndirect dance. LLVM value-prop then sees
+    /// a constant call target and can inline the body — a 10M-elem
+    /// `xs.map((x) => x + k)` loop devirts every iteration's
+    /// closure call so the optimizer can vectorize the lot.
+    ///
+    /// `fn_val` still threads through for its env-pointer side
+    /// effect (Closure args take env_ptr as the first param). For
+    /// Type::FnSig (no env), env arg is omitted.
+    fn call_fn_value_devirt(
+        &mut self,
+        known_fid: FuncId,
+        fn_val: Operand,
+        fn_ty: Type,
+        args: Vec<Operand>,
+    ) -> ValueId {
+        let (args, drops) = self.materialize_call_args(fn_ty, args);
+        let ret_ty = match fn_ty {
+            Type::Closure(sig_id) | Type::FnSig(sig_id) => {
+                self.fn_sigs[sig_id.0 as usize].1
+            }
+            other => panic!("call_fn_value_devirt: expected Closure/FnSig, got {other:?}"),
+        };
+        let mut argv: Vec<Operand> = match fn_ty {
+            Type::Closure(_) => {
+                /* Closure ABI: first arg is env_ptr, then user args. */
+                let mut a = Vec::with_capacity(args.len() + 1);
+                a.push(fn_val);
+                a.extend(args);
+                a
+            }
+            Type::FnSig(_) => args, // raw fn ptr — no env arg
+            _ => unreachable!(),
+        };
+        let _ = &mut argv;
+        let ret = self.f.append_inst(
+            self.cur_block,
+            InstKind::Call(known_fid, argv),
+            ret_ty,
+            None,
+        );
         for d in drops {
             self.emit_drop_value(d, Type::Str);
         }
