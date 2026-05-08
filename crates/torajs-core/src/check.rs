@@ -1981,6 +1981,15 @@ impl Checker {
                         vec![Type::Number; 7],
                         Box::new(Type::Date),
                     )),
+                    /* T-26.C — `gc()` manual trigger for the
+                     * Bacon-Rajan cycle collector. Walks the
+                     * PURPLE buffer of potential cycle roots,
+                     * runs mark/scan/collect, frees confirmed
+                     * cycle garbage. Returns void. */
+                    "gc" => Ok(Type::Function(
+                        Vec::new(),
+                        Box::new(Type::Void),
+                    )),
                     // `undefined` — JS sentinel for "no value". torajs
                     // doesn't have a separate Undefined runtime type;
                     // map it to Type::Null which lowers to the same

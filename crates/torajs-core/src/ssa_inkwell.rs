@@ -440,6 +440,61 @@ pub fn compile_for(
         out
     };
 
+    /* Pass C.6 (T-26.C): emit per-class children-offset tables
+     * for the cycle collector. Two globals:
+     *   __torajs_class_layouts        — `[N x { u32 n; ptr offsets }]`
+     *   __torajs_n_class_layouts      — u32 = N
+     * The runtime indexes by `class_tag - 1`. The collector reads
+     * each entry's `offsets[]` to enumerate refcounted-pointer
+     * fields during mark/scan/collect.
+     *
+     * Each entry's offsets array is itself a private constant `[K x i32]`
+     * global; the entry holds a pointer to it. K can be 0 (class
+     * has no refcounted fields → entry is `{0, NULL}`). */
+    {
+        let i32_t = ctx.i32_type();
+        let ptr_t = ctx.ptr_type(AddressSpace::default());
+        let entry_t = ctx.struct_type(&[i32_t.into(), ptr_t.into()], false);
+        let n = ssa_module.class_layouts.len();
+        let mut entries: Vec<inkwell::values::StructValue> = Vec::with_capacity(n);
+        for (i, layout) in ssa_module.class_layouts.iter().enumerate() {
+            let offsets_ptr = if layout.child_offsets.is_empty() {
+                ptr_t.const_null()
+            } else {
+                let arr_t = i32_t.array_type(layout.child_offsets.len() as u32);
+                let consts: Vec<inkwell::values::IntValue> = layout
+                    .child_offsets
+                    .iter()
+                    .map(|o| i32_t.const_int(*o as u64, false))
+                    .collect();
+                let arr = i32_t.const_array(&consts);
+                let g = llvm_module.add_global(
+                    arr_t,
+                    None,
+                    &format!(".__class_offsets_{i}"),
+                );
+                g.set_initializer(&arr);
+                g.set_constant(true);
+                g.set_linkage(inkwell::module::Linkage::Private);
+                g.set_unnamed_addr(true);
+                g.as_pointer_value()
+            };
+            let n_children = i32_t.const_int(layout.child_offsets.len() as u64, false);
+            let entry = ctx.const_struct(&[n_children.into(), offsets_ptr.into()], false);
+            entries.push(entry);
+        }
+        let table_t = entry_t.array_type(n as u32);
+        let table_init = entry_t.const_array(&entries);
+        let table_g = llvm_module.add_global(table_t, None, "__torajs_class_layouts");
+        table_g.set_initializer(&table_init);
+        table_g.set_constant(true);
+        table_g.set_linkage(inkwell::module::Linkage::External);
+        let count_g = llvm_module.add_global(i32_t, None, "__torajs_n_class_layouts");
+        count_g.set_initializer(&i32_t.const_int(n as u64, false));
+        count_g.set_constant(true);
+        count_g.set_linkage(inkwell::module::Linkage::External);
+    }
+
     // Pass D: lower bodies for every SSA function that has blocks AND isn't
     // a backend-owned intrinsic.
     let intrinsics = [

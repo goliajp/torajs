@@ -653,12 +653,34 @@ pub struct Module {
     /// `OBJ_VTABLE_OFF (=16)` at construction time; `__dispatch_<M>`
     /// loads `vtable[method_index] -> fn_ptr` and `CallIndirect`s.
     pub vtable_globals: Vec<VtableGlobal>,
+    /// T-26.C — per-class children-offset metadata for the cycle
+    /// collector's mark/scan/collect walks. Indexed by `class_tag - 1`
+    /// (tag 0 reserved for "not a class"); each entry lists the byte
+    /// offsets within the obj where refcounted heap-pointer fields
+    /// live. ssa_inkwell emits this as a runtime global so
+    /// `runtime_cycle.c`'s visit_obj_children can drive a generic
+    /// trial-deletion descent without needing per-class generated
+    /// fns. Empty array => no class declared in the program (cycle
+    /// collection is a no-op).
+    pub class_layouts: Vec<ClassLayoutMeta>,
 }
 
 #[derive(Debug, Clone)]
 pub struct DataGlobal {
     pub name: String,
     pub ty: Type,
+}
+
+#[derive(Debug, Clone)]
+pub struct ClassLayoutMeta {
+    /// Class name (informational; ssa_inkwell could use it to name
+    /// a per-class debug symbol, but the runtime indexes by tag).
+    pub class_name: String,
+    /// Byte offsets within an instance where refcounted heap-pointer
+    /// fields live (already includes OBJ_HEADER_SIZE = 24). Used by
+    /// the cycle collector's per-tag visitor to enumerate children
+    /// during mark/scan/collect.
+    pub child_offsets: Vec<u32>,
 }
 
 #[derive(Debug, Clone)]

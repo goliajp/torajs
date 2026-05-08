@@ -66,6 +66,10 @@ pub const RUNTIME_WEAKMAP_C: &str = include_str!("runtime_weakmap.c");
 /// the value side.
 pub const RUNTIME_WEAKSET_C: &str = include_str!("runtime_weakset.c");
 
+/// v0.7 T-26 (slice C) — Bacon-Rajan trial-deletion cycle
+/// collector for class instances. Manual `gc()` trigger.
+pub const RUNTIME_CYCLE_C: &str = include_str!("runtime_cycle.c");
+
 /// All C runtime translation units in (filename, contents) form, in
 /// the order they should be written + cc'd. Filename is the basename
 /// the compiler should write into the per-build temp directory.
@@ -80,4 +84,5 @@ pub const SOURCES: &[(&str, &str)] = &[
     ("runtime_weakref.c", RUNTIME_WEAKREF_C),
     ("runtime_weakmap.c", RUNTIME_WEAKMAP_C),
     ("runtime_weakset.c", RUNTIME_WEAKSET_C),
+    ("runtime_cycle.c", RUNTIME_CYCLE_C),
 ];

@@ -156,6 +156,26 @@ typedef struct __attribute__((aligned(8))) {
 #define __TORAJS_TAG_WEAKMAP 12 /* T-26.B — WeakMap: header + bucket table; entries observed via weakref registry */
 #define __TORAJS_TAG_WEAKSET 13 /* T-26.B — WeakSet: same as WeakMap minus the value side */
 
+/* T-26.C — Bacon-Rajan cycle collector colors. 2 bits at flag bit 3-4
+ * encode the trial-deletion state of each non-Copy heap object:
+ *
+ *   BLACK  (0) — in use, no cycle suspicion
+ *   GRAY   (1) — being marked during a current trial-deletion pass
+ *   PURPLE (2) — buffered as a potential cycle root (rc went down but
+ *                stayed > 0 on a cyclic-shape type)
+ *   WHITE  (3) — confirmed garbage; freed by collect phase
+ *
+ * Bit 5 = BUFFERED — fast "is this in the cycle buffer right now"
+ * gate so every rc_dec doesn't traverse the buffer to dedup. Bits
+ * 6-15 stay free for future substrate. */
+#define __TORAJS_COLOR_SHIFT  3u
+#define __TORAJS_COLOR_MASK   (3u << __TORAJS_COLOR_SHIFT)
+#define __TORAJS_COLOR_BLACK  (0u << __TORAJS_COLOR_SHIFT)
+#define __TORAJS_COLOR_GRAY   (1u << __TORAJS_COLOR_SHIFT)
+#define __TORAJS_COLOR_PURPLE (2u << __TORAJS_COLOR_SHIFT)
+#define __TORAJS_COLOR_WHITE  (3u << __TORAJS_COLOR_SHIFT)
+#define __TORAJS_FLAG_BUFFERED (1u << 5)
+
 /* T-10.b (v0.4.0) — Type::Any tagged-slot tags. An Array<Any> stores
  * 16-byte slots `{ tag: u64 (low 8 bits used), value: u64 }` so each
  * slot self-describes its contents. ANY_NULL / ANY_BOOL / ANY_I64 /

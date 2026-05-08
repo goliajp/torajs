@@ -2122,6 +2122,28 @@ fn lower_inner(
         &[Type::WeakSet],
         Type::Void,
     );
+    /* T-26.C — Bacon-Rajan cycle collector. cycle_buffer is hot-
+     * path: called from the inline Obj drop's else-branch when
+     * rc stays positive. cycle_collect is the manual `gc()`
+     * trigger; runs mark/scan/collect over the buffered roots. */
+    let cycle_buffer_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_cycle_buffer",
+        &[Type::Ptr],
+        Type::Void,
+    );
+    let cycle_collect_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_cycle_collect",
+        &[],
+        Type::Void,
+    );
+    /* User-visible `gc()` lowers as a direct call to cycle_collect.
+     * We register the alias so the existing global-fn path picks it
+     * up without a new desugar. */
+    fn_table.insert("gc".to_string(), cycle_collect_id);
 
     /* T-13.a (v0.4.0) — Symbol value runtime. alloc takes optional
      * desc Str (NULL when omitted); drop is rc-aware + dec's desc;
@@ -3503,6 +3525,8 @@ fn lower_inner(
         weakset_has: weakset_has_id,
         weakset_delete: weakset_delete_id,
         weakset_drop: weakset_drop_id,
+        cycle_buffer: cycle_buffer_id,
+        cycle_collect: cycle_collect_id,
         symbol_alloc: symbol_alloc_id,
         symbol_drop: symbol_drop_id,
         symbol_print: symbol_print_id,
@@ -3878,6 +3902,49 @@ fn lower_inner(
         }
     }
 
+    /* T-26.C — per-class children-offset metadata. Indexed by
+     * (class_tag - 1) so the cycle collector can drive a generic
+     * trial-deletion descent. We walk every class in
+     * class_name_to_tag order (tag 1, 2, ...) so the resulting
+     * Vec lines up with the runtime's index arithmetic.
+     *
+     * For each class, find its sid via aliases, look up the
+     * struct layout, and emit byte-offsets of every refcounted
+     * field. Class instances live behind a 24-byte object header
+     * so field i is at OBJ_HEADER_SIZE + i*8. Non-class types
+     * (anonymous `type X = {...}` aliases) get tag 0 and are
+     * excluded — cycle detection on them is a follow-up that
+     * needs heap-header-keyed sid lookup. */
+    {
+        let mut class_names_by_tag: Vec<(&String, u32)> = class_name_to_tag
+            .iter()
+            .map(|(n, t)| (n, *t))
+            .collect();
+        class_names_by_tag.sort_by_key(|(_, t)| *t);
+        for (cname, _tag) in &class_names_by_tag {
+            let sid = match module.struct_layouts.iter().enumerate().find_map(|(i, _)| {
+                aliases.get(*cname).and_then(|t| match t {
+                    Type::Obj(s) if s.0 as usize == i => Some(i),
+                    _ => None,
+                })
+            }) {
+                Some(i) => i,
+                None => continue,
+            };
+            let layout = &module.struct_layouts[sid];
+            let mut child_offsets: Vec<u32> = Vec::new();
+            for (i, (_, fty)) in layout.iter().enumerate() {
+                if fty.is_refcounted() {
+                    child_offsets.push(OBJ_HEADER_SIZE as u32 + (i as u32) * 8);
+                }
+            }
+            module.class_layouts.push(ssa::ClassLayoutMeta {
+                class_name: (*cname).clone(),
+                child_offsets,
+            });
+        }
+    }
+
     module
 }
 
@@ -4159,6 +4226,8 @@ struct Intrinsics {
     weakset_has: FuncId,
     weakset_delete: FuncId,
     weakset_drop: FuncId,
+    cycle_buffer: FuncId,
+    cycle_collect: FuncId,
     symbol_alloc: FuncId,
     symbol_drop: FuncId,
     symbol_print: FuncId,
@@ -7640,31 +7709,41 @@ impl<'a> LowerCtx<'a> {
                     Type::Bool,
                     None,
                 );
+                /* T-26.C — for class instances whose rc didn't
+                 * reach zero (still has owners), buffer them as
+                 * potential cycle roots in the Bacon-Rajan
+                 * collector. The runtime gates on a per-object
+                 * BUFFERED flag so dup-buffering doesn't grow
+                 * the buffer; the gate plus class-sid gate keep
+                 * the cost off the anonymous-struct path. */
+                let is_class_sid = self.ast.class_parents.keys().any(|cn|
+                    matches!(self.aliases.get(cn), Some(Type::Obj(s)) if s.0 == sid.0)
+                );
+                let buffer_blk = if is_class_sid {
+                    self.f.add_block()
+                } else {
+                    after
+                };
                 self.f.set_term(self.cur_block, Terminator::CondBr {
                     cond: Operand::Value(is_zero),
                     then_blk: walk_blk,
-                    else_blk: after,
+                    else_blk: buffer_blk,
                 });
+                if is_class_sid {
+                    self.cur_block = buffer_blk;
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Call(self.intrinsics.cycle_buffer, vec![val]),
+                    );
+                    self.f.set_term(self.cur_block, Terminator::Br(after));
+                }
                 // walk_blk: refcount hit 0 — drop owned fields then
                 // free the obj heap.
                 self.cur_block = walk_blk;
                 /* T-26 — clear any WeakRefs registered against
                  * this about-to-die class instance. Gate on
                  * `sid` being a declared class (not an anonymous
-                 * `type X = {...}` alias) — those alias values
-                 * reach drop via paths where the pointer passed
-                 * to weakref_target_dying isn't necessarily a
-                 * registered target, and conformance regression
-                 * showed instability in the fromEntries +
-                 * round-trip flow. WeakRef targets are always
-                 * class instances per the surface API today;
-                 * anonymous structs can opt in once the cycle
-                 * collector substrate lands and gives us color-
-                 * bit-based liveness instead of pointer-keyed
-                 * registry. */
-                let is_class_sid = self.ast.class_parents.keys().any(|cn|
-                    matches!(self.aliases.get(cn), Some(Type::Obj(s)) if s.0 == sid.0)
-                );
+                 * `type X = {...}` alias). */
                 if is_class_sid {
                     self.f.append_void(
                         self.cur_block,
