@@ -153,6 +153,8 @@ typedef struct __attribute__((aligned(8))) {
 #define __TORAJS_TAG_RESPONSE 9 /* T-21 — fetch() Response: header + status + body Str* */
 #define __TORAJS_TAG_BIGINT  10 /* T-25 — BigInt: header + sign u32 + len u32 + words[len] (little-endian u64 magnitude) */
 #define __TORAJS_TAG_WEAKREF 11 /* T-26 — WeakRef: header + target ptr (NULL = target reclaimed) */
+#define __TORAJS_TAG_WEAKMAP 12 /* T-26.B — WeakMap: header + bucket table; entries observed via weakref registry */
+#define __TORAJS_TAG_WEAKSET 13 /* T-26.B — WeakSet: same as WeakMap minus the value side */
 
 /* T-10.b (v0.4.0) — Type::Any tagged-slot tags. An Array<Any> stores
  * 16-byte slots `{ tag: u64 (low 8 bits used), value: u64 }` so each
@@ -644,6 +646,8 @@ extern void __torajs_response_drop(void *p);
 #endif
 extern void __torajs_bigint_drop(void *p);
 extern void __torajs_weakref_drop(void *p);
+extern void __torajs_weakmap_drop(void *p);
+extern void __torajs_weakset_drop(void *p);
 
 void __torajs_value_drop_heap(void *child) {
     if (child == NULL) return;
@@ -665,6 +669,17 @@ void __torajs_value_drop_heap(void *child) {
              * weakref_drop dec's its rc + unregisters from the
              * registry on last owner. */
             __torajs_weakref_drop(child);
+            break;
+        }
+        case __TORAJS_TAG_WEAKMAP: {
+            /* T-26.B — WeakMap drop walks every entry, drops
+             * each value's strong ref + deregisters the key
+             * from the shared registry. */
+            __torajs_weakmap_drop(child);
+            break;
+        }
+        case __TORAJS_TAG_WEAKSET: {
+            __torajs_weakset_drop(child);
             break;
         }
         default:                /* Obj / Substr / Closure / RegExp /

@@ -2042,6 +2042,86 @@ fn lower_inner(
         &[Type::Ptr],
         Type::Void,
     );
+    /* T-26.B — WeakMap / WeakSet runtime. Pointer-identity-keyed
+     * collections with auto-eviction on key death via the shared
+     * weakref registry. */
+    let weakmap_create_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_weakmap_create",
+        &[],
+        Type::WeakMap,
+    );
+    let weakmap_set_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_weakmap_set",
+        &[Type::WeakMap, Type::Ptr, Type::Ptr],
+        Type::Void,
+    );
+    let weakmap_get_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_weakmap_get",
+        &[Type::WeakMap, Type::Ptr],
+        Type::Ptr,
+    );
+    let weakmap_has_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_weakmap_has",
+        &[Type::WeakMap, Type::Ptr],
+        Type::I64,
+    );
+    let weakmap_delete_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_weakmap_delete",
+        &[Type::WeakMap, Type::Ptr],
+        Type::I64,
+    );
+    let weakmap_drop_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_weakmap_drop",
+        &[Type::WeakMap],
+        Type::Void,
+    );
+    let weakset_create_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_weakset_create",
+        &[],
+        Type::WeakSet,
+    );
+    let weakset_add_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_weakset_add",
+        &[Type::WeakSet, Type::Ptr],
+        Type::Void,
+    );
+    let weakset_has_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_weakset_has",
+        &[Type::WeakSet, Type::Ptr],
+        Type::I64,
+    );
+    let weakset_delete_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_weakset_delete",
+        &[Type::WeakSet, Type::Ptr],
+        Type::I64,
+    );
+    let weakset_drop_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_weakset_drop",
+        &[Type::WeakSet],
+        Type::Void,
+    );
 
     /* T-13.a (v0.4.0) — Symbol value runtime. alloc takes optional
      * desc Str (NULL when omitted); drop is rc-aware + dec's desc;
@@ -3412,6 +3492,17 @@ fn lower_inner(
         weakref_deref: weakref_deref_id,
         weakref_drop: weakref_drop_id,
         weakref_target_dying: weakref_target_dying_id,
+        weakmap_create: weakmap_create_id,
+        weakmap_set: weakmap_set_id,
+        weakmap_get: weakmap_get_id,
+        weakmap_has: weakmap_has_id,
+        weakmap_delete: weakmap_delete_id,
+        weakmap_drop: weakmap_drop_id,
+        weakset_create: weakset_create_id,
+        weakset_add: weakset_add_id,
+        weakset_has: weakset_has_id,
+        weakset_delete: weakset_delete_id,
+        weakset_drop: weakset_drop_id,
         symbol_alloc: symbol_alloc_id,
         symbol_drop: symbol_drop_id,
         symbol_print: symbol_print_id,
@@ -4057,6 +4148,17 @@ struct Intrinsics {
     weakref_deref: FuncId,
     weakref_drop: FuncId,
     weakref_target_dying: FuncId,
+    weakmap_create: FuncId,
+    weakmap_set: FuncId,
+    weakmap_get: FuncId,
+    weakmap_has: FuncId,
+    weakmap_delete: FuncId,
+    weakmap_drop: FuncId,
+    weakset_create: FuncId,
+    weakset_add: FuncId,
+    weakset_has: FuncId,
+    weakset_delete: FuncId,
+    weakset_drop: FuncId,
     symbol_alloc: FuncId,
     symbol_drop: FuncId,
     symbol_print: FuncId,
@@ -4807,6 +4909,9 @@ fn parse_type(
         // Type ann is `weakref` (lowercase) since `WeakRef<T>` ann
         // form isn't parsed at SSA layer yet — type-erased.
         "weakref" => Type::WeakRef,
+        // T-26.B (v0.7) — WeakMap / WeakSet. Type-erased keys + values.
+        "weakmap" => Type::WeakMap,
+        "weakset" => Type::WeakSet,
         other => match aliases.get(other) {
             Some(ty) => *ty,
             None => panic!("ssa-lower: unsupported type annotation `{other}`"),
@@ -6959,15 +7064,14 @@ impl<'a> LowerCtx<'a> {
                     stack.push(rhs);
                 }
                 Expr::New { class_name, args } => {
-                    /* T-26 — `new WeakRef(target)` borrows target;
-                     * skip the recurse so the walk doesn't mark
-                     * the bound ident as moved. The runtime
-                     * registry observes target without a strong
-                     * ref, so the binding's owning scope must keep
-                     * normal drop semantics — which fires
-                     * weakref_target_dying via the inlined Obj
-                     * drop walk_blk. */
-                    if class_name == "WeakRef" {
+                    /* T-26 — `new WeakRef(target)` / `new WeakMap()`
+                     * / `new WeakSet()` borrow their args (or take
+                     * none); skip the recurse so the consume walk
+                     * doesn't mark bound idents as moved. */
+                    if class_name == "WeakRef"
+                        || class_name == "WeakMap"
+                        || class_name == "WeakSet"
+                    {
                         continue;
                     }
                     for e in args {
@@ -7720,6 +7824,21 @@ impl<'a> LowerCtx<'a> {
                 self.f.append_void(
                     self.cur_block,
                     InstKind::Call(self.intrinsics.weakref_drop, vec![val]),
+                );
+            }
+            Type::WeakMap => {
+                /* T-26.B — rc-aware WeakMap drop. Walks every
+                 * entry, drops each value's strong ref +
+                 * deregisters the key from the shared registry. */
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.weakmap_drop, vec![val]),
+                );
+            }
+            Type::WeakSet => {
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.weakset_drop, vec![val]),
                 );
             }
             other if other.is_copy() => {
@@ -10038,6 +10157,24 @@ impl<'a> LowerCtx<'a> {
                     self.cur_block,
                     InstKind::Call(self.intrinsics.weakref_create, vec![target_op]),
                     Type::WeakRef,
+                    None,
+                );
+                return Operand::Value(v);
+            }
+            Expr::New { class_name, .. } if class_name == "WeakMap" => {
+                let v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.weakmap_create, vec![]),
+                    Type::WeakMap,
+                    None,
+                );
+                return Operand::Value(v);
+            }
+            Expr::New { class_name, .. } if class_name == "WeakSet" => {
+                let v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.weakset_create, vec![]),
+                    Type::WeakSet,
                     None,
                 );
                 return Operand::Value(v);
@@ -13041,6 +13178,86 @@ impl<'a> LowerCtx<'a> {
                             None,
                         );
                         return Operand::Value(v);
+                    }
+                }
+                /* T-26.B — WeakMap.set/get/has/delete and
+                 * WeakSet.add/has/delete. All take key (and
+                 * optionally value for WeakMap.set) as borrows;
+                 * map/set receivers stay owned by the caller's
+                 * binding. The runtime auto-evicts when keys die.
+                 * Pre-flight check: only intercept when the
+                 * method name is one we explicitly handle for the
+                 * receiver type — otherwise fall through to other
+                 * arms below. */
+                if let Expr::Member { obj, name } = self.ast.get_expr(*callee) {
+                    let m_name = name.clone();
+                    let weakmap_method = matches!(
+                        m_name.as_str(),
+                        "set" | "get" | "has" | "delete"
+                    );
+                    let weakset_method = matches!(
+                        m_name.as_str(),
+                        "add" | "has" | "delete"
+                    );
+                    if weakmap_method || weakset_method {
+                        /* peek at receiver type without lowering
+                         * effects */
+                        let recv_ty_hint = match self.ast.get_expr(*obj) {
+                            Expr::Ident(n) => self.locals.get(n).map(|info| info.ty),
+                            _ => None,
+                        };
+                        let do_weakmap = weakmap_method && recv_ty_hint == Some(Type::WeakMap);
+                        let do_weakset = weakset_method && recv_ty_hint == Some(Type::WeakSet);
+                        if do_weakmap || do_weakset {
+                            let recv_op = self.lower_expr(*obj);
+                            let arg_ops: Vec<Operand> = args.iter().map(|a| self.lower_expr(*a)).collect();
+                            let (target, ret_ty) = if do_weakmap {
+                                match m_name.as_str() {
+                                    "set" => (self.intrinsics.weakmap_set, Type::Void),
+                                    "get" => (self.intrinsics.weakmap_get, Type::Ptr),
+                                    "has" => (self.intrinsics.weakmap_has, Type::I64),
+                                    "delete" => (self.intrinsics.weakmap_delete, Type::I64),
+                                    _ => unreachable!(),
+                                }
+                            } else {
+                                match m_name.as_str() {
+                                    "add" => (self.intrinsics.weakset_add, Type::Void),
+                                    "has" => (self.intrinsics.weakset_has, Type::I64),
+                                    "delete" => (self.intrinsics.weakset_delete, Type::I64),
+                                    _ => unreachable!(),
+                                }
+                            };
+                            let mut full_args = Vec::with_capacity(arg_ops.len() + 1);
+                            full_args.push(recv_op);
+                            full_args.extend(arg_ops);
+                            if ret_ty == Type::Void {
+                                self.f.append_void(
+                                    self.cur_block,
+                                    InstKind::Call(target, full_args),
+                                );
+                                return Operand::ConstI64(0);
+                            }
+                            let v = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(target, full_args),
+                                ret_ty,
+                                None,
+                            );
+                            /* has / delete return i64 0/1; coerce
+                             * back to Bool so downstream BinOp /
+                             * console.log dispatch picks the right
+                             * print intrinsic. */
+                            if matches!(m_name.as_str(), "has" | "delete") {
+                                let b = self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::ICmp(IPred::Ne, Operand::Value(v), Operand::ConstI64(0)),
+                                    Type::Bool,
+                                    None,
+                                );
+                                return Operand::Value(b);
+                            }
+                            return Operand::Value(v);
+                        }
                     }
                 }
                 // v0.2 #1 — `re.method(args)` for the RegExp stdlib
@@ -17378,7 +17595,9 @@ impl<'a> LowerCtx<'a> {
                     | Type::RegExp
                     | Type::Date
                     | Type::Promise
-                    | Type::WeakRef => "object",
+                    | Type::WeakRef
+                    | Type::WeakMap
+                    | Type::WeakSet => "object",
                     Type::Void | Type::Ptr => "object",
                     // T-10.a — typeof on a Type::Any operand needs
                     // runtime tag dispatch (not compile-time literal).

@@ -52,11 +52,19 @@ pub const RUNTIME_LIBC_BRIDGE_C: &str = include_str!("runtime_libc_bridge.c");
 pub const RUNTIME_BIGINT_C: &str = include_str!("runtime_bigint.c");
 
 /// v0.7 T-26 (slice A) — WeakRef registry. Hashmap-based
-/// (target → list of WeakRef ptrs) gated on a global active count
-/// so non-WeakRef-using programs pay one branch per rc_dec. Cycle
-/// collector + WeakMap/WeakSet build on the same registry in
-/// follow-up slices.
+/// (target → list of observers) gated on a global active count so
+/// non-Weak* programs pay one branch per rc_dec. Cycle collector
+/// builds on the same registry in T-26.C.
 pub const RUNTIME_WEAKREF_C: &str = include_str!("runtime_weakref.c");
+
+/// v0.7 T-26 (slice B) — WeakMap. Internal bucket table keyed by
+/// pointer identity; entries observed via the shared weakref
+/// registry so dying keys are auto-evicted.
+pub const RUNTIME_WEAKMAP_C: &str = include_str!("runtime_weakmap.c");
+
+/// v0.7 T-26 (slice B) — WeakSet. Same shape as WeakMap minus
+/// the value side.
+pub const RUNTIME_WEAKSET_C: &str = include_str!("runtime_weakset.c");
 
 /// All C runtime translation units in (filename, contents) form, in
 /// the order they should be written + cc'd. Filename is the basename
@@ -70,4 +78,6 @@ pub const SOURCES: &[(&str, &str)] = &[
     ("runtime_libc_bridge.c", RUNTIME_LIBC_BRIDGE_C),
     ("runtime_bigint.c", RUNTIME_BIGINT_C),
     ("runtime_weakref.c", RUNTIME_WEAKREF_C),
+    ("runtime_weakmap.c", RUNTIME_WEAKMAP_C),
+    ("runtime_weakset.c", RUNTIME_WEAKSET_C),
 ];

@@ -1,14 +1,18 @@
 /*
- * runtime_weakref.c — torajs T-26 (v0.7) WeakRef substrate.
+ * runtime_weakref.c — torajs T-26 (v0.7) WeakRef substrate +
+ * shared observer registry for WeakMap / WeakSet.
  *
  * `new WeakRef(target)` creates a heap struct that observes
  * `target` without keeping it alive. When `target`'s strong rc
- * transitions to zero (via __torajs_rc_dec), the runtime walks the
- * registry below and clears every WeakRef pointing at it to NULL.
- * Subsequent `wr.deref()` calls return null instead of a dangling
- * pointer.
+ * transitions to zero (via __torajs_rc_dec or the inlined Obj
+ * drop walk_blk hook in ssa_lower), the runtime walks the
+ * registry below and dispatches per-observer-kind cleanup:
  *
- * Heap layout (16 bytes):
+ *   - WeakRef:  clear the WR's `target` ptr to NULL
+ *   - WeakMap:  remove the (key,value) entry from the map
+ *   - WeakSet:  remove the key from the set
+ *
+ * Heap layout for WeakRef (16 bytes):
  *
  *     [universal_heap_header (8B)] [target ptr (8B)]
  *
@@ -17,20 +21,12 @@
  *                       the pointer with strong rc bumped (the
  *                       caller assumes ownership)
  *
- * Tradeoff vs. Swift-/Rust-style "weak count in object header":
- * the strong-rc-only header keeps the alloc layout stable across
- * the entire ARC system (no 8B header expansion → no relayout of
- * Promise/Date/Symbol/etc). The price is a hashmap probe inside
- * rc_dec when a heap object dies. We gate that probe on a
- * non-zero `weak_ref_active` counter so non-WeakRef-using programs
- * pay one untaken branch per dec — same as Python's tp_weaklistoffset
- * approach when a type opts out.
- *
- * Cycle collector (Bacon & Rajan trial deletion) lands as a
- * separate slice of T-26 — that one needs the color-bit reservation
- * in the universal header's flags field (3 free bits available
- * today). WeakRef ships first because it's substrate-independent;
- * cycles + WeakMap/WeakSet build on the same registry below.
+ * The registry was scoped to WeakRef-only in T-26.A; T-26.B
+ * generalized it to (kind, owner) tuples so WeakMap and WeakSet
+ * piggyback on the same target-dying broadcast without each
+ * needing its own scan path. Cycle collector (T-26.C) will swap
+ * the per-target cell-list approach for color-bit-keyed liveness
+ * driven off the universal heap header's flags field.
  */
 
 #include <stdint.h>
@@ -48,41 +44,49 @@ typedef struct __attribute__((aligned(8))) {
 extern void __torajs_rc_inc(void *p);
 extern int  __torajs_rc_dec(void *p);
 
+/* Cleanup hooks defined in runtime_weakmap.c / runtime_weakset.c.
+ * Either is allowed to be missing in a given binary (linker would
+ * fail otherwise) — but since both modules are always compiled
+ * into the runtime, the symbols always resolve. The hooks are
+ * called only when at least one map/set has registered against
+ * the dying target, so the observer-kind dispatch fires the right
+ * one. */
+extern void __torajs_weakmap_invalidate_key(void *owner, void *dying_key);
+extern void __torajs_weakset_invalidate_key(void *owner, void *dying_key);
+
 typedef struct {
     __torajs_heap_header_t header;
     void *target;
 } WeakRef;
 
 /* ============================================================
- * Registry — open-addressing on (target → linked list of WeakRefs).
- *
- * Each bucket is a linked list of `Bucket` cells; each cell stores
- * one (target, list-of-weakrefs-pointing-at-it) record. We keep
- * one cell per target rather than per-WeakRef so the dying-target
- * walk is a single bucket lookup + freeing the cell, not an O(n)
- * full-table scan.
- *
- * 1024 buckets is intentionally small — the typical program has
- * ≤ a few hundred live WeakRefs. The hash dispersion (double-mix)
- * keeps chains short. Resize is a follow-up; only matters if a
- * program holds millions of weakrefs simultaneously.
+ * Shared observer registry. (target → linked list of observers).
+ * Each observer carries `kind` + `owner`; weakref_target_dying
+ * walks the cell's list and dispatches per kind.
  * ============================================================ */
 
 #define WEAKREF_BUCKETS 1024
 
-typedef struct WeakRefNode {
-    WeakRef *wr;
-    struct WeakRefNode *next;
-} WeakRefNode;
+typedef enum {
+    OBSERVER_WEAKREF = 0,
+    OBSERVER_WEAKMAP = 1,
+    OBSERVER_WEAKSET = 2,
+} ObserverKind;
+
+typedef struct ObserverNode {
+    ObserverKind kind;
+    void *owner;       /* WeakRef* / WeakMap* / WeakSet* */
+    struct ObserverNode *next;
+} ObserverNode;
 
 typedef struct TargetCell {
     void *target;
-    WeakRefNode *refs;
+    ObserverNode *observers;
     struct TargetCell *next;  /* hash chain */
 } TargetCell;
 
 static TargetCell *g_buckets[WEAKREF_BUCKETS];
-static uint64_t g_active = 0;  /* total live WeakRefs */
+static uint64_t g_active = 0;  /* total live observers */
 
 static inline uint32_t hash_ptr(void *p) {
     uintptr_t v = (uintptr_t)p;
@@ -106,7 +110,7 @@ static TargetCell *registry_get_or_alloc(void *target, uint32_t bkt) {
     if (c) return c;
     c = (TargetCell *)malloc(sizeof(TargetCell));
     c->target = target;
-    c->refs = NULL;
+    c->observers = NULL;
     c->next = g_buckets[bkt];
     g_buckets[bkt] = c;
     return c;
@@ -121,25 +125,33 @@ static void registry_remove_cell(TargetCell *c, uint32_t bkt) {
     free(c);
 }
 
-static void registry_register(WeakRef *wr) {
-    uint32_t bkt = hash_ptr(wr->target);
-    TargetCell *c = registry_get_or_alloc(wr->target, bkt);
-    WeakRefNode *n = (WeakRefNode *)malloc(sizeof(WeakRefNode));
-    n->wr = wr;
-    n->next = c->refs;
-    c->refs = n;
+/* Internal — public-to-other-runtime-modules. WeakMap.set /
+ * WeakSet.add register here; on entry removal they deregister. */
+void __torajs_weakref_registry_register(void *target, ObserverKind kind, void *owner) {
+    if (target == NULL) return;
+    uint32_t bkt = hash_ptr(target);
+    TargetCell *c = registry_get_or_alloc(target, bkt);
+    ObserverNode *n = (ObserverNode *)malloc(sizeof(ObserverNode));
+    n->kind = kind;
+    n->owner = owner;
+    n->next = c->observers;
+    c->observers = n;
     g_active += 1;
 }
 
-static void registry_deregister(WeakRef *wr) {
-    if (wr->target == NULL) return;  /* already cleared by target_dying */
-    uint32_t bkt = hash_ptr(wr->target);
-    TargetCell *c = registry_find(wr->target, bkt);
+/* Internal — remove a specific (target, kind, owner) tuple. Used
+ * by WeakMap.delete / WeakSet.delete to keep the registry tidy
+ * when the entry is explicitly removed (vs. cleared by the
+ * dying-target walk). Tolerant: returns silently if no match. */
+void __torajs_weakref_registry_deregister(void *target, ObserverKind kind, void *owner) {
+    if (target == NULL) return;
+    uint32_t bkt = hash_ptr(target);
+    TargetCell *c = registry_find(target, bkt);
     if (!c) return;
-    WeakRefNode **slot = &c->refs;
+    ObserverNode **slot = &c->observers;
     while (*slot) {
-        if ((*slot)->wr == wr) {
-            WeakRefNode *gone = *slot;
+        if ((*slot)->kind == kind && (*slot)->owner == owner) {
+            ObserverNode *gone = *slot;
             *slot = gone->next;
             free(gone);
             g_active -= 1;
@@ -147,25 +159,39 @@ static void registry_deregister(WeakRef *wr) {
         }
         slot = &(*slot)->next;
     }
-    if (c->refs == NULL) registry_remove_cell(c, bkt);
+    if (c->observers == NULL) registry_remove_cell(c, bkt);
 }
 
 /* ============================================================
- * Public API.
+ * Public API — called by rc_dec / Obj-drop walk_blk and by
+ * ssa_lower-emitted IR.
  * ============================================================ */
 
-/* Called by rc_dec when a heap object's strong rc transitions to
- * zero. Walks every WeakRef registered against this target,
- * sets its `target` to NULL, and frees the bucket cell. */
+/* Called when a heap object's strong rc transitions to zero.
+ * Walks every observer registered against this target and
+ * dispatches per kind. Cells / nodes free as they're processed. */
 void __torajs_weakref_target_dying(void *target) {
     if (g_active == 0) return;
     uint32_t bkt = hash_ptr(target);
     TargetCell *c = registry_find(target, bkt);
     if (!c) return;
-    WeakRefNode *cur = c->refs;
+    ObserverNode *cur = c->observers;
     while (cur) {
-        cur->wr->target = NULL;
-        WeakRefNode *next = cur->next;
+        switch (cur->kind) {
+            case OBSERVER_WEAKREF: {
+                ((WeakRef *)cur->owner)->target = NULL;
+                break;
+            }
+            case OBSERVER_WEAKMAP: {
+                __torajs_weakmap_invalidate_key(cur->owner, target);
+                break;
+            }
+            case OBSERVER_WEAKSET: {
+                __torajs_weakset_invalidate_key(cur->owner, target);
+                break;
+            }
+        }
+        ObserverNode *next = cur->next;
         free(cur);
         g_active -= 1;
         cur = next;
@@ -175,18 +201,15 @@ void __torajs_weakref_target_dying(void *target) {
 
 /* `new WeakRef(target)` — allocate a fresh +1-rc WeakRef and
  * register it. The target is NOT rc_inc'd; the WeakRef is observed
- * via the registry instead. Caller's ownership of `target` is
- * unchanged — they still own it as before. */
+ * via the registry instead. */
 void *__torajs_weakref_create(void *target) {
     WeakRef *wr = (WeakRef *)malloc(sizeof(WeakRef));
     wr->header.refcount = 1;
     wr->header.type_tag = __TORAJS_TAG_WEAKREF;
     wr->header.flags = 0;
     wr->target = target;
-    /* NULL target is legal in the spec only for some prototypes; we
-     * accept it here without registering (deref always returns null). */
     if (target != NULL) {
-        registry_register(wr);
+        __torajs_weakref_registry_register(target, OBSERVER_WEAKREF, wr);
     }
     return wr;
 }
@@ -210,7 +233,10 @@ void __torajs_weakref_drop(void *p) {
     if (wr->header.flags & 4 /* STATIC_LITERAL */) return;
     wr->header.refcount -= 1;
     if (wr->header.refcount == 0) {
-        registry_deregister(wr);
+        if (wr->target != NULL) {
+            __torajs_weakref_registry_deregister(
+                wr->target, OBSERVER_WEAKREF, wr);
+        }
         free(wr);
     }
 }

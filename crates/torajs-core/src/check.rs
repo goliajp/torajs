@@ -104,6 +104,16 @@ pub enum Type {
     /// is ptr-shaped regardless of the original T, and conformance
     /// cases work fine with `as` casts on the deref result).
     WeakRef,
+    /// T-26.B — `WeakMap`. Pointer-identity-keyed map with auto-
+    /// eviction on key death. `m.get(k)` returns `Nullable<Any>`,
+    /// `m.has/delete` return Boolean, `m.set` returns the map (we
+    /// stick with Void for the SSA result since chaining isn't
+    /// observed in conformance fixtures yet — adjust if test262
+    /// surfaces it).
+    WeakMap,
+    /// T-26.B — `WeakSet`. Set of pointer-identity-keyed entries
+    /// with auto-eviction.
+    WeakSet,
     /// v0 hack — `console.log`'s parameter accepts any printable type.
     /// Replace with a sum/union type later.
     Any,
@@ -463,6 +473,8 @@ fn resolve_type_ann_full(
         "void" => Some(Type::Void),
         "bigint" => Some(Type::BigInt),
         "weakref" | "WeakRef" => Some(Type::WeakRef),
+        "weakmap" | "WeakMap" => Some(Type::WeakMap),
+        "weakset" | "WeakSet" => Some(Type::WeakSet),
         // `any` is recognized as a real type in the resolver only as a
         // late-stage fallback — `desugar_implicit_generics` rewrites
         // every annotated `: any` to a fresh TypeVar before this layer
@@ -690,6 +702,8 @@ pub fn type_to_ann(ty: &Type) -> String {
         Type::Void => "void".into(),
         Type::BigInt => "bigint".into(),
         Type::WeakRef => "weakref".into(),
+        Type::WeakMap => "weakmap".into(),
+        Type::WeakSet => "weakset".into(),
         Type::Any => "number".into(), // SSA-side has no Any; fall back to number
         Type::Symbol => "symbol".into(),
         Type::Array(inner) => format!("{}[]", type_to_ann(inner)),
@@ -1920,6 +1934,8 @@ impl Checker {
                      * type ann via `: WeakRef<T>` — parse_type
                      * handles the type-side mapping. */
                     "WeakRef" => Ok(Type::Object("WeakRef")),
+                    "WeakMap" => Ok(Type::Object("WeakMap")),
+                    "WeakSet" => Ok(Type::Object("WeakSet")),
                     /* T-13.a (v0.4.0) — Symbol global. As-callable
                      * (`Symbol(desc?)` constructor) routed via the
                      * Call arm below to Type::Symbol. Static methods
@@ -2473,6 +2489,38 @@ impl Checker {
                     (Type::WeakRef, "deref") => Ok(Type::Function(
                         Vec::new(),
                         Box::new(Type::Nullable(Box::new(Type::Any))),
+                    )),
+                    /* T-26.B — WeakMap methods. set takes (key,
+                     * value); both type-erased to Any. get returns
+                     * Nullable<Any>. has / delete return Boolean. */
+                    (Type::WeakMap, "set") => Ok(Type::Function(
+                        vec![Type::Any, Type::Any],
+                        Box::new(Type::Void),
+                    )),
+                    (Type::WeakMap, "get") => Ok(Type::Function(
+                        vec![Type::Any],
+                        Box::new(Type::Nullable(Box::new(Type::Any))),
+                    )),
+                    (Type::WeakMap, "has") => Ok(Type::Function(
+                        vec![Type::Any],
+                        Box::new(Type::Boolean),
+                    )),
+                    (Type::WeakMap, "delete") => Ok(Type::Function(
+                        vec![Type::Any],
+                        Box::new(Type::Boolean),
+                    )),
+                    /* T-26.B — WeakSet methods. */
+                    (Type::WeakSet, "add") => Ok(Type::Function(
+                        vec![Type::Any],
+                        Box::new(Type::Void),
+                    )),
+                    (Type::WeakSet, "has") => Ok(Type::Function(
+                        vec![Type::Any],
+                        Box::new(Type::Boolean),
+                    )),
+                    (Type::WeakSet, "delete") => Ok(Type::Function(
+                        vec![Type::Any],
+                        Box::new(Type::Boolean),
                     )),
                     // v0.2 #2 Phase 2.0a — Date instance methods.
                     (Type::Date, "getTime")
@@ -4346,6 +4394,27 @@ impl Checker {
                  * shaped value). */
                 let _ = self.type_of(ast, args[0])?;
                 Ok(Type::WeakRef)
+            }
+            Expr::New { class_name, args } if class_name == "WeakMap" => {
+                /* T-26.B — `new WeakMap()`. Spec also accepts an
+                 * iterable initializer; that overload is a follow-
+                 * up alongside test262's WeakMap fixtures. */
+                if !args.is_empty() {
+                    return Err(format!(
+                        "`new WeakMap(...)` with initializer not yet supported (got {} args)",
+                        args.len()
+                    ));
+                }
+                Ok(Type::WeakMap)
+            }
+            Expr::New { class_name, args } if class_name == "WeakSet" => {
+                if !args.is_empty() {
+                    return Err(format!(
+                        "`new WeakSet(...)` with initializer not yet supported (got {} args)",
+                        args.len()
+                    ));
+                }
+                Ok(Type::WeakSet)
             }
             Expr::New { class_name, .. } => {
                 panic!("internal: `new {class_name}` reached check.rs (desugar didn't run?)")

@@ -2324,13 +2324,16 @@ pub fn desugar_classes(ast: &mut Ast) {
                 /* Builtin News (Date, ...) are rewritten by
                  * `desugar_builtin_new` BEFORE this pass, so any
                  * remaining Expr::New here is a user class. */
-                /* T-26 — `new WeakRef(target)` is intercepted at
-                 * SSA-lower time so the target arg passes as a
-                 * borrow (no consume → the target's owning binding
-                 * drops normally → that drop clears the registered
-                 * WeakRef). Skip the generic factory rewrite here
-                 * to keep the Expr::New shape intact. */
-                if class_name == "WeakRef" {
+                /* T-26 — `new WeakRef(target)` / `new WeakMap()` /
+                 * `new WeakSet()` are intercepted at SSA-lower
+                 * time so target args pass as borrows (no consume
+                 * → owning bindings drop normally → registry
+                 * cleanup runs). Skip the generic factory rewrite
+                 * here to keep the Expr::New shape intact. */
+                if class_name == "WeakRef"
+                    || class_name == "WeakMap"
+                    || class_name == "WeakSet"
+                {
                     let _ = args;
                     continue;
                 }

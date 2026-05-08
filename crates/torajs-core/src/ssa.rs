@@ -174,6 +174,14 @@ pub enum Type {
     /// target rc-bumped (caller takes ownership) or null when the
     /// target has been reclaimed. Lowers to a single pointer.
     WeakRef,
+    /// T-26.B (v0.7) — `Type::WeakMap`. Heap struct holding an
+    /// internal bucket table keyed by pointer identity; entries
+    /// auto-evict when their key dies via the shared weakref
+    /// registry. Lowers to a single pointer.
+    WeakMap,
+    /// T-26.B (v0.7) — `Type::WeakSet`. Same shape as WeakMap
+    /// minus the value side.
+    WeakSet,
     /// T-10 (v0.4.0) — `Type::Any` carries a tagged value at runtime:
     /// either a primitive (i64 / f64 / bool / null) or a heap pointer
     /// (Str / Obj / Arr / Closure / RegExp / Date). At the SSA layer
@@ -210,6 +218,8 @@ impl Type {
             Type::Promise => "promise",
             Type::BigInt => "bigint",
             Type::WeakRef => "weakref",
+            Type::WeakMap => "weakmap",
+            Type::WeakSet => "weakset",
         }
     }
 
@@ -259,6 +269,8 @@ impl Type {
                 | Type::Promise
                 | Type::BigInt
                 | Type::WeakRef
+                | Type::WeakMap
+                | Type::WeakSet
         )
     }
 }
