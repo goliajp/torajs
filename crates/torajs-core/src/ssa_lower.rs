@@ -2955,25 +2955,29 @@ fn lower_inner(
         }
     }
 
-    // Phase H.1.b — assign each declared class a runtime tag and build
-    // `sid → tag` so ObjectLit lowering can stamp the header. Tag 0 is
-    // reserved for "not a class" — plain `type` aliases stay tagged 0.
-    // Tags start at 1 and walk class names in lexical order so codegen
-    // stays deterministic across builds (HashMap iteration is unordered).
-    // sid collisions (two classes sharing a struct shape) keep the first
-    // tag wins; the rest still alias to that one — instanceof distinguishes
-    // them by walking class_parents on the recovered name, not by tag.
-    let mut sid_to_class_tag: HashMap<u32, u32> = HashMap::new();
-    {
+    /* Phase H.1.b — assign each declared class a runtime tag.
+     *
+     * Tags are keyed by **class name**, not by sid, because classes
+     * with structurally identical fields share a single sid via the
+     * intern table (see line 2940). Keying tags by sid would alias
+     * those classes to the same tag, which silently mis-routes
+     * `__dispatch_<M>` (the dispatcher reads obj.class_tag and a
+     * shared tag picks the wrong override). Tag 0 is reserved for
+     * "not a class" — plain `type` aliases stay tagged 0.
+     *
+     * Tags start at 1 and walk class names in lexical order so
+     * codegen stays deterministic across builds (HashMap iteration
+     * is unordered).
+     */
+    let class_name_to_tag: HashMap<String, u32> = {
         let mut class_names: Vec<&String> = ast.class_parents.keys().collect();
         class_names.sort();
-        for (i, cname) in class_names.iter().enumerate() {
-            let tag = (i as u32) + 1;
-            if let Some(Type::Obj(sid)) = aliases.get(*cname) {
-                sid_to_class_tag.entry(sid.0).or_insert(tag);
-            }
-        }
-    }
+        class_names
+            .iter()
+            .enumerate()
+            .map(|(i, cname)| ((*cname).clone(), (i as u32) + 1))
+            .collect()
+    };
 
     // Pass 1: pre-allocate FuncIds + record correct return types for every
     // user FnDecl. The placeholder body is empty; pass 2 fills it in. Setting
@@ -3511,7 +3515,7 @@ fn lower_inner(
                 &mut closure_captures,
                 &call_retargets,
                 &may_throw,
-                &sid_to_class_tag,
+                &class_name_to_tag,
                 &globals,
                 expr_types,
             );
@@ -3546,7 +3550,7 @@ fn lower_inner(
             &mut closure_captures,
             &call_retargets,
             &may_throw,
-            &sid_to_class_tag,
+            &class_name_to_tag,
             &globals,
             expr_types,
         );
@@ -3591,7 +3595,7 @@ fn lower_inner(
                 &mut closure_captures,
                 &call_retargets,
                 &may_throw,
-                &sid_to_class_tag,
+                &class_name_to_tag,
                 &globals,
                 expr_types,
             );
@@ -4040,7 +4044,7 @@ fn synthesize_main(
     closure_captures: &mut HashMap<String, Vec<(Type, bool)>>,
     call_retargets: &CallRetargets,
     may_throw_fns: &std::collections::HashSet<String>,
-    sid_to_class_tag: &HashMap<u32, u32>,
+    class_name_to_tag: &HashMap<String, u32>,
     globals: &HashMap<String, Type>,
     expr_types: &HashMap<ExprId, crate::check::Type>,
 ) -> (ssa::Function, Vec<Vec<u8>>) {
@@ -4061,7 +4065,7 @@ fn synthesize_main(
             fn_sigs,
             struct_layouts,
             generic_struct_decls,
-            sid_to_class_tag,
+            class_name_to_tag,
             try_stack: Vec::new(),
             try_finally_stack: Vec::new(),
             pending_return_slot: None,
@@ -4838,7 +4842,7 @@ fn lower_fn(
     closure_captures: &mut HashMap<String, Vec<(Type, bool)>>,
     call_retargets: &CallRetargets,
     may_throw_fns: &std::collections::HashSet<String>,
-    sid_to_class_tag: &HashMap<u32, u32>,
+    class_name_to_tag: &HashMap<String, u32>,
     globals: &HashMap<String, Type>,
     expr_types: &HashMap<ExprId, crate::check::Type>,
 ) -> (ssa::Function, Vec<Vec<u8>>) {
@@ -4894,7 +4898,7 @@ fn lower_fn(
         fn_sigs,
         struct_layouts,
         generic_struct_decls,
-        sid_to_class_tag,
+        class_name_to_tag,
         try_stack: Vec::new(),
         try_finally_stack: Vec::new(),
         try_finally_loop_depth: Vec::new(),
@@ -5303,10 +5307,12 @@ struct LowerCtx<'a> {
     /// to instantiate `Foo<arg|...>` annotations in let-decl / fn-arg /
     /// closure-construction sites.
     generic_struct_decls: &'a HashMap<String, (Vec<String>, Vec<(String, String)>)>,
-    /// Phase H.1.b — `sid → class tag`, written into the OBJ_HEADER_SIZE
-    /// slot at offset 0 of every class instance. Plain `type` aliases
-    /// don't appear here (they get a 0 tag at allocation time).
-    sid_to_class_tag: &'a HashMap<u32, u32>,
+    /// Phase H.1.b — `class name → runtime tag`. Keyed by name (not
+    /// sid) because classes with structurally identical fields share
+    /// a single sid; sid-keyed tags would alias them and silently
+    /// mis-route `__dispatch_<M>`. Plain `type` aliases aren't keys
+    /// here (they get a 0 tag at allocation time).
+    class_name_to_tag: &'a HashMap<String, u32>,
     /// M4 — innermost-active try block's catch-block target. Each
     /// `Stmt::Try` lowering pushes the catch BlockId before lowering its
     /// body and pops after; user-fn calls in scope insert a cond_br on
@@ -15675,7 +15681,19 @@ impl<'a> LowerCtx<'a> {
                 // it can be reused by box / closure-env paths that don't
                 // want a refcount header.
                 self.emit_obj_header_init(Operand::Value(obj_ptr));
-                let tag = self.sid_to_class_tag.get(&sid.0).copied().unwrap_or(0);
+                /* Recover the class name from the enclosing factory
+                 * `__new_<C>` (every class instance is constructed
+                 * via that factory; non-class typed literals fall
+                 * outside any `__new_*` and stay tagged 0). Looking
+                 * up by name avoids the sid-collision aliasing that
+                 * silently broke `__dispatch_<M>` for sibling classes
+                 * with identical fields. */
+                let tag = self
+                    .f
+                    .name
+                    .strip_prefix("__new_")
+                    .and_then(|cname| self.class_name_to_tag.get(cname).copied())
+                    .unwrap_or(0);
                 self.f.append_void(
                     self.cur_block,
                     InstKind::Store(
@@ -17048,9 +17066,7 @@ impl<'a> LowerCtx<'a> {
                         while let Some(name) = cur {
                             if depth > 64 { break; }
                             if name == *class_name {
-                                if let Some(Type::Obj(sid)) = self.aliases.get(c)
-                                    && let Some(tag) = self.sid_to_class_tag.get(&sid.0)
-                                {
+                                if let Some(tag) = self.class_name_to_tag.get(c) {
                                     descendant_tags.push(*tag);
                                 }
                                 break;
@@ -18675,9 +18691,7 @@ impl<'a> LowerCtx<'a> {
             while let Some(name) = cur {
                 if depth > 64 { break; }
                 if name == *class_name {
-                    if let Some(Type::Obj(sid)) = self.aliases.get(c)
-                        && let Some(tag) = self.sid_to_class_tag.get(&sid.0)
-                    {
+                    if let Some(tag) = self.class_name_to_tag.get(c) {
                         out.push(*tag);
                     }
                     break;

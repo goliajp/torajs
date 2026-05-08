@@ -603,6 +603,14 @@ fn run_cache_key(src: &str, import_closure: &[(PathBuf, Vec<u8>)]) -> String {
     }
     env!("CARGO_PKG_VERSION").hash(&mut h);
     "O3".hash(&mut h);
+    /* Hash the build-time epoch (set in build.rs at compile time) so
+     * a freshly-rebuilt `tr` binary doesn't hit cached binaries
+     * compiled by an earlier (potentially buggy) version of itself.
+     * Without this, a fix to ssa_lower / ssa_inkwell looks like it's
+     * not applied because `tr run` keeps re-executing the stale cache
+     * entry — the trap that hid the dispatch-tag-collision bug for
+     * a full session. */
+    env!("TORAJS_BUILD_EPOCH").hash(&mut h);
     format!("torajs-{:016x}", h.finish())
 }
 
