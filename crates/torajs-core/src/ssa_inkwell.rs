@@ -409,6 +409,37 @@ pub fn compile_for(
         fn_map.push(llvm_fn);
     }
 
+    /* Pass C.5 (T-24): emit `__vtable_<C>` globals — one `[N x ptr]`
+     * constant per class, slot[i] populated with the FunctionValue
+     * for the deepest ancestor of C that owns method[i]. Slots with
+     * no impl in C's MRO get null. The keying name `__vtable_<C>`
+     * lets the GlobalRef("__vtable_<C>") resolution path below pick
+     * them up. */
+    let vtable_globals: HashMap<String, inkwell::values::GlobalValue> = {
+        let mut out = HashMap::new();
+        let ptr_t = ctx.ptr_type(AddressSpace::default());
+        for vt in &ssa_module.vtable_globals {
+            let n = vt.fn_ids.len();
+            let arr_t = ptr_t.array_type(n as u32);
+            let elems: Vec<inkwell::values::PointerValue> = vt
+                .fn_ids
+                .iter()
+                .map(|opt| match opt {
+                    Some(fid) => fn_map[fid.0 as usize].as_global_value().as_pointer_value(),
+                    None => ptr_t.const_null(),
+                })
+                .collect();
+            let arr = ptr_t.const_array(&elems);
+            let g = llvm_module.add_global(arr_t, None, &format!("__vtable_{}", vt.class_name));
+            g.set_initializer(&arr);
+            g.set_constant(true);
+            g.set_linkage(inkwell::module::Linkage::Private);
+            g.set_unnamed_addr(true);
+            out.insert(format!("__vtable_{}", vt.class_name), g);
+        }
+        out
+    };
+
     // Pass D: lower bodies for every SSA function that has blocks AND isn't
     // a backend-owned intrinsic.
     let intrinsics = [
@@ -537,6 +568,7 @@ pub fn compile_for(
             string_globals: &string_globals,
             static_str_globals: &static_str_globals,
             data_globals: &data_globals,
+            vtable_globals: &vtable_globals,
             ssa_module,
             ast,
             debug_ctx: debug_ctx.as_ref(),
@@ -3741,6 +3773,11 @@ struct FnLower<'a, 'ctx> {
     /// Phase K.3 — module-level data globals indexed by name. Looked
     /// up by `InstKind::GlobalRef` to yield the slot's pointer value.
     data_globals: &'a HashMap<String, inkwell::values::GlobalValue<'ctx>>,
+    /// T-24 — per-class vtable globals (`__vtable_<C>` → const ptr
+    /// array). Resolved by `InstKind::GlobalRef` after `data_globals`
+    /// lookup misses, so vtable references piggyback on the existing
+    /// SSA primitive without a new InstKind.
+    vtable_globals: &'a HashMap<String, inkwell::values::GlobalValue<'ctx>>,
     /// Whole SSA module — needed by `InstKind::CallIndirect` to look up
     /// the signature interner. Read-only; no mutation. M2 Phase B Stage 3.
     ssa_module: &'a s::Module,
@@ -4029,7 +4066,8 @@ impl<'a, 'ctx> FnLower<'a, 'ctx> {
                 let g = self
                     .data_globals
                     .get(name)
-                    .unwrap_or_else(|| panic!("ssa-inkwell: unknown data global `{name}`"));
+                    .or_else(|| self.vtable_globals.get(name))
+                    .unwrap_or_else(|| panic!("ssa-inkwell: unknown global `{name}`"));
                 Some(BasicValueEnum::PointerValue(g.as_pointer_value()))
             }
             InstKind::Call(fid, args) => {

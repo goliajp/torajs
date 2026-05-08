@@ -487,6 +487,15 @@ pub struct Ast {
     /// owner's `__cm_<C>__M`. Single-owner methods aren't kept here
     /// since they go through static `__cm_<Owner>__M` dispatch directly.
     pub method_owners: std::collections::HashMap<String, Vec<String>>,
+    /// T-24 — virtual method index. Populated only for `chain_methods`
+    /// (methods with multiple owners forming a single inheritance
+    /// chain — the override case that goes through `__dispatch_<M>`).
+    /// Each chain method gets a stable u32 slot in the per-class
+    /// vtable; ssa_lower's dispatch interception loads
+    /// `vtable_ptr[method_index] -> fn_ptr` and `CallIndirect`s. The
+    /// indices are deterministic (sorted by method name) so codegen
+    /// is reproducible across builds.
+    pub method_index: std::collections::HashMap<String, u32>,
     /// M-OO.5 — `(class_name, member_name)` → visibility, populated by
     /// the parser when a `private` / `protected` modifier appears on a
     /// field or method. Public is the absent-default (no entry stored).
@@ -2622,6 +2631,17 @@ pub fn desugar_classes(ast: &mut Ast) {
     ast.method_owners = method_owners
         .into_iter()
         .filter(|(_, owners)| owners.len() > 1)
+        .collect();
+
+    /* T-24 — assign each chain method a stable vtable slot. Sorted
+     * by name so codegen stays deterministic; the index becomes the
+     * per-class vtable's `[N x ptr]` slot offset (in u64 units). */
+    let mut chain_methods_sorted: Vec<&String> = chain_methods.iter().collect();
+    chain_methods_sorted.sort();
+    ast.method_index = chain_methods_sorted
+        .into_iter()
+        .enumerate()
+        .map(|(i, n)| (n.clone(), i as u32))
         .collect();
 }
 

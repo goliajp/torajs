@@ -3629,6 +3629,49 @@ fn lower_inner(
     module.arr_layouts = arr_layouts;
     module.signatures = fn_sigs;
     module.struct_layouts = struct_layouts;
+
+    /* T-24 — populate per-class vtables. Slot order matches
+     * `ast.method_index` (sorted-by-name index). For each class C, slot
+     * `i` for method `M[i]` is the `__cm_<X>__M[i]` FuncId where X is
+     * the deepest ancestor of C (incl. itself) that has an own impl —
+     * walk C → parent → ... and stop at the first match in `fn_table`.
+     * Classes that don't appear in any chain method's MRO still get an
+     * empty vtable (length = method_index.len()) so the layout stays
+     * uniform; never-used slots are None and emitted as null ptrs. */
+    if !ast.method_index.is_empty() {
+        let n_methods = ast.method_index.len();
+        // Reverse method_index → ordered method names by slot.
+        let mut methods_by_slot: Vec<&str> = vec![""; n_methods];
+        for (m_name, idx) in &ast.method_index {
+            methods_by_slot[*idx as usize] = m_name.as_str();
+        }
+        let mut class_names: Vec<&String> = ast.class_parents.keys().collect();
+        class_names.sort();
+        for cname in class_names {
+            let mut fn_ids: Vec<Option<ssa::FuncId>> = Vec::with_capacity(n_methods);
+            for &m_name in &methods_by_slot {
+                let mut found: Option<ssa::FuncId> = None;
+                let mut cur: Option<String> = Some(cname.clone());
+                let mut depth = 0u32;
+                while let Some(name) = cur {
+                    if depth > 64 { break; }
+                    let candidate = format!("__cm_{name}__{m_name}");
+                    if let Some(fid) = fn_table.get(&candidate) {
+                        found = Some(*fid);
+                        break;
+                    }
+                    cur = ast.class_parents.get(&name).and_then(|p| p.clone());
+                    depth += 1;
+                }
+                fn_ids.push(found);
+            }
+            module.vtable_globals.push(ssa::VtableGlobal {
+                class_name: cname.clone(),
+                fn_ids,
+            });
+        }
+    }
+
     module
 }
 
@@ -10314,18 +10357,19 @@ impl<'a> LowerCtx<'a> {
                     );
                     return Operand::Value(v);
                 }
-                // Phase H.3.b — virtual-dispatch interception. Desugar
-                // rewrites `obj.M()` for multi-owner methods to a call
-                // to the synthetic `__dispatch_<M>` fn whose body is a
-                // typecheck-clean stub forwarding to the base owner.
-                // We bypass the stub here and emit inline tag-switch
-                // dispatch: read the receiver's class tag, walk subclass
-                // owners deepest-first, and call the matching
-                // `__cm_<C>__<M>` directly. The fall-through default
-                // is the base owner's body.
+                /* T-24 — virtual-dispatch interception via vtable.
+                 *
+                 * Desugar rewrites `obj.M()` (for chain methods) into
+                 * a call to the synthetic `__dispatch_<M>(obj, args)`.
+                 * We bypass that stub here: load the receiver's
+                 * vtable_ptr at `OBJ_VTABLE_OFF`, load the slot at
+                 * `method_index[M] * 8`, and `CallIndirect` through
+                 * it. O(1) regardless of inheritance depth — replaces
+                 * the prior O(chain depth) tag-switch cascade. */
                 if let Expr::Ident(callee_name) = self.ast.get_expr(*callee)
                     && let Some(method_name) = callee_name.strip_prefix("__dispatch_")
                     && let Some(owners) = self.ast.method_owners.get(method_name).cloned()
+                    && let Some(method_idx) = self.ast.method_index.get(method_name).copied()
                     && !args.is_empty()
                 {
                     let arg_ops: Vec<Operand> = args
@@ -10337,8 +10381,10 @@ impl<'a> LowerCtx<'a> {
                         })
                         .collect();
                     let recv = arg_ops[0];
-                    // Look up base owner's __cm fn for return type + as
-                    // the default branch.
+                    /* Resolve return type + signature from the base
+                     * owner's __cm fn — every override shares the
+                     * signature (Liskov: subclass __cm has same param
+                     * + return shape as the base). */
                     let base_fn_name = format!("__cm_{}__{method_name}", owners[0]);
                     let base_fid = *self.fn_table.get(&base_fn_name).unwrap_or_else(|| {
                         panic!(
@@ -10346,108 +10392,34 @@ impl<'a> LowerCtx<'a> {
                         )
                     });
                     let ret_ty = self.f_ret_type_hint(base_fid);
-                    let result_slot = self.alloca_in_entry(ret_ty, Some("__dispatch_res"));
-                    let tag = self.f.append_inst(
+                    let sig_id = *self.fn_sig_ids.get(&base_fid).unwrap_or_else(|| {
+                        panic!(
+                            "ssa-lower: __dispatch base fn `{base_fn_name}` has no SigId"
+                        )
+                    });
+                    let vt = self.f.append_inst(
                         self.cur_block,
-                        InstKind::Load(Type::I64, recv, OBJ_CLASS_TAG_OFF),
-                        Type::I64,
+                        InstKind::Load(Type::Ptr, recv, OBJ_VTABLE_OFF),
+                        Type::Ptr,
                         None,
                     );
-                    let after_blk = self.f.add_block();
-                    // Walk subclass owners deepest-first. For each, OR-
-                    // chain the descendant tag set against the loaded tag,
-                    // branch into a per-owner block that calls the
-                    // override and stores the result.
-                    for sub in owners.iter().skip(1).rev() {
-                        let descendant_tags = self.compute_descendant_tags(sub);
-                        if descendant_tags.is_empty() {
-                            continue;
-                        }
-                        let mut cond_acc: Option<ValueId> = None;
-                        for &t in &descendant_tags {
-                            let eq = self.f.append_inst(
-                                self.cur_block,
-                                InstKind::ICmp(
-                                    IPred::Eq,
-                                    Operand::Value(tag),
-                                    Operand::ConstI64(t as i64),
-                                ),
-                                Type::Bool,
-                                None,
-                            );
-                            cond_acc = Some(match cond_acc {
-                                None => eq,
-                                Some(prev) => self.f.append_inst(
-                                    self.cur_block,
-                                    InstKind::BinOp(
-                                        SsaBinOp::Or,
-                                        Operand::Value(prev),
-                                        Operand::Value(eq),
-                                    ),
-                                    Type::Bool,
-                                    None,
-                                ),
-                            });
-                        }
-                        let sub_blk = self.f.add_block();
-                        let next_blk = self.f.add_block();
-                        self.f.set_term(
-                            self.cur_block,
-                            Terminator::CondBr {
-                                cond: Operand::Value(cond_acc.unwrap()),
-                                then_blk: sub_blk,
-                                else_blk: next_blk,
-                            },
-                        );
-                        // sub_blk: call __cm_<sub>__<method>(args)
-                        self.cur_block = sub_blk;
-                        let sub_fn_name = format!("__cm_{sub}__{method_name}");
-                        let sub_fid = *self.fn_table.get(&sub_fn_name).unwrap_or_else(|| {
-                            panic!(
-                                "ssa-lower: __dispatch lost override fn `{sub_fn_name}`"
-                            )
-                        });
-                        let r = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Call(sub_fid, arg_ops.clone()),
-                            ret_ty,
-                            None,
-                        );
-                        self.f.append_void(
-                            self.cur_block,
-                            InstKind::Store(
-                                Operand::Value(r),
-                                Operand::Value(result_slot),
-                                0,
-                            ),
-                        );
-                        self.f.set_term(self.cur_block, Terminator::Br(after_blk));
-                        self.cur_block = next_blk;
-                    }
-                    // Default: call base owner's __cm.
+                    let fn_ptr = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Load(
+                            Type::Ptr,
+                            Operand::Value(vt),
+                            (method_idx as u64) * 8,
+                        ),
+                        Type::Ptr,
+                        None,
+                    );
                     let r = self.f.append_inst(
                         self.cur_block,
-                        InstKind::Call(base_fid, arg_ops),
+                        InstKind::CallIndirect(sig_id, Operand::Value(fn_ptr), arg_ops),
                         ret_ty,
                         None,
                     );
-                    self.f.append_void(
-                        self.cur_block,
-                        InstKind::Store(
-                            Operand::Value(r),
-                            Operand::Value(result_slot),
-                            0,
-                        ),
-                    );
-                    self.f.set_term(self.cur_block, Terminator::Br(after_blk));
-                    self.cur_block = after_blk;
-                    let result = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Load(ret_ty, Operand::Value(result_slot), 0),
-                        ret_ty,
-                        None,
-                    );
-                    return Operand::Value(result);
+                    return Operand::Value(r);
                 }
                 // `n.toFixed(d)` / `n.toString()` — primitive Number methods.
                 // Receiver is i64 or f64; route to the matching intrinsic
@@ -15702,15 +15674,37 @@ impl<'a> LowerCtx<'a> {
                         OBJ_CLASS_TAG_OFF,
                     ),
                 );
-                // Phase H.3.a — vtable pointer slot. Stays null until
-                // H.3.b emits per-class vtable globals and routes the
-                // factory through them. obj.method() still uses static
-                // `__cm_C__M(obj, ...)` dispatch so the slot is never
-                // read yet — this commit just reserves the header layout.
+                /* T-24 — vtable pointer slot.
+                 *
+                 * If the program has any chain methods (i.e. dispatch
+                 * tables exist) and we're inside a `__new_<C>` factory
+                 * for a known class, store the address of `__vtable_<C>`.
+                 * Other contexts (factory of a non-class type alias,
+                 * literal outside any factory) get null — they never
+                 * trigger `__dispatch_<M>` lookup. */
+                let vtable_class: Option<&str> = if self.ast.method_index.is_empty() {
+                    None
+                } else {
+                    self.f.name
+                        .strip_prefix("__new_")
+                        .filter(|c| self.class_name_to_tag.contains_key(*c))
+                };
+                let vtable_ptr_op = match vtable_class {
+                    Some(cname) => {
+                        let g = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::GlobalRef(format!("__vtable_{cname}")),
+                            Type::Ptr,
+                            None,
+                        );
+                        Operand::Value(g)
+                    }
+                    None => Operand::ConstPtrNull,
+                };
                 self.f.append_void(
                     self.cur_block,
                     InstKind::Store(
-                        Operand::ConstPtrNull,
+                        vtable_ptr_op,
                         Operand::Value(obj_ptr),
                         OBJ_VTABLE_OFF,
                     ),
