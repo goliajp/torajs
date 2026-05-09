@@ -537,7 +537,7 @@ patterns.
 
 ### Phase 4 — perf data refresh + outstanding debt
 
-- [ ] **V3-11** Re-run 7-runtime bench scoreboard. Last full sweep at `14b894f` (commit `529143c`); 6 substrate commits since then need a fresh datum.
+- [x] **V3-11** Re-run 7-runtime bench scoreboard — shipped `6295577` (sweep at HEAD `7de1efe`). tr/rust geomean 0.619, tr/bun-aot 0.208, 16/21 win-or-tie vs rust. Only loss > 1.06x: rpn-eval-100k 1.075x (V3-12). Recovered from a transient generic-pair-1m 6.67x regression introduced by V3-10.b's first take (obj_drop migrated to C); fixed by gating cycle_unbuffer on `is_class_sid` so anonymous-struct hot loops don't pay the per-drop fn-call cost.
 - [ ] **V3-12** rpn-eval-100k 1.29x rust — escape → alloca for stack-local 16-elem Array literal. `let stack: number[] = [0,0,...]` currently allocates per inner-loop iter (100k × malloc); promote to alloca when literal doesn't escape.
 
 → **Mid gate** after V3-12.
