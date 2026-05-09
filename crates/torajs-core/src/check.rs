@@ -734,6 +734,13 @@ fn js_add_coerces_to_number(l: &Type, r: &Type) -> bool {
     coerces(l) && coerces(r) && (*l != Type::Number || *r != Type::Number)
 }
 
+/// V3-18 m1.b — `-` / `*` / `/` / `%` use the same ToNumber rule
+/// as `+` but never have a String-concat path (spec §13.7-§13.10
+/// unconditionally call ToNumeric). Same coercibles as m1.a.
+fn js_arith_coerces_to_number(l: &Type, r: &Type) -> bool {
+    js_add_coerces_to_number(l, r)
+}
+
 fn is_assignable_to(to: &Type, from: &Type) -> bool {
     if to == from {
         return true;
@@ -4263,6 +4270,13 @@ impl Checker {
                             // T-25 — BigInt arithmetic. Mixed with
                             // Number is a TypeError per spec.
                             Ok(Type::BigInt)
+                        } else if js_arith_coerces_to_number(&l, &r) {
+                            // V3-18 m1.b — ToNumber coercion for the
+                            // -/*/division operators. Same Bool/Null →
+                            // Number rule as `+` (m1.a) but no String
+                            // concat path: spec §13.7-§13.10 unconditionally
+                            // calls ToNumeric on both sides.
+                            Ok(Type::Number)
                         } else {
                             Err(format!(
                                 "arithmetic requires number or bigint operands, got {l:?} and {r:?}"

@@ -18818,7 +18818,11 @@ impl<'a> LowerCtx<'a> {
          * combos hit this branch — only Number/Boolean/Null pairs
          * with at least one non-Number side. Pure Number+Number
          * stays on the existing path. */
-        let (a, b) = if matches!(op, AstBinOp::Add) {
+        let coerce_op = matches!(
+            op,
+            AstBinOp::Add | AstBinOp::Sub | AstBinOp::Mul | AstBinOp::Div | AstBinOp::Mod
+        );
+        let (a, b) = if coerce_op {
             let a_ty = self.operand_ty(&a);
             let b_ty = self.operand_ty(&b);
             let a_is_null = matches!(a, Operand::ConstPtrNull);
