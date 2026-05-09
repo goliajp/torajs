@@ -940,6 +940,11 @@ impl<'a> Formatter<'a> {
                 self.fmt_expr(*target);
                 self.write(if *is_inc { "++" } else { "--" });
             }
+            Expr::As { expr, ty_ann } => {
+                self.fmt_expr(*expr);
+                self.write(" as ");
+                self.write(ty_ann);
+            }
             Expr::Unary { op, expr } => {
                 let s = match op {
                     UnaryOp::Not => "!",

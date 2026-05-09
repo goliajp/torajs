@@ -768,6 +768,10 @@ fn deep_clone_expr(ast: &mut Ast, eid: ExprId) -> ExprId {
             let t = *target; let is_inc = *is_inc;
             Expr::PostIncr { target: deep_clone_expr(ast, t), is_inc }
         }
+        Expr::As { expr, ty_ann } => {
+            let e = *expr; let ty_ann = ty_ann.clone();
+            Expr::As { expr: deep_clone_expr(ast, e), ty_ann }
+        }
     };
     ast.add_expr(new_expr)
 }
@@ -18391,6 +18395,15 @@ impl<'a> LowerCtx<'a> {
                         "ssa-lower: post-incr target shape not supported: {other:?}"
                     ),
                 }
+            }
+            // V3-07 — `expr as T`. At SSA, the cast is identity:
+            // typecheck has already widened/narrowed the surrounding
+            // slot's expected type and any required Any-box / unbox
+            // happens at the assignment site, not here. Forward the
+            // inner operand unchanged.
+            Expr::As { expr, .. } => {
+                let inner = *expr;
+                self.lower_expr(inner)
             }
             other => panic!("ssa-lower: unsupported expr: {other:?}"),
         }

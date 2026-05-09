@@ -345,7 +345,7 @@ fn expr_can_throw(ast: &Ast, eid: ExprId) -> bool {
         Expr::BinOp { left, right, .. } => {
             expr_can_throw(ast, *left) || expr_can_throw(ast, *right)
         }
-        Expr::Unary { expr, .. } | Expr::TypeOf { expr } | Expr::PostIncr { target: expr, .. } => {
+        Expr::Unary { expr, .. } | Expr::TypeOf { expr } | Expr::PostIncr { target: expr, .. } | Expr::As { expr, .. } => {
             expr_can_throw(ast, *expr)
         }
         Expr::Assign { target, value } => {
@@ -552,6 +552,7 @@ fn count_refs_expr(ast: &Ast, eid: ExprId, refs: &mut HashMap<String, usize>) {
             count_refs_expr(ast, *expr, refs)
         }
         Expr::InstanceOf { expr, .. } => count_refs_expr(ast, *expr, refs),
+        Expr::As { expr, .. } => count_refs_expr(ast, *expr, refs),
         Expr::Nullish { lhs, rhs } => {
             count_refs_expr(ast, *lhs, refs);
             count_refs_expr(ast, *rhs, refs);

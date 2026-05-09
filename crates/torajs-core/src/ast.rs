@@ -152,6 +152,18 @@ pub enum Expr {
         then_branch: ExprId,
         else_branch: ExprId,
     },
+    /// V3-07 — `expr as T` TS type cast. Parser-level type assertion;
+    /// at runtime the cast is identity (the inner value's bits flow
+    /// through). Typecheck uses `ty_ann` to widen / narrow the inner
+    /// expression's type — the common shape is `as any` for widening
+    /// into a heterogeneous container slot. Currently lowered as
+    /// `inner` with the cast type honored only when widening to
+    /// `Type::Any` (via the existing Any-box machinery); other casts
+    /// are typecheck-only with no IR side effect.
+    As {
+        expr: ExprId,
+        ty_ann: String,
+    },
     /// `typeof x` — produces a string literal at runtime.
     /// Lowered to a fresh Type::Str whose contents are determined by
     /// the operand's static type ("number" / "string" / "boolean" /
@@ -2995,7 +3007,7 @@ fn collect_super_in_expr(
             collect_super_in_expr(ast, *then_branch, out);
             collect_super_in_expr(ast, *else_branch, out);
         }
-        Expr::TypeOf { expr } | Expr::Spread { expr } | Expr::InstanceOf { expr, .. } => collect_super_in_expr(ast, *expr, out),
+        Expr::TypeOf { expr } | Expr::Spread { expr } | Expr::InstanceOf { expr, .. } | Expr::As { expr, .. } => collect_super_in_expr(ast, *expr, out),
         Expr::Nullish { lhs, rhs } => {
             collect_super_in_expr(ast, *lhs, out);
             collect_super_in_expr(ast, *rhs, out);
@@ -4507,6 +4519,7 @@ fn eal_expr_safe(ast: &Ast, eid: ExprId, x_name: &str) -> bool {
         Expr::PostIncr { target, .. } => eal_expr_safe(ast, *target, x_name),
         Expr::TypeOf { expr } => eal_expr_safe(ast, *expr, x_name),
         Expr::InstanceOf { expr, .. } => eal_expr_safe(ast, *expr, x_name),
+        Expr::As { expr, .. } => eal_expr_safe(ast, *expr, x_name),
         Expr::Closure { captures, .. } => {
             // Closure captures = list of outer-scope names captured.
             // If X is captured, the lifted fn body could escape it.
@@ -4956,6 +4969,7 @@ fn sfi_expr_x_safe(ast: &Ast, eid: ExprId, x_name: &str, i_name: &str) -> bool {
         }
         Expr::TypeOf { expr } => sfi_expr_x_safe(ast, *expr, x_name, i_name),
         Expr::InstanceOf { expr, .. } => sfi_expr_x_safe(ast, *expr, x_name, i_name),
+        Expr::As { expr, .. } => sfi_expr_x_safe(ast, *expr, x_name, i_name),
         Expr::ArrowFn { .. } | Expr::Closure { .. } => {
             // Conservative — captured X inside a closure is hard to
             // verify safe since the closure body could index X[k]
@@ -6606,7 +6620,7 @@ fn scan_expr_for_calls(ast: &Ast, eid: ExprId, out: &mut Vec<String>) {
             scan_expr_for_calls(ast, *then_branch, out);
             scan_expr_for_calls(ast, *else_branch, out);
         }
-        Expr::TypeOf { expr } | Expr::Spread { expr } | Expr::InstanceOf { expr, .. } => scan_expr_for_calls(ast, *expr, out),
+        Expr::TypeOf { expr } | Expr::Spread { expr } | Expr::InstanceOf { expr, .. } | Expr::As { expr, .. } => scan_expr_for_calls(ast, *expr, out),
         Expr::Nullish { lhs, rhs } => {
             scan_expr_for_calls(ast, *lhs, out);
             scan_expr_for_calls(ast, *rhs, out);
@@ -6698,7 +6712,7 @@ fn walk_expr(ast: &Ast, eid: ExprId, bound: &mut Vec<String>, out: &mut Vec<Stri
             walk_expr(ast, *then_branch, bound, out);
             walk_expr(ast, *else_branch, bound, out);
         }
-        Expr::TypeOf { expr } | Expr::Spread { expr } | Expr::InstanceOf { expr, .. } => walk_expr(ast, *expr, bound, out),
+        Expr::TypeOf { expr } | Expr::Spread { expr } | Expr::InstanceOf { expr, .. } | Expr::As { expr, .. } => walk_expr(ast, *expr, bound, out),
         Expr::Nullish { lhs, rhs } => {
             walk_expr(ast, *lhs, bound, out);
             walk_expr(ast, *rhs, bound, out);
@@ -7168,6 +7182,10 @@ impl Ast {
             Expr::PostIncr { target, is_inc } => {
                 println!("{pad}PostIncr is_inc={is_inc}");
                 self.print_expr(*target, indent + 1);
+            }
+            Expr::As { expr, ty_ann } => {
+                println!("{pad}As {ty_ann}");
+                self.print_expr(*expr, indent + 1);
             }
         }
     }

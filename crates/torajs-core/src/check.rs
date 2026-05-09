@@ -4793,6 +4793,23 @@ impl Checker {
                 }
                 Ok(Type::Number)
             }
+            // V3-07 — `expr as T` TS type assertion. Typecheck the
+            // inner expression for side effects (so it still
+            // participates in move tracking + sub-expression validation),
+            // then return the asserted target type. Spec-strict TS
+            // narrows assertion compatibility (`x as Foo` requires
+            // either side to be assignable to the other); we accept
+            // unconditionally for now — matches `as any` widening +
+            // the common downcast pattern. Full bidirectional
+            // assignability check lands when test262 surfaces a case
+            // that requires it.
+            Expr::As { expr, ty_ann } => {
+                let _ = self.type_of(ast, *expr)?;
+                let ann = ty_ann.clone();
+                let target = resolve_type_ann_full(&ann, &self.aliases, &[], &self.generic_alias_decls)
+                    .ok_or_else(|| format!("unknown cast target type `{ann}`"))?;
+                Ok(target)
+            }
         }
     }
 

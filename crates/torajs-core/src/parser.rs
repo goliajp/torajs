@@ -2205,6 +2205,16 @@ impl Parser<'_> {
                         self.at()
                     ));
                 }
+                // V3-07 — `expr as T` TS type cast as a postfix
+                // shape. Binding here is tighter than any binary op
+                // (so `arr.push(self as any)` parses without ambiguity);
+                // wider TS forms like `(a + b) as number` work via
+                // the explicit paren grouping.
+                Token::Ident(s) if s == "as" => {
+                    self.pos += 1;
+                    let ty_ann = self.parse_type_ann()?;
+                    node = self.add_expr_at(start_pos, Expr::As { expr: node, ty_ann });
+                }
                 _ => return Ok(node),
             }
         }
