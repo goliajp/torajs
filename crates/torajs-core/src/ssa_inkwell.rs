@@ -81,6 +81,20 @@ pub enum CompileTarget {
     Wasm32Wasi,
 }
 
+/// V3-16 — output kind for the link step.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OutputKind {
+    /// Default: a runnable executable. Linker resolves a `_main`
+    /// symbol synthesized from the program's top-level statements.
+    Executable,
+    /// Position-independent shared library (.dylib on macOS, .so
+    /// on Linux). No `_main` requirement; consumers dlopen the
+    /// resulting file and look up exported function symbols by
+    /// name. Enables in-process eval via the compile-then-dlopen
+    /// pattern (Function ctor substrate).
+    SharedLib,
+}
+
 pub fn compile(
     ssa_module: &Module,
     out_path: &Path,
@@ -98,6 +112,23 @@ pub fn compile_for(
     source_path: Option<&Path>,
     ast: Option<&crate::ast::Ast>,
     target: CompileTarget,
+) -> Result<(), CompileError> {
+    compile_for_kind(ssa_module, out_path, opt, source_path, ast, target, OutputKind::Executable)
+}
+
+/// V3-16 — extended entry point that lets the caller pick
+/// executable vs shared-lib output. `compile_for` keeps the
+/// existing executable-only signature so existing callers
+/// (`tr build`, `tr run`, bench harness) don't need to thread
+/// the new param.
+pub fn compile_for_kind(
+    ssa_module: &Module,
+    out_path: &Path,
+    opt: &str,
+    source_path: Option<&Path>,
+    ast: Option<&crate::ast::Ast>,
+    target: CompileTarget,
+    kind: OutputKind,
 ) -> Result<(), CompileError> {
     let ctx = Context::create();
     let llvm_module = ctx.create_module("torajs");
@@ -871,6 +902,22 @@ pub fn compile_for(
              * dead weight. */
             if module_uses_fetch(ssa_module) {
                 link_cmd.arg("-lcurl");
+            }
+            // V3-16 — shared-lib output: cc's `-shared` flag asks
+            // ld for a position-independent dylib (no main, no
+            // crt1). On macOS this becomes `-dynamiclib` under the
+            // hood; cc handles the per-platform translation.
+            // `-fPIC` makes every per-TU object position-
+            // independent so the loader can map at any address.
+            // `-undefined dynamic_lookup` defers symbol resolution
+            // for runtime intrinsics (`__torajs_str_alloc`, etc)
+            // to the host process — when the dylib is loaded into
+            // a tora-emitted binary, the host already has those
+            // symbols and the loader binds them.
+            if matches!(kind, OutputKind::SharedLib) {
+                link_cmd.arg("-shared").arg("-fPIC");
+                #[cfg(target_os = "macos")]
+                link_cmd.arg("-Wl,-undefined,dynamic_lookup");
             }
             link_cmd.arg("-o").arg(out_path);
         }

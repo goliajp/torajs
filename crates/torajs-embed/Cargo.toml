@@ -19,3 +19,9 @@ path = "src/lib.rs"
 [dependencies]
 torajs-core = { path = "../torajs-core" }
 torajs-runtime = { path = "../torajs-runtime" }
+
+[dev-dependencies]
+# V3-16 milestone 1 — dlopen the test dylib + invoke its symbol
+# from a Rust unit test to verify the full compile→load→call
+# substrate that Function ctor / eval will reuse.
+libloading = "0.8"

@@ -187,4 +187,72 @@ mod tests {
         let rc = unsafe { tora_eval_cstr(s.as_ptr() as *const c_char) };
         assert_eq!(rc, 0);
     }
+
+    /// V3-16 milestone 1 — verify the new SharedLib output kind
+    /// produces a valid dylib that can be dlopen'd + called from
+    /// the host process. This is the substrate the in-process
+    /// Function ctor / eval path uses end-to-end: compile a fn
+    /// into a .dylib, dlopen it, look up the symbol, invoke
+    /// through a fn pointer, get the result back.
+    #[test]
+    fn shared_lib_emit_and_call() {
+        let src = r#"
+function torajs_add(a: number, b: number): number {
+  return a + b;
+}
+"#;
+        let tokens = lexer::tokenize(src).unwrap();
+        let mut a = parser::parse(&tokens).unwrap();
+        a.source = src.to_string();
+        a.warm_newline_cache();
+        ast::unwrap_exports(&mut a);
+        ast::rename_user_main(&mut a);
+        ast::desugar_generators(&mut a);
+        ast::desugar_async(&mut a);
+        ast::desugar_builtin_imports(&mut a);
+        ast::desugar_builtin_new(&mut a);
+        ast::desugar_classes(&mut a);
+        ast::lift_arrow_fns(&mut a);
+        ast::infer_anonymous_closure_params(&mut a);
+        ast::synthesize_forwarders(&mut a);
+        ast::desugar_uninit_let(&mut a);
+        ast::desugar_arguments_object(&mut a);
+        ast::rewrite_split_for_i_to_iter(&mut a);
+        ast::escape_analyze_array_literals(&mut a);
+        ast::desugar_implicit_generics(&mut a);
+        ast::apply_default_args(&mut a);
+        ast::apply_rest_args(&mut a);
+        ast::compute_consuming_params(&mut a);
+        let (gcs, exprs) = torajs_core::check::check_with_types(&a).unwrap();
+        let m = ssa_lower::lower_with_types(&a, &gcs, &exprs);
+        let out = std::env::temp_dir().join(format!(
+            "torajs-embed-test-{}.dylib",
+            rand_suffix()
+        ));
+        ssa_inkwell::compile_for_kind(
+            &m,
+            &out,
+            "O3",
+            None,
+            Some(&a),
+            ssa_inkwell::CompileTarget::Native,
+            ssa_inkwell::OutputKind::SharedLib,
+        )
+        .expect("compile_for_kind SharedLib");
+        let meta = std::fs::metadata(&out).expect("dylib stat");
+        assert!(meta.len() > 0, "dylib is empty");
+
+        // dlopen + look up the symbol + call it.
+        unsafe {
+            let lib = libloading::Library::new(&out)
+                .expect("Library::new on emitted dylib");
+            let add: libloading::Symbol<unsafe extern "C" fn(i64, i64) -> i64> =
+                lib.get(b"torajs_add").expect("symbol torajs_add");
+            assert_eq!(add(2, 3), 5);
+            assert_eq!(add(40, 2), 42);
+            assert_eq!(add(-1, 1), 0);
+            drop(lib);
+        }
+        let _ = std::fs::remove_file(&out);
+    }
 }
