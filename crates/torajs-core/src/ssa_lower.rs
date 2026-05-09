@@ -19316,16 +19316,22 @@ impl<'a> LowerCtx<'a> {
     /// merge:
     ///   load slot
     /// ```
+    /// V3-18 m1.g — JS spec §13.13: `a && b` returns `a` if it's
+    /// falsy, otherwise `b`. Result type is the common type of
+    /// both operands (typed tora gates on l == r at typecheck;
+    /// implicit-any (m1.h) widens to mixed types later).
     fn lower_logical_and(&mut self, left: ExprId, right: ExprId) -> Operand {
-        let slot = self.alloca(Type::Bool, None);
         let a = self.lower_expr(left);
+        let a_ty = self.operand_ty(&a);
+        let truthy = self.coerce_to_bool(a);
+        let slot = self.alloca(a_ty, None);
         let eval_b = self.f.add_block();
         let false_blk = self.f.add_block();
         let merge = self.f.add_block();
         self.f.set_term(
             self.cur_block,
             Terminator::CondBr {
-                cond: a,
+                cond: truthy,
                 then_blk: eval_b,
                 else_blk: false_blk,
             },
@@ -19338,41 +19344,47 @@ impl<'a> LowerCtx<'a> {
         );
         self.f.set_term(self.cur_block, Terminator::Br(merge));
         self.cur_block = false_blk;
+        // a is the falsy value — return it directly (matches JS:
+        // `0 && expr` returns 0, not false; `"" && expr` returns "").
         self.f.append_void(
             self.cur_block,
-            InstKind::Store(Operand::ConstBool(false), Operand::Value(slot), 0),
+            InstKind::Store(a, Operand::Value(slot), 0),
         );
         self.f.set_term(self.cur_block, Terminator::Br(merge));
         self.cur_block = merge;
         let v = self.f.append_inst(
             self.cur_block,
-            InstKind::Load(Type::Bool, Operand::Value(slot), 0),
-            Type::Bool,
+            InstKind::Load(a_ty, Operand::Value(slot), 0),
+            a_ty,
             None,
         );
         Operand::Value(v)
     }
 
-    /// M1.5 — `a || b` with short-circuit. Mirror of and: if `a` is true,
-    /// skip evaluating b and use true; else use b's value.
+    /// V3-18 m1.g — JS spec §13.13: `a || b` returns `a` if truthy,
+    /// otherwise `b`. Mirror of `&&`.
     fn lower_logical_or(&mut self, left: ExprId, right: ExprId) -> Operand {
-        let slot = self.alloca(Type::Bool, None);
         let a = self.lower_expr(left);
+        let a_ty = self.operand_ty(&a);
+        let truthy = self.coerce_to_bool(a);
+        let slot = self.alloca(a_ty, None);
         let true_blk = self.f.add_block();
         let eval_b = self.f.add_block();
         let merge = self.f.add_block();
         self.f.set_term(
             self.cur_block,
             Terminator::CondBr {
-                cond: a,
+                cond: truthy,
                 then_blk: true_blk,
                 else_blk: eval_b,
             },
         );
         self.cur_block = true_blk;
+        // a is truthy — return it directly (matches JS: `5 || 0`
+        // returns 5; `"x" || ""` returns "x").
         self.f.append_void(
             self.cur_block,
-            InstKind::Store(Operand::ConstBool(true), Operand::Value(slot), 0),
+            InstKind::Store(a, Operand::Value(slot), 0),
         );
         self.f.set_term(self.cur_block, Terminator::Br(merge));
         self.cur_block = eval_b;
@@ -19385,11 +19397,56 @@ impl<'a> LowerCtx<'a> {
         self.cur_block = merge;
         let v = self.f.append_inst(
             self.cur_block,
-            InstKind::Load(Type::Bool, Operand::Value(slot), 0),
-            Type::Bool,
+            InstKind::Load(a_ty, Operand::Value(slot), 0),
+            a_ty,
             None,
         );
         Operand::Value(v)
+    }
+
+    /// V3-18 m1.g — JS spec §7.1.2 ToBoolean. Coerces `op` to a
+    /// Type::Bool for branch conditions in `&&` / `||` / `if` /
+    /// ternary on non-bool inputs.
+    ///   undefined → false  (post-V3-18 m1.h)
+    ///   null      → false
+    ///   Bool      → as-is
+    ///   Number i64 → 0 = false, else true
+    ///   F64       → 0/-0/NaN = false, else true
+    ///   String / Substr → empty = false, else true
+    ///   Object / Array / Closure / etc → always true (non-null heap)
+    fn coerce_to_bool(&mut self, op: Operand) -> Operand {
+        let ty = self.operand_ty(&op);
+        match ty {
+            Type::Bool => op,
+            Type::I64 => self.cmp(IPred::Ne, op, Operand::ConstI64(0)),
+            Type::F64 => {
+                // ToBoolean(NaN) = false, ToBoolean(+0/-0) = false,
+                // else true. FPred::One ("ordered, not equal") is
+                // true iff both operands are non-NaN AND unequal —
+                // exactly NaN→false, ±0→false, others→true.
+                self.fcmp(FPred::One, op, Operand::ConstF64(0.0))
+            }
+            Type::Str | Type::Substr => {
+                // Empty string falsy: load len at offset 8, compare > 0.
+                let len = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Load(Type::I64, op, 8),
+                    Type::I64,
+                    None,
+                );
+                self.cmp(IPred::Sgt, Operand::Value(len), Operand::ConstI64(0))
+            }
+            Type::Ptr => {
+                // null literal or any raw pointer — null = false.
+                self.cmp(IPred::Ne, op, Operand::ConstPtrNull)
+            }
+            // Heap-typed values (Obj/Arr/Closure/Symbol/...) are always
+            // truthy when non-null. With our static type system a value
+            // of these types comes from `new` / literal alloc, so it's
+            // never null — return ConstBool(true). (Nullable<T> would
+            // need a null check; not in this wedge.)
+            _ => Operand::ConstBool(true),
+        }
     }
 
     fn bin(&mut self, op: SsaBinOp, a: Operand, b: Operand, ty: Type) -> Operand {

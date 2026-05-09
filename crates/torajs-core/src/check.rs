@@ -4391,15 +4391,19 @@ impl Checker {
                         ))
                     }
                     BinOp::LAnd | BinOp::LOr => {
-                        // M1.5 — boolean ops are bool-only in the subset
-                        // (no truthy coercion). Both operands must be bool;
-                        // result is bool. Short-circuit semantics is
-                        // observable at runtime via the lowerer's CFG split.
-                        if l == Type::Boolean && r == Type::Boolean {
-                            Ok(Type::Boolean)
+                        // V3-18 m1.g — JS spec §13.13 LogicalANDExpression
+                        // / LogicalORExpression: returns the left operand
+                        // if its truthiness selects the short-circuit
+                        // path, else the right. Result type is whichever
+                        // side could be returned. Typed tora supports the
+                        // same-type case (T && T → T) statically; mixed-
+                        // type pairs need a wider result type and ship
+                        // with implicit-any (m1.h) once that lands.
+                        if l == r {
+                            Ok(l)
                         } else {
                             Err(format!(
-                                "`&&` / `||` require boolean operands, got {l:?} and {r:?}"
+                                "`&&` / `||` require matching operand types, got {l:?} and {r:?}"
                             ))
                         }
                     }
