@@ -1942,6 +1942,12 @@ impl Checker {
                      * (`Symbol.for`, `Symbol.iterator`, ...) land in
                      * T-13.b/c via the Member arm. */
                     "Symbol" => Ok(Type::Object("Symbol")),
+                    /* V3-03 — `BigInt` ident referenced as a value
+                     * (the callable form `BigInt(...)` is intercepted
+                     * in the Call arm above). Treating it as a known
+                     * Object lets `typeof BigInt` and similar shapes
+                     * compile cleanly. */
+                    "BigInt" => Ok(Type::Object("BigInt")),
                     /* T-15 (v0.5.0) — Promise global. Static methods
                      * Promise.resolve / .reject / .all / etc. routed
                      * via the (Type::Object("Promise"), ...) member
@@ -3340,6 +3346,30 @@ impl Checker {
                         ));
                     }
                     return Ok(Type::Promise(Box::new(Type::Object("Response"))));
+                }
+                /* V3-03 — `BigInt(value)` callable ctor. One required
+                 * arg, type-dispatched by ssa_lower:
+                 *   bigint  → clone
+                 *   string  → from_str (auto-radix from prefix)
+                 *   number  → from_number (RangeError on non-integer
+                 *             / non-finite)
+                 * Type::Any is deferred (Any-tagged dispatch lands
+                 * with the test262 push). */
+                if let Expr::Ident(n) = ast.get_expr(*callee)
+                    && n == "BigInt"
+                {
+                    if args.len() != 1 {
+                        return Err(format!(
+                            "BigInt(value) expects exactly 1 arg, got {}", args.len()
+                        ));
+                    }
+                    let arg_ty = self.type_of(ast, args[0])?;
+                    if !matches!(arg_ty, Type::BigInt | Type::String | Type::Number) {
+                        return Err(format!(
+                            "BigInt(value) — value must be bigint / string / number, got {arg_ty:?}"
+                        ));
+                    }
+                    return Ok(Type::BigInt);
                 }
                 // T-13.a (v0.4.0) — `Symbol(desc?)` constructor call.
                 // Returns Type::Symbol. Optional desc Str arg; missing

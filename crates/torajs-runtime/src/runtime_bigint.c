@@ -41,6 +41,7 @@ typedef struct __attribute__((aligned(8))) {
 
 extern uint8_t *__torajs_str_alloc_pooled(uint64_t len);
 extern int __torajs_rc_dec(void *p);
+extern void __torajs_panic(const char *msg);
 
 typedef struct {
     __torajs_heap_header_t header;
@@ -190,11 +191,146 @@ void *__torajs_bigint_from_hex(void *s, uint64_t n) {
 }
 
 /* `BigInt(<runtime string value>)` — reads the str's len from
- * offset 8 and dispatches to from_decimal. */
+ * offset 8. Auto-detects the radix from the body's prefix:
+ *   "0x" / "0X"  → hex
+ *   "0o" / "0O"  → octal (V3-03 — added alongside callable form)
+ *   "0b" / "0B"  → binary
+ *   leading `-`  → magnitude parsed without sign, sign flipped
+ *                  at the end
+ *   anything else → decimal
+ *
+ * On parse errors (empty body, illegal char) the runtime currently
+ * returns 0n rather than throwing SyntaxError; matching bun's
+ * exact error path is a follow-up alongside the test262 push. */
 void *__torajs_bigint_from_str(void *s) {
     if (!s) return __torajs_bigint_from_decimal(NULL, 0);
     uint64_t len = *(const uint64_t *)((const uint8_t *)s + 8);
-    return __torajs_bigint_from_decimal(s, len);
+    const uint8_t *bytes = (const uint8_t *)s + __TORAJS_STR_HDR_SIZE;
+    /* Strip a leading sign so radix prefixes that follow ("- 0x...")
+     * are still recognized. */
+    int negative = 0;
+    uint64_t off = 0;
+    if (len > 0 && bytes[0] == '-') { negative = 1; off = 1; }
+    else if (len > 0 && bytes[0] == '+') { off = 1; }
+    if (len - off >= 2 && bytes[off] == '0' &&
+        (bytes[off + 1] == 'x' || bytes[off + 1] == 'X'))
+    {
+        BigIntHeader *r = bigint_alloc_raw(0);
+        for (uint64_t i = off + 2; i < len; i++) {
+            uint8_t c = bytes[i];
+            uint32_t d;
+            if (c >= '0' && c <= '9') d = c - '0';
+            else if (c >= 'a' && c <= 'f') d = 10 + (c - 'a');
+            else if (c >= 'A' && c <= 'F') d = 10 + (c - 'A');
+            else continue;
+            bigint_mul_u32_inplace(&r, 16);
+            bigint_add_u32_inplace(&r, d);
+        }
+        bigint_normalize(r);
+        if (negative && r->len > 0) r->sign = 1;
+        return r;
+    }
+    if (len - off >= 2 && bytes[off] == '0' &&
+        (bytes[off + 1] == 'o' || bytes[off + 1] == 'O'))
+    {
+        BigIntHeader *r = bigint_alloc_raw(0);
+        for (uint64_t i = off + 2; i < len; i++) {
+            uint8_t c = bytes[i];
+            if (c < '0' || c > '7') continue;
+            bigint_mul_u32_inplace(&r, 8);
+            bigint_add_u32_inplace(&r, (uint32_t)(c - '0'));
+        }
+        bigint_normalize(r);
+        if (negative && r->len > 0) r->sign = 1;
+        return r;
+    }
+    if (len - off >= 2 && bytes[off] == '0' &&
+        (bytes[off + 1] == 'b' || bytes[off + 1] == 'B'))
+    {
+        BigIntHeader *r = bigint_alloc_raw(0);
+        for (uint64_t i = off + 2; i < len; i++) {
+            uint8_t c = bytes[i];
+            if (c != '0' && c != '1') continue;
+            bigint_mul_u32_inplace(&r, 2);
+            bigint_add_u32_inplace(&r, (uint32_t)(c - '0'));
+        }
+        bigint_normalize(r);
+        if (negative && r->len > 0) r->sign = 1;
+        return r;
+    }
+    /* Decimal — also strip embedded whitespace + tolerate the same
+     * lenient form the literal lexer produces (digits only). */
+    BigIntHeader *r = bigint_alloc_raw(0);
+    for (uint64_t i = off; i < len; i++) {
+        uint8_t c = bytes[i];
+        if (c < '0' || c > '9') continue;
+        bigint_mul_u32_inplace(&r, 10);
+        bigint_add_u32_inplace(&r, (uint32_t)(c - '0'));
+    }
+    bigint_normalize(r);
+    if (negative && r->len > 0) r->sign = 1;
+    return r;
+}
+
+/* Forward decls — bigint_mag_shl_/shr_ live later in this TU
+ * (with the other bitwise helpers); we need them here for the
+ * Number→BigInt path. */
+static BigIntHeader *bigint_mag_shl_(const BigIntHeader *a, uint64_t n);
+static BigIntHeader *bigint_mag_shr_(const BigIntHeader *a, uint64_t n);
+
+/* `BigInt(<number>)` — V3-03. JS spec rejects non-finite + non-
+ * integer Numbers with RangeError. The conversion itself is direct:
+ * for any integer-valued f64, frexp gives mantissa `m` (in
+ * [0.5, 1)) and exponent `e` such that `value = m * 2^e`. The
+ * mantissa fits in 53 bits exactly; we extract it as i64, build a
+ * BigInt of `|m_int|`, then shift left by `e - 53` (or right if
+ * negative — the caller already verified the value is integer, so
+ * the right shift drops only zero bits). */
+#include <math.h>
+void *__torajs_bigint_from_number(double v) {
+    if (!isfinite(v) || floor(v) != v) {
+        __torajs_panic("RangeError: BigInt() expects a finite integer Number");
+    }
+    if (v == 0.0) {
+        return bigint_alloc_raw(0);
+    }
+    int negative = v < 0.0;
+    double absv = negative ? -v : v;
+    int exp_bin;
+    double m = frexp(absv, &exp_bin); /* absv = m * 2^exp_bin, m in [0.5, 1) */
+    /* Scale mantissa so it's an exact integer in 64-bit range: m
+     * has at most 53 significant bits, so multiply by 2^53. */
+    uint64_t m_int = (uint64_t)(m * 9007199254740992.0); /* 2^53 */
+    int shift = exp_bin - 53;
+    BigIntHeader *r = bigint_alloc_raw(1);
+    bigint_words(r)[0] = m_int;
+    bigint_normalize(r);
+    if (shift > 0) {
+        BigIntHeader *shifted = bigint_mag_shl_(r, (uint64_t)shift);
+        free(r);
+        r = shifted;
+    } else if (shift < 0) {
+        /* Right shift by -shift drops trailing zeros of m_int (the
+         * mantissa already encoded the value's position; the
+         * trailing bits are guaranteed zero for integer-valued
+         * Numbers). */
+        BigIntHeader *shifted = bigint_mag_shr_(r, (uint64_t)(-shift));
+        free(r);
+        r = shifted;
+    }
+    if (negative && r->len > 0) r->sign = 1;
+    return r;
+}
+
+/* `BigInt(<bigint>)` — clone. The caller's input lifetime is
+ * unchanged (no rc transfer); we make a fresh +1-rc copy so the
+ * result has independent ownership. */
+void *__torajs_bigint_clone(void *a_) {
+    const BigIntHeader *a = (const BigIntHeader *)a_;
+    BigIntHeader *r = bigint_alloc_raw(a->len);
+    if (a->len > 0) memcpy(bigint_words(r), bigint_words_c(a), (size_t)a->len * 8);
+    r->sign = a->sign;
+    return r;
 }
 
 /* From an i64 scalar. Sign-extracted; magnitude up to 64 bits → 1 limb. */
@@ -461,7 +597,6 @@ static void bigint_mag_divmod(
  *
  * Caller check (in ssa_lower) verifies neither operand is null;
  * the divide-by-zero check lives here. */
-extern void __torajs_panic(const char *msg);
 void *__torajs_bigint_div(void *a_, void *b_) {
     const BigIntHeader *a = (const BigIntHeader *)a_;
     const BigIntHeader *b = (const BigIntHeader *)b_;

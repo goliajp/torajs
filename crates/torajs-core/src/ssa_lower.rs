@@ -2044,6 +2044,29 @@ fn lower_inner(
         &[Type::BigInt, Type::BigInt],
         Type::BigInt,
     );
+    /* V3-03 — `BigInt(value)` callable ctor. Three runtime paths
+     * dispatched by the arg's static SSA type at the call site. */
+    let bigint_from_str_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_bigint_from_str",
+        &[Type::Str],
+        Type::BigInt,
+    );
+    let bigint_from_number_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_bigint_from_number",
+        &[Type::F64],
+        Type::BigInt,
+    );
+    let bigint_clone_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_bigint_clone",
+        &[Type::BigInt],
+        Type::BigInt,
+    );
     let bigint_neg_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -3578,6 +3601,9 @@ fn lower_inner(
         bigint_not: bigint_not_id,
         bigint_shl: bigint_shl_id,
         bigint_shr: bigint_shr_id,
+        bigint_from_str: bigint_from_str_id,
+        bigint_from_number: bigint_from_number_id,
+        bigint_clone: bigint_clone_id,
         bigint_neg: bigint_neg_id,
         bigint_cmp: bigint_cmp_id,
         bigint_to_string: bigint_to_string_id,
@@ -4288,6 +4314,9 @@ struct Intrinsics {
     bigint_not: FuncId,
     bigint_shl: FuncId,
     bigint_shr: FuncId,
+    bigint_from_str: FuncId,
+    bigint_from_number: FuncId,
+    bigint_clone: FuncId,
     bigint_neg: FuncId,
     bigint_cmp: FuncId,
     bigint_to_string: FuncId,
@@ -10962,6 +10991,65 @@ impl<'a> LowerCtx<'a> {
                 }
             }
             Expr::Call { callee, args } => {
+                /* V3-03 — `BigInt(value)` callable ctor. Single arg
+                 * required; dispatch on the arg's static SSA type:
+                 *   Type::BigInt → bigint_clone
+                 *   Type::Str    → bigint_from_str
+                 *   Type::F64/I64 → bigint_from_number (i64 sitofp'd
+                 *                   to f64 first; the helper rejects
+                 *                   non-integer + non-finite Numbers
+                 *                   with RangeError per spec)
+                 * The typechecker accepts these three (and Type::Any
+                 * deferred — Any-tagged dispatch is a follow-up). */
+                if let Expr::Ident(n) = self.ast.get_expr(*callee)
+                    && n == "BigInt"
+                    && args.len() == 1
+                {
+                    let arg_op = self.lower_expr(args[0]);
+                    let arg_ty = self.operand_ty(&arg_op);
+                    self.consume_if_ident(args[0]);
+                    let v = match arg_ty {
+                        Type::BigInt => self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(self.intrinsics.bigint_clone, vec![arg_op]),
+                            Type::BigInt,
+                            None,
+                        ),
+                        Type::Str => self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(self.intrinsics.bigint_from_str, vec![arg_op]),
+                            Type::BigInt,
+                            None,
+                        ),
+                        Type::F64 => self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(self.intrinsics.bigint_from_number, vec![arg_op]),
+                            Type::BigInt,
+                            None,
+                        ),
+                        Type::I64 => {
+                            let f = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::SiToFp(arg_op),
+                                Type::F64,
+                                None,
+                            );
+                            self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(
+                                    self.intrinsics.bigint_from_number,
+                                    vec![Operand::Value(f)],
+                                ),
+                                Type::BigInt,
+                                None,
+                            )
+                        }
+                        _ => panic!(
+                            "ssa-lower: BigInt() expects bigint / string / number arg, got {arg_ty:?}"
+                        ),
+                    };
+                    return Operand::Value(v);
+                }
                 // T-13.a (v0.4.0) — `Symbol(desc?)` direct constructor
                 // call. Returns Type::Symbol. desc is optional; missing
                 // = NULL pointer (rc_inc no-ops + print formats `Symbol()`).
