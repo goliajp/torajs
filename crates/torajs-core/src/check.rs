@@ -4411,6 +4411,16 @@ impl Checker {
                         {
                             return Ok(Type::Boolean);
                         }
+                        // V3-18 m3.b — `===` / `!==` cross-type per
+                        // spec §7.2.15: different types → false (no
+                        // throw). Accept any pair, ssa_lower emits a
+                        // ConstBool(false) for `===` and true for
+                        // `!==` when the static types differ. Used
+                        // pervasively in test262 for deliberate
+                        // false-checks across types.
+                        if matches!(op, BinOp::Eq | BinOp::Neq) {
+                            return Ok(Type::Boolean);
+                        }
                         Err(format!(
                             "strict equality requires same primitive type, got {l:?} and {r:?}"
                         ))

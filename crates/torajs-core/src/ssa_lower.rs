@@ -18887,6 +18887,56 @@ impl<'a> LowerCtx<'a> {
                 return Operand::ConstBool(answer);
             }
         }
+        // V3-18 m3.b — `===` / `!==` cross-type: when the runtime
+        // types differ, spec §7.2.15 returns false unconditionally
+        // (no throw). Static-fold to ConstBool here so the
+        // downstream same-type cmp path doesn't see mismatched ops.
+        // Per spec, Number and Boolean are DIFFERENT JS types
+        // (`1 === true` is false), so they can't share a family
+        // even though both lower to integer-shaped operands.
+        //
+        // Pointer-shaped types (Obj/Arr/Closure/Symbol/Promise/...)
+        // share a family because a Nullable<T> can carry null AND
+        // any heap pointer; the existing pointer-cmp path handles
+        // both correctly. Without this carve-out, `obj.next === null`
+        // would static-false even when obj.next IS null at runtime.
+        if matches!(op, AstBinOp::Eq | AstBinOp::Neq) {
+            let a_ty = self.operand_ty(&a);
+            let b_ty = self.operand_ty(&b);
+            let numeric = |t: Type| matches!(t, Type::I64 | Type::F64);
+            // Pointer-shaped: strings, heap objects, the null literal,
+            // and Any. Nullable<T> (check.rs notion) erases to the
+            // underlying T at SSA — already covered. Comparing any of
+            // these against null literal (Ptr) at runtime needs a real
+            // pointer cmp, so they all share a family for fold purposes.
+            let pointerish = |t: Type| {
+                use crate::ssa::Type::*;
+                matches!(
+                    t,
+                    Ptr | Str
+                        | Substr
+                        | Obj(_)
+                        | Arr(_)
+                        | Closure(_)
+                        | Symbol
+                        | Promise
+                        | RegExp
+                        | Date
+                        | WeakRef
+                        | WeakMap
+                        | WeakSet
+                        | BigInt
+                        | Any
+                )
+            };
+            let same_family = (numeric(a_ty) && numeric(b_ty))
+                || (pointerish(a_ty) && pointerish(b_ty))
+                || a_ty == b_ty;
+            if !same_family {
+                let answer = matches!(op, AstBinOp::Neq);
+                return Operand::ConstBool(answer);
+            }
+        }
         let coerce_op = matches!(
             op,
             AstBinOp::Add | AstBinOp::Sub | AstBinOp::Mul | AstBinOp::Div | AstBinOp::Mod
