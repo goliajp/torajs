@@ -544,7 +544,7 @@ patterns.
 
 ### Phase 5 — v1.0 tooling + features
 
-- [ ] **V3-13** T-30 `tr repl`. Cross-line state preservation, multi-line input, history (rustyline). Highest-leverage dev-experience item.
+- [x] **V3-13** T-30 `tr repl` — shipped `89cb145` (383/0/1). rustyline 16 + source-accumulation evaluator. Bare-expression auto-wrap (`console.log`), multi-line continuation prompt, `:source` / `:reset` / `:quit` commands, failed-chunk auto-rollback, fn-only-session anchor sentinel. ~270 LOC; uses self-exec via `tr run` rather than inlining the pipeline so the on-disk binary cache amortizes compile cost across turns.
 - [ ] **V3-14** T-31 `libtora.a` + `tora_eval()` C-ABI embed + `torajs-embed` Rust crate. Unlocks third-party embed scenarios; also substrate for V3-16.
 - [ ] **V3-15** T-29 `tr debug` step debugger. DAP adapter atop existing v0.3 #4 DWARF emission. VS Code extension as visible client.
 - [ ] **V3-16** T-27 Function ctor / `eval`. Runtime invocation of LLVM pipeline + dlopen. Depends on V3-14 (eval ≈ embed + run).
