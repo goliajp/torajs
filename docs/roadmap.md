@@ -529,9 +529,9 @@ patterns.
 
 ### Phase 3 — close cycle collector (depends on V3-05..V3-07)
 
-- [ ] **V3-08** `gc-001-basic.ts` conformance fixture — multi-class A↔B cycle, manual `gc()`, verify the cycle frees. Substrate is in place since `c76b3a3`; only the surface needed.
-- [ ] **V3-09** Arr / Closure children visitor — cycle collector descends into Array slots + closure env captures (currently Obj-only).
-- [ ] **V3-10** Cycle collector auto-trigger — buffer-size threshold + main-exit drain.
+- [x] **V3-08** `gc-001-basic.ts` conformance fixture — shipped `41883bc` (382/0/1). Two-class A↔B mutual cycle + `Bun.gc(true)` wired through to the existing Bacon-Rajan `__torajs_cycle_collect`. Bun.gc's bool arg is consumed for spec parity but ignored (tora always runs the collector synchronously).
+- [x] **V3-09** Arr children visitor — shipped `f27f3aa` (383/0/1) + array-slot-offset fix in `4146d79`. cycle_buffer / mark_gray / scan / scan_black / collect_white now dispatch on parent's `type_tag` and walk `TAG_ARR` slots in addition to class fields. Closure env walking still deferred (env layout isn't reachable from runtime side; lands once codegen emits an env-layout table).
+- [x] **V3-10 (partial)** Auto-trigger threshold — shipped `4146d79` (383/0/1). `cycle_buffer` triggers `cycle_collect` synchronously when buffer hits 1024 entries. Main-exit drain DEFERRED — exposed a pre-existing buffered-then-freed bug (object pushed at rc>0 then normal-dropped to rc=0 leaks a dangling buffer pointer). Initial cycle_unbuffer hooks destabilized JIT, so the safe ship path is the threshold alone. Cycles routed through arrays still leak at exit; the unbuffer fix lands in V3-10.b once a lifecycle path that doesn't disturb LLVM verifier is found.
 
 → **Mid gate** after V3-10.
 
