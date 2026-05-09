@@ -741,6 +741,16 @@ fn js_arith_coerces_to_number(l: &Type, r: &Type) -> bool {
     js_add_coerces_to_number(l, r)
 }
 
+/// V3-18 m1.h.1 — JS spec §7.1.2 ToBoolean acceptance check.
+/// Used at every condition site (if / while / do-while / for /
+/// ternary). Anything except Void is coercible to bool — Number
+/// (0/NaN→false), String (""→false), Null (→false), Object/etc
+/// (always-true). ssa_lower routes the cond through
+/// `coerce_to_bool` to emit the actual coercion at lower time.
+fn js_truthy_acceptable(t: &Type) -> bool {
+    !matches!(t, Type::Void)
+}
+
 /// V3-18 m3 — `==` / `!=` cross-type pair guard. Spec §7.2.13:
 ///   Number == Boolean → coerce Boolean
 ///   Boolean == Number → coerce Boolean
@@ -1605,10 +1615,10 @@ impl Checker {
                 else_branch,
             } => {
                 match self.type_of(ast, *cond) {
-                    Ok(Type::Boolean) => {}
+                    Ok(t) if js_truthy_acceptable(&t) => {}
                     Ok(other) => self
                         .errors
-                        .push_err(format!("if condition must be boolean, got {other:?}")),
+                        .push_err(format!("if condition must be boolean (or coercible), got {other:?}")),
                     Err(e) => self.errors.push_err(e),
                 }
                 // CFG-aware moved tracking: snapshot the moved-state
@@ -1644,10 +1654,10 @@ impl Checker {
             }
             Stmt::While { cond, body } => {
                 match self.type_of(ast, *cond) {
-                    Ok(Type::Boolean) => {}
+                    Ok(t) if js_truthy_acceptable(&t) => {}
                     Ok(other) => self
                         .errors
-                        .push_err(format!("while condition must be boolean, got {other:?}")),
+                        .push_err(format!("while condition must be boolean (or coercible), got {other:?}")),
                     Err(e) => self.errors.push_err(e),
                 }
                 self.check_stmt(ast, body);
@@ -1655,10 +1665,10 @@ impl Checker {
             Stmt::DoWhile { body, cond } => {
                 self.check_stmt(ast, body);
                 match self.type_of(ast, *cond) {
-                    Ok(Type::Boolean) => {}
+                    Ok(t) if js_truthy_acceptable(&t) => {}
                     Ok(other) => self
                         .errors
-                        .push_err(format!("do-while condition must be boolean, got {other:?}")),
+                        .push_err(format!("do-while condition must be boolean (or coercible), got {other:?}")),
                     Err(e) => self.errors.push_err(e),
                 }
             }
@@ -1702,9 +1712,9 @@ impl Checker {
                 }
                 if let Some(c) = cond {
                     match self.type_of(ast, *c) {
-                        Ok(Type::Boolean) => {}
+                        Ok(t) if js_truthy_acceptable(&t) => {}
                         Ok(other) => self.errors.push_err(format!(
-                            "for condition must be boolean, got {other:?}"
+                            "for condition must be boolean (or coercible), got {other:?}"
                         )),
                         Err(e) => self.errors.push_err(e),
                     }
@@ -4822,9 +4832,9 @@ impl Checker {
             }
             Expr::Ternary { cond, then_branch, else_branch } => {
                 let c = self.type_of(ast, *cond)?;
-                if c != Type::Boolean {
+                if !js_truthy_acceptable(&c) {
                     return Err(format!(
-                        "ternary condition must be boolean, got {c:?}"
+                        "ternary condition must be boolean (or coercible), got {c:?}"
                     ));
                 }
                 let t = self.type_of(ast, *then_branch)?;

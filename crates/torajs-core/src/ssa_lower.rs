@@ -8948,6 +8948,7 @@ impl<'a> LowerCtx<'a> {
 
                 self.cur_block = header;
                 let c = self.lower_expr(*cond);
+                let c = self.coerce_to_bool(c);
                 self.f.set_term(
                     self.cur_block,
                     Terminator::CondBr {
@@ -9135,6 +9136,7 @@ impl<'a> LowerCtx<'a> {
 
                 self.cur_block = cond_blk;
                 let c = self.lower_expr(*cond);
+                let c = self.coerce_to_bool(c);
                 self.f.set_term(
                     self.cur_block,
                     Terminator::CondBr {
@@ -9457,7 +9459,10 @@ impl<'a> LowerCtx<'a> {
                 // header: evaluate cond (or always-true if none).
                 self.cur_block = header;
                 let c = match cond {
-                    Some(eid) => self.lower_expr(*eid),
+                    Some(eid) => {
+                        let raw = self.lower_expr(*eid);
+                        self.coerce_to_bool(raw)
+                    }
                     None => Operand::ConstBool(true),
                 };
                 self.f.set_term(
@@ -10128,6 +10133,7 @@ impl<'a> LowerCtx<'a> {
                 else_branch,
             } => {
                 let c = self.lower_expr(*cond);
+                let c = self.coerce_to_bool(c);
                 let then_blk = self.f.add_block();
                 let after_blk = self.f.add_block();
 
@@ -18036,6 +18042,7 @@ impl<'a> LowerCtx<'a> {
                 let tb = *then_branch;
                 let eb = *else_branch;
                 let cond_op = self.lower_expr(cond);
+                let cond_op = self.coerce_to_bool(cond_op);
                 // Allocate result slot in entry — both branches store to
                 // it, the post-block loads from it. (Same dominance
                 // pattern as pending_break, hence alloca_in_entry.)
