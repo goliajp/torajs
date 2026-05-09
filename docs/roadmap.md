@@ -477,15 +477,19 @@ The v0.x sections above describe the **milestone shape** (exit gates, scope). Th
 
 ---
 
-## Roadmap v3 — current execution checklist (2026-05-09, HEAD `983243e`)
+## Roadmap v3 — current execution checklist (2026-05-09, HEAD `983243e`; bar revised 2026-05-10)
 
 v2 (2026-05-06 rewrite) projected 33 items through v1.0. As of HEAD
-`983243e`, T-01..T-26 are shipped and the v0.7 substrate phase
-(T-24 / T-25 / T-26 A·B·C) is complete. The checklist below merges the
-remaining v2 items (T-27..T-33) with the post-T-26 follow-ups
-surfaced during ship (BigInt math, cycle-collector class-field
-substrate, perf debt) into a **single strict-order linear plan**.
-status memory's "顺序执行计划" mirrors this list.
+`8f75669`, T-01..T-26 + V3-01..V3-15 + V3-16 m1+m2-substrate are
+shipped. The checklist below merges remaining v2 items (T-27..T-33)
+with post-T-26 follow-ups surfaced during ship into a **single
+strict-order linear plan**. status memory's "顺序执行计划" mirrors this list.
+
+**v1.0 acceptance gates (set 2026-05-10 by takagi):**
+1. **test262 = 100% pass** on the full corpus (no in-scope subset). Today: 805/23941 = 3.4%; sample 200-case run shows 3.96%.
+2. **Bench 远超 bun / node** — quantified as ≥2x faster than bun-aot on every committed bench case (currently 4.8x geomean) AND zero loss > 1.06x rust on any case (currently 17/21 win-or-tie; only loss = fifo-queue-100k 1.147x = startup noise).
+
+Bar 1 is the binding constraint — drives the entire V3-18 milestone tree expansion. Bar 2 is already met; just don't regress.
 
 Working rule (unchanged from v2): one item ships at a time, mid-gate
 every 2-3 items, full-gate before any tag. No "I'll fix it later" —
@@ -569,16 +573,26 @@ patterns.
 
 → **Mid gate** after V3-17.
 
-### Phase 7 — test262 push to 90% (v1.0 hard exit gate)
+### Phase 7 — test262 push to 100% (v1.0 hard exit gate)
 
-- [ ] **V3-18** T-32 test262 push to ≥ 90% in-scope pass rate. Baseline at HEAD `d493a4e` (200-case sample, sweep run 2026-05-10): **4/101 in-scope = 3.96%**, incompat breakdown 92% type error / 6% not-yet-supported / 2% parse error. Bun-skip rate 50% (negative tests + harness-only). Split into milestones:
-  - [ ] **m1** Implicit-`any` for untyped declarations. Root cause of the 92% type-error bucket: tora's strict typecheck rejects every JS `let x = ...` without an annotation. Need a typecheck mode that defaults uninfered-or-untyped bindings to `Type::Any` + relax binop coercion to JS-style (Number+Boolean → coerce, Number+null → coerce, Object.valueOf dispatch). Multi-week substrate item — touches check.rs's entire BinOp / Member / Call / Assign coercion surface. Without m1 the test262 needle can't move.
-  - [ ] **m2** RegExp Unicode property escapes (`\p{Letter}`) — likely 3-5% of in-scope cases.
-  - [ ] **m3** Intl.* basic (DateTimeFormat / NumberFormat / Collator) — needs ICU integration; likely 2-4%.
-  - [ ] **m4** Async edge cases (rejection chains, AsyncIterator).
-  - [ ] **m5** Tagged-template edge cases.
-  - [ ] **m6** BigInt edge cases (`toLocaleString`, `toString(radix)`, formatter edge cases).
-  - [ ] **m7..mN** Each bucket surfaced post-m1 gets its own ship. Re-baseline after each.
+**Bar updated 2026-05-10**: takagi set the v1.0 target to **100% test262** (full corpus, including negative tests) AND **bench 远超 bun/node**. Bench bar already met at HEAD `8f75669` (tr/bun-aot 0.208 = tr 4.8x faster, tr/rust 0.635). test262 has the gap: 805/23941 = 3.4% on full corpus, 3.96% on the 200-case sample (V3-18 baseline `5a6fac1`).
+
+100% test262 forces several previously "out-of-scope" items back into v1.0 scope (see "Out-of-scope features" section — `==`/`!=`, `var`, `Proxy`/`Reflect` are now in scope; conditional/mapped types stay out because test262 tests JS semantics not TS-specific type-system identity).
+
+- [ ] **V3-18** T-32 test262 push to **100% pass rate**. Split into milestones (each gets its own bench-no-regress gate + conformance gate):
+  - [ ] **m1** Implicit-`any` for untyped declarations. Root cause of the 92% type-error bucket: tora's strict typecheck rejects every JS `let x = ...` without an annotation. Typecheck mode defaults uninfered-or-untyped bindings to `Type::Any` + relaxed binop coercion to JS-style (Number+Boolean → coerce, Number+null → coerce, Object.valueOf dispatch). Multi-week substrate — touches check.rs's BinOp / Member / Call / Assign coercion surface throughout. Without m1 the test262 needle can't move past ~5%.
+  - [ ] **m2** Spec-strict prototype chain. test262 uses `Object.getPrototypeOf` / `__proto__` / `Object.setPrototypeOf` heavily. Today tora uses nominal class hierarchy (vtable for virtual dispatch, no runtime prototype mutation). Need a runtime prototype slot per heap-class object + the standard chain-walk for member resolution.
+  - [ ] **m3** Loose equality `==` / `!=` — restored from "out-of-scope". Spec algorithm in §7.2.13 (IsLooselyEqual): null==undefined, type-coerce when one side is Number, etc. Source-rewrite-to-strict was the v0.5 plan; revisit because spec-strict semantics may diverge from any rewrite.
+  - [ ] **m4** `var` keyword — restored. Hoisting + function-scope (vs let/const block-scope). Needs the AST + check.rs to support hoisted-decl phase before body lowering.
+  - [ ] **m5** `Proxy` / `Reflect` — restored. Trap-based interception for member read / write / has / delete / call / construct. Probably the biggest single substrate item (interception breaks every assumption tora's tight codegen relies on). Likely needs an opt-in slow path triggered when an obj's tag carries a "has-proxy" flag.
+  - [ ] **m6** RegExp full ECMA-262 — Unicode property escapes (`\p{Letter}`), backrefs, lookbehinds, named groups, all flags (g/i/m/s/u/y/d). Today's regex is a forward-only NFA fragment. Need a fully spec-compliant engine (likely port a small one; not 自研 from scratch — algorithms are textbook).
+  - [ ] **m7** `Intl.*` — DateTimeFormat / NumberFormat / Collator / RelativeTimeFormat / PluralRules / Locale. Backed by ICU4C integration (link `-licuuc -licui18n`). Standard 3rd-party C library; counts as 自研-OK because Intl is a thin wrapper over locale data, not core PL implementation.
+  - [ ] **m8** Async / generator edge cases — full `AsyncIterator`, `for await`, async generators, rejection-handler chains, microtask + macrotask interleaving per spec §6.2.1.
+  - [ ] **m9** Number formatting — `toFixed` / `toPrecision` / `toExponential` / `toLocaleString` (Intl-bound) / parseFloat / parseInt edge cases (radix detection, leading whitespace, sign, hex prefix).
+  - [ ] **m10** BigInt formatting — `toString(radix)` / `toLocaleString` / `valueOf` / Number↔BigInt boundaries.
+  - [ ] **m11** Tagged template + raw strings, `String.raw`, escape sequence handling.
+  - [ ] **m12** Negative tests — every test262 case marked `negative:` must throw the specified error type at the specified phase (parse / early / runtime). Today tora aborts cleanly on parse errors but doesn't categorize them per spec. Needs an error-classification layer that maps tora's lex/parse/typecheck/runtime errors onto SyntaxError / TypeError / ReferenceError / RangeError per §16.
+  - [ ] **m13..mN** Bucket sweep — re-baseline after each m1-m12 ship. Surfaced gaps each get their own m-N item.
 
 → **Full gate** before V3-19.
 
@@ -721,14 +735,11 @@ Perf work happens incrementally:
 
 ## Out-of-scope features
 
-Things explicitly NOT in the v1.0 path. Some have been demoted from earlier drafts (under the wrong "Rust semantics" framing) or restored after a corrected understanding (`feedback_torajs_ambition`).
+Things explicitly NOT in the v1.0 path. The 2026-05-10 bar revision (test262 100% + bench 远超 bun/node) pulled `==`/`!=`, `var`, and `Proxy`/`Reflect` BACK into v1.0 (now V3-18 m3/m4/m5). Items that remain out are JS semantics that test262 doesn't directly test OR runtime-orthogonal scopes:
 
-- **`==` / `!=`** — only `===` / `!==`. Source-rewrite layer normalizes loose equality to strict before typecheck.
-- **`var` keyword** — only `let` / `const`.
-- **Decorators** — not in v1.0 path. Use cases are better served by macros (far) or manual code; if user demand surfaces post-v1.0, revisit.
-- **JSX** — out of scope. Use plain TS or a build-time preprocessor.
-- **`Proxy` / `Reflect`** — dropped. No-GC runtime makes Proxy's interception model expensive; static typing covers the Reflect surface in 95 % of cases.
-- **Conditional / mapped types** (`Pick<T, K>`, `Partial<T>`, `T extends U ? X : Y`) — TS-specific compiler tricks bound to its inference model. Probably never; the bun-equivalence guarantee is observable behavior, not type-system identity.
+- **Conditional / mapped types** (`Pick<T, K>`, `Partial<T>`, `T extends U ? X : Y`) — TS-specific compiler tricks bound to its inference model. test262 tests JS semantics only; bun-equivalence guarantee is observable behavior, not type-system identity.
+- **Decorators** — Stage 3 proposal, not in test262 mainline. Revisit post-v1.0 if user demand surfaces.
+- **JSX** — out of scope. Not part of the JS spec; use plain TS or a build-time preprocessor.
 - **`Rc<T>` / `Arc<T>` / `RefCell<T>` user-visible types** — the runtime uses refcount-like techniques internally on the universal heap header, but these are NEVER user-facing.
 - **WebAssembly user-code target** (different from "engine-as-wasm" in v0.5) — emit wasm artifacts from `.ts` source for non-browser deployment. Post-v1.0.
 - **Multi-threaded executor + `Send` / `Sync`** — single-threaded async is enough for v1.0 (matches bun's main path). Multi-threaded deferred to post-v1.0.
@@ -739,7 +750,10 @@ Things explicitly NOT in the v1.0 path. Some have been demoted from earlier draf
 - ~~Class syntax (initial) — possibly later~~ — class is **fully shipped in v0.1.0-beta** (instance + static fields/methods, single inheritance + super, virtual dispatch, abstract classes, `private`/`protected` modifiers).
 - ~~`Symbol` / `WeakMap` / `WeakRef` dropped~~ — moved to v1.0 with a self-hosted ARC-aware cycle collector; bun supports them via V8 so tr must too.
 - ~~`eval` / `Function` constructor dropped~~ — `Function` constructor is a v1.0 work item; the design is open between (a) runtime invocation of the AOT pipeline + dlopen and (b) keeping an interpreter slice for `Function` only. `eval` follows the same path.
-- ~~Test262 conformance out of scope~~ — restored as a hard requirement on 2026-05-03. The in-scope slice of test262 (~5K-15K cases) is a v1.0 gate at ≥ 90 % pass; v0.1 baseline is 651/23941, v0.2 target is ≥ 2500/23941.
+- ~~Test262 conformance out of scope~~ — restored as a hard requirement on 2026-05-03. **Bar updated 2026-05-10 to 100% pass on the full corpus** (was ≥90% in-scope). The 100% target forces several previously-out items back into v1.0: `==`/`!=` (now V3-18 m3), `var` keyword (m4), `Proxy`/`Reflect` (m5).
+- ~~`==` / `!=` dropped~~ — restored 2026-05-10 with the 100% test262 bar (V3-18 m3). Spec §7.2.13 IsLooselyEqual semantics.
+- ~~`var` keyword dropped~~ — restored 2026-05-10 (V3-18 m4). Hoisting + function-scope semantics.
+- ~~`Proxy` / `Reflect` dropped~~ — restored 2026-05-10 (V3-18 m5). Trap-based interception for member read/write/has/delete/call/construct. Likely needs an opt-in slow path triggered by a per-obj has-proxy flag so the fast tora codegen path stays untouched for non-Proxy code.
 - ~~Cycle-collecting weak references~~ — v1.0 must support them; the implementation is an ARC-aware cycle collector (Bacon & Rajan trial-deletion approach), not a "users restructure to avoid" surface.
 
 ---
