@@ -2809,6 +2809,11 @@ fn default_init_for_type(ann: &str) -> Expr {
         // typed zero anyway; field types beyond primitive are deferred to
         // M5.2 alongside inheritance.
         _ if ann.ends_with("[]") => Expr::Array(Vec::new()),
+        // V3-05 — `T | null` field default is `null`, not zero. Catches
+        // self-referential class fields (`next: Node | null`) where there
+        // is no legal recursive zero. Parser encodes `T | null` as the
+        // flat string `__nullable(T)`.
+        _ if ann.starts_with("__nullable(") && ann.ends_with(')') => Expr::Null,
         // TypeVar field (heuristic: short all-uppercase identifier — T,
         // U, K, V, A, B …). Emit a marker Ident that the monomorphizer
         // rewrites to the concrete default once the type is bound.

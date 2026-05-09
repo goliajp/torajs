@@ -273,6 +273,15 @@ impl Type {
                 | Type::WeakSet
         )
     }
+
+    /// V3-05 — true if the SSA value is an i64-wide pointer slot
+    /// (heap-owned refcounted types + raw Ptr + bare Promise / Symbol /
+    /// any other heap handle). Used by ObjectLit's permissive layout
+    /// match so a literal `null` Ptr field maps onto a registered
+    /// pointer-shaped class field of any specific tag.
+    pub fn is_pointer_shaped(self) -> bool {
+        self.is_refcounted() || matches!(self, Type::Ptr)
+    }
 }
 
 #[derive(Debug, Clone, Copy)]

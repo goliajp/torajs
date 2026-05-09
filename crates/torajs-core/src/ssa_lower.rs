@@ -1108,6 +1108,19 @@ fn lower_inner(
         &[Type::Ptr],
         Type::Void,
     );
+    /* V3-05 — runtime tag-dispatched drop. Used by emit_drop_value's
+     * recursion guard: when a self-referential class field would
+     * inline the same Obj drop a second time, we route the inner
+     * drop through value_drop_heap instead. Today value_drop_heap's
+     * default branch leaks Obj inner refs; V3-09 wires the
+     * class_layouts metadata through it for proper child drops. */
+    let value_drop_heap_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_value_drop_heap",
+        &[Type::Ptr],
+        Type::Void,
+    );
     /* T-15.g.5 — refcounted capture box for escape-captured Copy
      * lets (number / boolean). Replaces the previous `obj_alloc(8) +
      * Store init_val` pair so the box can be safely shared across
@@ -3202,6 +3215,34 @@ fn lower_inner(
     // at the end of `lower()`.
     let mut struct_layouts: Vec<Vec<(String, Type)>> =
         std::mem::take(&mut module.struct_layouts);
+    // V3-05 — two-phase TypeDecl resolution so self-referential
+    // classes (`class Node { next: Node | null }`) work. Phase 1
+    // reserves a fresh sid + empty layout for every non-generic
+    // TypeDecl and inserts `name → Type::Obj(sid)` into aliases.
+    // Phase 2 fills each reserved layout — by then the alias table
+    // has every class name, so a field type that references its
+    // own class (or a forward-declared sibling) resolves cleanly.
+    // Layouts are NOT interned in phase 1 (interning relies on
+    // field equality which we don't yet have); duplicates are
+    // collapsed in phase 2 by rewriting alias entries.
+    let mut class_sids: std::collections::HashMap<String, ssa::StructId> =
+        std::collections::HashMap::new();
+    for stmt in &ast.stmts {
+        if let Stmt::TypeDecl {
+            name,
+            type_params,
+            fields: _,
+        } = stmt
+        {
+            if !type_params.is_empty() {
+                continue;
+            }
+            let sid = ssa::StructId(struct_layouts.len() as u32);
+            struct_layouts.push(Vec::new());
+            class_sids.insert(name.clone(), sid);
+            aliases.insert(name.clone(), Type::Obj(sid));
+        }
+    }
     for stmt in &ast.stmts {
         if let Stmt::TypeDecl {
             name,
@@ -3226,22 +3267,25 @@ fn lower_inner(
                 );
                 layout.push((fname.clone(), ty));
             }
-            // intern by structural equality
-            let sid = {
-                let mut found = None;
-                for (i, ex) in struct_layouts.iter().enumerate() {
-                    if *ex == layout {
-                        found = Some(ssa::StructId(i as u32));
-                        break;
-                    }
+            let reserved_sid = class_sids[name];
+            // Try to intern: if another non-reserved layout already
+            // matches, alias `name` to that sid and leave the
+            // reserved slot empty (harmless — nothing references it).
+            let mut found: Option<ssa::StructId> = None;
+            for (i, ex) in struct_layouts.iter().enumerate() {
+                if i as u32 == reserved_sid.0 {
+                    continue;
                 }
-                found.unwrap_or_else(|| {
-                    let id = ssa::StructId(struct_layouts.len() as u32);
-                    struct_layouts.push(layout);
-                    id
-                })
-            };
-            aliases.insert(name.clone(), Type::Obj(sid));
+                if *ex == layout {
+                    found = Some(ssa::StructId(i as u32));
+                    break;
+                }
+            }
+            if let Some(canonical) = found {
+                aliases.insert(name.clone(), Type::Obj(canonical));
+            } else {
+                struct_layouts[reserved_sid.0 as usize] = layout;
+            }
         }
     }
 
@@ -3441,6 +3485,7 @@ fn lower_inner(
         capture_box_inc: capture_box_inc_id,
         capture_box_drop: capture_box_drop_id,
         obj_drop: obj_drop_id,
+        value_drop_heap: value_drop_heap_id,
         arr_alloc: arr_alloc_id,
         arr_push: arr_push_id,
         arr_shift: arr_shift_id,
@@ -4141,6 +4186,7 @@ struct Intrinsics {
     capture_box_inc: FuncId,
     capture_box_drop: FuncId,
     obj_drop: FuncId,
+    value_drop_heap: FuncId,
     arr_alloc: FuncId,
     arr_push: FuncId,
     arr_shift: FuncId,
@@ -4540,6 +4586,7 @@ fn synthesize_main(
             push_unchecked_for: std::collections::HashMap::new(),
             globals,
             is_main_fn: true,
+            drop_inline_stack: std::collections::HashSet::new(),
         };
         // T-15.g.5 fix: prime escape_captured_lets BEFORE lowering any
         // top-level let-decl. Without this, top-level `let x = 10` in
@@ -5383,6 +5430,7 @@ fn lower_fn(
         push_unchecked_for: std::collections::HashMap::new(),
         globals,
         is_main_fn: false,
+        drop_inline_stack: std::collections::HashSet::new(),
     };
 
     // Closure-capture analysis: any `let` (or param) whose name is
@@ -5927,6 +5975,15 @@ struct LowerCtx<'a> {
     /// declaration entirely (in named fns — they only ever read/write
     /// the slot via the ident-read / Assign-Ident fallbacks).
     is_main_fn: bool,
+    /// V3-05 — sids currently being inlined by `emit_drop_value`.
+    /// Self-referential class layouts (`class Node { next: Node | null }`)
+    /// would otherwise inline-recurse forever at codegen. When the
+    /// drop-emitter sees a sid already on this stack, it routes the
+    /// child drop through `__torajs_value_drop_heap` (runtime tag
+    /// dispatch) instead of inlining another copy of the field walk.
+    /// Note: today value_drop_heap's default branch leaks Obj inner
+    /// refs — proper class-layout-driven child drop lands in V3-09.
+    drop_inline_stack: std::collections::HashSet<u32>,
 }
 
 impl<'a> LowerCtx<'a> {
@@ -7774,6 +7831,22 @@ impl<'a> LowerCtx<'a> {
                 );
             }
             Type::Obj(sid) => {
+                // V3-05 — self-referential class layouts (`class Node
+                // { next: Node | null }`) would inline-recurse forever
+                // here. The first inline frame inserts `sid` into
+                // drop_inline_stack; recursive children of the same
+                // sid hit this guard and route through the runtime's
+                // tag-dispatched value_drop_heap instead. Today that
+                // helper's default branch leaks Obj inner refs — V3-09
+                // wires class_layouts through it for proper drops.
+                if self.drop_inline_stack.contains(&sid.0) {
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Call(self.intrinsics.value_drop_heap, vec![val]),
+                    );
+                    return;
+                }
+                self.drop_inline_stack.insert(sid.0);
                 // Phase 2B refcount-aware drop: inline `if (val != null)
                 // { if (--rc == 0) { walk_fields; free } }`. Field walk
                 // fires only on the last owner so shared Objs (refcount
@@ -7879,6 +7952,7 @@ impl<'a> LowerCtx<'a> {
                 );
                 self.f.set_term(self.cur_block, Terminator::Br(after));
                 self.cur_block = after;
+                self.drop_inline_stack.remove(&sid.0);
             }
             Type::Arr(arr_id) => {
                 // Phase B refcount: walk refcounted elements first
@@ -16468,16 +16542,42 @@ impl<'a> LowerCtx<'a> {
                         field_vals.push(v);
                     }
                 }
+                // V3-05 — permissive layout match: a literal field
+                // typed `Ptr` (the lowered shape of `null`) matches a
+                // registered field of any pointer-shaped type
+                // (Obj / Arr / Str / Closure / etc). This is the
+                // self-ref class case — `let __this: Node = {v: 0,
+                // next: null}` produces a literal whose `next` field
+                // is Ptr while the registered Node layout has
+                // `next: Obj(sid_node)`.
+                let layout_compatible = |reg: &Vec<(String, Type)>| -> bool {
+                    if reg.len() != field_tys.len() {
+                        return false;
+                    }
+                    reg.iter().zip(field_tys.iter()).all(|((rn, rt), (ln, lt))| {
+                        rn == ln && (rt == lt || (*lt == Type::Ptr && rt.is_pointer_shaped()))
+                    })
+                };
                 let sid = self
                     .struct_layouts
                     .iter()
-                    .position(|layout| *layout == field_tys)
+                    .position(layout_compatible)
                     .map(|i| ssa::StructId(i as u32))
                     .unwrap_or_else(|| {
                         panic!(
                             "ssa-lower: object literal layout {field_tys:?} not registered as a `type` — anonymous struct types not yet supported (P2.4.c MVP)"
                         )
                     });
+                // Bring `field_tys` in line with the registered layout
+                // so downstream Store-typing emits the right Type::Obj
+                // / Type::Arr at each slot — without this, slots stay
+                // typed Ptr and the slot-load arm at Member-access
+                // produces Ptr instead of Obj(sid_node), breaking
+                // recursive class field reads.
+                let canon = self.struct_layouts[sid.0 as usize].clone();
+                for (i, (_, ty)) in canon.iter().enumerate() {
+                    field_tys[i].1 = *ty;
+                }
                 // Phase H.1.a — alloc reserves OBJ_HEADER_SIZE for the
                 // class tag at offset 0, fields then start at offset
                 // OBJ_HEADER_SIZE. H.1.b — write the per-class tag if

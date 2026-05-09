@@ -128,6 +128,20 @@ pub enum Type {
     /// matching order. (TS-style structural compatibility, not nominal.)
     /// P2.4 introduced this; backed by heap allocation in P2.4.c.
     Struct(Vec<(String, Type)>),
+    /// V3-05 — nominal class reference by name. Returned by
+    /// `resolve_type_ann_full` when the type-ann names a declared
+    /// class that's still in its pre-register placeholder phase
+    /// (i.e. self / forward / mutual references during Pass 0). Use
+    /// `resolve_class_ref(t, aliases)` at consumer sites to dereference
+    /// to the current `aliases[name]` (which after Pass 0 is the
+    /// real `Type::Struct(real_fields)`).
+    ///
+    /// Without ClassRef, `class Node { next: Node | null }` would
+    /// embed a `Type::Struct(empty)` placeholder by-value into Node's
+    /// own field — leading to unify mismatches when assigning a
+    /// real Node into the field. ClassRef + lazy resolution avoids
+    /// the by-value capture pitfall.
+    ClassRef(String),
     /// M3 — type-parameter placeholder. Only legal inside the body of a
     /// generic FnDecl; at call sites the typechecker infers a concrete
     /// substitution and the `ssa_lower` monomorphization pass produces
@@ -632,6 +646,21 @@ pub type GenericCallSites = HashMap<ExprId, (String, Vec<Type>)>;
 ///
 /// Everything else falls back to PartialEq. Notably we do NOT auto-narrow
 /// `T | null → T` — the user must use `??` or `?.` to dispose of the null.
+/// V3-05 — caller-side resolver wrapper. Use this at every site
+/// where the operands may be class types whose ClassRef placeholder
+/// hasn't been dereferenced yet (LetDecl init, Assign LHS/RHS, fn-
+/// arg coercion, return-value compat). Resolving up-front keeps the
+/// existing `is_assignable_to` body free of alias-table threading.
+pub fn is_assignable_to_resolved(
+    to: &Type,
+    from: &Type,
+    aliases: &std::collections::HashMap<String, Type>,
+) -> bool {
+    let to_r = resolve_class_ref(to, aliases);
+    let from_r = resolve_class_ref(from, aliases);
+    is_assignable_to(&to_r, &from_r)
+}
+
 fn is_assignable_to(to: &Type, from: &Type) -> bool {
     if to == from {
         return true;
@@ -671,8 +700,13 @@ fn is_assignable_to(to: &Type, from: &Type) -> bool {
     // lookup needed; the layout invariant guarantees the fields-prefix
     // check coincides with the class hierarchy.
     if let (Type::Struct(to_fields), Type::Struct(from_fields)) = (to, from)
-        && from_fields.len() > to_fields.len()
+        && from_fields.len() >= to_fields.len()
     {
+        // V3-05 — equal-length structs participate in field-by-field
+        // assignability too, not just prefix-subtyping. This is what
+        // lets `{v: number, next: null}` (object literal) assign into
+        // `{v: number, next: Node | null}` (declared class type), and
+        // what makes `b: Node` assign into a Nullable(Node) field.
         for (i, (n, t)) in to_fields.iter().enumerate() {
             let (fn_name, fn_ty) = &from_fields[i];
             if fn_name != n || !is_assignable_to(t, fn_ty) {
@@ -690,6 +724,50 @@ fn is_assignable_to(to: &Type, from: &Type) -> bool {
         return is_assignable_to(to_elem, from_elem);
     }
     false
+}
+
+/// V3-05 — substitute `Type::ClassRef(name)` with whatever the
+/// current `aliases[name]` is. Recurses through wrapper variants
+/// (Nullable, Array) so a `Nullable(ClassRef("Node"))` field's
+/// type resolves to `Nullable(Struct(node_real_fields))` for
+/// downstream destructuring. Non-ClassRef types pass through
+/// (cloned). Idempotent: resolving an already-resolved Type is
+/// a no-op.
+///
+/// Use this at every site that needs to inspect the *shape* of a
+/// type (field access, unify, member-call dispatch) — without it,
+/// a self-referential class field stays at the placeholder and
+/// the consumer sees no fields.
+pub fn resolve_class_ref(ty: &Type, aliases: &std::collections::HashMap<String, Type>) -> Type {
+    match ty {
+        Type::ClassRef(name) => {
+            match aliases.get(name) {
+                Some(t) if !matches!(t, Type::ClassRef(_)) => {
+                    // Recurse: the alias entry's own fields may
+                    // themselves contain ClassRef placeholders (the
+                    // self-ref case — Node's `next` field carries
+                    // ClassRef("Node")). One unwrap pass keeps
+                    // following levels resolved at access time.
+                    let resolved = t.clone();
+                    resolve_class_ref_one(&resolved, aliases)
+                }
+                _ => ty.clone(),
+            }
+        }
+        _ => resolve_class_ref_one(ty, aliases),
+    }
+}
+
+/// Helper: walk every wrapper variant once, leaving ClassRef nodes
+/// embedded in struct/array fields alone (they get resolved on the
+/// next access). This keeps recursive class layouts finite — a
+/// fully-resolved Node would expand infinitely.
+fn resolve_class_ref_one(ty: &Type, aliases: &std::collections::HashMap<String, Type>) -> Type {
+    match ty {
+        Type::Nullable(inner) => Type::Nullable(Box::new(resolve_class_ref(inner, aliases))),
+        Type::Array(inner) => Type::Array(Box::new(resolve_class_ref(inner, aliases))),
+        _ => ty.clone(),
+    }
 }
 
 /// `parse_type` consumes. Used to translate inferred generic type args
@@ -724,6 +802,18 @@ pub fn type_to_ann(ty: &Type) -> String {
             format!("__fn({})->{}", parts.join("|"), type_to_ann(ret))
         }
         Type::Object(name) => (*name).into(),
+        Type::ClassRef(name) => {
+            /* V3-05 — class references should have been resolved
+             * (via aliases lookup) before reaching ssa_lower. The
+             * placeholder Pass should have been replaced by the
+             * Real Type::Struct in c.aliases by the time anyone
+             * asks for an SSA annotation. Panic to surface stale
+             * usage rather than silently emitting `__struct()` for
+             * a class. */
+            panic!(
+                "type_to_ann: ClassRef(`{name}`) reached SSA-ann emission — caller should have called resolve_class_ref first"
+            )
+        }
         Type::TypeVar(_) => {
             panic!("type_to_ann: TypeVar should be substituted before SSA layer")
         }
@@ -841,6 +931,31 @@ impl Checker {
     // type aliases `type Pair<A, B> = { ... }` are recorded in a
     // separate map (`generic_alias_decls`) and instantiated lazily by
     // `resolve_type_ann_with_vars` when it sees `Pair<X|Y>` syntax.
+    /* V3-05 — pre-register every non-generic class TypeDecl name
+     * with an empty `Type::Struct(vec![])` placeholder before
+     * resolving any field types. This lets `resolve_type_ann_full`
+     * find self-references (`class Node { next: Node | null }`)
+     * and forward-references (`class A { b: B } class B { a: A }`)
+     * — both previously rejected because the class wasn't yet in
+     * `c.aliases` when its own (or its sibling's) field types were
+     * being resolved. After Pass 0, the placeholder is replaced
+     * with the resolved fields. The downstream consumers that
+     * matter — Member-access type-of, Assign LHS/RHS unify, etc.
+     * — index `c.aliases` by name on every read, so they see the
+     * post-replacement struct, not the placeholder. */
+    let mut placeholder_classes: std::collections::HashSet<String> =
+        std::collections::HashSet::new();
+    for stmt in &ast.stmts {
+        if let Stmt::TypeDecl { name, type_params, .. } = stmt {
+            if !type_params.is_empty() { continue; }
+            if c.aliases.contains_key(name) || c.generic_alias_decls.contains_key(name) {
+                continue; /* duplicate handled by Pass 0 below */
+            }
+            c.aliases.insert(name.clone(), Type::ClassRef(name.clone()));
+            placeholder_classes.insert(name.clone());
+        }
+    }
+
     for stmt in &ast.stmts {
         if let Stmt::TypeDecl {
             name,
@@ -848,7 +963,12 @@ impl Checker {
             fields,
         } = stmt
         {
-            if c.aliases.contains_key(name) || c.generic_alias_decls.contains_key(name) {
+            /* Skip duplicate declarations — but ignore the
+             * placeholder we just inserted; only flag when the
+             * existing entry came from somewhere else. */
+            if (c.aliases.contains_key(name) && !placeholder_classes.contains(name))
+                || c.generic_alias_decls.contains_key(name)
+            {
                 c.errors.push_err(format!("redeclaration of type `{name}`"));
                 continue;
             }
@@ -1687,7 +1807,7 @@ impl Checker {
                             self.errors.push_err(format!("unknown type `{ann}`"));
                             return;
                         };
-                        if !is_assignable_to(&ann_ty, &init_ty) {
+                        if !is_assignable_to_resolved(&ann_ty, &init_ty, &self.aliases) {
                             self.errors.push_err(format!(
                                 "type mismatch on `{name}`: declared {ann_ty:?}, init has {init_ty:?}"
                             ));
@@ -2058,10 +2178,13 @@ impl Checker {
                 }
                 // Struct field access is the most general path — look up
                 // the named field; type is whatever it was declared as.
-                if let Type::Struct(fields) = &obj_ty
+                // V3-05 — resolve any ClassRef placeholder embedded in
+                // obj_ty (self-reference fields hit this).
+                let resolved_obj_ty = resolve_class_ref(&obj_ty, &self.aliases);
+                if let Type::Struct(fields) = &resolved_obj_ty
                     && let Some((_, ty)) = fields.iter().find(|(fname, _)| fname == name)
                 {
-                    return Ok(ty.clone());
+                    return Ok(resolve_class_ref(ty, &self.aliases));
                 }
                 /* T-15.g.2 (v0.5.0) — built-in `Promise<T>.value` returns
                  * T. The parser desugars `await p` to `p.value` (Phase L
@@ -3190,7 +3313,7 @@ impl Checker {
                 for &eid in ids.iter() {
                     let ty = elem_value_ty(self, eid)?;
                     if let Some(ty) = ty
-                        && !is_assignable_to(&first_ty, &ty)
+                        && !is_assignable_to_resolved(&first_ty, &ty, &self.aliases)
                     {
                         heterogeneous = true;
                         break;
@@ -4197,7 +4320,7 @@ impl Checker {
                             && let Some(global_ty) = self.globals.get(&name).cloned()
                         {
                             let value_ty = self.type_of(ast, *value)?;
-                            if !is_assignable_to(&global_ty, &value_ty) {
+                            if !is_assignable_to_resolved(&global_ty, &value_ty, &self.aliases) {
                                 return Err(format!(
                                     "type mismatch assigning to global `{name}`: declared {global_ty:?}, value is {value_ty:?}"
                                 ));
@@ -4218,7 +4341,7 @@ impl Checker {
                         }
                         let target_ty = info.ty.clone();
                         let value_ty = self.type_of(ast, *value)?;
-                        if !is_assignable_to(&target_ty, &value_ty) {
+                        if !is_assignable_to_resolved(&target_ty, &value_ty, &self.aliases) {
                             return Err(format!(
                                 "type mismatch assigning to `{name}`: declared {target_ty:?}, value is {value_ty:?}"
                             ));
@@ -4294,7 +4417,12 @@ impl Checker {
                         };
                         let field_ty = field_ty.clone();
                         let value_ty = self.type_of(ast, *value)?;
-                        if value_ty != field_ty {
+                        // V3-05 — assign-to-field uses the same
+                        // assignability rule as plain assigns: Null
+                        // widens into Nullable(T), and ClassRef
+                        // placeholders resolve to their concrete struct
+                        // before the equality check.
+                        if !is_assignable_to_resolved(&field_ty, &value_ty, &self.aliases) {
                             return Err(format!(
                                 "type mismatch assigning to `{field}`: field is {field_ty:?}, value is {value_ty:?}"
                             ));
