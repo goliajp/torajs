@@ -525,7 +525,7 @@ patterns.
 
 - [x] **V3-05** Nominal class types refactor — shipped `64ea9f6` (379/0/1). Introduced `Type::ClassRef(String)` placeholder + two-phase TypeDecl resolution (reserve sids first, then fill layouts). `resolve_class_ref` unwraps one layer at access sites; `default_init_for_type` returns `Expr::Null` for `__nullable(T)` fields; ObjectLit's layout match accepts `Ptr` against any pointer-shaped registered field; `emit_drop_value` tracks an inline-emit sid stack and routes recursive Obj fields through runtime `__torajs_value_drop_heap` to break codegen recursion (proper class-layout-driven child drop deferred to V3-09).
 - [x] **V3-06** `class C { f: C[] }` accepted — shipped `a81bd15` (380/0/1). `is_assignable_to_resolved` deep-resolves through Array + Struct fields with a fingerprint cycle guard. Empty-array literal `this.kids = []` in field-assign position picks up the field's element type at both typecheck and ssa_lower (mirrors the K.6 LetDecl-global path).
-- [ ] **V3-07** `as` cast parser support. Needed for the `arr.push(self as any)` cycle pattern + general TS users.
+- [x] **V3-07** `as` cast parser support — shipped `fba2b98` (381/0/1). New `Expr::As` AST variant; postfix-precedence parse so `arr.push(x as any)` parses cleanly. Typecheck honors the asserted type via `resolve_type_ann_full`; ssa_lower forwards the inner operand (cast is identity at runtime, Any-box happens at the surrounding assignment / push site).
 
 ### Phase 3 — close cycle collector (depends on V3-05..V3-07)
 
