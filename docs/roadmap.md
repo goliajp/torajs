@@ -549,7 +549,11 @@ patterns.
 - [x] **V3-15** T-29 `tr debug` lldb launcher — shipped `7d8bfa1` (383/0/1). `tr debug <file> [-- lldb-args]` compiles with `--opt O0` + DWARF (already on) and execs lldb with the resulting binary. Source breakpoints + step + source context work via v0.3 #4 DWARF. Deferred follow-ups: DILocalVariable for `frame variable` (today empty), FnDecl line numbers (today: line 0), `tr debug --dap` + VS Code extension.
 - [ ] **V3-16** T-27 Function ctor / `eval`. Split into milestones:
   - [x] **m1** dylib emit substrate — `ssa_inkwell::compile_for_kind` + `OutputKind::SharedLib`. `cc -shared -fPIC` + macOS `-Wl,-undefined,dynamic_lookup`. End-to-end test compiles `function torajs_add(a,b)` to a .dylib, dlopens via libloading, calls `add(2,3)=5`. Shipped `6fc9140` (383/0/1). 
-  - [ ] **m2** `new Function(params, body)` syntax + runtime helper. Design tension: subprocess shell-out to `tr` is the easy path but violates 上限优先 (needs `tr` on PATH at runtime, slow per-call). Proper path is in-process JIT (LLJIT / inkwell ExecutionEngine) — compile body to memory, link with current process's symbols, return fn ptr. Multi-week reengineering of ssa_inkwell. Needs explicit design alignment with takagi before committing direction.
+  - [ ] **m2** `new Function(params, body)` syntax + runtime helper. Substrate shipped `9cd30de` (383/0/1): `torajs-embed::compile_function<T>(src, entry) -> LoadedFunction<T>` reuses m1's dylib path (cc -shared -fPIC + dlopen + dlsym). 6/6 tests green. Per-call cost ~50ms (cc + ld + dlopen). Remaining work in this milestone:
+    - In-tora `new Function(params, body)` AST detection + lowering to runtime intrinsic that calls `compile_function`.
+    - Type system: declared fn-type annotation drives the JIT'd sig.
+    - Conditional link: only programs using Function ctor pull libtorajs_embed.a.
+    - **m2.b** LLJIT upgrade (drops per-call to ~5ms; extract `compile_to_jit_module` from compile_for_kind + thread runtime symbol bridging through ExecutionEngine; ~600 LOC). User-facing API stays the same.
   - [ ] **m3** `eval(src)` — full lexical-scope semantics need closure-over-current-frame access, an even bigger ABI change. Likely deferred to post-v1.0.
 
 → **Mid gate** after V3-16.
