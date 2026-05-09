@@ -651,13 +651,70 @@ pub type GenericCallSites = HashMap<ExprId, (String, Vec<Type>)>;
 /// hasn't been dereferenced yet (LetDecl init, Assign LHS/RHS, fn-
 /// arg coercion, return-value compat). Resolving up-front keeps the
 /// existing `is_assignable_to` body free of alias-table threading.
+///
+/// Deep-resolves through Struct fields too — the V3-06 case
+/// `class C { kids: C[] }` needs `Array(ClassRef("C"))` to match
+/// `Array(Struct(...))` recursively. A `seen` cycle guard keyed by
+/// `(to_class, from_class)` keeps recursive class layouts finite.
 pub fn is_assignable_to_resolved(
     to: &Type,
     from: &Type,
     aliases: &std::collections::HashMap<String, Type>,
 ) -> bool {
+    let mut seen: std::collections::HashSet<(String, String)> = std::collections::HashSet::new();
+    is_assignable_to_deep(to, from, aliases, &mut seen)
+}
+
+fn is_assignable_to_deep(
+    to: &Type,
+    from: &Type,
+    aliases: &std::collections::HashMap<String, Type>,
+    seen: &mut std::collections::HashSet<(String, String)>,
+) -> bool {
+    // Resolve any ClassRef placeholders one layer up before deeper
+    // structural comparison.
     let to_r = resolve_class_ref(to, aliases);
     let from_r = resolve_class_ref(from, aliases);
+    if to_r == from_r {
+        return true;
+    }
+    if matches!(from_r, Type::Any) {
+        return true;
+    }
+    if let Type::Nullable(inner) = &to_r {
+        if matches!(from_r, Type::Null) {
+            return true;
+        }
+        return is_assignable_to_deep(inner, &from_r, aliases, seen);
+    }
+    if let (Type::Array(to_el), Type::Array(from_el)) = (&to_r, &from_r) {
+        if matches!(**to_el, Type::Any) {
+            return true;
+        }
+        return is_assignable_to_deep(to_el, from_el, aliases, seen);
+    }
+    if let (Type::Struct(to_fields), Type::Struct(from_fields)) = (&to_r, &from_r)
+        && from_fields.len() >= to_fields.len()
+    {
+        // V3-06 cycle guard: structurally-recursive layouts (`Tree`
+        // contains `Array<Tree>`) would otherwise infinite-loop here.
+        // We approximate identity by field-name signature — good
+        // enough since the code path only fires inside a single
+        // alias-resolve chain.
+        let fingerprint = |fs: &[(String, Type)]| -> String {
+            fs.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>().join(",")
+        };
+        let key = (fingerprint(to_fields), fingerprint(from_fields));
+        if !seen.insert(key.clone()) {
+            return true;
+        }
+        let result = to_fields.iter().enumerate().all(|(i, (n, t))| {
+            let (fn_name, fn_ty) = &from_fields[i];
+            fn_name == n && is_assignable_to_deep(t, fn_ty, aliases, seen)
+        });
+        seen.remove(&key);
+        return result;
+    }
     is_assignable_to(&to_r, &from_r)
 }
 
@@ -4416,6 +4473,19 @@ impl Checker {
                             ));
                         };
                         let field_ty = field_ty.clone();
+                        // V3-06 — `this.kids = []` in a class
+                        // constructor: bare empty array literal
+                        // gets its element type from the field's
+                        // declared array type.
+                        if matches!(ast.get_expr(*value), Expr::Array(els) if els.is_empty())
+                            && matches!(
+                                resolve_class_ref(&field_ty, &self.aliases),
+                                Type::Array(_)
+                            )
+                        {
+                            self.consume(ast, *value);
+                            return Ok(field_ty);
+                        }
                         let value_ty = self.type_of(ast, *value)?;
                         // V3-05 — assign-to-field uses the same
                         // assignability rule as plain assigns: Null

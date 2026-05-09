@@ -10811,8 +10811,30 @@ impl<'a> LowerCtx<'a> {
                                 vec![obj_val.clone()],
                             ),
                         );
-                        let v = self.lower_expr(*value);
-                        self.consume_if_ident(*value);
+                        // V3-06 — `this.kids = []` in a constructor.
+                        // Mirrors the K.6 LetDecl-global path: empty
+                        // array literals lack inferable element type
+                        // on their own, so we allocate from the field's
+                        // declared `Type::Arr` here.
+                        let v = if let Expr::Array(els) = self.ast.get_expr(*value)
+                            && els.is_empty()
+                            && matches!(field_ty, Type::Arr(_))
+                        {
+                            let alloc = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(
+                                    self.intrinsics.arr_alloc,
+                                    vec![Operand::ConstI64(0)],
+                                ),
+                                field_ty,
+                                None,
+                            );
+                            Operand::Value(alloc)
+                        } else {
+                            let v = self.lower_expr(*value);
+                            self.consume_if_ident(*value);
+                            v
+                        };
                         // Drop the old field value if non-Copy.
                         if !field_ty.is_copy() {
                             let old = self.f.append_inst(
