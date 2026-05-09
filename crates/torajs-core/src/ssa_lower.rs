@@ -18843,6 +18843,8 @@ impl<'a> LowerCtx<'a> {
             op,
             AstBinOp::Add | AstBinOp::Sub | AstBinOp::Mul | AstBinOp::Div | AstBinOp::Mod
                 | AstBinOp::Lt | AstBinOp::Gt | AstBinOp::Le | AstBinOp::Ge
+                | AstBinOp::BitAnd | AstBinOp::BitOr | AstBinOp::BitXor
+                | AstBinOp::Shl | AstBinOp::Shr | AstBinOp::UShr
         );
         let (a, b) = if coerce_op {
             let a_ty = self.operand_ty(&a);

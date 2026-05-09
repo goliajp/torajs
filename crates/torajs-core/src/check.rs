@@ -4312,6 +4312,12 @@ impl Checker {
                             // V3-02 — BigInt bitwise w/ two's-complement
                             // simulation. Mixed Number/BigInt rejected.
                             Ok(Type::BigInt)
+                        } else if js_arith_coerces_to_number(&l, &r) {
+                            // V3-18 m1.e — JS spec §13.12 bitwise ops
+                            // call ToInt32 on both operands then do an
+                            // i32 op. Bool/Null map cleanly via the same
+                            // ToNumber-then-truncate path m1.b uses.
+                            Ok(Type::Number)
                         } else {
                             Err(format!(
                                 "bitwise op requires matching number or bigint operands, got {l:?} and {r:?}"
@@ -4326,6 +4332,10 @@ impl Checker {
                             // spec (an "infinite-bit unsigned shift"
                             // makes no sense). Caught here at typecheck.
                             Err("`>>>` is not defined on BigInt operands per spec".into())
+                        } else if js_arith_coerces_to_number(&l, &r) {
+                            // V3-18 m1.e — `>>>` ToUint32 path; same
+                            // Bool/Null coercion as the signed shifts.
+                            Ok(Type::Number)
                         } else {
                             Err(format!(
                                 "bitwise op requires number operands, got {l:?} and {r:?}"
