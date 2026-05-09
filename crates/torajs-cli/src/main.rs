@@ -1,5 +1,6 @@
 mod lsp;
 mod lsp_bench;
+mod repl;
 
 use std::env;
 use std::io::Read;
@@ -72,6 +73,7 @@ fn main() -> ExitCode {
                 ExitCode::from(1)
             }
         },
+        Some("repl") => repl::run(),
         Some("fmt") => run_fmt(&args[1..]),
         Some("lint") => run_lint(&args[1..]),
         Some("ssa-demo") => {
@@ -106,6 +108,7 @@ fn print_usage() {
     println!("    ssa-demo             print a hand-built SSA fib40 (P3.5 step 1 leftover)");
     println!("    lsp                  speak Language Server Protocol over stdio");
     println!("    lsp-bench            measure LSP latency on a synthetic 1K-line fixture");
+    println!("    repl                 launch interactive evaluator (history at ~/.torajs/repl_history)");
     println!("    fmt <file> [--write] reformat source to tr's canonical style (stdout, or in-place with --write)");
     println!("    lint <file> [--deny] surface 5 lint warnings (unused-let, dead-code-after-return, unreachable-catch, shadowed-let, unused-import); --deny exits non-zero on any warning");
     println!();
