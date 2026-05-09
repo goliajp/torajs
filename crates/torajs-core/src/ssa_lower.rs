@@ -12277,6 +12277,26 @@ impl<'a> LowerCtx<'a> {
                     self.consume_if_ident(args[0]);
                     return arg_op;
                 }
+                /* V3-08 — `Bun.gc(synchronous)` triggers the
+                 * Bacon-Rajan cycle collector. The bool arg is
+                 * ignored (bun uses it to gate JSC's concurrent GC;
+                 * we always run synchronously). Both forms produce
+                 * void. */
+                if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
+                    && m_name == "gc"
+                    && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
+                    && ns == "Bun"
+                {
+                    for a in args.iter() {
+                        let _ = self.lower_expr(*a);
+                        self.consume_if_ident(*a);
+                    }
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Call(self.intrinsics.cycle_collect, vec![]),
+                    );
+                    return Operand::ConstI64(0);
+                }
                 /* T-26 (v0.7) — `__torajs_weakref_create(target)`.
                  * Intercept here so the target is NOT consumed: the
                  * runtime registry observes the target ptr without

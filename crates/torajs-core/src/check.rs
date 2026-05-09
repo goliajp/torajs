@@ -2775,6 +2775,14 @@ impl Checker {
                         vec![Type::String],
                         Box::new(Type::Object("BunFile")),
                     )),
+                    /* V3-08 — `Bun.gc(synchronous)`. tora's Bacon-Rajan
+                     * cycle collector triggers regardless of the bool
+                     * arg (we ignore it; bun uses it to gate JSC's
+                     * concurrent GC). Both runtimes return void. */
+                    (Type::Object("Bun"), "gc") => Ok(Type::Function(
+                        vec![Type::Boolean],
+                        Box::new(Type::Void),
+                    )),
                     (Type::Object("BunFile"), "text") => Ok(Type::Function(
                         Vec::new(),
                         Box::new(Type::Promise(Box::new(Type::String))),
