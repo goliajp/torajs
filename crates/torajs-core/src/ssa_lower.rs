@@ -11061,6 +11061,37 @@ impl<'a> LowerCtx<'a> {
                     return Operand::ConstF64(-0.0);
                 }
                 let v = self.lower_expr(*expr);
+                // V3-18 m1.f — coerce Bool / null before unary `-`
+                // and `~`. For `-`, IEEE 754 -0 must survive when
+                // the operand is the falsy 0 (i.e. -false or -null
+                // = -0.0 per bun), so we route via f64 — the
+                // existing `-` lowerer's F64 arm does FSub from
+                // -0.0 which preserves sign. For `~` integer is
+                // fine; coerce to i64 directly.
+                let v = match op {
+                    crate::ast::UnaryOp::Neg => {
+                        if matches!(v, Operand::ConstPtrNull) {
+                            Operand::ConstF64(0.0)
+                        } else if matches!(self.operand_ty(&v), Type::Bool) {
+                            // bool → i64 → f64 chain so the sign-
+                            // preserving FSub path picks it up.
+                            let i = self.coerce_bool_to_i64(v);
+                            self.coerce_to_f64(i)
+                        } else {
+                            v
+                        }
+                    }
+                    crate::ast::UnaryOp::BitNot => {
+                        if matches!(v, Operand::ConstPtrNull) {
+                            Operand::ConstI64(0)
+                        } else if matches!(self.operand_ty(&v), Type::Bool) {
+                            self.coerce_bool_to_i64(v)
+                        } else {
+                            v
+                        }
+                    }
+                    _ => v,
+                };
                 match op {
                     crate::ast::UnaryOp::Not => {
                         let r = self.f.append_inst(

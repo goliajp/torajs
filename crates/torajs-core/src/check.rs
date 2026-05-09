@@ -4422,6 +4422,12 @@ impl Checker {
                             // T-25 — `-bigint` flips the sign via
                             // bigint_neg at the SSA layer.
                             Ok(Type::BigInt)
+                        } else if matches!(t, Type::Boolean | Type::Null) {
+                            // V3-18 m1.f — JS spec §13.5.5 unary `-`
+                            // calls ToNumber on its operand. Bool/Null
+                            // map cleanly via the same coerce paths
+                            // m1.b uses; result is Number.
+                            Ok(Type::Number)
                         } else {
                             Err(format!("`-` requires number or bigint operand, got {t:?}"))
                         }
@@ -4432,6 +4438,11 @@ impl Checker {
                         } else if t == Type::BigInt {
                             // V3-02 — BigInt `~x` ≡ `-x - 1n`.
                             Ok(Type::BigInt)
+                        } else if matches!(t, Type::Boolean | Type::Null) {
+                            // V3-18 m1.f — JS spec §13.5.6 unary `~`
+                            // calls ToInt32 (via ToNumber). Bool/Null
+                            // both clean to i32.
+                            Ok(Type::Number)
                         } else {
                             Err(format!("`~` requires number or bigint operand, got {t:?}"))
                         }
