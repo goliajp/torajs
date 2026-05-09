@@ -27,11 +27,19 @@
  * from `Module::class_layouts`. Cycle collector reads
  * class_tag from each obj header and indexes into the table.
  *
- * Scope of this slice (T-26.C MVP):
- *   - Only Obj (class instances) participate in cycle collection.
- *     Arr / Closure / etc. are not yet visited; cycles routed
- *     through them remain leaked until subsequent slices land.
- *   - Manual `gc()` trigger only — no auto-trigger on threshold.
+ * Scope (T-26.C base + V3-09 array extension):
+ *   - Class instances (TAG_OBJ with declared class_tag) walk via
+ *     `class_layouts` metadata.
+ *   - Arrays (TAG_ARR) walk every slot — slots that point to a
+ *     class instance or another array participate in the
+ *     trial-deletion algorithm. Array<Any>'s 16-byte slot stride
+ *     isn't decoded yet — we sweep on the value half only;
+ *     ANY_HEAP slots align so the value pointer is at +0.
+ *   - Closures still leak: their env layout isn't reachable from
+ *     the runtime side. Lands as a follow-up once the lowerer
+ *     emits a runtime-readable env layout table.
+ *   - Manual `gc()` trigger only — no auto-trigger on threshold
+ *     yet (V3-10).
  *   - Single-threaded; the algorithm is non-concurrent.
  */
 
@@ -47,7 +55,18 @@ typedef struct __attribute__((aligned(8))) {
 } __torajs_heap_header_t;
 
 #define __TORAJS_TAG_OBJ      1
+#define __TORAJS_TAG_ARR      2
+#define __TORAJS_TAG_CLOSURE  3
 #define __TORAJS_FLAG_STATIC_LITERAL 4u
+
+/* V3-09 — Array layout. Header(8) + len(8) + slot[0..len] (8B
+ * each for typed arrays). Array<Any> uses 16B/slot but isn't on
+ * the cycle path yet — its slot value at +0 is the same heap
+ * pointer when ANY_HEAP-tagged, so the simple stride-8 sweep
+ * harmlessly visits the value half. */
+#define ARR_LEN_OFF     8
+#define ARR_SLOT0_OFF   16
+#define ARR_SLOT_STRIDE 8
 
 #define COLOR_SHIFT  3u
 #define COLOR_MASK   (3u << COLOR_SHIFT)
@@ -102,9 +121,41 @@ static inline int is_class_obj(void *p) {
     return 1;
 }
 
+/* V3-09 — true if `p` is an Arr whose slots may carry refcounted
+ * children that participate in cycles. Statically literal arrays
+ * (`STATIC_LITERAL` flag) are immortal data — never owned, never
+ * walked. */
+static inline int is_visitable_arr(void *p) {
+    if (p == NULL) return 0;
+    __torajs_heap_header_t *h = (__torajs_heap_header_t *)p;
+    if (h->flags & __TORAJS_FLAG_STATIC_LITERAL) return 0;
+    return h->type_tag == __TORAJS_TAG_ARR;
+}
+
+/* V3-09 — true if any cycle-collector phase can descend into `p`.
+ * Today: declared-class instances + arrays. Closures land later
+ * once their env layout is reachable from the runtime side. */
+static inline int has_walkable_children(void *p) {
+    return is_class_obj(p) || is_visitable_arr(p);
+}
+
 static inline const __torajs_class_layout_t *layout_for_class_obj(void *p) {
     uint64_t tag = *(const uint32_t *)((const uint8_t *)p + OBJ_CLASS_TAG_OFF);
     return &__torajs_class_layouts[tag - 1];
+}
+
+/* V3-09 — slot count for an Array heap block, read from its
+ * header's len field at offset 8. */
+static inline uint64_t arr_len_of(void *p) {
+    return *(const uint64_t *)((const uint8_t *)p + ARR_LEN_OFF);
+}
+
+static inline void *arr_slot_at(void *p, uint64_t i) {
+    return *(void **)((uint8_t *)p + ARR_SLOT0_OFF + i * ARR_SLOT_STRIDE);
+}
+
+static inline void arr_slot_clear(void *p, uint64_t i) {
+    *(void **)((uint8_t *)p + ARR_SLOT0_OFF + i * ARR_SLOT_STRIDE) = NULL;
 }
 
 /* ============================================================
@@ -126,9 +177,14 @@ static void buffer_push(void *p) {
 /* Called from rc_dec / Obj-walk_blk's else-branch when the rc
  * stayed positive on a cyclic-shape type. Marks PURPLE + pushes
  * into the buffer (with BUFFERED gate so duplicates skip). Cheap
- * fast-path: if already buffered, return. */
+ * fast-path: if already buffered, return.
+ *
+ * V3-09 — accepts both class instances and visitable arrays.
+ * The walk_blk hook in ssa_lower today only fires for class
+ * sids; future lowerer slices can extend it to arrays carrying
+ * refcounted element types. */
 void __torajs_cycle_buffer(void *p) {
-    if (!is_class_obj(p)) return;
+    if (!has_walkable_children(p)) return;
     __torajs_heap_header_t *h = (__torajs_heap_header_t *)p;
     if (h->flags & FLAG_BUFFERED) return;
     set_color(h, COLOR_PURPLE);
@@ -166,20 +222,34 @@ static void visit_children(void *p, child_visitor v) {
  * trial-delete) so that any node whose rc reaches 0 is a
  * confirmed-cycle candidate. */
 static void mark_gray(void *p) {
-    if (!is_class_obj(p)) return;
+    if (!has_walkable_children(p)) return;
     __torajs_heap_header_t *h = (__torajs_heap_header_t *)p;
     if (color_of(h) == COLOR_GRAY) return;
     set_color(h, COLOR_GRAY);
-    const __torajs_class_layout_t *lay = layout_for_class_obj(p);
-    for (uint32_t i = 0; i < lay->n_children; i++) {
-        uint32_t off = lay->child_offsets[i];
-        void *child = *(void **)((uint8_t *)p + off);
-        if (child && is_class_obj(child)) {
-            __torajs_heap_header_t *ch = (__torajs_heap_header_t *)child;
-            if (!(ch->flags & __TORAJS_FLAG_STATIC_LITERAL)) {
-                ch->refcount -= 1;
+    if (is_class_obj(p)) {
+        const __torajs_class_layout_t *lay = layout_for_class_obj(p);
+        for (uint32_t i = 0; i < lay->n_children; i++) {
+            uint32_t off = lay->child_offsets[i];
+            void *child = *(void **)((uint8_t *)p + off);
+            if (child && has_walkable_children(child)) {
+                __torajs_heap_header_t *ch = (__torajs_heap_header_t *)child;
+                if (!(ch->flags & __TORAJS_FLAG_STATIC_LITERAL)) {
+                    ch->refcount -= 1;
+                }
+                mark_gray(child);
             }
-            mark_gray(child);
+        }
+    } else { /* TAG_ARR */
+        uint64_t n = arr_len_of(p);
+        for (uint64_t i = 0; i < n; i++) {
+            void *child = arr_slot_at(p, i);
+            if (child && has_walkable_children(child)) {
+                __torajs_heap_header_t *ch = (__torajs_heap_header_t *)child;
+                if (!(ch->flags & __TORAJS_FLAG_STATIC_LITERAL)) {
+                    ch->refcount -= 1;
+                }
+                mark_gray(child);
+            }
         }
     }
 }
@@ -187,18 +257,26 @@ static void mark_gray(void *p) {
 /* Scan phase — distinguishes confirmed garbage (WHITE) from
  * externally-referenced nodes (recolor BLACK + restore rc). */
 static void scan(void *p) {
-    if (!is_class_obj(p)) return;
+    if (!has_walkable_children(p)) return;
     __torajs_heap_header_t *h = (__torajs_heap_header_t *)p;
     if (color_of(h) != COLOR_GRAY) return;
     if (h->refcount > 0) {
         scan_black(p);
     } else {
         set_color(h, COLOR_WHITE);
-        const __torajs_class_layout_t *lay = layout_for_class_obj(p);
-        for (uint32_t i = 0; i < lay->n_children; i++) {
-            uint32_t off = lay->child_offsets[i];
-            void *child = *(void **)((uint8_t *)p + off);
-            if (child) scan(child);
+        if (is_class_obj(p)) {
+            const __torajs_class_layout_t *lay = layout_for_class_obj(p);
+            for (uint32_t i = 0; i < lay->n_children; i++) {
+                uint32_t off = lay->child_offsets[i];
+                void *child = *(void **)((uint8_t *)p + off);
+                if (child) scan(child);
+            }
+        } else { /* TAG_ARR */
+            uint64_t n = arr_len_of(p);
+            for (uint64_t i = 0; i < n; i++) {
+                void *child = arr_slot_at(p, i);
+                if (child) scan(child);
+            }
         }
     }
 }
@@ -207,20 +285,36 @@ static void scan(void *p) {
  * decrement we did during mark, transitively across all gray
  * descendants. */
 static void scan_black(void *p) {
-    if (!is_class_obj(p)) return;
+    if (!has_walkable_children(p)) return;
     __torajs_heap_header_t *h = (__torajs_heap_header_t *)p;
     set_color(h, COLOR_BLACK);
-    const __torajs_class_layout_t *lay = layout_for_class_obj(p);
-    for (uint32_t i = 0; i < lay->n_children; i++) {
-        uint32_t off = lay->child_offsets[i];
-        void *child = *(void **)((uint8_t *)p + off);
-        if (child && is_class_obj(child)) {
-            __torajs_heap_header_t *ch = (__torajs_heap_header_t *)child;
-            if (!(ch->flags & __TORAJS_FLAG_STATIC_LITERAL)) {
-                ch->refcount += 1;
+    if (is_class_obj(p)) {
+        const __torajs_class_layout_t *lay = layout_for_class_obj(p);
+        for (uint32_t i = 0; i < lay->n_children; i++) {
+            uint32_t off = lay->child_offsets[i];
+            void *child = *(void **)((uint8_t *)p + off);
+            if (child && has_walkable_children(child)) {
+                __torajs_heap_header_t *ch = (__torajs_heap_header_t *)child;
+                if (!(ch->flags & __TORAJS_FLAG_STATIC_LITERAL)) {
+                    ch->refcount += 1;
+                }
+                if (color_of(ch) != COLOR_BLACK) {
+                    scan_black(child);
+                }
             }
-            if (color_of(ch) != COLOR_BLACK) {
-                scan_black(child);
+        }
+    } else { /* TAG_ARR */
+        uint64_t n = arr_len_of(p);
+        for (uint64_t i = 0; i < n; i++) {
+            void *child = arr_slot_at(p, i);
+            if (child && has_walkable_children(child)) {
+                __torajs_heap_header_t *ch = (__torajs_heap_header_t *)child;
+                if (!(ch->flags & __TORAJS_FLAG_STATIC_LITERAL)) {
+                    ch->refcount += 1;
+                }
+                if (color_of(ch) != COLOR_BLACK) {
+                    scan_black(child);
+                }
             }
         }
     }
@@ -238,37 +332,57 @@ static void scan_black(void *p) {
  * dispatch — we free their block directly, since their fields
  * have already been processed. */
 static void collect_white(void *p) {
-    if (!is_class_obj(p)) return;
+    if (!has_walkable_children(p)) return;
     __torajs_heap_header_t *h = (__torajs_heap_header_t *)p;
     if (color_of(h) != COLOR_WHITE) return;
     /* Recolor BLACK first so re-entry from a sibling cycle (if any)
      * doesn't double-collect. */
     set_color(h, COLOR_BLACK);
     h->flags &= ~FLAG_BUFFERED;
-    const __torajs_class_layout_t *lay = layout_for_class_obj(p);
-    /* First sweep children that are themselves WHITE — recursive
-     * collect — and clear the slot so the second sweep doesn't
-     * re-touch them. */
-    for (uint32_t i = 0; i < lay->n_children; i++) {
-        uint32_t off = lay->child_offsets[i];
-        void **slot = (void **)((uint8_t *)p + off);
-        void *child = *slot;
-        if (child && is_class_obj(child)) {
-            __torajs_heap_header_t *ch = (__torajs_heap_header_t *)child;
-            if (color_of(ch) == COLOR_WHITE) {
-                *slot = NULL; /* break the cycle so we don't re-decrement */
-                collect_white(child);
+    if (is_class_obj(p)) {
+        const __torajs_class_layout_t *lay = layout_for_class_obj(p);
+        /* First sweep children that are themselves WHITE — recursive
+         * collect — and clear the slot so the second sweep doesn't
+         * re-touch them. */
+        for (uint32_t i = 0; i < lay->n_children; i++) {
+            uint32_t off = lay->child_offsets[i];
+            void **slot = (void **)((uint8_t *)p + off);
+            void *child = *slot;
+            if (child && has_walkable_children(child)) {
+                __torajs_heap_header_t *ch = (__torajs_heap_header_t *)child;
+                if (color_of(ch) == COLOR_WHITE) {
+                    *slot = NULL; /* break the cycle so we don't re-decrement */
+                    collect_white(child);
+                }
             }
         }
-    }
-    /* Now drop the surviving (non-cycle) children normally — these
-     * still have positive rc and need their type-specific dec
-     * paths. */
-    for (uint32_t i = 0; i < lay->n_children; i++) {
-        uint32_t off = lay->child_offsets[i];
-        void *child = *(void **)((uint8_t *)p + off);
-        if (child) {
-            __torajs_value_drop_heap(child);
+        /* Now drop the surviving (non-cycle) children normally — these
+         * still have positive rc and need their type-specific dec
+         * paths. */
+        for (uint32_t i = 0; i < lay->n_children; i++) {
+            uint32_t off = lay->child_offsets[i];
+            void *child = *(void **)((uint8_t *)p + off);
+            if (child) {
+                __torajs_value_drop_heap(child);
+            }
+        }
+    } else { /* TAG_ARR */
+        uint64_t n = arr_len_of(p);
+        for (uint64_t i = 0; i < n; i++) {
+            void *child = arr_slot_at(p, i);
+            if (child && has_walkable_children(child)) {
+                __torajs_heap_header_t *ch = (__torajs_heap_header_t *)child;
+                if (color_of(ch) == COLOR_WHITE) {
+                    arr_slot_clear(p, i);
+                    collect_white(child);
+                }
+            }
+        }
+        for (uint64_t i = 0; i < n; i++) {
+            void *child = arr_slot_at(p, i);
+            if (child) {
+                __torajs_value_drop_heap(child);
+            }
         }
     }
     free(p);
