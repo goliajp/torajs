@@ -18096,6 +18096,18 @@ impl<'a> LowerCtx<'a> {
                 Operand::Value(r)
             }
             Expr::TypeOf { expr } => {
+                // V3-18 m1.h.3 — `typeof undeclared` returns the
+                // string "undefined" without throwing. check.rs
+                // already accepted the case; here we short-circuit
+                // before lower_expr (which would error on the
+                // unresolved Ident) and emit the literal.
+                if let Expr::Ident(name) = self.ast.get_expr(*expr)
+                    && self.locals.get(name).is_none()
+                    && !self.globals.contains_key(name)
+                    && !self.fn_table.contains_key(name)
+                {
+                    return Operand::Value(self.intern_string_literal("undefined"));
+                }
                 // Compile-time resolution: pick the literal string based
                 // on the operand's static SSA type. The operand is still
                 // lowered (it may have side effects).

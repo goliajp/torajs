@@ -741,6 +741,25 @@ fn js_arith_coerces_to_number(l: &Type, r: &Type) -> bool {
     js_add_coerces_to_number(l, r)
 }
 
+/// V3-18 m1.h.3 — built-in JS globals that tora's check.rs
+/// resolves via the special Ident → Type::Object("X") arms.
+/// Used by the `typeof undeclared` path to avoid mis-classifying
+/// a tora built-in as "undefined".
+fn is_known_builtin_global(name: &str) -> bool {
+    matches!(
+        name,
+        "console" | "Math" | "Object" | "Number" | "String"
+            | "JSON" | "Array" | "Date" | "WeakRef" | "WeakMap" | "WeakSet"
+            | "Symbol" | "BigInt" | "Boolean" | "Error" | "TypeError"
+            | "RangeError" | "ReferenceError" | "SyntaxError" | "Bun"
+            | "Promise" | "RegExp" | "Map" | "Set" | "fetch" | "process"
+            | "globalThis" | "undefined" | "NaN" | "Infinity"
+            | "encodeURI" | "decodeURI" | "encodeURIComponent" | "decodeURIComponent"
+            | "parseInt" | "parseFloat" | "isFinite" | "isNaN"
+            | "Function" | "eval"
+    )
+}
+
 /// V3-18 m1.h.1 — JS spec §7.1.2 ToBoolean acceptance check.
 /// Used at every condition site (if / while / do-while / for /
 /// ternary). Anything except Void is coercible to bool — Number
@@ -4850,9 +4869,19 @@ impl Checker {
                 Ok(t)
             }
             Expr::TypeOf { expr } => {
-                // Static-resolved at codegen — verifies the operand is
-                // typeable and returns Type::String. Doesn't actually
-                // need to know which string.
+                // V3-18 m1.h.3 — JS spec §13.5.3 typeof on an
+                // unresolved Reference returns "undefined" without
+                // throwing. Used pervasively in test262 for feature
+                // detection (`typeof BigInt === "function"`). Special-
+                // case the Ident path: an undeclared name typeofs as
+                // "undefined" rather than erroring on type lookup.
+                if let Expr::Ident(name) = ast.get_expr(*expr)
+                    && self.lookup(name).is_none()
+                    && !self.globals.contains_key(name)
+                    && !is_known_builtin_global(name)
+                {
+                    return Ok(Type::String);
+                }
                 let _ = self.type_of(ast, *expr)?;
                 Ok(Type::String)
             }
