@@ -718,6 +718,22 @@ fn is_assignable_to_deep(
     is_assignable_to(&to_r, &from_r)
 }
 
+/// V3-18 m1.a — JS spec §13.15.3 ApplyStringOrNumericBinaryOperator
+/// guard for non-string `+`. Returns true iff both operands are
+/// statically-typed numerics-or-coercible-to-numerics: Number,
+/// Boolean (ToNumber → 0/1), Null (ToNumber → 0). When this holds,
+/// check.rs accepts `l + r` with result type Number; ssa_lower
+/// mirrors the coercion at lower time. Strings are handled by the
+/// existing String+String / String+Number arms (they short-circuit
+/// before this helper). Excludes BigInt — mixed BigInt+Number is a
+/// TypeError per spec, caught by the trailing catch-all.
+fn js_add_coerces_to_number(l: &Type, r: &Type) -> bool {
+    fn coerces(t: &Type) -> bool {
+        matches!(t, Type::Number | Type::Boolean | Type::Null)
+    }
+    coerces(l) && coerces(r) && (*l != Type::Number || *r != Type::Number)
+}
+
 fn is_assignable_to(to: &Type, from: &Type) -> bool {
     if to == from {
         return true;
@@ -4222,6 +4238,18 @@ impl Checker {
                             // the number side through __torajs_i64_to_str
                             // / __torajs_f64_to_str before concat.
                             Ok(Type::String)
+                        } else if js_add_coerces_to_number(&l, &r) {
+                            // V3-18 m1.a — JS spec §13.15.3 ToNumber
+                            // coercion for non-string + arithmetic.
+                            // Boolean → ToNumber → 0/1; Null → 0;
+                            // Number stays. Result is Number after both
+                            // sides are coerced. ssa_lower mirrors the
+                            // coercion at lower time (zext / select /
+                            // const-zero) before the actual add. Matches
+                            // bun for `1 + true`, `0 + null`, `true +
+                            // true`, `null + null`, etc — all from the
+                            // test262 addition / coercion buckets.
+                            Ok(Type::Number)
                         } else {
                             Err(format!(
                                 "`+` requires matching number/string/bigint operands or string+number, got {l:?} and {r:?}"

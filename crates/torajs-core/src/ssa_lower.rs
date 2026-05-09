@@ -18802,6 +18802,59 @@ impl<'a> LowerCtx<'a> {
     }
 
     fn lower_binop(&mut self, op: AstBinOp, a: Operand, b: Operand) -> Operand {
+        /* V3-18 m1.a — JS spec §13.15.3 ToNumber coercion for `+`
+         * with Boolean / Null operands. Both sides become i64
+         * before the actual add; the existing i64-add path then
+         * handles them as plain integers.
+         *
+         * Coercion table:
+         *   Bool   → zext (false=0, true=1)
+         *   Null   → const 0 (Type::Ptr operand replaced with i64 0)
+         *   Number → already i64 (when typed `number` defaults to i64)
+         *   F64 / String / BigInt / Substr → not in this path, fall
+         *   through to existing handlers.
+         *
+         * check.rs's `js_add_coerces_to_number` gates which (l, r)
+         * combos hit this branch — only Number/Boolean/Null pairs
+         * with at least one non-Number side. Pure Number+Number
+         * stays on the existing path. */
+        let (a, b) = if matches!(op, AstBinOp::Add) {
+            let a_ty = self.operand_ty(&a);
+            let b_ty = self.operand_ty(&b);
+            let a_is_null = matches!(a, Operand::ConstPtrNull);
+            let b_is_null = matches!(b, Operand::ConstPtrNull);
+            // A side is coercible-to-Number iff it's already i64,
+            // a bool (zext to i64), or the null literal (const 0).
+            let a_coerce = matches!(a_ty, Type::I64 | Type::Bool) || a_is_null;
+            let b_coerce = matches!(b_ty, Type::I64 | Type::Bool) || b_is_null;
+            // Trigger only when at least one side is non-Number — pure
+            // Number+Number stays on the existing fast path.
+            let either_bool_or_null = matches!(a_ty, Type::Bool)
+                || matches!(b_ty, Type::Bool)
+                || a_is_null
+                || b_is_null;
+            if either_bool_or_null && a_coerce && b_coerce {
+                let a2 = if a_is_null {
+                    Operand::ConstI64(0)
+                } else if matches!(a_ty, Type::Bool) {
+                    self.coerce_bool_to_i64(a)
+                } else {
+                    a
+                };
+                let b2 = if b_is_null {
+                    Operand::ConstI64(0)
+                } else if matches!(b_ty, Type::Bool) {
+                    self.coerce_bool_to_i64(b)
+                } else {
+                    b
+                };
+                (a2, b2)
+            } else {
+                (a, b)
+            }
+        } else {
+            (a, b)
+        };
         /* T-25 — BigInt arithmetic / comparison. Routes (BigInt op
          * BigInt) to the runtime helpers; Add/Sub/Mul return a fresh
          * BigInt, comparisons return Bool via cmp + ICmp.
