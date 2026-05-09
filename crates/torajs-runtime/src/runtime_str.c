@@ -1286,6 +1286,27 @@ void *__torajs_f64_to_str(double d) {
     return p;
 }
 
+/* V3-18 m1.d — JS spec §7.1.17 ToString:
+ *   Boolean true  → "true"
+ *   Boolean false → "false"
+ *   null          → "null"
+ *   undefined     → "undefined" (deferred until undefined ships)
+ * Returns a fresh heap Str — caller drops normally. */
+void *__torajs_bool_to_str(int b) {
+    const char *s = b ? "true" : "false";
+    uint64_t len = b ? 4 : 5;
+    uint8_t *p = str_alloc_(len);
+    memcpy(__TORAJS_STR_DATA(p), s, (size_t)len);
+    return p;
+}
+
+void *__torajs_null_to_str(void) {
+    const char *s = "null";
+    uint8_t *p = str_alloc_(4);
+    memcpy(__TORAJS_STR_DATA(p), s, 4);
+    return p;
+}
+
 
 /* Returns 1 if strings have equal length and equal bytes, 0 otherwise.
  * `===` / `!==` between Type::Str values dispatches here instead of

@@ -4245,6 +4245,14 @@ impl Checker {
                             // the number side through __torajs_i64_to_str
                             // / __torajs_f64_to_str before concat.
                             Ok(Type::String)
+                        } else if (l == Type::String && matches!(r, Type::Boolean | Type::Null))
+                            || (matches!(l, Type::Boolean | Type::Null) && r == Type::String)
+                        {
+                            // V3-18 m1.d — String + Bool / String + Null
+                            // (and reverse). ssa_lower routes the non-string
+                            // side through __torajs_bool_to_str /
+                            // __torajs_null_to_str before concat.
+                            Ok(Type::String)
                         } else if js_add_coerces_to_number(&l, &r) {
                             // V3-18 m1.a — JS spec §13.15.3 ToNumber
                             // coercion for non-string + arithmetic.

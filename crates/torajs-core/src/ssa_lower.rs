@@ -2777,6 +2777,23 @@ fn lower_inner(
         &[Type::F64],
         Type::Str,
     );
+    // V3-18 m1.d — Bool/Null → String coercion for `+` with String.
+    // ToString(true) = "true", ToString(false) = "false",
+    // ToString(null) = "null".
+    let bool_to_str_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_bool_to_str",
+        &[Type::Bool],
+        Type::Str,
+    );
+    let null_to_str_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_null_to_str",
+        &[],
+        Type::Str,
+    );
     // stdlib `Math` namespace — first slice. All take an f64 and return
     // an f64; the lowerer auto-promotes integer args via SiToFp at the
     // call site. Backed by libc sqrt / fabs / floor / ceil via thin
@@ -3720,6 +3737,8 @@ fn lower_inner(
         arr_join: arr_join_id,
         arr_join_substr: arr_join_substr_id,
         i64_to_str: i64_to_str_id,
+        bool_to_str: bool_to_str_id,
+        null_to_str: null_to_str_id,
         f64_to_str: f64_to_str_id,
         math_sqrt: math_sqrt_id,
         math_abs: math_abs_id,
@@ -4436,6 +4455,8 @@ struct Intrinsics {
     arr_join: FuncId,
     arr_join_substr: FuncId,
     i64_to_str: FuncId,
+    bool_to_str: FuncId,
+    null_to_str: FuncId,
     f64_to_str: FuncId,
     math_sqrt: FuncId,
     math_abs: FuncId,
@@ -18930,6 +18951,14 @@ impl<'a> LowerCtx<'a> {
         if matches!(op, AstBinOp::Add) {
             let a_ty = self.operand_ty(&a);
             let b_ty = self.operand_ty(&b);
+            // V3-18 m1.d — string concat with Bool / Null on either
+            // side. ssa_lower coerces via __torajs_bool_to_str /
+            // __torajs_null_to_str (the null sentinel arrives as
+            // ConstPtrNull which the coerce closure detects).
+            let bool_or_null = |t: Type, op: &Operand| -> bool {
+                matches!(t, Type::Bool) || matches!(op, Operand::ConstPtrNull)
+            };
+            let str_or_substr = |t: Type| matches!(t, Type::Str | Type::Substr);
             let mixed_string = matches!(
                 (a_ty, b_ty),
                 (Type::Str, Type::I64)
@@ -18940,7 +18969,8 @@ impl<'a> LowerCtx<'a> {
                     | (Type::Substr, Type::F64)
                     | (Type::I64, Type::Substr)
                     | (Type::F64, Type::Substr)
-            );
+            ) || (str_or_substr(a_ty) && bool_or_null(b_ty, &b))
+              || (str_or_substr(b_ty) && bool_or_null(a_ty, &a));
             // Any Substr operand: route through view-aware concat
             // helpers. One alloc + two memcpys (vs. 2 allocs + 3
             // memcpys via substr_to_owned + str_concat).
@@ -19008,6 +19038,25 @@ impl<'a> LowerCtx<'a> {
                                     ctx.intrinsics.f64_to_str,
                                     vec![v],
                                 ),
+                                Type::Str,
+                                None,
+                            );
+                            Operand::Value(r)
+                        }
+                        Type::Bool => {
+                            let r = ctx.f.append_inst(
+                                ctx.cur_block,
+                                InstKind::Call(ctx.intrinsics.bool_to_str, vec![v]),
+                                Type::Str,
+                                None,
+                            );
+                            Operand::Value(r)
+                        }
+                        Type::Ptr if matches!(v, Operand::ConstPtrNull) => {
+                            // V3-18 m1.d — null literal → "null".
+                            let r = ctx.f.append_inst(
+                                ctx.cur_block,
+                                InstKind::Call(ctx.intrinsics.null_to_str, vec![]),
                                 Type::Str,
                                 None,
                             );
