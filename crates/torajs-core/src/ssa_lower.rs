@@ -1125,6 +1125,17 @@ fn lower_inner(
         &[Type::Ptr],
         Type::Void,
     );
+    /* V3-10.b — scrub the cycle buffer of `p` before its memory
+     * is freed. Inline drop emits a guarded call only when the
+     * sid is a declared class (anonymous structs never enter the
+     * buffer, so the call would always be a no-op for them). */
+    let cycle_unbuffer_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_cycle_unbuffer",
+        &[Type::Ptr],
+        Type::Void,
+    );
     /* T-15.g.5 — refcounted capture box for escape-captured Copy
      * lets (number / boolean). Replaces the previous `obj_alloc(8) +
      * Store init_val` pair so the box can be safely shared across
@@ -3504,6 +3515,7 @@ fn lower_inner(
         capture_box_drop: capture_box_drop_id,
         obj_drop: obj_drop_id,
         value_drop_heap: value_drop_heap_id,
+        cycle_unbuffer: cycle_unbuffer_id,
         arr_alloc: arr_alloc_id,
         arr_push: arr_push_id,
         arr_shift: arr_shift_id,
@@ -4206,6 +4218,7 @@ struct Intrinsics {
     capture_box_drop: FuncId,
     obj_drop: FuncId,
     value_drop_heap: FuncId,
+    cycle_unbuffer: FuncId,
     arr_alloc: FuncId,
     arr_push: FuncId,
     arr_shift: FuncId,
@@ -7974,6 +7987,18 @@ impl<'a> LowerCtx<'a> {
                         None,
                     );
                     self.emit_drop_value(Operand::Value(field_val), *fty);
+                }
+                // V3-10.b — only class instances ever enter the
+                // cycle buffer (cycle_buffer's own `is_class_obj`
+                // gate). Skip the unbuffer scrub for anonymous
+                // structs to keep generic-pair-1m-style hot loops
+                // at full speed (one extra fn call per drop is a
+                // 14x slowdown on tight Pair-alloc-and-drop kernels).
+                if is_class_sid {
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Call(self.intrinsics.cycle_unbuffer, vec![val]),
+                    );
                 }
                 self.f.append_void(
                     self.cur_block,

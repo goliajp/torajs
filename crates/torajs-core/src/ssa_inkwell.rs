@@ -210,11 +210,7 @@ pub fn compile_for(
                 define_str_concat(&ctx, &llvm_module, str_alloc_pooled, memcpy)
             }
             "__torajs_obj_alloc" => define_obj_alloc(&ctx, &llvm_module, malloc),
-            // V3-10.b — `__torajs_obj_drop` is now defined in C
-            // (runtime_str.c) so it can call `__torajs_cycle_unbuffer`
-            // and `free` without going through an LLVM IR cross-TU
-            // call that O3 LTO miscompiles. Falls through to
-            // declare_ssa_fn for a plain extern declaration.
+            "__torajs_obj_drop" => define_obj_drop(&ctx, &llvm_module, free),
             "__torajs_arr_alloc" => {
                 // hot — every Array literal materialization. Body is
                 // a single tail call into the pool-aware C runtime
@@ -510,6 +506,7 @@ pub fn compile_for(
         "__torajs_str_drop",
         "__torajs_str_concat",
         "__torajs_obj_alloc",
+        "__torajs_obj_drop",
         "__torajs_arr_alloc",
         "__torajs_arr_push",
         "__torajs_arr_shift",
@@ -2802,10 +2799,27 @@ fn define_obj_alloc<'ctx>(
 /// (`emit_drop_value Type::Obj`), which walks fields and emits an
 /// inline rc_dec + cond-free for the Obj header. This intrinsic is
 /// only called for box / env paths, both of which are single-owner.
-// V3-10.b — `__torajs_obj_drop` migrated to runtime_str.c so it
-// can call `__torajs_cycle_unbuffer` + `free` from C. The IR-level
-// definition is gone; the symbol is resolved via declare_ssa_fn's
-// extern declaration + linker.
+/// `__torajs_obj_drop(*void p) -> void` — plain `free(p)`. The
+/// inline drop site (ssa_lower's emit_drop_value Type::Obj walk_blk)
+/// gates on `is_class_sid` to call `__torajs_cycle_unbuffer` BEFORE
+/// reaching here, so this stays a 1-instruction tail call.
+fn define_obj_drop<'ctx>(
+    ctx: &'ctx Context,
+    m: &LlvmModule<'ctx>,
+    free: FunctionValue<'ctx>,
+) -> FunctionValue<'ctx> {
+    let builder = ctx.create_builder();
+    let ptr_t = ctx.ptr_type(AddressSpace::default());
+    let void_t = ctx.void_type();
+    let fn_t = void_t.fn_type(&[ptr_t.into()], false);
+    let f = m.add_function("__torajs_obj_drop", fn_t, None);
+    let entry = ctx.append_basic_block(f, "entry");
+    builder.position_at_end(entry);
+    let arg = f.get_nth_param(0).unwrap().into_pointer_value();
+    builder.build_call(free, &[arg.into()], "_f").unwrap();
+    builder.build_return(None).unwrap();
+    f
+}
 
 /// `__torajs_arr_alloc(u64 initial_cap) -> *u8`
 ///
