@@ -231,6 +231,25 @@ void __torajs_cycle_buffer(void *p) {
  * cyclic-shape type) but later normal-dropped to rc=0 leaves a
  * dangling pointer in the cycle buffer — exit-drain crashes when
  * mark_gray dereferences the freed pointer. */
+/* V3-10.b — scrub `p` from the cycle root buffer before its
+ * memory is freed via the inline class drop, the array element
+ * walk, or value_drop_heap's default branch. Without this, an
+ * object that was added as a cycle candidate (rc dec'd to 1+ on a
+ * class sid) but later normal-dropped to rc=0 leaves a dangling
+ * pointer in the buffer; the next collect (or the end-of-program
+ * exit-drain) dereferences it and segfaults.
+ *
+ * Linear scan is acceptable: the buffer drains every CYCLE_AUTO_
+ * COLLECT_THRESHOLD entries, and dups are de-duped by FLAG_BUFFERED.
+ * The hot path is the FLAG_BUFFERED check (one bit test) — the scan
+ * only runs for objects that were actually buffered.
+ *
+ * `noinline` because LLVM 22 -O3 LTO miscompiles the call site
+ * inside `value_drop_heap` when this body is inlined cross-TU
+ * (SIGTRAP at the call). Keeping the call as a real function
+ * boundary works around it; revisit once the LLVM issue is
+ * narrowed. */
+__attribute__((noinline))
 void __torajs_cycle_unbuffer(void *p) {
     if (p == NULL) return;
     __torajs_heap_header_t *h = (__torajs_heap_header_t *)p;

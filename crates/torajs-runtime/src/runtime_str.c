@@ -669,6 +669,30 @@ extern void __torajs_weakref_drop(void *p);
 extern void __torajs_weakmap_drop(void *p);
 extern void __torajs_weakset_drop(void *p);
 
+extern void __torajs_cycle_unbuffer(void *p);
+/* fwd decl: defined in runtime_str.c, called by value_drop_heap */
+void __torajs_obj_drop(void *p);
+
+/* V3-10.b — class-instance free path. The inline drop in
+ * ssa_lower's emit_drop_value Type::Obj arm calls this when the
+ * object's rc hits 0 and its fields have already been walked.
+ * Routes through cycle_unbuffer first so a class instance that
+ * was added to the cycle root buffer (rc dec'd to 1+ on a class
+ * sid) but is now being normal-dropped doesn't leave a dangling
+ * pointer in the buffer.
+ *
+ * NOTE: This used to be defined in inkwell IR (`define_obj_drop`)
+ * as a thin wrapper around free, but adding the cycle_unbuffer
+ * call from inkwell IR triggered an LLVM 22 -O3 LTO miscompile
+ * (SIGTRAP at call site). Defining the function in C keeps both
+ * calls inside a single TU that LLVM compiles to .o before LTO,
+ * sidestepping the issue. */
+void __torajs_obj_drop(void *p) {
+    if (p == NULL) return;
+    __torajs_cycle_unbuffer(p);
+    free(p);
+}
+
 void __torajs_value_drop_heap(void *child) {
     if (child == NULL) return;
     __torajs_heap_header_t *h = (__torajs_heap_header_t *)child;
@@ -704,7 +728,15 @@ void __torajs_value_drop_heap(void *child) {
         }
         default:                /* Obj / Substr / Closure / RegExp /
                                  * Date / ANY_BOX — fallback rc_dec +
-                                 * free; may leak inner refs. */
+                                 * free; may leak inner refs.
+                                 *
+                                 * V3-10.b: array element walks for
+                                 * Type::Obj go through emit_drop_value
+                                 * → inline drop → obj_drop (which
+                                 * cycle-unbuffers), so cycle-routed
+                                 * class instances are scrubbed without
+                                 * needing the hook here. Non-Obj heap
+                                 * children handled by their own _drop. */
             if (__torajs_rc_dec(child)) free(child);
             break;
     }

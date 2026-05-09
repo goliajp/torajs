@@ -4635,6 +4635,15 @@ fn synthesize_main(
                 ctx.cur_block,
                 InstKind::Call(ctx.intrinsics.microtask_drain, vec![]),
             );
+            // V3-10.b — drain the cycle collector buffer one last
+            // time before returning from main. Cheap when the
+            // buffer is empty; sweeps any orphaned cycles
+            // accumulated during program lifetime so they don't
+            // leak past process exit.
+            ctx.f.append_void(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.cycle_at_exit_drain, vec![]),
+            );
             let cb = ctx.cur_block;
             ctx.f
                 .set_term(cb, Terminator::Ret(Some(Operand::ConstI32(0))));
