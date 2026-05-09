@@ -4458,10 +4458,13 @@ impl Checker {
                 let t = self.type_of(ast, *expr)?;
                 match op {
                     crate::ast::UnaryOp::Not => {
-                        if t == Type::Boolean {
+                        // V3-18 m1.h.2 — JS spec §13.5.7 logical NOT
+                        // calls ToBoolean on its operand. Accept any
+                        // truthy-coercible type; result is Boolean.
+                        if js_truthy_acceptable(&t) {
                             Ok(Type::Boolean)
                         } else {
-                            Err(format!("`!` requires boolean operand, got {t:?}"))
+                            Err(format!("`!` requires boolean (or coercible) operand, got {t:?}"))
                         }
                     }
                     crate::ast::UnaryOp::Neg => {

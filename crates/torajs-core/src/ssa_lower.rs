@@ -11100,6 +11100,9 @@ impl<'a> LowerCtx<'a> {
                 };
                 match op {
                     crate::ast::UnaryOp::Not => {
+                        // V3-18 m1.h.2 — coerce truthy first; the
+                        // existing xor-with-true path then flips.
+                        let v = self.coerce_to_bool(v);
                         let r = self.f.append_inst(
                             self.cur_block,
                             InstKind::BinOp(
