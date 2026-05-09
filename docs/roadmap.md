@@ -567,9 +567,14 @@ patterns.
 
 ### Phase 7 — test262 push to 90% (v1.0 hard exit gate)
 
-- [ ] **V3-18** T-32 test262 push to ≥ 90% in-scope pass rate.
-  - Likely large buckets: regex Unicode property escapes / Intl.* basic / async edge cases / tagged-template edge cases / BigInt edge cases (toLocaleString, toString radix).
-  - Each bucket may surface its own substrate need; treat each sub-bucket as its own ship.
+- [ ] **V3-18** T-32 test262 push to ≥ 90% in-scope pass rate. Baseline at HEAD `d493a4e` (200-case sample, sweep run 2026-05-10): **4/101 in-scope = 3.96%**, incompat breakdown 92% type error / 6% not-yet-supported / 2% parse error. Bun-skip rate 50% (negative tests + harness-only). Split into milestones:
+  - [ ] **m1** Implicit-`any` for untyped declarations. Root cause of the 92% type-error bucket: tora's strict typecheck rejects every JS `let x = ...` without an annotation. Need a typecheck mode that defaults uninfered-or-untyped bindings to `Type::Any` + relax binop coercion to JS-style (Number+Boolean → coerce, Number+null → coerce, Object.valueOf dispatch). Multi-week substrate item — touches check.rs's entire BinOp / Member / Call / Assign coercion surface. Without m1 the test262 needle can't move.
+  - [ ] **m2** RegExp Unicode property escapes (`\p{Letter}`) — likely 3-5% of in-scope cases.
+  - [ ] **m3** Intl.* basic (DateTimeFormat / NumberFormat / Collator) — needs ICU integration; likely 2-4%.
+  - [ ] **m4** Async edge cases (rejection chains, AsyncIterator).
+  - [ ] **m5** Tagged-template edge cases.
+  - [ ] **m6** BigInt edge cases (`toLocaleString`, `toString(radix)`, formatter edge cases).
+  - [ ] **m7..mN** Each bucket surfaced post-m1 gets its own ship. Re-baseline after each.
 
 → **Full gate** before V3-19.
 
