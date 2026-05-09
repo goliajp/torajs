@@ -610,6 +610,15 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                 let token = match name {
                     "let" => Token::Let,
                     "const" => Token::Const,
+                    // V3-18 m4 first wedge — `var` lexes as Let.
+                    // Full hoisting + function-scope semantics
+                    // (vs let/const block-scope) is a follow-up;
+                    // many test262 cases use `var` for plain
+                    // top-level declarations and just need it to
+                    // parse + behave like let. Programs that depend
+                    // on hoisting to use `var` before its decl will
+                    // continue to fail until the m4.b hoisting pass.
+                    "var" => Token::Let,
                     "if" => Token::If,
                     "else" => Token::Else,
                     "true" => Token::True,
