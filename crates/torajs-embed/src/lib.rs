@@ -20,6 +20,7 @@
 //! source.
 
 use std::ffi::CStr;
+use std::ops::Deref;
 use std::os::raw::{c_char, c_int};
 use std::path::PathBuf;
 
@@ -119,6 +120,130 @@ fn rand_suffix() -> String {
         .map(|d| d.as_nanos())
         .unwrap_or(0);
     format!("{n:x}")
+}
+
+// ============================================================
+// V3-16 m2 — Function ctor substrate: compile a tora source
+// snippet to a position-independent shared library, dlopen it,
+// expose the named entry as a typed Rust fn pointer.
+// ============================================================
+
+/// Owns a dlopen'd library whose lifetime ties to the
+/// [`Library`] handle. Drop the [`LoadedFunction`] to dlclose.
+///
+/// The `T` type parameter is the fn-pointer signature the caller
+/// expects (`unsafe extern "C" fn(...) -> ...`). Wrong T = UB on
+/// invocation — the compiler can't sanity-check JIT'd ABI shapes.
+pub struct LoadedFunction<T: Copy> {
+    /// dlopen handle. Held to keep the library mapped for the
+    /// lifetime of the LoadedFunction.
+    _lib: libloading::Library,
+    /// Cast'd fn pointer.
+    f: T,
+    /// Path to the .dylib on disk; cleaned up on Drop.
+    path: PathBuf,
+}
+
+impl<T: Copy> LoadedFunction<T> {
+    /// Pointer to the JIT'd entry. Cast / call at your own risk —
+    /// see the `T` type-parameter caveat above.
+    pub fn ptr(&self) -> T {
+        self.f
+    }
+}
+
+impl<T: Copy> Deref for LoadedFunction<T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        &self.f
+    }
+}
+
+impl<T: Copy> Drop for LoadedFunction<T> {
+    fn drop(&mut self) {
+        // The libloading::Library Drop closes the dlopen handle;
+        // we just clean the on-disk file to keep /tmp tidy.
+        let _ = std::fs::remove_file(&self.path);
+        let dsym = self.path.with_extension("dSYM");
+        if dsym.is_dir() {
+            let _ = std::fs::remove_dir_all(&dsym);
+        }
+    }
+}
+
+/// Compile `src` to a position-independent shared library, dlopen
+/// it, and resolve `entry_symbol` to a typed Rust fn pointer.
+/// Returns a [`LoadedFunction`] that owns the dlopen handle —
+/// dropping it dlcloses the library and unlinks the on-disk file.
+///
+/// `T` must be a `Copy` fn-pointer type whose ABI matches the
+/// tora fn at `entry_symbol`. Tora maps `number` → `i64`,
+/// `boolean` → `i32` zero/one, `string` → `*const u8`-shaped
+/// pointer to the tora Str struct. See the test module for the
+/// canonical `extern "C" fn(i64, i64) -> i64` example.
+///
+/// # Safety
+/// The returned fn pointer is `unsafe extern "C"` — invoking it
+/// with the wrong `T` type or after the [`LoadedFunction`] has
+/// dropped is UB. The compiled body shares the host process's
+/// runtime symbols (str_alloc, obj_drop, etc) via macOS's
+/// `-undefined dynamic_lookup` linker flag, so a body that uses
+/// strings / arrays / heap WILL allocate on the host's heap.
+pub unsafe fn compile_function<T: Copy>(
+    src: &str,
+    entry_symbol: &str,
+) -> Result<LoadedFunction<T>, String> {
+    let dylib = compile_to_dylib(src)?;
+    let lib = unsafe { libloading::Library::new(&dylib) }
+        .map_err(|e| format!("dlopen({}): {e}", dylib.display()))?;
+    let symbol: libloading::Symbol<T> = unsafe { lib.get(entry_symbol.as_bytes()) }
+        .map_err(|e| format!("dlsym({entry_symbol}): {e}"))?;
+    let f = *symbol;
+    drop(symbol);
+    Ok(LoadedFunction { _lib: lib, f, path: dylib })
+}
+
+fn compile_to_dylib(src: &str) -> Result<PathBuf, String> {
+    let tokens = lexer::tokenize(src).map_err(|e| format!("lex: {e}"))?;
+    let mut a = parser::parse(&tokens).map_err(|e| format!("parse: {e}"))?;
+    a.source = src.to_string();
+    a.warm_newline_cache();
+    ast::unwrap_exports(&mut a);
+    ast::rename_user_main(&mut a);
+    ast::desugar_generators(&mut a);
+    ast::desugar_async(&mut a);
+    ast::desugar_builtin_imports(&mut a);
+    ast::desugar_builtin_new(&mut a);
+    ast::desugar_classes(&mut a);
+    ast::lift_arrow_fns(&mut a);
+    ast::infer_anonymous_closure_params(&mut a);
+    ast::synthesize_forwarders(&mut a);
+    ast::desugar_uninit_let(&mut a);
+    ast::desugar_arguments_object(&mut a);
+    ast::rewrite_split_for_i_to_iter(&mut a);
+    ast::escape_analyze_array_literals(&mut a);
+    ast::desugar_implicit_generics(&mut a);
+    ast::apply_default_args(&mut a);
+    ast::apply_rest_args(&mut a);
+    ast::compute_consuming_params(&mut a);
+    let (gcs, exprs) = check::check_with_types(&a).map_err(|e| format!("type: {e}"))?;
+    let m = ssa_lower::lower_with_types(&a, &gcs, &exprs);
+    let out = std::env::temp_dir().join(format!(
+        "torajs-fn-{}-{}.dylib",
+        std::process::id(),
+        rand_suffix()
+    ));
+    ssa_inkwell::compile_for_kind(
+        &m,
+        &out,
+        "O3",
+        None,
+        Some(&a),
+        ssa_inkwell::CompileTarget::Native,
+        ssa_inkwell::OutputKind::SharedLib,
+    )
+    .map_err(|e| format!("compile: {e:?}"))?;
+    Ok(out)
 }
 
 // ============================================================
@@ -254,5 +379,56 @@ function torajs_add(a: number, b: number): number {
             drop(lib);
         }
         let _ = std::fs::remove_file(&out);
+    }
+
+    /// V3-16 m2 — public Rust API surface for compile + dlopen +
+    /// resolve-symbol. The substrate that the in-tora `Function`
+    /// constructor / `eval(src)` will lower to once the syntactic
+    /// surface lands.
+    #[test]
+    fn compile_function_arith() {
+        let src = r#"
+function torajs_mul(a: number, b: number): number {
+  return a * b;
+}
+"#;
+        let f = unsafe {
+            compile_function::<unsafe extern "C" fn(i64, i64) -> i64>(
+                src,
+                "torajs_mul",
+            )
+        }
+        .expect("compile_function");
+        unsafe {
+            assert_eq!(f.ptr()(6, 7), 42);
+            assert_eq!(f.ptr()(-3, 5), -15);
+            assert_eq!(f.ptr()(0, 999), 0);
+        }
+    }
+
+    /// Two LoadedFunction handles in flight at the same time —
+    /// each owns its own dlopen handle, drops independently.
+    #[test]
+    fn compile_function_two_handles() {
+        let src1 = r#"
+function f1(x: number): number { return x + 1; }
+"#;
+        let src2 = r#"
+function f2(x: number): number { return x * 10; }
+"#;
+        let h1 = unsafe {
+            compile_function::<unsafe extern "C" fn(i64) -> i64>(src1, "f1")
+        }
+        .unwrap();
+        let h2 = unsafe {
+            compile_function::<unsafe extern "C" fn(i64) -> i64>(src2, "f2")
+        }
+        .unwrap();
+        unsafe {
+            assert_eq!(h1.ptr()(5), 6);
+            assert_eq!(h2.ptr()(5), 50);
+            // Cross-call: handles are independent.
+            assert_eq!(h1.ptr()(h2.ptr()(3) as i64), 31);
+        }
     }
 }
