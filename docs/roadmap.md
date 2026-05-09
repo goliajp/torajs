@@ -510,7 +510,7 @@ every ✅ has its commit hash + conformance gate recorded below.
 
 - [x] **V3-01** BigInt `**` exponent — shipped `cfa85ef` (376/0/1). Also brought up Number `**` end-to-end since `**` token didn't exist. Square-and-multiply over exp bits; negative exp → RangeError; 0n**0n = 1n per spec quirk; sign rule = (base.sign && exp_lowbit) ? neg : pos.
 - [x] **V3-02** BigInt bitwise (`& | ^ ~ << >>`) — shipped `5282add` (377/0/1). Two's-complement simulation: 4 sign-cases per binop dispatch on `(|x|-1) ↔ ~bits` identity. `~x ≡ -x - 1n`. `>>` for negative floors via `-((|x|-1) >> n) - 1`. `>>>` rejected at typecheck per spec.
-- [ ] **V3-03** `BigInt(value)` ctor — string parse / number-with-Math.trunc / bigint-clone. ~80 LOC.
+- [x] **V3-03** `BigInt(value)` ctor — shipped `f5e58a3` (378/0/1). Callable (not constructable per spec). 3 paths dispatched on arg type at SSA-lower: bigint→clone / string→from_str (auto-radix `0x`/`0o`/`0b`/dec) / number→from_number (frexp + scale to 53-bit mantissa + shift; non-finite or non-integer → RangeError).
 - [ ] **V3-04** Karatsuba multiplication (perf only; threshold ~32 limbs). Schoolbook stays default below threshold.
 
 → **Mid gate** after V3-04 (full bench scoreboard; BigInt cases get their own bucket).
