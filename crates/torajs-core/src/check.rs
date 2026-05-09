@@ -741,6 +741,22 @@ fn js_arith_coerces_to_number(l: &Type, r: &Type) -> bool {
     js_add_coerces_to_number(l, r)
 }
 
+/// V3-18 m3 — `==` / `!=` cross-type pair guard. Spec §7.2.13:
+///   Number == Boolean → coerce Boolean
+///   Boolean == Number → coerce Boolean
+///   Number == Null    → false  (not coerced)
+///   Null   == Boolean → false
+///   ...
+/// We accept any pair of Number/Boolean/Null types — the runtime
+/// coercion (or static-false for null vs non-null-non-undefined)
+/// happens at lower time. String / BigInt / Object cross-type
+/// pairs go through ToPrimitive → numeric and ship in a later
+/// wedge.
+fn js_loose_eq_supported(l: &Type, r: &Type) -> bool {
+    matches!(l, Type::Number | Type::Boolean | Type::Null)
+        && matches!(r, Type::Number | Type::Boolean | Type::Null)
+}
+
 fn is_assignable_to(to: &Type, from: &Type) -> bool {
     if to == from {
         return true;
@@ -4361,7 +4377,7 @@ impl Checker {
                             ))
                         }
                     }
-                    BinOp::Eq | BinOp::Neq => {
+                    BinOp::Eq | BinOp::Neq | BinOp::LooseEq | BinOp::LooseNeq => {
                         // Same primitive type → bool.
                         if l == r && matches!(l, Type::Number | Type::String | Type::Boolean | Type::BigInt) {
                             return Ok(Type::Boolean);
@@ -4384,6 +4400,15 @@ impl Checker {
                         let l_is_nullable = matches!(l, Type::Nullable(_));
                         let r_is_nullable = matches!(r, Type::Nullable(_));
                         if (l_is_null || l_is_nullable) && (r_is_null || r_is_nullable) {
+                            return Ok(Type::Boolean);
+                        }
+                        // V3-18 m3 — `==` / `!=` IsLooselyEqual. For
+                        // Number/Boolean/Null cross-type pairs, JS
+                        // spec §7.2.13 coerces and compares; result
+                        // is Boolean.
+                        if matches!(op, BinOp::LooseEq | BinOp::LooseNeq)
+                            && js_loose_eq_supported(&l, &r)
+                        {
                             return Ok(Type::Boolean);
                         }
                         Err(format!(

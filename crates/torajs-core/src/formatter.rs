@@ -1002,6 +1002,8 @@ fn binop_str(op: &BinOp) -> &'static str {
         BinOp::LOr => "||",
         BinOp::Eq => "===",
         BinOp::Neq => "!==",
+        BinOp::LooseEq => "==",
+        BinOp::LooseNeq => "!=",
         BinOp::Lt => "<",
         BinOp::Le => "<=",
         BinOp::Gt => ">",

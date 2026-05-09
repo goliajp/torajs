@@ -18870,12 +18870,30 @@ impl<'a> LowerCtx<'a> {
          * combos hit this branch — only Number/Boolean/Null pairs
          * with at least one non-Number side. Pure Number+Number
          * stays on the existing path. */
+        // V3-18 m3 — `==` / `!=` with null: per spec §7.2.13, null
+        // only loose-equals null/undefined, NEVER coerces to a
+        // Number for comparison. Handle the null cases here before
+        // the generic coerce_op path treats null as 0.
+        if matches!(op, AstBinOp::LooseEq | AstBinOp::LooseNeq) {
+            let a_is_null = matches!(a, Operand::ConstPtrNull);
+            let b_is_null = matches!(b, Operand::ConstPtrNull);
+            if a_is_null || b_is_null {
+                let result = a_is_null && b_is_null;
+                let answer = match op {
+                    AstBinOp::LooseEq => result,
+                    AstBinOp::LooseNeq => !result,
+                    _ => unreachable!(),
+                };
+                return Operand::ConstBool(answer);
+            }
+        }
         let coerce_op = matches!(
             op,
             AstBinOp::Add | AstBinOp::Sub | AstBinOp::Mul | AstBinOp::Div | AstBinOp::Mod
                 | AstBinOp::Lt | AstBinOp::Gt | AstBinOp::Le | AstBinOp::Ge
                 | AstBinOp::BitAnd | AstBinOp::BitOr | AstBinOp::BitXor
                 | AstBinOp::Shl | AstBinOp::Shr | AstBinOp::UShr
+                | AstBinOp::LooseEq | AstBinOp::LooseNeq
         );
         let (a, b) = if coerce_op {
             let a_ty = self.operand_ty(&a);
@@ -19240,8 +19258,8 @@ impl<'a> LowerCtx<'a> {
                 AstBinOp::Gt => self.fcmp(FPred::Ogt, af, bf),
                 AstBinOp::Le => self.fcmp(FPred::Ole, af, bf),
                 AstBinOp::Ge => self.fcmp(FPred::Oge, af, bf),
-                AstBinOp::Eq => self.fcmp(FPred::Oeq, af, bf),
-                AstBinOp::Neq => self.fcmp(FPred::One, af, bf),
+                AstBinOp::Eq | AstBinOp::LooseEq => self.fcmp(FPred::Oeq, af, bf),
+                AstBinOp::Neq | AstBinOp::LooseNeq => self.fcmp(FPred::One, af, bf),
                 AstBinOp::Mod
                 | AstBinOp::BitAnd
                 | AstBinOp::BitOr
@@ -19292,8 +19310,8 @@ impl<'a> LowerCtx<'a> {
             AstBinOp::Gt => self.cmp(IPred::Sgt, a, b),
             AstBinOp::Le => self.cmp(IPred::Sle, a, b),
             AstBinOp::Ge => self.cmp(IPred::Sge, a, b),
-            AstBinOp::Eq => self.cmp(IPred::Eq, a, b),
-            AstBinOp::Neq => self.cmp(IPred::Ne, a, b),
+            AstBinOp::Eq | AstBinOp::LooseEq => self.cmp(IPred::Eq, a, b),
+            AstBinOp::Neq | AstBinOp::LooseNeq => self.cmp(IPred::Ne, a, b),
             AstBinOp::LAnd | AstBinOp::LOr => {
                 unreachable!("logical && / || handled before lower_binop")
             }

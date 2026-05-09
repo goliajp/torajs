@@ -121,6 +121,10 @@ pub enum Token {
     Eq,
     EqEqEq,
     BangEqEq,
+    /// V3-18 m3 — JS loose equality `==` / `!=`. Parser maps to
+    /// `BinOp::LooseEq` / `BinOp::LooseNeq`. Spec §7.2.13.
+    EqEq,
+    BangEq,
     /// `+=`, `-=`, `*=`, `/=`, `%=` — compound assignment, parser
     /// desugars to the corresponding binop + ordinary assign.
     PlusEq,
@@ -455,9 +459,11 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                         i += 1;
                         emit(&mut out, Token::EqEqEq, start, i);
                     } else {
-                        return Err(format!(
-                            "`==` is not supported, use `===` (strict equality) at {start}"
-                        ));
+                        // V3-18 m3 — `==` IsLooselyEqual per §7.2.13.
+                        // Restored from "out-of-scope" 2026-05-10
+                        // (test262 100% bar). Emits a new
+                        // Token::EqEq → BinOp::LooseEq.
+                        emit(&mut out, Token::EqEq, start, i);
                     }
                 } else if peek(bytes, i) == Some(b'>') {
                     i += 1;
@@ -474,9 +480,8 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                         i += 1;
                         emit(&mut out, Token::BangEqEq, start, i);
                     } else {
-                        return Err(format!(
-                            "`!=` is not supported, use `!==` (strict inequality) at {start}"
-                        ));
+                        // V3-18 m3 — `!=` is `!IsLooselyEqual`.
+                        emit(&mut out, Token::BangEq, start, i);
                     }
                 } else {
                     // Unary logical not — used as `!cond`. M1.5.
@@ -791,6 +796,8 @@ fn regex_context(prev: Option<&Token>) -> bool {
             | Token::Eq
             | Token::EqEqEq
             | Token::BangEqEq
+            | Token::EqEq
+            | Token::BangEq
             | Token::Lt
             | Token::Gt
             | Token::LtEq

@@ -23,6 +23,12 @@ pub enum BinOp {
     Ge,
     Eq,  // ===
     Neq, // !==
+    /// V3-18 m3 — JS loose equality (`==` / `!=`) per §7.2.13
+    /// IsLooselyEqual. Different from `Eq` / `Neq` (strict): does
+    /// type coercion across Number/Boolean/Null/String pairs and
+    /// treats null==undefined as true.
+    LooseEq,
+    LooseNeq,
     BitAnd,
     BitOr,
     BitXor,
@@ -6155,7 +6161,8 @@ fn infer_expr_ann_with(
         Expr::Bool(_) => Some("boolean".into()),
         Expr::BinOp { op, left, right } => match op {
             BinOp::Lt | BinOp::Gt | BinOp::Le | BinOp::Ge
-            | BinOp::Eq | BinOp::Neq | BinOp::LAnd | BinOp::LOr => {
+            | BinOp::Eq | BinOp::Neq | BinOp::LooseEq | BinOp::LooseNeq
+            | BinOp::LAnd | BinOp::LOr => {
                 Some("boolean".into())
             }
             BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod | BinOp::Pow

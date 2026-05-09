@@ -1895,6 +1895,8 @@ impl Parser<'_> {
             let op = match self.peek() {
                 Token::EqEqEq => BinOp::Eq,
                 Token::BangEqEq => BinOp::Neq,
+                Token::EqEq => BinOp::LooseEq,
+                Token::BangEq => BinOp::LooseNeq,
                 _ => return Ok(left),
             };
             self.pos += 1;
