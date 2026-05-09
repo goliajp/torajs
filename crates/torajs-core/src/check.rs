@@ -4329,6 +4329,14 @@ impl Checker {
                             Ok(Type::Boolean)
                         } else if l == Type::BigInt && r == Type::BigInt {
                             Ok(Type::Boolean)
+                        } else if js_arith_coerces_to_number(&l, &r) {
+                            // V3-18 m1.c — Bool/Null operands: ToNumber
+                            // both sides per §7.2.14, then numeric compare.
+                            // ssa_lower mirrors with the same coerce-to-i64
+                            // path the arith ops use. String<String is a
+                            // separate substrate item (needs a runtime
+                            // codepoint-cmp helper, m1.d).
+                            Ok(Type::Boolean)
                         } else {
                             Err(format!(
                                 "ordering comparison requires number or bigint operands, got {l:?} and {r:?}"
