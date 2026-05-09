@@ -2243,6 +2243,20 @@ fn lower_inner(
         &[],
         Type::Void,
     );
+    /* V3-10 — main-exit drain. Called from synthesize_main as the
+     * last step before Ret so any cycle roots accumulated during
+     * the program's lifetime are freed before process exit. Same
+     * shape as cycle_collect (in fact identical body), kept as a
+     * separate symbol so we can change the policy independently
+     * (e.g. add forced full-buffer flush here vs the threshold-
+     * based partial flush in cycle_buffer). */
+    let cycle_at_exit_drain_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_cycle_at_exit_drain",
+        &[],
+        Type::Void,
+    );
     /* User-visible `gc()` lowers as a direct call to cycle_collect.
      * We register the alias so the existing global-fn path picks it
      * up without a new desugar. */
@@ -3673,6 +3687,7 @@ fn lower_inner(
         weakset_delete: weakset_delete_id,
         weakset_drop: weakset_drop_id,
         cycle_buffer: cycle_buffer_id,
+        cycle_at_exit_drain: cycle_at_exit_drain_id,
         cycle_collect: cycle_collect_id,
         symbol_alloc: symbol_alloc_id,
         symbol_drop: symbol_drop_id,
@@ -4387,6 +4402,7 @@ struct Intrinsics {
     weakset_delete: FuncId,
     weakset_drop: FuncId,
     cycle_buffer: FuncId,
+    cycle_at_exit_drain: FuncId,
     cycle_collect: FuncId,
     symbol_alloc: FuncId,
     symbol_drop: FuncId,

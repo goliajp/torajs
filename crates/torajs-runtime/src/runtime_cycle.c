@@ -59,13 +59,19 @@ typedef struct __attribute__((aligned(8))) {
 #define __TORAJS_TAG_CLOSURE  3
 #define __TORAJS_FLAG_STATIC_LITERAL 4u
 
-/* V3-09 — Array layout. Header(8) + len(8) + slot[0..len] (8B
- * each for typed arrays). Array<Any> uses 16B/slot but isn't on
- * the cycle path yet — its slot value at +0 is the same heap
- * pointer when ANY_HEAP-tagged, so the simple stride-8 sweep
- * harmlessly visits the value half. */
+/* V3-09 — Array layout. Mirrors ARR_* constants in ssa_lower.rs /
+ * runtime_str.c:
+ *   +0  : universal heap header (refcount + tag + flags)
+ *   +8  : len (u64)
+ *   +16 : cap (u32)
+ *   +20 : head (u32) — physical offset of logical[0] (deque shift)
+ *   +24 : slot data (N * 8 bytes for typed arrays)
+ *
+ * Logical slot i lives at physical offset 24 + (head + i) * 8.
+ * Array<Any> uses 16B per slot but isn't on the cycle path yet. */
 #define ARR_LEN_OFF     8
-#define ARR_SLOT0_OFF   16
+#define ARR_HEAD_OFF    20
+#define ARR_DATA_OFF    24
 #define ARR_SLOT_STRIDE 8
 
 #define COLOR_SHIFT  3u
@@ -150,12 +156,17 @@ static inline uint64_t arr_len_of(void *p) {
     return *(const uint64_t *)((const uint8_t *)p + ARR_LEN_OFF);
 }
 
+static inline uint64_t arr_slot_byte_off(void *p, uint64_t i) {
+    uint32_t head = *(const uint32_t *)((const uint8_t *)p + ARR_HEAD_OFF);
+    return ARR_DATA_OFF + ((uint64_t)head + i) * ARR_SLOT_STRIDE;
+}
+
 static inline void *arr_slot_at(void *p, uint64_t i) {
-    return *(void **)((uint8_t *)p + ARR_SLOT0_OFF + i * ARR_SLOT_STRIDE);
+    return *(void **)((uint8_t *)p + arr_slot_byte_off(p, i));
 }
 
 static inline void arr_slot_clear(void *p, uint64_t i) {
-    *(void **)((uint8_t *)p + ARR_SLOT0_OFF + i * ARR_SLOT_STRIDE) = NULL;
+    *(void **)((uint8_t *)p + arr_slot_byte_off(p, i)) = NULL;
 }
 
 /* ============================================================
@@ -174,6 +185,17 @@ static void buffer_push(void *p) {
     g_buffer[g_buffer_len++] = p;
 }
 
+/* V3-10 — auto-collect threshold. Once the cycle buffer accumulates
+ * this many entries, `cycle_buffer` triggers a synchronous collect
+ * before returning. Tuned to amortize the per-collect cost (the
+ * three Bacon-Rajan phases are O(buffer + transitive children) per
+ * pass) without letting the buffer grow without bound on workloads
+ * that never call `gc()` explicitly. The collect itself fully drains
+ * the buffer, so subsequent allocations start from 0 again. */
+#define CYCLE_AUTO_COLLECT_THRESHOLD 1024u
+
+void __torajs_cycle_collect(void);
+
 /* Called from rc_dec / Obj-walk_blk's else-branch when the rc
  * stayed positive on a cyclic-shape type. Marks PURPLE + pushes
  * into the buffer (with BUFFERED gate so duplicates skip). Cheap
@@ -182,7 +204,11 @@ static void buffer_push(void *p) {
  * V3-09 — accepts both class instances and visitable arrays.
  * The walk_blk hook in ssa_lower today only fires for class
  * sids; future lowerer slices can extend it to arrays carrying
- * refcounted element types. */
+ * refcounted element types.
+ *
+ * V3-10 — auto-trigger collect when the buffer hits the
+ * threshold. Keeps long-running programs that never call `gc()`
+ * explicitly from leaking unbounded cycle roots. */
 void __torajs_cycle_buffer(void *p) {
     if (!has_walkable_children(p)) return;
     __torajs_heap_header_t *h = (__torajs_heap_header_t *)p;
@@ -190,6 +216,31 @@ void __torajs_cycle_buffer(void *p) {
     set_color(h, COLOR_PURPLE);
     h->flags |= FLAG_BUFFERED;
     buffer_push(p);
+    if (g_buffer_len >= CYCLE_AUTO_COLLECT_THRESHOLD) {
+        __torajs_cycle_collect();
+    }
+}
+
+/* V3-10 fix — called from any normal-drop path that frees a heap
+ * block. Scans the cycle buffer for `p` and zeroes the slot so
+ * the next cycle_collect skips it (slots are checked for NULL at
+ * iter time). Cheap when buffer is small; large buffers amortize
+ * via the auto-collect threshold which empties the buffer.
+ *
+ * Without this, an object that was buffered (rc dec'd to 1+ on a
+ * cyclic-shape type) but later normal-dropped to rc=0 leaves a
+ * dangling pointer in the cycle buffer — exit-drain crashes when
+ * mark_gray dereferences the freed pointer. */
+void __torajs_cycle_unbuffer(void *p) {
+    if (p == NULL) return;
+    __torajs_heap_header_t *h = (__torajs_heap_header_t *)p;
+    if (!(h->flags & FLAG_BUFFERED)) return;
+    h->flags &= ~FLAG_BUFFERED;
+    for (uint32_t i = 0; i < g_buffer_len; i++) {
+        if (g_buffer[i] == p) {
+            g_buffer[i] = NULL;
+        }
+    }
 }
 
 /* ============================================================
@@ -393,9 +444,11 @@ static void collect_white(void *p) {
 void __torajs_cycle_collect(void) {
     if (g_buffer_len == 0) return;
     /* Mark phase — descend from each buffered root, color gray +
-     * trial-decrement rc on every reachable child. */
+     * trial-decrement rc on every reachable child. NULL entries
+     * are dead (unbuffered after a normal drop) — skip cleanly. */
     for (uint32_t i = 0; i < g_buffer_len; i++) {
         void *p = g_buffer[i];
+        if (p == NULL) continue;
         __torajs_heap_header_t *h = (__torajs_heap_header_t *)p;
         if (color_of(h) == COLOR_PURPLE) {
             mark_gray(p);
@@ -407,11 +460,12 @@ void __torajs_cycle_collect(void) {
     }
     /* Scan phase — distinguish white from black-restore. */
     for (uint32_t i = 0; i < g_buffer_len; i++) {
-        scan(g_buffer[i]);
+        if (g_buffer[i] != NULL) scan(g_buffer[i]);
     }
     /* Collect phase — free every white node + its children. */
     for (uint32_t i = 0; i < g_buffer_len; i++) {
         void *p = g_buffer[i];
+        if (p == NULL) continue;
         __torajs_heap_header_t *h = (__torajs_heap_header_t *)p;
         h->flags &= ~FLAG_BUFFERED;
         if (color_of(h) == COLOR_WHITE) {
@@ -419,4 +473,19 @@ void __torajs_cycle_collect(void) {
         }
     }
     g_buffer_len = 0;
+}
+
+/* V3-10 — main-exit drain. Public symbol the codegen wires
+ * into the synthesized main as a final tail call, after every
+ * top-level scope's drops have run. Drains any cycle roots
+ * still in the buffer so leaked cycles don't survive program
+ * teardown.
+ *
+ * Reason for explicit-call rather than `__attribute__((destructor))`:
+ * a destructor runs after libc's atexit pipeline, which on macOS
+ * has already torn down some thread-local state — calls into the
+ * runtime that touch malloc/free can crash. Wiring the drain into
+ * main keeps it inside the program's normal lifetime. */
+void __torajs_cycle_at_exit_drain(void) {
+    __torajs_cycle_collect();
 }
