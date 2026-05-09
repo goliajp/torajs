@@ -1674,6 +1674,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "torajs-embed"
+version = "0.1.0"
+dependencies = [
+ "torajs-core",
+ "torajs-runtime",
+]
+
+[[package]]
 name = "torajs-playground-api"
 version = "0.1.0"
 dependencies = [

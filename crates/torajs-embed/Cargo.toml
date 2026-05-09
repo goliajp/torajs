@@ -1,0 +1,21 @@
+[package]
+name = "torajs-embed"
+version = "0.1.0"
+edition = "2024"
+
+# V3-14 — embed surface for third-party hosts.
+#   - Rust API:  `eval_source(src) -> i32`
+#   - C ABI:     `tora_eval(src, len) -> i32`
+#
+# The C ABI surface is exposed via `crate-type = ["staticlib", "cdylib", "rlib"]`
+# so consumers can link `libtorajs_embed.a` (static) or `libtorajs_embed.dylib`
+# (shared) and call `tora_eval` from their host code.
+
+[lib]
+name = "torajs_embed"
+crate-type = ["staticlib", "cdylib", "rlib"]
+path = "src/lib.rs"
+
+[dependencies]
+torajs-core = { path = "../torajs-core" }
+torajs-runtime = { path = "../torajs-runtime" }
