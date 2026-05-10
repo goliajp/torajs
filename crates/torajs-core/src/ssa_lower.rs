@@ -11811,10 +11811,15 @@ impl<'a> LowerCtx<'a> {
                     match name.as_str() {
                         "parseInt" => {
                             let s = self.lower_expr(args[0]);
+                            // V3-18 m1.h.25 — when no radix is supplied,
+                            // pass 0 to trigger the runtime's auto-detect
+                            // path (10 by default, 16 if "0x" / "0X"
+                            // prefix). Spec §19.2.5: parseInt without a
+                            // radix infers from the prefix.
                             let r = if args.len() >= 2 {
                                 self.lower_expr(args[1])
                             } else {
-                                Operand::ConstI64(10)
+                                Operand::ConstI64(0)
                             };
                             let v = self.f.append_inst(
                                 self.cur_block,
@@ -11980,10 +11985,11 @@ impl<'a> LowerCtx<'a> {
                             // typecheck enforces 2-arg shape so we always
                             // have a ConstI64 / loaded radix here.
                             let s = self.lower_expr(args[0]);
+                            // V3-18 m1.h.25 — auto-detect when no radix.
                             let r = if args.len() >= 2 {
                                 self.lower_expr(args[1])
                             } else {
-                                Operand::ConstI64(10)
+                                Operand::ConstI64(0)
                             };
                             // Subset constraint: radix must be an integer-
                             // shaped expression (literal or i64 binding) so
