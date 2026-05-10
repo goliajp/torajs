@@ -1748,6 +1748,45 @@ void __torajs_symbol_drop(void *p) {
     free(p);
 }
 
+/* V3-18 m1.h.47 — Symbol.prototype.toString() returns
+ * "Symbol(<desc>)" / "Symbol()" — same shape as the print helper
+ * but builds a fresh Str instead of writing to stdout. */
+void *__torajs_symbol_to_str(const void *p) {
+    if (p == NULL) {
+        const char *u = "undefined";
+        size_t n = 9;
+        uint8_t *r = str_alloc_(n);
+        memcpy(__TORAJS_STR_DATA(r), u, n);
+        return r;
+    }
+    void *desc = *(void *const *)((const uint8_t *)p + __TORAJS_SYMBOL_DESC_OFF);
+    uint64_t desc_len = desc ? __TORAJS_STR_LEN(desc) : 0;
+    /* "Symbol(" + desc + ")" */
+    uint64_t total = 8 + desc_len;
+    uint8_t *r = str_alloc_(total);
+    uint8_t *dst = __TORAJS_STR_DATA(r);
+    memcpy(dst, "Symbol(", 7);
+    if (desc_len) {
+        memcpy(dst + 7, __TORAJS_STR_CDATA(desc), (size_t)desc_len);
+    }
+    dst[7 + desc_len] = ')';
+    return r;
+}
+
+/* V3-18 m1.h.47 — Symbol.prototype.description returns the desc
+ * string the Symbol was created with, or null if Symbol() was
+ * called with no arg. The desc is heap-shared with the Symbol;
+ * caller does an rc_inc to take ownership (matches the property-
+ * read convention for refcounted fields). */
+void *__torajs_symbol_description(const void *p) {
+    if (p == NULL) return NULL;
+    void *desc = *(void *const *)((const uint8_t *)p + __TORAJS_SYMBOL_DESC_OFF);
+    if (desc != NULL) {
+        __torajs_rc_inc(desc);
+    }
+    return desc;
+}
+
 /* console.log dispatch for Type::Symbol — prints "Symbol(<desc>)"
  * or "Symbol()" when desc is NULL. Matches bun's format. */
 void __torajs_symbol_print(const void *p) {

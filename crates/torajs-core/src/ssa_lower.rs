@@ -2869,6 +2869,20 @@ fn lower_inner(
         &[Type::Ptr, Type::Ptr],
         Type::Str,
     );
+    let symbol_to_str_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_symbol_to_str",
+        &[Type::Symbol],
+        Type::Str,
+    );
+    let symbol_description_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_symbol_description",
+        &[Type::Symbol],
+        Type::Str,
+    );
     // V3-18 m1.d — Bool/Null → String coercion for `+` with String.
     // ToString(true) = "true", ToString(false) = "false",
     // ToString(null) = "null".
@@ -3842,6 +3856,8 @@ fn lower_inner(
         arr_join_i64: arr_join_i64_id,
         arr_join_f64: arr_join_f64_id,
         arr_join_bool: arr_join_bool_id,
+        symbol_to_str: symbol_to_str_id,
+        symbol_description: symbol_description_id,
         f64_to_str: f64_to_str_id,
         math_sqrt: math_sqrt_id,
         math_abs: math_abs_id,
@@ -4575,6 +4591,8 @@ struct Intrinsics {
     arr_join_i64: FuncId,
     arr_join_f64: FuncId,
     arr_join_bool: FuncId,
+    symbol_to_str: FuncId,
+    symbol_description: FuncId,
     f64_to_str: FuncId,
     math_sqrt: FuncId,
     math_abs: FuncId,
@@ -11664,6 +11682,21 @@ impl<'a> LowerCtx<'a> {
                         );
                         return Operand::Value(v);
                     }
+                    // V3-18 m1.h.47 — Symbol.prototype.toString().
+                    if recv_ty == Type::Symbol
+                        && (m_name == "toString" || m_name == "toLocaleString")
+                    {
+                        let v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.symbol_to_str,
+                                vec![recv_op],
+                            ),
+                            Type::Str,
+                            None,
+                        );
+                        return Operand::Value(v);
+                    }
                     if recv_ty == Type::I64 || recv_ty == Type::F64 {
                         let is_f64 = recv_ty == Type::F64;
                         // toString with radix: route i64 receiver to the
@@ -17676,6 +17709,23 @@ impl<'a> LowerCtx<'a> {
                 // refcount header). See ssa_inkwell::STR_HDR_LEN_OFF.
                 // Substr's len lives at the same offset (8) as Str's —
                 // single load for both layouts.
+                // V3-18 m1.h.47 — Symbol.prototype.description.
+                // Returns the desc str the Symbol was created with (or
+                // null for Symbol() with no arg). The runtime helper
+                // bumps the desc's refcount so the caller can drop
+                // independently of the Symbol's lifetime.
+                if obj_ty == Type::Symbol && name == "description" {
+                    let v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.symbol_description,
+                            vec![obj_val],
+                        ),
+                        Type::Str,
+                        None,
+                    );
+                    return Operand::Value(v);
+                }
                 if (obj_ty == Type::Str || obj_ty == Type::Substr) && name == "length" {
                     let v = self.f.append_inst(
                         self.cur_block,

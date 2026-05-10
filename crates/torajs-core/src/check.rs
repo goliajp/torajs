@@ -2741,6 +2741,13 @@ impl Checker {
                     (Type::BigInt, "toString") | (Type::BigInt, "toLocaleString") => {
                         Ok(Type::Function(Vec::new(), Box::new(Type::String)))
                     }
+                    // V3-18 m1.h.47 — Symbol.prototype.toString() →
+                    // "Symbol(<desc>)" / "Symbol()". Symbol.description
+                    // returns the desc (or null for Symbol() with no
+                    // arg). Per JS spec §20.4.3.3 / §20.4.3.2.
+                    (Type::Symbol, "toString") | (Type::Symbol, "toLocaleString") => {
+                        Ok(Type::Function(Vec::new(), Box::new(Type::String)))
+                    }
                     // RegExp instance methods. v0.2 #1 ships `.test(s)`;
                     // `.exec` / `.toString` / `.source` / `.flags` /
                     // `.global` / `.lastIndex` come in subsequent
@@ -3395,6 +3402,11 @@ impl Checker {
                         );
                         Ok(Type::Function(vec![pred_ty], Box::new(Type::Boolean)))
                     }
+                    // V3-18 m1.h.47 — Symbol.prototype.description.
+                    // Returns the desc the Symbol was created with, or
+                    // null if Symbol() was called with no arg. Per JS
+                    // spec §20.4.3.2.
+                    (Type::Symbol, "description") => Ok(Type::String),
                     _ => Err(format!("no member `.{name}` on type {obj_ty:?}")),
                 }
             }
