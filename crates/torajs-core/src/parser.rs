@@ -1140,10 +1140,19 @@ impl Parser<'_> {
             }
         }
         // step clause — empty means no step.
+        // V3-18 m1.h.31 — JS allows comma-separated step expressions
+        // (`for (...; ...; i++, j--)`). Parse them as a chained
+        // Expr::Sequence so the lowerer evaluates each in order.
         let step = if matches!(self.peek(), Token::RParen) {
             None
         } else {
-            Some(self.parse_expr()?)
+            let mut s = self.parse_expr()?;
+            while matches!(self.peek(), Token::Comma) {
+                self.pos += 1;
+                let next = self.parse_expr()?;
+                s = self.ast.add_expr(Expr::Sequence { left: s, right: next });
+            }
+            Some(s)
         };
         match self.peek() {
             Token::RParen => self.pos += 1,
