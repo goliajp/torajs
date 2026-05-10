@@ -4341,6 +4341,14 @@ impl Checker {
                             // the number side through __torajs_i64_to_str
                             // / __torajs_f64_to_str before concat.
                             Ok(Type::String)
+                        } else if (l == Type::String && r == Type::BigInt)
+                            || (l == Type::BigInt && r == Type::String)
+                        {
+                            // V3-18 m3.c — BigInt + String concat. Spec
+                            // §13.15.3: when one side is String, the
+                            // other ToString's. ssa_lower routes the
+                            // BigInt side through __torajs_bigint_to_string.
+                            Ok(Type::String)
                         } else if (l == Type::String && matches!(r, Type::Boolean | Type::Null))
                             || (matches!(l, Type::Boolean | Type::Null) && r == Type::String)
                         {

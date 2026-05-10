@@ -19233,10 +19233,10 @@ impl<'a> LowerCtx<'a> {
         if matches!(op, AstBinOp::Add) {
             let a_ty = self.operand_ty(&a);
             let b_ty = self.operand_ty(&b);
-            // V3-18 m1.d — string concat with Bool / Null on either
-            // side. ssa_lower coerces via __torajs_bool_to_str /
-            // __torajs_null_to_str (the null sentinel arrives as
-            // ConstPtrNull which the coerce closure detects).
+            // V3-18 m1.d / m3.c — string concat with Bool / Null /
+            // BigInt on either side. ssa_lower coerces via
+            // __torajs_bool_to_str / __torajs_null_to_str /
+            // __torajs_bigint_to_string before concat.
             let bool_or_null = |t: Type, op: &Operand| -> bool {
                 matches!(t, Type::Bool) || matches!(op, Operand::ConstPtrNull)
             };
@@ -19245,12 +19245,16 @@ impl<'a> LowerCtx<'a> {
                 (a_ty, b_ty),
                 (Type::Str, Type::I64)
                     | (Type::Str, Type::F64)
+                    | (Type::Str, Type::BigInt)
                     | (Type::I64, Type::Str)
                     | (Type::F64, Type::Str)
+                    | (Type::BigInt, Type::Str)
                     | (Type::Substr, Type::I64)
                     | (Type::Substr, Type::F64)
+                    | (Type::Substr, Type::BigInt)
                     | (Type::I64, Type::Substr)
                     | (Type::F64, Type::Substr)
+                    | (Type::BigInt, Type::Substr)
             ) || (str_or_substr(a_ty) && bool_or_null(b_ty, &b))
               || (str_or_substr(b_ty) && bool_or_null(a_ty, &a));
             // Any Substr operand: route through view-aware concat
@@ -19329,6 +19333,18 @@ impl<'a> LowerCtx<'a> {
                             let r = ctx.f.append_inst(
                                 ctx.cur_block,
                                 InstKind::Call(ctx.intrinsics.bool_to_str, vec![v]),
+                                Type::Str,
+                                None,
+                            );
+                            Operand::Value(r)
+                        }
+                        Type::BigInt => {
+                            // V3-18 m3.c — BigInt → String concat. The
+                            // BigInt is consumed by bigint_to_string
+                            // (rc-managed; helper handles the inc).
+                            let r = ctx.f.append_inst(
+                                ctx.cur_block,
+                                InstKind::Call(ctx.intrinsics.bigint_to_string, vec![v]),
                                 Type::Str,
                                 None,
                             );
