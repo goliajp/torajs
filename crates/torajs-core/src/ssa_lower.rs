@@ -11581,6 +11581,21 @@ impl<'a> LowerCtx<'a> {
                 {
                     let recv_op = self.lower_expr(*recv_id);
                     let recv_ty = self.operand_ty(&recv_op);
+                    // V3-18 m1.h.27 — BigInt receiver: toString() →
+                    // decimal string (no `n` suffix) via the existing
+                    // bigint_to_string intrinsic.
+                    if recv_ty == Type::BigInt && m_name == "toString" {
+                        let v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.bigint_to_string,
+                                vec![recv_op],
+                            ),
+                            Type::Str,
+                            None,
+                        );
+                        return Operand::Value(v);
+                    }
                     if recv_ty == Type::I64 || recv_ty == Type::F64 {
                         let is_f64 = recv_ty == Type::F64;
                         // toString with radix: route i64 receiver to the

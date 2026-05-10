@@ -2733,6 +2733,14 @@ impl Checker {
                     (Type::Number, "toString") | (Type::Number, "toLocaleString") => {
                         Ok(Type::Function(Vec::new(), Box::new(Type::String)))
                     }
+                    // V3-18 m1.h.27 — BigInt.prototype.toString() →
+                    // decimal string (no `n` suffix). Per JS spec
+                    // §21.2.3.5 / §21.2.3.6. The runtime path
+                    // already exists (used by string concat coerce);
+                    // this just wires up the typecheck.
+                    (Type::BigInt, "toString") | (Type::BigInt, "toLocaleString") => {
+                        Ok(Type::Function(Vec::new(), Box::new(Type::String)))
+                    }
                     // RegExp instance methods. v0.2 #1 ships `.test(s)`;
                     // `.exec` / `.toString` / `.source` / `.flags` /
                     // `.global` / `.lastIndex` come in subsequent
