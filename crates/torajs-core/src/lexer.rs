@@ -496,30 +496,80 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                 let quote = bytes[i as usize];
                 i += 1;
                 // Decode JS-style escape sequences. Supported: \\ \" \'
-                // \n \r \t \b \f \v \0. Unknown escapes pass through
-                // their letter (matches V8's annex-B-friendly behavior
-                // for the small subset our tests need).
+                // \n \r \t \b \f \v \0 \xNN \uNNNN \u{NNNN...}.
+                // Unknown escapes pass through their letter (matches
+                // V8's annex-B-friendly behavior for the small subset
+                // our tests need).
                 let mut buf: Vec<u8> = Vec::new();
                 while i < len && bytes[i as usize] != quote {
                     let c = bytes[i as usize];
                     if c == b'\\' && i + 1 < len {
                         let esc = bytes[i as usize + 1];
                         match esc {
-                            b'n' => buf.push(b'\n'),
-                            b'r' => buf.push(b'\r'),
-                            b't' => buf.push(b'\t'),
-                            b'b' => buf.push(0x08),
-                            b'f' => buf.push(0x0c),
-                            b'v' => buf.push(0x0b),
-                            b'0' => buf.push(0),
-                            b'\\' => buf.push(b'\\'),
-                            b'\'' => buf.push(b'\''),
-                            b'"' => buf.push(b'"'),
-                            b'`' => buf.push(b'`'),
-                            other => buf.push(other),
+                            b'n' => { buf.push(b'\n'); i += 2; continue; }
+                            b'r' => { buf.push(b'\r'); i += 2; continue; }
+                            b't' => { buf.push(b'\t'); i += 2; continue; }
+                            b'b' => { buf.push(0x08); i += 2; continue; }
+                            b'f' => { buf.push(0x0c); i += 2; continue; }
+                            b'v' => { buf.push(0x0b); i += 2; continue; }
+                            b'0' => { buf.push(0); i += 2; continue; }
+                            b'\\' => { buf.push(b'\\'); i += 2; continue; }
+                            b'\'' => { buf.push(b'\''); i += 2; continue; }
+                            b'"' => { buf.push(b'"'); i += 2; continue; }
+                            b'`' => { buf.push(b'`'); i += 2; continue; }
+                            // V3-18 m1.h.33 — `\xNN` hex escape (2 hex
+                            // digits → byte). Per JS spec §12.8.4.1
+                            // HexEscapeSequence.
+                            b'x' if i + 3 < len
+                                && bytes[i as usize + 2].is_ascii_hexdigit()
+                                && bytes[i as usize + 3].is_ascii_hexdigit() => {
+                                let hi = (bytes[i as usize + 2] as char).to_digit(16).unwrap();
+                                let lo = (bytes[i as usize + 3] as char).to_digit(16).unwrap();
+                                let cp = (hi * 16 + lo) as u32;
+                                push_codepoint(&mut buf, cp);
+                                i += 4;
+                                continue;
+                            }
+                            // V3-18 m1.h.33 — `\uNNNN` 4-digit unicode
+                            // escape. Per JS spec §12.8.4.1 UnicodeEscapeSequence.
+                            b'u' if i + 5 < len
+                                && bytes[i as usize + 2].is_ascii_hexdigit()
+                                && bytes[i as usize + 3].is_ascii_hexdigit()
+                                && bytes[i as usize + 4].is_ascii_hexdigit()
+                                && bytes[i as usize + 5].is_ascii_hexdigit() => {
+                                let mut cp: u32 = 0;
+                                for k in 2..=5 {
+                                    cp = cp * 16
+                                        + (bytes[i as usize + k] as char).to_digit(16).unwrap();
+                                }
+                                push_codepoint(&mut buf, cp);
+                                i += 6;
+                                continue;
+                            }
+                            // `\u{N...N}` extended form (1-6 hex
+                            // digits). Per JS spec §12.8.4.1 LegacyOctalEscape
+                            // not handled; ES2015+ form only.
+                            b'u' if i + 3 < len && bytes[i as usize + 2] == b'{' => {
+                                let mut k = i as usize + 3;
+                                let mut cp: u32 = 0;
+                                let mut digits = 0;
+                                while k < len as usize && bytes[k].is_ascii_hexdigit() && digits < 6 {
+                                    cp = cp * 16 + (bytes[k] as char).to_digit(16).unwrap();
+                                    k += 1;
+                                    digits += 1;
+                                }
+                                if digits >= 1 && k < len as usize && bytes[k] == b'}' {
+                                    push_codepoint(&mut buf, cp);
+                                    i = (k + 1) as u32;
+                                    continue;
+                                }
+                                // malformed → fall through to passthrough
+                                buf.push(esc);
+                                i += 2;
+                                continue;
+                            }
+                            other => { buf.push(other); i += 2; continue; }
                         }
-                        i += 2;
-                        continue;
                     }
                     buf.push(c);
                     i += 1;
@@ -858,6 +908,18 @@ fn emit(out: &mut Vec<Spanned>, token: Token, start: u32, end: u32) {
         token,
         span: Span { start, end },
     });
+}
+
+/// Encode a Unicode code point as UTF-8 into `buf`. Used by string-
+/// literal escape decoding (`\xNN`, `\uNNNN`, `\u{N...N}`). Codepoints
+/// past U+10FFFF or in the surrogate range fall back to U+FFFD
+/// REPLACEMENT CHARACTER — matches V8's recovery behavior on malformed
+/// escapes.
+fn push_codepoint(buf: &mut Vec<u8>, cp: u32) {
+    let c = char::from_u32(cp).unwrap_or('\u{FFFD}');
+    let mut tmp = [0u8; 4];
+    let s = c.encode_utf8(&mut tmp);
+    buf.extend_from_slice(s.as_bytes());
 }
 
 fn is_ident_start(b: u8) -> bool {
