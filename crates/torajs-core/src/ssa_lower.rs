@@ -2841,6 +2841,13 @@ fn lower_inner(
         &[Type::Ptr],
         Type::Void,
     );
+    let str_char_at_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_str_char_at",
+        &[Type::Ptr, Type::I64],
+        Type::Substr,
+    );
     // V3-18 m1.d — Bool/Null → String coercion for `+` with String.
     // ToString(true) = "true", ToString(false) = "false",
     // ToString(null) = "null".
@@ -3810,6 +3817,7 @@ fn lower_inner(
         arr_print_str: arr_print_str_id,
         arr_print_substr: arr_print_substr_id,
         substr_print: substr_print_id,
+        str_char_at: str_char_at_id,
         f64_to_str: f64_to_str_id,
         math_sqrt: math_sqrt_id,
         math_abs: math_abs_id,
@@ -4539,6 +4547,7 @@ struct Intrinsics {
     arr_print_str: FuncId,
     arr_print_substr: FuncId,
     substr_print: FuncId,
+    str_char_at: FuncId,
     f64_to_str: FuncId,
     math_sqrt: FuncId,
     math_abs: FuncId,
@@ -14496,11 +14505,15 @@ impl<'a> LowerCtx<'a> {
                         let idx_raw = self.lower_expr(args[0]);
                         let idx_val = self.coerce_to_i64(idx_raw);
                         let v = if recv_ty == Type::Str {
+                            // V3-18 m1.h.37 — bounds-checked str charAt.
+                            // Pre-fix called substr_create directly; OOB
+                            // indices stored garbage offsets and printed
+                            // bytes from past the parent's data.
                             self.f.append_inst(
                                 self.cur_block,
                                 InstKind::Call(
-                                    self.intrinsics.substr_create,
-                                    vec![recv_op, idx_val, Operand::ConstI64(1)],
+                                    self.intrinsics.str_char_at,
+                                    vec![recv_op, idx_val],
                                 ),
                                 Type::Substr,
                                 None,

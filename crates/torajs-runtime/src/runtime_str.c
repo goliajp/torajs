@@ -1058,6 +1058,25 @@ int64_t __torajs_substr_index_of(const uint8_t *v, const uint8_t *n) {
  * INLINE) — its 32-byte struct is a separate malloc and substr_drop
  * will free it. Negative index handling (slice wraps, substring
  * clamps + swaps) matches the corresponding str helpers. */
+/* V3-18 m1.h.37 — `s.charAt(i)` on an OWNED Str. Per JS spec
+ * §21.1.3.1: out-of-range i (negative OR >= len) returns "" (not
+ * the same as charCodeAt's NaN — charAt's empty-string is a true
+ * spec choice). Returns a length-1 Substr view on the receiver
+ * for in-range i, or a length-0 Substr (offset clamped to 0) for
+ * OOB. Pre-fix tora's charAt lower called substr_create directly
+ * which trusted the caller's idx, so charAt(-1) printed garbage
+ * bytes via the parent-pointer math. */
+void *__torajs_str_char_at(void *s, int64_t i) {
+    if (s == NULL) {
+        return __torajs_substr_create(s, 0, 0);
+    }
+    uint64_t len = __TORAJS_STR_LEN(s);
+    if (i < 0 || (uint64_t)i >= len) {
+        return __torajs_substr_create(s, 0, 0);
+    }
+    return __torajs_substr_create(s, (uint64_t)i, 1);
+}
+
 void *__torajs_substr_slice(const uint8_t *v, int64_t start, int64_t end) {
     uint64_t v_len = __TORAJS_SUBSTR_LEN(v);
     int64_t s = start < 0 ? (int64_t)v_len + start : start;
