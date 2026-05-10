@@ -2890,6 +2890,27 @@ fn lower_inner(
         &[Type::Ptr, Type::Ptr, Type::I64],
         Type::I64,
     );
+    let str_starts_with_from_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_str_starts_with_from",
+        &[Type::Ptr, Type::Ptr, Type::I64],
+        Type::Bool,
+    );
+    let str_ends_with_from_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_str_ends_with_from",
+        &[Type::Ptr, Type::Ptr, Type::I64],
+        Type::Bool,
+    );
+    let str_includes_from_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_str_includes_from",
+        &[Type::Ptr, Type::Ptr, Type::I64],
+        Type::Bool,
+    );
     let symbol_description_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -3873,6 +3894,9 @@ fn lower_inner(
         symbol_to_str: symbol_to_str_id,
         str_index_of_from: str_index_of_from_id,
         str_last_index_of_from: str_last_index_of_from_id,
+        str_starts_with_from: str_starts_with_from_id,
+        str_ends_with_from: str_ends_with_from_id,
+        str_includes_from: str_includes_from_id,
         symbol_description: symbol_description_id,
         f64_to_str: f64_to_str_id,
         math_sqrt: math_sqrt_id,
@@ -4610,6 +4634,9 @@ struct Intrinsics {
     symbol_to_str: FuncId,
     str_index_of_from: FuncId,
     str_last_index_of_from: FuncId,
+    str_starts_with_from: FuncId,
+    str_ends_with_from: FuncId,
+    str_includes_from: FuncId,
     symbol_description: FuncId,
     f64_to_str: FuncId,
     math_sqrt: FuncId,
@@ -14723,6 +14750,26 @@ impl<'a> LowerCtx<'a> {
                                 self.cur_block,
                                 InstKind::Call(target, argv),
                                 Type::I64,
+                                None,
+                            );
+                            return Operand::Value(v);
+                        }
+                        // V3-18 m1.h.51 — startsWith / endsWith / includes
+                        // 2-arg (needle, position) shape: route to
+                        // dedicated _from helpers.
+                        if matches!(method.as_str(),
+                            "startsWith" | "endsWith" | "includes")
+                            && args.len() == 2
+                        {
+                            let target = match method.as_str() {
+                                "startsWith" => self.intrinsics.str_starts_with_from,
+                                "endsWith" => self.intrinsics.str_ends_with_from,
+                                _ => self.intrinsics.str_includes_from,
+                            };
+                            let v = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(target, argv),
+                                Type::Bool,
                                 None,
                             );
                             return Operand::Value(v);

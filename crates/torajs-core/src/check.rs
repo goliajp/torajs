@@ -4278,6 +4278,30 @@ impl Checker {
                         return Ok(Type::Array(Box::new((**elem).clone())));
                     }
                 }
+                // V3-18 m1.h.51 — String.startsWith / endsWith /
+                // includes accept an optional 2nd `position` arg per
+                // JS spec §21.1.3.20 / §21.1.3.6 / §21.1.3.7.
+                if let Expr::Member { obj: src_id, name: m_name } = ast.get_expr(*callee)
+                    && matches!(m_name.as_str(), "startsWith" | "endsWith" | "includes")
+                    && args.len() == 2
+                {
+                    let src_ty = self.type_of(ast, *src_id)?;
+                    if matches!(src_ty, Type::String) {
+                        let needle_ty = self.type_of(ast, args[0])?;
+                        if !matches!(needle_ty, Type::String) {
+                            return Err(format!(
+                                "String.{m_name} arg 0 must be string, got {needle_ty:?}"
+                            ));
+                        }
+                        let from_ty = self.type_of(ast, args[1])?;
+                        if from_ty != Type::Number {
+                            return Err(format!(
+                                "String.{m_name} arg 1 must be number, got {from_ty:?}"
+                            ));
+                        }
+                        return Ok(Type::Boolean);
+                    }
+                }
                 // V3-18 m1.h.50 — String.indexOf / lastIndexOf accept
                 // an optional 2nd `fromIndex` arg per JS spec §21.1.3.7
                 // / §21.1.3.10. Pre-fix tora declared with 1 fixed

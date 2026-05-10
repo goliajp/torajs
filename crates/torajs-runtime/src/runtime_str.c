@@ -2531,6 +2531,36 @@ int64_t __torajs_str_locale_compare(const uint8_t *a, const uint8_t *b) {
     return 0;
 }
 
+/* V3-18 m1.h.51 — `s.startsWith(needle, position)`.
+ * Per JS spec §21.1.3.20: search starting at clamp(position, 0, len).
+ * Returns 1 if needle matches there, 0 otherwise. */
+int64_t __torajs_str_starts_with_from(const uint8_t *s, const uint8_t *sub, int64_t pos) {
+    uint64_t s_len = __TORAJS_STR_LEN(s);
+    uint64_t n_len = __TORAJS_STR_LEN(sub);
+    int64_t start = pos < 0 ? 0 : pos;
+    if ((uint64_t)start > s_len) start = (int64_t)s_len;
+    if (n_len == 0) return 1;
+    if ((uint64_t)start + n_len > s_len) return 0;
+    return memcmp(__TORAJS_STR_CDATA(s) + (uint64_t)start,
+                  __TORAJS_STR_CDATA(sub), (size_t)n_len) == 0 ? 1 : 0;
+}
+
+/* V3-18 m1.h.51 — `s.endsWith(needle, endPosition)`.
+ * Per JS spec §21.1.3.6: treat the prefix s.slice(0, endPosition)
+ * and check whether it ends with needle. endPosition defaults to len;
+ * clamps to [0, len]. */
+int64_t __torajs_str_ends_with_from(const uint8_t *s, const uint8_t *sub, int64_t end) {
+    uint64_t s_len = __TORAJS_STR_LEN(s);
+    uint64_t n_len = __TORAJS_STR_LEN(sub);
+    int64_t e = end < 0 ? 0 : end;
+    if ((uint64_t)e > s_len) e = (int64_t)s_len;
+    if (n_len == 0) return 1;
+    if ((uint64_t)e < n_len) return 0;
+    int64_t off = e - (int64_t)n_len;
+    return memcmp(__TORAJS_STR_CDATA(s) + (uint64_t)off,
+                  __TORAJS_STR_CDATA(sub), (size_t)n_len) == 0 ? 1 : 0;
+}
+
 /* V3-18 m1.h.50 — `s.indexOf(needle, fromIndex)` runtime helper.
  * Per JS spec §21.1.3.7: clamp fromIndex to [0, len]; search from
  * there. Negative fromIndex clamps to 0. Returns first match index
@@ -2553,6 +2583,12 @@ int64_t __torajs_str_index_of_from(const uint8_t *s, const uint8_t *sub, int64_t
         }
     }
     return -1;
+}
+
+/* V3-18 m1.h.51 — `s.includes(needle, fromIndex)`. Same shape as
+ * indexOf-from but returns bool. */
+int64_t __torajs_str_includes_from(const uint8_t *s, const uint8_t *sub, int64_t from) {
+    return __torajs_str_index_of_from(s, sub, from) >= 0 ? 1 : 0;
 }
 
 /* V3-18 m1.h.50 — `s.lastIndexOf(needle, fromIndex)` runtime helper.
