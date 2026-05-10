@@ -3509,6 +3509,24 @@ pub fn apply_default_args(ast: &mut Ast) {
         }
     }
 
+    // Alias map: `let f = __closure_N` (or `Closure{fn_name:__closure_N}`)
+    // means a call to `f(...)` should adopt `__closure_N`'s defaults.
+    // Without this, arrow fns with default params silently lose them at the
+    // call site since the FnDecl is keyed by the synthetic closure name.
+    let mut let_alias: HashMap<String, String> = HashMap::new();
+    for s in &ast.stmts {
+        if let Stmt::LetDecl { name, init, .. } = s {
+            let target = match ast.get_expr(*init) {
+                Expr::Ident(n) if n.starts_with("__closure_") => Some(n.clone()),
+                Expr::Closure { fn_name, .. } => Some(fn_name.clone()),
+                _ => None,
+            };
+            if let Some(t) = target {
+                let_alias.insert(name.clone(), t);
+            }
+        }
+    }
+
     if fn_defaults.is_empty() && method_defaults.is_empty() {
         return;
     }
@@ -3522,7 +3540,10 @@ pub fn apply_default_args(ast: &mut Ast) {
             let defaults: Vec<Option<ExprId>> = match ast.get_expr(callee).clone() {
                 Expr::Ident(name) => match fn_defaults.get(&name) {
                     Some(d) => d.clone(),
-                    None => continue,
+                    None => match let_alias.get(&name).and_then(|a| fn_defaults.get(a)) {
+                        Some(d) => d.clone(),
+                        None => continue,
+                    },
                 },
                 Expr::Member { name, .. } => match method_defaults.get(&name) {
                     Some(d) => d.clone(),
