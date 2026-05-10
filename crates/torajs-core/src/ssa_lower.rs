@@ -19916,7 +19916,19 @@ impl<'a> LowerCtx<'a> {
             AstBinOp::Mul => self.bin(SsaBinOp::Mul, a, b, Type::I64),
             AstBinOp::Div => unreachable!("Div forced into float path above"),
             AstBinOp::Pow => unreachable!("Pow forced into float path above"),
-            AstBinOp::Mod => self.bin(SsaBinOp::SRem, a, b, Type::I64),
+            // V3-18 m1.h.39 — JS spec §13.10: `a % 0` on Number is
+            // NaN. LLVM's srem with divisor 0 is UB and tora silently
+            // returned 0. Detect a compile-time-zero divisor and
+            // emit ConstF64(NaN). Runtime-zero divisor (`a % b` with
+            // b loaded from a slot) still falls through to srem; a
+            // proper guard needs branching IR + f64 result, which
+            // changes types and is deferred.
+            AstBinOp::Mod => {
+                if matches!(b, Operand::ConstI64(0)) {
+                    return Operand::ConstF64(f64::NAN);
+                }
+                self.bin(SsaBinOp::SRem, a, b, Type::I64)
+            }
             AstBinOp::BitAnd => self.bin(SsaBinOp::And, a, b, Type::I64),
             AstBinOp::BitOr => self.bin(SsaBinOp::Or, a, b, Type::I64),
             AstBinOp::BitXor => self.bin(SsaBinOp::Xor, a, b, Type::I64),
