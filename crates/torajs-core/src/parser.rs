@@ -262,6 +262,14 @@ impl Parser<'_> {
     }
 
     fn parse_stmt(&mut self) -> Result<Stmt, String> {
+        // V3-18 m1.h.29 — empty statement (`;`). JS spec §13.4
+        // ExpressionStatement allows a bare semicolon. Return an
+        // empty Block — semantically a no-op, matches what the
+        // formatter / lowerer treat as a unit.
+        if matches!(self.peek(), Token::Semi) {
+            self.pos += 1;
+            return Ok(Stmt::Block(Vec::new()));
+        }
         if matches!(self.peek(), Token::Import) {
             return self.parse_import();
         }
