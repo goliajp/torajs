@@ -2834,6 +2834,13 @@ fn lower_inner(
         &[Type::Ptr],
         Type::Void,
     );
+    let substr_print_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_substr_print",
+        &[Type::Ptr],
+        Type::Void,
+    );
     // V3-18 m1.d — Bool/Null → String coercion for `+` with String.
     // ToString(true) = "true", ToString(false) = "false",
     // ToString(null) = "null".
@@ -3802,6 +3809,7 @@ fn lower_inner(
         arr_print_bool: arr_print_bool_id,
         arr_print_str: arr_print_str_id,
         arr_print_substr: arr_print_substr_id,
+        substr_print: substr_print_id,
         f64_to_str: f64_to_str_id,
         math_sqrt: math_sqrt_id,
         math_abs: math_abs_id,
@@ -4530,6 +4538,7 @@ struct Intrinsics {
     arr_print_bool: FuncId,
     arr_print_str: FuncId,
     arr_print_substr: FuncId,
+    substr_print: FuncId,
     f64_to_str: FuncId,
     math_sqrt: FuncId,
     math_abs: FuncId,
@@ -6523,6 +6532,15 @@ impl<'a> LowerCtx<'a> {
         match (arg_ty, to_stderr) {
             (Type::Str, false) => self.intrinsics.str_print,
             (Type::Str, true) => self.intrinsics.str_print_err,
+            // V3-18 m1.h.34 — Substr layout differs from Str
+            // (parent+offset+len vs inline data). Dedicated
+            // substr_print walks parent + offset; pre-fix Substr
+            // fell through to the catch-all print_i64 which printed
+            // the pointer-as-integer (or nothing for empty), so any
+            // `console.log("a-b".split("-")[0])` etc diverged from
+            // bun.
+            (Type::Substr, false) => self.intrinsics.substr_print,
+            (Type::Substr, true) => self.intrinsics.substr_print,
             (Type::F64, false) => self.intrinsics.print_f64,
             (Type::F64, true) => self.intrinsics.print_f64_err,
             (Type::Bool, false) => self.intrinsics.print_bool,

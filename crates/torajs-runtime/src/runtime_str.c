@@ -1374,6 +1374,24 @@ void __torajs_arr_print_str(void *arr) {
     fputs(" ]\n", stdout);
 }
 
+/* V3-18 m1.h.34 — single-Substr printer (console.log(substr) path).
+ * Substr layout is { hdr@0, len@8, parent@16, offset@24 } — different
+ * from Str's inline-data-at-16 — so the existing str_print can't be
+ * shared. NULL → "null\n" matching str_print's null-guard shape. */
+void __torajs_substr_print(void *v) {
+    if (v == NULL) {
+        fputs("null\n", stdout);
+        return;
+    }
+    uint64_t len = __TORAJS_SUBSTR_LEN(v);
+    uint8_t *parent = __TORAJS_SUBSTR_PARENT(v);
+    uint64_t offset = __TORAJS_SUBSTR_OFFSET(v);
+    if (len > 0) {
+        fwrite(parent + __TORAJS_STR_HDR_SIZE + offset, 1, (size_t)len, stdout);
+    }
+    fputc('\n', stdout);
+}
+
 /* V3-18 m1.h.28 — arr-of-Substr printer. Each slot points at a
  * Substr header whose layout is { hdr@0, len@8, parent@16, offset@24 }
  * — different from Str's inline-data-at-16. Without this dispatch
