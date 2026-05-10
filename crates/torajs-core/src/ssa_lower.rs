@@ -18135,10 +18135,14 @@ impl<'a> LowerCtx<'a> {
                     Type::Str | Type::Substr => "string",
                     Type::Symbol => "symbol",
                     Type::BigInt => "bigint",
+                    // V3-18 m1.h.7 — JS spec §13.5.3 typeof returns
+                    // "function" for callable values (function decl,
+                    // arrow fn, Function ctor result). Tora's static
+                    // type for these is Closure/FnSig — both classify
+                    // as "function" per spec.
+                    Type::Closure(_) | Type::FnSig(_) => "function",
                     Type::Obj(_)
                     | Type::Arr(_)
-                    | Type::Closure(_)
-                    | Type::FnSig(_)
                     | Type::RegExp
                     | Type::Date
                     | Type::Promise
