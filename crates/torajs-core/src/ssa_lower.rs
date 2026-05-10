@@ -2827,6 +2827,13 @@ fn lower_inner(
         &[Type::Ptr],
         Type::Void,
     );
+    let arr_print_substr_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_arr_print_substr",
+        &[Type::Ptr],
+        Type::Void,
+    );
     // V3-18 m1.d — Bool/Null → String coercion for `+` with String.
     // ToString(true) = "true", ToString(false) = "false",
     // ToString(null) = "null".
@@ -3794,6 +3801,7 @@ fn lower_inner(
         arr_print_f64: arr_print_f64_id,
         arr_print_bool: arr_print_bool_id,
         arr_print_str: arr_print_str_id,
+        arr_print_substr: arr_print_substr_id,
         f64_to_str: f64_to_str_id,
         math_sqrt: math_sqrt_id,
         math_abs: math_abs_id,
@@ -4521,6 +4529,7 @@ struct Intrinsics {
     arr_print_f64: FuncId,
     arr_print_bool: FuncId,
     arr_print_str: FuncId,
+    arr_print_substr: FuncId,
     f64_to_str: FuncId,
     math_sqrt: FuncId,
     math_abs: FuncId,
@@ -6540,7 +6549,12 @@ impl<'a> LowerCtx<'a> {
                     Type::I64 => self.intrinsics.arr_print_i64,
                     Type::F64 => self.intrinsics.arr_print_f64,
                     Type::Bool => self.intrinsics.arr_print_bool,
-                    Type::Str | Type::Substr => self.intrinsics.arr_print_str,
+                    // V3-18 m1.h.28 — Substr layout differs from Str
+                    // (parent + offset + len vs inline data); pick the
+                    // matching helper. Pre-fix arr_print_str read
+                    // parent-pointer bytes as data and printed garbage.
+                    Type::Str => self.intrinsics.arr_print_str,
+                    Type::Substr => self.intrinsics.arr_print_substr,
                     _ => self.intrinsics.print_i64,
                 }
             }

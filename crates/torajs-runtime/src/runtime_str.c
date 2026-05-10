@@ -1374,6 +1374,40 @@ void __torajs_arr_print_str(void *arr) {
     fputs(" ]\n", stdout);
 }
 
+/* V3-18 m1.h.28 — arr-of-Substr printer. Each slot points at a
+ * Substr header whose layout is { hdr@0, len@8, parent@16, offset@24 }
+ * — different from Str's inline-data-at-16. Without this dispatch
+ * `console.log("a-b-c".split("-"))` printed garbage bytes from
+ * the parent pointer interpreted as data. */
+void __torajs_arr_print_substr(void *arr) {
+    if (arr == NULL) {
+        fputs("undefined\n", stdout);
+        return;
+    }
+    uint64_t len = *(uint64_t *)((uint8_t *)arr + 8);
+    if (len == 0) {
+        fputs("[]\n", stdout);
+        return;
+    }
+    fputs("[ ", stdout);
+    uint32_t head = *(uint32_t *)((uint8_t *)arr + 20);
+    for (uint64_t i = 0; i < len; i++) {
+        if (i > 0) fputs(", ", stdout);
+        void *v = *(void **)((uint8_t *)arr + __TORAJS_ARR_DATA_OFF + ((uint64_t)head + i) * 8);
+        if (v == NULL) {
+            fputs("\"\"", stdout);
+            continue;
+        }
+        uint64_t slen = __TORAJS_SUBSTR_LEN(v);
+        uint8_t *parent = __TORAJS_SUBSTR_PARENT(v);
+        uint64_t offset = __TORAJS_SUBSTR_OFFSET(v);
+        fputc('"', stdout);
+        fwrite(parent + __TORAJS_STR_HDR_SIZE + offset, 1, (size_t)slen, stdout);
+        fputc('"', stdout);
+    }
+    fputs(" ]\n", stdout);
+}
+
 /* V3-18 m1.h.9 — console.log of a f64 must format NaN as "NaN"
  * (capitalized) and Infinity / -Infinity per spec, matching the
  * String(d) shape. Replaces the IR-emitted printf("%g\n") path. */
