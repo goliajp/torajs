@@ -4262,6 +4262,30 @@ impl Checker {
                         return Ok(Type::Array(Box::new((**elem).clone())));
                     }
                 }
+                // V3-18 m1.h.36 — String.slice / substring with 0 or
+                // 1 args. Per JS spec §21.1.3.21 / §21.1.3.23:
+                //   s.slice()      = s.slice(0, s.length)
+                //   s.slice(start) = s.slice(start, s.length)
+                //   (same for substring; substring also clamps and
+                //   swaps args, but the optional-arity shape is
+                //   identical at the call site)
+                if let Expr::Member { obj: src_id, name: m_name } = ast.get_expr(*callee)
+                    && (m_name == "slice" || m_name == "substring" || m_name == "substr")
+                    && args.len() < 2
+                {
+                    let src_ty = self.type_of(ast, *src_id)?;
+                    if matches!(src_ty, Type::String) {
+                        for &aid in args {
+                            let aty = self.type_of(ast, aid)?;
+                            if aty != Type::Number {
+                                return Err(format!(
+                                    "String.{m_name} arg must be number, got {aty:?}"
+                                ));
+                            }
+                        }
+                        return Ok(Type::String);
+                    }
+                }
                 let callee_ty = self.type_of(ast, *callee)?;
                 let Type::Function(params, ret) = callee_ty else {
                     return Err(format!("not callable: type {callee_ty:?}"));

@@ -14392,6 +14392,24 @@ impl<'a> LowerCtx<'a> {
                             for a in args {
                                 argv.push(self.lower_expr(*a));
                             }
+                            // V3-18 m1.h.36 — Substr.slice / substring
+                            // also accept 0/1 args; fill defaults the
+                            // same way as the Str path. Substr len is
+                            // at offset 8 of the Substr layout.
+                            if matches!(method.as_str(), "slice" | "substring")
+                                && args.len() < 2
+                            {
+                                if args.is_empty() {
+                                    argv.push(Operand::ConstI64(0));
+                                }
+                                let len = self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::Load(Type::I64, recv_op, 8),
+                                    Type::I64,
+                                    None,
+                                );
+                                argv.push(Operand::Value(len));
+                            }
                             let v = self.f.append_inst(
                                 self.cur_block,
                                 InstKind::Call(target, argv),
@@ -14548,6 +14566,26 @@ impl<'a> LowerCtx<'a> {
                         argv.push(recv_op);
                         for a in args {
                             argv.push(self.lower_expr(*a));
+                        }
+                        // V3-18 m1.h.36 — String.slice / substring with
+                        // 0 or 1 args: fill in the missing positions
+                        // with start=0, end=str.length (per JS spec).
+                        if matches!(method.as_str(), "slice" | "substring")
+                            && args.len() < 2
+                        {
+                            if args.is_empty() {
+                                argv.push(Operand::ConstI64(0));
+                            }
+                            // Read the receiver's length from the str
+                            // header (offset 8) — same shape as
+                            // s.length elsewhere.
+                            let len = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Load(Type::I64, recv_op, 8),
+                                Type::I64,
+                                None,
+                            );
+                            argv.push(Operand::Value(len));
                         }
                         let (target, ret_ty) = match method.as_str() {
                             "slice" => (self.intrinsics.str_slice, Type::Str),

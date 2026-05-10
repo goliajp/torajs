@@ -2251,12 +2251,26 @@ fn define_str_slice<'ctx>(
     let zero = i64_t.const_int(0, false);
 
     let len = str_len_load(ctx, &builder, s, "len");
-    // start = max(0, min(start, len))
+    // V3-18 m1.h.36 — JS spec §21.1.3.21 negative-index handling:
+    //   if start < 0 → start = max(len + start, 0)
+    //   else         → start = min(start, len)
+    // Same for end. Pre-fix str_slice clamped negative to 0,
+    // so `"hello".slice(-2)` returned the whole string.
     let start_neg = builder
         .build_int_compare(IntPredicate::SLT, start, zero, "start_neg")
         .unwrap();
+    let start_plus_len = builder
+        .build_int_add(start, len, "start_plus_len")
+        .unwrap();
+    let start_pl_neg = builder
+        .build_int_compare(IntPredicate::SLT, start_plus_len, zero, "spl_neg")
+        .unwrap();
+    let start_norm_neg = builder
+        .build_select(start_pl_neg, zero, start_plus_len, "start_norm_neg")
+        .unwrap()
+        .into_int_value();
     let start_after_lo = builder
-        .build_select(start_neg, zero, start, "start_lo")
+        .build_select(start_neg, start_norm_neg, start, "start_lo")
         .unwrap()
         .into_int_value();
     let start_over = builder
@@ -2266,12 +2280,28 @@ fn define_str_slice<'ctx>(
         .build_select(start_over, len, start_after_lo, "start_c")
         .unwrap()
         .into_int_value();
-    // end_lo = max(start_c, end)
+    let end_neg = builder
+        .build_int_compare(IntPredicate::SLT, end, zero, "end_neg")
+        .unwrap();
+    let end_plus_len = builder
+        .build_int_add(end, len, "end_plus_len")
+        .unwrap();
+    let end_pl_neg = builder
+        .build_int_compare(IntPredicate::SLT, end_plus_len, zero, "epl_neg")
+        .unwrap();
+    let end_norm_neg = builder
+        .build_select(end_pl_neg, zero, end_plus_len, "end_norm_neg")
+        .unwrap()
+        .into_int_value();
+    let end_after_neg = builder
+        .build_select(end_neg, end_norm_neg, end, "end_after_neg")
+        .unwrap()
+        .into_int_value();
     let end_under = builder
-        .build_int_compare(IntPredicate::SLT, end, start_c, "end_under")
+        .build_int_compare(IntPredicate::SLT, end_after_neg, start_c, "end_under")
         .unwrap();
     let end_after_lo = builder
-        .build_select(end_under, start_c, end, "end_lo")
+        .build_select(end_under, start_c, end_after_neg, "end_lo")
         .unwrap()
         .into_int_value();
     let end_over = builder
