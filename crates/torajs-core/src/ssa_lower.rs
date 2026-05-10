@@ -3901,7 +3901,11 @@ fn lower_inner(
                 ast.get_expr(*init),
                 Expr::Number(_) | Expr::Bool(_)
             );
-            if init_is_inline_literal {
+            // V3-18 m1.h.26 — only the IMMUTABLE inline-literal case
+            // can be inlined at every read. Mutable globals (e.g.
+            // static class fields like `Counter.value = 0`) need a
+            // real slot so writes have somewhere to land.
+            if init_is_inline_literal && !*mutable {
                 continue;
             }
             let Some(ann) = type_ann else { continue };
@@ -10738,8 +10742,17 @@ impl<'a> LowerCtx<'a> {
                 if self.locals.get(name).is_none() {
                     let name_owned = name.clone();
                     for s in &self.ast.stmts {
-                        if let Stmt::LetDecl { name: n, init, .. } = s
+                        // V3-18 m1.h.26 — only inline IMMUTABLE
+                        // literal-init globals. Mutable globals
+                        // (e.g. static class fields like
+                        // `Counter.value`) need GlobalRef + Load so
+                        // every read sees the current slot value
+                        // after assignments. Inlining the original
+                        // init bakes the pre-write value into every
+                        // read site.
+                        if let Stmt::LetDecl { name: n, init, mutable, .. } = s
                             && n == &name_owned
+                            && !*mutable
                         {
                             match self.ast.get_expr(*init) {
                                 Expr::Number(v) => {
@@ -18721,6 +18734,45 @@ impl<'a> LowerCtx<'a> {
                 let is_inc = *is_inc;
                 match self.ast.get_expr(*target).clone() {
                     Expr::Ident(name) => {
+                        // V3-18 m1.h.26 — global slot path. When the
+                        // target ident is a registered mutable global
+                        // (e.g. a static class field after the
+                        // ClassDecl desugar), GlobalRef + Load + Store
+                        // matches the read / Assign paths above and
+                        // keeps post-incr working for `Counter.value++`.
+                        if self.locals.get(&name).is_none()
+                            && let Some(slot_ty) = self.globals.get(&name).copied()
+                        {
+                            let ptr = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::GlobalRef(name.clone()),
+                                Type::Ptr,
+                                None,
+                            );
+                            let old = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Load(slot_ty, Operand::Value(ptr), 0),
+                                slot_ty,
+                                None,
+                            );
+                            let one = if slot_ty == Type::F64 {
+                                Operand::ConstF64(1.0)
+                            } else {
+                                Operand::ConstI64(1)
+                            };
+                            let op = if is_inc { SsaBinOp::Add } else { SsaBinOp::Sub };
+                            let new_v = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::BinOp(op, Operand::Value(old), one),
+                                slot_ty,
+                                None,
+                            );
+                            self.f.append_void(
+                                self.cur_block,
+                                InstKind::Store(Operand::Value(new_v), Operand::Value(ptr), 0),
+                            );
+                            return Operand::Value(old);
+                        }
                         let info = match self.locals.get(&name) {
                             Some(i) => *i,
                             None => panic!(

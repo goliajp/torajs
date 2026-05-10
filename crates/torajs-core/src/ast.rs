@@ -2640,8 +2640,24 @@ pub fn desugar_classes(ast: &mut Ast) {
         // a real silent leak + correctness bug uncovered by the
         // m-oo-04-static `leaks --atExit` audit.
         for sf in &static_fields {
+            // V3-18 m1.h.26 — static fields with primitive Copy
+            // types (number / boolean / int width-specifiers) are
+            // mutable by default (`Counter.value = 5` is valid
+            // TS). Refcount-typed fields (string / string[] /
+            // Foo[] / etc) stay `mutable: false` because
+            // ssa_lower's globals registry can't yet handle
+            // mutable refcount globals — Str writes would need
+            // ARC-dec-old + ARC-inc-new + writeback to the slot,
+            // which the K.6 globals path doesn't yet emit. Marking
+            // those as mutable makes ssa_lower skip them from
+            // globals entirely (line ~3947), and the read path
+            // then fails with "unknown ident".
+            let is_copy_prim = matches!(
+                sf.type_ann.as_str(),
+                "number" | "boolean" | "i64" | "f64" | "bool" | "i32"
+            );
             static_field_inits.push(Stmt::LetDecl {
-                mutable: false,
+                mutable: is_copy_prim,
                 name: format!("__sf_{cname}__{}", sf.name),
                 type_ann: Some(sf.type_ann.clone()),
                 init: sf.init,
