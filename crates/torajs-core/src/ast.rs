@@ -4167,6 +4167,20 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
             collect_let_anns(body, &mut all_anns);
         }
     }
+    // V3-18 m1.h.23 — also walk top-level let decls. The synthetic
+    // `main` wraps these at ssa_lower time, but at this AST pass
+    // they're sitting at ast.stmts level, so the FnDecl-only walk
+    // above missed them. Without this, `let arr = [1,2,3]; arr.find(x => ...)`
+    // can't infer x's type.
+    collect_let_anns(&ast.stmts, &mut all_anns);
+    // Inferred-from-init shape: `let arr = [<lit>, ...]` infers
+    // arr's annotation as "<lit_ty>[]" so .map / .filter / etc on
+    // unannotated lets still get param inference.
+    let mut inferred_inits: HashMap<String, String> = HashMap::new();
+    collect_let_init_anns(ast, &ast.stmts, &mut inferred_inits);
+    for (k, v) in inferred_inits {
+        all_anns.entry(k).or_insert(v);
+    }
 
     // Map from lifted closure fn_name → (param annotations, return
     // annotation). Filled by walking call sites; applied at the end
@@ -6332,6 +6346,56 @@ fn stmt_has_value_return(s: &Stmt) -> bool {
         // Nested FnDecl returns are scoped to the inner fn — skip.
         Stmt::FnDecl { .. } => false,
         _ => false,
+    }
+}
+
+/// Walk `body` collecting `let name = <init>` shapes where the init is a
+/// literal whose type can be inferred (number / string / boolean / array
+/// of any of those). Populates `out` with `name → "T[]" / "T"` strings,
+/// matching the format used by `infer_anonymous_closure_params`'s
+/// `infer_lit_ann` helper. Used so unannotated top-level lets still feed
+/// the closure-param inference pass.
+fn collect_let_init_anns(
+    ast: &Ast,
+    body: &[Stmt],
+    out: &mut std::collections::HashMap<String, String>,
+) {
+    fn ann_of(ast: &Ast, eid: ExprId) -> Option<String> {
+        match ast.get_expr(eid) {
+            Expr::Number(_) => Some("number".into()),
+            Expr::String(_) => Some("string".into()),
+            Expr::Bool(_) => Some("boolean".into()),
+            Expr::Array(els) if !els.is_empty() => {
+                ann_of(ast, els[0]).map(|inner| format!("{inner}[]"))
+            }
+            _ => None,
+        }
+    }
+    for s in body {
+        match s {
+            Stmt::LetDecl { name, type_ann: None, init, .. } => {
+                if let Some(ann) = ann_of(ast, *init) {
+                    out.insert(name.clone(), ann);
+                }
+            }
+            Stmt::Block(stmts) | Stmt::Multi(stmts) => collect_let_init_anns(ast, stmts, out),
+            Stmt::If { then_branch, else_branch, .. } => {
+                collect_let_init_anns(ast, std::slice::from_ref(then_branch.as_ref()), out);
+                if let Some(eb) = else_branch {
+                    collect_let_init_anns(ast, std::slice::from_ref(eb.as_ref()), out);
+                }
+            }
+            Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
+                collect_let_init_anns(ast, std::slice::from_ref(body.as_ref()), out);
+            }
+            Stmt::For { init, body, .. } => {
+                if let Some(i) = init {
+                    collect_let_init_anns(ast, std::slice::from_ref(i.as_ref()), out);
+                }
+                collect_let_init_anns(ast, std::slice::from_ref(body.as_ref()), out);
+            }
+            _ => {}
+        }
     }
 }
 
