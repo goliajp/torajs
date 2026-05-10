@@ -2531,6 +2531,53 @@ int64_t __torajs_str_locale_compare(const uint8_t *a, const uint8_t *b) {
     return 0;
 }
 
+/* V3-18 m1.h.50 — `s.indexOf(needle, fromIndex)` runtime helper.
+ * Per JS spec §21.1.3.7: clamp fromIndex to [0, len]; search from
+ * there. Negative fromIndex clamps to 0. Returns first match index
+ * or -1. Mirror of the inkwell IR `__torajs_str_index_of` but with
+ * a starting offset. Used when arr.indexOf is called with the
+ * 2-arg form. */
+int64_t __torajs_str_index_of_from(const uint8_t *s, const uint8_t *sub, int64_t from) {
+    uint64_t s_len = __TORAJS_STR_LEN(s);
+    uint64_t n_len = __TORAJS_STR_LEN(sub);
+    int64_t start = from < 0 ? 0 : from;
+    if ((uint64_t)start > s_len) start = (int64_t)s_len;
+    if (n_len == 0) return start;
+    if (n_len > s_len) return -1;
+    const uint8_t *s_data = __TORAJS_STR_CDATA(s);
+    const uint8_t *n_data = __TORAJS_STR_CDATA(sub);
+    int64_t end = (int64_t)(s_len - n_len);
+    for (int64_t i = start; i <= end; i++) {
+        if (memcmp(s_data + (uint64_t)i, n_data, (size_t)n_len) == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+/* V3-18 m1.h.50 — `s.lastIndexOf(needle, fromIndex)` runtime helper.
+ * Reverse scan; clamps fromIndex to [0, len]; default = len. */
+int64_t __torajs_str_last_index_of_from(const uint8_t *s, const uint8_t *sub, int64_t from) {
+    uint64_t s_len = __TORAJS_STR_LEN(s);
+    uint64_t n_len = __TORAJS_STR_LEN(sub);
+    if (n_len == 0) {
+        int64_t end = (int64_t)s_len;
+        return from > end ? end : (from < 0 ? 0 : from);
+    }
+    if (n_len > s_len) return -1;
+    int64_t max_i = (int64_t)(s_len - n_len);
+    int64_t start = from > max_i ? max_i : from;
+    if (start < 0) return -1;
+    const uint8_t *s_data = __TORAJS_STR_CDATA(s);
+    const uint8_t *n_data = __TORAJS_STR_CDATA(sub);
+    for (int64_t i = start; i >= 0; i--) {
+        if (memcmp(s_data + (uint64_t)i, n_data, (size_t)n_len) == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
 /* `s.lastIndexOf(needle)` — reverse memcmp scan, -1 on miss. */
 int64_t __torajs_str_last_index_of(const uint8_t *s, const uint8_t *needle) {
     uint64_t s_len = __TORAJS_STR_LEN(s);

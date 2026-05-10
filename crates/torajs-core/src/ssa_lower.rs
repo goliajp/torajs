@@ -2876,6 +2876,20 @@ fn lower_inner(
         &[Type::Symbol],
         Type::Str,
     );
+    let str_index_of_from_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_str_index_of_from",
+        &[Type::Ptr, Type::Ptr, Type::I64],
+        Type::I64,
+    );
+    let str_last_index_of_from_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_str_last_index_of_from",
+        &[Type::Ptr, Type::Ptr, Type::I64],
+        Type::I64,
+    );
     let symbol_description_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -3857,6 +3871,8 @@ fn lower_inner(
         arr_join_f64: arr_join_f64_id,
         arr_join_bool: arr_join_bool_id,
         symbol_to_str: symbol_to_str_id,
+        str_index_of_from: str_index_of_from_id,
+        str_last_index_of_from: str_last_index_of_from_id,
         symbol_description: symbol_description_id,
         f64_to_str: f64_to_str_id,
         math_sqrt: math_sqrt_id,
@@ -4592,6 +4608,8 @@ struct Intrinsics {
     arr_join_f64: FuncId,
     arr_join_bool: FuncId,
     symbol_to_str: FuncId,
+    str_index_of_from: FuncId,
+    str_last_index_of_from: FuncId,
     symbol_description: FuncId,
     f64_to_str: FuncId,
     math_sqrt: FuncId,
@@ -14689,6 +14707,25 @@ impl<'a> LowerCtx<'a> {
                         {
                             let space = self.intern_string_literal(" ");
                             argv.push(Operand::Value(space));
+                        }
+                        // V3-18 m1.h.50 — String.indexOf / lastIndexOf
+                        // with the 2-arg (needle, fromIndex) shape route
+                        // to the dedicated _from runtime helpers.
+                        if matches!(method.as_str(), "indexOf" | "lastIndexOf")
+                            && args.len() == 2
+                        {
+                            let target = if method == "indexOf" {
+                                self.intrinsics.str_index_of_from
+                            } else {
+                                self.intrinsics.str_last_index_of_from
+                            };
+                            let v = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(target, argv),
+                                Type::I64,
+                                None,
+                            );
+                            return Operand::Value(v);
                         }
                         let (target, ret_ty) = match method.as_str() {
                             "slice" => (self.intrinsics.str_slice, Type::Str),
