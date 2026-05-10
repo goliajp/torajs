@@ -11487,6 +11487,25 @@ impl<'a> LowerCtx<'a> {
                             _ => unreachable!(),
                         };
                     }
+                    // V3-18 m1.h.52 — Number(undefined) → NaN per
+                    // §7.1.4 ToNumber(undefined). String(undefined) →
+                    // "undefined" per §7.1.17 ToString. Boolean(undefined)
+                    // → false per §7.1.2 ToBoolean. Bare-Ident detection
+                    // before lowering since `undefined` and `null` both
+                    // collapse to ConstPtrNull at the runtime layer.
+                    if let Expr::Ident(arg_name) = self.ast.get_expr(args[0])
+                        && arg_name == "undefined"
+                    {
+                        return match n_kind.as_str() {
+                            "Number" => Operand::ConstF64(f64::NAN),
+                            "String" => {
+                                let v = self.intern_string_literal("undefined");
+                                Operand::Value(v)
+                            }
+                            "Boolean" => Operand::ConstBool(false),
+                            _ => unreachable!(),
+                        };
+                    }
                     let arg_op = self.lower_expr(args[0]);
                     let arg_ty = self.operand_ty(&arg_op);
                     self.consume_if_ident(args[0]);
@@ -11895,6 +11914,11 @@ impl<'a> LowerCtx<'a> {
                 if let Expr::Ident(name) = self.ast.get_expr(*callee)
                     && (name == "Number" || name == "String")
                 {
+                    // V3-18 m1.h.52 — Number(undefined) is NaN per JS
+                    // spec §7.1.4 ToNumber(undefined). Detect the
+                    // ident-form before lowering since `undefined` and
+                    // `null` collapse to the same ConstPtrNull at the
+                    // runtime layer.
                     let arg = self.lower_expr(args[0]);
                     let arg_ty = self.operand_ty(&arg);
                     if name == "Number" {
