@@ -163,6 +163,13 @@ pub enum Expr {
         then_branch: ExprId,
         else_branch: ExprId,
     },
+    /// V3-18 m1.h.6 — comma operator `(a, b)` per spec §13.16.
+    /// Evaluates `left` for side effects (value discarded), then
+    /// returns `right`. Result type = right's type.
+    Sequence {
+        left: ExprId,
+        right: ExprId,
+    },
     /// V3-07 — `expr as T` TS type cast. Parser-level type assertion;
     /// at runtime the cast is identity (the inner value's bits flow
     /// through). Typecheck uses `ty_ann` to widen / narrow the inner
@@ -3019,6 +3026,10 @@ fn collect_super_in_expr(
             collect_super_in_expr(ast, *else_branch, out);
         }
         Expr::TypeOf { expr } | Expr::Spread { expr } | Expr::InstanceOf { expr, .. } | Expr::As { expr, .. } => collect_super_in_expr(ast, *expr, out),
+        Expr::Sequence { left, right } => {
+            collect_super_in_expr(ast, *left, out);
+            collect_super_in_expr(ast, *right, out);
+        }
         Expr::Nullish { lhs, rhs } => {
             collect_super_in_expr(ast, *lhs, out);
             collect_super_in_expr(ast, *rhs, out);
@@ -4531,6 +4542,9 @@ fn eal_expr_safe(ast: &Ast, eid: ExprId, x_name: &str) -> bool {
         Expr::TypeOf { expr } => eal_expr_safe(ast, *expr, x_name),
         Expr::InstanceOf { expr, .. } => eal_expr_safe(ast, *expr, x_name),
         Expr::As { expr, .. } => eal_expr_safe(ast, *expr, x_name),
+        Expr::Sequence { left, right } => {
+            eal_expr_safe(ast, *left, x_name) && eal_expr_safe(ast, *right, x_name)
+        }
         Expr::Closure { captures, .. } => {
             // Closure captures = list of outer-scope names captured.
             // If X is captured, the lifted fn body could escape it.
@@ -4981,6 +4995,10 @@ fn sfi_expr_x_safe(ast: &Ast, eid: ExprId, x_name: &str, i_name: &str) -> bool {
         Expr::TypeOf { expr } => sfi_expr_x_safe(ast, *expr, x_name, i_name),
         Expr::InstanceOf { expr, .. } => sfi_expr_x_safe(ast, *expr, x_name, i_name),
         Expr::As { expr, .. } => sfi_expr_x_safe(ast, *expr, x_name, i_name),
+        Expr::Sequence { left, right } => {
+            sfi_expr_x_safe(ast, *left, x_name, i_name)
+                && sfi_expr_x_safe(ast, *right, x_name, i_name)
+        }
         Expr::ArrowFn { .. } | Expr::Closure { .. } => {
             // Conservative — captured X inside a closure is hard to
             // verify safe since the closure body could index X[k]
@@ -6633,6 +6651,10 @@ fn scan_expr_for_calls(ast: &Ast, eid: ExprId, out: &mut Vec<String>) {
             scan_expr_for_calls(ast, *else_branch, out);
         }
         Expr::TypeOf { expr } | Expr::Spread { expr } | Expr::InstanceOf { expr, .. } | Expr::As { expr, .. } => scan_expr_for_calls(ast, *expr, out),
+        Expr::Sequence { left, right } => {
+            scan_expr_for_calls(ast, *left, out);
+            scan_expr_for_calls(ast, *right, out);
+        }
         Expr::Nullish { lhs, rhs } => {
             scan_expr_for_calls(ast, *lhs, out);
             scan_expr_for_calls(ast, *rhs, out);
@@ -6725,6 +6747,10 @@ fn walk_expr(ast: &Ast, eid: ExprId, bound: &mut Vec<String>, out: &mut Vec<Stri
             walk_expr(ast, *else_branch, bound, out);
         }
         Expr::TypeOf { expr } | Expr::Spread { expr } | Expr::InstanceOf { expr, .. } | Expr::As { expr, .. } => walk_expr(ast, *expr, bound, out),
+        Expr::Sequence { left, right } => {
+            walk_expr(ast, *left, bound, out);
+            walk_expr(ast, *right, bound, out);
+        }
         Expr::Nullish { lhs, rhs } => {
             walk_expr(ast, *lhs, bound, out);
             walk_expr(ast, *rhs, bound, out);
@@ -7198,6 +7224,11 @@ impl Ast {
             Expr::As { expr, ty_ann } => {
                 println!("{pad}As {ty_ann}");
                 self.print_expr(*expr, indent + 1);
+            }
+            Expr::Sequence { left, right } => {
+                println!("{pad}Sequence");
+                self.print_expr(*left, indent + 1);
+                self.print_expr(*right, indent + 1);
             }
         }
     }

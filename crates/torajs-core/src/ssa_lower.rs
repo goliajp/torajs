@@ -772,6 +772,13 @@ fn deep_clone_expr(ast: &mut Ast, eid: ExprId) -> ExprId {
             let e = *expr; let ty_ann = ty_ann.clone();
             Expr::As { expr: deep_clone_expr(ast, e), ty_ann }
         }
+        Expr::Sequence { left, right } => {
+            let l = *left; let r = *right;
+            Expr::Sequence {
+                left: deep_clone_expr(ast, l),
+                right: deep_clone_expr(ast, r),
+            }
+        }
     };
     ast.add_expr(new_expr)
 }
@@ -18557,6 +18564,20 @@ impl<'a> LowerCtx<'a> {
             Expr::As { expr, .. } => {
                 let inner = *expr;
                 self.lower_expr(inner)
+            }
+            // V3-18 m1.h.6 — comma operator: lower left for side
+            // effects, drop the result if non-Copy heap, then return
+            // the right operand's value. Drop emission keeps the
+            // refcount math sane on heap-typed left expressions.
+            Expr::Sequence { left, right } => {
+                let lid = *left;
+                let rid = *right;
+                let l = self.lower_expr(lid);
+                let l_ty = self.operand_ty(&l);
+                if !l_ty.is_copy() {
+                    self.emit_drop_value(l, l_ty);
+                }
+                self.lower_expr(rid)
             }
             other => panic!("ssa-lower: unsupported expr: {other:?}"),
         }

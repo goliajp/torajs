@@ -4977,6 +4977,13 @@ impl Checker {
                 }
                 Ok(Type::Number)
             }
+            // V3-18 m1.h.6 — comma operator `(a, b)` evaluates left
+            // (side effects, value discarded) then right; result type
+            // = right's type. Both sub-expressions still type-checked.
+            Expr::Sequence { left, right } => {
+                let _ = self.type_of(ast, *left)?;
+                self.type_of(ast, *right)
+            }
             // V3-07 — `expr as T` TS type assertion. Typecheck the
             // inner expression for side effects (so it still
             // participates in move tracking + sub-expression validation),

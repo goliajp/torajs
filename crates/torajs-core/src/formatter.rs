@@ -945,6 +945,13 @@ impl<'a> Formatter<'a> {
                 self.write(" as ");
                 self.write(ty_ann);
             }
+            Expr::Sequence { left, right } => {
+                self.write("(");
+                self.fmt_expr(*left);
+                self.write(", ");
+                self.fmt_expr(*right);
+                self.write(")");
+            }
             Expr::Unary { op, expr } => {
                 let s = match op {
                     UnaryOp::Not => "!",

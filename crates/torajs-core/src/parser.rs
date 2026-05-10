@@ -2261,7 +2261,20 @@ impl Parser<'_> {
                 return self.parse_arrow_fn();
             }
             self.pos += 1; // consume `(`
-            let e = self.parse_expr()?;
+            // V3-18 m1.h.6 — JS spec §13.16 comma operator inside
+            // parentheses: `(a, b, c)` evaluates left-to-right and
+            // returns the rightmost value. Earlier subexpressions
+            // are still type-checked for side effects but their
+            // values are discarded. Encoded as nested
+            // Expr::Sequence (using a temp let + discard pattern at
+            // lower time) — for the MVP we simply discard left
+            // values and return the rightmost expression's id.
+            let mut last = self.parse_expr()?;
+            while matches!(self.peek(), Token::Comma) {
+                self.pos += 1;
+                let next = self.parse_expr()?;
+                last = self.ast.add_expr(Expr::Sequence { left: last, right: next });
+            }
             match self.peek() {
                 Token::RParen => self.pos += 1,
                 t => {
@@ -2271,7 +2284,7 @@ impl Parser<'_> {
                     ));
                 }
             }
-            return Ok(e);
+            return Ok(last);
         }
         if matches!(self.peek(), Token::LBracket) {
             return self.parse_array_literal();
