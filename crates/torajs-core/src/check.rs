@@ -3110,9 +3110,13 @@ impl Checker {
                             Type::Array(Box::new(Type::String))
                         ))),
                     )),
-                    // arr.join(sep): string — receiver is Array<string>,
-                    // sep borrowed; result is freshly allocated.
-                    (Type::Array(elem), "join") if **elem == Type::String => {
+                    // arr.join(sep): string — receiver is Array<T> for
+                    // T = String / Number / Boolean (V3-18 m1.h.43:
+                    // Number/Bool elements ToString'd inline by the
+                    // runtime helper). sep borrowed; result freshly
+                    // allocated.
+                    (Type::Array(elem), "join")
+                        if matches!(**elem, Type::String | Type::Number | Type::Boolean) => {
                         Ok(Type::Function(vec![Type::String], Box::new(Type::String)))
                     }
                     // M1.2 — `xs.push(v)`: takes one element-typed arg,
@@ -4272,7 +4276,7 @@ impl Checker {
                 {
                     let src_ty = self.type_of(ast, *src_id)?;
                     if let Type::Array(elem) = &src_ty
-                        && matches!(**elem, Type::String)
+                        && matches!(**elem, Type::String | Type::Number | Type::Boolean)
                     {
                         return Ok(Type::String);
                     }

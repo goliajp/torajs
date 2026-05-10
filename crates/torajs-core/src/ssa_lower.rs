@@ -2848,6 +2848,27 @@ fn lower_inner(
         &[Type::Ptr, Type::I64],
         Type::Substr,
     );
+    let arr_join_i64_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_arr_join_i64",
+        &[Type::Ptr, Type::Ptr],
+        Type::Str,
+    );
+    let arr_join_f64_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_arr_join_f64",
+        &[Type::Ptr, Type::Ptr],
+        Type::Str,
+    );
+    let arr_join_bool_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_arr_join_bool",
+        &[Type::Ptr, Type::Ptr],
+        Type::Str,
+    );
     // V3-18 m1.d — Bool/Null → String coercion for `+` with String.
     // ToString(true) = "true", ToString(false) = "false",
     // ToString(null) = "null".
@@ -3818,6 +3839,9 @@ fn lower_inner(
         arr_print_substr: arr_print_substr_id,
         substr_print: substr_print_id,
         str_char_at: str_char_at_id,
+        arr_join_i64: arr_join_i64_id,
+        arr_join_f64: arr_join_f64_id,
+        arr_join_bool: arr_join_bool_id,
         f64_to_str: f64_to_str_id,
         math_sqrt: math_sqrt_id,
         math_abs: math_abs_id,
@@ -4548,6 +4572,9 @@ struct Intrinsics {
     arr_print_substr: FuncId,
     substr_print: FuncId,
     str_char_at: FuncId,
+    arr_join_i64: FuncId,
+    arr_join_f64: FuncId,
+    arr_join_bool: FuncId,
     f64_to_str: FuncId,
     math_sqrt: FuncId,
     math_abs: FuncId,
@@ -14658,10 +14685,17 @@ impl<'a> LowerCtx<'a> {
                         && method == "join"
                     {
                         let elem_ty = self.arr_layouts[elem_arr_id.0 as usize];
-                        let join_fid = if elem_ty == Type::Substr {
-                            self.intrinsics.arr_join_substr
-                        } else {
-                            self.intrinsics.arr_join
+                        // V3-18 m1.h.43 — element-type dispatch for
+                        // join. Number / Bool elements use dedicated
+                        // runtime helpers that ToString each element
+                        // inline; Str / Substr take the existing
+                        // pointer-walking helpers.
+                        let join_fid = match elem_ty {
+                            Type::Substr => self.intrinsics.arr_join_substr,
+                            Type::I64 => self.intrinsics.arr_join_i64,
+                            Type::F64 => self.intrinsics.arr_join_f64,
+                            Type::Bool => self.intrinsics.arr_join_bool,
+                            _ => self.intrinsics.arr_join,
                         };
                         let mut argv = Vec::with_capacity(2);
                         argv.push(recv_op);

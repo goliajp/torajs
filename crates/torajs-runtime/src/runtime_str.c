@@ -2122,6 +2122,126 @@ void *__torajs_arr_join(const uint8_t *arr, const uint8_t *sep) {
     return p;
 }
 
+/* V3-18 m1.h.43 — Array<i64>.join(sep). Stringify each i64 element
+ * with snprintf, memcpy with sep between. Per JS spec §22.1.3.13:
+ * elements ToString'd then joined. */
+void *__torajs_arr_join_i64(const uint8_t *arr, const uint8_t *sep) {
+    uint64_t len = __TORAJS_ARR_LEN(arr);
+    uint64_t sep_len = __TORAJS_STR_LEN(sep);
+    const uint8_t *sep_data = __TORAJS_STR_CDATA(sep);
+    if (len == 0) return str_alloc_(0);
+    char buf[24];  /* max i64 = 20 digits + sign + NUL */
+    /* Pass 1: total length. */
+    uint64_t total = 0;
+    for (uint64_t i = 0; i < len; i++) {
+        int64_t e = *(const int64_t *)__TORAJS_ARR_CSLOT(arr, i);
+        int n = snprintf(buf, sizeof(buf), "%lld", (long long)e);
+        if (n < 0) n = 0;
+        total += (uint64_t)n;
+    }
+    total += sep_len * (len - 1);
+    uint8_t *p = str_alloc_(total);
+    uint8_t *p_data = __TORAJS_STR_DATA(p);
+    uint64_t cursor = 0;
+    for (uint64_t i = 0; i < len; i++) {
+        if (i > 0 && sep_len) {
+            memcpy(p_data + cursor, sep_data, (size_t)sep_len);
+            cursor += sep_len;
+        }
+        int64_t e = *(const int64_t *)__TORAJS_ARR_CSLOT(arr, i);
+        int n = snprintf(buf, sizeof(buf), "%lld", (long long)e);
+        if (n < 0) n = 0;
+        memcpy(p_data + cursor, buf, (size_t)n);
+        cursor += (uint64_t)n;
+    }
+    return p;
+}
+
+/* V3-18 m1.h.43 — Array<f64>.join(sep). Same shape as the i64 path
+ * but using torajs_f64_shortest for spec-correct number → string. */
+void *__torajs_arr_join_f64(const uint8_t *arr, const uint8_t *sep) {
+    uint64_t len = __TORAJS_ARR_LEN(arr);
+    uint64_t sep_len = __TORAJS_STR_LEN(sep);
+    const uint8_t *sep_data = __TORAJS_STR_CDATA(sep);
+    if (len == 0) return str_alloc_(0);
+    char buf[32];
+    uint64_t total = 0;
+    for (uint64_t i = 0; i < len; i++) {
+        double e = *(const double *)__TORAJS_ARR_CSLOT(arr, i);
+        if (e != e) {
+            total += 3;  /* "NaN" */
+        } else if (e == 1.0/0.0) {
+            total += 8;  /* "Infinity" */
+        } else if (e == -1.0/0.0) {
+            total += 9;  /* "-Infinity" */
+        } else {
+            int n = torajs_f64_shortest(e, buf, sizeof(buf));
+            if (n < 0) n = 0;
+            total += (uint64_t)n;
+        }
+    }
+    total += sep_len * (len - 1);
+    uint8_t *p = str_alloc_(total);
+    uint8_t *p_data = __TORAJS_STR_DATA(p);
+    uint64_t cursor = 0;
+    for (uint64_t i = 0; i < len; i++) {
+        if (i > 0 && sep_len) {
+            memcpy(p_data + cursor, sep_data, (size_t)sep_len);
+            cursor += sep_len;
+        }
+        double e = *(const double *)__TORAJS_ARR_CSLOT(arr, i);
+        if (e != e) {
+            memcpy(p_data + cursor, "NaN", 3);
+            cursor += 3;
+        } else if (e == 1.0/0.0) {
+            memcpy(p_data + cursor, "Infinity", 8);
+            cursor += 8;
+        } else if (e == -1.0/0.0) {
+            memcpy(p_data + cursor, "-Infinity", 9);
+            cursor += 9;
+        } else {
+            int n = torajs_f64_shortest(e, buf, sizeof(buf));
+            if (n < 0) n = 0;
+            memcpy(p_data + cursor, buf, (size_t)n);
+            cursor += (uint64_t)n;
+        }
+    }
+    return p;
+}
+
+/* V3-18 m1.h.43 — Array<bool>.join(sep). Each element is "true" /
+ * "false". */
+void *__torajs_arr_join_bool(const uint8_t *arr, const uint8_t *sep) {
+    uint64_t len = __TORAJS_ARR_LEN(arr);
+    uint64_t sep_len = __TORAJS_STR_LEN(sep);
+    const uint8_t *sep_data = __TORAJS_STR_CDATA(sep);
+    if (len == 0) return str_alloc_(0);
+    uint64_t total = 0;
+    for (uint64_t i = 0; i < len; i++) {
+        int64_t e = *(const int64_t *)__TORAJS_ARR_CSLOT(arr, i);
+        total += e ? 4 : 5;
+    }
+    total += sep_len * (len - 1);
+    uint8_t *p = str_alloc_(total);
+    uint8_t *p_data = __TORAJS_STR_DATA(p);
+    uint64_t cursor = 0;
+    for (uint64_t i = 0; i < len; i++) {
+        if (i > 0 && sep_len) {
+            memcpy(p_data + cursor, sep_data, (size_t)sep_len);
+            cursor += sep_len;
+        }
+        int64_t e = *(const int64_t *)__TORAJS_ARR_CSLOT(arr, i);
+        if (e) {
+            memcpy(p_data + cursor, "true", 4);
+            cursor += 4;
+        } else {
+            memcpy(p_data + cursor, "false", 5);
+            cursor += 5;
+        }
+    }
+    return p;
+}
+
 /* `Array<Substr>.join(sep)` — view-aware joiner. Each element is a
  * Substr whose bytes live at `parent.bytes + offset`. Two-pass:
  * (1) sum view lengths to size the output, (2) memcpy each view's
