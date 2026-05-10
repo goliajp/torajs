@@ -11067,13 +11067,12 @@ impl<'a> LowerCtx<'a> {
                     return Operand::ConstF64(-0.0);
                 }
                 let v = self.lower_expr(*expr);
-                // V3-18 m1.f — coerce Bool / null before unary `-`
-                // and `~`. For `-`, IEEE 754 -0 must survive when
-                // the operand is the falsy 0 (i.e. -false or -null
-                // = -0.0 per bun), so we route via f64 — the
-                // existing `-` lowerer's F64 arm does FSub from
-                // -0.0 which preserves sign. For `~` integer is
-                // fine; coerce to i64 directly.
+                // V3-18 m1.f / m1.h.4 — coerce Bool / null before
+                // unary `-`, `~`, `+`. For `-`, IEEE 754 -0 must
+                // survive when the operand is the falsy 0
+                // (-false / -null = -0.0 per bun), so we route via
+                // f64 — the existing FSub-from-(-0.0) sign-preserving
+                // path picks it up. For `~` and `+` integer is fine.
                 let v = match op {
                     crate::ast::UnaryOp::Neg => {
                         if matches!(v, Operand::ConstPtrNull) {
@@ -11087,7 +11086,7 @@ impl<'a> LowerCtx<'a> {
                             v
                         }
                     }
-                    crate::ast::UnaryOp::BitNot => {
+                    crate::ast::UnaryOp::BitNot | crate::ast::UnaryOp::Plus => {
                         if matches!(v, Operand::ConstPtrNull) {
                             Operand::ConstI64(0)
                         } else if matches!(self.operand_ty(&v), Type::Bool) {
@@ -11198,6 +11197,16 @@ impl<'a> LowerCtx<'a> {
                             None,
                         );
                         Operand::Value(r)
+                    }
+                    crate::ast::UnaryOp::Plus => {
+                        // V3-18 m1.h.4 — `+x` is ToNumber(x). For
+                        // already-numeric inputs we just pass through;
+                        // Bool/Null get coerced via the m1.f path
+                        // (already applied above for Neg/BitNot we
+                        // mirror here). The result type is Number
+                        // (i64 here, since the operand is now i64
+                        // after coerce).
+                        v
                     }
                 }
             }

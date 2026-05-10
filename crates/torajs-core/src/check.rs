@@ -4503,6 +4503,22 @@ impl Checker {
                             Err(format!("`-` requires number or bigint operand, got {t:?}"))
                         }
                     }
+                    crate::ast::UnaryOp::Plus => {
+                        // V3-18 m1.h.4 — unary `+x` per spec §13.5.4
+                        // calls ToNumber(x). Same coercibles as `-x`
+                        // (m1.f) but no IEEE -0 sign concern (positive
+                        // sign is the default).
+                        if matches!(t, Type::Number | Type::Boolean | Type::Null) {
+                            Ok(Type::Number)
+                        } else if t == Type::BigInt {
+                            // Per spec, unary `+` on BigInt is a
+                            // TypeError. Caught here at typecheck
+                            // since runtime support is unnecessary.
+                            Err("`+` on bigint is a TypeError per spec; use Number(x) for explicit coercion".into())
+                        } else {
+                            Err(format!("`+` requires number or coercible operand, got {t:?}"))
+                        }
+                    }
                     crate::ast::UnaryOp::BitNot => {
                         if t == Type::Number {
                             Ok(Type::Number)

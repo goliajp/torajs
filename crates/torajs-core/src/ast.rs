@@ -47,6 +47,11 @@ pub enum UnaryOp {
     Not, // logical !
     Neg, // arithmetic -
     BitNot, // bitwise ~
+    /// V3-18 m1.h.4 — unary `+x` per spec §13.5.4. Equivalent to
+    /// `ToNumber(x)` — coerces strings/booleans/null to a Number
+    /// without changing sign. Common in test262 for converting
+    /// values to Number explicitly.
+    Plus,
 }
 
 #[derive(Debug, Clone)]
@@ -6191,7 +6196,7 @@ fn infer_expr_ann_with(
         },
         Expr::Unary { op, .. } => match op {
             UnaryOp::Not => Some("boolean".into()),
-            UnaryOp::Neg | UnaryOp::BitNot => Some("number".into()),
+            UnaryOp::Neg | UnaryOp::BitNot | UnaryOp::Plus => Some("number".into()),
         },
         Expr::Ident(name) => {
             if let Some(p) = params.iter().find(|p| &p.name == name)

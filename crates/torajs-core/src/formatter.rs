@@ -950,6 +950,7 @@ impl<'a> Formatter<'a> {
                     UnaryOp::Not => "!",
                     UnaryOp::Neg => "-",
                     UnaryOp::BitNot => "~",
+                    UnaryOp::Plus => "+",
                 };
                 self.write(s);
                 // Parenthesize complex operands defensively.

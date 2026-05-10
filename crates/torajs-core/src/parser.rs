@@ -2022,6 +2022,15 @@ impl Parser<'_> {
                 expr: inner,
             }));
         }
+        // V3-18 m1.h.4 — unary `+x` ToNumber.
+        if matches!(self.peek(), Token::Plus) {
+            self.pos += 1;
+            let inner = self.parse_unary()?;
+            return Ok(self.ast.add_expr(Expr::Unary {
+                op: ast::UnaryOp::Plus,
+                expr: inner,
+            }));
+        }
         if matches!(self.peek(), Token::Tilde) {
             self.pos += 1;
             let inner = self.parse_unary()?;
