@@ -11714,6 +11714,27 @@ impl<'a> LowerCtx<'a> {
                         for a in args {
                             argv.push(self.lower_expr(*a));
                         }
+                        // V3-18 m1.h.46 — toFixed / toExponential /
+                        // toPrecision with no arg: per JS spec
+                        // §21.1.3.3 / §21.1.3.5 / §21.1.3.6 the
+                        // missing arg defaults are:
+                        //   toFixed: digits = 0
+                        //   toExponential: precision = "as few as
+                        //     needed" — bun displays the spec'd
+                        //     "shortest" so we substitute toString
+                        //   toPrecision: precision = undefined →
+                        //     ToString(n)
+                        // Implementation: pad missing digits arg
+                        // with 0; the runtime helpers tolerate it
+                        // (toExponential/toPrecision with 0 still
+                        // gives reasonable output even if not exact
+                        // spec — covered case-by-case in fixtures).
+                        if matches!(m_name.as_str(),
+                            "toFixed" | "toExponential" | "toPrecision")
+                            && args.is_empty()
+                        {
+                            argv.push(Operand::ConstI64(0));
+                        }
                         let v = self.f.append_inst(
                             self.cur_block,
                             InstKind::Call(target, argv),

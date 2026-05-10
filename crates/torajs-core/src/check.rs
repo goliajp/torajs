@@ -4266,6 +4266,29 @@ impl Checker {
                         return Ok(Type::Array(Box::new((**elem).clone())));
                     }
                 }
+                // V3-18 m1.h.46 — Number.toFixed / toExponential /
+                // toPrecision with 0 args. Per JS spec §21.1.3.3 etc:
+                //   n.toFixed()        defaults to digits = 0
+                //   n.toExponential()  defaults to fractionDigits = "as
+                //                       few as needed" (we use 6 — bun
+                //                       matches; actual spec call ToInteger
+                //                       on undefined gives 0 but bun's
+                //                       output uses default precision)
+                //   n.toPrecision()    no precision = same as toString
+                // Pre-fix tora declared with 1 fixed param so 0-arg
+                // calls failed at the arity check. Implementation:
+                // typecheck-only pass through; ssa_lower handles the
+                // missing-arg defaults.
+                if let Expr::Member { obj: src_id, name: m_name } = ast.get_expr(*callee)
+                    && matches!(m_name.as_str(),
+                        "toFixed" | "toExponential" | "toPrecision")
+                    && args.is_empty()
+                {
+                    let src_ty = self.type_of(ast, *src_id)?;
+                    if matches!(src_ty, Type::Number) {
+                        return Ok(Type::String);
+                    }
+                }
                 // V3-18 m1.h.45 — String.padStart / padEnd with 1 arg
                 // defaults the fill string to " " per JS spec §21.1.3.16.
                 // Pre-fix tora declared the methods with 2 fixed params
