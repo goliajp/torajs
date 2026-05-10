@@ -472,69 +472,90 @@ impl Parser<'_> {
             if matches!(self.peek(), Token::LBrace) {
                 return self.parse_object_destructuring(mutable);
             }
-            let name = match self.peek() {
-                Token::Ident(n) => n.clone(),
-                t => {
-                    return Err(format!(
-                        "expected identifier after `{kw}`, got {t:?} at {}",
-                        self.at()
-                    ));
-                }
-            };
-            self.pos += 1;
-            let type_ann = if matches!(self.peek(), Token::Colon) {
+            // V3-18 m1.h.5 — multi-decl `let a, b = 1, c` per spec
+            // §14.3.1. Each binding can have its own type ann and
+            // optional init; commas separate; final semi closes.
+            // Decls are emitted as a Stmt::Multi so subsequent
+            // passes see them as a flat statement sequence.
+            let mut decls: Vec<Stmt> = Vec::new();
+            loop {
+                let name = match self.peek() {
+                    Token::Ident(n) => n.clone(),
+                    t => {
+                        return Err(format!(
+                            "expected identifier after `{kw}`, got {t:?} at {}",
+                            self.at()
+                        ));
+                    }
+                };
                 self.pos += 1;
-                Some(self.parse_type_ann()?)
-            } else {
-                None
-            };
-            // `let x;` / `let x: T;` (no init) — emit an `Expr::Uninit`
-            // sentinel and let `desugar_uninit_let` resolve it from the
-            // first follow-up `x = EXPR;` in the declaring scope. Const
-            // requires an init by language rule, so reject early.
-            if matches!(self.peek(), Token::Semi) {
-                self.pos += 1;
-                if !mutable {
-                    return Err(format!(
-                        "`const {name}` requires an initializer at {}",
-                        self.at()
-                    ));
+                let type_ann = if matches!(self.peek(), Token::Colon) {
+                    self.pos += 1;
+                    Some(self.parse_type_ann()?)
+                } else {
+                    None
+                };
+                // No-init shape: `let x` / `let x: T` (followed by
+                // `,` or `;`). Const requires an init by spec.
+                if matches!(self.peek(), Token::Semi | Token::Comma) {
+                    if !mutable {
+                        return Err(format!(
+                            "`const {name}` requires an initializer at {}",
+                            self.at()
+                        ));
+                    }
+                    let init = self.ast.add_expr(Expr::Uninit);
+                    decls.push(Stmt::LetDecl {
+                        mutable,
+                        name,
+                        type_ann,
+                        init,
+                    });
+                    if matches!(self.peek(), Token::Comma) {
+                        self.pos += 1;
+                        continue;
+                    }
+                    self.pos += 1; // semi
+                    break;
                 }
-                let init = self.ast.add_expr(Expr::Uninit);
-                return Ok(Stmt::LetDecl {
+                match self.peek() {
+                    Token::Eq => self.pos += 1,
+                    t => return Err(format!("expected `=`, got {t:?} at {}", self.at())),
+                }
+                // J.4 — `let name(:T)? = yield <expr>;` shape. Only
+                // valid as a single-decl for-loop init or assignment;
+                // not allowed in the middle of a multi-decl. If the
+                // user writes `let x = yield e, y = ...` we fall
+                // through to parse_expr which won't accept yield —
+                // matches the v0.5 generator semantics.
+                if decls.is_empty() && matches!(self.peek(), Token::Yield) {
+                    self.pos += 1;
+                    let value = self.parse_expr()?;
+                    if matches!(self.peek(), Token::Semi) {
+                        self.pos += 1;
+                    }
+                    return Ok(Stmt::YieldInto { var: name, type_ann, value });
+                }
+                let init = self.parse_expr()?;
+                decls.push(Stmt::LetDecl {
                     mutable,
                     name,
                     type_ann,
                     init,
                 });
-            }
-            match self.peek() {
-                Token::Eq => self.pos += 1,
-                t => return Err(format!("expected `=`, got {t:?} at {}", self.at())),
-            }
-            // J.4 — `let name(:T)? = yield <expr>;` shape. We detect this
-            // before falling into the regular parse_expr so the rhs's
-            // `yield` keyword is consumed cleanly. desugar_generators
-            // later expands the YieldInto into a yield + a let bound to
-            // `this.__sent` (the value passed to the next-most
-            // `g.next(arg)` call).
-            if matches!(self.peek(), Token::Yield) {
-                self.pos += 1;
-                let value = self.parse_expr()?;
+                if matches!(self.peek(), Token::Comma) {
+                    self.pos += 1;
+                    continue;
+                }
                 if matches!(self.peek(), Token::Semi) {
                     self.pos += 1;
                 }
-                return Ok(Stmt::YieldInto { var: name, type_ann, value });
+                break;
             }
-            let init = self.parse_expr()?;
-            if matches!(self.peek(), Token::Semi) {
-                self.pos += 1;
-            }
-            return Ok(Stmt::LetDecl {
-                mutable,
-                name,
-                type_ann,
-                init,
+            return Ok(if decls.len() == 1 {
+                decls.into_iter().next().unwrap()
+            } else {
+                Stmt::Multi(decls)
             });
         }
         let expr = self.parse_expr()?;
