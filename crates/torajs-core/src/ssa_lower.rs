@@ -10315,6 +10315,15 @@ impl<'a> LowerCtx<'a> {
                     let actual = self.operand_ty(&op);
                     if self.f.ret == Type::F64 && actual == Type::I64 {
                         self.coerce_to_f64(op)
+                    } else if self.f.ret == Type::I64 && actual == Type::F64 {
+                        // Symmetric to the i64 → f64 promotion above —
+                        // when the declared `: number` ret is i64 but the
+                        // body computed an f64 (e.g. via Math.abs which
+                        // always returns f64 per JS spec), narrow with
+                        // FpToSi. Truncates fractional part, matching the
+                        // behavior any subsequent integer arithmetic
+                        // would force anyway.
+                        self.coerce_to_i64(op)
                     } else if self.f.ret == Type::Str && actual == Type::Substr {
                         let v = self.f.append_inst(
                             self.cur_block,
