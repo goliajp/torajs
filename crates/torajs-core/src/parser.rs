@@ -2449,26 +2449,27 @@ impl Parser<'_> {
                     }
                 };
                 self.pos += 1;
-                match self.peek() {
-                    Token::LParen => self.pos += 1,
-                    t => {
-                        return Err(format!(
-                            "expected `(` after `new {class_name}`, got {t:?} at {}",
-                            self.at()
-                        ));
-                    }
+                // V3-18 m1.h.22 — JS spec §13.3.5 NewExpression
+                // permits `new Foo` (no parens), equivalent to
+                // `new Foo()`. Test262 uses both forms; the no-
+                // parens form previously hard-rejected.
+                let has_parens = matches!(self.peek(), Token::LParen);
+                if has_parens {
+                    self.pos += 1;
                 }
                 let mut args: Vec<ExprId> = Vec::new();
-                if !matches!(self.peek(), Token::RParen) {
+                if has_parens && !matches!(self.peek(), Token::RParen) {
                     args.push(self.parse_expr()?);
                     while matches!(self.peek(), Token::Comma) {
                         self.pos += 1;
                         args.push(self.parse_expr()?);
                     }
                 }
-                match self.peek() {
-                    Token::RParen => self.pos += 1,
-                    t => return Err(format!("expected `)`, got {t:?} at {}", self.at())),
+                if has_parens {
+                    match self.peek() {
+                        Token::RParen => self.pos += 1,
+                        t => return Err(format!("expected `)`, got {t:?} at {}", self.at())),
+                    }
                 }
                 Ok(self.ast.add_expr(Expr::New { class_name, args }))
             }
