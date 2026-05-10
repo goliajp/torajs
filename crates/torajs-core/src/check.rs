@@ -2169,6 +2169,10 @@ impl Checker {
                     "Object" => Ok(Type::Object("Object")),
                     "Number" => Ok(Type::Object("Number")),
                     "String" => Ok(Type::Object("String")),
+                    // V3-18 m1.h.8 — `Boolean` global registered for
+                    // both type-ann shape and the Call arm's coercion
+                    // path (`Boolean(x)` → ToBoolean).
+                    "Boolean" => Ok(Type::Object("Boolean")),
                     "JSON" => Ok(Type::Object("JSON")),
                     "Array" => Ok(Type::Object("Array")),
                     "Date" => Ok(Type::Object("Date")),
@@ -3602,6 +3606,49 @@ impl Checker {
                         ));
                     }
                     return Ok(Type::Promise(Box::new(Type::Object("Response"))));
+                }
+                // V3-18 m1.h.8 — `Number(x)` / `String(x)` / `Boolean(x)`
+                // callable coercion (NOT `new` — that's the wrapper-
+                // object form, deferred). Spec §21.1.1 Number(value),
+                // §22.1.1 String(value), §20.3.1 Boolean(value):
+                // unconditionally coerce to the named primitive type.
+                // ssa_lower's per-input dispatch covers Number+Bool+
+                // Null (and String for the String() case); other arg
+                // types panic — String/Object → Number ToString-then-
+                // parse path lands with the m1.h.9 wedge.
+                if let Expr::Ident(n) = ast.get_expr(*callee)
+                    && (n == "Number" || n == "String" || n == "Boolean")
+                {
+                    let result_ty = match n.as_str() {
+                        "Number" => Type::Number,
+                        "String" => Type::String,
+                        "Boolean" => Type::Boolean,
+                        _ => unreachable!(),
+                    };
+                    if args.len() > 1 {
+                        return Err(format!(
+                            "{n}(value) takes 0 or 1 arg, got {}", args.len()
+                        ));
+                    }
+                    if let Some(a) = args.first() {
+                        let arg_ty = self.type_of(ast, *a)?;
+                        let ok = match n.as_str() {
+                            "Boolean" => true,
+                            "Number" => matches!(arg_ty, Type::Number | Type::Boolean | Type::Null | Type::String),
+                            "String" => matches!(
+                                arg_ty,
+                                Type::Number | Type::Boolean | Type::Null
+                                    | Type::String
+                            ),
+                            _ => false,
+                        };
+                        if !ok {
+                            return Err(format!(
+                                "{n}({arg_ty:?}) coercion not yet supported (V3-18 m1.h.9 follow-up)"
+                            ));
+                        }
+                    }
+                    return Ok(result_ty);
                 }
                 /* V3-03 — `BigInt(value)` callable ctor. One required
                  * arg, type-dispatched by ssa_lower:

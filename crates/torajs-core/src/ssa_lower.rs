@@ -2784,6 +2784,16 @@ fn lower_inner(
         &[Type::F64],
         Type::Str,
     );
+    // V3-18 m1.h.9 — Number(string) ToNumber per spec §7.1.4.
+    // Returns f64 (NaN on parse failure); caller may narrow to
+    // i64 if appropriate.
+    let str_to_number_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_str_to_number",
+        &[Type::Str],
+        Type::F64,
+    );
     // V3-18 m1.d — Bool/Null → String coercion for `+` with String.
     // ToString(true) = "true", ToString(false) = "false",
     // ToString(null) = "null".
@@ -3746,6 +3756,7 @@ fn lower_inner(
         i64_to_str: i64_to_str_id,
         bool_to_str: bool_to_str_id,
         null_to_str: null_to_str_id,
+        str_to_number: str_to_number_id,
         f64_to_str: f64_to_str_id,
         math_sqrt: math_sqrt_id,
         math_abs: math_abs_id,
@@ -4464,6 +4475,7 @@ struct Intrinsics {
     i64_to_str: FuncId,
     bool_to_str: FuncId,
     null_to_str: FuncId,
+    str_to_number: FuncId,
     f64_to_str: FuncId,
     math_sqrt: FuncId,
     math_abs: FuncId,
@@ -11228,6 +11240,100 @@ impl<'a> LowerCtx<'a> {
                  *                   with RangeError per spec)
                  * The typechecker accepts these three (and Type::Any
                  * deferred — Any-tagged dispatch is a follow-up). */
+                // V3-18 m1.h.8 — `Number(x)` / `String(x)` / `Boolean(x)`
+                // callable coercion. Spec primitive ToNumber / ToString
+                // / ToBoolean. Routed by arg's static SSA type.
+                if let Expr::Ident(n) = self.ast.get_expr(*callee)
+                    && (n == "Number" || n == "String" || n == "Boolean")
+                {
+                    let n_kind = n.clone();
+                    if args.is_empty() {
+                        return match n_kind.as_str() {
+                            "Number" => Operand::ConstI64(0),
+                            "String" => Operand::Value(self.intern_string_literal("")),
+                            "Boolean" => Operand::ConstBool(false),
+                            _ => unreachable!(),
+                        };
+                    }
+                    let arg_op = self.lower_expr(args[0]);
+                    let arg_ty = self.operand_ty(&arg_op);
+                    self.consume_if_ident(args[0]);
+                    let v = match n_kind.as_str() {
+                        "Number" => match arg_ty {
+                            Type::I64 | Type::F64 => arg_op,
+                            Type::Bool => self.coerce_bool_to_i64(arg_op),
+                            Type::Ptr if matches!(arg_op, Operand::ConstPtrNull) => {
+                                Operand::ConstI64(0)
+                            }
+                            Type::Str | Type::Substr => {
+                                // V3-18 m1.h.9 — String → ToNumber via
+                                // runtime helper (strtod-based, NaN on
+                                // parse failure). Returns f64 since
+                                // NaN can't fit i64.
+                                let v = self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::Call(
+                                        self.intrinsics.str_to_number,
+                                        vec![arg_op],
+                                    ),
+                                    Type::F64,
+                                    None,
+                                );
+                                Operand::Value(v)
+                            }
+                            _ => panic!(
+                                "ssa-lower: Number() with arg type {arg_ty:?} not yet supported"
+                            ),
+                        },
+                        "Boolean" => self.coerce_to_bool(arg_op),
+                        "String" => match arg_ty {
+                            Type::Str | Type::Substr => arg_op,
+                            Type::I64 => Operand::Value(self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(
+                                    self.intrinsics.i64_to_str,
+                                    vec![arg_op],
+                                ),
+                                Type::Str,
+                                None,
+                            )),
+                            Type::F64 => Operand::Value(self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(
+                                    self.intrinsics.f64_to_str,
+                                    vec![arg_op],
+                                ),
+                                Type::Str,
+                                None,
+                            )),
+                            Type::Bool => Operand::Value(self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(
+                                    self.intrinsics.bool_to_str,
+                                    vec![arg_op],
+                                ),
+                                Type::Str,
+                                None,
+                            )),
+                            Type::Ptr if matches!(arg_op, Operand::ConstPtrNull) => {
+                                Operand::Value(self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::Call(
+                                        self.intrinsics.null_to_str,
+                                        vec![],
+                                    ),
+                                    Type::Str,
+                                    None,
+                                ))
+                            }
+                            _ => panic!(
+                                "ssa-lower: String() with arg type {arg_ty:?} not yet supported"
+                            ),
+                        },
+                        _ => unreachable!(),
+                    };
+                    return v;
+                }
                 if let Expr::Ident(n) = self.ast.get_expr(*callee)
                     && n == "BigInt"
                     && args.len() == 1

@@ -2612,48 +2612,27 @@ fn define_print_bool<'ctx>(
     f
 }
 
-/// `print_f64(f64) -> void` — printf("%g\n", x). Uses libc printf for
-/// formatting since Rust's float formatter would require recursive lib
-/// calls we don't want at AOT time. `%g` matches Rust's `{}` formatter
-/// for most values; minor edge-case divergence (-0 vs 0, NaN sign) is
-/// acceptable for bench output.
+/// `print_f64(f64) -> void` — tail call to `__torajs_print_f64_js`
+/// in C runtime, which handles JS-spec NaN / Infinity formatting
+/// (was: printf("%g\n", x), which printed lowercase "nan" — a
+/// bun-divergence on every test262 NaN case).
 fn define_print_f64<'ctx>(
     ctx: &'ctx Context,
     m: &LlvmModule<'ctx>,
 ) -> FunctionValue<'ctx> {
-    let i32_t = ctx.i32_type();
     let f64_t = ctx.f64_type();
     let void_t = ctx.void_type();
-    let ptr_t = ctx.ptr_type(AddressSpace::default());
-    // printf is variadic; declare with a single ptr param + variadic.
-    let printf_t = i32_t.fn_type(&[ptr_t.into()], true);
-    let printf = m
-        .get_function("printf")
-        .unwrap_or_else(|| m.add_function("printf", printf_t, None));
-
-    // Format string global "%g\n\0".
-    let fmt_bytes = b"%g\n\0";
-    let arr_t = ctx.i8_type().array_type(fmt_bytes.len() as u32);
-    let arr = ctx.const_string(fmt_bytes, false);
-    let g = m.add_global(arr_t, None, ".f64fmt");
-    g.set_initializer(&arr);
-    g.set_constant(true);
-    g.set_linkage(inkwell::module::Linkage::Private);
-    g.set_unnamed_addr(true);
-
+    let helper_t = void_t.fn_type(&[f64_t.into()], false);
+    let helper = m
+        .get_function("__torajs_print_f64_js")
+        .unwrap_or_else(|| m.add_function("__torajs_print_f64_js", helper_t, None));
     let fn_t = void_t.fn_type(&[f64_t.into()], false);
     let f = m.add_function("print_f64", fn_t, None);
     let entry = ctx.append_basic_block(f, "entry");
     let builder = ctx.create_builder();
     builder.position_at_end(entry);
     let arg = f.get_nth_param(0).unwrap().into_float_value();
-    builder
-        .build_call(
-            printf,
-            &[g.as_pointer_value().into(), arg.into()],
-            "_p",
-        )
-        .unwrap();
+    builder.build_call(helper, &[arg.into()], "_p").unwrap();
     builder.build_return(None).unwrap();
     f
 }

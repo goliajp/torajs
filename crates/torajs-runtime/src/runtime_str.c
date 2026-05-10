@@ -1276,7 +1276,45 @@ void *__torajs_i64_to_str(int64_t n) {
  * matches JS's String(n) for the integer-valued cases we exercise.
  * (Full IEEE-754 round-trip requires more care; we'll punt on that
  * until a test demands it.) */
+/* V3-18 m1.h.9 — console.log of a f64 must format NaN as "NaN"
+ * (capitalized) and Infinity / -Infinity per spec, matching the
+ * String(d) shape. Replaces the IR-emitted printf("%g\n") path. */
+void __torajs_print_f64_js(double d) {
+    if (d != d) {
+        fputs("NaN\n", stdout);
+        return;
+    }
+    if (d == 1.0 / 0.0) {
+        fputs("Infinity\n", stdout);
+        return;
+    }
+    if (d == -1.0 / 0.0) {
+        fputs("-Infinity\n", stdout);
+        return;
+    }
+    printf("%g\n", d);
+}
+
 void *__torajs_f64_to_str(double d) {
+    /* V3-18 m1.h.9 — JS spec §22.1.3.6 String(NaN) returns "NaN"
+     * (capitalized); strtod / printf use the lowercase "nan" by
+     * default. Same for "Infinity" / "-Infinity". Special-case
+     * before snprintf. */
+    if (d != d) {
+        uint8_t *p = str_alloc_(3);
+        memcpy(__TORAJS_STR_DATA(p), "NaN", 3);
+        return p;
+    }
+    if (d == 1.0 / 0.0) {
+        uint8_t *p = str_alloc_(8);
+        memcpy(__TORAJS_STR_DATA(p), "Infinity", 8);
+        return p;
+    }
+    if (d == -1.0 / 0.0) {
+        uint8_t *p = str_alloc_(9);
+        memcpy(__TORAJS_STR_DATA(p), "-Infinity", 9);
+        return p;
+    }
     char buf[32];
     int written = snprintf(buf, sizeof(buf), "%g", d);
     if (written < 0) written = 0;
@@ -1284,6 +1322,59 @@ void *__torajs_f64_to_str(double d) {
     uint8_t *p = str_alloc_(len);
     if (len) memcpy(__TORAJS_STR_DATA(p), buf, (size_t)len);
     return p;
+}
+
+/* V3-18 m1.h.9 — JS spec §7.1.4 ToNumber on String. Trims
+ * leading/trailing whitespace per StringNumericLiteral grammar,
+ * then parses the remainder. Empty (or whitespace-only) → +0.
+ * Non-numeric tail or invalid prefix → NaN.
+ *
+ * Uses strtod for the bulk of the parse — it handles decimal,
+ * hex (0x..), and the standard exponent forms. JS spec edge
+ * cases (binary 0b.., octal 0o..) supported via explicit prefix
+ * detection. Infinity / NaN literals also recognized.
+ *
+ * Returns f64; the caller routes through the same path as a
+ * normal Number expression. */
+double __torajs_str_to_number(const void *p) {
+    if (p == NULL) return 0.0;
+    uint64_t len = __TORAJS_STR_LEN(p);
+    const uint8_t *bytes = __TORAJS_STR_CDATA(p);
+    /* Trim whitespace per spec §7.1.4 / §7.1.4.1.1
+     * StringWhiteSpace: SP, TAB, VT, FF, NL, CR, NBSP, BOM, ZWNBSP. */
+    uint64_t s = 0, e = len;
+    while (s < e && (bytes[s] == ' ' || bytes[s] == '\t'
+                     || bytes[s] == '\n' || bytes[s] == '\r'
+                     || bytes[s] == 0x0b || bytes[s] == 0x0c)) s++;
+    while (e > s && (bytes[e-1] == ' ' || bytes[e-1] == '\t'
+                     || bytes[e-1] == '\n' || bytes[e-1] == '\r'
+                     || bytes[e-1] == 0x0b || bytes[e-1] == 0x0c)) e--;
+    if (s == e) return 0.0;
+    /* Copy trimmed slice into a NUL-terminated buf for libc. */
+    char tmp[64];
+    char *buf = (e - s + 1 <= sizeof(tmp))
+        ? tmp
+        : (char *)malloc((size_t)(e - s + 1));
+    if (buf == NULL) return 0.0;
+    for (uint64_t i = 0; i < e - s; i++) buf[i] = (char)bytes[s + i];
+    buf[e - s] = '\0';
+    /* Special literals before strtod. */
+    double result;
+    if (strcmp(buf, "Infinity") == 0 || strcmp(buf, "+Infinity") == 0) {
+        result = 1.0 / 0.0;
+    } else if (strcmp(buf, "-Infinity") == 0) {
+        result = -1.0 / 0.0;
+    } else if (strcmp(buf, "NaN") == 0) {
+        result = 0.0 / 0.0;
+    } else {
+        char *endp = NULL;
+        result = strtod(buf, &endp);
+        if (endp == NULL || *endp != '\0') {
+            result = 0.0 / 0.0; /* NaN — non-numeric trailing chars */
+        }
+    }
+    if (buf != tmp) free(buf);
+    return result;
 }
 
 /* V3-18 m1.d — JS spec §7.1.17 ToString:
