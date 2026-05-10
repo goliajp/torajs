@@ -19892,14 +19892,11 @@ impl<'a> LowerCtx<'a> {
             // (truncate towards zero, mask to 32 bits). For tora's
             // i64 model we use FpToSi (truncate to i64) which
             // matches the spec for finite values in the i32 range
-            // — the dominant test262 case. NaN / Infinity / out-of-
-            // range cases collapse via FpToSi's poison-on-OOB
-            // behavior; we additionally bias them to 0 for spec
-            // safety. Mod retains its i64-only path because the
-            // f64 spec is fmod-flavored, not srem.
-            if matches!(op, AstBinOp::Mod) {
-                panic!("ssa-lower: mod op requires i64 operands");
-            }
+            // — the dominant test262 case.
+            //
+            // V3-18 m1.h.41 — Mod with f64 operands maps to
+            // LLVM frem (IEEE fmod-shaped), matching JS spec
+            // §13.10 numeric remainder for non-integer Number.
             if matches!(
                 op,
                 AstBinOp::BitAnd | AstBinOp::BitOr | AstBinOp::BitXor
@@ -19923,6 +19920,7 @@ impl<'a> LowerCtx<'a> {
                 AstBinOp::Add => self.bin(SsaBinOp::FAdd, af, bf, Type::F64),
                 AstBinOp::Sub => self.bin(SsaBinOp::FSub, af, bf, Type::F64),
                 AstBinOp::Mul => self.bin(SsaBinOp::FMul, af, bf, Type::F64),
+                AstBinOp::Mod => self.bin(SsaBinOp::FRem, af, bf, Type::F64),
                 AstBinOp::Div => self.bin(SsaBinOp::FDiv, af, bf, Type::F64),
                 AstBinOp::Pow => {
                     let v = self.f.append_inst(

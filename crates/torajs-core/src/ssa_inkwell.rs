@@ -4012,7 +4012,7 @@ impl<'a, 'ctx> FnLower<'a, 'ctx> {
                         };
                         BasicValueEnum::IntValue(r)
                     }
-                    BinOp::FAdd | BinOp::FSub | BinOp::FMul | BinOp::FDiv => {
+                    BinOp::FAdd | BinOp::FSub | BinOp::FMul | BinOp::FDiv | BinOp::FRem => {
                         let av = self.operand(a).into_float_value();
                         let bv = self.operand(b).into_float_value();
                         let r = match op {
@@ -4020,6 +4020,7 @@ impl<'a, 'ctx> FnLower<'a, 'ctx> {
                             BinOp::FSub => self.builder.build_float_sub(av, bv, "").unwrap(),
                             BinOp::FMul => self.builder.build_float_mul(av, bv, "").unwrap(),
                             BinOp::FDiv => self.builder.build_float_div(av, bv, "").unwrap(),
+                            BinOp::FRem => self.builder.build_float_rem(av, bv, "").unwrap(),
                             _ => unreachable!(),
                         };
                         BasicValueEnum::FloatValue(r)

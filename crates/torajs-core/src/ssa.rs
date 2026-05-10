@@ -318,6 +318,9 @@ pub enum BinOp {
     FSub,
     FMul,
     FDiv,
+    /// Floating-point remainder — IEEE 754 fmod-shaped, used for JS
+    /// Number `%` when either operand is f64 (V3-18 m1.h.41).
+    FRem,
 }
 
 impl BinOp {
@@ -338,6 +341,7 @@ impl BinOp {
             BinOp::FSub => "fsub",
             BinOp::FMul => "fmul",
             BinOp::FDiv => "fdiv",
+            BinOp::FRem => "frem",
         }
     }
 }
