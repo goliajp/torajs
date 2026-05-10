@@ -23,6 +23,7 @@
  * Phase 2 (later commits): Arr / Obj / Closure migrated.
  */
 
+#include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -1396,12 +1397,15 @@ static int torajs_f64_shortest(double d, char *buf, size_t cap) {
      * abs-bound 1e21 is the spec's threshold for switching to
      * exponential. */
     double abs_d = d < 0 ? -d : d;
-    if (d == (double)(long long)d && abs_d < 1e21) {
-        /* %.0f rounds .5 to even; safe because we only enter this
-         * branch when d is already integer-valued. ±0 sign handling
-         * is the caller's responsibility — `console.log(-0)` shows
-         * `-0` (node-style util.inspect) while `String(-0)` returns
-         * `"0"` (ECMA-262 §22.1.3.6). */
+    /* Integer-valued check via floor — safe across the full f64 range
+     * (the (long long) cast is UB past i64::MAX, e.g. for 9.99e18). */
+    if (d == floor(d) && abs_d < 1e21) {
+        /* %.0f gives the plain integer form (no exponent) for any
+         * integer-valued double in spec range, including big ones
+         * like 9.99e18 → "9989999999999999488" (the actual f64
+         * representation, matching v8/JSC). ±0 sign handling is the
+         * caller's responsibility — console.log(-0) shows "-0",
+         * String(-0) returns "0" (ECMA-262 §22.1.3.6). */
         return snprintf(buf, cap, "%.0f", d);
     }
     for (int prec = 1; prec <= 17; prec++) {

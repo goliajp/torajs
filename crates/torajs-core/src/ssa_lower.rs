@@ -109,7 +109,9 @@ enum NumWidth {
 /// so we don't accidentally widen integer-shaped generics.
 fn infer_arg_width(ast: &Ast, eid: ExprId) -> NumWidth {
     match ast.get_expr(eid) {
-        Expr::Number(n) if n.fract() != 0.0 => NumWidth::F64,
+        // Genuinely fractional, OR magnitude past i64 range (e.g. `1e21`)
+        // — both must promote to f64 since `n as i64` would saturate.
+        Expr::Number(n) if n.fract() != 0.0 || n.abs() >= 9.223372036854776e18 => NumWidth::F64,
         Expr::BinOp { op: AstBinOp::Div, .. } => NumWidth::F64,
         Expr::Unary { op: AstUnaryOp::Neg, expr } => infer_arg_width(ast, *expr),
         Expr::Call { callee, .. } => {
@@ -10618,13 +10620,12 @@ impl<'a> LowerCtx<'a> {
             // Number literals coerce to i64 — type inference lifts them to
             // f64 once we wire numeric-mode detection into the lowerer.
             Expr::Number(n) => {
-                // Integer-valued literals stay as i64; only literals with a
-                // genuine fractional part become f64. `1.0` collapses to i64
-                // here — but that's fine: when used in an f64 context, the
-                // BinOp lowering below promotes ConstI64 → ConstF64 by
-                // rewriting the operand. No SItoFP instruction is needed
-                // for constants.
-                if n.fract() != 0.0 {
+                // Integer-valued literals stay as i64; literals with a
+                // genuine fractional part OR with magnitude beyond i64
+                // range (e.g. `1e21` ≈ 1.0e21 > 9.22e18) become f64.
+                // Without the magnitude check `1e21 as i64` saturates to
+                // i64::MAX, printing 9223372036854775807 instead of 1e+21.
+                if n.fract() != 0.0 || n.abs() >= 9.223372036854776e18 || !n.is_finite() {
                     Operand::ConstF64(*n)
                 } else {
                     Operand::ConstI64(*n as i64)
