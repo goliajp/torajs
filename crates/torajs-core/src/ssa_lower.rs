@@ -18048,11 +18048,15 @@ impl<'a> LowerCtx<'a> {
                     let idx_raw = self.lower_expr(*index);
                     let idx_val = self.coerce_to_i64(idx_raw);
                     let v = if arr_ty == Type::Str {
+                        // V3-18 m1.h.44 — bounds-checked str indexing.
+                        // Same fix as charAt (m1.h.37): direct
+                        // substr_create trusted the user's idx and
+                        // OOB indices stored garbage offsets.
                         self.f.append_inst(
                             self.cur_block,
                             InstKind::Call(
-                                self.intrinsics.substr_create,
-                                vec![arr_val, idx_val, Operand::ConstI64(1)],
+                                self.intrinsics.str_char_at,
+                                vec![arr_val, idx_val],
                             ),
                             Type::Substr,
                             None,
