@@ -14665,7 +14665,15 @@ impl<'a> LowerCtx<'a> {
                         };
                         let mut argv = Vec::with_capacity(2);
                         argv.push(recv_op);
-                        argv.push(self.lower_expr(args[0]));
+                        // V3-18 m1.h.42 — default separator ","
+                        // when join() is called with no arg.
+                        let sep = if args.is_empty() {
+                            let s = self.intern_string_literal(",");
+                            Operand::Value(s)
+                        } else {
+                            self.lower_expr(args[0])
+                        };
+                        argv.push(sep);
                         let v = self.f.append_inst(
                             self.cur_block,
                             InstKind::Call(join_fid, argv),

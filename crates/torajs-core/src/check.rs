@@ -4262,6 +4262,21 @@ impl Checker {
                         return Ok(Type::Array(Box::new((**elem).clone())));
                     }
                 }
+                // V3-18 m1.h.42 — Array<String|Substr>.join() with no
+                // sep arg defaults to ","; matches JS spec §22.1.3.13.
+                // Pre-fix tora declared join with 1 fixed param so
+                // `xs.join()` failed at the arity check.
+                if let Expr::Member { obj: src_id, name: m_name } = ast.get_expr(*callee)
+                    && m_name == "join"
+                    && args.is_empty()
+                {
+                    let src_ty = self.type_of(ast, *src_id)?;
+                    if let Type::Array(elem) = &src_ty
+                        && matches!(**elem, Type::String)
+                    {
+                        return Ok(Type::String);
+                    }
+                }
                 // V3-18 m1.h.36 — String.slice / substring with 0 or
                 // 1 args. Per JS spec §21.1.3.21 / §21.1.3.23:
                 //   s.slice()      = s.slice(0, s.length)
