@@ -4956,13 +4956,22 @@ impl Checker {
                 // V3-18 m1.h.3 — JS spec §13.5.3 typeof on an
                 // unresolved Reference returns "undefined" without
                 // throwing. Used pervasively in test262 for feature
-                // detection (`typeof BigInt === "function"`). Special-
-                // case the Ident path: an undeclared name typeofs as
-                // "undefined" rather than erroring on type lookup.
+                // detection (`typeof BigInt === "function"`).
+                //
+                // V3-18 m1.h.20 — also short-circuit known-builtin
+                // Idents and Member expressions on a known
+                // namespace. ssa_lower resolves these to the spec
+                // literal at lower time without needing a SSA local
+                // for the global, so check.rs must not bail on
+                // type_of(Ident("globalThis"))-type lookups.
                 if let Expr::Ident(name) = ast.get_expr(*expr)
-                    && self.lookup(name).is_none()
-                    && !self.globals.contains_key(name)
-                    && !is_known_builtin_global(name)
+                    && (self.lookup(name).is_none() || is_known_builtin_global(name))
+                {
+                    return Ok(Type::String);
+                }
+                if let Expr::Member { obj, .. } = ast.get_expr(*expr)
+                    && let Expr::Ident(ns) = ast.get_expr(*obj)
+                    && is_known_builtin_global(ns)
                 {
                     return Ok(Type::String);
                 }

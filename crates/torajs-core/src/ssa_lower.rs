@@ -18306,6 +18306,85 @@ impl<'a> LowerCtx<'a> {
                 Operand::Value(r)
             }
             Expr::TypeOf { expr } => {
+                // V3-18 m1.h.20 — typeof on known JS globals must
+                // return the spec literal without trying to lower
+                // the Ident (the global is not a SSA local). Per
+                // §13.5.3:
+                //   Math / JSON / Reflect / globalThis → "object"
+                //   console → "object"
+                //   undefined → "undefined"
+                //   constructors (Number, String, Symbol, Date,
+                //     Array, Object, RegExp, Error, Function,
+                //     Promise, Map, Set, BigInt, ...) → "function"
+                //   parseInt / parseFloat / isNaN / isFinite /
+                //     encodeURI / decodeURI ... → "function"
+                if let Expr::Ident(name) = self.ast.get_expr(*expr) {
+                    let global_kind: Option<&'static str> = match name.as_str() {
+                        "undefined" => Some("undefined"),
+                        "Math" | "JSON" | "Reflect" | "globalThis" | "console" => {
+                            Some("object")
+                        }
+                        "Number" | "String" | "Boolean" | "Symbol" | "Date"
+                        | "Array" | "Object" | "RegExp" | "Error" | "Function"
+                        | "Promise" | "Map" | "Set" | "WeakMap" | "WeakSet"
+                        | "Proxy" | "BigInt" | "ArrayBuffer" | "DataView"
+                        | "TypeError" | "RangeError" | "SyntaxError"
+                        | "ReferenceError" | "parseInt" | "parseFloat"
+                        | "isNaN" | "isFinite" | "encodeURI" | "decodeURI"
+                        | "encodeURIComponent" | "decodeURIComponent" => {
+                            Some("function")
+                        }
+                        _ => None,
+                    };
+                    if let Some(s) = global_kind {
+                        return Operand::Value(self.intern_string_literal(s));
+                    }
+                }
+                // typeof <namespace>.<member> — `console.log`, `Math.abs`,
+                // `JSON.stringify` etc. The obj-side Ident isn't a SSA
+                // local so lower_expr would error; resolve at compile
+                // time via the namespace + name. Math constants
+                // (PI / E / LN2 / ...) typeof as "number"; everything
+                // else on these namespaces is a function.
+                if let Expr::Member { obj, name: member_name } = self.ast.get_expr(*expr)
+                    && let Expr::Ident(ns) = self.ast.get_expr(*obj)
+                {
+                    // Well-known Symbol singletons typeof as "symbol".
+                    let is_symbol_well_known = ns == "Symbol" && matches!(
+                        member_name.as_str(),
+                        "iterator" | "asyncIterator" | "toPrimitive"
+                            | "toStringTag" | "hasInstance" | "isConcatSpreadable"
+                            | "match" | "replace" | "search" | "split" | "species"
+                            | "unscopables"
+                    );
+                    let is_math_const = ns == "Math" && matches!(
+                        member_name.as_str(),
+                        "PI" | "E" | "LN2" | "LN10" | "LOG2E" | "LOG10E" | "SQRT2" | "SQRT1_2"
+                    );
+                    let is_number_const = ns == "Number" && matches!(
+                        member_name.as_str(),
+                        "MAX_VALUE" | "MIN_VALUE" | "MAX_SAFE_INTEGER" | "MIN_SAFE_INTEGER"
+                            | "EPSILON" | "POSITIVE_INFINITY" | "NEGATIVE_INFINITY" | "NaN"
+                    );
+                    let ns_known = matches!(
+                        ns.as_str(),
+                        "Math" | "JSON" | "Reflect" | "globalThis" | "console"
+                            | "Object" | "Array" | "String" | "Number" | "Boolean"
+                            | "Symbol" | "Date" | "RegExp" | "Error" | "BigInt"
+                            | "Promise" | "Map" | "Set"
+                    );
+                    if ns_known {
+                        let s = if is_symbol_well_known {
+                            "symbol"
+                        } else if is_math_const || is_number_const {
+                            "number"
+                        } else {
+                            "function"
+                        };
+                        return Operand::Value(self.intern_string_literal(s));
+                    }
+                }
+
                 // V3-18 m1.h.3 — `typeof undeclared` returns the
                 // string "undefined" without throwing. check.rs
                 // already accepted the case; here we short-circuit
