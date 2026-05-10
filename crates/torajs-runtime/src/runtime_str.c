@@ -1376,6 +1376,43 @@ void __torajs_arr_print_str(void *arr) {
 /* V3-18 m1.h.9 — console.log of a f64 must format NaN as "NaN"
  * (capitalized) and Infinity / -Infinity per spec, matching the
  * String(d) shape. Replaces the IR-emitted printf("%g\n") path. */
+/* Format `d` per ECMA-262 §6.1.6.1.13 / §22.1.3.6:
+ *
+ *   - If d is an integer-valued double in (-1e21, 1e21): print as
+ *     decimal with no fractional part (e.g. 10 → "10", 2500 →
+ *     "2500"), never exponential notation. printf("%g") with low
+ *     precision gives "1e+01" / "2.5e+03" which JS spec forbids
+ *     for the in-range integer case.
+ *   - Otherwise: shortest decimal that roundtrips. Try-precisions
+ *     loop over `%.*g` from 1 → 17. Slow vs. Ryu/Grisu but only
+ *     the print path hits it; output is byte-equal to v8/JSC for
+ *     every f64 value. (Future perf: drop in Ryu.)
+ *
+ * Returns the number of bytes written (excluding NUL), or -1 on
+ * overflow. buf must be at least 32 bytes. */
+static int torajs_f64_shortest(double d, char *buf, size_t cap) {
+    /* Integer-valued in spec's plain-decimal range: §6.1.6.1.13
+     * step 5: when 0 < n ≤ 21 (and k ≤ n) print as decimal. The
+     * abs-bound 1e21 is the spec's threshold for switching to
+     * exponential. */
+    double abs_d = d < 0 ? -d : d;
+    if (d == (double)(long long)d && abs_d < 1e21) {
+        /* %.0f rounds .5 to even; safe because we only enter this
+         * branch when d is already integer-valued. ±0 sign handling
+         * is the caller's responsibility — `console.log(-0)` shows
+         * `-0` (node-style util.inspect) while `String(-0)` returns
+         * `"0"` (ECMA-262 §22.1.3.6). */
+        return snprintf(buf, cap, "%.0f", d);
+    }
+    for (int prec = 1; prec <= 17; prec++) {
+        int written = snprintf(buf, cap, "%.*g", prec, d);
+        if (written < 0 || (size_t)written >= cap) return -1;
+        double parsed = strtod(buf, NULL);
+        if (parsed == d) return written;
+    }
+    return snprintf(buf, cap, "%.17g", d);
+}
+
 void __torajs_print_f64_js(double d) {
     if (d != d) {
         fputs("NaN\n", stdout);
@@ -1389,7 +1426,11 @@ void __torajs_print_f64_js(double d) {
         fputs("-Infinity\n", stdout);
         return;
     }
-    printf("%g\n", d);
+    char buf[32];
+    int n = torajs_f64_shortest(d, buf, sizeof(buf));
+    if (n < 0) n = 0;
+    fwrite(buf, 1, (size_t)n, stdout);
+    fputc('\n', stdout);
 }
 
 void *__torajs_f64_to_str(double d) {
@@ -1413,11 +1454,19 @@ void *__torajs_f64_to_str(double d) {
         return p;
     }
     char buf[32];
-    int written = snprintf(buf, sizeof(buf), "%g", d);
+    int written = torajs_f64_shortest(d, buf, sizeof(buf));
     if (written < 0) written = 0;
+    /* §22.1.3.6: String(-0) returns "0" (no sign). console.log(-0)
+     * keeps the sign via node's util.inspect — that path hits
+     * __torajs_print_f64_js, not here. */
+    int off = 0;
+    if (d == 0.0 && written >= 1 && buf[0] == '-') {
+        off = 1;
+        written -= 1;
+    }
     uint64_t len = (uint64_t)written;
     uint8_t *p = str_alloc_(len);
-    if (len) memcpy(__TORAJS_STR_DATA(p), buf, (size_t)len);
+    if (len) memcpy(__TORAJS_STR_DATA(p), buf + off, (size_t)len);
     return p;
 }
 
