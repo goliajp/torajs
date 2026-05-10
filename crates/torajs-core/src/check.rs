@@ -4266,6 +4266,25 @@ impl Checker {
                         return Ok(Type::Array(Box::new((**elem).clone())));
                     }
                 }
+                // V3-18 m1.h.45 — String.padStart / padEnd with 1 arg
+                // defaults the fill string to " " per JS spec §21.1.3.16.
+                // Pre-fix tora declared the methods with 2 fixed params
+                // so `s.padStart(3)` failed at the arity check.
+                if let Expr::Member { obj: src_id, name: m_name } = ast.get_expr(*callee)
+                    && (m_name == "padStart" || m_name == "padEnd")
+                    && args.len() == 1
+                {
+                    let src_ty = self.type_of(ast, *src_id)?;
+                    if matches!(src_ty, Type::String) {
+                        let aty = self.type_of(ast, args[0])?;
+                        if aty != Type::Number {
+                            return Err(format!(
+                                "String.{m_name} arg 0 must be number, got {aty:?}"
+                            ));
+                        }
+                        return Ok(Type::String);
+                    }
+                }
                 // V3-18 m1.h.42 — Array<String|Substr>.join() with no
                 // sep arg defaults to ","; matches JS spec §22.1.3.13.
                 // Pre-fix tora declared join with 1 fixed param so

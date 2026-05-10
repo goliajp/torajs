@@ -14627,6 +14627,15 @@ impl<'a> LowerCtx<'a> {
                             );
                             argv.push(Operand::Value(len));
                         }
+                        // V3-18 m1.h.45 — String.padStart / padEnd with 1
+                        // arg: default fill string is " " per JS spec
+                        // §21.1.3.16.
+                        if matches!(method.as_str(), "padStart" | "padEnd")
+                            && args.len() == 1
+                        {
+                            let space = self.intern_string_literal(" ");
+                            argv.push(Operand::Value(space));
+                        }
                         let (target, ret_ty) = match method.as_str() {
                             "slice" => (self.intrinsics.str_slice, Type::Str),
                             "substring" => (self.intrinsics.str_substring, Type::Str),
