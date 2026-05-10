@@ -704,6 +704,19 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                     while i < len && bytes[i as usize].is_ascii_digit() {
                         i += 1;
                     }
+                } else if peek(bytes, i) == Some(b'.')
+                    && peek(bytes, i + 1) == Some(b'.')
+                {
+                    // V3-18 m1.h.21 — `0..toString()` form. JS spec
+                    // §12.8.3 allows DecimalLiteral to end with a
+                    // trailing `.`; the second `.` then begins a
+                    // member access. Without consuming the first
+                    // dot here, the parser sees `Number(0)` then
+                    // `.` `.` and bails. Used by 20+ test262 cases
+                    // (Number/prototype/toString/numeric-literal-*)
+                    // and the standard idiom for `(123).toString()`
+                    // without parens.
+                    i += 1;
                 }
                 // Scientific notation: `e` / `E` optionally followed by
                 // `+` / `-`, then one or more digits. Only consume when
