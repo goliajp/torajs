@@ -4278,6 +4278,32 @@ impl Checker {
                         return Ok(Type::Array(Box::new((**elem).clone())));
                     }
                 }
+                // V3-18 m1.h.49 — Array.indexOf / lastIndexOf accept
+                // an optional fromIndex 2nd arg per JS spec §22.1.3.13
+                // / §22.1.3.16. Pre-fix tora declared with 1 fixed
+                // param so 2-arg calls hit the arity check.
+                if let Expr::Member { obj: src_id, name: m_name } = ast.get_expr(*callee)
+                    && matches!(m_name.as_str(), "indexOf" | "lastIndexOf" | "includes")
+                    && args.len() == 2
+                {
+                    let src_ty = self.type_of(ast, *src_id)?;
+                    if let Type::Array(elem) = &src_ty {
+                        let needle_ty = self.type_of(ast, args[0])?;
+                        if needle_ty != **elem {
+                            return Err(format!(
+                                "Array.{m_name} arg 0 must match elem type {:?}, got {needle_ty:?}",
+                                **elem
+                            ));
+                        }
+                        let from_ty = self.type_of(ast, args[1])?;
+                        if from_ty != Type::Number {
+                            return Err(format!(
+                                "Array.{m_name} arg 1 (fromIndex) must be number, got {from_ty:?}"
+                            ));
+                        }
+                        return Ok(if m_name == "includes" { Type::Boolean } else { Type::Number });
+                    }
+                }
                 // V3-18 m1.h.48 — String.normalize accepts an optional
                 // form arg ("NFC" / "NFD" / "NFKC" / "NFKD"). Per JS
                 // spec §21.1.3.13. tora's byte-Str ASCII-only path

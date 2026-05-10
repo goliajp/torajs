@@ -15686,7 +15686,7 @@ impl<'a> LowerCtx<'a> {
                         && (method == "indexOf"
                             || method == "lastIndexOf"
                             || method == "includes")
-                        && args.len() == 1
+                        && (args.len() == 1 || args.len() == 2)
                     {
                         let want_bool = method == "includes";
                         let want_last = method == "lastIndexOf";
@@ -15702,21 +15702,88 @@ impl<'a> LowerCtx<'a> {
                                 0,
                             ),
                         );
-                        let i_slot = self.alloca_in_entry(Type::I64, Some("__i"));
-                        self.f.append_void(
-                            self.cur_block,
-                            InstKind::Store(
-                                Operand::ConstI64(0),
-                                Operand::Value(i_slot),
-                                0,
-                            ),
-                        );
                         let len_v = self.f.append_inst(
                             self.cur_block,
                             InstKind::Load(Type::I64, recv_op, ARR_LEN_OFF),
                             Type::I64,
                             None,
                         );
+                        // V3-18 m1.h.49 — optional fromIndex (2nd arg).
+                        // Per JS spec §22.1.3.13: indexOf / lastIndexOf /
+                        // includes accept (elem, fromIndex?). Negative
+                        // fromIndex counts from end (clamped to 0).
+                        // Default: 0.
+                        //
+                        // Implementation: stash the normalized fromIndex
+                        // into i_slot up front via a 3-block branch
+                        // (neg → plus_len_clamped, else raw), then the
+                        // existing scan loop reads i_slot from there.
+                        let i_slot = self.alloca_in_entry(Type::I64, Some("__i"));
+                        if args.len() == 2 {
+                            let raw = self.lower_expr(args[1]);
+                            let raw_i = self.coerce_to_i64(raw);
+                            let neg = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::ICmp(IPred::Slt, raw_i, Operand::ConstI64(0)),
+                                Type::Bool,
+                                None,
+                            );
+                            let neg_blk = self.f.add_block();
+                            let pos_blk = self.f.add_block();
+                            let join_blk = self.f.add_block();
+                            self.f.set_term(self.cur_block, Terminator::CondBr {
+                                cond: Operand::Value(neg),
+                                then_blk: neg_blk,
+                                else_blk: pos_blk,
+                            });
+                            // neg path: store max(raw+len, 0).
+                            self.cur_block = neg_blk;
+                            let plus_len = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::BinOp(SsaBinOp::Add, raw_i, Operand::Value(len_v)),
+                                Type::I64,
+                                None,
+                            );
+                            let pl_neg = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::ICmp(IPred::Slt, Operand::Value(plus_len), Operand::ConstI64(0)),
+                                Type::Bool,
+                                None,
+                            );
+                            let zero_blk = self.f.add_block();
+                            let plus_blk = self.f.add_block();
+                            self.f.set_term(self.cur_block, Terminator::CondBr {
+                                cond: Operand::Value(pl_neg),
+                                then_blk: zero_blk,
+                                else_blk: plus_blk,
+                            });
+                            self.f.append_void(
+                                zero_blk,
+                                InstKind::Store(Operand::ConstI64(0), Operand::Value(i_slot), 0),
+                            );
+                            self.f.set_term(zero_blk, Terminator::Br(join_blk));
+                            self.f.append_void(
+                                plus_blk,
+                                InstKind::Store(Operand::Value(plus_len), Operand::Value(i_slot), 0),
+                            );
+                            self.f.set_term(plus_blk, Terminator::Br(join_blk));
+                            // pos path: store raw_i directly.
+                            self.f.append_void(
+                                pos_blk,
+                                InstKind::Store(raw_i, Operand::Value(i_slot), 0),
+                            );
+                            self.f.set_term(pos_blk, Terminator::Br(join_blk));
+                            self.cur_block = join_blk;
+                        } else {
+                            self.f.append_void(
+                                self.cur_block,
+                                InstKind::Store(
+                                    Operand::ConstI64(0),
+                                    Operand::Value(i_slot),
+                                    0,
+                                ),
+                            );
+                        }
                         let header = self.f.add_block();
                         let body = self.f.add_block();
                         let after = self.f.add_block();
