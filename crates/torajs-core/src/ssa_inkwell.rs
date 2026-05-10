@@ -4060,6 +4060,7 @@ impl<'a, 'ctx> FnLower<'a, 'ctx> {
                     FPred::Ogt => FloatPredicate::OGT,
                     FPred::Ole => FloatPredicate::OLE,
                     FPred::Oge => FloatPredicate::OGE,
+                    FPred::Une => FloatPredicate::UNE,
                 };
                 let r = self.builder.build_float_compare(pred, av, bv, "").unwrap();
                 Some(BasicValueEnum::IntValue(r))

@@ -19793,7 +19793,14 @@ impl<'a> LowerCtx<'a> {
                 AstBinOp::Le => self.fcmp(FPred::Ole, af, bf),
                 AstBinOp::Ge => self.fcmp(FPred::Oge, af, bf),
                 AstBinOp::Eq | AstBinOp::LooseEq => self.fcmp(FPred::Oeq, af, bf),
-                AstBinOp::Neq | AstBinOp::LooseNeq => self.fcmp(FPred::One, af, bf),
+                // V3-18 m1.h.32 — NaN !== NaN must be true per JS
+                // spec §7.2.16. FCmp::One (ordered-not-equal)
+                // returns false when either operand is NaN; the
+                // correct shape is Une (unordered-or-not-equal),
+                // which is true if either side is NaN OR the values
+                // differ — matches the spec for both NaN and normal
+                // numbers.
+                AstBinOp::Neq | AstBinOp::LooseNeq => self.fcmp(FPred::Une, af, bf),
                 AstBinOp::Mod
                 | AstBinOp::BitAnd
                 | AstBinOp::BitOr

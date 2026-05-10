@@ -373,6 +373,10 @@ pub enum FPred {
     Ogt,
     Ole,
     Oge,
+    /// Unordered-or-not-equal — true if either operand is NaN OR
+    /// the values differ. Required for JS `!==` / `!=` on f64
+    /// (NaN !== NaN must be true per spec §7.2.16).
+    Une,
 }
 
 impl FPred {
@@ -384,6 +388,7 @@ impl FPred {
             FPred::Ogt => "ogt",
             FPred::Ole => "ole",
             FPred::Oge => "oge",
+            FPred::Une => "une",
         }
     }
 }
