@@ -2794,6 +2794,37 @@ fn lower_inner(
         &[Type::Str],
         Type::F64,
     );
+    // V3-18 m1.h.12 — `console.log(arr)` pretty-print, one
+    // helper per element type. Format: `[]` for empty,
+    // `[ a, b, c ]` for non-empty (note spaces; matches bun).
+    let arr_print_i64_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_arr_print_i64",
+        &[Type::Ptr],
+        Type::Void,
+    );
+    let arr_print_f64_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_arr_print_f64",
+        &[Type::Ptr],
+        Type::Void,
+    );
+    let arr_print_bool_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_arr_print_bool",
+        &[Type::Ptr],
+        Type::Void,
+    );
+    let arr_print_str_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_arr_print_str",
+        &[Type::Ptr],
+        Type::Void,
+    );
     // V3-18 m1.d — Bool/Null → String coercion for `+` with String.
     // ToString(true) = "true", ToString(false) = "false",
     // ToString(null) = "null".
@@ -3757,6 +3788,10 @@ fn lower_inner(
         bool_to_str: bool_to_str_id,
         null_to_str: null_to_str_id,
         str_to_number: str_to_number_id,
+        arr_print_i64: arr_print_i64_id,
+        arr_print_f64: arr_print_f64_id,
+        arr_print_bool: arr_print_bool_id,
+        arr_print_str: arr_print_str_id,
         f64_to_str: f64_to_str_id,
         math_sqrt: math_sqrt_id,
         math_abs: math_abs_id,
@@ -4476,6 +4511,10 @@ struct Intrinsics {
     bool_to_str: FuncId,
     null_to_str: FuncId,
     str_to_number: FuncId,
+    arr_print_i64: FuncId,
+    arr_print_f64: FuncId,
+    arr_print_bool: FuncId,
+    arr_print_str: FuncId,
     f64_to_str: FuncId,
     math_sqrt: FuncId,
     math_abs: FuncId,
@@ -6486,6 +6525,20 @@ impl<'a> LowerCtx<'a> {
             // now (no separate _err helper; matches console.error's
             // partial behavior on rare types).
             (Type::Symbol, _) => self.intrinsics.symbol_print,
+            // V3-18 m1.h.12 — `console.log(arr)` array pretty-print.
+            // Per element type: I64 / F64 / Bool / Str. Other elem
+            // types still fall through to the i64-pointer print.
+            (Type::Arr(arr_id), false) => {
+                let elem_ty = self.arr_layouts[arr_id.0 as usize];
+                match elem_ty {
+                    Type::I64 => self.intrinsics.arr_print_i64,
+                    Type::F64 => self.intrinsics.arr_print_f64,
+                    Type::Bool => self.intrinsics.arr_print_bool,
+                    Type::Str | Type::Substr => self.intrinsics.arr_print_str,
+                    _ => self.intrinsics.print_i64,
+                }
+            }
+            (Type::Arr(_), true) => self.intrinsics.print_i64_err,
             (_, false) => self.intrinsics.print_i64,
             (_, true) => self.intrinsics.print_i64_err,
         }

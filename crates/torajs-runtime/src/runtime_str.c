@@ -1276,6 +1276,103 @@ void *__torajs_i64_to_str(int64_t n) {
  * matches JS's String(n) for the integer-valued cases we exercise.
  * (Full IEEE-754 round-trip requires more care; we'll punt on that
  * until a test demands it.) */
+/* V3-18 m1.h.12 — `console.log(arr)` pretty-print. Bun shape:
+ * `[ 1, 2, 3 ]` (note spaces). Empty: `[]`. Per-element format
+ * lives in a per-type helper below; this is the I64 element
+ * variant called when the receiver is statically Array<I64>. */
+#define __TORAJS_ARR_DATA_OFF 24
+
+void __torajs_arr_print_i64(void *arr) {
+    if (arr == NULL) {
+        fputs("undefined\n", stdout);
+        return;
+    }
+    uint64_t len = *(uint64_t *)((uint8_t *)arr + 8);
+    if (len == 0) {
+        fputs("[]\n", stdout);
+        return;
+    }
+    fputs("[ ", stdout);
+    uint32_t head = *(uint32_t *)((uint8_t *)arr + 20);
+    for (uint64_t i = 0; i < len; i++) {
+        if (i > 0) fputs(", ", stdout);
+        int64_t v = *(int64_t *)((uint8_t *)arr + __TORAJS_ARR_DATA_OFF + ((uint64_t)head + i) * 8);
+        printf("%lld", (long long)v);
+    }
+    fputs(" ]\n", stdout);
+}
+
+void __torajs_arr_print_f64(void *arr) {
+    if (arr == NULL) {
+        fputs("undefined\n", stdout);
+        return;
+    }
+    uint64_t len = *(uint64_t *)((uint8_t *)arr + 8);
+    if (len == 0) {
+        fputs("[]\n", stdout);
+        return;
+    }
+    fputs("[ ", stdout);
+    uint32_t head = *(uint32_t *)((uint8_t *)arr + 20);
+    for (uint64_t i = 0; i < len; i++) {
+        if (i > 0) fputs(", ", stdout);
+        double v = *(double *)((uint8_t *)arr + __TORAJS_ARR_DATA_OFF + ((uint64_t)head + i) * 8);
+        if (v != v) { fputs("NaN", stdout); }
+        else if (v == 1.0/0.0) { fputs("Infinity", stdout); }
+        else if (v == -1.0/0.0) { fputs("-Infinity", stdout); }
+        else printf("%g", v);
+    }
+    fputs(" ]\n", stdout);
+}
+
+void __torajs_arr_print_bool(void *arr) {
+    if (arr == NULL) {
+        fputs("undefined\n", stdout);
+        return;
+    }
+    uint64_t len = *(uint64_t *)((uint8_t *)arr + 8);
+    if (len == 0) {
+        fputs("[]\n", stdout);
+        return;
+    }
+    fputs("[ ", stdout);
+    uint32_t head = *(uint32_t *)((uint8_t *)arr + 20);
+    for (uint64_t i = 0; i < len; i++) {
+        if (i > 0) fputs(", ", stdout);
+        int64_t v = *(int64_t *)((uint8_t *)arr + __TORAJS_ARR_DATA_OFF + ((uint64_t)head + i) * 8);
+        fputs(v ? "true" : "false", stdout);
+    }
+    fputs(" ]\n", stdout);
+}
+
+void __torajs_arr_print_str(void *arr) {
+    if (arr == NULL) {
+        fputs("undefined\n", stdout);
+        return;
+    }
+    uint64_t len = *(uint64_t *)((uint8_t *)arr + 8);
+    if (len == 0) {
+        fputs("[]\n", stdout);
+        return;
+    }
+    fputs("[ ", stdout);
+    uint32_t head = *(uint32_t *)((uint8_t *)arr + 20);
+    for (uint64_t i = 0; i < len; i++) {
+        if (i > 0) fputs(", ", stdout);
+        void *s = *(void **)((uint8_t *)arr + __TORAJS_ARR_DATA_OFF + ((uint64_t)head + i) * 8);
+        if (s == NULL) {
+            fputs("\"\"", stdout);
+            continue;
+        }
+        uint64_t slen = *(uint64_t *)((uint8_t *)s + 8);
+        const uint8_t *sdata = (const uint8_t *)s + 16;
+        fputc('"', stdout);
+        fwrite(sdata, 1, (size_t)slen, stdout);
+        fputc('"', stdout);
+    }
+    fputs(" ]\n", stdout);
+}
+
 /* V3-18 m1.h.9 — console.log of a f64 must format NaN as "NaN"
  * (capitalized) and Infinity / -Infinity per spec, matching the
  * String(d) shape. Replaces the IR-emitted printf("%g\n") path. */
