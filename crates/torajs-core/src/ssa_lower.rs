@@ -17588,7 +17588,12 @@ impl<'a> LowerCtx<'a> {
                         "MAX_SAFE_INTEGER" => Operand::ConstI64(9007199254740991),
                         "MIN_SAFE_INTEGER" => Operand::ConstI64(-9007199254740991),
                         "MAX_VALUE" => Operand::ConstF64(f64::MAX),
-                        "MIN_VALUE" => Operand::ConstF64(f64::MIN_POSITIVE),
+                        // V3-18 m1.h.38 — Number.MIN_VALUE per JS spec
+                        // §21.1.2.5 is the smallest positive Number,
+                        // which is the smallest *subnormal* double
+                        // (5e-324), not f64::MIN_POSITIVE (the
+                        // smallest *normal* double, 2.2250738e-308).
+                        "MIN_VALUE" => Operand::ConstF64(5e-324),
                         other => panic!("ssa-lower: unknown Number constant `{other}`"),
                     };
                 }
