@@ -6538,7 +6538,51 @@ fn walk_stmt(ast: &Ast, s: &Stmt, bound: &mut Vec<String>, out: &mut Vec<String>
 /// objects. Kept in sync with `check.rs`'s `type_of(Expr::Ident)`
 /// fallback list.
 fn is_global_name(name: &str) -> bool {
-    matches!(name, "console" | "Math")
+    matches!(
+        name,
+        // Built-in objects + namespaces
+        "console"
+            | "Math"
+            | "JSON"
+            | "Object"
+            | "Array"
+            | "String"
+            | "Number"
+            | "Boolean"
+            | "Symbol"
+            | "Date"
+            | "RegExp"
+            | "Error"
+            | "TypeError"
+            | "RangeError"
+            | "SyntaxError"
+            | "ReferenceError"
+            | "Promise"
+            | "Map"
+            | "Set"
+            | "WeakMap"
+            | "WeakSet"
+            | "Proxy"
+            | "Reflect"
+            | "BigInt"
+            | "ArrayBuffer"
+            | "DataView"
+            | "Function"
+            // Numeric constants
+            | "NaN"
+            | "Infinity"
+            | "undefined"
+            // Top-level coercion functions
+            | "parseInt"
+            | "parseFloat"
+            | "isNaN"
+            | "isFinite"
+            | "encodeURI"
+            | "decodeURI"
+            | "encodeURIComponent"
+            | "decodeURIComponent"
+            | "globalThis"
+    )
 }
 
 /// M4.3.b — describe a fn's throw shape: `direct_throw` is true if any
