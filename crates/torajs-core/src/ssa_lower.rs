@@ -15470,12 +15470,34 @@ impl<'a> LowerCtx<'a> {
                     // walk-drop their elements.
                     if let Type::Arr(arr_id) = recv_ty
                         && method == "slice"
-                        && args.len() == 2
+                        && args.len() <= 2
                     {
+                        // V3-18 m1.h.35 — JS spec §22.1.3.25 defaults:
+                        //   arr.slice()      = arr.slice(0, len)
+                        //   arr.slice(start) = arr.slice(start, len)
+                        // Read len once when needed; use it as the
+                        // default for the missing 2nd arg.
                         let mut argv = Vec::with_capacity(3);
                         argv.push(recv_op);
-                        argv.push(self.lower_expr(args[0]));
-                        argv.push(self.lower_expr(args[1]));
+                        let start = if args.is_empty() {
+                            Operand::ConstI64(0)
+                        } else {
+                            self.lower_expr(args[0])
+                        };
+                        argv.push(start);
+                        let end = if args.len() == 2 {
+                            self.lower_expr(args[1])
+                        } else {
+                            // Load receiver's len from offset 8.
+                            let len = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Load(Type::I64, recv_op, ARR_LEN_OFF),
+                                Type::I64,
+                                None,
+                            );
+                            Operand::Value(len)
+                        };
+                        argv.push(end);
                         let v = self.f.append_inst(
                             self.cur_block,
                             InstKind::Call(self.intrinsics.arr_slice, argv),

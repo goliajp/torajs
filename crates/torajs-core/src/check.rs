@@ -4236,6 +4236,32 @@ impl Checker {
                     }
                     return Ok(Type::Number);
                 }
+                // V3-18 m1.h.35 — Array.slice with 0 or 1 args. Per
+                // JS spec §22.1.3.25:
+                //   xs.slice()      = xs.slice(0, xs.length)
+                //   xs.slice(start) = xs.slice(start, xs.length)
+                // Pre-fix tora declared slice with 2 fixed params so
+                // 0/1-arg calls hit the arity check below. Special-
+                // case here: typecheck the args we have, return
+                // Array<T>; ssa_lower fills in the defaults at
+                // lower-time.
+                if let Expr::Member { obj: src_id, name: m_name } = ast.get_expr(*callee)
+                    && m_name == "slice"
+                    && args.len() < 2
+                {
+                    let src_ty = self.type_of(ast, *src_id)?;
+                    if let Type::Array(elem) = &src_ty {
+                        for &aid in args {
+                            let aty = self.type_of(ast, aid)?;
+                            if aty != Type::Number {
+                                return Err(format!(
+                                    "Array.slice arg must be number, got {aty:?}"
+                                ));
+                            }
+                        }
+                        return Ok(Type::Array(Box::new((**elem).clone())));
+                    }
+                }
                 let callee_ty = self.type_of(ast, *callee)?;
                 let Type::Function(params, ret) = callee_ty else {
                     return Err(format!("not callable: type {callee_ty:?}"));
