@@ -4451,13 +4451,22 @@ impl Checker {
                             Ok(Type::Boolean)
                         } else if l == Type::BigInt && r == Type::BigInt {
                             Ok(Type::Boolean)
+                        } else if l == Type::String && r == Type::String {
+                            // V3-18 m1.h.17 — JS spec §7.2.14: when both
+                            // operands ToPrimitive to String, compare as
+                            // sequences of code units (lex order). The
+                            // existing locale_compare helper already
+                            // returns -1/0/1 over the byte view, which
+                            // matches code-unit order for ASCII; full
+                            // UTF-16 code-unit semantics is a follow-up
+                            // (matches String.prototype.localeCompare's
+                            // current shape, used by the bench cases).
+                            Ok(Type::Boolean)
                         } else if js_arith_coerces_to_number(&l, &r) {
                             // V3-18 m1.c — Bool/Null operands: ToNumber
                             // both sides per §7.2.14, then numeric compare.
                             // ssa_lower mirrors with the same coerce-to-i64
-                            // path the arith ops use. String<String is a
-                            // separate substrate item (needs a runtime
-                            // codepoint-cmp helper, m1.d).
+                            // path the arith ops use.
                             Ok(Type::Boolean)
                         } else {
                             Err(format!(

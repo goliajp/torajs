@@ -19535,6 +19535,37 @@ impl<'a> LowerCtx<'a> {
             return Operand::Value(eq_v);
         }
 
+        // V3-18 m1.h.17 — Lt/Gt/Le/Ge on two Str operands routes through
+        // __torajs_str_locale_compare (returns -1/0/1) then ICmp against 0
+        // with the right predicate. Same shape as the BigInt cmp branch.
+        // Substr operands not yet supported here — would need a
+        // substr-vs-str comparator; can materialize on the fly when those
+        // call sites surface in conformance / test262.
+        if matches!(op, AstBinOp::Lt | AstBinOp::Gt | AstBinOp::Le | AstBinOp::Ge)
+            && a_ty == Type::Str && b_ty == Type::Str
+        {
+            let c = self.f.append_inst(
+                self.cur_block,
+                InstKind::Call(self.intrinsics.str_locale_compare, vec![a, b]),
+                Type::I64,
+                None,
+            );
+            let pred = match op {
+                AstBinOp::Lt => IPred::Slt,
+                AstBinOp::Gt => IPred::Sgt,
+                AstBinOp::Le => IPred::Sle,
+                AstBinOp::Ge => IPred::Sge,
+                _ => unreachable!(),
+            };
+            let r = self.f.append_inst(
+                self.cur_block,
+                InstKind::ICmp(pred, Operand::Value(c), Operand::ConstI64(0)),
+                Type::Bool,
+                None,
+            );
+            return Operand::Value(r);
+        }
+
         // V3-01 — `**` for Number lowers via libm `pow`, which always
         // takes + returns f64. Force both operands into the float
         // path so downstream consumers see a Number-shaped result.
