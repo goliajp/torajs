@@ -10340,6 +10340,17 @@ impl<'a> LowerCtx<'a> {
                         op
                     }
                 });
+                // Arrow expression-body desugar wraps the trailing
+                // expression in `Stmt::Return(Some(eid))` even when the
+                // expression itself is void (e.g. `() => console.log(x)`).
+                // The resulting SSA value (a dummy 0 from the void Call)
+                // must not feed `Terminator::Ret` if the fn is declared
+                // void — LLVM verify rejects `ret i64 0` from a void fn.
+                let coerced = if self.f.ret == Type::Void {
+                    None
+                } else {
+                    coerced
+                };
                 self.emit_drops_for_owned_locals();
                 let cb = self.cur_block;
                 self.f.set_term(cb, Terminator::Ret(coerced));
