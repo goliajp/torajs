@@ -4213,12 +4213,11 @@ impl Checker {
                     && ns == "Math"
                     && (m == "min" || m == "max")
                 {
-                    if args.len() < 2 {
-                        return Err(format!(
-                            "Math.{m} requires at least 2 args, got {}",
-                            args.len()
-                        ));
-                    }
+                    // V3-18 m1.h.24 — JS spec §21.3.2.24/25:
+                    // Math.max() returns -Infinity, Math.min()
+                    // returns +Infinity (the identity element of
+                    // the reduction). Math.max(x) returns x.
+                    // Drop the artificial 2-arg minimum.
                     for &aid in args {
                         let aty = self.type_of(ast, aid)?;
                         if aty != Type::Number {

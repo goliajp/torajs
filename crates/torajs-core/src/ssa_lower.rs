@@ -11926,13 +11926,29 @@ impl<'a> LowerCtx<'a> {
                     && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
                     && ns == "Math"
                     && (m_name == "min" || m_name == "max")
-                    && args.len() > 2
                 {
+                    // V3-18 m1.h.24 — handle the full variadic shape.
+                    // 0 args: spec identity (max → -Inf, min → +Inf).
+                    // 1 arg: just the coerced operand.
+                    // 2 args: the existing 2-arg path (math_min / math_max).
+                    // ≥3 args: pairwise reduction.
                     let target = if m_name == "min" {
                         self.intrinsics.math_min
                     } else {
                         self.intrinsics.math_max
                     };
+                    if args.is_empty() {
+                        let identity = if m_name == "min" {
+                            f64::INFINITY
+                        } else {
+                            f64::NEG_INFINITY
+                        };
+                        return Operand::ConstF64(identity);
+                    }
+                    if args.len() == 1 {
+                        let op = self.lower_expr(args[0]);
+                        return self.coerce_to_f64(op);
+                    }
                     let arg_ids: Vec<ExprId> = args.clone();
                     let mut acc = self.lower_expr(arg_ids[0]);
                     acc = self.coerce_to_f64(acc);
