@@ -1899,6 +1899,52 @@ pub fn desugar_builtin_new(ast: &mut Ast) {
             ast.exprs[i] = Expr::Array(args);
         }
     }
+    // V3-18 m1.h.10 — `new Number(x)` / `new String(x)` /
+    // `new Boolean(x)` MVP unwrap. Per spec, `new Number(5)`
+    // creates a wrapper Object whose [[NumberData]] is 5, but in
+    // arithmetic / coercion contexts (the dominant test262 use
+    // case), it ToNumber's back to the primitive. Tora doesn't
+    // have wrapper objects yet (would need full Object property
+    // descriptor substrate); for now we shortcut directly to the
+    // primitive so the common arithmetic / assert.sameValue
+    // patterns work. Side effect: `typeof new Number(5)` returns
+    // "number" not "object", which diverges on a small number of
+    // type-introspection cases — accepted as the right tradeoff
+    // pending full wrapper-object substrate.
+    let n = ast.exprs.len();
+    for i in 0..n {
+        let unwrap_args = match &ast.exprs[i] {
+            Expr::New { class_name, args }
+                if matches!(
+                    class_name.as_str(),
+                    "Number" | "String" | "Boolean"
+                ) =>
+            {
+                Some(args.clone())
+            }
+            _ => None,
+        };
+        if let Some(args) = unwrap_args {
+            let class_name_str = match &ast.exprs[i] {
+                Expr::New { class_name, .. } => class_name.clone(),
+                _ => unreachable!(),
+            };
+            ast.exprs[i] = if args.is_empty() {
+                match class_name_str.as_str() {
+                    "Number" => Expr::Number(0.0),
+                    "String" => Expr::String(String::new()),
+                    "Boolean" => Expr::Bool(false),
+                    _ => unreachable!(),
+                }
+            } else {
+                // Forward to the same call path as the callable form
+                // (Number(x) etc) — ssa_lower handles the per-input
+                // coercion. Synthesize `Number(x)` shape.
+                let callee = ast.add_expr(Expr::Ident(class_name_str));
+                Expr::Call { callee, args }
+            };
+        }
+    }
     let n = ast.exprs.len();
     for i in 0..n {
         let plan = match &ast.exprs[i] {
