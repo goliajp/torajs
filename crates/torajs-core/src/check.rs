@@ -2257,6 +2257,10 @@ impl Checker {
                     // separate `Type::Undefined` is on the roadmap
                     // alongside the typeof-string accuracy work.
                     "undefined" => Ok(Type::Null),
+                    // V3-18 m1.h.11 — JS spec §19.1.1 NaN /
+                    // §19.1.2 Infinity globals. Both Number-typed
+                    // (NaN is f64 NaN; Infinity is f64 +∞).
+                    "NaN" | "Infinity" => Ok(Type::Number),
                     other => Err(format!("unknown identifier `{other}`")),
                 }
             }

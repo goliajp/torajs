@@ -10615,6 +10615,20 @@ impl<'a> LowerCtx<'a> {
                 Operand::Value(v)
             }
             Expr::Ident(name) => {
+                // V3-18 m1.h.11 — JS spec NaN / Infinity globals.
+                // f64 constants; lower as ConstF64 directly. Local
+                // bindings shadow (per spec the globals are
+                // writable in non-strict mode, but tora doesn't
+                // model that yet — non-shadowed access produces
+                // the canonical value).
+                if self.locals.get(name).is_none() {
+                    if name == "NaN" {
+                        return Operand::ConstF64(0.0 / 0.0);
+                    }
+                    if name == "Infinity" {
+                        return Operand::ConstF64(1.0 / 0.0);
+                    }
+                }
                 // M2 Phase B Stage 4 — bare Ident referring to a global
                 // fn (no local shadow) yields the fn's address as a
                 // FnSig value. Used when passing a fn name directly as
@@ -18227,6 +18241,11 @@ impl<'a> LowerCtx<'a> {
                     && self.locals.get(name).is_none()
                     && !self.globals.contains_key(name)
                     && !self.fn_table.contains_key(name)
+                    // V3-18 m1.h.11 — NaN / Infinity globals lower
+                    // to ConstF64 so they typeof as "number", not
+                    // "undefined". Skip the unresolved-Ident
+                    // shortcut for them.
+                    && !matches!(name.as_str(), "NaN" | "Infinity")
                 {
                     return Operand::Value(self.intern_string_literal("undefined"));
                 }
