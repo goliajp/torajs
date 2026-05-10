@@ -148,6 +148,10 @@ pub enum Token {
     Default,
     /// `typeof x` — yields a string literal at runtime.
     TypeOf,
+    /// `void x` — evaluates `x` (for side effects) then yields `undefined`.
+    /// Per JS spec §13.5.2; the standard idiom for "produce undefined" in
+    /// pre-ES2020 code (`void 0`).
+    Void,
     /// `x instanceof C` — relational operator. tr is statically typed,
     /// so this is a compile-time decision based on the LHS's static
     /// type vs the named class (and its superclass chain).
@@ -649,6 +653,7 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                     "case" => Token::Case,
                     "default" => Token::Default,
                     "typeof" => Token::TypeOf,
+                    "void" => Token::Void,
                     "instanceof" => Token::InstanceOf,
                     "yield" => Token::Yield,
                     "async" => Token::Async,
@@ -833,6 +838,7 @@ fn regex_context(prev: Option<&Token>) -> bool {
             // Expression-starting keywords
             | Token::Return
             | Token::TypeOf
+            | Token::Void
             | Token::InstanceOf
             | Token::New
             | Token::Throw

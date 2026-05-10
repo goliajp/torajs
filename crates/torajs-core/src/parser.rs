@@ -134,6 +134,11 @@ impl Parser<'_> {
         }
         let mut name = match self.peek() {
             Token::Ident(n) => n.clone(),
+            // V3-18 m1.h.30 — `void` was promoted to a keyword for
+            // the unary operator path, but it's also the canonical
+            // return type for void-returning fns: `: void`. Accept
+            // it here so type annotations still resolve.
+            Token::Void => "void".to_string(),
             t => {
                 return Err(format!("expected type name, got {t:?} at {}", self.at()));
             }
@@ -2073,6 +2078,26 @@ impl Parser<'_> {
             let inner = self.parse_unary()?;
             return Ok(self.ast.add_expr(Expr::TypeOf { expr: inner }));
         }
+        // V3-18 m1.h.30 — `void <expr>` evaluates expr (for side
+        // effects) then yields `undefined`. Tora doesn't yet have
+        // a separate undefined sentinel distinct from null, so the
+        // pragmatic desugar is `Expr::Sequence { left: <expr>,
+        // right: Expr::String("undefined") }`. console.log /
+        // string concat / typeof comparisons all see the literal
+        // "undefined" — the typical usage shapes (`void 0` as a
+        // safe undefined producer, `typeof x === 'undefined'`
+        // comparisons) work end-to-end. A real Type::Undefined
+        // distinct from Type::Null would land alongside the
+        // implicit-any substrate.
+        if matches!(self.peek(), Token::Void) {
+            self.pos += 1;
+            let inner = self.parse_unary()?;
+            let undef = self.ast.add_expr(Expr::String("undefined".into()));
+            return Ok(self.ast.add_expr(Expr::Sequence {
+                left: inner,
+                right: undef,
+            }));
+        }
         // L.2 — `await <expr>` extracts the resolved value from a
         // Promise. MVP desugar: `await e` ⇒ `e.value` (synchronous
         // read, well-defined only for already-fulfilled promises in
@@ -2518,10 +2543,14 @@ impl Parser<'_> {
                         ) {
                             // Scan past the type ann to look for `=>`.
                             let mut j = i + 2;
-                            // Type starts with an identifier.
+                            // Type starts with an identifier — or
+                            // the `void` keyword (m1.h.30 promoted
+                            // it from contextual ident to keyword;
+                            // arrow lookahead must accept it here
+                            // for `(): void => ...` to parse).
                             if !matches!(
                                 self.tokens.get(j).map(|s| &s.token),
-                                Some(Token::Ident(_))
+                                Some(Token::Ident(_)) | Some(Token::Void)
                             ) {
                                 return false;
                             }
