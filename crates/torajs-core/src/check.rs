@@ -4278,6 +4278,26 @@ impl Checker {
                         return Ok(Type::Array(Box::new((**elem).clone())));
                     }
                 }
+                // V3-18 m1.h.48 — String.normalize accepts an optional
+                // form arg ("NFC" / "NFD" / "NFKC" / "NFKD"). Per JS
+                // spec §21.1.3.13. tora's byte-Str ASCII-only path
+                // returns identity for any form, so we just typecheck
+                // and route through the existing 0-arg lowering.
+                if let Expr::Member { obj: src_id, name: m_name } = ast.get_expr(*callee)
+                    && m_name == "normalize"
+                    && args.len() == 1
+                {
+                    let src_ty = self.type_of(ast, *src_id)?;
+                    if matches!(src_ty, Type::String) {
+                        let aty = self.type_of(ast, args[0])?;
+                        if !matches!(aty, Type::String) {
+                            return Err(format!(
+                                "String.normalize arg must be string, got {aty:?}"
+                            ));
+                        }
+                        return Ok(Type::String);
+                    }
+                }
                 // V3-18 m1.h.46 — Number.toFixed / toExponential /
                 // toPrecision with 0 args. Per JS spec §21.1.3.3 etc:
                 //   n.toFixed()        defaults to digits = 0
