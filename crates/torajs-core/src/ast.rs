@@ -1999,6 +1999,50 @@ pub fn desugar_builtin_new(ast: &mut Ast) {
     }
 }
 
+/// V3-18 m2.f — rewrite `X.prototype.foo.call(recv, ...args)` to
+/// the equivalent direct-method form `recv.foo(...args)`. Tora has
+/// no real prototype object so the literal traversal would fail at
+/// `Number.prototype.toString` (Type::Null doesn't have .toString).
+/// Pattern-matched at the AST level so check.rs / ssa_lower see only
+/// the rewritten form. Ns coverage: every constructor namespace
+/// listed (Number / String / Boolean / Object / Array / BigInt /
+/// Symbol / Function / Date / RegExp / Error). `.apply(recv, args)`
+/// is similar but takes args as an array — handled in a follow-up
+/// when an array-spread call shape lands.
+pub fn desugar_prototype_call(ast: &mut Ast) {
+    let n = ast.exprs.len();
+    for i in 0..n {
+        let Expr::Call { callee, args } = ast.exprs[i].clone() else { continue };
+        let Expr::Member { obj: outer_obj, name: outer_name } =
+            ast.get_expr(callee).clone() else { continue };
+        if outer_name != "call" || args.is_empty() {
+            continue;
+        }
+        let Expr::Member { obj: inner_obj, name: method_name } =
+            ast.get_expr(outer_obj).clone() else { continue };
+        let Expr::Member { obj: ns_id, name: proto_name } =
+            ast.get_expr(inner_obj).clone() else { continue };
+        if proto_name != "prototype" {
+            continue;
+        }
+        let Expr::Ident(ns) = ast.get_expr(ns_id).clone() else { continue };
+        let known_ns = matches!(ns.as_str(),
+            "Number" | "String" | "Boolean" | "BigInt" | "Symbol"
+            | "Object" | "Array" | "Function"
+            | "Date" | "RegExp" | "Error" | "Promise" | "Map" | "Set");
+        if !known_ns {
+            continue;
+        }
+        let recv = args[0];
+        let rest = args[1..].to_vec();
+        let new_callee = ast.add_expr(Expr::Member {
+            obj: recv,
+            name: method_name,
+        });
+        ast.exprs[i] = Expr::Call { callee: new_callee, args: rest };
+    }
+}
+
 pub fn desugar_classes(ast: &mut Ast) {
     // Pass 1 — extract every ClassDecl. After this loop the original
     // ClassDecl stmts are replaced by their generated TypeDecl in-place;

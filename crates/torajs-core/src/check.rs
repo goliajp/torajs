@@ -2824,13 +2824,19 @@ impl Checker {
                     | (Type::Boolean, "hasOwnProperty")
                     | (Type::BigInt, "hasOwnProperty")
                     | (Type::Symbol, "hasOwnProperty")
+                    | (Type::Any, "hasOwnProperty")
                     | (Type::Number, "propertyIsEnumerable")
                     | (Type::String, "propertyIsEnumerable")
                     | (Type::Boolean, "propertyIsEnumerable")
                     | (Type::BigInt, "propertyIsEnumerable")
-                    | (Type::Symbol, "propertyIsEnumerable") => {
+                    | (Type::Symbol, "propertyIsEnumerable")
+                    | (Type::Any, "propertyIsEnumerable") => {
                         Ok(Type::Function(vec![Type::String], Box::new(Type::Boolean)))
                     }
+                    (Type::Any, "valueOf") => Ok(Type::Function(Vec::new(), Box::new(Type::Any))),
+                    (Type::Any, "toString") => Ok(Type::Function(Vec::new(), Box::new(Type::String))),
+                    (Type::Any, "isPrototypeOf") => Ok(Type::Function(vec![Type::Any], Box::new(Type::Boolean))),
+                    (Type::Any, "constructor") => Ok(Type::Any),
                     // RegExp instance methods. v0.2 #1 ships `.test(s)`;
                     // `.exec` / `.toString` / `.source` / `.flags` /
                     // `.global` / `.lastIndex` come in subsequent
