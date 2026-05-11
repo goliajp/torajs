@@ -17662,16 +17662,22 @@ impl<'a> LowerCtx<'a> {
                         rn == ln && (rt == lt || (*lt == Type::Ptr && rt.is_pointer_shaped()))
                     })
                 };
-                let sid = self
-                    .struct_layouts
-                    .iter()
-                    .position(layout_compatible)
-                    .map(|i| ssa::StructId(i as u32))
-                    .unwrap_or_else(|| {
-                        panic!(
-                            "ssa-lower: object literal layout {field_tys:?} not registered as a `type` — anonymous struct types not yet supported (P2.4.c MVP)"
-                        )
-                    });
+                // V3-18 P2.4.c — auto-register anonymous struct layouts
+                // when the literal doesn't match any pre-declared
+                // `type T = { ... }`. Layout is appended to
+                // struct_layouts with a synthetic id; subsequent
+                // literals of the same shape reuse it via the
+                // layout_compatible check above. No class tag is
+                // assigned (these aren't classes), so instanceof /
+                // Object.getPrototypeOf paths stay correct.
+                let sid = match self.struct_layouts.iter().position(layout_compatible) {
+                    Some(i) => ssa::StructId(i as u32),
+                    None => {
+                        let new_id = ssa::StructId(self.struct_layouts.len() as u32);
+                        self.struct_layouts.push(field_tys.clone());
+                        new_id
+                    }
+                };
                 // Bring `field_tys` in line with the registered layout
                 // so downstream Store-typing emits the right Type::Obj
                 // / Type::Arr at each slot — without this, slots stay
