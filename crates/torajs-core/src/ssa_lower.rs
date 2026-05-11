@@ -11314,6 +11314,18 @@ impl<'a> LowerCtx<'a> {
                 if matches!(*op, AstBinOp::LOr) {
                     return self.lower_logical_or(*left, *right);
                 }
+                // V3-18 m2.e — `<prim>.constructor === <Ctor>` /
+                // `<Ctor> === <prim>.constructor` compile-time fold.
+                // Tora has no first-class function ref for namespace
+                // ctors, so bare `Number` / `String` / etc can't be
+                // lowered as a value. This common test262 idiom
+                // (`n.constructor === Number`) is folded at AST level
+                // by comparing the prim type tag to the ctor name.
+                if matches!(*op, AstBinOp::Eq | AstBinOp::Neq) {
+                    if let Some(r) = self.try_fold_constructor_eq(*op, *left, *right) {
+                        return r;
+                    }
+                }
                 // Perf fast-path — `s === "literal"` / `s !== "literal"`
                 // where `"literal"` is short (≤16 bytes) and known at
                 // compile time. Emits inline `len-eq + byte-eq chain`,
@@ -20008,6 +20020,64 @@ impl<'a> LowerCtx<'a> {
     /// pattern doesn't match (caller falls through to the generic
     /// str_eq path). For switch-on-string the equivalent inline emit
     /// happens directly inside `Stmt::Switch` lowering — see there.
+    /// V3-18 m2.e — fold `<prim>.constructor === <Ctor>` /
+    /// `<Ctor> === <prim>.constructor` at AST level. Used as a
+    /// pre-lower pattern match since tora has no first-class
+    /// function ref for namespace ctors (bare `Number` / `String`
+    /// etc can't be lowered as a value).
+    fn try_fold_constructor_eq(
+        &mut self,
+        op: AstBinOp,
+        left: ExprId,
+        right: ExprId,
+    ) -> Option<Operand> {
+        // Identify a (prim_constructor_member, ctor_ident) pair
+        // regardless of which side is which.
+        fn prim_type_tag(t: Type) -> Option<&'static str> {
+            match t {
+                Type::I64 | Type::F64 | Type::I32 => Some("Number"),
+                Type::Str | Type::Substr => Some("String"),
+                Type::Bool => Some("Boolean"),
+                Type::BigInt => Some("BigInt"),
+                Type::Symbol => Some("Symbol"),
+                Type::Obj(_) => Some("Object"),
+                Type::Arr(_) => Some("Array"),
+                _ => None,
+            }
+        }
+        let l_expr = self.ast.get_expr(left).clone();
+        let r_expr = self.ast.get_expr(right).clone();
+        let (member_expr, ctor_name): (Expr, String) = match (l_expr, r_expr) {
+            (Expr::Member { obj, name }, Expr::Ident(c))
+                if name == "constructor" =>
+            {
+                (self.ast.get_expr(obj).clone(), c)
+            }
+            (Expr::Ident(c), Expr::Member { obj, name })
+                if name == "constructor" =>
+            {
+                (self.ast.get_expr(obj).clone(), c)
+            }
+            _ => return None,
+        };
+        // Resolve the receiver's static SSA type.
+        let recv_ty = match member_expr {
+            Expr::Ident(ref n) => {
+                let info = self.locals.get(n)?;
+                info.ty
+            }
+            _ => return None,
+        };
+        let actual = prim_type_tag(recv_ty)?;
+        let matches_ctor = actual == ctor_name.as_str();
+        let result = match op {
+            AstBinOp::Eq => matches_ctor,
+            AstBinOp::Neq => !matches_ctor,
+            _ => return None,
+        };
+        Some(Operand::ConstBool(result))
+    }
+
     fn try_inline_str_eq_with_literal(
         &mut self,
         op: AstBinOp,
