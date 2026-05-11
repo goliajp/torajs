@@ -11444,6 +11444,15 @@ impl<'a> LowerCtx<'a> {
                                 return Operand::Value(r);
                             }
                             Type::F64 => {
+                                // V3-18 m2.d follow-up — fold Neg on
+                                // ConstF64 at lower-time. Otherwise
+                                // `-Infinity` becomes a Value via FSub
+                                // and downstream coerce_to_i64 sees an
+                                // f64 Value (FpToSi → poison for
+                                // non-finite, hangs / corrupts).
+                                if let Operand::ConstF64(n) = v {
+                                    return Operand::ConstF64(-n);
+                                }
                                 // Use -0.0 (not +0.0) as the LHS so the
                                 // ±0 sign is preserved: IEEE 754 gives
                                 // (+0) - (+0) = +0 but (-0) - (+0) = -0,
@@ -11783,36 +11792,70 @@ impl<'a> LowerCtx<'a> {
                     let v = self.intern_string_literal(&s);
                     return Operand::Value(v);
                 }
-                // V3-18 m2.a — Object.prototype methods exposed on
-                // every primitive via JS auto-boxing. Catch BEFORE
-                // any other Member-method dispatch since these
-                // names overlap nothing else (valueOf is unique;
-                // hasOwnProperty / propertyIsEnumerable have no
-                // primitive-receiver alternatives).
+                // V3-18 m2.a / m2.d — Object.prototype methods on
+                // primitives (auto-boxing) AND on struct instances
+                // (class instance objects). Catch BEFORE any other
+                // Member-method dispatch since these names overlap
+                // nothing else.
                 if let Expr::Member { obj: recv_id, name: m_name } =
                     self.ast.get_expr(*callee)
                     && matches!(m_name.as_str(),
-                        "valueOf" | "hasOwnProperty" | "propertyIsEnumerable")
+                        "valueOf" | "hasOwnProperty" | "propertyIsEnumerable"
+                        | "isPrototypeOf" | "toString")
                 {
                     let recv_op = self.lower_expr(*recv_id);
                     let recv_ty = self.operand_ty(&recv_op);
-                    if matches!(recv_ty,
+                    let is_prim = matches!(recv_ty,
                         Type::F64 | Type::I64 | Type::I32
                         | Type::Str | Type::Substr | Type::Bool
-                        | Type::BigInt | Type::Symbol)
-                    {
+                        | Type::BigInt | Type::Symbol);
+                    let is_obj = matches!(recv_ty, Type::Obj(_));
+                    if is_prim || is_obj {
+                        // valueOf returns the receiver as-is (identity).
                         if m_name == "valueOf" {
                             return recv_op;
                         }
-                        // hasOwnProperty / propertyIsEnumerable: drop
-                        // arg (for side effects) and return false.
-                        if !args.is_empty() {
-                            let arg_val = self.lower_expr(args[0]);
-                            let arg_ty = self.operand_ty(&arg_val);
-                            self.consume_if_ident(args[0]);
-                            self.emit_drop_value(arg_val, arg_ty);
+                        // toString: primitives go through the existing
+                        // path further down (the m1.h.27 / m1.h.47
+                        // arms handle BigInt / Symbol). For Type::Obj
+                        // (class instance) emit "[object Object]"
+                        // (subset stub matching bun for non-overridden
+                        // toString).
+                        if m_name == "toString" {
+                            if is_obj {
+                                let v = self.intern_string_literal("[object Object]");
+                                return Operand::Value(v);
+                            }
+                            // For primitives, fall through to allow
+                            // existing arms (toFixed/toString) to take
+                            // over.
+                        } else {
+                            // hasOwnProperty / propertyIsEnumerable /
+                            // isPrototypeOf:
+                            //   - For primitives: always false (no own
+                            //     enumerable props in subset).
+                            //   - For struct instances: check whether
+                            //     args[0] is a literal string matching
+                            //     a declared field name.
+                            let result = if let Type::Obj(sid) = recv_ty
+                                && matches!(m_name.as_str(),
+                                    "hasOwnProperty" | "propertyIsEnumerable")
+                                && let Some(arg_eid) = args.first()
+                                && let Expr::String(key) = self.ast.get_expr(*arg_eid)
+                            {
+                                let layout = &self.struct_layouts[sid.0 as usize];
+                                layout.iter().any(|(fname, _)| fname == key)
+                            } else {
+                                false
+                            };
+                            if !args.is_empty() {
+                                let arg_val = self.lower_expr(args[0]);
+                                let arg_ty = self.operand_ty(&arg_val);
+                                self.consume_if_ident(args[0]);
+                                self.emit_drop_value(arg_val, arg_ty);
+                            }
+                            return Operand::ConstBool(result);
                         }
-                        return Operand::ConstBool(false);
                     }
                 }
                 /* T-24 — virtual-dispatch interception via vtable.
@@ -19052,10 +19095,17 @@ impl<'a> LowerCtx<'a> {
                 // time via the namespace + name. Math constants
                 // (PI / E / LN2 / ...) typeof as "number"; everything
                 // else on these namespaces is a function.
-                // V3-18 m2.c — typeof <expr>.constructor → "function"
-                // (the primitive's constructor namespace is a function).
+                // V3-18 m2.c / m2.d — typeof <expr>.<Object-prototype-method>
+                // → "function". Covers .constructor (m2.c) and the
+                // Object.prototype methods (.hasOwnProperty,
+                // .propertyIsEnumerable, .isPrototypeOf, .valueOf,
+                // .toString) — all are first-class function refs in
+                // JS regardless of receiver shape.
                 if let Expr::Member { name: member_name, .. } = self.ast.get_expr(*expr)
-                    && member_name == "constructor"
+                    && matches!(member_name.as_str(),
+                        "constructor" | "hasOwnProperty"
+                        | "propertyIsEnumerable" | "isPrototypeOf"
+                        | "valueOf" | "toString" | "toLocaleString")
                 {
                     return Operand::Value(self.intern_string_literal("function"));
                 }
@@ -19682,7 +19732,25 @@ impl<'a> LowerCtx<'a> {
             Type::I64 => op,
             Type::Bool => self.coerce_bool_to_i64(op),
             Type::F64 => match op {
-                Operand::ConstF64(n) => Operand::ConstI64(n as i64),
+                // V3-18 m2.d follow-up — JS spec ToInteger:
+                //   NaN  → 0
+                //   ±Inf → ±Infinity (here represented by i64::MAX /
+                //          i64::MIN — preserves sign through any
+                //          downstream "from >= len" / "from + len"
+                //          clamp logic).
+                // Without this, FpToSi on non-finite is poison and
+                // downstream loops get stuck or read garbage.
+                Operand::ConstF64(n) => {
+                    if n.is_nan() {
+                        Operand::ConstI64(0)
+                    } else if n == f64::INFINITY {
+                        Operand::ConstI64(i64::MAX)
+                    } else if n == f64::NEG_INFINITY {
+                        Operand::ConstI64(i64::MIN)
+                    } else {
+                        Operand::ConstI64(n as i64)
+                    }
+                }
                 Operand::Value(_) => {
                     let v = self.f.append_inst(
                         self.cur_block,

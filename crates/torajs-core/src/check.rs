@@ -3498,6 +3498,38 @@ impl Checker {
                     | (Type::Boolean, "constructor")
                     | (Type::BigInt, "constructor")
                     | (Type::Symbol, "constructor") => Ok(Type::Any),
+                    // V3-18 m2.d — class-instance Object.prototype
+                    // methods. Same shape as namespace ctors:
+                    //   .hasOwnProperty(k)         → true if k is a
+                    //                                 declared field
+                    //                                 (compile-time
+                    //                                 layout lookup).
+                    //   .propertyIsEnumerable(k)   → same as
+                    //                                 hasOwnProperty
+                    //                                 (instance fields
+                    //                                 are enumerable).
+                    //   .isPrototypeOf(x)          → false (no real
+                    //                                 prototype chain).
+                    //   .valueOf()                 → identity (the
+                    //                                 instance).
+                    //   .toString()                → "[object Object]"
+                    //                                 (subset stub).
+                    //   .constructor                → Type::Any.
+                    (Type::Struct(_), "hasOwnProperty")
+                    | (Type::Struct(_), "propertyIsEnumerable") => {
+                        Ok(Type::Function(vec![Type::String], Box::new(Type::Boolean)))
+                    }
+                    (Type::Struct(_), "isPrototypeOf") => {
+                        Ok(Type::Function(vec![Type::Any], Box::new(Type::Boolean)))
+                    }
+                    (Type::Struct(_), "valueOf") => {
+                        let inner = obj_ty.clone();
+                        Ok(Type::Function(Vec::new(), Box::new(inner)))
+                    }
+                    (Type::Struct(_), "toString") => {
+                        Ok(Type::Function(Vec::new(), Box::new(Type::String)))
+                    }
+                    (Type::Struct(_), "constructor") => Ok(Type::Any),
                     _ => Err(format!("no member `.{name}` on type {obj_ty:?}")),
                 }
             }
