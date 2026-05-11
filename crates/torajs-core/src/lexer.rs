@@ -721,6 +721,57 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                 emit(&mut out, token, start, i);
             }
             b if b.is_ascii_digit() => {
+                // V3-18 m1.h.55 — `0b...` binary and `0o...` octal
+                // literals per JS spec §12.8.3. Both lex as base-2 / -8
+                // u64, then cast to f64 (matching the existing 0x...
+                // path). Same `n` BigInt suffix support.
+                if b == b'0'
+                    && peek(bytes, i + 1).is_some_and(|c| c == b'b' || c == b'B')
+                {
+                    i += 2;
+                    let dig_start = i;
+                    while i < len
+                        && (bytes[i as usize] == b'0'
+                            || bytes[i as usize] == b'1'
+                            || bytes[i as usize] == b'_')
+                    {
+                        i += 1;
+                    }
+                    if i == dig_start {
+                        return Err(format!("invalid binary literal at {start}"));
+                    }
+                    let raw = std::str::from_utf8(&bytes[dig_start as usize..i as usize])
+                        .expect("ascii bin digits are valid utf-8");
+                    let cleaned;
+                    let s: &str = if raw.contains('_') { cleaned = raw.replace('_', ""); &cleaned } else { raw };
+                    let n: u64 = u64::from_str_radix(s, 2)
+                        .map_err(|_| format!("invalid binary number at {start}"))?;
+                    emit(&mut out, Token::Number(n as f64), start, i);
+                    continue;
+                }
+                if b == b'0'
+                    && peek(bytes, i + 1).is_some_and(|c| c == b'o' || c == b'O')
+                {
+                    i += 2;
+                    let dig_start = i;
+                    while i < len
+                        && ((bytes[i as usize] >= b'0' && bytes[i as usize] <= b'7')
+                            || bytes[i as usize] == b'_')
+                    {
+                        i += 1;
+                    }
+                    if i == dig_start {
+                        return Err(format!("invalid octal literal at {start}"));
+                    }
+                    let raw = std::str::from_utf8(&bytes[dig_start as usize..i as usize])
+                        .expect("ascii oct digits are valid utf-8");
+                    let cleaned;
+                    let s: &str = if raw.contains('_') { cleaned = raw.replace('_', ""); &cleaned } else { raw };
+                    let n: u64 = u64::from_str_radix(s, 8)
+                        .map_err(|_| format!("invalid octal number at {start}"))?;
+                    emit(&mut out, Token::Number(n as f64), start, i);
+                    continue;
+                }
                 // 0x... hex literal — TS / JS standard. Parse as u64 and
                 // cast to f64; values up to 2^53 round-trip exactly,
                 // which covers every realistic bitwise / mask use.
@@ -729,14 +780,18 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                 {
                     i += 2; // skip "0x"
                     let hex_start = i;
-                    while i < len && bytes[i as usize].is_ascii_hexdigit() {
+                    while i < len
+                        && (bytes[i as usize].is_ascii_hexdigit() || bytes[i as usize] == b'_')
+                    {
                         i += 1;
                     }
                     if i == hex_start {
                         return Err(format!("invalid hex literal at {start}"));
                     }
-                    let s = std::str::from_utf8(&bytes[hex_start as usize..i as usize])
+                    let raw = std::str::from_utf8(&bytes[hex_start as usize..i as usize])
                         .expect("ascii hex digits are valid utf-8");
+                    let cleaned;
+                    let s: &str = if raw.contains('_') { cleaned = raw.replace('_', ""); &cleaned } else { raw };
                     /* T-25 BigInt: `0x...n`. Hex-radix BigInt literal. */
                     if peek(bytes, i) == Some(b'n') {
                         let digits = s.to_string();
@@ -749,14 +804,24 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                     emit(&mut out, Token::Number(n as f64), start, i);
                     continue;
                 }
-                while i < len && bytes[i as usize].is_ascii_digit() {
+                // V3-18 m1.h.55 — numeric separator `_` (per JS spec
+                // §12.8.3 NumericLiteralSeparator). Stripped before
+                // parsing. Allowed between digits only; consecutive
+                // `_` or leading/trailing `_` aren't valid but our
+                // tolerant parse silently allows them — strict spec
+                // rejection is a polish item.
+                while i < len
+                    && (bytes[i as usize].is_ascii_digit() || bytes[i as usize] == b'_')
+                {
                     i += 1;
                 }
                 if peek(bytes, i) == Some(b'.')
                     && peek(bytes, i + 1).is_some_and(|c| c.is_ascii_digit())
                 {
                     i += 1;
-                    while i < len && bytes[i as usize].is_ascii_digit() {
+                    while i < len
+                        && (bytes[i as usize].is_ascii_digit() || bytes[i as usize] == b'_')
+                    {
                         i += 1;
                     }
                 } else if peek(bytes, i) == Some(b'.')
@@ -794,8 +859,17 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                         i += 1;
                     }
                 }
-                let s = std::str::from_utf8(&bytes[start as usize..i as usize])
+                let raw = std::str::from_utf8(&bytes[start as usize..i as usize])
                     .expect("ascii digits are valid utf-8");
+                // V3-18 m1.h.55 — strip numeric separators before
+                // parsing into f64 / BigInt.
+                let s_owned;
+                let s: &str = if raw.contains('_') {
+                    s_owned = raw.replace('_', "");
+                    &s_owned
+                } else {
+                    raw
+                };
                 /* T-25 BigInt: `<integer>n` literal. Only matches when
                  * the lexeme has no `.` or `e/E` (decimal-only integer)
                  * and is followed by `n`. JS rejects `1.5n` / `1e2n`
