@@ -4278,6 +4278,36 @@ impl Checker {
                         return Ok(Type::Array(Box::new((**elem).clone())));
                     }
                 }
+                // V3-18 m1.h.53 — Array.fill with optional start /
+                // end args per JS spec §22.1.3.6:
+                //   xs.fill(v)            = xs.fill(v, 0, len)
+                //   xs.fill(v, start)     = xs.fill(v, start, len)
+                // Pre-fix tora declared with 3 fixed params so 1 / 2 -
+                // arg calls hit the arity check.
+                if let Expr::Member { obj: src_id, name: m_name } = ast.get_expr(*callee)
+                    && m_name == "fill"
+                    && (args.len() == 1 || args.len() == 2)
+                {
+                    let src_ty = self.type_of(ast, *src_id)?;
+                    if let Type::Array(elem) = &src_ty {
+                        let v_ty = self.type_of(ast, args[0])?;
+                        if v_ty != **elem {
+                            return Err(format!(
+                                "Array.fill arg 0 must match elem type {:?}, got {v_ty:?}",
+                                **elem
+                            ));
+                        }
+                        if args.len() == 2 {
+                            let start_ty = self.type_of(ast, args[1])?;
+                            if start_ty != Type::Number {
+                                return Err(format!(
+                                    "Array.fill arg 1 (start) must be number, got {start_ty:?}"
+                                ));
+                            }
+                        }
+                        return Ok(Type::Array(Box::new((**elem).clone())));
+                    }
+                }
                 // V3-18 m1.h.51 — String.startsWith / endsWith /
                 // includes accept an optional 2nd `position` arg per
                 // JS spec §21.1.3.20 / §21.1.3.6 / §21.1.3.7.

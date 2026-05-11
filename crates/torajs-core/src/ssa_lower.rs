@@ -15619,7 +15619,7 @@ impl<'a> LowerCtx<'a> {
                     // bypassing the C runtime for this case.
                     if let Type::Arr(arr_id) = recv_ty
                         && method == "fill"
-                        && args.len() == 3
+                        && (args.len() >= 1 && args.len() <= 3)
                     {
                         let value = self.lower_expr(args[0]);
                         let value_ty = self.operand_ty(&value);
@@ -15628,8 +15628,24 @@ impl<'a> LowerCtx<'a> {
                                 "ssa-lower: Array.fill on f64 elements not yet supported (need IR bitcast)"
                             );
                         }
-                        let start = self.lower_expr(args[1]);
-                        let end = self.lower_expr(args[2]);
+                        // V3-18 m1.h.53 — start defaults to 0, end
+                        // defaults to arr.length per JS spec §22.1.3.6.
+                        let start = if args.len() >= 2 {
+                            self.lower_expr(args[1])
+                        } else {
+                            Operand::ConstI64(0)
+                        };
+                        let end = if args.len() == 3 {
+                            self.lower_expr(args[2])
+                        } else {
+                            let len = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Load(Type::I64, recv_op, ARR_LEN_OFF),
+                                Type::I64,
+                                None,
+                            );
+                            Operand::Value(len)
+                        };
                         let elem_ty = self.arr_layouts[arr_id.0 as usize];
                         if elem_ty.is_copy() {
                             let v = self.f.append_inst(
