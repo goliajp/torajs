@@ -11655,6 +11655,38 @@ impl<'a> LowerCtx<'a> {
                     );
                     return Operand::Value(v);
                 }
+                // V3-18 m2.a — Object.prototype methods exposed on
+                // every primitive via JS auto-boxing. Catch BEFORE
+                // any other Member-method dispatch since these
+                // names overlap nothing else (valueOf is unique;
+                // hasOwnProperty / propertyIsEnumerable have no
+                // primitive-receiver alternatives).
+                if let Expr::Member { obj: recv_id, name: m_name } =
+                    self.ast.get_expr(*callee)
+                    && matches!(m_name.as_str(),
+                        "valueOf" | "hasOwnProperty" | "propertyIsEnumerable")
+                {
+                    let recv_op = self.lower_expr(*recv_id);
+                    let recv_ty = self.operand_ty(&recv_op);
+                    if matches!(recv_ty,
+                        Type::F64 | Type::I64 | Type::I32
+                        | Type::Str | Type::Substr | Type::Bool
+                        | Type::BigInt | Type::Symbol)
+                    {
+                        if m_name == "valueOf" {
+                            return recv_op;
+                        }
+                        // hasOwnProperty / propertyIsEnumerable: drop
+                        // arg (for side effects) and return false.
+                        if !args.is_empty() {
+                            let arg_val = self.lower_expr(args[0]);
+                            let arg_ty = self.operand_ty(&arg_val);
+                            self.consume_if_ident(args[0]);
+                            self.emit_drop_value(arg_val, arg_ty);
+                        }
+                        return Operand::ConstBool(false);
+                    }
+                }
                 /* T-24 — virtual-dispatch interception via vtable.
                  *
                  * Desugar rewrites `obj.M()` (for chain methods) into
@@ -12364,6 +12396,24 @@ impl<'a> LowerCtx<'a> {
                 //     so two owners of the SAME array would double-walk
                 //     (each elem dec'd twice). Cloning gives target its
                 //     own array with proper element refcount accounting.
+                // V3-18 m2.a — Object.getPrototypeOf stub. Returns
+                // ConstPtrNull (no real prototype chain in tora's
+                // nominal class system). Most test262 cases that use
+                // it are checking inheritance shape — null works as
+                // the bottom case (the call doesn't throw).
+                if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
+                    && m_name == "getPrototypeOf"
+                    && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
+                    && ns == "Object"
+                    && args.len() == 1
+                {
+                    // Lower the arg for any side effects, then drop.
+                    let v = self.lower_expr(args[0]);
+                    let v_ty = self.operand_ty(&v);
+                    self.consume_if_ident(args[0]);
+                    self.emit_drop_value(v, v_ty);
+                    return Operand::ConstPtrNull;
+                }
                 if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
                     && m_name == "assign"
                     && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)

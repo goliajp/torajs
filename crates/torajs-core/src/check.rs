@@ -2647,8 +2647,17 @@ impl Checker {
                      *   declaration. Lands with T-27 / Type::Any field
                      *   substrate post-v0.5.
                      */
-                    (Type::Object("Object"), "getPrototypeOf")
-                    | (Type::Object("Object"), "setPrototypeOf")
+                    // V3-18 m2.a — Object.getPrototypeOf stub.
+                    // Tora's nominal class system has no real prototype
+                    // chain, so getPrototypeOf returns null. Most
+                    // test262 cases that use it are checking inheritance
+                    // shape — a `null` return works as the bottom case
+                    // (the call doesn't throw). Real prototype-chain
+                    // semantics ship with T-27 (dynamic substrate).
+                    (Type::Object("Object"), "getPrototypeOf") => {
+                        Ok(Type::Function(vec![Type::Any], Box::new(Type::Null)))
+                    }
+                    (Type::Object("Object"), "setPrototypeOf")
                     | (Type::Object("Object"), "defineProperty")
                     | (Type::Object("Object"), "defineProperties")
                     | (Type::Object("Object"), "getOwnPropertyDescriptor") => {
@@ -2747,6 +2756,42 @@ impl Checker {
                     // arg). Per JS spec §20.4.3.3 / §20.4.3.2.
                     (Type::Symbol, "toString") | (Type::Symbol, "toLocaleString") => {
                         Ok(Type::Function(Vec::new(), Box::new(Type::String)))
+                    }
+                    // V3-18 m2.a — Object.prototype methods exposed on
+                    // every primitive via JS's auto-boxing rules:
+                    //   .valueOf()              → returns the primitive itself
+                    //   .hasOwnProperty(name)    → false (primitives have
+                    //                              no own properties in our
+                    //                              subset)
+                    //   .propertyIsEnumerable(name) → false (same)
+                    //   .isPrototypeOf(obj)     → false (we have no real
+                    //                              prototype chain)
+                    // ssa_lower handles the dispatch with constant folds
+                    // since the values can't actually carry user-added
+                    // properties.
+                    (Type::Number, "valueOf") => {
+                        Ok(Type::Function(Vec::new(), Box::new(Type::Number)))
+                    }
+                    (Type::String, "valueOf") => {
+                        Ok(Type::Function(Vec::new(), Box::new(Type::String)))
+                    }
+                    (Type::Boolean, "valueOf") => {
+                        Ok(Type::Function(Vec::new(), Box::new(Type::Boolean)))
+                    }
+                    (Type::BigInt, "valueOf") => {
+                        Ok(Type::Function(Vec::new(), Box::new(Type::BigInt)))
+                    }
+                    (Type::Number, "hasOwnProperty")
+                    | (Type::String, "hasOwnProperty")
+                    | (Type::Boolean, "hasOwnProperty")
+                    | (Type::BigInt, "hasOwnProperty")
+                    | (Type::Symbol, "hasOwnProperty")
+                    | (Type::Number, "propertyIsEnumerable")
+                    | (Type::String, "propertyIsEnumerable")
+                    | (Type::Boolean, "propertyIsEnumerable")
+                    | (Type::BigInt, "propertyIsEnumerable")
+                    | (Type::Symbol, "propertyIsEnumerable") => {
+                        Ok(Type::Function(vec![Type::String], Box::new(Type::Boolean)))
                     }
                     // RegExp instance methods. v0.2 #1 ships `.test(s)`;
                     // `.exec` / `.toString` / `.source` / `.flags` /
