@@ -2974,7 +2974,11 @@ impl Parser<'_> {
         let mut fields: Vec<(String, String)> = Vec::new();
         if !matches!(self.peek(), Token::RBrace) {
             fields.push(self.parse_type_decl_field()?);
-            while matches!(self.peek(), Token::Comma) {
+            // V3-18 m1.h.54 — TS spec also allows `;` (or newline-implied
+            // ASI) as a field separator inside type literals. Pre-fix
+            // tora only accepted `,`, hard-rejecting the canonical
+            // `type T = { a: number; b: number }` form.
+            while matches!(self.peek(), Token::Comma | Token::Semi) {
                 self.pos += 1;
                 if matches!(self.peek(), Token::RBrace) {
                     break;
