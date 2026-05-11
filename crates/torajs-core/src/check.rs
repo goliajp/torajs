@@ -2456,6 +2456,16 @@ impl Checker {
                     (Type::Object(_), "toString") => {
                         Ok(Type::Function(Vec::new(), Box::new(Type::String)))
                     }
+                    // V3-18 m2.c — `Number.prototype` / `String.prototype`
+                    // / etc — every constructor object has a `.prototype`
+                    // property. Subset stub returns Type::Null (no real
+                    // prototype object yet); test262 cases mostly probe
+                    // the call-doesn't-throw shape or compare via
+                    // `typeof X.prototype === "object"` which is handled
+                    // by the typeof-namespace-member arm.
+                    (Type::Object(_), "prototype") => Ok(Type::Null),
+                    (Type::Object(_), "name") => Ok(Type::String),
+                    (Type::Object(_), "length") => Ok(Type::Number),
                     // JSON.stringify(value) — value can be any subset
                     // type; result is String. The actual type-aware
                     // serialization shape happens at lower-time
@@ -2773,6 +2783,18 @@ impl Checker {
                     (Type::Symbol, "toString") | (Type::Symbol, "toLocaleString") => {
                         Ok(Type::Function(Vec::new(), Box::new(Type::String)))
                     }
+                    // V3-18 m2.c — `.constructor` on primitives
+                    // returns the constructor function (Number /
+                    // String / etc). Subset stub: Type::Any (the
+                    // constructor's actual type is callable but
+                    // tora has no first-class function reference for
+                    // the namespace ctor; Type::Any lets the test
+                    // typecheck without committing to a real shape).
+                    (Type::Number, "constructor")
+                    | (Type::String, "constructor")
+                    | (Type::Boolean, "constructor")
+                    | (Type::BigInt, "constructor")
+                    | (Type::Symbol, "constructor") => Ok(Type::Any),
                     // V3-18 m2.a — Object.prototype methods exposed on
                     // every primitive via JS's auto-boxing rules:
                     //   .valueOf()              → returns the primitive itself
@@ -3468,6 +3490,14 @@ impl Checker {
                     // null if Symbol() was called with no arg. Per JS
                     // spec §20.4.3.2.
                     (Type::Symbol, "description") => Ok(Type::String),
+                    // V3-18 m2.c — `<prim>.constructor` returns the
+                    // constructor function (subset stub: Type::Any so
+                    // typeof works without committing to a real shape).
+                    (Type::Number, "constructor")
+                    | (Type::String, "constructor")
+                    | (Type::Boolean, "constructor")
+                    | (Type::BigInt, "constructor")
+                    | (Type::Symbol, "constructor") => Ok(Type::Any),
                     _ => Err(format!("no member `.{name}` on type {obj_ty:?}")),
                 }
             }

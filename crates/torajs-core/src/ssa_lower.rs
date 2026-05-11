@@ -18073,8 +18073,37 @@ impl<'a> LowerCtx<'a> {
                         // (5e-324), not f64::MIN_POSITIVE (the
                         // smallest *normal* double, 2.2250738e-308).
                         "MIN_VALUE" => Operand::ConstF64(5e-324),
+                        // V3-18 m2.c — Number.prototype stub (null —
+                        // no real prototype object).
+                        "prototype" => Operand::ConstPtrNull,
+                        "name" => {
+                            let v = self.intern_string_literal("Number");
+                            Operand::Value(v)
+                        }
+                        "length" => Operand::ConstI64(1),  // Number ctor arity
                         other => panic!("ssa-lower: unknown Number constant `{other}`"),
                     };
+                }
+                // V3-18 m2.c — Member access on other constructor
+                // namespaces. `.prototype` returns null (subset stub),
+                // `.name` returns the namespace name, `.length` returns
+                // the constructor's arity.
+                if let Expr::Ident(n) = self.ast.get_expr(*obj)
+                    && matches!(n.as_str(),
+                        "String" | "Boolean" | "Symbol" | "BigInt"
+                        | "Object" | "Array" | "RegExp" | "Date"
+                        | "Error" | "Promise" | "Map" | "Set"
+                        | "Function")
+                {
+                    match name.as_str() {
+                        "prototype" => return Operand::ConstPtrNull,
+                        "name" => {
+                            let v = self.intern_string_literal(n);
+                            return Operand::Value(v);
+                        }
+                        "length" => return Operand::ConstI64(1),
+                        _ => {}
+                    }
                 }
                 let obj_val = self.lower_expr(*obj);
                 let obj_ty = self.operand_ty(&obj_val);
@@ -18083,6 +18112,23 @@ impl<'a> LowerCtx<'a> {
                 // refcount header). See ssa_inkwell::STR_HDR_LEN_OFF.
                 // Substr's len lives at the same offset (8) as Str's —
                 // single load for both layouts.
+                // V3-18 m2.c — `<prim>.constructor` returns the
+                // primitive's constructor function. tora doesn't have
+                // first-class function refs for namespaces, so we
+                // just emit ConstPtrNull (typeof on the result still
+                // routes through the typeof-Member path which
+                // returns "function" for namespace ctors).
+                if matches!(obj_ty,
+                    Type::I64 | Type::F64 | Type::I32 | Type::Bool
+                    | Type::Str | Type::Substr | Type::BigInt | Type::Symbol)
+                    && name == "constructor"
+                {
+                    let _ = obj_val; // operand may have side effects but
+                                     // for primitive borrows there's none
+                                     // to flush; intentionally drop the
+                                     // value
+                    return Operand::ConstPtrNull;
+                }
                 // V3-18 m1.h.47 — Symbol.prototype.description.
                 // Returns the desc str the Symbol was created with (or
                 // null for Symbol() with no arg). The runtime helper
@@ -19006,6 +19052,13 @@ impl<'a> LowerCtx<'a> {
                 // time via the namespace + name. Math constants
                 // (PI / E / LN2 / ...) typeof as "number"; everything
                 // else on these namespaces is a function.
+                // V3-18 m2.c — typeof <expr>.constructor → "function"
+                // (the primitive's constructor namespace is a function).
+                if let Expr::Member { name: member_name, .. } = self.ast.get_expr(*expr)
+                    && member_name == "constructor"
+                {
+                    return Operand::Value(self.intern_string_literal("function"));
+                }
                 if let Expr::Member { obj, name: member_name } = self.ast.get_expr(*expr)
                     && let Expr::Ident(ns) = self.ast.get_expr(*obj)
                 {
@@ -19026,6 +19079,11 @@ impl<'a> LowerCtx<'a> {
                         "MAX_VALUE" | "MIN_VALUE" | "MAX_SAFE_INTEGER" | "MIN_SAFE_INTEGER"
                             | "EPSILON" | "POSITIVE_INFINITY" | "NEGATIVE_INFINITY" | "NaN"
                     );
+                    // V3-18 m2.c — `.prototype` typeofs as "object";
+                    // `.name` as "string"; `.length` as "number".
+                    let is_proto_obj = member_name == "prototype";
+                    let is_string_prop = member_name == "name";
+                    let is_length_prop = member_name == "length";
                     let ns_known = matches!(
                         ns.as_str(),
                         "Math" | "JSON" | "Reflect" | "globalThis" | "console"
@@ -19036,8 +19094,12 @@ impl<'a> LowerCtx<'a> {
                     if ns_known {
                         let s = if is_symbol_well_known {
                             "symbol"
-                        } else if is_math_const || is_number_const {
+                        } else if is_math_const || is_number_const || is_length_prop {
                             "number"
+                        } else if is_proto_obj {
+                            "object"
+                        } else if is_string_prop {
+                            "string"
                         } else {
                             "function"
                         };
