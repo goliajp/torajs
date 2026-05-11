@@ -2440,6 +2440,22 @@ impl Checker {
                     {
                         Ok(Type::Function(vec![Type::Number], Box::new(Type::Boolean)))
                     }
+                    // V3-18 m2.b — Object.prototype methods on
+                    // constructor-namespace objects (Number / String /
+                    // Boolean / Array / etc). Same subset semantics as
+                    // m2.a on primitives: hasOwnProperty /
+                    // propertyIsEnumerable always false (no own enum
+                    // properties tracked), valueOf identity.
+                    (Type::Object(_), "hasOwnProperty")
+                    | (Type::Object(_), "propertyIsEnumerable") => {
+                        Ok(Type::Function(vec![Type::String], Box::new(Type::Boolean)))
+                    }
+                    (Type::Object(_), "isPrototypeOf") => {
+                        Ok(Type::Function(vec![Type::Any], Box::new(Type::Boolean)))
+                    }
+                    (Type::Object(_), "toString") => {
+                        Ok(Type::Function(Vec::new(), Box::new(Type::String)))
+                    }
                     // JSON.stringify(value) — value can be any subset
                     // type; result is String. The actual type-aware
                     // serialization shape happens at lower-time

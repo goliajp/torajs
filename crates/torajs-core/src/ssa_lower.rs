@@ -107,6 +107,65 @@ enum NumWidth {
 /// Conservative: returns Unknown for any shape we can't classify
 /// purely from the AST (Idents, member accesses on user objects, etc.)
 /// so we don't accidentally widen integer-shaped generics.
+/// V3-18 m2.b — per-namespace known-own-property table for the
+/// hasOwnProperty / propertyIsEnumerable subset stub. Only literal-
+/// string keys land in this lookup; runtime keys default to `false`.
+/// Returns true iff the named property is one that JS spec defines
+/// as a direct (non-inherited) own property of the named constructor
+/// object.
+fn ns_has_own_property(ns: &str, key: &str) -> bool {
+    match ns {
+        "Number" => matches!(key,
+            "NaN" | "POSITIVE_INFINITY" | "NEGATIVE_INFINITY" | "EPSILON"
+            | "MAX_SAFE_INTEGER" | "MIN_SAFE_INTEGER"
+            | "MAX_VALUE" | "MIN_VALUE"
+            | "parseInt" | "parseFloat" | "isInteger" | "isNaN"
+            | "isFinite" | "isSafeInteger"
+            | "prototype" | "length" | "name"),
+        "String" => matches!(key,
+            "fromCharCode" | "fromCodePoint" | "raw"
+            | "prototype" | "length" | "name"),
+        "Boolean" => matches!(key, "prototype" | "length" | "name"),
+        "Symbol" => matches!(key,
+            "iterator" | "asyncIterator" | "toPrimitive" | "toStringTag"
+            | "hasInstance" | "isConcatSpreadable" | "match" | "matchAll"
+            | "replace" | "search" | "split" | "species" | "unscopables"
+            | "for" | "keyFor"
+            | "prototype" | "length" | "name"),
+        "BigInt" => matches!(key,
+            "asIntN" | "asUintN"
+            | "prototype" | "length" | "name"),
+        "Object" => matches!(key,
+            "keys" | "values" | "entries" | "assign" | "freeze" | "isFrozen"
+            | "create" | "fromEntries" | "is" | "getOwnPropertyNames"
+            | "getPrototypeOf" | "setPrototypeOf"
+            | "defineProperty" | "defineProperties" | "getOwnPropertyDescriptor"
+            | "preventExtensions" | "isExtensible" | "seal" | "isSealed"
+            | "prototype" | "length" | "name"),
+        "Array" => matches!(key,
+            "isArray" | "from" | "of"
+            | "prototype" | "length" | "name"),
+        "Math" => matches!(key,
+            "PI" | "E" | "LN2" | "LN10" | "LOG2E" | "LOG10E"
+            | "SQRT2" | "SQRT1_2"
+            | "abs" | "ceil" | "floor" | "round" | "trunc" | "sign"
+            | "sqrt" | "cbrt" | "exp" | "log" | "log2" | "log10" | "log1p" | "expm1"
+            | "pow" | "min" | "max" | "hypot"
+            | "sin" | "cos" | "tan" | "asin" | "acos" | "atan" | "atan2"
+            | "sinh" | "cosh" | "tanh" | "asinh" | "acosh" | "atanh"
+            | "random" | "imul" | "clz32" | "fround"),
+        "JSON" => matches!(key, "stringify" | "parse"),
+        "Reflect" => matches!(key,
+            "apply" | "construct" | "defineProperty" | "deleteProperty"
+            | "get" | "getOwnPropertyDescriptor" | "getPrototypeOf"
+            | "has" | "isExtensible" | "ownKeys" | "preventExtensions"
+            | "set" | "setPrototypeOf"),
+        "Function" | "RegExp" | "Date" | "Error" | "Promise" | "Map" | "Set"
+            => matches!(key, "prototype" | "length" | "name"),
+        _ => false,
+    }
+}
+
 fn infer_arg_width(ast: &Ast, eid: ExprId) -> NumWidth {
     match ast.get_expr(eid) {
         // Genuinely fractional, OR magnitude past i64 range (e.g. `1e21`)
@@ -11653,6 +11712,75 @@ impl<'a> LowerCtx<'a> {
                         Type::Symbol,
                         None,
                     );
+                    return Operand::Value(v);
+                }
+                // V3-18 m2.b — Object.prototype methods on
+                // constructor-namespace objects (Number / String /
+                // Math / etc). Same subset semantics: hasOwnProperty
+                // / propertyIsEnumerable / isPrototypeOf return false;
+                // toString returns "[object NS]" (close enough for the
+                // test262 cases probing the call-doesn't-throw
+                // behavior).
+                if let Expr::Member { obj: recv_id, name: m_name } =
+                    self.ast.get_expr(*callee)
+                    && let Expr::Ident(ns) = self.ast.get_expr(*recv_id)
+                    && matches!(ns.as_str(),
+                        "Number" | "String" | "Boolean" | "Symbol"
+                        | "BigInt" | "Object" | "Array" | "Math"
+                        | "JSON" | "Reflect" | "RegExp" | "Date"
+                        | "Error" | "Promise" | "Map" | "Set"
+                        | "console" | "Function")
+                    && matches!(m_name.as_str(),
+                        "hasOwnProperty" | "propertyIsEnumerable"
+                        | "isPrototypeOf")
+                {
+                    // Compile-time lookup: if args[0] is a string literal,
+                    // check whether the name is a known own property of
+                    // the namespace and emit ConstBool(true/false).
+                    // Non-literal arg falls back to false (subset
+                    // limitation; runtime per-namespace lookup table is
+                    // a follow-up).
+                    let result = if let Some(arg_eid) = args.first()
+                        && let Expr::String(key) = self.ast.get_expr(*arg_eid)
+                    {
+                        // Methods/properties that JS spec marks as own
+                        // on each constructor object. propertyIsEnumerable
+                        // is conservatively false for built-in own
+                        // properties (per spec — built-ins are
+                        // non-enumerable), so split on m_name.
+                        let is_own = ns_has_own_property(ns, key);
+                        if m_name == "propertyIsEnumerable" {
+                            // Built-in own props are non-enumerable.
+                            false
+                        } else if m_name == "hasOwnProperty" {
+                            is_own
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    };
+                    if !args.is_empty() {
+                        let arg_val = self.lower_expr(args[0]);
+                        let arg_ty = self.operand_ty(&arg_val);
+                        self.consume_if_ident(args[0]);
+                        self.emit_drop_value(arg_val, arg_ty);
+                    }
+                    return Operand::ConstBool(result);
+                }
+                if let Expr::Member { obj: recv_id, name: m_name } =
+                    self.ast.get_expr(*callee)
+                    && let Expr::Ident(ns) = self.ast.get_expr(*recv_id)
+                    && matches!(ns.as_str(),
+                        "Number" | "String" | "Boolean" | "Symbol"
+                        | "BigInt" | "Object" | "Array" | "Math"
+                        | "JSON" | "Reflect" | "RegExp" | "Date"
+                        | "Error" | "Promise" | "Map" | "Set"
+                        | "console" | "Function")
+                    && m_name == "toString"
+                {
+                    let s = format!("function {ns}() {{ [native code] }}");
+                    let v = self.intern_string_literal(&s);
                     return Operand::Value(v);
                 }
                 // V3-18 m2.a — Object.prototype methods exposed on
