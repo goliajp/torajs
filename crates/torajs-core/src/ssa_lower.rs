@@ -11846,27 +11846,75 @@ impl<'a> LowerCtx<'a> {
                             // isPrototypeOf:
                             //   - For primitives: always false (no own
                             //     enumerable props in subset).
-                            //   - For struct instances: check whether
-                            //     args[0] is a literal string matching
-                            //     a declared field name.
-                            let result = if let Type::Obj(sid) = recv_ty
+                            //   - For struct instances + literal key:
+                            //     compile-time field-name lookup.
+                            //   - For struct instances + runtime key
+                            //     (V3-18 m2.g): emit an inline str_eq
+                            //     chain over the struct's field names.
+                            //     Each name is interned as a literal Str
+                            //     (zero-alloc for the comparison).
+                            if let Type::Obj(sid) = recv_ty
                                 && matches!(m_name.as_str(),
                                     "hasOwnProperty" | "propertyIsEnumerable")
                                 && let Some(arg_eid) = args.first()
-                                && let Expr::String(key) = self.ast.get_expr(*arg_eid)
                             {
-                                let layout = &self.struct_layouts[sid.0 as usize];
-                                layout.iter().any(|(fname, _)| fname == key)
-                            } else {
-                                false
-                            };
+                                if let Expr::String(key) = self.ast.get_expr(*arg_eid) {
+                                    // Literal key — compile-time fold.
+                                    let layout = &self.struct_layouts[sid.0 as usize];
+                                    let result = layout.iter().any(|(fname, _)| fname == key);
+                                    let arg_val = self.lower_expr(*arg_eid);
+                                    let arg_ty = self.operand_ty(&arg_val);
+                                    self.consume_if_ident(*arg_eid);
+                                    self.emit_drop_value(arg_val, arg_ty);
+                                    return Operand::ConstBool(result);
+                                }
+                                // Runtime key — emit inline str_eq chain.
+                                let layout = self.struct_layouts[sid.0 as usize].clone();
+                                let key_op = self.lower_expr(*arg_eid);
+                                let key_ty = self.operand_ty(&key_op);
+                                let mut acc: Operand = Operand::ConstBool(false);
+                                for (fname, _) in &layout {
+                                    let lit = self.intern_string_literal(fname);
+                                    let cmp_target = if key_ty == Type::Substr {
+                                        self.intrinsics.substr_eq_str
+                                    } else {
+                                        self.intrinsics.str_eq
+                                    };
+                                    let eq = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::Call(
+                                            cmp_target,
+                                            vec![key_op, Operand::Value(lit)],
+                                        ),
+                                        Type::Bool,
+                                        None,
+                                    );
+                                    let eq_op = Operand::Value(eq);
+                                    if matches!(acc, Operand::ConstBool(false)) {
+                                        acc = eq_op;
+                                    } else {
+                                        let or = self.f.append_inst(
+                                            self.cur_block,
+                                            InstKind::BinOp(SsaBinOp::Or, acc, eq_op),
+                                            Type::Bool,
+                                            None,
+                                        );
+                                        acc = Operand::Value(or);
+                                    }
+                                }
+                                self.consume_if_ident(*arg_eid);
+                                self.emit_drop_value(key_op, key_ty);
+                                return acc;
+                            }
+                            // Fallback (primitives, isPrototypeOf, no args):
+                            // drop arg + return false.
                             if !args.is_empty() {
                                 let arg_val = self.lower_expr(args[0]);
                                 let arg_ty = self.operand_ty(&arg_val);
                                 self.consume_if_ident(args[0]);
                                 self.emit_drop_value(arg_val, arg_ty);
                             }
-                            return Operand::ConstBool(result);
+                            return Operand::ConstBool(false);
                         }
                     }
                 }
