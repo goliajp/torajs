@@ -4141,16 +4141,15 @@ impl Checker {
                 // every arg must be Number; result is Number. ssa-lower
                 // folds the call into a pairwise reduction. The general
                 // Type::Function check below would reject ≠2 args here.
-                // Math.hypot — variadic. sqrt(sum of args²). Subset: any
-                // arg count >= 1; all Number; result Number.
+                // Math.hypot — variadic. sqrt(sum of args²). Per JS
+                // spec §21.3.2.18: 0-arg returns +0; 1-arg returns
+                // |arg|; 2+ uses libm hypot pairwise (V3-18 m1.h.56
+                // dropped the artificial 1-arg minimum).
                 if let Expr::Member { obj, name: m } = ast.get_expr(*callee)
                     && let Expr::Ident(ns) = ast.get_expr(*obj)
                     && ns == "Math"
                     && m == "hypot"
                 {
-                    if args.is_empty() {
-                        return Err("Math.hypot requires at least 1 arg".into());
-                    }
                     for &aid in args {
                         let aty = self.type_of(ast, aid)?;
                         if aty != Type::Number {

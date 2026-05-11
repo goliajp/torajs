@@ -12109,6 +12109,11 @@ impl<'a> LowerCtx<'a> {
                     && ns == "Math"
                     && m_name == "hypot"
                 {
+                    // V3-18 m1.h.56 — 0-arg returns +0 per JS spec
+                    // §21.3.2.18 (identity element of the reduction).
+                    if args.is_empty() {
+                        return Operand::ConstF64(0.0);
+                    }
                     let arg_ids: Vec<ExprId> = args.clone();
                     let mut acc: Option<Operand> = None;
                     for aid in arg_ids.iter() {
