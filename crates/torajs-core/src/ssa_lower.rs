@@ -19289,6 +19289,46 @@ impl<'a> LowerCtx<'a> {
                 // table.
                 let v = self.lower_expr(*expr);
                 let actual_ty = self.operand_ty(&v);
+                // V3-18 m2.i — built-in constructor instanceof checks
+                // against the operand's static SSA type. Per JS spec:
+                // primitives are NOT instances of their boxing
+                // constructor (`5 instanceof Number === false`); only
+                // boxed `new Number(5)` would be true (subset doesn't
+                // ship boxed primitives so they're always false).
+                let class_name_str = class_name.as_str();
+                let result = match (class_name_str, &actual_ty) {
+                    ("Array", Type::Arr(_)) => Some(true),
+                    ("Array", _) => Some(false),
+                    ("Function", Type::Closure(_)) | ("Function", Type::FnSig(_))
+                        => Some(true),
+                    ("Function", _) => Some(false),
+                    // Object instanceof: any class instance is an
+                    // Object; every Type::Obj qualifies. Primitives
+                    // do NOT qualify per spec.
+                    ("Object", Type::Obj(_)) => Some(true),
+                    ("Object", Type::Arr(_)) => Some(true),
+                    ("Object", Type::Date) => Some(true),
+                    ("Object", Type::RegExp) => Some(true),
+                    ("Object", Type::Promise) => Some(true),
+                    ("Object", Type::Closure(_)) | ("Object", Type::FnSig(_))
+                        => Some(true),  // functions are Objects in JS
+                    ("Object", _) => Some(false),
+                    ("Number" | "String" | "Boolean" | "BigInt" | "Symbol", _) => {
+                        // Primitives never satisfy these (subset has no
+                        // boxed counterparts).
+                        Some(false)
+                    }
+                    ("Date", Type::Date) => Some(true),
+                    ("Date", _) => Some(false),
+                    ("RegExp", Type::RegExp) => Some(true),
+                    ("RegExp", _) => Some(false),
+                    ("Promise", Type::Promise) => Some(true),
+                    ("Promise", _) => Some(false),
+                    _ => None,
+                };
+                if let Some(r) = result {
+                    return Operand::ConstBool(r);
+                }
                 if !matches!(actual_ty, Type::Obj(_)) {
                     // Non-object operand: instanceof is trivially false.
                     return Operand::ConstBool(false);
