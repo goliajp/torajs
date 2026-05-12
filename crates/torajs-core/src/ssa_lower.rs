@@ -12080,6 +12080,24 @@ impl<'a> LowerCtx<'a> {
                         );
                         return Operand::Value(v);
                     }
+                    // V3-18 wedge — Boolean.prototype.toString / valueOf.
+                    // toString → "true"/"false" via the bool_to_str
+                    // intrinsic (already used by string-coerce). valueOf
+                    // is identity on the bool.
+                    if recv_ty == Type::Bool
+                        && (m_name == "toString" || m_name == "toLocaleString")
+                    {
+                        let v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.bool_to_str,
+                                vec![recv_op],
+                            ),
+                            Type::Str,
+                            None,
+                        );
+                        return Operand::Value(v);
+                    }
                     if recv_ty == Type::I64 || recv_ty == Type::F64 {
                         let is_f64 = recv_ty == Type::F64;
                         // toString with radix: route i64 receiver to the

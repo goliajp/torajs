@@ -2839,6 +2839,17 @@ impl Checker {
                     (Type::Number, "toString") | (Type::Number, "toLocaleString") => {
                         Ok(Type::Function(Vec::new(), Box::new(Type::String)))
                     }
+                    // V3-18 wedge — Boolean.prototype.toString / valueOf.
+                    // Per JS spec §20.3.3.2 / §20.3.3.3 — `(true).toString()`
+                    // → "true", `(false).toString()` → "false". valueOf
+                    // returns the boolean itself. Common in calls like
+                    // `b.toString()` where b is a typed Boolean binding.
+                    (Type::Boolean, "toString") | (Type::Boolean, "toLocaleString") => {
+                        Ok(Type::Function(Vec::new(), Box::new(Type::String)))
+                    }
+                    (Type::Boolean, "valueOf") => {
+                        Ok(Type::Function(Vec::new(), Box::new(Type::Boolean)))
+                    }
                     // V3-18 m1.h.27 — BigInt.prototype.toString() →
                     // decimal string (no `n` suffix). Per JS spec
                     // §21.2.3.5 / §21.2.3.6. The runtime path
