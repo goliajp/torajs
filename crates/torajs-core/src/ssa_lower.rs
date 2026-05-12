@@ -20624,7 +20624,12 @@ impl<'a> LowerCtx<'a> {
         // no current bench / conformance triggers it).
         let a_ty = self.operand_ty(&a);
         let b_ty = self.operand_ty(&b);
-        if matches!(op, AstBinOp::Eq | AstBinOp::Neq)
+        // V3-18 wedge — `==` / `!=` on Str/Str also routes to str_eq.
+        // Per JS spec §7.2.13 IsLooselyEqual when both ToPrimitive
+        // are String, compares as String (which is content-equal).
+        // Pre-fix only AstBinOp::Eq / Neq (strict) reached this dispatch;
+        // LooseEq / LooseNeq fell through and tora returned false.
+        if matches!(op, AstBinOp::Eq | AstBinOp::Neq | AstBinOp::LooseEq | AstBinOp::LooseNeq)
             && (a_ty == Type::Str || a_ty == Type::Substr)
             && (b_ty == Type::Str || b_ty == Type::Substr)
         {
@@ -20658,7 +20663,7 @@ impl<'a> LowerCtx<'a> {
                             vec![Operand::Value(owned)],
                         ),
                     );
-                    if matches!(op, AstBinOp::Neq) {
+                    if matches!(op, AstBinOp::Neq | AstBinOp::LooseNeq) {
                         let r = self.f.append_inst(
                             self.cur_block,
                             InstKind::BinOp(
@@ -20681,7 +20686,7 @@ impl<'a> LowerCtx<'a> {
                 Type::Bool,
                 None,
             );
-            if matches!(op, AstBinOp::Neq) {
+            if matches!(op, AstBinOp::Neq | AstBinOp::LooseNeq) {
                 let r = self.f.append_inst(
                     self.cur_block,
                     InstKind::BinOp(
