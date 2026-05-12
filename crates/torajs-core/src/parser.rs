@@ -893,6 +893,14 @@ impl Parser<'_> {
         if is_async {
             self.ast.async_fns.insert(name.clone());
         }
+        // V3-18 wedge — TS overload signature: `function f(...): R;`
+        // (no body, terminated by `;`). Type-only; the runtime impl
+        // is the trailing same-named declaration. Discard by
+        // returning an empty Block — the real FnDecl follows.
+        if matches!(self.peek(), Token::Semi) {
+            self.pos += 1;
+            return Ok(Stmt::Block(Vec::new()));
+        }
         // body must be a block
         match self.peek() {
             Token::LBrace => self.pos += 1,
@@ -3750,6 +3758,14 @@ impl Parser<'_> {
                     } else {
                         None
                     };
+                    // V3-18 wedge — TS class-method overload signature:
+                    // `methodName(...): R;`. Type-only, terminated by `;`.
+                    // Skip and continue parsing the class body — the
+                    // real impl is the trailing same-named decl.
+                    if !is_abstract_method && matches!(self.peek(), Token::Semi) {
+                        self.pos += 1;
+                        continue;
+                    }
                     let body = if is_abstract_method {
                         // M-OO.6 — abstract method has no body, just `;`
                         match self.peek() {
