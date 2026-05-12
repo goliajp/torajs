@@ -6327,6 +6327,24 @@ impl<'a> LowerCtx<'a> {
             && let Some(method) = self.console_method_member(*callee)
             && args.len() == 1
         {
+            // V3-18 Phase D — `console.log(undefined)` prints
+            // 'undefined' (per Node util.inspect), not '0' as the
+            // generic Type::Ptr path would. Detect the literal Ident
+            // form before lowering since tora has no distinct
+            // Type::Undefined sentinel; both `null` and `undefined`
+            // collapse to ConstPtrNull at the runtime layer. The
+            // syntactic check is sufficient for the common cases.
+            if let Expr::Ident(name) = self.ast.get_expr(args[0])
+                && name == "undefined"
+            {
+                let lit = self.intern_string_literal("undefined");
+                let target = self.console_print_target(method, Type::Str);
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Call(target, vec![Operand::Value(lit)]),
+                );
+                return;
+            }
             let is_borrow = matches!(
                 self.ast.get_expr(args[0]),
                 Expr::Ident(_) | Expr::Member { .. } | Expr::Index { .. }
@@ -11327,6 +11345,30 @@ impl<'a> LowerCtx<'a> {
                 }
                 if matches!(*op, AstBinOp::LOr) {
                     return self.lower_logical_or(*left, *right);
+                }
+                // V3-18 Phase D — `undefined === null` and friends.
+                // Both lower to ConstPtrNull at the runtime layer
+                // (no Type::Undefined sentinel yet), but JS spec
+                // distinguishes them. Pattern-match the Ident form
+                // and fold at AST level: undefined === null → false,
+                // undefined === undefined → true, etc.
+                if matches!(*op, AstBinOp::Eq | AstBinOp::Neq) {
+                    let l_is_undef = matches!(self.ast.get_expr(*left),
+                        Expr::Ident(n) if n == "undefined");
+                    let l_is_null = matches!(self.ast.get_expr(*left), Expr::Null);
+                    let r_is_undef = matches!(self.ast.get_expr(*right),
+                        Expr::Ident(n) if n == "undefined");
+                    let r_is_null = matches!(self.ast.get_expr(*right), Expr::Null);
+                    if (l_is_undef || l_is_null) && (r_is_undef || r_is_null) {
+                        let same = (l_is_undef && r_is_undef)
+                            || (l_is_null && r_is_null);
+                        let result = if matches!(*op, AstBinOp::Eq) {
+                            same
+                        } else {
+                            !same
+                        };
+                        return Operand::ConstBool(result);
+                    }
                 }
                 // V3-18 m2.e — `<prim>.constructor === <Ctor>` /
                 // `<Ctor> === <prim>.constructor` compile-time fold.
