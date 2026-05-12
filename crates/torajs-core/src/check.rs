@@ -280,6 +280,30 @@ fn stmt_diverges(s: &crate::ast::Stmt) -> bool {
 /// (in order, by name + type) of `arg`'s field list. Anything else falls
 /// back to strict equality. Layout compatibility at the SSA / LLVM level
 /// is the same — both are ptr to the heap-allocated obj header.
+/// V3-18 wedge — ternary branch unification.
+/// Returns the join type if `t` and `e` can unify, else None.
+/// Rules:
+///   - identical types unify to themselves
+///   - `Null` and `T` unify to `Nullable<T>`
+///   - `Nullable<T>` and `T` unify to `Nullable<T>`
+///   - `Nullable<T>` and `Null` unify to `Nullable<T>`
+fn unify_ternary(t: &Type, e: &Type) -> Option<Type> {
+    if t == e {
+        return Some(t.clone());
+    }
+    match (t, e) {
+        (Type::Null, other) | (other, Type::Null) => Some(Type::Nullable(Box::new(other.clone()))),
+        (Type::Nullable(inner), other) | (other, Type::Nullable(inner)) => {
+            if inner.as_ref() == other {
+                Some(Type::Nullable(inner.clone()))
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
 fn struct_is_prefix_subtype(arg: &Type, param: &Type) -> bool {
     match (arg, param) {
         (Type::Struct(arg_fields), Type::Struct(param_fields)) => {
@@ -4715,7 +4739,17 @@ impl Checker {
                     // strict equality here.
                     let skip_type_check = is_class_method && i == 0
                         && struct_is_prefix_subtype(&arg_ty, param_ty);
+                    // V3-18 wedge — Nullable<T> param accepts both
+                    // T-typed and Null arg (TS spec §3.9.2.4 optional
+                    // param widens to T | undefined; subset models
+                    // optional as Nullable<T>).
+                    let nullable_match = if let Type::Nullable(inner) = param_ty {
+                        arg_ty == Type::Null || &arg_ty == inner.as_ref()
+                    } else {
+                        false
+                    };
                     if !skip_type_check
+                        && !nullable_match
                         && param_ty != &Type::Any
                         && &arg_ty != param_ty
                     {
@@ -5375,12 +5409,17 @@ impl Checker {
                 }
                 let t = self.type_of(ast, *then_branch)?;
                 let e = self.type_of(ast, *else_branch)?;
-                if t != e {
-                    return Err(format!(
+                // V3-18 wedge — widen one side to Nullable<T> when the
+                // other side is T or Null. Common pattern with
+                // optional params: `x === null ? default : x` where
+                // then=T and else=Nullable<T>.
+                let unified = unify_ternary(&t, &e);
+                match unified {
+                    Some(ty) => Ok(ty),
+                    None => Err(format!(
                         "ternary branches differ — `then` is {t:?}, `else` is {e:?}"
-                    ));
+                    )),
                 }
-                Ok(t)
             }
             Expr::TypeOf { expr } => {
                 // V3-18 m1.h.3 — JS spec §13.5.3 typeof on an

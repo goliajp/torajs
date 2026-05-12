@@ -150,6 +150,14 @@ impl Parser<'_> {
                         }
                     };
                     self.pos += 1;
+                    // V3-18 wedge — optional field `field?: T`. TS spec
+                    // §3.9: makes the property absence-tolerant. Subset
+                    // models it as `T | null` (we don't have a separate
+                    // Type::Undefined for property absence yet).
+                    let optional = matches!(self.peek(), Token::Question);
+                    if optional {
+                        self.pos += 1;
+                    }
                     match self.peek() {
                         Token::Colon => self.pos += 1,
                         t => {
@@ -159,7 +167,12 @@ impl Parser<'_> {
                             ));
                         }
                     }
-                    let fty = self.parse_type_ann()?;
+                    let fty_raw = self.parse_type_ann()?;
+                    let fty = if optional && !fty_raw.starts_with("__nullable(") {
+                        format!("__nullable({fty_raw})")
+                    } else {
+                        fty_raw
+                    };
                     fields.push(format!("{fname}:{fty}"));
                     match self.peek() {
                         Token::Comma | Token::Semi => self.pos += 1,
@@ -787,9 +800,22 @@ impl Parser<'_> {
                     }
                 };
                 self.pos += 1;
+                // V3-18 wedge — optional parameter `name?: T`. TS spec
+                // §3.9.2.4: `?` permits the call site to omit the arg.
+                // Subset models it as Nullable<T>; caller must still
+                // pass `null` until real Type::Undefined lands.
+                let optional = !is_rest && matches!(self.peek(), Token::Question);
+                if optional {
+                    self.pos += 1;
+                }
                 let type_ann = if matches!(self.peek(), Token::Colon) {
                     self.pos += 1;
-                    Some(self.parse_type_ann()?)
+                    let ann = self.parse_type_ann()?;
+                    if optional && !ann.starts_with("__nullable(") {
+                        Some(format!("__nullable({ann})"))
+                    } else {
+                        Some(ann)
+                    }
                 } else {
                     None
                 };
@@ -1276,14 +1302,71 @@ impl Parser<'_> {
             return Ok(None);
         }
         self.pos += 1;
-        let var_name = match self.peek() {
-            Token::Ident(n) => n.clone(),
-            _ => {
+        // V3-18 wedge — for-of with array-destructuring pattern:
+        // `for (let [a, b] of pairs) { ... }`. Common shape for
+        // iterating tuple arrays. Object destructuring not yet
+        // supported (would need member rather than index access).
+        let destruct_names: Option<Vec<String>> = if matches!(self.peek(), Token::LBracket) {
+            let start = self.pos;
+            self.pos += 1;
+            let mut names: Vec<String> = Vec::new();
+            let ok = loop {
+                match self.peek() {
+                    Token::Ident(n) => {
+                        names.push(n.clone());
+                        self.pos += 1;
+                    }
+                    _ => break false,
+                }
+                match self.peek() {
+                    Token::Comma => {
+                        self.pos += 1;
+                        if matches!(self.peek(), Token::RBracket) {
+                            break true;
+                        }
+                    }
+                    Token::RBracket => break true,
+                    _ => break false,
+                }
+            };
+            if !ok {
                 self.pos = saved;
                 return Ok(None);
             }
+            self.pos += 1; // consume `]`
+            // Optional `: T[]` annotation on the pattern — discarded.
+            if matches!(self.peek(), Token::Colon) {
+                self.pos += 1;
+                let _ = self.parse_type_ann();
+            }
+            let is_of = matches!(self.peek(), Token::Ident(n) if n == "of");
+            if !is_of {
+                // Not for-of after destructuring; surrender — likely
+                // a let-destructuring statement which won't reach here.
+                self.pos = start;
+                self.pos = saved;
+                return Ok(None);
+            }
+            Some(names)
+        } else {
+            None
         };
-        self.pos += 1;
+        let var_name = if let Some(_) = destruct_names {
+            let id = self.mint_desugar_id();
+            format!("__forof_destr_{id}")
+        } else {
+            match self.peek() {
+                Token::Ident(n) => {
+                    let nn = n.clone();
+                    self.pos += 1;
+                    nn
+                }
+                _ => {
+                    self.pos = saved;
+                    return Ok(None);
+                }
+            }
+        };
         // Optional `: T` annotation — for now consumed but not used; the
         // desugared `let v = __src[__i]` infers the element type from the
         // array. Carrying the annotation forward isn't necessary for v0.
@@ -1332,7 +1415,26 @@ impl Parser<'_> {
                 ));
             }
         }
-        let body = self.parse_stmt()?;
+        let mut body = self.parse_stmt()?;
+        // V3-18 wedge — prepend per-element destructuring lets when
+        // the loop var was an array pattern. The original `body` is
+        // wrapped in a block so block-close drops still fire normally.
+        if let Some(names) = &destruct_names {
+            let mut pre: Vec<Stmt> = Vec::new();
+            for (i, n) in names.iter().enumerate() {
+                let src_ref = self.ast.add_expr(Expr::Ident(var_name.clone()));
+                let idx = self.ast.add_expr(Expr::Number(i as f64));
+                let elem = self.ast.add_expr(Expr::Index { obj: src_ref, index: idx });
+                pre.push(Stmt::LetDecl {
+                    mutable: false,
+                    name: n.clone(),
+                    type_ann: None,
+                    init: elem,
+                });
+            }
+            pre.push(body);
+            body = Stmt::Block(pre);
+        }
 
         // P-iter — `for (let v of <expr>.split(<literal_sep>))` →
         // emit Stmt::ForOfSplitIter. ssa_lower handles via stack
@@ -2759,6 +2861,19 @@ impl Parser<'_> {
                             ) {
                                 j += 2;
                             }
+                            // V3-18 wedge — trailing `| null` (the only
+                            // union shape this subset's type-ann
+                            // parser supports). Allow `() : T | null
+                            // => ...` to lookahead-detect as arrow.
+                            if matches!(
+                                self.tokens.get(j).map(|s| &s.token),
+                                Some(Token::Pipe)
+                            ) && matches!(
+                                self.tokens.get(j + 1).map(|s| &s.token),
+                                Some(Token::Null)
+                            ) {
+                                j += 2;
+                            }
                             return matches!(
                                 self.tokens.get(j).map(|s| &s.token),
                                 Some(Token::FatArrow)
@@ -3755,9 +3870,21 @@ impl Parser<'_> {
                     }
                 };
                 self.pos += 1;
+                // V3-18 wedge — optional parameter `name?: T`. Mirrors
+                // the parse_fn version so class methods accept the
+                // same shape.
+                let optional = !is_rest && matches!(self.peek(), Token::Question);
+                if optional {
+                    self.pos += 1;
+                }
                 let type_ann = if matches!(self.peek(), Token::Colon) {
                     self.pos += 1;
-                    Some(self.parse_type_ann()?)
+                    let ann = self.parse_type_ann()?;
+                    if optional && !ann.starts_with("__nullable(") {
+                        Some(format!("__nullable({ann})"))
+                    } else {
+                        Some(ann)
+                    }
                 } else {
                     None
                 };
@@ -3815,6 +3942,14 @@ impl Parser<'_> {
             }
         };
         self.pos += 1;
+        // V3-18 wedge — optional field `field?: T` in a `type X = {...}`
+        // declaration. Same modeling as the inline-obj path: optional
+        // promotes T → __nullable(T) since we don't carry a separate
+        // Type::Undefined for absent-vs-null.
+        let optional = matches!(self.peek(), Token::Question);
+        if optional {
+            self.pos += 1;
+        }
         match self.peek() {
             Token::Colon => self.pos += 1,
             t => {
@@ -3824,7 +3959,12 @@ impl Parser<'_> {
                 ));
             }
         }
-        let ty = self.parse_type_ann()?;
+        let ty_raw = self.parse_type_ann()?;
+        let ty = if optional && !ty_raw.starts_with("__nullable(") {
+            format!("__nullable({ty_raw})")
+        } else {
+            ty_raw
+        };
         Ok((name, ty))
     }
 
@@ -3942,9 +4082,20 @@ impl Parser<'_> {
                     }
                 };
                 self.pos += 1;
+                // V3-18 wedge — optional parameter in arrow fn:
+                // `(x?: T) => ...`. Same modeling as parse_fn.
+                let optional = matches!(self.peek(), Token::Question);
+                if optional {
+                    self.pos += 1;
+                }
                 let type_ann = if matches!(self.peek(), Token::Colon) {
                     self.pos += 1;
-                    Some(self.parse_type_ann()?)
+                    let ann = self.parse_type_ann()?;
+                    if optional && !ann.starts_with("__nullable(") {
+                        Some(format!("__nullable({ann})"))
+                    } else {
+                        Some(ann)
+                    }
                 } else {
                     None
                 };
