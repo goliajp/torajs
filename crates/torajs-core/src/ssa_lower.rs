@@ -5205,6 +5205,20 @@ fn parse_type(
     // produced by `check::type_to_ann` for monomorphized generics that
     // bind a struct type. Decode each field, intern the layout, return
     // `Type::Obj(StructId)`. Same depth-aware split as `__fn(...)`.
+    // V3-18 P2.4.c.2 — `__inlobj(...)` alias for inline object type
+    // literals from the parser. Same shape as `__struct(...)`; defer
+    // by rewriting the prefix.
+    if s.starts_with("__inlobj(") && s.ends_with(')') {
+        let rewritten = format!("__struct({}", &s[9..]);
+        return parse_type(
+            Some(&rewritten),
+            aliases,
+            arr_layouts,
+            fn_sigs,
+            generic_struct_decls,
+            struct_layouts,
+        );
+    }
     if let Some(rest) = s.strip_prefix("__struct(")
         && s.ends_with(')')
     {

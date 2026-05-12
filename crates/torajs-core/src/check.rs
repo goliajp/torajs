@@ -422,6 +422,53 @@ fn resolve_type_ann_full(
         return Some(Type::Any);
     }
     // M2 Phase B Stage 1 — fn type annotations encoded as
+    // V3-18 P2.4.c.2 — inline obj type `__inlobj(name1:T1|name2:T2|...)`.
+    // Same depth-aware decoder shape as `__fn(...)`. Each field's type
+    // recurses through resolve_type_ann_full so nested inline obj /
+    // generic types work.
+    if let Some(rest) = name.strip_prefix("__inlobj(") {
+        let bytes = rest.as_bytes();
+        let mut depth: i32 = 1;
+        let mut close_idx = None;
+        for (i, &b) in bytes.iter().enumerate() {
+            match b {
+                b'(' => depth += 1,
+                b')' => {
+                    depth -= 1;
+                    if depth == 0 { close_idx = Some(i); break; }
+                }
+                _ => {}
+            }
+        }
+        let close = close_idx?;
+        let fields_str = &rest[..close];
+        let mut fields_split: Vec<&str> = Vec::new();
+        let mut depth2: i32 = 0;
+        let mut last = 0usize;
+        for (i, &b) in fields_str.as_bytes().iter().enumerate() {
+            match b {
+                b'(' => depth2 += 1,
+                b')' => depth2 -= 1,
+                b'|' if depth2 == 0 => {
+                    fields_split.push(&fields_str[last..i]);
+                    last = i + 1;
+                }
+                _ => {}
+            }
+        }
+        if !fields_str.is_empty() {
+            fields_split.push(&fields_str[last..]);
+        }
+        let mut fields_out: Vec<(String, Type)> = Vec::with_capacity(fields_split.len());
+        for f in fields_split {
+            let colon = f.find(':')?;
+            let fname = f[..colon].to_string();
+            let fty_str = &f[colon + 1..];
+            let fty = resolve_type_ann_full(fty_str, aliases, type_params, generic_aliases)?;
+            fields_out.push((fname, fty));
+        }
+        return Some(Type::Struct(fields_out));
+    }
     // `__fn(P1|P2|...)->R`. Param `|` separator is depth-aware so nested
     // fn types parse correctly: `__fn(__fn(A)->B|C)->D`.
     if let Some(rest) = name.strip_prefix("__fn(") {

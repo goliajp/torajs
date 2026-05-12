@@ -132,6 +132,61 @@ impl Parser<'_> {
         if matches!(self.peek(), Token::LParen) {
             return self.parse_fn_type_ann();
         }
+        // V3-18 P2.4.c.2 — inline object type literal `{ x: T; y: U }`.
+        // Encoded as `__inlobj(x:T|y:U)` for downstream check.rs to
+        // decode into a Type::Struct. Same encoding scheme as `__fn(...)`.
+        if matches!(self.peek(), Token::LBrace) {
+            self.pos += 1;
+            let mut fields: Vec<String> = Vec::new();
+            if !matches!(self.peek(), Token::RBrace) {
+                loop {
+                    let fname = match self.peek() {
+                        Token::Ident(n) => n.clone(),
+                        t => {
+                            return Err(format!(
+                                "expected field name in inline obj type, got {t:?} at {}",
+                                self.at()
+                            ));
+                        }
+                    };
+                    self.pos += 1;
+                    match self.peek() {
+                        Token::Colon => self.pos += 1,
+                        t => {
+                            return Err(format!(
+                                "expected `:` after inline obj field name, got {t:?} at {}",
+                                self.at()
+                            ));
+                        }
+                    }
+                    let fty = self.parse_type_ann()?;
+                    fields.push(format!("{fname}:{fty}"));
+                    match self.peek() {
+                        Token::Comma | Token::Semi => self.pos += 1,
+                        Token::RBrace => break,
+                        t => {
+                            return Err(format!(
+                                "expected `,` `;` or `}}` in inline obj type, got {t:?} at {}",
+                                self.at()
+                            ));
+                        }
+                    }
+                    if matches!(self.peek(), Token::RBrace) {
+                        break;
+                    }
+                }
+            }
+            match self.peek() {
+                Token::RBrace => self.pos += 1,
+                t => {
+                    return Err(format!(
+                        "expected `}}` to end inline obj type, got {t:?} at {}",
+                        self.at()
+                    ));
+                }
+            }
+            return Ok(format!("__inlobj({})", fields.join("|")));
+        }
         let mut name = match self.peek() {
             Token::Ident(n) => n.clone(),
             // V3-18 m1.h.30 — `void` was promoted to a keyword for
