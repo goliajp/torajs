@@ -404,6 +404,19 @@ fn resolve_type_ann_full(
                 .cloned()
                 .zip(args.iter().map(|s| s.to_string()))
                 .collect();
+            // V3-18 wedge — generic bare alias (`type Pair<T> = T[]`)
+            // uses the same single-field "__alias__" sentinel; resolve
+            // directly to the substituted underlying type instead of
+            // wrapping in a Struct.
+            if fields.len() == 1 && fields[0].0 == "__alias__" {
+                let substituted = ann_substitute(&fields[0].1, &subst);
+                return resolve_type_ann_full(
+                    &substituted,
+                    aliases,
+                    type_params,
+                    generic_aliases,
+                );
+            }
             let mut field_tys: Vec<(String, Type)> = Vec::new();
             for (fname, fann) in fields {
                 let substituted = ann_substitute(fann, &subst);
@@ -1171,6 +1184,24 @@ impl Checker {
             if !type_params.is_empty() {
                 c.generic_alias_decls
                     .insert(name.clone(), (type_params.clone(), fields.clone()));
+                continue;
+            }
+            // V3-18 wedge — bare type alias sentinel from parser.
+            // Single field named "__alias__" carries the actual
+            // type-ann string; resolve to the underlying Type and
+            // register without wrapping in Struct.
+            if fields.len() == 1 && fields[0].0 == "__alias__" {
+                let alias_ann = &fields[0].1;
+                match resolve_type_ann_full(alias_ann, &c.aliases, &[], &c.generic_alias_decls) {
+                    Some(ty) => {
+                        c.aliases.insert(name.clone(), ty);
+                    }
+                    None => {
+                        c.errors.push_err(format!(
+                            "unknown type `{alias_ann}` for type alias `{name}`"
+                        ));
+                    }
+                }
                 continue;
             }
             let mut field_tys: Vec<(String, Type)> = Vec::new();

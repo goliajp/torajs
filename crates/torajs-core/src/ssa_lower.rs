@@ -3477,10 +3477,26 @@ fn lower_inner(
         if let Stmt::TypeDecl {
             name,
             type_params,
-            fields: _,
+            fields,
         } = stmt
         {
             if !type_params.is_empty() {
+                continue;
+            }
+            // V3-18 wedge — bare type alias (`type ID = number`)
+            // is encoded by the parser as a single field named
+            // "__alias__"; skip the placeholder-sid reservation
+            // and resolve to the underlying type instead.
+            if fields.len() == 1 && fields[0].0 == "__alias__" {
+                let ty = parse_type(
+                    Some(fields[0].1.as_str()),
+                    &aliases,
+                    &mut arr_layouts,
+                    &mut fn_sigs,
+                    &generic_struct_decls,
+                    &mut struct_layouts,
+                );
+                aliases.insert(name.clone(), ty);
                 continue;
             }
             let sid = ssa::StructId(struct_layouts.len() as u32);
@@ -3499,6 +3515,12 @@ fn lower_inner(
             if !type_params.is_empty() {
                 generic_struct_decls
                     .insert(name.clone(), (type_params.clone(), fields.clone()));
+                continue;
+            }
+            // V3-18 wedge — already handled in the placeholder
+            // pass above for bare aliases; skip here to avoid
+            // accidentally finalizing a struct layout.
+            if fields.len() == 1 && fields[0].0 == "__alias__" {
                 continue;
             }
             let mut layout: Vec<(String, Type)> = Vec::with_capacity(fields.len());
@@ -5384,6 +5406,21 @@ fn parse_type(
                 .cloned()
                 .zip(args.iter().map(|a| a.to_string()))
                 .collect();
+            // V3-18 wedge — generic bare alias (`type Pair<T> = T[]`)
+            // uses single-field "__alias__" sentinel; resolve to the
+            // substituted underlying type instead of synthesizing a
+            // struct.
+            if fields.len() == 1 && fields[0].0 == "__alias__" {
+                let substituted = substitute_in_ann(&fields[0].1, &subst);
+                return parse_type(
+                    Some(&substituted),
+                    aliases,
+                    arr_layouts,
+                    fn_sigs,
+                    generic_struct_decls,
+                    struct_layouts,
+                );
+            }
             let mut layout: Vec<(String, Type)> = Vec::with_capacity(fields.len());
             for (fname, fann) in &fields {
                 let substituted = substitute_in_ann(fann, &subst);

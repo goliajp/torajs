@@ -3517,6 +3517,25 @@ impl Parser<'_> {
             Token::Eq => self.pos += 1,
             t => return Err(format!("expected `=` after type name, got {t:?} at {}", self.at())),
         }
+        // V3-18 wedge — bare type alias: `type ID = <type>` (RHS
+        // is a non-struct type-ann like `number` / `string[]` /
+        // `T | null` / `() => T`). Encoded as
+        // Stmt::TypeDecl { fields = [("__alias__", "<ann>")] }
+        // so check.rs can detect via the sentinel field name and
+        // resolve to the alias's actual Type without wrapping in
+        // a Struct. Real struct-shape `{ ... }` keeps the
+        // existing Vec<(name, ty)> path untouched.
+        if !matches!(self.peek(), Token::LBrace) {
+            let ann = self.parse_type_ann()?;
+            if matches!(self.peek(), Token::Semi) {
+                self.pos += 1;
+            }
+            return Ok(Stmt::TypeDecl {
+                name,
+                type_params,
+                fields: vec![("__alias__".to_string(), ann)],
+            });
+        }
         match self.peek() {
             Token::LBrace => self.pos += 1,
             t => {
