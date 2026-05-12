@@ -814,6 +814,10 @@ impl Parser<'_> {
                             ));
                         }
                         self.pos += 1;
+                        // V3-18 wedge — trailing comma in fn-decl param list.
+                        if matches!(self.peek(), Token::RParen) {
+                            break;
+                        }
                     }
                     Token::RParen => break,
                     t => return Err(format!("expected `,` or `)`, got {t:?} at {}", self.at())),
@@ -2306,6 +2310,11 @@ impl Parser<'_> {
                         args.push(self.parse_call_arg()?);
                         while matches!(self.peek(), Token::Comma) {
                             self.pos += 1;
+                            // V3-18 wedge — trailing comma in call args
+                            // (per JS spec §13.3.6 / ES2017): `f(a, b,)`.
+                            if matches!(self.peek(), Token::RParen) {
+                                break;
+                            }
                             args.push(self.parse_call_arg()?);
                         }
                     }
@@ -3717,6 +3726,12 @@ impl Parser<'_> {
                             ));
                         }
                         self.pos += 1;
+                        // V3-18 wedge — trailing comma in param list,
+                        // per JS spec §13.3.3 ('function f(a, b,)'). Detect
+                        // immediately-following ')' and break out.
+                        if matches!(self.peek(), Token::RParen) {
+                            break;
+                        }
                     }
                     Token::RParen => break,
                     t => {
@@ -3892,7 +3907,13 @@ impl Parser<'_> {
                     is_rest: false,
                 });
                 match self.peek() {
-                    Token::Comma => self.pos += 1,
+                    Token::Comma => {
+                        self.pos += 1;
+                        // V3-18 wedge — trailing comma in arrow-fn params.
+                        if matches!(self.peek(), Token::RParen) {
+                            break;
+                        }
+                    }
                     Token::RParen => break,
                     t => return Err(format!("expected `,` or `)`, got {t:?} at {}", self.at())),
                 }
