@@ -440,6 +440,18 @@ impl Parser<'_> {
         if matches!(self.peek(), Token::Type) {
             return self.parse_type_decl();
         }
+        // V3-18 wedge — `interface X { ... }`. TS-only structural
+        // typing declaration; subset desugars to `type X = { ... }`.
+        // Contextual keyword: `interface` is just an Ident in the
+        // lexer; only treat as a decl when followed by an ident
+        // (the interface name).
+        if let Token::Ident(s) = self.peek()
+            && s == "interface"
+            && let Some(next) = self.tokens.get(self.pos + 1)
+            && matches!(next.token, Token::Ident(_))
+        {
+            return self.parse_interface_decl();
+        }
         if matches!(self.peek(), Token::Class) {
             return self.parse_class_decl();
         }
@@ -3319,6 +3331,111 @@ impl Parser<'_> {
         }
     }
 
+    /// V3-18 wedge — `interface X { ... }` parsing. Per TS spec
+    /// §3.7, interfaces are nominal type-side declarations; the
+    /// subset treats them as alias for `type X = { ... }` (no
+    /// declaration-merging / heritage clauses are honored beyond
+    /// what's already covered by `type`).
+    fn parse_interface_decl(&mut self) -> Result<Stmt, String> {
+        self.pos += 1; // consume `interface`
+        let name = match self.peek() {
+            Token::Ident(n) => n.clone(),
+            t => {
+                return Err(format!(
+                    "expected interface name after `interface`, got {t:?} at {}",
+                    self.at()
+                ));
+            }
+        };
+        self.pos += 1;
+        // Optional generic type-parameter list — mirror parse_type_decl.
+        let mut type_params: Vec<String> = Vec::new();
+        if matches!(self.peek(), Token::Lt) {
+            self.pos += 1;
+            if !matches!(self.peek(), Token::Gt) {
+                loop {
+                    match self.peek() {
+                        Token::Ident(n) => {
+                            type_params.push(n.clone());
+                            self.pos += 1;
+                        }
+                        t => {
+                            return Err(format!(
+                                "expected type-parameter name in interface<...>, got {t:?} at {}",
+                                self.at()
+                            ));
+                        }
+                    }
+                    match self.peek() {
+                        Token::Comma => self.pos += 1,
+                        Token::Gt => break,
+                        t => {
+                            return Err(format!(
+                                "expected `,` or `>` in interface type params, got {t:?} at {}",
+                                self.at()
+                            ));
+                        }
+                    }
+                }
+            }
+            match self.peek() {
+                Token::Gt => self.pos += 1,
+                t => {
+                    return Err(format!(
+                        "expected `>` to close interface type params, got {t:?} at {}",
+                        self.at()
+                    ));
+                }
+            }
+        }
+        // Optional `extends Foo, Bar` clause — subset stub: tokens
+        // are consumed and discarded (no field-inheritance yet).
+        if matches!(self.peek(), Token::Extends) {
+            self.pos += 1;
+            loop {
+                let _parent = self.parse_type_ann()?;
+                if matches!(self.peek(), Token::Comma) {
+                    self.pos += 1;
+                    continue;
+                }
+                break;
+            }
+        }
+        match self.peek() {
+            Token::LBrace => self.pos += 1,
+            t => {
+                return Err(format!(
+                    "expected `{{` to begin interface body, got {t:?} at {}",
+                    self.at()
+                ));
+            }
+        }
+        let mut fields: Vec<(String, String)> = Vec::new();
+        if !matches!(self.peek(), Token::RBrace) {
+            fields.push(self.parse_type_decl_field()?);
+            while matches!(self.peek(), Token::Comma | Token::Semi) {
+                self.pos += 1;
+                if matches!(self.peek(), Token::RBrace) {
+                    break;
+                }
+                fields.push(self.parse_type_decl_field()?);
+            }
+        }
+        match self.peek() {
+            Token::RBrace => self.pos += 1,
+            t => {
+                return Err(format!(
+                    "expected `}}` to end interface body, got {t:?} at {}",
+                    self.at()
+                ));
+            }
+        }
+        if matches!(self.peek(), Token::Semi) {
+            self.pos += 1;
+        }
+        Ok(Stmt::TypeDecl { name, type_params, fields })
+    }
+
     fn parse_type_decl(&mut self) -> Result<Stmt, String> {
         self.pos += 1; // consume `type`
         let name = match self.peek() {
@@ -3497,6 +3614,24 @@ impl Parser<'_> {
         } else {
             None
         };
+        // V3-18 wedge — `implements Foo, Bar` clause on class.
+        // Per TS spec §3.7, `implements` declares structural-typing
+        // intent without runtime effect. Subset consumes and
+        // discards the list — the structural check is provided by
+        // existing field-by-field typecheck on assignment.
+        if let Token::Ident(s) = self.peek()
+            && s == "implements"
+        {
+            self.pos += 1;
+            loop {
+                let _iface = self.parse_type_ann()?;
+                if matches!(self.peek(), Token::Comma) {
+                    self.pos += 1;
+                    continue;
+                }
+                break;
+            }
+        }
         match self.peek() {
             Token::LBrace => self.pos += 1,
             t => {

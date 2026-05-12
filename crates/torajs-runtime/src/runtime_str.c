@@ -3265,6 +3265,17 @@ void *__torajs_num_to_string_radix_i(int64_t n, int64_t radix) {
 void *__torajs_num_to_fixed_f(double n, int64_t digits) {
     if (digits < 0) digits = 0;
     if (digits > 20) digits = 20;
+    /* V3-18 wedge — match JS spec §21.1.3.4: "ties broken by
+     * choosing the larger m", i.e. round half AWAY from zero.
+     * snprintf's default (round-half-to-even on macOS libc)
+     * diverges for .5 cases like 1234.5.toFixed(0). Pre-multiply,
+     * round() (half-away-from-zero per C99 7.12.9.6), divide back,
+     * then format with %.*f for the trailing-zero padding. */
+    if (isfinite(n) && digits < 16) {
+        double scale = 1.0;
+        for (int64_t i = 0; i < digits; i++) scale *= 10.0;
+        n = round(n * scale) / scale;
+    }
     char buf[64];
     int written = snprintf(buf, sizeof(buf), "%.*f", (int)digits, n);
     if (written < 0) written = 0;
