@@ -185,7 +185,29 @@ impl Parser<'_> {
                     ));
                 }
             }
-            return Ok(format!("__inlobj({})", fields.join("|")));
+            let mut name = format!("__inlobj({})", fields.join("|"));
+            // V3-18 wedge — `{ ... } | null` shape. Mirror the
+            // post-Ident pipe handler below for the inline-obj case.
+            while matches!(self.peek(), Token::LBracket)
+                && matches!(self.tokens.get(self.pos + 1).map(|s| &s.token), Some(Token::RBracket))
+            {
+                self.pos += 2;
+                name.push_str("[]");
+            }
+            if matches!(self.peek(), Token::Pipe) {
+                self.pos += 1;
+                if matches!(self.peek(), Token::Null) {
+                    self.pos += 1;
+                    name = format!("__nullable({name})");
+                } else {
+                    return Err(format!(
+                        "only `T | null` unions are supported (no other unions yet); got {:?} at {}",
+                        self.peek(),
+                        self.at()
+                    ));
+                }
+            }
+            return Ok(name);
         }
         let mut name = match self.peek() {
             Token::Ident(n) => n.clone(),
