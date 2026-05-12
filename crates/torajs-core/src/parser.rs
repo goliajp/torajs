@@ -2712,10 +2712,36 @@ impl Parser<'_> {
         // time (struct layouts are static); runtime keys defer to a
         // dictionary substrate. `{ [<StringLit>]: v }` rewrites to
         // `{ <StringLit>: v }`.
+        // Symbol.X / member-shape keys are parsed but get a synthetic
+        // name `__sym_<accessor>__` so downstream layout works; the
+        // real iterator-protocol dispatch lands with Phase E.
         if matches!(self.peek(), Token::LBracket) {
             self.pos += 1;
             let key = match self.peek() {
-                Token::String(s) => s.clone(),
+                Token::String(s) => {
+                    let key = s.clone();
+                    self.pos += 1;
+                    key
+                }
+                Token::Ident(_) => {
+                    // Try Member chain like `Symbol.iterator` / `Foo.bar`.
+                    // Encode as `__sym_<chain>__` for the field name.
+                    let mut parts: Vec<String> = Vec::new();
+                    loop {
+                        if let Token::Ident(n) = self.peek() {
+                            parts.push(n.clone());
+                            self.pos += 1;
+                        } else {
+                            break;
+                        }
+                        if matches!(self.peek(), Token::Dot) {
+                            self.pos += 1;
+                        } else {
+                            break;
+                        }
+                    }
+                    format!("__sym_{}__", parts.join("_"))
+                }
                 t => {
                     return Err(format!(
                         "subset: computed property key must be a literal string, got {t:?} at {}",
@@ -2723,7 +2749,6 @@ impl Parser<'_> {
                     ));
                 }
             };
-            self.pos += 1;
             match self.peek() {
                 Token::RBracket => self.pos += 1,
                 t => {
