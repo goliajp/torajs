@@ -2546,6 +2546,30 @@ impl Parser<'_> {
                     }
                 };
                 self.pos += 1;
+                // V3-18 wedge — accept-and-skip TS type args on built-in
+                // generics: `new Set<number>()`. Subset doesn't mono-
+                // instantiate built-ins by type-arg yet, so we just
+                // discard the `<...>` portion. Depth-aware match in case
+                // of nested generics like `Map<string, Array<number>>`.
+                if matches!(self.peek(), Token::Lt) {
+                    self.pos += 1;
+                    let mut depth = 1;
+                    while depth > 0 {
+                        match self.peek() {
+                            Token::Lt => depth += 1,
+                            Token::Gt => depth -= 1,
+                            Token::ShrShr => depth -= 2,
+                            Token::Eof => {
+                                return Err(format!(
+                                    "unterminated type args after `new {class_name}` at {}",
+                                    self.at()
+                                ));
+                            }
+                            _ => {}
+                        }
+                        self.pos += 1;
+                    }
+                }
                 // V3-18 m1.h.22 — JS spec §13.3.5 NewExpression
                 // permits `new Foo` (no parens), equivalent to
                 // `new Foo()`. Test262 uses both forms; the no-
