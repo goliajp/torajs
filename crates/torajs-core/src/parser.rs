@@ -2707,6 +2707,44 @@ impl Parser<'_> {
 
     /// One `name: expr` pair inside an object literal.
     fn parse_object_field(&mut self) -> Result<(String, ExprId), String> {
+        // V3-18 P2.4.c.4 — computed property `{ [key]: value }` per
+        // JS spec. Subset only supports literal-string keys at compile
+        // time (struct layouts are static); runtime keys defer to a
+        // dictionary substrate. `{ [<StringLit>]: v }` rewrites to
+        // `{ <StringLit>: v }`.
+        if matches!(self.peek(), Token::LBracket) {
+            self.pos += 1;
+            let key = match self.peek() {
+                Token::String(s) => s.clone(),
+                t => {
+                    return Err(format!(
+                        "subset: computed property key must be a literal string, got {t:?} at {}",
+                        self.at()
+                    ));
+                }
+            };
+            self.pos += 1;
+            match self.peek() {
+                Token::RBracket => self.pos += 1,
+                t => {
+                    return Err(format!(
+                        "expected `]` after computed property key, got {t:?} at {}",
+                        self.at()
+                    ));
+                }
+            }
+            match self.peek() {
+                Token::Colon => self.pos += 1,
+                t => {
+                    return Err(format!(
+                        "expected `:` after `[<key>]` in object literal, got {t:?} at {}",
+                        self.at()
+                    ));
+                }
+            }
+            let value = self.parse_assign()?;
+            return Ok((key, value));
+        }
         let name = match self.peek() {
             Token::Ident(n) => n.clone(),
             t => {
