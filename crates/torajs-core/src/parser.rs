@@ -2384,6 +2384,44 @@ impl Parser<'_> {
                     let ty_ann = self.parse_type_ann()?;
                     node = self.add_expr_at(start_pos, Expr::As { expr: node, ty_ann });
                 }
+                // V3-18 wedge — TS non-null assertion `<expr>!`. Pure
+                // type-side; runtime no-op. Detect only when the `!`
+                // is followed by something that would be valid after
+                // a postfix (not the start of another expression like
+                // `!x` prefix). Conservative test: peek for tokens
+                // that can NOT start an expression — terminators,
+                // operators, statement boundaries.
+                Token::Bang => {
+                    let next = self.tokens.get(self.pos + 1).map(|s| &s.token);
+                    let postfix_ok = matches!(next,
+                        Some(Token::Semi) | Some(Token::Comma) | Some(Token::RParen)
+                        | Some(Token::RBracket) | Some(Token::RBrace)
+                        | Some(Token::Dot) | Some(Token::Eq)
+                        | Some(Token::Colon) | Some(Token::QuestionDot)
+                        | Some(Token::EqEq) | Some(Token::EqEqEq)
+                        | Some(Token::BangEq) | Some(Token::BangEqEq)
+                        | Some(Token::Plus) | Some(Token::Minus)
+                        | Some(Token::Star) | Some(Token::Slash)
+                        | Some(Token::Percent) | Some(Token::Amp)
+                        | Some(Token::Pipe) | Some(Token::Lt)
+                        | Some(Token::Gt)
+                        | Some(Token::AmpAmp)
+                        | Some(Token::PipePipe) | Some(Token::Question)
+                        | Some(Token::FatArrow) | Some(Token::LParen)
+                        | Some(Token::LBracket) | Some(Token::Eof)
+                        | None);
+                    if !postfix_ok {
+                        return Ok(node);
+                    }
+                    self.pos += 1;
+                    // Encode as `As { ty_ann: "__nonnull__" }` so
+                    // check.rs can narrow Nullable<T> → T while
+                    // ssa_lower keeps it as identity.
+                    node = self.add_expr_at(start_pos, Expr::As {
+                        expr: node,
+                        ty_ann: "__nonnull__".into(),
+                    });
+                }
                 Token::Ident(s) if s == "satisfies" => {
                     // TS satisfies is type-only; runtime no-op. Parse
                     // and discard the type ann.

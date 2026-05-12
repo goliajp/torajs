@@ -5502,8 +5502,17 @@ impl Checker {
             // assignability check lands when test262 surfaces a case
             // that requires it.
             Expr::As { expr, ty_ann } => {
-                let _ = self.type_of(ast, *expr)?;
+                let inner_ty = self.type_of(ast, *expr)?;
                 let ann = ty_ann.clone();
+                // V3-18 wedge — TS non-null assertion `<expr>!`
+                // encodes as `As { ty_ann: '__nonnull__' }`. Narrow
+                // Nullable<T> → T; pass-through for already-non-null.
+                if ann == "__nonnull__" {
+                    return Ok(match inner_ty {
+                        Type::Nullable(inner) => (*inner).clone(),
+                        other => other,
+                    });
+                }
                 let target = resolve_type_ann_full(&ann, &self.aliases, &[], &self.generic_alias_decls)
                     .ok_or_else(|| format!("unknown cast target type `{ann}`"))?;
                 Ok(target)
