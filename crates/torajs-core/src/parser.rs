@@ -128,6 +128,22 @@ impl Parser<'_> {
     ///
     /// M2 Phase B Stage 1.
     fn parse_type_ann(&mut self) -> Result<String, String> {
+        // V3-18 wedge — TS type-predicate return type:
+        //   function isT(v: any): v is T { ... }
+        // Per TS spec §3.6.5 the return type is `boolean` at the
+        // value level; the `is T` half is a flow-narrowing hint
+        // for callers. The subset accepts and discards the
+        // predicate (no flow narrowing) — typecheck sees the
+        // function's return as `boolean`. Matched only when the
+        // shape is `<paramName> is <Type>`.
+        if let Token::Ident(_) = self.peek()
+            && let Some(Token::Ident(maybe_is)) = self.tokens.get(self.pos + 1).map(|s| &s.token)
+            && maybe_is == "is"
+        {
+            self.pos += 2; // consume <param> + "is"
+            let _ = self.parse_type_ann()?; // consume the asserted type
+            return Ok("boolean".to_string());
+        }
         // V3-18 wedge — `readonly T[]` modifier on array-of types.
         // Per TS spec §3.10.2 the modifier is type-side and has no
         // runtime effect; the subset treats it as an identity skip.
@@ -156,6 +172,15 @@ impl Parser<'_> {
             let mut fields: Vec<String> = Vec::new();
             if !matches!(self.peek(), Token::RBrace) {
                 loop {
+                    // V3-18 wedge — `readonly` modifier on an inline-obj
+                    // field. Type-side only; subset accepts and discards.
+                    if let Token::Ident(s) = self.peek()
+                        && s == "readonly"
+                        && let Some(next) = self.tokens.get(self.pos + 1)
+                        && matches!(next.token, Token::Ident(_))
+                    {
+                        self.pos += 1;
+                    }
                     let fname = match self.peek() {
                         Token::Ident(n) => n.clone(),
                         t => {
@@ -4377,6 +4402,17 @@ impl Parser<'_> {
     }
 
     fn parse_type_decl_field(&mut self) -> Result<(String, String), String> {
+        // V3-18 wedge — `readonly` modifier on a type-body field
+        // (`interface X { readonly id: number }`). TS-side only;
+        // subset accepts and discards. Detect when followed by an
+        // ident-shaped field name.
+        if let Token::Ident(s) = self.peek()
+            && s == "readonly"
+            && let Some(next) = self.tokens.get(self.pos + 1)
+            && matches!(next.token, Token::Ident(_))
+        {
+            self.pos += 1;
+        }
         let name = match self.peek() {
             Token::Ident(n) => n.clone(),
             t => {
@@ -4387,6 +4423,63 @@ impl Parser<'_> {
             }
         };
         self.pos += 1;
+        // V3-18 wedge — method-shape field (`m(p: T): R`) in
+        // an interface / type-decl body. Per TS spec §3.7 the
+        // shape is equivalent to `m: (p: T) => R`. Subset rewrites
+        // by parsing the param list + `: R` and synthesizing the
+        // arrow-fn type-ann string. Note: type-side only — calls
+        // on a struct field that holds a function are not yet
+        // lowered, so the wedge unblocks the *parse* of common
+        // interface shapes (e.g. matching real class methods via
+        // `class C implements I`) even though direct invocation
+        // on a struct-typed binding still isn't supported.
+        if matches!(self.peek(), Token::LParen) {
+            self.pos += 1;
+            let mut param_anns: Vec<String> = Vec::new();
+            if !matches!(self.peek(), Token::RParen) {
+                loop {
+                    // Optional `name:` prefix on each param — discarded.
+                    if matches!(self.peek(), Token::Ident(_))
+                        && matches!(
+                            self.tokens.get(self.pos + 1).map(|s| &s.token),
+                            Some(Token::Colon) | Some(Token::Question)
+                        )
+                    {
+                        self.pos += 1;
+                        if matches!(self.peek(), Token::Question) {
+                            self.pos += 1;
+                        }
+                        if matches!(self.peek(), Token::Colon) {
+                            self.pos += 1;
+                        }
+                    }
+                    param_anns.push(self.parse_type_ann()?);
+                    match self.peek() {
+                        Token::Comma => self.pos += 1,
+                        Token::RParen => break,
+                        t => {
+                            return Err(format!(
+                                "expected `,` or `)` in method-shape params, got {t:?} at {}",
+                                self.at()
+                            ));
+                        }
+                    }
+                }
+            }
+            match self.peek() {
+                Token::RParen => self.pos += 1,
+                t => return Err(format!("expected `)`, got {t:?} at {}", self.at())),
+            }
+            let ret_ann = match self.peek() {
+                Token::Colon => {
+                    self.pos += 1;
+                    self.parse_type_ann()?
+                }
+                _ => "void".to_string(),
+            };
+            let fn_ann = format!("__fn({})->{}", param_anns.join("|"), ret_ann);
+            return Ok((name, fn_ann));
+        }
         // V3-18 wedge — optional field `field?: T` in a `type X = {...}`
         // declaration. Same modeling as the inline-obj path: optional
         // promotes T → __nullable(T) since we don't carry a separate
