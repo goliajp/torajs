@@ -128,6 +128,22 @@ impl Parser<'_> {
     ///
     /// M2 Phase B Stage 1.
     fn parse_type_ann(&mut self) -> Result<String, String> {
+        // V3-18 wedge — `readonly T[]` modifier on array-of types.
+        // Per TS spec §3.10.2 the modifier is type-side and has no
+        // runtime effect; the subset treats it as an identity skip.
+        // Common in fn-param positions like `xs: readonly number[]`.
+        if let Token::Ident(s) = self.peek() {
+            if s == "readonly" {
+                let next = self.tokens.get(self.pos + 1).map(|t| &t.token);
+                if matches!(
+                    next,
+                    Some(Token::Ident(_)) | Some(Token::Void)
+                        | Some(Token::LBrace) | Some(Token::LParen)
+                ) {
+                    self.pos += 1;
+                }
+            }
+        }
         // Function type: `(p: T, ...) => R`.
         if matches!(self.peek(), Token::LParen) {
             return self.parse_fn_type_ann();
@@ -1956,6 +1972,40 @@ impl Parser<'_> {
 
     fn parse_assign(&mut self) -> Result<ExprId, String> {
         let target = self.parse_ternary()?;
+        // V3-18 wedge — ES2021 logical assignment: `??=` / `||=` /
+        // `&&=`. Detected here (after the lhs is parsed) by peeking
+        // a two-token sequence; parse_nullish / parse_logical_or /
+        // parse_logical_and decline to consume their op when an `=`
+        // follows so this branch sees them.
+        let logical_assign: Option<&str> = match (
+            self.peek(),
+            self.tokens.get(self.pos + 1).map(|s| &s.token),
+        ) {
+            (Token::QuestionQuestion, Some(Token::Eq)) => Some("??"),
+            (Token::PipePipe, Some(Token::Eq)) => Some("||"),
+            (Token::AmpAmp, Some(Token::Eq)) => Some("&&"),
+            _ => None,
+        };
+        if let Some(op_name) = logical_assign {
+            self.pos += 2;
+            let value = self.parse_assign()?;
+            let lhs = self.clone_expr_for_compound(target);
+            let rhs = match op_name {
+                "??" => self.ast.add_expr(Expr::Nullish { lhs, rhs: value }),
+                "||" => self.ast.add_expr(Expr::BinOp {
+                    op: BinOp::LOr,
+                    left: lhs,
+                    right: value,
+                }),
+                "&&" => self.ast.add_expr(Expr::BinOp {
+                    op: BinOp::LAnd,
+                    left: lhs,
+                    right: value,
+                }),
+                _ => unreachable!(),
+            };
+            return Ok(self.ast.add_expr(Expr::Assign { target, value: rhs }));
+        }
         // Plain `=` and the compound forms (`+= -= *= /= %=`). Compound
         // forms desugar at the parser level into `target = target op value`,
         // matching JS shape without needing a new AST variant.
@@ -2034,7 +2084,12 @@ impl Parser<'_> {
     /// the lhs into a temp slot and branches on its null-ness.
     fn parse_nullish(&mut self) -> Result<ExprId, String> {
         let mut left = self.parse_logical_or()?;
-        while matches!(self.peek(), Token::QuestionQuestion) {
+        // V3-18 wedge — `??=` (logical-nullish assign) must be left
+        // for parse_assign to handle. Decline `??` here when `=`
+        // follows.
+        while matches!(self.peek(), Token::QuestionQuestion)
+            && !matches!(self.tokens.get(self.pos + 1).map(|s| &s.token), Some(Token::Eq))
+        {
             self.pos += 1;
             let right = self.parse_logical_or()?;
             left = self.ast.add_expr(Expr::Nullish {
@@ -2047,7 +2102,11 @@ impl Parser<'_> {
 
     fn parse_logical_or(&mut self) -> Result<ExprId, String> {
         let mut left = self.parse_logical_and()?;
-        while matches!(self.peek(), Token::PipePipe) {
+        // V3-18 wedge — `||=` belongs to parse_assign; decline `||`
+        // when `=` follows.
+        while matches!(self.peek(), Token::PipePipe)
+            && !matches!(self.tokens.get(self.pos + 1).map(|s| &s.token), Some(Token::Eq))
+        {
             self.pos += 1;
             let right = self.parse_logical_and()?;
             left = self.ast.add_expr(Expr::BinOp {
@@ -2061,7 +2120,11 @@ impl Parser<'_> {
 
     fn parse_logical_and(&mut self) -> Result<ExprId, String> {
         let mut left = self.parse_bit_or()?;
-        while matches!(self.peek(), Token::AmpAmp) {
+        // V3-18 wedge — `&&=` belongs to parse_assign; decline `&&`
+        // when `=` follows.
+        while matches!(self.peek(), Token::AmpAmp)
+            && !matches!(self.tokens.get(self.pos + 1).map(|s| &s.token), Some(Token::Eq))
+        {
             self.pos += 1;
             let right = self.parse_bit_or()?;
             left = self.ast.add_expr(Expr::BinOp {
@@ -3440,6 +3503,12 @@ impl Parser<'_> {
         let mut ctor: Option<ClassCtor> = None;
         let mut methods: Vec<ClassMethod> = Vec::new();
         let mut static_methods: Vec<ClassMethod> = Vec::new();
+        // V3-18 wedge — instance-field initializers (`val: T = init`).
+        // Collected here in source order; appended to the ctor body
+        // (a synthesized one if no ctor was declared) at class-decl
+        // finalization. The synthesized prefix is "this.<n> = init"
+        // per declared field.
+        let mut field_inits: Vec<(String, ExprId)> = Vec::new();
         while !matches!(self.peek(), Token::RBrace | Token::Eof) {
             // Each member is one of:
             //   - `constructor(params) { body }`
@@ -3668,7 +3737,13 @@ impl Parser<'_> {
                 Some(Token::LParen) => {
                     // ctor or method
                     self.pos += 1; // consume name
-                    let params = self.parse_param_list()?;
+                    let is_ctor_branch = member_name == "constructor";
+                    let (params, promoted_props) = if is_ctor_branch {
+                        let (p, pr) = self.parse_ctor_param_list()?;
+                        (p, pr)
+                    } else {
+                        (self.parse_param_list()?, Vec::new())
+                    };
                     let return_type = if matches!(self.peek(), Token::Colon) {
                         self.pos += 1;
                         Some(self.parse_type_ann()?)
@@ -3727,6 +3802,43 @@ impl Parser<'_> {
                             return Err(format!(
                                 "duplicate constructor in class `{name}`"
                             ));
+                        }
+                        // V3-18 wedge — for each TS parameter-property
+                        // (e.g. `public x: number`), promote to an
+                        // instance field on the class and prepend
+                        // `this.<n> = <n>` to the ctor body.
+                        let mut body = body;
+                        if !promoted_props.is_empty() {
+                            let mut prefix: Vec<Stmt> = Vec::new();
+                            for (idx, vis, rd) in &promoted_props {
+                                let p = &params[*idx];
+                                let ty_ann = p.type_ann.clone().unwrap_or_else(|| "any".into());
+                                fields.push((p.name.clone(), ty_ann));
+                                if *vis != ast::Visibility::Public {
+                                    self.ast.member_visibility.insert(
+                                        (name.clone(), p.name.clone()),
+                                        *vis,
+                                    );
+                                }
+                                if *rd {
+                                    self.ast
+                                        .readonly_fields
+                                        .insert((name.clone(), p.name.clone()));
+                                }
+                                let this_ref = self.ast.add_expr(Expr::This);
+                                let lhs = self.ast.add_expr(Expr::Member {
+                                    obj: this_ref,
+                                    name: p.name.clone(),
+                                });
+                                let rhs = self.ast.add_expr(Expr::Ident(p.name.clone()));
+                                let assign = self.ast.add_expr(Expr::Assign {
+                                    target: lhs,
+                                    value: rhs,
+                                });
+                                prefix.push(Stmt::Expr(assign));
+                            }
+                            prefix.extend(body);
+                            body = prefix;
                         }
                         ctor = Some(ClassCtor { params, body });
                     } else {
@@ -3803,8 +3915,20 @@ impl Parser<'_> {
                             init,
                         });
                     } else {
+                        // V3-18 wedge — accept `name: T = <init>` for
+                        // instance fields. Init runs in ctor scope
+                        // before user ctor body executes.
+                        let init = if matches!(self.peek(), Token::Eq) {
+                            self.pos += 1;
+                            Some(self.parse_assign()?)
+                        } else {
+                            None
+                        };
                         if matches!(self.peek(), Token::Semi) {
                             self.pos += 1;
+                        }
+                        if let Some(init_expr) = init {
+                            field_inits.push((member_name.clone(), init_expr));
                         }
                         fields.push((member_name, ty));
                     }
@@ -3829,6 +3953,32 @@ impl Parser<'_> {
         if matches!(self.peek(), Token::Semi) {
             self.pos += 1;
         }
+        // V3-18 wedge — prepend `this.<n> = <init>` stmts for each
+        // collected field initializer. Synthesize an empty ctor if
+        // one wasn't declared so the inits still run on `new C(...)`.
+        if !field_inits.is_empty() {
+            let mut prefix: Vec<Stmt> = Vec::new();
+            for (fname, init_expr) in &field_inits {
+                let this_ref = self.ast.add_expr(Expr::This);
+                let lhs = self.ast.add_expr(Expr::Member {
+                    obj: this_ref,
+                    name: fname.clone(),
+                });
+                let assign = self.ast.add_expr(Expr::Assign {
+                    target: lhs,
+                    value: *init_expr,
+                });
+                prefix.push(Stmt::Expr(assign));
+            }
+            ctor = Some(match ctor {
+                Some(c) => {
+                    let mut body = prefix;
+                    body.extend(c.body);
+                    ClassCtor { params: c.params, body }
+                }
+                None => ClassCtor { params: Vec::new(), body: prefix },
+            });
+        }
         Ok(Stmt::ClassDecl {
             name,
             type_params,
@@ -3840,6 +3990,150 @@ impl Parser<'_> {
             methods,
             static_methods,
         })
+    }
+
+    /// V3-18 wedge — TS parameter-property shorthand
+    /// (`constructor(public x: number, private readonly y: string)`).
+    /// Returns the regular param list plus a side-table of
+    /// (param_index, visibility, is_readonly) entries for params that
+    /// should be promoted to instance fields. Mirrors
+    /// parse_param_list's shape so call-sites are interchangeable.
+    fn parse_ctor_param_list(
+        &mut self,
+    ) -> Result<(Vec<Param>, Vec<(usize, ast::Visibility, bool)>), String> {
+        match self.peek() {
+            Token::LParen => self.pos += 1,
+            t => return Err(format!("expected `(`, got {t:?} at {}", self.at())),
+        }
+        let mut params = Vec::new();
+        let mut promoted: Vec<(usize, ast::Visibility, bool)> = Vec::new();
+        if !matches!(self.peek(), Token::RParen) {
+            loop {
+                // Consume any TS modifiers: visibility (`public` /
+                // `private` / `protected`) and `readonly`. Order is
+                // visibility-then-readonly per TS, but we accept any
+                // combination once.
+                let mut vis: Option<ast::Visibility> = None;
+                let mut rd = false;
+                loop {
+                    let Token::Ident(s) = self.peek() else { break };
+                    match s.as_str() {
+                        "public" => {
+                            if vis.is_some() {
+                                return Err(format!(
+                                    "duplicate visibility modifier in ctor param at {}",
+                                    self.at()
+                                ));
+                            }
+                            vis = Some(ast::Visibility::Public);
+                            self.pos += 1;
+                        }
+                        "private" => {
+                            if vis.is_some() {
+                                return Err(format!(
+                                    "duplicate visibility modifier in ctor param at {}",
+                                    self.at()
+                                ));
+                            }
+                            vis = Some(ast::Visibility::Private);
+                            self.pos += 1;
+                        }
+                        "protected" => {
+                            if vis.is_some() {
+                                return Err(format!(
+                                    "duplicate visibility modifier in ctor param at {}",
+                                    self.at()
+                                ));
+                            }
+                            vis = Some(ast::Visibility::Protected);
+                            self.pos += 1;
+                        }
+                        "readonly" => {
+                            if rd {
+                                return Err(format!(
+                                    "duplicate `readonly` in ctor param at {}",
+                                    self.at()
+                                ));
+                            }
+                            rd = true;
+                            self.pos += 1;
+                        }
+                        _ => break,
+                    }
+                }
+                let is_rest = matches!(self.peek(), Token::DotDotDot);
+                if is_rest {
+                    self.pos += 1;
+                }
+                let pname = match self.peek() {
+                    Token::Ident(n) => n.clone(),
+                    t => {
+                        return Err(format!(
+                            "expected parameter name, got {t:?} at {}",
+                            self.at()
+                        ));
+                    }
+                };
+                self.pos += 1;
+                let optional = !is_rest && matches!(self.peek(), Token::Question);
+                if optional {
+                    self.pos += 1;
+                }
+                let type_ann = if matches!(self.peek(), Token::Colon) {
+                    self.pos += 1;
+                    let ann = self.parse_type_ann()?;
+                    if optional && !ann.starts_with("__nullable(") {
+                        Some(format!("__nullable({ann})"))
+                    } else {
+                        Some(ann)
+                    }
+                } else {
+                    None
+                };
+                let default = if !is_rest && matches!(self.peek(), Token::Eq) {
+                    self.pos += 1;
+                    Some(self.parse_expr()?)
+                } else {
+                    None
+                };
+                let idx = params.len();
+                params.push(Param {
+                    name: pname,
+                    type_ann,
+                    default,
+                    is_rest,
+                });
+                if vis.is_some() || rd {
+                    promoted.push((idx, vis.unwrap_or(ast::Visibility::Public), rd));
+                }
+                match self.peek() {
+                    Token::Comma => {
+                        if is_rest {
+                            return Err(format!(
+                                "rest parameter must be last at {}",
+                                self.at()
+                            ));
+                        }
+                        self.pos += 1;
+                        if matches!(self.peek(), Token::RParen) {
+                            break;
+                        }
+                    }
+                    Token::RParen => break,
+                    t => {
+                        return Err(format!(
+                            "expected `,` or `)` in params, got {t:?} at {}",
+                            self.at()
+                        ));
+                    }
+                }
+            }
+        }
+        match self.peek() {
+            Token::RParen => self.pos += 1,
+            t => return Err(format!("expected `)`, got {t:?} at {}", self.at())),
+        }
+        Ok((params, promoted))
     }
 
     /// Shared helper: parse a `(p1: T, p2: T, ...)` parameter list.
