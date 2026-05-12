@@ -2372,8 +2372,24 @@ impl Parser<'_> {
                 // the explicit paren grouping.
                 Token::Ident(s) if s == "as" => {
                     self.pos += 1;
+                    // V3-18 wedge — `<expr> as const` (TS const
+                    // assertion) is no-op at runtime; subset treats
+                    // it as identity. `<expr> satisfies T` likewise
+                    // (TS-only type-check assist).
+                    if matches!(self.peek(), Token::Const) {
+                        self.pos += 1;
+                        // No type to record; identity cast.
+                        continue;
+                    }
                     let ty_ann = self.parse_type_ann()?;
                     node = self.add_expr_at(start_pos, Expr::As { expr: node, ty_ann });
+                }
+                Token::Ident(s) if s == "satisfies" => {
+                    // TS satisfies is type-only; runtime no-op. Parse
+                    // and discard the type ann.
+                    self.pos += 1;
+                    let _ann = self.parse_type_ann()?;
+                    continue;
                 }
                 _ => return Ok(node),
             }
