@@ -1509,6 +1509,60 @@ impl Checker {
         None
     }
 
+    /// V3-18 wedge — detect a flow-narrowing cond shape on the
+    /// form `<ident> !== null` / `null !== <ident>` (and === for
+    /// the inverse polarity). Returns (binding-name, inner-type,
+    /// then-narrows). Polarity = true means the then-branch
+    /// narrows, false means the else-branch.
+    fn collect_null_narrow(
+        &self,
+        ast: &Ast,
+        cond: ExprId,
+    ) -> Option<(String, Type, bool)> {
+        let Expr::BinOp { op, left, right } = ast.get_expr(cond) else {
+            return None;
+        };
+        let polarity = match op {
+            BinOp::Neq | BinOp::LooseNeq => true,
+            BinOp::Eq | BinOp::LooseEq => false,
+            _ => return None,
+        };
+        let (name, _) = match (ast.get_expr(*left), ast.get_expr(*right)) {
+            (Expr::Ident(n), Expr::Null) => (n.clone(), ()),
+            (Expr::Null, Expr::Ident(n)) => (n.clone(), ()),
+            _ => return None,
+        };
+        let info = self.lookup(&name)?;
+        if let Type::Nullable(inner) = info.ty.clone() {
+            Some((name, *inner, polarity))
+        } else {
+            None
+        }
+    }
+
+    /// V3-18 wedge — narrow the binding `name` to `inner_ty`
+    /// in the innermost scope that owns it; return the previous
+    /// type so it can be restored after the narrowed branch.
+    fn apply_narrow(&mut self, name: &str, inner_ty: Type) -> Option<Type> {
+        for s in self.scopes.iter_mut().rev() {
+            if let Some(info) = s.get_mut(name) {
+                let prev = info.ty.clone();
+                info.ty = inner_ty;
+                return Some(prev);
+            }
+        }
+        None
+    }
+
+    fn restore_narrow(&mut self, name: &str, prev_ty: Type) {
+        for s in self.scopes.iter_mut().rev() {
+            if let Some(info) = s.get_mut(name) {
+                info.ty = prev_ty;
+                return;
+            }
+        }
+    }
+
     /// Like `lookup` but also returns the scope depth at which the binding
     /// was found (0 = outermost / fn-root, `scopes.len() - 1` = innermost).
     /// M1.3 uses this to detect cross-scope `let n = s` cases — an Ident
@@ -1742,6 +1796,14 @@ impl Checker {
                         .push_err(format!("if condition must be boolean (or coercible), got {other:?}")),
                     Err(e) => self.errors.push_err(e),
                 }
+                // V3-18 wedge — flow narrowing on `<ident> !== null`
+                // / `<ident> === null` cond shapes. For `!== null`,
+                // narrow `<ident>` to its inner type within the
+                // then-branch only. For `=== null`, narrow within
+                // else-branch only. Narrow-and-restore around each
+                // branch; the saved types come from the binding's
+                // pre-if state so nested ifs compose correctly.
+                let narrow = self.collect_null_narrow(ast, *cond);
                 // CFG-aware moved tracking: snapshot the moved-state
                 // before each branch, run the branch, capture its
                 // post-state, restore. Then join: a binding is moved
@@ -1751,13 +1813,37 @@ impl Checker {
                 // `f` doesn't propagate, leaving `f` available for
                 // the trailing return.
                 let pre = self.snapshot_moved();
+                let then_narrow = if let Some((name, inner, polarity)) = &narrow {
+                    if *polarity {
+                        self.apply_narrow(name, inner.clone())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
                 self.check_stmt(ast, then_branch);
+                if let (Some((name, _, _)), Some(saved)) = (&narrow, then_narrow) {
+                    self.restore_narrow(name, saved);
+                }
                 let then_div = stmt_diverges(then_branch);
                 let then_post = self.snapshot_moved();
                 self.restore_moved(&pre);
                 let (else_div, else_post): (bool, Option<MovedSnapshot>) =
                     if let Some(eb) = else_branch {
+                        let else_narrow = if let Some((name, inner, polarity)) = &narrow {
+                            if !*polarity {
+                                self.apply_narrow(name, inner.clone())
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        };
                         self.check_stmt(ast, eb);
+                        if let (Some((name, _, _)), Some(saved)) = (&narrow, else_narrow) {
+                            self.restore_narrow(name, saved);
+                        }
                         let div = stmt_diverges(eb);
                         let snap2 = self.snapshot_moved();
                         self.restore_moved(&pre);
@@ -1772,6 +1858,23 @@ impl Checker {
                     else_post.as_deref(),
                     else_div,
                 );
+                // V3-18 wedge — post-if narrowing when one branch
+                // diverges (early return / throw / break / continue).
+                // Common pattern:
+                //   if (o === null) return; ... o.x  // narrowed
+                //   if (o !== null) return; ... // o stays Nullable
+                // For polarity true (then = !==), if then-branch
+                // diverges, post-if narrows in the *opposite* sense
+                // (else state propagates out). For polarity false
+                // (then = ===), if then-branch diverges, post-if
+                // narrows to the inner type.
+                if let Some((name, inner, polarity)) = &narrow {
+                    let post_narrow_to_inner =
+                        (*polarity && else_div) || (!*polarity && then_div);
+                    if post_narrow_to_inner {
+                        self.apply_narrow(name, inner.clone());
+                    }
+                }
             }
             Stmt::While { cond, body } => {
                 match self.type_of(ast, *cond) {
