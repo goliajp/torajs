@@ -2584,6 +2584,56 @@ pub fn desugar_classes(ast: &mut Ast) {
                 .insert((cname.clone(), sm.name.clone()), format!("__sm_{cname}__{}", sm.name));
         }
     }
+    // V3-18 wedge — static inheritance per ES spec §15.7. When
+    // `class Sub extends Base { ... }`, `Sub.greet` should resolve
+    // to `Base.greet` (and `Sub.count` to `Base.count`), unless Sub
+    // overrides them with its own static. Pre-fix
+    // `Sub.<inherited_static>` failed at typecheck with
+    // 'unknown identifier `Sub`' because the rewrite table only
+    // recorded each class's own statics.
+    //
+    // Walk every class's parent chain, alias inherited static names
+    // to the parent's __sf_/__sm_ binding. Sub's own statics already
+    // take precedence (entered above). Multi-level chains (Sub →
+    // Mid → Base) work transitively because the loop visits the
+    // chain in order.
+    let parent_map: std::collections::HashMap<String, Option<String>> = class_index
+        .iter()
+        .map(|(_, c, _, p, _, _, _, _, _)| (c.clone(), p.clone()))
+        .collect();
+    let mut class_static_index: std::collections::HashMap<
+        String,
+        (Vec<String>, Vec<String>),
+    > = std::collections::HashMap::new();
+    for (_, cname, _, _, _, sfs, _, _, sms) in &class_index {
+        class_static_index.insert(
+            cname.clone(),
+            (
+                sfs.iter().map(|sf| sf.name.clone()).collect(),
+                sms.iter().map(|sm| sm.name.clone()).collect(),
+            ),
+        );
+    }
+    for (_, cname, _, parent, _, _, _, _, _) in &class_index {
+        let mut cur = parent.clone();
+        while let Some(p) = cur {
+            if let Some((p_sfs, p_sms)) = class_static_index.get(&p) {
+                for sf_name in p_sfs {
+                    let key = (cname.clone(), sf_name.clone());
+                    static_member_rewrites
+                        .entry(key)
+                        .or_insert_with(|| format!("__sf_{p}__{sf_name}"));
+                }
+                for sm_name in p_sms {
+                    let key = (cname.clone(), sm_name.clone());
+                    static_member_rewrites
+                        .entry(key)
+                        .or_insert_with(|| format!("__sm_{p}__{sm_name}"));
+                }
+            }
+            cur = parent_map.get(&p).cloned().flatten();
+        }
+    }
 
     // Pass 3 — rewrite the stmt list. Replace each ClassDecl in-place
     // with its TypeDecl (using the flattened field list so subclasses
