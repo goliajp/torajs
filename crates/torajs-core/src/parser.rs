@@ -2090,6 +2090,30 @@ impl Parser<'_> {
             };
             return Ok(self.ast.add_expr(Expr::Assign { target, value: rhs }));
         }
+        // V3-18 wedge — bitwise compound assignments (`|= ^= &= <<= >>=
+        // >>>=`) per JS spec §13.15. Same desugar shape as the other
+        // compound forms — `target = target <op> value` with a cloned
+        // lhs read. Lex emits these as 2- / 3-token sequences (e.g.
+        // `Pipe Eq`, `ShrShr Eq`).
+        let bit_assign: Option<BinOp> = match (
+            self.peek(),
+            self.tokens.get(self.pos + 1).map(|s| &s.token),
+        ) {
+            (Token::Pipe, Some(Token::Eq)) => Some(BinOp::BitOr),
+            (Token::Caret, Some(Token::Eq)) => Some(BinOp::BitXor),
+            (Token::Amp, Some(Token::Eq)) => Some(BinOp::BitAnd),
+            (Token::ShlShl, Some(Token::Eq)) => Some(BinOp::Shl),
+            (Token::ShrShr, Some(Token::Eq)) => Some(BinOp::Shr),
+            (Token::ShrShrShr, Some(Token::Eq)) => Some(BinOp::UShr),
+            _ => None,
+        };
+        if let Some(op) = bit_assign {
+            self.pos += 2;
+            let value = self.parse_assign()?;
+            let lhs = self.clone_expr_for_compound(target);
+            let rhs = self.ast.add_expr(Expr::BinOp { op, left: lhs, right: value });
+            return Ok(self.ast.add_expr(Expr::Assign { target, value: rhs }));
+        }
         // Plain `=` and the compound forms (`+= -= *= /= %=`). Compound
         // forms desugar at the parser level into `target = target op value`,
         // matching JS shape without needing a new AST variant.
@@ -2222,7 +2246,11 @@ impl Parser<'_> {
 
     fn parse_bit_or(&mut self) -> Result<ExprId, String> {
         let mut left = self.parse_bit_xor()?;
-        while matches!(self.peek(), Token::Pipe) {
+        // V3-18 wedge — `|=` belongs to parse_assign; decline `|` when
+        // `=` follows.
+        while matches!(self.peek(), Token::Pipe)
+            && !matches!(self.tokens.get(self.pos + 1).map(|s| &s.token), Some(Token::Eq))
+        {
             self.pos += 1;
             let right = self.parse_bit_xor()?;
             left = self.ast.add_expr(Expr::BinOp {
@@ -2236,7 +2264,10 @@ impl Parser<'_> {
 
     fn parse_bit_xor(&mut self) -> Result<ExprId, String> {
         let mut left = self.parse_bit_and()?;
-        while matches!(self.peek(), Token::Caret) {
+        // V3-18 wedge — `^=` belongs to parse_assign.
+        while matches!(self.peek(), Token::Caret)
+            && !matches!(self.tokens.get(self.pos + 1).map(|s| &s.token), Some(Token::Eq))
+        {
             self.pos += 1;
             let right = self.parse_bit_and()?;
             left = self.ast.add_expr(Expr::BinOp {
@@ -2250,7 +2281,10 @@ impl Parser<'_> {
 
     fn parse_bit_and(&mut self) -> Result<ExprId, String> {
         let mut left = self.parse_equality()?;
-        while matches!(self.peek(), Token::Amp) {
+        // V3-18 wedge — `&=` belongs to parse_assign.
+        while matches!(self.peek(), Token::Amp)
+            && !matches!(self.tokens.get(self.pos + 1).map(|s| &s.token), Some(Token::Eq))
+        {
             self.pos += 1;
             let right = self.parse_equality()?;
             left = self.ast.add_expr(Expr::BinOp {
@@ -2315,6 +2349,12 @@ impl Parser<'_> {
     fn parse_shift(&mut self) -> Result<ExprId, String> {
         let mut left = self.parse_additive()?;
         loop {
+            // V3-18 wedge — `<<=` `>>=` `>>>=` belong to parse_assign.
+            if matches!(self.tokens.get(self.pos + 1).map(|s| &s.token), Some(Token::Eq))
+                && matches!(self.peek(), Token::ShlShl | Token::ShrShr | Token::ShrShrShr)
+            {
+                return Ok(left);
+            }
             let op = match self.peek() {
                 Token::ShlShl => BinOp::Shl,
                 Token::ShrShr => BinOp::Shr,
