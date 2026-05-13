@@ -5188,8 +5188,43 @@ impl Parser<'_> {
         // assumes current token is `(`
         self.pos += 1;
         let mut params = Vec::new();
+        // V3-18 wedge — destructuring patterns in arrow-fn params,
+        // mirror of the parse_fn wedge. `xs.map(([a, b]) => a + b)`
+        // is the common shape this unblocks.
+        let mut param_destr_lets: Vec<Stmt> = Vec::new();
         if !matches!(self.peek(), Token::RParen) {
             loop {
+                if matches!(self.peek(), Token::LBracket | Token::LBrace) {
+                    let synth = self.parse_destr_param(&mut param_destr_lets)?;
+                    let type_ann = if matches!(self.peek(), Token::Colon) {
+                        self.pos += 1;
+                        Some(self.parse_type_ann()?)
+                    } else {
+                        None
+                    };
+                    params.push(Param {
+                        name: synth,
+                        type_ann,
+                        default: None,
+                        is_rest: false,
+                    });
+                    match self.peek() {
+                        Token::Comma => {
+                            self.pos += 1;
+                            if matches!(self.peek(), Token::RParen) {
+                                break;
+                            }
+                            continue;
+                        }
+                        Token::RParen => break,
+                        t => {
+                            return Err(format!(
+                                "expected `,` or `)` after destr param, got {t:?} at {}",
+                                self.at()
+                            ));
+                        }
+                    }
+                }
                 let pname = match self.peek() {
                     Token::Ident(n) => n.clone(),
                     t => {
@@ -5282,6 +5317,15 @@ impl Parser<'_> {
             // expression body — desugar to single Return
             let e = self.parse_expr()?;
             vec![Stmt::Return(Some(e))]
+        };
+        // V3-18 wedge — prepend destr-param lets to the body, matching
+        // the parse_fn wedge.
+        let body = if param_destr_lets.is_empty() {
+            body
+        } else {
+            let mut full = param_destr_lets;
+            full.extend(body);
+            full
         };
         Ok(self.ast.add_expr(Expr::ArrowFn {
             params,
