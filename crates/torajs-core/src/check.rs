@@ -5939,8 +5939,39 @@ impl Checker {
                         "ternary condition must be boolean (or coercible), got {c:?}"
                     ));
                 }
+                // V3-18 ternary-narrow wedge — mirror the if-stmt
+                // null-narrow logic for `cond ? then : else`. Without
+                // it, the canonical TS pattern `s ? s.length : 0`
+                // bails on the then-branch with 'no member .length on
+                // type Nullable(String)', forcing rewrites to the
+                // longer if-statement form.
+                let narrow = self.collect_null_narrow(ast, *cond);
+                let then_saved = if let Some((name, inner, polarity)) = &narrow {
+                    if *polarity {
+                        self.apply_narrow(name, inner.clone())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
                 let t = self.type_of(ast, *then_branch)?;
+                if let (Some((name, _, _)), Some(saved)) = (&narrow, then_saved) {
+                    self.restore_narrow(name, saved);
+                }
+                let else_saved = if let Some((name, inner, polarity)) = &narrow {
+                    if !*polarity {
+                        self.apply_narrow(name, inner.clone())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
                 let e = self.type_of(ast, *else_branch)?;
+                if let (Some((name, _, _)), Some(saved)) = (&narrow, else_saved) {
+                    self.restore_narrow(name, saved);
+                }
                 // V3-18 wedge — widen one side to Nullable<T> when the
                 // other side is T or Null. Common pattern with
                 // optional params: `x === null ? default : x` where
