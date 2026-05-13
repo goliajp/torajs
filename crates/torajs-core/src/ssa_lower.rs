@@ -12191,6 +12191,15 @@ impl<'a> LowerCtx<'a> {
                         );
                         return Operand::Value(v);
                     }
+                    // V3-18 wedge — String.prototype.toString /
+                    // toLocaleString just return the receiver per
+                    // spec §22.1.3.27. Identity at the SSA layer:
+                    // pass the operand through.
+                    if matches!(recv_ty, Type::Str | Type::Substr)
+                        && (m_name == "toString" || m_name == "toLocaleString")
+                    {
+                        return recv_op;
+                    }
                     if recv_ty == Type::I64 || recv_ty == Type::F64 {
                         let is_f64 = recv_ty == Type::F64;
                         // toString with radix: route i64 receiver to the

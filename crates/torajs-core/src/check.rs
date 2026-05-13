@@ -3236,7 +3236,16 @@ impl Checker {
                     (Type::Number, "valueOf") => {
                         Ok(Type::Function(Vec::new(), Box::new(Type::Number)))
                     }
-                    (Type::String, "valueOf") => {
+                    (Type::String, "valueOf")
+                    // V3-18 wedge — String.prototype.toString /
+                    // toLocaleString / valueOf all return the
+                    // primitive string itself per JS spec
+                    // §22.1.3.27 / §22.1.3.31 / §22.1.3.34.
+                    // Already wired for Number / Boolean / BigInt /
+                    // Symbol but missing for String, so `s.toString()`
+                    // hit 'no member .toString on type String'.
+                    | (Type::String, "toString")
+                    | (Type::String, "toLocaleString") => {
                         Ok(Type::Function(Vec::new(), Box::new(Type::String)))
                     }
                     (Type::Boolean, "valueOf") => {
