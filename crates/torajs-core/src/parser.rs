@@ -102,6 +102,30 @@ struct Parser<'a> {
 /// The parser's flat-ann encoder writes these as `Head<T>` (or
 /// `Head<T|R|N>`), so a depth-aware scan for the first `<` and the
 /// trailing `>` is enough.
+/// V3-18 wedge — recognise a syntactic IdentifierName per JS spec
+/// §11.6.2: ASCII letters / `_` / `$` for the first byte; same set
+/// plus digits for the rest. Used to fold `obj["x"]` into
+/// `obj.x` at parse time when the bracket-index is a string
+/// literal whose content is a legal identifier; non-ident strings
+/// (`obj["a-b"]`, `obj["1"]`, `obj[""]`) stay as Index so the
+/// existing Array / String paths handle them.
+fn is_identifier_name(s: &str) -> bool {
+    let bytes = s.as_bytes();
+    if bytes.is_empty() {
+        return false;
+    }
+    let first = bytes[0];
+    if !(first.is_ascii_alphabetic() || first == b'_' || first == b'$') {
+        return false;
+    }
+    for &b in &bytes[1..] {
+        if !(b.is_ascii_alphanumeric() || b == b'_' || b == b'$') {
+            return false;
+        }
+    }
+    true
+}
+
 fn unwrap_generator_return_ann(ann: &str) -> String {
     let Some(open) = ann.find('<') else { return ann.to_string() };
     if !ann.ends_with('>') {
@@ -3084,7 +3108,34 @@ impl Parser<'_> {
                         Token::RBracket => self.pos += 1,
                         t => return Err(format!("expected `]`, got {t:?} at {}", self.at())),
                     }
-                    node = self.add_expr_at(start_pos, Expr::Index { obj: node, index });
+                    // V3-18 wedge — `obj["x"]` ≡ `obj.x` per JS
+                    // spec §13.3.2 when "x" parses as a valid
+                    // identifier. Folding here (vs at typecheck)
+                    // keeps the entire downstream pipeline
+                    // (typecheck / lower / drop / write-side
+                    // assign) unchanged: the synthetic Member
+                    // routes through every existing field-resolve
+                    // path, including struct layouts, refcount on
+                    // owned fields, and Member-call dispatch.
+                    // Only fires for compile-time string literals
+                    // whose content is a syntactic IdentifierName;
+                    // dynamic / numeric / non-identifier indices
+                    // stay as Index and hit the existing Array /
+                    // String paths.
+                    let folded = if let Expr::String(name) = self.ast.get_expr(index) {
+                        if is_identifier_name(name) {
+                            Some(name.clone())
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+                    node = if let Some(name) = folded {
+                        self.add_expr_at(start_pos, Expr::Member { obj: node, name })
+                    } else {
+                        self.add_expr_at(start_pos, Expr::Index { obj: node, index })
+                    };
                 }
                 Token::PlusPlus | Token::MinusMinus => {
                     // Post-increment / post-decrement: `x++` / `x--`.
