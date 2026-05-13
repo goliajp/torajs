@@ -92,6 +92,44 @@ struct Parser<'a> {
     generator_fns: std::collections::HashMap<String, String>,
 }
 
+/// V3-18 wedge — strip the standard generator/iterator wrapper from
+/// a return-type annotation per TS spec §3.6.4. Recognized shapes
+/// (all single-arg, all collapsing to the inner yield type T):
+///   Generator<T>          (also Generator<T, R, N> — extras ignored)
+///   IterableIterator<T>
+///   Iterator<T>
+///   Iterable<T>
+/// The parser's flat-ann encoder writes these as `Head<T>` (or
+/// `Head<T|R|N>`), so a depth-aware scan for the first `<` and the
+/// trailing `>` is enough.
+fn unwrap_generator_return_ann(ann: &str) -> String {
+    let Some(open) = ann.find('<') else { return ann.to_string() };
+    if !ann.ends_with('>') {
+        return ann.to_string();
+    }
+    let head = &ann[..open];
+    if !matches!(
+        head,
+        "Generator" | "IterableIterator" | "Iterator" | "Iterable"
+    ) {
+        return ann.to_string();
+    }
+    let inner = &ann[open + 1..ann.len() - 1];
+    // Take only the first type-arg (yield type). TS Generator has
+    // additional Return/Next type args; the subset runtime collapses
+    // them so dropping is the only sensible thing.
+    let mut depth: i32 = 0;
+    for (i, b) in inner.bytes().enumerate() {
+        match b {
+            b'<' | b'(' => depth += 1,
+            b'>' | b')' => depth -= 1,
+            b'|' if depth == 0 => return inner[..i].to_string(),
+            _ => {}
+        }
+    }
+    inner.to_string()
+}
+
 impl Parser<'_> {
     fn peek(&self) -> &Token {
         &self.tokens[self.pos].token
@@ -1003,7 +1041,7 @@ impl Parser<'_> {
             Token::RParen => self.pos += 1,
             t => return Err(format!("expected `)`, got {t:?} at {}", self.at())),
         }
-        let return_type = if matches!(self.peek(), Token::Colon) {
+        let mut return_type = if matches!(self.peek(), Token::Colon) {
             self.pos += 1;
             Some(self.parse_type_ann()?)
         } else {
@@ -1015,12 +1053,25 @@ impl Parser<'_> {
         // require it here too — without it the for-of body's `let v`
         // can't be typed.
         if is_generator {
-            let yield_ty = return_type.clone().unwrap_or_else(|| {
+            let raw_ann = return_type.clone().unwrap_or_else(|| {
                 panic!(
                     "function* {name} requires an explicit yield value type \
                      annotation `: T` (Phase J MVP)"
                 )
             });
+            // V3-18 wedge — unwrap the standard wrapper-form return
+            // type annotations users write for generators per TS spec
+            // §3.6.4 (IterableIterator / Generator / Iterator). The
+            // yield type T inside one of these wrappers is what the
+            // Phase J desugar machinery needs — it builds the iterator
+            // class layout from T, not from `Generator<T>`. Pre-fix
+            // those wrapped anns failed at `unknown type` in check.rs.
+            // Rewrite the FnDecl's return_type too so desugar_generators
+            // sees the unwrapped T directly.
+            let yield_ty = unwrap_generator_return_ann(&raw_ann);
+            if yield_ty != raw_ann {
+                return_type = Some(yield_ty.clone());
+            }
             self.generator_fns.insert(name.clone(), yield_ty);
         }
         if is_async {
