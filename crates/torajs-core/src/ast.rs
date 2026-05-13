@@ -2435,6 +2435,38 @@ pub fn desugar_classes(ast: &mut Ast) {
             };
         }
     }
+    // V3-18 wedge — Pass 1.6: rewrite `super.<m>(args)` (encoded
+    // as a Call to ident `__supercall__<m>`) inside each subclass's
+    // method bodies into `__cm_<Parent>__<m>(__this, args)`. Walks
+    // every method body of every class with an `extends` clause.
+    for (_, cname, _tp, parent, _, _, ctor, methods, static_methods) in &class_index {
+        let Some(parent_name) = parent.as_ref() else { continue };
+        let mut sites: Vec<(ExprId, String, Vec<ExprId>)> = Vec::new();
+        if let Some(c) = ctor.as_ref() {
+            for s in &c.body {
+                collect_supercall_in_stmt(ast, s, &mut sites);
+            }
+        }
+        for m in methods.iter().chain(static_methods.iter()) {
+            for s in &m.body {
+                collect_supercall_in_stmt(ast, s, &mut sites);
+            }
+        }
+        for (eid, m_name, args) in sites {
+            let _ = cname; // diag context only
+            let callee = ast.add_expr(
+                Expr::Ident(format!("__cm_{parent_name}__{m_name}")),
+            );
+            let this_id = ast.add_expr(Expr::This);
+            let mut new_args = Vec::with_capacity(args.len() + 1);
+            new_args.push(this_id);
+            new_args.extend(args);
+            ast.exprs[eid.0 as usize] = Expr::Call {
+                callee,
+                args: new_args,
+            };
+        }
+    }
 
     // Pass 2 — rewrite the expression arena. Walking by index is safe
     // because we only mutate Exprs in place (or append new ones at the
@@ -2967,6 +2999,183 @@ fn is_likely_typevar(s: &str) -> bool {
 /// Walk a stmt list and collect every `Expr::Super { args }` site, with
 /// the original args slice preserved so the caller can build the
 /// rewritten Call. Walks into nested blocks / control flow.
+/// V3-18 wedge — collect `super.<method>(args)` call sites in
+/// a stmt list. Encoded by the parser as a Call to a marker
+/// ident `__supercall__<m>`. Returns (call ExprId, method
+/// name, args). Recursive over nested stmts/exprs.
+fn collect_supercall_in_stmt(
+    ast: &Ast,
+    s: &Stmt,
+    out: &mut Vec<(ExprId, String, Vec<ExprId>)>,
+) {
+    match s {
+        Stmt::Expr(eid) | Stmt::Throw(eid) | Stmt::Yield(eid) => {
+            collect_supercall_in_expr(ast, *eid, out)
+        }
+        Stmt::YieldInto { value, .. } => collect_supercall_in_expr(ast, *value, out),
+        Stmt::Return(maybe) => {
+            if let Some(eid) = maybe {
+                collect_supercall_in_expr(ast, *eid, out);
+            }
+        }
+        Stmt::LetDecl { init, .. } => collect_supercall_in_expr(ast, *init, out),
+        Stmt::If { cond, then_branch, else_branch } => {
+            collect_supercall_in_expr(ast, *cond, out);
+            collect_supercall_in_stmt(ast, then_branch, out);
+            if let Some(eb) = else_branch {
+                collect_supercall_in_stmt(ast, eb, out);
+            }
+        }
+        Stmt::While { cond, body } => {
+            collect_supercall_in_expr(ast, *cond, out);
+            collect_supercall_in_stmt(ast, body, out);
+        }
+        Stmt::DoWhile { body, cond } => {
+            collect_supercall_in_stmt(ast, body, out);
+            collect_supercall_in_expr(ast, *cond, out);
+        }
+        Stmt::Switch { scrutinee, cases, default } => {
+            collect_supercall_in_expr(ast, *scrutinee, out);
+            for c in cases {
+                collect_supercall_in_expr(ast, c.value, out);
+                for s in &c.body {
+                    collect_supercall_in_stmt(ast, s, out);
+                }
+            }
+            if let Some(db) = default {
+                for s in db {
+                    collect_supercall_in_stmt(ast, s, out);
+                }
+            }
+        }
+        Stmt::For { init, cond, step, body } => {
+            if let Some(i) = init {
+                collect_supercall_in_stmt(ast, i, out);
+            }
+            if let Some(c) = cond {
+                collect_supercall_in_expr(ast, *c, out);
+            }
+            if let Some(st) = step {
+                collect_supercall_in_expr(ast, *st, out);
+            }
+            collect_supercall_in_stmt(ast, body, out);
+        }
+        Stmt::Block(stmts) | Stmt::Multi(stmts) => {
+            for st in stmts {
+                collect_supercall_in_stmt(ast, st, out);
+            }
+        }
+        Stmt::Try { body, catch_body, finally_body, .. } => {
+            for st in body {
+                collect_supercall_in_stmt(ast, st, out);
+            }
+            for st in catch_body {
+                collect_supercall_in_stmt(ast, st, out);
+            }
+            if let Some(fb) = finally_body {
+                for st in fb {
+                    collect_supercall_in_stmt(ast, st, out);
+                }
+            }
+        }
+        Stmt::Break | Stmt::Continue => {}
+        Stmt::ForOfSplitIter { parent, sep, body, .. } => {
+            collect_supercall_in_expr(ast, *parent, out);
+            collect_supercall_in_expr(ast, *sep, out);
+            collect_supercall_in_stmt(ast, body, out);
+        }
+        Stmt::FnDecl { .. } | Stmt::TypeDecl { .. } | Stmt::ClassDecl { .. } => {}
+        Stmt::ImportDecl { .. } => {}
+        Stmt::ExportDecl { inner, .. } => {
+            if let Some(inner) = inner {
+                collect_supercall_in_stmt(ast, inner, out);
+            }
+        }
+    }
+}
+
+fn collect_supercall_in_expr(
+    ast: &Ast,
+    eid: ExprId,
+    out: &mut Vec<(ExprId, String, Vec<ExprId>)>,
+) {
+    if let Expr::Call { callee, args } = ast.get_expr(eid)
+        && let Expr::Ident(name) = ast.get_expr(*callee)
+        && let Some(m) = name.strip_prefix("__supercall__")
+    {
+        let m_owned = m.to_string();
+        let args_clone = args.clone();
+        for a in &args_clone {
+            collect_supercall_in_expr(ast, *a, out);
+        }
+        out.push((eid, m_owned, args_clone));
+        return;
+    }
+    match ast.get_expr(eid) {
+        Expr::Call { callee, args } => {
+            collect_supercall_in_expr(ast, *callee, out);
+            for a in args {
+                collect_supercall_in_expr(ast, *a, out);
+            }
+        }
+        Expr::BinOp { left, right, .. } => {
+            collect_supercall_in_expr(ast, *left, out);
+            collect_supercall_in_expr(ast, *right, out);
+        }
+        Expr::Unary { expr, .. } => collect_supercall_in_expr(ast, *expr, out),
+        Expr::Member { obj, .. } => collect_supercall_in_expr(ast, *obj, out),
+        Expr::Assign { target, value } => {
+            collect_supercall_in_expr(ast, *target, out);
+            collect_supercall_in_expr(ast, *value, out);
+        }
+        Expr::Index { obj, index } => {
+            collect_supercall_in_expr(ast, *obj, out);
+            collect_supercall_in_expr(ast, *index, out);
+        }
+        Expr::Array(elems) => {
+            for e in elems {
+                collect_supercall_in_expr(ast, *e, out);
+            }
+        }
+        Expr::ObjectLit { fields } => {
+            for (_, e) in fields {
+                collect_supercall_in_expr(ast, *e, out);
+            }
+        }
+        Expr::ArrowFn { body, .. } => {
+            for s in body {
+                collect_supercall_in_stmt(ast, s, out);
+            }
+        }
+        Expr::Closure { .. } => {}
+        Expr::New { args, .. } | Expr::Super { args } => {
+            for a in args {
+                collect_supercall_in_expr(ast, *a, out);
+            }
+        }
+        Expr::Ternary { cond, then_branch, else_branch } => {
+            collect_supercall_in_expr(ast, *cond, out);
+            collect_supercall_in_expr(ast, *then_branch, out);
+            collect_supercall_in_expr(ast, *else_branch, out);
+        }
+        Expr::TypeOf { expr } | Expr::Spread { expr }
+        | Expr::InstanceOf { expr, .. } | Expr::As { expr, .. } => {
+            collect_supercall_in_expr(ast, *expr, out)
+        }
+        Expr::Sequence { left, right } => {
+            collect_supercall_in_expr(ast, *left, out);
+            collect_supercall_in_expr(ast, *right, out);
+        }
+        Expr::Nullish { lhs, rhs } => {
+            collect_supercall_in_expr(ast, *lhs, out);
+            collect_supercall_in_expr(ast, *rhs, out);
+        }
+        Expr::OptChain { obj, .. } => collect_supercall_in_expr(ast, *obj, out),
+        Expr::PostIncr { target, .. } => collect_supercall_in_expr(ast, *target, out),
+        _ => {}
+    }
+}
+
 fn collect_super_in_stmt(
     ast: &Ast,
     s: &Stmt,

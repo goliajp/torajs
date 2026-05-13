@@ -2840,9 +2840,51 @@ impl Parser<'_> {
             Token::Super => {
                 // `super(args)` — only valid inside a subclass ctor; the
                 // desugar pass enforces that and rewrites to a Call to
-                // `__cm_<Parent>__ctor(__this, args)`. `super.method(args)`
-                // (explicit parent-method call) is M5.3.
+                // `__cm_<Parent>__ctor(__this, args)`.
+                // V3-18 wedge — `super.<method>(args)` (explicit
+                // parent-method call): encoded as a Call to a marker
+                // ident `__supercall__<methodname>`; desugar_classes
+                // rewrites it to `__cm_<Parent>__<m>(__this, args)`
+                // using the surrounding class's parent.
                 self.pos += 1;
+                if matches!(self.peek(), Token::Dot) {
+                    self.pos += 1;
+                    let m_name = match self.peek() {
+                        Token::Ident(n) => n.clone(),
+                        t => {
+                            return Err(format!(
+                                "expected method name after `super.`, got {t:?} at {}",
+                                self.at()
+                            ));
+                        }
+                    };
+                    self.pos += 1;
+                    match self.peek() {
+                        Token::LParen => self.pos += 1,
+                        t => {
+                            return Err(format!(
+                                "expected `(` after `super.{m_name}`, got {t:?} at {}",
+                                self.at()
+                            ));
+                        }
+                    }
+                    let mut args: Vec<ExprId> = Vec::new();
+                    if !matches!(self.peek(), Token::RParen) {
+                        args.push(self.parse_expr()?);
+                        while matches!(self.peek(), Token::Comma) {
+                            self.pos += 1;
+                            args.push(self.parse_expr()?);
+                        }
+                    }
+                    match self.peek() {
+                        Token::RParen => self.pos += 1,
+                        t => return Err(format!("expected `)`, got {t:?} at {}", self.at())),
+                    }
+                    let callee = self.ast.add_expr(
+                        Expr::Ident(format!("__supercall__{m_name}")),
+                    );
+                    return Ok(self.ast.add_expr(Expr::Call { callee, args }));
+                }
                 match self.peek() {
                     Token::LParen => self.pos += 1,
                     t => {
