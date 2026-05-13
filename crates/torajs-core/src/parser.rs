@@ -3648,7 +3648,7 @@ impl Parser<'_> {
         // by routing through `parse_fn_expr`-equivalent shape, then
         // sticking the resulting `Expr::ArrowFn` under the field name.
         if matches!(self.peek(), Token::LParen) {
-            let params = self.parse_param_list()?;
+            let (params, destr_lets) = self.parse_param_list()?;
             let return_type = if matches!(self.peek(), Token::Colon) {
                 self.pos += 1;
                 Some(self.parse_type_ann()?)
@@ -3677,6 +3677,13 @@ impl Parser<'_> {
                     ));
                 }
             }
+            let body = if destr_lets.is_empty() {
+                body
+            } else {
+                let mut full = destr_lets;
+                full.extend(body);
+                full
+            };
             let value = self.ast.add_expr(Expr::ArrowFn { params, return_type, body });
             return Ok((name, value));
         }
@@ -4427,11 +4434,12 @@ impl Parser<'_> {
                     // ctor or method
                     self.pos += 1; // consume name
                     let is_ctor_branch = member_name == "constructor";
-                    let (params, promoted_props) = if is_ctor_branch {
-                        let (p, pr) = self.parse_ctor_param_list()?;
-                        (p, pr)
+                    let (params, promoted_props, destr_lets) = if is_ctor_branch {
+                        let (p, pr, dl) = self.parse_ctor_param_list()?;
+                        (p, pr, dl)
                     } else {
-                        (self.parse_param_list()?, Vec::new())
+                        let (p, dl) = self.parse_param_list()?;
+                        (p, Vec::new(), dl)
                     };
                     let return_type = if matches!(self.peek(), Token::Colon) {
                         self.pos += 1;
@@ -4482,7 +4490,15 @@ impl Parser<'_> {
                                 ));
                             }
                         }
-                        body
+                        // V3-18 wedge — prepend destr-param lets when
+                        // class methods used a binding pattern.
+                        if destr_lets.is_empty() {
+                            body
+                        } else {
+                            let mut full = destr_lets;
+                            full.extend(body);
+                            full
+                        }
                     };
                     if member_name == "constructor" {
                         if is_static {
@@ -4745,17 +4761,24 @@ impl Parser<'_> {
     /// (`constructor(public x: number, private readonly y: string)`).
     /// Returns the regular param list plus a side-table of
     /// (param_index, visibility, is_readonly) entries for params that
-    /// should be promoted to instance fields. Mirrors
-    /// parse_param_list's shape so call-sites are interchangeable.
+    /// should be promoted to instance fields, plus the destr-let vec
+    /// for any binding-pattern params (synthesized `__param_destr_<id>`
+    /// hidden bindings + per-element / per-field lets to prepend to the
+    /// ctor body — caller does the prepend before promoted-prop assigns).
+    /// Visibility / readonly modifiers can't combine with a destr
+    /// pattern at the same param position (a binding pattern has no
+    /// single field-name to promote).
     fn parse_ctor_param_list(
         &mut self,
-    ) -> Result<(Vec<Param>, Vec<(usize, ast::Visibility, bool)>), String> {
+    ) -> Result<(Vec<Param>, Vec<(usize, ast::Visibility, bool)>, Vec<Stmt>), String>
+    {
         match self.peek() {
             Token::LParen => self.pos += 1,
             t => return Err(format!("expected `(`, got {t:?} at {}", self.at())),
         }
         let mut params = Vec::new();
         let mut promoted: Vec<(usize, ast::Visibility, bool)> = Vec::new();
+        let mut destr_lets: Vec<Stmt> = Vec::new();
         if !matches!(self.peek(), Token::RParen) {
             loop {
                 // Consume any TS modifiers: visibility (`public` /
@@ -4813,6 +4836,43 @@ impl Parser<'_> {
                 let is_rest = matches!(self.peek(), Token::DotDotDot);
                 if is_rest {
                     self.pos += 1;
+                }
+                if !is_rest && matches!(self.peek(), Token::LBracket | Token::LBrace) {
+                    if vis.is_some() || rd {
+                        return Err(format!(
+                            "ctor destructuring param can't carry visibility / readonly modifiers at {}",
+                            self.at()
+                        ));
+                    }
+                    let synth = self.parse_destr_param(&mut destr_lets)?;
+                    let type_ann = if matches!(self.peek(), Token::Colon) {
+                        self.pos += 1;
+                        Some(self.parse_type_ann()?)
+                    } else {
+                        None
+                    };
+                    params.push(Param {
+                        name: synth,
+                        type_ann,
+                        default: None,
+                        is_rest: false,
+                    });
+                    match self.peek() {
+                        Token::Comma => {
+                            self.pos += 1;
+                            if matches!(self.peek(), Token::RParen) {
+                                break;
+                            }
+                            continue;
+                        }
+                        Token::RParen => break,
+                        t => {
+                            return Err(format!(
+                                "expected `,` or `)` after destr ctor param, got {t:?} at {}",
+                                self.at()
+                            ));
+                        }
+                    }
                 }
                 let pname = match self.peek() {
                     Token::Ident(n) => n.clone(),
@@ -4885,19 +4945,26 @@ impl Parser<'_> {
             Token::RParen => self.pos += 1,
             t => return Err(format!("expected `)`, got {t:?} at {}", self.at())),
         }
-        Ok((params, promoted))
+        Ok((params, promoted, destr_lets))
     }
 
     /// Shared helper: parse a `(p1: T, p2: T, ...)` parameter list.
     /// Used by class methods/ctors. (Existing `parse_fn` / `parse_arrow_fn`
     /// have their own copies inlined; not refactoring them here to keep the
     /// M5.1 diff focused.)
-    fn parse_param_list(&mut self) -> Result<Vec<Param>, String> {
+    /// V3-18 wedge — return `(params, destr_lets)`. Destr_lets is the
+    /// vec of `let bound = synth.field` (or `synth[i]`) statements
+    /// generated when one or more params are binding patterns rather
+    /// than identifiers. The caller is responsible for prepending
+    /// destr_lets to the parsed body. When no destr params appear,
+    /// destr_lets is empty and the caller's prepend is a no-op.
+    fn parse_param_list(&mut self) -> Result<(Vec<Param>, Vec<Stmt>), String> {
         match self.peek() {
             Token::LParen => self.pos += 1,
             t => return Err(format!("expected `(`, got {t:?} at {}", self.at())),
         }
         let mut params = Vec::new();
+        let mut param_destr_lets: Vec<Stmt> = Vec::new();
         if !matches!(self.peek(), Token::RParen) {
             loop {
                 // Rest parameter: `...name`. Must be the last param;
@@ -4905,6 +4972,37 @@ impl Parser<'_> {
                 let is_rest = matches!(self.peek(), Token::DotDotDot);
                 if is_rest {
                     self.pos += 1;
+                }
+                if !is_rest && matches!(self.peek(), Token::LBracket | Token::LBrace) {
+                    let synth = self.parse_destr_param(&mut param_destr_lets)?;
+                    let type_ann = if matches!(self.peek(), Token::Colon) {
+                        self.pos += 1;
+                        Some(self.parse_type_ann()?)
+                    } else {
+                        None
+                    };
+                    params.push(Param {
+                        name: synth,
+                        type_ann,
+                        default: None,
+                        is_rest: false,
+                    });
+                    match self.peek() {
+                        Token::Comma => {
+                            self.pos += 1;
+                            if matches!(self.peek(), Token::RParen) {
+                                break;
+                            }
+                            continue;
+                        }
+                        Token::RParen => break,
+                        t => {
+                            return Err(format!(
+                                "expected `,` or `)` after destr param, got {t:?} at {}",
+                                self.at()
+                            ));
+                        }
+                    }
                 }
                 let pname = match self.peek() {
                     Token::Ident(n) => n.clone(),
@@ -4978,7 +5076,7 @@ impl Parser<'_> {
             Token::RParen => self.pos += 1,
             t => return Err(format!("expected `)`, got {t:?} at {}", self.at())),
         }
-        Ok(params)
+        Ok((params, param_destr_lets))
     }
 
     fn parse_type_decl_field(&mut self) -> Result<(String, String), String> {
@@ -5148,7 +5246,7 @@ impl Parser<'_> {
         if let Token::Ident(_) = self.peek() {
             self.pos += 1;
         }
-        let params = self.parse_param_list()?;
+        let (params, destr_lets) = self.parse_param_list()?;
         let return_type = if matches!(self.peek(), Token::Colon) {
             self.pos += 1;
             Some(self.parse_type_ann()?)
@@ -5177,6 +5275,13 @@ impl Parser<'_> {
                 ));
             }
         }
+        let stmts = if destr_lets.is_empty() {
+            stmts
+        } else {
+            let mut full = destr_lets;
+            full.extend(stmts);
+            full
+        };
         Ok(self.ast.add_expr(Expr::ArrowFn {
             params,
             return_type,
