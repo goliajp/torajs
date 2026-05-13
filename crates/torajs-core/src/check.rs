@@ -4262,6 +4262,43 @@ impl Checker {
                  * Boolean} for now; arrays / objects in T-15.g.6+.
                  * (Object.is uses the static-table path because both
                  * args / return are concrete.) */
+                // V3-18 wedge — `Number.parseInt(s)` and
+                // `Number.parseInt(s, radix)`. Per JS spec §21.1.2.13
+                // the radix is optional; bare `Number.parseInt(s)`
+                // auto-detects (`0x` prefix → 16, otherwise 10).
+                // Pre-fix the type was declared as
+                // `Function([String, Number], Number)` so the 1-arg
+                // form failed at the unified arity check. Mirror of
+                // the global `parseInt` handler at line ~4615.
+                // SSA lower already handles the 1-arg shape (passes
+                // ConstI64(0) as the auto-detect radix sentinel).
+                if let Expr::Member { obj: ns_id, name: m_name } = ast.get_expr(*callee)
+                    && m_name == "parseInt"
+                    && let Expr::Ident(ns) = ast.get_expr(*ns_id)
+                    && ns == "Number"
+                {
+                    if args.is_empty() || args.len() > 2 {
+                        return Err(format!(
+                            "Number.parseInt expects 1-2 args, got {}",
+                            args.len()
+                        ));
+                    }
+                    let s_ty = self.type_of(ast, args[0])?;
+                    if s_ty != Type::String {
+                        return Err(format!(
+                            "Number.parseInt arg 0 must be string, got {s_ty:?}"
+                        ));
+                    }
+                    if args.len() == 2 {
+                        let r_ty = self.type_of(ast, args[1])?;
+                        if r_ty != Type::Number {
+                            return Err(format!(
+                                "Number.parseInt arg 1 must be number, got {r_ty:?}"
+                            ));
+                        }
+                    }
+                    return Ok(Type::Number);
+                }
                 if let Expr::Member { obj: ns_id, name: m_name } = ast.get_expr(*callee)
                     && (m_name == "resolve" || m_name == "reject")
                     && let Expr::Ident(ns) = ast.get_expr(*ns_id)
