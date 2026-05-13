@@ -1759,15 +1759,51 @@ impl Parser<'_> {
     /// source was already an Ident — the alias rule keeps the original
     /// binding the owner). Each pattern entry produces a regular
     /// LetDecl; mem2reg + ssa_lower already optimize the resulting
-    /// shape down to direct loads. Element omission via comma-comma
-    /// (`let [, b] = src`) and tail rest (`let [a, ...rest] = src`)
-    /// are not supported in this first pass — they'd need a runtime
-    /// slice helper to produce the rest array.
+    /// shape down to direct loads.
+    ///
+    /// V3-18 wedge — element omission via `,,` (`let [a, , c] = src`)
+    /// and trailing rest (`let [head, ...tail] = src`) per ES spec
+    /// §13.3.3 / §14.3.3:
+    ///   * elision = a `,` token where an element would go; the slot
+    ///     is parsed but no LetDecl is emitted (the position counter
+    ///     still advances so the next entry reads from the right
+    ///     index).
+    ///   * rest = `...ident` as the final entry (must be last per
+    ///     spec); emitted as `let tail = src.slice(N)` where N is
+    ///     the entry count consumed before the rest, reusing
+    ///     Array.prototype.slice's existing 1-arg shape.
     fn parse_array_destructuring(&mut self, mutable: bool) -> Result<Stmt, String> {
         self.pos += 1; // consume `[`
-        let mut names: Vec<String> = Vec::new();
+        // None = elision slot (`,,`); Some(n) = bound name.
+        let mut entries: Vec<Option<String>> = Vec::new();
+        let mut rest_name: Option<String> = None;
         if !matches!(self.peek(), Token::RBracket) {
             loop {
+                if matches!(self.peek(), Token::DotDotDot) {
+                    self.pos += 1;
+                    let n = match self.peek() {
+                        Token::Ident(n) => n.clone(),
+                        t => {
+                            return Err(format!(
+                                "expected identifier after `...` in array destructuring, got {t:?} at {}",
+                                self.at()
+                            ));
+                        }
+                    };
+                    self.pos += 1;
+                    rest_name = Some(n);
+                    // rest must be the last entry — break to expect `]`.
+                    break;
+                }
+                if matches!(self.peek(), Token::Comma) {
+                    // elision: empty slot, advance past the `,` and continue.
+                    entries.push(None);
+                    self.pos += 1;
+                    continue;
+                }
+                if matches!(self.peek(), Token::RBracket) {
+                    break;
+                }
                 let n = match self.peek() {
                     Token::Ident(n) => n.clone(),
                     t => {
@@ -1778,7 +1814,7 @@ impl Parser<'_> {
                     }
                 };
                 self.pos += 1;
-                names.push(n);
+                entries.push(Some(n));
                 if matches!(self.peek(), Token::Comma) {
                     self.pos += 1;
                     continue;
@@ -1815,7 +1851,8 @@ impl Parser<'_> {
         if matches!(self.peek(), Token::Semi) {
             self.pos += 1;
         }
-        let stmts = self.emit_array_destructuring(mutable, &names, src);
+        let stmts =
+            self.emit_array_destructuring(mutable, &entries, rest_name.as_deref(), src);
         // Stmt::Multi flattens at lowering time, so the user-visible
         // lets join the surrounding scope rather than a fresh frame —
         // matches TS semantics where `let [a, b] = src; …; a` works.
@@ -1825,7 +1862,8 @@ impl Parser<'_> {
     fn emit_array_destructuring(
         &mut self,
         mutable: bool,
-        names: &[String],
+        entries: &[Option<String>],
+        rest_name: Option<&str>,
         src: ExprId,
     ) -> Vec<Stmt> {
         let id = self.mint_desugar_id();
@@ -1848,15 +1886,37 @@ impl Parser<'_> {
                 init: src,
             });
         }
-        for (i, name) in names.iter().enumerate() {
+        for (i, entry) in entries.iter().enumerate() {
+            if let Some(name) = entry {
+                let src_ref = self.ast.add_expr(Expr::Ident(src_ref_name.clone()));
+                let idx = self.ast.add_expr(Expr::Number(i as f64));
+                let elem = self.ast.add_expr(Expr::Index { obj: src_ref, index: idx });
+                stmts.push(Stmt::LetDecl {
+                    mutable,
+                    name: name.clone(),
+                    type_ann: None,
+                    init: elem,
+                });
+            }
+            // None = elision: skip, position counter still advances.
+        }
+        if let Some(rest) = rest_name {
+            // `let rest = src.slice(N)` where N is the count of leading
+            // entries consumed (including elisions). Array.slice with a
+            // single positive arg returns the suffix, exactly per spec.
             let src_ref = self.ast.add_expr(Expr::Ident(src_ref_name.clone()));
-            let idx = self.ast.add_expr(Expr::Number(i as f64));
-            let elem = self.ast.add_expr(Expr::Index { obj: src_ref, index: idx });
+            let slice_member = self
+                .ast
+                .add_expr(Expr::Member { obj: src_ref, name: "slice".to_string() });
+            let start = self.ast.add_expr(Expr::Number(entries.len() as f64));
+            let slice_call = self
+                .ast
+                .add_expr(Expr::Call { callee: slice_member, args: vec![start] });
             stmts.push(Stmt::LetDecl {
                 mutable,
-                name: name.clone(),
+                name: rest.to_string(),
                 type_ann: None,
-                init: elem,
+                init: slice_call,
             });
         }
         stmts
