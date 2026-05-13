@@ -1412,8 +1412,7 @@ impl Parser<'_> {
         self.pos += 1;
         // V3-18 wedge — for-of with array-destructuring pattern:
         // `for (let [a, b] of pairs) { ... }`. Common shape for
-        // iterating tuple arrays. Object destructuring not yet
-        // supported (would need member rather than index access).
+        // iterating tuple arrays.
         let destruct_names: Option<Vec<String>> = if matches!(self.peek(), Token::LBracket) {
             let start = self.pos;
             self.pos += 1;
@@ -1459,7 +1458,81 @@ impl Parser<'_> {
         } else {
             None
         };
-        let var_name = if let Some(_) = destruct_names {
+        // V3-18 wedge — for-of with object-destructuring pattern:
+        // `for (let { x, y } of pts) { ... }`. Mirror of the array
+        // destr branch: hoist the iterator variable into a fresh
+        // synthetic name (`__forof_destr_<id>`), then prepend
+        // per-field `let bound = <iter>.field` lets to the body.
+        // Reserved-word fields go through keyword_property_name.
+        // Bound binding name still required to be an Ident
+        // (reserved-word fields require explicit `field: name`
+        // rename — same rule as parse_object_destructuring).
+        let destruct_obj: Option<Vec<(String, String)>> = if destruct_names.is_none()
+            && matches!(self.peek(), Token::LBrace)
+        {
+            let start = self.pos;
+            self.pos += 1; // consume `{`
+            let mut entries: Vec<(String, String)> = Vec::new();
+            let ok = loop {
+                let (field, field_is_kw) = match self.peek() {
+                    Token::Ident(n) => (n.clone(), false),
+                    t if Self::keyword_property_name(t).is_some() => {
+                        (Self::keyword_property_name(t).unwrap().to_string(), true)
+                    }
+                    _ => break false,
+                };
+                self.pos += 1;
+                let bound = if matches!(self.peek(), Token::Colon) {
+                    self.pos += 1;
+                    match self.peek() {
+                        Token::Ident(n) => {
+                            let nn = n.clone();
+                            self.pos += 1;
+                            nn
+                        }
+                        _ => break false,
+                    }
+                } else {
+                    if field_is_kw {
+                        // Same diagnostic as parse_object_destructuring:
+                        // can't use a reserved word as a binding name.
+                        break false;
+                    }
+                    field.clone()
+                };
+                entries.push((field, bound));
+                match self.peek() {
+                    Token::Comma => {
+                        self.pos += 1;
+                        if matches!(self.peek(), Token::RBrace) {
+                            break true;
+                        }
+                    }
+                    Token::RBrace => break true,
+                    _ => break false,
+                }
+            };
+            if !ok {
+                self.pos = saved;
+                return Ok(None);
+            }
+            self.pos += 1; // consume `}`
+            // Optional `: T` annotation on the pattern — discarded.
+            if matches!(self.peek(), Token::Colon) {
+                self.pos += 1;
+                let _ = self.parse_type_ann();
+            }
+            let is_of = matches!(self.peek(), Token::Ident(n) if n == "of");
+            if !is_of {
+                self.pos = start;
+                self.pos = saved;
+                return Ok(None);
+            }
+            Some(entries)
+        } else {
+            None
+        };
+        let var_name = if destruct_names.is_some() || destruct_obj.is_some() {
             let id = self.mint_desugar_id();
             format!("__forof_destr_{id}")
         } else {
@@ -1524,8 +1597,8 @@ impl Parser<'_> {
             }
         }
         let mut body = self.parse_stmt()?;
-        // V3-18 wedge — prepend per-element destructuring lets when
-        // the loop var was an array pattern. The original `body` is
+        // V3-18 wedge — prepend per-element / per-field destructuring
+        // lets when the loop var was a pattern. The original `body` is
         // wrapped in a block so block-close drops still fire normally.
         if let Some(names) = &destruct_names {
             let mut pre: Vec<Stmt> = Vec::new();
@@ -1536,6 +1609,22 @@ impl Parser<'_> {
                 pre.push(Stmt::LetDecl {
                     mutable: false,
                     name: n.clone(),
+                    type_ann: None,
+                    init: elem,
+                });
+            }
+            pre.push(body);
+            body = Stmt::Block(pre);
+        } else if let Some(entries) = &destruct_obj {
+            let mut pre: Vec<Stmt> = Vec::new();
+            for (field, bound) in entries {
+                let src_ref = self.ast.add_expr(Expr::Ident(var_name.clone()));
+                let elem = self
+                    .ast
+                    .add_expr(Expr::Member { obj: src_ref, name: field.clone() });
+                pre.push(Stmt::LetDecl {
+                    mutable: false,
+                    name: bound.clone(),
                     type_ann: None,
                     init: elem,
                 });
