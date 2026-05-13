@@ -4456,15 +4456,13 @@ impl Parser<'_> {
                         continue;
                     }
                     let body = if is_abstract_method {
-                        // M-OO.6 — abstract method has no body, just `;`
-                        match self.peek() {
-                            Token::Semi => self.pos += 1,
-                            t => {
-                                return Err(format!(
-                                    "abstract method `{member_name}` cannot have a body — expected `;`, got {t:?} at {}",
-                                    self.at()
-                                ));
-                            }
+                        // M-OO.6 — abstract method has no body. ASI per
+                        // ES spec: `;` is optional when the next token
+                        // would naturally start a new statement, so
+                        // accept the next class member directly. Common
+                        // shape: `abstract area(): number\n  describe()`.
+                        if matches!(self.peek(), Token::Semi) {
+                            self.pos += 1;
                         }
                         Vec::new()
                     } else {
