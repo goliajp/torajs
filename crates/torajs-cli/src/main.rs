@@ -188,6 +188,7 @@ fn pipeline(src: &str, base_dir: &Path, stage: Stage) -> ExitCode {
     ast::infer_anonymous_closure_params(&mut ast);
     ast::synthesize_forwarders(&mut ast);
     ast::desugar_uninit_let(&mut ast);
+    ast::desugar_variadic_push(&mut ast);
     ast::desugar_arguments_object(&mut ast);
     ast::rewrite_split_for_i_to_iter(&mut ast);
     ast::escape_analyze_array_literals(&mut ast);
@@ -363,6 +364,7 @@ fn run_build_llvm(args: &[String]) -> ExitCode {
     ast::infer_anonymous_closure_params(&mut ast);
     ast::synthesize_forwarders(&mut ast);
     ast::desugar_uninit_let(&mut ast);
+    ast::desugar_variadic_push(&mut ast);
     ast::desugar_arguments_object(&mut ast);
     ast::rewrite_split_for_i_to_iter(&mut ast);
     ast::escape_analyze_array_literals(&mut ast);
@@ -520,6 +522,7 @@ fn run_jit(file_arg: Option<&String>) -> ExitCode {
     ast::infer_anonymous_closure_params(&mut ast);
     ast::synthesize_forwarders(&mut ast);
     ast::desugar_uninit_let(&mut ast);
+    ast::desugar_variadic_push(&mut ast);
     ast::desugar_arguments_object(&mut ast);
     ast::rewrite_split_for_i_to_iter(&mut ast);
     ast::escape_analyze_array_literals(&mut ast);

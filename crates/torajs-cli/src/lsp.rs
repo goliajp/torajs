@@ -191,6 +191,7 @@ fn compute_diagnostics(uri: &Url, text: &str) -> Vec<Diagnostic> {
         torajs_core::ast::infer_anonymous_closure_params(&mut ast);
         torajs_core::ast::synthesize_forwarders(&mut ast);
         torajs_core::ast::desugar_uninit_let(&mut ast);
+        torajs_core::ast::desugar_variadic_push(&mut ast);
         torajs_core::ast::desugar_arguments_object(&mut ast);
         torajs_core::ast::rewrite_split_for_i_to_iter(&mut ast);
         torajs_core::ast::escape_analyze_array_literals(&mut ast);

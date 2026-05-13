@@ -4640,6 +4640,145 @@ pub fn desugar_uninit_let(ast: &mut Ast) {
     // walk handles them when it descends into Stmt::FnDecl variants.
 }
 
+/// V3-18 wedge — rewrite multi-arg `arr.push(a, b, c)` /
+/// `arr.unshift(a, b, c)` into N consecutive single-arg calls
+/// at the stmt level. Per JS spec the calls run in order on the
+/// same array; this preserves that semantic without requiring
+/// the SSA-level push lowering to be variadic-aware.
+///
+/// Subset limitation: only Ident receivers are rewritten. A
+/// complex receiver like `o.field.push(a, b)` is left alone
+/// (would re-evaluate `o.field` per call rather than once);
+/// users with that shape can hoist into a temp.
+pub fn desugar_variadic_push(ast: &mut Ast) {
+    let exprs_snapshot = ast.exprs.clone();
+    let mut stmts = std::mem::take(&mut ast.stmts);
+    rewrite_variadic_push_in_stmts(&mut stmts, &exprs_snapshot, &mut ast.exprs);
+    ast.stmts = stmts;
+}
+
+fn rewrite_variadic_push_in_stmts(
+    stmts: &mut Vec<Stmt>,
+    snapshot: &[Expr],
+    out_exprs: &mut Vec<Expr>,
+) {
+    let mut i = 0;
+    while i < stmts.len() {
+        let replacement: Option<Stmt> = match &stmts[i] {
+            Stmt::Expr(eid) => {
+                let e = &snapshot[eid.0 as usize];
+                if let Expr::Call { callee, args } = e
+                    && args.len() > 1
+                    && let Expr::Member { obj, name } = &snapshot[callee.0 as usize]
+                    && matches!(name.as_str(), "push" | "unshift")
+                    && matches!(snapshot[obj.0 as usize], Expr::Ident(_))
+                {
+                    let callee_id = *callee;
+                    let mut args_clone = args.clone();
+                    // unshift(a, b, c) prepends a, b, c such that
+                    // after the call a is at index 0. Equivalent
+                    // to sequential unshift(c), unshift(b),
+                    // unshift(a) — REVERSE order. push needs no
+                    // reorder.
+                    if name == "unshift" {
+                        args_clone.reverse();
+                    }
+                    let mut new_stmts: Vec<Stmt> = Vec::with_capacity(args_clone.len());
+                    for a in args_clone {
+                        // Each iteration shares the same callee
+                        // ExprId — safe because Member{Ident,name}
+                        // is read-only.
+                        let new_call = Expr::Call {
+                            callee: callee_id,
+                            args: vec![a],
+                        };
+                        let new_eid = ExprId(out_exprs.len() as u32);
+                        out_exprs.push(new_call);
+                        new_stmts.push(Stmt::Expr(new_eid));
+                    }
+                    Some(Stmt::Multi(new_stmts))
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        };
+        if let Some(r) = replacement {
+            stmts[i] = r;
+            // Newly-emitted Multi only holds single-arg push calls
+            // already in their final shape; skip recursion (and
+            // its snapshot lookups, which would index beyond the
+            // pre-rewrite snapshot length).
+            i += 1;
+            continue;
+        }
+        // Recurse into nested stmt lists.
+        match &mut stmts[i] {
+            Stmt::Block(inner) | Stmt::Multi(inner) => {
+                rewrite_variadic_push_in_stmts(inner, snapshot, out_exprs);
+            }
+            Stmt::If { then_branch, else_branch, .. } => {
+                rewrite_variadic_push_in_stmt_box(then_branch, snapshot, out_exprs);
+                if let Some(eb) = else_branch {
+                    rewrite_variadic_push_in_stmt_box(eb, snapshot, out_exprs);
+                }
+            }
+            Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
+                rewrite_variadic_push_in_stmt_box(body, snapshot, out_exprs);
+            }
+            Stmt::For { init, body, .. } => {
+                if let Some(b) = init {
+                    rewrite_variadic_push_in_stmt_box(b, snapshot, out_exprs);
+                }
+                rewrite_variadic_push_in_stmt_box(body, snapshot, out_exprs);
+            }
+            Stmt::Switch { cases, default, .. } => {
+                for c in cases {
+                    rewrite_variadic_push_in_stmts(&mut c.body, snapshot, out_exprs);
+                }
+                if let Some(db) = default {
+                    rewrite_variadic_push_in_stmts(db, snapshot, out_exprs);
+                }
+            }
+            Stmt::Try { body, catch_body, finally_body, .. } => {
+                rewrite_variadic_push_in_stmts(body, snapshot, out_exprs);
+                rewrite_variadic_push_in_stmts(catch_body, snapshot, out_exprs);
+                if let Some(fb) = finally_body {
+                    rewrite_variadic_push_in_stmts(fb, snapshot, out_exprs);
+                }
+            }
+            Stmt::ForOfSplitIter { body, .. } => {
+                rewrite_variadic_push_in_stmt_box(body, snapshot, out_exprs);
+            }
+            Stmt::FnDecl { body, .. } => {
+                rewrite_variadic_push_in_stmts(body, snapshot, out_exprs);
+            }
+            Stmt::ClassDecl { ctor, methods, static_methods, .. } => {
+                if let Some(c) = ctor {
+                    rewrite_variadic_push_in_stmts(&mut c.body, snapshot, out_exprs);
+                }
+                for m in methods.iter_mut().chain(static_methods.iter_mut()) {
+                    rewrite_variadic_push_in_stmts(&mut m.body, snapshot, out_exprs);
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+}
+
+fn rewrite_variadic_push_in_stmt_box(
+    s: &mut Box<Stmt>,
+    snapshot: &[Expr],
+    out_exprs: &mut Vec<Expr>,
+) {
+    let mut owned = std::mem::replace(s.as_mut(), Stmt::Break);
+    let mut wrapper = vec![owned];
+    rewrite_variadic_push_in_stmts(&mut wrapper, snapshot, out_exprs);
+    owned = wrapper.into_iter().next().unwrap();
+    **s = owned;
+}
+
 /// JS's `arguments` object is array-like, holds the actual passed
 /// values, and changes per call site. A faithful implementation needs
 /// runtime support (heterogeneous array, per-call materialization).

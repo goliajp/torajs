@@ -4862,6 +4862,33 @@ impl Checker {
                         return Ok(Type::Number);
                     }
                 }
+                // V3-18 wedge — Array.push / Array.unshift accept
+                // a variable number of args per JS spec §22.1.3.20
+                // / §22.1.3.34. Each arg is appended (or prepended)
+                // in order. Pre-fix tora's strict 1-arg signature
+                // rejected the multi-arg form. Subset typecheck
+                // enforces every arg matches the element type and
+                // returns Void (push's new-length return is not
+                // surfaced).
+                if let Expr::Member { obj: src_id, name: m_name } = ast.get_expr(*callee)
+                    && matches!(m_name.as_str(), "push" | "unshift")
+                    && args.len() != 1
+                {
+                    let src_ty = self.type_of(ast, *src_id)?;
+                    if let Type::Array(elem) = src_ty {
+                        let inner = (*elem).clone();
+                        for (i, aid) in args.iter().enumerate() {
+                            let aty = self.type_of(ast, *aid)?;
+                            if aty != inner && aty != Type::Any {
+                                return Err(format!(
+                                    "Array.{m_name} arg {i}: expected element type {:?}, got {aty:?}",
+                                    inner
+                                ));
+                            }
+                        }
+                        return Ok(Type::Void);
+                    }
+                }
                 // V3-18 wedge — String.split accepts an optional
                 // 2nd `limit` arg per JS spec §22.1.3.21. Returns
                 // first `limit` substrings (or fewer if the source
