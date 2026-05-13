@@ -2718,7 +2718,7 @@ pub fn desugar_classes(ast: &mut Ast) {
                     name: format!("__cm_{cname}__{}", m.name),
                     type_params: type_params.clone(),
                     params,
-                    return_type: m.return_type.clone(),
+                    return_type: rewrite_this_in_ann(&m.return_type, &this_ann),
                     body: trap_body,
                     is_generator: false,
                 });
@@ -2736,7 +2736,7 @@ pub fn desugar_classes(ast: &mut Ast) {
                 name: format!("__cm_{cname}__{}", m.name),
                 type_params: type_params.clone(),
                 params,
-                return_type: m.return_type.clone(),
+                return_type: rewrite_this_in_ann(&m.return_type, &this_ann),
                 body: m.body.clone(),
                 is_generator: false,
             });
@@ -2976,6 +2976,27 @@ fn receiver_is_this_builtin_field(
 ///   - expand a class- or alias-typed field into an ObjectLit of
 ///     recursively-defaulted children (looked up in `class_layouts`
 ///     and `alias_layouts`)
+/// V3-18 wedge — rewrite the placeholder `"this"` in a class
+/// method's return-type annotation to the enclosing class's
+/// `this_ann` (e.g., `C` or `C<T|U>` for generic classes), per
+/// TS spec §3.6.3 polymorphic-this semantics. Standard usage:
+///   class Builder { add(...): this { return this } }
+/// The parser stores the literal `"this"` in `m.return_type`;
+/// desugar_classes substitutes it here before emit so check.rs
+/// and ssa_lower see the concrete class type at every method's
+/// return boundary. Also handles the `__nullable(this)` wrapper
+/// case for the rare `: this | null` shape.
+fn rewrite_this_in_ann(ann: &Option<String>, this_ann: &str) -> Option<String> {
+    let a = ann.as_deref()?;
+    if a == "this" {
+        return Some(this_ann.to_string());
+    }
+    if a == "__nullable(this)" {
+        return Some(format!("__nullable({this_ann})"));
+    }
+    Some(a.to_string())
+}
+
 ///   - fall back to `default_init_for_type` for primitives / typevars
 ///
 /// `seen` guards against direct cycles (a class transitively

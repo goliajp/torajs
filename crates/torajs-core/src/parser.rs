@@ -347,6 +347,18 @@ impl Parser<'_> {
             // return type for void-returning fns: `: void`. Accept
             // it here so type annotations still resolve.
             Token::Void => "void".to_string(),
+            // V3-18 wedge — `this` as a type annotation (TS
+            // polymorphic-this, spec §3.6.3). Standard in fluent
+            // builder APIs:
+            //   class Builder { add(...): this { return this } }
+            // Parsed as the literal token "this"; desugar_classes
+            // rewrites occurrences in a method's return type to
+            // the enclosing class's this_ann (cname or
+            // cname<TParams>) before emit. Outside class methods
+            // the placeholder leaks through to typecheck and fails
+            // there — TS only allows `this` types inside class
+            // bodies anyway, so this matches the spec.
+            Token::This => "this".to_string(),
             t => {
                 return Err(format!("expected type name, got {t:?} at {}", self.at()));
             }
