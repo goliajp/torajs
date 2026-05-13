@@ -251,6 +251,130 @@ type MovedSnapshot = Vec<Vec<(String, bool)>>;
 /// falling through. Used by CFG-aware moved tracking: a diverging
 /// branch's local moves don't propagate to the post-branch state
 /// (the moves go off with the diverging exit).
+/// V3-18 wedge — true iff `s` (or anything reachable from it) is
+/// an assignment to a top-level Ident binding `name`. Used by
+/// the while-narrow guard to skip narrowing when the body
+/// reassigns the binding (which would conflict with the
+/// re-narrowing on the next iteration).
+fn stmt_assigns_to(ast: &Ast, s: &Stmt, name: &str) -> bool {
+    match s {
+        Stmt::Expr(eid) | Stmt::Throw(eid) | Stmt::Yield(eid) => {
+            expr_assigns_to(ast, *eid, name)
+        }
+        Stmt::YieldInto { value, .. } => expr_assigns_to(ast, *value, name),
+        Stmt::Return(maybe) => maybe.is_some_and(|e| expr_assigns_to(ast, e, name)),
+        Stmt::LetDecl { init, .. } => expr_assigns_to(ast, *init, name),
+        Stmt::If { cond, then_branch, else_branch } => {
+            expr_assigns_to(ast, *cond, name)
+                || stmt_assigns_to(ast, then_branch, name)
+                || else_branch
+                    .as_ref()
+                    .is_some_and(|eb| stmt_assigns_to(ast, eb, name))
+        }
+        Stmt::While { cond, body } | Stmt::DoWhile { body, cond } => {
+            expr_assigns_to(ast, *cond, name) || stmt_assigns_to(ast, body, name)
+        }
+        Stmt::Switch { scrutinee, cases, default } => {
+            if expr_assigns_to(ast, *scrutinee, name) {
+                return true;
+            }
+            for c in cases {
+                if expr_assigns_to(ast, c.value, name) { return true; }
+                for s in &c.body {
+                    if stmt_assigns_to(ast, s, name) { return true; }
+                }
+            }
+            if let Some(db) = default {
+                for s in db {
+                    if stmt_assigns_to(ast, s, name) { return true; }
+                }
+            }
+            false
+        }
+        Stmt::For { init, cond, step, body } => {
+            init.as_ref().is_some_and(|i| stmt_assigns_to(ast, i, name))
+                || cond.is_some_and(|c| expr_assigns_to(ast, c, name))
+                || step.is_some_and(|s| expr_assigns_to(ast, s, name))
+                || stmt_assigns_to(ast, body, name)
+        }
+        Stmt::Block(stmts) | Stmt::Multi(stmts) => {
+            stmts.iter().any(|s| stmt_assigns_to(ast, s, name))
+        }
+        Stmt::Try { body, catch_body, finally_body, .. } => {
+            body.iter().any(|s| stmt_assigns_to(ast, s, name))
+                || catch_body.iter().any(|s| stmt_assigns_to(ast, s, name))
+                || finally_body
+                    .as_ref()
+                    .is_some_and(|fb| fb.iter().any(|s| stmt_assigns_to(ast, s, name)))
+        }
+        Stmt::Break | Stmt::Continue => false,
+        Stmt::ForOfSplitIter { parent, sep, body, .. } => {
+            expr_assigns_to(ast, *parent, name)
+                || expr_assigns_to(ast, *sep, name)
+                || stmt_assigns_to(ast, body, name)
+        }
+        Stmt::FnDecl { .. } | Stmt::TypeDecl { .. } | Stmt::ClassDecl { .. } => false,
+        Stmt::ImportDecl { .. } => false,
+        Stmt::ExportDecl { inner, .. } => inner
+            .as_ref()
+            .is_some_and(|inner| stmt_assigns_to(ast, inner, name)),
+    }
+}
+
+fn expr_assigns_to(ast: &Ast, eid: ExprId, name: &str) -> bool {
+    if let Expr::Assign { target, value } = ast.get_expr(eid) {
+        if let Expr::Ident(n) = ast.get_expr(*target)
+            && n == name
+        {
+            return true;
+        }
+        return expr_assigns_to(ast, *target, name) || expr_assigns_to(ast, *value, name);
+    }
+    match ast.get_expr(eid) {
+        Expr::Call { callee, args } => {
+            expr_assigns_to(ast, *callee, name)
+                || args.iter().any(|a| expr_assigns_to(ast, *a, name))
+        }
+        Expr::BinOp { left, right, .. } => {
+            expr_assigns_to(ast, *left, name) || expr_assigns_to(ast, *right, name)
+        }
+        Expr::Unary { expr, .. } => expr_assigns_to(ast, *expr, name),
+        Expr::Member { obj, .. } => expr_assigns_to(ast, *obj, name),
+        Expr::Index { obj, index } => {
+            expr_assigns_to(ast, *obj, name) || expr_assigns_to(ast, *index, name)
+        }
+        Expr::Array(elems) => elems.iter().any(|e| expr_assigns_to(ast, *e, name)),
+        Expr::ObjectLit { fields } => fields.iter().any(|(_, e)| expr_assigns_to(ast, *e, name)),
+        Expr::ArrowFn { body, .. } => body.iter().any(|s| stmt_assigns_to(ast, s, name)),
+        Expr::Closure { .. } => false,
+        Expr::New { args, .. } | Expr::Super { args } => {
+            args.iter().any(|a| expr_assigns_to(ast, *a, name))
+        }
+        Expr::Ternary { cond, then_branch, else_branch } => {
+            expr_assigns_to(ast, *cond, name)
+                || expr_assigns_to(ast, *then_branch, name)
+                || expr_assigns_to(ast, *else_branch, name)
+        }
+        Expr::TypeOf { expr } | Expr::Spread { expr }
+        | Expr::InstanceOf { expr, .. } | Expr::As { expr, .. } => {
+            expr_assigns_to(ast, *expr, name)
+        }
+        Expr::Sequence { left, right } | Expr::Nullish { lhs: left, rhs: right } => {
+            expr_assigns_to(ast, *left, name) || expr_assigns_to(ast, *right, name)
+        }
+        Expr::OptChain { obj, .. } => expr_assigns_to(ast, *obj, name),
+        Expr::PostIncr { target, .. } => {
+            if let Expr::Ident(n) = ast.get_expr(*target) {
+                if n == name {
+                    return true;
+                }
+            }
+            expr_assigns_to(ast, *target, name)
+        }
+        _ => false,
+    }
+}
+
 fn stmt_diverges(s: &crate::ast::Stmt) -> bool {
     use crate::ast::Stmt;
     match s {
@@ -1884,7 +2008,27 @@ impl Checker {
                         .push_err(format!("while condition must be boolean (or coercible), got {other:?}")),
                     Err(e) => self.errors.push_err(e),
                 }
+                // V3-18 wedge — flow narrowing on while condition.
+                // `while (x !== null) { ... x.foo ... }` narrows x to
+                // its inner type for the body, but ONLY if the body
+                // doesn't reassign x — re-narrowing on each iteration
+                // would otherwise conflict with the (still-Nullable)
+                // RHS of `x = x.next`. Polarity-false (cond `== null`)
+                // wouldn't enter the loop at all, so don't narrow.
+                let narrow = self.collect_null_narrow(ast, *cond);
+                let saved = if let Some((name, inner, polarity)) = &narrow {
+                    if *polarity && !stmt_assigns_to(ast, body, name) {
+                        self.apply_narrow(name, inner.clone())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
                 self.check_stmt(ast, body);
+                if let (Some((name, _, _)), Some(prev)) = (&narrow, saved) {
+                    self.restore_narrow(name, prev);
+                }
             }
             Stmt::DoWhile { body, cond } => {
                 self.check_stmt(ast, body);
