@@ -3328,6 +3328,14 @@ impl Checker {
                         if matches!(**elem, Type::String | Type::Number | Type::Boolean) => {
                         Ok(Type::Function(vec![Type::String], Box::new(Type::String)))
                     }
+                    // V3-18 wedge — Array.prototype.toString. Per JS
+                    // spec §22.1.3.30, equivalent to `arr.join(",")`.
+                    // Subset constrains to element types the join
+                    // intrinsic already handles (Str / Number / Bool).
+                    (Type::Array(elem), "toString" | "toLocaleString")
+                        if matches!(**elem, Type::String | Type::Number | Type::Boolean) => {
+                        Ok(Type::Function(Vec::new(), Box::new(Type::String)))
+                    }
                     // M1.2 — `xs.push(v)`: takes one element-typed arg,
                     // returns void (TS doesn't surface push's "new length"
                     // return value in our subset since it's rarely useful).

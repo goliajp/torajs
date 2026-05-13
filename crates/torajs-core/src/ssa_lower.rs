@@ -14823,6 +14823,7 @@ impl<'a> LowerCtx<'a> {
                         | "fill" | "at" | "concat" | "sort" | "toSorted" | "flat"
                         | "lastIndexOf" | "localeCompare" | "copyWithin"
                         | "normalize"
+                        | "toString" | "toLocaleString"
                     )
                 {
                     let recv_op = self.lower_expr(*obj);
@@ -15249,8 +15250,14 @@ impl<'a> LowerCtx<'a> {
                     // method == "join". The check.rs guard ensures
                     // element type is String, so we don't re-validate
                     // here.
+                    // V3-18 wedge — Array.toString routes to the same
+                    // join intrinsic with sep="," per JS spec
+                    // §22.1.3.30. Same element-type constraint as
+                    // join itself.
                     if let Type::Arr(elem_arr_id) = recv_ty
-                        && method == "join"
+                        && (method == "join"
+                            || method == "toString"
+                            || method == "toLocaleString")
                     {
                         let elem_ty = self.arr_layouts[elem_arr_id.0 as usize];
                         // V3-18 m1.h.43 — element-type dispatch for
