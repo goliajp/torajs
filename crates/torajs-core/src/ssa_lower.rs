@@ -16478,17 +16478,28 @@ impl<'a> LowerCtx<'a> {
                             Type::I64,
                             None,
                         );
-                        // V3-18 m1.h.49 — optional fromIndex (2nd arg).
-                        // Per JS spec §22.1.3.13: indexOf / lastIndexOf /
-                        // includes accept (elem, fromIndex?). Negative
-                        // fromIndex counts from end (clamped to 0).
-                        // Default: 0.
+                        // V3-18 m1.h.49 + lastIndexOf-from wedge.
+                        // Per JS spec §22.1.3.13 / §22.1.3.16:
+                        //   indexOf(needle, from?)     forward,  start = from
+                        //   includes(needle, from?)    forward,  start = from
+                        //   lastIndexOf(needle, from?) reverse,  start = from
                         //
-                        // Implementation: stash the normalized fromIndex
-                        // into i_slot up front via a 3-block branch
-                        // (neg → plus_len_clamped, else raw), then the
-                        // existing scan loop reads i_slot from there.
+                        // Both directions are folded onto a single
+                        // forward-scan loop over [start_slot, end_slot)
+                        // that records the *last* match (for lastIndexOf)
+                        // or breaks on the first match (indexOf/includes):
+                        //   indexOf/includes : start=normalized(from?), end=len
+                        //   lastIndexOf      : start=0, end=normalized(from?)+1
+                        // For lastIndexOf, scanning forward over [0, from+1)
+                        // and keeping the last match is equivalent to the
+                        // spec's reverse walk from `from` down to 0.
                         let i_slot = self.alloca_in_entry(Type::I64, Some("__i"));
+                        let end_slot = self.alloca_in_entry(Type::I64, Some("__end"));
+                        // default end = len
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Store(Operand::Value(len_v), Operand::Value(end_slot), 0),
+                        );
                         if args.len() == 2 {
                             let raw = self.lower_expr(args[1]);
                             let raw_i = self.coerce_to_i64(raw);
@@ -16506,7 +16517,7 @@ impl<'a> LowerCtx<'a> {
                                 then_blk: neg_blk,
                                 else_blk: pos_blk,
                             });
-                            // neg path: store max(raw+len, 0).
+                            // neg path: effective = raw + len
                             self.cur_block = neg_blk;
                             let plus_len = self.f.append_inst(
                                 self.cur_block,
@@ -16520,6 +16531,9 @@ impl<'a> LowerCtx<'a> {
                                 Type::Bool,
                                 None,
                             );
+                            // For indexOf/includes: clamp negative effective to 0 (start).
+                            // For lastIndexOf:     clamp negative effective to -1 (so end=0).
+                            let neg_floor = if want_last { -1 } else { 0 };
                             let zero_blk = self.f.add_block();
                             let plus_blk = self.f.add_block();
                             self.f.set_term(self.cur_block, Terminator::CondBr {
@@ -16527,23 +16541,75 @@ impl<'a> LowerCtx<'a> {
                                 then_blk: zero_blk,
                                 else_blk: plus_blk,
                             });
+                            let eff_slot = self.alloca_in_entry(Type::I64, Some("__eff"));
                             self.f.append_void(
                                 zero_blk,
-                                InstKind::Store(Operand::ConstI64(0), Operand::Value(i_slot), 0),
+                                InstKind::Store(Operand::ConstI64(neg_floor), Operand::Value(eff_slot), 0),
                             );
                             self.f.set_term(zero_blk, Terminator::Br(join_blk));
                             self.f.append_void(
                                 plus_blk,
-                                InstKind::Store(Operand::Value(plus_len), Operand::Value(i_slot), 0),
+                                InstKind::Store(Operand::Value(plus_len), Operand::Value(eff_slot), 0),
                             );
                             self.f.set_term(plus_blk, Terminator::Br(join_blk));
-                            // pos path: store raw_i directly.
+                            // pos path: effective = raw_i
                             self.f.append_void(
                                 pos_blk,
-                                InstKind::Store(raw_i, Operand::Value(i_slot), 0),
+                                InstKind::Store(raw_i, Operand::Value(eff_slot), 0),
                             );
                             self.f.set_term(pos_blk, Terminator::Br(join_blk));
                             self.cur_block = join_blk;
+                            let eff = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Load(Type::I64, Operand::Value(eff_slot), 0),
+                                Type::I64,
+                                None,
+                            );
+                            if want_last {
+                                // end_slot = clamp(eff + 1, 0, len)
+                                self.f.append_void(
+                                    self.cur_block,
+                                    InstKind::Store(Operand::ConstI64(0), Operand::Value(i_slot), 0),
+                                );
+                                let end_raw = self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::BinOp(SsaBinOp::Add, Operand::Value(eff), Operand::ConstI64(1)),
+                                    Type::I64,
+                                    None,
+                                );
+                                // upper-clamp to len
+                                let over = self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::ICmp(IPred::Sgt, Operand::Value(end_raw), Operand::Value(len_v)),
+                                    Type::Bool,
+                                    None,
+                                );
+                                let over_blk = self.f.add_block();
+                                let ok_blk = self.f.add_block();
+                                let join2 = self.f.add_block();
+                                self.f.set_term(self.cur_block, Terminator::CondBr {
+                                    cond: Operand::Value(over),
+                                    then_blk: over_blk,
+                                    else_blk: ok_blk,
+                                });
+                                self.f.append_void(
+                                    over_blk,
+                                    InstKind::Store(Operand::Value(len_v), Operand::Value(end_slot), 0),
+                                );
+                                self.f.set_term(over_blk, Terminator::Br(join2));
+                                self.f.append_void(
+                                    ok_blk,
+                                    InstKind::Store(Operand::Value(end_raw), Operand::Value(end_slot), 0),
+                                );
+                                self.f.set_term(ok_blk, Terminator::Br(join2));
+                                self.cur_block = join2;
+                            } else {
+                                // indexOf/includes: start = eff (already ≥ 0)
+                                self.f.append_void(
+                                    self.cur_block,
+                                    InstKind::Store(Operand::Value(eff), Operand::Value(i_slot), 0),
+                                );
+                            }
                         } else {
                             self.f.append_void(
                                 self.cur_block,
@@ -16566,12 +16632,18 @@ impl<'a> LowerCtx<'a> {
                             Type::I64,
                             None,
                         );
+                        let end_cur = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(Type::I64, Operand::Value(end_slot), 0),
+                            Type::I64,
+                            None,
+                        );
                         let in_bounds = self.f.append_inst(
                             self.cur_block,
                             InstKind::ICmp(
                                 IPred::Slt,
                                 Operand::Value(i_cur),
-                                Operand::Value(len_v),
+                                Operand::Value(end_cur),
                             ),
                             Type::Bool,
                             None,
