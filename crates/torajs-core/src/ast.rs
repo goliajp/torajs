@@ -2605,26 +2605,42 @@ pub fn desugar_classes(ast: &mut Ast) {
         };
 
         // Constructor → C__ctor(__this: C, params...): void { body }
+        //
+        // V3-18 wedge — always emit a `__cm_<C>__ctor` symbol, even
+        // when the user wrote no explicit constructor. Per ES spec
+        // §15.7.10 every class has a default ctor (empty body, or
+        // `super(...args)` for subclasses); subclass `super()` calls
+        // need a callable parent ctor, and pre-fix tora panicked at
+        // typecheck with `unknown identifier __cm_<Parent>__ctor`
+        // when the parent had no explicit constructor.
+        //
+        // The factory still elides the no-ctor call (build_factory_body
+        // gates on `ctor.is_some()`), so this only adds an unreferenced
+        // empty fn for ctor-less classes — observable only via
+        // `super()` in a subclass, which is exactly what we want.
         let mut ctor_params_for_factory: Vec<Param> = Vec::new();
-        if let Some(c) = &ctor {
+        let (ctor_body, ctor_user_params): (Vec<Stmt>, Vec<Param>) = if let Some(c) = &ctor {
             ctor_params_for_factory = c.params.clone();
-            let mut params: Vec<Param> = Vec::with_capacity(c.params.len() + 1);
-            params.push(Param {
-                name: "__this".into(),
-                type_ann: Some(this_ann.clone()),
-                default: None,
-                is_rest: false,
-            });
-            params.extend(c.params.iter().cloned());
-            appended.push(Stmt::FnDecl {
-                name: format!("__cm_{cname}__ctor"),
-                type_params: type_params.clone(),
-                params,
-                return_type: Some("void".into()),
-                body: c.body.clone(),
-                is_generator: false,
-            });
-        }
+            (c.body.clone(), c.params.clone())
+        } else {
+            (Vec::new(), Vec::new())
+        };
+        let mut params: Vec<Param> = Vec::with_capacity(ctor_user_params.len() + 1);
+        params.push(Param {
+            name: "__this".into(),
+            type_ann: Some(this_ann.clone()),
+            default: None,
+            is_rest: false,
+        });
+        params.extend(ctor_user_params);
+        appended.push(Stmt::FnDecl {
+            name: format!("__cm_{cname}__ctor"),
+            type_params: type_params.clone(),
+            params,
+            return_type: Some("void".into()),
+            body: ctor_body,
+            is_generator: false,
+        });
 
         // Methods → __cm_C__m(__this: C, params...): R { body }
         for m in &methods {
