@@ -487,6 +487,31 @@ fn resolve_type_ann_full(
     if name == "null" {
         return Some(Type::Null);
     }
+    // V3-18 wedge — `Array<T>` / `ReadonlyArray<T>` / `Iterable<T>`
+    // generic shorthand for `T[]`. TS users write both interchangeably
+    // and the spec treats `Array<T>` as the canonical Library form;
+    // tora's type-ann parser already produces the `Array<T>` flat
+    // string but had no mapping. ReadonlyArray is identical semantically
+    // (the immutability marker has no runtime effect in the subset).
+    // Iterable<T> resolves to Array<T> for typecheck purposes (the
+    // for-of source path treats arrays as iterables).
+    if let Some(open_idx) = name.find('<')
+        && name.ends_with('>')
+        && !name.starts_with("__fn(")
+        && !name.starts_with("__env(")
+    {
+        let head = &name[..open_idx];
+        if matches!(head, "Array" | "ReadonlyArray" | "Iterable") {
+            let inner = &name[open_idx + 1..name.len() - 1];
+            // Single arg only — Array<T1, T2> is invalid TS.
+            if !inner.contains('|') {
+                return resolve_type_ann_full(
+                    inner, aliases, type_params, generic_aliases,
+                )
+                .map(|t| Type::Array(Box::new(t)));
+            }
+        }
+    }
     // M3.4 — generic struct instantiation: `Foo<arg1|arg2|...>`. Same
     // depth-aware decoder as `__fn(...)`. Substitutes type-args into the
     // original decl's field annotations (as strings), then recursively

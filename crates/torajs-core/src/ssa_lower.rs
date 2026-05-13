@@ -5454,6 +5454,23 @@ fn parse_type(
         if head == "Promise" {
             return Type::Promise;
         }
+        // V3-18 wedge — `Array<T>` / `ReadonlyArray<T>` / `Iterable<T>`
+        // generic shorthand for `T[]`. Mirror of the resolver in
+        // check.rs::resolve_type_ann_full so SSA + check agree.
+        if matches!(head, "Array" | "ReadonlyArray" | "Iterable") {
+            let inner = &s[open_idx + 1..s.len() - 1];
+            if !inner.contains('|') {
+                let elem_str = format!("{inner}[]");
+                return parse_type(
+                    Some(&elem_str),
+                    aliases,
+                    arr_layouts,
+                    fn_sigs,
+                    generic_struct_decls,
+                    struct_layouts,
+                );
+            }
+        }
     }
     match s {
         // `number` defaults to i64 — best for the integer-heavy cases
