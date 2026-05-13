@@ -894,8 +894,11 @@ impl Parser<'_> {
                 self.pos += 1;
                 // V3-18 wedge — optional parameter `name?: T`. TS spec
                 // §3.9.2.4: `?` permits the call site to omit the arg.
-                // Subset models it as Nullable<T>; caller must still
-                // pass `null` until real Type::Undefined lands.
+                // Subset models it as Nullable<T>. When the caller omits
+                // the arg, the param receives the implicit `null` default
+                // (synthesized below) — this lets `f()` Just Work for
+                // `function f(x?: T)`, matching TS semantics where the
+                // omitted `x` is `undefined` (subset's null sentinel).
                 let optional = !is_rest && matches!(self.peek(), Token::Question);
                 if optional {
                     self.pos += 1;
@@ -914,6 +917,11 @@ impl Parser<'_> {
                 let default = if !is_rest && matches!(self.peek(), Token::Eq) {
                     self.pos += 1;
                     Some(self.parse_expr()?)
+                } else if optional {
+                    // Implicit null default for `name?: T` without an
+                    // explicit `= <expr>`. apply_default_args picks this
+                    // up at every call site that omits the trailing arg.
+                    Some(self.ast.add_expr(Expr::Null))
                 } else {
                     None
                 };
@@ -4521,6 +4529,9 @@ impl Parser<'_> {
                 let default = if !is_rest && matches!(self.peek(), Token::Eq) {
                     self.pos += 1;
                     Some(self.parse_expr()?)
+                } else if optional {
+                    // Implicit null default for `name?: T` (mirrors parse_fn).
+                    Some(self.ast.add_expr(Expr::Null))
                 } else {
                     None
                 };
@@ -4612,10 +4623,14 @@ impl Parser<'_> {
                 };
                 // Default value: `= <expr>`. Evaluated at the call
                 // site (not in callee scope) when the caller omits
-                // the arg. Not allowed on rest params.
+                // the arg. Not allowed on rest params. Optional `name?: T`
+                // without an explicit default gets the implicit `null`
+                // default (subset's undefined sentinel), matching parse_fn.
                 let default = if !is_rest && matches!(self.peek(), Token::Eq) {
                     self.pos += 1;
                     Some(self.parse_expr()?)
+                } else if optional {
+                    Some(self.ast.add_expr(Expr::Null))
                 } else {
                     None
                 };
@@ -4893,6 +4908,12 @@ impl Parser<'_> {
                     self.pos += 1;
                     Some(self.parse_expr()?)
                 } else {
+                    // Note: implicit null default for arrow `(x?: T)`
+                    // is not synthesized — closure-call lowering of
+                    // Nullable<Number> args is currently broken in
+                    // ssa_lower (separate pre-existing bug; tracking).
+                    // fn-decl + class-method paths are fine and do
+                    // synthesize the null default.
                     None
                 };
                 params.push(Param {
