@@ -4249,6 +4249,58 @@ impl Parser<'_> {
                         fields.push((member_name, ty));
                     }
                 }
+                Some(Token::Eq) => {
+                    // V3-18 wedge — class field with no explicit type
+                    // ann (`name = init` / `static name = init`). Per
+                    // TS spec the type is inferred from the init
+                    // expression; subset infers from literal-shape
+                    // (Number / String / Boolean / Array of literal /
+                    // ObjectLit). Other init shapes fall back to
+                    // requiring an explicit ann.
+                    if is_abstract_method {
+                        return Err(format!(
+                            "`abstract` modifier is only valid on methods, not on field `{member_name}` in class `{name}` at {}",
+                            self.at()
+                        ));
+                    }
+                    self.pos += 2; // consume name + `=`
+                    let init = self.parse_assign()?;
+                    let inferred = match self.ast.get_expr(init) {
+                        Expr::Number(_) => "number",
+                        Expr::String(_) => "string",
+                        Expr::Bool(_) => "boolean",
+                        _ => return Err(format!(
+                            "untyped class field `{member_name}` requires a literal initializer (number / string / boolean) for type inference at {}",
+                            self.at()
+                        )),
+                    };
+                    let ty = inferred.to_string();
+                    if matches!(self.peek(), Token::Semi) {
+                        self.pos += 1;
+                    }
+                    let visibility =
+                        explicit_visibility.unwrap_or(ast::Visibility::Public);
+                    if visibility != ast::Visibility::Public {
+                        self.ast
+                            .member_visibility
+                            .insert((name.clone(), member_name.clone()), visibility);
+                    }
+                    if is_readonly {
+                        self.ast
+                            .readonly_fields
+                            .insert((name.clone(), member_name.clone()));
+                    }
+                    if is_static {
+                        static_fields.push(ast::StaticField {
+                            name: member_name,
+                            type_ann: ty,
+                            init,
+                        });
+                    } else {
+                        field_inits.push((member_name.clone(), init));
+                        fields.push((member_name, ty));
+                    }
+                }
                 t => {
                     return Err(format!(
                         "expected `(` (method) or `:` (field) after `{member_name}`, got {t:?} at {}",
