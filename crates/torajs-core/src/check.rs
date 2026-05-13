@@ -4862,6 +4862,27 @@ impl Checker {
                         return Ok(Type::Number);
                     }
                 }
+                // V3-18 wedge — String.split accepts an optional
+                // 2nd `limit` arg per JS spec §22.1.3.21. Returns
+                // first `limit` substrings (or fewer if the source
+                // splits into fewer). Pre-fix tora's strict 1-arg
+                // signature rejected the 2-arg form.
+                if let Expr::Member { obj: src_id, name: m_name } = ast.get_expr(*callee)
+                    && m_name == "split"
+                    && args.len() == 2
+                {
+                    let src_ty = self.type_of(ast, *src_id)?;
+                    if matches!(src_ty, Type::String) {
+                        let _ = self.type_of(ast, args[0])?;
+                        let limit_ty = self.type_of(ast, args[1])?;
+                        if limit_ty != Type::Number {
+                            return Err(format!(
+                                "String.split arg 1 (limit) must be number, got {limit_ty:?}"
+                            ));
+                        }
+                        return Ok(Type::Array(Box::new(Type::String)));
+                    }
+                }
                 // V3-18 wedge — Array.sort / toSorted accept an
                 // optional comparator. Per JS spec §22.1.3.27 the
                 // default cmp converts to string and compares

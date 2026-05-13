@@ -15230,10 +15230,109 @@ impl<'a> LowerCtx<'a> {
                                 // pay only N small mallocs (no per-byte
                                 // copy). Downstream method dispatch on
                                 // Substr routes to view-aware intrinsics.
+                                // V3-18 wedge — `s.split(sep, limit)`:
+                                // call str_split, then arr_slice the
+                                // result to [0, min(limit, len)). Two
+                                // small mallocs (the split + the slice
+                                // header) but element views still alias
+                                // the source bytes, no per-substring
+                                // copy.
                                 let arr_id = intern_arr_layout(
                                     self.arr_layouts,
                                     Type::Substr,
                                 );
+                                if args.len() == 2 {
+                                    let split_v = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::Call(
+                                            self.intrinsics.str_split,
+                                            argv[..2].to_vec(),
+                                        ),
+                                        Type::Arr(arr_id),
+                                        None,
+                                    );
+                                    let len = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::Load(
+                                            Type::I64,
+                                            Operand::Value(split_v),
+                                            ARR_LEN_OFF,
+                                        ),
+                                        Type::I64,
+                                        None,
+                                    );
+                                    let limit_op = argv[2].clone();
+                                    let take_slot = self.alloca(
+                                        Type::I64,
+                                        Some("__split_take"),
+                                    );
+                                    let lt = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::ICmp(
+                                            IPred::Slt,
+                                            limit_op.clone(),
+                                            Operand::Value(len),
+                                        ),
+                                        Type::Bool,
+                                        None,
+                                    );
+                                    let then_blk = self.f.add_block();
+                                    let else_blk = self.f.add_block();
+                                    let after_blk = self.f.add_block();
+                                    self.f.set_term(
+                                        self.cur_block,
+                                        Terminator::CondBr {
+                                            cond: Operand::Value(lt),
+                                            then_blk,
+                                            else_blk,
+                                        },
+                                    );
+                                    self.cur_block = then_blk;
+                                    self.f.append_void(
+                                        self.cur_block,
+                                        InstKind::Store(
+                                            limit_op,
+                                            Operand::Value(take_slot),
+                                            0,
+                                        ),
+                                    );
+                                    self.f.set_term(self.cur_block, Terminator::Br(after_blk));
+                                    self.cur_block = else_blk;
+                                    self.f.append_void(
+                                        self.cur_block,
+                                        InstKind::Store(
+                                            Operand::Value(len),
+                                            Operand::Value(take_slot),
+                                            0,
+                                        ),
+                                    );
+                                    self.f.set_term(self.cur_block, Terminator::Br(after_blk));
+                                    self.cur_block = after_blk;
+                                    let take = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::Load(
+                                            Type::I64,
+                                            Operand::Value(take_slot),
+                                            0,
+                                        ),
+                                        Type::I64,
+                                        None,
+                                    );
+                                    let v = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::Call(
+                                            self.intrinsics.arr_slice,
+                                            vec![
+                                                Operand::Value(split_v),
+                                                Operand::ConstI64(0),
+                                                Operand::Value(take),
+                                            ],
+                                        ),
+                                        Type::Arr(arr_id),
+                                        None,
+                                    );
+                                    return Operand::Value(v);
+                                }
                                 (self.intrinsics.str_split, Type::Arr(arr_id))
                             }
                             _ => unreachable!(),
