@@ -2183,7 +2183,16 @@ impl Checker {
                         }
                     },
                 };
-                if actual != expected {
+                // V3-18 wedge — Nullable<T> return type accepts both
+                // T-typed and Null values (Nullable's two value
+                // carriers), mirroring the call-arg widening rule
+                // for parameters.
+                let nullable_ok = if let Type::Nullable(inner) = &expected {
+                    actual == Type::Null || actual == **inner
+                } else {
+                    false
+                };
+                if actual != expected && !nullable_ok {
                     self.errors.push_err(format!(
                         "return type mismatch: function expects {expected:?}, got {actual:?}"
                     ));
