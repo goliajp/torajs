@@ -876,11 +876,60 @@ impl Parser<'_> {
             t => return Err(format!("expected `(`, got {t:?} at {}", self.at())),
         }
         let mut params = Vec::new();
+        // V3-18 wedge — function parameter destructuring pattern:
+        //   function f([a, b]: number[])           — array form
+        //   function f({ x, y }: { x:T, y:U })     — object form
+        // Per ES spec §14.1.3 a BindingPattern (array or object) is a
+        // valid FormalParameter. The lexer produces `[` / `{` where the
+        // ident-name is expected; pre-fix the param parser bailed at
+        // 'expected parameter name, got LBracket / LBrace'.
+        //
+        // Implementation: a destr pattern at the param position
+        // synthesizes a fresh hidden binding name (`__param_destr_<id>`)
+        // and accumulates per-element / per-field `let bound = synth[i]`
+        // (or `synth.field`) into `param_destr_lets`, which is prepended
+        // to the parsed body just before emitting Stmt::FnDecl.
+        // Reserved-word fields go through keyword_property_name to match
+        // the obj-literal / for-of-destr wedges already in tree.
+        let mut param_destr_lets: Vec<Stmt> = Vec::new();
         if !matches!(self.peek(), Token::RParen) {
             loop {
                 let is_rest = matches!(self.peek(), Token::DotDotDot);
                 if is_rest {
                     self.pos += 1;
+                }
+                if !is_rest
+                    && matches!(self.peek(), Token::LBracket | Token::LBrace)
+                {
+                    let synth = self.parse_destr_param(&mut param_destr_lets)?;
+                    let type_ann = if matches!(self.peek(), Token::Colon) {
+                        self.pos += 1;
+                        Some(self.parse_type_ann()?)
+                    } else {
+                        None
+                    };
+                    params.push(Param {
+                        name: synth,
+                        type_ann,
+                        default: None,
+                        is_rest: false,
+                    });
+                    match self.peek() {
+                        Token::Comma => {
+                            self.pos += 1;
+                            if matches!(self.peek(), Token::RParen) {
+                                break;
+                            }
+                            continue;
+                        }
+                        Token::RParen => break,
+                        t => {
+                            return Err(format!(
+                                "expected `,` or `)` after destr param, got {t:?} at {}",
+                                self.at()
+                            ));
+                        }
+                    }
                 }
                 let pname = match self.peek() {
                     Token::Ident(n) => n.clone(),
@@ -1003,6 +1052,14 @@ impl Parser<'_> {
             Token::RBrace => self.pos += 1,
             t => return Err(format!("expected `}}`, got {t:?} at {}", self.at())),
         }
+        // V3-18 wedge — prepend per-param destructuring lets when a
+        // parameter was a binding pattern. Order is preserved (lets
+        // run first, then user body).
+        if !param_destr_lets.is_empty() {
+            let mut full = param_destr_lets;
+            full.extend(body);
+            body = full;
+        }
         Ok(Stmt::FnDecl {
             name,
             type_params,
@@ -1011,6 +1068,154 @@ impl Parser<'_> {
             body,
             is_generator,
         })
+    }
+
+    /// V3-18 wedge — parse a binding pattern at a param position
+    /// (`[a, b]` or `{ x, y }`), synthesize a fresh hidden binding
+    /// name, and emit per-element / per-field destructuring lets
+    /// into `lets`. Returns the synthetic name to use as the
+    /// underlying Param's `name`. Caller is responsible for the
+    /// type ann + comma/rparen handling.
+    ///
+    /// MVP: array form supports flat `[a, b, c]` (no elision, no
+    /// rest); object form supports flat `{ x, y }` and renamed
+    /// `{ x: foo, y: bar }`. Reserved-word fields go through
+    /// keyword_property_name.
+    fn parse_destr_param(&mut self, lets: &mut Vec<Stmt>) -> Result<String, String> {
+        let id = self.mint_desugar_id();
+        let synth = format!("__param_destr_{id}");
+        match self.peek() {
+            Token::LBracket => {
+                self.pos += 1;
+                let mut names: Vec<String> = Vec::new();
+                if !matches!(self.peek(), Token::RBracket) {
+                    loop {
+                        let n = match self.peek() {
+                            Token::Ident(n) => n.clone(),
+                            t => {
+                                return Err(format!(
+                                    "expected identifier in array param destructuring, got {t:?} at {}",
+                                    self.at()
+                                ));
+                            }
+                        };
+                        self.pos += 1;
+                        names.push(n);
+                        match self.peek() {
+                            Token::Comma => {
+                                self.pos += 1;
+                                if matches!(self.peek(), Token::RBracket) {
+                                    break;
+                                }
+                            }
+                            Token::RBracket => break,
+                            t => {
+                                return Err(format!(
+                                    "expected `,` or `]` in array param destructuring, got {t:?} at {}",
+                                    self.at()
+                                ));
+                            }
+                        }
+                    }
+                }
+                self.pos += 1; // consume `]`
+                for (i, n) in names.iter().enumerate() {
+                    let src_ref = self.ast.add_expr(Expr::Ident(synth.clone()));
+                    let idx = self.ast.add_expr(Expr::Number(i as f64));
+                    let elem = self
+                        .ast
+                        .add_expr(Expr::Index { obj: src_ref, index: idx });
+                    lets.push(Stmt::LetDecl {
+                        mutable: false,
+                        name: n.clone(),
+                        type_ann: None,
+                        init: elem,
+                    });
+                }
+            }
+            Token::LBrace => {
+                self.pos += 1;
+                let mut entries: Vec<(String, String)> = Vec::new();
+                if !matches!(self.peek(), Token::RBrace) {
+                    loop {
+                        let (field, field_is_kw) = match self.peek() {
+                            Token::Ident(n) => (n.clone(), false),
+                            t if Self::keyword_property_name(t).is_some() => (
+                                Self::keyword_property_name(t).unwrap().to_string(),
+                                true,
+                            ),
+                            t => {
+                                return Err(format!(
+                                    "expected identifier in object param destructuring, got {t:?} at {}",
+                                    self.at()
+                                ));
+                            }
+                        };
+                        self.pos += 1;
+                        let bound = if matches!(self.peek(), Token::Colon) {
+                            self.pos += 1;
+                            match self.peek() {
+                                Token::Ident(n) => {
+                                    let nn = n.clone();
+                                    self.pos += 1;
+                                    nn
+                                }
+                                t => {
+                                    return Err(format!(
+                                        "expected rename target after `:` in object param destructuring, got {t:?} at {}",
+                                        self.at()
+                                    ));
+                                }
+                            }
+                        } else {
+                            if field_is_kw {
+                                return Err(format!(
+                                    "destructuring field `{field}` is a reserved word; use `{{ {field}: <binding> }}` to rename at {}",
+                                    self.at()
+                                ));
+                            }
+                            field.clone()
+                        };
+                        entries.push((field, bound));
+                        match self.peek() {
+                            Token::Comma => {
+                                self.pos += 1;
+                                if matches!(self.peek(), Token::RBrace) {
+                                    break;
+                                }
+                            }
+                            Token::RBrace => break,
+                            t => {
+                                return Err(format!(
+                                    "expected `,` or `}}` in object param destructuring, got {t:?} at {}",
+                                    self.at()
+                                ));
+                            }
+                        }
+                    }
+                }
+                self.pos += 1; // consume `}`
+                for (field, bound) in &entries {
+                    let src_ref = self.ast.add_expr(Expr::Ident(synth.clone()));
+                    let elem = self
+                        .ast
+                        .add_expr(Expr::Member { obj: src_ref, name: field.clone() });
+                    lets.push(Stmt::LetDecl {
+                        mutable: false,
+                        name: bound.clone(),
+                        type_ann: None,
+                        init: elem,
+                    });
+                }
+            }
+            t => {
+                return Err(format!(
+                    "expected `[` or `{{` to start a destr param, got {t:?} at {}",
+                    self.at()
+                ));
+            }
+        }
+        Ok(synth)
     }
 
     fn parse_return(&mut self) -> Result<Stmt, String> {
