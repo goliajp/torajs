@@ -15995,6 +15995,16 @@ impl<'a> LowerCtx<'a> {
                     // `arr.copyWithin(target, start, end)` — in-place
                     // memmove via runtime helper.
                     //
+                    // V3-18 wedge — start / end are optional per JS
+                    // spec §22.1.3.3:
+                    //   xs.copyWithin(t)        = (t, 0, len)
+                    //   xs.copyWithin(t, s)     = (t, s, len)
+                    //   xs.copyWithin(t, s, e)  = (t, s, e)
+                    // Pre-fix the 3-arg branch was strict so check.rs's
+                    // fixed-arity rejected the shorter calls. Defaults
+                    // resolved here so the rc-aware path below sees
+                    // the canonical 3-arg form.
+                    //
                     // Phase B refcount: for non-Copy elements the dst
                     // range gets aliased ptrs from the src range. The
                     // sequence MUST be inc-src-first then drop-dst,
@@ -16005,11 +16015,26 @@ impl<'a> LowerCtx<'a> {
                     // eventual element-walk drop is balanced.
                     if let Type::Arr(arr_id) = recv_ty
                         && method == "copyWithin"
-                        && args.len() == 3
+                        && (1..=3).contains(&args.len())
                     {
                         let target = self.lower_expr(args[0]);
-                        let start = self.lower_expr(args[1]);
-                        let end = self.lower_expr(args[2]);
+                        let start = if args.len() >= 2 {
+                            self.lower_expr(args[1])
+                        } else {
+                            Operand::ConstI64(0)
+                        };
+                        let end = if args.len() >= 3 {
+                            self.lower_expr(args[2])
+                        } else {
+                            // end = recv.length (load from ARR_LEN_OFF)
+                            let len_v = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Load(Type::I64, recv_op, ARR_LEN_OFF),
+                                Type::I64,
+                                None,
+                            );
+                            Operand::Value(len_v)
+                        };
                         let elem_ty = self.arr_layouts[arr_id.0 as usize];
                         if elem_ty.is_refcounted() {
                             // Replicate arr_copy_within's clamp: lo = clamp(start),

@@ -5057,6 +5057,34 @@ impl Checker {
                         return Ok(Type::String);
                     }
                 }
+                // V3-18 wedge — Array.copyWithin with 1 or 2 args per
+                // JS spec §22.1.3.3:
+                //   xs.copyWithin(target)            = (target, 0, len)
+                //   xs.copyWithin(target, start)     = (target, start, len)
+                //   xs.copyWithin(target, start, end)= (target, start, end)
+                // Pre-fix tora declared the method with a fixed 3-arg
+                // signature so `xs.copyWithin(0, 2)` failed at the
+                // arity check. SSA lower already had the 3-arg code
+                // path; this commit additionally fills the missing
+                // start (= 0) / end (= len) defaults at the SSA layer.
+                if let Expr::Member { obj: src_id, name: m_name } = ast.get_expr(*callee)
+                    && m_name == "copyWithin"
+                    && args.len() >= 1
+                    && args.len() <= 3
+                {
+                    let src_ty = self.type_of(ast, *src_id)?;
+                    if let Type::Array(elem) = &src_ty {
+                        for (i, a) in args.iter().enumerate() {
+                            let a_ty = self.type_of(ast, *a)?;
+                            if a_ty != Type::Number {
+                                return Err(format!(
+                                    "Array.copyWithin arg {i} must be number, got {a_ty:?}"
+                                ));
+                            }
+                        }
+                        return Ok(Type::Array(elem.clone()));
+                    }
+                }
                 // V3-18 m1.h.45 — String.padStart / padEnd with 1 arg
                 // defaults the fill string to " " per JS spec §21.1.3.16.
                 // Pre-fix tora declared the methods with 2 fixed params
