@@ -15375,7 +15375,7 @@ impl<'a> LowerCtx<'a> {
                     // and avoids needing closure-aware C runtime.
                     if let Type::Arr(arr_id) = recv_ty
                         && (method == "sort" || method == "toSorted")
-                        && args.len() == 1
+                        && args.len() <= 1
                     {
                         let elem_ty = self.arr_layouts[arr_id.0 as usize];
                         // toSorted clones the receiver via arr_slice
@@ -15411,8 +15411,18 @@ impl<'a> LowerCtx<'a> {
                             Operand::Value(v) => v,
                             _ => unreachable!(),
                         };
-                        let cmp_val = self.lower_expr(args[0]);
-                        let cmp_ty = self.operand_ty(&cmp_val);
+                        // V3-18 wedge — sort/toSorted with no comparator
+                        // emits inline element-type-aware `prev > cur`
+                        // instead of calling a user fn. cmp_val + cmp_ty
+                        // stay None for the no-arg path so the
+                        // pred-computation block can branch later.
+                        let (cmp_val, cmp_ty) = if let Some(arg0) = args.first() {
+                            let v = self.lower_expr(*arg0);
+                            let t = self.operand_ty(&v);
+                            (Some(v), Some(t))
+                        } else {
+                            (None, None)
+                        };
                         let len = self.f.append_inst(
                             self.cur_block,
                             InstKind::Load(Type::I64, recv_op, ARR_LEN_OFF),
@@ -15551,34 +15561,88 @@ impl<'a> LowerCtx<'a> {
                             elem_ty,
                             None,
                         );
-                        let cmp_ret = self.call_fn_value(
-                            cmp_val,
-                            cmp_ty,
-                            vec![Operand::Value(prev), Operand::Value(cur)],
-                        );
-                        // ret > 0 — handle i64 vs f64 ret type.
-                        let cmp_ret_ty = self.f.value_type(cmp_ret);
-                        let pred_v = match cmp_ret_ty {
-                            Type::F64 => self.f.append_inst(
-                                self.cur_block,
-                                InstKind::FCmp(
-                                    FPred::Ogt,
-                                    Operand::Value(cmp_ret),
-                                    Operand::ConstF64(0.0),
+                        // V3-18 wedge — branch on cmp_val presence.
+                        // With a user comparator: call it, test ret > 0.
+                        // Without: directly compare prev > cur using the
+                        // element-type-aware predicate (Sgt for I64,
+                        // Ogt for F64, str_locale_compare for Str).
+                        let pred_v = match (&cmp_val, &cmp_ty) {
+                            (Some(cv), Some(ct)) => {
+                                let cmp_ret = self.call_fn_value(
+                                    cv.clone(),
+                                    *ct,
+                                    vec![Operand::Value(prev), Operand::Value(cur)],
+                                );
+                                let cmp_ret_ty = self.f.value_type(cmp_ret);
+                                match cmp_ret_ty {
+                                    Type::F64 => self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::FCmp(
+                                            FPred::Ogt,
+                                            Operand::Value(cmp_ret),
+                                            Operand::ConstF64(0.0),
+                                        ),
+                                        Type::Bool,
+                                        None,
+                                    ),
+                                    _ => self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::ICmp(
+                                            IPred::Sgt,
+                                            Operand::Value(cmp_ret),
+                                            Operand::ConstI64(0),
+                                        ),
+                                        Type::Bool,
+                                        None,
+                                    ),
+                                }
+                            }
+                            _ => match elem_ty {
+                                Type::F64 => self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::FCmp(
+                                        FPred::Ogt,
+                                        Operand::Value(prev),
+                                        Operand::Value(cur),
+                                    ),
+                                    Type::Bool,
+                                    None,
                                 ),
-                                Type::Bool,
-                                None,
-                            ),
-                            _ => self.f.append_inst(
-                                self.cur_block,
-                                InstKind::ICmp(
-                                    IPred::Sgt,
-                                    Operand::Value(cmp_ret),
-                                    Operand::ConstI64(0),
+                                Type::Str | Type::Substr => {
+                                    let r = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::Call(
+                                            self.intrinsics.str_locale_compare,
+                                            vec![
+                                                Operand::Value(prev),
+                                                Operand::Value(cur),
+                                            ],
+                                        ),
+                                        Type::I64,
+                                        None,
+                                    );
+                                    self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::ICmp(
+                                            IPred::Sgt,
+                                            Operand::Value(r),
+                                            Operand::ConstI64(0),
+                                        ),
+                                        Type::Bool,
+                                        None,
+                                    )
+                                }
+                                _ => self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::ICmp(
+                                        IPred::Sgt,
+                                        Operand::Value(prev),
+                                        Operand::Value(cur),
+                                    ),
+                                    Type::Bool,
+                                    None,
                                 ),
-                                Type::Bool,
-                                None,
-                            ),
+                            },
                         };
                         self.f.set_term(
                             self.cur_block,

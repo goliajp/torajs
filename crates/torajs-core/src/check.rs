@@ -4862,6 +4862,22 @@ impl Checker {
                         return Ok(Type::Number);
                     }
                 }
+                // V3-18 wedge — Array.sort / toSorted accept an
+                // optional comparator. Per JS spec §22.1.3.27 the
+                // default cmp converts to string and compares
+                // lexicographically; subset uses element-type-aware
+                // `<`/`>` comparison via the runtime helper. Pre-fix
+                // tora's strict 1-arg signature rejected the no-arg
+                // form `arr.sort()`.
+                if let Expr::Member { obj: src_id, name: m_name } = ast.get_expr(*callee)
+                    && matches!(m_name.as_str(), "sort" | "toSorted")
+                    && args.is_empty()
+                {
+                    let src_ty = self.type_of(ast, *src_id)?;
+                    if let Type::Array(elem) = src_ty {
+                        return Ok(Type::Array(elem));
+                    }
+                }
                 // V3-18 m1.h.49 — Array.indexOf / lastIndexOf accept
                 // an optional fromIndex 2nd arg per JS spec §22.1.3.13
                 // / §22.1.3.16. Pre-fix tora declared with 1 fixed
