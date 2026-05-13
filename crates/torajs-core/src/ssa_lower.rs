@@ -21411,25 +21411,81 @@ impl<'a> LowerCtx<'a> {
                 self.fcmp(FPred::One, op, Operand::ConstF64(0.0))
             }
             Type::Str | Type::Substr => {
-                // Empty string falsy: load len at offset 8, compare > 0.
+                // ToBoolean(string) per spec §7.1.2 — falsy iff "" or
+                // null. Pre-fix tora unconditionally loaded len at
+                // offset 8 (segfault on null). Truthy-narrow on
+                // Nullable<String> in check.rs hands us a Str operand
+                // that may be NULL when the runtime branch isn't taken
+                // (e.g. `if (s)` on `s: string | null`), so guard the
+                // length load with an explicit null-check.
+                let is_null = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::ICmp(IPred::Eq, op.clone(), Operand::ConstPtrNull),
+                    Type::Bool,
+                    None,
+                );
+                let null_blk = self.f.add_block();
+                let nn_blk = self.f.add_block();
+                let merge = self.f.add_block();
+                let result_slot = self.alloca_in_entry(Type::Bool, Some("__strbool"));
+                let cb = self.cur_block;
+                self.f.set_term(
+                    cb,
+                    Terminator::CondBr {
+                        cond: Operand::Value(is_null),
+                        then_blk: null_blk,
+                        else_blk: nn_blk,
+                    },
+                );
+                // null branch: store false.
+                self.f.append_void(
+                    null_blk,
+                    InstKind::Store(
+                        Operand::ConstBool(false),
+                        Operand::Value(result_slot),
+                        0,
+                    ),
+                );
+                self.f.set_term(null_blk, Terminator::Br(merge));
+                // non-null branch: load len, compare > 0.
+                self.cur_block = nn_blk;
                 let len = self.f.append_inst(
                     self.cur_block,
                     InstKind::Load(Type::I64, op, 8),
                     Type::I64,
                     None,
                 );
-                self.cmp(IPred::Sgt, Operand::Value(len), Operand::ConstI64(0))
+                let nz = self.cmp(IPred::Sgt, Operand::Value(len), Operand::ConstI64(0));
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Store(nz, Operand::Value(result_slot), 0),
+                );
+                let cb = self.cur_block;
+                self.f.set_term(cb, Terminator::Br(merge));
+                self.cur_block = merge;
+                let r = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Load(Type::Bool, Operand::Value(result_slot), 0),
+                    Type::Bool,
+                    None,
+                );
+                Operand::Value(r)
             }
             Type::Ptr => {
                 // null literal or any raw pointer — null = false.
                 self.cmp(IPred::Ne, op, Operand::ConstPtrNull)
             }
-            // Heap-typed values (Obj/Arr/Closure/Symbol/...) are always
-            // truthy when non-null. With our static type system a value
-            // of these types comes from `new` / literal alloc, so it's
-            // never null — return ConstBool(true). (Nullable<T> would
-            // need a null check; not in this wedge.)
-            _ => Operand::ConstBool(true),
+            // Heap-typed values (Obj / Arr / Closure / Symbol /
+            // RegExp / Date / BigInt / ...) lower to a single pointer
+            // at codegen, so ToBoolean per spec §7.1.2 is exactly
+            // `ptr != null` — null is the only falsy value for an
+            // object / heap value. The previous shortcut returned
+            // ConstBool(true) under the assumption that these values
+            // always come from `new` / literal alloc; the truthy-
+            // narrow wedge breaks that (a Nullable<Obj> binding can
+            // legitimately carry NULL through `if (b) ...`), so the
+            // fallback now does the explicit null-check.
+            _ => self.cmp(IPred::Ne, op, Operand::ConstPtrNull),
         }
     }
 

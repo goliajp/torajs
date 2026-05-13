@@ -1668,22 +1668,54 @@ impl Checker {
         ast: &Ast,
         cond: ExprId,
     ) -> Option<(String, Type, bool)> {
-        let Expr::BinOp { op, left, right } = ast.get_expr(cond) else {
-            return None;
-        };
-        let polarity = match op {
-            BinOp::Neq | BinOp::LooseNeq => true,
-            BinOp::Eq | BinOp::LooseEq => false,
+        // Cond shape 1 — `<ident> !== null` / `null !== <ident>`
+        // (and `===` for the inverse polarity). The historical
+        // narrow shape, kept verbatim.
+        if let Expr::BinOp { op, left, right } = ast.get_expr(cond) {
+            let polarity = match op {
+                BinOp::Neq | BinOp::LooseNeq => Some(true),
+                BinOp::Eq | BinOp::LooseEq => Some(false),
+                _ => None,
+            };
+            if let Some(polarity) = polarity {
+                let name = match (ast.get_expr(*left), ast.get_expr(*right)) {
+                    (Expr::Ident(n), Expr::Null) => Some(n.clone()),
+                    (Expr::Null, Expr::Ident(n)) => Some(n.clone()),
+                    _ => None,
+                };
+                if let Some(name) = name {
+                    let info = self.lookup(&name)?;
+                    if let Type::Nullable(inner) = info.ty.clone() {
+                        return Some((name, *inner, polarity));
+                    }
+                }
+            }
+        }
+        // Cond shape 2 (truthy-narrow wedge) — bare ident or
+        // `!ident` where ident is Nullable<T>. Per JS spec
+        // §7.1.2 ToBoolean, `null` is falsy, so `if (s) ...`
+        // narrows the then-branch to T (or the else-branch via
+        // `!s`). For Nullable<Number> the then-branch also
+        // excludes 0 and for Nullable<String> it excludes "",
+        // but that just makes the value *more* constrained — it
+        // is still a valid T, which is all the narrow promises.
+        // Other primitives (number, string, boolean, struct) on
+        // their own are not Nullable here, so this hook only
+        // fires when the binding's declared type is Nullable.
+        let (target, polarity) = match ast.get_expr(cond) {
+            Expr::Ident(n) => (n.clone(), true),
+            Expr::Unary { op: crate::ast::UnaryOp::Not, expr } => {
+                if let Expr::Ident(n) = ast.get_expr(*expr) {
+                    (n.clone(), false)
+                } else {
+                    return None;
+                }
+            }
             _ => return None,
         };
-        let (name, _) = match (ast.get_expr(*left), ast.get_expr(*right)) {
-            (Expr::Ident(n), Expr::Null) => (n.clone(), ()),
-            (Expr::Null, Expr::Ident(n)) => (n.clone(), ()),
-            _ => return None,
-        };
-        let info = self.lookup(&name)?;
+        let info = self.lookup(&target)?;
         if let Type::Nullable(inner) = info.ty.clone() {
-            Some((name, *inner, polarity))
+            Some((target, *inner, polarity))
         } else {
             None
         }
