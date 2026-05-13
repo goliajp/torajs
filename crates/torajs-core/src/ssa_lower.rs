@@ -11514,11 +11514,50 @@ impl<'a> LowerCtx<'a> {
                             // preserving FSub path picks it up.
                             let i = self.coerce_bool_to_i64(v);
                             self.coerce_to_f64(i)
+                        } else if matches!(self.operand_ty(&v), Type::Str | Type::Substr) {
+                            // Unary-on-string wedge — `-s` per spec
+                            // §13.5.5 calls ToNumber(s). Route through
+                            // __torajs_str_to_number → f64; the F64
+                            // Neg branch below picks it up and emits
+                            // the sign-preserving FSub from -0.0.
+                            let r = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(
+                                    self.intrinsics.str_to_number,
+                                    vec![v],
+                                ),
+                                Type::F64,
+                                None,
+                            );
+                            Operand::Value(r)
                         } else {
                             v
                         }
                     }
-                    crate::ast::UnaryOp::BitNot | crate::ast::UnaryOp::Plus => {
+                    crate::ast::UnaryOp::Plus => {
+                        if matches!(v, Operand::ConstPtrNull) {
+                            Operand::ConstI64(0)
+                        } else if matches!(self.operand_ty(&v), Type::Bool) {
+                            self.coerce_bool_to_i64(v)
+                        } else if matches!(self.operand_ty(&v), Type::Str | Type::Substr) {
+                            // Unary-on-string wedge — `+s` per spec
+                            // §13.5.4 calls ToNumber(s). Result is
+                            // f64 so NaN can survive parse failures.
+                            let r = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(
+                                    self.intrinsics.str_to_number,
+                                    vec![v],
+                                ),
+                                Type::F64,
+                                None,
+                            );
+                            Operand::Value(r)
+                        } else {
+                            v
+                        }
+                    }
+                    crate::ast::UnaryOp::BitNot => {
                         if matches!(v, Operand::ConstPtrNull) {
                             Operand::ConstI64(0)
                         } else if matches!(self.operand_ty(&v), Type::Bool) {

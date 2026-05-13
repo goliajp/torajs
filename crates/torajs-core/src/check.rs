@@ -5521,22 +5521,26 @@ impl Checker {
                             // T-25 — `-bigint` flips the sign via
                             // bigint_neg at the SSA layer.
                             Ok(Type::BigInt)
-                        } else if matches!(t, Type::Boolean | Type::Null) {
-                            // V3-18 m1.f — JS spec §13.5.5 unary `-`
-                            // calls ToNumber on its operand. Bool/Null
-                            // map cleanly via the same coerce paths
-                            // m1.b uses; result is Number.
+                        } else if matches!(t, Type::Boolean | Type::Null | Type::String) {
+                            // V3-18 m1.f / unary-on-string wedge —
+                            // JS spec §13.5.5 unary `-` calls
+                            // ToNumber on its operand. Bool/Null map
+                            // via the m1.b coerce path; String routes
+                            // through __torajs_str_to_number (strtod-
+                            // based, NaN on parse failure). Result
+                            // type is Number in every case.
                             Ok(Type::Number)
                         } else {
                             Err(format!("`-` requires number or bigint operand, got {t:?}"))
                         }
                     }
                     crate::ast::UnaryOp::Plus => {
-                        // V3-18 m1.h.4 — unary `+x` per spec §13.5.4
-                        // calls ToNumber(x). Same coercibles as `-x`
-                        // (m1.f) but no IEEE -0 sign concern (positive
-                        // sign is the default).
-                        if matches!(t, Type::Number | Type::Boolean | Type::Null) {
+                        // V3-18 m1.h.4 / unary-on-string wedge —
+                        // unary `+x` per spec §13.5.4 calls
+                        // ToNumber(x). Same coercibles as `-x`:
+                        // Number / Boolean / Null / String. No IEEE
+                        // -0 concern (the positive sign is default).
+                        if matches!(t, Type::Number | Type::Boolean | Type::Null | Type::String) {
                             Ok(Type::Number)
                         } else if t == Type::BigInt {
                             // Per spec, unary `+` on BigInt is a
