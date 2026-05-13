@@ -2938,6 +2938,25 @@ fn default_init_for_field(
     }
     let sub_fields = class_layouts.get(fty).or_else(|| alias_layouts.get(fty));
     if let Some(sub_fields) = sub_fields {
+        // V3-18 wedge — bare type alias `type X = T` is encoded
+        // as a single field named "__alias__" carrying the
+        // underlying ann. Recurse using the underlying ann
+        // instead of treating the alias as a struct shape — the
+        // alias name resolves to T at the type level, never a
+        // struct with one __alias__ field.
+        if sub_fields.len() == 1 && sub_fields[0].0 == "__alias__" {
+            let underlying = sub_fields[0].1.clone();
+            return default_init_for_field(
+                ast,
+                &underlying,
+                class_layouts,
+                alias_layouts,
+                prelude,
+                parent_cname,
+                parent_fname,
+                seen,
+            );
+        }
         if !seen.insert(fty.to_string()) {
             panic!(
                 "default_init_for_field: cyclic struct/class layout via `{fty}` \
