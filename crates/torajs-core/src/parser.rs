@@ -1938,8 +1938,17 @@ impl Parser<'_> {
         let mut entries: Vec<(String, String)> = Vec::new(); // (field_name, bound_as)
         if !matches!(self.peek(), Token::RBrace) {
             loop {
-                let field = match self.peek() {
-                    Token::Ident(n) => n.clone(),
+                // V3-18 wedge — accept reserved-word tokens as
+                // destructuring field names (the access-side
+                // counterpart of the obj-literal wedge). Reserved-
+                // word fields require explicit `field: name` rename
+                // since the bound binding name itself can't be a
+                // reserved word.
+                let (field, field_is_kw) = match self.peek() {
+                    Token::Ident(n) => (n.clone(), false),
+                    t if Self::keyword_property_name(t).is_some() => {
+                        (Self::keyword_property_name(t).unwrap().to_string(), true)
+                    }
                     t => {
                         return Err(format!(
                             "expected identifier in object destructuring, got {t:?} at {}",
@@ -1962,6 +1971,12 @@ impl Parser<'_> {
                     self.pos += 1;
                     n
                 } else {
+                    if field_is_kw {
+                        return Err(format!(
+                            "destructuring field `{field}` is a reserved word; use `{{ {field}: <binding> }}` to rename at {}",
+                            self.at()
+                        ));
+                    }
                     field.clone()
                 };
                 entries.push((field, bound));
@@ -2582,49 +2597,73 @@ impl Parser<'_> {
         self.parse_postfix()
     }
 
+    /// V3-18 wedge — return the source spelling of `t` if it's a
+    /// reserved-word keyword that can appear in property-name
+    /// contexts (object-literal field, member access, destructuring
+    /// pattern, class member). Per ES spec §12.7.6 IdentifierName
+    /// allows the full reserved-word list at these positions; TS
+    /// follows. Used by member_name_after_dot, parse_object_field,
+    /// parse_object_destructuring, and the class-member-name branch
+    /// in parse_class — all four had their own short keyword whitelist
+    /// that drifted apart over time. Centralized here.
+    fn keyword_property_name(t: &Token) -> Option<&'static str> {
+        Some(match t {
+            Token::Catch => "catch",
+            Token::Finally => "finally",
+            Token::Return => "return",
+            Token::Throw => "throw",
+            Token::If => "if",
+            Token::Else => "else",
+            Token::For => "for",
+            Token::While => "while",
+            Token::Do => "do",
+            Token::Break => "break",
+            Token::Continue => "continue",
+            Token::Switch => "switch",
+            Token::Case => "case",
+            Token::Default => "default",
+            Token::Class => "class",
+            Token::New => "new",
+            Token::This => "this",
+            Token::Function => "function",
+            Token::TypeOf => "typeof",
+            Token::InstanceOf => "instanceof",
+            Token::Try => "try",
+            Token::Yield => "yield",
+            // Extended set — these were rejected pre-wedge in
+            // every property-name position.
+            Token::Type => "type",
+            Token::Async => "async",
+            Token::Await => "await",
+            Token::Import => "import",
+            Token::Export => "export",
+            Token::Null => "null",
+            Token::True => "true",
+            Token::False => "false",
+            Token::Let => "let",
+            Token::Const => "const",
+            Token::Extends => "extends",
+            Token::Super => "super",
+            Token::Void => "void",
+            _ => return None,
+        })
+    }
+
     /// Identifier-or-contextual-keyword name after a `.` / `?.` / for
     /// class member declaration. JS / TS allow reserved words to appear
-    /// as property names (`p.catch(...)`, `obj.return`) — this maps the
-    /// few keyword tokens we may encounter in member position back to
-    /// their lexeme. Advances `self.pos` on success and returns None
-    /// (without consuming) when no name token is present.
+    /// as property names (`p.catch(...)`, `obj.return`) — routes
+    /// keyword tokens through `keyword_property_name` for the full
+    /// reserved-word list. Advances `self.pos` on success and returns
+    /// None (without consuming) when no name token is present.
     fn member_name_after_dot(&mut self) -> Option<String> {
-        let name: Option<&'static str> = match self.peek() {
-            Token::Ident(n) => {
-                let n = n.clone();
-                self.pos += 1;
-                return Some(n);
-            }
-            Token::Catch => Some("catch"),
-            Token::Finally => Some("finally"),
-            Token::Return => Some("return"),
-            Token::Throw => Some("throw"),
-            Token::If => Some("if"),
-            Token::Else => Some("else"),
-            Token::For => Some("for"),
-            Token::While => Some("while"),
-            Token::Do => Some("do"),
-            Token::Break => Some("break"),
-            Token::Continue => Some("continue"),
-            Token::Switch => Some("switch"),
-            Token::Case => Some("case"),
-            Token::Default => Some("default"),
-            Token::Class => Some("class"),
-            Token::New => Some("new"),
-            Token::This => Some("this"),
-            Token::Function => Some("function"),
-            Token::TypeOf => Some("typeof"),
-            Token::InstanceOf => Some("instanceof"),
-            Token::Try => Some("try"),
-            Token::Yield => Some("yield"),
-            _ => None,
-        };
-        if let Some(s) = name {
+        if let Token::Ident(n) = self.peek() {
+            let n = n.clone();
             self.pos += 1;
-            Some(s.to_string())
-        } else {
-            None
+            return Some(n);
         }
+        let kw = Self::keyword_property_name(self.peek())?;
+        self.pos += 1;
+        Some(kw.to_string())
     }
 
     fn parse_postfix(&mut self) -> Result<ExprId, String> {
@@ -3293,6 +3332,14 @@ impl Parser<'_> {
         }
         let name = match self.peek() {
             Token::Ident(n) => n.clone(),
+            // V3-18 wedge — accept reserved-word tokens as object-
+            // literal field names per ES spec §12.7.6 (the full
+            // reserved-word set is allowed in property-name
+            // positions). Pre-fix `{ type: ... }`, `{ default: ... }`,
+            // etc. all bailed at "expected field name".
+            t if Self::keyword_property_name(t).is_some() => {
+                Self::keyword_property_name(t).unwrap().to_string()
+            }
             t => {
                 return Err(format!(
                     "expected field name in object literal, got {t:?} at {}",
@@ -4064,42 +4111,14 @@ impl Parser<'_> {
             }
             let member_name = match self.peek() {
                 Token::Ident(n) => n.clone(),
-                // Allow contextual keywords as class method names (matches
-                // JS / TS where `catch` / `finally` etc. are valid as
-                // property names). Only accept these when the following
-                // token is `(` so we don't confuse field declarations.
-                Token::Catch | Token::Finally | Token::Return | Token::Throw
-                | Token::If | Token::Else | Token::For | Token::While | Token::Do
-                | Token::Break | Token::Continue | Token::Switch | Token::Case
-                | Token::Default | Token::Class | Token::New | Token::This
-                | Token::Function | Token::TypeOf | Token::InstanceOf
-                | Token::Try | Token::Yield => {
-                    let lex = match self.peek() {
-                        Token::Catch => "catch",
-                        Token::Finally => "finally",
-                        Token::Return => "return",
-                        Token::Throw => "throw",
-                        Token::If => "if",
-                        Token::Else => "else",
-                        Token::For => "for",
-                        Token::While => "while",
-                        Token::Do => "do",
-                        Token::Break => "break",
-                        Token::Continue => "continue",
-                        Token::Switch => "switch",
-                        Token::Case => "case",
-                        Token::Default => "default",
-                        Token::Class => "class",
-                        Token::New => "new",
-                        Token::This => "this",
-                        Token::Function => "function",
-                        Token::TypeOf => "typeof",
-                        Token::InstanceOf => "instanceof",
-                        Token::Try => "try",
-                        Token::Yield => "yield",
-                        _ => unreachable!(),
-                    };
-                    lex.to_string()
+                // V3-18 wedge — accept the full reserved-word list
+                // as class member names per ES spec §12.7.6
+                // (PropertyName allows IdentifierName which includes
+                // reserved words). Routed through the centralized
+                // keyword_property_name helper so all four
+                // property-name positions stay in sync.
+                t if Self::keyword_property_name(t).is_some() => {
+                    Self::keyword_property_name(t).unwrap().to_string()
                 }
                 t => {
                     return Err(format!(
