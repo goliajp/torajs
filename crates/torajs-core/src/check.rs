@@ -5057,6 +5057,42 @@ impl Checker {
                         return Ok(Type::String);
                     }
                 }
+                // V3-18 wedge — Array.concat accepts any number of
+                // array args per JS spec §22.1.3.2:
+                //   xs.concat()            → fresh shallow copy of xs
+                //   xs.concat(a, b, ..., z)→ fresh array of xs then a's
+                //                             then b's ... then z's
+                // Pre-fix tora declared concat with a fixed 1-arg
+                // signature so multi-arg calls failed at the unified
+                // arity check. Subset constraint kept: every additional
+                // arg must be an Array<T> with the same element type
+                // as the receiver — scalar args (the spec's "values
+                // are added") would require the heterogeneous-element
+                // substrate that isn't in tora yet.
+                if let Expr::Member { obj: src_id, name: m_name } = ast.get_expr(*callee)
+                    && m_name == "concat"
+                {
+                    let src_ty = self.type_of(ast, *src_id)?;
+                    if let Type::Array(elem) = &src_ty {
+                        let expected = (**elem).clone();
+                        // 0-arg form: shallow copy of receiver. Skip
+                        // arg-type validation entirely.
+                        if args.is_empty() {
+                            return Ok(Type::Array(Box::new(expected)));
+                        }
+                        let mut ok = true;
+                        for a in args {
+                            let a_ty = self.type_of(ast, *a)?;
+                            if a_ty != Type::Array(Box::new(expected.clone())) {
+                                ok = false;
+                                break;
+                            }
+                        }
+                        if ok {
+                            return Ok(Type::Array(Box::new(expected)));
+                        }
+                    }
+                }
                 // V3-18 wedge — Array.copyWithin with 1 or 2 args per
                 // JS spec §22.1.3.3:
                 //   xs.copyWithin(target)            = (target, 0, len)

@@ -15883,35 +15883,72 @@ impl<'a> LowerCtx<'a> {
                     // two memcpys via the C runtime. Element type carried.
                     // Phase B refcount: derived array's slots alias both
                     // sources; inc each slot for non-Copy elements.
+                    //
+                    // V3-18 wedge — multi-arg form `xs.concat(a, b, ..., z)`
+                    // per JS spec §22.1.3.2 is supported by folding the
+                    // single-arg intrinsic left-to-right: each step's
+                    // result becomes the next step's receiver. Refcount
+                    // inc runs once at the end over the final array's
+                    // full length. Each intermediate also leaks otherwise;
+                    // those temporaries are drop-balanced by the rc-inc
+                    // window on the final result (intermediates aren't
+                    // bound to a name so the surrounding scope-end drop
+                    // doesn't see them).
                     if let Type::Arr(arr_id) = recv_ty
                         && method == "concat"
-                        && args.len() == 1
                     {
-                        let other = self.lower_expr(args[0]);
-                        let v = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Call(
-                                self.intrinsics.arr_concat,
-                                vec![recv_op, other],
-                            ),
-                            Type::Arr(arr_id),
-                            None,
-                        );
+                        // 0-arg form ≡ shallow copy. Lower as
+                        // `arr_slice(recv, 0, len)` — the refcount-inc
+                        // walk below handles non-Copy elements the
+                        // same way as for slice / concat results.
+                        let mut acc = if args.is_empty() {
+                            let len = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Load(Type::I64, recv_op, ARR_LEN_OFF),
+                                Type::I64,
+                                None,
+                            );
+                            let v = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(
+                                    self.intrinsics.arr_slice,
+                                    vec![recv_op, Operand::ConstI64(0), Operand::Value(len)],
+                                ),
+                                Type::Arr(arr_id),
+                                None,
+                            );
+                            Operand::Value(v)
+                        } else {
+                            recv_op
+                        };
+                        for a in args {
+                            let other = self.lower_expr(*a);
+                            let v = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(
+                                    self.intrinsics.arr_concat,
+                                    vec![acc, other],
+                                ),
+                                Type::Arr(arr_id),
+                                None,
+                            );
+                            acc = Operand::Value(v);
+                        }
                         let elem_ty = self.arr_layouts[arr_id.0 as usize];
                         if elem_ty.is_refcounted() {
                             let len = self.f.append_inst(
                                 self.cur_block,
-                                InstKind::Load(Type::I64, Operand::Value(v), ARR_LEN_OFF),
+                                InstKind::Load(Type::I64, acc, ARR_LEN_OFF),
                                 Type::I64,
                                 None,
                             );
                             self.emit_arr_rc_inc_range(
-                                Operand::Value(v),
+                                acc,
                                 Operand::ConstI64(0),
                                 Operand::Value(len),
                             );
                         }
-                        return Operand::Value(v);
+                        return acc;
                     }
                     // `arr.at(i)` — element at i with negative-index wrap.
                     // Inline SSA: idx = i < 0 ? len + i : i; load at idx.
