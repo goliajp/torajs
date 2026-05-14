@@ -1932,6 +1932,23 @@ pub fn desugar_builtin_new(ast: &mut Ast) {
             ast.exprs[i] = Expr::Array(args);
         }
     }
+    // P1 — `new Object()` 0-arg form per ES spec §20.1.1.1.
+    // Returns a fresh empty object literal `{}`. Pre-fix tora
+    // bailed at 'unknown identifier `__new_Object`'. The 1-arg
+    // form (`new Object(value)`) is the wrap-or-return-as-is shape
+    // and is deferred — it requires runtime type discrimination
+    // and overlaps with the property-bag substrate (P3).
+    let n = ast.exprs.len();
+    for i in 0..n {
+        let zero_arg_object = matches!(
+            &ast.exprs[i],
+            Expr::New { class_name, args }
+                if class_name == "Object" && args.is_empty()
+        );
+        if zero_arg_object {
+            ast.exprs[i] = Expr::ObjectLit { fields: Vec::new() };
+        }
+    }
     // P1 — `new RegExp(pattern?, flags?)` per ES spec §22.2.3.1.
     // Rewrite shapes with constant-string args to the equivalent
     // regex literal `Expr::Regex { pattern, flags }`. Pre-fix tora
