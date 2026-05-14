@@ -230,6 +230,48 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                 if peek(bytes, i + 1) == Some(b'.') && peek(bytes, i + 2) == Some(b'.') {
                     i += 3;
                     emit(&mut out, Token::DotDotDot, start, i);
+                } else if peek(bytes, i + 1).is_some_and(|c| c.is_ascii_digit()) {
+                    // P0.10 — leading-dot numeric literal: `.5`,
+                    // `.123`, `.5e2` per ES spec §12.9.3 NumericLiteral.
+                    // Pre-fix tora's lexer always emitted Token::Dot
+                    // here, leaving the parser to bail with 'expected
+                    // expression, got Dot'. Now consume the fractional
+                    // tail (and optional exponent) inline as part of
+                    // the numeric value, mirroring what the post-Int
+                    // path does.
+                    i += 1; // consume `.`
+                    let mut digits = String::from("0.");
+                    while let Some(c) = peek(bytes, i) {
+                        if c.is_ascii_digit() || c == b'_' {
+                            if c != b'_' { digits.push(c as char); }
+                            i += 1;
+                        } else {
+                            break;
+                        }
+                    }
+                    // Optional exponent: `[eE][+-]?DIGITS`
+                    if let Some(c) = peek(bytes, i)
+                        && (c == b'e' || c == b'E')
+                    {
+                        digits.push(c as char);
+                        i += 1;
+                        if let Some(s) = peek(bytes, i)
+                            && (s == b'+' || s == b'-')
+                        {
+                            digits.push(s as char);
+                            i += 1;
+                        }
+                        while let Some(c) = peek(bytes, i) {
+                            if c.is_ascii_digit() {
+                                digits.push(c as char);
+                                i += 1;
+                            } else {
+                                break;
+                            }
+                        }
+                    }
+                    let n: f64 = digits.parse().unwrap_or(0.0);
+                    emit(&mut out, Token::Number(n), start, i);
                 } else {
                     emit(&mut out, Token::Dot, start, advance(&mut i));
                 }
