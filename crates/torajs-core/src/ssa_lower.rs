@@ -15040,6 +15040,30 @@ impl<'a> LowerCtx<'a> {
                         );
                         return Operand::Value(v);
                     }
+                    // V3-18 wedge — Substr.charAt() 0-arg variant —
+                    // hoisted above the generic Substr dispatch
+                    // because Substr.charAt has no view-aware
+                    // fast path and would otherwise hit the
+                    // 'unsupported Substr method' panic.
+                    if recv_ty == Type::Substr
+                        && method == "charAt"
+                        && args.is_empty()
+                    {
+                        let v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.substr_slice,
+                                vec![
+                                    recv_op,
+                                    Operand::ConstI64(0),
+                                    Operand::ConstI64(1),
+                                ],
+                            ),
+                            Type::Substr,
+                            None,
+                        );
+                        return Operand::Value(v);
+                    }
                     if recv_ty == Type::Substr {
                         // View-aware fast paths — read bytes from
                         // parent + offset directly, no per-call malloc.
@@ -15099,6 +15123,14 @@ impl<'a> LowerCtx<'a> {
                                     None,
                                 );
                                 argv.push(Operand::Value(len));
+                            }
+                            // V3-18 wedge — Substr.charCodeAt /
+                            // codePointAt 0-arg defaults pos to 0.
+                            if matches!(method.as_str(),
+                                "charCodeAt" | "codePointAt")
+                                && args.is_empty()
+                            {
+                                argv.push(Operand::ConstI64(0));
                             }
                             let v = self.f.append_inst(
                                 self.cur_block,
@@ -15175,6 +15207,60 @@ impl<'a> LowerCtx<'a> {
                                 return Operand::Value(v);
                             }
                         }
+                    }
+                    // V3-18 wedge — charAt / charCodeAt /
+                    // codePointAt 0-arg form per JS spec
+                    // §22.1.3.4 / §22.1.3.5 / §22.1.3.6: missing
+                    // pos defaults to 0. Synthesize a ConstI64(0)
+                    // index and route through the existing 1-arg
+                    // paths below.
+                    if matches!(recv_ty, Type::Str | Type::Substr)
+                        && matches!(method.as_str(),
+                            "charAt" | "charCodeAt" | "codePointAt")
+                        && args.is_empty()
+                    {
+                        let idx_val = Operand::ConstI64(0);
+                        if method == "charAt" {
+                            let v = if recv_ty == Type::Str {
+                                self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::Call(
+                                        self.intrinsics.str_char_at,
+                                        vec![recv_op, idx_val],
+                                    ),
+                                    Type::Substr,
+                                    None,
+                                )
+                            } else {
+                                self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::Call(
+                                        self.intrinsics.substr_slice,
+                                        vec![
+                                            recv_op,
+                                            idx_val,
+                                            Operand::ConstI64(1),
+                                        ],
+                                    ),
+                                    Type::Substr,
+                                    None,
+                                )
+                            };
+                            return Operand::Value(v);
+                        }
+                        // charCodeAt / codePointAt — same intrinsic
+                        // (codePointAt collapses to charCodeAt in
+                        // tora's ASCII-only Str path).
+                        let v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.str_char_code_at,
+                                vec![recv_op, idx_val],
+                            ),
+                            Type::I64,
+                            None,
+                        );
+                        return Operand::Value(v);
                     }
                     // `s.charAt(i)` — same-shape alias for `s[i]`.
                     // Lowers to a length-1 substr view instead of going

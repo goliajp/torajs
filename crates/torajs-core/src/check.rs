@@ -5088,6 +5088,30 @@ impl Checker {
                     let _ = self.type_of(ast, args[0])?;
                     return Ok(Type::Boolean);
                 }
+                // V3-18 wedge — String.charAt / charCodeAt /
+                // codePointAt accept an optional pos arg per JS
+                // spec §22.1.3.4 / §22.1.3.5 / §22.1.3.6: missing
+                // pos defaults to 0. Pre-fix tora declared with one
+                // required param so 0-arg calls bounced at the
+                // unified arity check with 'expected 1 argument(s),
+                // got 0'. Implementation: typecheck-only pass through
+                // for the missing-arg shape; ssa_lower's 1-arg path
+                // gets a synthetic ConstI64(0) padded in for the
+                // default.
+                if let Expr::Member { obj: src_id, name: m_name } = ast.get_expr(*callee)
+                    && matches!(m_name.as_str(),
+                        "charAt" | "charCodeAt" | "codePointAt")
+                    && args.is_empty()
+                {
+                    let src_ty = self.type_of(ast, *src_id)?;
+                    if matches!(src_ty, Type::String) {
+                        return Ok(if m_name == "charAt" {
+                            Type::String
+                        } else {
+                            Type::Number
+                        });
+                    }
+                }
                 // V3-18 m1.h.48 — String.normalize accepts an optional
                 // form arg ("NFC" / "NFD" / "NFKC" / "NFKD"). Per JS
                 // spec §21.1.3.13. tora's byte-Str ASCII-only path
