@@ -3971,6 +3971,64 @@ impl Parser<'_> {
                     ));
                 }
             }
+            // P0.10 — computed-key method shorthand `{ [expr]() { ... } }`
+            // per ES spec §13.2.5 ComputedPropertyName + MethodDefinition.
+            // Used pervasively for `Symbol.toPrimitive` / `Symbol.iterator`
+            // hooks. tora has no Symbol.X dispatch substrate (lands with
+            // P3 / P7 iterator-protocol), so the field carries a stub
+            // value just like getter/setter shorthand. The parse must
+            // succeed so the surrounding object literal still compiles.
+            if matches!(self.peek(), Token::LParen) {
+                // Drop the param list with paren-balance.
+                let mut depth = 1i32;
+                self.pos += 1;
+                while depth > 0 {
+                    match self.peek() {
+                        Token::LParen => depth += 1,
+                        Token::RParen => depth -= 1,
+                        Token::Eof => {
+                            return Err(format!(
+                                "unexpected eof in computed-key method shorthand params at {}",
+                                self.at()
+                            ));
+                        }
+                        _ => {}
+                    }
+                    self.pos += 1;
+                }
+                // Optional return type ann.
+                if matches!(self.peek(), Token::Colon) {
+                    self.pos += 1;
+                    let _ = self.parse_type_ann()?;
+                }
+                // Drop the body with brace-balance.
+                match self.peek() {
+                    Token::LBrace => self.pos += 1,
+                    t => {
+                        return Err(format!(
+                            "expected `{{` after computed-key method shorthand header, got {t:?} at {}",
+                            self.at()
+                        ));
+                    }
+                }
+                let mut depth = 1i32;
+                while depth > 0 {
+                    match self.peek() {
+                        Token::LBrace => depth += 1,
+                        Token::RBrace => depth -= 1,
+                        Token::Eof => {
+                            return Err(format!(
+                                "unexpected eof in computed-key method shorthand body at {}",
+                                self.at()
+                            ));
+                        }
+                        _ => {}
+                    }
+                    self.pos += 1;
+                }
+                let value = self.ast.add_expr(Expr::Null);
+                return Ok((key, value));
+            }
             match self.peek() {
                 Token::Colon => self.pos += 1,
                 t => {
