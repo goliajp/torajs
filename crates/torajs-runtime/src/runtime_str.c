@@ -855,6 +855,48 @@ bool __torajs_any_strict_eq(const void *box, int64_t rhs_tag, int64_t rhs_value)
     return __torajs_any_payload_eq(bt, bv, rhs_value);
 }
 
+/* P0.4 — ToBoolean(Any) per JS spec §7.1.2. Reads the box's tag
+ * and payload, returns the spec-mandated boolean:
+ *   ANY_NULL              → false
+ *   ANY_BOOL              → value (i64 0 or 1)
+ *   ANY_I64               → value != 0
+ *   ANY_F64               → value != 0.0 AND not NaN  (IEEE Une on +0)
+ *   ANY_HEAP / Str        → length > 0
+ *   ANY_HEAP / other      → true (objects are always truthy)
+ *   NULL box              → false
+ */
+bool __torajs_any_to_bool(const void *box) {
+    if (box == NULL) return false;
+    int64_t tag = *(const int64_t *)((const uint8_t *)box + __TORAJS_ANY_BOX_TAG_OFF);
+    int64_t value = *(const int64_t *)((const uint8_t *)box + __TORAJS_ANY_BOX_VAL_OFF);
+    switch (tag) {
+        case __TORAJS_ANY_NULL: return false;
+        case __TORAJS_ANY_BOOL: return value != 0;
+        case __TORAJS_ANY_I64:  return value != 0;
+        case __TORAJS_ANY_F64: {
+            union { int64_t i; double d; } u = { .i = value };
+            /* IEEE: NaN compares unequal to itself, +0 / -0 both
+             * compare equal to 0.0 — so `d != 0.0` correctly maps
+             * NaN → false (not satisfying "not equal" with itself
+             * when also testing isnan...) actually `d != 0.0`
+             * returns true for NaN. Use the canonical "ordered
+             * not-equal" idiom instead: u.d == u.d (false for NaN)
+             * AND u.d != 0.0. */
+            return (u.d == u.d) && (u.d != 0.0);
+        }
+        case __TORAJS_ANY_HEAP: {
+            void *child = (void *)(uintptr_t)value;
+            if (child == NULL) return false;
+            const __torajs_heap_header_t *h = (const __torajs_heap_header_t *)child;
+            if (h->type_tag == __TORAJS_TAG_STR) {
+                return __TORAJS_STR_LEN(child) > 0;
+            }
+            return true;
+        }
+        default: return false;
+    }
+}
+
 /* P0.2 — `typeof <Any>` runtime dispatch per JS spec §13.5.3.
  * Reads the box's tag (and for ANY_HEAP, the inner heap header's
  * type_tag) and returns a fresh String holding the spec-mandated

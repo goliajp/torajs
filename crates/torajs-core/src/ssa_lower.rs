@@ -1993,6 +1993,13 @@ fn lower_inner(
         &[Type::Ptr],
         Type::Str,
     );
+    let any_to_bool_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_any_to_bool",
+        &[Type::Ptr],
+        Type::Bool,
+    );
     let any_strict_eq_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -3905,6 +3912,7 @@ fn lower_inner(
         arr_drop_any: arr_drop_any_id,
         any_box: any_box_id,
         any_typeof: any_typeof_id,
+        any_to_bool: any_to_bool_id,
         any_strict_eq: any_strict_eq_id,
         any_any_strict_eq: any_any_strict_eq_id,
         any_unbox_tag: any_unbox_tag_id,
@@ -4643,6 +4651,7 @@ struct Intrinsics {
     arr_drop_any: FuncId,
     any_box: FuncId,
     any_typeof: FuncId,
+    any_to_bool: FuncId,
     any_strict_eq: FuncId,
     any_any_strict_eq: FuncId,
     any_unbox_tag: FuncId,
@@ -21983,6 +21992,23 @@ impl<'a> LowerCtx<'a> {
             Type::Ptr => {
                 // null literal or any raw pointer — null = false.
                 self.cmp(IPred::Ne, op, Operand::ConstPtrNull)
+            }
+            // P0.4 — ToBoolean(Any) per JS spec §7.1.2 routes through
+            // __torajs_any_to_bool which unboxes the tag + payload
+            // and applies spec rules: NULL → false, BOOL → value,
+            // I64 → !=0, F64 → !=0 && !NaN, HEAP/Str → len>0, other
+            // HEAP → true. Other heap-pointer types continue to use
+            // the simple null-check fallback (still correct because
+            // they're statically non-Any objects: object → true,
+            // null → false).
+            Type::Any => {
+                let v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.any_to_bool, vec![op]),
+                    Type::Bool,
+                    None,
+                );
+                Operand::Value(v)
             }
             // Heap-typed values (Obj / Arr / Closure / Symbol /
             // RegExp / Date / BigInt / ...) lower to a single pointer
