@@ -1932,6 +1932,53 @@ pub fn desugar_builtin_new(ast: &mut Ast) {
             ast.exprs[i] = Expr::Array(args);
         }
     }
+    // P1 — `new RegExp(pattern?, flags?)` per ES spec §22.2.3.1.
+    // Rewrite shapes with constant-string args to the equivalent
+    // regex literal `Expr::Regex { pattern, flags }`. Pre-fix tora
+    // bailed at 'unknown identifier `__new_RegExp`' since the
+    // class-lowering desugar synthesizes `__new_C` factories for
+    // user classes only — built-in RegExp has no factory. Test262
+    // uses `new RegExp()` / `new RegExp("pat")` / `new RegExp(p, f)`
+    // pervasively (~18+ cases blocked across the broader sample).
+    //
+    //   new RegExp()                 → /(?:)/
+    //   new RegExp("foo")            → /foo/
+    //   new RegExp("foo", "i")       → /foo/i
+    //
+    // Dynamic-arg shapes (`new RegExp(varRef)`) keep the unknown-
+    // factory error — the regex pattern must be statically known
+    // at lower time so the C-side compiled regex can be embedded.
+    let n = ast.exprs.len();
+    for i in 0..n {
+        let regex_plan: Option<(String, String)> = match &ast.exprs[i] {
+            Expr::New { class_name, args } if class_name == "RegExp" => {
+                match args.len() {
+                    0 => Some(("(?:)".to_string(), String::new())),
+                    1 => {
+                        if let Expr::String(s) = &ast.exprs[args[0].0 as usize] {
+                            Some((s.clone(), String::new()))
+                        } else {
+                            None
+                        }
+                    }
+                    2 => {
+                        let pat = &ast.exprs[args[0].0 as usize];
+                        let flags = &ast.exprs[args[1].0 as usize];
+                        if let (Expr::String(p), Expr::String(f)) = (pat, flags) {
+                            Some((p.clone(), f.clone()))
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                }
+            }
+            _ => None,
+        };
+        if let Some((pattern, flags)) = regex_plan {
+            ast.exprs[i] = Expr::Regex { pattern, flags };
+        }
+    }
     // V3-18 m1.h.10 — `new Number(x)` / `new String(x)` /
     // `new Boolean(x)` MVP unwrap. Per spec, `new Number(5)`
     // creates a wrapper Object whose [[NumberData]] is 5, but in
