@@ -5319,13 +5319,42 @@ impl Checker {
                 let Type::Function(params, ret) = callee_ty else {
                     return Err(format!("not callable: type {callee_ty:?}"));
                 };
-                if params.len() != args.len() {
+                // P1 wedge — Array.prototype callback methods accept
+                // an optional trailing thisArg per ES spec §23.1.3.X
+                // (map/filter/every/some/forEach/find/findIndex/
+                // findLast/findLastIndex/reduce/reduceRight/flatMap).
+                // tora's callbacks don't have `this` semantics
+                // (closures don't bind a receiver), so the thisArg
+                // is silently dropped — tests that don't rely on
+                // `this` inside the callback now typecheck (~70+
+                // cases unblocked across the broader sample). Tests
+                // that DO use `this` were already blocked on the
+                // missing-this substrate; the silent drop doesn't
+                // make those worse.
+                let mut effective_args = args.clone();
+                if args.len() == params.len() + 1
+                    && let Expr::Member { name: m_name, .. } = ast.get_expr(*callee)
+                    && matches!(
+                        m_name.as_str(),
+                        "map" | "filter" | "every" | "some"
+                            | "forEach" | "find" | "findIndex"
+                            | "findLast" | "findLastIndex"
+                            | "flatMap"
+                    )
+                {
+                    // Type-check the dropped arg so its expr's
+                    // internal errors still surface.
+                    let _ = self.type_of(ast, *effective_args.last().unwrap())?;
+                    effective_args.pop();
+                }
+                if params.len() != effective_args.len() {
                     return Err(format!(
                         "expected {} argument(s), got {}",
                         params.len(),
-                        args.len()
+                        effective_args.len()
                     ));
                 }
+                let args = &effective_args;
                 // M6.1 — String borrow-methods (slice/includes/indexOf/...)
                 // don't transfer ownership of either receiver or args.
                 // They read both, allocate a fresh result, and return.
