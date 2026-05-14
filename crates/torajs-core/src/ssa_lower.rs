@@ -16676,7 +16676,45 @@ impl<'a> LowerCtx<'a> {
                         let want_bool = method == "includes";
                         let want_last = method == "lastIndexOf";
                         let elem_ty = self.arr_layouts[arr_id.0 as usize];
-                        let needle = self.lower_expr(args[0]);
+                        let needle_raw = self.lower_expr(args[0]);
+                        let needle_ty = self.operand_ty(&needle_raw);
+                        // V3-18 wedge — needle ↔ elem type coerce.
+                        // Pre-fix tora passed the raw needle straight
+                        // into the ICmp / FCmp dispatch, so an i64
+                        // array with an f64 needle (e.g. NaN, -0.0,
+                        // fractional) hit an LLVM verify error
+                        // ("Found FloatValue but expected IntValue").
+                        // JS spec §7.2.13 StrictEqualityComparison
+                        // treats both as Number, so the bridging
+                        // logic mirrors what the rest of tora does
+                        // for mixed-numeric BinOp.
+                        let needle = match (elem_ty, needle_ty) {
+                            (a, b) if a == b => needle_raw,
+                            (Type::I64, Type::F64) => {
+                                // Const f64 that's an integer in i64
+                                // range converts cleanly. Anything
+                                // else (NaN / Infinity / fractional)
+                                // can't equal any i64 element, so
+                                // short-circuit to -1 / false.
+                                if let Operand::ConstF64(n) = needle_raw
+                                    && n.is_finite()
+                                    && n.fract() == 0.0
+                                    && n >= i64::MIN as f64
+                                    && n <= i64::MAX as f64
+                                {
+                                    Operand::ConstI64(n as i64)
+                                } else if let Operand::ConstF64(_) = needle_raw {
+                                    if want_bool {
+                                        return Operand::ConstBool(false);
+                                    }
+                                    return Operand::ConstI64(-1);
+                                } else {
+                                    self.coerce_to_i64(needle_raw)
+                                }
+                            }
+                            (Type::F64, Type::I64) => self.coerce_to_f64(needle_raw),
+                            _ => needle_raw,
+                        };
                         let result_slot =
                             self.alloca_in_entry(Type::I64, Some("__idx"));
                         self.f.append_void(
