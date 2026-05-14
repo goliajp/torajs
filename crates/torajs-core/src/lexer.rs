@@ -786,6 +786,25 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                         .expect("ascii bin digits are valid utf-8");
                     let cleaned;
                     let s: &str = if raw.contains('_') { cleaned = raw.replace('_', ""); &cleaned } else { raw };
+                    // P0.10 — binary BigInt `0b...n` per ES spec
+                    // §12.9.3. ssa_lower's bigint_from_decimal /
+                    // bigint_from_hex are the only helpers wired
+                    // today; pre-convert the binary digits to a
+                    // decimal string at lex time so the existing
+                    // decimal helper can take them. Restricts the
+                    // value to u64 range — values past 2^63 would
+                    // need arbitrary-precision base conversion
+                    // (separate substrate item).
+                    if peek(bytes, i) == Some(b'n') {
+                        let n: u64 = u64::from_str_radix(s, 2)
+                            .map_err(|_| format!("invalid binary BigInt at {start}"))?;
+                        i += 1;
+                        emit(&mut out, Token::BigInt {
+                            digits: n.to_string(),
+                            radix: 10,
+                        }, start, i);
+                        continue;
+                    }
                     let n: u64 = u64::from_str_radix(s, 2)
                         .map_err(|_| format!("invalid binary number at {start}"))?;
                     emit(&mut out, Token::Number(n as f64), start, i);
@@ -809,6 +828,18 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                         .expect("ascii oct digits are valid utf-8");
                     let cleaned;
                     let s: &str = if raw.contains('_') { cleaned = raw.replace('_', ""); &cleaned } else { raw };
+                    // P0.10 — octal BigInt `0o...n`. Same pre-
+                    // convert-to-decimal shape as binary BigInt.
+                    if peek(bytes, i) == Some(b'n') {
+                        let n: u64 = u64::from_str_radix(s, 8)
+                            .map_err(|_| format!("invalid octal BigInt at {start}"))?;
+                        i += 1;
+                        emit(&mut out, Token::BigInt {
+                            digits: n.to_string(),
+                            radix: 10,
+                        }, start, i);
+                        continue;
+                    }
                     let n: u64 = u64::from_str_radix(s, 8)
                         .map_err(|_| format!("invalid octal number at {start}"))?;
                     emit(&mut out, Token::Number(n as f64), start, i);
