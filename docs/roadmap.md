@@ -104,14 +104,57 @@ pipeline, no JIT, no interpreter.
 
 ## Trunk
 
-The trunk is **14 phases (P0–P14) executed in strict order**. Each phase
-has a measurable goal, an ordered item list, and an acceptance gate
-(usually a test262 in-scope pass-rate target). The order is fixed by
-substrate dependency — earlier phases unlock later phases' work.
+The trunk is **15 phases (P-PARSE → P14) executed in strict order**.
+Each phase has a measurable goal, an ordered item list, and an
+acceptance gate (usually a test262 in-scope pass-rate target). The
+order is fixed by substrate dependency — earlier phases unlock later
+phases' work.
 
 Phase budgets are rough (1 item ≈ 1–3 days, 1 phase ≈ weeks). They are
 *planning estimates*, not commitments. The acceptance gate is the
 contract.
+
+### P-PARSE — ES syntax parser completeness
+
+**Inserted 2026-05-14 after the first P0.1 commit revealed the
+empirical bottleneck.** A 500-case `language/expressions` sample showed
+parse errors at **53 % of all incompatibles** (159 / 300) — bigger
+than type errors (135). The original P0 ("untyped-JS surface")
+operates on the typecheck layer, but typecheck never runs when parse
+already rejects. P-PARSE clears the parser surface first; only after
+that do P0's typecheck-level changes get traction.
+
+**Goal**: tora's parser accepts the full ES2024 expression / statement
+/ pattern surface that test262 exercises in `language/expressions`,
+`language/statements`, and `language/expressions/arrow-function/dstr`.
+
+**Acceptance**: re-running the 500-case `language/expressions` sample,
+`parse error` row in incompat breakdown drops from 159 to ≤ 20.
+
+**Items (strict order — by empirical frequency in the 500-sample):**
+
+- **P-PARSE.1** Sparse array literal `[1, , 3]` — comma in element
+  position parses as elision (Empty), not error. Same shape inside
+  destructuring patterns.
+- **P-PARSE.2** Arrow-function parameter destructuring with nested
+  array / object patterns — `([a, [b]]) => ...`,
+  `([{ x }]) => ...`, `([...rest]) => ...`.
+- **P-PARSE.3** Destructuring element with default value —
+  `[a = 5] = ...`, `({ x = 1 }) = ...` (in destr-target position
+  inside arrow / fn params).
+- **P-PARSE.4** Object literal getter / setter shorthand —
+  `{ get x() { ... }, set x(v) { ... } }`.
+- **P-PARSE.5** Generator function expression `function* g() {...}`
+  in expression position (the existing parser handles
+  `function* g()` declaration but bails on `var g = function*() {...}`
+  and similar shapes).
+- **P-PARSE.6** Surface-residue items surfaced during P-PARSE.1–5
+  (appended here as they're discovered, in order).
+
+P-PARSE is intentionally *only* parser work — no SSA-lower changes,
+no runtime additions. Each item is a token-aware parser branch, plus
+the AST node it lowers to (which already exists for nearly all of
+them since the typecheck path was already wired).
 
 ### P0 — Untyped-JS surface
 
