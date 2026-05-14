@@ -12500,7 +12500,61 @@ impl<'a> LowerCtx<'a> {
                         "isNaN" | "isFinite" => {
                             let arg_op = self.lower_expr(args[0]);
                             let arg_ty = self.operand_ty(&arg_op);
-                            let target = match (name.as_str(), arg_ty) {
+                            // V3-18 wedge — global isNaN / isFinite
+                            // apply ToNumber per JS spec §19.2.3 /
+                            // §19.2.4. Reuse the same coerce paths
+                            // Number(x) ctor takes (m1.h.9 / m1.f).
+                            // After coercion the arg is always F64
+                            // (or i64 for true bools / int literals);
+                            // dispatch on the post-coerce SSA type.
+                            let coerced = match arg_ty {
+                                Type::I64 | Type::F64 | Type::I32 => arg_op,
+                                Type::Bool => self.coerce_bool_to_i64(arg_op),
+                                Type::Ptr if matches!(arg_op, Operand::ConstPtrNull) => {
+                                    // ToNumber(null) = +0
+                                    Operand::ConstI64(0)
+                                }
+                                Type::Str | Type::Substr => {
+                                    // Drop responsibility: fresh-owned
+                                    // strings (literals / concat
+                                    // results) need to dec after the
+                                    // helper reads them. ConsumIfIdent
+                                    // handled implicitly — same
+                                    // pattern as Number(s) ctor.
+                                    let v = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::Call(
+                                            self.intrinsics.str_to_number,
+                                            vec![arg_op.clone()],
+                                        ),
+                                        Type::F64,
+                                        None,
+                                    );
+                                    if self.expr_is_fresh_owned(args[0]) {
+                                        self.emit_drop_value(arg_op, arg_ty);
+                                    } else {
+                                        self.consume_if_ident(args[0]);
+                                    }
+                                    Operand::Value(v)
+                                }
+                                _ => {
+                                    // Non-numeric, non-coercible
+                                    // (object / array / closure):
+                                    // ToNumber yields NaN per spec.
+                                    // isFinite(NaN) = false,
+                                    // isNaN(NaN) = true. Drop the
+                                    // borrow if fresh-owned to keep
+                                    // refcount balanced.
+                                    if arg_ty.is_refcounted()
+                                        && self.expr_is_fresh_owned(args[0])
+                                    {
+                                        self.emit_drop_value(arg_op, arg_ty);
+                                    }
+                                    return Operand::ConstBool(name == "isNaN");
+                                }
+                            };
+                            let coerced_ty = self.operand_ty(&coerced);
+                            let target = match (name.as_str(), coerced_ty) {
                                 ("isNaN", Type::F64) => self.intrinsics.num_is_nan_f,
                                 ("isNaN", _) => self.intrinsics.num_is_nan_i,
                                 ("isFinite", Type::F64) => self.intrinsics.num_is_finite_f,
@@ -12509,7 +12563,7 @@ impl<'a> LowerCtx<'a> {
                             };
                             let v = self.f.append_inst(
                                 self.cur_block,
-                                InstKind::Call(target, vec![arg_op]),
+                                InstKind::Call(target, vec![coerced]),
                                 Type::Bool,
                                 None,
                             );

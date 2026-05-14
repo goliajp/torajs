@@ -4735,12 +4735,19 @@ impl Checker {
                                     args.len()
                                 ));
                             }
-                            let a_ty = self.type_of(ast, args[0])?;
-                            if a_ty != Type::Number {
-                                return Err(format!(
-                                    "{name} arg must be number, got {a_ty:?}"
-                                ));
-                            }
+                            // V3-18 wedge — global isNaN / isFinite per
+                            // JS spec §19.2.3 / §19.2.4 apply ToNumber
+                            // on the argument before testing the
+                            // predicate (intentional contrast with the
+                            // strict Number.isNaN / Number.isFinite
+                            // namespaced methods that don't coerce).
+                            // Common idiom in TS code that copies JS
+                            // patterns: `isFinite("3")` → true (not
+                            // a type error). Drive type_of for any
+                            // internal-error surface but accept any
+                            // coercible type; ssa_lower applies the
+                            // ToNumber step at lower time.
+                            let _ = self.type_of(ast, args[0])?;
                             return Ok(Type::Boolean);
                         }
                         _ => {}
