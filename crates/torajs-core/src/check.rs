@@ -5468,6 +5468,12 @@ impl Checker {
                             // T-25 — BigInt arithmetic. Mixed with
                             // Number is a TypeError per spec.
                             Ok(Type::BigInt)
+                        } else if matches!(l, Type::Any) || matches!(r, Type::Any) {
+                            // P0.7 — Any operand on either side per
+                            // JS spec §13.6 / §13.7 / §13.8 / §13.9
+                            // ToNumber both sides, perform the op in
+                            // IEEE 754, return Any-boxed Number.
+                            Ok(Type::Any)
                         } else if js_arith_coerces_to_number(&l, &r) {
                             // V3-18 m1.b — ToNumber coercion for the
                             // -/*/division operators. Same Bool/Null →

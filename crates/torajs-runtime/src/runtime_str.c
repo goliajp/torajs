@@ -860,6 +860,7 @@ void *__torajs_i64_to_str(int64_t n);
 void *__torajs_f64_to_str(double n);
 void *__torajs_bool_to_str(int b);
 void *__torajs_null_to_str(void);
+double __torajs_str_to_number(const void *p);
 
 /* P0.6 — Any tag → Str helper. Used by __torajs_any_add when one
  * side is String and the other needs ToString coercion. Returns a
@@ -895,6 +896,78 @@ static void *__torajs_any_to_str(int64_t tag, int64_t value) {
         }
         default: return __torajs_null_to_str();
     }
+}
+
+/* P0.7 — ToNumber(Any) helper per JS spec §7.1.4. Returns the
+ * tagged value coerced to f64. Tag dispatch:
+ *   ANY_NULL  → 0.0
+ *   ANY_BOOL  → 0.0 / 1.0
+ *   ANY_I64   → (double)value
+ *   ANY_F64   → bitcast i64-bits → double
+ *   ANY_HEAP/Str → strtod via existing __torajs_str_to_number
+ *   ANY_HEAP/other → NaN (spec ToNumber on object returns NaN
+ *                    for our subset since we don't have valueOf
+ *                    method dispatch yet)
+ */
+static double __torajs_any_to_number_inner(int64_t tag, int64_t value) {
+    switch (tag) {
+        case __TORAJS_ANY_NULL: return 0.0;
+        case __TORAJS_ANY_BOOL: return value != 0 ? 1.0 : 0.0;
+        case __TORAJS_ANY_I64:  return (double)value;
+        case __TORAJS_ANY_F64: {
+            union { int64_t i; double d; } u = { .i = value };
+            return u.d;
+        }
+        case __TORAJS_ANY_HEAP: {
+            void *child = (void *)(uintptr_t)value;
+            if (child == NULL) return 0.0;
+            const __torajs_heap_header_t *h = (const __torajs_heap_header_t *)child;
+            if (h->type_tag == __TORAJS_TAG_STR) {
+                return __torajs_str_to_number(child);
+            }
+            return 0.0 / 0.0;  /* NaN */
+        }
+        default: return 0.0 / 0.0;
+    }
+}
+
+/* P0.7 — Any-aware arithmetic dispatcher for `-`, `*`, `/`, `%`.
+ * Per JS spec §13.6 / §13.7 / §13.8 / §13.9 — both operands go
+ * through ToNumber then the arithmetic is performed in IEEE 754.
+ * Result is always Number (either I64 or F64 boxed in Any).
+ *
+ * op codes: 0=Sub, 1=Mul, 2=Div, 3=Mod
+ */
+void *__torajs_any_arith(int64_t op, int64_t lt, int64_t lv,
+                         int64_t rt, int64_t rv)
+{
+    double l = __torajs_any_to_number_inner(lt, lv);
+    double r = __torajs_any_to_number_inner(rt, rv);
+    double result;
+    switch (op) {
+        case 0: result = l - r; break;
+        case 1: result = l * r; break;
+        case 2: result = l / r; break;
+        case 3: result = fmod(l, r); break;
+        default: result = 0.0 / 0.0; break;
+    }
+    /* I64-encode if both inputs were i64-shaped AND result is
+     * integer-valued in i64 range — keeps Number printing clean
+     * (matches the same logic in __torajs_any_add). */
+    bool l_was_i = (lt == __TORAJS_ANY_NULL || lt == __TORAJS_ANY_BOOL
+                    || lt == __TORAJS_ANY_I64);
+    bool r_was_i = (rt == __TORAJS_ANY_NULL || rt == __TORAJS_ANY_BOOL
+                    || rt == __TORAJS_ANY_I64);
+    if (l_was_i && r_was_i && op != 2  /* div always f64 even for ints */
+        && result >= (double)INT64_MIN && result <= (double)INT64_MAX)
+    {
+        int64_t isum = (int64_t)result;
+        if ((double)isum == result) {
+            return __torajs_any_box(__TORAJS_ANY_I64, isum);
+        }
+    }
+    union { int64_t i; double d; } u = { .d = result };
+    return __torajs_any_box(__TORAJS_ANY_F64, u.i);
 }
 
 /* P0.6 — Any + Any per JS spec §13.15.3 ApplyStringOrNumericBinary

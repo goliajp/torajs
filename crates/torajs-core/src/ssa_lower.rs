@@ -2007,6 +2007,13 @@ fn lower_inner(
         &[Type::I64, Type::I64, Type::I64, Type::I64],
         Type::Any,
     );
+    let any_arith_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_any_arith",
+        &[Type::I64, Type::I64, Type::I64, Type::I64, Type::I64],
+        Type::Any,
+    );
     let any_strict_eq_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -3921,6 +3928,7 @@ fn lower_inner(
         any_typeof: any_typeof_id,
         any_to_bool: any_to_bool_id,
         any_add: any_add_id,
+        any_arith: any_arith_id,
         any_strict_eq: any_strict_eq_id,
         any_any_strict_eq: any_any_strict_eq_id,
         any_unbox_tag: any_unbox_tag_id,
@@ -4661,6 +4669,7 @@ struct Intrinsics {
     any_typeof: FuncId,
     any_to_bool: FuncId,
     any_add: FuncId,
+    any_arith: FuncId,
     any_strict_eq: FuncId,
     any_any_strict_eq: FuncId,
     any_unbox_tag: FuncId,
@@ -21207,11 +21216,15 @@ impl<'a> LowerCtx<'a> {
         // any heap pointer; the existing pointer-cmp path handles
         // both correctly. Without this carve-out, `obj.next === null`
         // would static-false even when obj.next IS null at runtime.
-        // P0.6 — Any + Any / Any + concrete / concrete + Any per
-        // spec §13.15.3. Route through __torajs_any_add with both
-        // operands packed as (tag, value-as-i64). Result is a fresh
-        // Any-box (Type::Any operand at SSA layer).
-        if matches!(op, AstBinOp::Add) {
+        // P0.6 / P0.7 — Any-aware arithmetic per spec §13.6-§13.15.
+        // Both Add and the Sub/Mul/Div/Mod family pack each operand
+        // as (tag, value-as-i64) and call into the matching helper.
+        // Add gets ToPrimitive→ToString fallback (any_add); the other
+        // four always ToNumber (any_arith with op code).
+        if matches!(op,
+            AstBinOp::Add | AstBinOp::Sub | AstBinOp::Mul
+            | AstBinOp::Div | AstBinOp::Mod
+        ) {
             let a_ty = self.operand_ty(&a);
             let b_ty = self.operand_ty(&b);
             if matches!(a_ty, Type::Any) || matches!(b_ty, Type::Any) {
@@ -21265,12 +21278,31 @@ impl<'a> LowerCtx<'a> {
                 };
                 let (lt, lv) = pack(self, a, a_ty);
                 let (rt, rv) = pack(self, b, b_ty);
-                let r = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::Call(self.intrinsics.any_add, vec![lt, lv, rt, rv]),
-                    Type::Any,
-                    None,
-                );
+                let r = if matches!(op, AstBinOp::Add) {
+                    self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(self.intrinsics.any_add, vec![lt, lv, rt, rv]),
+                        Type::Any,
+                        None,
+                    )
+                } else {
+                    let op_code: i64 = match op {
+                        AstBinOp::Sub => 0,
+                        AstBinOp::Mul => 1,
+                        AstBinOp::Div => 2,
+                        AstBinOp::Mod => 3,
+                        _ => unreachable!(),
+                    };
+                    self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.any_arith,
+                            vec![Operand::ConstI64(op_code), lt, lv, rt, rv],
+                        ),
+                        Type::Any,
+                        None,
+                    )
+                };
                 return Operand::Value(r);
             }
         }
