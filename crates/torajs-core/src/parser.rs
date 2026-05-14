@@ -1171,138 +1171,193 @@ impl Parser<'_> {
     fn parse_destr_param(&mut self, lets: &mut Vec<Stmt>) -> Result<String, String> {
         let id = self.mint_desugar_id();
         let synth = format!("__param_destr_{id}");
+        self.parse_destr_into(synth.clone(), lets)?;
+        Ok(synth)
+    }
+
+    /// P-PARSE.2 — recursive split for destructuring patterns of any
+    /// nesting depth. Each leaf binding emits a
+    /// `let leaf = <src>[i]` (array) or `let leaf = <src>.<field>`
+    /// (object) into `lets`; each nested sub-pattern (`[a, [b, c]]`,
+    /// `{ x: { y } }`) synthesizes an intermediate
+    /// `__nested_destr_<id>` binding and recurses with that as the
+    /// new source name. The flat MVP from the v3 wedge cycle becomes
+    /// the depth-1 case of this recursion — no behaviour change for
+    /// existing fixtures.
+    fn parse_destr_into(
+        &mut self,
+        src_name: String,
+        lets: &mut Vec<Stmt>,
+    ) -> Result<(), String> {
         match self.peek() {
-            Token::LBracket => {
-                self.pos += 1;
-                let mut names: Vec<String> = Vec::new();
-                if !matches!(self.peek(), Token::RBracket) {
-                    loop {
-                        let n = match self.peek() {
-                            Token::Ident(n) => n.clone(),
-                            t => {
-                                return Err(format!(
-                                    "expected identifier in array param destructuring, got {t:?} at {}",
-                                    self.at()
-                                ));
-                            }
-                        };
+            Token::LBracket => self.parse_destr_array_into(src_name, lets),
+            Token::LBrace => self.parse_destr_object_into(src_name, lets),
+            t => Err(format!(
+                "expected `[` or `{{` to start a destr param, got {t:?} at {}",
+                self.at()
+            )),
+        }
+    }
+
+    fn parse_destr_array_into(
+        &mut self,
+        src_name: String,
+        lets: &mut Vec<Stmt>,
+    ) -> Result<(), String> {
+        // assumes current token is `[`
+        self.pos += 1;
+        let mut elem_idx: usize = 0;
+        if !matches!(self.peek(), Token::RBracket) {
+            loop {
+                // Build `<src_name>[elem_idx]` once; nested vs leaf
+                // both consume it.
+                let src_ref = self.ast.add_expr(Expr::Ident(src_name.clone()));
+                let idx_lit = self.ast.add_expr(Expr::Number(elem_idx as f64));
+                let elem = self
+                    .ast
+                    .add_expr(Expr::Index { obj: src_ref, index: idx_lit });
+                match self.peek() {
+                    Token::Ident(n) => {
+                        let nn = n.clone();
                         self.pos += 1;
-                        names.push(n);
-                        match self.peek() {
-                            Token::Comma => {
-                                self.pos += 1;
-                                if matches!(self.peek(), Token::RBracket) {
-                                    break;
-                                }
-                            }
-                            Token::RBracket => break,
-                            t => {
-                                return Err(format!(
-                                    "expected `,` or `]` in array param destructuring, got {t:?} at {}",
-                                    self.at()
-                                ));
-                            }
-                        }
+                        lets.push(Stmt::LetDecl {
+                            mutable: false,
+                            name: nn,
+                            type_ann: None,
+                            init: elem,
+                        });
+                    }
+                    Token::LBracket | Token::LBrace => {
+                        let nested_id = self.mint_desugar_id();
+                        let nested_src = format!("__nested_destr_{nested_id}");
+                        lets.push(Stmt::LetDecl {
+                            mutable: false,
+                            name: nested_src.clone(),
+                            type_ann: None,
+                            init: elem,
+                        });
+                        self.parse_destr_into(nested_src, lets)?;
+                    }
+                    t => {
+                        return Err(format!(
+                            "expected identifier in array param destructuring, got {t:?} at {}",
+                            self.at()
+                        ));
                     }
                 }
-                self.pos += 1; // consume `]`
-                for (i, n) in names.iter().enumerate() {
-                    let src_ref = self.ast.add_expr(Expr::Ident(synth.clone()));
-                    let idx = self.ast.add_expr(Expr::Number(i as f64));
-                    let elem = self
-                        .ast
-                        .add_expr(Expr::Index { obj: src_ref, index: idx });
-                    lets.push(Stmt::LetDecl {
-                        mutable: false,
-                        name: n.clone(),
-                        type_ann: None,
-                        init: elem,
-                    });
-                }
-            }
-            Token::LBrace => {
-                self.pos += 1;
-                let mut entries: Vec<(String, String)> = Vec::new();
-                if !matches!(self.peek(), Token::RBrace) {
-                    loop {
-                        let (field, field_is_kw) = match self.peek() {
-                            Token::Ident(n) => (n.clone(), false),
-                            t if Self::keyword_property_name(t).is_some() => (
-                                Self::keyword_property_name(t).unwrap().to_string(),
-                                true,
-                            ),
-                            t => {
-                                return Err(format!(
-                                    "expected identifier in object param destructuring, got {t:?} at {}",
-                                    self.at()
-                                ));
-                            }
-                        };
+                elem_idx += 1;
+                match self.peek() {
+                    Token::Comma => {
                         self.pos += 1;
-                        let bound = if matches!(self.peek(), Token::Colon) {
-                            self.pos += 1;
-                            match self.peek() {
-                                Token::Ident(n) => {
-                                    let nn = n.clone();
-                                    self.pos += 1;
-                                    nn
-                                }
-                                t => {
-                                    return Err(format!(
-                                        "expected rename target after `:` in object param destructuring, got {t:?} at {}",
-                                        self.at()
-                                    ));
-                                }
-                            }
-                        } else {
-                            if field_is_kw {
-                                return Err(format!(
-                                    "destructuring field `{field}` is a reserved word; use `{{ {field}: <binding> }}` to rename at {}",
-                                    self.at()
-                                ));
-                            }
-                            field.clone()
-                        };
-                        entries.push((field, bound));
-                        match self.peek() {
-                            Token::Comma => {
-                                self.pos += 1;
-                                if matches!(self.peek(), Token::RBrace) {
-                                    break;
-                                }
-                            }
-                            Token::RBrace => break,
-                            t => {
-                                return Err(format!(
-                                    "expected `,` or `}}` in object param destructuring, got {t:?} at {}",
-                                    self.at()
-                                ));
-                            }
+                        if matches!(self.peek(), Token::RBracket) {
+                            break;
                         }
                     }
+                    Token::RBracket => break,
+                    t => {
+                        return Err(format!(
+                            "expected `,` or `]` in array param destructuring, got {t:?} at {}",
+                            self.at()
+                        ));
+                    }
                 }
-                self.pos += 1; // consume `}`
-                for (field, bound) in &entries {
-                    let src_ref = self.ast.add_expr(Expr::Ident(synth.clone()));
-                    let elem = self
-                        .ast
-                        .add_expr(Expr::Member { obj: src_ref, name: field.clone() });
-                    lets.push(Stmt::LetDecl {
-                        mutable: false,
-                        name: bound.clone(),
-                        type_ann: None,
-                        init: elem,
-                    });
-                }
-            }
-            t => {
-                return Err(format!(
-                    "expected `[` or `{{` to start a destr param, got {t:?} at {}",
-                    self.at()
-                ));
             }
         }
-        Ok(synth)
+        self.pos += 1; // consume `]`
+        Ok(())
+    }
+
+    fn parse_destr_object_into(
+        &mut self,
+        src_name: String,
+        lets: &mut Vec<Stmt>,
+    ) -> Result<(), String> {
+        // assumes current token is `{`
+        self.pos += 1;
+        if !matches!(self.peek(), Token::RBrace) {
+            loop {
+                let (field, field_is_kw) = match self.peek() {
+                    Token::Ident(n) => (n.clone(), false),
+                    t if Self::keyword_property_name(t).is_some() => (
+                        Self::keyword_property_name(t).unwrap().to_string(),
+                        true,
+                    ),
+                    t => {
+                        return Err(format!(
+                            "expected identifier in object param destructuring, got {t:?} at {}",
+                            self.at()
+                        ));
+                    }
+                };
+                self.pos += 1;
+                let src_ref = self.ast.add_expr(Expr::Ident(src_name.clone()));
+                let mem = self
+                    .ast
+                    .add_expr(Expr::Member { obj: src_ref, name: field.clone() });
+                if matches!(self.peek(), Token::Colon) {
+                    self.pos += 1;
+                    match self.peek() {
+                        Token::Ident(n) => {
+                            let nn = n.clone();
+                            self.pos += 1;
+                            lets.push(Stmt::LetDecl {
+                                mutable: false,
+                                name: nn,
+                                type_ann: None,
+                                init: mem,
+                            });
+                        }
+                        Token::LBracket | Token::LBrace => {
+                            let nested_id = self.mint_desugar_id();
+                            let nested_src = format!("__nested_destr_{nested_id}");
+                            lets.push(Stmt::LetDecl {
+                                mutable: false,
+                                name: nested_src.clone(),
+                                type_ann: None,
+                                init: mem,
+                            });
+                            self.parse_destr_into(nested_src, lets)?;
+                        }
+                        t => {
+                            return Err(format!(
+                                "expected rename target after `:` in object param destructuring, got {t:?} at {}",
+                                self.at()
+                            ));
+                        }
+                    }
+                } else {
+                    if field_is_kw {
+                        return Err(format!(
+                            "destructuring field `{field}` is a reserved word; use `{{ {field}: <binding> }}` to rename at {}",
+                            self.at()
+                        ));
+                    }
+                    lets.push(Stmt::LetDecl {
+                        mutable: false,
+                        name: field,
+                        type_ann: None,
+                        init: mem,
+                    });
+                }
+                match self.peek() {
+                    Token::Comma => {
+                        self.pos += 1;
+                        if matches!(self.peek(), Token::RBrace) {
+                            break;
+                        }
+                    }
+                    Token::RBrace => break,
+                    t => {
+                        return Err(format!(
+                            "expected `,` or `}}` in object param destructuring, got {t:?} at {}",
+                            self.at()
+                        ));
+                    }
+                }
+            }
+        }
+        self.pos += 1; // consume `}`
+        Ok(())
     }
 
     fn parse_return(&mut self) -> Result<Stmt, String> {
