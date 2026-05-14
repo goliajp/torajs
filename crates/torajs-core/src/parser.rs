@@ -3539,6 +3539,86 @@ impl Parser<'_> {
         if matches!(self.peek(), Token::Function) {
             return self.parse_fn_expr();
         }
+        // P0.10 — async function expression `async function() {...}` /
+        // `async function NAME() {...}` per ES spec §15.8.5
+        // AsyncFunctionExpression. Used in test262 for `async function()
+        // {}.constructor` (~15+ cases under built-ins/AsyncFunction/* and
+        // built-ins/AsyncDisposableStack/*). Real async-fn-expression
+        // substrate (state-machine generation, await binding) is a
+        // P-LATER item; for the parser milestone we accept the syntax,
+        // brace-balance the body, and emit an empty placeholder
+        // Expr::ArrowFn — same strategy as generator-expression
+        // (function*) and getter/setter/computed-method bodies.
+        if matches!(self.peek(), Token::Async)
+            && let Some(next) = self.tokens.get(self.pos + 1)
+            && matches!(next.token, Token::Function)
+        {
+            self.pos += 2; // consume `async function`
+            // Optional name — accept and discard.
+            if let Token::Ident(_) = self.peek() {
+                self.pos += 1;
+            }
+            // Drop the param list paren-balanced.
+            match self.peek() {
+                Token::LParen => self.pos += 1,
+                t => {
+                    return Err(format!(
+                        "expected `(` after async function expression, got {t:?} at {}",
+                        self.at()
+                    ));
+                }
+            }
+            let mut depth: i32 = 1;
+            while depth > 0 {
+                match self.peek() {
+                    Token::LParen => depth += 1,
+                    Token::RParen => depth -= 1,
+                    Token::Eof => {
+                        return Err(format!(
+                            "unexpected EOF inside async function expression param list at {}",
+                            self.at()
+                        ));
+                    }
+                    _ => {}
+                }
+                self.pos += 1;
+            }
+            // Optional return-type annotation.
+            if matches!(self.peek(), Token::Colon) {
+                self.pos += 1;
+                let _ = self.parse_type_ann()?;
+            }
+            // Drop the body brace-balanced.
+            match self.peek() {
+                Token::LBrace => self.pos += 1,
+                t => {
+                    return Err(format!(
+                        "expected `{{` after async function expression header, got {t:?} at {}",
+                        self.at()
+                    ));
+                }
+            }
+            let mut depth: i32 = 1;
+            while depth > 0 {
+                match self.peek() {
+                    Token::LBrace => depth += 1,
+                    Token::RBrace => depth -= 1,
+                    Token::Eof => {
+                        return Err(format!(
+                            "unexpected EOF inside async function expression body at {}",
+                            self.at()
+                        ));
+                    }
+                    _ => {}
+                }
+                self.pos += 1;
+            }
+            return Ok(self.ast.add_expr(Expr::ArrowFn {
+                params: Vec::new(),
+                return_type: None,
+                body: Vec::new(),
+            }));
+        }
         // Regex literal `/pattern/flags`. The lexer already
         // disambiguated regex vs division by inspecting the previous
         // token; the parser just unwraps the carried pattern + flags
