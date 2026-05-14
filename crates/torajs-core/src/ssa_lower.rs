@@ -1974,6 +1974,16 @@ fn lower_inner(
         &[Type::Ptr, Type::I64, Type::I64],
         Type::Ptr,
     );
+    // P0.10 — indexed Any-slot write. (arr, idx, tag, value) → void.
+    // Drops old slot's heap value (if ANY_HEAP) then overwrites.
+    // Caller must rc-bump heap values before passing.
+    let arr_set_any_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_arr_set_any",
+        &[Type::Ptr, Type::I64, Type::I64, Type::I64],
+        Type::Void,
+    );
     let arr_drop_any_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -3930,6 +3940,7 @@ fn lower_inner(
         process_stderr_write: process_stderr_write_id,
         arr_alloc_any: arr_alloc_any_id,
         arr_push_any: arr_push_any_id,
+        arr_set_any: arr_set_any_id,
         arr_drop_any: arr_drop_any_id,
         any_box: any_box_id,
         any_typeof: any_typeof_id,
@@ -4672,6 +4683,7 @@ struct Intrinsics {
     process_stderr_write: FuncId,
     arr_alloc_any: FuncId,
     arr_push_any: FuncId,
+    arr_set_any: FuncId,
     arr_drop_any: FuncId,
     any_box: FuncId,
     any_typeof: FuncId,
@@ -11561,6 +11573,103 @@ impl<'a> LowerCtx<'a> {
                             ),
                         };
                         let idx_val = self.lower_expr(index);
+                        // P0.10 — Array<Any>[i] = <concrete>. The Any
+                        // slots are 16 bytes (tag, value); the
+                        // arr_set_any runtime helper boxes the (tag,
+                        // value) pair and writes both atomically,
+                        // also dropping any old ANY_HEAP slot. Skip the
+                        // generic StoreDyn path (which uses 8-byte
+                        // stride and would corrupt the 16-byte slot
+                        // layout).
+                        if matches!(elem_ty, Type::Any) {
+                            let v_raw = self.lower_expr(*value);
+                            self.consume_if_ident(*value);
+                            // Pack the value into a (tag, value) pair
+                            // using the same scheme as box_to_any but
+                            // without the heap allocation.
+                            let v_ty = self.operand_ty(&v_raw);
+                            let (tag, value_op): (i64, Operand) = match v_ty {
+                                Type::I64 | Type::I32 => (2, v_raw),
+                                Type::F64 => {
+                                    let bits = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::BitCastF64ToI64(v_raw),
+                                        Type::I64,
+                                        None,
+                                    );
+                                    (3, Operand::Value(bits))
+                                }
+                                Type::Bool => {
+                                    let zext = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::ZExtBoolToI64(v_raw),
+                                        Type::I64,
+                                        None,
+                                    );
+                                    (1, Operand::Value(zext))
+                                }
+                                _ if v_ty.is_refcounted() => (4, v_raw),
+                                Type::Ptr => {
+                                    // Frontend `null` lowers to Type::Ptr
+                                    // ConstPtrNull. Detect that constant
+                                    // shape and emit ANY_NULL (tag=0);
+                                    // any other Ptr value is treated as
+                                    // a generic heap pointer (ANY_HEAP).
+                                    if matches!(v_raw, Operand::ConstPtrNull) {
+                                        (0, Operand::ConstI64(0))
+                                    } else {
+                                        (4, v_raw)
+                                    }
+                                }
+                                Type::Any => {
+                                    // Already boxed — extract tag/value
+                                    // from the Any-box. Read tag from
+                                    // offset 16, value from offset 24
+                                    // (matches the box_to_any layout).
+                                    let tag_v = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::Load(Type::I64, v_raw.clone(), 16),
+                                        Type::I64,
+                                        None,
+                                    );
+                                    let val_v = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::Load(Type::I64, v_raw.clone(), 24),
+                                        Type::I64,
+                                        None,
+                                    );
+                                    self.f.append_void(
+                                        self.cur_block,
+                                        InstKind::Call(
+                                            self.intrinsics.arr_set_any,
+                                            vec![
+                                                arr_val,
+                                                idx_val,
+                                                Operand::Value(tag_v),
+                                                Operand::Value(val_v),
+                                            ],
+                                        ),
+                                    );
+                                    return v_raw;
+                                }
+                                _ => panic!(
+                                    "ssa-lower: Array<Any>[i] = unsupported value type {v_ty:?}"
+                                ),
+                            };
+                            self.f.append_void(
+                                self.cur_block,
+                                InstKind::Call(
+                                    self.intrinsics.arr_set_any,
+                                    vec![
+                                        arr_val,
+                                        idx_val,
+                                        Operand::ConstI64(tag),
+                                        value_op,
+                                    ],
+                                ),
+                            );
+                            return v_raw;
+                        }
                         // T-13.5: head-aware byte offset for indexed assign.
                         let offset = self.emit_arr_slot_byte_offset(
                             arr_val.clone(),

@@ -645,6 +645,32 @@ uint64_t __torajs_arr_get_any_value(const void *arr, uint64_t i) {
     return *any_slot_val_((void *)arr, i);
 }
 
+/* Forward decl — definition lives further down in the file but
+ * arr_set_any (immediately below) needs to call it for the heap-
+ * value drop on slot overwrite. */
+void __torajs_value_drop_heap(void *child);
+
+/* P0.10 — set a tagged slot at index `i`. Mirrors arr_push_any
+ * for the indexed-assign path. ssa_lower's box_to_any boxes the
+ * RHS into a temp Any-box; we extract its (tag, value) and write
+ * into the slot. ANY_HEAP slots: caller must have rc-incremented
+ * the heap value before calling; we drop the old slot's heap
+ * value (if ANY_HEAP) before overwriting so refcount accounting
+ * stays balanced. NULL arr is a no-op. Out-of-bounds i is the
+ * caller's responsibility (no bounds check, matching the existing
+ * arr_get_any_* helpers). */
+void __torajs_arr_set_any(void *arr, uint64_t i, uint64_t tag, uint64_t value) {
+    if (arr == NULL) return;
+    /* Drop old slot's heap value if it was ANY_HEAP (tag=4). */
+    uint64_t old_tag = *any_slot_tag_(arr, i);
+    if (old_tag == 4 /* ANY_HEAP */) {
+        uint64_t old_val = *any_slot_val_(arr, i);
+        __torajs_value_drop_heap((void *)(uintptr_t)old_val);
+    }
+    *any_slot_tag_(arr, i) = tag;
+    *any_slot_val_(arr, i) = value;
+}
+
 /* Forward decls for the inkwell-emitted *_drop helpers. They live
  * in the AOT binary's IR module; cc -c sees them via the linker
  * after the link step, so an implicit-function-declaration warning

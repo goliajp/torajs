@@ -5891,7 +5891,12 @@ impl Checker {
                         };
                         let elem_ty = (**elem).clone();
                         let value_ty = self.type_of(ast, *value)?;
-                        if value_ty != elem_ty {
+                        // P0.10 — Array<Any>[i] = <concrete> is allowed
+                        // per TS spec; box happens at ssa-lower time
+                        // via `__torajs_arr_set_any` (matches the
+                        // existing Any-typed let init / call-arg
+                        // boxing path).
+                        if !is_assignable_to_resolved(&elem_ty, &value_ty, &self.aliases) {
                             return Err(format!(
                                 "type mismatch on element assignment: array of {elem_ty:?}, value is {value_ty:?}"
                             ));
