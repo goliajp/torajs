@@ -6454,15 +6454,37 @@ pub fn desugar_implicit_generics(ast: &mut Ast) {
             }
             continue;
         }
-        // Lifted arrow / function-expression bodies (`__closure_<N>`)
-        // are stored in locals and called indirectly — the M3 generic
-        // call-site retargeting only fires for bare-Ident callees that
-        // name a global generic FnDecl, so adding TypeVars to PARAMS
-        // here would produce a generic signature with no path to
-        // monomorphize. Return-type sniff is still safe and useful
-        // for arrow expr-body inference (`(v: number) => v + 1`),
-        // so we run that branch then continue without touching params.
+        // P0.5 — lifted arrow / function-expression bodies
+        // (`__closure_<N>`) get unannotated params defaulted to
+        // Type::Any (concrete tagged-box, NOT generic TypeVar). The
+        // closure signature is then concrete `(Any, Any, ...) → ...`
+        // so ssa_lower lowers it as a regular fn, no monomorphization
+        // path needed. Call sites box their concrete args via
+        // box_to_any before dispatching. Body operations on Any
+        // operands route through the P0.3 / P0.4 / future P0.x
+        // Any-aware op helpers.
+        //
+        // The historical skip dropped TypeVars on closures because
+        // the indirect-call retargeter only fired on bare-Ident
+        // global-FnDecl callees, leaving closure TypeVar signatures
+        // unresolvable. Defaulting to Any sidesteps that — the
+        // signature is concrete from the start.
+        //
+        // Return-type sniff still runs first so the simple shapes
+        // (`return literal` / `return param`) get a concrete return
+        // type; only fully ambiguous returns fall through to Any.
         if name.starts_with("__closure_") {
+            // Default unannotated params to Type::Any FIRST, then run
+            // return-ann sniff — order matters because the sniff uses
+            // params' type_ann to resolve Ident references in the body.
+            // With `x: any` set, `return x` infers "any"; without, it
+            // bails to None and the lower defaults the return to Void
+            // (which conflicts with the actual returned-Any value).
+            for p in params.iter_mut() {
+                if p.type_ann.is_none() && p.name != "__env" && p.name != "__this" {
+                    p.type_ann = Some("any".to_string());
+                }
+            }
             if return_type.is_none() && body_has_value_return(body) {
                 if let Some(inferred) = infer_return_ann(ast_exprs_view, body, params) {
                     *return_type = Some(inferred);

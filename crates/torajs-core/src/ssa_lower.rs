@@ -18211,8 +18211,28 @@ impl<'a> LowerCtx<'a> {
                         info.ty,
                         None,
                     );
-                    let argv: Vec<Operand> =
-                        args.iter().map(|a| self.lower_expr(*a)).collect();
+                    // P0.5 — box concrete args into Any when the target
+                    // param at that index is declared Any. The closure-
+                    // lift desugar (P0.5 ast.rs change) defaults
+                    // unannotated closure params to Type::Any so the
+                    // sig is concrete; call sites pass concrete args
+                    // and we wrap them at the boundary.
+                    let target_params = self.fn_sigs[sig_id.0 as usize].0.clone();
+                    let argv: Vec<Operand> = args
+                        .iter()
+                        .enumerate()
+                        .map(|(i, a)| {
+                            let raw = self.lower_expr(*a);
+                            if i < target_params.len()
+                                && matches!(target_params[i], Type::Any)
+                                && !matches!(self.operand_ty(&raw), Type::Any)
+                            {
+                                self.box_to_any(raw)
+                            } else {
+                                raw
+                            }
+                        })
+                        .collect();
                     for (i, a) in args.iter().enumerate() {
                         let a_ty = self.operand_ty(&argv[i]);
                         if a_ty.is_refcounted() {
