@@ -1220,21 +1220,37 @@ impl Parser<'_> {
                     Token::Ident(n) => {
                         let nn = n.clone();
                         self.pos += 1;
+                        // P-PARSE.3 — `[a = 5]` per ES spec
+                        // §13.15.5.3 IteratorBindingInitialization:
+                        // when the iterator is done at this index
+                        // (i.e. src.length <= i) the default fires.
+                        // tora's array source is fixed-length, so
+                        // the runtime check collapses to a plain
+                        // `src.length > i` ternary.
+                        let init_expr = self.maybe_parse_destr_default(
+                            elem, src_name.clone(), elem_idx,
+                        )?;
                         lets.push(Stmt::LetDecl {
                             mutable: false,
                             name: nn,
                             type_ann: None,
-                            init: elem,
+                            init: init_expr,
                         });
                     }
                     Token::LBracket | Token::LBrace => {
                         let nested_id = self.mint_desugar_id();
                         let nested_src = format!("__nested_destr_{nested_id}");
+                        // Same default-handling as the leaf path; for
+                        // nested patterns the default expression
+                        // replaces the whole sub-pattern when missing.
+                        let init_expr = self.maybe_parse_destr_default(
+                            elem, src_name.clone(), elem_idx,
+                        )?;
                         lets.push(Stmt::LetDecl {
                             mutable: false,
                             name: nested_src.clone(),
                             type_ann: None,
-                            init: elem,
+                            init: init_expr,
                         });
                         self.parse_destr_into(nested_src, lets)?;
                     }
@@ -1265,6 +1281,77 @@ impl Parser<'_> {
         }
         self.pos += 1; // consume `]`
         Ok(())
+    }
+
+    /// P-PARSE.3 — peek for a `=` after a destr slot binding and
+    /// wrap the load expression in a length-check ternary that
+    /// substitutes the default when the source iterator is
+    /// "exhausted" at this index (src.length <= elem_idx). The
+    /// spec also fires the default when the value is `undefined`,
+    /// but tora has no real undefined yet (P1) — once that lands
+    /// the ternary should also test `=== undefined`.
+    fn maybe_parse_destr_default(
+        &mut self,
+        load_expr: ExprId,
+        src_name: String,
+        elem_idx: usize,
+    ) -> Result<ExprId, String> {
+        if !matches!(self.peek(), Token::Eq) {
+            return Ok(load_expr);
+        }
+        self.pos += 1; // consume `=`
+        let default_expr = self.parse_expr()?;
+        // Build: src.length > elem_idx ? load_expr : default_expr
+        let src_ref = self.ast.add_expr(Expr::Ident(src_name));
+        let len_member = self.ast.add_expr(Expr::Member {
+            obj: src_ref,
+            name: "length".into(),
+        });
+        let idx_lit = self.ast.add_expr(Expr::Number(elem_idx as f64));
+        let cond = self.ast.add_expr(Expr::BinOp {
+            op: BinOp::Gt,
+            left: len_member,
+            right: idx_lit,
+        });
+        Ok(self.ast.add_expr(Expr::Ternary {
+            cond,
+            then_branch: load_expr,
+            else_branch: default_expr,
+        }))
+    }
+
+    /// P-PARSE.3 — `{ x = D }` / `{ x: y = D }`. Per ES spec
+    /// §13.15.5.4 KeyedDestructuringAssignmentEvaluation the
+    /// default fires when the looked-up value is `undefined`.
+    /// tora doesn't have real undefined yet (P1) and the
+    /// existing struct field path doesn't surface `missing` as
+    /// a runtime value, so the default expression is parsed (so
+    /// the source actually compiles) but only fires when the
+    /// field type is Nullable<T> AND the load returns null.
+    /// For non-Nullable struct fields the field is always
+    /// present and the default is dead code — same observable
+    /// behaviour as bun in the typed case.
+    fn maybe_parse_object_destr_default(
+        &mut self,
+        load_expr: ExprId,
+    ) -> Result<ExprId, String> {
+        if !matches!(self.peek(), Token::Eq) {
+            return Ok(load_expr);
+        }
+        self.pos += 1; // consume `=`
+        let default_expr = self.parse_expr()?;
+        // load_expr === null ? default_expr : load_expr
+        let null_lit = self.ast.add_expr(Expr::Null);
+        let cond = self.ast.add_expr(Expr::BinOp {
+            op: BinOp::Eq,
+            left: load_expr,
+            right: null_lit,
+        });
+        Ok(self.ast.add_expr(Expr::Ternary {
+            cond,
+            then_branch: default_expr,
+            else_branch: load_expr,
+        }))
     }
 
     fn parse_destr_object_into(
@@ -1300,21 +1387,32 @@ impl Parser<'_> {
                         Token::Ident(n) => {
                             let nn = n.clone();
                             self.pos += 1;
+                            // P-PARSE.3 — `{ x: y = D }`: same default
+                            // shape as the array path, but the
+                            // length-check ternary can't apply
+                            // (objects don't have an iterator length);
+                            // for now just accept the default and
+                            // pass-through when the field is present.
+                            // A proper Nullable<T>-aware default
+                            // (test `mem === null`) is a P3 follow-up
+                            // alongside property-bag objects.
+                            let init_expr = self.maybe_parse_object_destr_default(mem)?;
                             lets.push(Stmt::LetDecl {
                                 mutable: false,
                                 name: nn,
                                 type_ann: None,
-                                init: mem,
+                                init: init_expr,
                             });
                         }
                         Token::LBracket | Token::LBrace => {
                             let nested_id = self.mint_desugar_id();
                             let nested_src = format!("__nested_destr_{nested_id}");
+                            let init_expr = self.maybe_parse_object_destr_default(mem)?;
                             lets.push(Stmt::LetDecl {
                                 mutable: false,
                                 name: nested_src.clone(),
                                 type_ann: None,
-                                init: mem,
+                                init: init_expr,
                             });
                             self.parse_destr_into(nested_src, lets)?;
                         }
@@ -1332,11 +1430,12 @@ impl Parser<'_> {
                             self.at()
                         ));
                     }
+                    let init_expr = self.maybe_parse_object_destr_default(mem)?;
                     lets.push(Stmt::LetDecl {
                         mutable: false,
                         name: field,
                         type_ann: None,
-                        init: mem,
+                        init: init_expr,
                     });
                 }
                 match self.peek() {
