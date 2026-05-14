@@ -1271,31 +1271,16 @@ impl Parser<'_> {
                         lets.extend(nested_body_lets);
                     }
                     Token::DotDotDot => {
-                        // P-PARSE.6 — rest element in array destr:
-                        // `[a, b, ...rest]`. Per ES spec §13.15.5.3
-                        // step 4i — RestPattern collects the
-                        // remaining iterator values into an Array.
-                        // For tora's fixed-length array source this
-                        // is `src.slice(elem_idx)`. Subset: rest
-                        // must be a leaf identifier (no nested
-                        // pattern in rest position); rest must be
-                        // the last slot — the spec already enforces
-                        // that.
+                        // P-PARSE.6 / P-PARSE.7 — rest element in
+                        // array destr per ES spec §13.15.5.3 step 4i:
+                        //   `[a, b, ...rest]`         leaf rest
+                        //   `[a, ...[b, c]]`          nested array
+                        //   `[a, ...{x, y}]`          nested object
+                        // RestPattern collects remaining iterator
+                        // values into a fresh Array (`src.slice(idx)`)
+                        // and then either binds it to a name or
+                        // recursively destructures it.
                         self.pos += 1;
-                        let rest_name = match self.peek() {
-                            Token::Ident(n) => {
-                                let nn = n.clone();
-                                self.pos += 1;
-                                nn
-                            }
-                            t => {
-                                return Err(format!(
-                                    "expected identifier after `...` in array param destructuring, got {t:?} at {}",
-                                    self.at()
-                                ));
-                            }
-                        };
-                        // Build src.slice(elem_idx)
                         let src_ref = self.ast.add_expr(Expr::Ident(src_name.clone()));
                         let slice_call = {
                             let slice_member = self.ast.add_expr(Expr::Member {
@@ -1308,12 +1293,40 @@ impl Parser<'_> {
                                 args: vec![from_lit],
                             })
                         };
-                        lets.push(Stmt::LetDecl {
-                            mutable: false,
-                            name: rest_name,
-                            type_ann: None,
-                            init: slice_call,
-                        });
+                        match self.peek() {
+                            Token::Ident(n) => {
+                                let nn = n.clone();
+                                self.pos += 1;
+                                lets.push(Stmt::LetDecl {
+                                    mutable: false,
+                                    name: nn,
+                                    type_ann: None,
+                                    init: slice_call,
+                                });
+                            }
+                            Token::LBracket | Token::LBrace => {
+                                // Rest target is itself a pattern —
+                                // recurse with the slice as the new
+                                // source. P-PARSE.7.
+                                let rest_id = self.mint_desugar_id();
+                                let rest_src = format!("__rest_destr_{rest_id}");
+                                let mut rest_body_lets: Vec<Stmt> = Vec::new();
+                                self.parse_destr_into(rest_src.clone(), &mut rest_body_lets)?;
+                                lets.push(Stmt::LetDecl {
+                                    mutable: false,
+                                    name: rest_src,
+                                    type_ann: None,
+                                    init: slice_call,
+                                });
+                                lets.extend(rest_body_lets);
+                            }
+                            t => {
+                                return Err(format!(
+                                    "expected identifier or pattern after `...` in array param destructuring, got {t:?} at {}",
+                                    self.at()
+                                ));
+                            }
+                        }
                         // Rest must be last; expect closing `]`.
                         match self.peek() {
                             Token::RBracket => {}
@@ -1466,15 +1479,7 @@ impl Parser<'_> {
                         Token::Ident(n) => {
                             let nn = n.clone();
                             self.pos += 1;
-                            // P-PARSE.3 — `{ x: y = D }`: same default
-                            // shape as the array path, but the
-                            // length-check ternary can't apply
-                            // (objects don't have an iterator length);
-                            // for now just accept the default and
-                            // pass-through when the field is present.
-                            // A proper Nullable<T>-aware default
-                            // (test `mem === null`) is a P3 follow-up
-                            // alongside property-bag objects.
+                            // P-PARSE.3 — `{ x: y = D }`.
                             let init_expr = self.maybe_parse_object_destr_default(mem)?;
                             lets.push(Stmt::LetDecl {
                                 mutable: false,
@@ -1484,8 +1489,15 @@ impl Parser<'_> {
                             });
                         }
                         Token::LBracket | Token::LBrace => {
+                            // P-PARSE.7 — `{ x: [a, b] = [1, 2] }`.
+                            // Mirror the array-destr nested-default
+                            // fix from P-PARSE.6: parse the nested
+                            // body FIRST so the trailing `=` becomes
+                            // visible, then wrap.
                             let nested_id = self.mint_desugar_id();
                             let nested_src = format!("__nested_destr_{nested_id}");
+                            let mut nested_body_lets: Vec<Stmt> = Vec::new();
+                            self.parse_destr_into(nested_src.clone(), &mut nested_body_lets)?;
                             let init_expr = self.maybe_parse_object_destr_default(mem)?;
                             lets.push(Stmt::LetDecl {
                                 mutable: false,
@@ -1493,7 +1505,7 @@ impl Parser<'_> {
                                 type_ann: None,
                                 init: init_expr,
                             });
-                            self.parse_destr_into(nested_src, lets)?;
+                            lets.extend(nested_body_lets);
                         }
                         t => {
                             return Err(format!(
