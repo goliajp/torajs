@@ -5543,6 +5543,13 @@ impl Checker {
                             Ok(Type::Boolean)
                         } else if l == Type::BigInt && r == Type::BigInt {
                             Ok(Type::Boolean)
+                        } else if matches!(l, Type::Any) || matches!(r, Type::Any) {
+                            // P0.8 — Any operand on either side per
+                            // JS spec §7.2.13 IsLessThan. ssa_lower
+                            // routes through __torajs_any_compare:
+                            // both String → lex compare; otherwise
+                            // ToNumber both, IEEE compare.
+                            Ok(Type::Boolean)
                         } else if l == Type::String && r == Type::String {
                             // V3-18 m1.h.17 — JS spec §7.2.14: when both
                             // operands ToPrimitive to String, compare as

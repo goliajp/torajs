@@ -2014,6 +2014,13 @@ fn lower_inner(
         &[Type::I64, Type::I64, Type::I64, Type::I64, Type::I64],
         Type::Any,
     );
+    let any_compare_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_any_compare",
+        &[Type::I64, Type::I64, Type::I64, Type::I64, Type::I64],
+        Type::Bool,
+    );
     let any_strict_eq_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -3929,6 +3936,7 @@ fn lower_inner(
         any_to_bool: any_to_bool_id,
         any_add: any_add_id,
         any_arith: any_arith_id,
+        any_compare: any_compare_id,
         any_strict_eq: any_strict_eq_id,
         any_any_strict_eq: any_any_strict_eq_id,
         any_unbox_tag: any_unbox_tag_id,
@@ -4670,6 +4678,7 @@ struct Intrinsics {
     any_to_bool: FuncId,
     any_add: FuncId,
     any_arith: FuncId,
+    any_compare: FuncId,
     any_strict_eq: FuncId,
     any_any_strict_eq: FuncId,
     any_unbox_tag: FuncId,
@@ -21216,14 +21225,17 @@ impl<'a> LowerCtx<'a> {
         // any heap pointer; the existing pointer-cmp path handles
         // both correctly. Without this carve-out, `obj.next === null`
         // would static-false even when obj.next IS null at runtime.
-        // P0.6 / P0.7 — Any-aware arithmetic per spec §13.6-§13.15.
-        // Both Add and the Sub/Mul/Div/Mod family pack each operand
-        // as (tag, value-as-i64) and call into the matching helper.
-        // Add gets ToPrimitive→ToString fallback (any_add); the other
-        // four always ToNumber (any_arith with op code).
+        // P0.6 / P0.7 / P0.8 — Any-aware BinOp dispatch. Add /
+        // Sub / Mul / Div / Mod and the ordering compares all
+        // pack each operand as (tag, value-as-i64) and call into
+        // the matching runtime helper. Add → any_add (with
+        // ToPrimitive→ToString fallback); arith → any_arith with
+        // op code; ordering → any_compare with op code (Bool
+        // result).
         if matches!(op,
             AstBinOp::Add | AstBinOp::Sub | AstBinOp::Mul
             | AstBinOp::Div | AstBinOp::Mod
+            | AstBinOp::Lt | AstBinOp::Le | AstBinOp::Gt | AstBinOp::Ge
         ) {
             let a_ty = self.operand_ty(&a);
             let b_ty = self.operand_ty(&b);
@@ -21278,30 +21290,50 @@ impl<'a> LowerCtx<'a> {
                 };
                 let (lt, lv) = pack(self, a, a_ty);
                 let (rt, rv) = pack(self, b, b_ty);
-                let r = if matches!(op, AstBinOp::Add) {
-                    self.f.append_inst(
+                let r = match op {
+                    AstBinOp::Add => self.f.append_inst(
                         self.cur_block,
                         InstKind::Call(self.intrinsics.any_add, vec![lt, lv, rt, rv]),
                         Type::Any,
                         None,
-                    )
-                } else {
-                    let op_code: i64 = match op {
-                        AstBinOp::Sub => 0,
-                        AstBinOp::Mul => 1,
-                        AstBinOp::Div => 2,
-                        AstBinOp::Mod => 3,
-                        _ => unreachable!(),
-                    };
-                    self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Call(
-                            self.intrinsics.any_arith,
-                            vec![Operand::ConstI64(op_code), lt, lv, rt, rv],
-                        ),
-                        Type::Any,
-                        None,
-                    )
+                    ),
+                    AstBinOp::Sub | AstBinOp::Mul | AstBinOp::Div | AstBinOp::Mod => {
+                        let op_code: i64 = match op {
+                            AstBinOp::Sub => 0,
+                            AstBinOp::Mul => 1,
+                            AstBinOp::Div => 2,
+                            AstBinOp::Mod => 3,
+                            _ => unreachable!(),
+                        };
+                        self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.any_arith,
+                                vec![Operand::ConstI64(op_code), lt, lv, rt, rv],
+                            ),
+                            Type::Any,
+                            None,
+                        )
+                    }
+                    AstBinOp::Lt | AstBinOp::Le | AstBinOp::Gt | AstBinOp::Ge => {
+                        let op_code: i64 = match op {
+                            AstBinOp::Lt => 0,
+                            AstBinOp::Le => 1,
+                            AstBinOp::Gt => 2,
+                            AstBinOp::Ge => 3,
+                            _ => unreachable!(),
+                        };
+                        self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.any_compare,
+                                vec![Operand::ConstI64(op_code), lt, lv, rt, rv],
+                            ),
+                            Type::Bool,
+                            None,
+                        )
+                    }
+                    _ => unreachable!(),
                 };
                 return Operand::Value(r);
             }
