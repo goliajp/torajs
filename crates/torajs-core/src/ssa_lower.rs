@@ -14955,7 +14955,7 @@ impl<'a> LowerCtx<'a> {
                         | "reverse" | "toReversed" | "with"
                         | "fill" | "at" | "concat" | "sort" | "toSorted" | "flat"
                         | "lastIndexOf" | "localeCompare" | "copyWithin"
-                        | "normalize"
+                        | "normalize" | "search"
                         | "toString" | "toLocaleString"
                     )
                 {
@@ -15178,6 +15178,11 @@ impl<'a> LowerCtx<'a> {
                                     "indexOf" => (self.intrinsics.str_index_of, Type::I64),
                                     "lastIndexOf" => (self.intrinsics.str_last_index_of, Type::I64),
                                     "localeCompare" => (self.intrinsics.str_locale_compare, Type::I64),
+                                    // V3-18 wedge — Substr.search routes
+                                    // through str_index_of after
+                                    // materializing (same as Str.search):
+                                    // first match position or -1.
+                                    "search" => (self.intrinsics.str_index_of, Type::I64),
                                     "at" => (self.intrinsics.str_at, Type::Str),
                                     "repeat" => (self.intrinsics.str_repeat, Type::Str),
                                     "replace" => (self.intrinsics.str_replace, Type::Str),
@@ -15339,7 +15344,7 @@ impl<'a> LowerCtx<'a> {
                             | "trim" | "trimStart" | "trimEnd" | "trimLeft" | "trimRight"
                             | "padStart" | "padEnd"
                             | "replace" | "replaceAll" | "at"
-                            | "lastIndexOf" | "localeCompare"
+                            | "lastIndexOf" | "localeCompare" | "search"
                         )
                     {
                         let mut argv = Vec::with_capacity(args.len() + 1);
@@ -15438,6 +15443,14 @@ impl<'a> LowerCtx<'a> {
                             "endsWith" => (self.intrinsics.str_ends_with, Type::Bool),
                             "includes" => (self.intrinsics.str_includes, Type::Bool),
                             "indexOf" => (self.intrinsics.str_index_of, Type::I64),
+                            // V3-18 wedge — String.prototype.search per
+                            // JS spec §22.1.3.16 with a string arg
+                            // (the RegExp arg form is a follow-up
+                            // substrate item alongside Symbol.search
+                            // dispatch). For a plain string the result
+                            // is exactly indexOf — first match position
+                            // or -1 — so route through the same helper.
+                            "search" => (self.intrinsics.str_index_of, Type::I64),
                             "lastIndexOf" => (self.intrinsics.str_last_index_of, Type::I64),
                             "localeCompare" => (self.intrinsics.str_locale_compare, Type::I64),
                             "split" => {

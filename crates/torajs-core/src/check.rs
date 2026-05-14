@@ -3606,7 +3606,16 @@ impl Checker {
                     )),
                     (Type::String, "indexOf")
                     | (Type::String, "lastIndexOf")
-                    | (Type::String, "localeCompare") => {
+                    | (Type::String, "localeCompare")
+                    // V3-18 wedge — String.prototype.search per JS
+                    // spec §22.1.3.16. The full spec coerces the
+                    // arg to a RegExp and uses Symbol.search, but
+                    // for a plain string arg the result is exactly
+                    // indexOf — first match position or -1.
+                    // tora's subset only routes the string-arg
+                    // form (RegExp arg is a follow-up substrate
+                    // item alongside Symbol.search dispatch).
+                    | (Type::String, "search") => {
                         Ok(Type::Function(
                             vec![Type::String],
                             Box::new(Type::Number),
