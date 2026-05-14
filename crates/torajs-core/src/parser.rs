@@ -4094,6 +4094,116 @@ impl Parser<'_> {
 
     /// One `name: expr` pair inside an object literal.
     fn parse_object_field(&mut self) -> Result<(String, ExprId), String> {
+        // P1 — `async [key]() {}` and `async name() {}` async method
+        // shorthand per ES spec §15.5.4. Detect Token::Async followed
+        // by Ident-then-LParen OR LBracket (computed-key) and route
+        // through the same opaque-stub path as the regular computed-
+        // method / getter-setter shorthand. Body is dropped brace-
+        // balanced, emit `null` value under a synthetic field name.
+        // Real async method substrate is P-LATER.
+        if matches!(self.peek(), Token::Async)
+            && let Some(t1) = self.tokens.get(self.pos + 1)
+            && (matches!(t1.token, Token::LBracket) || matches!(t1.token, Token::Ident(_)))
+        {
+            // Look ahead to confirm this is a method shape, not a
+            // regular field with `async` as the field name. For Ident,
+            // peek+2 must be LParen. For LBracket, peek matches.
+            let is_method = matches!(t1.token, Token::LBracket)
+                || self.tokens.get(self.pos + 2)
+                    .is_some_and(|t| matches!(t.token, Token::LParen));
+            if is_method {
+                // Drop: `async`
+                self.pos += 1;
+                // Synthesize a name. For computed-key, parse the bracket
+                // key with the same shape as below; for Ident, take it
+                // directly.
+                let synth_name = if matches!(self.peek(), Token::LBracket) {
+                    self.pos += 1;
+                    let key = match self.peek() {
+                        Token::String(s) => {
+                            let k = s.clone();
+                            self.pos += 1;
+                            k
+                        }
+                        Token::Ident(_) => {
+                            let mut parts: Vec<String> = Vec::new();
+                            while let Token::Ident(n) = self.peek() {
+                                parts.push(n.clone());
+                                self.pos += 1;
+                                if matches!(self.peek(), Token::Dot) {
+                                    self.pos += 1;
+                                } else {
+                                    break;
+                                }
+                            }
+                            format!("__sym_{}__", parts.join("_"))
+                        }
+                        t => {
+                            return Err(format!(
+                                "async [<key>]: expected key, got {t:?} at {}",
+                                self.at()
+                            ));
+                        }
+                    };
+                    if matches!(self.peek(), Token::RBracket) {
+                        self.pos += 1;
+                    }
+                    format!("__async_{key}")
+                } else {
+                    let n = match self.peek() {
+                        Token::Ident(n) => n.clone(),
+                        _ => unreachable!(),
+                    };
+                    self.pos += 1;
+                    format!("__async_{n}")
+                };
+                // Drop param list paren-balanced.
+                if matches!(self.peek(), Token::LParen) {
+                    self.pos += 1;
+                    let mut depth = 1i32;
+                    while depth > 0 {
+                        match self.peek() {
+                            Token::LParen => depth += 1,
+                            Token::RParen => depth -= 1,
+                            Token::Eof => {
+                                return Err(format!(
+                                    "unexpected eof in async method params at {}",
+                                    self.at()
+                                ));
+                            }
+                            _ => {}
+                        }
+                        self.pos += 1;
+                    }
+                }
+                // Optional return ann.
+                if matches!(self.peek(), Token::Colon) {
+                    self.pos += 1;
+                    let _ = self.parse_type_ann()?;
+                }
+                // Drop body brace-balanced.
+                if matches!(self.peek(), Token::LBrace) {
+                    self.pos += 1;
+                    let mut depth = 1i32;
+                    while depth > 0 {
+                        match self.peek() {
+                            Token::LBrace => depth += 1,
+                            Token::RBrace => depth -= 1,
+                            Token::Eof => {
+                                return Err(format!(
+                                    "unexpected eof in async method body at {}",
+                                    self.at()
+                                ));
+                            }
+                            _ => {}
+                        }
+                        self.pos += 1;
+                    }
+                }
+                let value = self.ast.add_expr(Expr::Null);
+                return Ok((synth_name, value));
+            }
+        }
         // V3-18 P2.4.c.4 — computed property `{ [key]: value }` per
         // JS spec. Subset only supports literal-string keys at compile
         // time (struct layouts are static); runtime keys defer to a
