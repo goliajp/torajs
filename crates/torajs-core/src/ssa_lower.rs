@@ -7856,6 +7856,61 @@ impl<'a> LowerCtx<'a> {
         Operand::Value(v)
     }
 
+    /// V3-18 wedge — JS spec relative-index normalisation, per the
+    /// pattern that copyWithin / slice / splice / etc. use:
+    /// for an integer index `n` against an array length `len`:
+    ///   if n < 0: n = max(len + n, 0)
+    ///   if n >= len: n = len
+    ///   else: n
+    /// Emits the `n < 0 ? n + len : n` select via condbr+slot+load
+    /// (no SSA Select instruction), then chains through
+    /// clamp_i64_to_range for the [0, len] clamp.
+    fn relative_to_len(&mut self, v: Operand, len: Operand) -> Operand {
+        let is_neg = self.f.append_inst(
+            self.cur_block,
+            InstKind::ICmp(IPred::Slt, v.clone(), Operand::ConstI64(0)),
+            Type::Bool,
+            None,
+        );
+        let plus_len = self.f.append_inst(
+            self.cur_block,
+            InstKind::BinOp(SsaBinOp::Add, v.clone(), len.clone()),
+            Type::I64,
+            None,
+        );
+        let eff_slot = self.alloca_in_entry(Type::I64, Some("__rel_eff"));
+        let neg_blk = self.f.add_block();
+        let pos_blk = self.f.add_block();
+        let join = self.f.add_block();
+        self.f.set_term(self.cur_block, Terminator::CondBr {
+            cond: Operand::Value(is_neg),
+            then_blk: neg_blk,
+            else_blk: pos_blk,
+        });
+        self.f.append_void(
+            neg_blk,
+            InstKind::Store(Operand::Value(plus_len), Operand::Value(eff_slot), 0),
+        );
+        self.f.set_term(neg_blk, Terminator::Br(join));
+        self.f.append_void(
+            pos_blk,
+            InstKind::Store(v, Operand::Value(eff_slot), 0),
+        );
+        self.f.set_term(pos_blk, Terminator::Br(join));
+        self.cur_block = join;
+        let effective = self.f.append_inst(
+            self.cur_block,
+            InstKind::Load(Type::I64, Operand::Value(eff_slot), 0),
+            Type::I64,
+            None,
+        );
+        self.clamp_i64_to_range(
+            Operand::Value(effective),
+            Operand::ConstI64(0),
+            len,
+        )
+    }
+
     /// T-13.5 deque: load `head * 8` from arr (the byte offset of
     /// logical[0] within the slot data section). Reads the packed
     /// u64 at offset 16 (low 32 = cap, high 32 = head, little-endian),
@@ -16269,23 +16324,40 @@ impl<'a> LowerCtx<'a> {
                         && method == "copyWithin"
                         && (1..=3).contains(&args.len())
                     {
-                        let target = self.lower_expr(args[0]);
+                        // V3-18 wedge — copyWithin per JS spec
+                        // §22.1.3.3 normalises target / start / end
+                        // through ToIntegerOrInfinity, then for each
+                        // index n: if n < 0, n = max(len + n, 0); if
+                        // n >= len, n = len. Pre-fix tora used a
+                        // plain clamp_i64_to_range(0, len) which
+                        // mapped any negative input to 0, dropping
+                        // the canonical TS pattern of using
+                        // negatives to count from the end (e.g.
+                        // copyWithin(-2) shifts the tail to the
+                        // front).
+                        let len_for_norm = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(Type::I64, recv_op, ARR_LEN_OFF),
+                            Type::I64,
+                            None,
+                        );
+                        let raw_target = self.lower_expr(args[0]);
+                        let target = self.relative_to_len(
+                            raw_target,
+                            Operand::Value(len_for_norm),
+                        );
                         let start = if args.len() >= 2 {
-                            self.lower_expr(args[1])
+                            let raw = self.lower_expr(args[1]);
+                            self.relative_to_len(raw, Operand::Value(len_for_norm))
                         } else {
                             Operand::ConstI64(0)
                         };
                         let end = if args.len() >= 3 {
-                            self.lower_expr(args[2])
+                            let raw = self.lower_expr(args[2]);
+                            self.relative_to_len(raw, Operand::Value(len_for_norm))
                         } else {
-                            // end = recv.length (load from ARR_LEN_OFF)
-                            let len_v = self.f.append_inst(
-                                self.cur_block,
-                                InstKind::Load(Type::I64, recv_op, ARR_LEN_OFF),
-                                Type::I64,
-                                None,
-                            );
-                            Operand::Value(len_v)
+                            // end = recv.length
+                            Operand::Value(len_for_norm)
                         };
                         let elem_ty = self.arr_layouts[arr_id.0 as usize];
                         if elem_ty.is_refcounted() {
