@@ -982,10 +982,20 @@ impl Parser<'_> {
                     } else {
                         None
                     };
+                    // P-PARSE.6 — whole-pattern default on a destr fn
+                    // param: `function f({a, b} = {a:1, b:2}) {...}`.
+                    // Mirror of the arrow-fn destr default added in
+                    // the same wedge.
+                    let default = if matches!(self.peek(), Token::Eq) {
+                        self.pos += 1;
+                        Some(self.parse_expr()?)
+                    } else {
+                        None
+                    };
                     params.push(Param {
                         name: synth,
                         type_ann,
-                        default: None,
+                        default,
                         is_rest: false,
                     });
                     match self.peek() {
@@ -1240,9 +1250,15 @@ impl Parser<'_> {
                     Token::LBracket | Token::LBrace => {
                         let nested_id = self.mint_desugar_id();
                         let nested_src = format!("__nested_destr_{nested_id}");
-                        // Same default-handling as the leaf path; for
-                        // nested patterns the default expression
-                        // replaces the whole sub-pattern when missing.
+                        // Parse the nested body first into a temp
+                        // buffer so its position advances past the
+                        // closing bracket; we can then check for a
+                        // trailing `= DEFAULT` that applies to the
+                        // whole nested pattern (per ES spec
+                        // §13.15.5.3 IteratorBindingInitialization
+                        // step 4d — default fires before destructure).
+                        let mut nested_body_lets: Vec<Stmt> = Vec::new();
+                        self.parse_destr_into(nested_src.clone(), &mut nested_body_lets)?;
                         let init_expr = self.maybe_parse_destr_default(
                             elem, src_name.clone(), elem_idx,
                         )?;
@@ -1252,7 +1268,70 @@ impl Parser<'_> {
                             type_ann: None,
                             init: init_expr,
                         });
-                        self.parse_destr_into(nested_src, lets)?;
+                        lets.extend(nested_body_lets);
+                    }
+                    Token::DotDotDot => {
+                        // P-PARSE.6 — rest element in array destr:
+                        // `[a, b, ...rest]`. Per ES spec §13.15.5.3
+                        // step 4i — RestPattern collects the
+                        // remaining iterator values into an Array.
+                        // For tora's fixed-length array source this
+                        // is `src.slice(elem_idx)`. Subset: rest
+                        // must be a leaf identifier (no nested
+                        // pattern in rest position); rest must be
+                        // the last slot — the spec already enforces
+                        // that.
+                        self.pos += 1;
+                        let rest_name = match self.peek() {
+                            Token::Ident(n) => {
+                                let nn = n.clone();
+                                self.pos += 1;
+                                nn
+                            }
+                            t => {
+                                return Err(format!(
+                                    "expected identifier after `...` in array param destructuring, got {t:?} at {}",
+                                    self.at()
+                                ));
+                            }
+                        };
+                        // Build src.slice(elem_idx)
+                        let src_ref = self.ast.add_expr(Expr::Ident(src_name.clone()));
+                        let slice_call = {
+                            let slice_member = self.ast.add_expr(Expr::Member {
+                                obj: src_ref,
+                                name: "slice".into(),
+                            });
+                            let from_lit = self.ast.add_expr(Expr::Number(elem_idx as f64));
+                            self.ast.add_expr(Expr::Call {
+                                callee: slice_member,
+                                args: vec![from_lit],
+                            })
+                        };
+                        lets.push(Stmt::LetDecl {
+                            mutable: false,
+                            name: rest_name,
+                            type_ann: None,
+                            init: slice_call,
+                        });
+                        // Rest must be last; expect closing `]`.
+                        match self.peek() {
+                            Token::RBracket => {}
+                            t => {
+                                return Err(format!(
+                                    "rest element must be last in array destr, got {t:?} at {}",
+                                    self.at()
+                                ));
+                            }
+                        }
+                        // Don't advance elem_idx (we'll break out on RBracket).
+                    }
+                    Token::Comma => {
+                        // P-PARSE.6 — elision in array destructuring
+                        // pattern: `[a, , c]` skips index 1 (binds
+                        // nothing for that slot). Just bump elem_idx
+                        // so the next slot reads from the right
+                        // index.
                     }
                     t => {
                         return Err(format!(
@@ -5328,10 +5407,20 @@ impl Parser<'_> {
                     } else {
                         None
                     };
+                    // P-PARSE.6 — whole-pattern default on a destr
+                    // method param: third call site for the same
+                    // destr-default plumbing (parse_fn / parse_arrow_fn
+                    // / class-method parse_param_list).
+                    let default = if matches!(self.peek(), Token::Eq) {
+                        self.pos += 1;
+                        Some(self.parse_expr()?)
+                    } else {
+                        None
+                    };
                     params.push(Param {
                         name: synth,
                         type_ann,
-                        default: None,
+                        default,
                         is_rest: false,
                     });
                     match self.peek() {
@@ -5746,10 +5835,23 @@ impl Parser<'_> {
                     } else {
                         None
                     };
+                    // P-PARSE.6 — whole-pattern default on a destr
+                    // arrow param: `({a, b} = {a:1, b:2}) => ...`. Per
+                    // ES spec §10.2.3 the default fires when the arg
+                    // slot is undefined; tora's Param.default plumbs
+                    // this through the existing default-arg pipeline,
+                    // and the synth binding then carries the
+                    // (possibly-defaulted) value into the destr lets.
+                    let default = if matches!(self.peek(), Token::Eq) {
+                        self.pos += 1;
+                        Some(self.parse_expr()?)
+                    } else {
+                        None
+                    };
                     params.push(Param {
                         name: synth,
                         type_ann,
-                        default: None,
+                        default,
                         is_rest: false,
                     });
                     match self.peek() {
