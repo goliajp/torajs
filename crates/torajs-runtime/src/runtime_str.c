@@ -855,6 +855,121 @@ bool __torajs_any_strict_eq(const void *box, int64_t rhs_tag, int64_t rhs_value)
     return __torajs_any_payload_eq(bt, bv, rhs_value);
 }
 
+void *__torajs_str_concat(const uint8_t *a, const uint8_t *b);
+void *__torajs_i64_to_str(int64_t n);
+void *__torajs_f64_to_str(double n);
+void *__torajs_bool_to_str(int b);
+void *__torajs_null_to_str(void);
+
+/* P0.6 — Any tag → Str helper. Used by __torajs_any_add when one
+ * side is String and the other needs ToString coercion. Returns a
+ * fresh owned Str (caller takes ownership). For HEAP/Str case
+ * returns the existing pointer with rc bumped (caller still owns
+ * a single reference). */
+static void *__torajs_any_to_str(int64_t tag, int64_t value) {
+    switch (tag) {
+        case __TORAJS_ANY_NULL: return __torajs_null_to_str();
+        case __TORAJS_ANY_BOOL: return __torajs_bool_to_str(value != 0);
+        case __TORAJS_ANY_I64:  return __torajs_i64_to_str(value);
+        case __TORAJS_ANY_F64: {
+            union { int64_t i; double d; } u = { .i = value };
+            return __torajs_f64_to_str(u.d);
+        }
+        case __TORAJS_ANY_HEAP: {
+            void *child = (void *)(uintptr_t)value;
+            if (child == NULL) return __torajs_null_to_str();
+            const __torajs_heap_header_t *h = (const __torajs_heap_header_t *)child;
+            if (h->type_tag == __TORAJS_TAG_STR) {
+                __torajs_rc_inc(child);
+                return child;
+            }
+            /* For Obj / Arr / Closure / etc: spec ToString returns
+             * something like "[object Object]" / element-join. tora
+             * substitutes a placeholder for now ("[object]"); proper
+             * pretty-print arrives with P3 (property bag) work. */
+            const char *placeholder = "[object]";
+            uint64_t plen = 8;
+            uint8_t *p = __torajs_str_alloc_pooled(plen);
+            memcpy(__TORAJS_STR_DATA(p), placeholder, plen);
+            return p;
+        }
+        default: return __torajs_null_to_str();
+    }
+}
+
+/* P0.6 — Any + Any per JS spec §13.15.3 ApplyStringOrNumericBinary
+ * Operator with op `+`. Caller packs both operands as (tag, value)
+ * tuples (compile-time tag for concrete operands, unboxed tag for
+ * Any operands). Returns a fresh Any-box holding either a concat'd
+ * String (when either side is String per spec ToPrimitive→ToString)
+ * or a Number (when both ToNumber).
+ */
+void *__torajs_any_add(int64_t lt, int64_t lv, int64_t rt, int64_t rv) {
+    /* String detection: HEAP tag + Str type_tag. */
+    bool l_is_str = false;
+    bool r_is_str = false;
+    if (lt == __TORAJS_ANY_HEAP) {
+        void *lp = (void *)(uintptr_t)lv;
+        if (lp != NULL) {
+            const __torajs_heap_header_t *h = (const __torajs_heap_header_t *)lp;
+            l_is_str = h->type_tag == __TORAJS_TAG_STR;
+        }
+    }
+    if (rt == __TORAJS_ANY_HEAP) {
+        void *rp = (void *)(uintptr_t)rv;
+        if (rp != NULL) {
+            const __torajs_heap_header_t *h = (const __torajs_heap_header_t *)rp;
+            r_is_str = h->type_tag == __TORAJS_TAG_STR;
+        }
+    }
+    if (l_is_str || r_is_str) {
+        void *l_str = __torajs_any_to_str(lt, lv);
+        void *r_str = __torajs_any_to_str(rt, rv);
+        void *concat = __torajs_str_concat(l_str, r_str);
+        __torajs_str_drop(l_str);
+        __torajs_str_drop(r_str);
+        /* Box the concat result as ANY_HEAP */
+        return __torajs_any_box(__TORAJS_ANY_HEAP, (int64_t)(uintptr_t)concat);
+    }
+    /* Numeric path: ToNumber both sides, add as f64 (handles all
+     * primitive→number coercions: bool 0/1, null 0, i64 direct,
+     * f64 direct). Result encoded as F64 if non-integer or as I64
+     * if integer-valued in i64 range. */
+    double ld = 0.0, rd = 0.0;
+    bool l_is_f = false, r_is_f = false;
+    switch (lt) {
+        case __TORAJS_ANY_NULL: ld = 0.0; break;
+        case __TORAJS_ANY_BOOL: ld = (double)(lv != 0 ? 1 : 0); break;
+        case __TORAJS_ANY_I64:  ld = (double)lv; break;
+        case __TORAJS_ANY_F64: {
+            union { int64_t i; double d; } u = { .i = lv };
+            ld = u.d; l_is_f = true; break;
+        }
+        default: ld = 0.0 / 0.0; break;  /* NaN for Object etc */
+    }
+    switch (rt) {
+        case __TORAJS_ANY_NULL: rd = 0.0; break;
+        case __TORAJS_ANY_BOOL: rd = (double)(rv != 0 ? 1 : 0); break;
+        case __TORAJS_ANY_I64:  rd = (double)rv; break;
+        case __TORAJS_ANY_F64: {
+            union { int64_t i; double d; } u = { .i = rv };
+            rd = u.d; r_is_f = true; break;
+        }
+        default: rd = 0.0 / 0.0; break;
+    }
+    double sum = ld + rd;
+    /* Prefer i64 result when both inputs were i64 and sum is in
+     * range — keeps the Number printing clean (no .0 trailing). */
+    if (!l_is_f && !r_is_f && sum >= (double)INT64_MIN && sum <= (double)INT64_MAX) {
+        int64_t isum = (int64_t)sum;
+        if ((double)isum == sum) {
+            return __torajs_any_box(__TORAJS_ANY_I64, isum);
+        }
+    }
+    union { int64_t i; double d; } u = { .d = sum };
+    return __torajs_any_box(__TORAJS_ANY_F64, u.i);
+}
+
 /* P0.4 — ToBoolean(Any) per JS spec §7.1.2. Reads the box's tag
  * and payload, returns the spec-mandated boolean:
  *   ANY_NULL              → false

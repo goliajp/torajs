@@ -2000,6 +2000,13 @@ fn lower_inner(
         &[Type::Ptr],
         Type::Bool,
     );
+    let any_add_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_any_add",
+        &[Type::I64, Type::I64, Type::I64, Type::I64],
+        Type::Any,
+    );
     let any_strict_eq_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -3913,6 +3920,7 @@ fn lower_inner(
         any_box: any_box_id,
         any_typeof: any_typeof_id,
         any_to_bool: any_to_bool_id,
+        any_add: any_add_id,
         any_strict_eq: any_strict_eq_id,
         any_any_strict_eq: any_any_strict_eq_id,
         any_unbox_tag: any_unbox_tag_id,
@@ -4652,6 +4660,7 @@ struct Intrinsics {
     any_box: FuncId,
     any_typeof: FuncId,
     any_to_bool: FuncId,
+    any_add: FuncId,
     any_strict_eq: FuncId,
     any_any_strict_eq: FuncId,
     any_unbox_tag: FuncId,
@@ -21198,6 +21207,73 @@ impl<'a> LowerCtx<'a> {
         // any heap pointer; the existing pointer-cmp path handles
         // both correctly. Without this carve-out, `obj.next === null`
         // would static-false even when obj.next IS null at runtime.
+        // P0.6 — Any + Any / Any + concrete / concrete + Any per
+        // spec §13.15.3. Route through __torajs_any_add with both
+        // operands packed as (tag, value-as-i64). Result is a fresh
+        // Any-box (Type::Any operand at SSA layer).
+        if matches!(op, AstBinOp::Add) {
+            let a_ty = self.operand_ty(&a);
+            let b_ty = self.operand_ty(&b);
+            if matches!(a_ty, Type::Any) || matches!(b_ty, Type::Any) {
+                let pack = |this: &mut Self, op_v: Operand, op_ty: Type|
+                    -> (Operand, Operand)
+                {
+                    if matches!(op_ty, Type::Any) {
+                        // Any-typed operand: load tag + value from box.
+                        let tag = this.f.append_inst(
+                            this.cur_block,
+                            InstKind::Load(Type::I64, op_v.clone(), 8),
+                            Type::I64,
+                            None,
+                        );
+                        let value = this.f.append_inst(
+                            this.cur_block,
+                            InstKind::Load(Type::I64, op_v, 16),
+                            Type::I64,
+                            None,
+                        );
+                        return (Operand::Value(tag), Operand::Value(value));
+                    }
+                    // Concrete: same tag/value packing as box_to_any.
+                    let (tag, value): (i64, Operand) = match op_ty {
+                        Type::I64 | Type::I32 => (2, op_v),
+                        Type::F64 => {
+                            let bits = this.f.append_inst(
+                                this.cur_block,
+                                InstKind::BitCastF64ToI64(op_v),
+                                Type::I64,
+                                None,
+                            );
+                            (3, Operand::Value(bits))
+                        }
+                        Type::Bool => {
+                            let zext = this.f.append_inst(
+                                this.cur_block,
+                                InstKind::ZExtBoolToI64(op_v),
+                                Type::I64,
+                                None,
+                            );
+                            (1, Operand::Value(zext))
+                        }
+                        Type::Ptr if matches!(op_v, Operand::ConstPtrNull) => {
+                            (0, Operand::ConstI64(0))
+                        }
+                        t if t.is_refcounted() => (4, op_v),
+                        _ => (0, Operand::ConstI64(0)),
+                    };
+                    (Operand::ConstI64(tag), value)
+                };
+                let (lt, lv) = pack(self, a, a_ty);
+                let (rt, rv) = pack(self, b, b_ty);
+                let r = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.any_add, vec![lt, lv, rt, rv]),
+                    Type::Any,
+                    None,
+                );
+                return Operand::Value(r);
+            }
+        }
         if matches!(op, AstBinOp::Eq | AstBinOp::Neq) {
             let a_ty = self.operand_ty(&a);
             let b_ty = self.operand_ty(&b);

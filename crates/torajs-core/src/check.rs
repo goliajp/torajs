@@ -5434,6 +5434,15 @@ impl Checker {
                             // side through __torajs_bool_to_str /
                             // __torajs_null_to_str before concat.
                             Ok(Type::String)
+                        } else if matches!(l, Type::Any) || matches!(r, Type::Any) {
+                            // P0.6 — Any operand on either side per
+                            // JS spec §13.15.3 ApplyStringOrNumeric
+                            // BinaryOperator. ssa_lower routes through
+                            // __torajs_any_add which does ToPrimitive
+                            // (hint=Default) then either string concat
+                            // or numeric add. Result is Any so
+                            // downstream consumers see a boxed value.
+                            Ok(Type::Any)
                         } else if js_add_coerces_to_number(&l, &r) {
                             // V3-18 m1.a — JS spec §13.15.3 ToNumber
                             // coercion for non-string + arithmetic.
