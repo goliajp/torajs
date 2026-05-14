@@ -1420,6 +1420,13 @@ fn lower_inner(
         &[Type::I64, Type::I64],
         Type::Str,
     );
+    let num_to_string_radix_f_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_num_to_string_radix_f",
+        &[Type::F64, Type::I64],
+        Type::Str,
+    );
     let num_to_exp_f_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -3779,6 +3786,7 @@ fn lower_inner(
         num_to_fixed_f: num_to_fixed_f_id,
         num_to_fixed_i: num_to_fixed_i_id,
         num_to_string_radix_i: num_to_string_radix_i_id,
+        num_to_string_radix_f: num_to_string_radix_f_id,
         num_to_exp_f: num_to_exp_f_id,
         num_to_exp_i: num_to_exp_i_id,
         num_to_precision_f: num_to_precision_f_id,
@@ -4506,6 +4514,7 @@ struct Intrinsics {
     num_to_fixed_f: FuncId,
     num_to_fixed_i: FuncId,
     num_to_string_radix_i: FuncId,
+    num_to_string_radix_f: FuncId,
     num_to_exp_f: FuncId,
     num_to_exp_i: FuncId,
     num_to_precision_f: FuncId,
@@ -12265,6 +12274,29 @@ impl<'a> LowerCtx<'a> {
                                 self.cur_block,
                                 InstKind::Call(
                                     self.intrinsics.num_to_string_radix_i,
+                                    vec![recv_op, radix],
+                                ),
+                                Type::Str,
+                                None,
+                            );
+                            return Operand::Value(v);
+                        }
+                        // V3-18 wedge — `n.toString(radix)` for f64
+                        // receivers per JS spec §21.1.3.6 / §6.1.6.1.13:
+                        // integer part in the given radix, then a
+                        // multiply-extract loop for the fractional
+                        // part (capped at 52 digits — the worst-case
+                        // mantissa precision in radix 2). Pre-fix
+                        // tora's lower fell through to the default
+                        // f64_to_str(double) which had a 1-arg ABI;
+                        // passing the radix as a 2nd arg crashed
+                        // LLVM verify.
+                        if m_name == "toString" && args.len() == 1 && is_f64 {
+                            let radix = self.lower_expr(args[0]);
+                            let v = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(
+                                    self.intrinsics.num_to_string_radix_f,
                                     vec![recv_op, radix],
                                 ),
                                 Type::Str,
@@ -22245,6 +22277,7 @@ impl<'a> LowerCtx<'a> {
             || fid == i.num_to_fixed_f
             || fid == i.num_to_fixed_i
             || fid == i.num_to_string_radix_i
+            || fid == i.num_to_string_radix_f
             || fid == i.num_to_exp_f
             || fid == i.num_to_exp_i
             || fid == i.num_to_precision_f

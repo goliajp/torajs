@@ -3227,6 +3227,85 @@ void *__torajs_str_to_lower(const uint8_t *s) {
 
 #include <math.h>
 
+void *__torajs_num_to_string_radix_i(int64_t n, int64_t radix);
+
+/* V3-18 wedge — `n.toString(radix)` for f64 receivers. Mirrors the
+ * spec algorithm in §21.1.3.6 / §6.1.6.1.13: encode the integer
+ * part in the given radix, then loop the fractional part multiplying
+ * by radix until either the fraction becomes 0 or we hit a digit
+ * cap. Mantissa precision is 52 bits, so log_radix(2^52) digits is
+ * the upper bound: 52 for radix 2, ~13 for radix 16, ~32 for
+ * radix 4. We cap at 52 (the binary case) — anything past that is
+ * rounding noise. NaN / Infinity / -Infinity preserve the canonical
+ * formatter outputs. */
+void *__torajs_num_to_string_radix_f(double d, int64_t radix) {
+    if (radix < 2) radix = 2;
+    if (radix > 36) radix = 36;
+    if (d != d) {
+        uint8_t *p = str_alloc_(3);
+        memcpy(__TORAJS_STR_DATA(p), "NaN", 3);
+        return p;
+    }
+    if (d == 1.0 / 0.0) {
+        uint8_t *p = str_alloc_(8);
+        memcpy(__TORAJS_STR_DATA(p), "Infinity", 8);
+        return p;
+    }
+    if (d == -1.0 / 0.0) {
+        uint8_t *p = str_alloc_(9);
+        memcpy(__TORAJS_STR_DATA(p), "-Infinity", 9);
+        return p;
+    }
+    /* Integer-valued: route to the integer path. The (int64_t) cast
+     * is safe because the integer-valued check pinned d to a finite
+     * representable integer. */
+    if (d == floor(d) && d >= (double)INT64_MIN && d <= (double)INT64_MAX) {
+        return __torajs_num_to_string_radix_i((int64_t)d, radix);
+    }
+    static const char digits[] = "0123456789abcdefghijklmnopqrstuvwxyz";
+    int neg = d < 0;
+    double abs_d = neg ? -d : d;
+    double int_part = floor(abs_d);
+    double frac = abs_d - int_part;
+    /* Integer-part digits — use the existing path, drop the
+     * sign because we'll prepend our own. */
+    void *int_str = __torajs_num_to_string_radix_i((int64_t)int_part, radix);
+    uint64_t int_len = __TORAJS_STR_LEN(int_str);
+    const uint8_t *int_bytes = __TORAJS_STR_CDATA(int_str);
+    /* Fractional digits — multiply / extract / subtract loop. Cap
+     * at 52 (worst-case radix 2 mantissa bits). */
+    char frac_buf[64];
+    int frac_n = 0;
+    double r_d = (double)radix;
+    while (frac > 0.0 && frac_n < 52) {
+        frac *= r_d;
+        double digit_d = floor(frac);
+        int digit = (int)digit_d;
+        if (digit < 0) digit = 0;
+        if (digit >= (int)radix) digit = (int)radix - 1;
+        frac_buf[frac_n++] = digits[digit];
+        frac -= digit_d;
+    }
+    /* Build "[-]<int>.<frac>" (no fractional dot if frac is empty). */
+    uint64_t total_len = int_len + (neg ? 1 : 0)
+                       + (frac_n > 0 ? 1 + (uint64_t)frac_n : 0);
+    uint8_t *p = str_alloc_(total_len);
+    uint8_t *out = __TORAJS_STR_DATA(p);
+    uint64_t off = 0;
+    if (neg) out[off++] = '-';
+    memcpy(out + off, int_bytes, int_len);
+    off += int_len;
+    if (frac_n > 0) {
+        out[off++] = '.';
+        memcpy(out + off, frac_buf, (size_t)frac_n);
+        off += (uint64_t)frac_n;
+    }
+    /* int_str was a fresh alloc only for the digits — drop it so
+     * its refcount goes to 0 and the heap is released. */
+    __torajs_str_drop(int_str);
+    return p;
+}
+
 /* `n.toString(radix)` for integers — encode i64 value in the given
  * radix (2..36). Negative numbers get a leading `-`. */
 void *__torajs_num_to_string_radix_i(int64_t n, int64_t radix) {
