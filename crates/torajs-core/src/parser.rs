@@ -4051,6 +4051,27 @@ impl Parser<'_> {
             t if Self::keyword_property_name(t).is_some() => {
                 Self::keyword_property_name(t).unwrap().to_string()
             }
+            // P0.10 — string-literal property name `{ "0": ... }` /
+            // `{ "key": ... }` per ES spec §12.7.6 PropertyName ::
+            // StringLiteral. Used pervasively in test262 (~10+ cases
+            // directly + many transitively for object-with-string-
+            // keys patterns).
+            Token::String(s) => s.clone(),
+            // P0.10 — numeric-literal property name `{ 0: ... }` /
+            // `{ 99: ... }` per ES spec §12.7.6 PropertyName ::
+            // NumericLiteral. Massive yield — 600+ test262 cases use
+            // numeric-key object literals (e.g. `{ 0: arr[0], 1: ... }`
+            // for spread-iter style fixtures). Format the float as
+            // an integer when it has no fractional part, matching
+            // bun's serialization (`0` not `0.0`).
+            Token::Number(n) => {
+                let n = *n;
+                if n.is_finite() && n == n.trunc() && n.abs() < 1e21 {
+                    format!("{}", n as i64)
+                } else {
+                    format!("{n}")
+                }
+            }
             t => {
                 return Err(format!(
                     "expected field name in object literal, got {t:?} at {}",
@@ -4080,11 +4101,26 @@ impl Parser<'_> {
         // start passing; cases that depend on the accessor semantic
         // remain blocked until P3 / P7 lands.
         if (name == "get" || name == "set")
-            && matches!(self.peek(), Token::Ident(_))
+            && matches!(
+                self.peek(),
+                Token::Ident(_) | Token::String(_) | Token::Number(_)
+            )
         {
             let kind = name.clone();
+            // P0.10 — getter / setter shorthand also accepts string-
+            // literal and numeric-literal property names per ES spec
+            // §12.7.6 PropertyName. Pre-fix only Ident was accepted.
             let prop_name = match self.peek() {
                 Token::Ident(n) => n.clone(),
+                Token::String(s) => s.clone(),
+                Token::Number(n) => {
+                    let n = *n;
+                    if n.is_finite() && n == n.trunc() && n.abs() < 1e21 {
+                        format!("{}", n as i64)
+                    } else {
+                        format!("{n}")
+                    }
+                }
                 _ => unreachable!(),
             };
             self.pos += 1;
