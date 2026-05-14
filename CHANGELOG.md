@@ -1,5 +1,31 @@
 # Changelog
 
+## Unreleased — develop trunk pivot to test262 100 % (2026-05-14)
+
+The v3 wedge cycle (V3-XX, see `docs/roadmap-historical.md`) closed at
+HEAD `52ba8ea` with curated `conformance/cases/` at **522 pass / 0 fail
+/ 1 skip** (effectively saturated). Test262 200-sample at the same HEAD
+shows in-scope pass rate at **3.96 %** (4/101) — single-method wedges
+have hit the marginal-return wall: the curated suite is hand-typed, but
+test262 is bare JS, and tora's strict typecheck rejects most cases at
+the first `var x = "anything"`.
+
+`develop` now pivots to a **single linear v4 trunk** in
+`docs/roadmap.md` — 14 phases, each with a measurable test262 in-scope
+pass-rate gate, total target ≥ 90 % at v1.0. The v1 / v2 / v3 plans
+are preserved verbatim in `docs/roadmap-historical.md` as the audit
+trail for tora's foundation.
+
+The trunk introduces a **two-tier execution model**: typed-tier
+(existing static-layout pipeline, 0 % perf regression invariant) +
+untyped-tier (16-byte tagged-value slot for `Type::Any`, runtime
+dispatch). Bare-JS source flows through untyped-tier; annotated source
+stays in typed-tier. Both compile through the same SSA → LLVM pipeline
+— no JIT, no interpreter.
+
+P0 (Untyped-JS surface) is the entry point. All forward work runs in
+strict phase-then-item order per the trunk's execution rules.
+
 ## v0.6.0 — 2026-05-08
 
 Fifth release after `v0.5.0` (same day). Closes the **v0.6.0 sequence**
