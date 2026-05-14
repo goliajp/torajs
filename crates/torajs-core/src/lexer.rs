@@ -898,6 +898,17 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                         i += 1;
                     }
                 } else if peek(bytes, i) == Some(b'.')
+                    && peek(bytes, i + 1).is_some_and(|c| c == b'e' || c == b'E')
+                {
+                    // P0.10 — trailing-dot before exponent: `1.e5` /
+                    // `1.E-3` per ES spec §12.9.3 DecimalLiteral.
+                    // Pre-fix the lexer dropped through with just
+                    // `1` consumed, leaving `.e5` to parse as a
+                    // member-access — bailed at the second
+                    // identifier letter. Consume the dot here so
+                    // the exponent loop below picks up `e5`.
+                    i += 1;
+                } else if peek(bytes, i) == Some(b'.')
                     && peek(bytes, i + 1) == Some(b'.')
                 {
                     // V3-18 m1.h.21 — `0..toString()` form. JS spec
@@ -928,7 +939,12 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                     if peek(bytes, i) == Some(b'+') || peek(bytes, i) == Some(b'-') {
                         i += 1;
                     }
-                    while i < len && bytes[i as usize].is_ascii_digit() {
+                    // P0.10 — accept `_` numeric separators inside
+                    // exponent digits per ES2021 (`1e1_0`). Pre-fix
+                    // dropped at the underscore.
+                    while i < len
+                        && (bytes[i as usize].is_ascii_digit() || bytes[i as usize] == b'_')
+                    {
                         i += 1;
                     }
                 }
