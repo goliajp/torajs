@@ -176,34 +176,27 @@ ToPrimitive coerce becomes tractable AFTER:
 
 Not on the v4 trunk's critical path; will revisit when P3 / P7 lands.
 
-### P-CLOSURE-C — closure monomorphization at call sites (detour)
+### P-CLOSURE-C — closure monomorphization at call sites (deferred)
 
-**Inserted 2026-05-14 alongside P-COERCE-B**. The dominant remaining
-type-error mass is `var f = function(a, b) { ... }` — function
-expressions stored in let / var bindings, called indirectly. The
-closure-lift path skips desugar_implicit_generics so unannotated
-params hit 'requires a type annotation'. Test262 uses this pattern
-in nearly every assertion harness (`var assertEq = function(...) {}`).
+**Originally inserted 2026-05-14 alongside P-COERCE-B, deferred
+same day after substrate audit.** Probed by lifting the closure-lift
+skip in desugar_implicit_generics and accepting TypeVar-param at
+call sites: typecheck went through but ssa_lower bailed with
+'unknown ident `__closure_0`' because the closure FnDecl carries
+TypeVars in its SSA signature with no monomorphization path. The
+indirect-call mono retarget (looking up a let-bound closure's
+source FnDecl and emitting a per-call-site specialization) is a
+substantial substrate item that overlaps significantly with
+P0's tagged-Any work.
 
-**Goal**: closures with unannotated params get a concrete signature
-specialized to their actual call-site arg types. When all call sites
-agree, mono succeeds; when they don't, fall back to error (with a
-message pointing at A's tagged-Any path).
+Closure mono becomes tractable AFTER:
+* Indirect-call mono path is wired into ssa_lower's monomorphizer
+  (mirror of the bare-Ident global-FnDecl path), OR
+* Tagged-Any closures (P0) — the closure body operates on Any
+  operands so no per-call-site specialization is needed.
 
-**Acceptance**: language/expressions sample sees 15-30 more cases pass.
-
-**Items (strict order):**
-
-- **P-CLOSURE-C.1** Apply desugar_implicit_generics to `__closure_*`
-  FnDecls. The current skip is documented at ast.rs:6457 — relax
-  the skip and let TypeVars flow through.
-- **P-CLOSURE-C.2** Indirect-call retarget: when a let-bound TypeVar
-  closure is called, look up the binding's source closure and
-  monomorphize per-call-site (mirror of the bare-Ident global-FnDecl
-  path).
-- **P-CLOSURE-C.3** Multi-call-site mono: when a closure has N call
-  sites with M distinct arg-type tuples, generate M instantiations.
-  Same shape as global generic FnDecl mono.
+P0's tagged-Any path subsumes both. Going straight to P0 instead
+of standing up a parallel mono substrate.
 
 ### P0 — Untyped-JS surface (original plan, resumes after detours)
 
