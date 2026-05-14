@@ -787,6 +787,56 @@ int64_t __torajs_any_unbox_value(const void *box) {
     return *(const int64_t *)((const uint8_t *)box + __TORAJS_ANY_BOX_VAL_OFF);
 }
 
+/* P0.2 — `typeof <Any>` runtime dispatch per JS spec §13.5.3.
+ * Reads the box's tag (and for ANY_HEAP, the inner heap header's
+ * type_tag) and returns a fresh String holding the spec-mandated
+ * literal: "number" / "string" / "boolean" / "object" / "function"
+ * / "symbol" / "bigint" / "undefined". Tora has no real undefined
+ * yet (P1) so ANY_NULL collapses to "object" — same as typeof null.
+ * Strings are allocated via str_alloc_pooled so the result is a
+ * regular owned Str the caller's drop walk handles.
+ */
+void *__torajs_any_typeof(const void *box) {
+    const char *s = "object";
+    size_t len = 6;
+    if (box == NULL) {
+        /* Bare null pointer (uninit / explicit cast) — treat as
+         * "object" per spec (typeof null === "object"). */
+    } else {
+        int64_t tag = *(const int64_t *)((const uint8_t *)box + __TORAJS_ANY_BOX_TAG_OFF);
+        switch (tag) {
+            case __TORAJS_ANY_NULL: s = "object"; len = 6; break;
+            case __TORAJS_ANY_BOOL: s = "boolean"; len = 7; break;
+            case __TORAJS_ANY_I64:
+            case __TORAJS_ANY_F64: s = "number"; len = 6; break;
+            case __TORAJS_ANY_HEAP: {
+                void *child = (void *)(uintptr_t)*(int64_t *)
+                    ((const uint8_t *)box + __TORAJS_ANY_BOX_VAL_OFF);
+                if (child == NULL) {
+                    s = "object"; len = 6;
+                } else {
+                    const __torajs_heap_header_t *h =
+                        (const __torajs_heap_header_t *)child;
+                    switch (h->type_tag) {
+                        case __TORAJS_TAG_STR: s = "string"; len = 6; break;
+                        case __TORAJS_TAG_CLOSURE: s = "function"; len = 8; break;
+                        case __TORAJS_TAG_SYMBOL: s = "symbol"; len = 6; break;
+                        case __TORAJS_TAG_BIGINT: s = "bigint"; len = 6; break;
+                        /* OBJ / ARR / REGEX / DATE / RESPONSE / WEAKREF /
+                         * WEAKMAP / WEAKSET / ANY_BOX (nested) → "object" */
+                        default: s = "object"; len = 6; break;
+                    }
+                }
+                break;
+            }
+            default: s = "object"; len = 6; break;
+        }
+    }
+    uint8_t *p = __torajs_str_alloc_pooled((uint64_t)len);
+    memcpy((uint8_t *)p + __TORAJS_STR_HDR_SIZE, s, len);
+    return p;
+}
+
 void __torajs_any_box_drop(void *box) {
     if (box == NULL) return;
     __torajs_heap_header_t *h = (__torajs_heap_header_t *)box;

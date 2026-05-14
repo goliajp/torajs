@@ -1986,6 +1986,13 @@ fn lower_inner(
      * are field reads; `any_box_drop` is the rc-aware free that also
      * decs heap-typed children; `print_any` is console.log Any
      * dispatch. */
+    let any_typeof_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_any_typeof",
+        &[Type::Ptr],
+        Type::Str,
+    );
     let any_box_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -3883,6 +3890,7 @@ fn lower_inner(
         arr_push_any: arr_push_any_id,
         arr_drop_any: arr_drop_any_id,
         any_box: any_box_id,
+        any_typeof: any_typeof_id,
         any_unbox_tag: any_unbox_tag_id,
         any_unbox_value: any_unbox_value_id,
         any_box_drop: any_box_drop_id,
@@ -4618,6 +4626,7 @@ struct Intrinsics {
     arr_push_any: FuncId,
     arr_drop_any: FuncId,
     any_box: FuncId,
+    any_typeof: FuncId,
     any_unbox_tag: FuncId,
     any_unbox_value: FuncId,
     any_box_drop: FuncId,
@@ -20134,14 +20143,21 @@ impl<'a> LowerCtx<'a> {
                     | Type::WeakMap
                     | Type::WeakSet => "object",
                     Type::Void | Type::Ptr => "object",
-                    // T-10.a — typeof on a Type::Any operand needs
-                    // runtime tag dispatch (not compile-time literal).
-                    // Lands with T-10.b's tag-aware runtime helpers.
-                    // For now: panic so the user gets a clear "not yet
-                    // supported" rather than a silently-wrong literal.
-                    Type::Any => panic!(
-                        "not yet supported: typeof on Type::Any operand (lands with T-10.b)"
-                    ),
+                    // P0.2 — typeof on a Type::Any operand routes
+                    // through __torajs_any_typeof, which reads the
+                    // box's tag (and for ANY_HEAP the inner heap
+                    // header's type_tag) and returns the spec-mandated
+                    // literal. Returns early — no need to fall through
+                    // to the static-string intern path below.
+                    Type::Any => {
+                        let r = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(self.intrinsics.any_typeof, vec![v]),
+                            Type::Str,
+                            None,
+                        );
+                        return Operand::Value(r);
+                    }
                 };
                 Operand::Value(self.intern_string_literal(s))
             }
