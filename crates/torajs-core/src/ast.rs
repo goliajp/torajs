@@ -6511,23 +6511,31 @@ pub fn desugar_implicit_generics(ast: &mut Ast) {
         }
 
         // Return type:
-        //   - explicit `: any` → fresh TypeVar (M3 path, monomorphized
-        //     at call sites)
-        //   - omitted (`function f(...) { ... }`) → walk the body's
-        //     `return EXPR;` sites and try to *statically* infer a
-        //     consistent annotation (literal kind, boolean BinOp/Unary,
-        //     Ident-of-typed-binding). If every value-return agrees on
-        //     a single annotation, set it as the return type; if there
-        //     is disagreement or any return resists static inference,
-        //     leave the return alone (sticks to the long-standing None
-        //     → Void default — call sites that need a non-void value
-        //     will still get the "return type mismatch" error, which is
-        //     the right pre-existing surface).
+        //   - explicit `: any` → first try the static return-ann sniff
+        //     against body returns + the (now-genericised) param types;
+        //     if it produces a single coherent annotation (which for
+        //     `function f(x: any): any { return x }` is `__T1` — the
+        //     param's TypeVar), use that so monomorphization can bind
+        //     `__T2` to the same call-site type. Falls back to a fresh
+        //     `__T2` TypeVar when the sniff is silent (multi-return /
+        //     mixed shape) — preserves the original behaviour for
+        //     genuinely Any returns.
+        //   - omitted (`function f(...) { ... }`) → same sniff, used
+        //     when the user gave no return ann at all.
         //   - explicit non-any annotation → leave alone.
         if return_type.as_deref() == Some("any") {
-            let var_name = alloc(&mut taken, &mut next_idx);
-            *return_type = Some(var_name.clone());
-            new_type_params.push(var_name);
+            let inferred = if body_has_value_return(body) {
+                infer_return_ann(ast_exprs_view, body, params)
+            } else {
+                None
+            };
+            if let Some(ann) = inferred {
+                *return_type = Some(ann);
+            } else {
+                let var_name = alloc(&mut taken, &mut next_idx);
+                *return_type = Some(var_name.clone());
+                new_type_params.push(var_name);
+            }
         } else if return_type.is_none() && body_has_value_return(body) {
             if let Some(inferred) = infer_return_ann(ast_exprs_view, body, params) {
                 *return_type = Some(inferred);
