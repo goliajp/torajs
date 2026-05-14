@@ -20576,6 +20576,13 @@ impl<'a> LowerCtx<'a> {
                 }
                 self.lower_expr(rid)
             }
+            // P-PARSE.8 — `let x;` placeholder reaches here when
+            // desugar_uninit_let couldn't find a follow-up assignment
+            // to splice in. Emit the same shape as Expr::Null (the
+            // closest existing stand-in for spec's `undefined`).
+            // check.rs's Uninit arm already returns Type::Null so
+            // downstream ops see a consistent Null/Nullable shape.
+            Expr::Uninit => Operand::ConstPtrNull,
             other => panic!("ssa-lower: unsupported expr: {other:?}"),
         }
     }

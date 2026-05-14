@@ -2553,13 +2553,15 @@ impl Checker {
             Expr::Null => Ok(Type::Null),
             // `Expr::Uninit` only ever appears as a `let x;` placeholder
             // init and is normally resolved by `desugar_uninit_let` to
-            // the first follow-up assignment's RHS. Reaching here means
-            // the let was declared but never assigned anywhere in scope
-            // — surface that as a clean type error rather than letting
-            // the lowerer panic later.
-            Expr::Uninit => Err(
-                "let binding declared without initializer and never assigned in scope".into(),
-            ),
+            // the first follow-up assignment's RHS. P-PARSE.8 — when
+            // the desugar fails to find a follow-up (e.g. the
+            // assignment is hidden inside an eval / unreachable
+            // branch), treat the binding as Type::Null (the closest
+            // existing shape to spec's `undefined` for an uninit
+            // binding). Pre-fix this surface was a hard reject; lifting
+            // it lets the typecheck progress through the scope so later
+            // dependent statements can also typecheck.
+            Expr::Uninit => Ok(Type::Null),
             // Regex literal `/pat/flags` — produces a `Type::RegExp`.
             // Pattern + flags are validated at runtime in
             // `__torajs_regex_compile` (allocates the NFA + flag bits);
