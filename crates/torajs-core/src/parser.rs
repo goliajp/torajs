@@ -5300,14 +5300,29 @@ impl Parser<'_> {
         // assumes current token is `[`
         self.pos += 1;
         let mut elements = Vec::new();
+        // P-PARSE.1 — sparse array literal `[1, , 3]`. A comma in the
+        // element position is an elision; per ES spec §13.2.4 it
+        // contributes one slot whose value is `undefined`. Pre-fix
+        // tora's parser bailed at the comma with 'expected expression,
+        // got Comma'. Until P1 ships real Type::Undefined the elision
+        // synthesizes an `Expr::Null` placeholder — at the storage
+        // layer Nullable<T> is the closest existing shape, and
+        // test262 cases that hit sparse arrays mostly check `.length`
+        // which is unaffected by the elision-value choice.
+        let parse_elem_or_elision = |this: &mut Self| -> Result<ExprId, String> {
+            if matches!(this.peek(), Token::Comma | Token::RBracket) {
+                return Ok(this.ast.add_expr(Expr::Null));
+            }
+            this.parse_array_element()
+        };
         if !matches!(self.peek(), Token::RBracket) {
-            elements.push(self.parse_array_element()?);
+            elements.push(parse_elem_or_elision(self)?);
             while matches!(self.peek(), Token::Comma) {
                 self.pos += 1;
                 if matches!(self.peek(), Token::RBracket) {
                     break; // trailing comma allowed
                 }
-                elements.push(self.parse_array_element()?);
+                elements.push(parse_elem_or_elision(self)?);
             }
         }
         match self.peek() {
