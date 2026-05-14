@@ -909,6 +909,21 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                     // the exponent loop below picks up `e5`.
                     i += 1;
                 } else if peek(bytes, i) == Some(b'.')
+                    && peek(bytes, i + 1).is_some_and(|c| {
+                        // P0.10 — trailing-dot DecimalLiteral
+                        // followed by anything that's NOT a member
+                        // access continuation: `8. !== 8`,
+                        // `9.; foo()`, etc. Per ES spec §12.9.3
+                        // DecimalLiteral the trailing `.` is part
+                        // of the integer literal. Eat the dot when
+                        // the lookahead disqualifies member-access
+                        // (Ident-start letter, `_`, `$`).
+                        !c.is_ascii_alphanumeric() && c != b'_' && c != b'$'
+                            && c != b'.'  // already covered by next branch
+                    })
+                {
+                    i += 1;
+                } else if peek(bytes, i) == Some(b'.')
                     && peek(bytes, i + 1) == Some(b'.')
                 {
                     // V3-18 m1.h.21 — `0..toString()` form. JS spec
