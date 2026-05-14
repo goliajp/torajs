@@ -2313,22 +2313,29 @@ impl Checker {
                 let is_empty_array =
                     matches!(ast.get_expr(*init), Expr::Array(els) if els.is_empty());
                 let init_ty = if is_empty_array {
-                    let Some(ann) = type_ann else {
-                        self.errors.push_err(format!(
-                            "empty array literal `{name}` needs an explicit type annotation, e.g. `let {name}: number[] = []`"
-                        ));
-                        return;
+                    // P0.10 — empty array literal `[]` defaults to
+                    // `Array<Any>` when no annotation is present, per
+                    // TS spec (untyped `[]` is `any[]`). Matches the
+                    // closure-default-Any policy. Pre-fix tora demanded
+                    // `let xs: T[] = []`; test262 uses bare `let arr =
+                    // []` pervasively (160+ cases blocked on this
+                    // single shape across the broader sample).
+                    let ann_ty = match type_ann {
+                        Some(ann) => {
+                            let Some(t) = resolve_type_ann_full(ann, &self.aliases, &[], &self.generic_alias_decls) else {
+                                self.errors.push_err(format!("unknown type `{ann}`"));
+                                return;
+                            };
+                            if !matches!(t, Type::Array(_)) {
+                                self.errors.push_err(format!(
+                                    "empty array literal `{name}` needs an array type annotation, got `{ann}`"
+                                ));
+                                return;
+                            }
+                            t
+                        }
+                        None => Type::Array(Box::new(Type::Any)),
                     };
-                    let Some(ann_ty) = resolve_type_ann_full(ann, &self.aliases, &[], &self.generic_alias_decls) else {
-                        self.errors.push_err(format!("unknown type `{ann}`"));
-                        return;
-                    };
-                    if !matches!(ann_ty, Type::Array(_)) {
-                        self.errors.push_err(format!(
-                            "empty array literal `{name}` needs an array type annotation, got `{ann}`"
-                        ));
-                        return;
-                    }
                     ann_ty
                 } else {
                     match self.type_of(ast, *init) {

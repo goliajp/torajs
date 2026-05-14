@@ -9215,6 +9215,16 @@ impl<'a> LowerCtx<'a> {
                         self.generic_struct_decls,
                         self.struct_layouts,
                     )
+                } else if let Expr::Array(els) = self.ast.get_expr(*init)
+                    && els.is_empty()
+                {
+                    // P0.10 — bare empty `[]` literal without an
+                    // annotation defaults to `Array<Any>`. Mirrors
+                    // check.rs's empty-array default. The arr layout
+                    // is interned so subsequent any-element pushes
+                    // share the same Array<Any> ArrId.
+                    let arr_id = intern_arr_layout(self.arr_layouts, Type::Any);
+                    Type::Arr(arr_id)
                 } else {
                     Type::Void
                 };
