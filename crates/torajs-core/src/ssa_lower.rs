@@ -10735,6 +10735,14 @@ impl<'a> LowerCtx<'a> {
                 // through the wrong layout.
                 let coerced = ret_operand.map(|op| {
                     let actual = self.operand_ty(&op);
+                    // P0.9 — Any return slot with concrete-typed
+                    // returned value: box at the boundary so the
+                    // caller receives an Any pointer, not a raw
+                    // primitive that would corrupt the calling
+                    // ABI.
+                    if self.f.ret == Type::Any && actual != Type::Any {
+                        return self.box_to_any(op);
+                    }
                     if self.f.ret == Type::F64 && actual == Type::I64 {
                         self.coerce_to_f64(op)
                     } else if self.f.ret == Type::I64 && actual == Type::F64 {
@@ -11696,6 +11704,65 @@ impl<'a> LowerCtx<'a> {
                     return Operand::ConstF64(-0.0);
                 }
                 let v = self.lower_expr(*expr);
+                // P0.9 — Any operand on unary `-` / `+`: route through
+                // any_arith helper. `-x` ≡ `0 - x` so we call any_arith
+                // with op=Sub (0), LHS=ConstI64(0)+ANY_I64 tag, RHS=
+                // unboxed-from-x. Result is fresh Any-box.
+                if matches!(op, crate::ast::UnaryOp::Neg | crate::ast::UnaryOp::Plus)
+                    && matches!(self.operand_ty(&v), Type::Any)
+                {
+                    let r_tag = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Load(Type::I64, v.clone(), 8),
+                        Type::I64,
+                        None,
+                    );
+                    let r_value = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Load(Type::I64, v, 16),
+                        Type::I64,
+                        None,
+                    );
+                    if matches!(op, crate::ast::UnaryOp::Neg) {
+                        // 0 - x via any_arith op=0
+                        let r = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.any_arith,
+                                vec![
+                                    Operand::ConstI64(0), // op=Sub
+                                    Operand::ConstI64(2), // ANY_I64
+                                    Operand::ConstI64(0), // value 0
+                                    Operand::Value(r_tag),
+                                    Operand::Value(r_value),
+                                ],
+                            ),
+                            Type::Any,
+                            None,
+                        );
+                        return Operand::Value(r);
+                    } else {
+                        // Unary `+x` ≡ ToNumber(x) — call any_arith
+                        // op=Mul with LHS=1 to coerce to Number
+                        // without changing value.
+                        let r = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.any_arith,
+                                vec![
+                                    Operand::ConstI64(1), // op=Mul
+                                    Operand::ConstI64(2), // ANY_I64
+                                    Operand::ConstI64(1), // value 1
+                                    Operand::Value(r_tag),
+                                    Operand::Value(r_value),
+                                ],
+                            ),
+                            Type::Any,
+                            None,
+                        );
+                        return Operand::Value(r);
+                    }
+                }
                 // V3-18 m1.f / m1.h.4 — coerce Bool / null before
                 // unary `-`, `~`, `+`. For `-`, IEEE 754 -0 must
                 // survive when the operand is the falsy 0
@@ -18494,6 +18561,16 @@ impl<'a> LowerCtx<'a> {
                             }
                             (Type::I64, Type::F64) | (Type::I64, Type::Bool) => {
                                 argv[i] = self.coerce_to_i64(argv[i]);
+                            }
+                            // P0.9 — global FnDecl with Any param +
+                            // concrete arg: box the concrete value
+                            // into Any at the call boundary. Mirror
+                            // of the closure-call path (P0.5) so the
+                            // same target-param-Any → arg-box rule
+                            // fires regardless of how the callee was
+                            // declared.
+                            (Type::Any, got_ty) if got_ty != Type::Any => {
+                                argv[i] = self.box_to_any(argv[i].clone());
                             }
                             _ => {}
                         }

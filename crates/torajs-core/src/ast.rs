@@ -6512,9 +6512,24 @@ pub fn desugar_implicit_generics(ast: &mut Ast) {
 
         let mut new_type_params: Vec<String> = Vec::new();
         for p in params.iter_mut() {
+            // P0.9 — explicit `: any` param stays literal "any"
+            // (Type::Any). Pre-fix tora rewrote `: any` to a fresh
+            // TypeVar (matching the unannotated case) which then
+            // required per-call-site mono inference; that path
+            // breaks for genuinely-Any args (the inferred TypeVar=
+            // Any combination wasn't fully wired through the SSA
+            // layer). Now that P0.6 / P0.7 / P0.8 ship Any-aware
+            // BinOp/Compare and the call-site arg-boxing handles
+            // concrete→Any conversion at the boundary, leaving
+            // `: any` as-is produces a concrete Any sig that
+            // every call site can dispatch into directly.
+            //
+            // Unannotated params still get TypeVar (the per-call-
+            // site mono path remains the default for genuine
+            // generics).
             let needs_var = match &p.type_ann {
                 None => true,
-                Some(ann) => ann == "any",
+                Some(_) => false,
             };
             if !needs_var {
                 continue;
@@ -6546,18 +6561,20 @@ pub fn desugar_implicit_generics(ast: &mut Ast) {
         //     when the user gave no return ann at all.
         //   - explicit non-any annotation → leave alone.
         if return_type.as_deref() == Some("any") {
-            let inferred = if body_has_value_return(body) {
-                infer_return_ann(ast_exprs_view, body, params)
-            } else {
-                None
-            };
-            if let Some(ann) = inferred {
-                *return_type = Some(ann);
-            } else {
-                let var_name = alloc(&mut taken, &mut next_idx);
-                *return_type = Some(var_name.clone());
-                new_type_params.push(var_name);
-            }
+            // P0.9 — explicit `: any` return stays literal "any"
+            // (Type::Any). Pre-fix this branch tried to find a
+            // single concrete return type via sniff and fell back
+            // to a fresh TypeVar; both paths broke real-world
+            // multi-return Any-typed functions ('could not infer
+            // type parameter __T1 for f'). Now that P0.6 / P0.7 /
+            // P0.8 ship Any-aware BinOp/Compare and the return-
+            // type assignability check honors Any-on-LHS, leaving
+            // the ann as literal "any" produces a concrete Any
+            // sig that downstream call sites accept directly.
+            //
+            // Old behavior is reachable via explicit `<T>` —
+            // user who genuinely wants per-call-site mono writes
+            // `function id<T>(x: T): T { ... }`.
         } else if return_type.is_none() && body_has_value_return(body) {
             if let Some(inferred) = infer_return_ann(ast_exprs_view, body, params) {
                 *return_type = Some(inferred);

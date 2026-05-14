@@ -2504,7 +2504,15 @@ impl Checker {
                 } else {
                     false
                 };
-                if actual != expected && !nullable_ok {
+                // P0.9 — return-type check goes through the
+                // assignability lattice so Any-typed expected (or
+                // structs containing Any fields) accept concrete
+                // returned values. Previous strict-eq blocked
+                // generators with default-Any yield types from
+                // returning concrete iterator-result structs.
+                if !nullable_ok
+                    && !is_assignable_to_resolved(&expected, &actual, &self.aliases)
+                {
                     self.errors.push_err(format!(
                         "return type mismatch: function expects {expected:?}, got {actual:?}"
                     ));
@@ -5669,9 +5677,21 @@ impl Checker {
                             // based, NaN on parse failure). Result
                             // type is Number in every case.
                             Ok(Type::Number)
+                        } else if matches!(t, Type::Any) {
+                            // P0.9 — Any operand: ToNumber via
+                            // any_to_number_inner runtime, then
+                            // negate. ssa_lower routes through the
+                            // same any_arith helper used by Sub
+                            // (op=0 with LHS=0).
+                            Ok(Type::Any)
                         } else {
                             Err(format!("`-` requires number or bigint operand, got {t:?}"))
                         }
+                    }
+                    crate::ast::UnaryOp::Plus if matches!(t, Type::Any) => {
+                        // P0.9 — Any operand: same any_arith path as
+                        // unary Neg, just identity-Mul to ToNumber.
+                        Ok(Type::Any)
                     }
                     crate::ast::UnaryOp::Plus => {
                         // V3-18 m1.h.4 / unary-on-string wedge —
