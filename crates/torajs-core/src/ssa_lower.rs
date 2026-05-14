@@ -14696,6 +14696,125 @@ impl<'a> LowerCtx<'a> {
                     {
                         let arr_ty = info.ty;
                         let elem_ty = self.arr_layouts[arr_id.0 as usize];
+                        // P0.10 — Array<Any>.push(<concrete>) routes
+                        // through arr_push_any with a (tag, value)
+                        // pair. Pre-fix tora called the regular
+                        // arr_push intrinsic which uses 8-byte slots
+                        // and corrupted the Array<Any>'s 16-byte
+                        // tagged-slot layout. Same boxing scheme as
+                        // the Index-assign Any path shipped earlier.
+                        if matches!(elem_ty, Type::Any) {
+                            let cur_arr = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Load(arr_ty, Operand::Value(info.slot), 0),
+                                arr_ty,
+                                None,
+                            );
+                            let v_raw = self.lower_expr(args[0]);
+                            self.consume_if_ident(args[0]);
+                            let v_ty = self.operand_ty(&v_raw);
+                            let (tag, push_val): (i64, Operand) = match v_ty {
+                                Type::I64 | Type::I32 => (2, v_raw),
+                                Type::F64 => {
+                                    let bits = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::BitCastF64ToI64(v_raw),
+                                        Type::I64,
+                                        None,
+                                    );
+                                    (3, Operand::Value(bits))
+                                }
+                                Type::Bool => {
+                                    let zext = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::ZExtBoolToI64(v_raw),
+                                        Type::I64,
+                                        None,
+                                    );
+                                    (1, Operand::Value(zext))
+                                }
+                                _ if v_ty.is_refcounted() => {
+                                    // ANY_HEAP slot — bump rc so the
+                                    // array's slot owns a balanced ref.
+                                    self.f.append_void(
+                                        self.cur_block,
+                                        InstKind::Call(
+                                            self.intrinsics.rc_inc,
+                                            vec![v_raw.clone()],
+                                        ),
+                                    );
+                                    (4, v_raw)
+                                }
+                                Type::Ptr => {
+                                    if matches!(v_raw, Operand::ConstPtrNull) {
+                                        (0, Operand::ConstI64(0))
+                                    } else {
+                                        (4, v_raw)
+                                    }
+                                }
+                                Type::Any => {
+                                    let tag_v = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::Load(Type::I64, v_raw.clone(), 16),
+                                        Type::I64,
+                                        None,
+                                    );
+                                    let val_v = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::Load(Type::I64, v_raw.clone(), 24),
+                                        Type::I64,
+                                        None,
+                                    );
+                                    let new_arr = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::Call(
+                                            self.intrinsics.arr_push_any,
+                                            vec![
+                                                Operand::Value(cur_arr),
+                                                Operand::Value(tag_v),
+                                                Operand::Value(val_v),
+                                            ],
+                                        ),
+                                        arr_ty,
+                                        None,
+                                    );
+                                    self.f.append_void(
+                                        self.cur_block,
+                                        InstKind::Store(
+                                            Operand::Value(new_arr),
+                                            Operand::Value(info.slot),
+                                            0,
+                                        ),
+                                    );
+                                    return Operand::ConstI64(0);
+                                }
+                                _ => panic!(
+                                    "ssa-lower: Array<Any>.push unsupported value type {v_ty:?}"
+                                ),
+                            };
+                            let new_arr = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(
+                                    self.intrinsics.arr_push_any,
+                                    vec![
+                                        Operand::Value(cur_arr),
+                                        Operand::ConstI64(tag),
+                                        push_val,
+                                    ],
+                                ),
+                                arr_ty,
+                                None,
+                            );
+                            self.f.append_void(
+                                self.cur_block,
+                                InstKind::Store(
+                                    Operand::Value(new_arr),
+                                    Operand::Value(info.slot),
+                                    0,
+                                ),
+                            );
+                            return Operand::ConstI64(0);
+                        }
                         let cur_arr = self.f.append_inst(
                             self.cur_block,
                             InstKind::Load(arr_ty, Operand::Value(info.slot), 0),
