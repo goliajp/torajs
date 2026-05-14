@@ -914,6 +914,14 @@ fn is_assignable_to_deep(
     if matches!(from_r, Type::Any) {
         return true;
     }
+    // P0 — anything is assignable to Any (per TS spec). The init's
+    // concrete value gets boxed into the universal Any-box at lower
+    // time. Pre-fix tora rejected `let x: any = 5` with a strict
+    // Any vs Number mismatch, blocking the implicit-any path the
+    // entire untyped-JS surface needs.
+    if matches!(to_r, Type::Any) {
+        return true;
+    }
     if let Type::Nullable(inner) = &to_r {
         if matches!(from_r, Type::Null) {
             return true;

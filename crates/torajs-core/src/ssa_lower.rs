@@ -9242,6 +9242,19 @@ impl<'a> LowerCtx<'a> {
                 } else {
                     init_val
                 };
+                // P0 — Any slot with concrete-typed init: box at let-init
+                // time so the slot holds a Type::Any pointer (24-byte
+                // heap struct via __torajs_any_box). Lifts the strict
+                // 'declared Any, init has Number' typecheck rejection
+                // into a proper boxed-value flow that downstream Any-
+                // aware ops can dispatch on.
+                let init_val = if ty == Type::Any
+                    && self.operand_ty(&init_val) != Type::Any
+                {
+                    self.box_to_any(init_val)
+                } else {
+                    init_val
+                };
                 // No-annotation inference: promote ty to the lowered
                 // operand's type. Done here so the alloca below uses
                 // the right slot type.
@@ -10827,6 +10840,63 @@ impl<'a> LowerCtx<'a> {
     /// T-10.c (v0.4.0) — emit codegen for a heterogeneous Array
     /// literal. alloc_any(N) sized to fit, then per-element box +
     /// push_any with the matching tag. Returns the (possibly grown)
+    /// P0 — box a concrete-typed Operand into the universal Any-box.
+    /// Returns an Operand::Value of Type::Ptr that points at a fresh
+    /// 24-byte heap struct (header + tag + payload). For ANY_HEAP
+    /// values the inner heap pointer's refcount is bumped by the
+    /// runtime helper so the box's drop releases its share. Caller
+    /// owns the returned box; ssa_lower's regular drop walk frees
+    /// it via __torajs_any_box_drop. Also used by lower_array_any
+    /// (which encodes the same tag scheme but inlines the call).
+    fn box_to_any(&mut self, val: Operand) -> Operand {
+        let val_ty = self.operand_ty(&val);
+        let (tag, value_op): (i64, Operand) = match val_ty {
+            Type::I64 | Type::I32 => (2, val),
+            Type::F64 => {
+                let bits = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::BitCastF64ToI64(val),
+                    Type::I64,
+                    None,
+                );
+                (3, Operand::Value(bits))
+            }
+            Type::Bool => {
+                let zext = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::ZExtBoolToI64(val),
+                    Type::I64,
+                    None,
+                );
+                (1, Operand::Value(zext))
+            }
+            _ if val_ty.is_refcounted() => {
+                // Heap-typed value: pass the ptr as i64. The any_box
+                // helper bumps its refcount internally so the box's
+                // drop balances. ABI-compatible because ptr ↔ i64
+                // share the same machine word.
+                (4, val)
+            }
+            Type::Ptr => {
+                // Null-shaped Ptr: tag as ANY_NULL with value 0.
+                (0, Operand::ConstI64(0))
+            }
+            other => panic!(
+                "ssa-lower: box_to_any element type {other:?} not supported"
+            ),
+        };
+        let v = self.f.append_inst(
+            self.cur_block,
+            InstKind::Call(
+                self.intrinsics.any_box,
+                vec![Operand::ConstI64(tag), value_op],
+            ),
+            Type::Any,
+            None,
+        );
+        Operand::Value(v)
+    }
+
     /// array pointer as Operand::Value.
     fn lower_array_any_literal(&mut self, ids: &[ExprId]) -> Operand {
         let n = ids.len() as i64;
