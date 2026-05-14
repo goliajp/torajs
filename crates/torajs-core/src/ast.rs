@@ -6439,10 +6439,30 @@ pub fn desugar_implicit_generics(ast: &mut Ast) {
         // inference for the `(v: number) => v + capture` shape, so
         // run that branch before continuing. `__this` (class methods)
         // already has explicit declared return types in practice.
-        if let Some(first) = params.first()
-            && (first.name == "__env" || first.name == "__this")
-        {
-            if first.name == "__env"
+        let first_kind = params.first().map(|p| p.name.clone());
+        if matches!(first_kind.as_deref(), Some("__env") | Some("__this")) {
+            // P0.10 — capturing-closure user params (everything after
+            // the synthetic `__env` slot) also default to Type::Any
+            // when un-annotated. Pre-fix this `continue` skipped the
+            // closure-default-Any treatment that the non-capturing
+            // `__closure_<N>` branch below applies, leaving capturing
+            // arrows like `xs.forEach(function(v){ otherCb(); })` with
+            // an unannotated `v` slot — typecheck then bailed at
+            // 'parameter `v` of function `__closure_N` requires a type
+            // annotation' even though the surrounding inference path
+            // had defaulted bare-arg cases. Apply the same "any"
+            // default here for `__env`-prefixed closures so the two
+            // paths converge.
+            if first_kind.as_deref() == Some("__env")
+                && name.starts_with("__closure_")
+            {
+                for p in params.iter_mut().skip(1) {
+                    if p.type_ann.is_none() {
+                        p.type_ann = Some("any".to_string());
+                    }
+                }
+            }
+            if first_kind.as_deref() == Some("__env")
                 && return_type.is_none()
                 && body_has_value_return(body)
             {
