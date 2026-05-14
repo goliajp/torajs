@@ -156,7 +156,63 @@ no runtime additions. Each item is a token-aware parser branch, plus
 the AST node it lowers to (which already exists for nearly all of
 them since the typecheck path was already wired).
 
-### P0 — Untyped-JS surface
+### P-COERCE-B — ToPrimitive in `+` for Struct / Function (detour)
+
+**Inserted 2026-05-14 between P-PARSE and P0** at takagi's direction
+after P-PARSE.8 sample showed parse-error / type-error mass-shift but
+no actual pass-rate movement. Empirical sample identified two narrow
+type-error patterns whose fix is mostly self-contained substrate
+(no Any-tier required) and that together unblock ~10-15 test262 cases:
+
+   * `{ valueOf() { return 1 } } + 2` — ToPrimitive with hint=Default
+     calls valueOf first; tora rejects with 'Struct + Number'.
+   * `(function f() {...}) + n` — Function ToPrimitive falls through
+     to toString; tora rejects with 'Function + Number'.
+
+**Goal**: bring those rejections into accepted Number / String results.
+
+**Acceptance**: language/expressions/addition test262 sub-sample
+passes 5-10 more cases.
+
+**Items (strict order):**
+
+- **P-COERCE-B.1** Struct with valueOf() : number — coerce LHS / RHS
+  through valueOf at typecheck + lower.
+- **P-COERCE-B.2** Struct with toString() : string fallback (when
+  valueOf returns the struct itself / no valueOf).
+- **P-COERCE-B.3** Function operand — coerce via toString to String
+  (source-code repr, matches bun).
+
+### P-CLOSURE-C — closure monomorphization at call sites (detour)
+
+**Inserted 2026-05-14 alongside P-COERCE-B**. The dominant remaining
+type-error mass is `var f = function(a, b) { ... }` — function
+expressions stored in let / var bindings, called indirectly. The
+closure-lift path skips desugar_implicit_generics so unannotated
+params hit 'requires a type annotation'. Test262 uses this pattern
+in nearly every assertion harness (`var assertEq = function(...) {}`).
+
+**Goal**: closures with unannotated params get a concrete signature
+specialized to their actual call-site arg types. When all call sites
+agree, mono succeeds; when they don't, fall back to error (with a
+message pointing at A's tagged-Any path).
+
+**Acceptance**: language/expressions sample sees 15-30 more cases pass.
+
+**Items (strict order):**
+
+- **P-CLOSURE-C.1** Apply desugar_implicit_generics to `__closure_*`
+  FnDecls. The current skip is documented at ast.rs:6457 — relax
+  the skip and let TypeVars flow through.
+- **P-CLOSURE-C.2** Indirect-call retarget: when a let-bound TypeVar
+  closure is called, look up the binding's source closure and
+  monomorphize per-call-site (mirror of the bare-Ident global-FnDecl
+  path).
+- **P-CLOSURE-C.3** Multi-call-site mono: when a closure has N call
+  sites with M distinct arg-type tuples, generate M instantiations.
+  Same shape as global generic FnDecl mono.
+
+### P0 — Untyped-JS surface (original plan, resumes after detours)
 
 **Goal**: tr accepts arbitrary unannotated `.js` source through typecheck.
 Type::Any becomes a first-class participant in every operation; bare
