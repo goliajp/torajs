@@ -19586,9 +19586,23 @@ impl<'a> LowerCtx<'a> {
                 //   Spread sources are memcpy'd in one shot — no per-
                 //   element runtime call. Single alloc, no realloc.
                 if elements.is_empty() {
-                    panic!(
-                        "ssa-lower: bare empty `[]` literal needs an array type annotation; LetDecl handles this case explicitly"
+                    // P0.10 — bare `[]` in non-let-init expression
+                    // position defaults to `Array<Any>`. Mirrors the
+                    // check.rs Expr::Array empty-arr default. The
+                    // arr_id for Type::Any is interned via
+                    // intern_arr_layout. Routes through arr_alloc_any
+                    // for the right 16-byte tagged-slot stride.
+                    let arr_id = intern_arr_layout(self.arr_layouts, Type::Any);
+                    let alloc_call = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.arr_alloc_any,
+                            vec![Operand::ConstI64(0)],
+                        ),
+                        Type::Arr(arr_id),
+                        None,
                     );
+                    return Operand::Value(alloc_call);
                 }
                 let element_ids: Vec<ExprId> = elements.clone();
                 let has_spread = element_ids.iter().any(|eid| {

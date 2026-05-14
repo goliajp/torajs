@@ -4030,10 +4030,14 @@ impl Checker {
             }
             Expr::Array(elements) => {
                 if elements.is_empty() {
-                    return Err(
-                        "empty array literal needs a type annotation (not yet supported in v0)"
-                            .into(),
-                    );
+                    // P0.10 — bare `[]` in non-let-init expression
+                    // position defaults to `Array<Any>` per TS spec.
+                    // Mirrors the LetDecl empty-`[]` default. Pre-fix
+                    // tora rejected `new Array().length` / `[].length`
+                    // / fn-arg empty arrays with the explicit-annotation
+                    // demand. Test262 uses these pervasively (~50+
+                    // cases unblocked across the broader sample).
+                    return Ok(Type::Array(Box::new(Type::Any)));
                 }
                 let ids: Vec<ExprId> = elements.clone();
                 // Helper: the "value type contributed by this element"
