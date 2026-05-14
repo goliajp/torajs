@@ -16563,21 +16563,30 @@ impl<'a> LowerCtx<'a> {
                         }
                         // V3-18 m1.h.53 — start defaults to 0, end
                         // defaults to arr.length per JS spec §22.1.3.6.
+                        // V3-18 wedge — negatives count from the
+                        // end via relative_to_len (max(len + n, 0)
+                        // for n < 0, len for n >= len). The arr_fill
+                        // C runtime only does plain min/max clamp,
+                        // so the normalisation happens here so both
+                        // Copy and non-Copy paths see canonical
+                        // [0, len] indices.
+                        let len_for_norm = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(Type::I64, recv_op, ARR_LEN_OFF),
+                            Type::I64,
+                            None,
+                        );
                         let start = if args.len() >= 2 {
-                            self.lower_expr(args[1])
+                            let raw = self.lower_expr(args[1]);
+                            self.relative_to_len(raw, Operand::Value(len_for_norm))
                         } else {
                             Operand::ConstI64(0)
                         };
                         let end = if args.len() == 3 {
-                            self.lower_expr(args[2])
+                            let raw = self.lower_expr(args[2]);
+                            self.relative_to_len(raw, Operand::Value(len_for_norm))
                         } else {
-                            let len = self.f.append_inst(
-                                self.cur_block,
-                                InstKind::Load(Type::I64, recv_op, ARR_LEN_OFF),
-                                Type::I64,
-                                None,
-                            );
-                            Operand::Value(len)
+                            Operand::Value(len_for_norm)
                         };
                         let elem_ty = self.arr_layouts[arr_id.0 as usize];
                         if elem_ty.is_copy() {
