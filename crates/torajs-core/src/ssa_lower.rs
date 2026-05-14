@@ -1967,6 +1967,19 @@ fn lower_inner(
         &[Type::I64],
         Type::Ptr,
     );
+    // P0.10 — `new Array(n)` numeric form. Allocates an Array<Any>
+    // of length n with all slots set to ANY_NULL (tag=0, value=0).
+    // The intrinsic is registered in fn_table so the AST-level
+    // desugar's `Expr::Call { callee = Ident("__torajs_arr_alloc_any_filled") }`
+    // resolves at ssa_lower time. check.rs reports the signature
+    // as `(Number) → Array<Any>`.
+    let _ = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_arr_alloc_any_filled",
+        &[Type::I64],
+        Type::Ptr,
+    );
     let arr_push_any_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -11120,6 +11133,35 @@ impl<'a> LowerCtx<'a> {
                     self.cur_block,
                     InstKind::Call(self.intrinsics.weakset_create, vec![]),
                     Type::WeakSet,
+                    None,
+                );
+                return Operand::Value(v);
+            }
+            // P0.10 — `new Array(n)` 1-arg numeric form. Allocates
+            // an Array<Any> of length n with all slots set to
+            // ANY_NULL. The 0-arg and ≥2-arg forms are rewritten to
+            // array literals by desugar_builtin_new and never reach
+            // here as Expr::New. check.rs typechecks the arg as
+            // Number; we lower it, coerce to i64 (the runtime helper
+            // expects u64-shaped i64), and intern the Array<Any>
+            // layout to type the call's return.
+            Expr::New { class_name, args } if class_name == "Array" && args.len() == 1 => {
+                let arg_val = self.lower_expr(args[0]);
+                let arg_i64 = self.coerce_to_i64(arg_val);
+                let arr_id = intern_arr_layout(self.arr_layouts, Type::Any);
+                let v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(
+                        // The intrinsic was registered earlier in
+                        // build_intrinsics with name
+                        // `__torajs_arr_alloc_any_filled`. Look it up
+                        // by name since we didn't store its FuncId
+                        // in the Intrinsics struct.
+                        *self.fn_table.get("__torajs_arr_alloc_any_filled")
+                            .expect("__torajs_arr_alloc_any_filled intrinsic missing"),
+                        vec![arg_i64],
+                    ),
+                    Type::Arr(arr_id),
                     None,
                 );
                 return Operand::Value(v);

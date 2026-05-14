@@ -606,6 +606,27 @@ void *__torajs_arr_alloc_any(uint64_t cap) {
     return p;
 }
 
+/* P0.10 — `new Array(n)` numeric form per ES spec §23.1.2.1.
+ * Allocates an Array<Any> of length n with all slots set to
+ * ANY_NULL (tag=0, value=0). Behaves like a sparse array but
+ * with explicit null-fill so arr[i] reads return null
+ * (matches JS's `undefined` in the typed-as-Any context). */
+void *__torajs_arr_alloc_any_filled(uint64_t n) {
+    uint8_t *p = (uint8_t *)malloc(24 + (size_t)n * __TORAJS_ANY_SLOT_BYTES);
+    __torajs_heap_header_t *h = (__torajs_heap_header_t *)p;
+    h->refcount = 1;
+    h->type_tag = __TORAJS_TAG_ARR;
+    h->flags = __TORAJS_FLAG_ARR_ANY;
+    *(uint64_t *)(p + 8) = n;                /* len = n */
+    *(uint32_t *)(p + 16) = (uint32_t)n;     /* cap = n */
+    *(uint32_t *)(p + 20) = 0;
+    /* Zero the slots — both tag (0=ANY_NULL) and value (0). */
+    if (n > 0) {
+        memset(p + 24, 0, (size_t)n * __TORAJS_ANY_SLOT_BYTES);
+    }
+    return p;
+}
+
 /* Append a tagged slot. Grows by 2× when len == cap (matches
  * `__torajs_arr_push`'s growth strategy). Returns the (possibly
  * realloc'd) array pointer; caller stores it back into the slot,

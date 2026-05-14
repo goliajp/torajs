@@ -6069,6 +6069,27 @@ impl Checker {
                 }
                 Ok(Type::WeakSet)
             }
+            // P0.10 — `new Array(n)` 1-arg numeric form per ES spec
+            // §23.1.2.1 Array(len). Returns `Array<Any>` of length n
+            // with all slots set to ANY_NULL. The 0-arg and ≥2-arg
+            // forms are rewritten to array literals by
+            // desugar_builtin_new and never reach here as Expr::New.
+            Expr::New { class_name, args } if class_name == "Array" => {
+                if args.len() == 1 {
+                    let arg_ty = self.type_of(ast, args[0])?;
+                    if !is_assignable_to_resolved(&Type::Number, &arg_ty, &self.aliases) {
+                        return Err(format!(
+                            "`new Array(...)` 1-arg form: arg must be number, got {arg_ty:?}"
+                        ));
+                    }
+                    Ok(Type::Array(Box::new(Type::Any)))
+                } else {
+                    Err(format!(
+                        "internal: `new Array(...)` with {} args reached check.rs (desugar didn't run?)",
+                        args.len()
+                    ))
+                }
+            }
             Expr::New { class_name, .. } => {
                 panic!("internal: `new {class_name}` reached check.rs (desugar didn't run?)")
             }

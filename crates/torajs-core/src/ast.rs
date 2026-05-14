@@ -1901,19 +1901,25 @@ pub fn desugar_builtin_new(ast: &mut Ast) {
     }
     // P0.10 — `new Array(...)` MVP rewrite. Per ES spec §23.1.2.1
     // Array constructor with:
-    //   - 0 args  → empty array `[]` (length 0)
-    //   - ≥2 args → array literal `[a, b, c, ...]`
-    // The 1-arg-numeric form (`new Array(n)` → length-n array
-    // filled with undefined) needs runtime arr_alloc(n) with Any
-    // null-fill — substrate gap, deferred. Currently rewrites the
-    // 0-arg and ≥2-arg shapes; the 1-arg shape leaves the
-    // `Expr::New` unchanged so typecheck reports the missing
-    // `__new_Array` factory (same behavior as before this rewrite).
+    //   - 0 args               → empty array `[]` (length 0)
+    //   - ≥2 args              → array literal `[a, b, c, ...]`
+    //   - 1 arg, NumericLit n  → __torajs_arr_alloc_any_filled(n)
+    //                            (length n Array<Any> with all
+    //                            slots set to ANY_NULL)
+    // The 1-arg-non-numeric form (`new Array("hello")` →
+    // `["hello"]`) and 1-arg-dynamic form (`new Array(someVar)`)
+    // are deferred — distinguishing requires runtime dispatch
+    // which overlaps with substrate work.
     let n = ast.exprs.len();
     for i in 0..n {
         let array_args = match &ast.exprs[i] {
             Expr::New { class_name, args } if class_name == "Array" => {
-                // 0 args → []; ≥2 args → [a, b, ...]
+                // 0 args → []; ≥2 args → [a, b, ...]; 1-arg numeric
+                // form (`new Array(n)`) is handled in ssa_lower as
+                // it needs an Array<Any> typed return that the
+                // AST-Call route can't express (the intrinsic table
+                // expects a static SSA Type, but Array<Any> needs an
+                // arr_id intern'd at lower time).
                 if args.is_empty() || args.len() >= 2 {
                     Some(args.clone())
                 } else {
