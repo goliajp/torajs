@@ -1993,6 +1993,20 @@ fn lower_inner(
         &[Type::Ptr],
         Type::Str,
     );
+    let any_strict_eq_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_any_strict_eq",
+        &[Type::Ptr, Type::I64, Type::I64],
+        Type::Bool,
+    );
+    let any_any_strict_eq_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_any_any_strict_eq",
+        &[Type::Ptr, Type::Ptr],
+        Type::Bool,
+    );
     let any_box_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -3891,6 +3905,8 @@ fn lower_inner(
         arr_drop_any: arr_drop_any_id,
         any_box: any_box_id,
         any_typeof: any_typeof_id,
+        any_strict_eq: any_strict_eq_id,
+        any_any_strict_eq: any_any_strict_eq_id,
         any_unbox_tag: any_unbox_tag_id,
         any_unbox_value: any_unbox_value_id,
         any_box_drop: any_box_drop_id,
@@ -4627,6 +4643,8 @@ struct Intrinsics {
     arr_drop_any: FuncId,
     any_box: FuncId,
     any_typeof: FuncId,
+    any_strict_eq: FuncId,
+    any_any_strict_eq: FuncId,
     any_unbox_tag: FuncId,
     any_unbox_value: FuncId,
     any_box_drop: FuncId,
@@ -21154,6 +21172,77 @@ impl<'a> LowerCtx<'a> {
         if matches!(op, AstBinOp::Eq | AstBinOp::Neq) {
             let a_ty = self.operand_ty(&a);
             let b_ty = self.operand_ty(&b);
+            // P0.3 — Any === / !== per JS spec §7.2.13. When either
+            // operand is Type::Any the static-shape compare can't
+            // resolve at the SSA layer; route through runtime helpers
+            // that unbox each side and compare tag-then-payload.
+            if matches!(a_ty, Type::Any) || matches!(b_ty, Type::Any) {
+                let result = if matches!(a_ty, Type::Any) && matches!(b_ty, Type::Any) {
+                    let r = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(self.intrinsics.any_any_strict_eq, vec![a, b]),
+                        Type::Bool,
+                        None,
+                    );
+                    Operand::Value(r)
+                } else {
+                    // Pack the concrete side as (tag, value-as-i64) so
+                    // the helper avoids a fresh Any-box alloc per
+                    // compare. Mirrors the box_to_any tag/value
+                    // extraction.
+                    let (any_box, concrete, concrete_ty) = if matches!(a_ty, Type::Any) {
+                        (a, b, b_ty)
+                    } else {
+                        (b, a, a_ty)
+                    };
+                    let (tag, value): (i64, Operand) = match concrete_ty {
+                        Type::I64 | Type::I32 => (2, concrete),
+                        Type::F64 => {
+                            let bits = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::BitCastF64ToI64(concrete),
+                                Type::I64,
+                                None,
+                            );
+                            (3, Operand::Value(bits))
+                        }
+                        Type::Bool => {
+                            let zext = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::ZExtBoolToI64(concrete),
+                                Type::I64,
+                                None,
+                            );
+                            (1, Operand::Value(zext))
+                        }
+                        Type::Ptr if matches!(concrete, Operand::ConstPtrNull) => {
+                            (0, Operand::ConstI64(0))
+                        }
+                        t if t.is_refcounted() => (4, concrete),
+                        _ => (0, Operand::ConstI64(0)),
+                    };
+                    let r = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.any_strict_eq,
+                            vec![any_box, Operand::ConstI64(tag), value],
+                        ),
+                        Type::Bool,
+                        None,
+                    );
+                    Operand::Value(r)
+                };
+                if matches!(op, AstBinOp::Neq) {
+                    let neg = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::BinOp(SsaBinOp::Xor, result, Operand::ConstBool(true)),
+                        Type::Bool,
+                        None,
+                    );
+                    return Operand::Value(neg);
+                }
+                return result;
+            }
             let numeric = |t: Type| matches!(t, Type::I64 | Type::F64);
             // Pointer-shaped: strings, heap objects, the null literal,
             // and Any. Nullable<T> (check.rs notion) erases to the

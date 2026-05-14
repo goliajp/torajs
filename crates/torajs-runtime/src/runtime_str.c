@@ -787,6 +787,74 @@ int64_t __torajs_any_unbox_value(const void *box) {
     return *(const int64_t *)((const uint8_t *)box + __TORAJS_ANY_BOX_VAL_OFF);
 }
 
+int64_t __torajs_str_eq(const uint8_t *a, const uint8_t *b);
+
+/* P0.3 — payload-equality comparison for two values that share the
+ * same Any tag. Used by both any_any_strict_eq (Any === Any) and
+ * any_strict_eq (Any === concrete via lower-side tag/value pack).
+ * Per JS spec §7.2.13 StrictEqualityComparison:
+ *   - I64 / Bool / Null    → integer compare (Null is always equal)
+ *   - F64                  → IEEE 754 ==; NaN !== NaN naturally
+ *   - HEAP / Str           → str_eq for two Str heap types,
+ *                            pointer identity otherwise
+ * +0 === -0 holds at the IEEE level. */
+static bool __torajs_any_payload_eq(int64_t tag, int64_t lv, int64_t rv) {
+    switch (tag) {
+        case __TORAJS_ANY_NULL: return true;
+        case __TORAJS_ANY_BOOL:
+        case __TORAJS_ANY_I64:  return lv == rv;
+        case __TORAJS_ANY_F64: {
+            union { int64_t i; double d; } lu = { .i = lv };
+            union { int64_t i; double d; } ru = { .i = rv };
+            return lu.d == ru.d;
+        }
+        case __TORAJS_ANY_HEAP: {
+            void *lp = (void *)(uintptr_t)lv;
+            void *rp = (void *)(uintptr_t)rv;
+            if (lp == rp) return true;
+            if (lp == NULL || rp == NULL) return false;
+            const __torajs_heap_header_t *lh = (const __torajs_heap_header_t *)lp;
+            const __torajs_heap_header_t *rh = (const __torajs_heap_header_t *)rp;
+            if (lh->type_tag == __TORAJS_TAG_STR
+                && rh->type_tag == __TORAJS_TAG_STR)
+            {
+                return __torajs_str_eq(lp, rp);
+            }
+            return false;
+        }
+        default: return false;
+    }
+}
+
+/* Any === Any per JS spec §7.2.13. */
+bool __torajs_any_any_strict_eq(const void *l, const void *r) {
+    if (l == NULL && r == NULL) return true;
+    if (l == NULL || r == NULL) return false;
+    int64_t lt = *(const int64_t *)((const uint8_t *)l + __TORAJS_ANY_BOX_TAG_OFF);
+    int64_t rt = *(const int64_t *)((const uint8_t *)r + __TORAJS_ANY_BOX_TAG_OFF);
+    if (lt != rt) return false;
+    int64_t lv = *(const int64_t *)((const uint8_t *)l + __TORAJS_ANY_BOX_VAL_OFF);
+    int64_t rv = *(const int64_t *)((const uint8_t *)r + __TORAJS_ANY_BOX_VAL_OFF);
+    return __torajs_any_payload_eq(lt, lv, rv);
+}
+
+/* Any === concrete: caller packs the concrete operand into
+ * (tag, value-as-i64) at the SSA layer and passes it in directly,
+ * avoiding a fresh Any-box alloc per compare. The tag is a
+ * compile-time constant since concrete operands have known SSA
+ * types; value packing mirrors box_to_any (bitcast for f64,
+ * zext for bool, raw cast for ptr / i64). */
+bool __torajs_any_strict_eq(const void *box, int64_t rhs_tag, int64_t rhs_value) {
+    if (box == NULL) {
+        /* Bare null Any pointer behaves like ANY_NULL. */
+        return rhs_tag == __TORAJS_ANY_NULL;
+    }
+    int64_t bt = *(const int64_t *)((const uint8_t *)box + __TORAJS_ANY_BOX_TAG_OFF);
+    if (bt != rhs_tag) return false;
+    int64_t bv = *(const int64_t *)((const uint8_t *)box + __TORAJS_ANY_BOX_VAL_OFF);
+    return __torajs_any_payload_eq(bt, bv, rhs_value);
+}
+
 /* P0.2 — `typeof <Any>` runtime dispatch per JS spec §13.5.3.
  * Reads the box's tag (and for ANY_HEAP, the inner heap header's
  * type_tag) and returns a fresh String holding the spec-mandated
