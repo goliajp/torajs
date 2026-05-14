@@ -5055,6 +5055,32 @@ impl Checker {
                         return Ok(if m_name == "includes" { Type::Boolean } else { Type::Number });
                     }
                 }
+                // V3-18 wedge — Number.isFinite / isNaN / isInteger /
+                // isSafeInteger per JS spec §21.1.2.2 / §21.1.2.4 /
+                // §21.1.2.3 / §21.1.2.5: these methods do NOT coerce
+                // their argument. They return true iff the arg is a
+                // Number value AND satisfies the finite / NaN /
+                // integer / safe-integer predicate; for non-Number
+                // args (string / boolean / null / object / array)
+                // they return false statically. The existing
+                // signature `(Number) -> Boolean` rejects non-Number
+                // args with a type error, but that's wrong for spec
+                // and breaks the canonical TS feature-detection
+                // idiom `if (Number.isFinite(maybeStringy)) ...`.
+                if let Expr::Member { obj: ns_id, name: m_name } = ast.get_expr(*callee)
+                    && let Expr::Ident(ns) = ast.get_expr(*ns_id)
+                    && ns == "Number"
+                    && matches!(m_name.as_str(),
+                        "isFinite" | "isNaN" | "isInteger" | "isSafeInteger")
+                    && args.len() == 1
+                {
+                    // Force type_of on the arg so any internal
+                    // typecheck error still surfaces, but we don't
+                    // require it to be Number — non-Number args
+                    // route through the lower's static-false path.
+                    let _ = self.type_of(ast, args[0])?;
+                    return Ok(Type::Boolean);
+                }
                 // V3-18 m1.h.48 — String.normalize accepts an optional
                 // form arg ("NFC" / "NFD" / "NFKC" / "NFKD"). Per JS
                 // spec §21.1.3.13. tora's byte-Str ASCII-only path

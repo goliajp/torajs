@@ -12688,6 +12688,20 @@ impl<'a> LowerCtx<'a> {
                         "isInteger" | "isNaN" | "isFinite" | "isSafeInteger" => {
                             let arg_op = self.lower_expr(args[0]);
                             let arg_ty = self.operand_ty(&arg_op);
+                            // V3-18 wedge — Number.is{Finite,NaN,
+                            // Integer,SafeInteger} per spec do NOT
+                            // coerce: non-Number args return false
+                            // statically. Drop the borrow if the arg
+                            // is refcounted (string / object / array)
+                            // so the const-false return doesn't leak.
+                            if !matches!(arg_ty, Type::I64 | Type::F64 | Type::I32) {
+                                if arg_ty.is_refcounted()
+                                    && self.expr_is_fresh_owned(args[0])
+                                {
+                                    self.emit_drop_value(arg_op, arg_ty);
+                                }
+                                return Operand::ConstBool(false);
+                            }
                             let target = match (m_name.as_str(), arg_ty) {
                                 ("isInteger", Type::F64) => self.intrinsics.num_is_integer_f,
                                 ("isInteger", _) => self.intrinsics.num_is_integer_i,
