@@ -3472,6 +3472,29 @@ impl Checker {
                         Vec::new(),
                         Box::new(Type::Number),
                     )),
+                    // T-30 — Date setters + annexB methods. setTime
+                    // takes ms and returns the new ms. setYear takes
+                    // a year (annexB §B.2.4.2 — 0-99 → +1900) and
+                    // returns the new ms. getYear (annexB §B.2.4.1)
+                    // returns year - 1900. toGMTString (annexB §B.2.4.3)
+                    // is an alias for toUTCString format.
+                    (Type::Date, "setTime") => Ok(Type::Function(
+                        vec![Type::Number],
+                        Box::new(Type::Number),
+                    )),
+                    (Type::Date, "setYear") => Ok(Type::Function(
+                        vec![Type::Number],
+                        Box::new(Type::Number),
+                    )),
+                    (Type::Date, "getYear") => Ok(Type::Function(
+                        Vec::new(),
+                        Box::new(Type::Number),
+                    )),
+                    (Type::Date, "toGMTString")
+                    | (Type::Date, "toUTCString") => Ok(Type::Function(
+                        Vec::new(),
+                        Box::new(Type::String),
+                    )),
                     // Date.now() — static, returns ms-since-epoch.
                     (Type::Object("Date"), "now") => Ok(Type::Function(
                         Vec::new(),

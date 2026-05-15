@@ -1767,6 +1767,35 @@ fn lower_inner(
         &[Type::Date],
         Type::Str,
     );
+    // T-30 — Date setters + annexB methods.
+    let date_set_time_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_date_set_time",
+        &[Type::Date, Type::I64],
+        Type::I64,
+    );
+    let date_get_year_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_date_get_year",
+        &[Type::Date],
+        Type::I64,
+    );
+    let date_set_year_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_date_set_year",
+        &[Type::Date, Type::I64],
+        Type::I64,
+    );
+    let date_to_gmt_string_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_date_to_gmt_string",
+        &[Type::Date],
+        Type::Str,
+    );
     /* Phase 2.0b — UTC getter intrinsics. */
     let date_get_full_year_id = declare_intrinsic(
         &mut module,
@@ -4024,6 +4053,10 @@ fn lower_inner(
         date_now_static: date_now_static_id,
         date_get_time: date_get_time_id,
         date_to_iso_string: date_to_iso_string_id,
+        date_set_time: date_set_time_id,
+        date_get_year: date_get_year_id,
+        date_set_year: date_set_year_id,
+        date_to_gmt_string: date_to_gmt_string_id,
         date_get_full_year: date_get_full_year_id,
         date_get_month: date_get_month_id,
         date_get_date: date_get_date_id,
@@ -4816,6 +4849,10 @@ struct Intrinsics {
     date_now_static: FuncId,
     date_get_time: FuncId,
     date_to_iso_string: FuncId,
+    date_set_time: FuncId,
+    date_get_year: FuncId,
+    date_set_year: FuncId,
+    date_to_gmt_string: FuncId,
     date_get_full_year: FuncId,
     date_get_month: FuncId,
     date_get_date: FuncId,
@@ -16233,12 +16270,24 @@ impl<'a> LowerCtx<'a> {
                         | "getSeconds" | "getUTCSeconds"
                         | "getMilliseconds" | "getUTCMilliseconds"
                         | "getDay" | "getUTCDay"
+                        | "setTime" | "setYear" | "getYear"
+                        | "toGMTString" | "toUTCString"
                     )
                 {
                     let recv_op = self.lower_expr(*obj);
                     let recv_ty = self.operand_ty(&recv_op);
                     if recv_ty == Type::Date {
                         let method = name.clone();
+                        // T-30 setters take 1 arg (Number → I64).
+                        let arg_ops: Vec<Operand> = if method == "setTime"
+                            || method == "setYear"
+                        {
+                            debug_assert_eq!(args.len(), 1);
+                            let a = self.lower_expr(args[0]);
+                            vec![recv_op, self.coerce_to_i64(a)]
+                        } else {
+                            vec![recv_op]
+                        };
                         let (target, ret_ty) = match method.as_str() {
                             "getTime" | "valueOf" => (self.intrinsics.date_get_time, Type::I64),
                             "toISOString" => (self.intrinsics.date_to_iso_string, Type::Str),
@@ -16258,11 +16307,18 @@ impl<'a> LowerCtx<'a> {
                             "getUTCMilliseconds" => (self.intrinsics.date_get_utc_milliseconds, Type::I64),
                             "getDay" => (self.intrinsics.date_get_day, Type::I64),
                             "getUTCDay" => (self.intrinsics.date_get_utc_day, Type::I64),
+                            // T-30
+                            "setTime" => (self.intrinsics.date_set_time, Type::I64),
+                            "setYear" => (self.intrinsics.date_set_year, Type::I64),
+                            "getYear" => (self.intrinsics.date_get_year, Type::I64),
+                            "toGMTString" | "toUTCString" => {
+                                (self.intrinsics.date_to_gmt_string, Type::Str)
+                            }
                             _ => unreachable!(),
                         };
                         let v = self.f.append_inst(
                             self.cur_block,
-                            InstKind::Call(target, vec![recv_op]),
+                            InstKind::Call(target, arg_ops),
                             ret_ty,
                             None,
                         );

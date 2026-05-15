@@ -291,8 +291,104 @@ int64_t __torajs_date_get_time(const void *d_ptr) {
     return ((const Date *)d_ptr)->ms;
 }
 
-/* Forward decl — civil_from_days is below toISOString. */
+/* Forward decl for T-30 helpers below — civil_from_days lives further
+ * down (after toISOString). */
 static void civil_from_days(int64_t z, int32_t *out_y, uint32_t *out_m, uint32_t *out_d);
+
+/* T-30 — Date setters + annexB methods. ECMAScript §B.2.4 (annexB)
+ * defines `getYear` / `setYear` for legacy compat: getYear returns
+ * year - 1900 (so 2026 → 126); setYear takes a year and writes
+ * year < 100 ? year + 1900 : year. `setTime` is per §21.4.4.27 —
+ * overwrite the ms slot. `toGMTString` is §B.2.4.3 — alias for
+ * toUTCString.
+ *
+ * All setters mutate in place and return the new ms value (per spec
+ * — Date.prototype.setX returns the new time). NULL receiver is a
+ * defensive no-op rather than a TypeError; check.rs's static type
+ * guards prevent it for typed Type::Date but the runtime helper
+ * stays defensive for Any-tagged dispatch. */
+
+int64_t __torajs_date_set_time(void *d_ptr, int64_t ms) {
+    if (!d_ptr) return 0;
+    ((Date *)d_ptr)->ms = ms;
+    return ms;
+}
+
+/* Forward decl — localtime_decompose is below the getX accessors. */
+static void localtime_decompose(int64_t ms, struct tm *out);
+
+int64_t __torajs_date_get_year(const void *d_ptr) {
+    if (!d_ptr) return 0;
+    /* annexB §B.2.4.1: year - 1900 in LOCAL time, matching getFullYear's
+     * timezone (1995 → 95, 2026 → 126, 1899 → -1). Use localtime_r
+     * so behavior matches getFullYear / setYear's local-time interp. */
+    struct tm tm;
+    localtime_decompose(((const Date *)d_ptr)->ms, &tm);
+    return (int64_t)tm.tm_year;  /* tm_year is already year - 1900 */
+}
+
+int64_t __torajs_date_set_year(void *d_ptr, int64_t year) {
+    if (!d_ptr) return 0;
+    /* annexB: 0 ≤ year < 100 → year += 1900. Otherwise use as-is.
+     * Read existing month/day/time-of-day in LOCAL time, recompose
+     * with the new year. */
+    if (year >= 0 && year < 100) {
+        year += 1900;
+    }
+    struct tm tm;
+    localtime_decompose(((Date *)d_ptr)->ms, &tm);
+    int64_t cur_ms = ((Date *)d_ptr)->ms;
+    int64_t day_ms = 86400000;
+    int64_t days = cur_ms / day_ms;
+    int64_t tod = cur_ms - days * day_ms;
+    if (tod < 0) { tod += day_ms; }
+    int64_t new_ms = __torajs_date_components_to_local_ms(
+        (int32_t)year, tm.tm_mon, tm.tm_mday,
+        tm.tm_hour, tm.tm_min, tm.tm_sec,
+        (int32_t)(tod % 1000));
+    ((Date *)d_ptr)->ms = new_ms;
+    return new_ms;
+}
+
+/* toGMTString = toUTCString (annexB alias). Format: "Wed, 14 Jun 2017
+ * 07:00:00 GMT". */
+void *__torajs_date_to_gmt_string(const void *d_ptr) {
+    if (!d_ptr) {
+        uint8_t *s = __torajs_str_alloc_pooled(0);
+        return s;
+    }
+    int64_t ms = ((const Date *)d_ptr)->ms;
+    int64_t day_ms = 86400000;
+    int64_t days = ms / day_ms;
+    int64_t tod = ms - days * day_ms;
+    if (tod < 0) { tod += day_ms; days -= 1; }
+    int32_t year;
+    uint32_t month, mday;
+    civil_from_days(days, &year, &month, &mday);
+    int64_t hour = tod / 3600000;
+    int64_t rem = tod - hour * 3600000;
+    int64_t minute = rem / 60000;
+    rem -= minute * 60000;
+    int64_t second = rem / 1000;
+    /* Day of week: 1970-01-01 was a Thursday (=4). days mod 7 with
+     * (n + 4) % 7 gives Sun=0..Sat=6. */
+    int64_t dow = ((days % 7) + 4 + 7) % 7;
+    static const char *day_names[] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
+    static const char *month_names[] = {
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+    };
+    char buf[40];
+    int n = snprintf(buf, sizeof(buf),
+                     "%s, %02u %s %04d %02lld:%02lld:%02lld GMT",
+                     day_names[dow], mday, month_names[month - 1], year,
+                     (long long)hour, (long long)minute, (long long)second);
+    if (n < 0) n = 0;
+    if (n > (int)sizeof(buf) - 1) n = sizeof(buf) - 1;
+    uint8_t *s = __torajs_str_alloc_pooled((uint64_t)n);
+    memcpy(s + __TORAJS_STR_HDR_SIZE, buf, (size_t)n);
+    return s;
+}
 
 /* Decompose ms-since-epoch into {y, m, d, hour, min, sec, ms}.
  * Used by every getX accessor and by toISOString. UTC by design;
