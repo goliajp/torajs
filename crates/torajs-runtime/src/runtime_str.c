@@ -156,6 +156,14 @@ typedef struct __attribute__((aligned(8))) {
 #define __TORAJS_TAG_WEAKREF 11 /* T-26 — WeakRef: header + target ptr (NULL = target reclaimed) */
 #define __TORAJS_TAG_WEAKMAP 12 /* T-26.B — WeakMap: header + bucket table; entries observed via weakref registry */
 #define __TORAJS_TAG_WEAKSET 13 /* T-26.B — WeakSet: same as WeakMap minus the value side */
+#define __TORAJS_TAG_DYNOBJ  14 /* P3.1 — dynamic-property object (HashMap-backed):
+                                 * header(8) + count(u32) + cap(u32) +
+                                 * tombstones(u32) + pad(u32) + buckets[cap] of
+                                 * { key_ptr: *Str, tag: u64, value: u64 } (24 bytes).
+                                 * Open addressing, linear probing. Tombstone =
+                                 * key_ptr == 0x1 (sentinel). Used for Type::Any
+                                 * untyped object slot; typed Type::Obj keeps the
+                                 * static-layout struct (tag=OBJ) for hot-path perf. */
 
 /* T-26.C — Bacon-Rajan cycle collector colors. 2 bits at flag bit 3-4
  * encode the trial-deletion state of each non-Copy heap object:
@@ -717,6 +725,264 @@ void __torajs_arr_set_any(void *arr, uint64_t i, uint64_t tag, uint64_t value) {
     *any_slot_val_(arr, i) = value;
 }
 
+/* P3.1 — Dynamic-property object substrate (HashMap-backed).
+ *
+ * Layout:
+ *   offset 0  : __torajs_heap_header_t (8 bytes; refcount/tag/flags)
+ *   offset 8  : count (u32)        — # of live entries
+ *   offset 12 : cap   (u32)        — bucket array size (power of 2)
+ *   offset 16 : tomb  (u32)        — # of tombstone slots
+ *   offset 20 : pad   (u32)
+ *   offset 24 : buckets[cap] of __torajs_dynobj_bucket_t (24 bytes each)
+ *
+ * Bucket:
+ *   key_ptr : *Str    (NULL = empty; (void*)1 = tombstone; else owning Str ptr)
+ *   tag     : u64     (ANY_NULL/UNDEF/BOOL/I64/F64/HEAP per existing scheme)
+ *   value   : u64     (per-tag payload — bool/int/f64-bits/heap-ptr-as-u64)
+ *
+ * Probing: open addressing, linear probe step = 1.
+ * Resize: at load factor (count + tomb) > cap * 7/8 — double cap.
+ * Hash: FNV-1a over the key's bytes (Str layout: header + len + bytes).
+ *
+ * Reference: Swift Dictionary / CPython dict's compact open-addressing.
+ * Self-implemented (no external lib) per CLAUDE.md "自研" pillar. */
+
+#define __TORAJS_DYNOBJ_HDR_SIZE   24
+#define __TORAJS_DYNOBJ_BUCKET_SIZE 24
+#define __TORAJS_DYNOBJ_INITIAL_CAP 8  /* must be power of 2 */
+#define __TORAJS_DYNOBJ_TOMBSTONE   ((void *)(uintptr_t)1)
+
+typedef struct {
+    void *key_ptr;   /* owning Str* (rc'd); NULL = empty; TOMBSTONE = deleted */
+    uint64_t tag;
+    uint64_t value;
+} __torajs_dynobj_bucket_t;
+
+void __torajs_str_drop(void *s);
+
+/* Forward decls used inside helpers. */
+static __torajs_dynobj_bucket_t *__torajs_dynobj_buckets(void *obj);
+static void __torajs_dynobj_resize(void **obj_slot, uint32_t new_cap);
+
+/* FNV-1a over Str payload. Reads the Str layout directly:
+ *   offset 0  : heap header (8)
+ *   offset 8  : len (u64)
+ *   offset 16 : utf-8 bytes
+ */
+static uint64_t __torajs_dynobj_hash_str(const void *key) {
+    uint64_t h = 0xcbf29ce484222325ULL;
+    uint64_t len = __TORAJS_STR_LEN(key);
+    const uint8_t *data = __TORAJS_STR_CDATA(key);
+    for (uint64_t i = 0; i < len; i++) {
+        h ^= (uint64_t)data[i];
+        h *= 0x100000001b3ULL;
+    }
+    return h;
+}
+
+/* Compare two Str values for equality (length + byte content). Used
+ * by the bucket lookup probe — distinct Str pointers with the same
+ * content must hit the same slot (per ES spec property-key equality).
+ * Pointer-identity short-circuit (intern / interned-literal sites). */
+static int __torajs_dynobj_str_eq(const void *a, const void *b) {
+    if (a == b) return 1;
+    uint64_t la = __TORAJS_STR_LEN(a);
+    uint64_t lb = __TORAJS_STR_LEN(b);
+    if (la != lb) return 0;
+    return memcmp(__TORAJS_STR_CDATA(a), __TORAJS_STR_CDATA(b), (size_t)la) == 0;
+}
+
+static __torajs_dynobj_bucket_t *__torajs_dynobj_buckets(void *obj) {
+    return (__torajs_dynobj_bucket_t *)((uint8_t *)obj + __TORAJS_DYNOBJ_HDR_SIZE);
+}
+
+void *__torajs_dynobj_alloc(void) {
+    uint32_t cap = __TORAJS_DYNOBJ_INITIAL_CAP;
+    size_t bytes = __TORAJS_DYNOBJ_HDR_SIZE
+        + (size_t)cap * __TORAJS_DYNOBJ_BUCKET_SIZE;
+    uint8_t *p = (uint8_t *)calloc(1, bytes);  /* zero-init = all empty buckets */
+    __torajs_heap_header_t *h = (__torajs_heap_header_t *)p;
+    h->refcount = 1;
+    h->type_tag = __TORAJS_TAG_DYNOBJ;
+    h->flags = 0;
+    *(uint32_t *)(p + 8)  = 0;     /* count */
+    *(uint32_t *)(p + 12) = cap;
+    *(uint32_t *)(p + 16) = 0;     /* tomb */
+    return p;
+}
+
+/* Probe for `key`. Returns the bucket index where:
+ *   - the key is found, OR
+ *   - an empty bucket (key_ptr == NULL) is reachable for insertion.
+ * If the probe finds a tombstone first, remember it and use it for
+ * insertion if the key is ultimately not found. Caller distinguishes
+ * found vs not-found via `*out_found`. */
+static uint32_t __torajs_dynobj_probe(
+    const void *obj, const void *key, int *out_found
+) {
+    uint32_t cap = *(const uint32_t *)((const uint8_t *)obj + 12);
+    __torajs_dynobj_bucket_t *bk =
+        (__torajs_dynobj_bucket_t *)((uint8_t *)(uintptr_t)obj + __TORAJS_DYNOBJ_HDR_SIZE);
+    uint64_t h = __torajs_dynobj_hash_str(key);
+    uint32_t mask = cap - 1;
+    uint32_t i = (uint32_t)(h & mask);
+    int32_t tombstone_at = -1;
+    for (uint32_t step = 0; step < cap; step++) {
+        uint32_t idx = (i + step) & mask;
+        void *kp = bk[idx].key_ptr;
+        if (kp == NULL) {
+            *out_found = 0;
+            return tombstone_at >= 0 ? (uint32_t)tombstone_at : idx;
+        }
+        if (kp == __TORAJS_DYNOBJ_TOMBSTONE) {
+            if (tombstone_at < 0) tombstone_at = (int32_t)idx;
+            continue;
+        }
+        if (__torajs_dynobj_str_eq(kp, key)) {
+            *out_found = 1;
+            return idx;
+        }
+    }
+    /* Should never reach (resize keeps load factor < 1). */
+    *out_found = 0;
+    return tombstone_at >= 0 ? (uint32_t)tombstone_at : 0;
+}
+
+static void __torajs_dynobj_resize(void **obj_slot, uint32_t new_cap) {
+    void *old = *obj_slot;
+    uint32_t old_cap = *(uint32_t *)((uint8_t *)old + 12);
+    __torajs_dynobj_bucket_t *old_bk = __torajs_dynobj_buckets(old);
+    /* Allocate fresh block with new_cap. */
+    size_t bytes = __TORAJS_DYNOBJ_HDR_SIZE
+        + (size_t)new_cap * __TORAJS_DYNOBJ_BUCKET_SIZE;
+    uint8_t *p = (uint8_t *)calloc(1, bytes);
+    __torajs_heap_header_t *h = (__torajs_heap_header_t *)p;
+    *h = *(__torajs_heap_header_t *)old;  /* preserve refcount + tag + flags */
+    *(uint32_t *)(p + 8)  = 0;          /* count rebuilds below */
+    *(uint32_t *)(p + 12) = new_cap;
+    *(uint32_t *)(p + 16) = 0;          /* no tombstones in fresh table */
+    void *new_obj = p;
+    /* Re-insert every live bucket into the new table. Tombstones drop. */
+    uint32_t live = 0;
+    for (uint32_t i = 0; i < old_cap; i++) {
+        void *kp = old_bk[i].key_ptr;
+        if (kp == NULL || kp == __TORAJS_DYNOBJ_TOMBSTONE) continue;
+        int found;
+        uint32_t idx = __torajs_dynobj_probe(new_obj, kp, &found);
+        __torajs_dynobj_bucket_t *new_bk = __torajs_dynobj_buckets(new_obj);
+        new_bk[idx] = old_bk[i];
+        live++;
+    }
+    *(uint32_t *)((uint8_t *)new_obj + 8) = live;
+    *obj_slot = new_obj;
+    free(old);
+}
+
+/* Get tag for `key`. Returns ANY_UNDEF=5 when the key isn't present
+ * (per ES spec — missing property reads as undefined). */
+uint64_t __torajs_dynobj_get_tag(const void *obj, const void *key) {
+    if (obj == NULL) return 5;
+    int found;
+    uint32_t idx = __torajs_dynobj_probe(obj, key, &found);
+    if (!found) return 5;  /* ANY_UNDEF */
+    return __torajs_dynobj_buckets((void *)(uintptr_t)obj)[idx].tag;
+}
+
+uint64_t __torajs_dynobj_get_value(const void *obj, const void *key) {
+    if (obj == NULL) return 0;
+    int found;
+    uint32_t idx = __torajs_dynobj_probe(obj, key, &found);
+    if (!found) return 0;
+    return __torajs_dynobj_buckets((void *)(uintptr_t)obj)[idx].value;
+}
+
+/* Set `obj[key] = (tag, value)`. Caller is responsible for rc-bumping
+ * heap-typed values BEFORE calling (matches arr_push_any contract).
+ * The key is borrowed if it's already present; rc-bumped if it's a
+ * fresh insert (so the bucket owns its share). */
+void __torajs_dynobj_set(void **obj_slot, void *key, uint64_t tag, uint64_t value) {
+    void *obj = *obj_slot;
+    if (obj == NULL) return;
+    uint32_t cap = *(uint32_t *)((uint8_t *)obj + 12);
+    uint32_t count = *(uint32_t *)((uint8_t *)obj + 8);
+    uint32_t tomb = *(uint32_t *)((uint8_t *)obj + 16);
+    /* Resize before insert if (count + tomb + 1) > cap * 7/8 to keep
+     * load factor under control. */
+    if ((count + tomb + 1) * 8 > cap * 7) {
+        __torajs_dynobj_resize(obj_slot, cap * 2);
+        obj = *obj_slot;
+    }
+    int found;
+    uint32_t idx = __torajs_dynobj_probe(obj, key, &found);
+    __torajs_dynobj_bucket_t *bk = __torajs_dynobj_buckets(obj);
+    if (found) {
+        /* Drop old heap value if it was ANY_HEAP. */
+        if (bk[idx].tag == 4 /* ANY_HEAP */) {
+            void *old_val = (void *)(uintptr_t)bk[idx].value;
+            __torajs_value_drop_heap(old_val);
+        }
+        bk[idx].tag = tag;
+        bk[idx].value = value;
+    } else {
+        /* Fresh insert. Take ownership of key (rc-bump). */
+        if (bk[idx].key_ptr == __TORAJS_DYNOBJ_TOMBSTONE) {
+            *(uint32_t *)((uint8_t *)obj + 16) = tomb - 1;
+        }
+        __torajs_rc_inc(key);
+        bk[idx].key_ptr = key;
+        bk[idx].tag = tag;
+        bk[idx].value = value;
+        *(uint32_t *)((uint8_t *)obj + 8) = count + 1;
+    }
+}
+
+int __torajs_dynobj_has(const void *obj, const void *key) {
+    if (obj == NULL) return 0;
+    int found;
+    (void)__torajs_dynobj_probe(obj, key, &found);
+    return found;
+}
+
+int __torajs_dynobj_delete(void *obj, const void *key) {
+    if (obj == NULL) return 0;
+    int found;
+    uint32_t idx = __torajs_dynobj_probe(obj, key, &found);
+    if (!found) return 0;
+    __torajs_dynobj_bucket_t *bk = __torajs_dynobj_buckets(obj);
+    /* Drop key + value (heap if ANY_HEAP). */
+    __torajs_str_drop(bk[idx].key_ptr);
+    if (bk[idx].tag == 4 /* ANY_HEAP */) {
+        __torajs_value_drop_heap((void *)(uintptr_t)bk[idx].value);
+    }
+    bk[idx].key_ptr = __TORAJS_DYNOBJ_TOMBSTONE;
+    bk[idx].tag = 0;
+    bk[idx].value = 0;
+    uint32_t count = *(uint32_t *)((uint8_t *)obj + 8);
+    uint32_t tomb = *(uint32_t *)((uint8_t *)obj + 16);
+    *(uint32_t *)((uint8_t *)obj + 8) = count - 1;
+    *(uint32_t *)((uint8_t *)obj + 16) = tomb + 1;
+    return 1;
+}
+
+/* Drop a dynobj. Walks every live bucket, drops the key Str and any
+ * ANY_HEAP value, then frees the block. Called via universal value-
+ * drop dispatch when the dynobj's refcount hits zero. */
+void __torajs_dynobj_drop(void *obj) {
+    if (obj == NULL) return;
+    if (!__torajs_rc_dec(obj)) return;
+    uint32_t cap = *(uint32_t *)((uint8_t *)obj + 12);
+    __torajs_dynobj_bucket_t *bk = __torajs_dynobj_buckets(obj);
+    for (uint32_t i = 0; i < cap; i++) {
+        void *kp = bk[i].key_ptr;
+        if (kp == NULL || kp == __TORAJS_DYNOBJ_TOMBSTONE) continue;
+        __torajs_str_drop(kp);
+        if (bk[i].tag == 4 /* ANY_HEAP */) {
+            __torajs_value_drop_heap((void *)(uintptr_t)bk[i].value);
+        }
+    }
+    free(obj);
+}
+
 /* Forward decls for the inkwell-emitted *_drop helpers. They live
  * in the AOT binary's IR module; cc -c sees them via the linker
  * after the link step, so an implicit-function-declaration warning
@@ -773,6 +1039,12 @@ void __torajs_value_drop_heap(void *child) {
         }
         case __TORAJS_TAG_WEAKSET: {
             __torajs_weakset_drop(child);
+            break;
+        }
+        case __TORAJS_TAG_DYNOBJ: {
+            /* P3.1 — dynobj walks every live bucket, drops key Str
+             * + ANY_HEAP value, then frees. */
+            __torajs_dynobj_drop(child);
             break;
         }
         default:                /* Obj / Substr / Closure / RegExp /
