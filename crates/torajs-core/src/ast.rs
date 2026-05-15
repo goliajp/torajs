@@ -5098,6 +5098,8 @@ pub fn desugar_nested_fns(ast: &mut Ast) {
     let mut top = std::mem::take(&mut ast.stmts);
     let mut new_top: Vec<Stmt> = Vec::new();
     let mut counter: u32 = 0;
+    // Pass 1 — top-level FnDecl bodies. Walk nested fns inside parent
+    // FnDecl bodies (the original P3.4 scope).
     for stmt in top.iter_mut() {
         if let Stmt::FnDecl { name: parent_name, body, .. } = stmt {
             let parent = parent_name.clone();
@@ -5115,9 +5117,94 @@ pub fn desugar_nested_fns(ast: &mut Ast) {
             new_top.extend(lifted);
         }
     }
+    // P3.4-followup-A — module-top-level blocks. `{ function f() {} }`
+    // at module scope (outside any FnDecl) puts a FnDecl inside a
+    // Stmt::Block, which the synthesized `main` body walks. Without
+    // this pass, ssa_lower's lower_top_stmt catch-all panicked on
+    // every such case (annexB function-statement hoisting tests).
+    // Same shape as Pass 1 but the "parent" is the synthetic "__top"
+    // namespace for mangling. Also handles If / While / DoWhile /
+    // For / ForOf / ForIn / Try / Switch nested at module top.
+    let parent = "__top".to_string();
+    let mut top_renames: HashMap<String, String> = HashMap::new();
+    let mut top_lifted: Vec<Stmt> = Vec::new();
+    for stmt in top.iter_mut() {
+        match stmt {
+            Stmt::FnDecl { .. } => {} // handled by Pass 1
+            other => {
+                collect_nested_fns_in_stmt(
+                    other,
+                    &parent,
+                    &mut top_renames,
+                    &mut top_lifted,
+                    &mut counter,
+                );
+            }
+        }
+    }
+    if !top_renames.is_empty() {
+        // Rewrite ident references in the entire top-level (excluding
+        // the lifted decls themselves; those get rewritten below).
+        for stmt in top.iter_mut() {
+            rewrite_idents_in_stmt(ast, stmt, &top_renames);
+        }
+        for lf in top_lifted.iter_mut() {
+            if let Stmt::FnDecl { body: lb, .. } = lf {
+                rewrite_idents_in_body(ast, lb, &top_renames);
+            }
+        }
+    }
+    new_top.extend(top_lifted);
     top.extend(new_top);
     ast.stmts = top;
 }
+
+/// P3.4-followup-A — recursive helper that descends into a single stmt
+/// looking for nested FnDecls (block/if/while/for/try/switch
+/// children). When found, lift to `lifted` with mangled name and
+/// drop from the original site (replaced with a no-op Block).
+fn collect_nested_fns_in_stmt(
+    stmt: &mut Stmt,
+    parent_name: &str,
+    renames: &mut HashMap<String, String>,
+    lifted: &mut Vec<Stmt>,
+    counter: &mut u32,
+) {
+    match stmt {
+        Stmt::Block(body) => {
+            collect_nested_fns_to_lift(body, parent_name, renames, lifted, counter);
+        }
+        Stmt::If { then_branch, else_branch, .. } => {
+            collect_nested_fns_in_stmt(then_branch, parent_name, renames, lifted, counter);
+            if let Some(eb) = else_branch {
+                collect_nested_fns_in_stmt(eb, parent_name, renames, lifted, counter);
+            }
+        }
+        Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
+            collect_nested_fns_in_stmt(body, parent_name, renames, lifted, counter);
+        }
+        Stmt::For { body, .. } | Stmt::ForOfSplitIter { body, .. } => {
+            collect_nested_fns_in_stmt(body, parent_name, renames, lifted, counter);
+        }
+        Stmt::Try { body, catch_body, finally_body, .. } => {
+            collect_nested_fns_to_lift(body, parent_name, renames, lifted, counter);
+            collect_nested_fns_to_lift(catch_body, parent_name, renames, lifted, counter);
+            if let Some(fb) = finally_body {
+                collect_nested_fns_to_lift(fb, parent_name, renames, lifted, counter);
+            }
+        }
+        Stmt::Switch { cases, default, .. } => {
+            for case in cases.iter_mut() {
+                collect_nested_fns_to_lift(&mut case.body, parent_name, renames, lifted, counter);
+            }
+            if let Some(d) = default {
+                collect_nested_fns_to_lift(d, parent_name, renames, lifted, counter);
+            }
+        }
+        _ => {} // leaf stmts have no nested FnDecl children
+    }
+}
+
 
 fn collect_nested_fns_to_lift(
     body: &mut Vec<Stmt>,
