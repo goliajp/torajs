@@ -2135,6 +2135,28 @@ fn lower_inner(
         &[Type::Ptr, Type::Ptr],
         Type::I64,
     );
+    // T-29 — Array-as-Object side table.
+    let arrprops_set_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_arrprops_set",
+        &[Type::Ptr, Type::Ptr, Type::I64, Type::I64],
+        Type::Void,
+    );
+    let arrprops_get_tag_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_arrprops_get_tag",
+        &[Type::Ptr, Type::Ptr],
+        Type::I64,
+    );
+    let arrprops_get_value_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_arrprops_get_value",
+        &[Type::Ptr, Type::Ptr],
+        Type::I64,
+    );
     let arr_drop_any_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -4102,6 +4124,9 @@ fn lower_inner(
         fnprops_set: fnprops_set_id,
         fnprops_get_tag: fnprops_get_tag_id,
         fnprops_get_value: fnprops_get_value_id,
+        arrprops_set: arrprops_set_id,
+        arrprops_get_tag: arrprops_get_tag_id,
+        arrprops_get_value: arrprops_get_value_id,
         dynobj_get_tag: dynobj_get_tag_id,
         dynobj_get_value: dynobj_get_value_id,
         dynobj_set: dynobj_set_id,
@@ -4898,6 +4923,9 @@ struct Intrinsics {
     fnprops_set: FuncId,
     fnprops_get_tag: FuncId,
     fnprops_get_value: FuncId,
+    arrprops_set: FuncId,
+    arrprops_get_tag: FuncId,
+    arrprops_get_value: FuncId,
     dynobj_get_tag: FuncId,
     dynobj_get_value: FuncId,
     dynobj_set: FuncId,
@@ -12356,6 +12384,30 @@ impl<'a> LowerCtx<'a> {
                                 self.cur_block,
                                 InstKind::Call(
                                     self.intrinsics.fnprops_set,
+                                    vec![
+                                        obj_val.clone(),
+                                        Operand::Value(key_str),
+                                        Operand::ConstI64(tag),
+                                        val_op,
+                                    ],
+                                ),
+                            );
+                            return Operand::ConstI64(0);
+                        }
+                        // T-29 — Array-as-Object: `arr.x = v` writes
+                        // to the array's side-table props_dynobj
+                        // (keyed by ptr). arr_drop / arr_drop_any's
+                        // drop_entry hook walks the bucket on
+                        // refcount==0.
+                        if matches!(obj_ty, Type::Arr(_)) {
+                            let v_raw = self.lower_expr(*value);
+                            self.consume_if_ident(*value);
+                            let (tag, val_op) = self.box_to_tag_value(v_raw);
+                            let key_str = self.intern_string_literal(&field);
+                            self.f.append_void(
+                                self.cur_block,
+                                InstKind::Call(
+                                    self.intrinsics.arrprops_set,
                                     vec![
                                         obj_val.clone(),
                                         Operand::Value(key_str),
@@ -20775,6 +20827,39 @@ impl<'a> LowerCtx<'a> {
                         self.cur_block,
                         InstKind::Call(
                             self.intrinsics.fnprops_get_value,
+                            vec![obj_val, Operand::Value(key_str)],
+                        ),
+                        Type::I64,
+                        None,
+                    );
+                    let box_v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.any_box,
+                            vec![Operand::Value(tag), Operand::Value(value)],
+                        ),
+                        Type::Any,
+                        None,
+                    );
+                    return Operand::Value(box_v);
+                }
+                // T-29 — Array-as-Object read via arrprops side table
+                // keyed by array ptr. NULL or missing key → ANY_UNDEF.
+                if matches!(obj_ty, Type::Arr(_)) {
+                    let key_str = self.intern_string_literal(name);
+                    let tag = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.arrprops_get_tag,
+                            vec![obj_val.clone(), Operand::Value(key_str)],
+                        ),
+                        Type::I64,
+                        None,
+                    );
+                    let value = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.arrprops_get_value,
                             vec![obj_val, Operand::Value(key_str)],
                         ),
                         Type::I64,

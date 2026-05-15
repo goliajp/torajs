@@ -1703,6 +1703,25 @@ fn typevar_appears_in_iter(tys: &[Type], name: &str) -> bool {
     tys.iter().any(|t| typevar_appears_in(t, name))
 }
 
+/// T-29 — built-in Array.prototype method names recognized by the
+/// per-method Call-dispatch in check.rs. The Member-on-Array
+/// catch-all uses this to avoid shadowing them with Type::Any when
+/// a bare `arr.method` access appears outside a call site.
+fn is_array_method_name(name: &str) -> bool {
+    matches!(
+        name,
+        "push" | "pop" | "shift" | "unshift" | "slice" | "splice"
+            | "concat" | "join" | "reverse" | "sort" | "indexOf"
+            | "lastIndexOf" | "includes" | "find" | "findIndex"
+            | "findLast" | "findLastIndex" | "map" | "filter"
+            | "reduce" | "reduceRight" | "forEach" | "every" | "some"
+            | "flat" | "flatMap" | "fill" | "copyWithin" | "at"
+            | "entries" | "keys" | "values" | "toString"
+            | "toLocaleString" | "toReversed" | "toSorted" | "toSpliced"
+            | "with" | "indexOfStartingAt"
+    )
+}
+
 fn substitute_typevars(ty: &Type, subst: &HashMap<String, Type>) -> Type {
     match ty {
         Type::TypeVar(name) => subst.get(name).cloned().unwrap_or_else(|| ty.clone()),
@@ -4124,6 +4143,21 @@ impl Checker {
                     // routes through dynobj_get_tag/value. Missing
                     // properties read as undefined per spec.
                     (Type::Any, _) => Ok(Type::Any),
+                    // T-29 — Array-as-Object reads. `arr.x` on an
+                    // array returns Type::Any (lookup via side table).
+                    // .length is already handled by the (Type::Array(_),
+                    // "length") arm above; built-in methods (map /
+                    // filter / push / etc.) are handled in the
+                    // Expr::Call arm's per-method dispatch — those
+                    // never reach this Member-only path because the
+                    // Call dispatch matches obj_ty + name BEFORE
+                    // calling type_of(callee). Only bare-Member
+                    // access (without a following call site) lands
+                    // here, so excluding the well-known method names
+                    // keeps the user-visible Function-typed semantics
+                    // for `let m = arr.map` patterns.
+                    (Type::Array(_), name) if name != "length"
+                        && !is_array_method_name(name) => Ok(Type::Any),
                     // T-27.c — built-in `length` (Number) and `name`
                     // (String) on a Function. length is the param
                     // count; name is the lifted FnDecl's name. Both
@@ -6102,6 +6136,19 @@ impl Checker {
                         // through dynobj_set against the closure's
                         // props field (allocated on first write).
                         if matches!(obj_ty, Type::Function(..)) {
+                            let _ = self.type_of(ast, *value)?;
+                            self.consume(ast, *value);
+                            return Ok(Type::Any);
+                        }
+                        // T-29 — Array-as-Object. `arr.x = v` writes
+                        // to the array's side-table props_dynobj
+                        // (keyed by ptr). Spec: Array values are
+                        // Objects with own + indexed properties.
+                        // ssa_lower routes through arrprops_set; the
+                        // side table's drop_entry hook is called from
+                        // arr_drop / arr_drop_any when the array's
+                        // refcount hits 0.
+                        if matches!(obj_ty, Type::Array(_)) {
                             let _ = self.type_of(ast, *value)?;
                             self.consume(ast, *value);
                             return Ok(Type::Any);

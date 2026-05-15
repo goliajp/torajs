@@ -3342,6 +3342,14 @@ fn define_arr_drop<'ctx>(
     let ptr_t = ctx.ptr_type(AddressSpace::default());
     let void_t = ctx.void_type();
     let fn_t = void_t.fn_type(&[ptr_t.into()], false);
+    // T-29 — declare arrprops_drop_entry so we can call it from the
+    // free path. Returns void; takes the array ptr. No-op for arrays
+    // that never had `arr.x = v` written.
+    let arrprops_drop_entry = m
+        .get_function("__torajs_arrprops_drop_entry")
+        .unwrap_or_else(|| {
+            m.add_function("__torajs_arrprops_drop_entry", fn_t, None)
+        });
     let f = m.add_function("__torajs_arr_drop", fn_t, None);
     let entry = ctx.append_basic_block(f, "entry");
     let static_check_blk = ctx.append_basic_block(f, "static_check");
@@ -3415,6 +3423,10 @@ fn define_arr_drop<'ctx>(
         .unwrap();
 
     builder.position_at_end(free_blk);
+    // T-29 — drop side-table props entry (no-op for arrays without
+    // props). Called BEFORE free so the entry can read arr_ptr to
+    // identify its bucket.
+    builder.build_call(arrprops_drop_entry, &[arg.into()], "_apd").unwrap();
     builder.build_call(free, &[arg.into()], "_f").unwrap();
     builder.build_unconditional_branch(ret_blk).unwrap();
 

@@ -1077,6 +1077,8 @@ void __torajs_value_drop_heap(void *child) {
  * free runs. Then frees the outer block. Mirrors regular arr_drop's
  * rc-awareness so emit_drop_value Type::Arr(Any) can call this once
  * per scope-exit without manual rc bookkeeping. */
+void __torajs_arrprops_drop_entry(void *arr_ptr); /* fwd decl */
+
 void __torajs_arr_drop_any(void *arr) {
     if (arr == NULL) return;
     __torajs_heap_header_t *h = (__torajs_heap_header_t *)arr;
@@ -1090,6 +1092,9 @@ void __torajs_arr_drop_any(void *arr) {
             __torajs_value_drop_heap(child);
         }
     }
+    /* T-29 — drop side-table props entry (no-op for arrays without
+     * `arr.x = v` written). */
+    __torajs_arrprops_drop_entry(arr);
     free(arr);
 }
 
@@ -1165,6 +1170,111 @@ uint64_t __torajs_fnprops_get_value(void *fn_ptr, const void *key) {
     __torajs_fnprops_node_t *n = __torajs_fnprops_find(fn_ptr);
     if (n == NULL || n->dynobj == NULL) return 0;
     return __torajs_dynobj_get_value(n->dynobj, key);
+}
+
+/* T-29 — Array-as-Object side table. Per ECMAScript, Array values are
+ * Objects: `arr.x = v` and `arr.x` are spec-required. Pre-T-29 tora
+ * rejected with "field assignment target must be a struct, got
+ * Array(...)".
+ *
+ * Same shape as fnprops side table but distinct so the array-drop
+ * hook only walks array entries (and avoids touching FnSig entries
+ * which never drop). 256 buckets, MurmurHash finalizer mix on the
+ * pointer's bits.
+ *
+ * The drop hook (called from arr_drop / arr_drop_any when refcount
+ * hits 0) walks the bucket, drops the dynobj if non-NULL, removes
+ * the node from the chain, and frees it. Arrays that never have
+ * `.x = v` written cost zero (no node, no dynobj).
+ *
+ * Layout-extension alternative would put the props slot in the
+ * Array header directly (mirroring CLOSURE_PROPS_OFF for Closure)
+ * but Array is a much higher-traffic type — every array access
+ * site reads ARR_DATA_OFF, and shifting that constant breaks ~28
+ * call sites across runtime + ssa_lower. Side-table contains the
+ * change to this file + ssa_lower's Member-on-Array branch +
+ * arr_drop's hook call. */
+
+typedef struct __torajs_arrprops_node {
+    void *arr_ptr;
+    void *dynobj;
+    struct __torajs_arrprops_node *next;
+} __torajs_arrprops_node_t;
+
+#define __TORAJS_ARRPROPS_BUCKETS 256
+static __torajs_arrprops_node_t *__torajs_arrprops_table[__TORAJS_ARRPROPS_BUCKETS] = {0};
+
+static uint32_t __torajs_arrprops_hash(void *p) {
+    uintptr_t x = (uintptr_t)p;
+    x = (x ^ (x >> 33)) * 0xff51afd7ed558ccdULL;
+    x = (x ^ (x >> 33)) * 0xc4ceb9fe1a85ec53ULL;
+    x = x ^ (x >> 33);
+    return (uint32_t)(x % __TORAJS_ARRPROPS_BUCKETS);
+}
+
+static __torajs_arrprops_node_t *__torajs_arrprops_find(void *arr_ptr) {
+    uint32_t h = __torajs_arrprops_hash(arr_ptr);
+    __torajs_arrprops_node_t *n = __torajs_arrprops_table[h];
+    while (n) {
+        if (n->arr_ptr == arr_ptr) return n;
+        n = n->next;
+    }
+    return NULL;
+}
+
+static __torajs_arrprops_node_t *__torajs_arrprops_intern(void *arr_ptr) {
+    __torajs_arrprops_node_t *n = __torajs_arrprops_find(arr_ptr);
+    if (n) return n;
+    uint32_t h = __torajs_arrprops_hash(arr_ptr);
+    n = (__torajs_arrprops_node_t *)malloc(sizeof(__torajs_arrprops_node_t));
+    n->arr_ptr = arr_ptr;
+    n->dynobj = NULL;
+    n->next = __torajs_arrprops_table[h];
+    __torajs_arrprops_table[h] = n;
+    return n;
+}
+
+void __torajs_arrprops_set(void *arr_ptr, void *key, int64_t tag, int64_t value) {
+    __torajs_arrprops_node_t *n = __torajs_arrprops_intern(arr_ptr);
+    if (n->dynobj == NULL) n->dynobj = __torajs_dynobj_alloc();
+    __torajs_dynobj_set(&n->dynobj, key, (uint64_t)tag, (uint64_t)value);
+}
+
+uint64_t __torajs_arrprops_get_tag(void *arr_ptr, const void *key) {
+    __torajs_arrprops_node_t *n = __torajs_arrprops_find(arr_ptr);
+    if (n == NULL || n->dynobj == NULL) return 5;  /* ANY_UNDEF */
+    return __torajs_dynobj_get_tag(n->dynobj, key);
+}
+
+uint64_t __torajs_arrprops_get_value(void *arr_ptr, const void *key) {
+    __torajs_arrprops_node_t *n = __torajs_arrprops_find(arr_ptr);
+    if (n == NULL || n->dynobj == NULL) return 0;
+    return __torajs_dynobj_get_value(n->dynobj, key);
+}
+
+/* Drop hook called from arr_drop / arr_drop_any when an array's
+ * refcount hits 0. Walks the bucket chain, removes + frees the
+ * matching node + dec's the dynobj's refcount (which falls through
+ * dynobj_drop's free walk). Common case (array never had props
+ * written): bucket walk finds nothing, no-op. */
+void __torajs_arrprops_drop_entry(void *arr_ptr) {
+    uint32_t h = __torajs_arrprops_hash(arr_ptr);
+    __torajs_arrprops_node_t **prev = &__torajs_arrprops_table[h];
+    __torajs_arrprops_node_t *n = *prev;
+    while (n) {
+        if (n->arr_ptr == arr_ptr) {
+            *prev = n->next;
+            if (n->dynobj != NULL) {
+                /* dynobj is owned 1:1 by this entry; drop's the
+                 * walks-and-frees path. */
+                __torajs_value_drop_heap(n->dynobj);
+            }
+            free(n);
+            return;
+        }
+        prev = &n->next;
+        n = n->next;
+    }
 }
 
 /* T-10.d.i — Type::Any boxed-value runtime.
