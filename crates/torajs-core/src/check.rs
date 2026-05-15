@@ -154,6 +154,17 @@ pub enum Type {
     /// `Type::Nullable(T)` — a bare `let x: null = null` is legal but
     /// not very useful.
     Null,
+    /// P1.1 — `undefined` literal value. Distinct from `Null` per
+    /// ES spec §6.1.1 / §6.1.2. Currently behaves identically to
+    /// `Null` everywhere except (eventually) typeof: `typeof undefined`
+    /// must return `"undefined"` while `typeof null` returns `"object"`.
+    /// Pre-P1.1 tora aliased `undefined` to `Null` end-to-end, which
+    /// silently wrong-ed the typeof distinction; this variant is the
+    /// substrate for fixing it incrementally without touching the
+    /// 250+ Type::Null match arms in one big diff. The follow-up
+    /// P1 sub-items (P1.5 typeof, P1.8 strict-eq, P1.3 default param,
+    /// P1.4 OOB read) flip the per-arm behavior site-by-site.
+    Undefined,
     /// `T | null` — pointer-shaped T may carry the in-band 0 sentinel
     /// at runtime. Restricted to T ∈ {String, Array<_>, Struct, …};
     /// number/boolean nullables would need a tag bit and aren't in v0.
@@ -923,7 +934,9 @@ fn is_assignable_to_deep(
         return true;
     }
     if let Type::Nullable(inner) = &to_r {
-        if matches!(from_r, Type::Null) {
+        // P1.7 — `Nullable<T>` ≡ `T | null | undefined` per spec.
+        // Both null and undefined are valid in any Nullable<T> slot.
+        if matches!(from_r, Type::Null | Type::Undefined) {
             return true;
         }
         return is_assignable_to_deep(inner, &from_r, aliases, seen);
@@ -1053,7 +1066,8 @@ fn is_assignable_to(to: &Type, from: &Type) -> bool {
         return true;
     }
     if let Type::Nullable(inner) = to {
-        if matches!(from, Type::Null) {
+        // P1.7 — `Nullable<T>` ≡ `T | null | undefined` per spec.
+        if matches!(from, Type::Null | Type::Undefined) {
             return true;
         }
         return is_assignable_to(inner, from);
@@ -1190,6 +1204,12 @@ pub fn type_to_ann(ty: &Type) -> String {
         // them, and it's already past by the time this fn runs.
         Type::Nullable(inner) => type_to_ann(inner),
         Type::Null => "null".into(),
+        // P1.1 — Type::Undefined collapses to `null` in the SSA-ann
+        // string for now since the SSA layer has no separate Undefined.
+        // The runtime tag (ANY_NULL=0 vs ANY_UNDEF=5) is the actual
+        // disambiguator and lives in the box helpers; the static SSA
+        // type stays Ptr-shaped for both.
+        Type::Undefined => "undefined".into(),
         // RegExp is its own SSA type (Type::RegExp); the annotation
         // round-trips through ssa_lower's parse_type back to the same.
         Type::RegExp => "regex".into(),
@@ -2685,18 +2705,18 @@ impl Checker {
                         Vec::new(),
                         Box::new(Type::Void),
                     )),
-                    // `undefined` — JS sentinel for "no value". torajs
-                    // doesn't have a separate Undefined runtime type;
-                    // map it to Type::Null which lowers to the same
-                    // pointer-shaped 0-sentinel and is comparable
-                    // against Nullable<T> in the same way. This trades
-                    // some spec edge cases (`typeof undefined === "undefined"`
-                    // vs `typeof null === "object"`) for letting the
-                    // common `let x = undefined` / `=== undefined`
-                    // patterns parse and typecheck cleanly. A fully
-                    // separate `Type::Undefined` is on the roadmap
-                    // alongside the typeof-string accuracy work.
-                    "undefined" => Ok(Type::Null),
+                    // P1.1 + P1.5 — `undefined` global ident returns
+                    // Type::Undefined (was Type::Null pre-P1). Per ES
+                    // spec §6.1.1 / §6.1.2 they're distinct primitive
+                    // values: `typeof undefined === "undefined"` while
+                    // `typeof null === "object"`; `undefined !== null`
+                    // strictly. The is_assignable_to_resolved path
+                    // accepts Type::Undefined into Nullable<T> slots
+                    // identically to Type::Null (P1.7's Nullable
+                    // includes both per spec); the per-op ssa_lower
+                    // arms now route Undefined through the ANY_UNDEF=5
+                    // tag instead of the ANY_NULL=0 tag.
+                    "undefined" => Ok(Type::Undefined),
                     // V3-18 m1.h.11 — JS spec §19.1.1 NaN /
                     // §19.1.2 Infinity globals. Both Number-typed
                     // (NaN is f64 NaN; Infinity is f64 +∞).
@@ -4272,11 +4292,17 @@ impl Checker {
                         let arg_ty = self.type_of(ast, *a)?;
                         let ok = match n.as_str() {
                             "Boolean" => true,
-                            "Number" => matches!(arg_ty, Type::Number | Type::Boolean | Type::Null | Type::String),
+                            // P1.5 — Number(undefined) === NaN per spec §7.1.4.
+                            // String(undefined) === "undefined" per §7.1.17.
+                            "Number" => matches!(
+                                arg_ty,
+                                Type::Number | Type::Boolean | Type::Null
+                                    | Type::Undefined | Type::String
+                            ),
                             "String" => matches!(
                                 arg_ty,
                                 Type::Number | Type::Boolean | Type::Null
-                                    | Type::String
+                                    | Type::Undefined | Type::String
                             ),
                             _ => false,
                         };

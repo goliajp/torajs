@@ -190,6 +190,17 @@ typedef struct __attribute__((aligned(8))) {
 #define __TORAJS_ANY_I64     2
 #define __TORAJS_ANY_F64     3
 #define __TORAJS_ANY_HEAP    4
+/* P1.2 — distinct tag for the `undefined` value, separate from
+ * ANY_NULL=0. Per ES spec §6.1.1 / §6.1.2 null and undefined are
+ * different primitive values (`typeof null === "object"` vs
+ * `typeof undefined === "undefined"`, `null !== undefined`). Pre-
+ * P1.2 tora collapsed both to ANY_NULL which silently wrong-ed
+ * the typeof distinction and made all undefined-vs-null comparisons
+ * identity-positive. ANY_UNDEF=5 lets the box helpers preserve
+ * the distinction; the per-op rules (typeof, strict-eq, to-bool,
+ * etc.) still mirror Null where the spec says they should
+ * (e.g. ToBoolean(undefined) is false — same as null). */
+#define __TORAJS_ANY_UNDEF   5
 
 /* Array<Any> uses 16-byte slots instead of 8. Marked at alloc time
  * via this flag bit so arr_drop_any can walk slots correctly and
@@ -846,8 +857,16 @@ int64_t __torajs_str_eq(const uint8_t *a, const uint8_t *b);
  *                            pointer identity otherwise
  * +0 === -0 holds at the IEEE level. */
 static bool __torajs_any_payload_eq(int64_t tag, int64_t lv, int64_t rv) {
+    (void)lv; (void)rv;
     switch (tag) {
-        case __TORAJS_ANY_NULL: return true;
+        /* P1.8 — both null === null and undefined === undefined are
+         * true per ES spec §7.2.13 IsStrictlyEqual. The earlier
+         * tag-equality short-circuit in any_any_strict_eq /
+         * any_strict_eq guarantees we only hit this when both sides
+         * carry the same tag; tag-distinct pairs (null vs undefined)
+         * already returned false at the tag check. */
+        case __TORAJS_ANY_NULL:
+        case __TORAJS_ANY_UNDEF: return true;
         case __TORAJS_ANY_BOOL:
         case __TORAJS_ANY_I64:  return lv == rv;
         case __TORAJS_ANY_F64: {
@@ -892,11 +911,16 @@ bool __torajs_any_any_strict_eq(const void *l, const void *r) {
  * types; value packing mirrors box_to_any (bitcast for f64,
  * zext for bool, raw cast for ptr / i64). */
 bool __torajs_any_strict_eq(const void *box, int64_t rhs_tag, int64_t rhs_value) {
+    (void)rhs_value;
     if (box == NULL) {
         /* Bare null Any pointer behaves like ANY_NULL. */
         return rhs_tag == __TORAJS_ANY_NULL;
     }
     int64_t bt = *(const int64_t *)((const uint8_t *)box + __TORAJS_ANY_BOX_TAG_OFF);
+    /* P1.8 — null !== undefined per spec §7.2.13. The pre-P1.2 tag
+     * collapse made these compare equal silently; the distinct
+     * ANY_UNDEF=5 vs ANY_NULL=0 tags now make the strict-eq tag
+     * mismatch fire correctly (this `bt != rhs_tag` short-circuit). */
     if (bt != rhs_tag) return false;
     int64_t bv = *(const int64_t *)((const uint8_t *)box + __TORAJS_ANY_BOX_VAL_OFF);
     return __torajs_any_payload_eq(bt, bv, rhs_value);
@@ -907,6 +931,7 @@ void *__torajs_i64_to_str(int64_t n);
 void *__torajs_f64_to_str(double n);
 void *__torajs_bool_to_str(int b);
 void *__torajs_null_to_str(void);
+void *__torajs_undefined_to_str(void);
 double __torajs_str_to_number(const void *p);
 
 /* P0.6 — Any tag → Str helper. Used by __torajs_any_add when one
@@ -917,6 +942,8 @@ double __torajs_str_to_number(const void *p);
 static void *__torajs_any_to_str(int64_t tag, int64_t value) {
     switch (tag) {
         case __TORAJS_ANY_NULL: return __torajs_null_to_str();
+        /* P1.5 — ToString(undefined) === "undefined" per spec §7.1.17. */
+        case __TORAJS_ANY_UNDEF: return __torajs_undefined_to_str();
         case __TORAJS_ANY_BOOL: return __torajs_bool_to_str(value != 0);
         case __TORAJS_ANY_I64:  return __torajs_i64_to_str(value);
         case __TORAJS_ANY_F64: {
@@ -959,6 +986,9 @@ static void *__torajs_any_to_str(int64_t tag, int64_t value) {
 static double __torajs_any_to_number_inner(int64_t tag, int64_t value) {
     switch (tag) {
         case __TORAJS_ANY_NULL: return 0.0;
+        /* P1.5 — ToNumber(undefined) === NaN per spec §7.1.4 step 1.
+         * Distinct from ToNumber(null) === 0. */
+        case __TORAJS_ANY_UNDEF: return 0.0 / 0.0;
         case __TORAJS_ANY_BOOL: return value != 0 ? 1.0 : 0.0;
         case __TORAJS_ANY_I64:  return (double)value;
         case __TORAJS_ANY_F64: {
@@ -1132,6 +1162,8 @@ void *__torajs_any_add(int64_t lt, int64_t lv, int64_t rt, int64_t rv) {
     bool l_is_f = false, r_is_f = false;
     switch (lt) {
         case __TORAJS_ANY_NULL: ld = 0.0; break;
+        /* P1.5 — ToNumber(undefined) === NaN per spec §7.1.4. */
+        case __TORAJS_ANY_UNDEF: ld = 0.0 / 0.0; l_is_f = true; break;
         case __TORAJS_ANY_BOOL: ld = (double)(lv != 0 ? 1 : 0); break;
         case __TORAJS_ANY_I64:  ld = (double)lv; break;
         case __TORAJS_ANY_F64: {
@@ -1142,6 +1174,7 @@ void *__torajs_any_add(int64_t lt, int64_t lv, int64_t rt, int64_t rv) {
     }
     switch (rt) {
         case __TORAJS_ANY_NULL: rd = 0.0; break;
+        case __TORAJS_ANY_UNDEF: rd = 0.0 / 0.0; r_is_f = true; break;
         case __TORAJS_ANY_BOOL: rd = (double)(rv != 0 ? 1 : 0); break;
         case __TORAJS_ANY_I64:  rd = (double)rv; break;
         case __TORAJS_ANY_F64: {
@@ -1179,6 +1212,9 @@ bool __torajs_any_to_bool(const void *box) {
     int64_t value = *(const int64_t *)((const uint8_t *)box + __TORAJS_ANY_BOX_VAL_OFF);
     switch (tag) {
         case __TORAJS_ANY_NULL: return false;
+        /* P1.5 — ToBoolean(undefined) === false per spec §7.1.2 step 1.
+         * Same answer as null but distinct origin (preserved by tag). */
+        case __TORAJS_ANY_UNDEF: return false;
         case __TORAJS_ANY_BOOL: return value != 0;
         case __TORAJS_ANY_I64:  return value != 0;
         case __TORAJS_ANY_F64: {
@@ -1224,6 +1260,11 @@ void *__torajs_any_typeof(const void *box) {
         int64_t tag = *(const int64_t *)((const uint8_t *)box + __TORAJS_ANY_BOX_TAG_OFF);
         switch (tag) {
             case __TORAJS_ANY_NULL: s = "object"; len = 6; break;
+            /* P1.5 — typeof undefined === "undefined" per ES spec
+             * §13.5.3 / §6.1.1.1. The ANY_UNDEF tag is the
+             * substrate that lets us distinguish from ANY_NULL
+             * (which keeps "object" per spec). */
+            case __TORAJS_ANY_UNDEF: s = "undefined"; len = 9; break;
             case __TORAJS_ANY_BOOL: s = "boolean"; len = 7; break;
             case __TORAJS_ANY_I64:
             case __TORAJS_ANY_F64: s = "number"; len = 6; break;
@@ -1301,6 +1342,8 @@ void __torajs_print_any(const void *box) {
     int64_t v = *(const int64_t *)((const uint8_t *)box + __TORAJS_ANY_BOX_VAL_OFF);
     switch (tag) {
         case __TORAJS_ANY_NULL: fputs("null\n", stdout); break;
+        /* P1.5 — console.log(undefined) → "undefined". Bun output. */
+        case __TORAJS_ANY_UNDEF: fputs("undefined\n", stdout); break;
         case __TORAJS_ANY_BOOL: print_bool((_Bool)(v != 0)); break;
         case __TORAJS_ANY_I64:  print_i64(v); break;
         case __TORAJS_ANY_F64: {
@@ -2094,6 +2137,16 @@ void *__torajs_null_to_str(void) {
     const char *s = "null";
     uint8_t *p = str_alloc_(4);
     memcpy(__TORAJS_STR_DATA(p), s, 4);
+    return p;
+}
+
+/* P1.5 — `String(undefined)` / `${undefined}` produce "undefined"
+ * per ES spec §6.1.1. Mirror of __torajs_null_to_str for the
+ * ANY_UNDEF tag dispatched in __torajs_any_to_str. */
+void *__torajs_undefined_to_str(void) {
+    const char *s = "undefined";
+    uint8_t *p = str_alloc_(9);
+    memcpy(__TORAJS_STR_DATA(p), s, 9);
     return p;
 }
 

@@ -4997,6 +4997,8 @@ fn synthesize_main(
             captured_arr_writeback: HashMap::new(),
             escape_captured_lets: std::collections::HashSet::new(),
             push_unchecked_for: std::collections::HashMap::new(),
+            binop_left_undef_id: None,
+            binop_right_undef_id: None,
             globals,
             is_main_fn: true,
             drop_inline_stack: std::collections::HashSet::new(),
@@ -5896,6 +5898,8 @@ fn lower_fn(
         captured_arr_writeback: HashMap::new(),
         escape_captured_lets: std::collections::HashSet::new(),
         push_unchecked_for: std::collections::HashMap::new(),
+        binop_left_undef_id: None,
+        binop_right_undef_id: None,
         globals,
         is_main_fn: false,
         drop_inline_stack: std::collections::HashSet::new(),
@@ -6428,6 +6432,12 @@ struct LowerCtx<'a> {
     /// own state entry. Conservative: only fires when the for-loop's
     /// full body shape matches the detector.
     push_unchecked_for: std::collections::HashMap<String, PreReserveState>,
+    /// P1.5/P1.8 — per-binop scratch flags carrying which side (if any)
+    /// is a frontend Type::Undefined source. Set by lower_binop_with_ids
+    /// before dispatching to the inner impl, restored after. The Eq/Neq
+    /// Any-side packing reads these to pick ANY_UNDEF=5 vs ANY_NULL=0.
+    binop_left_undef_id: Option<ExprId>,
+    binop_right_undef_id: Option<ExprId>,
     /// Phase K.3 — module-level data globals (top-level `let X: T = init`
     /// where T is a primitive Copy type). Read by the ident-read fallback
     /// to emit `GlobalRef + Load` for cross-fn reads, and by the LetDecl
@@ -9349,7 +9359,7 @@ impl<'a> LowerCtx<'a> {
                 let init_val = if ty == Type::Any
                     && self.operand_ty(&init_val) != Type::Any
                 {
-                    self.box_to_any(init_val)
+                    self.box_to_any_from_expr(*init, init_val)
                 } else {
                     init_val
                 };
@@ -10954,6 +10964,35 @@ impl<'a> LowerCtx<'a> {
     /// owns the returned box; ssa_lower's regular drop walk frees
     /// it via __torajs_any_box_drop. Also used by lower_array_any
     /// (which encodes the same tag scheme but inlines the call).
+    /// P1.5 — `box_to_any` variant that knows the source frontend
+    /// type, so it can pick ANY_UNDEF=5 vs ANY_NULL=0 for the
+    /// pointer-shaped cases. The tag is the only thing that
+    /// distinguishes null from undefined at the runtime level
+    /// (both lower to ConstPtrNull); the per-tag rules in
+    /// any_typeof / any_to_str / any_to_bool / etc. then preserve
+    /// the spec distinction downstream.
+    fn box_to_any_from_expr(&mut self, eid: ExprId, val: Operand) -> Operand {
+        let is_undef = matches!(
+            self.expr_types.get(&eid),
+            Some(crate::check::Type::Undefined)
+        );
+        let val_ty = self.operand_ty(&val);
+        if is_undef && matches!(val_ty, Type::Ptr) {
+            // ANY_UNDEF=5, payload 0.
+            let v = self.f.append_inst(
+                self.cur_block,
+                InstKind::Call(
+                    self.intrinsics.any_box,
+                    vec![Operand::ConstI64(5), Operand::ConstI64(0)],
+                ),
+                Type::Any,
+                None,
+            );
+            return Operand::Value(v);
+        }
+        self.box_to_any(val)
+    }
+
     fn box_to_any(&mut self, val: Operand) -> Operand {
         let val_ty = self.operand_ty(&val);
         let (tag, value_op): (i64, Operand) = match val_ty {
@@ -11822,7 +11861,11 @@ impl<'a> LowerCtx<'a> {
                 // produces a fresh allocation without freeing inputs;
                 // see ssa_inkwell::define_str_concat / ssa_cranelift::
                 // str_concat_runtime for the matching change.
-                let result = self.lower_binop(*op, a, b);
+                // P1.5/P1.8 — pass the operand ExprIds so the Eq/Neq
+                // Any-side packing can pick ANY_UNDEF=5 vs ANY_NULL=0.
+                let result = self.lower_binop_with_ids(
+                    *op, a, b, Some(*left), Some(*right),
+                );
                 // Drop fresh-owned refcounted operands left over from
                 // BinOp on Str / Substr (Eq / Neq / Add). lower_binop
                 // doesn't consume — every concat / str_eq path keeps
@@ -20443,6 +20486,17 @@ impl<'a> LowerCtx<'a> {
                 Operand::Value(r)
             }
             Expr::TypeOf { expr } => {
+                // P1.5 — typeof on a frontend Type::Undefined source
+                // returns "undefined" per spec §13.5.3 / §6.1.1.1.
+                // Distinct from typeof Type::Null which returns
+                // "object" (the historical JS bug spec preserves).
+                // The frontend type is the source of truth here —
+                // SSA-side both null and undefined lower to ConstPtrNull
+                // / Ptr-shaped operands, so we can't tell them apart
+                // by SSA Type alone. expr_types provides the bridge.
+                if let Some(crate::check::Type::Undefined) = self.expr_types.get(expr) {
+                    return Operand::Value(self.intern_string_literal("undefined"));
+                }
                 // V3-18 m1.h.20 — typeof on known JS globals must
                 // return the spec literal without trying to lower
                 // the Ident (the global is not a SSA local). Per
@@ -21549,7 +21603,39 @@ impl<'a> LowerCtx<'a> {
         }
     }
 
+    /// P1.5/P1.8 — peek a binop operand's source ExprId to see if its
+    /// frontend type is Type::Undefined. Set by callers that have
+    /// the AST in hand (currently the Eq/Neq path in lower_expr).
+    /// None means "no info — treat as null per old behavior". The
+    /// pair is `(left_id, right_id)`. Cleared after each lower_binop
+    /// call so it doesn't leak across unrelated dispatches.
     fn lower_binop(&mut self, op: AstBinOp, a: Operand, b: Operand) -> Operand {
+        self.lower_binop_with_ids(op, a, b, None, None)
+    }
+
+    fn lower_binop_with_ids(
+        &mut self,
+        op: AstBinOp,
+        a: Operand,
+        b: Operand,
+        left_id: Option<ExprId>,
+        right_id: Option<ExprId>,
+    ) -> Operand {
+        let saved_left = self.binop_left_undef_id.take();
+        let saved_right = self.binop_right_undef_id.take();
+        self.binop_left_undef_id = left_id.filter(|eid| {
+            matches!(self.expr_types.get(eid), Some(crate::check::Type::Undefined))
+        });
+        self.binop_right_undef_id = right_id.filter(|eid| {
+            matches!(self.expr_types.get(eid), Some(crate::check::Type::Undefined))
+        });
+        let r = self.lower_binop_inner(op, a, b);
+        self.binop_left_undef_id = saved_left;
+        self.binop_right_undef_id = saved_right;
+        r
+    }
+
+    fn lower_binop_inner(&mut self, op: AstBinOp, a: Operand, b: Operand) -> Operand {
         /* V3-18 m1.a — JS spec §13.15.3 ToNumber coercion for `+`
          * with Boolean / Null operands. Both sides become i64
          * before the actual add; the existing i64-add path then
@@ -21730,11 +21816,12 @@ impl<'a> LowerCtx<'a> {
                     // the helper avoids a fresh Any-box alloc per
                     // compare. Mirrors the box_to_any tag/value
                     // extraction.
-                    let (any_box, concrete, concrete_ty) = if matches!(a_ty, Type::Any) {
-                        (a, b, b_ty)
-                    } else {
-                        (b, a, a_ty)
-                    };
+                    let (any_box, concrete, concrete_ty, concrete_is_undef) =
+                        if matches!(a_ty, Type::Any) {
+                            (a, b, b_ty, self.binop_right_undef_id.is_some())
+                        } else {
+                            (b, a, a_ty, self.binop_left_undef_id.is_some())
+                        };
                     let (tag, value): (i64, Operand) = match concrete_ty {
                         Type::I64 | Type::I32 => (2, concrete),
                         Type::F64 => {
@@ -21755,8 +21842,20 @@ impl<'a> LowerCtx<'a> {
                             );
                             (1, Operand::Value(zext))
                         }
+                        // P1.8 — `any === undefined` and `any === null`
+                        // are distinct: the concrete side must carry the
+                        // matching tag (5 vs 0) so the runtime helper's
+                        // tag-equality short-circuit fires correctly.
+                        // Pre-P1.8 both Ptr-shaped operands packed to 0,
+                        // making `<undefined-box> === undefined` falsely
+                        // false and `<undefined-box> === null` falsely
+                        // true.
                         Type::Ptr if matches!(concrete, Operand::ConstPtrNull) => {
-                            (0, Operand::ConstI64(0))
+                            if concrete_is_undef {
+                                (5, Operand::ConstI64(0))
+                            } else {
+                                (0, Operand::ConstI64(0))
+                            }
                         }
                         t if t.is_refcounted() => (4, concrete),
                         _ => (0, Operand::ConstI64(0)),
