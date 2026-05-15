@@ -4027,6 +4027,11 @@ impl Checker {
                         Ok(Type::Function(Vec::new(), Box::new(Type::String)))
                     }
                     (Type::Struct(_), "constructor") => Ok(Type::Any),
+                    // P3.2 — Member access on Type::Any returns Type::Any.
+                    // Static layout unknown at compile time; ssa_lower
+                    // routes through dynobj_get_tag/value. Missing
+                    // properties read as undefined per spec.
+                    (Type::Any, _) => Ok(Type::Any),
                     _ => Err(format!("no member `.{name}` on type {obj_ty:?}")),
                 }
             }
@@ -5884,6 +5889,14 @@ impl Checker {
                                         .unwrap_or_else(|| "outside any class".to_string())
                                 ));
                             }
+                        }
+                        // P3.2 — `obj.x = v` where obj is Type::Any
+                        // accepts any value; ssa_lower routes through
+                        // dynobj_set with the (tag, value) pair.
+                        if matches!(obj_ty, Type::Any) {
+                            let _ = self.type_of(ast, *value)?;
+                            self.consume(ast, *value);
+                            return Ok(Type::Any);
                         }
                         let Type::Struct(fields) = &obj_ty else {
                             return Err(format!(

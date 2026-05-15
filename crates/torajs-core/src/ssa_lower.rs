@@ -2015,6 +2015,53 @@ fn lower_inner(
         &[Type::Ptr, Type::I64],
         Type::I64,
     );
+    // P3.2 — dynobj substrate intrinsics. Wire the runtime hash-map
+    // helpers (P3.1 / commit c35aec4) into the SSA layer so untyped
+    // object Member access (`x.foo` where x: any) routes through
+    // dynobj_get_tag/value, and Member assign routes through
+    // dynobj_set.
+    let dynobj_alloc_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_dynobj_alloc",
+        &[],
+        Type::Ptr,
+    );
+    let dynobj_get_tag_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_dynobj_get_tag",
+        &[Type::Ptr, Type::Ptr],
+        Type::I64,
+    );
+    let dynobj_get_value_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_dynobj_get_value",
+        &[Type::Ptr, Type::Ptr],
+        Type::I64,
+    );
+    let dynobj_set_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_dynobj_set",
+        &[Type::Ptr, Type::Ptr, Type::I64, Type::I64],
+        Type::Void,
+    );
+    let dynobj_has_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_dynobj_has",
+        &[Type::Ptr, Type::Ptr],
+        Type::I32,
+    );
+    let dynobj_delete_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_dynobj_delete",
+        &[Type::Ptr, Type::Ptr],
+        Type::I32,
+    );
     let arr_drop_any_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -3974,6 +4021,12 @@ fn lower_inner(
         arr_set_any: arr_set_any_id,
         arr_get_any_tag: arr_get_any_tag_id,
         arr_get_any_value: arr_get_any_value_id,
+        dynobj_alloc: dynobj_alloc_id,
+        dynobj_get_tag: dynobj_get_tag_id,
+        dynobj_get_value: dynobj_get_value_id,
+        dynobj_set: dynobj_set_id,
+        dynobj_has: dynobj_has_id,
+        dynobj_delete: dynobj_delete_id,
         arr_drop_any: arr_drop_any_id,
         any_box: any_box_id,
         any_typeof: any_typeof_id,
@@ -4720,6 +4773,12 @@ struct Intrinsics {
     arr_set_any: FuncId,
     arr_get_any_tag: FuncId,
     arr_get_any_value: FuncId,
+    dynobj_alloc: FuncId,
+    dynobj_get_tag: FuncId,
+    dynobj_get_value: FuncId,
+    dynobj_set: FuncId,
+    dynobj_has: FuncId,
+    dynobj_delete: FuncId,
     arr_drop_any: FuncId,
     any_box: FuncId,
     any_typeof: FuncId,
@@ -9356,6 +9415,17 @@ impl<'a> LowerCtx<'a> {
                     // can't classify).
                     let ids: Vec<ExprId> = els.clone();
                     self.lower_array_any_literal(&ids)
+                } else if ty == Type::Any
+                    && matches!(self.ast.get_expr(*init), Expr::ObjectLit { .. })
+                {
+                    // P3.2 — `let x: any = { ... }` allocates a dynobj
+                    // (hash-map backed) directly here, bypassing the
+                    // regular ObjectLit struct alloc that would happen
+                    // via lower_expr. Subsequent box_to_any wrapping
+                    // (further down) takes the dynobj ptr and wraps as
+                    // ANY_HEAP=4 so the slot holds an Any-box pointing
+                    // at the dynobj.
+                    self.lower_dynobj_init(*init)
                 } else {
                     self.lower_expr(*init)
                 };
@@ -10988,6 +11058,128 @@ impl<'a> LowerCtx<'a> {
     /// owns the returned box; ssa_lower's regular drop walk frees
     /// it via __torajs_any_box_drop. Also used by lower_array_any
     /// (which encodes the same tag scheme but inlines the call).
+    /// P3.2 — `let x: any = { f1: v1, f2: v2 }` lowering. Allocate
+    /// a dynobj via `__torajs_dynobj_alloc()`, populate each field
+    /// via `dynobj_set`, then box the dynobj ptr as ANY_HEAP=4 so
+    /// the slot holds an Any-box pointing at the dynobj. Subsequent
+    /// `x.foo` reads/writes route through the dynobj substrate.
+    /// Empty `{}` produces a zero-entry dynobj (allocates the header
+    /// + initial bucket array but no entries).
+    fn lower_dynobj_init(&mut self, eid: ExprId) -> Operand {
+        let fields = match self.ast.get_expr(eid).clone() {
+            Expr::ObjectLit { fields } => fields,
+            _ => panic!("lower_dynobj_init called on non-ObjectLit"),
+        };
+        // Allocate the dynobj.
+        let dynobj = self.f.append_inst(
+            self.cur_block,
+            InstKind::Call(self.intrinsics.dynobj_alloc, Vec::new()),
+            Type::Ptr,
+            None,
+        );
+        // For each (name, value), set into the dynobj. Box value
+        // first using the same scheme as box_to_any but inlined.
+        for (fname, fval_eid) in fields {
+            let v_raw = self.lower_expr(fval_eid);
+            self.consume_if_ident(fval_eid);
+            let v_ty = self.operand_ty(&v_raw);
+            let (tag, val_op): (i64, Operand) = match v_ty {
+                Type::I64 | Type::I32 => (2, v_raw),
+                Type::F64 => {
+                    let bits = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::BitCastF64ToI64(v_raw),
+                        Type::I64,
+                        None,
+                    );
+                    (3, Operand::Value(bits))
+                }
+                Type::Bool => {
+                    let zext = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::ZExtBoolToI64(v_raw),
+                        Type::I64,
+                        None,
+                    );
+                    (1, Operand::Value(zext))
+                }
+                _ if v_ty.is_refcounted() => {
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.rc_inc,
+                            vec![v_raw.clone()],
+                        ),
+                    );
+                    (4, v_raw)
+                }
+                Type::Ptr if matches!(v_raw, Operand::ConstPtrNull) => {
+                    (0, Operand::ConstI64(0))
+                }
+                Type::Any => {
+                    // Already boxed — extract (tag, value) from the
+                    // box at offsets 16/24.
+                    let tag_v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Load(Type::I64, v_raw.clone(), 16),
+                        Type::I64,
+                        None,
+                    );
+                    let val_v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Load(Type::I64, v_raw.clone(), 24),
+                        Type::I64,
+                        None,
+                    );
+                    (-1, Operand::Value(val_v))
+                        .0; // unused; we'll branch
+                    // Special path: forward already-boxed Any.
+                    let key_str = self.intern_string_literal(&fname);
+                    let slot = self.alloca(Type::Ptr, Some("__dynobj_init_slot"));
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Store(Operand::Value(dynobj), Operand::Value(slot), 0),
+                    );
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.dynobj_set,
+                            vec![
+                                Operand::Value(slot),
+                                Operand::Value(key_str),
+                                Operand::Value(tag_v),
+                                Operand::Value(val_v),
+                            ],
+                        ),
+                    );
+                    continue;
+                }
+                _ => panic!(
+                    "ssa-lower: dynobj init unsupported field type {v_ty:?}"
+                ),
+            };
+            let key_str = self.intern_string_literal(&fname);
+            let slot = self.alloca(Type::Ptr, Some("__dynobj_init_slot"));
+            self.f.append_void(
+                self.cur_block,
+                InstKind::Store(Operand::Value(dynobj), Operand::Value(slot), 0),
+            );
+            self.f.append_void(
+                self.cur_block,
+                InstKind::Call(
+                    self.intrinsics.dynobj_set,
+                    vec![
+                        Operand::Value(slot),
+                        Operand::Value(key_str),
+                        Operand::ConstI64(tag),
+                        val_op,
+                    ],
+                ),
+            );
+        }
+        Operand::Value(dynobj)
+    }
+
     /// P1.5 — `box_to_any` variant that knows the source frontend
     /// type, so it can pick ANY_UNDEF=5 vs ANY_NULL=0 for the
     /// pointer-shaped cases. The tag is the only thing that
@@ -11047,8 +11239,18 @@ impl<'a> LowerCtx<'a> {
                 (4, val)
             }
             Type::Ptr => {
-                // Null-shaped Ptr: tag as ANY_NULL with value 0.
-                (0, Operand::ConstI64(0))
+                // P3.2 — distinguish ConstPtrNull (the lowered `null`
+                // literal) from a generic Ptr value (e.g. a dynobj
+                // alloc result). Pre-P3.2 box_to_any treated all
+                // Ptrs as ANY_NULL, which silently dropped dynobj
+                // ptrs and made `let x: any = {}; x.foo` always
+                // return undefined. Now ConstPtrNull → ANY_NULL=0;
+                // any other Ptr → ANY_HEAP=4 with the ptr as value.
+                if matches!(val, Operand::ConstPtrNull) {
+                    (0, Operand::ConstI64(0))
+                } else {
+                    (4, val)
+                }
             }
             other => panic!(
                 "ssa-lower: box_to_any element type {other:?} not supported"
@@ -11600,6 +11802,141 @@ impl<'a> LowerCtx<'a> {
                         // `idx*8` per the P2.4 layout.
                         let obj_val = self.lower_expr(obj);
                         let obj_ty = self.operand_ty(&obj_val);
+                        // P3.2 — Member assign on Type::Any routes
+                        // through the dynobj substrate. obj_val is an
+                        // Any-box (24 bytes: header + tag + value).
+                        // Extract the heap ptr from offset 24 (when
+                        // tag == ANY_HEAP=4 the value field holds the
+                        // dynobj ptr), pack the RHS as (tag, value),
+                        // call dynobj_set.
+                        if matches!(obj_ty, Type::Any) {
+                            let v_raw = self.lower_expr(*value);
+                            self.consume_if_ident(*value);
+                            let v_ty = self.operand_ty(&v_raw);
+                            let (tag, val_op): (i64, Operand) = match v_ty {
+                                Type::I64 | Type::I32 => (2, v_raw),
+                                Type::F64 => {
+                                    let bits = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::BitCastF64ToI64(v_raw),
+                                        Type::I64,
+                                        None,
+                                    );
+                                    (3, Operand::Value(bits))
+                                }
+                                Type::Bool => {
+                                    let zext = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::ZExtBoolToI64(v_raw),
+                                        Type::I64,
+                                        None,
+                                    );
+                                    (1, Operand::Value(zext))
+                                }
+                                _ if v_ty.is_refcounted() => {
+                                    self.f.append_void(
+                                        self.cur_block,
+                                        InstKind::Call(
+                                            self.intrinsics.rc_inc,
+                                            vec![v_raw.clone()],
+                                        ),
+                                    );
+                                    (4, v_raw)
+                                }
+                                Type::Ptr if matches!(v_raw, Operand::ConstPtrNull) => {
+                                    (0, Operand::ConstI64(0))
+                                }
+                                Type::Any => {
+                                    let tag_v = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::Load(Type::I64, v_raw.clone(), 16),
+                                        Type::I64,
+                                        None,
+                                    );
+                                    let val_v = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::Load(Type::I64, v_raw.clone(), 24),
+                                        Type::I64,
+                                        None,
+                                    );
+                                    let dynobj = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::Load(Type::Ptr, obj_val.clone(), 16),
+                                        Type::Ptr,
+                                        None,
+                                    );
+                                    let key_str = self.intern_string_literal(&field);
+                                    let slot = self.alloca(Type::Ptr, Some("__dynobj_slot"));
+                                    self.f.append_void(
+                                        self.cur_block,
+                                        InstKind::Store(Operand::Value(dynobj), Operand::Value(slot), 0),
+                                    );
+                                    self.f.append_void(
+                                        self.cur_block,
+                                        InstKind::Call(
+                                            self.intrinsics.dynobj_set,
+                                            vec![
+                                                Operand::Value(slot),
+                                                Operand::Value(key_str),
+                                                Operand::Value(tag_v),
+                                                Operand::Value(val_v),
+                                            ],
+                                        ),
+                                    );
+                                    return v_raw;
+                                }
+                                _ => panic!(
+                                    "ssa-lower: dynobj assign unsupported value type {v_ty:?}"
+                                ),
+                            };
+                            let dynobj = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Load(Type::Ptr, obj_val.clone(), 16),
+                                Type::Ptr,
+                                None,
+                            );
+                            let key_str = self.intern_string_literal(&field);
+                            let slot = self.alloca(Type::Ptr, Some("__dynobj_slot"));
+                            self.f.append_void(
+                                self.cur_block,
+                                InstKind::Store(Operand::Value(dynobj), Operand::Value(slot), 0),
+                            );
+                            self.f.append_void(
+                                self.cur_block,
+                                InstKind::Call(
+                                    self.intrinsics.dynobj_set,
+                                    vec![
+                                        Operand::Value(slot),
+                                        Operand::Value(key_str),
+                                        Operand::ConstI64(tag),
+                                        val_op,
+                                    ],
+                                ),
+                            );
+                            // P3.2 — dynobj_set may resize; reload the
+                            // (possibly new) ptr from the slot and
+                            // write it back into the Any-box's value
+                            // field so subsequent reads see the live
+                            // dynobj. Without this, the box keeps a
+                            // dangling old-cap ptr after grow, and
+                            // every read from a key inserted post-
+                            // resize returns undefined.
+                            let new_dynobj = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Load(Type::Ptr, Operand::Value(slot), 0),
+                                Type::Ptr,
+                                None,
+                            );
+                            self.f.append_void(
+                                self.cur_block,
+                                InstKind::Store(
+                                    Operand::Value(new_dynobj),
+                                    obj_val.clone(),
+                                    16,
+                                ),
+                            );
+                            return Operand::ConstI64(0);
+                        }
                         let sid = match obj_ty {
                             Type::Obj(sid) => sid,
                             other => panic!(
@@ -19669,6 +20006,48 @@ impl<'a> LowerCtx<'a> {
                         None,
                     );
                     return Operand::Value(v);
+                }
+                // P3.2 — Member read on Type::Any routes through
+                // dynobj substrate. obj_val is an Any-box; extract
+                // the dynobj ptr from offset 24 (when tag == ANY_HEAP),
+                // call dynobj_get_tag/value with the field name as
+                // Str, box the result back to Any.
+                if matches!(obj_ty, Type::Any) {
+                    let dynobj = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Load(Type::Ptr, obj_val.clone(), 16),
+                        Type::Ptr,
+                        None,
+                    );
+                    let key_str = self.intern_string_literal(name);
+                    let tag = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.dynobj_get_tag,
+                            vec![Operand::Value(dynobj), Operand::Value(key_str)],
+                        ),
+                        Type::I64,
+                        None,
+                    );
+                    let value = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.dynobj_get_value,
+                            vec![Operand::Value(dynobj), Operand::Value(key_str)],
+                        ),
+                        Type::I64,
+                        None,
+                    );
+                    let box_v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.any_box,
+                            vec![Operand::Value(tag), Operand::Value(value)],
+                        ),
+                        Type::Any,
+                        None,
+                    );
+                    return Operand::Value(box_v);
                 }
                 let sid = match obj_ty {
                     Type::Obj(sid) => sid,
