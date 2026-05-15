@@ -102,6 +102,10 @@ fn compile_to_temp(src: &str) -> Result<PathBuf, EvalOutcome> {
     // never gets a chance to touch.
     ast::desugar_uninit_let(&mut a);
     ast::desugar_var_hoist(&mut a);
+    // P3.4 — lift nested function declarations to top-level
+    // (Annex B §B.3.3 web-compat hoist). Runs after var-hoist so
+    // it sees the post-hoist body shape.
+    ast::desugar_nested_fns(&mut a);
     ast::desugar_arguments_object(&mut a);
     ast::rewrite_split_for_i_to_iter(&mut a);
     ast::escape_analyze_array_literals(&mut a);
@@ -237,6 +241,10 @@ fn compile_to_dylib(src: &str) -> Result<PathBuf, String> {
     // never gets a chance to touch.
     ast::desugar_uninit_let(&mut a);
     ast::desugar_var_hoist(&mut a);
+    // P3.4 — lift nested function declarations to top-level
+    // (Annex B §B.3.3 web-compat hoist). Runs after var-hoist so
+    // it sees the post-hoist body shape.
+    ast::desugar_nested_fns(&mut a);
     ast::desugar_arguments_object(&mut a);
     ast::rewrite_split_for_i_to_iter(&mut a);
     ast::escape_analyze_array_literals(&mut a);
