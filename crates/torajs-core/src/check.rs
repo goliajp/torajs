@@ -4070,12 +4070,24 @@ impl Checker {
                     // routes through dynobj_get_tag/value. Missing
                     // properties read as undefined per spec.
                     (Type::Any, _) => Ok(Type::Any),
+                    // T-27.c — built-in `length` (Number) and `name`
+                    // (String) on a Function. length is the param
+                    // count; name is the lifted FnDecl's name. Both
+                    // are compile-time constants known from the fn's
+                    // static signature, so ssa_lower can fold them
+                    // without runtime dispatch.
+                    (Type::Function(params, _), "length") => {
+                        let _ = params;
+                        Ok(Type::Number)
+                    }
+                    (Type::Function(..), "name") => Ok(Type::String),
                     // T-27 — Function-as-Object reads. Per ECMAScript
                     // §10.2 functions are objects. `f.x` on a closure
                     // reads from its lazy props_dynobj at offset
                     // CLOSURE_PROPS_OFF; missing/unset → undefined.
-                    // Built-in props (.length, .name, etc.) are not
-                    // yet implemented — currently return undefined too.
+                    // Other built-in props (.bind, .call, .apply,
+                    // .toString, etc.) are L3b T-27.c-rest — not
+                    // implemented; currently return undefined.
                     (Type::Function(..), _) => Ok(Type::Any),
                     _ => Err(format!("no member `.{name}` on type {obj_ty:?}")),
                 }

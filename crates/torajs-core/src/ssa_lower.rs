@@ -20017,6 +20017,85 @@ impl<'a> LowerCtx<'a> {
                 Operand::Value(obj_ptr)
             }
             Expr::Member { obj, name } => {
+                // T-27.c — built-in `f.length` / `f.name` for top-level
+                // FnDecl Ident. Detected early because the regular
+                // lower_expr(obj) panics on `unknown ident` for a top-
+                // level fn (which doesn't appear in `locals`; for
+                // generic fns it's not in `fn_table` either — only
+                // mono-named entries are). Resolve by walking
+                // `ast.stmts` to find the matching FnDecl. Compile-
+                // time fold the param count / name from the AST.
+                if let Expr::Ident(fn_name_ref) = self.ast.get_expr(*obj)
+                    && (name == "length" || name == "name")
+                {
+                    let fn_decl = self.ast.stmts.iter().find_map(|s| match s {
+                        Stmt::FnDecl { name: n, params, .. } if n == fn_name_ref => {
+                            Some((n.clone(), params.clone()))
+                        }
+                        _ => None,
+                    });
+                    if let Some((fn_name_owned, params)) = fn_decl {
+                        if name == "length" {
+                            // Skip hidden __env first param (lifted closure)
+                            // and __this (class method).
+                            let visible = params
+                                .iter()
+                                .filter(|p| p.name != "__env" && p.name != "__this" && !p.is_rest)
+                                .count();
+                            return Operand::ConstI64(visible as i64);
+                        } else {
+                            // .name — top-level FnDecl uses its declared
+                            // name; lifted-closure synthetic names
+                            // ("__closure_N") return "" per JS spec for
+                            // anonymous fns assigned to a binder we
+                            // don't track here.
+                            let visible_name = if fn_name_owned.starts_with("__closure_") {
+                                String::new()
+                            } else {
+                                fn_name_owned
+                            };
+                            let s = self.intern_string_literal(&visible_name);
+                            return Operand::Value(s);
+                        }
+                    }
+                }
+                // Path 2: closure local-binding (let f = function() {} where
+                // f is in `locals` as Type::Closure). Same fold using its
+                // SigId from fn_sig_ids.
+                if let Expr::Ident(fn_name_ref) = self.ast.get_expr(*obj)
+                    && (name == "length" || name == "name")
+                    && let Some(&fid) = self.fn_table.get(fn_name_ref)
+                    && let Some(&sig_id) = self.fn_sig_ids.get(&fid)
+                {
+                    if name == "length" {
+                        let (params, _) = &self.fn_sigs[sig_id.0 as usize];
+                        // Lifted closures prepend hidden __env Ptr; the
+                        // JS-visible param count excludes it.
+                        let visible = if !params.is_empty() && params[0] == Type::Ptr
+                            && fn_name_ref.starts_with("__closure_")
+                        {
+                            params.len() - 1
+                        } else {
+                            params.len()
+                        };
+                        return Operand::ConstI64(visible as i64);
+                    } else {
+                        // .name returns the user-visible binder. For
+                        // top-level FnDecl, that's the ident text.
+                        // For closures lifted via lift_arrow_fns the
+                        // synthetic name is "__closure_N" — JS spec
+                        // returns "" for anonymous fn expressions
+                        // unless assigned to a binder, so emit "" for
+                        // those rather than the synthetic name.
+                        let visible_name = if fn_name_ref.starts_with("__closure_") {
+                            String::new()
+                        } else {
+                            fn_name_ref.clone()
+                        };
+                        let s = self.intern_string_literal(&visible_name);
+                        return Operand::Value(s);
+                    }
+                }
                 /* T-15.g.2 (v0.5.0) — `await p` (= `p.value`) on a
                  * built-in Type::Promise(T). Lowers to a runtime
                  * `__torajs_promise_get_value(p)` call which reads
@@ -20561,6 +20640,62 @@ impl<'a> LowerCtx<'a> {
                         None,
                     );
                     return Operand::Value(box_v);
+                }
+                // T-27.c — built-in `length` and `name` are compile-
+                // time constants known from the fn's static signature
+                // (param count for length, lifted FnDecl name for
+                // name). Fold here without runtime dispatch — both
+                // Closure and FnSig route through the same path
+                // because the signature info comes from fn_sigs not
+                // from the Operand value.
+                if (matches!(obj_ty, Type::Closure(_)) || matches!(obj_ty, Type::FnSig(_)))
+                    && (name == "length" || name == "name")
+                {
+                    let sig_id = match obj_ty {
+                        Type::Closure(s) | Type::FnSig(s) => s,
+                        _ => unreachable!(),
+                    };
+                    if name == "length" {
+                        let (params, _ret) = &self.fn_sigs[sig_id.0 as usize];
+                        // Closures lifted via lift_arrow_fns prepend a
+                        // hidden __env Ptr; the JS-visible param count
+                        // excludes it. FnSig signatures don't.
+                        let visible = if matches!(obj_ty, Type::Closure(_))
+                            && !params.is_empty()
+                            && params[0] == Type::Ptr
+                        {
+                            params.len() - 1
+                        } else {
+                            params.len()
+                        };
+                        return Operand::ConstI64(visible as i64);
+                    } else {
+                        // T-27.c .name: need the lifted fn's name. For
+                        // FnSig values from a bare top-level FnDecl,
+                        // the original ident is recoverable from the
+                        // call-site obj. For closures lifted via
+                        // lift_arrow_fns the name is "__closure_<n>" —
+                        // not user-facing. Spec says anonymous fn
+                        // expressions get the LHS binder's name when
+                        // assigned (e.g. `let g = () => 1; g.name ===
+                        // "g"`); without binder tracking through
+                        // lift_arrow_fns we can't reproduce that. For
+                        // now: bare FnSig from `function f() {}`
+                        // returns "f"; everything else returns "" per
+                        // ES spec for anonymous fns.
+                        let fn_name = if let Expr::Ident(n) = self.ast.get_expr(*obj) {
+                            // If the ident references a top-level
+                            // FnDecl, the name is the ident text. If
+                            // it's a let-binding holding a closure,
+                            // the let name (also via Ident) doubles
+                            // as the binder per spec.
+                            n.clone()
+                        } else {
+                            String::new()
+                        };
+                        let s = self.intern_string_literal(&fn_name);
+                        return Operand::Value(s);
+                    }
                 }
                 // T-27 — Function-as-Object read. Loads the closure's
                 // lazy props_dynobj at CLOSURE_PROPS_OFF. NULL → undef
