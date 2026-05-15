@@ -1709,6 +1709,17 @@ fn lower_inner(
         &[Type::RegExp, Type::Str],
         Type::Ptr,
     );
+    // T-37 followup — `re.source` returns the original pattern string
+    // (excluding flags). The compiled RegExp object stores the source
+    // bytes in re->src_bytes for toString reuse; the new helper
+    // wraps them in a Str.
+    let regex_get_source_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_regex_get_source",
+        &[Type::RegExp],
+        Type::Str,
+    );
     // Phase 1c.3 — s.matchAll(re) returns Array<Array<Str>> (one
     // exec-shape array per match). Iterator protocol stand-in.
     let regex_match_all_id = declare_intrinsic(
@@ -4062,6 +4073,7 @@ fn lower_inner(
         substr_concat_substr_substr: substr_concat_substr_substr_id,
         regex_compile: regex_compile_id,
         regex_test: regex_test_id,
+        regex_get_source: regex_get_source_id,
         regex_drop: regex_drop_id,
         regex_match: regex_match_id,
         regex_replace: regex_replace_id,
@@ -4861,6 +4873,7 @@ struct Intrinsics {
     /// follow-up sub-phases as more `__torajs_regex_*` helpers.
     regex_compile: FuncId,
     regex_test: FuncId,
+    regex_get_source: FuncId,
     regex_drop: FuncId,
     regex_match: FuncId,
     regex_replace: FuncId,
@@ -20682,6 +20695,18 @@ impl<'a> LowerCtx<'a> {
                             self.intrinsics.symbol_description,
                             vec![obj_val],
                         ),
+                        Type::Str,
+                        None,
+                    );
+                    return Operand::Value(v);
+                }
+                // T-37 followup — `re.source`. Compile-time wires
+                // through __torajs_regex_get_source which materializes
+                // re->src_bytes as a fresh Str.
+                if obj_ty == Type::RegExp && name == "source" {
+                    let v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(self.intrinsics.regex_get_source, vec![obj_val]),
                         Type::Str,
                         None,
                     );

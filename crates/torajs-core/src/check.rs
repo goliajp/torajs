@@ -3410,6 +3410,11 @@ impl Checker {
                         vec![Type::String],
                         Box::new(Type::Boolean),
                     )),
+                    // T-37 followup — `re.source` returns the original
+                    // pattern string (no flags, no slashes). Compile-
+                    // time wires through a runtime intrinsic that
+                    // wraps re->src_bytes in a Str.
+                    (Type::RegExp, "source") => Ok(Type::String),
                     // Phase 1c.1 — re.exec(s) returns Array<Str>:
                     // [matched, group1, group2, ...] on hit, empty
                     // array on miss. JS spec returns null on miss;

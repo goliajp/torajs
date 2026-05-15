@@ -953,6 +953,25 @@ void *__torajs_regex_compile(const void *pattern_str, const void *flags_str) {
     return re;
 }
 
+/* T-37 followup — `re.source` returns the original pattern text
+ * (no flags, no enclosing slashes). Wraps re->src_bytes in a fresh
+ * Str via the small-string pool. NULL receiver returns "".
+ * Forward decl for __torajs_str_alloc_pooled (defined further down). */
+extern uint8_t *__torajs_str_alloc_pooled(uint64_t len);
+void *__torajs_regex_get_source(const void *re_ptr) {
+    if (!re_ptr) {
+        return __torajs_str_alloc_pooled(0);
+    }
+    const RegExp *re = (const RegExp *)re_ptr;
+    int64_t len = re->src_len;
+    if (len < 0) len = 0;
+    uint8_t *s = __torajs_str_alloc_pooled((uint64_t)len);
+    if (len > 0 && re->src_bytes) {
+        memcpy(s + __TORAJS_STR_HDR_SIZE, re->src_bytes, (size_t)len);
+    }
+    return s;
+}
+
 void __torajs_regex_drop(void *re_ptr) {
     if (!re_ptr) return;
     if (!__torajs_rc_dec(re_ptr)) return;
