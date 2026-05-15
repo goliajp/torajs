@@ -5170,6 +5170,42 @@ fn collect_nested_fns_in_stmt(
     lifted: &mut Vec<Stmt>,
     counter: &mut u32,
 ) {
+    // Bare-FnDecl-as-statement: `if (cond) function f() {}` parses
+    // the then-branch as Stmt::FnDecl directly (no enclosing Block).
+    // Same lift-and-mangle as the Block case but in-place.
+    if let Stmt::FnDecl { name, .. } = stmt {
+        if !name.starts_with("__closure_")
+            && !name.starts_with("__cm_")
+            && !name.starts_with("__sm_")
+            && !name.starts_with("__nested_")
+        {
+            let mangled = format!("__nested_{parent_name}_{name}_{counter}");
+            *counter += 1;
+            renames.insert(name.clone(), mangled.clone());
+            // Take the FnDecl out of the slot, replace with empty
+            // Block, push the renamed decl into `lifted`.
+            let taken = std::mem::replace(stmt, Stmt::Block(Vec::new()));
+            if let Stmt::FnDecl {
+                type_params,
+                params,
+                return_type,
+                body,
+                is_generator,
+                ..
+            } = taken
+            {
+                lifted.push(Stmt::FnDecl {
+                    name: mangled,
+                    type_params,
+                    params,
+                    return_type,
+                    body,
+                    is_generator,
+                });
+            }
+            return;
+        }
+    }
     match stmt {
         Stmt::Block(body) => {
             collect_nested_fns_to_lift(body, parent_name, renames, lifted, counter);
