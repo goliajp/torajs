@@ -13701,6 +13701,104 @@ impl<'a> LowerCtx<'a> {
                 // single-char string per byte into a fresh `string[]`.
                 // Result type is interned through the same arr_layouts
                 // path Object.keys uses (element = Type::Str).
+                // P3.3 — `Object.defineProperty(obj, key, descriptor)`
+                // routes to dynobj_set when descriptor is an ObjectLit
+                // with a `.value` field. obj must be Type::Any (a
+                // dynobj-backed Any-box). Other descriptor fields
+                // (writable / configurable / enumerable / get / set)
+                // are subset-deferred — only `.value` is honored.
+                if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
+                    && m_name == "defineProperty"
+                    && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
+                    && ns == "Object"
+                    && args.len() == 3
+                {
+                    let value_eid = match self.ast.get_expr(args[2]) {
+                        Expr::ObjectLit { fields } => {
+                            fields.iter().find(|(n, _)| n == "value").map(|(_, e)| *e)
+                        }
+                        _ => None,
+                    };
+                    if let Some(val_eid) = value_eid {
+                        let obj_op = self.lower_expr(args[0]);
+                        let key_op = self.lower_expr(args[1]);
+                        let v_raw = self.lower_expr(val_eid);
+                        let v_ty = self.operand_ty(&v_raw);
+                        let (tag, val_op): (i64, Operand) = match v_ty {
+                            Type::I64 | Type::I32 => (2, v_raw),
+                            Type::F64 => {
+                                let bits = self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::BitCastF64ToI64(v_raw),
+                                    Type::I64,
+                                    None,
+                                );
+                                (3, Operand::Value(bits))
+                            }
+                            Type::Bool => {
+                                let zext = self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::ZExtBoolToI64(v_raw),
+                                    Type::I64,
+                                    None,
+                                );
+                                (1, Operand::Value(zext))
+                            }
+                            _ if v_ty.is_refcounted() => {
+                                self.f.append_void(
+                                    self.cur_block,
+                                    InstKind::Call(
+                                        self.intrinsics.rc_inc,
+                                        vec![v_raw.clone()],
+                                    ),
+                                );
+                                (4, v_raw)
+                            }
+                            Type::Ptr if matches!(v_raw, Operand::ConstPtrNull) => {
+                                (0, Operand::ConstI64(0))
+                            }
+                            _ => (0, Operand::ConstI64(0)),
+                        };
+                        let dynobj = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(Type::Ptr, obj_op.clone(), 16),
+                            Type::Ptr,
+                            None,
+                        );
+                        let slot = self.alloca(Type::Ptr, Some("__dynobj_slot"));
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Store(Operand::Value(dynobj), Operand::Value(slot), 0),
+                        );
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.dynobj_set,
+                                vec![
+                                    Operand::Value(slot),
+                                    key_op,
+                                    Operand::ConstI64(tag),
+                                    val_op,
+                                ],
+                            ),
+                        );
+                        let new_dynobj = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(Type::Ptr, Operand::Value(slot), 0),
+                            Type::Ptr,
+                            None,
+                        );
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Store(
+                                Operand::Value(new_dynobj),
+                                obj_op,
+                                16,
+                            ),
+                        );
+                        return Operand::ConstI64(0);
+                    }
+                }
                 if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
                     && m_name == "from"
                     && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)

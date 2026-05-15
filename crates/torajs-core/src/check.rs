@@ -3137,8 +3137,20 @@ impl Checker {
                     (Type::Object("Object"), "getPrototypeOf") => {
                         Ok(Type::Function(vec![Type::Any], Box::new(Type::Null)))
                     }
+                    // P3.3 — Object.defineProperty(obj, key, descriptor)
+                    // accepted at typecheck. ssa_lower intercepts the
+                    // Call, extracts descriptor.value (other descriptor
+                    // fields like writable/configurable/enumerable/get/
+                    // set are subset-deferred), and routes to dynobj_set.
+                    // obj is Type::Any (must be a dynobj-backed Any-box);
+                    // key is Type::String; descriptor is Type::Any
+                    // (typically a plain object literal at the call site
+                    // — ssa_lower probes for the .value field at AST time).
+                    (Type::Object("Object"), "defineProperty") => Ok(Type::Function(
+                        vec![Type::Any, Type::String, Type::Any],
+                        Box::new(Type::Void),
+                    )),
                     (Type::Object("Object"), "setPrototypeOf")
-                    | (Type::Object("Object"), "defineProperty")
                     | (Type::Object("Object"), "defineProperties")
                     | (Type::Object("Object"), "getOwnPropertyDescriptor") => {
                         Err(format!(
