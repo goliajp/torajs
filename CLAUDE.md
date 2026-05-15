@@ -109,9 +109,12 @@ find . -maxdepth 3 -name '*.bun-build' 2>/dev/null | wc -l
 ls -la /tmp/full-dump*.txt /tmp/conf-full.log /tmp/t262-*.log 2>/dev/null
 # 每次新会话开始不需要旧 dump；> 5 个时清掉前几个
 
-# 4. /tmp 临时 fixture .ts（我用过的 /tmp/p*.ts / 等等）
-find /tmp -maxdepth 1 -name 'p[0-9]*-*.ts' -mtime +1 -type f 2>/dev/null
-# 1 天前的删掉
+# 4. /tmp 临时 fixture .ts（我用过的 /tmp/aa*.ts / /tmp/p*.ts / 等等）
+# CRITICAL: macOS /tmp 是 symlink 到 /private/tmp，find -delete 必须用真实路径，
+# 否则跨 symlink 删除被拒绝且不报错。
+find /private/tmp -maxdepth 1 -name '*.ts' -delete 2>/dev/null
+# 这些 fixture 每次 session 重新写，旧的没价值（4 KB 一个，跑几百次 session
+# 累积 5+ MB；不大但是 1000+ 文件污染）
 ```
 
 不照办的代价：takagi 硬盘塞满，loop 中断，**信任损耗远大于任何 ROI 收益**。这是 5-pillar "规范" 的硬执行表现。
