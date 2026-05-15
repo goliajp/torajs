@@ -141,6 +141,24 @@ pub fn run_one(
         if let Ok(meta) = std::fs::metadata(&out_path) {
             outcome.artifact_bytes = Some(meta.len());
         }
+        // CRITICAL — clean up `bun build --compile`'s scratch cache
+        // files (`.HEX-NNNN.bun-build`). They land in cwd regardless
+        // of --outfile, no env var redirects them. Across a full
+        // `bench-harness run` they pile up by the thousand (one
+        // saturated test session left 11,724 files / 688 GB on disk).
+        // Per CLAUDE.md '规范' pillar: any temp artifact a tool
+        // produces must be cleaned up at the same boundary that
+        // generated it. Best-effort glob — failures don't fail the
+        // bench step.
+        let _ = std::fs::read_dir(".").map(|entries| {
+            for entry in entries.flatten() {
+                let name = entry.file_name();
+                let s = name.to_string_lossy();
+                if s.starts_with('.') && s.ends_with(".bun-build") {
+                    let _ = std::fs::remove_file(entry.path());
+                }
+            }
+        });
     }
 
     let run_cmd = ctx.substitute(&runner.run);

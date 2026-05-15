@@ -67,6 +67,30 @@ Closed-source internal language project. Goal: a TypeScript runtime that runs th
 
 每次 commit 后**先动 status memory**（按上面流程），再做下一步。memory 是计划的真源，commit log 只是历史。
 
+## Disk Hygiene (HARD RULE) — 每个产生临时副产品的工具/runner 必须就近清理
+
+**任何工具产生的临时文件/缓存/中间产物，必须在生成它的同一边界内被清理掉**。失控样例：bun build --compile 在 cwd 产 `.HEX-NNNN.bun-build` 缓存，bench-harness 跑了一个完整会话后留下 **11,724 个文件 / 688 GB**，硬盘塞满，takagi 手动清理。
+
+### 规则
+
+1. **新增 runner / 新增 build-step 必须自带 cleanup**。同一文件 / 同一函数生成产物 + 同一函数清理。不允许"先 ship 跑 1000 次再回头补 cleanup"——压满硬盘是不可逆的代价。
+2. **既有 runner 发现产生新副产品 → 立刻补 cleanup commit**，不留到下次。
+3. **`.gitignore` 不是 cleanup**——它只防止入库，不防止占盘。两条都要做。
+4. **临时文件命名要 grep-able**——`.bun-build` / `__torajs_test_*` / `bench-cache-*` 之类的可枚举模式，让 cleanup glob 可写。
+5. **Runner 退出前的 finally 模式**——任何 panic / 中断后 cleanup 也要跑。Rust 用 `Drop` impl + scopeguard 之类。
+
+### 常见副产品来源（按 5-pillar "规范" 检查表）
+
+- `bun build --compile` → 写 `.<HEX>-<NUM>.bun-build` 到 cwd。**bench-harness 已有 cleanup**（commit X，bench/harness/src/bench.rs）。
+- `cargo build` → `target/` 目录（已 gitignored，但占盘也很大；by `cargo clean -p` 按需清）。
+- 临时 .ts / 输出 binary → tora 的 conformance/test262 runner 用 `$TMPDIR/torajs-*-<pid>-<n>.ts` 自带清理；新增 runner 沿用此模式。
+- llvm 中间 IR / .bc / .o → 现走 `mktemp` 再 `remove_file` 模式（runtime_str 的 cc 调用），保持。
+
+### 触发清理 audit 的信号
+
+- 任何"目录里东西好像越来越多" → 立刻 `du -sh` + `find . -name 'pattern*' | wc -l` audit
+- 任何 takagi 报告硬盘问题 → 视为 P0，立刻清理 + 加规则 + commit
+
 ## Anti-Hallucination (NON-NEGOTIABLE)
 
 Follow `.claude/rules/common/anti-hallucination.md` — always. Five rules, zero exceptions: say "I don't know", use tools before memory, no chain-guessing, retract mid-sentence when wrong, cite the source. Tool output itself must never be fabricated: if a tool returns only `[rerun: bN]` or empty content, report that literally and rerun — never invent plausible-looking output.
