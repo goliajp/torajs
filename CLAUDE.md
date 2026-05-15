@@ -91,6 +91,39 @@ Closed-source internal language project. Goal: a TypeScript runtime that runs th
 - 任何"目录里东西好像越来越多" → 立刻 `du -sh` + `find . -name 'pattern*' | wc -l` audit
 - 任何 takagi 报告硬盘问题 → 视为 P0，立刻清理 + 加规则 + commit
 
+### 我（agent）每个会话末尾必须跑的清理
+
+每次结束工作前（commit 前/loop 停 前/notify 前），跑下面 audit 一遍：
+
+```bash
+# 1. 没用的 target 子目录（debug / cross-arch 当我只用 release）
+du -sh target/debug target/aarch64-apple-darwin 2>/dev/null
+# 若存在且 > 1 GB → rm -rf
+# 工作流默认只用 cargo build --release；debug/incremental cache 是浪费
+
+# 2. bun-build 缓存（bench-harness 已自动清理，但兜底 audit）
+find . -maxdepth 3 -name '*.bun-build' 2>/dev/null | wc -l
+# 若 > 0 → find -delete
+
+# 3. /tmp 下的 t262 / 5k-sample dump（每次重新生成，旧的没价值）
+ls -la /tmp/full-dump*.txt /tmp/conf-full.log /tmp/t262-*.log 2>/dev/null
+# 每次新会话开始不需要旧 dump；> 5 个时清掉前几个
+
+# 4. /tmp 临时 fixture .ts（我用过的 /tmp/p*.ts / 等等）
+find /tmp -maxdepth 1 -name 'p[0-9]*-*.ts' -mtime +1 -type f 2>/dev/null
+# 1 天前的删掉
+```
+
+不照办的代价：takagi 硬盘塞满，loop 中断，**信任损耗远大于任何 ROI 收益**。这是 5-pillar "规范" 的硬执行表现。
+
+### 自我执行触发器（agent 必须主动）
+
+- 每次 `cargo build --release` 后顺手 `du -sh target/`，超 5 GB 立刻 audit
+- 每次大规模跑 t262 / conformance 后顺手清 `/tmp/full-dump*` `/tmp/t262-*.log`
+- 每次 ship 完一个 commit + 准备 stop loop / push notification 前跑上面 audit checklist
+
+不要把"我没看到问题"当成"没问题"——硬盘填满是渐进的，发现就晚了。
+
 ## Anti-Hallucination (NON-NEGOTIABLE)
 
 Follow `.claude/rules/common/anti-hallucination.md` — always. Five rules, zero exceptions: say "I don't know", use tools before memory, no chain-guessing, retract mid-sentence when wrong, cite the source. Tool output itself must never be fabricated: if a tool returns only `[rerun: bN]` or empty content, report that literally and rerun — never invent plausible-looking output.
