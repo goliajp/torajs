@@ -6265,9 +6265,18 @@ impl Checker {
                 // a non-nullable rhs settles it.
                 let lhs_ty = self.type_of(ast, *lhs)?;
                 let rhs_ty = self.type_of(ast, *rhs)?;
+                // P3.5 — `??` on Type::Any lhs (typically from
+                // OptChain): result is rhs's type. Runtime checks
+                // tag at miss and uses rhs; otherwise unboxes lhs.
+                // The unbox path needs runtime-side support for the
+                // "tag matches rhs T" case (added in ssa_lower).
+                if matches!(lhs_ty, Type::Any) {
+                    return Ok(rhs_ty);
+                }
                 let lhs_inner = match &lhs_ty {
                     Type::Nullable(inner) => Some((**inner).clone()),
                     Type::Null => None,
+                    Type::Undefined => None,
                     other => {
                         return Err(format!(
                             "`??` left operand must be nullable, got {other:?}"
@@ -6294,33 +6303,49 @@ impl Checker {
                 ))
             }
             Expr::OptChain { obj, name } => {
-                // `obj?.field` — obj must be Nullable(T) where T is a
-                // struct that has `field`. Result type is `Nullable(F)`
-                // where F is the field's type. Composes naturally with
-                // outer `??` to flatten the null path.
+                // P3.5 — `obj?.field` returns Type::Any per ES spec
+                // §13.3.9. Hit path: field value (boxed); miss path:
+                // ANY_UNDEF. Pre-P3.5 tora returned Nullable<F> with
+                // miss → ConstPtrNull, which silently wronged the
+                // null/undefined distinction (`obj?.x === undefined`
+                // returned true by accident but `console.log(obj?.x)`
+                // printed "null"). Now boxed-Any preserves the spec
+                // distinction end-to-end (typeof / strict-eq / print
+                // all route through the P1 Any-substrate).
                 //
-                // P1.6 spec-correct shape (miss → undefined not null)
-                // deferred to P3 — making the typed-tier OptChain
-                // distinguish null vs undefined at the result type
-                // requires either union types or routing the entire
-                // result chain through Type::Any. Both touch every
-                // downstream Member access / assign sink. The current
-                // workaround in user code is `obj?.field ?? fallback`
-                // which works either way (Nullable<T> ?? T → T).
+                // Downstream callers compose:
+                //   `obj?.x ?? rhs` — `??` on Any lhs (extended below)
+                //     returns rhs's type when miss, otherwise the
+                //     unboxed lhs. Common case: `let v = obj?.x ?? 0`
+                //     → Type::Number.
+                //   `obj?.x as T` — the existing typed-tier cast
+                //     unboxes the Any to T.
+                //   `let s: any = obj?.x` — directly assignable since
+                //     OptChain returns Any.
                 let obj_ty = self.type_of(ast, *obj)?;
-                let inner = match &obj_ty {
+                let _ = match &obj_ty {
                     Type::Nullable(inner) => (**inner).clone(),
-                    Type::Null => return Ok(Type::Null),
+                    Type::Null | Type::Undefined => return Ok(Type::Any),
+                    Type::Any => return Ok(Type::Any),
                     _ => {
                         // Plain (non-nullable) obj: `?.` is allowed but
                         // semantically equivalent to `.`. Resolve as
-                        // member access.
+                        // member access — keep its concrete type since
+                        // the optional path is dead.
                         let field_ty = self.member_type(&obj_ty, name)?;
                         return Ok(field_ty);
                     }
                 };
-                let field_ty = self.member_type(&inner, name)?;
-                Ok(Type::Nullable(Box::new(field_ty)))
+                // Validate the field exists on the inner struct shape
+                // (sanity check; result is Any regardless).
+                let _ = self.member_type(
+                    &match &obj_ty {
+                        Type::Nullable(inner) => (**inner).clone(),
+                        _ => obj_ty.clone(),
+                    },
+                    name,
+                )?;
+                Ok(Type::Any)
             }
             Expr::PostIncr { target, .. } => {
                 // `x++` / `x--` yield the OLD value, then mutate. Result

@@ -11118,16 +11118,17 @@ impl<'a> LowerCtx<'a> {
                 }
                 Type::Any => {
                     // Already boxed — extract (tag, value) from the
-                    // box at offsets 16/24.
+                    // box at offsets 8/16 (per __TORAJS_ANY_BOX_*_OFF
+                    // in runtime_str.c — header is 8 bytes).
                     let tag_v = self.f.append_inst(
                         self.cur_block,
-                        InstKind::Load(Type::I64, v_raw.clone(), 16),
+                        InstKind::Load(Type::I64, v_raw.clone(), 8),
                         Type::I64,
                         None,
                     );
                     let val_v = self.f.append_inst(
                         self.cur_block,
-                        InstKind::Load(Type::I64, v_raw.clone(), 24),
+                        InstKind::Load(Type::I64, v_raw.clone(), 16),
                         Type::I64,
                         None,
                     );
@@ -21289,6 +21290,139 @@ impl<'a> LowerCtx<'a> {
                 // the chosen value's refcount in both branches.
                 let lhs_op = self.lower_expr(*lhs);
                 let lhs_ty = self.operand_ty(&lhs_op);
+                // P3.5 — `??` on Any lhs (typically from OptChain).
+                // Read the box's tag (offset 16); if ANY_NULL=0 or
+                // ANY_UNDEF=5, use rhs; otherwise unbox lhs to rhs's
+                // SSA type and use it. The result is rhs's type.
+                if matches!(lhs_ty, Type::Any) {
+                    let tag = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Load(Type::I64, lhs_op.clone(), 8),
+                        Type::I64,
+                        None,
+                    );
+                    // rhs_lowered = lower_expr(rhs); we get rhs_ty
+                    // from the result. Need rhs_ty to size the slot.
+                    let rhs_op = self.lower_expr(*rhs);
+                    let rhs_ty = self.operand_ty(&rhs_op);
+                    let res_slot = self.alloca_in_entry(rhs_ty, Some("__nullish_any"));
+                    // Default: store rhs (covers null/undef paths +
+                    // any tag we can't unbox). Then conditionally
+                    // overwrite with lhs unbox when tag is non-nullish.
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Store(rhs_op, Operand::Value(res_slot), 0),
+                    );
+                    if rhs_ty.is_refcounted() {
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Call(self.intrinsics.rc_inc, vec![rhs_op]),
+                        );
+                    }
+                    // is_nullish = (tag == 0) | (tag == 5)
+                    let is_null = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::ICmp(IPred::Eq, Operand::Value(tag), Operand::ConstI64(0)),
+                        Type::Bool,
+                        None,
+                    );
+                    let is_undef = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::ICmp(IPred::Eq, Operand::Value(tag), Operand::ConstI64(5)),
+                        Type::Bool,
+                        None,
+                    );
+                    let nullish = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::BinOp(SsaBinOp::Or, Operand::Value(is_null), Operand::Value(is_undef)),
+                        Type::Bool,
+                        None,
+                    );
+                    let unbox_blk = self.f.add_block();
+                    let after = self.f.add_block();
+                    let cb = self.cur_block;
+                    self.f.set_term(
+                        cb,
+                        Terminator::CondBr {
+                            cond: Operand::Value(nullish),
+                            then_blk: after,        // skip — slot already holds rhs
+                            else_blk: unbox_blk,    // overwrite with unboxed lhs
+                        },
+                    );
+                    // unbox path: load value field, type-cast to rhs_ty,
+                    // store. Per-type dispatch matches the box_to_any
+                    // tag scheme.
+                    //
+                    // Special case: rhs_ty == Any. Result slot is Any
+                    // (ptr to box). lhs is itself a box and we want to
+                    // propagate it as-is — not unbox value→ptr (which
+                    // would give the inner heap ptr, NOT a box) and not
+                    // re-box (round-trip alloc). Just rc_inc the lhs
+                    // box and store it in the slot.
+                    self.cur_block = unbox_blk;
+                    let unboxed: Operand = if matches!(rhs_ty, Type::Any) {
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.rc_inc,
+                                vec![lhs_op.clone()],
+                            ),
+                        );
+                        lhs_op.clone()
+                    } else {
+                        let val = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(Type::I64, lhs_op.clone(), 16),
+                            Type::I64,
+                            None,
+                        );
+                        match rhs_ty {
+                            Type::I64 | Type::I32 => Operand::Value(val),
+                            Type::F64 => {
+                                let f = self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::BitCastI64ToF64(Operand::Value(val)),
+                                    Type::F64,
+                                    None,
+                                );
+                                Operand::Value(f)
+                            }
+                            Type::Bool => {
+                                let b = self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::ICmp(IPred::Ne, Operand::Value(val), Operand::ConstI64(0)),
+                                    Type::Bool,
+                                    None,
+                                );
+                                Operand::Value(b)
+                            }
+                            _ if rhs_ty.is_refcounted() => {
+                                // Heap-typed value: i64 already holds the
+                                // ptr. rc_inc so we own a balanced share.
+                                self.f.append_void(
+                                    self.cur_block,
+                                    InstKind::Call(self.intrinsics.rc_inc, vec![Operand::Value(val)]),
+                                );
+                                Operand::Value(val)
+                            }
+                            _ => Operand::Value(val),
+                        }
+                    };
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Store(unboxed, Operand::Value(res_slot), 0),
+                    );
+                    let ub = self.cur_block;
+                    self.f.set_term(ub, Terminator::Br(after));
+                    self.cur_block = after;
+                    let r = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Load(rhs_ty, Operand::Value(res_slot), 0),
+                        rhs_ty,
+                        None,
+                    );
+                    return Operand::Value(r);
+                }
                 let res_slot = self.alloca_in_entry(lhs_ty, Some("__nullish"));
                 // Save lhs into the slot so the non-null branch can
                 // reuse it without re-eval.
@@ -21348,18 +21482,61 @@ impl<'a> LowerCtx<'a> {
                 Operand::Value(r)
             }
             Expr::OptChain { obj, name } => {
-                // `obj?.field` — null-short-circuiting member access.
-                // Same allocate-slot + branch pattern as Nullish, but
-                // the non-null path reads `obj.field` instead of the
-                // saved obj. Result type is the field type (or Ptr if
-                // nullable struct field). For statically non-pointer
-                // obj_ty the cond_br is dead code; LLVM elides.
+                // P3.5 — `obj?.field` returns Type::Any. Miss path
+                // emits ANY_UNDEF=5 box (per ES spec §13.3.9 — the
+                // short-circuit value is undefined, not null). Hit
+                // path loads the field and boxes as Any. Result is
+                // a single Any-box ptr that downstream Any-aware
+                // ops (typeof / strict-eq / nullish / print) handle.
+                //
+                // Pre-P3.5 the result was field-typed with
+                // ConstPtrNull/0 sentinel on miss — silently wrong
+                // (typeof returned the field's typed-tier label,
+                // not "undefined"; print emitted "null" instead of
+                // "undefined").
                 let obj_op = self.lower_expr(*obj);
                 let obj_ty = self.operand_ty(&obj_op);
-                // Determine the field's SSA type by looking up the
-                // struct layout. Only `Type::Obj(sid)` carries field
-                // info — for other obj_ty we'd need extra plumbing;
-                // not implemented in this pass.
+                let res_slot = self.alloca_in_entry(Type::Any, Some("__optchain"));
+                // Compute the cond — null obj for the typed-tier
+                // pointer-shaped path. For non-pointer obj_ty (e.g.
+                // statically-known non-null Obj) the cond is
+                // constant-false; LLVM folds.
+                let cond = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::ICmp(IPred::Eq, obj_op.clone(), Operand::ConstPtrNull),
+                    Type::Bool,
+                    None,
+                );
+                let null_blk = self.f.add_block();
+                let mem_blk = self.f.add_block();
+                let after = self.f.add_block();
+                let cb = self.cur_block;
+                self.f.set_term(
+                    cb,
+                    Terminator::CondBr {
+                        cond: Operand::Value(cond),
+                        then_blk: null_blk,
+                        else_blk: mem_blk,
+                    },
+                );
+                // Miss path → box ANY_UNDEF=5 / value=0.
+                self.cur_block = null_blk;
+                let undef_box = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(
+                        self.intrinsics.any_box,
+                        vec![Operand::ConstI64(5), Operand::ConstI64(0)],
+                    ),
+                    Type::Any,
+                    None,
+                );
+                self.f.append_void(
+                    null_blk,
+                    InstKind::Store(Operand::Value(undef_box), Operand::Value(res_slot), 0),
+                );
+                self.f.set_term(null_blk, Terminator::Br(after));
+                // Hit path → load field, box as Any.
+                self.cur_block = mem_blk;
                 let sid = match obj_ty {
                     Type::Obj(sid) => sid,
                     _ => panic!(
@@ -21376,60 +21553,25 @@ impl<'a> LowerCtx<'a> {
                     .unwrap_or_else(|| {
                         panic!("ssa-lower: no field `{name}` on struct {sid:?}")
                     });
-                let res_slot = self.alloca_in_entry(field_ty, Some("__optchain"));
-                let cond = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::ICmp(IPred::Eq, obj_op, Operand::ConstPtrNull),
-                    Type::Bool,
-                    None,
-                );
-                let null_blk = self.f.add_block();
-                let mem_blk = self.f.add_block();
-                let after = self.f.add_block();
-                let cb = self.cur_block;
-                self.f.set_term(
-                    cb,
-                    Terminator::CondBr {
-                        cond: Operand::Value(cond),
-                        then_blk: null_blk,
-                        else_blk: mem_blk,
-                    },
-                );
-                // null path → store null sentinel for pointer types,
-                // ConstI64(0) otherwise. Field type drives.
-                self.cur_block = null_blk;
-                let null_val: Operand = match field_ty {
-                    Type::Str | Type::Obj(_) | Type::Arr(_)
-                    | Type::Closure(_) | Type::FnSig(_) | Type::Ptr => {
-                        Operand::ConstPtrNull
-                    }
-                    Type::F64 => Operand::ConstF64(0.0),
-                    _ => Operand::ConstI64(0),
-                };
-                self.f.append_void(
-                    null_blk,
-                    InstKind::Store(null_val, Operand::Value(res_slot), 0),
-                );
-                self.f.set_term(null_blk, Terminator::Br(after));
-                // member read path → load from obj + offset, store.
-                self.cur_block = mem_blk;
                 let offset = OBJ_HEADER_SIZE + (field_idx as u64) * 8;
                 let v = self.f.append_inst(
-                    mem_blk,
+                    self.cur_block,
                     InstKind::Load(field_ty, obj_op, offset),
                     field_ty,
                     None,
                 );
+                let boxed = self.box_to_any(Operand::Value(v));
                 self.f.append_void(
-                    mem_blk,
-                    InstKind::Store(Operand::Value(v), Operand::Value(res_slot), 0),
+                    self.cur_block,
+                    InstKind::Store(boxed, Operand::Value(res_slot), 0),
                 );
-                self.f.set_term(mem_blk, Terminator::Br(after));
+                let mb = self.cur_block;
+                self.f.set_term(mb, Terminator::Br(after));
                 self.cur_block = after;
                 let r = self.f.append_inst(
                     self.cur_block,
-                    InstKind::Load(field_ty, Operand::Value(res_slot), 0),
-                    field_ty,
+                    InstKind::Load(Type::Any, Operand::Value(res_slot), 0),
+                    Type::Any,
                     None,
                 );
                 Operand::Value(r)

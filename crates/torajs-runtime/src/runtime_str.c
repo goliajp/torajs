@@ -879,9 +879,15 @@ static void __torajs_dynobj_resize(void **obj_slot, uint32_t new_cap) {
 }
 
 /* Get tag for `key`. Returns ANY_UNDEF=5 when the key isn't present
- * (per ES spec — missing property reads as undefined). */
+ * (per ES spec — missing property reads as undefined). Also returns
+ * ANY_UNDEF when `obj` is not a dynobj (e.g. a typed Struct passed
+ * via Any-box from `obj?.field.subfield` chained access). Without
+ * this defensive check, dynobj_probe would index into the wrong
+ * layout and return garbage tag values silently. */
 uint64_t __torajs_dynobj_get_tag(const void *obj, const void *key) {
     if (obj == NULL) return 5;
+    const __torajs_heap_header_t *h = (const __torajs_heap_header_t *)obj;
+    if (h->type_tag != __TORAJS_TAG_DYNOBJ) return 5;  /* ANY_UNDEF */
     int found;
     uint32_t idx = __torajs_dynobj_probe(obj, key, &found);
     if (!found) return 5;  /* ANY_UNDEF */
@@ -890,6 +896,8 @@ uint64_t __torajs_dynobj_get_tag(const void *obj, const void *key) {
 
 uint64_t __torajs_dynobj_get_value(const void *obj, const void *key) {
     if (obj == NULL) return 0;
+    const __torajs_heap_header_t *h = (const __torajs_heap_header_t *)obj;
+    if (h->type_tag != __TORAJS_TAG_DYNOBJ) return 0;
     int found;
     uint32_t idx = __torajs_dynobj_probe(obj, key, &found);
     if (!found) return 0;
