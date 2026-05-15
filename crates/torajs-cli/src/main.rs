@@ -204,7 +204,7 @@ fn pipeline(src: &str, base_dir: &Path, stage: Stage) -> ExitCode {
         return ExitCode::SUCCESS;
     }
 
-    let (generic_call_sites, expr_types) = match check::check_with_types(&ast) {
+    let (generic_call_sites, expr_types, arity_pad_count) = match check::check_with_arity(&ast) {
         Ok(pair) => pair,
         Err(e) => {
             eprintln!("type error: {e}");
@@ -216,7 +216,7 @@ fn pipeline(src: &str, base_dir: &Path, stage: Stage) -> ExitCode {
     }
 
     if matches!(stage, Stage::Ssa) {
-        let m = ssa_lower::lower_with_types(&ast, &generic_call_sites, &expr_types);
+        let m = ssa_lower::lower_with_arity(&ast, &generic_call_sites, &expr_types, &arity_pad_count);
         m.print();
         return ExitCode::SUCCESS;
     }
@@ -378,7 +378,7 @@ fn run_build_llvm(args: &[String]) -> ExitCode {
     ast::apply_default_args(&mut ast);
     ast::apply_rest_args(&mut ast);
     ast::compute_consuming_params(&mut ast);
-    let (generic_call_sites, expr_types) = match check::check_with_types(&ast) {
+    let (generic_call_sites, expr_types, arity_pad_count) = match check::check_with_arity(&ast) {
         Ok(pair) => pair,
         Err(e) => {
             eprintln!("type error: {e}");
@@ -393,7 +393,7 @@ fn run_build_llvm(args: &[String]) -> ExitCode {
     let prev_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(|_| {}));
     let lower_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        ssa_lower::lower_with_types(&ast, &generic_call_sites, &expr_types)
+        ssa_lower::lower_with_arity(&ast, &generic_call_sites, &expr_types, &arity_pad_count)
     }));
     std::panic::set_hook(prev_hook);
     let ssa_module = match lower_result {
@@ -539,7 +539,7 @@ fn run_jit(file_arg: Option<&String>) -> ExitCode {
     ast::apply_default_args(&mut ast);
     ast::apply_rest_args(&mut ast);
     ast::compute_consuming_params(&mut ast);
-    let (generic_call_sites, expr_types) = match check::check_with_types(&ast) {
+    let (generic_call_sites, expr_types, arity_pad_count) = match check::check_with_arity(&ast) {
         Ok(pair) => pair,
         Err(e) => {
             eprintln!("type error: {e}");
@@ -550,7 +550,7 @@ fn run_jit(file_arg: Option<&String>) -> ExitCode {
     let prev_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(|_| {}));
     let lower_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        ssa_lower::lower_with_types(&ast, &generic_call_sites, &expr_types)
+        ssa_lower::lower_with_arity(&ast, &generic_call_sites, &expr_types, &arity_pad_count)
     }));
     std::panic::set_hook(prev_hook);
     let ssa_module = match lower_result {

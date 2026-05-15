@@ -1231,6 +1231,23 @@ pub fn check(ast: &Ast) -> Result<GenericCallSites, String> {
 pub fn check_with_types(
     ast: &Ast,
 ) -> Result<(GenericCallSites, HashMap<ExprId, Type>), String> {
+    check_with_arity(ast).map(|(g, t, _)| (g, t))
+}
+
+/// T-28 — check that also returns the per-Call arity pad map. New
+/// callers (main.rs `tr run` / `tr build`) use this so ssa_lower can
+/// emit ANY_UNDEF Any-box operands for trailing missing args. The
+/// older `check_with_types` is kept for back-compat (tests, lsp).
+pub fn check_with_arity(
+    ast: &Ast,
+) -> Result<
+    (
+        GenericCallSites,
+        HashMap<ExprId, Type>,
+        HashMap<ExprId, usize>,
+    ),
+    String,
+> {
     let mut c = Checker::new();
     c.run_full_pipeline(ast);
     let error_messages: Vec<String> = c
@@ -1240,7 +1257,7 @@ pub fn check_with_types(
         .map(|d| d.message.clone())
         .collect();
     if error_messages.is_empty() {
-        Ok((c.generic_call_sites, c.expr_types))
+        Ok((c.generic_call_sites, c.expr_types, c.arity_pad_count))
     } else {
         Err(error_messages.join("\n"))
     }
@@ -1301,6 +1318,7 @@ impl Checker {
             closure_fn_names: std::collections::HashSet::new(),
             generic_type_params: HashMap::new(),
             generic_call_sites: HashMap::new(),
+            arity_pad_count: HashMap::new(),
             generic_alias_decls: HashMap::new(),
             fn_defaults: HashMap::new(),
             consumed_calls: std::collections::HashSet::new(),
@@ -1556,6 +1574,14 @@ struct Checker {
     /// at each generic call site to pick / generate the right specialized
     /// fn. Public via `pub fn check_with_generics` below.
     pub generic_call_sites: HashMap<ExprId, (String, Vec<Type>)>,
+    /// T-28 — per-Call-site count of trailing args to pad with
+    /// ANY_UNDEF. Set when caller passes fewer args than the callee's
+    /// param count AND the trailing missing params are all Type::Any
+    /// (per ES spec §10.2.1.4 — JS supplies undefined for missing).
+    /// ssa_lower reads this and emits ANY_UNDEF Any-box operands at
+    /// the trailing arg positions. Typed missing params still error
+    /// at the arity check above so typed code keeps strict arity.
+    pub arity_pad_count: HashMap<ExprId, usize>,
     /// M3.4 — generic struct alias declarations. Maps `Pair` →
     /// `(["A","B"], [("fst","A"), ("snd","B")])` for
     /// `type Pair<A, B> = { fst: A, snd: B }`. Used by
@@ -4638,6 +4664,16 @@ impl Checker {
                     && let Some(type_params) = self.generic_type_params.get(name).cloned()
                     && let Some(Type::Function(params, ret)) = self.globals.get(name).cloned()
                 {
+                    // NOTE — implicit-generic fns (untyped JS params) get
+                    // arity-checked here. T-28 considered relaxing this
+                    // path to allow trailing missing args, but the SSA
+                    // layer collapses Type::Any → "number" for mono
+                    // naming (see `type_to_ann` in check.rs), so a
+                    // padded ANY_UNDEF Any-box gets stuffed into a
+                    // Number i64 slot and the callee reads garbage.
+                    // L3b item: propagate Type::Any distinctly through
+                    // the SSA mono layer; until then, T-28 only covers
+                    // explicit `: any` params (typed-tier path below).
                     if params.len() != args.len() {
                         return Err(format!(
                             "expected {} argument(s) to `{name}`, got {}",
@@ -5390,6 +5426,33 @@ impl Checker {
                     // internal errors still surface.
                     let _ = self.type_of(ast, *effective_args.last().unwrap())?;
                     effective_args.pop();
+                }
+                // T-28 — Default param missing → undefined (per ES
+                // spec §10.2.1.4). When fewer args are supplied than
+                // params, JS sets the missing slots to undefined. Only
+                // safe for Type::Any params (typed slots can't hold
+                // undefined). Typed missing params still error so
+                // typed code keeps strict arity. ssa_lower pads the
+                // missing positions with ANY_UNDEF boxes at the call
+                // site.
+                if effective_args.len() < params.len() {
+                    let trailing_all_any = params[effective_args.len()..]
+                        .iter()
+                        .all(|t| matches!(t, Type::Any));
+                    if trailing_all_any {
+                        // Type-check what was actually passed (rest stay
+                        // as undefined). Pad-with-undef happens at SSA
+                        // layer via the `padded_args` path keyed off
+                        // expr_arity_pad. Stash the missing count on
+                        // the call site so ssa_lower can emit ANY_UNDEF
+                        // boxes for the trailing positions.
+                        for arg_id in effective_args.iter() {
+                            let _ = self.type_of(ast, *arg_id)?;
+                        }
+                        self.arity_pad_count
+                            .insert(eid, params.len() - effective_args.len());
+                        return Ok((*ret).clone());
+                    }
                 }
                 if params.len() != effective_args.len() {
                     return Err(format!(

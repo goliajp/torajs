@@ -1070,7 +1070,8 @@ fn rewrite_inner_generic_calls(
 
 pub fn lower(ast: &Ast, generic_call_sites: &GenericCallSites) -> Module {
     let empty: HashMap<crate::ast::ExprId, crate::check::Type> = HashMap::new();
-    lower_with_types(ast, generic_call_sites, &empty)
+    let empty_arity: HashMap<crate::ast::ExprId, usize> = HashMap::new();
+    lower_with_arity(ast, generic_call_sites, &empty, &empty_arity)
 }
 
 /// T-15.g.6 (v0.5.0) — typed-aware lower. The per-Expr check::Type
@@ -1082,13 +1083,28 @@ pub fn lower_with_types(
     generic_call_sites: &GenericCallSites,
     expr_types: &HashMap<crate::ast::ExprId, crate::check::Type>,
 ) -> Module {
-    lower_inner(ast, generic_call_sites, expr_types)
+    let empty_arity: HashMap<crate::ast::ExprId, usize> = HashMap::new();
+    lower_inner(ast, generic_call_sites, expr_types, &empty_arity)
+}
+
+/// T-28 — lower with the per-Call arity-pad map. Pads missing trailing
+/// args with ANY_UNDEF Any-box operands at the call site for fns whose
+/// trailing missing params are Type::Any. ssa_lower's Expr::Call arm
+/// reads this and emits the padding before invoking the callee.
+pub fn lower_with_arity(
+    ast: &Ast,
+    generic_call_sites: &GenericCallSites,
+    expr_types: &HashMap<crate::ast::ExprId, crate::check::Type>,
+    arity_pad_count: &HashMap<crate::ast::ExprId, usize>,
+) -> Module {
+    lower_inner(ast, generic_call_sites, expr_types, arity_pad_count)
 }
 
 fn lower_inner(
     ast: &Ast,
     generic_call_sites: &GenericCallSites,
     expr_types: &HashMap<crate::ast::ExprId, crate::check::Type>,
+    arity_pad_count: &HashMap<crate::ast::ExprId, usize>,
 ) -> Module {
     // M3 — produce monomorphized FnDecls from each generic call site,
     // and a per-call-site `ExprId → mono_name` retarget map. We clone
@@ -4378,6 +4394,7 @@ fn lower_inner(
                 &class_name_to_tag,
                 &globals,
                 expr_types,
+                arity_pad_count,
             );
             module.funcs[fid.0 as usize] = f;
             for s in new_strings {
@@ -4413,6 +4430,7 @@ fn lower_inner(
             &class_name_to_tag,
             &globals,
             expr_types,
+            arity_pad_count,
         );
         for s in new_strings {
             module.strings.push(s);
@@ -4458,6 +4476,7 @@ fn lower_inner(
                 &class_name_to_tag,
                 &globals,
                 expr_types,
+                arity_pad_count,
             );
             module.funcs[fid.0 as usize] = f;
             for s in new_strings {
@@ -5108,6 +5127,7 @@ fn synthesize_main(
     class_name_to_tag: &HashMap<String, u32>,
     globals: &HashMap<String, Type>,
     expr_types: &HashMap<ExprId, crate::check::Type>,
+    arity_pad_count: &HashMap<ExprId, usize>,
 ) -> (ssa::Function, Vec<Vec<u8>>) {
     let mut f = ssa::Function::new("main", Type::I32);
     let entry = f.add_block();
@@ -5122,6 +5142,7 @@ fn synthesize_main(
             intrinsics: *intrinsics,
             aliases,
             expr_types,
+            arity_pad_count,
             arr_layouts,
             fn_sigs,
             struct_layouts,
@@ -5974,6 +5995,7 @@ fn lower_fn(
     class_name_to_tag: &HashMap<String, u32>,
     globals: &HashMap<String, Type>,
     expr_types: &HashMap<ExprId, crate::check::Type>,
+    arity_pad_count: &HashMap<ExprId, usize>,
 ) -> (ssa::Function, Vec<Vec<u8>>) {
     let ret_ty = effective_ret_ty(
         parse_type(
@@ -6023,6 +6045,7 @@ fn lower_fn(
         intrinsics: *intrinsics,
         aliases,
         expr_types,
+        arity_pad_count,
         arr_layouts,
         fn_sigs,
         struct_layouts,
@@ -6418,6 +6441,12 @@ struct LowerCtx<'a> {
     /// a heap-typed Promise yields i64 at SSA, breaking
     /// console.log direct-form dispatch).
     expr_types: &'a HashMap<ExprId, crate::check::Type>,
+    /// T-28 — per-Call ExprId count of trailing args to pad with
+    /// ANY_UNDEF Any-box at the call site (caller passed fewer args
+    /// than callee's param count, trailing missing params all
+    /// Type::Any). Empty when constructed via the legacy lower(...)
+    /// entry — those programs keep strict arity.
+    arity_pad_count: &'a HashMap<ExprId, usize>,
     /// Mutable view of the lowering-phase Array element-type interner.
     /// Let-decl annotations encountered during body lowering may
     /// introduce new `T[]` instantiations; they intern lazily here.
@@ -19662,6 +19691,29 @@ impl<'a> LowerCtx<'a> {
                 };
                 let mut argv: Vec<Operand> =
                     args.iter().map(|a| self.lower_expr(*a)).collect();
+                // T-28 — pad trailing missing Type::Any params with
+                // ANY_UNDEF Any-box operands. check.rs's arity_pad_count
+                // recorded the missing count for this Call ExprId iff
+                // all the trailing missing params were Type::Any (the
+                // typed-tier strict-arity check rejected mixed-typed
+                // missing). One ANY_UNDEF box per padded slot keeps the
+                // argv aligned with the callee's static signature.
+                if let Some(&pad_n) = self.arity_pad_count.get(&eid)
+                    && pad_n > 0
+                {
+                    for _ in 0..pad_n {
+                        let undef_box = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.any_box,
+                                vec![Operand::ConstI64(5), Operand::ConstI64(0)],
+                            ),
+                            Type::Any,
+                            None,
+                        );
+                        argv.push(Operand::Value(undef_box));
+                    }
+                }
                 // Per-call-site consume bitmap from
                 // `ast.consuming_params`. Mirrors the check.rs pass.
                 // A consuming arg position transfers ownership from the
