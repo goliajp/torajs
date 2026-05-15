@@ -17,6 +17,56 @@ Closed-source internal language project. Goal: a TypeScript runtime that runs th
 
 违反这条 = 把决策成本反推给 takagi = 与 auto loop dev 的全部前提冲突。
 
+## Planning Architecture (HARD RULE) — 4 层信息架构
+
+任何时候在做 / 在想的所有"要做的事"，强制归到下面 4 层之一。**层错了 = 信息要么过期、要么把决策反推回 takagi、要么 hot 计划被冷计划的 noise 污染**。
+
+| Layer | 是什么 | 写多细 | 多久换一次 | 我读它要做什么 |
+|------|------|------|----------|----------------|
+| **L1 — Roadmap** | "从现在到终态走哪条路" | 一段话讲清楚去哪 + 为什么 | 项目级（半年到几年） | 知道大方向。**不是**用来执行的。 |
+| **L2 — Version 边界** | 当前版本（v1 / v2 / ...）含哪些工作单元 | 一行 scope + 工作单元列表 | 一个版本（数周到数月） | 判断"我在做的事是不是 v1 内"。**定下就不动**——超 scope 的事自动归 L3b 不做。 |
+| **L3a — Hot 计划** | 现在到**下一个 checkpoint** 的执行步骤 | **细到 step + 每步的验收命令**；线性、无分叉、TDD-designed | 一个 checkpoint（一次工作 sprint） | 顶部 take 一项就开干。 |
+| **L3b — Cold 计划** | v1 内剩下的、还没 hotify 的部分 | "做什么 / 验收标准 / 大致依赖"，**不写命令** | 一个版本周期 | 知道"今后还有什么"。读它**不是为了执行**，是为了 trigger 命中时知道该 hotify 谁。 |
+| **L4 — Trigger** | 把 L3b 顶部一项 hotify 成新 L3a 的判定条件 | 一句状态判断式（"X 指标 ≥ Y" 或 "Z 完成" 之类） | 版本周期常驻 | 每次 ship 完一个 step，按这个查"该不该换 hot 计划" | 
+
+### 我作为 agent 实际怎么用
+
+**读 status memory 的第一动作**：扫一遍，每个段落都问"这是哪层？" 看到下面任一信号 = 当场停下重组：
+
+- L3a 里出现"候选 A / B / C"或"做 X 还是 Y" → 这是 L3b 的写法漏到 L3a 了。**hotify 的时候就要决断**。
+- L3a 步骤写到 grep / sed / 具体 commit 命令 → 那是执行 trace，不是计划。L3a 写"步骤名 + 验收命令"，不写实现命令。
+- L3b 里写 step 级别细节 → 提前细化，会过时。删掉细节，留"做什么 / 验收 / 依赖"三件。
+- L4 是空的或写"等做完再说" → 不是 trigger。trigger 必须是可机器判定的状态（`5k sample ≥ 3.5%`、`P0 acceptance fixture 全 pass` 之类）。
+
+**ship 完一项后的固定流程**：
+
+1. 把 L3a 顶部那项划掉（已 done）。
+2. 检查 L4 trigger 是否命中。
+3. **命中** → L3b 顶部一项 hotify：补 step、补每步验收命令、消掉所有"看情况"。完成后 L3a 接续。
+4. **未命中** → 继续 L3a 下一项。
+5. 中途发现新 follow-up → 写到 L3b 末尾，不 hotify。
+
+**写 L3a 的硬性自检**：每一步都有可机器判定的 acceptance（`cargo test X` / `tr run fixture && diff bun_out` / `conformance 不回归` 之类）。如果想不到 acceptance，说明这步没设计完——回去 design，不要开始执行。
+
+### 反模式（绝对不做）
+
+- ❌ 把 L3b 的 "需要再决定" 项目直接搬到 L3a → 等于让 takagi 帮我决定执行细节
+- ❌ L3a 写成自然语言段落 → 应该是 numbered steps + 每步 acceptance
+- ❌ L4 trigger 写成 "感觉差不多了就升" → 必须是 state predicate
+- ❌ 完成一个 checkpoint 不动 status memory，凭记忆接下一项 → 这是 status memory 存在的反面
+
+### torajs 当前的具体映射
+
+| Layer | 在哪 |
+|------|------|
+| L1 | `docs/roadmap.md`（P0 → P13） |
+| L2 | roadmap 内的 phase 节（每个 phase = 一个版本） |
+| L3a | `memory/project_status_<date>.md` → "Next up" 节（numbered, with acceptance） |
+| L3b | 同上 → "Watch list" / "Backlog" 节 |
+| L4 | 同上 → 顶部"Trigger to next phase"节 |
+
+每次 commit 后**先动 status memory**（按上面流程），再做下一步。memory 是计划的真源，commit log 只是历史。
+
 ## Anti-Hallucination (NON-NEGOTIABLE)
 
 Follow `.claude/rules/common/anti-hallucination.md` — always. Five rules, zero exceptions: say "I don't know", use tools before memory, no chain-guessing, retract mid-sentence when wrong, cite the source. Tool output itself must never be fabricated: if a tool returns only `[rerun: bN]` or empty content, report that literally and rerun — never invent plausible-looking output.
