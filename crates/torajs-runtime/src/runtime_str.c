@@ -669,11 +669,25 @@ void *__torajs_arr_push_any(void *arr, uint64_t tag, uint64_t value) {
     return arr;
 }
 
+/* P1.4 — OOB read of an Array<Any> slot returns undefined per
+ * ES spec §10.4.2.1 (sparse arrays return undefined for missing
+ * indices). Pre-P1 the caller passed an out-of-range index
+ * directly to any_slot_tag_/any_slot_val_ which read past the
+ * cap (UB), often returning 0 by luck and getting collapsed to
+ * ANY_NULL. Now both helpers do an explicit length check and
+ * return ANY_UNDEF=5 / value 0 on miss; the typeof / strict-eq
+ * paths then route through the spec-correct ANY_UNDEF behavior. */
 uint64_t __torajs_arr_get_any_tag(const void *arr, uint64_t i) {
+    if (arr == NULL) return 5 /* ANY_UNDEF */;
+    uint64_t len = *(const uint64_t *)((const uint8_t *)arr + 8);
+    if (i >= len) return 5 /* ANY_UNDEF */;
     return *any_slot_tag_((void *)arr, i);
 }
 
 uint64_t __torajs_arr_get_any_value(const void *arr, uint64_t i) {
+    if (arr == NULL) return 0;
+    uint64_t len = *(const uint64_t *)((const uint8_t *)arr + 8);
+    if (i >= len) return 0;
     return *any_slot_val_((void *)arr, i);
 }
 

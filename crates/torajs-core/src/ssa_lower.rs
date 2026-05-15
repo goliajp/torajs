@@ -1997,6 +1997,23 @@ fn lower_inner(
         &[Type::Ptr, Type::I64, Type::I64, Type::I64],
         Type::Void,
     );
+    // P1.4 — bounds-checking Any-slot read. Returns ANY_UNDEF=5
+    // / value=0 for OOB so xs[99] on a length-3 array gives
+    // undefined per ES spec §10.4.2.1.
+    let arr_get_any_tag_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_arr_get_any_tag",
+        &[Type::Ptr, Type::I64],
+        Type::I64,
+    );
+    let arr_get_any_value_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_arr_get_any_value",
+        &[Type::Ptr, Type::I64],
+        Type::I64,
+    );
     let arr_drop_any_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -3954,6 +3971,8 @@ fn lower_inner(
         arr_alloc_any: arr_alloc_any_id,
         arr_push_any: arr_push_any_id,
         arr_set_any: arr_set_any_id,
+        arr_get_any_tag: arr_get_any_tag_id,
+        arr_get_any_value: arr_get_any_value_id,
         arr_drop_any: arr_drop_any_id,
         any_box: any_box_id,
         any_typeof: any_typeof_id,
@@ -4697,6 +4716,8 @@ struct Intrinsics {
     arr_alloc_any: FuncId,
     arr_push_any: FuncId,
     arr_set_any: FuncId,
+    arr_get_any_tag: FuncId,
+    arr_get_any_value: FuncId,
     arr_drop_any: FuncId,
     any_box: FuncId,
     any_typeof: FuncId,
@@ -20073,68 +20094,31 @@ impl<'a> LowerCtx<'a> {
                 // passing complexity; T-10.e may inline use-site fast
                 // paths (`console.log(xs[i])` direct dispatch w/o box).
                 if elem_ty == Type::Any {
-                    // T-13.5: Array<Any> head_offset uses the same packed
-                    // u64 at offset 16 — but Array<Any> uses a 16-byte
-                    // slot stride. Logical[i] tag is at physical
-                    // 24 + (head + i)*16, so add head*16 to the offset.
-                    // For now, head_x8 helper returns head*8, so multiply
-                    // by 2 for Array<Any>.
-                    let head_x8 = self.emit_arr_head_x8(arr_val.clone());
-                    let head_x16 = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::BinOp(SsaBinOp::Shl, head_x8, Operand::ConstI64(1)),
-                        Type::I64,
-                        None,
-                    );
-                    let scaled = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::BinOp(
-                            SsaBinOp::Shl,
-                            idx_val.clone(),
-                            Operand::ConstI64(4),
-                        ),
-                        Type::I64,
-                        None,
-                    );
-                    let tag_off_no_head = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::BinOp(
-                            SsaBinOp::Add,
-                            Operand::Value(scaled),
-                            Operand::ConstI64(ARR_DATA_OFF as i64),
-                        ),
-                        Type::I64,
-                        None,
-                    );
-                    let tag_off = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::BinOp(
-                            SsaBinOp::Add,
-                            Operand::Value(tag_off_no_head),
-                            Operand::Value(head_x16),
-                        ),
-                        Type::I64,
-                        None,
-                    );
-                    let val_off = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::BinOp(
-                            SsaBinOp::Add,
-                            Operand::Value(tag_off),
-                            Operand::ConstI64(8),
-                        ),
-                        Type::I64,
-                        None,
-                    );
+                    // P1.4 — Array<Any> indexed read goes through the
+                    // bounds-checking runtime helpers
+                    // `__torajs_arr_get_any_tag` / `_value`. Pre-P1.4
+                    // tora inlined the LoadDyn at `24 + (head + i) * 16`
+                    // unconditionally, returning garbage / ANY_NULL for
+                    // OOB indices. Now OOB returns ANY_UNDEF=5 per ES
+                    // spec §10.4.2.1 — the helper does an explicit len
+                    // check and returns tag=5 / value=0 on miss. The
+                    // typeof / strict-eq paths then route through the
+                    // P1.5/P1.8 ANY_UNDEF behavior.
                     let tag = self.f.append_inst(
                         self.cur_block,
-                        InstKind::LoadDyn(Type::I64, arr_val.clone(), Operand::Value(tag_off)),
+                        InstKind::Call(
+                            self.intrinsics.arr_get_any_tag,
+                            vec![arr_val.clone(), idx_val.clone()],
+                        ),
                         Type::I64,
                         None,
                     );
                     let value = self.f.append_inst(
                         self.cur_block,
-                        InstKind::LoadDyn(Type::I64, arr_val, Operand::Value(val_off)),
+                        InstKind::Call(
+                            self.intrinsics.arr_get_any_value,
+                            vec![arr_val, idx_val],
+                        ),
                         Type::I64,
                         None,
                     );
