@@ -650,12 +650,13 @@ fn deep_clone_stmt(ast: &mut Ast, s: &Stmt) -> Stmt {
         Stmt::Return(maybe) => {
             Stmt::Return(maybe.map(|eid| deep_clone_expr(ast, eid)))
         }
-        Stmt::LetDecl { mutable, name, type_ann, init } => Stmt::LetDecl {
+        Stmt::LetDecl { mutable, name, type_ann, init, is_var } => Stmt::LetDecl {
             mutable: *mutable,
             name: name.clone(),
             type_ann: type_ann.clone(),
             init: deep_clone_expr(ast, *init),
-        },
+        is_var: false,
+            },
         Stmt::If { cond, then_branch, else_branch } => Stmt::If {
             cond: deep_clone_expr(ast, *cond),
             then_branch: Box::new(deep_clone_stmt(ast, then_branch)),
@@ -4179,7 +4180,8 @@ fn lower_inner(
             init,
             type_ann,
             mutable,
-        } = stmt
+        is_var: false,
+            } = stmt
         {
             // Number / Bool literal init stays on the K.1 fast path —
             // those are Copy types so inlining the constant at every
@@ -8858,6 +8860,7 @@ impl<'a> LowerCtx<'a> {
                 name,
                 type_ann,
                 init,
+            is_var: false,
             } => {
                 // M6.3 — `let v: T = JSON.parse(text)` — caller-driven
                 // typed parse. ssa_lower picks up `T` from `type_ann`
@@ -11512,7 +11515,25 @@ impl<'a> LowerCtx<'a> {
                         // restructures (use `>>` for int div by 2, or
                         // declare the slot as f64).
                         let v_ty = self.operand_ty(&v);
-                        if v_ty != snapshot.ty
+                        // P2.1 — Any-typed slot accepts any concrete
+                        // value via box_to_any (mirrors LetDecl init
+                        // path). Used by hoisted `var` slots which are
+                        // typed Any so subsequent assigns of any type
+                        // fit. The box also threads the source ExprId
+                        // so undefined vs null distinction is preserved.
+                        if snapshot.ty == Type::Any && v_ty != Type::Any {
+                            // Already lowered `v`; box it and replace.
+                            // Note: we don't have access to the source
+                            // ExprId here (would require threading
+                            // through the assign path), so default to
+                            // box_to_any (treats Ptr-null as ANY_NULL).
+                            // For typed-tier var hoist, undefined-vs-
+                            // null distinction at assignment isn't
+                            // exercised since the user wrote a
+                            // concrete value.
+                            // Continue to the post-snapshot logic with
+                            // the boxed v.
+                        } else if v_ty != snapshot.ty
                             && !(snapshot.ty == Type::F64 && v_ty == Type::I64)
                         {
                             // i64-into-f64 slot is auto-coerced below the
@@ -11531,7 +11552,9 @@ impl<'a> LowerCtx<'a> {
                                 );
                             }
                         }
-                        let v = if snapshot.ty == Type::F64 && v_ty == Type::I64 {
+                        let v = if snapshot.ty == Type::Any && v_ty != Type::Any {
+                            self.box_to_any(v)
+                        } else if snapshot.ty == Type::F64 && v_ty == Type::I64 {
                             self.coerce_to_f64(v)
                         } else {
                             v

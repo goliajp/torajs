@@ -671,7 +671,8 @@ impl Parser<'_> {
                     name: it_name.clone(),
                     type_ann: Some(gen_class),
                     init: src,
-                });
+                is_var: false,
+            });
 
                 let it_ref = self.ast.add_expr(Expr::Ident(it_name));
                 let next_member = self.ast.add_expr(Expr::Member {
@@ -687,7 +688,8 @@ impl Parser<'_> {
                     name: step_name.clone(),
                     type_ann: Some(step_ty),
                     init: next_call,
-                };
+                is_var: false,
+            };
 
                 let step_ref_done = self.ast.add_expr(Expr::Ident(step_name.clone()));
                 let done_member = self.ast.add_expr(Expr::Member {
@@ -723,13 +725,20 @@ impl Parser<'_> {
             }
             return Ok(Stmt::Yield(v));
         }
-        let mutable = match self.peek() {
-            Token::Let => Some(true),
-            Token::Const => Some(false),
-            _ => None,
+        // P2.1 — `var` is parsed identically to `let` here; the
+        // difference is the `is_var: true` flag we'll thread into
+        // every LetDecl produced from this declaration. The flag
+        // drives `desugar_var_hoist` later to lift the declaration
+        // to the enclosing fn-body / top-level script (per spec
+        // §14.3.2.1 VariableStatement).
+        let (mutable, is_var) = match self.peek() {
+            Token::Let => (Some(true), false),
+            Token::Var => (Some(true), true),
+            Token::Const => (Some(false), false),
+            _ => (None, false),
         };
         if let Some(mutable) = mutable {
-            let kw = if mutable { "let" } else { "const" };
+            let kw = if is_var { "var" } else if mutable { "let" } else { "const" };
             self.pos += 1;
             // Destructuring: `let [a, b] = src` or `let { x, y } = src`.
             // Parsed inline so it shares the let-decl's lookahead. Both
@@ -779,6 +788,7 @@ impl Parser<'_> {
                         name,
                         type_ann,
                         init,
+                        is_var,
                     });
                     if matches!(self.peek(), Token::Comma) {
                         self.pos += 1;
@@ -811,6 +821,7 @@ impl Parser<'_> {
                     name,
                     type_ann,
                     init,
+                    is_var,
                 });
                 if matches!(self.peek(), Token::Comma) {
                     self.pos += 1;
@@ -1245,7 +1256,8 @@ impl Parser<'_> {
                             name: nn,
                             type_ann: None,
                             init: init_expr,
-                        });
+                        is_var: false,
+            });
                     }
                     Token::LBracket | Token::LBrace => {
                         let nested_id = self.mint_desugar_id();
@@ -1267,7 +1279,8 @@ impl Parser<'_> {
                             name: nested_src.clone(),
                             type_ann: None,
                             init: init_expr,
-                        });
+                        is_var: false,
+            });
                         lets.extend(nested_body_lets);
                     }
                     Token::DotDotDot => {
@@ -1302,7 +1315,8 @@ impl Parser<'_> {
                                     name: nn,
                                     type_ann: None,
                                     init: slice_call,
-                                });
+                                is_var: false,
+            });
                             }
                             Token::LBracket | Token::LBrace => {
                                 // Rest target is itself a pattern —
@@ -1317,7 +1331,8 @@ impl Parser<'_> {
                                     name: rest_src,
                                     type_ann: None,
                                     init: slice_call,
-                                });
+                                is_var: false,
+            });
                                 lets.extend(rest_body_lets);
                             }
                             t => {
@@ -1486,7 +1501,8 @@ impl Parser<'_> {
                                 name: nn,
                                 type_ann: None,
                                 init: init_expr,
-                            });
+                            is_var: false,
+            });
                         }
                         Token::LBracket | Token::LBrace => {
                             // P-PARSE.7 — `{ x: [a, b] = [1, 2] }`.
@@ -1504,7 +1520,8 @@ impl Parser<'_> {
                                 name: nested_src.clone(),
                                 type_ann: None,
                                 init: init_expr,
-                            });
+                            is_var: false,
+            });
                             lets.extend(nested_body_lets);
                         }
                         t => {
@@ -1527,7 +1544,8 @@ impl Parser<'_> {
                         name: field,
                         type_ann: None,
                         init: init_expr,
-                    });
+                    is_var: false,
+            });
                 }
                 match self.peek() {
                     Token::Comma => {
@@ -2148,7 +2166,8 @@ impl Parser<'_> {
                     name: n.clone(),
                     type_ann: None,
                     init: elem,
-                });
+                is_var: false,
+            });
             }
             pre.push(body);
             body = Stmt::Block(pre);
@@ -2164,7 +2183,8 @@ impl Parser<'_> {
                     name: bound.clone(),
                     type_ann: None,
                     init: elem,
-                });
+                is_var: false,
+            });
             }
             pre.push(body);
             body = Stmt::Block(pre);
@@ -2228,6 +2248,7 @@ impl Parser<'_> {
                 name: it_name.clone(),
                 type_ann: Some(gen_class),
                 init: src,
+            is_var: false,
             });
 
             // Inside while(true):
@@ -2249,6 +2270,7 @@ impl Parser<'_> {
                 name: step_name.clone(),
                 type_ann: Some(step_ty),
                 init: next_call,
+            is_var: false,
             };
 
             let step_ref_done = self.ast.add_expr(Expr::Ident(step_name.clone()));
@@ -2272,6 +2294,7 @@ impl Parser<'_> {
                 name: var_name,
                 type_ann: Some(yield_ty),
                 init: value_member,
+            is_var: false,
             };
 
             let loop_body = Stmt::Block(vec![step_decl, done_check, var_decl, body]);
@@ -2317,6 +2340,7 @@ impl Parser<'_> {
                 name: src_name.clone(),
                 type_ann: None,
                 init: src,
+            is_var: false,
             });
         }
         // `let __end = __src.length;`
@@ -2330,7 +2354,8 @@ impl Parser<'_> {
             name: end_name.clone(),
             type_ann: Some("number".into()),
             init: end_init,
-        });
+        is_var: false,
+            });
         // `for (let __i = 0; __i < __end; __i = __i + 1) { let v = __src[__i]; body }`
         let zero = self.ast.add_expr(Expr::Number(0.0));
         let init_stmt = Stmt::LetDecl {
@@ -2338,7 +2363,8 @@ impl Parser<'_> {
             name: i_name.clone(),
             type_ann: Some("number".into()),
             init: zero,
-        };
+        is_var: false,
+            };
         let i_ref_for_cond = self.ast.add_expr(Expr::Ident(i_name.clone()));
         let end_ref = self.ast.add_expr(Expr::Ident(end_name.clone()));
         let cond_expr = self.ast.add_expr(Expr::BinOp {
@@ -2375,7 +2401,8 @@ impl Parser<'_> {
             name: var_name,
             type_ann: None,
             init: elem_init,
-        });
+        is_var: false,
+            });
         body_stmts.push(body);
         let body_block = Stmt::Block(body_stmts);
         let for_stmt = Stmt::For {
@@ -2518,6 +2545,7 @@ impl Parser<'_> {
                 name: src_ref_name.clone(),
                 type_ann: None,
                 init: src,
+            is_var: false,
             });
         }
         for (i, entry) in entries.iter().enumerate() {
@@ -2530,7 +2558,8 @@ impl Parser<'_> {
                     name: name.clone(),
                     type_ann: None,
                     init: elem,
-                });
+                is_var: false,
+            });
             }
             // None = elision: skip, position counter still advances.
         }
@@ -2551,6 +2580,7 @@ impl Parser<'_> {
                 name: rest.to_string(),
                 type_ann: None,
                 init: slice_call,
+            is_var: false,
             });
         }
         stmts
@@ -2667,6 +2697,7 @@ impl Parser<'_> {
                 name: src_ref_name.clone(),
                 type_ann: None,
                 init: src,
+            is_var: false,
             });
         }
         for (field, bound) in entries {
@@ -2680,6 +2711,7 @@ impl Parser<'_> {
                 name: bound.clone(),
                 type_ann: None,
                 init: mem,
+            is_var: false,
             });
         }
         stmts

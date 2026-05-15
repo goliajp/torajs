@@ -265,6 +265,16 @@ pub enum Stmt {
         name: String,
         type_ann: Option<String>,
         init: ExprId,
+        /// P2.1 — flag set when the source declared this with `var`
+        /// instead of `let` / `const`. Drives the `desugar_var_hoist`
+        /// pass which moves the declaration to the top of the
+        /// enclosing fn-body / top-level script (per ES spec §14.3.2.1
+        /// VariableStatement). Pre-P2.1 tora's lexer aliased `var`
+        /// to `Token::Let` so var was indistinguishable from let post-
+        /// parse; the hoisting pass needs the source intent to know
+        /// which declarations to move. `let` / `const` keep this `false`
+        /// (no hoist; block-scoped per spec).
+        is_var: bool,
     },
     If {
         cond: ExprId,
@@ -1132,6 +1142,7 @@ fn expand_yield_into_in_stmt(ast: &mut Ast, s: &mut Stmt, yield_ty: &str) {
                 name: var,
                 type_ann: ty,
                 init: sent_member,
+            is_var: false,
             };
             *s = Stmt::Multi(vec![yield_stmt, let_stmt]);
         }
@@ -2900,6 +2911,7 @@ pub fn desugar_classes(ast: &mut Ast) {
                 name: format!("__sf_{cname}__{}", sf.name),
                 type_ann: Some(sf.type_ann.clone()),
                 init: sf.init,
+                is_var: false,
             });
         }
 
@@ -3117,7 +3129,8 @@ fn default_init_for_field(
             name: local.clone(),
             type_ann: Some(fty.to_string()),
             init: arr_lit,
-        });
+        is_var: false,
+            });
         return ast.add_expr(Expr::Ident(local));
     }
     let sub_fields = class_layouts.get(fty).or_else(|| alias_layouts.get(fty));
@@ -3607,7 +3620,8 @@ fn build_factory_body(
         name: "__this".into(),
         type_ann: Some(this_ann),
         init: obj_lit,
-    };
+    is_var: false,
+            };
     let mut body: Vec<Stmt> = prelude;
     body.push(let_this);
     if let Some(c) = ctor {
@@ -4103,6 +4117,7 @@ pub fn apply_rest_args(ast: &mut Ast) {
                 name: "_e".into(),
                 type_ann: Some(rest_ann.clone()),
                 init: arr_lit,
+            is_var: false,
             },
             Stmt::Return(Some(ast.add_expr(Expr::Ident("_e".into())))),
         ];
@@ -4843,6 +4858,227 @@ pub fn desugar_uninit_let(ast: &mut Ast) {
     // walk handles them when it descends into Stmt::FnDecl variants.
 }
 
+/// P2.1 — `var` hoisting pass per ES spec §14.3.2.1
+/// VariableStatement. Walks every fn body + the top-level script
+/// (taken as the implicit `main` body for hoisting purposes), finds
+/// every `Stmt::LetDecl { is_var: true, .. }` (including deep inside
+/// `if` / `while` / `for` / `block` / `switch` / `try` bodies), and:
+///
+///   1. Emits a synthetic `let <name>: <type_ann> = Uninit` at the top
+///      of the enclosing fn-body / script. Pre-init reads return
+///      undefined per spec (P1.3's Expr::Uninit → Type::Undefined
+///      substrate makes this work).
+///   2. Replaces the original site:
+///      - If the original had an init: convert to `<name> = <init>`
+///        assignment (Stmt::Expr wrapping Expr::Assign).
+///      - If no init (`var x;`): remove the stmt entirely.
+///   3. Same name declared multiple times in the same fn scope:
+///      ONE hoisted decl + N assignments. Later decls' type anns
+///      override earlier ones (last-write-wins matches JS shape).
+///
+/// `let` / `const` (is_var=false) are block-scoped per spec and not
+/// touched by this pass.
+pub fn desugar_var_hoist(ast: &mut Ast) {
+    // Take stmts out so we can pass &mut ast.exprs and a separate
+    // &mut Vec<Stmt> to the recursive helpers without aliasing.
+    let mut top = std::mem::take(&mut ast.stmts);
+    // Top-level script: hoist over `top` itself.
+    hoist_vars_in_block(&mut top, &mut ast.exprs);
+    // Each top-level FnDecl: hoist over its body.
+    for stmt in top.iter_mut() {
+        if let Stmt::FnDecl { body, .. } = stmt {
+            hoist_vars_in_block(body, &mut ast.exprs);
+        }
+    }
+    ast.stmts = top;
+}
+
+/// Walks `body` recursively, collects every `is_var: true` LetDecl's
+/// (name, type_ann), and rewrites the original site to either an
+/// assignment (if the decl had an init) or a no-op. Returned hoisted
+/// decls are inserted at the top of `body`.
+fn hoist_vars_in_block(body: &mut Vec<Stmt>, exprs: &mut Vec<Expr>) {
+    use std::collections::BTreeMap;
+    let mut hoisted: BTreeMap<String, Option<String>> = BTreeMap::new();
+    collect_and_rewrite_var(body, &mut hoisted, exprs);
+    if hoisted.is_empty() {
+        return;
+    }
+    let mut prelude: Vec<Stmt> = Vec::with_capacity(hoisted.len());
+    for (name, _user_ann) in hoisted {
+        let init = ExprId(exprs.len() as u32);
+        exprs.push(Expr::Uninit);
+        // Hoisted vars are ALWAYS Type::Any-typed slots regardless
+        // of user annotation. Two reasons:
+        //   1. The pre-init read returns undefined per spec, which
+        //      doesn't fit Type::Number / Array<Number> / etc. Any
+        //      fits because Undefined is a valid Any-tag.
+        //   2. var's runtime type can change across reassignments
+        //      (`var x = 1; x = "hello"` is legal JS); Any covers
+        //      both. The user's annotation is treated as a hint for
+        //      the eventual value, not a slot constraint.
+        // User-typed slots that need precise types should use `let`
+        // (block-scoped) which keeps its annotation.
+        prelude.push(Stmt::LetDecl {
+            mutable: true,
+            name,
+            type_ann: Some("any".to_string()),
+            init,
+            is_var: false, // already hoisted; downstream sees a regular let
+        });
+    }
+    let tail = std::mem::take(body);
+    *body = prelude;
+    body.extend(tail);
+}
+
+fn collect_and_rewrite_var(
+    stmts: &mut Vec<Stmt>,
+    hoisted: &mut std::collections::BTreeMap<String, Option<String>>,
+    exprs: &mut Vec<Expr>,
+) {
+    let mut new_stmts: Vec<Stmt> = Vec::with_capacity(stmts.len());
+    let drained = std::mem::take(stmts);
+    for s in drained {
+        match s {
+            Stmt::LetDecl { mutable, name, type_ann, init, is_var: true } => {
+                // P2.1 escape hatches — three cases where we don't
+                // hoist (treat as a regular block-scoped `let`):
+                //   1. User wrote an explicit type annotation
+                //      (`var arr: number[] = [...]`). The typed slot
+                //      can't carry the spec's pre-init undefined
+                //      (Type::Undefined doesn't fit Type::Array<Number>).
+                //   2. Init is a function/arrow expression. Hoisting
+                //      to Type::Any loses the FnSig and makes the
+                //      var uncallable (substrate: call-on-Any is P3).
+                //      `var f = function() {}; f()` pre-P2.1 worked
+                //      via let-aliasing; this keeps that path live.
+                //   3. (future) Init produces other types that lose
+                //      method dispatch when boxed (Array, Obj, etc.)
+                //      — covered by case 2's spirit; add cases as
+                //      they surface.
+                let init_keeps_type = match &exprs[init.0 as usize] {
+                    Expr::ArrowFn { .. } | Expr::Closure { .. } => true,
+                    // After lift_arrow_fns, capturing-less function
+                    // expressions become `Expr::Ident("__closure_N")`
+                    // pointing at the lifted FnDecl. That ident
+                    // resolves to a FnSig at the SSA layer, NOT to
+                    // a regular let-typed value, so hoisting to Any
+                    // would lose the call-site dispatch.
+                    Expr::Ident(n) if n.starts_with("__closure_") => true,
+                    _ => false,
+                };
+                if type_ann.is_some() || init_keeps_type {
+                    new_stmts.push(Stmt::LetDecl {
+                        mutable,
+                        name,
+                        type_ann,
+                        init,
+                        is_var: false,
+                    });
+                    continue;
+                }
+                hoisted.insert(name.clone(), None);
+                if !matches!(exprs[init.0 as usize], Expr::Uninit) {
+                    let target_id = ExprId(exprs.len() as u32);
+                    exprs.push(Expr::Ident(name));
+                    let assign_id = ExprId(exprs.len() as u32);
+                    exprs.push(Expr::Assign { target: target_id, value: init });
+                    new_stmts.push(Stmt::Expr(assign_id));
+                }
+            }
+            mut other => {
+                hoist_recurse_stmt(&mut other, hoisted, exprs);
+                new_stmts.push(other);
+            }
+        }
+    }
+    *stmts = new_stmts;
+}
+
+fn hoist_recurse_stmt(
+    s: &mut Stmt,
+    hoisted: &mut std::collections::BTreeMap<String, Option<String>>,
+    exprs: &mut Vec<Expr>,
+) {
+    match s {
+        Stmt::If { then_branch, else_branch, .. } => {
+            hoist_recurse_stmt(then_branch, hoisted, exprs);
+            if let Some(eb) = else_branch.as_deref_mut() {
+                hoist_recurse_stmt(eb, hoisted, exprs);
+            }
+        }
+        Stmt::Block(b) => {
+            collect_and_rewrite_var(b, hoisted, exprs);
+        }
+        Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
+            hoist_recurse_stmt(body, hoisted, exprs);
+        }
+        Stmt::For { body, init, .. } => {
+            // Special-case: a single `var i = 0` in the for-init slot
+            // hoists `i` to the enclosing fn-body. Replace the
+            // for-init with the equivalent `i = 0` assignment so the
+            // loop semantic stays unchanged.
+            if let Some(init_box) = init.as_deref_mut() {
+                if let Stmt::LetDecl { name, type_ann, init: init_id, is_var: true, .. } = init_box {
+                    // Same escape hatch as the regular collect path:
+                    // typed `var i: number = 0` stays put as a let.
+                    if type_ann.is_some() {
+                        if let Stmt::LetDecl { is_var, .. } = init_box {
+                            *is_var = false;
+                        }
+                    } else {
+                        let nm = name.clone();
+                        let init_eid = *init_id;
+                        hoisted.insert(nm.clone(), None);
+                        if !matches!(exprs[init_eid.0 as usize], Expr::Uninit) {
+                            let target_id = ExprId(exprs.len() as u32);
+                            exprs.push(Expr::Ident(nm));
+                            let assign_id = ExprId(exprs.len() as u32);
+                            exprs.push(Expr::Assign { target: target_id, value: init_eid });
+                            *init_box = Stmt::Expr(assign_id);
+                        } else {
+                            *init = None;
+                        }
+                    }
+                } else {
+                    hoist_recurse_stmt(init_box, hoisted, exprs);
+                }
+            }
+            hoist_recurse_stmt(body, hoisted, exprs);
+        }
+        Stmt::ForOfSplitIter { body, .. } => {
+            hoist_recurse_stmt(body, hoisted, exprs);
+        }
+        Stmt::Try { body, catch_body, finally_body, .. } => {
+            collect_and_rewrite_var(body, hoisted, exprs);
+            collect_and_rewrite_var(catch_body, hoisted, exprs);
+            if let Some(fb) = finally_body {
+                collect_and_rewrite_var(fb, hoisted, exprs);
+            }
+        }
+        Stmt::Switch { cases, default, .. } => {
+            for case in cases {
+                collect_and_rewrite_var(&mut case.body, hoisted, exprs);
+            }
+            if let Some(dflt) = default {
+                collect_and_rewrite_var(dflt, hoisted, exprs);
+            }
+        }
+        Stmt::Multi(inner) => {
+            collect_and_rewrite_var(inner, hoisted, exprs);
+        }
+        // Bare LetDecl that's NOT is_var=true — leave alone. (The
+        // is_var=true path is handled by the caller's match arm.)
+        Stmt::LetDecl { .. } => {}
+        // FnDecl is its own scope — don't descend (handled by the
+        // top-level pass that hoists separately per fn body).
+        Stmt::FnDecl { .. } => {}
+        // Terminal stmts with no nested stmt list.
+        _ => {}
+    }
+}
+
 /// V3-18 wedge — rewrite multi-arg `arr.push(a, b, c)` /
 /// `arr.unshift(a, b, c)` into N consecutive single-arg calls
 /// at the stmt level. Per JS spec the calls run in order on the
@@ -5399,7 +5635,8 @@ fn rewrite_sfi_walk_list(ast: &mut Ast, stmts: &mut Vec<Stmt>, ctx: &mut SplitFo
             name: i_name.clone(),
             type_ann: Some("number".into()),
             init: zero_eid,
-        };
+        is_var: false,
+            };
         let forof = Stmt::ForOfSplitIter {
             var_name: v_name,
             parent: parent_eid,
@@ -5741,12 +5978,13 @@ fn sfi_rewrite_stmt(ast: &mut Ast, s: &Stmt, x_name: &str, i_name: &str, v_name:
             Stmt::Return(Some(sfi_rewrite_expr(ast, *eid, x_name, i_name, v_name)))
         }
         Stmt::Return(None) => Stmt::Return(None),
-        Stmt::LetDecl { mutable, name, type_ann, init } => Stmt::LetDecl {
+        Stmt::LetDecl { mutable, name, type_ann, init, is_var } => Stmt::LetDecl {
             mutable: *mutable,
             name: name.clone(),
             type_ann: type_ann.clone(),
             init: sfi_rewrite_expr(ast, *init, x_name, i_name, v_name),
-        },
+        is_var: false,
+            },
         Stmt::If { cond, then_branch, else_branch } => Stmt::If {
             cond: sfi_rewrite_expr(ast, *cond, x_name, i_name, v_name),
             then_branch: Box::new(sfi_rewrite_stmt(ast, then_branch, x_name, i_name, v_name)),
@@ -6182,7 +6420,8 @@ fn synth_arguments_local(ast: &mut Ast, params: &[String]) -> Stmt {
         name: "__torajs_arguments".into(),
         type_ann: Some("any[]".into()),
         init,
-    }
+    is_var: false,
+            }
 }
 
 fn rewrite_arguments_in_stmt(ast: &mut Ast, s: &Stmt, params: &[String]) -> Stmt {
@@ -6193,12 +6432,13 @@ fn rewrite_arguments_in_stmt(ast: &mut Ast, s: &Stmt, params: &[String]) -> Stmt
             Stmt::Return(Some(rewrite_arguments_in_expr(ast, *eid, params)))
         }
         Stmt::Return(None) => Stmt::Return(None),
-        Stmt::LetDecl { mutable, name, type_ann, init } => Stmt::LetDecl {
+        Stmt::LetDecl { mutable, name, type_ann, init, is_var } => Stmt::LetDecl {
             mutable: *mutable,
             name: name.clone(),
             type_ann: type_ann.clone(),
             init: rewrite_arguments_in_expr(ast, *init, params),
-        },
+        is_var: false,
+            },
         Stmt::Block(stmts) => Stmt::Block(
             stmts
                 .iter()
@@ -7706,8 +7946,9 @@ impl Ast {
                 name,
                 type_ann,
                 init,
+                is_var,
             } => {
-                let kw = if *mutable { "let" } else { "const" };
+                let kw = if *is_var { "var" } else if *mutable { "let" } else { "const" };
                 match type_ann {
                     Some(ann) => println!("{pad}{kw} {name}: {ann}"),
                     None => println!("{pad}{kw} {name}"),

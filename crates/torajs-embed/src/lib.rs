@@ -92,7 +92,16 @@ fn compile_to_temp(src: &str) -> Result<PathBuf, EvalOutcome> {
     ast::lift_arrow_fns(&mut a);
     ast::infer_anonymous_closure_params(&mut a);
     ast::synthesize_forwarders(&mut a);
+    // P2.1 — order matters: uninit_let inlines `let x; x = e` into
+    // `let x = e` for early type binding. var_hoist creates synthetic
+    // `let x = Uninit` that should NOT be inlined (var semantics
+    // require x to be undefined at every read before its assignment,
+    // not at the declaration site). Run uninit_let FIRST so it only
+    // sees user-written `let x;` (which IS legal to inline), then
+    // var_hoist inserts hoisted `let x = Uninit` that uninit_let
+    // never gets a chance to touch.
     ast::desugar_uninit_let(&mut a);
+    ast::desugar_var_hoist(&mut a);
     ast::desugar_arguments_object(&mut a);
     ast::rewrite_split_for_i_to_iter(&mut a);
     ast::escape_analyze_array_literals(&mut a);
@@ -218,7 +227,16 @@ fn compile_to_dylib(src: &str) -> Result<PathBuf, String> {
     ast::lift_arrow_fns(&mut a);
     ast::infer_anonymous_closure_params(&mut a);
     ast::synthesize_forwarders(&mut a);
+    // P2.1 — order matters: uninit_let inlines `let x; x = e` into
+    // `let x = e` for early type binding. var_hoist creates synthetic
+    // `let x = Uninit` that should NOT be inlined (var semantics
+    // require x to be undefined at every read before its assignment,
+    // not at the declaration site). Run uninit_let FIRST so it only
+    // sees user-written `let x;` (which IS legal to inline), then
+    // var_hoist inserts hoisted `let x = Uninit` that uninit_let
+    // never gets a chance to touch.
     ast::desugar_uninit_let(&mut a);
+    ast::desugar_var_hoist(&mut a);
     ast::desugar_arguments_object(&mut a);
     ast::rewrite_split_for_i_to_iter(&mut a);
     ast::escape_analyze_array_literals(&mut a);
@@ -340,7 +358,16 @@ function torajs_add(a: number, b: number): number {
         ast::lift_arrow_fns(&mut a);
         ast::infer_anonymous_closure_params(&mut a);
         ast::synthesize_forwarders(&mut a);
-        ast::desugar_uninit_let(&mut a);
+        // P2.1 — order matters: uninit_let inlines `let x; x = e` into
+    // `let x = e` for early type binding. var_hoist creates synthetic
+    // `let x = Uninit` that should NOT be inlined (var semantics
+    // require x to be undefined at every read before its assignment,
+    // not at the declaration site). Run uninit_let FIRST so it only
+    // sees user-written `let x;` (which IS legal to inline), then
+    // var_hoist inserts hoisted `let x = Uninit` that uninit_let
+    // never gets a chance to touch.
+    ast::desugar_uninit_let(&mut a);
+    ast::desugar_var_hoist(&mut a);
         ast::desugar_arguments_object(&mut a);
         ast::rewrite_split_for_i_to_iter(&mut a);
         ast::escape_analyze_array_literals(&mut a);

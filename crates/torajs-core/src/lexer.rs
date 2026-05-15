@@ -16,6 +16,11 @@ pub enum Token {
     },
     // keywords
     Let,
+    /// P2.1 — `var` keyword. Distinct from `Let` so the parser can
+    /// thread `is_var = true` into LetDecl, which the
+    /// `desugar_var_hoist` pass uses to lift the declaration to the
+    /// enclosing fn-body / top-level script (per ES spec §14.3.2.1).
+    Var,
     Const,
     If,
     Else,
@@ -719,7 +724,7 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                     // parse + behave like let. Programs that depend
                     // on hoisting to use `var` before its decl will
                     // continue to fail until the m4.b hoisting pass.
-                    "var" => Token::Let,
+                    "var" => Token::Var,
                     "if" => Token::If,
                     "else" => Token::Else,
                     "true" => Token::True,

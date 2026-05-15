@@ -2320,12 +2320,7 @@ impl Checker {
                     self.check_stmt(ast, s);
                 }
             }
-            Stmt::LetDecl {
-                mutable,
-                name,
-                type_ann,
-                init,
-            } => {
+            Stmt::LetDecl { mutable, name, type_ann, init, is_var } => {
                 // M1.2 — empty array literal `[]` carries no element-type
                 // info; the annotation must provide it. Special-case to
                 // skip type_of (which would error) and use the annotation
@@ -6278,6 +6273,15 @@ impl Checker {
                 // struct that has `field`. Result type is `Nullable(F)`
                 // where F is the field's type. Composes naturally with
                 // outer `??` to flatten the null path.
+                //
+                // P1.6 spec-correct shape (miss → undefined not null)
+                // deferred to P3 — making the typed-tier OptChain
+                // distinguish null vs undefined at the result type
+                // requires either union types or routing the entire
+                // result chain through Type::Any. Both touch every
+                // downstream Member access / assign sink. The current
+                // workaround in user code is `obj?.field ?? fallback`
+                // which works either way (Nullable<T> ?? T → T).
                 let obj_ty = self.type_of(ast, *obj)?;
                 let inner = match &obj_ty {
                     Type::Nullable(inner) => (**inner).clone(),

@@ -189,7 +189,7 @@ impl<'a> Formatter<'a> {
                 self.write_indent();
                 self.fmt_expr(*eid);
             }
-            Stmt::LetDecl { mutable, name, type_ann, init } => {
+            Stmt::LetDecl { mutable, name, type_ann, init, is_var } => {
                 self.write_indent();
                 self.write(if *mutable { "let " } else { "const " });
                 self.write(name);
@@ -619,7 +619,7 @@ impl<'a> Formatter<'a> {
         // `for (init; ...)` accepts a LetDecl or an ExprStmt as init.
         // Reuse the regular Stmt formatter but with indent suppressed.
         match s {
-            Stmt::LetDecl { mutable, name, type_ann, init } => {
+            Stmt::LetDecl { mutable, name, type_ann, init, is_var } => {
                 self.write(if *mutable { "let " } else { "const " });
                 self.write(name);
                 if let Some(ann) = type_ann {
