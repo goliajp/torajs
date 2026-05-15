@@ -1162,7 +1162,14 @@ pub fn type_to_ann(ty: &Type) -> String {
         Type::WeakRef => "weakref".into(),
         Type::WeakMap => "weakmap".into(),
         Type::WeakSet => "weakset".into(),
-        Type::Any => "number".into(), // SSA-side has no Any; fall back to number
+        // T-28-substrate — SSA Type::Any is its own slot type at the
+        // SSA layer (parse_type's "any" round-trips to Type::Any).
+        // Pre-T-28-substrate this collapsed to "number" because Any-
+        // typed flows weren't fully wired through the SSA layer; the
+        // collapse silently corrupted padded ANY_UNDEF Any-box ptrs
+        // when stuffed into i64 Number slots. Round-tripping as "any"
+        // gives generic mono its own Any specialization.
+        Type::Any => "any".into(),
         Type::Symbol => "symbol".into(),
         Type::Array(inner) => format!("{}[]", type_to_ann(inner)),
         // Structs encode structurally as `__struct(field_name1:T1|...)`.
@@ -1672,6 +1679,30 @@ fn unify_typevar(
 
 /// Replace every `TypeVar(name)` inside `ty` with the binding from `subst`.
 /// Used to compute the resolved return type at a generic call site.
+/// T-28 — does TypeVar `name` appear anywhere inside `ty`? Used by
+/// the implicit-generic-fn arity-pad path to verify that trailing
+/// missing TypeVars don't bind anything else (so binding them to Any
+/// is safe).
+fn typevar_appears_in(ty: &Type, name: &str) -> bool {
+    match ty {
+        Type::TypeVar(n) => n == name,
+        Type::Array(inner) => typevar_appears_in(inner, name),
+        Type::Function(args, ret) => {
+            args.iter().any(|t| typevar_appears_in(t, name))
+                || typevar_appears_in(ret, name)
+        }
+        Type::Struct(fields) => {
+            fields.iter().any(|(_, t)| typevar_appears_in(t, name))
+        }
+        Type::Nullable(inner) => typevar_appears_in(inner, name),
+        _ => false,
+    }
+}
+
+fn typevar_appears_in_iter(tys: &[Type], name: &str) -> bool {
+    tys.iter().any(|t| typevar_appears_in(t, name))
+}
+
 fn substitute_typevars(ty: &Type, subst: &HashMap<String, Type>) -> Type {
     match ty {
         Type::TypeVar(name) => subst.get(name).cloned().unwrap_or_else(|| ty.clone()),
@@ -4676,16 +4707,65 @@ impl Checker {
                     && let Some(type_params) = self.generic_type_params.get(name).cloned()
                     && let Some(Type::Function(params, ret)) = self.globals.get(name).cloned()
                 {
-                    // NOTE — implicit-generic fns (untyped JS params) get
-                    // arity-checked here. T-28 considered relaxing this
-                    // path to allow trailing missing args, but the SSA
-                    // layer collapses Type::Any → "number" for mono
-                    // naming (see `type_to_ann` in check.rs), so a
-                    // padded ANY_UNDEF Any-box gets stuffed into a
-                    // Number i64 slot and the callee reads garbage.
-                    // L3b item: propagate Type::Any distinctly through
-                    // the SSA mono layer; until then, T-28 only covers
-                    // explicit `: any` params (typed-tier path below).
+                    // T-28 — Default param missing → undefined for
+                    // implicit-generic fns. Untyped JS params
+                    // (`function f(a, b)`) get rewritten to fresh
+                    // independent TypeVars by `desugar_implicit_generics`,
+                    // so they land here. Conditions: trailing missing
+                    // params must all be TypeVar AND each trailing
+                    // TypeVar must NOT appear in earlier params or in
+                    // the return type. When safe, bind them to
+                    // Type::Any and pad with ANY_UNDEF at the call
+                    // site (T-28-substrate enables Any to round-trip
+                    // through type_to_ann / parse_type so the mono
+                    // gets a real Any-typed param slot).
+                    if args.len() < params.len() {
+                        let missing = params.len() - args.len();
+                        let trailing = &params[args.len()..];
+                        let trailing_typevars: Vec<&str> = trailing
+                            .iter()
+                            .filter_map(|p| match p {
+                                Type::TypeVar(n) => Some(n.as_str()),
+                                _ => None,
+                            })
+                            .collect();
+                        let trailing_all_typevar = trailing_typevars.len() == trailing.len();
+                        let earlier = &params[..args.len()];
+                        let trailing_independent = trailing_all_typevar
+                            && trailing_typevars.iter().all(|tv| {
+                                !typevar_appears_in_iter(earlier, tv)
+                                    && !typevar_appears_in(&ret, tv)
+                            });
+                        if trailing_independent {
+                            let mut subst: HashMap<String, Type> = HashMap::new();
+                            for (i, (param_ty, arg_id)) in
+                                params.iter().take(args.len()).zip(args.iter()).enumerate()
+                            {
+                                let arg_ty = self.type_of(ast, *arg_id)?;
+                                if let Err(e) = unify_typevar(param_ty, &arg_ty, &mut subst)
+                                {
+                                    return Err(format!(
+                                        "argument {i} to `{name}`: {e}"
+                                    ));
+                                }
+                            }
+                            for tv in &trailing_typevars {
+                                subst.insert(tv.to_string(), Type::Any);
+                            }
+                            for tp in &type_params {
+                                subst.entry(tp.clone()).or_insert(Type::Any);
+                            }
+                            let resolved_ret = substitute_typevars(&ret, &subst);
+                            let type_args: Vec<Type> = type_params
+                                .iter()
+                                .map(|tp| subst.get(tp).cloned().unwrap())
+                                .collect();
+                            self.generic_call_sites
+                                .insert(eid, (name.clone(), type_args));
+                            self.arity_pad_count.insert(eid, missing);
+                            return Ok(resolved_ret);
+                        }
+                    }
                     if params.len() != args.len() {
                         return Err(format!(
                             "expected {} argument(s) to `{name}`, got {}",
