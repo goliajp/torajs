@@ -1093,6 +1093,80 @@ void __torajs_arr_drop_any(void *arr) {
     free(arr);
 }
 
+/* T-27.b — Function-as-Object side table for top-level FnDecls.
+ *
+ * Top-level FnDecls (Type::FnSig at SSA layer) are bare fn pointers
+ * with no env block, so the in-closure props_dynobj field at
+ * CLOSURE_PROPS_OFF doesn't apply. Instead we keep a global
+ * hashmap keyed by fn pointer → dynobj. Top-level FnDecls live
+ * forever (no drop), so no cleanup hook needed.
+ *
+ * Hash: 256 buckets, MurmurHash-style finalizer mix on the
+ * pointer's bits. Chained collision resolution. Per-fn allocs
+ * happen lazily on first prop access — fns that never get
+ * `.x = v` pay zero cost (no node, no dynobj).
+ *
+ * Closure-form fns (Type::Closure) use the in-layout path
+ * (CLOSURE_PROPS_OFF) — see fn_props_set / fn_props_get in
+ * ssa_lower.rs. Side-table is only for FnSig. */
+
+typedef struct __torajs_fnprops_node {
+    void *fn_ptr;
+    void *dynobj;
+    struct __torajs_fnprops_node *next;
+} __torajs_fnprops_node_t;
+
+#define __TORAJS_FNPROPS_BUCKETS 256
+static __torajs_fnprops_node_t *__torajs_fnprops_table[__TORAJS_FNPROPS_BUCKETS] = {0};
+
+static uint32_t __torajs_fnprops_hash(void *p) {
+    uintptr_t x = (uintptr_t)p;
+    x = (x ^ (x >> 33)) * 0xff51afd7ed558ccdULL;
+    x = (x ^ (x >> 33)) * 0xc4ceb9fe1a85ec53ULL;
+    x = x ^ (x >> 33);
+    return (uint32_t)(x % __TORAJS_FNPROPS_BUCKETS);
+}
+
+static __torajs_fnprops_node_t *__torajs_fnprops_find(void *fn_ptr) {
+    uint32_t h = __torajs_fnprops_hash(fn_ptr);
+    __torajs_fnprops_node_t *n = __torajs_fnprops_table[h];
+    while (n) {
+        if (n->fn_ptr == fn_ptr) return n;
+        n = n->next;
+    }
+    return NULL;
+}
+
+static __torajs_fnprops_node_t *__torajs_fnprops_intern(void *fn_ptr) {
+    __torajs_fnprops_node_t *n = __torajs_fnprops_find(fn_ptr);
+    if (n) return n;
+    uint32_t h = __torajs_fnprops_hash(fn_ptr);
+    n = (__torajs_fnprops_node_t *)malloc(sizeof(__torajs_fnprops_node_t));
+    n->fn_ptr = fn_ptr;
+    n->dynobj = NULL;
+    n->next = __torajs_fnprops_table[h];
+    __torajs_fnprops_table[h] = n;
+    return n;
+}
+
+void __torajs_fnprops_set(void *fn_ptr, void *key, int64_t tag, int64_t value) {
+    __torajs_fnprops_node_t *n = __torajs_fnprops_intern(fn_ptr);
+    if (n->dynobj == NULL) n->dynobj = __torajs_dynobj_alloc();
+    __torajs_dynobj_set(&n->dynobj, key, (uint64_t)tag, (uint64_t)value);
+}
+
+uint64_t __torajs_fnprops_get_tag(void *fn_ptr, const void *key) {
+    __torajs_fnprops_node_t *n = __torajs_fnprops_find(fn_ptr);
+    if (n == NULL || n->dynobj == NULL) return 5;  /* ANY_UNDEF */
+    return __torajs_dynobj_get_tag(n->dynobj, key);
+}
+
+uint64_t __torajs_fnprops_get_value(void *fn_ptr, const void *key) {
+    __torajs_fnprops_node_t *n = __torajs_fnprops_find(fn_ptr);
+    if (n == NULL || n->dynobj == NULL) return 0;
+    return __torajs_dynobj_get_value(n->dynobj, key);
+}
+
 /* T-10.d.i — Type::Any boxed-value runtime.
  *
  * Layout: 24 bytes — [hdr 8: refcount/type_tag=ANY_BOX/flags]

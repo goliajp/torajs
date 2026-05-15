@@ -4044,6 +4044,13 @@ impl Checker {
                     // routes through dynobj_get_tag/value. Missing
                     // properties read as undefined per spec.
                     (Type::Any, _) => Ok(Type::Any),
+                    // T-27 — Function-as-Object reads. Per ECMAScript
+                    // §10.2 functions are objects. `f.x` on a closure
+                    // reads from its lazy props_dynobj at offset
+                    // CLOSURE_PROPS_OFF; missing/unset → undefined.
+                    // Built-in props (.length, .name, etc.) are not
+                    // yet implemented — currently return undefined too.
+                    (Type::Function(..), _) => Ok(Type::Any),
                     _ => Err(format!("no member `.{name}` on type {obj_ty:?}")),
                 }
             }
@@ -5906,6 +5913,17 @@ impl Checker {
                         // accepts any value; ssa_lower routes through
                         // dynobj_set with the (tag, value) pair.
                         if matches!(obj_ty, Type::Any) {
+                            let _ = self.type_of(ast, *value)?;
+                            self.consume(ast, *value);
+                            return Ok(Type::Any);
+                        }
+                        // T-27 — Function-as-Object. `f.x = v` writes
+                        // to the closure's lazy props_dynobj at offset
+                        // CLOSURE_PROPS_OFF. Per ECMAScript §10.2 the
+                        // function value IS an object. ssa_lower routes
+                        // through dynobj_set against the closure's
+                        // props field (allocated on first write).
+                        if matches!(obj_ty, Type::Function(..)) {
                             let _ = self.type_of(ast, *value)?;
                             self.consume(ast, *value);
                             return Ok(Type::Any);
