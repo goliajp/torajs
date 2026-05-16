@@ -3379,6 +3379,52 @@ void *__torajs_str_substring(const uint8_t *s, int64_t start, int64_t end) {
     return p;
 }
 
+/* T-29.b — `Object.defineProperty(arr, "length", { value: v })` validation
+ * per JS spec §9.4.2.4 ArraySetLength. The descriptor value must satisfy
+ * ToUint32(v) === ToNumber(v); otherwise throws RangeError. Common
+ * failing cases: negative number, NaN, fractional non-integer, value
+ * outside [0, 2^32-1].
+ *
+ * tora's typed pack: tag 1=Bool, 2=I64, 3=F64-bits, 4=heap, 5=undef,
+ * 0=null/other. The caller (ssa_lower defineProperty intercept) packs
+ * the descriptor.value into (tag, value-as-i64) using the same table
+ * the BinOp Any===concrete arm uses.
+ *
+ * On RangeError: stores the error string into the thread-local throw
+ * slot via `__torajs_throw_set`. The ssa_lower-side `emit_throw_check`
+ * after this call branches to the function's throw handler — try/catch
+ * around the defineProperty call (the test262 / assert.throws shape)
+ * catches it; without a handler the throw propagates to fn boundary.
+ */
+extern void __torajs_throw_set(int64_t v);
+static void torajs_throw_range_error(const char *msg) {
+    uint64_t len = strlen(msg);
+    uint8_t *err = str_alloc_(len);
+    if (len) memcpy(__TORAJS_STR_DATA(err), msg, (size_t)len);
+    __torajs_throw_set((int64_t)(uintptr_t)err);
+}
+
+void __torajs_arr_set_length_validate(int64_t tag, int64_t value) {
+    /* Resolve descriptor.value to a JS Number. tora's typed pack:
+     *   tag 1=Bool · 2=I64 · 3=F64-bits · 4=heap · 5=undef · 0=null/other.
+     * Bool / null map to 0 or 1 (valid lengths); undefined and heap
+     * objects map to NaN (invalid). */
+    double n;
+    switch (tag) {
+        case 0: return;            /* null → ToNumber=0 → valid */
+        case 1: return;            /* Bool 0/1 → valid */
+        case 2: n = (double)value; break;
+        case 3: { union { int64_t i; double d; } u = { .i = value }; n = u.d; break; }
+        default: torajs_throw_range_error("Invalid array length"); return;
+    }
+    /* Spec §9.4.2.4: throw if ToUint32(v) !== ToNumber(v). Equivalent
+     * check: n must be a non-negative integer in [0, 2^32 - 1]. NaN /
+     * Infinity / fractional / negative / overflow all fail. */
+    if (n != n || n < 0.0 || n > 4294967295.0 || n != (double)(int64_t)n) {
+        torajs_throw_range_error("Invalid array length");
+    }
+}
+
 /* T-49 — `s.substr(start, length)` (annexB legacy). Diverges from
  * slice / substring in two ways per JS spec §B.2.3.1:
  *   - Negative start wraps to `max(size + start, 0)` (slice wraps too;
