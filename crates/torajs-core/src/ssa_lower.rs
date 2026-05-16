@@ -18637,17 +18637,56 @@ impl<'a> LowerCtx<'a> {
                         );
                         self.cur_block = body;
                         // T-13.5: head-aware offset for indexOf-style scan.
-                        let off = self.emit_arr_slot_byte_offset(
-                            recv_op.clone(),
-                            Operand::Value(i_cur),
-                            3,
-                        );
-                        let elem = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::LoadDyn(elem_ty, recv_op, off),
-                            elem_ty,
-                            None,
-                        );
+                        // T-48 — Array<Any> slots are 16-byte tagged
+                        // (tag,value) pairs. The 8-byte-stride LoadDyn
+                        // path below only matches I64/F64/Str arrays; for
+                        // Any we go through the same arr_get_any_tag /
+                        // _value / any_box dance the regular `xs[i]` read
+                        // uses (P1.4). This per-iteration alloc is the
+                        // same trade-off Index read accepts — performance
+                        // can come later via a fused includes helper if
+                        // it shows up in profiles.
+                        let elem = if elem_ty == Type::Any {
+                            let tag = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(
+                                    self.intrinsics.arr_get_any_tag,
+                                    vec![recv_op.clone(), Operand::Value(i_cur)],
+                                ),
+                                Type::I64,
+                                None,
+                            );
+                            let value = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(
+                                    self.intrinsics.arr_get_any_value,
+                                    vec![recv_op.clone(), Operand::Value(i_cur)],
+                                ),
+                                Type::I64,
+                                None,
+                            );
+                            self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(
+                                    self.intrinsics.any_box,
+                                    vec![Operand::Value(tag), Operand::Value(value)],
+                                ),
+                                Type::Any,
+                                None,
+                            )
+                        } else {
+                            let off = self.emit_arr_slot_byte_offset(
+                                recv_op.clone(),
+                                Operand::Value(i_cur),
+                                3,
+                            );
+                            self.f.append_inst(
+                                self.cur_block,
+                                InstKind::LoadDyn(elem_ty, recv_op, off),
+                                elem_ty,
+                                None,
+                            )
+                        };
                         let eq = match elem_ty {
                             Type::F64 => self.f.append_inst(
                                 self.cur_block,
@@ -18668,6 +18707,74 @@ impl<'a> LowerCtx<'a> {
                                 Type::Bool,
                                 None,
                             ),
+                            // T-48 — Array<Any> per-element compare must go
+                            // through the boxed-any strict-eq helpers, not
+                            // raw ICmp. The elem is always a heap-Box ptr
+                            // (Type::Any); the needle may be either Any
+                            // (another box ptr) or a concrete primitive.
+                            // Pre-fix this arm fell through to ICmp(Ptr, I64)
+                            // when needle was a primitive, producing
+                            // "LLVM verify: Both operands to ICmp instruction
+                            // are not of the same type!" 3 cases under
+                            // test/built-ins/Array/prototype/{includes,
+                            // indexOf, lastIndexOf}/*.
+                            Type::Any => {
+                                if matches!(needle_ty, Type::Any) {
+                                    self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::Call(
+                                            self.intrinsics.any_any_strict_eq,
+                                            vec![Operand::Value(elem), needle],
+                                        ),
+                                        Type::Bool,
+                                        None,
+                                    )
+                                } else {
+                                    // Pack needle as (tag, value-as-i64) — same
+                                    // shape as the BinOp Any === concrete arm.
+                                    let (tag, value): (i64, Operand) = match needle_ty {
+                                        Type::I64 | Type::I32 => (2, needle.clone()),
+                                        Type::F64 => {
+                                            let bits = self.f.append_inst(
+                                                self.cur_block,
+                                                InstKind::BitCastF64ToI64(needle.clone()),
+                                                Type::I64,
+                                                None,
+                                            );
+                                            (3, Operand::Value(bits))
+                                        }
+                                        Type::Bool => {
+                                            let zext = self.f.append_inst(
+                                                self.cur_block,
+                                                InstKind::ZExtBoolToI64(needle.clone()),
+                                                Type::I64,
+                                                None,
+                                            );
+                                            (1, Operand::Value(zext))
+                                        }
+                                        Type::Ptr
+                                            if matches!(needle, Operand::ConstPtrNull) =>
+                                        {
+                                            (0, Operand::ConstI64(0))
+                                        }
+                                        t if t.is_refcounted() => (4, needle.clone()),
+                                        _ => (0, Operand::ConstI64(0)),
+                                    };
+                                    self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::Call(
+                                            self.intrinsics.any_strict_eq,
+                                            vec![
+                                                Operand::Value(elem),
+                                                Operand::ConstI64(tag),
+                                                value,
+                                            ],
+                                        ),
+                                        Type::Bool,
+                                        None,
+                                    )
+                                }
+                            }
                             _ => self.f.append_inst(
                                 self.cur_block,
                                 InstKind::ICmp(
