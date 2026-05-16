@@ -4319,6 +4319,26 @@ impl Checker {
                 Ok(Type::Struct(field_tys))
             }
             Expr::Call { callee, args } => {
+                // T-45 — synthetic call from parser for binary `in`
+                // operator: `__torajs_in_op(key, obj)`. ssa_lower
+                // intercepts by name and emits the type-dispatched
+                // membership check. Returns Boolean unconditionally.
+                if let Expr::Ident(n) = ast.get_expr(*callee)
+                    && n == "__torajs_in_op"
+                    && args.len() == 2
+                {
+                    let _ = self.type_of(ast, args[0])?;
+                    let obj_ty = self.type_of(ast, args[1])?;
+                    if !matches!(
+                        obj_ty,
+                        Type::Array(_) | Type::Any
+                    ) {
+                        return Err(format!(
+                            "`in` rhs must be Array or any (subset stub); got {obj_ty:?}"
+                        ));
+                    }
+                    return Ok(Type::Boolean);
+                }
                 /* T-19.l (v0.5.0) — `Promise<T>.then(onOk, onRejected)`
                  * 2-arg form. Spec equivalent of `.then(onOk).catch
                  * (onRejected)`. Both cbs share the simple cb shape

@@ -13034,6 +13034,80 @@ impl<'a> LowerCtx<'a> {
                 }
             }
             Expr::Call { callee, args } => {
+                // T-45 — synthetic `__torajs_in_op(key, obj)` from the
+                // parser's binary `in` rewrite. Dispatch on obj's
+                // static SSA type:
+                //   Type::Arr(_) → bounds check (key as i64 ∈ [0, len))
+                //   Type::Any   → __torajs_dynobj_has via box value@16
+                if let Expr::Ident(n) = self.ast.get_expr(*callee)
+                    && n == "__torajs_in_op"
+                    && args.len() == 2
+                {
+                    let key_op = self.lower_expr(args[0]);
+                    let obj_op = self.lower_expr(args[1]);
+                    let obj_ty = self.operand_ty(&obj_op);
+                    if matches!(obj_ty, Type::Arr(_)) {
+                        // Numeric bounds check. Key may be Number (I64
+                        // or F64); coerce to I64 for the comparison.
+                        let key_i64 = self.coerce_to_i64(key_op);
+                        let len = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(Type::I64, obj_op, ARR_LEN_OFF),
+                            Type::I64,
+                            None,
+                        );
+                        // Bool = (key >= 0) AND (key < len)
+                        let ge0 = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::ICmp(IPred::Sge, key_i64.clone(), Operand::ConstI64(0)),
+                            Type::Bool,
+                            None,
+                        );
+                        let lt = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::ICmp(IPred::Slt, key_i64, Operand::Value(len)),
+                            Type::Bool,
+                            None,
+                        );
+                        let r = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::BinOp(SsaBinOp::And, Operand::Value(ge0), Operand::Value(lt)),
+                            Type::Bool,
+                            None,
+                        );
+                        return Operand::Value(r);
+                    }
+                    if matches!(obj_ty, Type::Any) {
+                        // Any-box → dynobj at value@16. Coerce key to
+                        // Str (callers typically pass a String literal
+                        // or numeric → string). For the supported
+                        // shape the key arrives as Type::Str already.
+                        let dynobj = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(Type::Ptr, obj_op, 16),
+                            Type::Ptr,
+                            None,
+                        );
+                        let r = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.dynobj_has,
+                                vec![Operand::Value(dynobj), key_op],
+                            ),
+                            Type::I32,
+                            None,
+                        );
+                        // dynobj_has returns int32; coerce to bool.
+                        let b = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::ICmp(IPred::Ne, Operand::Value(r), Operand::ConstI64(0)),
+                            Type::Bool,
+                            None,
+                        );
+                        return Operand::Value(b);
+                    }
+                    panic!("ssa-lower: `in` rhs unsupported type {obj_ty:?}");
+                }
                 /* V3-03 — `BigInt(value)` callable ctor. Single arg
                  * required; dispatch on the arg's static SSA type:
                  *   Type::BigInt → bigint_clone

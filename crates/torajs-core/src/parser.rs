@@ -3134,6 +3134,25 @@ impl Parser<'_> {
                 });
                 continue;
             }
+            // T-45 — binary `in` operator. JS contextual keyword:
+            // `<key> in <obj>` returns true if obj has property key.
+            // tora's lexer keeps "in" as Token::Ident("in") so the
+            // for-in loop parser can detect it; here we accept it as
+            // a binary operator at relational precedence and emit a
+            // synthetic Call to `__torajs_in_op(key, obj)` (which
+            // check.rs/ssa_lower intercept by name) — avoids adding
+            // a new Expr variant that every recursive walker would
+            // need to handle exhaustively.
+            if matches!(self.peek(), Token::Ident(n) if n == "in") {
+                self.pos += 1;
+                let right = self.parse_shift()?;
+                let callee = self.ast.add_expr(Expr::Ident("__torajs_in_op".to_string()));
+                left = self.ast.add_expr(Expr::Call {
+                    callee,
+                    args: vec![left, right],
+                });
+                continue;
+            }
             let op = match self.peek() {
                 Token::Lt => BinOp::Lt,
                 Token::Gt => BinOp::Gt,
