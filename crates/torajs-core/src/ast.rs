@@ -6621,10 +6621,18 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
     // Snapshot per-fn user-param names, indexed by FnDecl name. The
     // walk below mutates expression nodes in place using these
     // snapshots.
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
     let mut fn_params: HashMap<String, Vec<String>> = HashMap::new();
+    // T-31 — fns where `arguments.length` is referenced. Restricted to
+    // free top-level FnDecls (user_start == 0; closures with `__env`
+    // and class methods with `__this` keep the old declared-arity fold
+    // to avoid disturbing their dispatch ABI). Each such fn gets a
+    // synthetic first param `__torajs_real_argc: number`, and every
+    // direct-Ident-callee Call to it gets `Number(args.len())`
+    // prepended below.
+    let mut uses_real_argc: HashSet<String> = HashSet::new();
     for s in &ast.stmts {
-        if let Stmt::FnDecl { name, params, .. } = s {
+        if let Stmt::FnDecl { name, params, body, .. } = s {
             // Skip the synthetic `__env` (closure capture vector) and
             // `__this` (class instance) prefix params — they're not
             // user-visible "arguments". Everything after is the
@@ -6639,6 +6647,29 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
                 .map(|p| p.name.clone())
                 .collect();
             fn_params.insert(name.clone(), names);
+            if user_start == 0 && body_has_arguments_length(ast, body) {
+                uses_real_argc.insert(name.clone());
+            }
+        }
+    }
+
+    // T-31 — inject `__torajs_real_argc: number` at param[0] for each
+    // uses_real_argc fn. Done before the body-rewrite walk so the
+    // typechecker (which runs after desugar) sees the new signature
+    // and so the recursive `arguments.length` rewrite below can resolve
+    // `Ident("__torajs_real_argc")` cleanly.
+    if !uses_real_argc.is_empty() {
+        for s in ast.stmts.iter_mut() {
+            if let Stmt::FnDecl { name, params, .. } = s
+                && uses_real_argc.contains(name)
+            {
+                params.insert(0, Param {
+                    name: "__torajs_real_argc".into(),
+                    type_ann: Some("number".into()),
+                    default: None,
+                    is_rest: false,
+                });
+            }
         }
     }
 
@@ -6647,6 +6678,7 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
         if let Stmt::FnDecl { name, body, .. } = stmt {
             let Some(params) = fn_params.get(name) else { continue };
             let params = params.clone();
+            let real_argc_here = uses_real_argc.contains(name);
             // T-11 — pre-pass: detect any dynamic `arguments[<non-
             // literal>]` use. If found, prepend a synthesized
             // `let __torajs_arguments: any[] = [p0, p1, ...]` before
@@ -6662,7 +6694,7 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
             }
             let new_body: Vec<Stmt> = body
                 .iter()
-                .map(|s| rewrite_arguments_in_stmt(ast, s, &params))
+                .map(|s| rewrite_arguments_in_stmt(ast, s, &params, real_argc_here))
                 .collect();
             // Synthesize the local OUTSIDE the &mut ast.stmts borrow
             // (synth_arguments_local also takes &mut ast for add_expr).
@@ -6681,6 +6713,37 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
                     *b = new_body;
                 }
             }
+        }
+    }
+
+    // T-31 — arena walk: every Call whose callee is a direct Ident to
+    // a uses_real_argc fn gets `Number(args.len())` prepended as new
+    // arg[0]. args.len() at this point is the user-passed count BEFORE
+    // T-28's trailing-undef pad runs in check.rs / ssa_lower. The
+    // checker sees the prepended arg, accepts the call (the remaining
+    // user params are all Any and qualify for T-28 pad), and ssa_lower
+    // lowers the prepended Number as ConstI64 matching the callee's
+    // `: number` first param.
+    if !uses_real_argc.is_empty() {
+        let n = ast.exprs.len();
+        for i in 0..n {
+            let (callee, args_clone) = match &ast.exprs[i] {
+                Expr::Call { callee, args } => (*callee, args.clone()),
+                _ => continue,
+            };
+            let name = match ast.get_expr(callee) {
+                Expr::Ident(n) => n.clone(),
+                _ => continue,
+            };
+            if !uses_real_argc.contains(&name) {
+                continue;
+            }
+            let argc = args_clone.len();
+            let argc_lit = ast.add_expr(Expr::Number(argc as f64));
+            let mut new_args = Vec::with_capacity(argc + 1);
+            new_args.push(argc_lit);
+            new_args.extend(args_clone);
+            ast.exprs[i] = Expr::Call { callee, args: new_args };
         }
     }
 }
@@ -6833,6 +6896,104 @@ fn count_user_params(_ast: &Ast, _eid: ExprId) -> usize {
     usize::MAX
 }
 
+/// T-31 — returns true if the fn body references `arguments.length`
+/// (i.e. an `Expr::Member { obj: Ident("arguments"), name: "length" }`)
+/// anywhere. Used by `desugar_arguments_object` to decide whether to
+/// inject the `__torajs_real_argc` synthetic param.
+fn body_has_arguments_length(ast: &Ast, body: &[Stmt]) -> bool {
+    body.iter().any(|s| stmt_has_arguments_length(ast, s))
+}
+
+fn stmt_has_arguments_length(ast: &Ast, s: &Stmt) -> bool {
+    match s {
+        Stmt::Expr(eid) | Stmt::Throw(eid) | Stmt::Yield(eid) => {
+            expr_has_arguments_length(ast, *eid)
+        }
+        Stmt::Return(opt) => opt.is_some_and(|e| expr_has_arguments_length(ast, e)),
+        Stmt::LetDecl { init, .. } => expr_has_arguments_length(ast, *init),
+        Stmt::YieldInto { value, .. } => expr_has_arguments_length(ast, *value),
+        Stmt::If { cond, then_branch, else_branch } => {
+            expr_has_arguments_length(ast, *cond)
+                || stmt_has_arguments_length(ast, then_branch)
+                || else_branch
+                    .as_ref()
+                    .is_some_and(|e| stmt_has_arguments_length(ast, e))
+        }
+        Stmt::While { cond, body } | Stmt::DoWhile { cond, body } => {
+            expr_has_arguments_length(ast, *cond) || stmt_has_arguments_length(ast, body)
+        }
+        Stmt::For { init, cond, step, body } => {
+            init.as_ref().is_some_and(|s| stmt_has_arguments_length(ast, s))
+                || cond.is_some_and(|c| expr_has_arguments_length(ast, c))
+                || step.is_some_and(|st| expr_has_arguments_length(ast, st))
+                || stmt_has_arguments_length(ast, body)
+        }
+        Stmt::ForOfSplitIter { parent, sep, body, .. } => {
+            expr_has_arguments_length(ast, *parent)
+                || expr_has_arguments_length(ast, *sep)
+                || stmt_has_arguments_length(ast, body)
+        }
+        Stmt::Block(stmts) | Stmt::Multi(stmts) => {
+            stmts.iter().any(|s| stmt_has_arguments_length(ast, s))
+        }
+        Stmt::Try { body, catch_body, finally_body, .. } => {
+            body.iter().any(|s| stmt_has_arguments_length(ast, s))
+                || catch_body.iter().any(|s| stmt_has_arguments_length(ast, s))
+                || finally_body.as_ref().is_some_and(|fb| {
+                    fb.iter().any(|s| stmt_has_arguments_length(ast, s))
+                })
+        }
+        // Nested FnDecl is an independent scope; its `arguments`
+        // refers to the inner fn, not the outer one we're scanning.
+        // desugar_nested_fns lifts these to top-level before us, so
+        // this arm is mostly defensive.
+        _ => false,
+    }
+}
+
+fn expr_has_arguments_length(ast: &Ast, eid: ExprId) -> bool {
+    match ast.get_expr(eid) {
+        Expr::Member { obj, name } if name == "length" => {
+            if matches!(ast.get_expr(*obj), Expr::Ident(n) if n == "arguments") {
+                return true;
+            }
+            expr_has_arguments_length(ast, *obj)
+        }
+        Expr::Member { obj, .. } => expr_has_arguments_length(ast, *obj),
+        Expr::Index { obj, index } => {
+            expr_has_arguments_length(ast, *obj) || expr_has_arguments_length(ast, *index)
+        }
+        Expr::BinOp { left, right, .. } => {
+            expr_has_arguments_length(ast, *left) || expr_has_arguments_length(ast, *right)
+        }
+        Expr::Unary { expr, .. }
+        | Expr::TypeOf { expr }
+        | Expr::PostIncr { target: expr, .. } => expr_has_arguments_length(ast, *expr),
+        Expr::Assign { target, value } => {
+            expr_has_arguments_length(ast, *target) || expr_has_arguments_length(ast, *value)
+        }
+        Expr::Call { callee, args } => {
+            expr_has_arguments_length(ast, *callee)
+                || args.iter().any(|a| expr_has_arguments_length(ast, *a))
+        }
+        Expr::Array(items) => items.iter().any(|e| expr_has_arguments_length(ast, *e)),
+        Expr::ObjectLit { fields } => {
+            fields.iter().any(|(_, e)| expr_has_arguments_length(ast, *e))
+        }
+        Expr::Spread { expr } => expr_has_arguments_length(ast, *expr),
+        Expr::Ternary { cond, then_branch, else_branch } => {
+            expr_has_arguments_length(ast, *cond)
+                || expr_has_arguments_length(ast, *then_branch)
+                || expr_has_arguments_length(ast, *else_branch)
+        }
+        Expr::Nullish { lhs, rhs } => {
+            expr_has_arguments_length(ast, *lhs) || expr_has_arguments_length(ast, *rhs)
+        }
+        Expr::OptChain { obj, .. } => expr_has_arguments_length(ast, *obj),
+        _ => false,
+    }
+}
+
 /// T-11 — synthesize `let __torajs_arguments: any[] = [p0, p1, ...]`
 /// for prepending to a fn body. Each param Ident becomes one array
 /// element; the LetDecl arm in ssa_lower routes through the forced-
@@ -6852,70 +7013,75 @@ fn synth_arguments_local(ast: &mut Ast, params: &[String]) -> Stmt {
             }
 }
 
-fn rewrite_arguments_in_stmt(ast: &mut Ast, s: &Stmt, params: &[String]) -> Stmt {
+fn rewrite_arguments_in_stmt(
+    ast: &mut Ast,
+    s: &Stmt,
+    params: &[String],
+    uses_real_argc: bool,
+) -> Stmt {
     match s {
-        Stmt::Expr(eid) => Stmt::Expr(rewrite_arguments_in_expr(ast, *eid, params)),
-        Stmt::Throw(eid) => Stmt::Throw(rewrite_arguments_in_expr(ast, *eid, params)),
+        Stmt::Expr(eid) => Stmt::Expr(rewrite_arguments_in_expr(ast, *eid, params, uses_real_argc)),
+        Stmt::Throw(eid) => Stmt::Throw(rewrite_arguments_in_expr(ast, *eid, params, uses_real_argc)),
         Stmt::Return(Some(eid)) => {
-            Stmt::Return(Some(rewrite_arguments_in_expr(ast, *eid, params)))
+            Stmt::Return(Some(rewrite_arguments_in_expr(ast, *eid, params, uses_real_argc)))
         }
         Stmt::Return(None) => Stmt::Return(None),
         Stmt::LetDecl { mutable, name, type_ann, init, is_var } => Stmt::LetDecl {
             mutable: *mutable,
             name: name.clone(),
             type_ann: type_ann.clone(),
-            init: rewrite_arguments_in_expr(ast, *init, params),
+            init: rewrite_arguments_in_expr(ast, *init, params, uses_real_argc),
         is_var: false,
             },
         Stmt::Block(stmts) => Stmt::Block(
             stmts
                 .iter()
-                .map(|s| rewrite_arguments_in_stmt(ast, s, params))
+                .map(|s| rewrite_arguments_in_stmt(ast, s, params, uses_real_argc))
                 .collect(),
         ),
         Stmt::Multi(stmts) => Stmt::Multi(
             stmts
                 .iter()
-                .map(|s| rewrite_arguments_in_stmt(ast, s, params))
+                .map(|s| rewrite_arguments_in_stmt(ast, s, params, uses_real_argc))
                 .collect(),
         ),
         Stmt::If { cond, then_branch, else_branch } => Stmt::If {
-            cond: rewrite_arguments_in_expr(ast, *cond, params),
-            then_branch: Box::new(rewrite_arguments_in_stmt(ast, then_branch, params)),
+            cond: rewrite_arguments_in_expr(ast, *cond, params, uses_real_argc),
+            then_branch: Box::new(rewrite_arguments_in_stmt(ast, then_branch, params, uses_real_argc)),
             else_branch: else_branch
                 .as_ref()
-                .map(|eb| Box::new(rewrite_arguments_in_stmt(ast, eb, params))),
+                .map(|eb| Box::new(rewrite_arguments_in_stmt(ast, eb, params, uses_real_argc))),
         },
         Stmt::While { cond, body } => Stmt::While {
-            cond: rewrite_arguments_in_expr(ast, *cond, params),
-            body: Box::new(rewrite_arguments_in_stmt(ast, body, params)),
+            cond: rewrite_arguments_in_expr(ast, *cond, params, uses_real_argc),
+            body: Box::new(rewrite_arguments_in_stmt(ast, body, params, uses_real_argc)),
         },
         Stmt::DoWhile { cond, body } => Stmt::DoWhile {
-            cond: rewrite_arguments_in_expr(ast, *cond, params),
-            body: Box::new(rewrite_arguments_in_stmt(ast, body, params)),
+            cond: rewrite_arguments_in_expr(ast, *cond, params, uses_real_argc),
+            body: Box::new(rewrite_arguments_in_stmt(ast, body, params, uses_real_argc)),
         },
         Stmt::For { init, cond, step, body } => Stmt::For {
-            init: init.as_ref().map(|i| Box::new(rewrite_arguments_in_stmt(ast, i, params))),
-            cond: cond.map(|c| rewrite_arguments_in_expr(ast, c, params)),
-            step: step.map(|u| rewrite_arguments_in_expr(ast, u, params)),
-            body: Box::new(rewrite_arguments_in_stmt(ast, body, params)),
+            init: init.as_ref().map(|i| Box::new(rewrite_arguments_in_stmt(ast, i, params, uses_real_argc))),
+            cond: cond.map(|c| rewrite_arguments_in_expr(ast, c, params, uses_real_argc)),
+            step: step.map(|u| rewrite_arguments_in_expr(ast, u, params, uses_real_argc)),
+            body: Box::new(rewrite_arguments_in_stmt(ast, body, params, uses_real_argc)),
         },
         Stmt::Try { body, had_catch, catch_param, catch_type, catch_body, finally_body } => {
             Stmt::Try {
                 body: body
                     .iter()
-                    .map(|s| rewrite_arguments_in_stmt(ast, s, params))
+                    .map(|s| rewrite_arguments_in_stmt(ast, s, params, uses_real_argc))
                     .collect(),
                 had_catch: *had_catch,
                 catch_param: catch_param.clone(),
                 catch_type: catch_type.clone(),
                 catch_body: catch_body
                     .iter()
-                    .map(|s| rewrite_arguments_in_stmt(ast, s, params))
+                    .map(|s| rewrite_arguments_in_stmt(ast, s, params, uses_real_argc))
                     .collect(),
                 finally_body: finally_body.as_ref().map(|fb| {
                     fb.iter()
-                        .map(|s| rewrite_arguments_in_stmt(ast, s, params))
+                        .map(|s| rewrite_arguments_in_stmt(ast, s, params, uses_real_argc))
                         .collect()
                 }),
             }
@@ -6929,20 +7095,33 @@ fn rewrite_arguments_in_stmt(ast: &mut Ast, s: &Stmt, params: &[String]) -> Stmt
     }
 }
 
-fn rewrite_arguments_in_expr(ast: &mut Ast, eid: ExprId, params: &[String]) -> ExprId {
+fn rewrite_arguments_in_expr(
+    ast: &mut Ast,
+    eid: ExprId,
+    params: &[String],
+    uses_real_argc: bool,
+) -> ExprId {
     let e = ast.get_expr(eid).clone();
     match e {
-        // `arguments.length` → Number(<arity>)
+        // `arguments.length` — T-31: when this fn uses real argc,
+        // route to `Ident("__torajs_real_argc")` (the synthetic param
+        // injected by `desugar_arguments_object`). Otherwise fall back
+        // to the declared-arity fold (`Number(<arity>)`) — that path
+        // still serves closures and class methods that don't qualify
+        // for the T-31 ABI change.
         Expr::Member { obj, name } if name == "length" => {
             if let Expr::Ident(n) = ast.get_expr(obj)
                 && n == "arguments"
             {
+                if uses_real_argc {
+                    return ast.add_expr(Expr::Ident("__torajs_real_argc".into()));
+                }
                 return ast.add_expr(Expr::Number(params.len() as f64));
             }
             // Recurse through the receiver; non-arguments member access
             // gets a fresh node so nested rewrites still reach the
             // children.
-            let new_obj = rewrite_arguments_in_expr(ast, obj, params);
+            let new_obj = rewrite_arguments_in_expr(ast, obj, params, uses_real_argc);
             ast.add_expr(Expr::Member { obj: new_obj, name })
         }
         // `arguments[N]` with literal N in [0, arity) → Ident(param[N]).
@@ -6965,26 +7144,26 @@ fn rewrite_arguments_in_expr(ast: &mut Ast, eid: ExprId, params: &[String]) -> E
                 }
                 // Dynamic index (or out-of-range literal): route to
                 // the materialized Array<Any> via __torajs_arguments.
-                let new_index = rewrite_arguments_in_expr(ast, index, params);
+                let new_index = rewrite_arguments_in_expr(ast, index, params, uses_real_argc);
                 let synth_obj =
                     ast.add_expr(Expr::Ident("__torajs_arguments".into()));
                 return ast.add_expr(Expr::Index { obj: synth_obj, index: new_index });
             }
-            let new_obj = rewrite_arguments_in_expr(ast, obj, params);
-            let new_index = rewrite_arguments_in_expr(ast, index, params);
+            let new_obj = rewrite_arguments_in_expr(ast, obj, params, uses_real_argc);
+            let new_index = rewrite_arguments_in_expr(ast, index, params, uses_real_argc);
             ast.add_expr(Expr::Index { obj: new_obj, index: new_index })
         }
         Expr::BinOp { op, left, right } => {
-            let l = rewrite_arguments_in_expr(ast, left, params);
-            let r = rewrite_arguments_in_expr(ast, right, params);
+            let l = rewrite_arguments_in_expr(ast, left, params, uses_real_argc);
+            let r = rewrite_arguments_in_expr(ast, right, params, uses_real_argc);
             ast.add_expr(Expr::BinOp { op, left: l, right: r })
         }
         Expr::Unary { op, expr } => {
-            let e2 = rewrite_arguments_in_expr(ast, expr, params);
+            let e2 = rewrite_arguments_in_expr(ast, expr, params, uses_real_argc);
             ast.add_expr(Expr::Unary { op, expr: e2 })
         }
         Expr::Call { callee, args } => {
-            let c = rewrite_arguments_in_expr(ast, callee, params);
+            let c = rewrite_arguments_in_expr(ast, callee, params, uses_real_argc);
             /* `f(...arguments)` — expand the spread inline into the
              * call arg list as `f(p0, p1, ...)`. Handles arbitrary
              * mix of regular args and the spread. */
@@ -6999,17 +7178,17 @@ fn rewrite_arguments_in_expr(ast: &mut Ast, eid: ExprId, params: &[String]) -> E
                     }
                     continue;
                 }
-                new_args.push(rewrite_arguments_in_expr(ast, *a, params));
+                new_args.push(rewrite_arguments_in_expr(ast, *a, params, uses_real_argc));
             }
             ast.add_expr(Expr::Call { callee: c, args: new_args })
         }
         Expr::Member { obj, name } => {
-            let o = rewrite_arguments_in_expr(ast, obj, params);
+            let o = rewrite_arguments_in_expr(ast, obj, params, uses_real_argc);
             ast.add_expr(Expr::Member { obj: o, name })
         }
         Expr::Assign { target, value } => {
-            let t = rewrite_arguments_in_expr(ast, target, params);
-            let v = rewrite_arguments_in_expr(ast, value, params);
+            let t = rewrite_arguments_in_expr(ast, target, params, uses_real_argc);
+            let v = rewrite_arguments_in_expr(ast, value, params, uses_real_argc);
             ast.add_expr(Expr::Assign { target: t, value: v })
         }
         Expr::Array(elems) => {
@@ -7027,14 +7206,14 @@ fn rewrite_arguments_in_expr(ast: &mut Ast, eid: ExprId, params: &[String]) -> E
                     }
                     continue;
                 }
-                new_elems.push(rewrite_arguments_in_expr(ast, *e, params));
+                new_elems.push(rewrite_arguments_in_expr(ast, *e, params, uses_real_argc));
             }
             ast.add_expr(Expr::Array(new_elems))
         }
         Expr::ObjectLit { fields } => {
             let new_fields: Vec<(String, ExprId)> = fields
                 .iter()
-                .map(|(n, e)| (n.clone(), rewrite_arguments_in_expr(ast, *e, params)))
+                .map(|(n, e)| (n.clone(), rewrite_arguments_in_expr(ast, *e, params, uses_real_argc)))
                 .collect();
             ast.add_expr(Expr::ObjectLit { fields: new_fields })
         }

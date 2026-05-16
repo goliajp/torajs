@@ -20254,11 +20254,19 @@ impl<'a> LowerCtx<'a> {
                     });
                     if let Some((fn_name_owned, params)) = fn_decl {
                         if name == "length" {
-                            // Skip hidden __env first param (lifted closure)
-                            // and __this (class method).
+                            // Skip hidden __env first param (lifted closure),
+                            // __this (class method), and __torajs_real_argc
+                            // (T-31's hidden arg-count prefix). All three are
+                            // synthetic — not part of the user-declared param
+                            // list reported by `f.length`.
                             let visible = params
                                 .iter()
-                                .filter(|p| p.name != "__env" && p.name != "__this" && !p.is_rest)
+                                .filter(|p| {
+                                    p.name != "__env"
+                                        && p.name != "__this"
+                                        && p.name != "__torajs_real_argc"
+                                        && !p.is_rest
+                                })
                                 .count();
                             return Operand::ConstI64(visible as i64);
                         } else {
