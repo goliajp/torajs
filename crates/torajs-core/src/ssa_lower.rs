@@ -14215,6 +14215,7 @@ impl<'a> LowerCtx<'a> {
                     };
                     if let Some(val_eid) = value_eid {
                         let obj_op = self.lower_expr(args[0]);
+                        let obj_ty = self.operand_ty(&obj_op);
                         let key_op = self.lower_expr(args[1]);
                         let v_raw = self.lower_expr(val_eid);
                         let v_ty = self.operand_ty(&v_raw);
@@ -14253,6 +14254,28 @@ impl<'a> LowerCtx<'a> {
                             }
                             _ => (0, Operand::ConstI64(0)),
                         };
+                        // T-29-followup — `Object.defineProperty(arr,
+                        // key, { value })` for Type::Arr first arg.
+                        // Route to arrprops side table (T-29) instead
+                        // of the dynobj-at-offset-16 Any path. Same
+                        // semantics: lazy-alloc + store. Special key
+                        // "length" still misses (would need actual
+                        // array resize) — left as L3b T-29.b.
+                        if matches!(obj_ty, Type::Arr(_)) {
+                            self.f.append_void(
+                                self.cur_block,
+                                InstKind::Call(
+                                    self.intrinsics.arrprops_set,
+                                    vec![
+                                        obj_op,
+                                        key_op,
+                                        Operand::ConstI64(tag),
+                                        val_op,
+                                    ],
+                                ),
+                            );
+                            return Operand::ConstI64(0);
+                        }
                         let dynobj = self.f.append_inst(
                             self.cur_block,
                             InstKind::Load(Type::Ptr, obj_op.clone(), 16),
