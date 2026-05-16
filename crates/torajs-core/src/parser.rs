@@ -858,6 +858,23 @@ impl Parser<'_> {
                 Stmt::Multi(decls)
             });
         }
+        // T-46 — labeled statement (`label: stmt`). JS spec §13.13.
+        // tora doesn't track labels for `break label` / `continue label`
+        // (those are still parsed as bare Break / Continue), so the
+        // minimal handling here is to strip the leading `Ident COLON`
+        // chain and parse the inner stmt. Stacked labels
+        // (`L1: L2: stmt`) are flattened by the recursive call.
+        // Detection: stmt-level `Ident COLON` is unambiguous — the
+        // only conflicting expression-level shape (`obj: type` in an
+        // object literal / interface) only appears as an Expr context,
+        // not as the first two tokens of a Stmt.
+        if let Token::Ident(_) = self.peek()
+            && let Some(next) = self.tokens.get(self.pos + 1)
+            && matches!(next.token, Token::Colon)
+        {
+            self.pos += 2; // consume label ident + ':'
+            return self.parse_stmt();
+        }
         let expr = self.parse_expr()?;
         if matches!(self.peek(), Token::Semi) {
             self.pos += 1;
