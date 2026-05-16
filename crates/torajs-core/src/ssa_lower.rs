@@ -13388,6 +13388,145 @@ impl<'a> LowerCtx<'a> {
                     let v = self.intern_string_literal(&s);
                     return Operand::Value(v);
                 }
+                // P3.struct-method-dispatch — `obj.method()` on inline
+                // struct (Type::Obj, non-class) where the field type is
+                // FnSig or Closure. Class methods use the static
+                // `__cm_<C>__<M>` dispatch (receiver-as-first-arg ABI,
+                // line ~16380); this arm covers non-class structs whose
+                // fields hold function values. Pre-fix the valueOf
+                // shortcut below silently returned the receiver as-is
+                // for Type::Obj, even when the user OVERRODE valueOf —
+                // silent wrong. Other names fell through to the
+                // catch-all panic. Pre-checks obj's static check::Type
+                // to avoid lowering it twice when not matched.
+                if let Expr::Member { obj, name } = self.ast.get_expr(*callee)
+                    && let Some(check_mod::Type::Struct(fields)) = self.expr_types.get(obj)
+                    && let Some((_, field_check_ty)) = fields.iter().find(|(n, _)| n == name)
+                    && matches!(field_check_ty, check_mod::Type::Function(..))
+                {
+                    let recv_op = self.lower_expr(*obj);
+                    let recv_ty = self.operand_ty(&recv_op);
+                    if let Type::Obj(sid) = recv_ty {
+                        let layout = &self.struct_layouts[sid.0 as usize];
+                        if let Some((field_idx, ssa_field_ty)) = layout
+                            .iter()
+                            .enumerate()
+                            .find(|(_, (n, _))| n == name)
+                            .map(|(i, (_, t))| (i, *t))
+                        {
+                            let offset = OBJ_HEADER_SIZE + (field_idx as u64) * 8;
+                            match ssa_field_ty {
+                                Type::FnSig(sig_id) => {
+                                    let fn_ptr = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::Load(Type::Ptr, recv_op, offset),
+                                        Type::Ptr,
+                                        None,
+                                    );
+                                    let argv: Vec<Operand> = args
+                                        .iter()
+                                        .map(|a| self.lower_expr(*a))
+                                        .collect();
+                                    let (_params, ret_ty) =
+                                        self.fn_sigs[sig_id.0 as usize].clone();
+                                    if ret_ty == Type::Void {
+                                        self.f.append_void(
+                                            self.cur_block,
+                                            InstKind::CallIndirect(
+                                                sig_id,
+                                                Operand::Value(fn_ptr),
+                                                argv,
+                                            ),
+                                        );
+                                        return Operand::ConstI64(0);
+                                    }
+                                    let v = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::CallIndirect(
+                                            sig_id,
+                                            Operand::Value(fn_ptr),
+                                            argv,
+                                        ),
+                                        ret_ty,
+                                        None,
+                                    );
+                                    return Operand::Value(v);
+                                }
+                                Type::Closure(user_sig_id) => {
+                                    // Closure-typed field: load the env
+                                    // ptr from the struct slot, then fn
+                                    // ptr from env+CLOSURE_FN_ADDR_OFF.
+                                    // CallIndirect with env prepended to
+                                    // the user args, signature widened
+                                    // by the same Type::Ptr-first prefix
+                                    // the M2 closure path uses.
+                                    let closure_env = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::Load(Type::Ptr, recv_op, offset),
+                                        Type::Ptr,
+                                        None,
+                                    );
+                                    let fn_ptr = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::Load(
+                                            Type::Ptr,
+                                            Operand::Value(closure_env),
+                                            CLOSURE_FN_ADDR_OFF,
+                                        ),
+                                        Type::Ptr,
+                                        None,
+                                    );
+                                    let (user_params, ret_ty) =
+                                        self.fn_sigs[user_sig_id.0 as usize].clone();
+                                    let mut env_first_params =
+                                        Vec::with_capacity(user_params.len() + 1);
+                                    env_first_params.push(Type::Ptr);
+                                    env_first_params.extend(user_params);
+                                    let env_first_sig = intern_fn_sig(
+                                        self.fn_sigs,
+                                        env_first_params,
+                                        ret_ty,
+                                    );
+                                    let mut argv: Vec<Operand> =
+                                        Vec::with_capacity(args.len() + 1);
+                                    argv.push(Operand::Value(closure_env));
+                                    for a in args {
+                                        argv.push(self.lower_expr(*a));
+                                    }
+                                    if ret_ty == Type::Void {
+                                        self.f.append_void(
+                                            self.cur_block,
+                                            InstKind::CallIndirect(
+                                                env_first_sig,
+                                                Operand::Value(fn_ptr),
+                                                argv,
+                                            ),
+                                        );
+                                        return Operand::ConstI64(0);
+                                    }
+                                    let v = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::CallIndirect(
+                                            env_first_sig,
+                                            Operand::Value(fn_ptr),
+                                            argv,
+                                        ),
+                                        ret_ty,
+                                        None,
+                                    );
+                                    return Operand::Value(v);
+                                }
+                                _ => {
+                                    // Field exists but isn't a callable
+                                    // SSA type — fall through to existing
+                                    // arms. Shouldn't happen given the
+                                    // pre-check on check::Type::Function
+                                    // / Closure, but defensive.
+                                }
+                            }
+                        }
+                    }
+                }
                 // V3-18 m2.a / m2.d — Object.prototype methods on
                 // primitives (auto-boxing) AND on struct instances
                 // (class instance objects). Catch BEFORE any other
