@@ -2108,6 +2108,20 @@ fn lower_inner(
         &[Type::Ptr, Type::Ptr, Type::I64, Type::I64],
         Type::Void,
     );
+    // P3.attribute-flag-tracking — separate entry for
+    // `Object.defineProperty` so the runtime can implement spec
+    // §10.1.6.3 ValidateAndApplyPropertyDescriptor (configurable /
+    // writable / enumerable transitions, value-mismatch under
+    // writable=false) without burdening the implicit-set fast path.
+    // `flags_byte` packs the descriptor's present-mask + flag values
+    // — see runtime_str.c for the encoding.
+    let dynobj_define_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_dynobj_define",
+        &[Type::Ptr, Type::Ptr, Type::I64, Type::I64, Type::I64],
+        Type::Void,
+    );
     let dynobj_has_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -4156,6 +4170,7 @@ fn lower_inner(
         dynobj_get_tag: dynobj_get_tag_id,
         dynobj_get_value: dynobj_get_value_id,
         dynobj_set: dynobj_set_id,
+        dynobj_define: dynobj_define_id,
         dynobj_has: dynobj_has_id,
         dynobj_delete: dynobj_delete_id,
         arr_drop_any: arr_drop_any_id,
@@ -4958,6 +4973,7 @@ struct Intrinsics {
     dynobj_get_tag: FuncId,
     dynobj_get_value: FuncId,
     dynobj_set: FuncId,
+    dynobj_define: FuncId,
     dynobj_has: FuncId,
     dynobj_delete: FuncId,
     arr_drop_any: FuncId,
@@ -11632,6 +11648,9 @@ impl<'a> LowerCtx<'a> {
                 ],
             ),
         );
+        // P3.attribute-flag-tracking — fnprops user assign can hit a
+        // writable=false existing bucket.
+        self.emit_throw_check(None);
         // Writeback resize-aware ptr.
         let new_live = self.f.append_inst(
             self.cur_block,
@@ -12416,6 +12435,9 @@ impl<'a> LowerCtx<'a> {
                                             ],
                                         ),
                                     );
+                                    // P3.attribute-flag-tracking — implicit
+                                    // assign now throws on writable=false.
+                                    self.emit_throw_check(None);
                                     return v_raw;
                                 }
                                 _ => panic!(
@@ -12446,6 +12468,9 @@ impl<'a> LowerCtx<'a> {
                                     ],
                                 ),
                             );
+                            // P3.attribute-flag-tracking — implicit
+                            // assign now throws on writable=false.
+                            self.emit_throw_check(None);
                             // P3.2 — dynobj_set may resize; reload the
                             // (possibly new) ptr from the slot and
                             // write it back into the Any-box's value
@@ -14532,12 +14557,14 @@ impl<'a> LowerCtx<'a> {
                 // single-char string per byte into a fresh `string[]`.
                 // Result type is interned through the same arr_layouts
                 // path Object.keys uses (element = Type::Str).
-                // P3.3 — `Object.defineProperty(obj, key, descriptor)`
-                // routes to dynobj_set when descriptor is an ObjectLit
-                // with a `.value` field. obj must be Type::Any (a
-                // dynobj-backed Any-box). Other descriptor fields
-                // (writable / configurable / enumerable / get / set)
-                // are subset-deferred — only `.value` is honored.
+                // P3.3 / P3.attribute-flag-tracking —
+                // `Object.defineProperty(obj, key, descriptor)`. For
+                // dynobj-backed Any obj, routes to dynobj_define so
+                // spec §10.1.6.3 attribute-flag transitions are
+                // enforced (writable / configurable / enumerable +
+                // value-mismatch under writable=false). For Array
+                // obj, the existing arr_set_length_validate /
+                // arrprops_set paths keep their behavior.
                 if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
                     && m_name == "defineProperty"
                     && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
@@ -14551,6 +14578,48 @@ impl<'a> LowerCtx<'a> {
                         }
                         _ => None,
                     };
+                    // P3.attribute-flag-tracking — extract the three
+                    // data-attribute flags from the descriptor
+                    // ObjectLit. Each is `Bool(true)` / `Bool(false)`
+                    // when present; absent fields stay `None`.
+                    let lookup_bool_field = |field_name: &str| -> Option<bool> {
+                        if let Expr::ObjectLit { fields } = self.ast.get_expr(args[2]) {
+                            for (n, e) in fields {
+                                if n == field_name {
+                                    if let Expr::Bool(b) = self.ast.get_expr(*e) {
+                                        return Some(*b);
+                                    }
+                                    // Non-literal bool (e.g. variable reference)
+                                    // is rare in defineProperty descriptors and
+                                    // hard to evaluate at compile time — bail
+                                    // to None so the validator treats it as
+                                    // absent. Real test262 cases always use
+                                    // literal Bool here.
+                                    return None;
+                                }
+                            }
+                        }
+                        None
+                    };
+                    let desc_writable = lookup_bool_field("writable");
+                    let desc_enumerable = lookup_bool_field("enumerable");
+                    let desc_configurable = lookup_bool_field("configurable");
+                    let mut flags_byte: i64 = 0;
+                    if let Some(b) = desc_writable {
+                        flags_byte |= 1 << 3; // present
+                        if b { flags_byte |= 1 << 0; }
+                    }
+                    if let Some(b) = desc_enumerable {
+                        flags_byte |= 1 << 4;
+                        if b { flags_byte |= 1 << 1; }
+                    }
+                    if let Some(b) = desc_configurable {
+                        flags_byte |= 1 << 5;
+                        if b { flags_byte |= 1 << 2; }
+                    }
+                    if value_eid.is_some() {
+                        flags_byte |= 1 << 6; // value present
+                    }
                     let is_length_key = matches!(
                         self.ast.get_expr(args[1]),
                         Expr::String(s) if s == "length"
@@ -14629,16 +14698,20 @@ impl<'a> LowerCtx<'a> {
                         return Operand::ConstI64(0);
                     }
 
-                    if let Some(val_eid) = value_eid {
-                        let key_op = self.lower_expr(args[1]);
-                        let v_raw = self.lower_expr(val_eid);
-                        let v_ty = self.operand_ty(&v_raw);
-                        let (tag, val_op) = pack(self, v_raw, v_ty);
-                        // T-29-followup — `Object.defineProperty(arr,
-                        // key, { value })` for Type::Arr first arg
-                        // (non-"length" key path). Routes to arrprops
-                        // side table.
-                        if matches!(obj_ty, Type::Arr(_)) {
+                    // Array obj (non-"length" key) — keep the legacy
+                    // arrprops_set path (per-element prop side table)
+                    // when the descriptor has a .value. Without
+                    // .value (e.g. accessor descriptor `{get: ...,
+                    // configurable: true}`), Array attribute tracking
+                    // is still a follow-up substrate piece — silent
+                    // no-op (T-29.b tolerance) instead of falling
+                    // into the dynobj path.
+                    if matches!(obj_ty, Type::Arr(_)) {
+                        if let Some(val_eid) = value_eid {
+                            let key_op = self.lower_expr(args[1]);
+                            let v_raw = self.lower_expr(val_eid);
+                            let v_ty = self.operand_ty(&v_raw);
+                            let (tag, val_op) = pack(self, v_raw, v_ty);
                             self.f.append_void(
                                 self.cur_block,
                                 InstKind::Call(
@@ -14651,55 +14724,78 @@ impl<'a> LowerCtx<'a> {
                                     ],
                                 ),
                             );
-                            return Operand::ConstI64(0);
                         }
-                        let dynobj = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Load(Type::Ptr, obj_op.clone(), 16),
-                            Type::Ptr,
-                            None,
-                        );
-                        let slot = self.alloca(Type::Ptr, Some("__dynobj_slot"));
-                        self.f.append_void(
-                            self.cur_block,
-                            InstKind::Store(Operand::Value(dynobj), Operand::Value(slot), 0),
-                        );
-                        self.f.append_void(
-                            self.cur_block,
-                            InstKind::Call(
-                                self.intrinsics.dynobj_set,
-                                vec![
-                                    Operand::Value(slot),
-                                    key_op,
-                                    Operand::ConstI64(tag),
-                                    val_op,
-                                ],
-                            ),
-                        );
-                        let new_dynobj = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Load(Type::Ptr, Operand::Value(slot), 0),
-                            Type::Ptr,
-                            None,
-                        );
-                        self.f.append_void(
-                            self.cur_block,
-                            InstKind::Store(
-                                Operand::Value(new_dynobj),
-                                obj_op,
-                                16,
-                            ),
-                        );
                         return Operand::ConstI64(0);
                     }
-                    // T-29.b tolerance — descriptor with no `.value`
-                    // field (just writable / configurable / enumerable
-                    // / get / set). tora's subset doesn't track these
-                    // attribute flags or accessor descriptors, so the
-                    // call has nothing to apply — silently no-op
-                    // instead of falling through to the catch-all
-                    // panic. Real attribute tracking is a P4 substrate
-                    // item.
+
+                    // Dynobj-backed Any obj — route through
+                    // dynobj_define so spec §10.1.6.3 validates the
+                    // configurable / writable / enumerable
+                    // transitions and rejects writable=false value
+                    // mismatches. Works whether the descriptor has
+                    // a .value field or not (value-less path stores
+                    // ANY_UNDEF on fresh insert; redefine updates
+                    // only the flags). For non-Any/non-Arr obj types
+                    // (typed Struct etc.), fall through to the
+                    // existing T-29.b silent no-op — those don't have
+                    // a dynobj backing store, so attribute tracking
+                    // is N/A.
+                    if !matches!(obj_ty, Type::Any) {
+                        return Operand::ConstI64(0);
+                    }
+                    let key_op = self.lower_expr(args[1]);
+                    let (tag, val_op) = if let Some(val_eid) = value_eid {
+                        let v_raw = self.lower_expr(val_eid);
+                        let v_ty = self.operand_ty(&v_raw);
+                        pack(self, v_raw, v_ty)
+                    } else {
+                        // No value — dynobj_define ignores tag/value
+                        // when the value-present bit is clear, but we
+                        // still pass concrete I64 zeros for ABI.
+                        (0, Operand::ConstI64(0))
+                    };
+                    let dynobj = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Load(Type::Ptr, obj_op.clone(), 16),
+                        Type::Ptr,
+                        None,
+                    );
+                    let slot = self.alloca(Type::Ptr, Some("__dynobj_slot"));
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Store(Operand::Value(dynobj), Operand::Value(slot), 0),
+                    );
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.dynobj_define,
+                            vec![
+                                Operand::Value(slot),
+                                key_op,
+                                Operand::ConstI64(tag),
+                                val_op,
+                                Operand::ConstI64(flags_byte),
+                            ],
+                        ),
+                    );
+                    // dynobj_define throws on spec §10.1.6.3 transition
+                    // violations (configurable / writable-mismatch);
+                    // propagate via __torajs_throw_check.
+                    self.emit_throw_check(None);
+                    let new_dynobj = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Load(Type::Ptr, Operand::Value(slot), 0),
+                        Type::Ptr,
+                        None,
+                    );
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Store(
+                            Operand::Value(new_dynobj),
+                            obj_op,
+                            16,
+                        ),
+                    );
                     return Operand::ConstI64(0);
                 }
                 if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)

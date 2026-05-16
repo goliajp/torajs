@@ -752,9 +752,40 @@ void __torajs_arr_set_any(void *arr, uint64_t i, uint64_t tag, uint64_t value) {
 #define __TORAJS_DYNOBJ_INITIAL_CAP 8  /* must be power of 2 */
 #define __TORAJS_DYNOBJ_TOMBSTONE   ((void *)(uintptr_t)1)
 
+/* P3.attribute-flag-tracking — pack attribute flags into bucket.tag
+ * high bits. Low 8 bits stay ANY_TAG (0-5); bits 8-10 carry the spec
+ * §6.2.5 PropertyDescriptor data-attribute flags. Avoids bucket
+ * struct size growth (would have been 24 → 32 bytes = +33% memory
+ * for every dynobj entry). */
+#define __TORAJS_BUCKET_TAG_MASK         0xffULL
+#define __TORAJS_BUCKET_FLAG_WRITABLE     (1ULL << 8)
+#define __TORAJS_BUCKET_FLAG_ENUMERABLE   (1ULL << 9)
+#define __TORAJS_BUCKET_FLAG_CONFIGURABLE (1ULL << 10)
+/* Default flags for implicit set (`obj.x = v`) and object-literal
+ * init: spec §10.1.5.1 OrdinarySet → §10.1.6.2 CreateDataProperty →
+ * writable / enumerable / configurable all default to true. */
+#define __TORAJS_BUCKET_FLAGS_DEFAULT \
+    (__TORAJS_BUCKET_FLAG_WRITABLE \
+     | __TORAJS_BUCKET_FLAG_ENUMERABLE \
+     | __TORAJS_BUCKET_FLAG_CONFIGURABLE)
+
+/* flags_byte encoding passed by ssa_lower's defineProperty intercept
+ * to __torajs_dynobj_define. Low 3 bits = flag value; next 3 bits =
+ * "flag present in descriptor". Spec §10.1.6.3 distinguishes "absent"
+ * from "present-false": absent → leave current bucket's flag alone on
+ * redefine (default-false on fresh insert); present → use the
+ * specified value. */
+#define __TORAJS_DEFINE_FLAG_WRITABLE      (1 << 0)
+#define __TORAJS_DEFINE_FLAG_ENUMERABLE    (1 << 1)
+#define __TORAJS_DEFINE_FLAG_CONFIGURABLE  (1 << 2)
+#define __TORAJS_DEFINE_PRESENT_WRITABLE      (1 << 3)
+#define __TORAJS_DEFINE_PRESENT_ENUMERABLE    (1 << 4)
+#define __TORAJS_DEFINE_PRESENT_CONFIGURABLE  (1 << 5)
+#define __TORAJS_DEFINE_PRESENT_VALUE         (1 << 6)
+
 typedef struct {
     void *key_ptr;   /* owning Str* (rc'd); NULL = empty; TOMBSTONE = deleted */
-    uint64_t tag;
+    uint64_t tag;    /* low 8 bits = ANY_TAG; bits 8-10 = writable/enumerable/configurable */
     uint64_t value;
 } __torajs_dynobj_bucket_t;
 
@@ -891,7 +922,10 @@ uint64_t __torajs_dynobj_get_tag(const void *obj, const void *key) {
     int found;
     uint32_t idx = __torajs_dynobj_probe(obj, key, &found);
     if (!found) return 5;  /* ANY_UNDEF */
-    return __torajs_dynobj_buckets((void *)(uintptr_t)obj)[idx].tag;
+    /* P3.attribute-flag-tracking — mask out the high-bit attribute
+     * flags; callers expect raw ANY_TAG (0-5) for value unboxing. */
+    return __torajs_dynobj_buckets((void *)(uintptr_t)obj)[idx].tag
+        & __TORAJS_BUCKET_TAG_MASK;
 }
 
 uint64_t __torajs_dynobj_get_value(const void *obj, const void *key) {
@@ -904,10 +938,22 @@ uint64_t __torajs_dynobj_get_value(const void *obj, const void *key) {
     return __torajs_dynobj_buckets((void *)(uintptr_t)obj)[idx].value;
 }
 
+/* Forward decl — defined further down next to torajs_throw_range_error. */
+extern void __torajs_throw_set(int64_t v);
+static void torajs_throw_type_error(const char *msg);
+
 /* Set `obj[key] = (tag, value)`. Caller is responsible for rc-bumping
  * heap-typed values BEFORE calling (matches arr_push_any contract).
  * The key is borrowed if it's already present; rc-bumped if it's a
- * fresh insert (so the bucket owns its share). */
+ * fresh insert (so the bucket owns its share).
+ *
+ * P3.attribute-flag-tracking — implicit set (`obj.x = v` and
+ * object-literal init) now honors the writable flag on existing
+ * buckets. New buckets default to all-true flags (spec §10.1.6.2
+ * CreateDataProperty). Existing-bucket overwrite preserves flag bits
+ * and only updates the ANY_TAG low bits + value. Writable=false →
+ * `__torajs_throw_set` with TypeError + return without mutation
+ * (caller's ssa_lower-side `emit_throw_check` propagates). */
 void __torajs_dynobj_set(void **obj_slot, void *key, uint64_t tag, uint64_t value) {
     void *obj = *obj_slot;
     if (obj == NULL) return;
@@ -924,22 +970,180 @@ void __torajs_dynobj_set(void **obj_slot, void *key, uint64_t tag, uint64_t valu
     uint32_t idx = __torajs_dynobj_probe(obj, key, &found);
     __torajs_dynobj_bucket_t *bk = __torajs_dynobj_buckets(obj);
     if (found) {
-        /* Drop old heap value if it was ANY_HEAP. */
-        if (bk[idx].tag == 4 /* ANY_HEAP */) {
+        uint64_t cur_tag = bk[idx].tag;
+        if (!(cur_tag & __TORAJS_BUCKET_FLAG_WRITABLE)) {
+            torajs_throw_type_error(
+                "TypeError: Cannot assign to read only property");
+            return;
+        }
+        /* Drop old heap value if it was ANY_HEAP. Mask to read just
+         * the ANY_TAG low bits. */
+        if ((cur_tag & __TORAJS_BUCKET_TAG_MASK) == 4 /* ANY_HEAP */) {
             void *old_val = (void *)(uintptr_t)bk[idx].value;
             __torajs_value_drop_heap(old_val);
         }
-        bk[idx].tag = tag;
+        /* Preserve existing flag bits; only swap the value-type tag. */
+        bk[idx].tag = (cur_tag & ~__TORAJS_BUCKET_TAG_MASK)
+            | (tag & __TORAJS_BUCKET_TAG_MASK);
         bk[idx].value = value;
     } else {
-        /* Fresh insert. Take ownership of key (rc-bump). */
+        /* Fresh insert. Take ownership of key (rc-bump). Default
+         * flags to all-true (implicit-set / object-literal-init
+         * spec semantics). */
         if (bk[idx].key_ptr == __TORAJS_DYNOBJ_TOMBSTONE) {
             *(uint32_t *)((uint8_t *)obj + 16) = tomb - 1;
         }
         __torajs_rc_inc(key);
         bk[idx].key_ptr = key;
-        bk[idx].tag = tag;
+        bk[idx].tag = (tag & __TORAJS_BUCKET_TAG_MASK)
+            | __TORAJS_BUCKET_FLAGS_DEFAULT;
         bk[idx].value = value;
+        *(uint32_t *)((uint8_t *)obj + 8) = count + 1;
+    }
+}
+
+/* P3.attribute-flag-tracking — `Object.defineProperty(obj, key,
+ * descriptor)` path. Implements spec §10.1.6.3 ValidateAndApply-
+ * PropertyDescriptor data-property subset:
+ *
+ * - If bucket is fresh (no current property): write the new bucket
+ *   with the flags from `flags_byte` (absent flags default to false
+ *   per spec §10.1.6.2).
+ * - If bucket exists (redefine):
+ *   - current.configurable=false: throw if desc tries to upgrade
+ *     configurable to true, change enumerable, or upgrade writable
+ *     from false→true, or change value while writable=false.
+ *   - else: apply the present-flag updates, preserve the rest.
+ *
+ * `flags_byte` encodes (low byte):
+ *   bit 0/1/2 = writable / enumerable / configurable VALUE
+ *   bit 3/4/5 = writable / enumerable / configurable PRESENT
+ *   bit 6     = value PRESENT in descriptor
+ *
+ * tag / value: the descriptor's [[Value]] packed as ANY_TAG. Ignored
+ * if `value PRESENT` bit is clear.
+ *
+ * On spec violation: __torajs_throw_set with TypeError and return
+ * without mutating bucket. ssa_lower's emit_throw_check propagates. */
+void __torajs_dynobj_define(
+    void **obj_slot,
+    void *key,
+    uint64_t tag,
+    uint64_t value,
+    uint64_t flags_byte
+) {
+    void *obj = *obj_slot;
+    if (obj == NULL) return;
+    uint32_t cap = *(uint32_t *)((uint8_t *)obj + 12);
+    uint32_t count = *(uint32_t *)((uint8_t *)obj + 8);
+    uint32_t tomb = *(uint32_t *)((uint8_t *)obj + 16);
+    if ((count + tomb + 1) * 8 > cap * 7) {
+        __torajs_dynobj_resize(obj_slot, cap * 2);
+        obj = *obj_slot;
+    }
+    int found;
+    uint32_t idx = __torajs_dynobj_probe(obj, key, &found);
+    __torajs_dynobj_bucket_t *bk = __torajs_dynobj_buckets(obj);
+
+    int has_writable     = (flags_byte & __TORAJS_DEFINE_PRESENT_WRITABLE) != 0;
+    int has_enumerable   = (flags_byte & __TORAJS_DEFINE_PRESENT_ENUMERABLE) != 0;
+    int has_configurable = (flags_byte & __TORAJS_DEFINE_PRESENT_CONFIGURABLE) != 0;
+    int has_value        = (flags_byte & __TORAJS_DEFINE_PRESENT_VALUE) != 0;
+    int desc_writable     = (flags_byte & __TORAJS_DEFINE_FLAG_WRITABLE) != 0;
+    int desc_enumerable   = (flags_byte & __TORAJS_DEFINE_FLAG_ENUMERABLE) != 0;
+    int desc_configurable = (flags_byte & __TORAJS_DEFINE_FLAG_CONFIGURABLE) != 0;
+
+    if (found) {
+        uint64_t cur_tag = bk[idx].tag;
+        int cur_writable     = (cur_tag & __TORAJS_BUCKET_FLAG_WRITABLE) != 0;
+        int cur_enumerable   = (cur_tag & __TORAJS_BUCKET_FLAG_ENUMERABLE) != 0;
+        int cur_configurable = (cur_tag & __TORAJS_BUCKET_FLAG_CONFIGURABLE) != 0;
+        uint64_t cur_value_tag = cur_tag & __TORAJS_BUCKET_TAG_MASK;
+
+        if (!cur_configurable) {
+            /* Spec §10.1.6.3: with current.configurable=false, any
+             * present-flag change that diverges from current throws. */
+            if (has_configurable && desc_configurable && !cur_configurable) {
+                /* Trying to flip false → true. */
+                torajs_throw_type_error(
+                    "TypeError: Cannot redefine property: configurable was false");
+                return;
+            }
+            if (has_enumerable && desc_enumerable != cur_enumerable) {
+                torajs_throw_type_error(
+                    "TypeError: Cannot redefine property: enumerable mismatch");
+                return;
+            }
+            if (!cur_writable) {
+                if (has_writable && desc_writable) {
+                    /* Cannot upgrade writable false → true under
+                     * non-configurable. */
+                    torajs_throw_type_error(
+                        "TypeError: Cannot redefine property: writable was false");
+                    return;
+                }
+                if (has_value) {
+                    /* Spec: with writable=false + non-configurable,
+                     * value changes are rejected unless the new value
+                     * is SameValue with the old. SameValue here is
+                     * approximated by exact (tag,value) match — same
+                     * heuristic used by the BinOp Any===Any arm. */
+                    int same = ((tag & __TORAJS_BUCKET_TAG_MASK) == cur_value_tag)
+                        && (value == bk[idx].value);
+                    if (!same) {
+                        torajs_throw_type_error(
+                            "TypeError: Cannot redefine property: writable was false, value mismatch");
+                        return;
+                    }
+                }
+            }
+        }
+
+        /* Validation passed — apply the update. Drop old heap value
+         * if we're overwriting an ANY_HEAP slot. */
+        if (has_value
+            && cur_value_tag == 4 /* ANY_HEAP */)
+        {
+            void *old_val = (void *)(uintptr_t)bk[idx].value;
+            __torajs_value_drop_heap(old_val);
+        }
+
+        /* Recompute flag bits: present-flag overrides current; absent
+         * preserves. */
+        uint64_t new_flags = 0;
+        new_flags |= (has_writable ? (desc_writable ? __TORAJS_BUCKET_FLAG_WRITABLE : 0)
+                                   : (cur_writable ? __TORAJS_BUCKET_FLAG_WRITABLE : 0));
+        new_flags |= (has_enumerable ? (desc_enumerable ? __TORAJS_BUCKET_FLAG_ENUMERABLE : 0)
+                                     : (cur_enumerable ? __TORAJS_BUCKET_FLAG_ENUMERABLE : 0));
+        new_flags |= (has_configurable ? (desc_configurable ? __TORAJS_BUCKET_FLAG_CONFIGURABLE : 0)
+                                       : (cur_configurable ? __TORAJS_BUCKET_FLAG_CONFIGURABLE : 0));
+
+        uint64_t new_value_tag = has_value ? (tag & __TORAJS_BUCKET_TAG_MASK) : cur_value_tag;
+        uint64_t new_value     = has_value ? value : bk[idx].value;
+
+        bk[idx].tag = new_value_tag | new_flags;
+        bk[idx].value = new_value;
+    } else {
+        /* Fresh define. Absent flags default to false (spec
+         * §10.1.6.2). */
+        if (bk[idx].key_ptr == __TORAJS_DYNOBJ_TOMBSTONE) {
+            *(uint32_t *)((uint8_t *)obj + 16) = tomb - 1;
+        }
+        __torajs_rc_inc(key);
+        uint64_t new_flags = 0;
+        if (desc_writable)     new_flags |= __TORAJS_BUCKET_FLAG_WRITABLE;
+        if (desc_enumerable)   new_flags |= __TORAJS_BUCKET_FLAG_ENUMERABLE;
+        if (desc_configurable) new_flags |= __TORAJS_BUCKET_FLAG_CONFIGURABLE;
+        bk[idx].key_ptr = key;
+        /* If no .value present, store ANY_UNDEF=5 + 0 (spec default
+         * for new data descriptor's [[Value]]). */
+        if (has_value) {
+            bk[idx].tag = (tag & __TORAJS_BUCKET_TAG_MASK) | new_flags;
+            bk[idx].value = value;
+        } else {
+            bk[idx].tag = 5 /* ANY_UNDEF */ | new_flags;
+            bk[idx].value = 0;
+        }
         *(uint32_t *)((uint8_t *)obj + 8) = count + 1;
     }
 }
@@ -959,7 +1163,7 @@ int __torajs_dynobj_delete(void *obj, const void *key) {
     __torajs_dynobj_bucket_t *bk = __torajs_dynobj_buckets(obj);
     /* Drop key + value (heap if ANY_HEAP). */
     __torajs_str_drop(bk[idx].key_ptr);
-    if (bk[idx].tag == 4 /* ANY_HEAP */) {
+    if ((bk[idx].tag & __TORAJS_BUCKET_TAG_MASK) == 4 /* ANY_HEAP */) {
         __torajs_value_drop_heap((void *)(uintptr_t)bk[idx].value);
     }
     bk[idx].key_ptr = __TORAJS_DYNOBJ_TOMBSTONE;
@@ -984,7 +1188,7 @@ void __torajs_dynobj_drop(void *obj) {
         void *kp = bk[i].key_ptr;
         if (kp == NULL || kp == __TORAJS_DYNOBJ_TOMBSTONE) continue;
         __torajs_str_drop(kp);
-        if (bk[i].tag == 4 /* ANY_HEAP */) {
+        if ((bk[i].tag & __TORAJS_BUCKET_TAG_MASK) == 4 /* ANY_HEAP */) {
             __torajs_value_drop_heap((void *)(uintptr_t)bk[i].value);
         }
     }
@@ -3396,8 +3600,20 @@ void *__torajs_str_substring(const uint8_t *s, int64_t start, int64_t end) {
  * around the defineProperty call (the test262 / assert.throws shape)
  * catches it; without a handler the throw propagates to fn boundary.
  */
-extern void __torajs_throw_set(int64_t v);
 static void torajs_throw_range_error(const char *msg) {
+    uint64_t len = strlen(msg);
+    uint8_t *err = str_alloc_(len);
+    if (len) memcpy(__TORAJS_STR_DATA(err), msg, (size_t)len);
+    __torajs_throw_set((int64_t)(uintptr_t)err);
+}
+
+/* P3.attribute-flag-tracking — sibling of torajs_throw_range_error
+ * used by `__torajs_dynobj_set` (writable=false implicit assign) and
+ * `__torajs_dynobj_define` (spec §10.1.6.3 transition violations).
+ * Same calling convention: store the string into the thread-local
+ * throw slot; ssa_lower's emit_throw_check after the call propagates
+ * to the user's try/catch (or function boundary). */
+static void torajs_throw_type_error(const char *msg) {
     uint64_t len = strlen(msg);
     uint8_t *err = str_alloc_(len);
     if (len) memcpy(__TORAJS_STR_DATA(err), msg, (size_t)len);
