@@ -89,9 +89,11 @@ fn compile_to_temp(src: &str) -> Result<PathBuf, EvalOutcome> {
     ast::desugar_builtin_imports(&mut a);
     ast::desugar_builtin_new(&mut a);
     ast::desugar_classes(&mut a);
+    ast::tag_struct_field_closure_types(&mut a);
     ast::lift_arrow_fns(&mut a);
     ast::infer_anonymous_closure_params(&mut a);
     ast::synthesize_forwarders(&mut a);
+    ast::synthesize_fn_to_closure_forwarders(&mut a);
     // P2.1 — order matters: uninit_let inlines `let x; x = e` into
     // `let x = e` for early type binding. var_hoist creates synthetic
     // `let x = Uninit` that should NOT be inlined (var semantics
@@ -229,9 +231,11 @@ fn compile_to_dylib(src: &str) -> Result<PathBuf, String> {
     ast::desugar_builtin_imports(&mut a);
     ast::desugar_builtin_new(&mut a);
     ast::desugar_classes(&mut a);
+    ast::tag_struct_field_closure_types(&mut a);
     ast::lift_arrow_fns(&mut a);
     ast::infer_anonymous_closure_params(&mut a);
     ast::synthesize_forwarders(&mut a);
+    ast::synthesize_fn_to_closure_forwarders(&mut a);
     // P2.1 — order matters: uninit_let inlines `let x; x = e` into
     // `let x = e` for early type binding. var_hoist creates synthetic
     // `let x = Uninit` that should NOT be inlined (var semantics
@@ -365,9 +369,11 @@ function torajs_add(a: number, b: number): number {
         ast::desugar_builtin_imports(&mut a);
         ast::desugar_builtin_new(&mut a);
         ast::desugar_classes(&mut a);
+        ast::tag_struct_field_closure_types(&mut a);
         ast::lift_arrow_fns(&mut a);
         ast::infer_anonymous_closure_params(&mut a);
         ast::synthesize_forwarders(&mut a);
+        ast::synthesize_fn_to_closure_forwarders(&mut a);
         // P2.1 — order matters: uninit_let inlines `let x; x = e` into
     // `let x = e` for early type binding. var_hoist creates synthetic
     // `let x = Uninit` that should NOT be inlined (var semantics

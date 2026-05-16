@@ -5732,6 +5732,86 @@ fn parse_type(
         let id = intern_fn_sig(fn_sigs, params, ret);
         return Type::FnSig(id);
     }
+    // P3.closure-in-struct-field — TypeDecl field types tagged with
+    // `__cls(P)->R` by the `tag_struct_field_closure_types` desugar
+    // pass. This is the narrow set of `(...)=>R` annotations that
+    // actually need the Closure (env-first CallIndirect) ABI: struct
+    // fields can store both FnSig (top-level FnDecl ref, wrapped by
+    // `synthesize_fn_to_closure_forwarders` ObjectLit arm) and Closure
+    // values (capturing function expressions lifted by
+    // `lift_arrow_fns`), so the slot has to be Closure-typed and the
+    // forwarder pass wraps any FnSig store-site at construction time.
+    //
+    // Fn-typed param / return / let bindings keep `__fn(P)->R` →
+    // Type::FnSig, preserving direct (non-env-first) dispatch on the
+    // hot fn-as-callback path (`reduce(xs, add1)` etc.).
+    if let Some(rest) = s.strip_prefix("__cls(") {
+        let bytes = rest.as_bytes();
+        let mut depth: i32 = 1;
+        let mut close_idx = None;
+        for (i, &b) in bytes.iter().enumerate() {
+            match b {
+                b'(' => depth += 1,
+                b')' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        close_idx = Some(i);
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        let close = close_idx
+            .unwrap_or_else(|| panic!("ssa-lower: malformed cls-type `{s}`"));
+        let params_str = &rest[..close];
+        let after = &rest[close + 1..];
+        let ret_str = after
+            .strip_prefix("->")
+            .unwrap_or_else(|| panic!("ssa-lower: malformed cls-type ret `{s}`"));
+        let mut params: Vec<Type> = Vec::new();
+        let mut depth2: i32 = 0;
+        let mut last = 0usize;
+        let pb = params_str.as_bytes();
+        for (i, &b) in pb.iter().enumerate() {
+            match b {
+                b'(' => depth2 += 1,
+                b')' => depth2 -= 1,
+                b'|' if depth2 == 0 => {
+                    params.push(parse_type(
+                        Some(&params_str[last..i]),
+                        aliases,
+                        arr_layouts,
+                        fn_sigs,
+                        generic_struct_decls,
+                        struct_layouts,
+                    ));
+                    last = i + 1;
+                }
+                _ => {}
+            }
+        }
+        if !params_str.is_empty() {
+            params.push(parse_type(
+                Some(&params_str[last..]),
+                aliases,
+                arr_layouts,
+                fn_sigs,
+                generic_struct_decls,
+                struct_layouts,
+            ));
+        }
+        let ret = parse_type(
+            Some(ret_str),
+            aliases,
+            arr_layouts,
+            fn_sigs,
+            generic_struct_decls,
+            struct_layouts,
+        );
+        let id = intern_fn_sig(fn_sigs, params, ret);
+        return Type::Closure(id);
+    }
     // M3.4 — generic struct instantiation `Foo<arg1|arg2|...>`. Same
     // depth-aware split as `__fn(...)`. Substitute type-params into each
     // field annotation (string-level word-boundary substitution) and
@@ -6279,7 +6359,14 @@ fn lower_fn(
         && first.name == "__env"
         && let Some(ann) = &first.type_ann
         && let Some(cap_names) = decode_env_ann(ann)
+        && !cap_names.is_empty()
     {
+        // P3.closure-in-struct-field — 0-capture closure bodies (e.g.
+        // forwarders synthesized by `synthesize_fn_to_closure_forwarders`
+        // and zero-capture arrows lifted by `lift_arrow_fns`) carry an
+        // `__env` first param purely for ABI uniformity; they emit no
+        // env-load preamble and don't depend on the
+        // construction-site-populated `closure_captures` side channel.
         let cap_meta: Vec<(Type, bool)> = ctx
             .closure_captures
             .get(name)
@@ -19997,14 +20084,28 @@ impl<'a> LowerCtx<'a> {
                         self.fn_sigs[user_sig_id.0 as usize].clone();
                     let mut env_first_params = Vec::with_capacity(user_params.len() + 1);
                     env_first_params.push(Type::Ptr);
-                    env_first_params.extend(user_params);
+                    env_first_params.extend(user_params.iter().copied());
                     let env_first_sig =
                         intern_fn_sig(self.fn_sigs, env_first_params, ret_ty);
 
+                    // P0.5 mirror — when the closure's user-facing param
+                    // at position i is Type::Any, box the concrete arg
+                    // before passing. Matches the FnSig path below so
+                    // closures defaulted to Any-typed params (e.g.
+                    // `var f = function(a, b){...}`) work uniformly.
                     let mut argv: Vec<Operand> = Vec::with_capacity(args.len() + 1);
                     argv.push(Operand::Value(env_ptr));
-                    for a in args {
-                        argv.push(self.lower_expr(*a));
+                    for (i, a) in args.iter().enumerate() {
+                        let raw = self.lower_expr(*a);
+                        let boxed = if i < user_params.len()
+                            && matches!(user_params[i], Type::Any)
+                            && !matches!(self.operand_ty(&raw), Type::Any)
+                        {
+                            self.box_to_any(raw)
+                        } else {
+                            raw
+                        };
+                        argv.push(boxed);
                     }
                     // Refcounted heap args: caller stays the owner, the
                     // callee gets its own ref via rc_inc. Without this

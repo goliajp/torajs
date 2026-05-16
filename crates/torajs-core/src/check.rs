@@ -509,6 +509,7 @@ fn resolve_type_ann_full(
     if let Some(open_idx) = name.find('<')
         && name.ends_with('>')
         && !name.starts_with("__fn(")
+        && !name.starts_with("__cls(")
         && !name.starts_with("__env(")
     {
         let head = &name[..open_idx];
@@ -530,6 +531,7 @@ fn resolve_type_ann_full(
     if let Some(open_idx) = name.find('<')
         && name.ends_with('>')
         && !name.starts_with("__fn(")
+        && !name.starts_with("__cls(")
         && !name.starts_with("__env(")
     {
         let head = &name[..open_idx];
@@ -666,9 +668,17 @@ fn resolve_type_ann_full(
         }
         return Some(Type::Struct(fields_out));
     }
-    // `__fn(P1|P2|...)->R`. Param `|` separator is depth-aware so nested
-    // fn types parse correctly: `__fn(__fn(A)->B|C)->D`.
-    if let Some(rest) = name.strip_prefix("__fn(") {
+    // `__fn(P1|P2|...)->R` (user-source fn type) and its
+    // `tag_struct_field_closure_types`-tagged sibling `__cls(P1|...)->R`
+    // (struct-field closure slot) share the same parse shape and both
+    // resolve to `Type::Function(params, ret)` at the typecheck layer.
+    // SSA `parse_type` is what actually distinguishes them: `__fn` →
+    // `Type::FnSig` (direct dispatch), `__cls` → `Type::Closure`
+    // (env-first dispatch).
+    if let Some(rest) = name
+        .strip_prefix("__fn(")
+        .or_else(|| name.strip_prefix("__cls("))
+    {
         let bytes = rest.as_bytes();
         let mut depth: i32 = 1;
         let mut close_idx = None;
