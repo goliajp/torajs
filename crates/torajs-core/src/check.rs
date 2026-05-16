@@ -3246,6 +3246,16 @@ impl Checker {
                             Box::new(Type::String),
                         ))
                     }
+                    // T-49 — `String.prototype.substr(start, length?)` (annexB
+                    // legacy). The 1-arg shape is the common one in test262;
+                    // the call-site arity-tolerance arm above
+                    // (`slice / substring / substr` with args.len() < 2)
+                    // accepts 0/1 args, and ssa_lower fills the missing
+                    // length with i64::MAX so the runtime helper clamps.
+                    (Type::String, "substr") => Ok(Type::Function(
+                        vec![Type::Number, Type::Number],
+                        Box::new(Type::String),
+                    )),
                     (Type::String, "repeat") => Ok(Type::Function(
                         vec![Type::Number],
                         Box::new(Type::String),

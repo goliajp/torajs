@@ -3379,6 +3379,33 @@ void *__torajs_str_substring(const uint8_t *s, int64_t start, int64_t end) {
     return p;
 }
 
+/* T-49 — `s.substr(start, length)` (annexB legacy). Diverges from
+ * slice / substring in two ways per JS spec §B.2.3.1:
+ *   - Negative start wraps to `max(size + start, 0)` (slice wraps too;
+ *     substring clamps to 0).
+ *   - The 2nd arg is a *length*, not an end index — clamps to
+ *     [0, size - start]. The caller passes `length = INT64_MAX` for
+ *     the 1-arg form so this helper clamps to the remaining bytes.
+ */
+void *__torajs_str_substr(const uint8_t *s, int64_t start, int64_t length) {
+    int64_t size = (int64_t)__TORAJS_STR_LEN(s);
+    if (start < 0) start = size + start;
+    if (start < 0) start = 0;
+    if (start > size) start = size;
+    int64_t avail = size - start;
+    if (length > avail) length = avail;
+    if (length < 0) length = 0;
+    uint8_t *p = str_alloc_((uint64_t)length);
+    if (length > 0) {
+        memcpy(
+            __TORAJS_STR_DATA(p),
+            __TORAJS_STR_CDATA(s) + start,
+            (size_t)length
+        );
+    }
+    return p;
+}
+
 /* `Array.from(s)` over a string source — fresh `string[]` with one
  * single-byte string per byte of `s`. Mirrors `s.split("")` in JS but
  * scoped to tr's byte-Str layout (no UTF-16 / surrogate handling). */

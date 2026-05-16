@@ -3048,6 +3048,13 @@ fn lower_inner(
         &[Type::Str, Type::I64, Type::I64],
         Type::Str,
     );
+    let str_substr_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_str_substr",
+        &[Type::Str, Type::I64, Type::I64],
+        Type::Str,
+    );
     let arr_to_reversed_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -4232,6 +4239,7 @@ fn lower_inner(
         split_iter_drop: split_iter_drop_id,
         arr_from_string: arr_from_string_id,
         str_substring: str_substring_id,
+        str_substr: str_substr_id,
         arr_to_reversed: arr_to_reversed_id,
         arr_with: arr_with_id,
         arr_join: arr_join_id,
@@ -5038,6 +5046,7 @@ struct Intrinsics {
     split_iter_drop: FuncId,
     arr_from_string: FuncId,
     str_substring: FuncId,
+    str_substr: FuncId,
     arr_to_reversed: FuncId,
     arr_with: FuncId,
     arr_join: FuncId,
@@ -16643,7 +16652,7 @@ impl<'a> LowerCtx<'a> {
                 if let Expr::Member { obj, name } = self.ast.get_expr(*callee)
                     && matches!(
                         name.as_str(),
-                        "slice" | "substring"
+                        "slice" | "substring" | "substr"
                         | "charCodeAt" | "codePointAt" | "charAt"
                         | "startsWith" | "endsWith"
                         | "includes" | "indexOf" | "split" | "join" | "repeat"
@@ -17035,7 +17044,7 @@ impl<'a> LowerCtx<'a> {
                     if recv_ty == Type::Str
                         && matches!(
                             method.as_str(),
-                            "slice" | "substring"
+                            "slice" | "substring" | "substr"
                             | "charCodeAt" | "codePointAt"
                             | "startsWith"
                             | "endsWith" | "includes" | "indexOf" | "split" | "repeat"
@@ -17070,6 +17079,17 @@ impl<'a> LowerCtx<'a> {
                                 None,
                             );
                             argv.push(Operand::Value(len));
+                        }
+                        // T-49 — String.substr 0/1-arg defaults. substr's
+                        // 2nd arg is a *length* not an end index; missing
+                        // length means "remaining", which we encode as
+                        // i64::MAX so the runtime helper's
+                        // `length > avail ? avail` clamp picks it up.
+                        if method.as_str() == "substr" && args.len() < 2 {
+                            if args.is_empty() {
+                                argv.push(Operand::ConstI64(0));
+                            }
+                            argv.push(Operand::ConstI64(i64::MAX));
                         }
                         // V3-18 m1.h.45 — String.padStart / padEnd with 1
                         // arg: default fill string is " " per JS spec
@@ -17122,6 +17142,7 @@ impl<'a> LowerCtx<'a> {
                         let (target, ret_ty) = match method.as_str() {
                             "slice" => (self.intrinsics.str_slice, Type::Str),
                             "substring" => (self.intrinsics.str_substring, Type::Str),
+                            "substr" => (self.intrinsics.str_substr, Type::Str),
                             "repeat" => (self.intrinsics.str_repeat, Type::Str),
                             "toUpperCase" => (self.intrinsics.str_to_upper, Type::Str),
                             "toLowerCase" => (self.intrinsics.str_to_lower, Type::Str),
