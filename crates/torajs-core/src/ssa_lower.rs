@@ -13735,6 +13735,25 @@ impl<'a> LowerCtx<'a> {
                     && ns == "Array"
                     && m_name == "isArray"
                 {
+                    // T-38 — namespace idents (`Math` / `JSON` / `Array` / ...)
+                    // referenced as runtime values have no Operand
+                    // representation in tora's subset (they're typecheck-only
+                    // `Type::Object(<name>)` markers, not heap values). When
+                    // they appear as the argument to `Array.isArray(...)`,
+                    // short-circuit to `false` per JS spec (they're objects
+                    // but not Array-typed). Without this, `lower_expr(args[0])`
+                    // hits the catch-all `unknown ident` panic.
+                    if let Expr::Ident(arg_name) = self.ast.get_expr(args[0])
+                        && matches!(
+                            arg_name.as_str(),
+                            "Math" | "JSON" | "Array" | "Object"
+                            | "Number" | "String" | "Boolean"
+                            | "Date" | "RegExp" | "Symbol"
+                            | "console" | "globalThis"
+                        )
+                    {
+                        return Operand::ConstBool(false);
+                    }
                     let arg_op = self.lower_expr(args[0]);
                     let arg_ty = self.operand_ty(&arg_op);
                     let result = matches!(arg_ty, Type::Arr(_));
