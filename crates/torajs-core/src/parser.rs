@@ -774,8 +774,24 @@ impl Parser<'_> {
                     None
                 };
                 // No-init shape: `let x` / `let x: T` (followed by
-                // `,` or `;`). Const requires an init by spec.
-                if matches!(self.peek(), Token::Semi | Token::Comma) {
+                // `,` or `;` or — per JS ASI — a known statement-
+                // start token on the next line). Const requires an
+                // init by spec. T-37-followup-asi: accept Switch /
+                // If / For / While / Try / Function / Class / Let /
+                // Const / Var / Return / Throw / Break / Continue /
+                // Do / RBrace as ASI-implied terminators so test262
+                // patterns like `let x\nswitch (x) {...}` parse.
+                let next_is_stmt_start = matches!(
+                    self.peek(),
+                    Token::Switch | Token::If | Token::For | Token::While
+                        | Token::Try | Token::Function | Token::Class
+                        | Token::Let | Token::Const | Token::Var
+                        | Token::Return | Token::Throw | Token::Break
+                        | Token::Continue | Token::Do | Token::RBrace
+                );
+                if matches!(self.peek(), Token::Semi | Token::Comma)
+                    || next_is_stmt_start
+                {
                     if !mutable {
                         return Err(format!(
                             "`const {name}` requires an initializer at {}",
@@ -794,7 +810,11 @@ impl Parser<'_> {
                         self.pos += 1;
                         continue;
                     }
-                    self.pos += 1; // semi
+                    // Only consume Semi as terminator; for ASI-style
+                    // stmt-start, leave the token for the outer parse.
+                    if matches!(self.peek(), Token::Semi) {
+                        self.pos += 1;
+                    }
                     break;
                 }
                 match self.peek() {
