@@ -2446,6 +2446,14 @@ impl Checker {
             // per source shape (Array<T>.value=T, String[i]=String,
             // dynobj-backed Any[i]=Any). We also declare `i_ident` as
             // a Number local so the synthetic counter typechecks.
+            //
+            // P5.3 Phase B exception: when src has Type::Struct (i.e.
+            // a class instance), the protocol path in ssa_lower
+            // bypasses elem_expr entirely — typing `src[i]` here
+            // would error ("can't index into Struct"). We probe src's
+            // type first; if it's a class-shape Struct, defer the
+            // element type to ssa_lower (mark as Any so var_name still
+            // typechecks downstream as opaque).
             Stmt::ForOf { var_name, var_type_ann, src_ident: _, i_ident, elem_expr, body } => {
                 self.scopes.push(HashMap::new());
                 let _ = self.declare(
@@ -2457,11 +2465,24 @@ impl Checker {
                         declared_class: None,
                     },
                 );
-                let elem_ty = match self.type_of(ast, *elem_expr) {
-                    Ok(t) => t,
-                    Err(e) => {
-                        self.errors.push_err(e);
-                        Type::Any
+                // P5.3 Phase B — peek src type. If it's a Struct we
+                // skip the index typecheck and route through the
+                // protocol path; ssa_lower derives elem_ty from the
+                // iter chain's step.value field.
+                let src_is_struct = if let Expr::Index { obj, .. } = ast.get_expr(*elem_expr) {
+                    matches!(self.type_of(ast, *obj), Ok(Type::Struct(_)))
+                } else {
+                    false
+                };
+                let elem_ty = if src_is_struct {
+                    Type::Any
+                } else {
+                    match self.type_of(ast, *elem_expr) {
+                        Ok(t) => t,
+                        Err(e) => {
+                            self.errors.push_err(e);
+                            Type::Any
+                        }
                     }
                 };
                 let var_ty = if let Some(ann) = var_type_ann {

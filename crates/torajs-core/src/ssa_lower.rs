@@ -10195,9 +10195,45 @@ impl<'a> LowerCtx<'a> {
                 };
                 let src_ptr_op = self.lower_expr(src_ref_eid);
                 let src_ty = self.operand_ty(&src_ptr_op);
+                // P5.3 Phase B — when src is Type::Obj(sid) and its
+                // class declares `[Symbol.iterator]()` (lowered as
+                // `__cm_<C>____sym_Symbol_iterator__`), dispatch to
+                // the iterator protocol. Else fall through to the
+                // Array fast path. Anything else is a subset reject.
+                if let Type::Obj(sid) = src_ty {
+                    let mut cname: Option<String> = None;
+                    for (n, ty) in self.aliases.iter() {
+                        if matches!(ty, Type::Obj(s) if s.0 == sid.0)
+                            && self.ast.class_parents.contains_key(n)
+                        {
+                            cname = Some(n.clone());
+                            break;
+                        }
+                    }
+                    if let Some(cname) = cname {
+                        let iter_fn = format!("__cm_{cname}____sym_Symbol_iterator__");
+                        if let Some(&iter_fid) = self.fn_table.get(&iter_fn) {
+                            self.lower_for_of_iter_protocol(
+                                src_ptr_op,
+                                iter_fid,
+                                var_name,
+                                body,
+                                &cname,
+                            );
+                            return;
+                        }
+                        panic!(
+                            "ssa-lower: for-of on class `{cname}` requires a `[Symbol.iterator](): SomeIter` method (P5.2 syntax, P5.3 Phase B dispatch) — fn `{iter_fn}` not registered"
+                        );
+                    }
+                    panic!(
+                        "ssa-lower: for-of source type Type::Obj(sid={}) is not a registered class (subset — iterator protocol only fires for user-class iterables; inline-struct iteration not yet supported)",
+                        sid.0
+                    );
+                }
                 if !matches!(src_ty, Type::Arr(_)) {
                     panic!(
-                        "ssa-lower: for-of source type {src_ty:?} not yet supported (P5.3 subset — Array<T> only; iterator-protocol path lands as P5.3 follow-up)"
+                        "ssa-lower: for-of source type {src_ty:?} not yet supported (P5.3 subset — Array<T> + user-class iterable only)"
                     );
                 }
 
@@ -26057,5 +26093,236 @@ impl<'a> LowerCtx<'a> {
 
     fn f_ret_type_hint(&self, fid: FuncId) -> Type {
         self.signatures.get(&fid).copied().unwrap_or(Type::I64)
+    }
+
+    /// P5.3 Phase B — emit the iterator-protocol `for (let v of obj)`
+    /// loop:
+    ///   let __it = obj.__sym_Symbol_iterator__()
+    ///   while (true) {
+    ///     let __step = __it.next()
+    ///     if (__step.done) break
+    ///     let v = __step.value
+    ///     <body>
+    ///   }
+    ///
+    /// `src_op` is the receiver value (Type::Obj(sid)). `iter_fid` is
+    /// the resolved `__cm_<src_class>____sym_Symbol_iterator__`. The
+    /// returned iter is itself Type::Obj(iter_sid) — we look up its
+    /// class via aliases to find `__cm_<iter_class>__next`, then the
+    /// returned step struct provides .done / .value via direct field
+    /// loads.
+    fn lower_for_of_iter_protocol(
+        &mut self,
+        src_op: Operand,
+        iter_fid: FuncId,
+        var_name: &str,
+        body: &Stmt,
+        src_class: &str,
+    ) {
+        // 1. Call __cm_<src>____sym_Symbol_iterator__(src).
+        let iter_ret_ty = self.f_ret_type_hint(iter_fid);
+        let Type::Obj(iter_sid) = iter_ret_ty else {
+            panic!(
+                "ssa-lower: for-of protocol on class `{src_class}` — `[Symbol.iterator]()` must return a class instance, got {iter_ret_ty:?}"
+            );
+        };
+        let iter_val = self.f.append_inst(
+            self.cur_block,
+            InstKind::Call(iter_fid, vec![src_op]),
+            iter_ret_ty,
+            None,
+        );
+
+        // 2. Resolve iter's class name + `__cm_<iter>__next` fid.
+        let mut iter_cname: Option<String> = None;
+        for (n, ty) in self.aliases.iter() {
+            if matches!(ty, Type::Obj(s) if s.0 == iter_sid.0)
+                && self.ast.class_parents.contains_key(n)
+            {
+                iter_cname = Some(n.clone());
+                break;
+            }
+        }
+        let Some(iter_cname) = iter_cname else {
+            panic!(
+                "ssa-lower: for-of protocol — iter class sid={} not in aliases (P5.3 Phase B requires the iter to be a registered user class)",
+                iter_sid.0
+            );
+        };
+        let next_fn = format!("__cm_{iter_cname}__next");
+        let Some(&next_fid) = self.fn_table.get(&next_fn) else {
+            panic!(
+                "ssa-lower: for-of protocol — iter class `{iter_cname}` must declare `next(): IteratorResult<T>` (fn `{next_fn}` not registered)"
+            );
+        };
+        let step_ret_ty = self.f_ret_type_hint(next_fid);
+        let Type::Obj(step_sid) = step_ret_ty else {
+            panic!(
+                "ssa-lower: for-of protocol — `{iter_cname}.next()` must return an IteratorResult-shaped struct, got {step_ret_ty:?}"
+            );
+        };
+
+        // 3. Find value/done field offsets in the step struct.
+        let step_layout = &self.struct_layouts[step_sid.0 as usize];
+        let value_field = step_layout.iter().enumerate().find(|(_, (n, _))| n == "value");
+        let done_field = step_layout.iter().enumerate().find(|(_, (n, _))| n == "done");
+        let Some((value_idx, (_, value_ty))) = value_field.map(|(i, p)| (i, p.clone())) else {
+            panic!(
+                "ssa-lower: for-of protocol — step struct missing `value` field (got {step_layout:?})"
+            );
+        };
+        let Some((done_idx, (_, done_ty))) = done_field.map(|(i, p)| (i, p.clone())) else {
+            panic!(
+                "ssa-lower: for-of protocol — step struct missing `done` field (got {step_layout:?})"
+            );
+        };
+        if !matches!(done_ty, Type::Bool) {
+            panic!(
+                "ssa-lower: for-of protocol — step.done must be boolean, got {done_ty:?}"
+            );
+        }
+        let value_off = OBJ_HEADER_SIZE + (value_idx as u64) * 8;
+        let done_off = OBJ_HEADER_SIZE + (done_idx as u64) * 8;
+
+        // 4. Stash iter ptr in a slot so per-iter next() call doesn't
+        //    re-bump rc. Bind v's scope frame at the body.
+        self.scope_stack.push(Vec::new());
+        self.shadow_stack.push(Vec::new());
+        let iter_slot = self.alloca(iter_ret_ty, Some("__forof_it"));
+        self.f.append_void(
+            self.cur_block,
+            InstKind::Store(Operand::Value(iter_val), Operand::Value(iter_slot), 0),
+        );
+
+        // 5. while(true) { step = it.next(); if step.done break; v =
+        //    step.value; body; }
+        let header = self.f.add_block();
+        let body_blk = self.f.add_block();
+        let after = self.f.add_block();
+        self.f.set_term(self.cur_block, Terminator::Br(header));
+
+        self.cur_block = header;
+        let iter_load = self.f.append_inst(
+            self.cur_block,
+            InstKind::Load(iter_ret_ty, Operand::Value(iter_slot), 0),
+            iter_ret_ty,
+            None,
+        );
+        let step_val = self.f.append_inst(
+            self.cur_block,
+            InstKind::Call(next_fid, vec![Operand::Value(iter_load)]),
+            step_ret_ty,
+            None,
+        );
+        let done_val = self.f.append_inst(
+            self.cur_block,
+            InstKind::Load(Type::Bool, Operand::Value(step_val), done_off),
+            Type::Bool,
+            None,
+        );
+        self.f.set_term(
+            self.cur_block,
+            Terminator::CondBr {
+                cond: Operand::Value(done_val),
+                then_blk: after,
+                else_blk: body_blk,
+            },
+        );
+
+        self.cur_block = body_blk;
+        // Body scope: bind var_name = step.value. value field is a
+        // direct Load — copies the bits out; for refcounted T this
+        // borrows the step's rc on the field. step itself is owned by
+        // the call return (drops at end of iter). Mark var_name moved
+        // so end-of-body doesn't double-drop the shared rc.
+        self.scope_stack.push(Vec::new());
+        self.shadow_stack.push(Vec::new());
+        let v_val = self.f.append_inst(
+            self.cur_block,
+            InstKind::Load(value_ty, Operand::Value(step_val), value_off),
+            value_ty,
+            None,
+        );
+        let v_slot = self.alloca(value_ty, Some(var_name));
+        self.f.append_void(
+            self.cur_block,
+            InstKind::Store(Operand::Value(v_val), Operand::Value(v_slot), 0),
+        );
+        {
+            let cur_depth = self.scope_stack.len() - 1;
+            if let Some(prev) = self.locals.get(var_name).copied()
+                && prev.scope_depth < cur_depth
+            {
+                self.shadow_stack
+                    .last_mut()
+                    .expect("shadow frame")
+                    .push((var_name.to_string(), prev));
+            }
+            self.locals.insert(
+                var_name.to_string(),
+                LocalInfo {
+                    slot: v_slot,
+                    ty: value_ty,
+                    // borrowed view into step.value — step owns the
+                    // refcount; per-iter drop on v would double-dec.
+                    moved: true,
+                    scope_depth: cur_depth,
+                },
+            );
+            self.scope_stack
+                .last_mut()
+                .expect("scope frame")
+                .push(var_name.to_string());
+        }
+        self.loop_stack.push((header, after));
+        self.lower_stmt(body);
+        let body_open = self.cur_open();
+        self.loop_stack.pop();
+        // Drop step here (the call's return is owned and rc-bumps any
+        // heap value before we read it via Load + Store into v_slot).
+        // step itself is Type::Obj(step_sid) — emit_drop_value walks
+        // its struct fields (value+done) and drops refcounted ones.
+        // We do this AFTER lower_stmt(body) so v is still valid while
+        // body runs.
+        let step_frame = self.scope_stack.pop().expect("for-of-proto body scope");
+        let step_shadows = self.shadow_stack.pop().expect("shadow frame");
+        if body_open {
+            for name in &step_frame {
+                let info = match self.locals.get(name) {
+                    Some(i) => *i,
+                    None => continue,
+                };
+                if info.moved || info.ty.is_copy() {
+                    continue;
+                }
+                let val = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Load(info.ty, Operand::Value(info.slot), 0),
+                    info.ty,
+                    None,
+                );
+                self.emit_drop_value(Operand::Value(val), info.ty);
+            }
+            self.emit_drop_value(Operand::Value(step_val), step_ret_ty);
+            self.f.set_term(self.cur_block, Terminator::Br(header));
+        }
+        for n in &step_frame {
+            self.locals.remove(n);
+        }
+        for (n, prev) in step_shadows {
+            self.locals.insert(n, prev);
+        }
+
+        self.cur_block = after;
+        // Drop iter at scope close.
+        let iter_load_drop = self.f.append_inst(
+            self.cur_block,
+            InstKind::Load(iter_ret_ty, Operand::Value(iter_slot), 0),
+            iter_ret_ty,
+            None,
+        );
+        self.emit_drop_value(Operand::Value(iter_load_drop), iter_ret_ty);
+        let _ = self.scope_stack.pop().expect("for-of-proto iter scope");
+        let _ = self.shadow_stack.pop().expect("shadow frame");
     }
 }
