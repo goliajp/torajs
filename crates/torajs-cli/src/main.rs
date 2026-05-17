@@ -183,6 +183,7 @@ fn pipeline(src: &str, base_dir: &Path, stage: Stage) -> ExitCode {
     ast::desugar_builtin_imports(&mut ast);
     ast::desugar_builtin_new(&mut ast);
     ast::desugar_prototype_call(&mut ast);
+    ast::inject_builtin_classes(&mut ast);
     ast::desugar_classes(&mut ast);
     ast::synthesize_class_globals(&mut ast);
     ast::tag_struct_field_closure_types(&mut ast);
@@ -367,6 +368,7 @@ fn run_build_llvm(args: &[String]) -> ExitCode {
     ast::desugar_builtin_imports(&mut ast);
     ast::desugar_builtin_new(&mut ast);
     ast::desugar_prototype_call(&mut ast);
+    ast::inject_builtin_classes(&mut ast);
     ast::desugar_classes(&mut ast);
     ast::synthesize_class_globals(&mut ast);
     ast::tag_struct_field_closure_types(&mut ast);
@@ -533,6 +535,7 @@ fn run_jit(file_arg: Option<&String>) -> ExitCode {
     ast::desugar_builtin_imports(&mut ast);
     ast::desugar_builtin_new(&mut ast);
     ast::desugar_prototype_call(&mut ast);
+    ast::inject_builtin_classes(&mut ast);
     ast::desugar_classes(&mut ast);
     ast::synthesize_class_globals(&mut ast);
     ast::tag_struct_field_closure_types(&mut ast);

@@ -22930,6 +22930,18 @@ impl<'a> LowerCtx<'a> {
                         | "encodeURIComponent" | "decodeURIComponent" => {
                             Some("function")
                         }
+                        // P4.6 — Phase A1's synthesize_class_globals
+                        // rewrites every user-declared class Ident to
+                        // `__class_<NAME>`. Per spec §13.5.3 a class
+                        // function object's typeof is "function" (the
+                        // [[Call]] slot exists even when constructor-
+                        // only). With the inject_builtin_classes pass
+                        // (Error et al.) the typeof <BuiltinName>
+                        // reaches here as `__class_<BuiltinName>` —
+                        // routing through this generic prefix check
+                        // keeps the spec literal correct for both
+                        // user classes AND injected builtins.
+                        n if n.starts_with("__class_") => Some("function"),
                         _ => None,
                     };
                     if let Some(s) = global_kind {

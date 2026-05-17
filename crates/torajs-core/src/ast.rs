@@ -2160,6 +2160,106 @@ pub fn desugar_prototype_call(ast: &mut Ast) {
     }
 }
 
+/// P4.6 — inject built-in class declarations for `Error` (and future
+/// extensions: TypeError / RangeError / SyntaxError, etc.) so user
+/// code can `new Error(msg)` directly AND `class MyError extends
+/// Error` flows through the existing user-class ClassDecl machinery
+/// in `desugar_classes`. Pre-fix `new Error("oops")` panicked at
+/// check.rs with "internal: `new Error` reached check.rs (desugar
+/// didn't run?)" because no factory FnDecl was synthesized.
+///
+/// Minimum-viable shape per spec §20.5.7.1: Error has `message`
+/// (string) and `name` (string) instance fields; ctor sets
+/// `this.message = arg0` and `this.name = "Error"`. Other Error
+/// surface area (.stack DWARF capture, .toString format,
+/// instanceof through extends-chain) lands incrementally as
+/// follow-up substrate.
+///
+/// Runs BEFORE `desugar_classes` so the synth ClassDecl gets
+/// processed normally — synthesizes `__new_Error` factory,
+/// `__cm_Error__ctor`, `__class_Error` (via synthesize_class_globals
+/// later in the pipeline), and registers Error in the
+/// class_name_to_tag map so instanceof chain walks reach it.
+///
+/// Idempotent: only injects when no ClassDecl named "Error" already
+/// exists (user override would shadow the builtin, which is
+/// pre-standard but useful for stdlib-rewrite paths). Also only
+/// injects when the AST actually references "Error" somewhere
+/// (avoids inflating compile time for programs that never use it).
+pub fn inject_builtin_classes(ast: &mut Ast) {
+    // Skip if a user ClassDecl already shadows the name.
+    let already_has_error = ast.stmts.iter().any(|s| {
+        matches!(s, Stmt::ClassDecl { name, .. } if name == "Error")
+    });
+    if already_has_error {
+        return;
+    }
+    // Cheap-scan: only inject when `Error` is mentioned. Avoids
+    // touching ASTs that don't need it (most short programs).
+    let needs_error = ast.exprs.iter().any(|e| {
+        matches!(e, Expr::Ident(n) | Expr::New { class_name: n, .. } if n == "Error")
+            || matches!(e, Expr::Member { name, .. } if name == "Error")
+    }) || ast.stmts.iter().any(|s| {
+        matches!(s, Stmt::ClassDecl { parent: Some(p), .. } if p == "Error")
+    });
+    if !needs_error {
+        return;
+    }
+
+    // Build the synthetic Error ClassDecl. Field order matters: must
+    // match the assignments inside the ctor body since check.rs's
+    // affine-flow analysis walks them in declaration order.
+    // Ctor body: `this.message = message; this.name = "Error";`
+    let this0 = ast.add_expr(Expr::This);
+    let msg_member = ast.add_expr(Expr::Member {
+        obj: this0,
+        name: "message".to_string(),
+    });
+    let msg_value = ast.add_expr(Expr::Ident("message".to_string()));
+    let assign1 = ast.add_expr(Expr::Assign {
+        target: msg_member,
+        value: msg_value,
+    });
+    let this1 = ast.add_expr(Expr::This);
+    let name_member = ast.add_expr(Expr::Member {
+        obj: this1,
+        name: "name".to_string(),
+    });
+    let name_value = ast.add_expr(Expr::String("Error".to_string()));
+    let assign2 = ast.add_expr(Expr::Assign {
+        target: name_member,
+        value: name_value,
+    });
+
+    let ctor = ClassCtor {
+        params: vec![Param {
+            name: "message".to_string(),
+            type_ann: Some("string".to_string()),
+            default: None,
+            is_rest: false,
+        }],
+        body: vec![Stmt::Expr(assign1), Stmt::Expr(assign2)],
+    };
+
+    let error_class = Stmt::ClassDecl {
+        name: "Error".to_string(),
+        type_params: Vec::new(),
+        parent: None,
+        is_abstract: false,
+        fields: vec![
+            ("message".to_string(), "string".to_string()),
+            ("name".to_string(), "string".to_string()),
+        ],
+        static_fields: Vec::new(),
+        ctor: Some(ctor),
+        methods: Vec::new(),
+        static_methods: Vec::new(),
+    };
+
+    // Prepend so all references (forward + downstream) see it.
+    ast.stmts.insert(0, error_class);
+}
+
 /// P4.prototype-chain Phase A — expose every user-declared class as
 /// a first-class value. Runs AFTER `desugar_classes` (which has
 /// flattened `ClassDecl` into `TypeDecl` + `__new_<C>` factory /

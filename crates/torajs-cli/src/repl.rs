@@ -262,6 +262,7 @@ fn parse_check(src: &str) -> ParseOutcome {
     };
     a.source = src.to_string();
     a.warm_newline_cache();
+    ast::inject_builtin_classes(&mut a);
     ast::desugar_classes(&mut a);
     ast::synthesize_class_globals(&mut a);
     ast::tag_struct_field_closure_types(&mut a);
