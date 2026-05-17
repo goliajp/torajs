@@ -1639,6 +1639,86 @@ void __torajs_any_payload_rc_inc(int64_t tag, int64_t val) {
     }
 }
 
+/* P4.2 Phase B+C — class prototype side table. Maps class runtime tag
+ * (the same tag stored at OBJ_CLASS_TAG_OFF on instance allocation;
+ * tag 0 = "no class") to the Any-box wrapping the class's
+ * `__proto_<C>` dynobj. Populated once at module init via
+ * `__torajs_proto_register` (emitted by synthesize_class_globals after
+ * the per-class `__class_<C>` LetDecl); read by `__torajs_proto_get`
+ * at `Object.getPrototypeOf(instance)` call sites. Static 256-entry
+ * array is enough for the foreseeable class count; growing it
+ * requires no protocol change.
+ *
+ * The table holds borrowed pointers to long-lived Any-boxes (the
+ * `__proto_<C>` LetDecl's lifetime spans the program) — no rc bumps
+ * here. `proto_get` returns the same pointer the let binding holds,
+ * preserving identity across all readback sites. */
+#define __TORAJS_MAX_CLASSES 256
+static void *__torajs_protos_by_tag[__TORAJS_MAX_CLASSES];
+
+void __torajs_proto_register(int64_t tag, void *proto_anybox) {
+    if (tag < 0 || tag >= __TORAJS_MAX_CLASSES) return;
+    __torajs_protos_by_tag[tag] = proto_anybox;
+}
+
+/* Always returns an OWNED Any-box (rc 1). Callers don't rc_inc — the
+ * box is theirs to drop. For the registered-class case, bumps the
+ * stored `__proto_<C>` box's refcount; for the null/missing case,
+ * allocates a fresh ANY_NULL box. Keeps caller refcount accounting
+ * uniform across both paths. */
+void *__torajs_proto_get(int64_t tag) {
+    if (tag < 0 || tag >= __TORAJS_MAX_CLASSES) {
+        return __torajs_any_box(__TORAJS_ANY_NULL, 0);
+    }
+    void *p = __torajs_protos_by_tag[tag];
+    if (p == NULL) return __torajs_any_box(__TORAJS_ANY_NULL, 0);
+    __torajs_rc_inc(p);
+    return p;
+}
+
+/* P4.2 Phase B+C — `Object.getPrototypeOf(<any>)` on a dynobj-backed
+ * Any value. Reads the `__proto__` field from the wrapped dynobj
+ * and returns it as a fresh Any-box. Returns ANY_NULL when the box
+ * doesn't wrap a dynobj, when the dynobj has no `__proto__` field
+ * (root prototype), or for null / undefined / primitive Any tags
+ * (spec §19.1.2.13 ToObject step throws for null/undefined, but
+ * tora's subset returns NULL — pre-P7 Error type hierarchy lands).
+ *
+ * Identity preserved: the returned box wraps the SAME dynobj ptr
+ * the parent prototype was stored at, so `Object.getPrototypeOf
+ * (C.prototype) === B.prototype` holds by `any_payload_eq`'s ptr
+ * compare on the underlying heap value. */
+void *__torajs_get_proto_of_any(const void *box) {
+    if (box == NULL) return __torajs_any_box(__TORAJS_ANY_NULL, 0);
+    int64_t tag = *(const int64_t *)
+        ((const uint8_t *)box + __TORAJS_ANY_BOX_TAG_OFF);
+    if (tag != __TORAJS_ANY_HEAP) {
+        return __torajs_any_box(__TORAJS_ANY_NULL, 0);
+    }
+    void *dynobj = (void *)(uintptr_t)*(const int64_t *)
+        ((const uint8_t *)box + __TORAJS_ANY_BOX_VAL_OFF);
+    if (dynobj == NULL) return __torajs_any_box(__TORAJS_ANY_NULL, 0);
+    __torajs_heap_header_t *h = (__torajs_heap_header_t *)dynobj;
+    if (h->type_tag != __TORAJS_TAG_DYNOBJ) {
+        return __torajs_any_box(__TORAJS_ANY_NULL, 0);
+    }
+
+    /* Build a transient "__proto__" key str (9 bytes). */
+    static const char k_name[] = "__proto__";
+    uint8_t *k = str_alloc_(9);
+    memcpy(__TORAJS_STR_DATA(k), k_name, 9);
+
+    if (!__torajs_dynobj_has(dynobj, k)) {
+        __torajs_str_drop(k);
+        return __torajs_any_box(__TORAJS_ANY_NULL, 0);
+    }
+    int64_t v_tag = (int64_t)__torajs_dynobj_get_tag(dynobj, k);
+    int64_t v_val = (int64_t)__torajs_dynobj_get_value(dynobj, k);
+    __torajs_str_drop(k);
+
+    return __torajs_any_box(v_tag, v_val);
+}
+
 int64_t __torajs_str_eq(const uint8_t *a, const uint8_t *b);
 
 /* P0.3 — payload-equality comparison for two values that share the

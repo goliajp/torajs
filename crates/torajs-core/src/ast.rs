@@ -2198,12 +2198,39 @@ pub fn synthesize_class_globals(ast: &mut Ast) {
     }
     let class_set: HashSet<String> = class_names.iter().cloned().collect();
 
-    // Synthesize `let __class_<C>: any = { name: "<C>" }` for each.
-    let mut prepended: Vec<Stmt> = Vec::with_capacity(class_names.len());
+    let mut prepended: Vec<Stmt> = Vec::with_capacity(class_names.len() * 3);
+
+    // P4.2 Phase B — `let __proto_<C>: any = {}` per class. Singleton
+    // prototype object held in a top-level local; Phase A1's class
+    // dynobj's `prototype` field points here, and `Object.getPrototypeOf
+    // (instance)` lowers to a load on `__proto_<class_name>`. Empty
+    // body — methods stay on the nominal vtable for perf; this is the
+    // identity / introspection substrate.
+    for cname in &class_names {
+        let empty_obj = ast.add_expr(Expr::ObjectLit { fields: vec![] });
+        prepended.push(Stmt::LetDecl {
+            mutable: true,
+            name: format!("__proto_{cname}"),
+            type_ann: Some("any".to_string()),
+            init: empty_obj,
+            is_var: false,
+        });
+    }
+
+    // Synthesize `let __class_<C>: any = { name: "<C>", prototype:
+    // __proto_<C> }`. The `prototype` field is the value that
+    // `C.prototype` reads — same any-box that `Object.getPrototypeOf
+    // (instance)` returns, so identity holds across both paths via
+    // the P4.0 nested-Any-dynobj fix.
     for cname in &class_names {
         let name_expr = ast.add_expr(Expr::String(cname.clone()));
+        let proto_ident =
+            ast.add_expr(Expr::Ident(format!("__proto_{cname}")));
         let obj_expr = ast.add_expr(Expr::ObjectLit {
-            fields: vec![("name".to_string(), name_expr)],
+            fields: vec![
+                ("name".to_string(), name_expr),
+                ("prototype".to_string(), proto_ident),
+            ],
         });
         prepended.push(Stmt::LetDecl {
             mutable: true,
@@ -2214,10 +2241,58 @@ pub fn synthesize_class_globals(ast: &mut Ast) {
         });
     }
 
+    // P4.2 Phase C — chain wire `__proto_<Sub>.__proto__ = __proto_<Super>`
+    // for each class that has a parent. ast.class_parents was
+    // populated by desugar_classes; root classes (no parent) are
+    // left with an empty `__proto_<C>` whose `__proto__` is missing
+    // (read returns ANY_NULL via `__torajs_get_proto_of_any`).
+    for cname in &class_names {
+        let parent = ast.class_parents.get(cname).cloned().flatten();
+        let Some(pname) = parent else { continue };
+        let proto_sub =
+            ast.add_expr(Expr::Ident(format!("__proto_{cname}")));
+        let proto_super =
+            ast.add_expr(Expr::Ident(format!("__proto_{pname}")));
+        let member = ast.add_expr(Expr::Member {
+            obj: proto_sub,
+            name: "__proto__".to_string(),
+        });
+        let assign = ast.add_expr(Expr::Assign {
+            target: member,
+            value: proto_super,
+        });
+        prepended.push(Stmt::Expr(assign));
+    }
+
+    // P4.2 Phase B+C — register each `__proto_<C>` into the runtime
+    // side table keyed by the class's compile-time runtime tag, so
+    // `Object.getPrototypeOf(instance)` can look up the prototype
+    // from the instance's CLASS_TAG_OFF slot. Emitted as a Call to
+    // the magic ident `__torajs_proto_register`, intercepted by
+    // ssa_lower → resolves the tag from class_name_to_tag and emits
+    // `__torajs_proto_register(<tag_const>, <proto_ident_load>)`.
+    // The class-name argument is a String literal so ssa_lower can
+    // pick the right tag without re-deriving it from sid.
+    for cname in &class_names {
+        let proto_ident =
+            ast.add_expr(Expr::Ident(format!("__proto_{cname}")));
+        let name_str = ast.add_expr(Expr::String(cname.clone()));
+        let callee = ast.add_expr(Expr::Ident(
+            "__torajs_proto_register".to_string(),
+        ));
+        let call = ast.add_expr(Expr::Call {
+            callee,
+            args: vec![proto_ident, name_str],
+        });
+        prepended.push(Stmt::Expr(call));
+    }
+
     // Rewrite Ident("<C>") → Ident("__class_<C>") for each known
     // class name. Walks the entire expr arena since class refs can
     // appear anywhere (let init, fn arg, return value, conditional
-    // branches, ...).
+    // branches, ...). Synthesized __proto_<C> / __class_<C> idents
+    // are not in class_set (their names carry the prefix), so this
+    // pass leaves them untouched.
     let n = ast.exprs.len();
     for i in 0..n {
         if let Expr::Ident(name) = &ast.exprs[i]

@@ -2776,6 +2776,19 @@ impl Checker {
                         vec![Type::Number; 7],
                         Box::new(Type::Date),
                     )),
+                    // P4.2 Phase B+C — synthesized by ast::
+                    // synthesize_class_globals at module init to register
+                    // `__proto_<C>` into the runtime side table keyed
+                    // by class name. ssa_lower intercepts the Call,
+                    // resolves the name → class_tag via
+                    // class_name_to_tag, and emits the real runtime
+                    // call `__torajs_proto_register(<tag_const>,
+                    // <proto_any_box>)`. Typecheck-side accepts the
+                    // (any, string) signature.
+                    "__torajs_proto_register" => Ok(Type::Function(
+                        vec![Type::Any, Type::String],
+                        Box::new(Type::Void),
+                    )),
                     /* T-26.C — `gc()` manual trigger for the
                      * Bacon-Rajan cycle collector. Walks the
                      * PURPLE buffer of potential cycle roots,
@@ -3213,15 +3226,19 @@ impl Checker {
                      *   declaration. Lands with T-27 / Type::Any field
                      *   substrate post-v0.5.
                      */
-                    // V3-18 m2.a — Object.getPrototypeOf stub.
-                    // Tora's nominal class system has no real prototype
-                    // chain, so getPrototypeOf returns null. Most
-                    // test262 cases that use it are checking inheritance
-                    // shape — a `null` return works as the bottom case
-                    // (the call doesn't throw). Real prototype-chain
-                    // semantics ship with T-27 (dynamic substrate).
+                    // P4.2 Phase B+C — Object.getPrototypeOf returns
+                    // the class's prototype object as an Any-box (the
+                    // same `__proto_<C>` registered via
+                    // __torajs_proto_register at module init). Pre-P4.2
+                    // the stub returned Null; with prototype singletons
+                    // now exposed, return Any so the caller can `===`
+                    // against `C.prototype` and chain-walk via further
+                    // getPrototypeOf calls. Returns ANY_NULL (still
+                    // Type::Any tag-wise) when the arg has no prototype
+                    // (Type::Obj with class_tag 0, or a Type::Any whose
+                    // dynobj lacks `__proto__`).
                     (Type::Object("Object"), "getPrototypeOf") => {
-                        Ok(Type::Function(vec![Type::Any], Box::new(Type::Null)))
+                        Ok(Type::Function(vec![Type::Any], Box::new(Type::Any)))
                     }
                     // P3.3 — Object.defineProperty(obj, key, descriptor)
                     // accepted at typecheck. ssa_lower intercepts the

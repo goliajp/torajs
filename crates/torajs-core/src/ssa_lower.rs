@@ -2268,6 +2268,27 @@ fn lower_inner(
         &[Type::I64, Type::I64],
         Type::Void,
     );
+    let proto_register_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_proto_register",
+        &[Type::I64, Type::Any],
+        Type::Void,
+    );
+    let proto_get_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_proto_get",
+        &[Type::I64],
+        Type::Any,
+    );
+    let get_proto_of_any_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_get_proto_of_any",
+        &[Type::Any],
+        Type::Any,
+    );
     let any_unbox_tag_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -4195,6 +4216,9 @@ fn lower_inner(
         arr_drop_any: arr_drop_any_id,
         any_box: any_box_id,
         any_payload_rc_inc: any_payload_rc_inc_id,
+        proto_register: proto_register_id,
+        proto_get: proto_get_id,
+        get_proto_of_any: get_proto_of_any_id,
         any_typeof: any_typeof_id,
         any_to_bool: any_to_bool_id,
         any_add: any_add_id,
@@ -5000,6 +5024,9 @@ struct Intrinsics {
     arr_drop_any: FuncId,
     any_box: FuncId,
     any_payload_rc_inc: FuncId,
+    proto_register: FuncId,
+    proto_get: FuncId,
+    get_proto_of_any: FuncId,
     any_typeof: FuncId,
     any_to_bool: FuncId,
     any_add: FuncId,
@@ -14916,23 +14943,116 @@ impl<'a> LowerCtx<'a> {
                 //     so two owners of the SAME array would double-walk
                 //     (each elem dec'd twice). Cloning gives target its
                 //     own array with proper element refcount accounting.
-                // V3-18 m2.a — Object.getPrototypeOf stub. Returns
-                // ConstPtrNull (no real prototype chain in tora's
-                // nominal class system). Most test262 cases that use
-                // it are checking inheritance shape — null works as
-                // the bottom case (the call doesn't throw).
+                // P4.2 Phase B+C — synthesize_class_globals injected
+                // `__torajs_proto_register(__proto_<C>, "<C>")` at
+                // module init. Resolve the class name to its compile-
+                // time runtime tag and emit the real runtime call
+                // `__torajs_proto_register(<tag_const>, <proto_op>)`.
+                // Unknown class names (shouldn't happen given the
+                // AST pass only emits for declared classes) are
+                // silently no-op'd so misordered toolchain runs don't
+                // crash; the side table just won't have that entry.
+                if let Expr::Ident(name) = self.ast.get_expr(*callee)
+                    && name == "__torajs_proto_register"
+                    && args.len() == 2
+                    && let Expr::String(cname) = self.ast.get_expr(args[1])
+                {
+                    let proto_op = self.lower_expr(args[0]);
+                    let cname = cname.clone();
+                    if let Some(tag) = self.class_name_to_tag.get(&cname).copied() {
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.proto_register,
+                                vec![
+                                    Operand::ConstI64(tag as i64),
+                                    proto_op,
+                                ],
+                            ),
+                        );
+                    } else {
+                        // Drop the lowered proto operand if no tag —
+                        // keeps the path well-typed if it ever fires.
+                        let proto_ty = self.operand_ty(&proto_op);
+                        self.emit_drop_value(proto_op, proto_ty);
+                    }
+                    return Operand::ConstI64(0);
+                }
+
+                // P4.2 Phase B+C — `Object.getPrototypeOf(<arg>)`.
+                // Typed-tier instances (Type::Obj) read their
+                // runtime class tag from OBJ_CLASS_TAG_OFF and look
+                // up the registered `__proto_<C>` Any-box via the
+                // runtime side table. Type::Any args route through
+                // `__torajs_get_proto_of_any` which reads the
+                // `__proto__` field from the wrapped dynobj. Returns
+                // ANY_NULL when no prototype is available (tag 0 /
+                // missing __proto__). Pre-P4.2 the stub returned
+                // ConstPtrNull unconditionally.
                 if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
                     && m_name == "getPrototypeOf"
                     && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
                     && ns == "Object"
                     && args.len() == 1
                 {
-                    // Lower the arg for any side effects, then drop.
                     let v = self.lower_expr(args[0]);
                     let v_ty = self.operand_ty(&v);
                     self.consume_if_ident(args[0]);
-                    self.emit_drop_value(v, v_ty);
-                    return Operand::ConstPtrNull;
+                    match v_ty {
+                        Type::Obj(_) => {
+                            let tag = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Load(Type::I64, v.clone(), OBJ_CLASS_TAG_OFF),
+                                Type::I64,
+                                None,
+                            );
+                            let proto = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(
+                                    self.intrinsics.proto_get,
+                                    vec![Operand::Value(tag)],
+                                ),
+                                Type::Any,
+                                None,
+                            );
+                            self.emit_drop_value(v, v_ty);
+                            // proto_get already returns an owned (rc>0)
+                            // Any-box — either the registered
+                            // `__proto_<C>` with refcount bumped or a
+                            // fresh ANY_NULL box. No extra rc_inc here.
+                            return Operand::Value(proto);
+                        }
+                        Type::Any => {
+                            let proto = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(
+                                    self.intrinsics.get_proto_of_any,
+                                    vec![v.clone()],
+                                ),
+                                Type::Any,
+                                None,
+                            );
+                            // `__torajs_get_proto_of_any` returns a
+                            // FRESH any_box (rc 1 already). Drop the
+                            // input box now that we've extracted the
+                            // proto.
+                            self.emit_drop_value(v, v_ty);
+                            return Operand::Value(proto);
+                        }
+                        _ => {
+                            self.emit_drop_value(v, v_ty);
+                            let null_box = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(
+                                    self.intrinsics.any_box,
+                                    vec![Operand::ConstI64(0), Operand::ConstI64(0)],
+                                ),
+                                Type::Any,
+                                None,
+                            );
+                            return Operand::Value(null_box);
+                        }
+                    }
                 }
                 if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
                     && m_name == "assign"
