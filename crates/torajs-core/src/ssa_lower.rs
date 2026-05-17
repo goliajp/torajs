@@ -17041,35 +17041,65 @@ impl<'a> LowerCtx<'a> {
                     }
                 }
                 // M1.2 — `xs.push(v)` special-case. Two receiver shapes:
-                // `xs.shift()` — Ident-receiver only. Calls runtime
-                // `arr_shift` which memmoves [1..len) → [0..len-1) and
-                // dec's len. Returns the popped element (i64 in C; SSA
-                // re-types via the receiver's element type).
+                // `xs.shift()` — receiver is either an Ident bound to
+                // a typed Array<T> local OR an Ident bound to a K.3
+                // const-global Array<T>. Shift uses the head_offset
+                // bump strategy (T-13.5 deque), so it mutates len +
+                // head in place without realloc — same safety as pop
+                // for the global-receiver path.
                 if let Expr::Member { obj: recv_id, name } = self.ast.get_expr(*callee)
                     && name == "shift"
                     && args.is_empty()
                     && let Expr::Ident(recv_name) = self.ast.get_expr(*recv_id)
-                    && let Some(info) = self.locals.get(recv_name).copied()
-                    && let Type::Arr(arr_id) = info.ty
                 {
-                    let arr_ty = info.ty;
-                    let elem_ty = self.arr_layouts[arr_id.0 as usize];
-                    let cur_arr = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Load(arr_ty, Operand::Value(info.slot), 0),
-                        arr_ty,
-                        None,
-                    );
-                    let v = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Call(
-                            self.intrinsics.arr_shift,
-                            vec![Operand::Value(cur_arr)],
-                        ),
-                        elem_ty,
-                        None,
-                    );
-                    return Operand::Value(v);
+                    let recv_name = recv_name.clone();
+                    let resolved_arr: Option<(Operand, Type)> = if let Some(info) =
+                        self.locals.get(&recv_name).copied()
+                        && matches!(info.ty, Type::Arr(_))
+                    {
+                        let cur_arr = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(info.ty, Operand::Value(info.slot), 0),
+                            info.ty,
+                            None,
+                        );
+                        Some((Operand::Value(cur_arr), info.ty))
+                    } else if let Some(gty) = self.globals.get(&recv_name).copied()
+                        && matches!(gty, Type::Arr(_))
+                    {
+                        let gref = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::GlobalRef(recv_name.clone()),
+                            Type::Ptr,
+                            None,
+                        );
+                        let cur_arr = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(gty, Operand::Value(gref), 0),
+                            gty,
+                            None,
+                        );
+                        Some((Operand::Value(cur_arr), gty))
+                    } else {
+                        None
+                    };
+                    if let Some((arr_op, arr_ty)) = resolved_arr {
+                        let arr_id = match arr_ty {
+                            Type::Arr(id) => id,
+                            _ => unreachable!(),
+                        };
+                        let elem_ty = self.arr_layouts[arr_id.0 as usize];
+                        let v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.arr_shift,
+                                vec![arr_op],
+                            ),
+                            elem_ty,
+                            None,
+                        );
+                        return Operand::Value(v);
+                    }
                 }
                 // `xs.unshift(v)` — same realloc-and-store-back shape
                 // as push (a), but the runtime helper memmoves slots

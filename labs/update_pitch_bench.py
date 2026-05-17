@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Update the bench table in labs/pitch-2026-05-16.html from the
+"""Update the bench table in labs/pitch.html from the
 latest bench/results/*.json. Run after each L3a ship — keeps the
 public pitch numbers honest (4-pillar 规范: no manual entry drift).
 
@@ -18,7 +18,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 RESULTS_DIR = ROOT / "bench" / "results"
-HTML_PATH = ROOT / "labs" / "pitch-2026-05-16.html"
+HTML_PATH = ROOT / "labs" / "pitch.html"
 
 
 def latest_result_path() -> Path:
@@ -146,6 +146,25 @@ def patch_html(rows_html: str, summary: tuple[str, str, str, str], n_cases: int,
     html = re.sub(
         r"<p class=\"bench-foot\">[^<]*</p>",
         f'<p class="bench-foot">\n    all values are run_ms · hyperfine 10 runs, 3 warmup · darwin · arm64 · Apple M-class · stock thermal · all benchmarks run solo · data: bench/results @ HEAD {git_sha}\n  </p>',
+        html,
+        count=1,
+    )
+
+    # 6. Update the conformance KPI from `ls conformance/cases/*.ts +
+    #    conformance/test262-port/*.ts` so the headline doesn't drift
+    #    after every L3a ship. (The conformance runner walks both dirs;
+    #    1 case is currently skipped on macOS but not subtracted here
+    #    since the absolute "in-suite" count is the user-facing
+    #    headline.) Test262 5k pass rate / ships count are not
+    #    auto-measured — those need explicit refresh or manual edit.
+    conf_count = sum(
+        1 for p in (ROOT / "conformance" / "cases").glob("*.ts")
+    ) + sum(
+        1 for p in (ROOT / "conformance" / "test262-port").glob("*.ts")
+    )
+    html = re.sub(
+        r'(<div class="stat-v">)\d+(<span class="d">\+\d+</span></div>\n      <div class="stat-l">conformance)',
+        lambda m: f'{m.group(1)}{conf_count}{m.group(2)}',
         html,
         count=1,
     )
