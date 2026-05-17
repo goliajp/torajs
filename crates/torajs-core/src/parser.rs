@@ -3492,6 +3492,33 @@ impl Parser<'_> {
                         Token::RParen => self.pos += 1,
                         t => return Err(format!("expected `)`, got {t:?} at {}", self.at())),
                     }
+                    // P5.5 — static `f(...[a, b, c])` literal-array
+                    // spread desugars to `f(a, b, c)` here so the
+                    // fixed-arity arity check downstream doesn't
+                    // see the spread as a single arg. Dynamic spread
+                    // (`f(...someVar)`) only works with rest-param
+                    // sigs — fixed-arity dynamic spread requires
+                    // runtime length checking out of scope for the
+                    // typed subset.
+                    let needs_spread_fold = args.iter().any(|a| {
+                        matches!(self.ast.get_expr(*a), Expr::Spread { expr }
+                            if matches!(self.ast.get_expr(*expr), Expr::Array(_)))
+                    });
+                    if needs_spread_fold {
+                        let mut folded: Vec<ExprId> = Vec::with_capacity(args.len());
+                        for a in &args {
+                            if let Expr::Spread { expr } = self.ast.get_expr(*a)
+                                && let Expr::Array(els) = self.ast.get_expr(*expr)
+                            {
+                                for e in els.clone() {
+                                    folded.push(e);
+                                }
+                            } else {
+                                folded.push(*a);
+                            }
+                        }
+                        args = folded;
+                    }
                     node = self.add_expr_at(start_pos, Expr::Call { callee: node, args });
                 }
                 Token::LBracket => {
