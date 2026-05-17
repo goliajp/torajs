@@ -22644,6 +22644,19 @@ impl<'a> LowerCtx<'a> {
                 let elem_ty = elem_ty.unwrap_or(Type::I64);
                 let arr_id = intern_arr_layout(self.arr_layouts, elem_ty);
                 let elem_is_refcounted = elem_ty.is_refcounted();
+                // P5.6 — Array<Any> spread path uses 16-byte tagged
+                // slots; the regular 8-byte intrinsics below would
+                // misalign reads and corrupt the destination. Surface
+                // a clear subset-boundary error rather than silently
+                // SIGSEGV. Lazy iterable spread + Array<Any> extend
+                // helpers land as P5.6 follow-up.
+                if matches!(elem_ty, Type::Any)
+                    && items.iter().any(|it| matches!(it, Item::Spread(_)))
+                {
+                    panic!(
+                        "ssa-lower: array literal spread over Array<Any> source / mixed-type element types not yet supported (P5.6 subset — typed Array<T> + same-T spread only; Any-extend helper is the follow-up)"
+                    );
+                }
 
                 // total = literal_count + sum(spread.length).
                 let mut total: Operand = Operand::ConstI64(literal_count);
