@@ -5843,6 +5843,19 @@ fn collect_and_rewrite_var(
                     // a regular let-typed value, so hoisting to Any
                     // would lose the call-site dispatch.
                     Expr::Ident(n) if n.starts_with("__closure_") => true,
+                    // P5 — `var xs = [literal]` is the dominant
+                    // test262 / plain-JS pattern. Hoisting to
+                    // Type::Any made `xs.length` return "undefined"
+                    // (Member-on-Any with no length dispatch) — a
+                    // silent-wrong bug that gated every test262
+                    // case using `var arr = [...]` from passing.
+                    // Keep the typed Array<T> slot; pre-init read
+                    // returns the slot default (null) which is rare
+                    // enough that test coverage is happy with the
+                    // typed path. See `var-hoist-001` for the
+                    // pre-init undefined case (uses `var x = 1`,
+                    // Number, not Array).
+                    Expr::Array(_) => true,
                     _ => false,
                 };
                 if type_ann.is_some() || init_keeps_type {
