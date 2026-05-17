@@ -324,6 +324,19 @@ impl<'a> Formatter<'a> {
                 self.write(")) ");
                 self.fmt_braced_or_inline(body);
             }
+            Stmt::ForOf { var_name, var_type_ann, src_ident, body, .. } => {
+                self.write_indent();
+                self.write("for (let ");
+                self.write(var_name);
+                if let Some(ann) = var_type_ann {
+                    self.write(": ");
+                    self.write(ann);
+                }
+                self.write(" of ");
+                self.write(src_ident);
+                self.write(") ");
+                self.fmt_braced_or_inline(body);
+            }
             Stmt::Try {
                 body,
                 had_catch,

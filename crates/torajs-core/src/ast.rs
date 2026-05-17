@@ -331,6 +331,27 @@ pub enum Stmt {
         sep: ExprId,
         body: Box<Stmt>,
     },
+    /// P5.3 — generic `for (let v of <src>) body`. Parser hoists src
+    /// to a fresh Ident binding (or reuses the source Ident if src
+    /// was already one), mints an i counter Ident, and pre-allocates
+    /// `elem_expr` = `Expr::Index { obj: src_ident, index: i_ident }`.
+    /// ssa_lower routes element loads through that ExprId via the
+    /// existing Expr::Index lowering path so Type::Any boxing /
+    /// Substr borrowing / refcount semantics all stay consistent
+    /// with the rest of the indexed-read substrate. For user iterables
+    /// (P5.3 follow-up — `[Symbol.iterator]()`-implementing classes),
+    /// ssa_lower ignores `elem_expr` and emits an iterator-protocol
+    /// while-loop instead. The Block wrapping the optional `let
+    /// src_ident = <src>` hoist + this Stmt::ForOf keeps the source
+    /// binding scoped to the loop body only.
+    ForOf {
+        var_name: String,
+        var_type_ann: Option<String>,
+        src_ident: String,
+        i_ident: String,
+        elem_expr: ExprId,
+        body: Box<Stmt>,
+    },
     /// `break;` — exits the innermost enclosing loop. M1.7.
     Break,
     /// `continue;` — jumps to the innermost loop's step (for) or
@@ -3614,6 +3635,10 @@ fn collect_supercall_in_stmt(
             collect_supercall_in_expr(ast, *sep, out);
             collect_supercall_in_stmt(ast, body, out);
         }
+        Stmt::ForOf { elem_expr, body, .. } => {
+            collect_supercall_in_expr(ast, *elem_expr, out);
+            collect_supercall_in_stmt(ast, body, out);
+        }
         Stmt::FnDecl { .. } | Stmt::TypeDecl { .. } | Stmt::ClassDecl { .. } => {}
         Stmt::ImportDecl { .. } => {}
         Stmt::ExportDecl { inner, .. } => {
@@ -3797,6 +3822,10 @@ fn collect_super_in_stmt(
         Stmt::ForOfSplitIter { parent, sep, body, .. } => {
             collect_super_in_expr(ast, *parent, out);
             collect_super_in_expr(ast, *sep, out);
+            collect_super_in_stmt(ast, body, out);
+        }
+        Stmt::ForOf { elem_expr, body, .. } => {
+            collect_super_in_expr(ast, *elem_expr, out);
             collect_super_in_stmt(ast, body, out);
         }
         Stmt::FnDecl { .. } | Stmt::TypeDecl { .. } | Stmt::ClassDecl { .. } => {}
@@ -5895,7 +5924,7 @@ fn hoist_recurse_stmt(
             }
             hoist_recurse_stmt(body, hoisted, exprs);
         }
-        Stmt::ForOfSplitIter { body, .. } => {
+        Stmt::ForOfSplitIter { body, .. } | Stmt::ForOf { body, .. } => {
             hoist_recurse_stmt(body, hoisted, exprs);
         }
         Stmt::Try { body, catch_body, finally_body, .. } => {
@@ -6067,7 +6096,7 @@ fn collect_nested_fns_in_stmt(
         Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
             collect_nested_fns_in_stmt(body, parent_name, renames, lifted, counter);
         }
-        Stmt::For { body, .. } | Stmt::ForOfSplitIter { body, .. } => {
+        Stmt::For { body, .. } | Stmt::ForOfSplitIter { body, .. } | Stmt::ForOf { body, .. } => {
             collect_nested_fns_in_stmt(body, parent_name, renames, lifted, counter);
         }
         Stmt::Try { body, catch_body, finally_body, .. } => {
@@ -6160,7 +6189,7 @@ fn collect_nested_fns_in_other(
         Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
             collect_nested_fns_in_other(body, parent, renames, lifted, counter);
         }
-        Stmt::For { body, .. } | Stmt::ForOfSplitIter { body, .. } => {
+        Stmt::For { body, .. } | Stmt::ForOfSplitIter { body, .. } | Stmt::ForOf { body, .. } => {
             collect_nested_fns_in_other(body, parent, renames, lifted, counter);
         }
         Stmt::Try { body, catch_body, finally_body, .. } => {
@@ -6262,6 +6291,10 @@ fn rewrite_idents_in_stmt(
         Stmt::ForOfSplitIter { parent, sep, body, .. } => {
             rewrite_idents_in_expr(ast, *parent, renames);
             rewrite_idents_in_expr(ast, *sep, renames);
+            rewrite_idents_in_stmt(ast, body, renames);
+        }
+        Stmt::ForOf { elem_expr, body, .. } => {
+            rewrite_idents_in_expr(ast, *elem_expr, renames);
             rewrite_idents_in_stmt(ast, body, renames);
         }
         Stmt::Yield(eid) | Stmt::YieldInto { value: eid, .. } => {
@@ -6462,7 +6495,7 @@ fn rewrite_variadic_push_in_stmts(
                     rewrite_variadic_push_in_stmts(fb, snapshot, out_exprs);
                 }
             }
-            Stmt::ForOfSplitIter { body, .. } => {
+            Stmt::ForOfSplitIter { body, .. } | Stmt::ForOf { body, .. } => {
                 rewrite_variadic_push_in_stmt_box(body, snapshot, out_exprs);
             }
             Stmt::FnDecl { body, .. } => {
@@ -6579,7 +6612,7 @@ fn eal_recurse_into(
             }
             eal_recurse_into(ast, body, found);
         }
-        Stmt::ForOfSplitIter { body, .. } => eal_recurse_into(ast, body, found),
+        Stmt::ForOfSplitIter { body, .. } | Stmt::ForOf { body, .. } => eal_recurse_into(ast, body, found),
         Stmt::Switch { cases, default, .. } => {
             for c in cases {
                 eal_walk_stmts(ast, &c.body, found);
@@ -6652,6 +6685,10 @@ fn eal_stmt_safe(ast: &Ast, s: &Stmt, x_name: &str) -> bool {
         Stmt::ForOfSplitIter { parent, sep, body, .. } => {
             eal_expr_safe(ast, *parent, x_name)
                 && eal_expr_safe(ast, *sep, x_name)
+                && eal_stmt_safe(ast, body, x_name)
+        }
+        Stmt::ForOf { elem_expr, body, .. } => {
+            eal_expr_safe(ast, *elem_expr, x_name)
                 && eal_stmt_safe(ast, body, x_name)
         }
         Stmt::Switch { scrutinee, cases, default } => {
@@ -7002,7 +7039,7 @@ fn rewrite_sfi_walk_stmt(ast: &mut Ast, s: &mut Stmt, ctx: &mut SplitForICtx) {
             }
             rewrite_sfi_walk_stmt(ast, body, ctx);
         }
-        Stmt::ForOfSplitIter { body, .. } => {
+        Stmt::ForOfSplitIter { body, .. } | Stmt::ForOf { body, .. } => {
             rewrite_sfi_walk_stmt(ast, body, ctx);
         }
         Stmt::Switch { cases, default, .. } => {
@@ -7107,6 +7144,10 @@ fn sfi_stmt_x_safe(ast: &Ast, s: &Stmt, x_name: &str, i_name: &str) -> bool {
         Stmt::ForOfSplitIter { parent, sep, body, .. } => {
             sfi_expr_x_safe(ast, *parent, x_name, i_name)
                 && sfi_expr_x_safe(ast, *sep, x_name, i_name)
+                && sfi_stmt_x_safe(ast, body, x_name, i_name)
+        }
+        Stmt::ForOf { elem_expr, body, .. } => {
+            sfi_expr_x_safe(ast, *elem_expr, x_name, i_name)
                 && sfi_stmt_x_safe(ast, body, x_name, i_name)
         }
         Stmt::Switch { scrutinee, cases, default } => {
@@ -7308,6 +7349,14 @@ fn sfi_rewrite_stmt(ast: &mut Ast, s: &Stmt, x_name: &str, i_name: &str, v_name:
             var_name: var_name.clone(),
             parent: sfi_rewrite_expr(ast, *parent, x_name, i_name, v_name),
             sep: sfi_rewrite_expr(ast, *sep, x_name, i_name, v_name),
+            body: Box::new(sfi_rewrite_stmt(ast, body, x_name, i_name, v_name)),
+        },
+        Stmt::ForOf { var_name, var_type_ann, src_ident, i_ident, elem_expr, body } => Stmt::ForOf {
+            var_name: var_name.clone(),
+            var_type_ann: var_type_ann.clone(),
+            src_ident: src_ident.clone(),
+            i_ident: i_ident.clone(),
+            elem_expr: sfi_rewrite_expr(ast, *elem_expr, x_name, i_name, v_name),
             body: Box::new(sfi_rewrite_stmt(ast, body, x_name, i_name, v_name)),
         },
         Stmt::Try { body, had_catch, catch_param, catch_type, catch_body, finally_body } => {
@@ -7705,6 +7754,10 @@ fn stmt_uses_dynamic_arguments(ast: &Ast, s: &Stmt) -> bool {
                 || expr_uses_dynamic_arguments(ast, *sep)
                 || stmt_uses_dynamic_arguments(ast, body)
         }
+        Stmt::ForOf { elem_expr, body, .. } => {
+            expr_uses_dynamic_arguments(ast, *elem_expr)
+                || stmt_uses_dynamic_arguments(ast, body)
+        }
         Stmt::Block(stmts) | Stmt::Multi(stmts) => {
             stmts.iter().any(|s| stmt_uses_dynamic_arguments(ast, s))
         }
@@ -7856,6 +7909,10 @@ fn stmt_has_arguments_length(ast: &Ast, s: &Stmt) -> bool {
         Stmt::ForOfSplitIter { parent, sep, body, .. } => {
             expr_has_arguments_length(ast, *parent)
                 || expr_has_arguments_length(ast, *sep)
+                || stmt_has_arguments_length(ast, body)
+        }
+        Stmt::ForOf { elem_expr, body, .. } => {
+            expr_has_arguments_length(ast, *elem_expr)
                 || stmt_has_arguments_length(ast, body)
         }
         Stmt::Block(stmts) | Stmt::Multi(stmts) => {
@@ -9258,6 +9315,13 @@ fn walk_stmt(ast: &Ast, s: &Stmt, bound: &mut Vec<String>, out: &mut Vec<String>
             walk_stmt(ast, body, bound, out);
             bound.truncate(saved);
         }
+        Stmt::ForOf { var_name, elem_expr, body, .. } => {
+            walk_expr(ast, *elem_expr, bound, out);
+            let saved = bound.len();
+            bound.push(var_name.clone());
+            walk_stmt(ast, body, bound, out);
+            bound.truncate(saved);
+        }
         Stmt::Break | Stmt::Continue => {}
         Stmt::Throw(eid) => walk_expr(ast, *eid, bound, out),
         Stmt::Try {
@@ -9447,6 +9511,10 @@ fn scan_stmt_for_throws(
         Stmt::ForOfSplitIter { parent, sep, body, .. } => {
             scan_expr_for_calls(ast, *parent, called);
             scan_expr_for_calls(ast, *sep, called);
+            scan_stmt_for_throws(ast, body, direct, called);
+        }
+        Stmt::ForOf { elem_expr, body, .. } => {
+            scan_expr_for_calls(ast, *elem_expr, called);
             scan_stmt_for_throws(ast, body, direct, called);
         }
         Stmt::Try {
@@ -9818,6 +9886,13 @@ impl Ast {
                 self.print_expr(*parent, indent + 2);
                 println!("{pad}  sep:");
                 self.print_expr(*sep, indent + 2);
+                println!("{pad}  body:");
+                self.print_stmt(body, indent + 2);
+            }
+            Stmt::ForOf { var_name, src_ident, elem_expr, body, .. } => {
+                println!("{pad}ForOf {var_name} of {src_ident}[i]");
+                println!("{pad}  elem:");
+                self.print_expr(*elem_expr, indent + 2);
                 println!("{pad}  body:");
                 self.print_stmt(body, indent + 2);
             }

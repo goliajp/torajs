@@ -185,7 +185,7 @@ impl<'a> Linter<'a> {
             Stmt::While { body, .. }
             | Stmt::DoWhile { body, .. }
             | Stmt::For { body, .. }
-            | Stmt::ForOfSplitIter { body, .. } => {
+            | Stmt::ForOfSplitIter { body, .. } | Stmt::ForOf { body, .. } => {
                 self.lint_stmt(body, refs, scopes);
             }
             Stmt::Switch { cases, default, .. } => {
@@ -312,6 +312,10 @@ fn stmt_can_throw(ast: &Ast, s: &Stmt) -> bool {
                 || expr_can_throw(ast, *sep)
                 || stmt_can_throw(ast, body)
         }
+        Stmt::ForOf { elem_expr, body, .. } => {
+            expr_can_throw(ast, *elem_expr)
+                || stmt_can_throw(ast, body)
+        }
         Stmt::Switch { scrutinee, cases, default } => {
             if expr_can_throw(ast, *scrutinee) {
                 return true;
@@ -416,6 +420,10 @@ fn count_refs_stmt(ast: &Ast, s: &Stmt, refs: &mut HashMap<String, usize>) {
         Stmt::ForOfSplitIter { parent, sep, body, .. } => {
             count_refs_expr(ast, *parent, refs);
             count_refs_expr(ast, *sep, refs);
+            count_refs_stmt(ast, body, refs);
+        }
+        Stmt::ForOf { elem_expr, body, .. } => {
+            count_refs_expr(ast, *elem_expr, refs);
             count_refs_stmt(ast, body, refs);
         }
         Stmt::Switch { scrutinee, cases, default } => {

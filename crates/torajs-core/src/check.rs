@@ -324,6 +324,10 @@ fn stmt_assigns_to(ast: &Ast, s: &Stmt, name: &str) -> bool {
                 || expr_assigns_to(ast, *sep, name)
                 || stmt_assigns_to(ast, body, name)
         }
+        Stmt::ForOf { elem_expr, body, .. } => {
+            expr_assigns_to(ast, *elem_expr, name)
+                || stmt_assigns_to(ast, body, name)
+        }
         Stmt::FnDecl { .. } | Stmt::TypeDecl { .. } | Stmt::ClassDecl { .. } => false,
         Stmt::ImportDecl { .. } => false,
         Stmt::ExportDecl { inner, .. } => inner
@@ -2391,6 +2395,48 @@ impl Checker {
                     var_name.clone(),
                     LocalInfo {
                         ty: Type::String,
+                        mutable: false,
+                        moved: false,
+                        declared_class: None,
+                    },
+                );
+                self.check_stmt(ast, body);
+                self.scopes.pop();
+            }
+            // P5.3 — generic for-of. The parser hoists src to a fresh
+            // Ident and pre-builds `elem_expr = src[i]`. Typing the
+            // var_name binding goes through Expr::Index lowering on
+            // elem_expr — which already infers the right element type
+            // per source shape (Array<T>.value=T, String[i]=String,
+            // dynobj-backed Any[i]=Any). We also declare `i_ident` as
+            // a Number local so the synthetic counter typechecks.
+            Stmt::ForOf { var_name, var_type_ann, src_ident: _, i_ident, elem_expr, body } => {
+                self.scopes.push(HashMap::new());
+                let _ = self.declare(
+                    i_ident.clone(),
+                    LocalInfo {
+                        ty: Type::Number,
+                        mutable: true,
+                        moved: false,
+                        declared_class: None,
+                    },
+                );
+                let elem_ty = match self.type_of(ast, *elem_expr) {
+                    Ok(t) => t,
+                    Err(e) => {
+                        self.errors.push_err(e);
+                        Type::Any
+                    }
+                };
+                let var_ty = if let Some(ann) = var_type_ann {
+                    resolve_type_ann(ann, &self.aliases).unwrap_or(elem_ty)
+                } else {
+                    elem_ty
+                };
+                let _ = self.declare(
+                    var_name.clone(),
+                    LocalInfo {
+                        ty: var_ty,
                         mutable: false,
                         moved: false,
                         declared_class: None,

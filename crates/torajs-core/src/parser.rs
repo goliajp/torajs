@@ -2252,15 +2252,17 @@ impl Parser<'_> {
                 }
             }
         };
-        // Optional `: T` annotation — for now consumed but not used; the
-        // desugared `let v = __src[__i]` infers the element type from the
-        // array. Carrying the annotation forward isn't necessary for v0.
-        let mut have_type_ann = false;
-        if matches!(self.peek(), Token::Colon) {
+        // P5.3 — preserve the optional `: T` annotation on the
+        // binding name so check.rs / ssa_lower can pin the var's
+        // type when src's element type is harder to infer (Type::Any
+        // sources or user iterables).
+        let var_type_ann: Option<String> = if matches!(self.peek(), Token::Colon) {
             self.pos += 1;
-            let _ann = self.parse_type_ann()?;
-            have_type_ann = true;
-        }
+            Some(self.parse_type_ann()?)
+        } else {
+            None
+        };
+        let have_type_ann = var_type_ann.is_some();
         // Contextual `of` / `in` keyword — must be an Ident. Anything
         // else (`=` for a regular let-in-init, `;` for empty init, etc.)
         // means this is NOT a for-of/in and we restore.
@@ -2456,112 +2458,58 @@ impl Parser<'_> {
             return Ok(Some(Stmt::Block(stmts)));
         }
 
-        // Default for-of (and for-in): array-shape index walk. Emit
-        // the desugar. Mint a unique suffix per for-of to avoid
-        // collisions with user code AND with sibling for-ofs in the same
-        // scope (block-scope shadow would also save us, but explicit
-        // unique names are cheaper to reason about).
+        // P5.3 — default for-of emits Stmt::ForOf wrapped in a
+        // Stmt::Block that hoists src to a fresh Ident binding (or
+        // reuses the source Ident). ssa_lower dispatches on the
+        // bound src's check-time type to pick array-walk vs iterator-
+        // protocol. The pre-allocated `elem_expr = src_ident[i_ident]`
+        // routes element loads through Expr::Index lowering — handles
+        // Type::Any / Substr / typed-Array uniformly.
+        let _ = have_type_ann;
         let id = self.mint_desugar_id();
-        let src_name = format!("__forof_src_{id}");
-        let end_name = format!("__forof_end_{id}");
         let i_name = format!("__forof_i_{id}");
-
-        // src ident — if `src` is already an Ident, reuse it directly so
-        // we skip allocating a redundant temp. Cross-scope rebind handled
-        // by the regular LetDecl path; the alias-init rule already covers
-        // that case so the heap stays owned by the original binding.
+        // src reuse rule: if src is already an Ident, no temp needed —
+        // its binding stays the owner. Else hoist into a fresh
+        // `__forof_src_<id>` let so the body's repeated reads see a
+        // stable name (and ssa_lower can look up its type).
         let src_is_ident = matches!(self.ast.get_expr(src), Expr::Ident(_));
-        let src_ref_name: String = if src_is_ident {
+        let src_ident_name = if src_is_ident {
             if let Expr::Ident(n) = self.ast.get_expr(src) {
                 n.clone()
             } else {
                 unreachable!()
             }
         } else {
-            src_name.clone()
+            format!("__forof_src_{id}")
         };
-
-        let mut stmts: Vec<Stmt> = Vec::new();
-        if !src_is_ident {
-            // `let __src = <src>;`
-            stmts.push(Stmt::LetDecl {
-                mutable: false,
-                name: src_name.clone(),
-                type_ann: None,
-                init: src,
-            is_var: false,
-            });
-        }
-        // `let __end = __src.length;`
-        let src_ident_for_len = self.ast.add_expr(Expr::Ident(src_ref_name.clone()));
-        let end_init = self.ast.add_expr(Expr::Member {
-            obj: src_ident_for_len,
-            name: "length".into(),
-        });
-        stmts.push(Stmt::LetDecl {
-            mutable: false,
-            name: end_name.clone(),
-            type_ann: Some("number".into()),
-            init: end_init,
-        is_var: false,
-            });
-        // `for (let __i = 0; __i < __end; __i = __i + 1) { let v = __src[__i]; body }`
-        let zero = self.ast.add_expr(Expr::Number(0.0));
-        let init_stmt = Stmt::LetDecl {
-            mutable: true,
-            name: i_name.clone(),
-            type_ann: Some("number".into()),
-            init: zero,
-        is_var: false,
-            };
-        let i_ref_for_cond = self.ast.add_expr(Expr::Ident(i_name.clone()));
-        let end_ref = self.ast.add_expr(Expr::Ident(end_name.clone()));
-        let cond_expr = self.ast.add_expr(Expr::BinOp {
-            op: BinOp::Lt,
-            left: i_ref_for_cond,
-            right: end_ref,
-        });
-        let i_ref_for_step_lhs = self.ast.add_expr(Expr::Ident(i_name.clone()));
-        let i_ref_for_step_rhs = self.ast.add_expr(Expr::Ident(i_name.clone()));
-        let one = self.ast.add_expr(Expr::Number(1.0));
-        let step_inc = self.ast.add_expr(Expr::BinOp {
-            op: BinOp::Add,
-            left: i_ref_for_step_rhs,
-            right: one,
-        });
-        let i_target = self.ast.add_expr(Expr::Ident(i_name.clone()));
-        let _ = i_ref_for_step_lhs; // unused; keep the index symbol uniqueness
-        let step_assign = self.ast.add_expr(Expr::Assign {
-            target: i_target,
-            value: step_inc,
-        });
-        // Body wrapped in a block so the `let v = __src[__i]` only lives
-        // for one iteration's scope — block-close drop emission cleans up
-        // any non-Copy element borrow.
+        // Pre-allocate elem_expr = src_ident[i_ident].
+        let src_ref_for_index = self.ast.add_expr(Expr::Ident(src_ident_name.clone()));
         let i_ref_for_index = self.ast.add_expr(Expr::Ident(i_name.clone()));
-        let src_ref_for_index = self.ast.add_expr(Expr::Ident(src_ref_name.clone()));
-        let elem_init = self.ast.add_expr(Expr::Index {
+        let elem_expr = self.ast.add_expr(Expr::Index {
             obj: src_ref_for_index,
             index: i_ref_for_index,
         });
-        let mut body_stmts: Vec<Stmt> = Vec::new();
-        body_stmts.push(Stmt::LetDecl {
-            mutable: false,
-            name: var_name,
-            type_ann: None,
-            init: elem_init,
-        is_var: false,
-            });
-        body_stmts.push(body);
-        let body_block = Stmt::Block(body_stmts);
-        let for_stmt = Stmt::For {
-            init: Some(Box::new(init_stmt)),
-            cond: Some(cond_expr),
-            step: Some(step_assign),
-            body: Box::new(body_block),
+        let forof_stmt = Stmt::ForOf {
+            var_name,
+            var_type_ann,
+            src_ident: src_ident_name,
+            i_ident: i_name,
+            elem_expr,
+            body: Box::new(body),
         };
-        stmts.push(for_stmt);
-        Ok(Some(Stmt::Block(stmts)))
+        if src_is_ident {
+            Ok(Some(forof_stmt))
+        } else {
+            // Hoist src into a fresh let, then ForOf reads it by name.
+            let let_src = Stmt::LetDecl {
+                mutable: false,
+                name: format!("__forof_src_{id}"),
+                type_ann: None,
+                init: src,
+                is_var: false,
+            };
+            Ok(Some(Stmt::Block(vec![let_src, forof_stmt])))
+        }
     }
 
     /// `let [a, b, c] = src` → `let __t = src; let a = __t[0]; let b = __t[1]; ...`.

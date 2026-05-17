@@ -10143,6 +10143,247 @@ impl<'a> LowerCtx<'a> {
                 let _ = self.shadow_stack.pop().expect("shadow frame");
                 self.locals.remove(var_name);
             }
+            Stmt::ForOf { var_name, var_type_ann: _, src_ident, i_ident, elem_expr, body } => {
+                // P5.3 — generic `for (let v of <expr>) body`. Parser
+                // hoisted <expr> into `src_ident` (or it was already an
+                // Ident) and pre-built `elem_expr = src_ident[i_ident]`
+                // so we route the per-iter element load back through
+                // the existing Expr::Index lowering — that path knows
+                // how to box Type::Any elements correctly, which a
+                // hand-rolled LoadDyn here would get wrong.
+                //
+                // Subset: array source only for now. Iterator-protocol
+                // dispatch (user-class with `[Symbol.iterator]`) lands
+                // as a P5.3 follow-up — until then any other src type
+                // is a hard panic at lower time.
+                // Resolve src via lower_expr on the existing Ident
+                // ExprId inside elem_expr (= `src_ident[i_ident]`).
+                // This keeps the global / closure-env / local-alloca
+                // paths unified — the same machinery that lowers the
+                // body's Ident reads to xs handles this.
+                let src_ref_eid = if let Expr::Index { obj, .. } = self.ast.get_expr(*elem_expr) {
+                    *obj
+                } else {
+                    panic!("for-of: elem_expr must be Expr::Index, got {:?}", self.ast.get_expr(*elem_expr));
+                };
+                let src_ptr_op = self.lower_expr(src_ref_eid);
+                let src_ty = self.operand_ty(&src_ptr_op);
+                if !matches!(src_ty, Type::Arr(_)) {
+                    panic!(
+                        "ssa-lower: for-of source type {src_ty:?} not yet supported (P5.3 subset — Array<T> only; iterator-protocol path lands as P5.3 follow-up)"
+                    );
+                }
+
+                // Open a fresh scope frame for `i_ident`. The body's
+                // `var_name` opens its own nested frame so per-iter
+                // drops fire at the correct point.
+                self.scope_stack.push(Vec::new());
+                self.shadow_stack.push(Vec::new());
+
+                let i_slot = self.alloca(Type::I64, Some(i_ident));
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Store(
+                        Operand::ConstI64(0),
+                        Operand::Value(i_slot),
+                        0,
+                    ),
+                );
+                {
+                    let cur_depth = self.scope_stack.len() - 1;
+                    if let Some(prev) = self.locals.get(i_ident).copied()
+                        && prev.scope_depth < cur_depth
+                    {
+                        self.shadow_stack
+                            .last_mut()
+                            .expect("shadow frame")
+                            .push((i_ident.clone(), prev));
+                    }
+                    self.locals.insert(
+                        i_ident.clone(),
+                        LocalInfo {
+                            slot: i_slot,
+                            ty: Type::I64,
+                            moved: false,
+                            scope_depth: cur_depth,
+                        },
+                    );
+                    self.scope_stack
+                        .last_mut()
+                        .expect("scope frame")
+                        .push(i_ident.clone());
+                }
+
+                // Hoist length read out of the loop. src_ptr_op is
+                // the loaded array pointer (rc still owned by its
+                // upstream binding — we don't bump here since the
+                // for-of body just borrows).
+                let src_ptr = match src_ptr_op {
+                    Operand::Value(v) => v,
+                    _ => panic!("for-of: src ident must lower to a value operand"),
+                };
+                let end_val = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Load(Type::I64, Operand::Value(src_ptr), ARR_LEN_OFF),
+                    Type::I64,
+                    None,
+                );
+
+                let header = self.f.add_block();
+                let body_blk = self.f.add_block();
+                let step_blk = self.f.add_block();
+                let after = self.f.add_block();
+                self.f.set_term(self.cur_block, Terminator::Br(header));
+
+                // header: i < end?
+                self.cur_block = header;
+                let i_now = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Load(Type::I64, Operand::Value(i_slot), 0),
+                    Type::I64,
+                    None,
+                );
+                let cond_val = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::ICmp(
+                        IPred::Slt,
+                        Operand::Value(i_now),
+                        Operand::Value(end_val),
+                    ),
+                    Type::Bool,
+                    None,
+                );
+                self.f.set_term(
+                    self.cur_block,
+                    Terminator::CondBr {
+                        cond: Operand::Value(cond_val),
+                        then_blk: body_blk,
+                        else_blk: after,
+                    },
+                );
+
+                // body: open var scope, evaluate elem via Expr::Index
+                // (handles boxing for Type::Any), bind var_name, lower
+                // user body, fall through to step.
+                self.cur_block = body_blk;
+                self.scope_stack.push(Vec::new());
+                self.shadow_stack.push(Vec::new());
+                let v_val = self.lower_expr(*elem_expr);
+                let v_ty = self.operand_ty(&v_val);
+                let v_slot = self.alloca(v_ty, Some(var_name));
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Store(v_val, Operand::Value(v_slot), 0),
+                );
+                {
+                    let cur_depth = self.scope_stack.len() - 1;
+                    if let Some(prev) = self.locals.get(var_name).copied()
+                        && prev.scope_depth < cur_depth
+                    {
+                        self.shadow_stack
+                            .last_mut()
+                            .expect("shadow frame")
+                            .push((var_name.clone(), prev));
+                    }
+                    self.locals.insert(
+                        var_name.clone(),
+                        LocalInfo {
+                            slot: v_slot,
+                            ty: v_ty,
+                            // Alias-init: `v` borrows from `src[i]`
+                            // without bumping the array slot's rc.
+                            // emit_drops_for_owned_locals must skip
+                            // it — otherwise per-iter drop on a Str /
+                            // Any-box would decrement the array slot's
+                            // child rc to 0 and free it, corrupting
+                            // subsequent reads. Mirrors the LetDecl
+                            // is_alias_init rule for Expr::Index init.
+                            moved: true,
+                            scope_depth: cur_depth,
+                        },
+                    );
+                    self.scope_stack
+                        .last_mut()
+                        .expect("scope frame")
+                        .push(var_name.clone());
+                }
+                self.loop_stack.push((step_blk, after));
+                self.lower_stmt(body);
+                let body_open_at_end = self.cur_open();
+                self.loop_stack.pop();
+
+                // Close body scope. If body fell through (no break /
+                // return), emit per-iter drops over THIS scope's
+                // frame only — using emit_drops_for_owned_locals
+                // would walk every local (including the outer `xs`)
+                // and corrupt the array across iterations.
+                let body_frame = self.scope_stack.pop().expect("for-of body scope");
+                let body_shadows = self.shadow_stack.pop().expect("shadow frame");
+                if body_open_at_end {
+                    for name in &body_frame {
+                        let info = match self.locals.get(name) {
+                            Some(i) => *i,
+                            None => continue,
+                        };
+                        if info.moved || info.ty.is_copy() {
+                            continue;
+                        }
+                        let val = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(info.ty, Operand::Value(info.slot), 0),
+                            info.ty,
+                            None,
+                        );
+                        self.emit_drop_value(Operand::Value(val), info.ty);
+                    }
+                    self.f.set_term(self.cur_block, Terminator::Br(step_blk));
+                }
+                for n in &body_frame {
+                    self.locals.remove(n);
+                }
+                for (n, prev) in body_shadows {
+                    self.locals.insert(n, prev);
+                }
+
+                // step: i = i + 1, br header
+                self.cur_block = step_blk;
+                let i_cur = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Load(Type::I64, Operand::Value(i_slot), 0),
+                    Type::I64,
+                    None,
+                );
+                let i_next = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::BinOp(
+                        SsaBinOp::Add,
+                        Operand::Value(i_cur),
+                        Operand::ConstI64(1),
+                    ),
+                    Type::I64,
+                    None,
+                );
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Store(
+                        Operand::Value(i_next),
+                        Operand::Value(i_slot),
+                        0,
+                    ),
+                );
+                self.f.set_term(self.cur_block, Terminator::Br(header));
+
+                // after: close i scope, fall through.
+                self.cur_block = after;
+                let i_frame = self.scope_stack.pop().expect("for-of i scope");
+                let i_shadows = self.shadow_stack.pop().expect("shadow frame");
+                for n in &i_frame {
+                    self.locals.remove(n);
+                }
+                for (n, prev) in i_shadows {
+                    self.locals.insert(n, prev);
+                }
+            }
             Stmt::DoWhile { body, cond } => {
                 // Body executes at least once, then `cond` decides
                 // whether to repeat. Layout: body_blk → cond_blk → (back
