@@ -1,37 +1,71 @@
 # torajs roadmap
 
-> **v4 — test262 100% trunk.** Full rewrite on 2026-05-14 (HEAD `52ba8ea`,
-> curated conformance 522/0/1, test262 in-scope 4 %). Replaces the prior v1
-> (P0-P13 foundation), v2 (33-item perf-gated), and v3 (V3-XX wedge-cycle)
-> plans. Those are preserved verbatim in `docs/roadmap-historical.md` —
-> read them for *why* tora's foundation looks the way it does, not for
-> *what to do next*.
+> **v5 — 三轴并行 trunk.** Rewritten 2026-05-17 (HEAD `a65e51f`, curated
+> conformance 590/0/1, 5k diagnostic 152/15/2975). Supersedes v4
+> (test262-100% trunk, 2026-05-14). The v4 trunk treated test262
+> in-scope pass rate as the per-phase acceptance metric; v5 replaces
+> that with **substrate-checklist acceptance** (concrete spec sections
+> worked, runtime + ssa-lower paths landed). Pass rate stays as a
+> diagnostic / regression detector — never a milestone.
 >
-> **HARD RULE for execution.** This file is the only forward-looking plan.
-> Phases run strictly in order. Within a phase, items run strictly in order.
-> No "candidate A vs B" branching at execution time — the order is the
-> decision. Stop and discuss only on (a) genuine forks not in this doc,
-> (b) irreversible decisions, (c) ambiguous-recovery failures.
+> Prior trunks (v1 P0-P13 foundation, v2 33-item perf-gated, v3 V3-XX
+> wedge cycle, v4 test262-100%) are preserved verbatim in
+> `docs/roadmap-historical.md`. Read them for *why* tora's foundation
+> looks the way it does, not for *what to do next*.
 >
-> Living document — append observations / sub-items as they surface, but
-> never reorder shipped items.
+> **HARD RULE for execution.** This file is the only forward-looking
+> plan. Phases run strictly in order. Within a phase, items run
+> strictly in order. No "candidate A vs B" branching at execution
+> time — the order is the decision. Stop and discuss only on (a)
+> genuine forks not in this doc, (b) irreversible decisions, (c)
+> ambiguous-recovery failures.
+>
+> Living document — append observations / sub-items as they surface,
+> but never reorder shipped items.
 
 ---
 
 ## Foundation
 
-### Goal
+### Goal — three axes
 
-Build a TypeScript runtime that runs the same TS programs `bun` runs, with
-**TS semantics** — same observable behaviour as `bun` on the same source.
-Anything bun runs, tr eventually runs; not-yet-implemented features are
-roadmap phases, never out-of-scope decisions. The differentiator is the
-runtime: AOT-compiled to a small native binary via LLVM (one path serves
-both `tr build` and `tr run` — the latter caches the binary at
-`~/.torajs/cache` for instant rerun), with ARC under a universal heap
-header instead of GC. When behaviour is ambiguous, **bun is the oracle**.
+torajs 是 AOT 编译型 TypeScript runtime，差异化是 native binary + 小
+artifact + fast startup。Long-arc 终态由三轴定义，**三轴并行推进，不接受
+为某一轴妥协另一轴**。每 phase 同时推三轴；任一轴失败 = phase 不收口。
 
-### Hard requirements (unchanged from v1)
+**轴 A — spec completeness（正统）**
+
+终态：test262 全量 100% pass over in-scope（不是 5k sample，不是 90%
+gate）。每 phase 的 acceptance 用 **spec-section checklist**（具体 spec
+章节的硬事实，"§7.1.3 ToNumber via valueOf works on Struct" 这种粒度）
+验收。pass rate 数字是 diagnostic / regression detector，不作 milestone。
+
+**轴 B — performance ceiling（高性能 + 上限优先）**
+
+终态：在 bench-tr 套件 cross-runtime 对比上 SOTA — 每个 case 严格优于
+bun-aot / bun-jsc / nodejs / go / rust 各自对位。perf push 跟 spec 推进
+**并行**（不是 v1.0 完了再优化）：每 phase 内部既推 spec 又拉 bench。
+**bench-tr 0 regression 是每 commit 的硬阈值**；每 N phase 做一次
+perf-focused push 拉新 case 进 SOTA 范围。
+
+**轴 C — implementation purity（自研）**
+
+终态：runtime + 编译器内核全自研。不嵌入 V8 / JSC / QuickJS。允许的
+外部依赖：
+
+- build-time 工具：LLVM / inkwell / cranelift（last-stable，pin 到具体
+  minor）
+- runtime-side 系统接口：libc 唯一
+- Rust host crates（serde / tokio / 等）仅用在 host 编译期，不进
+  runtime binary
+- **每 phase ship 时不允许引入新非高品质依赖**。"我能找到一个 crate 做
+  这事" 不是引入它的理由 — 必须 audit (a) crate 质量 (b) 是否能自研
+  替代 (c) last-stable 锁版本。
+
+三轴的硬冲突时：质量优先（轴 A 正确性）> 性能优先（轴 B）> 自研优先
+（轴 C）。极少出现冲突；通常三轴同向。
+
+### Hard requirements (kept from v1)
 
 1. **极致 perf** — beat bun/node on important benchmarks; hold them.
 2. **Compile not too slow** — first `tr run foo.ts` pays one full LLVM
@@ -43,27 +77,27 @@ header instead of GC. When behaviour is ambiguous, **bun is the oracle**.
    Rust-flavoured idioms in user code.
 6. **Full TS coverage as a roadmap target** — every TS feature bun
    supports has a roadmap phase. Compile errors point at the phase.
-7. **test262 ≥ 90 % on the in-scope slice as the v1.0 hard gate**;
-   100 % is the stretch target driving this v4 trunk.
+7. **test262 in-scope 100%** as the v1.0 stretch target — gated by
+   substrate completeness, not by pass-rate %.
 
-### Two-tier execution model (introduced 2026-05-14)
+### Two-tier execution model (introduced 2026-05-14, kept)
 
-The single biggest insight from the wedge cycle (v3, V3-XX → 522 /521
+The single biggest insight from the wedge cycle (v3, V3-XX → 522/521
 curated, 4 % test262 in-scope): **test262 is 100 % JS source with no
-type annotations, and tora's strict typecheck rejects most of it at the
-first `var x = "anything"`.** Continuing to ship per-method wedges
+type annotations, and tora's strict typecheck rejects most of it at
+the first `var x = "anything"`.** Continuing to ship per-method wedges
 plateaus against curated; it cannot move test262.
 
-The v4 trunk fixes this with a two-tier model:
+The v4 trunk fixed this with a two-tier model; v5 keeps it.
 
 | Tier | When it applies | Layout / lower | Perf cost |
 |---|---|---|---:|
 | **typed-tier** | Source has explicit annotations (`x: number`) or the inference is concrete | Static layout, monomorphic ops, existing tora pipeline | 0 % regression |
 | **untyped-tier** | Source is bare JS (`var x = expr`) where inference can only conclude `any` | 16-byte tagged-value slot `{tag: u8, payload: u64}`, runtime dispatch on tag | tagged-dispatch overhead, still AOT — no JIT, no interpreter |
 
-**Performance-first invariant**: typed-tier code MUST NOT regress when the
-untyped-tier lands. Every existing bench case stays in typed-tier (the
-inference returns concrete types from `: T` annotations and from
+**Performance-first invariant**: typed-tier code MUST NOT regress when
+the untyped-tier lands. Every existing bench case stays in typed-tier
+(the inference returns concrete types from `: T` annotations and from
 unification). Adding untyped-tier is purely additive.
 
 **Architecture-clean invariant**: Type::Any is a first-class type at
@@ -74,29 +108,30 @@ hatch.
 
 ---
 
-## Status snapshot (2026-05-14, HEAD `52ba8ea`)
+## Status snapshot (2026-05-17, HEAD `a65e51f`)
 
 ### Curated conformance (`conformance/cases/`)
-**522 pass / 0 fail / 1 skip**. Effectively saturated by the v3 wedge
-cycle. Remaining 1 skip is `perf-005-dwarf-panic-fs` (bun-side crash,
-not tora's bug).
 
-### test262 (200-sample, oracle = bun)
-| Bucket | Count | Notes |
-|---|---:|---|
-| pass | 4 | tora matches bun byte-for-byte |
-| bug | 0 | tora-accepted parity 100 % |
-| incompatible (subset boundary) | 97 | 89 type error / 7 not yet supported / 1 parse error |
-| bun-skip (oracle non-zero) | 99 | Negative tests / harness-dependent — never countable for tora |
-| **in-scope pass rate** | **3.96 %** | 4 / 101 |
-| **tr-accepted parity** | **100 %** | 4 / 4 |
+**590 pass / 0 fail / 1 skip** committed. Working tree has +1 RED
+fixture `check-prototype-chain-001.ts` waiting for P4.2 ship to turn
+GREEN. The 1 committed skip is `perf-005-dwarf-panic-fs` (bun-side
+crash, not tora's bug).
+
+### test262 5k diagnostic
+
+**152 pass / 15 bug / 2975 incompatible** at HEAD. Stable across the
+last 4 P3 substrate ships (`749c1d4` → `dcf069f` → `d9b13c7` →
+`a65e51f`). **Pass rate is regression-detection only — not a phase
+trigger or milestone.**
 
 ### Bench position
-Hold the v3 numbers: tr beats bun-jsc / bun-aot / node-v8 on
-compute-heavy workloads (popcount, fib40, ...) — these all live in
-typed-tier and stay locked there under v4.
+
+Typed-tier 0 regression invariant holds. Latest cross-runtime bench
+(at `e19cac3` / `008cd84`): torajs vs bun-aot geomean **4.16×**, vs
+node-v8 geomean **18.84×**, binary size **1715× smaller** than bun-aot.
 
 ### Code size
+
 Three crates (`crates/torajs-{runtime,core,cli}/`), single SSA → LLVM
 pipeline, no JIT, no interpreter.
 
@@ -104,458 +139,422 @@ pipeline, no JIT, no interpreter.
 
 ## Trunk
 
-The trunk is **15 phases (P-PARSE → P14) executed in strict order**.
-Each phase has a measurable goal, an ordered item list, and an
-acceptance gate (usually a test262 in-scope pass-rate target). The
-order is fixed by substrate dependency — earlier phases unlock later
-phases' work.
+The trunk is **P0 → P13 (v1.0 gate) + P14 / P15 post-v1.0**, executed
+in strict order. Phase order is fixed by substrate dependency — earlier
+phases unlock later phases' work.
 
-Phase budgets are rough (1 item ≈ 1–3 days, 1 phase ≈ weeks). They are
-*planning estimates*, not commitments. The acceptance gate is the
-contract.
+**Per-phase acceptance has three parts (all required):**
 
-### P-PARSE — ES syntax parser completeness
+1. **Substrate checklist** — concrete spec sections / ssa-lower paths /
+   runtime helpers landed. Phase-specific, listed below.
+2. **Bench gate** — bench-tr cross-runtime suite shows 0 regression
+   vs phase-start baseline. Untyped-tier additions don't gate; they
+   are correctness work.
+3. **自研 audit** — no new external dependencies introduced beyond the
+   foundation set (libc / LLVM / inkwell / cranelift). Any addition
+   requires explicit justification + last-stable pinning.
 
-**Inserted 2026-05-14 after the first P0.1 commit revealed the
-empirical bottleneck.** A 500-case `language/expressions` sample showed
-parse errors at **53 % of all incompatibles** (159 / 300) — bigger
-than type errors (135). The original P0 ("untyped-JS surface")
-operates on the typecheck layer, but typecheck never runs when parse
-already rejects. P-PARSE clears the parser surface first; only after
-that do P0's typecheck-level changes get traction.
+Phase budgets are rough (1 item ≈ 1–3 days, 1 phase ≈ weeks). Planning
+estimates only; the **substrate checklist is the contract**.
 
-**Goal**: tora's parser accepts the full ES2024 expression / statement
-/ pattern surface that test262 exercises in `language/expressions`,
-`language/statements`, and `language/expressions/arrow-function/dstr`.
+---
 
-**Acceptance**: re-running the 500-case `language/expressions` sample,
-`parse error` row in incompat breakdown drops from 159 to ≤ 20.
+### P0 — Untyped-JS surface (DONE substantial)
 
-**Items (strict order — by empirical frequency in the 500-sample):**
+**Goal**: tr accepts arbitrary unannotated `.js` source through
+typecheck. Type::Any is a first-class participant in every operation.
 
-- **P-PARSE.1** Sparse array literal `[1, , 3]` — comma in element
-  position parses as elision (Empty), not error. Same shape inside
-  destructuring patterns.
-- **P-PARSE.2** Arrow-function parameter destructuring with nested
-  array / object patterns — `([a, [b]]) => ...`,
-  `([{ x }]) => ...`, `([...rest]) => ...`.
-- **P-PARSE.3** Destructuring element with default value —
-  `[a = 5] = ...`, `({ x = 1 }) = ...` (in destr-target position
-  inside arrow / fn params).
-- **P-PARSE.4** Object literal getter / setter shorthand —
-  `{ get x() { ... }, set x(v) { ... } }`.
-- **P-PARSE.5** Generator function expression `function* g() {...}`
-  in expression position (the existing parser handles
-  `function* g()` declaration but bails on `var g = function*() {...}`
-  and similar shapes).
-- **P-PARSE.6** Surface-residue items surfaced during P-PARSE.1–5
-  (appended here as they're discovered, in order).
+**Substrate checklist** (closed):
 
-P-PARSE is intentionally *only* parser work — no SSA-lower changes,
-no runtime additions. Each item is a token-aware parser branch, plus
-the AST node it lowers to (which already exists for nearly all of
-them since the typecheck path was already wired).
+- [x] **P0.1** Type::Any tagged-value SSA representation (16-byte
+      `{tag: u8 + 7 pad, payload: u64}`)
+- [x] **P0.2** Implicit `any` for unannotated bindings
+- [x] **P0.3** Any-aware BinOp / UnaryOp / Compare (`+` / `-` / `*` /
+      `/` / `%` / `**` / `===` / `==` / `<` / etc.)
+- [x] **P0.4** Member / Index access on Any (placeholder Any →
+      typed-shape bridge; full property-bag in P3)
+- [x] **P0.5** Call on Any (Closure / FnSig tag dispatch)
+- [x] **P0.6** typeof on Any (spec §13.5.3)
+- [x] **P0.7** ToBoolean / ToNumber / ToString on Any (spec §7.1.2 /
+      §7.1.4 / §7.1.17)
+- [x] **P0.8** test262 runner --bucket-by-tier flag + per-incompat
+      reason tracking
 
-### P-COERCE-B — ToPrimitive in `+` for Struct / Function (deferred)
+**Bench**: typed-tier 0 regression ✅
+**自研**: 无新依赖 ✅
 
-**Originally inserted 2026-05-14 as a B+C detour, deferred same day
-after substrate audit.** ToPrimitive coerce in `+` requires the
-ability to call a method on an object-literal value (e.g. emit
-`o.valueOf() + n`). The probe `let o = { valueOf(): number {...} };
-o.valueOf()` already fails today with an LLVM IR type mismatch
-(PointerValue vs IntValue) — the object-literal-method-call substrate
-isn't in place. Class instances with valueOf hit a different problem:
-methods don't surface through struct field lookup, so the check.rs
-detection couldn't even fire.
+---
 
-ToPrimitive coerce becomes tractable AFTER:
-* Object-literal method dispatch is fixed (separate substrate, P3
-  property-bag area).
-* Class-instance method discovery surfaces in the type system (Type::
-  Class augmentation, P3 / P7 area).
+### P1 — undefined as a real value (DONE)
 
-Not on the v4 trunk's critical path; will revisit when P3 / P7 lands.
+**Goal**: `undefined` is a distinct value from `null` end-to-end.
 
-### P-CLOSURE-C — closure monomorphization at call sites (deferred)
+**Substrate checklist** (closed):
 
-**Originally inserted 2026-05-14 alongside P-COERCE-B, deferred
-same day after substrate audit.** Probed by lifting the closure-lift
-skip in desugar_implicit_generics and accepting TypeVar-param at
-call sites: typecheck went through but ssa_lower bailed with
-'unknown ident `__closure_0`' because the closure FnDecl carries
-TypeVars in its SSA signature with no monomorphization path. The
-indirect-call mono retarget (looking up a let-bound closure's
-source FnDecl and emitting a per-call-site specialization) is a
-substantial substrate item that overlaps significantly with
-P0's tagged-Any work.
+- [x] **P1.1** Type::Undefined first-class in ssa.rs / check.rs
+- [x] **P1.2** Tag value for Undefined slot
+- [x] **P1.3** Default parameter missing → undefined
+- [x] **P1.4** Array.find / .at / .indexOf OOB → undefined
+- [x] **P1.5** typeof undefined → "undefined"
+- [x] **P1.7** `Nullable<T>` = `T | null | undefined`
+- [x] **P1.8** `undefined === null` → false
 
-Closure mono becomes tractable AFTER:
-* Indirect-call mono path is wired into ssa_lower's monomorphizer
-  (mirror of the bare-Ident global-FnDecl path), OR
-* Tagged-Any closures (P0) — the closure body operates on Any
-  operands so no per-call-site specialization is needed.
+**Bench / 自研**: ✅ / ✅
 
-P0's tagged-Any path subsumes both. Going straight to P0 instead
-of standing up a parallel mono substrate.
+---
 
-### P0 — Untyped-JS surface (original plan, resumes after detours)
+### P2 — var/function hoisting (DONE substantial)
 
-**Goal**: tr accepts arbitrary unannotated `.js` source through typecheck.
-Type::Any becomes a first-class participant in every operation; bare
-`var x = expr` infers Any with runtime tag dispatch, while annotated
-code stays in typed-tier with zero perf regression.
+**Goal**: ES §14.1.3 hoisting rules. TDZ for `let` / `const` stays.
 
-**Acceptance**: test262 in-scope pass rate ≥ 35 % (200-sample).
-typed-tier benches lose 0 % vs HEAD.
+**Substrate checklist** (closed):
 
-**Items (strict order):**
+- [x] **P2.1** Two-pass scope analysis + var/function hoist
+- [x] **P2.4** for-var leak (`for (var i ...) { ... }; use(i)`)
+- [x] Module-top block fn lift (P3.4-followup-A)
+- [x] Bare FnDecl-as-stmt (P3.4-followup-A2)
 
-- **P0.1** Type::Any tagged-value SSA representation
-  - Add `Type::Any` first-class to `ssa.rs` (already exists nominally;
-    promote to canonical 16-byte tagged-value layout)
-  - Tag enum: `{ I64=0, F64=1, Bool=2, Null=3, Undefined=4, Str=5,
-    Obj=6, Arr=7, Closure=8, BigInt=9, Symbol=10 }`
-  - Slot layout: `[tag: u8 + 7-byte pad][payload: u64]` (16 B)
-  - Codegen: `box_to_any(value, tag)` / `unbox_any(slot, expected_tag)`
-    helper instructions
-  - Refcount integration: tagged-Any carries Drop responsibility per
-    payload tag — `unbox` on a refcounted tag inc's the parent slot
-- **P0.2** Implicit `any` for unannotated bindings
-  - check.rs: `let x = expr` with no annotation runs inference; if
-    inference yields a concrete type → typed-tier; if `Any` (multi-arm
-    BinOp result, runtime-only value) → untyped-tier
-  - ssa_lower: when a binding is Any, its slot is the tagged-value
-    layout from P0.1
-  - Migration: existing typed-tier bindings keep their concrete types
-    (no behaviour change); the new untyped path only fires when
-    inference could not converge
-- **P0.3** Any-aware BinOp / UnaryOp / Compare
-  - `+`: Number + Number → Number; String + Any → coerce + concat;
-    Any + Any → spec §13.15 ApplyStringOrNumericBinaryOperator
-  - `-` / `*` / `/` / `%` / `**`: ToNumber both sides
-  - `===` / `!==`: tag-compare first, then payload-compare
-  - `==` / `!=`: spec §7.2.15 IsLooselyEqual
-  - `<` / `<=` / `>` / `>=`: spec §7.2.13 IsLessThan
-  - `!` / `+x` / `-x` / `~x` / `typeof`: tag-dispatch
-- **P0.4** Member / Index access on Any
-  - `any.prop`: dispatch by tag: Obj → property bag (P3),
-    Arr → length / index, Str → length / charAt-style, ...
-  - `any[expr]`: same dispatch, with int vs string key resolution
-  - The full property-bag substrate lands in P3; P0.4 is the
-    placeholder Any → typed-shape bridge (when the inference can
-    pin a tag, it routes to the existing typed path)
-- **P0.5** Call on Any
-  - `any(...args)`: tag must be Closure / FnSig at runtime, else throw
-    TypeError (real Error lands in P6; for now: panic with a
-    spec-shaped message)
-  - Args are tagged-Any, return is tagged-Any
-- **P0.6** typeof on Any
-  - Tag → string per spec §13.5.3 (Number → "number", String →
-    "string", Boolean → "boolean", Null → "object", Undefined →
-    "undefined", Closure → "function", others → "object")
-- **P0.7** ToBoolean / ToNumber / ToString on Any
-  - Spec §7.1.2 / §7.1.4 / §7.1.17 algorithms
-  - Used by every coercion site (`if (any)`, `+any`, `String(any)`)
-- **P0.8** test262 runner integration
-  - `--bucket-by-tier` flag: separately report typed-tier-only pass
-    rate, untyped-tier pass rate, mixed
-  - Add per-incompat reason tracking (already exists; extend with
-    "implicit-any-not-supported" → expect to vanish in P0)
-  - Re-run 200-sample; verify ≥ 35 % in-scope pass
+**Bench / 自研**: ✅ / ✅
 
-### P1 — `undefined` as a real value
+---
 
-**Goal**: `undefined` is a distinct value from `null` end-to-end. Default
-parameters that aren't passed get `undefined`; OOB array reads return
-`undefined`; `typeof undefined === "undefined"`.
+### P3 — Property-bag objects (DONE close, `d9b13c7`)
 
-**Acceptance**: test262 in-scope pass rate ≥ 45 %.
+**Goal**: objects support runtime add / delete / computed keys + full
+property descriptor semantics. Static shape inference picks dict-shape
+vs struct-shape so existing typed code stays on static layout.
 
-**Items (strict order):**
+**Substrate checklist** (closed):
 
-- **P1.1** Type::Undefined first-class in `ssa.rs` and `check.rs`
-- **P1.2** Tag value for Undefined slot in P0.1 layout (already
-  reserved as tag=4)
-- **P1.3** Default parameter missing → undefined (currently → null)
-- **P1.4** Array.find / .at / .indexOf etc. OOB → undefined
-  (currently → 0 / -1 / etc. depending on method)
-- **P1.5** typeof undefined → "undefined" (currently "object" via
-  Null)
-- **P1.6** Optional chain: `x?.y` where `x` is undefined → undefined
-- **P1.7** `Nullable<T>` becomes `T | null | undefined` per spec; the
-  existing `__nullable(T)` ann stays as a synonym for the
-  `T | null | undefined` shape
-- **P1.8** Strict equality: `undefined === null` → false (currently
-  true via collapse)
+- [x] **P3.1** SwissTable dict-shape runtime
+- [x] **P3.2** Dynobj inference (struct vs dict)
+- [x] **P3.3** defineProperty runtime + spec-shaped descriptor
+- [x] **P3.4** Nested fn hoist + module-top block-fn lift
+- [x] **P3.5** OptChain Any-tier (`a?.b?.c` 多层链)
+- [x] **P3.struct-method-dispatch** — inline `obj.method()` for FnSig +
+      Closure field (`1a308f7`)
+- [x] **P3.closure-in-struct-field** — narrow Closure ABI via
+      `__cls(...)->R` struct-field tagging (`749c1d4`)
+- [x] **P3.attribute-flag-tracking** — bucket.tag 高位 packed flag bits
+      + `__torajs_dynobj_define` 实施 spec §10.1.6.3 (`dcf069f`)
+- [x] **P3.getOwnPropertyDescriptor** — `__torajs_get_property_descriptor`
+      一步构造 spec-shaped descriptor Any-box (`d9b13c7`)
+- [x] Object.keys / values / entries
+- [x] Computed property keys `{ [k]: v }`
+- [x] Symbol keys
+- [x] Object.freeze (universal heap header flag bit)
 
-### P2 — `var` and function hoisting
+**Bench / 自研**: ✅ / ✅
 
-**Goal**: `var x` and `function f` follow ES §14.1.3 hoisting rules.
-TDZ for `let` / `const` stays as-is.
+**P3 后续残项**（升 L3a 时按 substrate-correct 标准 ship）：
 
-**Acceptance**: test262 in-scope pass rate ≥ 50 %.
+- T-42 ToNumber via valueOf (§7.1.3) — prerequisite to many spec paths
+- P3.5 OptChain 链式 typed-dispatch
+- P3.4 nested fn 真实 closure capture
+- T-31-followup closure / FnSig 间接调 callee real_argc
+- T-45-b `in` operator on Struct / Closure / FnSig / String
 
-**Items (strict order):**
+---
 
-- **P2.1** Two-pass scope analysis: collect var / function decls before
-  body lower
-- **P2.2** `var x` hoists to enclosing function scope (not block)
-- **P2.3** `function f() {}` hoists declaration + binding to scope-top
-- **P2.4** `for (var i ...) { ... } ; use(i)` — i leaks
-- **P2.5** Hoisted-but-not-yet-assigned var reads as `undefined` (P1.3
-  pattern)
+### P4 — Class hierarchies + prototype chain (CURRENT)
 
-### P3 — Property-bag objects
+**Goal**: tora 的 nominal class system 升级到 spec §10.1
+OrdinaryObject + §10.4 ExoticObject 的 `[[Prototype]]` / `[[Get]]` /
+`[[Set]]` 内部 method 模型。class extends + super() + builtin extends
+全部走 prototype chain。
 
-**Goal**: objects support runtime add / delete / computed keys. Static
-shape inference picks dict-shape vs struct-shape per binding so existing
-typed code stays on static layout.
+**Substrate checklist** (strict order):
 
-**Acceptance**: test262 in-scope pass rate ≥ 60 %. Typed-tier perf 0 %
-regression.
+- [x] **P4.1 Phase A1** First-class class objects (SHIPPED `a65e51f`)
+      — `synthesize_class_globals` desugar pass; `const x = MyClass`
+      resolves to dynobj-backed Any
+- [ ] **P4.0** Nested Any-dynobj field identity fix (pre-blocker for
+      Phase B+C) — `outer.p === inner` when inner is Any-typed dynobj;
+      ssa_lower `dynobj_init` Type::Any field path (line 11443+) +
+      Member read (line 21522+) + box_to_any path (line 11487+)
+- [ ] **P4.2 Phase B+C** Prototype singletons + chain wiring +
+      `Object.getPrototypeOf` / `setPrototypeOf` real readback
+      (depends on P4.0)
+- [ ] **P4.3 extends-chain** — multi-level inheritance method resolve
+      via prototype chain walk; instance.method() walks chain
+- [ ] **P4.4 function-prototype** — `Function.prototype.bind / call /
+      apply` (spec §20.2.3.1-3); bind needs closure-style partial
+      application + bound-this `[[Call]]`
+- [ ] **P4.5 new-meta** — `new X.Y()` member-expr ctor + `new.target`
+      meta-property in ctor body
+- [ ] **P4.6 extends-builtins** — `class MyError extends Error` /
+      `class MyArray extends Array` ; builtin types expose prototype
+      objects + extends 链能链到它们
+- [ ] **P4.7 catch-destructure** — `try {} catch ({code, msg}) {}` 真
+      binding; parser already accepts but runtime ignores destructure
+      pattern
 
-**Items (strict order):**
+**Acceptance**: 7 substrate items all 完成 + conformance 0 fail +
+bench-tr 0 regression + 无新非高品质外部依赖。
 
-- **P3.1** Dict-shape object layout: 32-byte header + open-addressed
-  hash table {hash, key_str, value_tagged}
-- **P3.2** Inference: a binding stays static-struct if all member
-  access sites use compile-time-known field names AND no `delete` /
-  `Object.assign` / spread-into-it; otherwise dict-shape
-- **P3.3** `obj.newProp = v` adds property at runtime (dict-shape only)
-- **P3.4** `delete obj.x` removes property (dict-shape only)
-- **P3.5** `Object.keys / values / entries` reads dict
-- **P3.6** Computed property keys: `{ [k]: v }`
-- **P3.7** Symbol keys (interns symbol id into the hash key space)
-- **P3.8** Object.freeze / isFrozen with the universal heap header's
-  flag bit (deferred from v0.2)
+**P4.0 详情**（next L3a，2-4h）：
 
-### P4 — Iterator protocol
+```ts
+// reproduce, both from user-shape, no class system involved
+let inner: any = { x: 1 };
+let outer: any = { p: inner };
+console.log(outer.p === inner);  // bun true / tora false
+console.log(outer.p.x);          // bun 1   / tora undefined
+```
+
+Possible root causes (to confirm via SSA IR trace):
+
+1. `Load(I64, v_raw, 16)` v_raw 可能不是 Any-box ptr 而是 slot ptr
+2. box_to_any_from_expr 路径在 dynobj init 时可能没真正发生
+3. 实际 stored value 是 dynobj 的 i64 representation 不正确
+4. dynobj_get_value 读出的值经过 truncation 或 mask 丢失某些位
+
+**P4.2 设计** (待 P4.0 ship 后落地)：
+
+- `let __proto_<C>: any = {}` 同义
+- `__class_<C> = { prototype: __proto_<C>, name }`
+- `__proto_<Sub>.__proto__ = __proto_<Super>` chain wire
+- runtime helper `__torajs_get_proto_of_any` (Type::Any 路径)
+- ssa_lower intercept (Type::Obj 路径 reverse-lookup sid→class_name→load
+  `__proto_<C>` local)
+
+K.3 globals 不扩 Type::Any（本会话 design 决定）；prototype singleton
+存放选 **Option 2 runtime side table**（class-name 字符串 keyed），
+bypass K.3 entirely。Long-term most robust + decoupled from K.3
+design constraints。
+
+---
+
+### P5 — Iterator protocol
 
 **Goal**: `Symbol.iterator` is a real resolvable property; for-of
-dispatches via it; spread-in-call works.
+dispatches via it; spread-in-call works for arbitrary iterables.
 
-**Acceptance**: test262 in-scope pass rate ≥ 65 %.
+**Substrate checklist** (strict order):
 
-**Items (strict order):**
+- [ ] **P5.1** Iterator result `{ value, done }` shape standardised in
+      runtime
+- [ ] **P5.2** Symbol.iterator as registered well-known symbol; user
+      classes can implement it
+- [ ] **P5.3** for-of dispatches via `[Symbol.iterator]()` on any value
+      (current path is hard-wired to Array / Str / Set)
+- [ ] **P5.4** `arr.entries()` / `.keys()` / `.values()` return Array
+      Iterator objects
+- [ ] **P5.5** Spread in fn calls: `f(...iter)` (currently
+      parse-rejected)
+- [ ] **P5.6** Spread in array literal: `[...iter, x]` over any iterable
 
-- **P4.1** Iterator result `{ value, done }` shape standardised in
-  runtime
-- **P4.2** Symbol.iterator as a registered well-known symbol; user
-  classes can implement it
-- **P4.3** for-of dispatches via [Symbol.iterator]() on any value
-  (current path is hard-wired to Array / Str / Set)
-- **P4.4** arr.entries() / .keys() / .values() return Array Iterator
-  objects
-- **P4.5** Spread in fn calls: `f(...iter)` (currently parse-rejected)
-- **P4.6** Spread in array literal: `[...iter, x]` over any iterable
+---
 
-### P5 — Map / Set / WeakMap / WeakSet
+### P6 — Map / Set / WeakMap / WeakSet
 
 **Goal**: real hash containers, all spec methods.
 
-**Acceptance**: test262 in-scope pass rate ≥ 70 %.
+**Substrate checklist** (strict order):
 
-**Items (strict order):**
+- [ ] **P6.1** `Map<K, V>` hash table runtime (open-addressed, robin
+      hood)
+- [ ] **P6.2** `Set<T>` = `Map<T, undefined>` wrapper
+- [ ] **P6.3** WeakMap / WeakSet with weak-ref tracker bits
+- [ ] **P6.4** Spec methods: get / set / delete / has / clear / size /
+      forEach / entries / keys / values
+- [ ] **P6.5** Iterator interop with P5
 
-- **P5.1** Map<K, V> hash table runtime (open-addressed, robin hood)
-- **P5.2** Set<T> = Map<T, undefined> wrapper
-- **P5.3** WeakMap / WeakSet with weak-ref tracker bits
-- **P5.4** Spec methods: get / set / delete / has / clear / size /
-  forEach / entries / keys / values
-- **P5.5** Iterator interop with P4
+---
 
-### P6 — Error type hierarchy + throw any
+### P7 — Error type hierarchy + throw any
 
-**Goal**: real Error subtypes (TypeError, RangeError, SyntaxError, ...);
-`throw` accepts any value; try/catch/finally state machine spec-conformant.
+**Goal**: real Error subtypes (TypeError, RangeError, SyntaxError, …);
+`throw` accepts any value; try/catch/finally state machine
+spec-conformant.
 
-**Acceptance**: test262 in-scope pass rate ≥ 75 %.
+**Substrate checklist** (strict order):
 
-**Items (strict order):**
+- [ ] **P7.1** Error class + subclass hierarchy in stdlib (depends on
+      P4 class hierarchy)
+- [ ] **P7.2** `throw <any value>` (currently restricted to Str / a
+      few shapes)
+- [ ] **P7.3** Stack trace captured at throw site (uses DWARF data)
+- [ ] **P7.4** Native errors: runtime helpers throw real RangeError /
+      TypeError where spec says
+- [ ] **P7.5** try / catch / finally state-machine matches spec
+      ordering
 
-- **P6.1** Error class + subclass hierarchy in stdlib
-- **P6.2** `throw <any value>` (currently restricted to Str / a few
-  shapes)
-- **P6.3** Stack trace captured at throw site (uses DWARF data)
-- **P6.4** Native errors: runtime helpers throw real RangeError /
-  TypeError where spec says (e.g. toFixed(101), null.x)
-- **P6.5** try / catch / finally state-machine matches spec ordering
+---
 
-### P7 — Class spec full
+### P8 — Class spec full (private + static blocks + accessor + super)
 
-**Goal**: private fields, static blocks, accessor properties,
-super-in-arrow.
+**Goal**: complete the class feature set started in P4 — private
+fields, static blocks, accessor properties, super-in-arrow.
 
-**Acceptance**: test262 in-scope pass rate ≥ 78 %.
+**Substrate checklist** (strict order):
 
-**Items (strict order):**
+- [ ] **P8.1** `#priv` private fields (parser + lower with name
+      mangling)
+- [ ] **P8.2** Class getters / setters (accessor descriptors)
+- [ ] **P8.3** Static blocks `static { ... }`
+- [ ] **P8.4** Lexical super resolution in nested arrows
+- [ ] **P8.5** Class expressions as values
 
-- **P7.1** `#priv` private fields (parser + lower with name mangling)
-- **P7.2** Class getters / setters (accessor descriptors)
-- **P7.3** Static blocks `static { ... }`
-- **P7.4** Lexical super resolution in nested arrows
-- **P7.5** Class expressions as values
+---
 
-### P8 — Regex full
+### P9 — Regex full
 
 **Goal**: spec-complete RegExp incl. lookahead / lookbehind, named
 groups, Unicode flag, sticky flag.
 
-**Acceptance**: test262 in-scope pass rate ≥ 81 %.
+**Substrate checklist** (strict order):
 
-**Items (strict order):**
+- [ ] **P9.1** Lookbehind / lookahead (current NFA needs backtracking
+      extension)
+- [ ] **P9.2** Named capture groups + back-references
+- [ ] **P9.3** Unicode flag (`u` / `v`) — character class handling
+- [ ] **P9.4** Sticky flag (`y`) — lastIndex semantics
+- [ ] **P9.5** `String.prototype.replace(regex, fn)` callback form
 
-- **P8.1** Lookbehind / lookahead (current NFA needs backtracking
-  extension)
-- **P8.2** Named capture groups + back-references
-- **P8.3** Unicode flag (`u` / `v`) — character class handling
-- **P8.4** Sticky flag (`y`) — lastIndex semantics
-- **P8.5** `String.prototype.replace(regex, fn)` callback form
+---
 
-### P9 — Promise + async-await spec
+### P10 — Promise + async-await + Generator
 
-**Goal**: real microtask queue, ordering guarantees, async iterators.
+**Goal**: real microtask queue, ordering guarantees, async iterators,
+generator full state machine. v5 merges v4's P9 (Promise) + P14
+(Generator) into one phase — both share state-machine substrate.
 
-**Acceptance**: test262 in-scope pass rate ≥ 84 %.
+**Substrate checklist** (strict order):
 
-**Items (strict order):**
+- [ ] **P10.1** Microtask queue with drain at every yield point
+- [ ] **P10.2** Promise.all / .race / .allSettled / .any per spec
+      (currently allSettled is single-T MVP)
+- [ ] **P10.3** Async iterator + for-await-of (depends on P5)
+- [ ] **P10.4** await on non-Promise: wrap via Promise.resolve
+- [ ] **P10.5** unhandledrejection handler hook
+- [ ] **P10.6** Generator full state machine — `yield*` delegation +
+      `Generator.prototype.return` / `.throw`
+- [ ] **P10.7** Default-Any Generator/Async fn (T-33 substrate)
 
-- **P9.1** Microtask queue with drain at every yield point
-- **P9.2** Promise.all / .race / .allSettled / .any per spec
-  (currently allSettled is single-T MVP)
-- **P9.3** Async iterator + for-await-of
-- **P9.4** await on non-Promise: wrap via Promise.resolve
-- **P9.5** unhandledrejection handler hook
+---
 
-### P10 — String Unicode
+### P11 — String Unicode
 
 **Goal**: UTF-16 internal representation, codepoint iteration, full
 Unicode case folding.
 
-**Acceptance**: test262 in-scope pass rate ≥ 87 %.
+**Substrate checklist** (strict order):
 
-**Items (strict order):**
+- [ ] **P11.1** Convert byte-Str runtime to UTF-16 internal (or hybrid
+      Latin-1 / UTF-16 like V8)
+- [ ] **P11.2** `String.length` = UTF-16 code unit count
+- [ ] **P11.3** `charCodeAt` vs `codePointAt` distinction (surrogate
+      pairs)
+- [ ] **P11.4** for-of on string yields codepoints (with surrogate
+      combining)
+- [ ] **P11.5** Full Unicode case folding (lowercase / uppercase per
+      CaseFolding.txt)
+- [ ] **P11.6** `String.normalize` NFC / NFD / NFKC / NFKD (embedded
+      data tables — no libicu unless 自研 audit passes)
 
-- **P10.1** Convert byte-Str runtime to UTF-16 internal (or hybrid
-  Latin-1 / UTF-16 like V8)
-- **P10.2** String.length = UTF-16 code unit count
-- **P10.3** charCodeAt vs codePointAt distinction (surrogate pairs)
-- **P10.4** for-of on string yields codepoints (with surrogate
-  combining)
-- **P10.5** Full Unicode case folding (lowercase / uppercase per
-  CaseFolding.txt)
-- **P10.6** String.normalize NFC / NFD / NFKC / NFKD via libicu (or
-  embedded data tables)
+---
 
-### P11 — Number IEEE 754 conformance
+### P12 — Number IEEE 754 conformance
 
-**Goal**: Number.toString / parseFloat / arithmetic match spec exactly,
-incl. the long-tail rounding cases.
+**Goal**: Number.toString / parseFloat / arithmetic match spec
+exactly, incl. the long-tail rounding cases.
 
-**Acceptance**: test262 in-scope pass rate ≥ 89 %.
+**Substrate checklist** (strict order):
 
-**Items (strict order):**
+- [ ] **P12.1** `Number::toString` full §6.1.6.1.13 algorithm
+      (Steele-White / Ryu — replace `%g` precision-loop)
+- [ ] **P12.2** parseFloat / parseInt edge cases
+- [ ] **P12.3** IEEE rounding modes for `toFixed` / `toPrecision`
+- [ ] **P12.4** BigInt full operator coverage incl. `**`, mixed-shift,
+      spec-conformant overflow
 
-- **P11.1** Number::toString full §6.1.6.1.13 algorithm (Steele-White
-  / Ryu — replace `%g` precision-loop)
-- **P11.2** parseFloat / parseInt edge cases (whitespace per spec
-  table, prefix detection)
-- **P11.3** IEEE rounding modes for toFixed / toPrecision
-  (round-half-to-even vs away-from-zero)
-- **P11.4** BigInt full operator coverage incl. `**`, mixed-shift,
-  spec-conformant overflow
+---
 
-### P12 — Module system
+### P13 — Module system → v1.0 gate
 
 **Goal**: ESM static analysis, dynamic `import()`, top-level await.
 
-**Acceptance**: test262 in-scope pass rate ≥ 90 % (v1.0 hard gate).
+**Substrate checklist** (strict order):
 
-**Items (strict order):**
-
-- **P12.1** Static import / export resolution at compile time
-- **P12.2** Dynamic `import()` returning Promise (link to P9
-  microtask queue)
-- **P12.3** Module-level top-level await
-- **P12.4** Module namespace object (`import * as X`)
+- [ ] **P13.1** Static import / export resolution at compile time
+- [ ] **P13.2** Dynamic `import()` returning Promise (links to P10
+      microtask queue)
+- [ ] **P13.3** Module-level top-level await
+- [ ] **P13.4** Module namespace object (`import * as X`)
 
 ### v1.0 release gate
 
-**P0–P12 done = v1.0**. test262 in-scope pass rate ≥ 90 % is the
-contract. Cut release tag. Bench numbers must show ≤ 5 % regression
-on typed-tier vs HEAD (untyped-tier has no bench gate — it's correctness
-work).
+**P0–P13 substrate-checklists all closed = v1.0**. Per-phase acceptance
+gates above are the contract — substrate sections done, conformance
+gate green, bench-tr 0 regression on typed-tier, no new external
+dependencies. test262 in-scope pass rate is observed (expected ≥ 90 %)
+but not the gate; the gate is substrate completeness.
 
-### P13 — Proxy + Reflect (post-v1.0)
+---
+
+### P14 — Proxy + Reflect (post-v1.0)
 
 **Goal**: meta-object protocol, all 13 trap types.
 
-**Acceptance**: test262 in-scope pass rate ≥ 94 %.
+**Substrate checklist** (strict order):
 
-**Items (strict order):**
+- [ ] **P14.1** Proxy class with handler trap dispatch
+- [ ] **P14.2** `Reflect.*` spec methods
+- [ ] **P14.3** Trap interop with Object.keys / for-in / etc.
+- [ ] **P14.4** Proxy.revocable
 
-- **P13.1** Proxy class with handler trap dispatch
-- **P13.2** Reflect.* spec methods (Reflect.get / set / has / ...)
-- **P13.3** Trap interop with Object.keys / for-in / etc.
-- **P13.4** Proxy.revocable
+---
 
-### P14 — Generator full + tail call (post-v1.0)
+### P15 — Tail call + edge spec (post-v1.0)
 
-**Goal**: yield* delegation, generator return / throw protocol, proper
-tail calls in strict mode.
+**Goal**: proper tail calls in strict mode + remaining spec edges
+(annexB legacy, locale-dependent behaviour, host hook tests).
 
-**Acceptance**: test262 in-scope pass rate ≥ 96 %.
+**Substrate checklist** (strict order):
 
-**Items (strict order):**
-
-- **P14.1** `yield*` delegation
-- **P14.2** Generator.prototype.return / .throw
-- **P14.3** Tail call optimisation in strict mode (per spec §15.10.3)
-
-### Beyond P14 — long tail to 100 %
-
-Last 4 % is test262's edge: annexB legacy semantics, locale-dependent
-behaviour, host hook tests. Hit only after P0–P14 ship and the runner
-breakdown points specifically here. **Not pre-planned** — reach this
-chapter and we open a new sub-trunk.
+- [ ] **P15.1** Tail call optimisation in strict mode (spec §15.10.3)
+- [ ] **P15.2** annexB legacy semantics
+- [ ] **P15.3** locale-dependent behaviour (Intl subset)
+- [ ] **P15.4** Host hook tests — open new sub-trunk when runner
+      breakdown points here
 
 ---
 
 ## Execution rules
 
-1. **Phase order is fixed.** Do not start P(N+1) until P(N)'s acceptance
-   gate is met.
+1. **Phase order is fixed.** Do not start P(N+1) until P(N)'s substrate
+   checklist is closed.
 2. **Item order within a phase is fixed.** Each item's commit message
-   names the item id (e.g. `P0.3`).
+   names the item id (e.g. `P4.0`).
 3. **Every commit ships through the conformance gate.** `conf gate`
-   must stay green. test262 in-scope rate must not drop.
-4. **Typed-tier benches gate every commit.** No bench regression past
-   3 × CI noise.
+   must stay green.
+4. **Typed-tier bench gates every commit.** No regression past 3× CI
+   noise.
 5. **Stop and discuss only on:**
-   - design forks not in this doc (e.g. dict-shape hash policy choice)
+   - design forks not in this doc (e.g. K.3 globals扩 Type::Any vs
+     runtime side table choice)
    - irreversible decisions (e.g. dropping a feature from a phase)
    - ambiguous-recovery failures (e.g. a substrate item turns out to
-     need its own substrate)
+     need its own substrate — log as a P{N}.0 pre-blocker)
 6. **Do not branch out of this doc** to side cleanups, refactors, or
    nice-to-have wedges. Append them as P{N}.{x+1} if they're needed
-   for the current phase, or `## Backlog` (below) if they're not.
+   for the current phase, or to `## Backlog` (below) if they're not.
 
 ---
 
 ## Backlog (orthogonal items, not on the trunk)
 
-These are useful but not on the test262-100% critical path. Pick them up
-between phases only when blocked, never as a primary track.
+Useful but not on the test262-100% critical path. Pick them up between
+phases only when blocked, never as a primary track.
 
 - **f64.toString(radix) trailing-digit round-half-to-even** — current
   helper truncates at 52 digits; bun rounds the 53rd. Affects
   long-fraction cases only.
 - **Array<f64> literal layout** — `let xs: number[] = [1.5, 2.5]`
-  currently stores f64 bits in i64 slots; need real f64 array
-  layout.
+  currently stores f64 bits in i64 slots; need real f64 array layout.
 - **SameValueZero NaN-in-Array<f64>.includes** — `includes` on
   Array<f64> for NaN should return true; FCmp(Oeq) returns false.
-  Needs a dedicated NaN-self-test in the includes-only path.
 - **String.search with RegExp arg** — currently string-arg only.
   Symbol.search dispatch is the wider substrate.
 - **`xs.length = N` array truncation** — write-side on `.length`.
@@ -567,36 +566,77 @@ between phases only when blocked, never as a primary track.
   parser-generator-wrapped-return-001 fixture.
 - **`this` on static class method** — currently `unknown identifier
   __this`.
-- **JSON.stringify with indent (2nd arg)** — currently the indent
-  arg is ignored.
+- **JSON.stringify with indent (2nd arg)** — currently the indent arg
+  is ignored.
 - **`typeof x === "type"` narrow** — narrows aren't yet aware of
   `typeof` shape; covered partially by P3 / P0.
+- **T-35 test262 runner cargo metadata target_dir** — already
+  symlink-fallback'd, nice-to-have.
+- **T-32 ArrayBuffer / TypedArrays** — multi-week substrate, schedule
+  when a phase needs it.
+- **T-36 Date.prototype.setX statics**.
+- **T-40 `new Function(body)` global ctor** — eval-子集；跟 AOT 哲学
+  冲突，needs design.
+- **T-41 `eval` global** — extremely deep, requires `tr` to embed
+  itself; design-pending.
+- **Sparse Array support** — `a[2^32-1] = X` semantic.
 
 ---
 
-## Principles (kept from v1)
+## Detoured (kept for audit trail, not active)
+
+Probed and deferred — substrate not in place. Will resume when the
+named pre-requisites land.
+
+### P-PARSE — ES syntax parser completeness (2026-05-14)
+
+Inserted to clear parser surface before P0 typecheck work. **Status:
+items P-PARSE.1–5 absorbed into P0 / P3 / P4 work as substrate-correct
+fixes; the standalone phase is no longer tracked.**
+
+### P-COERCE-B — ToPrimitive in `+` for Struct / Function (2026-05-14)
+
+Deferred — requires object-literal method dispatch (now landed via
+P3.struct-method-dispatch) + class-instance method discovery (P4
+substrate). **Resume when P4 closes** — pick up as a P5+ wedge.
+
+### P-CLOSURE-C — closure monomorphization at call sites (2026-05-14)
+
+Deferred — overlapped significantly with P0's tagged-Any work; P0's
+tagged-Any path subsumes it. **Closed without standalone resumption**;
+revisit only if a specific case shows P0 doesn't cover it.
+
+---
+
+## Principles (kept)
 
 - Foundation: `docs/design-principles.md` — five-pillar rubric (高性能
   / 自研 / 正统 / 规范 / 上限优先).
 - Refcount + universal heap header: `docs/refcount-architecture.md`.
-- Coding rules: `.claude/rules/common/`, `.claude/rules/{rust,typescript}/`.
+- Coding rules: `.claude/rules/common/`, `.claude/rules/{rust,
+  typescript}/`.
+- Project-specific principles: `.claude/rules/torajs-design-principles.md`.
 
 ---
 
 ## BENCH — cross-runtime perf benchmark (cross-cutting track)
 
 Runs on every commit alongside conformance. Same set of cases as
-v3 (popcount, fib40, ...). Acceptance: typed-tier benches stay green
-end-to-end through P0–P14.
+v3 (popcount, fib40, generic-pair-1m, array-sum-1m, closure-pipeline-1m,
+promise-then-100k, ackermann, …). **Acceptance: typed-tier benches stay
+green end-to-end through P0–P13.**
 
-The detailed bench harness layout, oracle setup, and per-case budget
-table live in `docs/bench.md` (TODO: extract from v3 roadmap appendix).
+Cross-runtime SOTA push happens every N phase as a perf-focused
+sprint, not at v1.0 gate. Detailed bench harness layout, oracle setup,
+and per-case budget table live in `docs/bench.md` (TODO: extract from
+v3 roadmap appendix).
 
 ---
 
 ## Historical roadmaps
 
 `docs/roadmap-historical.md` preserves the v1 (P0–P13 foundation), v2
-(33-item perf-gated), and v3 (V3-XX wedge-cycle to 522/521 curated)
-plans verbatim. Read them for the *why* of tora's foundation. Do not
-read them for *what to do next* — that lives only in this file.
+(33-item perf-gated), v3 (V3-XX wedge-cycle to 522/521 curated), and
+v4 (test262-100% trunk) plans verbatim. Read them for the *why* of
+tora's foundation. Do not read them for *what to do next* — that
+lives only in this file.

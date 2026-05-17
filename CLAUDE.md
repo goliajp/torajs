@@ -59,7 +59,7 @@ Closed-source internal language project. Goal: a TypeScript runtime that runs th
 
 | Layer | 在哪 |
 |------|------|
-| L1 | `docs/roadmap.md`（P0 → P13） |
+| L1 | `docs/roadmap.md`（v5 三轴 trunk · P0 → P15） |
 | L2 | roadmap 内的 phase 节（每个 phase = 一个版本） |
 | L3a | `memory/project_status_<date>.md` → "Next up" 节（numbered, with acceptance） |
 | L3b | 同上 → "Watch list" / "Backlog" 节 |
@@ -178,9 +178,11 @@ torajs/
 
 ## Plan
 
-**`docs/roadmap.md`** is the canonical implementation plan. Phases P0 → P13 over 18-36 months. P0 = walking skeleton (`tr run hello.ts` prints `hello`); P2 end = ownership-correct interpreter (graduation point from `labs/` to `crates/`); P3 = AOT to wasm; P10 = playground on torajs.com.
+**`docs/roadmap.md`** is the canonical implementation plan — v5 三轴 trunk (rewritten 2026-05-17). Phases P0 → P13 to v1.0 + P14 / P15 post-v1.0. Each phase has a substrate-checklist acceptance gate (concrete spec sections + ssa-lower paths + runtime helpers landed) — NOT a test262 pass-rate %. Pass rate is regression-detection diagnostic only.
 
-The discussion logs that produced the roadmap live in `.claude/researches/0001-...` through `0005-...`, kept as audit trail. Read the roadmap for what to do; read researches for why.
+Current state: P0 / P1 / P2 / P3 closed; P4 (Class hierarchies + prototype chain) in progress (Phase A1 shipped at `a65e51f`).
+
+Historical trunks (v1 P0-P13 foundation, v2 perf-gated, v3 wedge cycle, v4 test262-100%) are preserved in `docs/roadmap-historical.md`. Read the active roadmap for what to do; read history for why.
 
 ## Core Principles
 
