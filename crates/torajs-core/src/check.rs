@@ -3236,9 +3236,20 @@ impl Checker {
                         vec![Type::Any, Type::String, Type::Any],
                         Box::new(Type::Void),
                     )),
+                    // P3.getOwnPropertyDescriptor — accept at typecheck.
+                    // ssa_lower intercepts and constructs an Any-boxed
+                    // descriptor object `{value, writable, enumerable,
+                    // configurable}` from the dynobj bucket's stored
+                    // tag/value/flags (per dcf069f attribute-flag
+                    // tracking). Missing key returns Any-boxed undefined.
+                    (Type::Object("Object"), "getOwnPropertyDescriptor") => Ok(
+                        Type::Function(
+                            vec![Type::Any, Type::String],
+                            Box::new(Type::Any),
+                        ),
+                    ),
                     (Type::Object("Object"), "setPrototypeOf")
-                    | (Type::Object("Object"), "defineProperties")
-                    | (Type::Object("Object"), "getOwnPropertyDescriptor") => {
+                    | (Type::Object("Object"), "defineProperties") => {
                         Err(format!(
                             "Object.{name} not supported in nominal class system; \
                              planned for T-27 (Function constructor / dynamic substrate)"

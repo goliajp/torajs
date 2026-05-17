@@ -2122,6 +2122,17 @@ fn lower_inner(
         &[Type::Ptr, Type::Ptr, Type::I64, Type::I64, Type::I64],
         Type::Void,
     );
+    // P3.getOwnPropertyDescriptor — `Object.getOwnPropertyDescriptor`
+    // entry. Returns a fresh Any-box wrapping either a dynobj with
+    // {value, writable, enumerable, configurable} fields (when the
+    // key exists) or ANY_UNDEF (key absent / not-a-dynobj).
+    let get_property_descriptor_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_get_property_descriptor",
+        &[Type::Ptr, Type::Ptr],
+        Type::Any,
+    );
     let dynobj_has_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -4171,6 +4182,7 @@ fn lower_inner(
         dynobj_get_value: dynobj_get_value_id,
         dynobj_set: dynobj_set_id,
         dynobj_define: dynobj_define_id,
+        get_property_descriptor: get_property_descriptor_id,
         dynobj_has: dynobj_has_id,
         dynobj_delete: dynobj_delete_id,
         arr_drop_any: arr_drop_any_id,
@@ -4974,6 +4986,7 @@ struct Intrinsics {
     dynobj_get_value: FuncId,
     dynobj_set: FuncId,
     dynobj_define: FuncId,
+    get_property_descriptor: FuncId,
     dynobj_has: FuncId,
     dynobj_delete: FuncId,
     arr_drop_any: FuncId,
@@ -14797,6 +14810,33 @@ impl<'a> LowerCtx<'a> {
                         ),
                     );
                     return Operand::ConstI64(0);
+                }
+                // P3.getOwnPropertyDescriptor — `Object.getOwnPropertyDescriptor(obj, key)`.
+                // Routes to a single runtime helper that constructs the
+                // descriptor Any-box in one shot: reads bucket
+                // value+flag bits, alloc+populate a new dynobj with
+                // the 4 data-descriptor fields, wrap in Any-box.
+                // Missing key returns Any-boxed undefined (per spec
+                // §19.1.2.10). Builtin shapes (Array.length etc.) are
+                // a follow-up.
+                if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
+                    && m_name == "getOwnPropertyDescriptor"
+                    && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
+                    && ns == "Object"
+                    && args.len() == 2
+                {
+                    let obj_op = self.lower_expr(args[0]);
+                    let key_op = self.lower_expr(args[1]);
+                    let v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.get_property_descriptor,
+                            vec![obj_op, key_op],
+                        ),
+                        Type::Any,
+                        None,
+                    );
+                    return Operand::Value(v);
                 }
                 if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
                     && m_name == "from"

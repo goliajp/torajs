@@ -938,6 +938,106 @@ uint64_t __torajs_dynobj_get_value(const void *obj, const void *key) {
     return __torajs_dynobj_buckets((void *)(uintptr_t)obj)[idx].value;
 }
 
+/* P3.getOwnPropertyDescriptor — return the bucket's attribute flags
+ * packed as bit 0 = writable, bit 1 = enumerable, bit 2 = configurable.
+ * Caller extracts each bit to populate the descriptor object's
+ * boolean fields. Returns 0 when key is absent. */
+uint64_t __torajs_dynobj_get_flags(const void *obj, const void *key) {
+    if (obj == NULL) return 0;
+    const __torajs_heap_header_t *h = (const __torajs_heap_header_t *)obj;
+    if (h->type_tag != __TORAJS_TAG_DYNOBJ) return 0;
+    int found;
+    uint32_t idx = __torajs_dynobj_probe(obj, key, &found);
+    if (!found) return 0;
+    uint64_t t = __torajs_dynobj_buckets((void *)(uintptr_t)obj)[idx].tag;
+    uint64_t flags = 0;
+    if (t & __TORAJS_BUCKET_FLAG_WRITABLE)     flags |= 1ULL << 0;
+    if (t & __TORAJS_BUCKET_FLAG_ENUMERABLE)   flags |= 1ULL << 1;
+    if (t & __TORAJS_BUCKET_FLAG_CONFIGURABLE) flags |= 1ULL << 2;
+    return flags;
+}
+
+/* P3.getOwnPropertyDescriptor — full ES spec §19.1.2.10 entry. Takes
+ * an Any-box (must wrap a dynobj) + a string key; returns a fresh
+ * Any-box wrapping either:
+ *   - A new dynobj with the four data-descriptor fields
+ *     {value, writable, enumerable, configurable} (when the key is
+ *     present); or
+ *   - ANY_UNDEF (when the key is absent or the box doesn't wrap a
+ *     dynobj — spec §19.1.2.10 step 1 ToObject coercion / step 4
+ *     `if Type(P) is String/Symbol then ToPropertyKey...`).
+ *
+ * Builtin obj-shape descriptors (Array.length etc.) are still a
+ * follow-up — those need bespoke shape construction per-builtin. */
+
+/* Forward decls — defined further down in the file. The Any-box
+ * helpers + offset constants live near the BinOp Any path (~line
+ * 1520-1600); the dynobj_has helper sits above dynobj_set in this
+ * file but the explicit forward decls keep us robust to future
+ * reorderings. */
+extern void *__torajs_any_box(int64_t tag, int64_t value);
+extern int __torajs_dynobj_has(const void *obj, const void *key);
+extern void __torajs_value_drop_heap(void *child);
+void __torajs_dynobj_set(void **obj_slot, void *key, uint64_t tag, uint64_t value);
+#define __TORAJS_ANY_BOX_TAG_OFF 8
+#define __TORAJS_ANY_BOX_VAL_OFF 16
+void *__torajs_get_property_descriptor(void *obj_any, void *key) {
+    if (obj_any == NULL || key == NULL) {
+        return __torajs_any_box(__TORAJS_ANY_UNDEF, 0);
+    }
+    int64_t obj_tag = *(int64_t *)((uint8_t *)obj_any + __TORAJS_ANY_BOX_TAG_OFF);
+    if (obj_tag != __TORAJS_ANY_HEAP) {
+        return __torajs_any_box(__TORAJS_ANY_UNDEF, 0);
+    }
+    void *dynobj = (void *)(uintptr_t)
+        *(int64_t *)((uint8_t *)obj_any + __TORAJS_ANY_BOX_VAL_OFF);
+    if (dynobj == NULL) {
+        return __torajs_any_box(__TORAJS_ANY_UNDEF, 0);
+    }
+    __torajs_heap_header_t *h = (__torajs_heap_header_t *)dynobj;
+    if (h->type_tag != __TORAJS_TAG_DYNOBJ) {
+        return __torajs_any_box(__TORAJS_ANY_UNDEF, 0);
+    }
+    if (!__torajs_dynobj_has(dynobj, key)) {
+        return __torajs_any_box(__TORAJS_ANY_UNDEF, 0);
+    }
+
+    uint64_t v_tag = __torajs_dynobj_get_tag(dynobj, key);
+    uint64_t v_val = __torajs_dynobj_get_value(dynobj, key);
+    uint64_t flags = __torajs_dynobj_get_flags(dynobj, key);
+
+    void *desc = __torajs_dynobj_alloc();
+
+    /* Define the 4 descriptor fields. ANY_HEAP value needs an rc bump
+     * so the new dynobj owns its share independently of the source. */
+    static const char *const k_names[4] = {
+        "value", "writable", "enumerable", "configurable",
+    };
+    static const uint64_t k_lens[4] = { 5, 8, 10, 12 };
+    uint64_t k_tags[4]  = { v_tag, __TORAJS_ANY_BOOL, __TORAJS_ANY_BOOL, __TORAJS_ANY_BOOL };
+    uint64_t k_vals[4]  = {
+        v_val,
+        (flags >> 0) & 1,
+        (flags >> 1) & 1,
+        (flags >> 2) & 1,
+    };
+    if (v_tag == __TORAJS_ANY_HEAP) {
+        __torajs_rc_inc((void *)(uintptr_t)v_val);
+    }
+    for (int i = 0; i < 4; i++) {
+        uint8_t *k = str_alloc_(k_lens[i]);
+        memcpy(__TORAJS_STR_DATA(k), k_names[i], (size_t)k_lens[i]);
+        __torajs_dynobj_set(&desc, k, k_tags[i], k_vals[i]);
+        __torajs_str_drop(k);
+    }
+
+    void *result = __torajs_any_box(__TORAJS_ANY_HEAP, (int64_t)(uintptr_t)desc);
+    /* any_box rc_inc'd desc (refcount now 2: our local + the box).
+     * Drop our local so the box becomes the sole owner. */
+    __torajs_value_drop_heap(desc);
+    return result;
+}
+
 /* Forward decl — defined further down next to torajs_throw_range_error. */
 extern void __torajs_throw_set(int64_t v);
 static void torajs_throw_type_error(const char *msg);
