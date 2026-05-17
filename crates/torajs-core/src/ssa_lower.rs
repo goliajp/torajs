@@ -6026,6 +6026,33 @@ fn parse_type(
                 );
             }
         }
+        // P5.1 — `IteratorResult<T>` resolves to `{ value: T, done:
+        // boolean }`. Lowered as a struct; the layout matches the
+        // existing `__step_<gen>` shape that generators already emit
+        // so ssa_lower's struct method-dispatch path reuses without
+        // any new code. check.rs::resolve_type_ann_full mirrors this.
+        if head == "IteratorResult" {
+            let inner = &s[open_idx + 1..s.len() - 1];
+            if !inner.contains('|') {
+                let inlobj = format!("__inlobj(value:{inner}|done:boolean)");
+                return parse_type(
+                    Some(&inlobj),
+                    aliases,
+                    arr_layouts,
+                    fn_sigs,
+                    generic_struct_decls,
+                    struct_layouts,
+                );
+            }
+        }
+        // P5.1 — `Iterator<T>` / `IterableIterator<T>` are opaque
+        // for the SSA layer (resolved to Any). P5.3 Phase B will
+        // emit runtime dispatch through the iterable's class to
+        // call `next()`; until then any annotation typed as Iterator
+        // just opts into the Any-tier slot.
+        if matches!(head, "Iterator" | "IterableIterator") {
+            return Type::Any;
+        }
     }
     match s {
         // `number` defaults to i64 — best for the integer-heavy cases

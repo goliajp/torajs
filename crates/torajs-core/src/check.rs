@@ -527,6 +527,42 @@ fn resolve_type_ann_full(
                 .map(|t| Type::Array(Box::new(t)));
             }
         }
+        // P5.1 — `IteratorResult<T>` is the spec-shaped step value
+        // produced by an iterator's `next()` method (ES §27.1.2.1).
+        // Structural alias for `{ value: T, done: boolean }`. The
+        // existing generator desugar emits the same shape under a
+        // per-generator `__step_<name>` alias; this lets user-class
+        // iterators (P5.2) annotate `next(): IteratorResult<T>`
+        // without minting their own per-iterator alias.
+        if head == "IteratorResult" {
+            let inner = &name[open_idx + 1..name.len() - 1];
+            if !inner.contains('|')
+                && let Some(value_ty) = resolve_type_ann_full(
+                    inner, aliases, type_params, generic_aliases,
+                )
+            {
+                return Some(Type::Struct(vec![
+                    ("value".into(), value_ty),
+                    ("done".into(), Type::Boolean),
+                ]));
+            }
+        }
+        // P5.1 — `Iterator<T>` / `IterableIterator<T>` are opaque
+        // iterable objects whose only typed surface is `.next() →
+        // IteratorResult<T>`. Resolved as Type::Any for now — the
+        // for-of dispatch in P5.3 Phase B will inspect the runtime
+        // class to find the `[Symbol.iterator]` / `next` methods.
+        // User can still annotate fields as `Iterator<T>` without
+        // surfacing a "unresolved type" error.
+        if matches!(head, "Iterator" | "IterableIterator") {
+            let inner = &name[open_idx + 1..name.len() - 1];
+            if !inner.contains('|') {
+                let _ = resolve_type_ann_full(
+                    inner, aliases, type_params, generic_aliases,
+                );
+                return Some(Type::Any);
+            }
+        }
     }
     // M3.4 — generic struct instantiation: `Foo<arg1|arg2|...>`. Same
     // depth-aware decoder as `__fn(...)`. Substitutes type-args into the
