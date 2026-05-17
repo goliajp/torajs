@@ -190,6 +190,7 @@ fn pipeline(src: &str, base_dir: &Path, stage: Stage) -> ExitCode {
     ast::infer_anonymous_closure_params(&mut ast);
     ast::synthesize_forwarders(&mut ast);
     ast::synthesize_fn_to_closure_forwarders(&mut ast);
+    ast::desugar_function_prototype_methods(&mut ast);
     // P2.1 — see embed/lib.rs for ordering rationale.
     ast::desugar_uninit_let(&mut ast);
     ast::desugar_var_hoist(&mut ast);
@@ -373,6 +374,7 @@ fn run_build_llvm(args: &[String]) -> ExitCode {
     ast::infer_anonymous_closure_params(&mut ast);
     ast::synthesize_forwarders(&mut ast);
     ast::synthesize_fn_to_closure_forwarders(&mut ast);
+    ast::desugar_function_prototype_methods(&mut ast);
     // P2.1 — see embed/lib.rs for ordering rationale.
     ast::desugar_uninit_let(&mut ast);
     ast::desugar_var_hoist(&mut ast);
@@ -538,6 +540,7 @@ fn run_jit(file_arg: Option<&String>) -> ExitCode {
     ast::infer_anonymous_closure_params(&mut ast);
     ast::synthesize_forwarders(&mut ast);
     ast::synthesize_fn_to_closure_forwarders(&mut ast);
+    ast::desugar_function_prototype_methods(&mut ast);
     // P2.1 — see embed/lib.rs for ordering rationale.
     ast::desugar_uninit_let(&mut ast);
     ast::desugar_var_hoist(&mut ast);
