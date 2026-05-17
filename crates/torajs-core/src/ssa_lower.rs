@@ -16940,69 +16940,105 @@ impl<'a> LowerCtx<'a> {
                     self.emit_drop_value(final_str, Type::Str);
                     return Operand::ConstI64(0);
                 }
-                // `xs.pop()` — Ident-receiver only. Load len, decrement,
-                // load slot at the new tail position. Element ownership
-                // transfers to the caller (the popped slot is now outside
-                // the active range, so element-walk drop won't dec it).
-                // Empty-array `pop` is UB (no `undefined` in tr's subset
-                // — matches the unchecked-index convention used elsewhere).
+                // `xs.pop()` — receiver is either an Ident bound to a
+                // typed Array<T> local OR an Ident bound to a K.3
+                // const-global Array<T>. Pop reads-and-mutates the
+                // slot in place (decrements len, no realloc) so the
+                // global-receiver path is safe: the in-place len
+                // mutation persists on the global heap object even
+                // without a write-back of the array pointer.
+                // Empty-array `pop` is UB in this subset (no
+                // undefined element type) — matches the unchecked
+                // convention used elsewhere.
                 if let Expr::Member { obj: recv_id, name } = self.ast.get_expr(*callee)
                     && name == "pop"
                     && args.is_empty()
                     && let Expr::Ident(recv_name) = self.ast.get_expr(*recv_id)
-                    && let Some(info) = self.locals.get(recv_name).copied()
-                    && let Type::Arr(arr_id) = info.ty
                 {
-                    let arr_ty = info.ty;
-                    let elem_ty = self.arr_layouts[arr_id.0 as usize];
-                    let cur_arr = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Load(arr_ty, Operand::Value(info.slot), 0),
-                        arr_ty,
-                        None,
-                    );
-                    let len = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Load(Type::I64, Operand::Value(cur_arr), ARR_LEN_OFF),
-                        Type::I64,
-                        None,
-                    );
-                    let new_len = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::BinOp(
-                            SsaBinOp::Sub,
-                            Operand::Value(len),
-                            Operand::ConstI64(1),
-                        ),
-                        Type::I64,
-                        None,
-                    );
-                    // T-13.5: head-aware byte offset for arr.pop()'s
-                    // last-element load.
-                    let off = self.emit_arr_slot_byte_offset(
-                        Operand::Value(cur_arr),
-                        Operand::Value(new_len),
-                        3,
-                    );
-                    let elem = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::LoadDyn(
-                            elem_ty,
+                    let recv_name = recv_name.clone();
+                    let resolved_arr: Option<(Operand, Type)> = if let Some(info) =
+                        self.locals.get(&recv_name).copied()
+                        && matches!(info.ty, Type::Arr(_))
+                    {
+                        let cur_arr = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(info.ty, Operand::Value(info.slot), 0),
+                            info.ty,
+                            None,
+                        );
+                        Some((Operand::Value(cur_arr), info.ty))
+                    } else if let Some(gty) = self.globals.get(&recv_name).copied()
+                        && matches!(gty, Type::Arr(_))
+                    {
+                        let gref = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::GlobalRef(recv_name.clone()),
+                            Type::Ptr,
+                            None,
+                        );
+                        let cur_arr = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(gty, Operand::Value(gref), 0),
+                            gty,
+                            None,
+                        );
+                        Some((Operand::Value(cur_arr), gty))
+                    } else {
+                        None
+                    };
+                    if let Some((arr_op, arr_ty)) = resolved_arr {
+                        let arr_id = match arr_ty {
+                            Type::Arr(id) => id,
+                            _ => unreachable!(),
+                        };
+                        let elem_ty = self.arr_layouts[arr_id.0 as usize];
+                        let cur_arr = match arr_op {
+                            Operand::Value(v) => v,
+                            _ => unreachable!(),
+                        };
+                        let len = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(Type::I64, Operand::Value(cur_arr), ARR_LEN_OFF),
+                            Type::I64,
+                            None,
+                        );
+                        let new_len = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::BinOp(
+                                SsaBinOp::Sub,
+                                Operand::Value(len),
+                                Operand::ConstI64(1),
+                            ),
+                            Type::I64,
+                            None,
+                        );
+                        // T-13.5: head-aware byte offset for arr.pop()'s
+                        // last-element load.
+                        let off = self.emit_arr_slot_byte_offset(
                             Operand::Value(cur_arr),
-                            off,
-                        ),
-                        elem_ty,
-                        None,
-                    );
-                    self.f.append_void(
-                        self.cur_block,
-                        InstKind::Store(
                             Operand::Value(new_len),
-                            Operand::Value(cur_arr),
-                            ARR_LEN_OFF,
-                        ),
-                    );
-                    return Operand::Value(elem);
+                            3,
+                        );
+                        let elem = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::LoadDyn(
+                                elem_ty,
+                                Operand::Value(cur_arr),
+                                off,
+                            ),
+                            elem_ty,
+                            None,
+                        );
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Store(
+                                Operand::Value(new_len),
+                                Operand::Value(cur_arr),
+                                ARR_LEN_OFF,
+                            ),
+                        );
+                        return Operand::Value(elem);
+                    }
                 }
                 // M1.2 — `xs.push(v)` special-case. Two receiver shapes:
                 // `xs.shift()` — Ident-receiver only. Calls runtime
