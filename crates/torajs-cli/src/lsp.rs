@@ -187,6 +187,7 @@ fn compute_diagnostics(uri: &Url, text: &str) -> Vec<Diagnostic> {
         torajs_core::ast::desugar_builtin_new(&mut ast);
         torajs_core::ast::desugar_prototype_call(&mut ast);
         torajs_core::ast::desugar_classes(&mut ast);
+        torajs_core::ast::synthesize_class_globals(&mut ast);
         torajs_core::ast::tag_struct_field_closure_types(&mut ast);
         torajs_core::ast::lift_arrow_fns(&mut ast);
         torajs_core::ast::infer_anonymous_closure_params(&mut ast);

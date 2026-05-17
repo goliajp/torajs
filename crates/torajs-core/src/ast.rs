@@ -2151,6 +2151,91 @@ pub fn desugar_prototype_call(ast: &mut Ast) {
     }
 }
 
+/// P4.prototype-chain Phase A — expose every user-declared class as
+/// a first-class value. Runs AFTER `desugar_classes` (which has
+/// flattened `ClassDecl` into `TypeDecl` + `__new_<C>` factory /
+/// `__cm_<C>__<M>` method / `__sm_<C>__<M>` static FnDecls). For
+/// each class C:
+///
+///   1. Prepends a top-level `let __class_<C>: any = { name: "<C>" };`
+///      LetDecl. The ObjectLit lowers to a dynobj-backed Any so the
+///      class object behaves like a normal Object at the type / runtime
+///      layer. Singleton — multiple `A === A` reads return the same
+///      heap pointer.
+///   2. Rewrites every `Expr::Ident("<C>")` in value position to
+///      `Expr::Ident("__class_<C>")` so user-source `const x = A` and
+///      `A.name` etc. resolve to the synthesized global. Static-member
+///      calls (`A.staticMethod()`) were already rewritten by
+///      `desugar_classes` to bare `__sm_A__staticMethod` Ident calls,
+///      so they don't appear as `Member { Ident("A"), ... }` here.
+///
+/// Constructor call shapes (`new A()` / `A()` for [[Construct]] /
+/// [[Call]]) stay on their existing paths — `new A()` is `Expr::New`
+/// (separate variant, not Ident) and `A()` as bare call is still
+/// rejected as un-callable Any. Real callable constructor object is a
+/// follow-up.
+///
+/// Phase B will extend this pass to add a `prototype` field (singleton
+/// `__proto_<C>` dynobj) and `length` (ctor's declared arg count);
+/// Phase C wires the prototype chain across `extends`. This phase A
+/// is the minimum substrate that lets the rest land incrementally.
+pub fn synthesize_class_globals(ast: &mut Ast) {
+    use std::collections::HashSet;
+
+    // Extract class names from the `__new_<C>` factories produced by
+    // `desugar_classes`. (ClassDecl stmts are gone post-desugar; the
+    // factory FnDecl names are the most stable handle.)
+    let mut class_names: Vec<String> = Vec::new();
+    for s in &ast.stmts {
+        if let Stmt::FnDecl { name, .. } = s
+            && let Some(c) = name.strip_prefix("__new_")
+        {
+            class_names.push(c.to_string());
+        }
+    }
+    if class_names.is_empty() {
+        return;
+    }
+    let class_set: HashSet<String> = class_names.iter().cloned().collect();
+
+    // Synthesize `let __class_<C>: any = { name: "<C>" }` for each.
+    let mut prepended: Vec<Stmt> = Vec::with_capacity(class_names.len());
+    for cname in &class_names {
+        let name_expr = ast.add_expr(Expr::String(cname.clone()));
+        let obj_expr = ast.add_expr(Expr::ObjectLit {
+            fields: vec![("name".to_string(), name_expr)],
+        });
+        prepended.push(Stmt::LetDecl {
+            mutable: true,
+            name: format!("__class_{cname}"),
+            type_ann: Some("any".to_string()),
+            init: obj_expr,
+            is_var: false,
+        });
+    }
+
+    // Rewrite Ident("<C>") → Ident("__class_<C>") for each known
+    // class name. Walks the entire expr arena since class refs can
+    // appear anywhere (let init, fn arg, return value, conditional
+    // branches, ...).
+    let n = ast.exprs.len();
+    for i in 0..n {
+        if let Expr::Ident(name) = &ast.exprs[i]
+            && class_set.contains(name)
+        {
+            let new_name = format!("__class_{name}");
+            ast.exprs[i] = Expr::Ident(new_name);
+        }
+    }
+
+    // Prepend the new LetDecls so they're initialized before any
+    // user code references them. Insert at the very top so static
+    // field inits + main body all see them.
+    let mut combined = prepended;
+    combined.extend(std::mem::take(&mut ast.stmts));
+    ast.stmts = combined;
+}
+
 pub fn desugar_classes(ast: &mut Ast) {
     // Pass 1 — extract every ClassDecl. After this loop the original
     // ClassDecl stmts are replaced by their generated TypeDecl in-place;
