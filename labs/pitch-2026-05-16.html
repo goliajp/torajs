@@ -447,46 +447,46 @@ footer .quote {
 <section>
   <div class="h2"><span class="num">02</span>26 benchmarks · 26 wins<span class="sub">vs bun-aot, bun-jsc, node-v8</span></div>
   <div class="bench-summary">
-    <span><b>4.19×</b> geomean vs bun-aot</span>
-    <span><b>19.31×</b> geomean vs node-v8</span>
-    <span><b>21.87×</b> peak speedup (popcount)</span>
-    <span><b>1.23×</b> minimum speedup (gcd1m)</span>
+    <span><b>4.21×</b> geomean vs bun-aot</span>
+    <span><b>19.42×</b> geomean vs node-v8</span>
+    <span><b>20.90×</b> peak speedup (popcount)</span>
+    <span><b>1.15×</b> minimum speedup (prime_count)</span>
     </div>
   <table class="bench">
     <thead>
       <tr><th>benchmark</th><th>bun-aot</th><th>bun-jsc</th><th>node-v8</th><th>torajs</th><th>× vs bun</th></tr>
     </thead>
     <tbody>
-      <tr><td class="case">popcount</td><td>58.75</td><td>56.80</td><td>138.61</td><td class="tora">2.69</td><td class="x">21.87</td></tr>
-      <tr><td class="case">throw-catch-100k</td><td>22.44</td><td>22.62</td><td>152.48</td><td class="tora">1.74</td><td class="x">12.87</td></tr>
-      <tr><td class="case">generic-pair-1m</td><td>13.60</td><td>13.30</td><td>97.98</td><td class="tora">1.23</td><td class="x">11.02</td></tr>
-      <tr><td class="case">stack-pop-1m</td><td>16.49</td><td>16.47</td><td>93.99</td><td class="tora">2.25</td><td class="x">7.33</td></tr>
-      <tr><td class="case">promise-all-1k</td><td>10.12</td><td>9.81</td><td>94.23</td><td class="tora">1.40</td><td class="x">7.25</td></tr>
-      <tr><td class="case">fifo-queue-100k</td><td>11.23</td><td>11.29</td><td>86.98</td><td class="tora">1.70</td><td class="x">6.61</td></tr>
-      <tr><td class="case">startup</td><td>9.64</td><td>9.39</td><td>85.27</td><td class="tora">1.46</td><td class="x">6.59</td></tr>
-      <tr><td class="case">rpn-eval-100k</td><td>18.35</td><td>17.77</td><td>98.24</td><td class="tora">2.91</td><td class="x">6.31</td></tr>
-      <tr><td class="case">promise-chain-1k</td><td>10.01</td><td>10.27</td><td>93.57</td><td class="tora">1.81</td><td class="x">5.53</td></tr>
-      <tr><td class="case">closure-pipeline-1m</td><td>52.19</td><td>54.30</td><td>173.66</td><td class="tora">9.89</td><td class="x">5.28</td></tr>
-      <tr><td class="case">generic-id-1m</td><td>56.44</td><td>53.56</td><td>180.73</td><td class="tora">10.86</td><td class="x">5.20</td></tr>
-      <tr><td class="case">async-fn-call-100k</td><td>14.15</td><td>14.00</td><td>85.65</td><td class="tora">3.18</td><td class="x">4.45</td></tr>
-      <tr><td class="case">promise-await-100k</td><td>13.97</td><td>14.15</td><td>94.49</td><td class="tora">3.22</td><td class="x">4.34</td></tr>
-      <tr><td class="case">array-sum-1m</td><td>55.80</td><td>54.13</td><td>177.44</td><td class="tora">14.32</td><td class="x">3.90</td></tr>
-      <tr><td class="case">csv-trim-100k</td><td>22.49</td><td>23.17</td><td>98.32</td><td class="tora">6.28</td><td class="x">3.58</td></tr>
-      <tr><td class="case">csv-rebuild-100k</td><td>23.50</td><td>23.14</td><td>94.08</td><td class="tora">6.84</td><td class="x">3.44</td></tr>
-      <tr><td class="case">closure-counter</td><td>53.81</td><td>55.50</td><td>170.15</td><td class="tora">16.32</td><td class="x">3.30</td></tr>
-      <tr><td class="case">split-only-100k</td><td>11.39</td><td>11.25</td><td>91.28</td><td class="tora">3.57</td><td class="x">3.19</td></tr>
-      <tr><td class="case">collatz</td><td>326.77</td><td>326.17</td><td>1401.26</td><td class="tora">106.38</td><td class="x">3.07</td></tr>
-      <tr><td class="case">promise-then-100k</td><td>16.51</td><td>16.23</td><td>87.20</td><td class="tora">5.99</td><td class="x">2.75</td></tr>
-      <tr><td class="case">fib40</td><td>374.97</td><td>376.65</td><td>621.02</td><td class="tora">146.30</td><td class="x">2.56</td></tr>
-      <tr><td class="case">array-map-1m</td><td>62.72</td><td>63.44</td><td>249.89</td><td class="tora">25.74</td><td class="x">2.44</td></tr>
-      <tr><td class="case">ackermann</td><td>17.74</td><td>17.54</td><td>101.30</td><td class="tora">9.59</td><td class="x lo">1.85</td></tr>
-      <tr><td class="case">mandelbrot</td><td>51.88</td><td>52.00</td><td>126.80</td><td class="tora">35.04</td><td class="x lo">1.48</td></tr>
-      <tr><td class="case">prime_count</td><td>59.56</td><td>59.01</td><td>160.59</td><td class="tora">48.12</td><td class="x lo">1.24</td></tr>
-      <tr><td class="case">gcd1m</td><td>50.03</td><td>50.33</td><td>125.03</td><td class="tora">40.68</td><td class="x lo">1.23</td></tr>
+      <tr><td class="case">popcount</td><td>58.75</td><td>57.56</td><td>133.24</td><td class="tora">2.81</td><td class="x">20.90</td></tr>
+      <tr><td class="case">throw-catch-100k</td><td>22.17</td><td>21.92</td><td>148.02</td><td class="tora">1.23</td><td class="x">17.96</td></tr>
+      <tr><td class="case">generic-pair-1m</td><td>13.77</td><td>13.45</td><td>84.48</td><td class="tora">1.28</td><td class="x">10.75</td></tr>
+      <tr><td class="case">fifo-queue-100k</td><td>10.93</td><td>11.25</td><td>92.06</td><td class="tora">1.41</td><td class="x">7.76</td></tr>
+      <tr><td class="case">promise-all-1k</td><td>9.79</td><td>10.23</td><td>91.97</td><td class="tora">1.31</td><td class="x">7.49</td></tr>
+      <tr><td class="case">stack-pop-1m</td><td>16.26</td><td>17.20</td><td>99.78</td><td class="tora">2.57</td><td class="x">6.33</td></tr>
+      <tr><td class="case">startup</td><td>8.86</td><td>9.56</td><td>87.27</td><td class="tora">1.41</td><td class="x">6.30</td></tr>
+      <tr><td class="case">rpn-eval-100k</td><td>17.25</td><td>17.97</td><td>97.53</td><td class="tora">2.90</td><td class="x">5.94</td></tr>
+      <tr><td class="case">promise-chain-1k</td><td>10.19</td><td>10.12</td><td>87.21</td><td class="tora">1.72</td><td class="x">5.91</td></tr>
+      <tr><td class="case">generic-id-1m</td><td>53.03</td><td>54.30</td><td>169.27</td><td class="tora">9.85</td><td class="x">5.38</td></tr>
+      <tr><td class="case">closure-pipeline-1m</td><td>54.44</td><td>55.11</td><td>170.08</td><td class="tora">10.41</td><td class="x">5.23</td></tr>
+      <tr><td class="case">promise-await-100k</td><td>14.01</td><td>13.70</td><td>95.06</td><td class="tora">2.97</td><td class="x">4.71</td></tr>
+      <tr><td class="case">async-fn-call-100k</td><td>14.50</td><td>14.19</td><td>90.63</td><td class="tora">3.08</td><td class="x">4.70</td></tr>
+      <tr><td class="case">csv-trim-100k</td><td>22.41</td><td>23.04</td><td>98.16</td><td class="tora">6.20</td><td class="x">3.61</td></tr>
+      <tr><td class="case">closure-counter</td><td>55.73</td><td>53.07</td><td>178.39</td><td class="tora">15.66</td><td class="x">3.56</td></tr>
+      <tr><td class="case">csv-rebuild-100k</td><td>23.21</td><td>22.87</td><td>95.51</td><td class="tora">7.02</td><td class="x">3.30</td></tr>
+      <tr><td class="case">collatz</td><td>326.16</td><td>324.49</td><td>1401.88</td><td class="tora">105.84</td><td class="x">3.08</td></tr>
+      <tr><td class="case">array-sum-1m</td><td>53.18</td><td>55.22</td><td>168.08</td><td class="tora">17.36</td><td class="x">3.06</td></tr>
+      <tr><td class="case">split-only-100k</td><td>11.91</td><td>11.92</td><td>87.73</td><td class="tora">3.89</td><td class="x">3.06</td></tr>
+      <tr><td class="case">promise-then-100k</td><td>16.90</td><td>16.78</td><td>96.64</td><td class="tora">6.45</td><td class="x">2.62</td></tr>
+      <tr><td class="case">array-map-1m</td><td>64.36</td><td>63.23</td><td>247.92</td><td class="tora">24.60</td><td class="x">2.62</td></tr>
+      <tr><td class="case">fib40</td><td>373.35</td><td>379.81</td><td>625.66</td><td class="tora">145.54</td><td class="x">2.57</td></tr>
+      <tr><td class="case">ackermann</td><td>17.44</td><td>17.49</td><td>94.64</td><td class="tora">9.45</td><td class="x lo">1.85</td></tr>
+      <tr><td class="case">mandelbrot</td><td>52.62</td><td>52.19</td><td>126.36</td><td class="tora">35.52</td><td class="x lo">1.48</td></tr>
+      <tr><td class="case">gcd1m</td><td>50.08</td><td>49.76</td><td>131.36</td><td class="tora">40.25</td><td class="x lo">1.24</td></tr>
+      <tr><td class="case">prime_count</td><td>55.30</td><td>54.42</td><td>151.01</td><td class="tora">48.05</td><td class="x lo">1.15</td></tr>
     </tbody>
   </table>
   <p class="bench-foot">
-    all values are run_ms · hyperfine 10 runs, 3 warmup · darwin · arm64 · Apple M-class · stock thermal · all benchmarks run solo · data: bench/results @ HEAD 1a4fa09
+    all values are run_ms · hyperfine 10 runs, 3 warmup · darwin · arm64 · Apple M-class · stock thermal · all benchmarks run solo · data: bench/results @ HEAD b3afb55
   </p>
 </section>
 
