@@ -2261,6 +2261,13 @@ fn lower_inner(
         &[Type::I64, Type::I64],
         Type::Any,
     );
+    let any_payload_rc_inc_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_any_payload_rc_inc",
+        &[Type::I64, Type::I64],
+        Type::Void,
+    );
     let any_unbox_tag_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -4187,6 +4194,7 @@ fn lower_inner(
         dynobj_delete: dynobj_delete_id,
         arr_drop_any: arr_drop_any_id,
         any_box: any_box_id,
+        any_payload_rc_inc: any_payload_rc_inc_id,
         any_typeof: any_typeof_id,
         any_to_bool: any_to_bool_id,
         any_add: any_add_id,
@@ -4991,6 +4999,7 @@ struct Intrinsics {
     dynobj_delete: FuncId,
     arr_drop_any: FuncId,
     any_box: FuncId,
+    any_payload_rc_inc: FuncId,
     any_typeof: FuncId,
     any_to_bool: FuncId,
     any_add: FuncId,
@@ -11412,23 +11421,18 @@ impl<'a> LowerCtx<'a> {
                     );
                     (1, Operand::Value(zext))
                 }
-                _ if v_ty.is_refcounted() => {
-                    self.f.append_void(
-                        self.cur_block,
-                        InstKind::Call(
-                            self.intrinsics.rc_inc,
-                            vec![v_raw.clone()],
-                        ),
-                    );
-                    (4, v_raw)
-                }
-                Type::Ptr if matches!(v_raw, Operand::ConstPtrNull) => {
-                    (0, Operand::ConstI64(0))
-                }
+                // P4.0 — Type::Any must be unboxed BEFORE the
+                // is_refcounted catch-all (Type::Any is itself
+                // refcounted, so the `_ if v_ty.is_refcounted()`
+                // arm would otherwise grab the any-box wrapper
+                // ptr and store *that* as the bucket value with
+                // tag=ANY_HEAP. Reads then return the wrapper ptr
+                // instead of the underlying heap object, breaking
+                // identity (`{p: inner}.p === inner`) and recursive
+                // field access (`outer.p.x`). Forward (tag, val) at
+                // +8/+16 instead; bucket owns the +1 on val via
+                // any_payload_rc_inc when tag == HEAP.
                 Type::Any => {
-                    // Already boxed — extract (tag, value) from the
-                    // box at offsets 8/16 (per __TORAJS_ANY_BOX_*_OFF
-                    // in runtime_str.c — header is 8 bytes).
                     let tag_v = self.f.append_inst(
                         self.cur_block,
                         InstKind::Load(Type::I64, v_raw.clone(), 8),
@@ -11441,9 +11445,13 @@ impl<'a> LowerCtx<'a> {
                         Type::I64,
                         None,
                     );
-                    (-1, Operand::Value(val_v))
-                        .0; // unused; we'll branch
-                    // Special path: forward already-boxed Any.
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.any_payload_rc_inc,
+                            vec![Operand::Value(tag_v), Operand::Value(val_v)],
+                        ),
+                    );
                     let key_str = self.intern_string_literal(&fname);
                     let slot = self.alloca(Type::Ptr, Some("__dynobj_init_slot"));
                     self.f.append_void(
@@ -11463,6 +11471,19 @@ impl<'a> LowerCtx<'a> {
                         ),
                     );
                     continue;
+                }
+                _ if v_ty.is_refcounted() => {
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.rc_inc,
+                            vec![v_raw.clone()],
+                        ),
+                    );
+                    (4, v_raw)
+                }
+                Type::Ptr if matches!(v_raw, Operand::ConstPtrNull) => {
+                    (0, Operand::ConstI64(0))
                 }
                 _ => panic!(
                     "ssa-lower: dynobj init unsupported field type {v_ty:?}"
@@ -11519,14 +11540,18 @@ impl<'a> LowerCtx<'a> {
         self.box_to_any(val)
     }
 
-    /// Extract `(tag, value_i64)` for a freshly-lowered value, matching
+    /// Extract `(tag_op, value_op)` for a freshly-lowered value, matching
     /// `box_to_any`'s tag scheme. Used by sites that need the unboxed
     /// pair instead of an Any-box (e.g. dynobj_set / fn_props_set
-    /// which take tag + value as separate args).
-    fn box_to_tag_value(&mut self, val: Operand) -> (i64, Operand) {
+    /// which take tag + value as separate args). For statically-typed
+    /// values the tag is `ConstI64(literal)`; for already-boxed Any
+    /// it's a Load extracting the box's runtime tag at +8 — callers
+    /// must pass the returned Operand straight through (don't unwrap
+    /// to an i64 literal).
+    fn box_to_tag_value(&mut self, val: Operand) -> (Operand, Operand) {
         let val_ty = self.operand_ty(&val);
         match val_ty {
-            Type::I64 | Type::I32 => (2, val),
+            Type::I64 | Type::I32 => (Operand::ConstI64(2), val),
             Type::F64 => {
                 let bits = self.f.append_inst(
                     self.cur_block,
@@ -11534,7 +11559,7 @@ impl<'a> LowerCtx<'a> {
                     Type::I64,
                     None,
                 );
-                (3, Operand::Value(bits))
+                (Operand::ConstI64(3), Operand::Value(bits))
             }
             Type::Bool => {
                 let zext = self.f.append_inst(
@@ -11543,18 +11568,12 @@ impl<'a> LowerCtx<'a> {
                     Type::I64,
                     None,
                 );
-                (1, Operand::Value(zext))
+                (Operand::ConstI64(1), Operand::Value(zext))
             }
-            _ if val_ty.is_refcounted() => {
-                self.f.append_void(
-                    self.cur_block,
-                    InstKind::Call(self.intrinsics.rc_inc, vec![val.clone()]),
-                );
-                (4, val)
-            }
-            Type::Ptr if matches!(val, Operand::ConstPtrNull) => {
-                (0, Operand::ConstI64(0))
-            }
+            // P4.0 — Type::Any must be unboxed BEFORE the
+            // is_refcounted catch-all (Type::Any is itself
+            // refcounted; would otherwise grab the any-box wrapper
+            // ptr and tag=ANY_HEAP, dropping the real tag/value).
             Type::Any => {
                 let tag_v = self.f.append_inst(
                     self.cur_block,
@@ -11568,15 +11587,24 @@ impl<'a> LowerCtx<'a> {
                     Type::I64,
                     None,
                 );
-                // Returning runtime-dynamic tag: caller must use
-                // ConstI64(tag) for dynobj_set's third arg by passing
-                // through Operand::Value(tag_v). We can't return -1
-                // sentinel + Operand::Value because the caller expects
-                // ConstI64 first slot. Return tag value via ConstI64(-1)
-                // signaling dynamic; caller branches. (Not used yet —
-                // T-27 first-write doesn't pass Type::Any rhs.)
-                let _ = tag_v;
-                (4, Operand::Value(val_v))
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Call(
+                        self.intrinsics.any_payload_rc_inc,
+                        vec![Operand::Value(tag_v), Operand::Value(val_v)],
+                    ),
+                );
+                (Operand::Value(tag_v), Operand::Value(val_v))
+            }
+            _ if val_ty.is_refcounted() => {
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.rc_inc, vec![val.clone()]),
+                );
+                (Operand::ConstI64(4), val)
+            }
+            Type::Ptr if matches!(val, Operand::ConstPtrNull) => {
+                (Operand::ConstI64(0), Operand::ConstI64(0))
             }
             other => panic!(
                 "ssa-lower: box_to_tag_value type {other:?} not supported"
@@ -11589,7 +11617,7 @@ impl<'a> LowerCtx<'a> {
     /// stores the new ptr back into the closure (it may also resize
     /// later). Then calls dynobj_set against the live ptr through a
     /// stack slot so the resize-aware writeback works.
-    fn fn_props_set(&mut self, closure_op: Operand, key: &str, tag: i64, val_op: Operand) {
+    fn fn_props_set(&mut self, closure_op: Operand, key: &str, tag: Operand, val_op: Operand) {
         let key_str = self.intern_string_literal(key);
         // Load current props ptr (NULL on first write).
         let cur_props = self.f.append_inst(
@@ -11656,7 +11684,7 @@ impl<'a> LowerCtx<'a> {
                 vec![
                     Operand::Value(slot),
                     Operand::Value(key_str),
-                    Operand::ConstI64(tag),
+                    tag,
                     val_op,
                 ],
             ),
@@ -12396,22 +12424,10 @@ impl<'a> LowerCtx<'a> {
                                     );
                                     (1, Operand::Value(zext))
                                 }
-                                _ if v_ty.is_refcounted() => {
-                                    self.f.append_void(
-                                        self.cur_block,
-                                        InstKind::Call(
-                                            self.intrinsics.rc_inc,
-                                            vec![v_raw.clone()],
-                                        ),
-                                    );
-                                    (4, v_raw)
-                                }
-                                Type::Ptr if matches!(v_raw, Operand::ConstPtrNull) => {
-                                    (0, Operand::ConstI64(0))
-                                }
+                                // P4.0 — Type::Any must be unboxed BEFORE
+                                // the is_refcounted catch-all (see matching
+                                // arm-order fix in lower_dynobj_init).
                                 Type::Any => {
-                                    // Same offset fix as P3.5 — tag at +8,
-                                    // value at +16 per runtime layout.
                                     let tag_v = self.f.append_inst(
                                         self.cur_block,
                                         InstKind::Load(Type::I64, v_raw.clone(), 8),
@@ -12423,6 +12439,13 @@ impl<'a> LowerCtx<'a> {
                                         InstKind::Load(Type::I64, v_raw.clone(), 16),
                                         Type::I64,
                                         None,
+                                    );
+                                    self.f.append_void(
+                                        self.cur_block,
+                                        InstKind::Call(
+                                            self.intrinsics.any_payload_rc_inc,
+                                            vec![Operand::Value(tag_v), Operand::Value(val_v)],
+                                        ),
                                     );
                                     let dynobj = self.f.append_inst(
                                         self.cur_block,
@@ -12452,6 +12475,19 @@ impl<'a> LowerCtx<'a> {
                                     // assign now throws on writable=false.
                                     self.emit_throw_check(None);
                                     return v_raw;
+                                }
+                                _ if v_ty.is_refcounted() => {
+                                    self.f.append_void(
+                                        self.cur_block,
+                                        InstKind::Call(
+                                            self.intrinsics.rc_inc,
+                                            vec![v_raw.clone()],
+                                        ),
+                                    );
+                                    (4, v_raw)
+                                }
+                                Type::Ptr if matches!(v_raw, Operand::ConstPtrNull) => {
+                                    (0, Operand::ConstI64(0))
                                 }
                                 _ => panic!(
                                     "ssa-lower: dynobj assign unsupported value type {v_ty:?}"
@@ -12543,7 +12579,7 @@ impl<'a> LowerCtx<'a> {
                                     vec![
                                         obj_val.clone(),
                                         Operand::Value(key_str),
-                                        Operand::ConstI64(tag),
+                                        tag,
                                         val_op,
                                     ],
                                 ),
@@ -12567,7 +12603,7 @@ impl<'a> LowerCtx<'a> {
                                     vec![
                                         obj_val.clone(),
                                         Operand::Value(key_str),
-                                        Operand::ConstI64(tag),
+                                        tag,
                                         val_op,
                                     ],
                                 ),

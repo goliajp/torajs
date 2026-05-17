@@ -1627,6 +1627,18 @@ int64_t __torajs_any_unbox_value(const void *box) {
     return *(const int64_t *)((const uint8_t *)box + __TORAJS_ANY_BOX_VAL_OFF);
 }
 
+/* P4.0 — nested Any-dynobj field substrate. Used by lower_dynobj_init /
+ * Member-assign when forwarding an already-boxed Any value's (tag, val)
+ * payload into a new bucket. The bucket's slot holds the underlying
+ * heap reference directly (not the any-box wrapper), so the new owner
+ * needs a +1 on that heap value when tag == HEAP. Non-HEAP tags (I64 /
+ * F64 / Bool / Null / Undef) are inline values — no refcount touch. */
+void __torajs_any_payload_rc_inc(int64_t tag, int64_t val) {
+    if (tag == __TORAJS_ANY_HEAP) {
+        __torajs_rc_inc((void *)(uintptr_t)val);
+    }
+}
+
 int64_t __torajs_str_eq(const uint8_t *a, const uint8_t *b);
 
 /* P0.3 — payload-equality comparison for two values that share the
