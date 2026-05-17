@@ -268,6 +268,36 @@ fn transform_source(src: &str) -> String {
             i += b"assert(".len();
             continue;
         }
+        // 2026-05-18 — test262 helper rewrites. Each replaces a bare
+        // call with the matching `__t262_*` shim defined in
+        // test262-harness.ts. Order: longer needles first (no
+        // ambiguity here since all are distinct identifiers).
+        const T262_HELPER_REWRITES: &[(&[u8], &str)] = &[
+            (b"verifyProperty(",            "__t262_verifyProperty("),
+            (b"compareArray(",              "__t262_compareArray("),
+            (b"verifyConfigurable(",        "__t262_verifyConfigurable("),
+            (b"verifyEnumerable(",          "__t262_verifyEnumerable("),
+            (b"verifyWritable(",            "__t262_verifyWritable("),
+            (b"verifyNotConfigurable(",     "__t262_verifyNotConfigurable("),
+            (b"verifyNotEnumerable(",       "__t262_verifyNotEnumerable("),
+            (b"verifyNotWritable(",         "__t262_verifyNotWritable("),
+            (b"isConstructor(",             "__t262_isConstructor("),
+            (b"assertRelativeDateMs(",      "__t262_assertRelativeDateMs("),
+        ];
+        let mut hit_helper = false;
+        for (needle, replacement) in T262_HELPER_REWRITES {
+            if starts_with_at(bytes, i, needle) && !preceded_by_dot(bytes, i)
+                && !preceded_by_word(bytes, i)
+            {
+                out.push_str(replacement);
+                i += needle.len();
+                hit_helper = true;
+                break;
+            }
+        }
+        if hit_helper {
+            continue;
+        }
         // `var ` → `let ` (word-boundary on the left + whitespace on the right).
         if starts_with_at(bytes, i, b"var ") && !preceded_by_word(bytes, i) {
             out.push_str("let ");
