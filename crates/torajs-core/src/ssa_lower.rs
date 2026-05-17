@@ -14995,10 +14995,24 @@ impl<'a> LowerCtx<'a> {
                     && ns == "Object"
                     && args.len() == 1
                 {
+                    // BORROW semantics: getPrototypeOf reads the
+                    // argument's class tag / __proto__ field but does
+                    // not take ownership. For Ident args, leave the
+                    // binding's `moved` flag alone (end-of-scope drop
+                    // handles the dec). For non-Ident temps the caller
+                    // built up an owned value — dec it here once
+                    // we're done reading. Pre-fix `consume_if_ident +
+                    // emit_drop_value` for the Ident case caused a
+                    // double-decrement: the intercept dec'd the slot's
+                    // value (freeing it) and subsequent reads of the
+                    // ident saw a dangling pointer (UAF).
                     let v = self.lower_expr(args[0]);
                     let v_ty = self.operand_ty(&v);
-                    self.consume_if_ident(args[0]);
-                    match v_ty {
+                    let arg_is_ident = matches!(
+                        self.ast.get_expr(args[0]),
+                        Expr::Ident(_)
+                    );
+                    let proto = match v_ty {
                         Type::Obj(_) => {
                             let tag = self.f.append_inst(
                                 self.cur_block,
@@ -15006,7 +15020,7 @@ impl<'a> LowerCtx<'a> {
                                 Type::I64,
                                 None,
                             );
-                            let proto = self.f.append_inst(
+                            self.f.append_inst(
                                 self.cur_block,
                                 InstKind::Call(
                                     self.intrinsics.proto_get,
@@ -15014,45 +15028,35 @@ impl<'a> LowerCtx<'a> {
                                 ),
                                 Type::Any,
                                 None,
-                            );
-                            self.emit_drop_value(v, v_ty);
-                            // proto_get already returns an owned (rc>0)
-                            // Any-box — either the registered
-                            // `__proto_<C>` with refcount bumped or a
-                            // fresh ANY_NULL box. No extra rc_inc here.
-                            return Operand::Value(proto);
+                            )
                         }
-                        Type::Any => {
-                            let proto = self.f.append_inst(
-                                self.cur_block,
-                                InstKind::Call(
-                                    self.intrinsics.get_proto_of_any,
-                                    vec![v.clone()],
-                                ),
-                                Type::Any,
-                                None,
-                            );
-                            // `__torajs_get_proto_of_any` returns a
-                            // FRESH any_box (rc 1 already). Drop the
-                            // input box now that we've extracted the
-                            // proto.
-                            self.emit_drop_value(v, v_ty);
-                            return Operand::Value(proto);
-                        }
-                        _ => {
-                            self.emit_drop_value(v, v_ty);
-                            let null_box = self.f.append_inst(
-                                self.cur_block,
-                                InstKind::Call(
-                                    self.intrinsics.any_box,
-                                    vec![Operand::ConstI64(0), Operand::ConstI64(0)],
-                                ),
-                                Type::Any,
-                                None,
-                            );
-                            return Operand::Value(null_box);
-                        }
+                        Type::Any => self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.get_proto_of_any,
+                                vec![v.clone()],
+                            ),
+                            Type::Any,
+                            None,
+                        ),
+                        _ => self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.any_box,
+                                vec![Operand::ConstI64(0), Operand::ConstI64(0)],
+                            ),
+                            Type::Any,
+                            None,
+                        ),
+                    };
+                    if !arg_is_ident {
+                        // Temp value — we own the refcount, dec now.
+                        self.emit_drop_value(v, v_ty);
                     }
+                    // proto_get / get_proto_of_any / any_box(NULL)
+                    // all return an OWNED Any-box (rc 1+). Caller
+                    // takes ownership without further rc_inc.
+                    return Operand::Value(proto);
                 }
                 if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
                     && m_name == "assign"
