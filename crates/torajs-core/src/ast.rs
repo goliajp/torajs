@@ -5856,6 +5856,13 @@ fn collect_and_rewrite_var(
                     // pre-init undefined case (uses `var x = 1`,
                     // Number, not Array).
                     Expr::Array(_) => true,
+                    // Same fix for object literals — `var obj =
+                    // {a: 1}; obj.a` returned undefined under the
+                    // Any-promotion path because Member-on-Any
+                    // routes through dynobj_get which doesn't yet
+                    // resolve typed-struct fields. Keep the typed
+                    // Struct slot so direct field reads work.
+                    Expr::ObjectLit { .. } => true,
                     _ => false,
                 };
                 if type_ann.is_some() || init_keeps_type {
