@@ -1,0 +1,103 @@
+{
+  "started_at": "2026-05-15T18:27:24Z",
+  "host": "mini.local",
+  "git_sha": "ced2ea768d0edb981481ca78b57a140fdb97fe53",
+  "rows": [
+    {
+      "case": "ackermann",
+      "runtime": "bun-aot",
+      "runtime_version": "1.3.14",
+      "status": "ok",
+      "compile_ms": 69.546042,
+      "run_ms": 16.835875,
+      "run_stddev_ms": 0.7144885988742808,
+      "artifact_bytes": 63446114,
+      "stdout_match": true,
+      "error": null
+    },
+    {
+      "case": "ackermann",
+      "runtime": "bun-jsc",
+      "runtime_version": "1.3.14",
+      "status": "ok",
+      "compile_ms": null,
+      "run_ms": 17.053667,
+      "run_stddev_ms": 0.5586385396327394,
+      "artifact_bytes": null,
+      "stdout_match": true,
+      "error": null
+    },
+    {
+      "case": "ackermann",
+      "runtime": "go",
+      "runtime_version": "go version go1.25.6 darwin/arm64",
+      "status": "ok",
+      "compile_ms": 39.244333,
+      "run_ms": 10.476374999999999,
+      "run_stddev_ms": 0.4503146453891994,
+      "artifact_bytes": 2371394,
+      "stdout_match": true,
+      "error": null
+    },
+    {
+      "case": "ackermann",
+      "runtime": "node-v8",
+      "runtime_version": "v26.0.0",
+      "status": "ok",
+      "compile_ms": null,
+      "run_ms": 88.373958,
+      "run_stddev_ms": 7.686944901242694,
+      "artifact_bytes": null,
+      "stdout_match": true,
+      "error": null
+    },
+    {
+      "case": "ackermann",
+      "runtime": "python",
+      "runtime_version": "Python 3.14.5",
+      "status": "ok",
+      "compile_ms": null,
+      "run_ms": 97.32325,
+      "run_stddev_ms": 2.021509994778906,
+      "artifact_bytes": null,
+      "stdout_match": true,
+      "error": null
+    },
+    {
+      "case": "ackermann",
+      "runtime": "rust",
+      "runtime_version": "rustc 1.95.0 (59807616e 2026-04-14)",
+      "status": "ok",
+      "compile_ms": 76.710083,
+      "run_ms": 9.211083,
+      "run_stddev_ms": 0.08228613790305116,
+      "artifact_bytes": 465920,
+      "stdout_match": true,
+      "error": null
+    },
+    {
+      "case": "ackermann",
+      "runtime": "torajs-run",
+      "runtime_version": "tr 0.1.0",
+      "status": "ok",
+      "compile_ms": null,
+      "run_ms": 17.092875,
+      "run_stddev_ms": 0.17183441211041867,
+      "artifact_bytes": null,
+      "stdout_match": true,
+      "error": null
+    },
+    {
+      "case": "ackermann",
+      "runtime": "torajs",
+      "runtime_version": "tr 0.1.0",
+      "status": "ok",
+      "compile_ms": 895.9692500000001,
+      "run_ms": 9.321375,
+      "run_stddev_ms": 0.09370166200767172,
+      "artifact_bytes": 36112,
+      "stdout_match": true,
+      "error": null
+    }
+  ]
+}

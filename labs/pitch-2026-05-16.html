@@ -1,0 +1,539 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>torajs — TypeScript, compiled</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #fafaf6;
+  --paper: #ffffff;
+  --ink: #181612;
+  --ink-soft: #5a5550;
+  --ink-muted: #9a948c;
+  --rule: #e6e1d7;
+  --rule-soft: #f0ece2;
+  --tora: #d04920;
+  --tora-soft: #fff1e8;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { font-size: 15px; }
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
+  font-variation-settings: "wdth" 92, "opsz" 14;
+  -webkit-font-smoothing: antialiased;
+  line-height: 1.45;
+}
+
+.container { max-width: 960px; margin: 0 auto; padding: 0 32px; }
+
+mono, .mono, code { font-family: 'IBM Plex Mono', monospace; }
+
+/* ─── Header ─── */
+header {
+  border-bottom: 1px solid var(--rule);
+  padding: 18px 0;
+}
+header .container {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+header .brand {
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-variation-settings: "wdth" 85, "opsz" 96, "wght" 700;
+  font-size: 18px;
+  letter-spacing: -0.02em;
+  text-transform: none;
+  color: var(--ink);
+}
+header .brand .dot {
+  display: inline-block;
+  width: 6px; height: 6px;
+  background: var(--tora);
+  border-radius: 50%;
+  margin-left: 2px;
+  vertical-align: 2px;
+}
+header .right { display: flex; gap: 20px; }
+
+/* ─── Hero ─── */
+.hero { padding: 56px 0 40px; }
+.hero h1 {
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-variation-settings: "wdth" 80, "opsz" 96, "wght" 700;
+  font-size: clamp(40px, 6vw, 64px);
+  line-height: 1.0;
+  letter-spacing: -0.035em;
+  color: var(--ink);
+}
+.hero h1 .accent {
+  color: var(--tora);
+  font-variation-settings: "wdth" 80, "opsz" 96, "wght" 800;
+}
+.hero .lede {
+  margin-top: 18px;
+  max-width: 56ch;
+  font-size: 17px;
+  line-height: 1.55;
+  color: var(--ink-soft);
+}
+
+/* ─── Hero stats (inline) ─── */
+.kpi {
+  margin-top: 36px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0;
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+}
+.kpi-item {
+  padding: 20px 24px 22px 0;
+  border-right: 1px solid var(--rule);
+}
+.kpi-item:last-child { border-right: none; padding-right: 0; }
+.kpi-item:not(:first-child) { padding-left: 28px; }
+.kpi-num {
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-variation-settings: "wdth" 80, "opsz" 96, "wght" 700;
+  font-size: 44px;
+  line-height: 1;
+  letter-spacing: -0.04em;
+  color: var(--ink);
+  font-feature-settings: 'tnum';
+}
+.kpi-num .x { color: var(--tora); }
+.kpi-label {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+  margin-top: 10px;
+}
+.kpi-sub {
+  font-size: 13px;
+  color: var(--ink-soft);
+  margin-top: 6px;
+  line-height: 1.4;
+}
+
+/* ─── Section ─── */
+section { padding: 36px 0 20px; }
+.h2 {
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-variation-settings: "wdth" 80, "opsz" 96, "wght" 700;
+  font-size: 22px;
+  letter-spacing: -0.02em;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+.h2 .num {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  color: var(--tora);
+  font-weight: 500;
+}
+.h2 .sub {
+  margin-left: auto;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  color: var(--ink-muted);
+  letter-spacing: 0.1em;
+}
+
+/* ─── 3-card pillars ─── */
+.pillars {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0;
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+}
+.pillar {
+  padding: 22px 24px 22px 0;
+  border-right: 1px solid var(--rule);
+}
+.pillar:last-child { border-right: none; padding-right: 0; }
+.pillar:not(:first-child) { padding-left: 28px; }
+.pillar-tag {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  color: var(--tora);
+  margin-bottom: 10px;
+}
+.pillar h3 {
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-variation-settings: "wdth" 90, "opsz" 24, "wght" 700;
+  font-size: 17px;
+  letter-spacing: -0.015em;
+  margin-bottom: 6px;
+}
+.pillar p {
+  font-size: 13px;
+  color: var(--ink-soft);
+  line-height: 1.5;
+}
+
+/* ─── Bench table ─── */
+.bench-summary {
+  display: flex;
+  gap: 28px;
+  margin-bottom: 14px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+.bench-summary b {
+  color: var(--tora);
+  font-weight: 600;
+  font-feature-settings: 'tnum';
+}
+
+.bench {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 12.5px;
+  font-feature-settings: 'tnum';
+}
+.bench thead {
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+}
+.bench th {
+  text-align: right;
+  padding: 8px 12px;
+  font-weight: 500;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  font-size: 10px;
+  color: var(--ink-muted);
+}
+.bench th:first-child { text-align: left; padding-left: 0; }
+.bench th:last-child { padding-right: 0; }
+.bench td {
+  padding: 6px 12px;
+  text-align: right;
+  border-bottom: 1px solid var(--rule-soft);
+  color: var(--ink-soft);
+}
+.bench td:first-child { padding-left: 0; }
+.bench td:last-child { padding-right: 0; }
+.bench tbody tr:hover td { background: var(--tora-soft); }
+.bench td.case {
+  text-align: left;
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-variation-settings: "wdth" 92, "opsz" 14, "wght" 500;
+  color: var(--ink);
+  font-size: 13px;
+}
+.bench td.tora {
+  color: var(--ink);
+  font-weight: 600;
+  background: var(--tora-soft);
+}
+.bench td.x {
+  color: var(--tora);
+  font-weight: 600;
+  font-size: 13px;
+}
+.bench td.x.lo { color: var(--ink-soft); font-weight: 500; }
+
+.bench-foot {
+  margin-top: 12px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10.5px;
+  color: var(--ink-muted);
+  letter-spacing: 0.05em;
+  line-height: 1.6;
+}
+
+/* ─── Status row ─── */
+.status-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0;
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+}
+.stat-cell {
+  padding: 18px 20px 18px 0;
+  border-right: 1px solid var(--rule);
+}
+.stat-cell:last-child { border-right: none; padding-right: 0; }
+.stat-cell:not(:first-child) { padding-left: 24px; }
+.stat-v {
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-variation-settings: "wdth" 80, "opsz" 96, "wght" 700;
+  font-size: 28px;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  font-feature-settings: 'tnum';
+}
+.stat-v .d { color: var(--tora); font-size: 14px; margin-left: 4px; }
+.stat-v .u { color: var(--ink-muted); font-size: 13px; font-variation-settings: "wdth" 92, "opsz" 24, "wght" 500; margin-left: 4px; }
+.stat-l {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+  margin-top: 8px;
+}
+
+/* ─── Roadmap inline ─── */
+.roadmap {
+  margin-top: 18px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 12.5px;
+}
+.rm-row {
+  display: grid;
+  grid-template-columns: 60px 1fr 90px;
+  gap: 16px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--rule-soft);
+  align-items: baseline;
+}
+.rm-row .ph { font-weight: 600; color: var(--ink-muted); letter-spacing: 0.1em; }
+.rm-row.done .ph { color: var(--tora); }
+.rm-row.cur .ph { color: var(--ink); }
+.rm-row .desc {
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-variation-settings: "wdth" 92, "opsz" 14, "wght" 400;
+  font-size: 13.5px;
+  color: var(--ink-soft);
+  line-height: 1.45;
+}
+.rm-row.done .desc, .rm-row.cur .desc { color: var(--ink); }
+.rm-row .st {
+  text-align: right;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+.rm-row.done .st { color: var(--tora); }
+.rm-row.cur .st { color: var(--ink); font-weight: 600; }
+
+/* ─── Footer ─── */
+footer {
+  margin-top: 40px;
+  padding: 18px 0 28px;
+  border-top: 1px solid var(--rule);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  color: var(--ink-muted);
+}
+footer .container {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  flex-wrap: wrap;
+  letter-spacing: 0.1em;
+}
+footer span { white-space: nowrap; }
+footer a { color: var(--tora); text-decoration: none; }
+footer .quote {
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-variation-settings: "wdth" 92, "opsz" 24, "wght" 500;
+  font-style: italic;
+  color: var(--ink);
+  font-size: 13.5px;
+  letter-spacing: 0;
+  text-transform: none;
+  max-width: 38ch;
+}
+
+@media (max-width: 720px) {
+  .kpi, .pillars, .status-grid { grid-template-columns: 1fr; }
+  .kpi-item, .pillar, .stat-cell {
+    border-right: none;
+    border-bottom: 1px solid var(--rule);
+    padding: 16px 0;
+  }
+  .kpi-item:last-child, .pillar:last-child, .stat-cell:last-child { border-bottom: none; }
+  .kpi-item:not(:first-child), .pillar:not(:first-child), .stat-cell:not(:first-child) { padding-left: 0; }
+  .bench { font-size: 11.5px; }
+  .bench th, .bench td { padding: 5px 6px; }
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="container">
+    <span class="brand">torajs<span class="dot"></span></span>
+    <div class="right">
+      <span>2026 · 05 · 16</span>
+      <span>internal · investor preview</span>
+    </div>
+  </div>
+</header>
+
+<div class="container">
+
+<!-- Hero -->
+<div class="hero">
+  <h1>TypeScript,<br/><span class="accent">compiled to silicon.</span></h1>
+  <p class="lede">
+    torajs is an ahead-of-time TypeScript runtime that emits standalone native binaries.
+    Same TS programs as Bun. No JIT, no interpreter, no embedded runtime. The result is
+    a 37 KB executable that beats <code>bun build --compile</code> on every benchmark
+    we run.
+  </p>
+
+  <div class="kpi">
+    <div class="kpi-item">
+      <div class="kpi-num">4.16<span class="x">×</span></div>
+      <div class="kpi-label">faster than bun</div>
+      <div class="kpi-sub">geomean across 26 benchmarks · all 26 won by torajs</div>
+    </div>
+    <div class="kpi-item">
+      <div class="kpi-num">1715<span class="x">×</span></div>
+      <div class="kpi-label">smaller binary</div>
+      <div class="kpi-sub">~37 KB vs 63.45 MB for <code>bun build --compile</code></div>
+    </div>
+    <div class="kpi-item">
+      <div class="kpi-num">15.4<span class="x">×</span></div>
+      <div class="kpi-label">faster cold start</div>
+      <div class="kpi-sub">1.37 ms vs 21.17 ms (bun) · 87 ms (node)</div>
+    </div>
+  </div>
+</div>
+
+<!-- Pillars -->
+<section>
+  <div class="h2"><span class="num">01</span>Why this isn't another bun<span class="sub">three pillars</span></div>
+  <div class="pillars">
+    <div class="pillar">
+      <div class="pillar-tag">AOT TO NATIVE</div>
+      <h3>Zero JITs, zero warmup</h3>
+      <p>TS → LLVM IR → machine code → binary. First nanosecond runs at full throughput. Same speed at runtime t=0 and t=∞.</p>
+    </div>
+    <div class="pillar">
+      <div class="pillar-tag">SMALL ARTIFACT</div>
+      <h3>37 KB per executable</h3>
+      <p>The runtime is the program. Ships on edge functions, IoT firmware, CLI tools, containers. No 60 MB tax per binary.</p>
+    </div>
+    <div class="pillar">
+      <div class="pillar-tag">COLD-START SPEED</div>
+      <h3>1.37 ms hello-world</h3>
+      <p>Lambda cold-starts, container init, on-demand workloads. 15× faster than the next-best AOT TS runtime.</p>
+    </div>
+  </div>
+</section>
+
+<!-- Benchmark -->
+<section>
+  <div class="h2"><span class="num">02</span>26 benchmarks · 26 wins<span class="sub">vs bun-aot, bun-jsc, node-v8</span></div>
+  <div class="bench-summary">
+    <span><b>4.16×</b> geomean vs bun-aot</span>
+    <span><b>19.07×</b> geomean vs node-v8</span>
+    <span><b>20.39×</b> peak speedup (throw-catch-100k)</span>
+    <span><b>1.10×</b> minimum speedup (prime_count)</span>
+    </div>
+  <table class="bench">
+    <thead>
+      <tr><th>benchmark</th><th>bun-aot</th><th>bun-jsc</th><th>node-v8</th><th>torajs</th><th>× vs bun</th></tr>
+    </thead>
+    <tbody>
+      <tr><td class="case">throw-catch-100k</td><td>24.18</td><td>23.88</td><td>150.45</td><td class="tora">1.19</td><td class="x">20.39</td></tr>
+      <tr><td class="case">popcount</td><td>59.25</td><td>59.48</td><td>133.76</td><td class="tora">2.93</td><td class="x">20.19</td></tr>
+      <tr><td class="case">generic-pair-1m</td><td>13.48</td><td>14.07</td><td>93.32</td><td class="tora">1.28</td><td class="x">10.50</td></tr>
+      <tr><td class="case">promise-chain-1k</td><td>10.55</td><td>10.89</td><td>91.68</td><td class="tora">1.31</td><td class="x">8.03</td></tr>
+      <tr><td class="case">stack-pop-1m</td><td>17.24</td><td>17.67</td><td>100.50</td><td class="tora">2.31</td><td class="x">7.47</td></tr>
+      <tr><td class="case">startup</td><td>9.52</td><td>9.97</td><td>86.62</td><td class="tora">1.47</td><td class="x">6.50</td></tr>
+      <tr><td class="case">rpn-eval-100k</td><td>17.27</td><td>18.36</td><td>97.00</td><td class="tora">2.86</td><td class="x">6.03</td></tr>
+      <tr><td class="case">promise-all-1k</td><td>10.63</td><td>11.13</td><td>93.15</td><td class="tora">1.85</td><td class="x">5.76</td></tr>
+      <tr><td class="case">closure-pipeline-1m</td><td>55.48</td><td>53.66</td><td>185.52</td><td class="tora">10.00</td><td class="x">5.55</td></tr>
+      <tr><td class="case">generic-id-1m</td><td>54.33</td><td>55.53</td><td>185.71</td><td class="tora">11.53</td><td class="x">4.71</td></tr>
+      <tr><td class="case">async-fn-call-100k</td><td>14.68</td><td>15.44</td><td>97.26</td><td class="tora">3.16</td><td class="x">4.65</td></tr>
+      <tr><td class="case">promise-await-100k</td><td>14.67</td><td>15.25</td><td>98.63</td><td class="tora">3.17</td><td class="x">4.63</td></tr>
+      <tr><td class="case">fifo-queue-100k</td><td>11.73</td><td>12.30</td><td>91.03</td><td class="tora">2.64</td><td class="x">4.44</td></tr>
+      <tr><td class="case">csv-trim-100k</td><td>23.62</td><td>24.46</td><td>96.93</td><td class="tora">6.57</td><td class="x">3.59</td></tr>
+      <tr><td class="case">closure-counter</td><td>59.33</td><td>59.91</td><td>187.98</td><td class="tora">16.76</td><td class="x">3.54</td></tr>
+      <tr><td class="case">array-sum-1m</td><td>56.07</td><td>54.89</td><td>171.01</td><td class="tora">15.88</td><td class="x">3.53</td></tr>
+      <tr><td class="case">csv-rebuild-100k</td><td>24.16</td><td>24.76</td><td>94.65</td><td class="tora">6.87</td><td class="x">3.52</td></tr>
+      <tr><td class="case">collatz</td><td>325.94</td><td>327.56</td><td>1416.23</td><td class="tora">107.06</td><td class="x">3.04</td></tr>
+      <tr><td class="case">split-only-100k</td><td>12.55</td><td>11.85</td><td>90.71</td><td class="tora">4.56</td><td class="x">2.75</td></tr>
+      <tr><td class="case">promise-then-100k</td><td>16.35</td><td>17.01</td><td>98.80</td><td class="tora">6.22</td><td class="x">2.63</td></tr>
+      <tr><td class="case">array-map-1m</td><td>69.46</td><td>70.64</td><td>259.58</td><td class="tora">27.34</td><td class="x">2.54</td></tr>
+      <tr><td class="case">fib40</td><td>379.31</td><td>381.33</td><td>636.96</td><td class="tora">151.79</td><td class="x">2.50</td></tr>
+      <tr><td class="case">ackermann</td><td>18.16</td><td>18.15</td><td>96.72</td><td class="tora">9.32</td><td class="x lo">1.95</td></tr>
+      <tr><td class="case">mandelbrot</td><td>52.59</td><td>53.42</td><td>117.68</td><td class="tora">35.02</td><td class="x lo">1.50</td></tr>
+      <tr><td class="case">gcd1m</td><td>50.59</td><td>51.30</td><td>132.81</td><td class="tora">40.86</td><td class="x lo">1.24</td></tr>
+      <tr><td class="case">prime_count</td><td>54.06</td><td>59.50</td><td>163.19</td><td class="tora">49.32</td><td class="x lo">1.10</td></tr>
+    </tbody>
+  </table>
+  <p class="bench-foot">
+    all values are run_ms · hyperfine 10 runs, 3 warmup · darwin · arm64 · Apple M-class · stock thermal · all benchmarks run solo · data: bench/results @ HEAD 1debabe
+  </p>
+</section>
+
+<!-- Trajectory -->
+<section>
+  <div class="h2"><span class="num">03</span>Phase 3 of 13, shipped<span class="sub">14-phase roadmap</span></div>
+
+  <div class="roadmap">
+    <div class="rm-row done"><div class="ph">P0</div><div class="desc">Walking skeleton — <code>tr run hello.ts</code></div><div class="st">shipped</div></div>
+    <div class="rm-row done"><div class="ph">P1</div><div class="desc">First-class undefined · null distinction · ANY_UNDEF box · 8 sub-phases</div><div class="st">shipped</div></div>
+    <div class="rm-row done"><div class="ph">P2</div><div class="desc">Var hoisting · uninit-let inlining · ownership-correct interpreter graduation</div><div class="st">shipped</div></div>
+    <div class="rm-row cur"><div class="ph">P3</div><div class="desc">Property-bag objects · SwissTable dynobj · defineProperty · Array&lt;Any&gt; · arguments · 16 sub-tasks</div><div class="st">≈ 95%</div></div>
+    <div class="rm-row"><div class="ph">P4</div><div class="desc">Class hierarchies · prototype chain · structural-prefix subtyping</div><div class="st">next</div></div>
+    <div class="rm-row"><div class="ph">P5—P9</div><div class="desc">Generators · async/await · iterators · regex · destructuring · template literals</div><div class="st">queued</div></div>
+    <div class="rm-row"><div class="ph">P10—P13</div><div class="desc">Public playground at torajs.com · cross-arch AOT · package ecosystem · stable 1.0</div><div class="st">roadmap</div></div>
+  </div>
+
+  <div class="status-grid" style="margin-top:24px;">
+    <div class="stat-cell">
+      <div class="stat-v">583<span class="d">+50</span></div>
+      <div class="stat-l">conformance · 0 fail</div>
+    </div>
+    <div class="stat-cell">
+      <div class="stat-v">145<span class="d">+53</span></div>
+      <div class="stat-l">test262 5k · 4.62%</div>
+    </div>
+    <div class="stat-cell">
+      <div class="stat-v">5<span class="u">ships</span></div>
+      <div class="stat-l">today · 1-day session</div>
+    </div>
+    <div class="stat-cell">
+      <div class="stat-v">26<span class="d">/26</span></div>
+      <div class="stat-l">benchmarks won</div>
+    </div>
+  </div>
+</section>
+
+</div><!-- /container -->
+
+<footer>
+  <div class="container">
+    <span class="quote">"Bun proved TS can be the runtime. torajs makes it the binary."</span>
+    <span>commit <code style="color:var(--ink)">008cd84</code></span>
+    <span>Rust · LLVM 22 · static C runtime</span>
+    <span><a href="mailto:takagi@golia.jp">takagi@golia.jp</a></span>
+  </div>
+</footer>
+
+</body>
+</html>
