@@ -2287,6 +2287,12 @@ impl Checker {
                     // `catch (e: number)` against an actual null throw
                     // is the user's bug, not the runtime's).
                     Ok(Type::Null) | Ok(Type::Nullable(_)) => {}
+                    // P4.7 — accept Type::Any throws. The tagged
+                    // throw_set / take_tag substrate (ssa_lower) records
+                    // the dynamic tag so catch `: any` reconstructs an
+                    // Any-box correctly. Pre-P4.7 reject was a
+                    // M4-era artifact of the i64-only throw slot.
+                    Ok(Type::Any) => {}
                     Ok(other) => self.errors.push_err(format!(
                         "throw value must be 8-byte-shaped, got {other:?}"
                     )),

@@ -1039,7 +1039,7 @@ void *__torajs_get_property_descriptor(void *obj_any, void *key) {
 }
 
 /* Forward decl — defined further down next to torajs_throw_range_error. */
-extern void __torajs_throw_set(int64_t v);
+extern void __torajs_throw_set(int64_t tag, int64_t value);
 static void torajs_throw_type_error(const char *msg);
 
 /* Set `obj[key] = (tag, value)`. Caller is responsible for rc-bumping
@@ -3822,7 +3822,7 @@ static void torajs_throw_range_error(const char *msg) {
     uint64_t len = strlen(msg);
     uint8_t *err = str_alloc_(len);
     if (len) memcpy(__TORAJS_STR_DATA(err), msg, (size_t)len);
-    __torajs_throw_set((int64_t)(uintptr_t)err);
+    __torajs_throw_set(4 /* ANY_HEAP */, (int64_t)(uintptr_t)err);
 }
 
 /* P3.attribute-flag-tracking — sibling of torajs_throw_range_error
@@ -3835,7 +3835,7 @@ static void torajs_throw_type_error(const char *msg) {
     uint64_t len = strlen(msg);
     uint8_t *err = str_alloc_(len);
     if (len) memcpy(__TORAJS_STR_DATA(err), msg, (size_t)len);
-    __torajs_throw_set((int64_t)(uintptr_t)err);
+    __torajs_throw_set(4 /* ANY_HEAP */, (int64_t)(uintptr_t)err);
 }
 
 void __torajs_arr_set_length_validate(int64_t tag, int64_t value) {
@@ -5155,7 +5155,7 @@ void *__torajs_str_pad_end(const uint8_t *s, int64_t target_len, const uint8_t *
  * `throw_check` after each call so propagation flows correctly.
  */
 
-extern void __torajs_throw_set(int64_t v);
+extern void __torajs_throw_set(int64_t tag, int64_t value);
 
 static void torajs_json_throw(const char *msg, int64_t pos) {
     char buf[96];
@@ -5165,7 +5165,7 @@ static void torajs_json_throw(const char *msg, int64_t pos) {
     uint64_t len = (uint64_t)n;
     uint8_t *err = str_alloc_(len);
     if (len) memcpy(__TORAJS_STR_DATA(err), buf, (size_t)len);
-    __torajs_throw_set((int64_t)(uintptr_t)err);
+    __torajs_throw_set(4 /* ANY_HEAP */, (int64_t)(uintptr_t)err);
 }
 
 static void torajs_json_skip_ws(const uint8_t *data, uint64_t len, int64_t *pos) {

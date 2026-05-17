@@ -3704,11 +3704,19 @@ fn lower_inner(
     // the backend implements. Lowering uses set/check/take to thread
     // the throw state through the call path; user code never touches
     // these symbols directly.
+    // P4.7 — throw_set signature widened to (tag, value). Lowered
+    // throw sites compute the tag from the throw expr's static type
+    // via box_to_tag_value-style classification (HEAP for Str/Arr/
+    // Obj/Closure/Dynobj-Any, I64 for numbers, F64 for floats,
+    // BOOL for booleans, etc.). Catch sites with `: any` slots read
+    // back both via throw_take_tag + throw_take, then `any_box(tag,
+    // value)`. Typed catches still call throw_take alone — the tag
+    // is silently ignored (existing path unchanged).
     let throw_set_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
         "__torajs_throw_set",
-        &[Type::I64],
+        &[Type::I64, Type::I64],
         Type::Void,
     );
     let throw_check_id = declare_intrinsic(
@@ -3722,6 +3730,13 @@ fn lower_inner(
         &mut module,
         &mut fn_table,
         "__torajs_throw_take",
+        &[],
+        Type::I64,
+    );
+    let throw_take_tag_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_throw_take_tag",
         &[],
         Type::I64,
     );
@@ -4405,6 +4420,7 @@ fn lower_inner(
         throw_set: throw_set_id,
         throw_check: throw_check_id,
         throw_take: throw_take_id,
+        throw_take_tag: throw_take_tag_id,
     };
 
     // (struct_layouts already detached from module at top of lower(),
@@ -5237,6 +5253,7 @@ struct Intrinsics {
     throw_set: FuncId,
     throw_check: FuncId,
     throw_take: FuncId,
+    throw_take_tag: FuncId,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -8095,11 +8112,18 @@ impl<'a> LowerCtx<'a> {
                         "JSON.parse: expected field \"{fname}\""
                     );
                     let err_str = self.intern_string_literal(&err_msg);
+                    // P4.7 — throw_set now takes (tag, value). String
+                    // err lowers as ANY_HEAP=4 with the str ptr as
+                    // value; the runtime helper torajs_throw_*_error
+                    // C-side callers follow the same shape.
                     self.f.append_void(
                         self.cur_block,
                         InstKind::Call(
                             self.intrinsics.throw_set,
-                            vec![Operand::Value(err_str)],
+                            vec![
+                                Operand::ConstI64(4),
+                                Operand::Value(err_str),
+                            ],
                         ),
                     );
                     self.f.set_term(self.cur_block, Terminator::Br(ok_blk));
@@ -10616,12 +10640,19 @@ impl<'a> LowerCtx<'a> {
             }
             Stmt::Throw(eid) => {
                 // M4 — `throw v`:
-                //   1. call __torajs_throw_set(v)
+                //   1. call __torajs_throw_set(tag, value)
                 //   2. if there's an active try (try_stack non-empty),
                 //      `br <handler>` — this ensures finally / catch
                 //      inside the same fn runs before propagating.
                 //   3. otherwise emit drops + ret sentinel so the
                 //      caller's emit_throw_check picks up the propagate.
+                //
+                // P4.7 — tag computed from v's static type so catch
+                // `: any` sites can reconstruct an Any-box from
+                // (tag, value). Computation MUST NOT rc_inc the
+                // value (unlike box_to_tag_value which does for
+                // refcounted) because throw transfers ownership; the
+                // global throw_value slot now owns v's refcount stake.
                 //
                 // Refcount: throw transfers ownership of v to the
                 // throw-handling system (global throw_value). Mirror
@@ -10632,9 +10663,79 @@ impl<'a> LowerCtx<'a> {
                 // caller's catch can read it.
                 let v = self.lower_expr(*eid);
                 self.consume_all_idents_in_return(*eid);
+                let v_ty = self.operand_ty(&v);
+                let (tag_op, val_op): (Operand, Operand) = match v_ty {
+                    Type::I64 | Type::I32 => (Operand::ConstI64(2), v),
+                    Type::F64 => {
+                        let bits = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::BitCastF64ToI64(v),
+                            Type::I64,
+                            None,
+                        );
+                        (Operand::ConstI64(3), Operand::Value(bits))
+                    }
+                    Type::Bool => {
+                        let zext = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::ZExtBoolToI64(v),
+                            Type::I64,
+                            None,
+                        );
+                        (Operand::ConstI64(1), Operand::Value(zext))
+                    }
+                    Type::Any => {
+                        // Already boxed — extract tag/value from the
+                        // box at +8/+16. Throw forwards the inner
+                        // (tag, value) so the wrapping any-box becomes
+                        // unowned and will be released by the source
+                        // binding's drop. Catch reconstructs as needed.
+                        let tag_v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(Type::I64, v.clone(), 8),
+                            Type::I64,
+                            None,
+                        );
+                        let val_v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(Type::I64, v.clone(), 16),
+                            Type::I64,
+                            None,
+                        );
+                        // Need to bump the inner refcount: source
+                        // binding will dec when scope ends (consume_all
+                        // marks the binding moved, but the any-box
+                        // itself drops via end-of-fn drops which will
+                        // dec its content). Throw must keep the
+                        // inner alive across that.
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.any_payload_rc_inc,
+                                vec![Operand::Value(tag_v), Operand::Value(val_v)],
+                            ),
+                        );
+                        (Operand::Value(tag_v), Operand::Value(val_v))
+                    }
+                    Type::Ptr if matches!(v, Operand::ConstPtrNull) => {
+                        (Operand::ConstI64(0), Operand::ConstI64(0))
+                    }
+                    _ if v_ty.is_refcounted() => {
+                        // ANY_HEAP=4. Ownership transfers to the throw
+                        // slot; no rc_inc here (consume_all marked the
+                        // source binding moved so end-of-fn drop skips).
+                        (Operand::ConstI64(4), v)
+                    }
+                    _ => {
+                        // Fallback: pass as-is with a HEAP tag. Matches
+                        // pre-P4.7 behavior for any unusual operand
+                        // type that reached this arm.
+                        (Operand::ConstI64(4), v)
+                    }
+                };
                 self.f.append_void(
                     self.cur_block,
-                    InstKind::Call(self.intrinsics.throw_set, vec![v]),
+                    InstKind::Call(self.intrinsics.throw_set, vec![tag_op, val_op]),
                 );
                 if let Some(handler) = self.try_stack.last().copied() {
                     let cb = self.cur_block;
@@ -10766,19 +10867,51 @@ impl<'a> LowerCtx<'a> {
                         ),
                         None => Type::I64,
                     };
-                    let v = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Call(self.intrinsics.throw_take, vec![]),
-                        Type::I64,
-                        Some(p),
-                    );
+                    // P4.7 — catch `: any` reconstructs an Any-box from
+                    // (tag, value). Read tag FIRST (no side-effects),
+                    // then value (clears active). The order matters —
+                    // throw_take's body store-zeroes __torajs_throw_active
+                    // but leaves the tag/value globals untouched, so the
+                    // peek-tag call must come before throw_take.
+                    let slot_v = if matches!(e_ty, Type::Any) {
+                        let tag_v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(self.intrinsics.throw_take_tag, vec![]),
+                            Type::I64,
+                            None,
+                        );
+                        let val_v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(self.intrinsics.throw_take, vec![]),
+                            Type::I64,
+                            Some(p),
+                        );
+                        let boxed = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.any_box,
+                                vec![Operand::Value(tag_v), Operand::Value(val_v)],
+                            ),
+                            Type::Any,
+                            None,
+                        );
+                        Operand::Value(boxed)
+                    } else {
+                        let v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(self.intrinsics.throw_take, vec![]),
+                            Type::I64,
+                            Some(p),
+                        );
+                        Operand::Value(v)
+                    };
                     let slot = self.alloca(e_ty, Some(p));
                     // For ptr-shaped e_ty the backend's cast helper
                     // turns the i64 throw_take result into a ptr at
                     // the Store; same shape as M6.1's ptr↔i64 path.
                     self.f.append_void(
                         self.cur_block,
-                        InstKind::Store(Operand::Value(v), Operand::Value(slot), 0),
+                        InstKind::Store(slot_v, Operand::Value(slot), 0),
                     );
                     self.locals.insert(
                         p.clone(),

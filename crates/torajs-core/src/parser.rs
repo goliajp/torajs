@@ -1639,6 +1639,11 @@ impl Parser<'_> {
         let mut catch_type: Option<String> = None;
         let mut catch_body: Vec<Stmt> = Vec::new();
         let mut had_catch = false;
+        // P4.7 — captured (binding-name, source-key, is_obj) tuples
+        // when the catch param is a destructure pattern. After parsing
+        // the catch body, we synthesize lets at the top of the body
+        // that read each binding from the synthetic catch ident.
+        let mut destr_bindings: Vec<(String, String, bool)> = Vec::new();
         if matches!(self.peek(), Token::Catch) {
             had_catch = true;
             self.pos += 1;
@@ -1651,42 +1656,75 @@ impl Parser<'_> {
                         self.pos += 1;
                         s
                     }
-                    // T-37 — destructuring catch parameter
-                    // (`catch ({ x }) {}` / `catch ([ x ]) {}`). ES2018+
-                    // BindingPattern syntax; tora skips the inner
-                    // pattern syntactically and binds an anonymous
-                    // synthetic name so the catch body still parses.
-                    // Body references to the destructured names will
-                    // surface as `unknown identifier` later — narrow
-                    // path covers test262 annexB cases where the body
-                    // doesn't actually use the destructured bindings
-                    // (the destructure is a syntactic check, not a
-                    // data flow).
+                    // P4.7 — destructuring catch parameter
+                    // (`catch ({ x, y }) {}`). ES2018+ BindingPattern
+                    // syntax. tora parses the pattern at depth 1,
+                    // captures the binding names, and (after the
+                    // catch body parses) prepends synthetic
+                    // `const x: any = __catch.x;` lets so the body's
+                    // refs resolve. The synth catch param is typed
+                    // `any` so the Member accesses route through
+                    // dynobj_get via the Any-tier. Array destructure
+                    // `catch ([a, b])` follows the same shape with
+                    // string-keyed numeric indices.
                     Token::LBrace | Token::LBracket => {
-                        let opener = matches!(self.peek(), Token::LBrace);
-                        let close = if opener { Token::RBrace } else { Token::RBracket };
-                        let open_tok = self.peek().clone();
-                        let mut depth: i32 = 0;
-                        self.pos += 1;
-                        depth += 1;
-                        while depth > 0 && self.pos < self.tokens.len() {
-                            match self.peek() {
-                                t if std::mem::discriminant(t)
-                                    == std::mem::discriminant(&open_tok) =>
-                                {
-                                    depth += 1;
+                        let is_obj = matches!(self.peek(), Token::LBrace);
+                        let synth_name = format!("__catch_destr_{}", self.pos);
+                        self.pos += 1; // skip opener
+                        let mut idx = 0u32;
+                        while !matches!(
+                            self.peek(),
+                            Token::RBrace | Token::RBracket | Token::Eof
+                        ) {
+                            let bind_name = match self.peek() {
+                                Token::Ident(n) => {
+                                    let s = n.clone();
                                     self.pos += 1;
+                                    s
                                 }
-                                t if std::mem::discriminant(t)
-                                    == std::mem::discriminant(&close) =>
-                                {
-                                    depth -= 1;
-                                    self.pos += 1;
+                                t => {
+                                    return Err(format!(
+                                        "expected identifier in catch destructure, got {t:?} at {}",
+                                        self.at()
+                                    ));
                                 }
-                                _ => self.pos += 1,
+                            };
+                            let stored_name = if is_obj
+                                && matches!(self.peek(), Token::Colon)
+                            {
+                                self.pos += 1;
+                                match self.peek() {
+                                    Token::Ident(n) => {
+                                        let s = n.clone();
+                                        self.pos += 1;
+                                        s
+                                    }
+                                    t => {
+                                        return Err(format!(
+                                            "expected alias after `:` in catch destructure, got {t:?} at {}",
+                                            self.at()
+                                        ));
+                                    }
+                                }
+                            } else {
+                                bind_name.clone()
+                            };
+                            let src_key = if is_obj {
+                                bind_name
+                            } else {
+                                format!("{}", idx)
+                            };
+                            destr_bindings.push((stored_name, src_key, is_obj));
+                            idx += 1;
+                            if matches!(self.peek(), Token::Comma) {
+                                self.pos += 1;
                             }
                         }
-                        format!("__catch_destr_{}", self.pos)
+                        match self.peek() {
+                            Token::RBrace | Token::RBracket => self.pos += 1,
+                            _ => {}
+                        }
+                        synth_name
                     }
                     t => {
                         return Err(format!(
@@ -1710,10 +1748,44 @@ impl Parser<'_> {
                         ));
                     }
                 }
-                catch_param = Some(n);
+                catch_param = Some(n.clone());
                 catch_type = ty;
+                // P4.7 — destructure forces `: any` catch type so the
+                // synthesized Member-reads route through the Any-tier.
+                if !destr_bindings.is_empty() {
+                    catch_type = Some("any".to_string());
+                }
             }
             catch_body = self.parse_block_stmts("catch")?;
+            // P4.7 — synthesize `const <bind>: any = <__catch>.<src_key>;`
+            // for each destructure binding and prepend to catch_body.
+            if !destr_bindings.is_empty()
+                && let Some(catch_n) = catch_param.as_ref()
+            {
+                let mut prepend: Vec<Stmt> = Vec::with_capacity(destr_bindings.len());
+                for (bind_name, src_key, _is_obj) in destr_bindings.iter() {
+                    let obj_eid = self
+                        .ast
+                        .add_expr(Expr::Ident(catch_n.clone()));
+                    let member_eid = self.ast.add_expr(Expr::Member {
+                        obj: obj_eid,
+                        name: src_key.clone(),
+                    });
+                    prepend.push(Stmt::LetDecl {
+                        mutable: false,
+                        name: bind_name.clone(),
+                        type_ann: Some("any".to_string()),
+                        init: member_eid,
+                        is_var: false,
+                    });
+                }
+                let mut new_body: Vec<Stmt> = Vec::with_capacity(
+                    catch_body.len() + prepend.len(),
+                );
+                new_body.extend(prepend);
+                new_body.extend(catch_body.drain(..));
+                catch_body = new_body;
+            }
         }
         let finally_body = if matches!(self.peek(), Token::Finally) {
             self.pos += 1;
