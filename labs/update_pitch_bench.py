@@ -169,6 +169,18 @@ def patch_html(rows_html: str, summary: tuple[str, str, str, str], n_cases: int,
         count=1,
     )
 
+    # 7. Update the header date (top-right) to today so the preview
+    #    stays current after every refresh — takagi flagged the
+    #    2026·05·16 stale string on 2026-05-18. Format: YYYY · MM · DD.
+    import datetime as _dt
+    today = _dt.date.today().strftime("%Y · %m · %d")
+    html = re.sub(
+        r'<span>\d{4} · \d{2} · \d{2}</span>',
+        f'<span>{today}</span>',
+        html,
+        count=1,
+    )
+
     HTML_PATH.write_text(html)
 
 
