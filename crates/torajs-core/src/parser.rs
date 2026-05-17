@@ -5396,29 +5396,92 @@ impl Parser<'_> {
                     self.at()
                 ));
             }
-            let member_name = match self.peek() {
-                Token::Ident(n) => n.clone(),
-                // V3-18 wedge — accept the full reserved-word list
-                // as class member names per ES spec §12.7.6
-                // (PropertyName allows IdentifierName which includes
-                // reserved words). Routed through the centralized
-                // keyword_property_name helper so all four
-                // property-name positions stay in sync.
-                t if Self::keyword_property_name(t).is_some() => {
-                    Self::keyword_property_name(t).unwrap().to_string()
-                }
-                t => {
+            // P5.2 — computed-key class member `[Symbol.iterator]() {
+            // ... }`. Mirrors the object-literal computed-key handling
+            // (parse_object_field) so the same `__sym_Symbol_iterator__`
+            // synthetic name flows through into the class layout. Only
+            // member-name shape `[<Ident>(. <Ident>)*]` is accepted —
+            // string-literal keys (`["foo"]`) and arbitrary exprs are
+            // out of scope for the class-method computed-key surface.
+            // Body parsing falls through to the normal method branch
+            // by emitting a synthetic name + advancing past `]`.
+            let mut consumed_computed_name = false;
+            let member_name = if matches!(self.peek(), Token::LBracket) {
+                self.pos += 1;
+                let key = match self.peek() {
+                    Token::Ident(_) => {
+                        let mut parts: Vec<String> = Vec::new();
+                        loop {
+                            if let Token::Ident(n) = self.peek() {
+                                parts.push(n.clone());
+                                self.pos += 1;
+                            } else {
+                                break;
+                            }
+                            if matches!(self.peek(), Token::Dot) {
+                                self.pos += 1;
+                            } else {
+                                break;
+                            }
+                        }
+                        format!("__sym_{}__", parts.join("_"))
+                    }
+                    Token::String(s) => {
+                        let k = s.clone();
+                        self.pos += 1;
+                        k
+                    }
+                    t => {
+                        return Err(format!(
+                            "expected `Symbol.iterator`-style key inside `[...]` for class `{name}` member, got {t:?} at {}",
+                            self.at()
+                        ));
+                    }
+                };
+                if !matches!(self.peek(), Token::RBracket) {
+                    let t = self.peek().clone();
                     return Err(format!(
-                        "expected class member name, got {t:?} at {}",
+                        "expected `]` to close computed class member key for `{name}`, got {t:?} at {}",
                         self.at()
                     ));
                 }
+                self.pos += 1; // consume `]`
+                consumed_computed_name = true;
+                key
+            } else {
+                match self.peek() {
+                    Token::Ident(n) => n.clone(),
+                    // V3-18 wedge — accept the full reserved-word list
+                    // as class member names per ES spec §12.7.6
+                    // (PropertyName allows IdentifierName which includes
+                    // reserved words). Routed through the centralized
+                    // keyword_property_name helper so all four
+                    // property-name positions stay in sync.
+                    t if Self::keyword_property_name(t).is_some() => {
+                        Self::keyword_property_name(t).unwrap().to_string()
+                    }
+                    t => {
+                        return Err(format!(
+                            "expected class member name, got {t:?} at {}",
+                            self.at()
+                        ));
+                    }
+                }
             };
-            let next_tok = self.tokens.get(self.pos + 1).map(|s| &s.token);
+            let next_tok = if consumed_computed_name {
+                // We already consumed name + `]`, so the next token is
+                // the one driving the member-shape decision (LParen
+                // for method, Colon for field, Eq for typed-field).
+                self.tokens.get(self.pos).map(|s| &s.token)
+            } else {
+                self.tokens.get(self.pos + 1).map(|s| &s.token)
+            };
             match next_tok {
                 Some(Token::LParen) => {
                     // ctor or method
-                    self.pos += 1; // consume name
+                    if !consumed_computed_name {
+                        self.pos += 1; // consume name
+                    }
                     let is_ctor_branch = member_name == "constructor";
                     let (params, promoted_props, destr_lets) = if is_ctor_branch {
                         let (p, pr, dl) = self.parse_ctor_param_list()?;
@@ -5578,7 +5641,11 @@ impl Parser<'_> {
                             self.at()
                         ));
                     }
-                    self.pos += 2; // consume name + colon
+                    if consumed_computed_name {
+                        self.pos += 1; // consume colon only
+                    } else {
+                        self.pos += 2; // consume name + colon
+                    }
                     let ty = self.parse_type_ann()?;
                     let visibility =
                         explicit_visibility.unwrap_or(ast::Visibility::Public);
@@ -5644,7 +5711,11 @@ impl Parser<'_> {
                             self.at()
                         ));
                     }
-                    self.pos += 2; // consume name + `=`
+                    if consumed_computed_name {
+                        self.pos += 1; // consume `=` only
+                    } else {
+                        self.pos += 2; // consume name + `=`
+                    }
                     let init = self.parse_assign()?;
                     let inferred = match self.ast.get_expr(init) {
                         Expr::Number(_) => "number",
