@@ -2049,6 +2049,18 @@ fn lower_inner(
         &[Type::Ptr, Type::I64, Type::I64],
         Type::Ptr,
     );
+    // P5.6 — extend dst's tagged-slot tail with src's slots. (dst,
+    // src) → new_dst_ptr. Mirrors arr_extend_unchecked for the
+    // Array<Any> 16-byte slot layout; bumps src's heap children's
+    // refcount as they get shared into dst. Self-sizing — caller
+    // captures the returned ptr to thread through any cap-realloc.
+    let arr_extend_any_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_arr_extend_any",
+        &[Type::Ptr, Type::Ptr],
+        Type::Ptr,
+    );
     // P0.10 — indexed Any-slot write. (arr, idx, tag, value) → void.
     // Drops old slot's heap value (if ANY_HEAP) then overwrites.
     // Caller must rc-bump heap values before passing.
@@ -4226,6 +4238,7 @@ fn lower_inner(
         process_stderr_write: process_stderr_write_id,
         arr_alloc_any: arr_alloc_any_id,
         arr_push_any: arr_push_any_id,
+        arr_extend_any: arr_extend_any_id,
         arr_set_any: arr_set_any_id,
         arr_get_any_tag: arr_get_any_tag_id,
         arr_get_any_value: arr_get_any_value_id,
@@ -5045,6 +5058,7 @@ struct Intrinsics {
     process_stderr_write: FuncId,
     arr_alloc_any: FuncId,
     arr_push_any: FuncId,
+    arr_extend_any: FuncId,
     arr_set_any: FuncId,
     arr_get_any_tag: FuncId,
     arr_get_any_value: FuncId,
@@ -9826,8 +9840,11 @@ impl<'a> LowerCtx<'a> {
                 } else if let Expr::Array(els) = self.ast.get_expr(*init)
                     && let Type::Arr(arr_id) = ty
                     && self.arr_layouts[arr_id.0 as usize] == Type::Any
-                    && !els.iter().any(|e| matches!(self.ast.get_expr(*e), Expr::Spread { .. }))
                 {
+                    // P5.6 — spreads are now handled inside
+                    // lower_array_any_literal (via arr_extend_any
+                    // when the spread inner is Type::Arr(any)).
+                    let _ = els;
                     // T-11 (v0.4.0) — annotated `let xs: any[] =
                     // [...]` with non-empty literal forces the Any
                     // codegen path regardless of element kinds. Needed
@@ -12352,16 +12369,55 @@ impl<'a> LowerCtx<'a> {
 
     /// array pointer as Operand::Value.
     fn lower_array_any_literal(&mut self, ids: &[ExprId]) -> Operand {
-        let n = ids.len() as i64;
-        // alloc_any(N). Bypasses arr_pool (different stride).
+        // P5.6 — spreads inside Array<Any> literals walk through
+        // arr_extend_any (which understands the 16-byte tagged
+        // slot layout); non-spread items still push tag/value
+        // pairs via arr_push_any. The arr_alloc_any size hint is
+        // the literal-count (spreads grow via realloc — same
+        // strategy as push's growth on overflow).
         let arr_id = intern_arr_layout(self.arr_layouts, Type::Any);
+        let literal_count: i64 = ids
+            .iter()
+            .filter(|id| !matches!(self.ast.get_expr(**id), Expr::Spread { .. }))
+            .count() as i64;
         let mut arr = self.f.append_inst(
             self.cur_block,
-            InstKind::Call(self.intrinsics.arr_alloc_any, vec![Operand::ConstI64(n)]),
+            InstKind::Call(self.intrinsics.arr_alloc_any, vec![Operand::ConstI64(literal_count)]),
             Type::Arr(arr_id),
             None,
         );
         for &eid in ids {
+            // P5.6 — spread item routes through arr_extend_any.
+            // Inner must lower to Type::Arr(any_arr_id); typed
+            // Array<T> spread into Array<Any> needs per-elem box
+            // (defer; reject with subset-boundary msg).
+            if let Expr::Spread { expr: inner } = self.ast.get_expr(eid) {
+                let inner_eid = *inner;
+                let src_op = self.lower_expr(inner_eid);
+                let src_ty = self.operand_ty(&src_op);
+                let inner_is_any_arr = match src_ty {
+                    Type::Arr(src_arr_id) => {
+                        matches!(self.arr_layouts[src_arr_id.0 as usize], Type::Any)
+                    }
+                    _ => false,
+                };
+                if !inner_is_any_arr {
+                    panic!(
+                        "ssa-lower: spread of {src_ty:?} into Array<Any> literal not yet supported (P5.6 subset — Array<Any> spread only; typed-Array spread into Any requires per-elem box, follow-up)"
+                    );
+                }
+                let new_arr = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(
+                        self.intrinsics.arr_extend_any,
+                        vec![Operand::Value(arr), src_op],
+                    ),
+                    Type::Arr(arr_id),
+                    None,
+                );
+                arr = new_arr;
+                continue;
+            }
             let val = self.lower_expr(eid);
             let val_ty = self.operand_ty(&val);
             // ANY_NULL=0, ANY_BOOL=1, ANY_I64=2, ANY_F64=3, ANY_HEAP=4
@@ -22644,18 +22700,16 @@ impl<'a> LowerCtx<'a> {
                 let elem_ty = elem_ty.unwrap_or(Type::I64);
                 let arr_id = intern_arr_layout(self.arr_layouts, elem_ty);
                 let elem_is_refcounted = elem_ty.is_refcounted();
-                // P5.6 — Array<Any> spread path uses 16-byte tagged
-                // slots; the regular 8-byte intrinsics below would
-                // misalign reads and corrupt the destination. Surface
-                // a clear subset-boundary error rather than silently
-                // SIGSEGV. Lazy iterable spread + Array<Any> extend
-                // helpers land as P5.6 follow-up.
-                if matches!(elem_ty, Type::Any)
-                    && items.iter().any(|it| matches!(it, Item::Spread(_)))
-                {
-                    panic!(
-                        "ssa-lower: array literal spread over Array<Any> source / mixed-type element types not yet supported (P5.6 subset — typed Array<T> + same-T spread only; Any-extend helper is the follow-up)"
-                    );
+                // P5.6 — for Array<Any> spread, route through
+                // lower_array_any_literal instead of the regular
+                // 8-byte slot path below (which would mis-stride
+                // the 16-byte tagged layout). The fallback path
+                // here covers typed Array<T> only; Array<Any> hits
+                // this when no LetDecl annotation forced the
+                // routing earlier (e.g. `[...someAny, "x"]` at a
+                // bare expression position).
+                if matches!(elem_ty, Type::Any) {
+                    return self.lower_array_any_literal(&element_ids);
                 }
 
                 // total = literal_count + sum(spread.length).

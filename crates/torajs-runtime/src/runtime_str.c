@@ -677,6 +677,48 @@ void *__torajs_arr_push_any(void *arr, uint64_t tag, uint64_t value) {
     return arr;
 }
 
+/* P5.6 — extend dst with src's tagged slots. Both arrays are
+ * Array<Any> layout (16-byte slots = u64 tag + u64 value). Each
+ * appended slot's heap value (tag == __TORAJS_ANY_HEAP) gets its
+ * refcount bumped so dst shares ownership; src retains its own
+ * ownership unchanged. Returns the (possibly-realloc'd) dst ptr.
+ * Bumps dst's len by src_len.
+ *
+ * Mirrors __torajs_arr_extend_unchecked for the regular 8-byte
+ * slot path; that one didn't know about tagged slots and would
+ * mis-stride a 16-byte source. Self-sizing — reallocs dst when
+ * cap < required, doubling per the arr_push_any growth strategy.
+ *
+ * Caller MUST capture the return value and write it back to
+ * whichever slot owns dst (matching arr_push / arr_unshift call
+ * sites that thread the new ptr through). */
+void *__torajs_arr_extend_any(uint8_t *dst, const uint8_t *src) {
+    uint64_t dst_len = *(uint64_t *)((uint8_t *)dst + 8);
+    uint64_t src_len = *(const uint64_t *)((const uint8_t *)src + 8);
+    if (src_len == 0) return dst;
+    uint32_t cap = *(uint32_t *)((uint8_t *)dst + 16);
+    uint64_t needed = dst_len + src_len;
+    if (needed > (uint64_t)cap) {
+        uint32_t new_cap = cap == 0 ? 4 : cap;
+        while ((uint64_t)new_cap < needed) new_cap *= 2;
+        dst = (uint8_t *)realloc(
+            dst,
+            24 /* __TORAJS_ARR_HDR_SIZE */ + (size_t)new_cap * __TORAJS_ANY_SLOT_BYTES);
+        *(uint32_t *)((uint8_t *)dst + 16) = new_cap;
+    }
+    for (uint64_t i = 0; i < src_len; i++) {
+        uint64_t tag = *any_slot_tag_((void *)src, i);
+        uint64_t val = *any_slot_val_((void *)src, i);
+        if (tag == __TORAJS_ANY_HEAP && val != 0) {
+            __torajs_rc_inc((void *)(uintptr_t)val);
+        }
+        *any_slot_tag_(dst, dst_len + i) = tag;
+        *any_slot_val_(dst, dst_len + i) = val;
+    }
+    *(uint64_t *)((uint8_t *)dst + 8) = dst_len + src_len;
+    return dst;
+}
+
 /* P1.4 — OOB read of an Array<Any> slot returns undefined per
  * ES spec §10.4.2.1 (sparse arrays return undefined for missing
  * indices). Pre-P1 the caller passed an out-of-range index
