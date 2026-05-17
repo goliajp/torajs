@@ -1,0 +1,19 @@
+{
+  "started_at": "2026-05-17T15:18:35Z",
+  "host": "mini.local",
+  "git_sha": "abb4d6e15d81e6a7f4886668ddce217ad546d89b",
+  "rows": [
+    {
+      "case": "stack-pop-1m",
+      "runtime": "torajs",
+      "runtime_version": "tr 0.1.0",
+      "status": "ok",
+      "compile_ms": 1070.361167,
+      "run_ms": 2.7247920000000003,
+      "run_stddev_ms": 0.18017780635888542,
+      "artifact_bytes": 37792,
+      "stdout_match": true,
+      "error": null
+    }
+  ]
+}
