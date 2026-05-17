@@ -373,6 +373,7 @@ fn expr_can_throw(ast: &Ast, eid: ExprId) -> bool {
         | Expr::Uninit
         | Expr::Regex { .. }
         | Expr::This
+        | Expr::NewTarget
         | Expr::InstanceOf { .. } => false,
     }
 }
@@ -576,7 +577,8 @@ fn count_refs_expr(ast: &Ast, eid: ExprId, refs: &mut HashMap<String, usize>) {
         | Expr::Null
         | Expr::Uninit
         | Expr::Regex { .. }
-        | Expr::This => {}
+        | Expr::This
+        | Expr::NewTarget => {}
     }
 }
 

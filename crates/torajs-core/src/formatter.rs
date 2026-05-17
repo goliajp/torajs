@@ -747,6 +747,7 @@ impl<'a> Formatter<'a> {
         let e = self.ast.get_expr(eid);
         match e {
             Expr::Ident(n) => self.write(n),
+            Expr::NewTarget => self.write("new.target"),
             Expr::Number(n) => {
                 // Prefer integer form when the f64 round-trips;
                 // otherwise %g — mirrors `console.log` semantics.

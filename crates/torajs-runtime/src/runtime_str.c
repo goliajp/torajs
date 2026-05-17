@@ -1655,10 +1655,36 @@ void __torajs_any_payload_rc_inc(int64_t tag, int64_t val) {
  * preserving identity across all readback sites. */
 #define __TORAJS_MAX_CLASSES 256
 static void *__torajs_protos_by_tag[__TORAJS_MAX_CLASSES];
+/* P4.5 — parallel side table for `new.target`. `__class_<C>` Any-boxes
+ * are registered here at module init. The synthesized `__new_<C>`
+ * factory passes its own class object (looked up via class_get) into
+ * the ctor as the hidden `__new_target` param. Static array keyed by
+ * the same runtime class tag the obj_alloc site stamps onto each
+ * instance. */
+static void *__torajs_classes_by_tag[__TORAJS_MAX_CLASSES];
 
 void __torajs_proto_register(int64_t tag, void *proto_anybox) {
     if (tag < 0 || tag >= __TORAJS_MAX_CLASSES) return;
     __torajs_protos_by_tag[tag] = proto_anybox;
+}
+
+void __torajs_class_register(int64_t tag, void *class_anybox) {
+    if (tag < 0 || tag >= __TORAJS_MAX_CLASSES) return;
+    __torajs_classes_by_tag[tag] = class_anybox;
+}
+
+/* Mirrors `proto_get` ownership contract: always returns an OWNED
+ * Any-box (rc 1+). Registered class box gets rc_inc'd; absent/OOR
+ * tag → fresh ANY_UNDEF box (spec §13.3.10 — `new.target` outside
+ * a `new` call is undefined). */
+void *__torajs_class_get(int64_t tag) {
+    if (tag < 0 || tag >= __TORAJS_MAX_CLASSES) {
+        return __torajs_any_box(__TORAJS_ANY_UNDEF, 0);
+    }
+    void *p = __torajs_classes_by_tag[tag];
+    if (p == NULL) return __torajs_any_box(__TORAJS_ANY_UNDEF, 0);
+    __torajs_rc_inc(p);
+    return p;
 }
 
 /* Always returns an OWNED Any-box (rc 1). Callers don't rc_inc — the

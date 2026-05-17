@@ -142,6 +142,15 @@ pub enum Expr {
     /// `desugar_classes` pass into `Expr::Ident("__this")` once methods
     /// are flattened into top-level FnDecls.
     This,
+    /// P4.5 — `new.target` meta-property (spec §13.3.10). Inside a
+    /// ctor body, evaluates to the class function object that was
+    /// invoked via `new` (typically the same class as the ctor's
+    /// owner, but a subclass if the ctor was inherited / super-called).
+    /// Outside any ctor body, evaluates to `undefined`. Rewritten by
+    /// `desugar_classes` into `Expr::Ident("__new_target")` inside ctor
+    /// bodies; outside ctors it lowers to `Operand::ConstPtrNull` (the
+    /// ANY_UNDEF tag at the SSA layer).
+    NewTarget,
     /// M5.1 — `new ClassName(args)`. Rewritten by `desugar_classes` into
     /// a Call to the synthesized `__new_ClassName` factory FnDecl.
     New {
@@ -2209,7 +2218,7 @@ pub fn synthesize_class_globals(ast: &mut Ast) {
     for cname in &class_names {
         let empty_obj = ast.add_expr(Expr::ObjectLit { fields: vec![] });
         prepended.push(Stmt::LetDecl {
-            mutable: true,
+            mutable: false,
             name: format!("__proto_{cname}"),
             type_ann: Some("any".to_string()),
             init: empty_obj,
@@ -2233,7 +2242,7 @@ pub fn synthesize_class_globals(ast: &mut Ast) {
             ],
         });
         prepended.push(Stmt::LetDecl {
-            mutable: true,
+            mutable: false,
             name: format!("__class_{cname}"),
             type_ann: Some("any".to_string()),
             init: obj_expr,
@@ -2283,6 +2292,24 @@ pub fn synthesize_class_globals(ast: &mut Ast) {
         let call = ast.add_expr(Expr::Call {
             callee,
             args: vec![proto_ident, name_str],
+        });
+        prepended.push(Stmt::Expr(call));
+    }
+
+    // P4.5 — parallel registration: store each `__class_<C>` Any-box
+    // in the classes-by-tag side table. Read inside `__new_<C>`
+    // factory bodies via `__torajs_my_class_ref("<C>")` (intercepted
+    // at ssa_lower → emits `__torajs_class_get(<tag_const>)`).
+    for cname in &class_names {
+        let class_ident =
+            ast.add_expr(Expr::Ident(format!("__class_{cname}")));
+        let name_str = ast.add_expr(Expr::String(cname.clone()));
+        let callee = ast.add_expr(Expr::Ident(
+            "__torajs_class_register".to_string(),
+        ));
+        let call = ast.add_expr(Expr::Call {
+            callee,
+            args: vec![class_ident, name_str],
         });
         prepended.push(Stmt::Expr(call));
     }
@@ -2694,8 +2721,14 @@ pub fn desugar_classes(ast: &mut Ast) {
             });
             let callee = ast.add_expr(Expr::Ident(format!("__cm_{parent_name}__ctor")));
             let this_id = ast.add_expr(Expr::This);
-            let mut new_args = Vec::with_capacity(args.len() + 1);
+            // P4.5 — `super()` forwards the current ctor's
+            // __new_target through to the parent ctor so chain
+            // ancestors see the actual class function that was
+            // invoked via `new`, not the static ctor owner.
+            let new_target_id = ast.add_expr(Expr::Ident("__new_target".into()));
+            let mut new_args = Vec::with_capacity(args.len() + 2);
             new_args.push(this_id);
+            new_args.push(new_target_id);
             new_args.extend(args);
             ast.exprs[eid.0 as usize] = Expr::Call {
                 callee,
@@ -2745,6 +2778,16 @@ pub fn desugar_classes(ast: &mut Ast) {
             Expr::This => {
                 ast.exprs[i] = Expr::Ident("__this".into());
             }
+            // P4.5 — `new.target` deliberately NOT rewritten here.
+            // Unlike `this` (which is only valid inside class methods,
+            // where __this is always bound), new.target is valid in
+            // ANY fn body (per spec §13.3.10) and evaluates to
+            // `undefined` outside a ctor. Rewriting globally would
+            // emit Ident("__new_target") in non-ctor fns where the
+            // binding doesn't exist → check.rs unknown-ident reject.
+            // Instead ssa_lower handles Expr::NewTarget directly:
+            // if `__new_target` is a local (ctor body), load it;
+            // otherwise emit ANY_UNDEF box.
             Expr::New { class_name, args } => {
                 /* Builtin News (Date, ...) are rewritten by
                  * `desugar_builtin_new` BEFORE this pass, so any
@@ -2943,10 +2986,21 @@ pub fn desugar_classes(ast: &mut Ast) {
         } else {
             (Vec::new(), Vec::new())
         };
-        let mut params: Vec<Param> = Vec::with_capacity(ctor_user_params.len() + 1);
+        let mut params: Vec<Param> = Vec::with_capacity(ctor_user_params.len() + 2);
         params.push(Param {
             name: "__this".into(),
             type_ann: Some(this_ann.clone()),
+            default: None,
+            is_rest: false,
+        });
+        // P4.5 — `__new_target: any` carries the class function that
+        // was used at the `new` site. Threaded through `super()` so
+        // chain ancestors see the actual derived class, not the
+        // static ctor owner. Used inside ctor body via the
+        // Expr::NewTarget → Ident("__new_target") rewrite (Pass 2).
+        params.push(Param {
+            name: "__new_target".into(),
+            type_ann: Some("any".into()),
             default: None,
             is_rest: false,
         });
@@ -3728,6 +3782,7 @@ fn collect_super_in_expr(
         Expr::OptChain { obj, .. } => collect_super_in_expr(ast, *obj, out),
         Expr::PostIncr { target, .. } => collect_super_in_expr(ast, *target, out),
         Expr::This
+        | Expr::NewTarget
         | Expr::Ident(_)
         | Expr::String(_)
         | Expr::Number(_)
@@ -3785,11 +3840,30 @@ fn build_factory_body(
     let mut body: Vec<Stmt> = prelude;
     body.push(let_this);
     if let Some(c) = ctor {
-        // Build: __cm_C__ctor(__this, ctor_param_idents...);
+        // Build: __cm_C__ctor(__this, __torajs_my_class_ref("C"),
+        //                     ctor_param_idents...);
+        // The 2nd arg is __new_target — looked up via the magic
+        // factory-side intercept that resolves "C" → class_tag → the
+        // registered __class_<C> Any-box at runtime. Sub-class super()
+        // forwards its caller's __new_target through (see Pass 1.5).
+        // Top-level `__class_<C>` lets aren't K.3-promoted (Type::Any
+        // doesn't yet fit the global-slot shape contract), so we
+        // can't read them directly from inside this factory FnDecl;
+        // the runtime-table indirection is the substrate-correct
+        // path.
         let callee = ast.add_expr(Expr::Ident(format!("__cm_{cname}__ctor")));
         let this_id = ast.add_expr(Expr::Ident("__this".into()));
-        let mut args: Vec<ExprId> = Vec::with_capacity(c.params.len() + 1);
+        let class_ref_callee = ast.add_expr(Expr::Ident(
+            "__torajs_my_class_ref".to_string(),
+        ));
+        let cname_str = ast.add_expr(Expr::String(cname.to_string()));
+        let new_target_id = ast.add_expr(Expr::Call {
+            callee: class_ref_callee,
+            args: vec![cname_str],
+        });
+        let mut args: Vec<ExprId> = Vec::with_capacity(c.params.len() + 2);
         args.push(this_id);
+        args.push(new_target_id);
         for p in &c.params {
             let pid = ast.add_expr(Expr::Ident(p.name.clone()));
             args.push(pid);
@@ -6587,7 +6661,7 @@ fn eal_expr_safe(ast: &Ast, eid: ExprId, x_name: &str) -> bool {
         }
         Expr::New { args, .. } => args.iter().all(|a| eal_expr_safe(ast, *a, x_name)),
         Expr::Super { args } => args.iter().all(|a| eal_expr_safe(ast, *a, x_name)),
-        Expr::This | Expr::Number(_) | Expr::BigInt { .. } | Expr::String(_) | Expr::Bool(_) | Expr::Null
+        Expr::This | Expr::NewTarget | Expr::Number(_) | Expr::BigInt { .. } | Expr::String(_) | Expr::Bool(_) | Expr::Null
         | Expr::Uninit | Expr::Regex { .. } => true,
     }
 }
@@ -7003,6 +7077,7 @@ fn sfi_expr_x_safe(ast: &Ast, eid: ExprId, x_name: &str, i_name: &str) -> bool {
         | Expr::Null
         | Expr::Uninit
         | Expr::This
+        | Expr::NewTarget
         | Expr::Regex { .. } => true,
         Expr::Array(els) => els.iter().all(|e| sfi_expr_x_safe(ast, *e, x_name, i_name)),
         Expr::ObjectLit { fields } => {
@@ -9370,7 +9445,7 @@ fn scan_expr_for_calls(ast: &Ast, eid: ExprId, out: &mut Vec<String>) {
         }
         Expr::OptChain { obj, .. } => scan_expr_for_calls(ast, *obj, out),
         Expr::PostIncr { target, .. } => scan_expr_for_calls(ast, *target, out),
-        Expr::This => {}
+        Expr::This | Expr::NewTarget => {}
         Expr::Ident(_) | Expr::String(_) | Expr::Number(_) | Expr::BigInt { .. } | Expr::Bool(_)
         | Expr::Null | Expr::Uninit | Expr::Regex { .. } => {}
     }
@@ -9444,7 +9519,7 @@ fn walk_expr(ast: &Ast, eid: ExprId, bound: &mut Vec<String>, out: &mut Vec<Stri
         // arms guard against an arrow body that lexically nests inside a
         // class method whose desugar hasn't completed; in practice we
         // run desugar_classes before lift_arrow_fns, so they're inert.
-        Expr::This => {}
+        Expr::This | Expr::NewTarget => {}
         Expr::New { args, .. } | Expr::Super { args } => {
             for a in args {
                 walk_expr(ast, *a, bound, out);
@@ -9888,6 +9963,7 @@ impl Ast {
                 println!("{pad}Closure {fn_name} captures=[{}]", captures.join(", "));
             }
             Expr::This => println!("{pad}This"),
+            Expr::NewTarget => println!("{pad}NewTarget"),
             Expr::New { class_name, args } => {
                 println!("{pad}New {class_name}");
                 for a in args {

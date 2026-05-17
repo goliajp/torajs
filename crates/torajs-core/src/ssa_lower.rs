@@ -725,6 +725,7 @@ fn deep_clone_expr(ast: &mut Ast, eid: ExprId) -> ExprId {
             flags: flags.clone(),
         },
         Expr::This => Expr::This,
+        Expr::NewTarget => Expr::NewTarget,
         Expr::BinOp { op, left, right } => {
             let op = *op; let l = *left; let r = *right;
             Expr::BinOp {
@@ -2279,6 +2280,20 @@ fn lower_inner(
         &mut module,
         &mut fn_table,
         "__torajs_proto_get",
+        &[Type::I64],
+        Type::Any,
+    );
+    let class_register_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_class_register",
+        &[Type::I64, Type::Any],
+        Type::Void,
+    );
+    let class_get_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_class_get",
         &[Type::I64],
         Type::Any,
     );
@@ -4218,6 +4233,8 @@ fn lower_inner(
         any_payload_rc_inc: any_payload_rc_inc_id,
         proto_register: proto_register_id,
         proto_get: proto_get_id,
+        class_register: class_register_id,
+        class_get: class_get_id,
         get_proto_of_any: get_proto_of_any_id,
         any_typeof: any_typeof_id,
         any_to_bool: any_to_bool_id,
@@ -4465,6 +4482,14 @@ fn lower_inner(
             // matching `__env_drop_<closure>` to wire through the
             // global-drop path, and FnSig globals haven't surfaced
             // a real use case yet.
+            // Type::Any is intentionally NOT in the supported set —
+            // promoting it triggers a load/store-shape mismatch when
+            // the slot holds an any-box wrapper while reads expect
+            // dynobj content (Member access goes through dynobj_get
+            // on val@+16). P4.5's `new.target` instead reaches the
+            // class via the runtime classes-by-tag side table:
+            // factory bodies call `__torajs_my_class_ref("<C>")`
+            // which ssa_lower intercepts → class_get(<tag>).
             let supported = matches!(
                 ty,
                 Type::I64
@@ -5026,6 +5051,8 @@ struct Intrinsics {
     any_payload_rc_inc: FuncId,
     proto_register: FuncId,
     proto_get: FuncId,
+    class_register: FuncId,
+    class_get: FuncId,
     get_proto_of_any: FuncId,
     any_typeof: FuncId,
     any_to_bool: FuncId,
@@ -12065,6 +12092,45 @@ impl<'a> LowerCtx<'a> {
             }
             Expr::Bool(b) => Operand::ConstBool(*b),
             Expr::Null => Operand::ConstPtrNull,
+            // P4.5 — `new.target` lowering. Inside a ctor body
+            // (where desugar_classes injected the hidden
+            // `__new_target: any` param), load from the local slot
+            // AND rc_inc — each read produces an owned reference so
+            // the consumer's end-of-scope drop balances. Without
+            // the bump, multi-level super() chains UAF the new.target
+            // any-box: the deepest ctor's end-of-scope drops both the
+            // __new_target slot AND any `const t = new.target` slot,
+            // dec'ing the box twice for a single transferred ref.
+            // Outside any ctor (function-scope, top-level), emit
+            // ANY_UNDEF box per spec §13.3.10.
+            Expr::NewTarget => {
+                if let Some(info) = self.locals.get("__new_target").cloned() {
+                    let v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Load(info.ty, Operand::Value(info.slot), 0),
+                        info.ty,
+                        None,
+                    );
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.rc_inc,
+                            vec![Operand::Value(v)],
+                        ),
+                    );
+                    return Operand::Value(v);
+                }
+                let v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(
+                        self.intrinsics.any_box,
+                        vec![Operand::ConstI64(5), Operand::ConstI64(0)],
+                    ),
+                    Type::Any,
+                    None,
+                );
+                Operand::Value(v)
+            }
             Expr::String(s) => {
                 let s = s.clone();
                 Operand::Value(self.intern_string_literal(&s))
@@ -12212,6 +12278,48 @@ impl<'a> LowerCtx<'a> {
                         self.cur_block,
                         InstKind::Load(ty, Operand::Value(ptr), 0),
                         ty,
+                        None,
+                    );
+                    return Operand::Value(v);
+                }
+                // P4.5 — `__class_<NAME>` Ident reference from inside
+                // a fn body resolves via the classes-by-tag runtime
+                // side table. Top-level user-source class names go
+                // through Phase A1's rewrite `Ident(C) → Ident(__class_C)`;
+                // when that ident appears inside a ctor / method body
+                // (or any user fn body), the binding isn't visible
+                // (Type::Any K.3-promotion is blocked because the
+                // refcount/slot-shape contract isn't yet in place).
+                // Resolve at SSA layer by looking up the class tag
+                // via class_name_to_tag, then call class_get(<tag>).
+                if self.locals.get(name).is_none()
+                    && let Some(cname) = name.strip_prefix("__class_")
+                    && let Some(tag) = self.class_name_to_tag.get(cname).copied()
+                {
+                    let v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.class_get,
+                            vec![Operand::ConstI64(tag as i64)],
+                        ),
+                        Type::Any,
+                        None,
+                    );
+                    return Operand::Value(v);
+                }
+                // P4.5 — same pattern for `__proto_<NAME>` inside fn
+                // bodies. Resolves via proto_get(<tag>).
+                if self.locals.get(name).is_none()
+                    && let Some(cname) = name.strip_prefix("__proto_")
+                    && let Some(tag) = self.class_name_to_tag.get(cname).copied()
+                {
+                    let v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.proto_get,
+                            vec![Operand::ConstI64(tag as i64)],
+                        ),
+                        Type::Any,
                         None,
                     );
                     return Operand::Value(v);
@@ -14977,6 +15085,74 @@ impl<'a> LowerCtx<'a> {
                         self.emit_drop_value(proto_op, proto_ty);
                     }
                     return Operand::ConstI64(0);
+                }
+
+                // P4.5 — `__torajs_class_register(__class_<C>, "<C>")`
+                // synthesized by ast::synthesize_class_globals. Same
+                // structure as proto_register but populates the
+                // classes-by-tag side table (read by class_get inside
+                // __new_<C> factory bodies for new.target).
+                if let Expr::Ident(name) = self.ast.get_expr(*callee)
+                    && name == "__torajs_class_register"
+                    && args.len() == 2
+                    && let Expr::String(cname) = self.ast.get_expr(args[1])
+                {
+                    let class_op = self.lower_expr(args[0]);
+                    let cname = cname.clone();
+                    if let Some(tag) = self.class_name_to_tag.get(&cname).copied() {
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.class_register,
+                                vec![
+                                    Operand::ConstI64(tag as i64),
+                                    class_op,
+                                ],
+                            ),
+                        );
+                    } else {
+                        let ty = self.operand_ty(&class_op);
+                        self.emit_drop_value(class_op, ty);
+                    }
+                    return Operand::ConstI64(0);
+                }
+
+                // P4.5 — `__torajs_my_class_ref("<C>")` emitted by
+                // ast::desugar_classes inside `__new_<C>` factory
+                // bodies. Resolves at lowering time to a runtime
+                // class_get(<tag>) call returning the class's
+                // Any-box (rc-bumped). Compile-time class name
+                // resolution avoids per-instance side-table lookups
+                // when the factory is class-specific anyway.
+                if let Expr::Ident(name) = self.ast.get_expr(*callee)
+                    && name == "__torajs_my_class_ref"
+                    && args.len() == 1
+                    && let Expr::String(cname) = self.ast.get_expr(args[0])
+                {
+                    let cname = cname.clone();
+                    if let Some(tag) = self.class_name_to_tag.get(&cname).copied() {
+                        let v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.class_get,
+                                vec![Operand::ConstI64(tag as i64)],
+                            ),
+                            Type::Any,
+                            None,
+                        );
+                        return Operand::Value(v);
+                    }
+                    // No tag → return ANY_UNDEF Any-box as fallback.
+                    let v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.any_box,
+                            vec![Operand::ConstI64(5), Operand::ConstI64(0)],
+                        ),
+                        Type::Any,
+                        None,
+                    );
+                    return Operand::Value(v);
                 }
 
                 // P4.2 Phase B+C — `Object.getPrototypeOf(<arg>)`.

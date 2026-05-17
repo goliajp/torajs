@@ -2670,6 +2670,13 @@ impl Checker {
 
     fn type_of_inner(&mut self, ast: &Ast, eid: ExprId) -> Result<Type, String> {
         match ast.get_expr(eid) {
+            // P4.5 — `new.target` is Type::Any. Inside a ctor body
+            // desugar_classes rewrites to Ident("__new_target") which
+            // typechecks against the synthesized param's type. Outside
+            // ctors the bare NewTarget reaches here and resolves to
+            // Any (spec §13.3.10 says `undefined` outside ctor;
+            // tagged ANY_UNDEF at the SSA layer).
+            Expr::NewTarget => Ok(Type::Any),
             Expr::String(_) => Ok(Type::String),
             Expr::Number(_) => Ok(Type::Number),
             Expr::BigInt { .. } => Ok(Type::BigInt),
@@ -2788,6 +2795,23 @@ impl Checker {
                     "__torajs_proto_register" => Ok(Type::Function(
                         vec![Type::Any, Type::String],
                         Box::new(Type::Void),
+                    )),
+                    // P4.5 — parallel to proto_register. Same shape;
+                    // populates the classes-by-tag side table for
+                    // new.target lookups inside `__new_<C>` factories.
+                    "__torajs_class_register" => Ok(Type::Function(
+                        vec![Type::Any, Type::String],
+                        Box::new(Type::Void),
+                    )),
+                    // P4.5 — synthesized factory-side magic call.
+                    // Lower-time intercept emits a runtime
+                    // `__torajs_class_get(<tag_const>)` looking up the
+                    // current factory's class box. Typecheck accepts
+                    // (string) -> any so the AST-emitted
+                    // `__torajs_my_class_ref("<C>")` is well-typed.
+                    "__torajs_my_class_ref" => Ok(Type::Function(
+                        vec![Type::String],
+                        Box::new(Type::Any),
                     )),
                     /* T-26.C — `gc()` manual trigger for the
                      * Bacon-Rajan cycle collector. Walks the

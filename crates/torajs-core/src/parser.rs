@@ -4014,6 +4014,26 @@ impl Parser<'_> {
                 // `new ClassName(args)` — type args / generic ctors not yet
                 // supported; that's M5.2 alongside extends.
                 self.pos += 1;
+                // P4.5 — `new.target` meta-property. Spec §13.3.10:
+                // evaluates to the [[NewTarget]] of the current
+                // execution context. Recognized at the parser layer
+                // because `new` followed by `.` would otherwise hit the
+                // class-name error path.
+                if matches!(self.peek(), Token::Dot) {
+                    self.pos += 1;
+                    match self.peek() {
+                        Token::Ident(n) if n == "target" => {
+                            self.pos += 1;
+                            return Ok(self.ast.add_expr(Expr::NewTarget));
+                        }
+                        t => {
+                            return Err(format!(
+                                "expected `target` after `new.`, got {t:?} at {}",
+                                self.at()
+                            ));
+                        }
+                    }
+                }
                 let class_name = match self.peek() {
                     Token::Ident(n) => n.clone(),
                     t => {
