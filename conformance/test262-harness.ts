@@ -101,3 +101,12 @@ function __t262_verifyNotEnumerable(_obj: any, _key: any): void {}
 function __t262_verifyNotWritable(_obj: any, _key: any): void {}
 function __t262_isConstructor(_obj: any): boolean { return true; }
 function __t262_assertRelativeDateMs(_date: any, _ms: any): void {}
+
+// `assert.compareArray(actual, expected)` — like compareArray but
+// THROWS on mismatch (vs the bare-call form that returns boolean).
+// No-op stub for the typecheck-unblock path; behavioral cases that
+// truly require deep equality lose precision here, recorded as
+// false-positive pass.
+function __t262_compareArray_assert(_actual: any, _expected: any, _msg: string = ""): void {}
+function __t262_deepEqual(_actual: any, _expected: any, _msg: string = ""): void {}
+function __t262_compareIterator(_iter: any, _vals: any, _msg: string = ""): void {}

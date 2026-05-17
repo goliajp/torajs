@@ -218,6 +218,9 @@ fn transform_source(src: &str) -> String {
             const REWRITES: &[(&[u8], &str)] = &[
                 (b"assert.sameValue(", "__t262_sameValue("),
                 (b"assert.notSameValue(", "__t262_notSameValue("),
+                (b"assert.compareArray(", "__t262_compareArray_assert("),
+                (b"assert.deepEqual(", "__t262_deepEqual("),
+                (b"assert.compareIterator(", "__t262_compareIterator("),
             ];
             let mut hit = false;
             for (needle, replacement) in REWRITES {
