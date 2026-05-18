@@ -108,27 +108,27 @@ hatch.
 
 ---
 
-## Status snapshot (2026-05-17, HEAD `a65e51f`)
+## Status snapshot (2026-05-18, HEAD `00c4d12`)
 
 ### Curated conformance (`conformance/cases/`)
 
-**590 pass / 0 fail / 1 skip** committed. Working tree has +1 RED
-fixture `check-prototype-chain-001.ts` waiting for P4.2 ship to turn
-GREEN. The 1 committed skip is `perf-005-dwarf-panic-fs` (bun-side
-crash, not tora's bug).
+**607 pass / 0 fail / 1 skip** committed. The 1 committed skip is
+`perf-005-dwarf-panic-fs` (bun-side crash, not tora's bug).
 
 ### test262 5k diagnostic
 
-**152 pass / 15 bug / 2975 incompatible** at HEAD. Stable across the
-last 4 P3 substrate ships (`749c1d4` → `dcf069f` → `d9b13c7` →
-`a65e51f`). **Pass rate is regression-detection only — not a phase
-trigger or milestone.**
+**344 pass / 16 bug / 3279 incompatible** at HEAD (9.45 % in-scope).
+The 196 → 344 jump on 2026-05-18 is dominated by a single substrate
+fix (`e03df48`, `X.prototype` returns Type::Any) plus harness shim
+expansion (`5c40116` / `73d8c4e` / `308d3df` adding ~30 helper shims)
+plus permissive Object.X stubs (`e3a7fc3`). **Pass rate is
+regression-detection only — not a phase trigger or milestone.**
 
 ### Bench position
 
 Typed-tier 0 regression invariant holds. Latest cross-runtime bench
-(at `e19cac3` / `008cd84`): torajs vs bun-aot geomean **4.16×**, vs
-node-v8 geomean **18.84×**, binary size **1715× smaller** than bun-aot.
+(at `00c4d12`): torajs vs bun-aot geomean **4.02×** (peak 20.42×
+popcount), vs node-v8 geomean **18.04×**, 26 / 26 cases all-win.
 
 ### Code size
 
@@ -256,97 +256,90 @@ vs struct-shape so existing typed code stays on static layout.
 
 ---
 
-### P4 — Class hierarchies + prototype chain (CURRENT)
+### P4 — Class hierarchies + prototype chain (DONE)
 
 **Goal**: tora 的 nominal class system 升级到 spec §10.1
 OrdinaryObject + §10.4 ExoticObject 的 `[[Prototype]]` / `[[Get]]` /
 `[[Set]]` 内部 method 模型。class extends + super() + builtin extends
 全部走 prototype chain。
 
-**Substrate checklist** (strict order):
+**Substrate checklist** (closed at `fc0e125`):
 
-- [x] **P4.1 Phase A1** First-class class objects (SHIPPED `a65e51f`)
-      — `synthesize_class_globals` desugar pass; `const x = MyClass`
+- [x] **P4.1 Phase A1** First-class class objects (`a65e51f`) —
+      `synthesize_class_globals` desugar pass; `const x = MyClass`
       resolves to dynobj-backed Any
-- [ ] **P4.0** Nested Any-dynobj field identity fix (pre-blocker for
-      Phase B+C) — `outer.p === inner` when inner is Any-typed dynobj;
-      ssa_lower `dynobj_init` Type::Any field path (line 11443+) +
-      Member read (line 21522+) + box_to_any path (line 11487+)
-- [ ] **P4.2 Phase B+C** Prototype singletons + chain wiring +
-      `Object.getPrototypeOf` / `setPrototypeOf` real readback
-      (depends on P4.0)
-- [ ] **P4.3 extends-chain** — multi-level inheritance method resolve
-      via prototype chain walk; instance.method() walks chain
-- [ ] **P4.4 function-prototype** — `Function.prototype.bind / call /
-      apply` (spec §20.2.3.1-3); bind needs closure-style partial
-      application + bound-this `[[Call]]`
-- [ ] **P4.5 new-meta** — `new X.Y()` member-expr ctor + `new.target`
-      meta-property in ctor body
-- [ ] **P4.6 extends-builtins** — `class MyError extends Error` /
-      `class MyArray extends Array` ; builtin types expose prototype
-      objects + extends 链能链到它们
-- [ ] **P4.7 catch-destructure** — `try {} catch ({code, msg}) {}` 真
-      binding; parser already accepts but runtime ignores destructure
-      pattern
+- [x] **P4.0** Nested Any-dynobj field identity fix (`94e5773`) —
+      Type::Any arm above is_refcounted in 3 match sites
+- [x] **P4.2** Phase B+C prototype chain (`e9b6779`) — `__proto_<C>`
+      singletons + class-tag side table + Object.getPrototypeOf real
+      readback
+- [x] **P4.3 extends-chain** (`15e2e9b`) — Object.getPrototypeOf
+      borrow semantics fix for Ident args + chain walk
+- [x] **P4.4 function-prototype** (`5ec3810`) — `Function.prototype.
+      bind / call / apply` via desugar
+- [x] **P4.5 new-meta** (`1debabe`) — `new.target` meta-property full
+      spec
+- [x] **P4.6 extends-builtins** (`fc0e125`) — synth Error ClassDecl +
+      class-prefix typeof; **closes P4 phase**
+- [x] **P4.7 catch-destructure** (`9b960a8`) — `try {} catch ({code,
+      msg}) {}` 真 binding + tagged throw substrate
 
-**Acceptance**: 7 substrate items all 完成 + conformance 0 fail +
-bench-tr 0 regression + 无新非高品质外部依赖。
+**Acceptance**: 7 substrate items all 完成 ✅ + conformance 0 fail ✅ +
+bench-tr 0 regression ✅ + 无新非高品质外部依赖 ✅。Phase closure
+commit `fc0e125` (2026-05-17 → 18 between).
 
-**P4.0 详情**（next L3a，2-4h）：
+**Design decisions taken in P4**:
 
-```ts
-// reproduce, both from user-shape, no class system involved
-let inner: any = { x: 1 };
-let outer: any = { p: inner };
-console.log(outer.p === inner);  // bun true / tora false
-console.log(outer.p.x);          // bun 1   / tora undefined
-```
-
-Possible root causes (to confirm via SSA IR trace):
-
-1. `Load(I64, v_raw, 16)` v_raw 可能不是 Any-box ptr 而是 slot ptr
-2. box_to_any_from_expr 路径在 dynobj init 时可能没真正发生
-3. 实际 stored value 是 dynobj 的 i64 representation 不正确
-4. dynobj_get_value 读出的值经过 truncation 或 mask 丢失某些位
-
-**P4.2 设计** (待 P4.0 ship 后落地)：
-
-- `let __proto_<C>: any = {}` 同义
-- `__class_<C> = { prototype: __proto_<C>, name }`
-- `__proto_<Sub>.__proto__ = __proto_<Super>` chain wire
-- runtime helper `__torajs_get_proto_of_any` (Type::Any 路径)
-- ssa_lower intercept (Type::Obj 路径 reverse-lookup sid→class_name→load
-  `__proto_<C>` local)
-
-K.3 globals 不扩 Type::Any（本会话 design 决定）；prototype singleton
-存放选 **Option 2 runtime side table**（class-name 字符串 keyed），
-bypass K.3 entirely。Long-term most robust + decoupled from K.3
-design constraints。
+- **K.3 globals 不扩 Type::Any** — prototype singleton 选 **runtime
+  side table** (class-name 字符串 keyed)，bypass K.3 entirely。Long-
+  term most robust + decoupled from K.3 design constraints.
+- **Prototype helpers via desugar**: `Function.prototype.bind / call /
+  apply` 走 parser desugar + runtime closure wrapping，避免在 Closure
+  ABI 上加 reflective overhead.
+- **Builtin extends via synth ClassDecl**: `class MyError extends
+  Error` 通过在 AST 阶段 synth Error ClassDecl 实施，避免 runtime
+  builtin-type erasure.
 
 ---
 
-### P5 — Iterator protocol
+### P5 — Iterator protocol (DONE)
 
 **Goal**: `Symbol.iterator` is a real resolvable property; for-of
 dispatches via it; spread-in-call works for arbitrary iterables.
 
-**Substrate checklist** (strict order):
+**Substrate checklist** (6 / 6 substrate complete, P5.4 deferred):
 
-- [ ] **P5.1** Iterator result `{ value, done }` shape standardised in
-      runtime
-- [ ] **P5.2** Symbol.iterator as registered well-known symbol; user
-      classes can implement it
-- [ ] **P5.3** for-of dispatches via `[Symbol.iterator]()` on any value
-      (current path is hard-wired to Array / Str / Set)
-- [ ] **P5.4** `arr.entries()` / `.keys()` / `.values()` return Array
-      Iterator objects
-- [ ] **P5.5** Spread in fn calls: `f(...iter)` (currently
-      parse-rejected)
-- [ ] **P5.6** Spread in array literal: `[...iter, x]` over any iterable
+- [x] **P5.3 Phase A** First-class `Stmt::ForOf` substrate (`9e38c87`)
+      — parse-time desugar 升级成 AST node + Array<T> / Array<Any>
+      subset 走 existing `Expr::Index` lowering
+- [x] **P5.1** `IteratorResult<T>` structural alias (`56036f7`) —
+      `{ value: T, done: boolean }` via `__inlobj`; `Iterator<T>` /
+      `IterableIterator<T>` opaque-Any
+- [x] **P5.2** Symbol.iterator well-known computed-key (`1aa889b`) —
+      class `[Symbol.iterator]()` parses with synth name
+      `__sym_Symbol_iterator__`
+- [x] **P5.3 Phase B** for-of via `[Symbol.iterator]()` dispatch
+      (`1a4fa09`) — Stmt::ForOf dispatches through iterator protocol
+      for user-class iterables; Array / Str / Set fast path preserved
+- [ ] **P5.4** `arr.entries()` / `.keys()` / `.values()` Array
+      Iterator objects — **deferred to P6 同期**, blocker is
+      generic-over-T iter class substrate which P6 Map/Set surfaces
+- [x] **P5.5** Spread in fn calls — literal-array spread fold
+      (`26310bd`); `f(...[a,b,c])` parser desugars to `f(a,b,c)`;
+      dynamic-spread via rest-param already worked; fixed-arity-
+      dynamic-spread defer (runtime arity check)
+- [x] **P5.6** Spread in array literal (`bdfe417` → `b3afb55`) —
+      `__torajs_arr_extend_any` tagged-slot extender, Array<Any>
+      spread substrate-complete
+
+**Acceptance**: ✅ all 5 P5.1-P5.6 substrate items closed (P5.4
+explicitly deferred to P6 同期 by design) + conformance 0 fail +
+bench-tr 0 regression + 无新外部依赖。**5k pass rate movement
+during P5 push: 145 (4.62 %) → 344 (9.45 %)** — diagnostic only.
 
 ---
 
-### P6 — Map / Set / WeakMap / WeakSet
+### P6 — Map / Set / WeakMap / WeakSet (CURRENT)
 
 **Goal**: real hash containers, all spec methods.
 
