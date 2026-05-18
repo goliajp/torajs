@@ -11241,7 +11241,23 @@ impl<'a> LowerCtx<'a> {
                 let v = self.lower_expr(*eid);
                 self.consume_all_idents_in_return(*eid);
                 let v_ty = self.operand_ty(&v);
-                let (tag_op, val_op): (Operand, Operand) = match v_ty {
+                // P7.2a — `throw undefined` must tag ANY_UNDEF=5, not
+                // ANY_NULL=0. undefined and null both collapse to
+                // ConstPtrNull at the SSA layer; the frontend
+                // expr-type is the only signal that distinguishes
+                // them (same idiom as lower_to_tag_value /
+                // box_to_any_from_expr). payload 0, no refcount stake
+                // — safe to bypass the refcount-careful arms below.
+                let is_undef = matches!(
+                    self.expr_types.get(&*eid),
+                    Some(crate::check::Type::Undefined)
+                );
+                let (tag_op, val_op): (Operand, Operand) = if is_undef
+                    && matches!(v_ty, Type::Ptr)
+                {
+                    (Operand::ConstI64(5), Operand::ConstI64(0))
+                } else {
+                    match v_ty {
                     Type::I64 | Type::I32 => (Operand::ConstI64(2), v),
                     Type::F64 => {
                         let bits = self.f.append_inst(
@@ -11308,6 +11324,7 @@ impl<'a> LowerCtx<'a> {
                         // pre-P4.7 behavior for any unusual operand
                         // type that reached this arm.
                         (Operand::ConstI64(4), v)
+                    }
                     }
                 };
                 self.f.append_void(

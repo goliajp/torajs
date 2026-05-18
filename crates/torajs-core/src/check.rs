@@ -2354,6 +2354,12 @@ impl Checker {
                     // `catch (e: number)` against an actual null throw
                     // is the user's bug, not the runtime's).
                     Ok(Type::Null) | Ok(Type::Nullable(_)) => {}
+                    // P7.2a — `throw undefined` is valid JS. undefined
+                    // lowers to ANY_UNDEF=5 / payload 0 in the throw
+                    // match (ssa_lower); catch `: any` reconstructs it
+                    // via any_box(5, 0). Pre-P7.2a it fell through to
+                    // the M4-era "8-byte-shaped" reject.
+                    Ok(Type::Undefined) => {}
                     // P4.7 — accept Type::Any throws. The tagged
                     // throw_set / take_tag substrate (ssa_lower) records
                     // the dynamic tag so catch `: any` reconstructs an
