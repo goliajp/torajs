@@ -2210,6 +2210,21 @@ bool __torajs_any_to_bool(const void *box) {
     }
 }
 
+/* P7.2b — ToNumber(Any) per JS spec §7.1.4, for the Any→numeric
+ * coercion sink: `return <any-valued expr>` from a fn whose declared
+ * return is a concrete number (e.g. `catch (e: any) { return e + 1
+ * }` inside `f(): number`). Symmetric to __torajs_any_to_bool;
+ * delegates to the existing static _inner so the per-tag spec rules
+ * (NULL→0, UNDEF→NaN, BOOL/I64/F64, HEAP-str→parse, ...) stay in one
+ * place — no duplicated tag logic. NULL box is defensive (a real Any
+ * always carries a box); ToNumber(null) === 0. */
+double __torajs_any_to_number(const void *box) {
+    if (box == NULL) return 0.0;
+    int64_t tag = *(const int64_t *)((const uint8_t *)box + __TORAJS_ANY_BOX_TAG_OFF);
+    int64_t value = *(const int64_t *)((const uint8_t *)box + __TORAJS_ANY_BOX_VAL_OFF);
+    return __torajs_any_to_number_inner(tag, value);
+}
+
 /* P0.2 — `typeof <Any>` runtime dispatch per JS spec §13.5.3.
  * Reads the box's tag (and for ANY_HEAP, the inner heap header's
  * type_tag) and returns a fresh String holding the spec-mandated

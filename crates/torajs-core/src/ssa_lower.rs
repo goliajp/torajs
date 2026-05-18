@@ -2232,6 +2232,13 @@ fn lower_inner(
         &[Type::Ptr],
         Type::Bool,
     );
+    let any_to_number_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_any_to_number",
+        &[Type::Ptr],
+        Type::F64,
+    );
     let any_add_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -4420,6 +4427,7 @@ fn lower_inner(
         get_proto_of_any: get_proto_of_any_id,
         any_typeof: any_typeof_id,
         any_to_bool: any_to_bool_id,
+        any_to_number: any_to_number_id,
         any_add: any_add_id,
         any_arith: any_arith_id,
         any_compare: any_compare_id,
@@ -5260,6 +5268,7 @@ struct Intrinsics {
     get_proto_of_any: FuncId,
     any_typeof: FuncId,
     any_to_bool: FuncId,
+    any_to_number: FuncId,
     any_add: FuncId,
     any_arith: FuncId,
     any_compare: FuncId,
@@ -11980,6 +11989,45 @@ impl<'a> LowerCtx<'a> {
                     // ABI.
                     if self.f.ret == Type::Any && actual != Type::Any {
                         return self.box_to_any(op);
+                    }
+                    // P7.2b — symmetric inverse of the box_to_any arm:
+                    // an Any-typed value returned where the declared
+                    // return is a concrete *number*. Without this the
+                    // raw Any-box pointer was emitted as the primitive
+                    // (ABI corruption — `catch (e: any) { return e +
+                    // 1000 }` inside `f(): number` handed the caller a
+                    // pointer instead of 1099; root cause of the
+                    // B-throw-2 garbage). any_to_number applies JS
+                    // spec §7.1.4 ToNumber via one runtime helper
+                    // (mirrors coerce_to_bool's any_to_bool precedent,
+                    // no duplicated tag logic). Scope is numeric only:
+                    // for an Any holding a number this is exactly
+                    // value-preserving and matches bun. A `: boolean`
+                    // (or other) declared return is a separate
+                    // typed-tier-annotation question (bun erases the
+                    // annotation and keeps the raw value; coercing
+                    // here would *change* the value) — left to its
+                    // pre-existing path, tracked as B-ret-any-nonnum.
+                    if actual == Type::Any
+                        && matches!(self.f.ret, Type::I64 | Type::F64)
+                    {
+                        let num = Operand::Value(self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.any_to_number,
+                                vec![op],
+                            ),
+                            Type::F64,
+                            None,
+                        ));
+                        return if self.f.ret == Type::F64 {
+                            num
+                        } else {
+                            // I64-declared return: narrow via the
+                            // existing F64→i64 ToInteger path
+                            // (FpToSi; NaN / ±Inf handled).
+                            self.coerce_to_i64(num)
+                        };
                     }
                     if self.f.ret == Type::F64 && actual == Type::I64 {
                         self.coerce_to_f64(op)
