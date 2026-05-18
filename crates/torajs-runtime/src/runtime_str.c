@@ -3902,11 +3902,50 @@ void *__torajs_str_substring(const uint8_t *s, int64_t start, int64_t end) {
  * around the defineProperty call (the test262 / assert.throws shape)
  * catches it; without a handler the throw propagates to fn boundary.
  */
-static void torajs_throw_range_error(const char *msg) {
+/* P7.4 — native-error factory registry. Slots: 0=Error, 1=TypeError,
+ * 2=RangeError. Populated once at program startup by a synthesized
+ * `__torajs_register_native_error` call (emitted by a later pass for
+ * whichever Error-family classes inject_builtin_classes injected). A
+ * registered slot holds a fn-ptr to the codegen'd `__new_<C>(message)`
+ * factory; a runtime native-error throw then calls it to build a real
+ * catchable instance (instanceof / .name / .message / .stack correct).
+ *
+ * Unregistered slot → graceful fallback to the legacy bare-string
+ * throw. This is intentionally the state in P7.4-a-1 (registry skeleton
+ * only; nothing registers yet) so behavior is byte-identical to the
+ * pre-P7.4 string-throw until P7.4-a-2 wires the startup registration.
+ *
+ * Single registration at startup, read-only after — no lock (matches
+ * the existing single-threaded throw-slot model). */
+typedef void *(*__torajs_native_error_factory_t)(void *message_str);
+static __torajs_native_error_factory_t __torajs_native_error_reg[3] = {0, 0, 0};
+
+void __torajs_register_native_error(int64_t slot, void *fnptr) {
+    if (slot >= 0 && slot < 3) {
+        __torajs_native_error_reg[(int)slot] =
+            (__torajs_native_error_factory_t)fnptr;
+    }
+}
+
+/* Build the message string, then: if the slot's factory is registered
+ * call it for a real Error instance and throw that; otherwise throw
+ * the bare string (legacy behavior). slot: 1=TypeError, 2=RangeError
+ * (0=Error reserved). The ssa_lower-side emit_throw_check after the
+ * caller propagates to the user's try/catch either way. */
+static void torajs_throw_native(int64_t slot, const char *msg) {
     uint64_t len = strlen(msg);
     uint8_t *err = str_alloc_(len);
     if (len) memcpy(__TORAJS_STR_DATA(err), msg, (size_t)len);
+    if (slot >= 0 && slot < 3 && __torajs_native_error_reg[slot]) {
+        void *inst = __torajs_native_error_reg[slot]((void *)err);
+        __torajs_throw_set(4 /* ANY_HEAP */, (int64_t)(uintptr_t)inst);
+        return;
+    }
     __torajs_throw_set(4 /* ANY_HEAP */, (int64_t)(uintptr_t)err);
+}
+
+static void torajs_throw_range_error(const char *msg) {
+    torajs_throw_native(2 /* RangeError */, msg);
 }
 
 /* P3.attribute-flag-tracking — sibling of torajs_throw_range_error
@@ -3916,10 +3955,7 @@ static void torajs_throw_range_error(const char *msg) {
  * throw slot; ssa_lower's emit_throw_check after the call propagates
  * to the user's try/catch (or function boundary). */
 static void torajs_throw_type_error(const char *msg) {
-    uint64_t len = strlen(msg);
-    uint8_t *err = str_alloc_(len);
-    if (len) memcpy(__TORAJS_STR_DATA(err), msg, (size_t)len);
-    __torajs_throw_set(4 /* ANY_HEAP */, (int64_t)(uintptr_t)err);
+    torajs_throw_native(1 /* TypeError */, msg);
 }
 
 void __torajs_arr_set_length_validate(int64_t tag, int64_t value) {
