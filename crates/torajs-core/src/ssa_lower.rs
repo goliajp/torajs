@@ -2723,6 +2723,20 @@ fn lower_inner(
         &[Type::Map],
         Type::MapIter,
     );
+    let map_iter_create_entries_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_map_iter_create_entries",
+        &[Type::Map],
+        Type::MapIter,
+    );
+    let map_iter_create_set_entries_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_map_iter_create_set_entries",
+        &[Type::Set],
+        Type::MapIter,
+    );
     let map_iter_step_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -4442,6 +4456,8 @@ fn lower_inner(
         map_iter_next: map_iter_next_id,
         map_iter_create_keys: map_iter_create_keys_id,
         map_iter_create_values: map_iter_create_values_id,
+        map_iter_create_entries: map_iter_create_entries_id,
+        map_iter_create_set_entries: map_iter_create_set_entries_id,
         map_iter_step: map_iter_step_id,
         map_iter_drop: map_iter_drop_id,
         weakset_create: weakset_create_id,
@@ -5282,6 +5298,8 @@ struct Intrinsics {
     map_iter_next: FuncId,
     map_iter_create_keys: FuncId,
     map_iter_create_values: FuncId,
+    map_iter_create_entries: FuncId,
+    map_iter_create_set_entries: FuncId,
     map_iter_step: FuncId,
     map_iter_drop: FuncId,
     weakset_create: FuncId,
@@ -18055,7 +18073,7 @@ impl<'a> LowerCtx<'a> {
                     let set_method = matches!(
                         m_name.as_str(),
                         "add" | "has" | "delete" | "clear" | "forEach"
-                            | "keys" | "values"
+                            | "keys" | "values" | "entries"
                     );
                     if set_method {
                         let recv_ty_hint = match self.ast.get_expr(*obj) {
@@ -18157,6 +18175,25 @@ impl<'a> LowerCtx<'a> {
                                         self.cur_block,
                                         InstKind::Call(
                                             self.intrinsics.map_iter_create_keys,
+                                            vec![recv_op],
+                                        ),
+                                        Type::MapIter,
+                                        None,
+                                    );
+                                    return Operand::Value(v);
+                                }
+                                "entries" => {
+                                    /* P6.4c — Set.entries yields
+                                     * `[value, value]` per spec
+                                     * §24.2.3.6 (same element twice
+                                     * — the storage's "value" side
+                                     * is ANY_UNDEF placeholder so we
+                                     * dup the key on the runtime side). */
+                                    debug_assert!(args.is_empty());
+                                    let v = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::Call(
+                                            self.intrinsics.map_iter_create_set_entries,
                                             vec![recv_op],
                                         ),
                                         Type::MapIter,
@@ -18466,7 +18503,7 @@ impl<'a> LowerCtx<'a> {
                     let map_method = matches!(
                         m_name.as_str(),
                         "set" | "get" | "has" | "delete" | "clear" | "forEach"
-                            | "keys" | "values"
+                            | "keys" | "values" | "entries"
                     );
                     if map_method {
                         let recv_ty_hint = match self.ast.get_expr(*obj) {
@@ -18611,6 +18648,27 @@ impl<'a> LowerCtx<'a> {
                                         self.cur_block,
                                         InstKind::Call(
                                             self.intrinsics.map_iter_create_values,
+                                            vec![recv_op],
+                                        ),
+                                        Type::MapIter,
+                                        None,
+                                    );
+                                    return Operand::Value(v);
+                                }
+                                "entries" => {
+                                    /* P6.4c — `m.entries()` yields a
+                                     * MapIter that emits `[k, v]`
+                                     * Array<Any> pairs per step.
+                                     * The runtime helper allocs the
+                                     * 2-element array fresh each
+                                     * call (Map.set value held in
+                                     * the table is rc_inc'd into the
+                                     * array). */
+                                    debug_assert!(args.is_empty());
+                                    let v = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::Call(
+                                            self.intrinsics.map_iter_create_entries,
                                             vec![recv_op],
                                         ),
                                         Type::MapIter,

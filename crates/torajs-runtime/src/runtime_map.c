@@ -94,6 +94,10 @@ extern void __torajs_value_drop_heap(void *p);
 extern void __torajs_rc_inc(void *p);
 extern int64_t __torajs_str_eq(const uint8_t *a, const uint8_t *b);
 
+/* P6.4c — `[k, v]` per-step Array<Any> for ENTRIES iter kind. */
+extern void *__torajs_arr_alloc_any(uint64_t cap);
+extern void *__torajs_arr_push_any(void *arr, uint64_t tag, uint64_t value);
+
 /* Entry tombstone marker — a slot still pointing here lets iter
  * detect-and-skip without consulting the slot array. Live entries
  * always have `entry.hash >= 1` (the bucket-side `hash` mixes in
@@ -677,9 +681,11 @@ int64_t __torajs_map_iter_next(void *p,
 
 #define __TORAJS_TAG_MAP_ITER 16
 
-#define MAP_ITER_KEYS    0
-#define MAP_ITER_VALUES  1
-#define MAP_ITER_ENTRIES 2
+#define MAP_ITER_KEYS        0
+#define MAP_ITER_VALUES      1
+#define MAP_ITER_ENTRIES     2  /* Map.entries — yield `[key, value]` Array<Any> */
+#define MAP_ITER_SET_ENTRIES 3  /* Set.entries — yield `[key, key]` (Set spec
+                                 * §24.2.3.6: callback's second arg = first) */
 
 typedef struct {
     __torajs_heap_header_t header;
@@ -710,6 +716,40 @@ void *__torajs_map_iter_create_keys(void *map_p) {
 
 void *__torajs_map_iter_create_values(void *map_p) {
     return map_iter_create_with_kind(map_p, MAP_ITER_VALUES);
+}
+
+void *__torajs_map_iter_create_entries(void *map_p) {
+    return map_iter_create_with_kind(map_p, MAP_ITER_ENTRIES);
+}
+
+void *__torajs_map_iter_create_set_entries(void *map_p) {
+    return map_iter_create_with_kind(map_p, MAP_ITER_SET_ENTRIES);
+}
+
+/* P6.4c — alloc a fresh `[a, b]` Array<Any> from two tagged-pair
+ * sources. The bucket entry's heap payload still owns its ref, so
+ * we rc_inc each ANY_HEAP payload before pushing (push adopts the
+ * pre-bumped ref). On return the array is at refcount=1 owned by
+ * the caller — but the caller wraps the result via `__torajs_any_box`
+ * (ANY_HEAP, arr) which itself rc_incs the payload (so the box
+ * would observe refcount=2 with only one drop chain → leak). We
+ * pre-decrement the array's refcount to 0 here so any_box's inc
+ * leaves it at exactly 1 owner = the caller's IteratorResult.value
+ * Any-box. Same idiom would apply to any "freshly minted heap"
+ * value funneled through the `(tag, payload)` → any_box path. */
+static void *map_iter_make_pair_arr(uint8_t t1, uint64_t p1,
+                                    uint8_t t2, uint64_t p2) {
+    void *arr = __torajs_arr_alloc_any(2);
+    if (t1 == __TORAJS_ANY_HEAP && p1 != 0) {
+        __torajs_rc_inc((void *)(uintptr_t)p1);
+    }
+    arr = __torajs_arr_push_any(arr, (uint64_t)t1, p1);
+    if (t2 == __TORAJS_ANY_HEAP && p2 != 0) {
+        __torajs_rc_inc((void *)(uintptr_t)p2);
+    }
+    arr = __torajs_arr_push_any(arr, (uint64_t)t2, p2);
+    ((__torajs_heap_header_t *)arr)->refcount -= 1;
+    return arr;
 }
 
 /* P6.4b iter step. Advances the cursor + fills the (out_tag,
@@ -748,9 +788,27 @@ int64_t __torajs_map_iter_step(void *iter_p,
             *out_tag = (int64_t)e->value_tag;
             *out_payload = (int64_t)e->value_payload;
             break;
+        case MAP_ITER_ENTRIES: {
+            /* P6.4c — yield `[key, value]` as Array<Any>. */
+            void *arr = map_iter_make_pair_arr(
+                e->key_tag, e->key_payload,
+                e->value_tag, e->value_payload);
+            *out_tag = __TORAJS_ANY_HEAP;
+            *out_payload = (int64_t)(uintptr_t)arr;
+            break;
+        }
+        case MAP_ITER_SET_ENTRIES: {
+            /* P6.4c — Set.entries yields `[key, key]` per spec
+             * §24.2.3.6 (the storage value is ANY_UNDEF placeholder;
+             * iteration exposes the element twice). */
+            void *arr = map_iter_make_pair_arr(
+                e->key_tag, e->key_payload,
+                e->key_tag, e->key_payload);
+            *out_tag = __TORAJS_ANY_HEAP;
+            *out_payload = (int64_t)(uintptr_t)arr;
+            break;
+        }
         default:
-            /* MAP_ITER_ENTRIES lands in P6.4c — needs Array<Any>
-             * alloc per step + boxed (k, v) write. */
             *out_tag = __TORAJS_ANY_UNDEF;
             *out_payload = 0;
             break;

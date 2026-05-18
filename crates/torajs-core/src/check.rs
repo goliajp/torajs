@@ -3776,9 +3776,22 @@ impl Checker {
                         Vec::new(),
                         Box::new(Type::MapIter),
                     )),
+                    /* P6.4c — Map.entries yields `[k, v]` pairs;
+                     * Set.entries yields `[v, v]` pairs (spec
+                     * §23.1.3.4 / §24.2.3.6). Both return the same
+                     * MapIter handle (the runtime kind decides the
+                     * yield shape). */
+                    (Type::Map, "entries") => Ok(Type::Function(
+                        Vec::new(),
+                        Box::new(Type::MapIter),
+                    )),
                     /* P6.4b — Set.keys = .values per spec §24.2.3.5
                      * (returns iterator over the elements). */
                     (Type::Set, "keys") | (Type::Set, "values") => Ok(Type::Function(
+                        Vec::new(),
+                        Box::new(Type::MapIter),
+                    )),
+                    (Type::Set, "entries") => Ok(Type::Function(
                         Vec::new(),
                         Box::new(Type::MapIter),
                     )),
