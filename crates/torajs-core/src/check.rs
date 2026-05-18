@@ -3474,11 +3474,12 @@ impl Checker {
                         Box::new(Type::Boolean),
                     )),
                     (Type::String, "length") | (Type::Array(_), "length") => Ok(Type::Number),
-                    /* P6.1 — Map.prototype.size accessor (spec
-                     * §23.1.3.10). Member arm dispatches to a
-                     * Number-typed read; ssa_lower calls
-                     * `__torajs_map_size`. Set.size lands in P6.2. */
-                    (Type::Map, "size") => Ok(Type::Number),
+                    /* P6.1 / P6.2 — Map.prototype.size / Set.prototype.size
+                     * accessor (spec §23.1.3.10 / §24.2.3.9). Member
+                     * arm dispatches to a Number-typed read; ssa_lower
+                     * calls `__torajs_map_size` (Set storage is the
+                     * same Map runtime). */
+                    (Type::Map, "size") | (Type::Set, "size") => Ok(Type::Number),
                     // M6.1 — String methods. All borrow `this` and any
                     // String args (consumption only fires at concat,
                     // which has its own arm). Bool-returning methods
@@ -3744,6 +3745,25 @@ impl Checker {
                         Box::new(Type::Boolean),
                     )),
                     (Type::Map, "clear") => Ok(Type::Function(
+                        Vec::new(),
+                        Box::new(Type::Void),
+                    )),
+                    /* P6.2 — Set<T> methods. add takes a single Any-
+                     * typed value; storage piggy-backs on Map<T,
+                     * undef> at runtime. */
+                    (Type::Set, "add") => Ok(Type::Function(
+                        vec![Type::Any],
+                        Box::new(Type::Void),
+                    )),
+                    (Type::Set, "has") => Ok(Type::Function(
+                        vec![Type::Any],
+                        Box::new(Type::Boolean),
+                    )),
+                    (Type::Set, "delete") => Ok(Type::Function(
+                        vec![Type::Any],
+                        Box::new(Type::Boolean),
+                    )),
+                    (Type::Set, "clear") => Ok(Type::Function(
                         Vec::new(),
                         Box::new(Type::Void),
                     )),
@@ -6707,6 +6727,15 @@ impl Checker {
                     ));
                 }
                 Ok(Type::Map)
+            }
+            Expr::New { class_name, args } if class_name == "Set" => {
+                if !args.is_empty() {
+                    return Err(format!(
+                        "`new Set(...)` with iterable initializer not yet supported (got {} args)",
+                        args.len()
+                    ));
+                }
+                Ok(Type::Set)
             }
             // P0.10 — `new Array(n)` 1-arg numeric form per ES spec
             // §23.1.2.1 Array(len). Returns `Array<Any>` of length n

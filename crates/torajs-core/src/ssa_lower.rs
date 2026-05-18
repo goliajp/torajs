@@ -8438,6 +8438,7 @@ impl<'a> LowerCtx<'a> {
                         || class_name == "WeakMap"
                         || class_name == "WeakSet"
                         || class_name == "Map"
+                        || class_name == "Set"
                     {
                         continue;
                     }
@@ -12659,6 +12660,22 @@ impl<'a> LowerCtx<'a> {
                     self.cur_block,
                     InstKind::Call(self.intrinsics.map_create, vec![]),
                     Type::Map,
+                    None,
+                );
+                return Operand::Value(v);
+            }
+            Expr::New { class_name, .. } if class_name == "Set" => {
+                /* P6.2 — `new Set()` reuses the P6.1 Map runtime
+                 * struct. The value side of each entry stays pinned
+                 * at ANY_UNDEF (the Map.set arm in `add` lowering
+                 * writes that). At the SSA layer the result carries
+                 * Type::Set so method dispatch routes through the
+                 * Set arm (single-arg `add` etc.) instead of Map's
+                 * 2-arg set. */
+                let v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.map_create, vec![]),
+                    Type::Set,
                     None,
                 );
                 return Operand::Value(v);
@@ -17948,6 +17965,115 @@ impl<'a> LowerCtx<'a> {
                         }
                     }
                 }
+                /* P6.2 — Set<T> method dispatch. Receiver Type::Set;
+                 * storage piggy-backs on the Map runtime with the
+                 * value side pinned to ANY_UNDEF. add lowers to
+                 * map_set with ConstI64(ANY_UNDEF=5) / ConstI64(0)
+                 * for the value pair; has / delete / clear / size
+                 * forward to the matching map_* helper unchanged. */
+                if let Expr::Member { obj, name } = self.ast.get_expr(*callee) {
+                    let m_name = name.clone();
+                    let set_method = matches!(
+                        m_name.as_str(),
+                        "add" | "has" | "delete" | "clear"
+                    );
+                    if set_method {
+                        let recv_ty_hint = match self.ast.get_expr(*obj) {
+                            Expr::Ident(n) => self.locals.get(n).map(|info| info.ty),
+                            _ => None,
+                        };
+                        if recv_ty_hint == Some(Type::Set) {
+                            let recv_op = self.lower_expr(*obj);
+                            match m_name.as_str() {
+                                "add" => {
+                                    debug_assert_eq!(args.len(), 1);
+                                    let key_op = self.lower_expr(args[0]);
+                                    let (k_tag, k_val) = self.box_to_tag_value(key_op);
+                                    /* ANY_UNDEF = 5 (runtime_str.c
+                                     * __TORAJS_ANY_UNDEF). The Set
+                                     * value side never carries data,
+                                     * but the Map storage still
+                                     * needs a value tag so the
+                                     * existing helper signature
+                                     * stays uniform. */
+                                    self.f.append_void(
+                                        self.cur_block,
+                                        InstKind::Call(
+                                            self.intrinsics.map_set,
+                                            vec![
+                                                recv_op,
+                                                k_tag,
+                                                k_val,
+                                                Operand::ConstI64(5),
+                                                Operand::ConstI64(0),
+                                            ],
+                                        ),
+                                    );
+                                    return Operand::ConstI64(0);
+                                }
+                                "has" => {
+                                    debug_assert_eq!(args.len(), 1);
+                                    let key_op = self.lower_expr(args[0]);
+                                    let (k_tag, k_val) = self.box_to_tag_value(key_op);
+                                    let r = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::Call(
+                                            self.intrinsics.map_has,
+                                            vec![recv_op, k_tag, k_val],
+                                        ),
+                                        Type::I64,
+                                        None,
+                                    );
+                                    let b = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::ICmp(
+                                            IPred::Ne,
+                                            Operand::Value(r),
+                                            Operand::ConstI64(0),
+                                        ),
+                                        Type::Bool,
+                                        None,
+                                    );
+                                    return Operand::Value(b);
+                                }
+                                "delete" => {
+                                    debug_assert_eq!(args.len(), 1);
+                                    let key_op = self.lower_expr(args[0]);
+                                    let (k_tag, k_val) = self.box_to_tag_value(key_op);
+                                    let r = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::Call(
+                                            self.intrinsics.map_delete,
+                                            vec![recv_op, k_tag, k_val],
+                                        ),
+                                        Type::I64,
+                                        None,
+                                    );
+                                    let b = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::ICmp(
+                                            IPred::Ne,
+                                            Operand::Value(r),
+                                            Operand::ConstI64(0),
+                                        ),
+                                        Type::Bool,
+                                        None,
+                                    );
+                                    return Operand::Value(b);
+                                }
+                                "clear" => {
+                                    debug_assert!(args.is_empty());
+                                    self.f.append_void(
+                                        self.cur_block,
+                                        InstKind::Call(self.intrinsics.map_clear, vec![recv_op]),
+                                    );
+                                    return Operand::ConstI64(0);
+                                }
+                                _ => unreachable!(),
+                            }
+                        }
+                    }
+                }
                 /* P6.1 — Map<K, V> method dispatch. Receiver
                  * Type::Map; key + value flow through
                  * `box_to_tag_value` so the runtime helper sees an
@@ -22676,11 +22802,11 @@ impl<'a> LowerCtx<'a> {
                     );
                     return Operand::Value(v);
                 }
-                // P6.1 — `m.size` on Type::Map — accessor property
-                // per spec §23.1.3.10. Routes through
-                // __torajs_map_size which returns the live-entry
-                // count (tombstones excluded).
-                if matches!(obj_ty, Type::Map) && name == "size" {
+                // P6.1 / P6.2 — `m.size` / `s.size` accessor
+                // property per spec §23.1.3.10 / §24.2.3.9. Both
+                // route through __torajs_map_size since Set storage
+                // is the same Map runtime.
+                if matches!(obj_ty, Type::Map | Type::Set) && name == "size" {
                     let v = self.f.append_inst(
                         self.cur_block,
                         InstKind::Call(self.intrinsics.map_size, vec![obj_val]),

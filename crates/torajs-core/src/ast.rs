@@ -2923,10 +2923,14 @@ pub fn desugar_classes(ast: &mut Ast) {
                     || class_name == "WeakMap"
                     || class_name == "WeakSet"
                     || class_name == "Map"
+                    || class_name == "Set"
                 {
                     /* P6.1 — `new Map()` is the same shape: SSA
-                     * intercepts to emit __torajs_map_create. Set
-                     * lands the same way in P6.2. */
+                     * intercepts to emit __torajs_map_create.
+                     * P6.2 — `new Set()` reuses the same Map storage,
+                     * SSA-side typed as Type::Set; the Map runtime
+                     * helpers serve add/has/delete/clear/size with
+                     * the value-side pinned to ANY_UNDEF. */
                     let _ = args;
                     continue;
                 }
