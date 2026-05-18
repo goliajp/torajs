@@ -2181,56 +2181,12 @@ pub fn desugar_prototype_call(ast: &mut Ast) {
     }
 }
 
-/// P4.6 — inject built-in class declarations for `Error` (and future
-/// extensions: TypeError / RangeError / SyntaxError, etc.) so user
-/// code can `new Error(msg)` directly AND `class MyError extends
-/// Error` flows through the existing user-class ClassDecl machinery
-/// in `desugar_classes`. Pre-fix `new Error("oops")` panicked at
-/// check.rs with "internal: `new Error` reached check.rs (desugar
-/// didn't run?)" because no factory FnDecl was synthesized.
-///
-/// Minimum-viable shape per spec §20.5.7.1: Error has `message`
-/// (string) and `name` (string) instance fields; ctor sets
-/// `this.message = arg0` and `this.name = "Error"`. Other Error
-/// surface area (.stack DWARF capture, .toString format,
-/// instanceof through extends-chain) lands incrementally as
-/// follow-up substrate.
-///
-/// Runs BEFORE `desugar_classes` so the synth ClassDecl gets
-/// processed normally — synthesizes `__new_Error` factory,
-/// `__cm_Error__ctor`, `__class_Error` (via synthesize_class_globals
-/// later in the pipeline), and registers Error in the
-/// class_name_to_tag map so instanceof chain walks reach it.
-///
-/// Idempotent: only injects when no ClassDecl named "Error" already
-/// exists (user override would shadow the builtin, which is
-/// pre-standard but useful for stdlib-rewrite paths). Also only
-/// injects when the AST actually references "Error" somewhere
-/// (avoids inflating compile time for programs that never use it).
-pub fn inject_builtin_classes(ast: &mut Ast) {
-    // Skip if a user ClassDecl already shadows the name.
-    let already_has_error = ast.stmts.iter().any(|s| {
-        matches!(s, Stmt::ClassDecl { name, .. } if name == "Error")
-    });
-    if already_has_error {
-        return;
-    }
-    // Cheap-scan: only inject when `Error` is mentioned. Avoids
-    // touching ASTs that don't need it (most short programs).
-    let needs_error = ast.exprs.iter().any(|e| {
-        matches!(e, Expr::Ident(n) | Expr::New { class_name: n, .. } if n == "Error")
-            || matches!(e, Expr::Member { name, .. } if name == "Error")
-    }) || ast.stmts.iter().any(|s| {
-        matches!(s, Stmt::ClassDecl { parent: Some(p), .. } if p == "Error")
-    });
-    if !needs_error {
-        return;
-    }
-
-    // Build the synthetic Error ClassDecl. Field order matters: must
-    // match the assignments inside the ctor body since check.rs's
-    // affine-flow analysis walks them in declaration order.
-    // Ctor body: `this.message = message; this.name = "Error";`
+/// Synthetic root `class Error { message: string; name: string;
+/// constructor(message: string) { this.message = message;
+/// this.name = "Error"; } }` (spec §20.5.1). Field order matters:
+/// it must match the ctor-body assignment order since check.rs's
+/// affine-flow analysis walks declarations in order.
+fn build_error_class(ast: &mut Ast) -> Stmt {
     let this0 = ast.add_expr(Expr::This);
     let msg_member = ast.add_expr(Expr::Member {
         obj: this0,
@@ -2262,7 +2218,7 @@ pub fn inject_builtin_classes(ast: &mut Ast) {
         body: vec![Stmt::Expr(assign1), Stmt::Expr(assign2)],
     };
 
-    let error_class = Stmt::ClassDecl {
+    Stmt::ClassDecl {
         name: "Error".to_string(),
         type_params: Vec::new(),
         parent: None,
@@ -2275,10 +2231,144 @@ pub fn inject_builtin_classes(ast: &mut Ast) {
         ctor: Some(ctor),
         methods: Vec::new(),
         static_methods: Vec::new(),
+    }
+}
+
+/// Synthetic `class <N> extends Error { constructor(message: string)
+/// { super(message); this.name = "<N>"; } }` for the four standard
+/// NativeError subclasses (spec §20.5.5). No own fields: `message` /
+/// `name` are inherited from Error via desugar field-flattening
+/// (which panics on parent-field redeclaration), so the ctor just
+/// forwards to Error's ctor through `super` and overrides `name`.
+/// The `super(message)` site is rewritten to `__cm_Error__ctor(...)`
+/// by the existing Pass 1.5 super-rewrite in `desugar_classes` —
+/// identical to a user-written subclass.
+fn build_error_subclass(ast: &mut Ast, sub_name: &str) -> Stmt {
+    let msg_ident = ast.add_expr(Expr::Ident("message".to_string()));
+    let super_call = ast.add_expr(Expr::Super {
+        args: vec![msg_ident],
+    });
+    let this0 = ast.add_expr(Expr::This);
+    let name_member = ast.add_expr(Expr::Member {
+        obj: this0,
+        name: "name".to_string(),
+    });
+    let name_value = ast.add_expr(Expr::String(sub_name.to_string()));
+    let assign_name = ast.add_expr(Expr::Assign {
+        target: name_member,
+        value: name_value,
+    });
+
+    let ctor = ClassCtor {
+        params: vec![Param {
+            name: "message".to_string(),
+            type_ann: Some("string".to_string()),
+            default: None,
+            is_rest: false,
+        }],
+        body: vec![Stmt::Expr(super_call), Stmt::Expr(assign_name)],
     };
 
-    // Prepend so all references (forward + downstream) see it.
-    ast.stmts.insert(0, error_class);
+    Stmt::ClassDecl {
+        name: sub_name.to_string(),
+        type_params: Vec::new(),
+        parent: Some("Error".to_string()),
+        is_abstract: false,
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        ctor: Some(ctor),
+        methods: Vec::new(),
+        static_methods: Vec::new(),
+    }
+}
+
+/// P4.6 / P7.1 — inject built-in class declarations for `Error` and
+/// its four standard subclasses (`TypeError` / `RangeError` /
+/// `SyntaxError` / `ReferenceError`, spec §20.5.5) so user code can
+/// `new TypeError(msg)` directly AND `class MyError extends Error`
+/// flows through the existing user-class ClassDecl machinery in
+/// `desugar_classes`. Pre-fix `new Error("oops")` panicked at
+/// check.rs with "internal: `new Error` reached check.rs (desugar
+/// didn't run?)" because no factory FnDecl was synthesized.
+///
+/// Shapes (spec §20.5): `Error` has `message` / `name` string fields
+/// and a one-arg ctor; each subclass `extends Error`, forwards via
+/// `super(message)`, and sets `this.name` to its own name. Other
+/// Error surface area (.stack DWARF capture, .toString format) lands
+/// incrementally as follow-up substrate.
+///
+/// Runs BEFORE `desugar_classes` so the synth ClassDecls get
+/// processed normally — synthesizes `__new_<C>` factory /
+/// `__cm_<C>__ctor` / `__class_<C>` (via synthesize_class_globals
+/// later) and registers each in the class_name_to_tag map so
+/// instanceof chain walks reach them.
+///
+/// Idempotent + usage-gated:
+/// - If the user declares their own `class Error`, the whole error
+///   hierarchy is theirs — skip all injection (preserves the P4.6
+///   stdlib-override contract, and avoids the desugar
+///   declaration-order panic that an injected `Sub extends Error`
+///   prepended ahead of a user `class Error` would trigger).
+/// - Each subclass is injected only when referenced and not
+///   user-shadowed by a same-named ClassDecl.
+/// - `Error` is injected when referenced directly OR implied by any
+///   wanted subclass (subclasses extend it). Nothing is injected for
+///   programs that never mention the error hierarchy (compile-time
+///   neutral).
+pub fn inject_builtin_classes(ast: &mut Ast) {
+    let user_has_error = ast
+        .stmts
+        .iter()
+        .any(|s| matches!(s, Stmt::ClassDecl { name, .. } if name == "Error"));
+    if user_has_error {
+        return;
+    }
+
+    // The four standard NativeError subclasses (spec §20.5.5).
+    const ERROR_SUBCLASSES: [&str; 4] =
+        ["TypeError", "RangeError", "SyntaxError", "ReferenceError"];
+
+    // A name is "referenced" if it appears as a bare Ident, a
+    // `new <N>(...)`, a `.<N>` member, or an `extends <N>` parent.
+    let referenced = |n: &str| -> bool {
+        ast.exprs.iter().any(|e| {
+            matches!(e, Expr::Ident(x) | Expr::New { class_name: x, .. } if x == n)
+                || matches!(e, Expr::Member { name, .. } if name == n)
+        }) || ast.stmts.iter().any(|s| {
+            matches!(s, Stmt::ClassDecl { parent: Some(p), .. } if p == n)
+        })
+    };
+
+    // Subclasses to inject: referenced AND not user-shadowed.
+    let want_sub: Vec<&str> = ERROR_SUBCLASSES
+        .iter()
+        .copied()
+        .filter(|n| {
+            let shadowed = ast
+                .stmts
+                .iter()
+                .any(|s| matches!(s, Stmt::ClassDecl { name, .. } if name == *n));
+            !shadowed && referenced(n)
+        })
+        .collect();
+
+    // Subclasses extend Error, so any wanted subclass implies Error.
+    let want_error = referenced("Error") || !want_sub.is_empty();
+    if !want_error {
+        return;
+    }
+
+    // Build Error first, then each wanted subclass, and splice at the
+    // front so the parent (`Error`) precedes its children — the
+    // field-flattening + declaration-order check in `desugar_classes`
+    // requires every ancestor declared before its descendants — and
+    // all user references (forward + downstream) resolve here.
+    let mut injected: Vec<Stmt> = Vec::with_capacity(1 + want_sub.len());
+    injected.push(build_error_class(ast));
+    for n in &want_sub {
+        injected.push(build_error_subclass(ast, n));
+    }
+    ast.stmts.splice(0..0, injected);
 }
 
 /// P4.prototype-chain Phase A — expose every user-declared class as
