@@ -16602,6 +16602,75 @@ impl<'a> LowerCtx<'a> {
                     );
                     return Operand::Value(v);
                 }
+                /* 2026-05-18 — `Object.create(proto)` returns a
+                 * fresh dynobj-backed Any-box. Most test262 usages
+                 * are `Object.create(null)` (property-less object
+                 * for table-style storage); 2-arg `Object.create(
+                 * proto, descriptors)` is treated the same — the
+                 * descriptors arg is ignored (subset). */
+                if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
+                    && m_name == "create"
+                    && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
+                    && ns == "Object"
+                    && !args.is_empty()
+                {
+                    // Evaluate (and drop) the args for side effects.
+                    // Don't read return value.
+                    for a in args {
+                        let _ = self.lower_expr(*a);
+                    }
+                    let dynobj = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(self.intrinsics.dynobj_alloc, vec![]),
+                        Type::Ptr,
+                        None,
+                    );
+                    let box_v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(
+                            self.intrinsics.any_box,
+                            vec![Operand::ConstI64(4 /* ANY_HEAP */), Operand::Value(dynobj)],
+                        ),
+                        Type::Any,
+                        None,
+                    );
+                    return Operand::Value(box_v);
+                }
+                /* 2026-05-18 — `Object.setPrototypeOf(obj, proto)`
+                 * is a no-op in the subset (tora has no real
+                 * prototype chain for dynobj-backed objects yet).
+                 * Returns the obj per spec. The proto arg is
+                 * evaluated for side effects then discarded. */
+                if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
+                    && (m_name == "setPrototypeOf"
+                        || m_name == "preventExtensions"
+                        || m_name == "seal"
+                        || m_name == "defineProperties"
+                        || m_name == "assign")
+                    && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
+                    && ns == "Object"
+                    && !args.is_empty()
+                {
+                    let obj_op = self.lower_expr(args[0]);
+                    for a in args.iter().skip(1) {
+                        let _ = self.lower_expr(*a);
+                    }
+                    return obj_op;
+                }
+                /* 2026-05-18 — `Object.isExtensible(obj)` /
+                 * `Object.isSealed(obj)` — tora has no extensible /
+                 * sealed bits separate from frozen, so default to
+                 * spec's "extensible=true / sealed=false" until a
+                 * full attribute substrate lands. Eval-drop arg. */
+                if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
+                    && (m_name == "isExtensible" || m_name == "isSealed")
+                    && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
+                    && ns == "Object"
+                    && !args.is_empty()
+                {
+                    let _ = self.lower_expr(args[0]);
+                    return Operand::ConstBool(m_name == "isExtensible");
+                }
                 /* T-09.b (v0.4.0) — `Object.entries(obj)` returns
                  * Array<Array<Any>> where each inner is `[key, value]`.
                  * Compile-time unfold using struct_layouts — emit one
