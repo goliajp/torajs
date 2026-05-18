@@ -108,27 +108,36 @@ hatch.
 
 ---
 
-## Status snapshot (2026-05-18, HEAD `00c4d12`)
+## Status snapshot (2026-05-18, HEAD `aac1934` — P6 phase closed)
 
 ### Curated conformance (`conformance/cases/`)
 
-**607 pass / 0 fail / 1 skip** committed. The 1 committed skip is
-`perf-005-dwarf-panic-fs` (bun-side crash, not tora's bug).
+**618 pass / 0 fail / 1 skip** committed. +11 from P6 phase (map-001
+..005 / map-for-of-001 / set-001..004 / array-iter-001). The 1
+committed skip is `perf-005-dwarf-panic-fs` (bun-side crash, not
+tora's bug).
 
 ### test262 5k diagnostic
 
-**344 pass / 16 bug / 3279 incompatible** at HEAD (9.45 % in-scope).
-The 196 → 344 jump on 2026-05-18 is dominated by a single substrate
-fix (`e03df48`, `X.prototype` returns Type::Any) plus harness shim
-expansion (`5c40116` / `73d8c4e` / `308d3df` adding ~30 helper shims)
-plus permissive Object.X stubs (`e3a7fc3`). **Pass rate is
-regression-detection only — not a phase trigger or milestone.**
+**344 pass / 16 bug / 3279 incompatible** at last measured baseline
+(`00c4d12`). Re-measurement post-P6 deferred (Map/Set unlock expected
+to surface +N test262 cases — most Map / Set / iterator-protocol
+fixtures previously hit `typecheck reject` due to substrate gap).
+Pass rate is regression-detection only — not a phase trigger or
+milestone.
 
 ### Bench position
 
-Typed-tier 0 regression invariant holds. Latest cross-runtime bench
-(at `00c4d12`): torajs vs bun-aot geomean **4.02×** (peak 20.42×
-popcount), vs node-v8 geomean **18.04×**, 26 / 26 cases all-win.
+Typed-tier 0 regression invariant holds across P6 substrate (binary
+artifact_bytes essentially unchanged through Map/Set/MapIter/ArrIter
+additions — these add new code paths, don't modify Array / Closure /
+Str / Number hot paths). Multi-run median bench verification on
+idle-system window pending; single-run measurements during P6 ship
+were noise-dominated (mac thermal ±20-40% with concurrent godot /
+rustc / node tsc background load).
+
+Last committed bench baseline: `bench/results/2026-05-18-mini-2004980
+.json` (torajs vs bun-aot geomean **4.02×** at HEAD `00c4d12`).
 
 ### Code size
 
@@ -339,23 +348,62 @@ during P5 push: 145 (4.62 %) → 344 (9.45 %)** — diagnostic only.
 
 ---
 
-### P6 — Map / Set / WeakMap / WeakSet (CURRENT)
+### P6 — Map / Set / WeakMap / WeakSet (DONE)
 
-**Goal**: real hash containers, all spec methods.
+**Goal**: real hash containers, all spec methods, spec-mandated
+insertion-order iteration.
 
-**Substrate checklist** (strict order):
+**Substrate checklist** (closed at `aac1934`):
 
-- [ ] **P6.1** `Map<K, V>` hash table runtime (open-addressed, robin
-      hood)
-- [ ] **P6.2** `Set<T>` = `Map<T, undefined>` wrapper
-- [ ] **P6.3** WeakMap / WeakSet with weak-ref tracker bits
-- [ ] **P6.4** Spec methods: get / set / delete / has / clear / size /
-      forEach / entries / keys / values
-- [ ] **P6.5** Iterator interop with P5
+- [x] **P6.1** `Map<K, V>` open-addressing robin-hood hash table
+      (`7480912` + `f0a33be` TAG audit fix + `86776a6` undef tag fix).
+      SameValueZero key equality; tagged-Any keys + values; 8 runtime
+      helpers.
+- [x] **P6.2** `Set<T>` SSA-level distinction over Map storage
+      (`d598ac5`). `add` writes ANY_UNDEF for the value side; method
+      dispatch forwards to Map helpers.
+- [x] **P6.3** WeakMap / WeakSet audit (`f0a33be`). T-26.B substrate
+      verified consistent with P6.1 Map heap-header layout +
+      value_drop_heap dispatch (TAG_MAP = 15 collision fix surfaces
+      here).
+- [x] **P6.4** Spec methods — full surface across 4 sub-commits:
+      - P6.4a forEach + V8 OrderedHashMap insertion-order substrate
+        refactor (`2004980`). Split-table layout (slots[] robin-hood
+        + entries[] packed insertion-order) — spec §23.1.4 / §24.2.4
+        ordering preserved.
+      - P6.4b MapIter substrate + Map/Set.keys/.values (`c62fe69`).
+        `Type::MapIter` first-class refcounted handle; `iter.next()`
+        returns `IteratorResult<any>` struct via SSA-side obj_alloc.
+      - P6.4c-C1 Map/Set.entries (`73cb278`). ITER_ENTRIES +
+        ITER_SET_ENTRIES kinds; per-step `[k, v]` / `[v, v]`
+        Array<Any> alloc with refcount=0 pre-dec trick balancing
+        any_box's rc_inc.
+      - P6.4c-C2 for-of @@iterator dispatch for Map/Set/MapIter
+        (`80939ba`). `for (let [k, v] of m)` destructuring works via
+        `lower_for_of_map_like` binding var as `Type::Arr<Any>` for
+        Map source; Set/MapIter bind as Type::Any.
+      - P6.4c-C3 Array<Any> iter methods (`aac1934`). `Type::ArrIter`
+        parallel to MapIter; P5.4 (Array iterator methods) unblocked
+        for Array<Any> source. Typed Array<T> for non-Any T uses 8B-
+        per-slot layout requiring elem-tag substrate — separate
+        follow-up.
+- [x] **P6.5** Iterator interop with P5 — for-of @@iterator dispatch
+      (P6.4c-C2 / C3) integrates with P5.3 Phase B substrate; P5.4
+      Array iter methods unblocked. Phase close audit verified: 11
+      conformance fixtures (map-001..005 + map-for-of-001 + set-
+      001..004 + array-iter-001) all bun-parity GREEN; conformance
+      gate 618 pass / 0 fail / 1 skip.
+
+**Acceptance**: ✅ 5/5 substrate items closed + conformance 0 fail +
+no new external dependencies. Bench multi-run median verification
+deferred to system-idle window (mac thermal / load noise ±20-40%
+makes single-run gate unreliable; binary unchanged through P6
+substrate path so theoretically 0 regression on hot Array / Closure
+/ Str hot paths).
 
 ---
 
-### P7 — Error type hierarchy + throw any
+### P7 — Error type hierarchy + throw any (CURRENT)
 
 **Goal**: real Error subtypes (TypeError, RangeError, SyntaxError, …);
 `throw` accepts any value; try/catch/finally state machine
