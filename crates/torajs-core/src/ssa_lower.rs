@@ -12158,6 +12158,26 @@ impl<'a> LowerCtx<'a> {
         self.box_to_any(val)
     }
 
+    /// Lower an expression to its `(tag, value)` pair, with the same
+    /// frontend-type awareness as `box_to_any_from_expr`. Used by sites
+    /// that need both the unboxed pair *and* the spec-correct ANY_UNDEF
+    /// tag for an `undefined` literal (P6.1 Map.set / has / delete /
+    /// get etc.) — plain `box_to_tag_value` would otherwise see only
+    /// the SSA-level `Type::Ptr` + `ConstPtrNull` and emit ANY_NULL,
+    /// collapsing undefined and null into the same key.
+    fn lower_to_tag_value(&mut self, eid: ExprId) -> (Operand, Operand) {
+        let is_undef = matches!(
+            self.expr_types.get(&eid),
+            Some(crate::check::Type::Undefined)
+        );
+        let val = self.lower_expr(eid);
+        let val_ty = self.operand_ty(&val);
+        if is_undef && matches!(val_ty, Type::Ptr) {
+            return (Operand::ConstI64(5), Operand::ConstI64(0));
+        }
+        self.box_to_tag_value(val)
+    }
+
     /// Extract `(tag_op, value_op)` for a freshly-lowered value, matching
     /// `box_to_any`'s tag scheme. Used by sites that need the unboxed
     /// pair instead of an Any-box (e.g. dynobj_set / fn_props_set
@@ -17987,8 +18007,7 @@ impl<'a> LowerCtx<'a> {
                             match m_name.as_str() {
                                 "add" => {
                                     debug_assert_eq!(args.len(), 1);
-                                    let key_op = self.lower_expr(args[0]);
-                                    let (k_tag, k_val) = self.box_to_tag_value(key_op);
+                                    let (k_tag, k_val) = self.lower_to_tag_value(args[0]);
                                     /* ANY_UNDEF = 5 (runtime_str.c
                                      * __TORAJS_ANY_UNDEF). The Set
                                      * value side never carries data,
@@ -18013,8 +18032,7 @@ impl<'a> LowerCtx<'a> {
                                 }
                                 "has" => {
                                     debug_assert_eq!(args.len(), 1);
-                                    let key_op = self.lower_expr(args[0]);
-                                    let (k_tag, k_val) = self.box_to_tag_value(key_op);
+                                    let (k_tag, k_val) = self.lower_to_tag_value(args[0]);
                                     let r = self.f.append_inst(
                                         self.cur_block,
                                         InstKind::Call(
@@ -18038,8 +18056,7 @@ impl<'a> LowerCtx<'a> {
                                 }
                                 "delete" => {
                                     debug_assert_eq!(args.len(), 1);
-                                    let key_op = self.lower_expr(args[0]);
-                                    let (k_tag, k_val) = self.box_to_tag_value(key_op);
+                                    let (k_tag, k_val) = self.lower_to_tag_value(args[0]);
                                     let r = self.f.append_inst(
                                         self.cur_block,
                                         InstKind::Call(
@@ -18097,10 +18114,8 @@ impl<'a> LowerCtx<'a> {
                             match m_name.as_str() {
                                 "set" => {
                                     debug_assert_eq!(args.len(), 2);
-                                    let key_op = self.lower_expr(args[0]);
-                                    let (k_tag, k_val) = self.box_to_tag_value(key_op);
-                                    let val_op = self.lower_expr(args[1]);
-                                    let (v_tag, v_val) = self.box_to_tag_value(val_op);
+                                    let (k_tag, k_val) = self.lower_to_tag_value(args[0]);
+                                    let (v_tag, v_val) = self.lower_to_tag_value(args[1]);
                                     self.f.append_void(
                                         self.cur_block,
                                         InstKind::Call(
@@ -18112,8 +18127,7 @@ impl<'a> LowerCtx<'a> {
                                 }
                                 "has" => {
                                     debug_assert_eq!(args.len(), 1);
-                                    let key_op = self.lower_expr(args[0]);
-                                    let (k_tag, k_val) = self.box_to_tag_value(key_op);
+                                    let (k_tag, k_val) = self.lower_to_tag_value(args[0]);
                                     let r = self.f.append_inst(
                                         self.cur_block,
                                         InstKind::Call(
@@ -18137,8 +18151,7 @@ impl<'a> LowerCtx<'a> {
                                 }
                                 "delete" => {
                                     debug_assert_eq!(args.len(), 1);
-                                    let key_op = self.lower_expr(args[0]);
-                                    let (k_tag, k_val) = self.box_to_tag_value(key_op);
+                                    let (k_tag, k_val) = self.lower_to_tag_value(args[0]);
                                     let r = self.f.append_inst(
                                         self.cur_block,
                                         InstKind::Call(
@@ -18162,8 +18175,7 @@ impl<'a> LowerCtx<'a> {
                                 }
                                 "get" => {
                                     debug_assert_eq!(args.len(), 1);
-                                    let key_op = self.lower_expr(args[0]);
-                                    let (k_tag, k_val) = self.box_to_tag_value(key_op);
+                                    let (k_tag, k_val) = self.lower_to_tag_value(args[0]);
                                     /* Out-slots for (tag, value). */
                                     let tag_slot = self.alloca(Type::I64, Some("map_get_tag"));
                                     let val_slot = self.alloca(Type::I64, Some("map_get_val"));
