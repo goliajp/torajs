@@ -2186,6 +2186,64 @@ pub fn desugar_prototype_call(ast: &mut Ast) {
 /// this.name = "Error"; } }` (spec §20.5.1). Field order matters:
 /// it must match the ctor-body assignment order since check.rs's
 /// affine-flow analysis walks declarations in order.
+/// P7.3 — build the header expression shared by Error / subclass
+/// ctors as the minimal `.stack` value. Follows ECMAScript
+/// §20.5.3.4 `Error.prototype.toString` (the stack's first line uses
+/// the same format in every engine): an empty `message` yields just
+/// the name — `new Error("").stack` is "Error", not "Error: " (bun /
+/// V8 / JSC all do this). The §20.5.3.4 empty-`name` branch is
+/// unreachable for the injected classes (name is always a non-empty
+/// literal), so only the empty-message case is special-cased:
+///
+///   this.message === "" ? this.name : this.name + ": " + this.message
+fn build_stack_concat(ast: &mut Ast) -> ExprId {
+    // cond: this.message === ""
+    let cm_obj = ast.add_expr(Expr::This);
+    let cm = ast.add_expr(Expr::Member {
+        obj: cm_obj,
+        name: "message".to_string(),
+    });
+    let empty = ast.add_expr(Expr::String(String::new()));
+    let cond = ast.add_expr(Expr::BinOp {
+        op: BinOp::Eq,
+        left: cm,
+        right: empty,
+    });
+    // then: this.name
+    let tn_obj = ast.add_expr(Expr::This);
+    let then_branch = ast.add_expr(Expr::Member {
+        obj: tn_obj,
+        name: "name".to_string(),
+    });
+    // else: this.name + ": " + this.message
+    let n_obj = ast.add_expr(Expr::This);
+    let n = ast.add_expr(Expr::Member {
+        obj: n_obj,
+        name: "name".to_string(),
+    });
+    let colon = ast.add_expr(Expr::String(": ".to_string()));
+    let n_colon = ast.add_expr(Expr::BinOp {
+        op: BinOp::Add,
+        left: n,
+        right: colon,
+    });
+    let m_obj = ast.add_expr(Expr::This);
+    let m = ast.add_expr(Expr::Member {
+        obj: m_obj,
+        name: "message".to_string(),
+    });
+    let else_branch = ast.add_expr(Expr::BinOp {
+        op: BinOp::Add,
+        left: n_colon,
+        right: m,
+    });
+    ast.add_expr(Expr::Ternary {
+        cond,
+        then_branch,
+        else_branch,
+    })
+}
+
 fn build_error_class(ast: &mut Ast) -> Stmt {
     let this0 = ast.add_expr(Expr::This);
     let msg_member = ast.add_expr(Expr::Member {
@@ -2207,6 +2265,24 @@ fn build_error_class(ast: &mut Ast) -> Stmt {
         target: name_member,
         value: name_value,
     });
+    // P7.3 — this.stack = this.name + ": " + this.message. Minimal
+    // header-only stack (the Node `Error.stackTraceLimit = 0` shape,
+    // a real-engine-legal value): `.stack` exists and is a string so
+    // code reading it doesn't fault. No synthesized frames — fake
+    // "at file:line" would be silent-wrong; real frame capture is a
+    // separate perf-sensitive substrate (P7.3-frames). Set last so
+    // it reflects the final name/message; subclasses re-run this
+    // after overriding `name`.
+    let stack_expr = build_stack_concat(ast);
+    let stack_obj = ast.add_expr(Expr::This);
+    let stack_member = ast.add_expr(Expr::Member {
+        obj: stack_obj,
+        name: "stack".to_string(),
+    });
+    let assign3 = ast.add_expr(Expr::Assign {
+        target: stack_member,
+        value: stack_expr,
+    });
 
     let ctor = ClassCtor {
         params: vec![Param {
@@ -2215,7 +2291,11 @@ fn build_error_class(ast: &mut Ast) -> Stmt {
             default: None,
             is_rest: false,
         }],
-        body: vec![Stmt::Expr(assign1), Stmt::Expr(assign2)],
+        body: vec![
+            Stmt::Expr(assign1),
+            Stmt::Expr(assign2),
+            Stmt::Expr(assign3),
+        ],
     };
 
     Stmt::ClassDecl {
@@ -2226,6 +2306,7 @@ fn build_error_class(ast: &mut Ast) -> Stmt {
         fields: vec![
             ("message".to_string(), "string".to_string()),
             ("name".to_string(), "string".to_string()),
+            ("stack".to_string(), "string".to_string()),
         ],
         static_fields: Vec::new(),
         ctor: Some(ctor),
@@ -2258,6 +2339,20 @@ fn build_error_subclass(ast: &mut Ast, sub_name: &str) -> Stmt {
         target: name_member,
         value: name_value,
     });
+    // P7.3 — re-set this.stack AFTER overriding name so it reflects
+    // the subclass name ("TypeError: msg"), not Error's. The Error
+    // ctor reached via super() already set a "Error: msg" stack;
+    // this overwrites it on the same inherited field.
+    let stack_expr = build_stack_concat(ast);
+    let stack_obj = ast.add_expr(Expr::This);
+    let stack_member = ast.add_expr(Expr::Member {
+        obj: stack_obj,
+        name: "stack".to_string(),
+    });
+    let assign_stack = ast.add_expr(Expr::Assign {
+        target: stack_member,
+        value: stack_expr,
+    });
 
     let ctor = ClassCtor {
         params: vec![Param {
@@ -2266,7 +2361,11 @@ fn build_error_subclass(ast: &mut Ast, sub_name: &str) -> Stmt {
             default: None,
             is_rest: false,
         }],
-        body: vec![Stmt::Expr(super_call), Stmt::Expr(assign_name)],
+        body: vec![
+            Stmt::Expr(super_call),
+            Stmt::Expr(assign_name),
+            Stmt::Expr(assign_stack),
+        ],
     };
 
     Stmt::ClassDecl {
