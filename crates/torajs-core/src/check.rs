@@ -2568,7 +2568,12 @@ impl Checker {
                     self.check_stmt(ast, s);
                 }
             }
-            Stmt::LetDecl { mutable, name, type_ann, init, is_var } => {
+            // `is_var` is intentionally ignored here: `desugar_var_hoist`
+            // runs before check and rewrites every `var` into a
+            // hoisted `let`-shaped decl (is_var: false), so the
+            // checker never observes a true `var` — not a silent-wrong,
+            // var semantics are fully resolved upstream.
+            Stmt::LetDecl { mutable, name, type_ann, init, is_var: _ } => {
                 // M1.2 — empty array literal `[]` carries no element-type
                 // info; the annotation must provide it. Special-case to
                 // skip type_of (which would error) and use the annotation
@@ -2971,6 +2976,18 @@ impl Checker {
                     // new.target lookups inside `__new_<C>` factories.
                     "__torajs_class_register" => Ok(Type::Function(
                         vec![Type::Any, Type::String],
+                        Box::new(Type::Void),
+                    )),
+                    // P7.4-a-2 — synthesized by synthesize_class_globals
+                    // for each present Error-family class. ssa_lower
+                    // intercepts, maps the name → fixed runtime-error
+                    // slot + FnAddr(__new_<C>), emits the real
+                    // `__torajs_register_native_error(<slot>, <fnptr>)`.
+                    // Typecheck accepts (string) -> void so the
+                    // AST-emitted `__torajs_register_native_error("<C>")`
+                    // is well-typed.
+                    "__torajs_register_native_error" => Ok(Type::Function(
+                        vec![Type::String],
                         Box::new(Type::Void),
                     )),
                     // P4.5 — synthesized factory-side magic call.
@@ -3670,9 +3687,9 @@ impl Checker {
                     | (Type::String, "toLocaleString") => {
                         Ok(Type::Function(Vec::new(), Box::new(Type::String)))
                     }
-                    (Type::Boolean, "valueOf") => {
-                        Ok(Type::Function(Vec::new(), Box::new(Type::Boolean)))
-                    }
+                    // (`(Type::Boolean, "valueOf")` is handled by the
+                    // earlier Boolean arm — dead duplicate removed for
+                    // the zero-warn build rule.)
                     (Type::BigInt, "valueOf") => {
                         Ok(Type::Function(Vec::new(), Box::new(Type::BigInt)))
                     }
@@ -4528,14 +4545,9 @@ impl Checker {
                     // null if Symbol() was called with no arg. Per JS
                     // spec §20.4.3.2.
                     (Type::Symbol, "description") => Ok(Type::String),
-                    // V3-18 m2.c — `<prim>.constructor` returns the
-                    // constructor function (subset stub: Type::Any so
-                    // typeof works without committing to a real shape).
-                    (Type::Number, "constructor")
-                    | (Type::String, "constructor")
-                    | (Type::Boolean, "constructor")
-                    | (Type::BigInt, "constructor")
-                    | (Type::Symbol, "constructor") => Ok(Type::Any),
+                    // (`<prim>.constructor` — V3-18 m2.c — is handled
+                    // by the earlier identical arm; dead duplicate
+                    // removed for the zero-warn build rule.)
                     // V3-18 m2.d — class-instance Object.prototype
                     // methods. Same shape as namespace ctors:
                     //   .hasOwnProperty(k)         → true if k is a
@@ -7527,15 +7539,20 @@ mod tests {
     }
 
     #[test]
-    fn not_on_non_bool_errors() {
+    fn not_on_any_operand_is_boolean() {
+        // Spec §13.5.7 (logical NOT) → §7.1.2 ToBoolean: `!x` is
+        // defined for ANY operand type and always yields a boolean
+        // (`!1 === false`, `!0 === true`). Applying `!` to a number
+        // is NOT a type error — `let r: boolean = !n;` is valid TS
+        // and bun runs it (verified byte-equal). The old assertion
+        // pinned a pre-spec restriction the typechecker has since
+        // correctly dropped; restoring the rejection would regress
+        // test262. Spec-correct contract: this typechecks.
         let src = "let n: number = 1; let r: boolean = !n;";
-        let r = check_src(src);
         assert!(
-            r.as_ref()
-                .err()
-                .map(|s| s.contains("`!`") || s.contains("boolean"))
-                .unwrap_or(false),
-            "expected boolean-required error, got {r:?}"
+            check_src(src).is_ok(),
+            "`!<number>` is spec-valid (ToBoolean) and must typecheck, got {:?}",
+            check_src(src)
         );
     }
 
@@ -7703,15 +7720,24 @@ mod tests {
     }
 
     #[test]
-    fn struct_self_reference_unsupported() {
-        // Forward reference in field — sibling alias must be declared first.
-        // (We could relax to allow forward refs in pass 0; deferred. For
-        // now this test pins the current behavior.)
+    fn struct_forward_reference_ok() {
+        // TS type aliases are not declaration-order sensitive — a
+        // field may reference a sibling alias declared later. The old
+        // test pinned a pre-spec "must declare first" limitation; the
+        // checker now resolves forward refs correctly (verified
+        // byte-equal with bun: `a.other.x` → 5). Rejecting valid
+        // forward refs would regress test262. Spec-correct contract:
+        // this typechecks.
         let src = r#"
             type A = { other: B };
             type B = { x: number };
+            const b: B = { x: 5 };
+            const a: A = { other: b };
         "#;
-        let r = check_src(src);
-        assert!(r.is_err(), "expected error from forward reference, got {r:?}");
+        assert!(
+            check_src(src).is_ok(),
+            "forward type-alias reference is valid TS and must typecheck, got {:?}",
+            check_src(src)
+        );
     }
 }

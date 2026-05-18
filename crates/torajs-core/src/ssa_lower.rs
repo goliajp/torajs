@@ -659,8 +659,11 @@ fn deep_clone_stmt(ast: &mut Ast, s: &Stmt) -> Stmt {
             name: name.clone(),
             type_ann: type_ann.clone(),
             init: deep_clone_expr(ast, *init),
-        is_var: false,
-            },
+            // a deep clone must preserve `is_var` — hardcoding false
+            // silently turned cloned `var` decls into `let`/`const`,
+            // dropping var-hoist semantics (zero-warn surfaced it).
+            is_var: *is_var,
+        },
         Stmt::If { cond, then_branch, else_branch } => Stmt::If {
             cond: deep_clone_expr(ast, *cond),
             then_branch: Box::new(deep_clone_stmt(ast, then_branch)),
@@ -2293,6 +2296,19 @@ fn lower_inner(
         &mut fn_table,
         "__torajs_proto_register",
         &[Type::I64, Type::Any],
+        Type::Void,
+    );
+    // P7.4-a-2 — (slot, factory_fn_ptr). slot is a fixed enum
+    // (0=Error 1=TypeError 2=RangeError), NOT a per-program class
+    // tag. factory is the codegen'd `__new_<C>` address (FnAddr,
+    // passed pointer-shaped — same representation as the closure
+    // drop-fn-ptr stored as Type::Ptr). Runtime stores it and calls
+    // it to build a real catchable instance on a native-error throw.
+    let register_native_error_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_register_native_error",
+        &[Type::I64, Type::Ptr],
         Type::Void,
     );
     let proto_get_id = declare_intrinsic(
@@ -4421,6 +4437,7 @@ fn lower_inner(
         any_box: any_box_id,
         any_payload_rc_inc: any_payload_rc_inc_id,
         proto_register: proto_register_id,
+        register_native_error: register_native_error_id,
         proto_get: proto_get_id,
         class_register: class_register_id,
         class_get: class_get_id,
@@ -5262,6 +5279,7 @@ struct Intrinsics {
     any_box: FuncId,
     any_payload_rc_inc: FuncId,
     proto_register: FuncId,
+    register_native_error: FuncId,
     proto_get: FuncId,
     class_register: FuncId,
     class_get: FuncId,
@@ -10439,7 +10457,7 @@ impl<'a> LowerCtx<'a> {
                 let _ = self.shadow_stack.pop().expect("shadow frame");
                 self.locals.remove(var_name);
             }
-            Stmt::ForOf { var_name, var_type_ann: _, src_ident, i_ident, elem_expr, body } => {
+            Stmt::ForOf { var_name, var_type_ann: _, src_ident: _, i_ident, elem_expr, body } => {
                 // P5.3 — generic `for (let v of <expr>) body`. Parser
                 // hoisted <expr> into `src_ident` (or it was already an
                 // Ident) and pre-built `elem_expr = src_ident[i_ident]`
@@ -15993,6 +16011,51 @@ impl<'a> LowerCtx<'a> {
                     } else {
                         let ty = self.operand_ty(&class_op);
                         self.emit_drop_value(class_op, ty);
+                    }
+                    return Operand::ConstI64(0);
+                }
+
+                // P7.4-a-2 — synthesize_class_globals injected
+                // `__torajs_register_native_error("<C>")` at module
+                // init for each Error-family class present. Map the
+                // name to its FIXED runtime-error slot (0=Error
+                // 1=TypeError 2=RangeError — NOT a per-program class
+                // tag) and to the codegen'd `__new_<C>` factory
+                // address, then emit the real registration. The
+                // runtime stores the fn-ptr and calls it on a
+                // native-error throw to build a real catchable
+                // instance. Unknown name / missing factory / missing
+                // sig → silent no-op (program lacks that class;
+                // runtime keeps its bare-string fallback).
+                if let Expr::Ident(name) = self.ast.get_expr(*callee)
+                    && name == "__torajs_register_native_error"
+                    && args.len() == 1
+                    && let Expr::String(cname) = self.ast.get_expr(args[0])
+                {
+                    let cname = cname.clone();
+                    let slot: i64 = match cname.as_str() {
+                        "Error" => 0,
+                        "TypeError" => 1,
+                        "RangeError" => 2,
+                        _ => return Operand::ConstI64(0),
+                    };
+                    let factory = format!("__new_{cname}");
+                    if let Some(fid) = self.fn_table.get(&factory).copied()
+                        && let Some(sig) = self.fn_sig_ids.get(&fid).copied()
+                    {
+                        let fnaddr = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::FnAddr(fid),
+                            Type::FnSig(sig),
+                            None,
+                        );
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.register_native_error,
+                                vec![Operand::ConstI64(slot), Operand::Value(fnaddr)],
+                            ),
+                        );
                     }
                     return Operand::ConstI64(0);
                 }
@@ -26708,8 +26771,9 @@ impl<'a> LowerCtx<'a> {
                 // differ — matches the spec for both NaN and normal
                 // numbers.
                 AstBinOp::Neq | AstBinOp::LooseNeq => self.fcmp(FPred::Une, af, bf),
-                AstBinOp::Mod
-                | AstBinOp::BitAnd
+                // (`AstBinOp::Mod` in the f64 path is handled above
+                // via FRem — not repeated here; zero-warn rule.)
+                AstBinOp::BitAnd
                 | AstBinOp::BitOr
                 | AstBinOp::BitXor
                 | AstBinOp::Shl

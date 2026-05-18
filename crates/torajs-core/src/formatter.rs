@@ -191,7 +191,9 @@ impl<'a> Formatter<'a> {
             }
             Stmt::LetDecl { mutable, name, type_ann, init, is_var } => {
                 self.write_indent();
-                self.write(if *mutable { "let " } else { "const " });
+                // `var` must format as `var` — emitting let/const here
+                // silently rewrote `var x` decls (zero-warn surfaced it).
+                self.write(if *is_var { "var " } else if *mutable { "let " } else { "const " });
                 self.write(name);
                 if let Some(ann) = type_ann {
                     self.write(": ");
@@ -633,7 +635,9 @@ impl<'a> Formatter<'a> {
         // Reuse the regular Stmt formatter but with indent suppressed.
         match s {
             Stmt::LetDecl { mutable, name, type_ann, init, is_var } => {
-                self.write(if *mutable { "let " } else { "const " });
+                // `var` must format as `var` (zero-warn surfaced this
+                // arm silently rewriting `var` → let/const).
+                self.write(if *is_var { "var " } else if *mutable { "let " } else { "const " });
                 self.write(name);
                 if let Some(ann) = type_ann {
                     self.write(": ");

@@ -2433,8 +2433,19 @@ pub fn inject_builtin_classes(ast: &mut Ast) {
         ast.exprs.iter().any(|e| {
             matches!(e, Expr::Ident(x) | Expr::New { class_name: x, .. } if x == n)
                 || matches!(e, Expr::Member { name, .. } if name == n)
+                // P7.4-a-2 — `x instanceof <N>` is a genuine reference
+                // to <N>; without this `catch (e) { e instanceof
+                // TypeError }` wouldn't inject TypeError and the
+                // runtime native-error throw couldn't build a real
+                // instance for it.
+                || matches!(e, Expr::InstanceOf { class_name, .. } if class_name == n)
         }) || ast.stmts.iter().any(|s| {
             matches!(s, Stmt::ClassDecl { parent: Some(p), .. } if p == n)
+                // P7.4-a-2 — `catch (e: <N>)` annotates the class and
+                // expects it to resolve; treat the annotation as a
+                // reference so the typed catch + runtime real-instance
+                // path both work.
+                || matches!(s, Stmt::Try { catch_type: Some(t), .. } if t == n)
         })
     };
 
@@ -2624,6 +2635,29 @@ pub fn synthesize_class_globals(ast: &mut Ast) {
         prepended.push(Stmt::Expr(call));
     }
 
+    // P7.4-a-2 — register each present Error-family class's
+    // `__new_<C>` factory into the runtime native-error registry so a
+    // runtime native-error throw (bigint RangeError, readonly-prop /
+    // Symbol.for TypeError) builds a real catchable instance instead
+    // of the bare-string fallback. ssa_lower intercepts this magic
+    // call → maps name to its fixed slot + FnAddr(__new_<C>). The
+    // arg is a String literal (not an Ident) so the `__class_<C>`
+    // rewrite below leaves it untouched. Only the three
+    // runtime-throwable classes are wired.
+    for cname in &class_names {
+        if matches!(cname.as_str(), "Error" | "TypeError" | "RangeError") {
+            let name_str = ast.add_expr(Expr::String(cname.clone()));
+            let callee = ast.add_expr(Expr::Ident(
+                "__torajs_register_native_error".to_string(),
+            ));
+            let call = ast.add_expr(Expr::Call {
+                callee,
+                args: vec![name_str],
+            });
+            prepended.push(Stmt::Expr(call));
+        }
+    }
+
     // Rewrite Ident("<C>") → Ident("__class_<C>") for each known
     // class name. Walks the entire expr arena since class refs can
     // appear anywhere (let init, fn arg, return value, conditional
@@ -2663,12 +2697,12 @@ pub fn desugar_classes(ast: &mut Ast) {
     let mut class_field_preludes: std::collections::HashMap<String, Vec<Stmt>> =
         std::collections::HashMap::new();
     let mut appended: Vec<Stmt> = Vec::new();
-    /// M-OO.4 — accumulator for `let __sf_<C>__<name>: T = init;`
-    /// declarations. These get **prepended** to `ast.stmts` (not
-    /// appended) so the synthetic `main` fn runs them before any
-    /// user top-level code; the alternative leaves `check()` reading
-    /// uninitialized slots when the user-visible call comes first
-    /// in source order.
+    // M-OO.4 — accumulator for `let __sf_<C>__<name>: T = init;`
+    // declarations. These get **prepended** to `ast.stmts` (not
+    // appended) so the synthetic `main` fn runs them before any
+    // user top-level code; the alternative leaves `check()` reading
+    // uninitialized slots when the user-visible call comes first
+    // in source order.
     let mut static_field_inits: Vec<Stmt> = Vec::new();
 
     // Snapshot the class metadata first (cloned out so we can mutate
@@ -5580,84 +5614,6 @@ fn collect_expr_fn_to_closure(
     }
 }
 
-/// Walk a fn body looking for `return <Ident(global_fn)>;` shapes; the
-/// caller has already verified the surrounding fn's return type is
-/// fn-like (i.e. the SSA-level return slot is `Type::Closure`), so any
-/// FnSig value being returned needs wrapping into a trivial forwarder.
-fn collect_return_fn_to_closure(
-    ast: &Ast,
-    body: &[Stmt],
-    fn_sigs: &std::collections::HashMap<String, (Vec<Param>, Option<String>)>,
-    targets: &mut std::collections::HashSet<String>,
-    rewrites: &mut Vec<(ExprId, String)>,
-) {
-    for s in body {
-        collect_return_fn_to_closure_stmt(ast, s, fn_sigs, targets, rewrites);
-    }
-}
-
-fn collect_return_fn_to_closure_stmt(
-    ast: &Ast,
-    s: &Stmt,
-    fn_sigs: &std::collections::HashMap<String, (Vec<Param>, Option<String>)>,
-    targets: &mut std::collections::HashSet<String>,
-    rewrites: &mut Vec<(ExprId, String)>,
-) {
-    match s {
-        Stmt::Return(Some(eid)) => {
-            if let Expr::Ident(name) = ast.get_expr(*eid)
-                && fn_sigs.contains_key(name)
-            {
-                targets.insert(name.clone());
-                rewrites.push((*eid, name.clone()));
-            }
-        }
-        Stmt::If { then_branch, else_branch, .. } => {
-            collect_return_fn_to_closure_stmt(ast, then_branch, fn_sigs, targets, rewrites);
-            if let Some(eb) = else_branch {
-                collect_return_fn_to_closure_stmt(ast, eb, fn_sigs, targets, rewrites);
-            }
-        }
-        Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
-            collect_return_fn_to_closure_stmt(ast, body, fn_sigs, targets, rewrites);
-        }
-        Stmt::For { body, .. } => {
-            collect_return_fn_to_closure_stmt(ast, body, fn_sigs, targets, rewrites);
-        }
-        Stmt::Block(stmts) | Stmt::Multi(stmts) => {
-            for inner in stmts {
-                collect_return_fn_to_closure_stmt(ast, inner, fn_sigs, targets, rewrites);
-            }
-        }
-        Stmt::Switch { cases, default, .. } => {
-            for c in cases {
-                for inner in &c.body {
-                    collect_return_fn_to_closure_stmt(ast, inner, fn_sigs, targets, rewrites);
-                }
-            }
-            if let Some(d) = default {
-                for inner in d {
-                    collect_return_fn_to_closure_stmt(ast, inner, fn_sigs, targets, rewrites);
-                }
-            }
-        }
-        Stmt::Try { body, catch_body, finally_body, .. } => {
-            for inner in body {
-                collect_return_fn_to_closure_stmt(ast, inner, fn_sigs, targets, rewrites);
-            }
-            for inner in catch_body {
-                collect_return_fn_to_closure_stmt(ast, inner, fn_sigs, targets, rewrites);
-            }
-            if let Some(fb) = finally_body {
-                for inner in fb {
-                    collect_return_fn_to_closure_stmt(ast, inner, fn_sigs, targets, rewrites);
-                }
-            }
-        }
-        _ => {}
-    }
-}
-
 /// When a LetDecl has shape `const o: T = { k: v, ... }` and `T`
 /// resolves to a known TypeDecl whose field `k` is fn-typed, and `v`
 /// is a bare Ident referring to a top-level FnDecl, mark `v` as
@@ -7518,8 +7474,11 @@ fn sfi_rewrite_stmt(ast: &mut Ast, s: &Stmt, x_name: &str, i_name: &str, v_name:
             name: name.clone(),
             type_ann: type_ann.clone(),
             init: sfi_rewrite_expr(ast, *init, x_name, i_name, v_name),
-        is_var: false,
-            },
+            // preserve the `var` flag through the rewrite — hardcoding
+            // false silently dropped var-hoist semantics on any
+            // rewritten `var` decl (surfaced by the zero-warn rule).
+            is_var: *is_var,
+        },
         Stmt::If { cond, then_branch, else_branch } => Stmt::If {
             cond: sfi_rewrite_expr(ast, *cond, x_name, i_name, v_name),
             then_branch: Box::new(sfi_rewrite_stmt(ast, then_branch, x_name, i_name, v_name)),
@@ -8230,8 +8189,10 @@ fn rewrite_arguments_in_stmt(
             name: name.clone(),
             type_ann: type_ann.clone(),
             init: rewrite_arguments_in_expr(ast, *init, params, uses_real_argc),
-        is_var: false,
-            },
+            // preserve `var` flag (hardcoded false dropped var-hoist
+            // semantics on rewritten `var` decls; zero-warn surfaced it).
+            is_var: *is_var,
+        },
         Stmt::Block(stmts) => Stmt::Block(
             stmts
                 .iter()

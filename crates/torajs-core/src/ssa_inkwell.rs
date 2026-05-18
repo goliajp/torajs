@@ -3488,10 +3488,12 @@ fn define_arr_drop<'ctx>(
 /// Phase B refcount: decrement the universal heap header's refcount;
 /// free the alloc only when it reaches zero. NULL passes through.
 ///
-///     if (s == NULL) return;
-///     u32 *rc = (u32*)s;          // refcount @ offset 0
-///     *rc -= 1;
-///     if (*rc == 0) free(s);
+/// ```text
+/// if (s == NULL) return;
+/// u32 *rc = (u32*)s;          // refcount @ offset 0
+/// *rc -= 1;
+/// if (*rc == 0) free(s);
+/// ```
 fn define_str_drop<'ctx>(
     ctx: &'ctx Context,
     m: &LlvmModule<'ctx>,
@@ -3590,9 +3592,11 @@ fn define_str_drop<'ctx>(
 
 /// `__torajs_str_print(*StrRepr s) -> void`
 ///
-///     len = *(u64*)s
-///     write(1 /*stdout*/, s + 8, len)
-///     write(1, "\n", 1)
+/// ```text
+/// len = *(u64*)s
+/// write(1 /*stdout*/, s + 8, len)
+/// write(1, "\n", 1)
+/// ```
 ///
 /// `__torajs_str_print(*StrRepr)` — writes the bytes + trailing newline
 /// through `putchar` (one byte at a time). Goes through the same stdio
