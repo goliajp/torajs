@@ -10399,6 +10399,17 @@ impl<'a> LowerCtx<'a> {
                 };
                 let src_ptr_op = self.lower_expr(src_ref_eid);
                 let src_ty = self.operand_ty(&src_ptr_op);
+                // P6.4c — for-of on Map / Set / MapIter receivers
+                // dispatches through the MapIter substrate (P6.4b).
+                // Map default iter yields `[k, v]` Array<Any> entries
+                // (spec §23.1.4 — Map's @@iterator = entries());
+                // Set default iter yields elements (spec §24.2.5.1 —
+                // Set's @@iterator = values()); a user-bound MapIter
+                // just steps directly.
+                if matches!(src_ty, Type::Map | Type::Set | Type::MapIter) {
+                    self.lower_for_of_map_like(src_ptr_op, src_ty, var_name, body);
+                    return;
+                }
                 // P5.3 Phase B — when src is Type::Obj(sid) and its
                 // class declares `[Symbol.iterator]()` (lowered as
                 // `__cm_<C>____sym_Symbol_iterator__`), dispatch to
@@ -27591,6 +27602,234 @@ impl<'a> LowerCtx<'a> {
         );
         self.emit_drop_value(Operand::Value(iter_load_drop), iter_ret_ty);
         let _ = self.scope_stack.pop().expect("for-of-proto iter scope");
+        let _ = self.shadow_stack.pop().expect("shadow frame");
+    }
+
+    /// P6.4c — emit `for (let v of src)` for Map / Set / MapIter
+    /// receivers. Map's default iter (per spec §23.1.4) is
+    /// `.entries()` — each step yields a freshly-alloced `[k, v]`
+    /// Array<Any>, so we bind `var_name` as `Type::Arr<Any>` to let
+    /// destructuring `for (let [k, v] of m)` work via the existing
+    /// parser-side desugar (which generates `__forof_destr[0]` /
+    /// `[1]` reads, lowered through the Array<Any> Expr::Index
+    /// path). Set's default iter yields elements (Type::Any).
+    /// MapIter is borrowed — kind unknown at compile time, so var is
+    /// type-erased to Any.
+    fn lower_for_of_map_like(
+        &mut self,
+        src_op: Operand,
+        src_ty: Type,
+        var_name: &str,
+        body: &Stmt,
+    ) {
+        // 1. Get / create the iter. For Map / Set we mint a fresh
+        //    MapIter; for an already-MapIter source we borrow it
+        //    (the caller's binding owns the rc; we don't drop it
+        //    at after_blk).
+        let (iter_op, should_drop_iter, var_ty): (Operand, bool, Type) = match src_ty {
+            Type::Map => {
+                /* Map default iter = entries() per spec §23.1.4. */
+                let v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.map_iter_create_entries, vec![src_op]),
+                    Type::MapIter,
+                    None,
+                );
+                let arr_id = intern_arr_layout(self.arr_layouts, Type::Any);
+                (Operand::Value(v), true, Type::Arr(arr_id))
+            }
+            Type::Set => {
+                /* Set default iter = values() (= keys, since
+                 * storage value side is ANY_UNDEF) per spec
+                 * §24.2.5.1. */
+                let v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.map_iter_create_keys, vec![src_op]),
+                    Type::MapIter,
+                    None,
+                );
+                (Operand::Value(v), true, Type::Any)
+            }
+            Type::MapIter => (src_op, false, Type::Any),
+            _ => unreachable!("lower_for_of_map_like: src_ty must be Map | Set | MapIter"),
+        };
+
+        // 2. Stash iter in slot so per-iter step loads keep load /
+        //    store paths uniform with the protocol helper.
+        self.scope_stack.push(Vec::new());
+        self.shadow_stack.push(Vec::new());
+        let iter_slot = self.alloca(Type::MapIter, Some("__forof_map_it"));
+        self.f.append_void(
+            self.cur_block,
+            InstKind::Store(iter_op, Operand::Value(iter_slot), 0),
+        );
+
+        // 3. Pre-alloc the (tag, payload) out-slots for map_iter_step.
+        let tag_slot = self.alloca(Type::I64, Some("__forof_map_tag"));
+        let val_slot = self.alloca(Type::I64, Some("__forof_map_val"));
+
+        let header = self.f.add_block();
+        let body_blk = self.f.add_block();
+        let after = self.f.add_block();
+        self.f.set_term(self.cur_block, Terminator::Br(header));
+
+        // 4. Header — call iter step; exit when live==0.
+        self.cur_block = header;
+        let iter_load = self.f.append_inst(
+            self.cur_block,
+            InstKind::Load(Type::MapIter, Operand::Value(iter_slot), 0),
+            Type::MapIter,
+            None,
+        );
+        let live = self.f.append_inst(
+            self.cur_block,
+            InstKind::Call(
+                self.intrinsics.map_iter_step,
+                vec![
+                    Operand::Value(iter_load),
+                    Operand::Value(tag_slot),
+                    Operand::Value(val_slot),
+                ],
+            ),
+            Type::I64,
+            None,
+        );
+        let done = self.f.append_inst(
+            self.cur_block,
+            InstKind::ICmp(IPred::Eq, Operand::Value(live), Operand::ConstI64(0)),
+            Type::Bool,
+            None,
+        );
+        self.f.set_term(
+            self.cur_block,
+            Terminator::CondBr {
+                cond: Operand::Value(done),
+                then_blk: after,
+                else_blk: body_blk,
+            },
+        );
+
+        // 5. Body — bind var_name. For Map case var is Type::Arr<Any>
+        //    so we directly Load the val_slot as Arr<Any> (codegen is
+        //    same 8-byte ptr; SSA type just relabels for downstream
+        //    Expr::Index lowering). For Set / MapIter we wrap the
+        //    (tag, payload) into an Any-box.
+        self.cur_block = body_blk;
+        self.scope_stack.push(Vec::new());
+        self.shadow_stack.push(Vec::new());
+        let v_val: ValueId = match src_ty {
+            Type::Map => {
+                /* val_slot's i64 happens to be an arr_ptr (Map's
+                 * ENTRIES iter always emits ANY_HEAP + arr_ptr).
+                 * Reload as Arr<Any> directly. */
+                self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Load(var_ty, Operand::Value(val_slot), 0),
+                    var_ty,
+                    None,
+                )
+            }
+            Type::Set | Type::MapIter => {
+                let tag_v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Load(Type::I64, Operand::Value(tag_slot), 0),
+                    Type::I64,
+                    None,
+                );
+                let pv = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Load(Type::I64, Operand::Value(val_slot), 0),
+                    Type::I64,
+                    None,
+                );
+                self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(
+                        self.intrinsics.any_box,
+                        vec![Operand::Value(tag_v), Operand::Value(pv)],
+                    ),
+                    Type::Any,
+                    None,
+                )
+            }
+            _ => unreachable!(),
+        };
+        let v_slot = self.alloca(var_ty, Some(var_name));
+        self.f.append_void(
+            self.cur_block,
+            InstKind::Store(Operand::Value(v_val), Operand::Value(v_slot), 0),
+        );
+        {
+            let cur_depth = self.scope_stack.len() - 1;
+            if let Some(prev) = self.locals.get(var_name).copied()
+                && prev.scope_depth < cur_depth
+            {
+                self.shadow_stack
+                    .last_mut()
+                    .expect("shadow frame")
+                    .push((var_name.to_string(), prev));
+            }
+            self.locals.insert(
+                var_name.to_string(),
+                LocalInfo {
+                    slot: v_slot,
+                    ty: var_ty,
+                    moved: false,
+                    scope_depth: cur_depth,
+                },
+            );
+            self.scope_stack
+                .last_mut()
+                .expect("scope frame")
+                .push(var_name.to_string());
+        }
+        self.loop_stack.push((header, after));
+        self.lower_stmt(body);
+        let body_open = self.cur_open();
+        self.loop_stack.pop();
+        // Drop var_name at end of iteration. Map case (Arr<Any>):
+        // arr_drop walks slots dropping each ANY_HEAP. Set/MapIter
+        // case (Any): any_box_drop dec rc + drop heap payload.
+        let body_frame = self.scope_stack.pop().expect("for-of-map body scope");
+        let body_shadows = self.shadow_stack.pop().expect("shadow frame");
+        if body_open {
+            for name in &body_frame {
+                let info = match self.locals.get(name) {
+                    Some(i) => *i,
+                    None => continue,
+                };
+                if info.moved || info.ty.is_copy() {
+                    continue;
+                }
+                let val = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Load(info.ty, Operand::Value(info.slot), 0),
+                    info.ty,
+                    None,
+                );
+                self.emit_drop_value(Operand::Value(val), info.ty);
+            }
+            self.f.set_term(self.cur_block, Terminator::Br(header));
+        }
+        for n in &body_frame {
+            self.locals.remove(n);
+        }
+        for (n, prev) in body_shadows {
+            self.locals.insert(n, prev);
+        }
+
+        self.cur_block = after;
+        // 6. Drop iter if we created it.
+        if should_drop_iter {
+            let iter_load_drop = self.f.append_inst(
+                self.cur_block,
+                InstKind::Load(Type::MapIter, Operand::Value(iter_slot), 0),
+                Type::MapIter,
+                None,
+            );
+            self.emit_drop_value(Operand::Value(iter_load_drop), Type::MapIter);
+        }
+        let _ = self.scope_stack.pop().expect("for-of-map iter scope");
         let _ = self.shadow_stack.pop().expect("shadow frame");
     }
 }

@@ -2489,13 +2489,28 @@ impl Checker {
                 // skip the index typecheck and route through the
                 // protocol path; ssa_lower derives elem_ty from the
                 // iter chain's step.value field.
-                let src_is_struct = if let Expr::Index { obj, .. } = ast.get_expr(*elem_expr) {
-                    matches!(self.type_of(ast, *obj), Ok(Type::Struct(_)))
+                // P6.4c — same skip for Type::Map / Type::Set /
+                // Type::MapIter (handled by lower_for_of_map_like in
+                // ssa_lower). For Type::Map specifically the yielded
+                // value is `[k, v]` Array<Any> so var_ty is
+                // Array(Any) (enables destructuring `for (let [k, v]
+                // of m)`); for Set / MapIter the yield is type-erased
+                // Any.
+                let src_kind = if let Expr::Index { obj, .. } = ast.get_expr(*elem_expr) {
+                    self.type_of(ast, *obj).ok()
                 } else {
-                    false
+                    None
                 };
-                let elem_ty = if src_is_struct {
-                    Type::Any
+                let src_is_iter_subset = matches!(
+                    src_kind,
+                    Some(Type::Struct(_)) | Some(Type::Map) | Some(Type::Set)
+                        | Some(Type::MapIter)
+                );
+                let elem_ty = if src_is_iter_subset {
+                    match src_kind {
+                        Some(Type::Map) => Type::Array(Box::new(Type::Any)),
+                        _ => Type::Any,
+                    }
                 } else {
                     match self.type_of(ast, *elem_expr) {
                         Ok(t) => t,
