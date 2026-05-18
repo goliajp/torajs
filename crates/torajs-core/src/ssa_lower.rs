@@ -2634,6 +2634,69 @@ fn lower_inner(
         &[Type::WeakSet],
         Type::Void,
     );
+    /* P6.1 — Strong-ref `Map<K, V>` runtime. Tagged-Any keys + values
+     * with SameValueZero key equality. set / has / delete take the
+     * key as an unboxed (tag, payload) pair so the caller can avoid
+     * a temp Any-box alloc when the receiver is typed-tier (e.g.
+     * `Map<string, T>`); the box_to_tag_value helper produces that
+     * pair from a Type::Any source. get returns into a (tag,
+     * payload) out pair through stack-slot pointers — same shape. */
+    let map_create_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_map_create",
+        &[],
+        Type::Map,
+    );
+    let map_set_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_map_set",
+        &[Type::Map, Type::I64, Type::I64, Type::I64, Type::I64],
+        Type::Void,
+    );
+    let map_get_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_map_get",
+        &[Type::Map, Type::I64, Type::I64, Type::Ptr, Type::Ptr],
+        Type::Void,
+    );
+    let map_has_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_map_has",
+        &[Type::Map, Type::I64, Type::I64],
+        Type::I64,
+    );
+    let map_delete_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_map_delete",
+        &[Type::Map, Type::I64, Type::I64],
+        Type::I64,
+    );
+    let map_clear_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_map_clear",
+        &[Type::Map],
+        Type::Void,
+    );
+    let map_size_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_map_size",
+        &[Type::Map],
+        Type::I64,
+    );
+    let map_drop_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_map_drop",
+        &[Type::Map],
+        Type::Void,
+    );
     /* T-26.C — Bacon-Rajan cycle collector. cycle_buffer is hot-
      * path: called from the inline Obj drop's else-branch when
      * rc stays positive. cycle_collect is the manual `gc()`
@@ -4328,6 +4391,14 @@ fn lower_inner(
         weakmap_has: weakmap_has_id,
         weakmap_delete: weakmap_delete_id,
         weakmap_drop: weakmap_drop_id,
+        map_create: map_create_id,
+        map_set: map_set_id,
+        map_get: map_get_id,
+        map_has: map_has_id,
+        map_delete: map_delete_id,
+        map_clear: map_clear_id,
+        map_size: map_size_id,
+        map_drop: map_drop_id,
         weakset_create: weakset_create_id,
         weakset_add: weakset_add_id,
         weakset_has: weakset_has_id,
@@ -5154,6 +5225,15 @@ struct Intrinsics {
     weakmap_has: FuncId,
     weakmap_delete: FuncId,
     weakmap_drop: FuncId,
+    /* P6.1 — strong-ref Map<K,V> intrinsics. */
+    map_create: FuncId,
+    map_set: FuncId,
+    map_get: FuncId,
+    map_has: FuncId,
+    map_delete: FuncId,
+    map_clear: FuncId,
+    map_size: FuncId,
+    map_drop: FuncId,
     weakset_create: FuncId,
     weakset_add: FuncId,
     weakset_has: FuncId,
@@ -6102,6 +6182,10 @@ fn parse_type(
         // Type ann is `weakref` (lowercase) since `WeakRef<T>` ann
         // form isn't parsed at SSA layer yet — type-erased.
         "weakref" => Type::WeakRef,
+        // P6.1 — strong-ref Map / Set. Type-erased keys + values via
+        // the tagged-Any slot layout in runtime_map.c.
+        "Map" | "map" => Type::Map,
+        "Set" | "set" => Type::Set,
         // T-26.B (v0.7) — WeakMap / WeakSet. Type-erased keys + values.
         "weakmap" => Type::WeakMap,
         "weakset" => Type::WeakSet,
@@ -8346,10 +8430,14 @@ impl<'a> LowerCtx<'a> {
                     /* T-26 — `new WeakRef(target)` / `new WeakMap()`
                      * / `new WeakSet()` borrow their args (or take
                      * none); skip the recurse so the consume walk
-                     * doesn't mark bound idents as moved. */
+                     * doesn't mark bound idents as moved.
+                     * P6.1 — `new Map()` is zero-arg; the iterable-
+                     * initializer overload (P6.5) will need its own
+                     * recurse policy. */
                     if class_name == "WeakRef"
                         || class_name == "WeakMap"
                         || class_name == "WeakSet"
+                        || class_name == "Map"
                     {
                         continue;
                     }
@@ -9212,6 +9300,27 @@ impl<'a> LowerCtx<'a> {
                 self.f.append_void(
                     self.cur_block,
                     InstKind::Call(self.intrinsics.weakset_drop, vec![val]),
+                );
+            }
+            Type::Map => {
+                /* P6.1 — rc-aware Map drop. Walks every live
+                 * entry, drops both key + value strong refs via
+                 * value_drop_heap, frees the entries array, then
+                 * frees the Map struct on last owner. */
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.map_drop, vec![val]),
+                );
+            }
+            Type::Set => {
+                /* P6.2 — Set wires through map_drop once the Set
+                 * substrate lands. P6.1 ships only Type::Map active;
+                 * Type::Set is reserved here so unused-binding sites
+                 * don't fault, and the Map drop path will be reused
+                 * when P6.2 desugars `new Set()` into a Map. */
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.map_drop, vec![val]),
                 );
             }
             other if other.is_copy() => {
@@ -12536,6 +12645,20 @@ impl<'a> LowerCtx<'a> {
                     self.cur_block,
                     InstKind::Call(self.intrinsics.weakset_create, vec![]),
                     Type::WeakSet,
+                    None,
+                );
+                return Operand::Value(v);
+            }
+            Expr::New { class_name, .. } if class_name == "Map" => {
+                /* P6.1 — `new Map()`. Spec also accepts an iterable
+                 * initializer (`new Map([[k, v], ...])`); plumbing
+                 * that requires the P5 iterator protocol fanning
+                 * into the ctor desugar. Zero-arg only for now —
+                 * check.rs rejects non-empty args. */
+                let v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.map_create, vec![]),
+                    Type::Map,
                     None,
                 );
                 return Operand::Value(v);
@@ -17825,6 +17948,149 @@ impl<'a> LowerCtx<'a> {
                         }
                     }
                 }
+                /* P6.1 — Map<K, V> method dispatch. Receiver
+                 * Type::Map; key + value flow through
+                 * `box_to_tag_value` so the runtime helper sees an
+                 * unboxed `(tag, payload)` pair. set / has / delete
+                 * are call-and-coerce; get reads an out (tag, val)
+                 * pair from stack slots and rewraps as an Any-box;
+                 * clear is a zero-arg call. */
+                if let Expr::Member { obj, name } = self.ast.get_expr(*callee) {
+                    let m_name = name.clone();
+                    let map_method = matches!(
+                        m_name.as_str(),
+                        "set" | "get" | "has" | "delete" | "clear"
+                    );
+                    if map_method {
+                        let recv_ty_hint = match self.ast.get_expr(*obj) {
+                            Expr::Ident(n) => self.locals.get(n).map(|info| info.ty),
+                            _ => None,
+                        };
+                        if recv_ty_hint == Some(Type::Map) {
+                            let recv_op = self.lower_expr(*obj);
+                            match m_name.as_str() {
+                                "set" => {
+                                    debug_assert_eq!(args.len(), 2);
+                                    let key_op = self.lower_expr(args[0]);
+                                    let (k_tag, k_val) = self.box_to_tag_value(key_op);
+                                    let val_op = self.lower_expr(args[1]);
+                                    let (v_tag, v_val) = self.box_to_tag_value(val_op);
+                                    self.f.append_void(
+                                        self.cur_block,
+                                        InstKind::Call(
+                                            self.intrinsics.map_set,
+                                            vec![recv_op, k_tag, k_val, v_tag, v_val],
+                                        ),
+                                    );
+                                    return Operand::ConstI64(0);
+                                }
+                                "has" => {
+                                    debug_assert_eq!(args.len(), 1);
+                                    let key_op = self.lower_expr(args[0]);
+                                    let (k_tag, k_val) = self.box_to_tag_value(key_op);
+                                    let r = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::Call(
+                                            self.intrinsics.map_has,
+                                            vec![recv_op, k_tag, k_val],
+                                        ),
+                                        Type::I64,
+                                        None,
+                                    );
+                                    let b = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::ICmp(
+                                            IPred::Ne,
+                                            Operand::Value(r),
+                                            Operand::ConstI64(0),
+                                        ),
+                                        Type::Bool,
+                                        None,
+                                    );
+                                    return Operand::Value(b);
+                                }
+                                "delete" => {
+                                    debug_assert_eq!(args.len(), 1);
+                                    let key_op = self.lower_expr(args[0]);
+                                    let (k_tag, k_val) = self.box_to_tag_value(key_op);
+                                    let r = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::Call(
+                                            self.intrinsics.map_delete,
+                                            vec![recv_op, k_tag, k_val],
+                                        ),
+                                        Type::I64,
+                                        None,
+                                    );
+                                    let b = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::ICmp(
+                                            IPred::Ne,
+                                            Operand::Value(r),
+                                            Operand::ConstI64(0),
+                                        ),
+                                        Type::Bool,
+                                        None,
+                                    );
+                                    return Operand::Value(b);
+                                }
+                                "get" => {
+                                    debug_assert_eq!(args.len(), 1);
+                                    let key_op = self.lower_expr(args[0]);
+                                    let (k_tag, k_val) = self.box_to_tag_value(key_op);
+                                    /* Out-slots for (tag, value). */
+                                    let tag_slot = self.alloca(Type::I64, Some("map_get_tag"));
+                                    let val_slot = self.alloca(Type::I64, Some("map_get_val"));
+                                    self.f.append_void(
+                                        self.cur_block,
+                                        InstKind::Call(
+                                            self.intrinsics.map_get,
+                                            vec![
+                                                recv_op,
+                                                k_tag,
+                                                k_val,
+                                                Operand::Value(tag_slot),
+                                                Operand::Value(val_slot),
+                                            ],
+                                        ),
+                                    );
+                                    let tag_v = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::Load(Type::I64, Operand::Value(tag_slot), 0),
+                                        Type::I64,
+                                        None,
+                                    );
+                                    let val_v = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::Load(Type::I64, Operand::Value(val_slot), 0),
+                                        Type::I64,
+                                        None,
+                                    );
+                                    /* Wrap the (tag, val) into an Any-box. */
+                                    let box_v = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::Call(
+                                            self.intrinsics.any_box,
+                                            vec![Operand::Value(tag_v), Operand::Value(val_v)],
+                                        ),
+                                        Type::Any,
+                                        None,
+                                    );
+                                    return Operand::Value(box_v);
+                                }
+                                "clear" => {
+                                    debug_assert!(args.is_empty());
+                                    self.f.append_void(
+                                        self.cur_block,
+                                        InstKind::Call(self.intrinsics.map_clear, vec![recv_op]),
+                                    );
+                                    return Operand::ConstI64(0);
+                                }
+                                _ => unreachable!(),
+                            }
+                        }
+                    }
+                }
                 // v0.2 #1 — `re.method(args)` for the RegExp stdlib
                 // slice. Receiver Type::RegExp; methods route to the
                 // matching `__torajs_regex_*` runtime intrinsic. Args
@@ -22410,6 +22676,19 @@ impl<'a> LowerCtx<'a> {
                     );
                     return Operand::Value(v);
                 }
+                // P6.1 — `m.size` on Type::Map — accessor property
+                // per spec §23.1.3.10. Routes through
+                // __torajs_map_size which returns the live-entry
+                // count (tombstones excluded).
+                if matches!(obj_ty, Type::Map) && name == "size" {
+                    let v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(self.intrinsics.map_size, vec![obj_val]),
+                        Type::I64,
+                        None,
+                    );
+                    return Operand::Value(v);
+                }
                 // P3.2 — Member read on Type::Any routes through
                 // dynobj substrate. obj_val is an Any-box; extract
                 // the dynobj ptr from offset 24 (when tag == ANY_HEAP),
@@ -23591,7 +23870,9 @@ impl<'a> LowerCtx<'a> {
                     | Type::Promise
                     | Type::WeakRef
                     | Type::WeakMap
-                    | Type::WeakSet => "object",
+                    | Type::WeakSet
+                    | Type::Map
+                    | Type::Set => "object",
                     Type::Void | Type::Ptr => "object",
                     // P0.2 — typeof on a Type::Any operand routes
                     // through __torajs_any_typeof, which reads the

@@ -70,6 +70,11 @@ pub const RUNTIME_WEAKSET_C: &str = include_str!("runtime_weakset.c");
 /// collector for class instances. Manual `gc()` trigger.
 pub const RUNTIME_CYCLE_C: &str = include_str!("runtime_cycle.c");
 
+/// P6.1 — strong-ref `Map<K, V>`. Open-addressing robin-hood hash
+/// table over tagged-Any keys + values; SameValueZero key equality.
+/// `Set<T>` (P6.2) wraps this with the value side erased to `undef`.
+pub const RUNTIME_MAP_C: &str = include_str!("runtime_map.c");
+
 /// All C runtime translation units in (filename, contents) form, in
 /// the order they should be written + cc'd. Filename is the basename
 /// the compiler should write into the per-build temp directory.
@@ -85,4 +90,5 @@ pub const SOURCES: &[(&str, &str)] = &[
     ("runtime_weakmap.c", RUNTIME_WEAKMAP_C),
     ("runtime_weakset.c", RUNTIME_WEAKSET_C),
     ("runtime_cycle.c", RUNTIME_CYCLE_C),
+    ("runtime_map.c", RUNTIME_MAP_C),
 ];

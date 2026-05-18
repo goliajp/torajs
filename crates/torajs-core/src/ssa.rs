@@ -182,6 +182,20 @@ pub enum Type {
     /// T-26.B (v0.7) — `Type::WeakSet`. Same shape as WeakMap
     /// minus the value side.
     WeakSet,
+    /// P6.1 — `Type::Map`. Strong-ref `Map<K,V>` heap struct
+    /// (`runtime_map.c`): universal heap header + open-addressing
+    /// robin-hood hash table; entries are tagged-Any key + tagged-Any
+    /// value. Key equality follows SameValueZero (string byte-equal,
+    /// number IEEE-754 with NaN == NaN, pointer identity for objects /
+    /// arrays / functions / etc). Lowers to a single pointer at the
+    /// SSA layer; drop routes through `__torajs_value_drop_heap`'s
+    /// TAG_MAP case (walks live entries, drops both key + value rc's,
+    /// frees the bucket array).
+    Map,
+    /// P6.1 — `Type::Set`. Strong-ref `Set<T>` wrapped over a
+    /// `Map<T, undefined>` storage; same SameValueZero key equality.
+    /// Lowers to a single pointer.
+    Set,
     /// T-10 (v0.4.0) — `Type::Any` carries a tagged value at runtime:
     /// either a primitive (i64 / f64 / bool / null) or a heap pointer
     /// (Str / Obj / Arr / Closure / RegExp / Date). At the SSA layer
@@ -220,6 +234,8 @@ impl Type {
             Type::WeakRef => "weakref",
             Type::WeakMap => "weakmap",
             Type::WeakSet => "weakset",
+            Type::Map => "map",
+            Type::Set => "set",
         }
     }
 
@@ -271,6 +287,8 @@ impl Type {
                 | Type::WeakRef
                 | Type::WeakMap
                 | Type::WeakSet
+                | Type::Map
+                | Type::Set
         )
     }
 
@@ -1077,6 +1095,21 @@ pub fn demo_fib40() -> Module {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn map_set_type_wiring() {
+        // P6.1 substrate sanity — Type::Map / Type::Set are first-class
+        // SSA types: refcounted heap pointers with their own as_str
+        // names. Affine (non-Copy) like every other heap-owned type.
+        assert_eq!(Type::Map.as_str(), "map");
+        assert_eq!(Type::Set.as_str(), "set");
+        assert!(Type::Map.is_refcounted());
+        assert!(Type::Set.is_refcounted());
+        assert!(!Type::Map.is_copy());
+        assert!(!Type::Set.is_copy());
+        assert!(Type::Map.is_pointer_shaped());
+        assert!(Type::Set.is_pointer_shaped());
+    }
 
     #[test]
     fn fib40_pretty_prints() {

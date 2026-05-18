@@ -2922,7 +2922,11 @@ pub fn desugar_classes(ast: &mut Ast) {
                 if class_name == "WeakRef"
                     || class_name == "WeakMap"
                     || class_name == "WeakSet"
+                    || class_name == "Map"
                 {
+                    /* P6.1 — `new Map()` is the same shape: SSA
+                     * intercepts to emit __torajs_map_create. Set
+                     * lands the same way in P6.2. */
                     let _ = args;
                     continue;
                 }

@@ -114,6 +114,15 @@ pub enum Type {
     /// T-26.B — `WeakSet`. Set of pointer-identity-keyed entries
     /// with auto-eviction.
     WeakSet,
+    /// P6.1 — `Map<K,V>`. Strong-ref hash map with SameValueZero
+    /// key equality (string byte-equal / IEEE-754 number with NaN ==
+    /// NaN / pointer identity for objects). `m.get(k)` returns
+    /// `Nullable<V>`; `m.set/has/delete/clear` return Boolean / map /
+    /// Number per spec.
+    Map,
+    /// P6.1 — `Set<T>`. Strong-ref hash set backed by `Map<T, undef>`.
+    /// `s.add(v)` / `s.has(v)` / `s.delete(v)` / `s.size` per spec.
+    Set,
     /// v0 hack — `console.log`'s parameter accepts any printable type.
     /// Replace with a sum/union type later.
     Any,
@@ -783,6 +792,8 @@ fn resolve_type_ann_full(
         "weakref" | "WeakRef" => Some(Type::WeakRef),
         "weakmap" | "WeakMap" => Some(Type::WeakMap),
         "weakset" | "WeakSet" => Some(Type::WeakSet),
+        "Map" => Some(Type::Map),
+        "Set" => Some(Type::Set),
         // `any` is recognized as a real type in the resolver only as a
         // late-stage fallback — `desugar_implicit_generics` rewrites
         // every annotated `: any` to a fresh TypeVar before this layer
@@ -1212,6 +1223,8 @@ pub fn type_to_ann(ty: &Type) -> String {
         Type::WeakRef => "weakref".into(),
         Type::WeakMap => "weakmap".into(),
         Type::WeakSet => "weakset".into(),
+        Type::Map => "Map".into(),
+        Type::Set => "Set".into(),
         // T-28-substrate — SSA Type::Any is its own slot type at the
         // SSA layer (parse_type's "any" round-trips to Type::Any).
         // Pre-T-28-substrate this collapsed to "number" because Any-
@@ -2841,6 +2854,14 @@ impl Checker {
                     "WeakRef" => Ok(Type::Object("WeakRef")),
                     "WeakMap" => Ok(Type::Object("WeakMap")),
                     "WeakSet" => Ok(Type::Object("WeakSet")),
+                    /* P6.1 — Map / Set globals as constructors. As-
+                     * values they resolve to `Type::Object` so user
+                     * code can pass them around (e.g. as factory
+                     * functions); `new Map() / new Set()` go through
+                     * the Expr::New arms below to `Type::Map` /
+                     * `Type::Set`. */
+                    "Map" => Ok(Type::Object("Map")),
+                    "Set" => Ok(Type::Object("Set")),
                     /* T-13.a (v0.4.0) — Symbol global. As-callable
                      * (`Symbol(desc?)` constructor) routed via the
                      * Call arm below to Type::Symbol. Static methods
@@ -3453,6 +3474,11 @@ impl Checker {
                         Box::new(Type::Boolean),
                     )),
                     (Type::String, "length") | (Type::Array(_), "length") => Ok(Type::Number),
+                    /* P6.1 — Map.prototype.size accessor (spec
+                     * §23.1.3.10). Member arm dispatches to a
+                     * Number-typed read; ssa_lower calls
+                     * `__torajs_map_size`. Set.size lands in P6.2. */
+                    (Type::Map, "size") => Ok(Type::Number),
                     // M6.1 — String methods. All borrow `this` and any
                     // String args (consumption only fires at concat,
                     // which has its own arm). Bool-returning methods
@@ -3691,6 +3717,35 @@ impl Checker {
                     (Type::WeakSet, "delete") => Ok(Type::Function(
                         vec![Type::Any],
                         Box::new(Type::Boolean),
+                    )),
+                    /* P6.1 — Map<K,V> methods. set takes (key, value)
+                     * both type-erased to Any (the runtime stores
+                     * tagged-Any slots regardless); set returns the
+                     * map itself per spec §23.1.3.9, but the current
+                     * SSA / value_drop_heap path is simpler if the
+                     * call slot is Void — chained `m.set(...).set(...)`
+                     * isn't observed in conformance fixtures yet.
+                     * get returns Nullable<Any>. has / delete return
+                     * Boolean. clear returns Void. */
+                    (Type::Map, "set") => Ok(Type::Function(
+                        vec![Type::Any, Type::Any],
+                        Box::new(Type::Void),
+                    )),
+                    (Type::Map, "get") => Ok(Type::Function(
+                        vec![Type::Any],
+                        Box::new(Type::Nullable(Box::new(Type::Any))),
+                    )),
+                    (Type::Map, "has") => Ok(Type::Function(
+                        vec![Type::Any],
+                        Box::new(Type::Boolean),
+                    )),
+                    (Type::Map, "delete") => Ok(Type::Function(
+                        vec![Type::Any],
+                        Box::new(Type::Boolean),
+                    )),
+                    (Type::Map, "clear") => Ok(Type::Function(
+                        Vec::new(),
+                        Box::new(Type::Void),
                     )),
                     // v0.2 #2 Phase 2.0a — Date instance methods.
                     (Type::Date, "getTime")
@@ -6638,6 +6693,20 @@ impl Checker {
                     ));
                 }
                 Ok(Type::WeakSet)
+            }
+            /* P6.1 — `new Map()` / `new Set()`. Spec also accepts an
+             * iterable initializer (`new Map([[k, v]])`); that overload
+             * is a follow-up after the iterator protocol substrate
+             * (P5) is plumbed into the ctor desugar. For now: zero-arg
+             * only. */
+            Expr::New { class_name, args } if class_name == "Map" => {
+                if !args.is_empty() {
+                    return Err(format!(
+                        "`new Map(...)` with iterable initializer not yet supported (got {} args)",
+                        args.len()
+                    ));
+                }
+                Ok(Type::Map)
             }
             // P0.10 — `new Array(n)` 1-arg numeric form per ES spec
             // §23.1.2.1 Array(len). Returns `Array<Any>` of length n
