@@ -852,7 +852,11 @@ impl Module {
 
 impl Function {
     fn write_to(&self, w: &mut String, m: &Module) -> std::fmt::Result {
-        let kw = if self.is_declaration() { "extern fn" } else { "fn" };
+        let kw = if self.is_declaration() {
+            "extern fn"
+        } else {
+            "fn"
+        };
         write!(w, "{kw} {}(", self.name)?;
         for (i, &p) in self.params.iter().enumerate() {
             if i > 0 {

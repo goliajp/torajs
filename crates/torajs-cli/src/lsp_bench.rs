@@ -26,16 +26,15 @@ pub fn run(self_exe: &std::path::Path) -> std::process::ExitCode {
         .unwrap_or(DEFAULT_FIXTURE_LINES);
     let fixture = synthesize_fixture(lines);
     let line_count = fixture.lines().count();
-    println!(
-        "fixture: {} lines, {} bytes",
-        line_count,
-        fixture.len()
-    );
+    println!("fixture: {} lines, {} bytes", line_count, fixture.len());
 
     let mut child = match spawn_server(self_exe) {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("lsp-bench: failed to spawn `{} lsp`: {e}", self_exe.display());
+            eprintln!(
+                "lsp-bench: failed to spawn `{} lsp`: {e}",
+                self_exe.display()
+            );
             return std::process::ExitCode::from(1);
         }
     };

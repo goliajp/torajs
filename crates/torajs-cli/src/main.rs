@@ -102,17 +102,23 @@ fn print_usage() {
     println!("    parse <file>         print the parsed AST");
     println!("    check <file>         type-check, exit nonzero on error");
     println!("    ssa <file>           print the lowered SSA IR");
-    println!(
-        "    build <in> -o <out> [--opt O0|O1|O2|O3]"
-    );
+    println!("    build <in> -o <out> [--opt O0|O1|O2|O3]");
     println!("                         AOT-compile via LLVM 22 → native binary");
     println!("    ssa-demo             print a hand-built SSA fib40 (P3.5 step 1 leftover)");
     println!("    lsp                  speak Language Server Protocol over stdio");
     println!("    lsp-bench            measure LSP latency on a synthetic 1K-line fixture");
-    println!("    repl                 launch interactive evaluator (history at ~/.torajs/repl_history)");
-    println!("    debug <file>         compile with DWARF + drop into lldb (set breakpoints, step, inspect)");
-    println!("    fmt <file> [--write] reformat source to tr's canonical style (stdout, or in-place with --write)");
-    println!("    lint <file> [--deny] surface 5 lint warnings (unused-let, dead-code-after-return, unreachable-catch, shadowed-let, unused-import); --deny exits non-zero on any warning");
+    println!(
+        "    repl                 launch interactive evaluator (history at ~/.torajs/repl_history)"
+    );
+    println!(
+        "    debug <file>         compile with DWARF + drop into lldb (set breakpoints, step, inspect)"
+    );
+    println!(
+        "    fmt <file> [--write] reformat source to tr's canonical style (stdout, or in-place with --write)"
+    );
+    println!(
+        "    lint <file> [--deny] surface 5 lint warnings (unused-let, dead-code-after-return, unreachable-catch, shadowed-let, unused-import); --deny exits non-zero on any warning"
+    );
     println!();
     println!("    --version, -V        print version");
     println!("    --help, -h           print this help");
@@ -222,7 +228,8 @@ fn pipeline(src: &str, base_dir: &Path, stage: Stage) -> ExitCode {
     }
 
     if matches!(stage, Stage::Ssa) {
-        let m = ssa_lower::lower_with_arity(&ast, &generic_call_sites, &expr_types, &arity_pad_count);
+        let m =
+            ssa_lower::lower_with_arity(&ast, &generic_call_sites, &expr_types, &arity_pad_count);
         m.print();
         return ExitCode::SUCCESS;
     }
@@ -311,9 +318,7 @@ fn run_build_llvm(args: &[String]) -> ExitCode {
     // Bench harness sets `TORAJS_OPT` for per-case opt tuning (e.g.
     // fib40's `O1` win over `O3` because LLVM's loop transforms hurt
     // recursive int code).
-    if !explicit_opt
-        && let Ok(level) = std::env::var("TORAJS_OPT")
-    {
+    if !explicit_opt && let Ok(level) = std::env::var("TORAJS_OPT") {
         opt = level;
     }
 
@@ -512,8 +517,7 @@ fn run_jit(file_arg: Option<&String>) -> ExitCode {
             .ok()
             .map(std::path::PathBuf::from)
             .or_else(|| {
-                std::env::var_os("HOME")
-                    .map(|h| std::path::PathBuf::from(h).join(".torajs/cache"))
+                std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".torajs/cache"))
             });
         cache_dir.map(|d| d.join(hash))
     } else {
@@ -821,7 +825,9 @@ fn run_fmt(args: &[String]) -> ExitCode {
                 println!("  --write, -w   rewrite the file in place (default: stdout)");
                 println!();
                 println!("Style: 2-space indent, single quotes, no trailing semicolons.");
-                println!("Comment-bearing source is rejected (comment-aware fmt is a v0.4 follow-up).");
+                println!(
+                    "Comment-bearing source is rejected (comment-aware fmt is a v0.4 follow-up)."
+                );
                 return ExitCode::SUCCESS;
             }
             other if input.is_none() && !other.starts_with("--") => {
@@ -883,10 +889,14 @@ fn run_lint(args: &[String]) -> ExitCode {
                 println!("USAGE: tr lint <file|-> [--deny]");
                 println!();
                 println!("Rules:");
-                println!("  unused-let               top-level let / const declared but never read");
+                println!(
+                    "  unused-let               top-level let / const declared but never read"
+                );
                 println!("  dead-code-after-return   stmt after return / throw / break / continue");
                 println!("  unreachable-catch        catch on a try whose body cannot throw");
-                println!("  shadowed-let             inner-scope let shadows enclosing-scope binding");
+                println!(
+                    "  shadowed-let             inner-scope let shadows enclosing-scope binding"
+                );
                 println!("  unused-import            import binding never referenced");
                 println!();
                 println!("  --deny, -D    exit non-zero if any warning is reported");
@@ -925,7 +935,11 @@ fn run_lint(args: &[String]) -> ExitCode {
                 };
                 eprintln!("{path}:{line}:{col}: {severity}: {}", d.message);
             }
-            if deny { ExitCode::from(1) } else { ExitCode::SUCCESS }
+            if deny {
+                ExitCode::from(1)
+            } else {
+                ExitCode::SUCCESS
+            }
         }
         Err(e) => {
             eprintln!("{e}");

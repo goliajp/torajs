@@ -33,7 +33,7 @@ pub enum BinOp {
     BitOr,
     BitXor,
     Shl,
-    Shr,  // signed; JS `>>`
+    Shr, // signed; JS `>>`
     /// JS `>>>` — unsigned (logical) right shift. Lowered as LLVM
     /// `lshr` rather than `ashr`; the typechecker still treats it as
     /// `Number → Number` (matches arithmetic Shr).
@@ -44,8 +44,8 @@ pub enum BinOp {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnaryOp {
-    Not, // logical !
-    Neg, // arithmetic -
+    Not,    // logical !
+    Neg,    // arithmetic -
     BitNot, // bitwise ~
     /// V3-18 m1.h.4 — unary `+x` per spec §13.5.4. Equivalent to
     /// `ToNumber(x)` — coerces strings/booleans/null to a Number
@@ -481,9 +481,12 @@ pub enum Stmt {
     ImportDecl {
         // K.2 will read these to populate the cross-file symbol
         // table. K.1 just preserves the parse-time data.
-        #[allow(dead_code)] default: Option<String>,
-        #[allow(dead_code)] namespace: Option<String>,
-        #[allow(dead_code)] named: Vec<(String, Option<String>)>,
+        #[allow(dead_code)]
+        default: Option<String>,
+        #[allow(dead_code)]
+        namespace: Option<String>,
+        #[allow(dead_code)]
+        named: Vec<(String, Option<String>)>,
         source: String,
     },
     /// Phase K.1 — `export` declaration. Single-file mode strips the
@@ -500,8 +503,10 @@ pub enum Stmt {
     ExportDecl {
         inner: Option<Box<Stmt>>,
         // K.2 will read these to populate the export list.
-        #[allow(dead_code)] named: Vec<(String, Option<String>)>,
-        #[allow(dead_code)] default_expr: Option<ExprId>,
+        #[allow(dead_code)]
+        named: Vec<(String, Option<String>)>,
+        #[allow(dead_code)]
+        default_expr: Option<ExprId>,
     },
 }
 
@@ -733,7 +738,8 @@ pub fn desugar_generators(ast: &mut Ast) {
     // just pointing at the field-access shape now. Walks every Expr
     // reachable from the function body.
     fn rewrite_params_to_this(ast: &mut Ast, body: &[Stmt], params: &[Param]) {
-        let pset: std::collections::HashSet<String> = params.iter().map(|p| p.name.clone()).collect();
+        let pset: std::collections::HashSet<String> =
+            params.iter().map(|p| p.name.clone()).collect();
         let mut visited: std::collections::HashSet<u32> = std::collections::HashSet::new();
         for s in body {
             rewrite_params_in_stmt(ast, s, &pset, &mut visited);
@@ -758,10 +764,16 @@ pub fn desugar_generators(ast: &mut Ast) {
                 }
             }
             Stmt::LetDecl { init, .. } => rewrite_params_in_expr(ast, *init, pset, visited),
-            Stmt::If { cond, then_branch, else_branch } => {
+            Stmt::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
                 rewrite_params_in_expr(ast, *cond, pset, visited);
                 rewrite_params_in_stmt(ast, then_branch, pset, visited);
-                if let Some(e) = else_branch { rewrite_params_in_stmt(ast, e, pset, visited); }
+                if let Some(e) = else_branch {
+                    rewrite_params_in_stmt(ast, e, pset, visited);
+                }
             }
             Stmt::While { cond, body } => {
                 rewrite_params_in_expr(ast, *cond, pset, visited);
@@ -771,22 +783,45 @@ pub fn desugar_generators(ast: &mut Ast) {
                 rewrite_params_in_stmt(ast, body, pset, visited);
                 rewrite_params_in_expr(ast, *cond, pset, visited);
             }
-            Stmt::For { init, cond, step, body } => {
-                if let Some(i) = init { rewrite_params_in_stmt(ast, i, pset, visited); }
-                if let Some(c) = cond { rewrite_params_in_expr(ast, *c, pset, visited); }
-                if let Some(st) = step { rewrite_params_in_expr(ast, *st, pset, visited); }
+            Stmt::For {
+                init,
+                cond,
+                step,
+                body,
+            } => {
+                if let Some(i) = init {
+                    rewrite_params_in_stmt(ast, i, pset, visited);
+                }
+                if let Some(c) = cond {
+                    rewrite_params_in_expr(ast, *c, pset, visited);
+                }
+                if let Some(st) = step {
+                    rewrite_params_in_expr(ast, *st, pset, visited);
+                }
                 rewrite_params_in_stmt(ast, body, pset, visited);
             }
             Stmt::Block(stmts) | Stmt::Multi(stmts) => {
-                for s in stmts { rewrite_params_in_stmt(ast, s, pset, visited); }
+                for s in stmts {
+                    rewrite_params_in_stmt(ast, s, pset, visited);
+                }
             }
-            Stmt::Switch { scrutinee, cases, default } => {
+            Stmt::Switch {
+                scrutinee,
+                cases,
+                default,
+            } => {
                 rewrite_params_in_expr(ast, *scrutinee, pset, visited);
                 for c in cases {
                     rewrite_params_in_expr(ast, c.value, pset, visited);
-                    for s in &c.body { rewrite_params_in_stmt(ast, s, pset, visited); }
+                    for s in &c.body {
+                        rewrite_params_in_stmt(ast, s, pset, visited);
+                    }
                 }
-                if let Some(d) = default { for s in d { rewrite_params_in_stmt(ast, s, pset, visited); } }
+                if let Some(d) = default {
+                    for s in d {
+                        rewrite_params_in_stmt(ast, s, pset, visited);
+                    }
+                }
             }
             _ => {}
         }
@@ -810,7 +845,9 @@ pub fn desugar_generators(ast: &mut Ast) {
                 rewrite_params_in_expr(ast, left, pset, visited);
                 rewrite_params_in_expr(ast, right, pset, visited);
             }
-            Expr::Unary { expr, .. } | Expr::TypeOf { expr } | Expr::Spread { expr }
+            Expr::Unary { expr, .. }
+            | Expr::TypeOf { expr }
+            | Expr::Spread { expr }
             | Expr::InstanceOf { expr, .. } => {
                 rewrite_params_in_expr(ast, expr, pset, visited);
             }
@@ -819,7 +856,9 @@ pub fn desugar_generators(ast: &mut Ast) {
             }
             Expr::Call { callee, args } => {
                 rewrite_params_in_expr(ast, callee, pset, visited);
-                for a in args { rewrite_params_in_expr(ast, a, pset, visited); }
+                for a in args {
+                    rewrite_params_in_expr(ast, a, pset, visited);
+                }
             }
             Expr::Assign { target, value } => {
                 rewrite_params_in_expr(ast, target, pset, visited);
@@ -830,12 +869,20 @@ pub fn desugar_generators(ast: &mut Ast) {
                 rewrite_params_in_expr(ast, index, pset, visited);
             }
             Expr::Array(els) => {
-                for e in els { rewrite_params_in_expr(ast, e, pset, visited); }
+                for e in els {
+                    rewrite_params_in_expr(ast, e, pset, visited);
+                }
             }
             Expr::ObjectLit { fields } => {
-                for (_, e) in fields { rewrite_params_in_expr(ast, e, pset, visited); }
+                for (_, e) in fields {
+                    rewrite_params_in_expr(ast, e, pset, visited);
+                }
             }
-            Expr::Ternary { cond, then_branch, else_branch } => {
+            Expr::Ternary {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
                 rewrite_params_in_expr(ast, cond, pset, visited);
                 rewrite_params_in_expr(ast, then_branch, pset, visited);
                 rewrite_params_in_expr(ast, else_branch, pset, visited);
@@ -845,7 +892,9 @@ pub fn desugar_generators(ast: &mut Ast) {
                 rewrite_params_in_expr(ast, rhs, pset, visited);
             }
             Expr::New { args, .. } | Expr::Super { args } => {
-                for e in args { rewrite_params_in_expr(ast, e, pset, visited); }
+                for e in args {
+                    rewrite_params_in_expr(ast, e, pset, visited);
+                }
             }
             Expr::PostIncr { target, .. } => {
                 rewrite_params_in_expr(ast, target, pset, visited);
@@ -947,10 +996,7 @@ pub fn desugar_generators(ast: &mut Ast) {
         let zero_id = sm.ast.add_expr(zero);
         let done_lit = sm.ast.add_expr(Expr::Bool(true));
         let final_obj = sm.ast.add_expr(Expr::ObjectLit {
-            fields: vec![
-                ("value".into(), zero_id),
-                ("done".into(), done_lit),
-            ],
+            fields: vec![("value".into(), zero_id), ("done".into(), done_lit)],
         });
         sm.cur_buf.push(Stmt::Return(Some(final_obj)));
         sm.flush_cur();
@@ -982,10 +1028,7 @@ pub fn desugar_generators(ast: &mut Ast) {
         let zero_tail_id = ast.add_expr(zero_tail);
         let done_tail = ast.add_expr(Expr::Bool(true));
         let final_tail = ast.add_expr(Expr::ObjectLit {
-            fields: vec![
-                ("value".into(), zero_tail_id),
-                ("done".into(), done_tail),
-            ],
+            fields: vec![("value".into(), zero_tail_id), ("done".into(), done_tail)],
         });
         loop_body.push(Stmt::Return(Some(final_tail)));
 
@@ -999,10 +1042,7 @@ pub fn desugar_generators(ast: &mut Ast) {
         let zero_after_id = ast.add_expr(zero_after);
         let done_after = ast.add_expr(Expr::Bool(true));
         let final_after = ast.add_expr(Expr::ObjectLit {
-            fields: vec![
-                ("value".into(), zero_after_id),
-                ("done".into(), done_after),
-            ],
+            fields: vec![("value".into(), zero_after_id), ("done".into(), done_after)],
         });
         let next_body: Vec<Stmt> = vec![
             Stmt::While {
@@ -1017,19 +1057,17 @@ pub fn desugar_generators(ast: &mut Ast) {
         let zero_init_id = ast.add_expr(zero_init);
         let ctor = ClassCtor {
             params: gen_params.clone(),
-            body: vec![
-                Stmt::Expr({
-                    let this_id = ast.add_expr(Expr::This);
-                    let state_member = ast.add_expr(Expr::Member {
-                        obj: this_id,
-                        name: "__state".into(),
-                    });
-                    ast.add_expr(Expr::Assign {
-                        target: state_member,
-                        value: zero_init_id,
-                    })
-                }),
-            ],
+            body: vec![Stmt::Expr({
+                let this_id = ast.add_expr(Expr::This);
+                let state_member = ast.add_expr(Expr::Member {
+                    obj: this_id,
+                    name: "__state".into(),
+                });
+                ast.add_expr(Expr::Assign {
+                    target: state_member,
+                    value: zero_init_id,
+                })
+            })],
         };
         // J.4 — next() takes an optional `__yield_arg: <yield_ty> = 0`
         // parameter and stashes it in `this.__sent` before re-entering
@@ -1157,7 +1195,11 @@ pub fn desugar_generators(ast: &mut Ast) {
 /// J.2.b lift picks the right field type).
 fn expand_yield_into_in_stmt(ast: &mut Ast, s: &mut Stmt, yield_ty: &str) {
     match s {
-        Stmt::YieldInto { var, type_ann, value } => {
+        Stmt::YieldInto {
+            var,
+            type_ann,
+            value,
+        } => {
             let var = std::mem::take(var);
             let ty = type_ann.clone().or_else(|| Some(yield_ty.to_string()));
             let value = *value;
@@ -1172,11 +1214,15 @@ fn expand_yield_into_in_stmt(ast: &mut Ast, s: &mut Stmt, yield_ty: &str) {
                 name: var,
                 type_ann: ty,
                 init: sent_member,
-            is_var: false,
+                is_var: false,
             };
             *s = Stmt::Multi(vec![yield_stmt, let_stmt]);
         }
-        Stmt::If { then_branch, else_branch, .. } => {
+        Stmt::If {
+            then_branch,
+            else_branch,
+            ..
+        } => {
             expand_yield_into_in_stmt(ast, then_branch, yield_ty);
             if let Some(eb) = else_branch.as_deref_mut() {
                 expand_yield_into_in_stmt(ast, eb, yield_ty);
@@ -1208,16 +1254,31 @@ fn expand_yield_into_in_stmt(ast: &mut Ast, s: &mut Stmt, yield_ty: &str) {
 /// the same way top-level lets do.
 fn lift_lets_in_stmt(ast: &mut Ast, s: &mut Stmt, lifted: &mut Vec<(String, String)>) {
     match s {
-        Stmt::LetDecl { name, type_ann, init, .. } => {
+        Stmt::LetDecl {
+            name,
+            type_ann,
+            init,
+            ..
+        } => {
             let n = name.clone();
             let t = type_ann.clone().unwrap_or_else(|| "number".into());
             lifted.push((n.clone(), t));
             let this_id = ast.add_expr(Expr::This);
-            let m = ast.add_expr(Expr::Member { obj: this_id, name: n });
-            let assign = ast.add_expr(Expr::Assign { target: m, value: *init });
+            let m = ast.add_expr(Expr::Member {
+                obj: this_id,
+                name: n,
+            });
+            let assign = ast.add_expr(Expr::Assign {
+                target: m,
+                value: *init,
+            });
             *s = Stmt::Expr(assign);
         }
-        Stmt::If { then_branch, else_branch, .. } => {
+        Stmt::If {
+            then_branch,
+            else_branch,
+            ..
+        } => {
             lift_lets_in_stmt(ast, then_branch, lifted);
             if let Some(eb) = else_branch.as_deref_mut() {
                 lift_lets_in_stmt(ast, eb, lifted);
@@ -1250,7 +1311,11 @@ fn lift_lets_in_stmt(ast: &mut Ast, s: &mut Stmt, lifted: &mut Vec<(String, Stri
 fn stmt_contains_yield(s: &Stmt) -> bool {
     match s {
         Stmt::Yield(_) | Stmt::YieldInto { .. } => true,
-        Stmt::If { then_branch, else_branch, .. } => {
+        Stmt::If {
+            then_branch,
+            else_branch,
+            ..
+        } => {
             stmt_contains_yield(then_branch)
                 || else_branch.as_deref().is_some_and(stmt_contains_yield)
         }
@@ -1261,12 +1326,21 @@ fn stmt_contains_yield(s: &Stmt) -> bool {
         Stmt::Block(stmts) | Stmt::Multi(stmts) => stmts.iter().any(stmt_contains_yield),
         Stmt::Switch { cases, default, .. } => {
             cases.iter().any(|c| c.body.iter().any(stmt_contains_yield))
-                || default.as_ref().is_some_and(|d| d.iter().any(stmt_contains_yield))
+                || default
+                    .as_ref()
+                    .is_some_and(|d| d.iter().any(stmt_contains_yield))
         }
-        Stmt::Try { body, catch_body, finally_body, .. } => {
+        Stmt::Try {
+            body,
+            catch_body,
+            finally_body,
+            ..
+        } => {
             body.iter().any(stmt_contains_yield)
                 || catch_body.iter().any(stmt_contains_yield)
-                || finally_body.as_ref().is_some_and(|f| f.iter().any(stmt_contains_yield))
+                || finally_body
+                    .as_ref()
+                    .is_some_and(|f| f.iter().any(stmt_contains_yield))
         }
         _ => false,
     }
@@ -1306,7 +1380,11 @@ fn rewrite_break_continue_for_outer(
         // inside switch aren't in J.2.b scope so we don't touch this.
         Stmt::Switch { .. } => {}
         Stmt::Try { .. } => {}
-        Stmt::If { then_branch, else_branch, .. } => {
+        Stmt::If {
+            then_branch,
+            else_branch,
+            ..
+        } => {
             rewrite_break_continue_for_outer(ast, then_branch, cont_target, brk_target);
             if let Some(eb) = else_branch.as_deref_mut() {
                 rewrite_break_continue_for_outer(ast, eb, cont_target, brk_target);
@@ -1411,13 +1489,19 @@ impl<'a> GenSm<'a> {
                     self.lower(s);
                 }
             }
-            Stmt::If { cond, then_branch, else_branch } => {
+            Stmt::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
                 let then_has = stmt_contains_yield(&then_branch);
-                let else_has = else_branch
-                    .as_deref()
-                    .is_some_and(stmt_contains_yield);
+                let else_has = else_branch.as_deref().is_some_and(stmt_contains_yield);
                 if !then_has && !else_has {
-                    let mut s = Stmt::If { cond, then_branch, else_branch };
+                    let mut s = Stmt::If {
+                        cond,
+                        then_branch,
+                        else_branch,
+                    };
                     if let Some(&(cont, brk)) = self.loop_stack.last() {
                         rewrite_break_continue_for_outer(self.ast, &mut s, cont, brk);
                     }
@@ -1489,11 +1573,20 @@ impl<'a> GenSm<'a> {
 
                 self.cur_state = post;
             }
-            Stmt::For { init, cond, step, body } => {
-                if !stmt_contains_yield(&body)
-                    && !init.as_deref().is_some_and(stmt_contains_yield)
+            Stmt::For {
+                init,
+                cond,
+                step,
+                body,
+            } => {
+                if !stmt_contains_yield(&body) && !init.as_deref().is_some_and(stmt_contains_yield)
                 {
-                    self.cur_buf.push(Stmt::For { init, cond, step, body });
+                    self.cur_buf.push(Stmt::For {
+                        init,
+                        cond,
+                        step,
+                        body,
+                    });
                     return;
                 }
                 if let Some(i) = init {
@@ -1601,9 +1694,10 @@ impl<'a> GenSm<'a> {
 /// code that called `main()` calls `__user_main()` with identical
 /// semantics; the synthesized OS-entry retains the `main` symbol.
 pub fn rename_user_main(ast: &mut Ast) {
-    let has_user_main = ast.stmts.iter().any(|s| {
-        matches!(s, Stmt::FnDecl { name, .. } if name == "main")
-    });
+    let has_user_main = ast
+        .stmts
+        .iter()
+        .any(|s| matches!(s, Stmt::FnDecl { name, .. } if name == "main"));
     if !has_user_main {
         return;
     }
@@ -1764,7 +1858,11 @@ fn rewrite_returns_for_async(ast: &mut Ast, s: &mut Stmt, inner_ty: &str) {
             });
             *s = Stmt::Return(Some(call));
         }
-        Stmt::If { then_branch, else_branch, .. } => {
+        Stmt::If {
+            then_branch,
+            else_branch,
+            ..
+        } => {
             rewrite_returns_for_async(ast, then_branch, inner_ty);
             if let Some(eb) = else_branch.as_deref_mut() {
                 rewrite_returns_for_async(ast, eb, inner_ty);
@@ -1796,7 +1894,12 @@ fn rewrite_returns_for_async(ast: &mut Ast, s: &mut Stmt, inner_ty: &str) {
                 }
             }
         }
-        Stmt::Try { body, catch_body, finally_body, .. } => {
+        Stmt::Try {
+            body,
+            catch_body,
+            finally_body,
+            ..
+        } => {
             for s in body {
                 rewrite_returns_for_async(ast, s, inner_ty);
             }
@@ -1822,7 +1925,10 @@ fn rewrite_returns_for_async(ast: &mut Ast, s: &mut Stmt, inner_ty: &str) {
 pub fn unwrap_exports(ast: &mut Ast) {
     let mut new_stmts: Vec<Stmt> = Vec::with_capacity(ast.stmts.len());
     for s in std::mem::take(&mut ast.stmts) {
-        if let Stmt::ExportDecl { inner: Some(boxed), .. } = s {
+        if let Stmt::ExportDecl {
+            inner: Some(boxed), ..
+        } = s
+        {
             new_stmts.push(*boxed);
         } else {
             new_stmts.push(s);
@@ -1858,7 +1964,10 @@ fn is_builtin_module(source: &str) -> bool {
 /// `__fs_promises.readFile(...)` shape. check.rs / ssa_lower
 /// recognize the sanitized name.
 fn sanitize_module_name(source: &str) -> String {
-    source.strip_prefix("node:").unwrap_or(source).replace('/', "_")
+    source
+        .strip_prefix("node:")
+        .unwrap_or(source)
+        .replace('/', "_")
 }
 
 pub fn desugar_builtin_imports(ast: &mut Ast) {
@@ -1869,7 +1978,12 @@ pub fn desugar_builtin_imports(ast: &mut Ast) {
     let mut imported: HashMap<String, (String, String)> = HashMap::new();
     let mut to_drop: Vec<usize> = Vec::new();
     for (idx, s) in ast.stmts.iter().enumerate() {
-        if let Stmt::ImportDecl { source, named, default: _, namespace } = s
+        if let Stmt::ImportDecl {
+            source,
+            named,
+            default: _,
+            namespace,
+        } = s
             && is_builtin_module(source)
         {
             let module_name = sanitize_module_name(source);
@@ -1908,7 +2022,10 @@ pub fn desugar_builtin_imports(ast: &mut Ast) {
                 ast.exprs[i] = Expr::Ident(module);
             } else {
                 let module_id = ast.add_expr(Expr::Ident(module));
-                ast.exprs[i] = Expr::Member { obj: module_id, name: orig };
+                ast.exprs[i] = Expr::Member {
+                    obj: module_id,
+                    name: orig,
+                };
             }
         }
     }
@@ -2009,28 +2126,26 @@ pub fn desugar_builtin_new(ast: &mut Ast) {
     let n = ast.exprs.len();
     for i in 0..n {
         let regex_plan: Option<(String, String)> = match &ast.exprs[i] {
-            Expr::New { class_name, args } if class_name == "RegExp" => {
-                match args.len() {
-                    0 => Some(("(?:)".to_string(), String::new())),
-                    1 => {
-                        if let Expr::String(s) = &ast.exprs[args[0].0 as usize] {
-                            Some((s.clone(), String::new()))
-                        } else {
-                            None
-                        }
+            Expr::New { class_name, args } if class_name == "RegExp" => match args.len() {
+                0 => Some(("(?:)".to_string(), String::new())),
+                1 => {
+                    if let Expr::String(s) = &ast.exprs[args[0].0 as usize] {
+                        Some((s.clone(), String::new()))
+                    } else {
+                        None
                     }
-                    2 => {
-                        let pat = &ast.exprs[args[0].0 as usize];
-                        let flags = &ast.exprs[args[1].0 as usize];
-                        if let (Expr::String(p), Expr::String(f)) = (pat, flags) {
-                            Some((p.clone(), f.clone()))
-                        } else {
-                            None
-                        }
-                    }
-                    _ => None,
                 }
-            }
+                2 => {
+                    let pat = &ast.exprs[args[0].0 as usize];
+                    let flags = &ast.exprs[args[1].0 as usize];
+                    if let (Expr::String(p), Expr::String(f)) = (pat, flags) {
+                        Some((p.clone(), f.clone()))
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            },
             _ => None,
         };
         if let Some((pattern, flags)) = regex_plan {
@@ -2053,10 +2168,7 @@ pub fn desugar_builtin_new(ast: &mut Ast) {
     for i in 0..n {
         let unwrap_args = match &ast.exprs[i] {
             Expr::New { class_name, args }
-                if matches!(
-                    class_name.as_str(),
-                    "Number" | "String" | "Boolean"
-                ) =>
+                if matches!(class_name.as_str(), "Number" | "String" | "Boolean") =>
             {
                 Some(args.clone())
             }
@@ -2100,19 +2212,18 @@ pub fn desugar_builtin_new(ast: &mut Ast) {
                 match args.len() {
                     0 => Some(("__torajs_date_now".to_string(), false, args.clone())),
                     1 => {
-                        let is_str = matches!(
-                            ast.exprs[args[0].0 as usize],
-                            Expr::String(_)
-                        );
+                        let is_str = matches!(ast.exprs[args[0].0 as usize], Expr::String(_));
                         if is_str {
                             Some(("__torajs_date_from_iso".to_string(), false, args.clone()))
                         } else {
                             Some(("__torajs_date_from_ms".to_string(), false, args.clone()))
                         }
                     }
-                    n_args if (2..=7).contains(&n_args) => {
-                        Some(("__torajs_date_from_components".to_string(), true, args.clone()))
-                    }
+                    n_args if (2..=7).contains(&n_args) => Some((
+                        "__torajs_date_from_components".to_string(),
+                        true,
+                        args.clone(),
+                    )),
                     n_args => panic!(
                         "v0.2 #2 Phase 2.0b.2: `new Date(...)` with {n_args} args not yet supported"
                     ),
@@ -2150,24 +2261,56 @@ pub fn desugar_builtin_new(ast: &mut Ast) {
 pub fn desugar_prototype_call(ast: &mut Ast) {
     let n = ast.exprs.len();
     for i in 0..n {
-        let Expr::Call { callee, args } = ast.exprs[i].clone() else { continue };
-        let Expr::Member { obj: outer_obj, name: outer_name } =
-            ast.get_expr(callee).clone() else { continue };
+        let Expr::Call { callee, args } = ast.exprs[i].clone() else {
+            continue;
+        };
+        let Expr::Member {
+            obj: outer_obj,
+            name: outer_name,
+        } = ast.get_expr(callee).clone()
+        else {
+            continue;
+        };
         if outer_name != "call" || args.is_empty() {
             continue;
         }
-        let Expr::Member { obj: inner_obj, name: method_name } =
-            ast.get_expr(outer_obj).clone() else { continue };
-        let Expr::Member { obj: ns_id, name: proto_name } =
-            ast.get_expr(inner_obj).clone() else { continue };
+        let Expr::Member {
+            obj: inner_obj,
+            name: method_name,
+        } = ast.get_expr(outer_obj).clone()
+        else {
+            continue;
+        };
+        let Expr::Member {
+            obj: ns_id,
+            name: proto_name,
+        } = ast.get_expr(inner_obj).clone()
+        else {
+            continue;
+        };
         if proto_name != "prototype" {
             continue;
         }
-        let Expr::Ident(ns) = ast.get_expr(ns_id).clone() else { continue };
-        let known_ns = matches!(ns.as_str(),
-            "Number" | "String" | "Boolean" | "BigInt" | "Symbol"
-            | "Object" | "Array" | "Function"
-            | "Date" | "RegExp" | "Error" | "Promise" | "Map" | "Set");
+        let Expr::Ident(ns) = ast.get_expr(ns_id).clone() else {
+            continue;
+        };
+        let known_ns = matches!(
+            ns.as_str(),
+            "Number"
+                | "String"
+                | "Boolean"
+                | "BigInt"
+                | "Symbol"
+                | "Object"
+                | "Array"
+                | "Function"
+                | "Date"
+                | "RegExp"
+                | "Error"
+                | "Promise"
+                | "Map"
+                | "Set"
+        );
         if !known_ns {
             continue;
         }
@@ -2177,7 +2320,10 @@ pub fn desugar_prototype_call(ast: &mut Ast) {
             obj: recv,
             name: method_name,
         });
-        ast.exprs[i] = Expr::Call { callee: new_callee, args: rest };
+        ast.exprs[i] = Expr::Call {
+            callee: new_callee,
+            args: rest,
+        };
     }
 }
 
@@ -2554,8 +2700,7 @@ pub fn synthesize_class_globals(ast: &mut Ast) {
     // the P4.0 nested-Any-dynobj fix.
     for cname in &class_names {
         let name_expr = ast.add_expr(Expr::String(cname.clone()));
-        let proto_ident =
-            ast.add_expr(Expr::Ident(format!("__proto_{cname}")));
+        let proto_ident = ast.add_expr(Expr::Ident(format!("__proto_{cname}")));
         let obj_expr = ast.add_expr(Expr::ObjectLit {
             fields: vec![
                 ("name".to_string(), name_expr),
@@ -2579,10 +2724,8 @@ pub fn synthesize_class_globals(ast: &mut Ast) {
     for cname in &class_names {
         let parent = ast.class_parents.get(cname).cloned().flatten();
         let Some(pname) = parent else { continue };
-        let proto_sub =
-            ast.add_expr(Expr::Ident(format!("__proto_{cname}")));
-        let proto_super =
-            ast.add_expr(Expr::Ident(format!("__proto_{pname}")));
+        let proto_sub = ast.add_expr(Expr::Ident(format!("__proto_{cname}")));
+        let proto_super = ast.add_expr(Expr::Ident(format!("__proto_{pname}")));
         let member = ast.add_expr(Expr::Member {
             obj: proto_sub,
             name: "__proto__".to_string(),
@@ -2604,12 +2747,9 @@ pub fn synthesize_class_globals(ast: &mut Ast) {
     // The class-name argument is a String literal so ssa_lower can
     // pick the right tag without re-deriving it from sid.
     for cname in &class_names {
-        let proto_ident =
-            ast.add_expr(Expr::Ident(format!("__proto_{cname}")));
+        let proto_ident = ast.add_expr(Expr::Ident(format!("__proto_{cname}")));
         let name_str = ast.add_expr(Expr::String(cname.clone()));
-        let callee = ast.add_expr(Expr::Ident(
-            "__torajs_proto_register".to_string(),
-        ));
+        let callee = ast.add_expr(Expr::Ident("__torajs_proto_register".to_string()));
         let call = ast.add_expr(Expr::Call {
             callee,
             args: vec![proto_ident, name_str],
@@ -2622,12 +2762,9 @@ pub fn synthesize_class_globals(ast: &mut Ast) {
     // factory bodies via `__torajs_my_class_ref("<C>")` (intercepted
     // at ssa_lower → emits `__torajs_class_get(<tag_const>)`).
     for cname in &class_names {
-        let class_ident =
-            ast.add_expr(Expr::Ident(format!("__class_{cname}")));
+        let class_ident = ast.add_expr(Expr::Ident(format!("__class_{cname}")));
         let name_str = ast.add_expr(Expr::String(cname.clone()));
-        let callee = ast.add_expr(Expr::Ident(
-            "__torajs_class_register".to_string(),
-        ));
+        let callee = ast.add_expr(Expr::Ident("__torajs_class_register".to_string()));
         let call = ast.add_expr(Expr::Call {
             callee,
             args: vec![class_ident, name_str],
@@ -2647,9 +2784,7 @@ pub fn synthesize_class_globals(ast: &mut Ast) {
     for cname in &class_names {
         if matches!(cname.as_str(), "Error" | "TypeError" | "RangeError") {
             let name_str = ast.add_expr(Expr::String(cname.clone()));
-            let callee = ast.add_expr(Expr::Ident(
-                "__torajs_register_native_error".to_string(),
-            ));
+            let callee = ast.add_expr(Expr::Ident("__torajs_register_native_error".to_string()));
             let call = ast.add_expr(Expr::Call {
                 callee,
                 args: vec![name_str],
@@ -2714,13 +2849,13 @@ pub fn desugar_classes(ast: &mut Ast) {
     let class_index: Vec<(
         usize,
         String,
-        Vec<String>,           // type_params
+        Vec<String>, // type_params
         Option<String>,
         Vec<(String, String)>,
-        Vec<StaticField>,      // static_fields
+        Vec<StaticField>, // static_fields
         Option<ClassCtor>,
         Vec<ClassMethod>,
-        Vec<ClassMethod>,      // static_methods
+        Vec<ClassMethod>, // static_methods
     )> = ast
         .stmts
         .iter()
@@ -2759,8 +2894,7 @@ pub fn desugar_classes(ast: &mut Ast) {
     // names. Concrete subclasses must override every inherited abstract;
     // `new` of an abstract class is rejected (in check.rs). Side-channel
     // (HashSet / HashMap) instead of inflating class_index's tuple.
-    let mut abstract_classes: std::collections::HashSet<String> =
-        std::collections::HashSet::new();
+    let mut abstract_classes: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut abstract_methods: std::collections::HashMap<String, Vec<String>> =
         std::collections::HashMap::new();
     for s in ast.stmts.iter() {
@@ -2787,9 +2921,7 @@ pub fn desugar_classes(ast: &mut Ast) {
             // a desugar-time double-check catches programmatically-built
             // classes from upstream desugars.)
             if !is_abstract && methods.iter().any(|m| m.is_abstract) {
-                panic!(
-                    "M-OO.6: concrete class `{name}` cannot declare abstract methods"
-                );
+                panic!("M-OO.6: concrete class `{name}` cannot declare abstract methods");
             }
         }
     }
@@ -2810,8 +2942,7 @@ pub fn desugar_classes(ast: &mut Ast) {
                 .and_then(|t| t.3.clone());
         }
         chain.reverse();
-        let mut unimplemented: std::collections::HashSet<String> =
-            std::collections::HashSet::new();
+        let mut unimplemented: std::collections::HashSet<String> = std::collections::HashSet::new();
         for cls in &chain {
             if let Some(absms) = abstract_methods.get(cls) {
                 for m in absms {
@@ -2830,9 +2961,7 @@ pub fn desugar_classes(ast: &mut Ast) {
         if !unimplemented.is_empty() {
             let mut names: Vec<&String> = unimplemented.iter().collect();
             names.sort();
-            panic!(
-                "M-OO.6: concrete class `{cname}` must override abstract method(s): {names:?}"
-            );
+            panic!("M-OO.6: concrete class `{cname}` must override abstract method(s): {names:?}");
         }
     }
 
@@ -2906,7 +3035,8 @@ pub fn desugar_classes(ast: &mut Ast) {
     // lower time (handled by the `Type::Obj` Member-call arm).
     for (_, cname, _tp, _, _, _, _, methods, _) in &class_index {
         for m in methods {
-            method_owners.entry(m.name.clone())
+            method_owners
+                .entry(m.name.clone())
                 .or_default()
                 .push(cname.clone());
         }
@@ -2923,9 +3053,10 @@ pub fn desugar_classes(ast: &mut Ast) {
         .filter(|(_, owners)| owners.len() > 1)
         .filter(|(_, owners)| {
             let base = &owners[0];
-            owners.iter().skip(1).all(|sub| {
-                method_owner_is_in_chain(&parent_map, base, sub)
-            })
+            owners
+                .iter()
+                .skip(1)
+                .all(|sub| method_owner_is_in_chain(&parent_map, base, sub))
         })
         .map(|(n, _)| n.clone())
         .collect();
@@ -3085,7 +3216,9 @@ pub fn desugar_classes(ast: &mut Ast) {
     // method bodies into `__cm_<Parent>__<m>(__this, args)`. Walks
     // every method body of every class with an `extends` clause.
     for (_, cname, _tp, parent, _, _, ctor, methods, static_methods) in &class_index {
-        let Some(parent_name) = parent.as_ref() else { continue };
+        let Some(parent_name) = parent.as_ref() else {
+            continue;
+        };
         let mut sites: Vec<(ExprId, String, Vec<ExprId>)> = Vec::new();
         if let Some(c) = ctor.as_ref() {
             for s in &c.body {
@@ -3099,9 +3232,7 @@ pub fn desugar_classes(ast: &mut Ast) {
         }
         for (eid, m_name, args) in sites {
             let _ = cname; // diag context only
-            let callee = ast.add_expr(
-                Expr::Ident(format!("__cm_{parent_name}__{m_name}")),
-            );
+            let callee = ast.add_expr(Expr::Ident(format!("__cm_{parent_name}__{m_name}")));
             let this_id = ast.add_expr(Expr::This);
             let mut new_args = Vec::with_capacity(args.len() + 1);
             new_args.push(this_id);
@@ -3201,8 +3332,7 @@ pub fn desugar_classes(ast: &mut Ast) {
                             } else {
                                 let mangled = format!("__cm_{}__{m_name}", owners[0]);
                                 let new_callee = ast.add_expr(Expr::Ident(mangled));
-                                let mut new_args =
-                                    Vec::with_capacity(args_clone.len() + 1);
+                                let mut new_args = Vec::with_capacity(args_clone.len() + 1);
                                 new_args.push(obj_id);
                                 new_args.extend(args_clone);
                                 ast.exprs[i] = Expr::Call {
@@ -3239,12 +3369,16 @@ pub fn desugar_classes(ast: &mut Ast) {
         std::collections::HashMap::new();
     for (_, cname, _, _, _, sfs, _, _, sms) in &class_index {
         for sf in sfs {
-            static_member_rewrites
-                .insert((cname.clone(), sf.name.clone()), format!("__sf_{cname}__{}", sf.name));
+            static_member_rewrites.insert(
+                (cname.clone(), sf.name.clone()),
+                format!("__sf_{cname}__{}", sf.name),
+            );
         }
         for sm in sms {
-            static_member_rewrites
-                .insert((cname.clone(), sm.name.clone()), format!("__sm_{cname}__{}", sm.name));
+            static_member_rewrites.insert(
+                (cname.clone(), sm.name.clone()),
+                format!("__sm_{cname}__{}", sm.name),
+            );
         }
     }
     // V3-18 wedge — static inheritance per ES spec §15.7. When
@@ -3264,10 +3398,8 @@ pub fn desugar_classes(ast: &mut Ast) {
         .iter()
         .map(|(_, c, _, p, _, _, _, _, _)| (c.clone(), p.clone()))
         .collect();
-    let mut class_static_index: std::collections::HashMap<
-        String,
-        (Vec<String>, Vec<String>),
-    > = std::collections::HashMap::new();
+    let mut class_static_index: std::collections::HashMap<String, (Vec<String>, Vec<String>)> =
+        std::collections::HashMap::new();
     for (_, cname, _, _, _, sfs, _, _, sms) in &class_index {
         class_static_index.insert(
             cname.clone(),
@@ -3301,7 +3433,18 @@ pub fn desugar_classes(ast: &mut Ast) {
     // Pass 3 — rewrite the stmt list. Replace each ClassDecl in-place
     // with its TypeDecl (using the flattened field list so subclasses
     // carry parent fields too), and accumulate the generated FnDecls.
-    for (idx, cname, type_params, _parent, _own_fields, static_fields, ctor, methods, static_methods) in class_index {
+    for (
+        idx,
+        cname,
+        type_params,
+        _parent,
+        _own_fields,
+        static_fields,
+        ctor,
+        methods,
+        static_methods,
+    ) in class_index
+    {
         let type_decl = Stmt::TypeDecl {
             name: cname.clone(),
             type_params: type_params.clone(),
@@ -3605,8 +3748,10 @@ fn receiver_is_this_builtin_field(
         Vec<ClassMethod>,
     )],
 ) -> bool {
-    let Expr::Member { obj: inner_obj, name: field_name } =
-        &ast.exprs[obj_id.0 as usize]
+    let Expr::Member {
+        obj: inner_obj,
+        name: field_name,
+    } = &ast.exprs[obj_id.0 as usize]
     else {
         return false;
     };
@@ -3622,9 +3767,7 @@ fn receiver_is_this_builtin_field(
         return false;
     }
     // Find the class entry and look up the field's type annotation.
-    let cls = class_index
-        .iter()
-        .find(|(_, n, ..)| n == cname);
+    let cls = class_index.iter().find(|(_, n, ..)| n == cname);
     let Some((_, _, _, _, fields, _, _, _, _)) = cls else {
         return false;
     };
@@ -3695,8 +3838,8 @@ fn default_init_for_field(
             name: local.clone(),
             type_ann: Some(fty.to_string()),
             init: arr_lit,
-        is_var: false,
-            });
+            is_var: false,
+        });
         return ast.add_expr(Expr::Ident(local));
     }
     let sub_fields = class_layouts.get(fty).or_else(|| alias_layouts.get(fty));
@@ -3767,9 +3910,7 @@ fn default_init_for_type(ann: &str) -> Expr {
         // TypeVar field (heuristic: short all-uppercase identifier — T,
         // U, K, V, A, B …). Emit a marker Ident that the monomorphizer
         // rewrites to the concrete default once the type is bound.
-        _ if is_likely_typevar(ann) => {
-            Expr::Ident(format!("__tvdefault__{ann}"))
-        }
+        _ if is_likely_typevar(ann) => Expr::Ident(format!("__tvdefault__{ann}")),
         _ => Expr::Number(0.0),
     }
 }
@@ -3785,11 +3926,7 @@ fn is_likely_typevar(s: &str) -> bool {
 /// a stmt list. Encoded by the parser as a Call to a marker
 /// ident `__supercall__<m>`. Returns (call ExprId, method
 /// name, args). Recursive over nested stmts/exprs.
-fn collect_supercall_in_stmt(
-    ast: &Ast,
-    s: &Stmt,
-    out: &mut Vec<(ExprId, String, Vec<ExprId>)>,
-) {
+fn collect_supercall_in_stmt(ast: &Ast, s: &Stmt, out: &mut Vec<(ExprId, String, Vec<ExprId>)>) {
     match s {
         Stmt::Expr(eid) | Stmt::Throw(eid) | Stmt::Yield(eid) => {
             collect_supercall_in_expr(ast, *eid, out)
@@ -3801,7 +3938,11 @@ fn collect_supercall_in_stmt(
             }
         }
         Stmt::LetDecl { init, .. } => collect_supercall_in_expr(ast, *init, out),
-        Stmt::If { cond, then_branch, else_branch } => {
+        Stmt::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
             collect_supercall_in_expr(ast, *cond, out);
             collect_supercall_in_stmt(ast, then_branch, out);
             if let Some(eb) = else_branch {
@@ -3816,7 +3957,11 @@ fn collect_supercall_in_stmt(
             collect_supercall_in_stmt(ast, body, out);
             collect_supercall_in_expr(ast, *cond, out);
         }
-        Stmt::Switch { scrutinee, cases, default } => {
+        Stmt::Switch {
+            scrutinee,
+            cases,
+            default,
+        } => {
             collect_supercall_in_expr(ast, *scrutinee, out);
             for c in cases {
                 collect_supercall_in_expr(ast, c.value, out);
@@ -3830,7 +3975,12 @@ fn collect_supercall_in_stmt(
                 }
             }
         }
-        Stmt::For { init, cond, step, body } => {
+        Stmt::For {
+            init,
+            cond,
+            step,
+            body,
+        } => {
             if let Some(i) = init {
                 collect_supercall_in_stmt(ast, i, out);
             }
@@ -3847,7 +3997,12 @@ fn collect_supercall_in_stmt(
                 collect_supercall_in_stmt(ast, st, out);
             }
         }
-        Stmt::Try { body, catch_body, finally_body, .. } => {
+        Stmt::Try {
+            body,
+            catch_body,
+            finally_body,
+            ..
+        } => {
             for st in body {
                 collect_supercall_in_stmt(ast, st, out);
             }
@@ -3861,12 +4016,16 @@ fn collect_supercall_in_stmt(
             }
         }
         Stmt::Break | Stmt::Continue => {}
-        Stmt::ForOfSplitIter { parent, sep, body, .. } => {
+        Stmt::ForOfSplitIter {
+            parent, sep, body, ..
+        } => {
             collect_supercall_in_expr(ast, *parent, out);
             collect_supercall_in_expr(ast, *sep, out);
             collect_supercall_in_stmt(ast, body, out);
         }
-        Stmt::ForOf { elem_expr, body, .. } => {
+        Stmt::ForOf {
+            elem_expr, body, ..
+        } => {
             collect_supercall_in_expr(ast, *elem_expr, out);
             collect_supercall_in_stmt(ast, body, out);
         }
@@ -3880,11 +4039,7 @@ fn collect_supercall_in_stmt(
     }
 }
 
-fn collect_supercall_in_expr(
-    ast: &Ast,
-    eid: ExprId,
-    out: &mut Vec<(ExprId, String, Vec<ExprId>)>,
-) {
+fn collect_supercall_in_expr(ast: &Ast, eid: ExprId, out: &mut Vec<(ExprId, String, Vec<ExprId>)>) {
     if let Expr::Call { callee, args } = ast.get_expr(eid)
         && let Expr::Ident(name) = ast.get_expr(*callee)
         && let Some(m) = name.strip_prefix("__supercall__")
@@ -3939,15 +4094,19 @@ fn collect_supercall_in_expr(
                 collect_supercall_in_expr(ast, *a, out);
             }
         }
-        Expr::Ternary { cond, then_branch, else_branch } => {
+        Expr::Ternary {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
             collect_supercall_in_expr(ast, *cond, out);
             collect_supercall_in_expr(ast, *then_branch, out);
             collect_supercall_in_expr(ast, *else_branch, out);
         }
-        Expr::TypeOf { expr } | Expr::Spread { expr }
-        | Expr::InstanceOf { expr, .. } | Expr::As { expr, .. } => {
-            collect_supercall_in_expr(ast, *expr, out)
-        }
+        Expr::TypeOf { expr }
+        | Expr::Spread { expr }
+        | Expr::InstanceOf { expr, .. }
+        | Expr::As { expr, .. } => collect_supercall_in_expr(ast, *expr, out),
         Expr::Sequence { left, right } => {
             collect_supercall_in_expr(ast, *left, out);
             collect_supercall_in_expr(ast, *right, out);
@@ -3962,13 +4121,11 @@ fn collect_supercall_in_expr(
     }
 }
 
-fn collect_super_in_stmt(
-    ast: &Ast,
-    s: &Stmt,
-    out: &mut Vec<(ExprId, Vec<ExprId>)>,
-) {
+fn collect_super_in_stmt(ast: &Ast, s: &Stmt, out: &mut Vec<(ExprId, Vec<ExprId>)>) {
     match s {
-        Stmt::Expr(eid) | Stmt::Throw(eid) | Stmt::Yield(eid) => collect_super_in_expr(ast, *eid, out),
+        Stmt::Expr(eid) | Stmt::Throw(eid) | Stmt::Yield(eid) => {
+            collect_super_in_expr(ast, *eid, out)
+        }
         Stmt::YieldInto { value, .. } => collect_super_in_expr(ast, *value, out),
         Stmt::Return(maybe) => {
             if let Some(eid) = maybe {
@@ -3995,7 +4152,11 @@ fn collect_super_in_stmt(
             collect_super_in_stmt(ast, body, out);
             collect_super_in_expr(ast, *cond, out);
         }
-        Stmt::Switch { scrutinee, cases, default } => {
+        Stmt::Switch {
+            scrutinee,
+            cases,
+            default,
+        } => {
             collect_super_in_expr(ast, *scrutinee, out);
             for c in cases {
                 collect_super_in_expr(ast, c.value, out);
@@ -4050,12 +4211,16 @@ fn collect_super_in_stmt(
             }
         }
         Stmt::Break | Stmt::Continue => {}
-        Stmt::ForOfSplitIter { parent, sep, body, .. } => {
+        Stmt::ForOfSplitIter {
+            parent, sep, body, ..
+        } => {
             collect_super_in_expr(ast, *parent, out);
             collect_super_in_expr(ast, *sep, out);
             collect_super_in_stmt(ast, body, out);
         }
-        Stmt::ForOf { elem_expr, body, .. } => {
+        Stmt::ForOf {
+            elem_expr, body, ..
+        } => {
             collect_super_in_expr(ast, *elem_expr, out);
             collect_super_in_stmt(ast, body, out);
         }
@@ -4069,11 +4234,7 @@ fn collect_super_in_stmt(
     }
 }
 
-fn collect_super_in_expr(
-    ast: &Ast,
-    eid: ExprId,
-    out: &mut Vec<(ExprId, Vec<ExprId>)>,
-) {
+fn collect_super_in_expr(ast: &Ast, eid: ExprId, out: &mut Vec<(ExprId, Vec<ExprId>)>) {
     match ast.get_expr(eid) {
         Expr::Super { args } => {
             // Record the site, then descend into args (super itself
@@ -4125,12 +4286,19 @@ fn collect_super_in_expr(
                 collect_super_in_expr(ast, *a, out);
             }
         }
-        Expr::Ternary { cond, then_branch, else_branch } => {
+        Expr::Ternary {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
             collect_super_in_expr(ast, *cond, out);
             collect_super_in_expr(ast, *then_branch, out);
             collect_super_in_expr(ast, *else_branch, out);
         }
-        Expr::TypeOf { expr } | Expr::Spread { expr } | Expr::InstanceOf { expr, .. } | Expr::As { expr, .. } => collect_super_in_expr(ast, *expr, out),
+        Expr::TypeOf { expr }
+        | Expr::Spread { expr }
+        | Expr::InstanceOf { expr, .. }
+        | Expr::As { expr, .. } => collect_super_in_expr(ast, *expr, out),
         Expr::Sequence { left, right } => {
             collect_super_in_expr(ast, *left, out);
             collect_super_in_expr(ast, *right, out);
@@ -4195,8 +4363,8 @@ fn build_factory_body(
         name: "__this".into(),
         type_ann: Some(this_ann),
         init: obj_lit,
-    is_var: false,
-            };
+        is_var: false,
+    };
     let mut body: Vec<Stmt> = prelude;
     body.push(let_this);
     if let Some(c) = ctor {
@@ -4213,9 +4381,7 @@ fn build_factory_body(
         // path.
         let callee = ast.add_expr(Expr::Ident(format!("__cm_{cname}__ctor")));
         let this_id = ast.add_expr(Expr::Ident("__this".into()));
-        let class_ref_callee = ast.add_expr(Expr::Ident(
-            "__torajs_my_class_ref".to_string(),
-        ));
+        let class_ref_callee = ast.add_expr(Expr::Ident("__torajs_my_class_ref".to_string()));
         let cname_str = ast.add_expr(Expr::String(cname.to_string()));
         let new_target_id = ast.add_expr(Expr::Call {
             callee: class_ref_callee,
@@ -4266,8 +4432,14 @@ pub fn compute_consuming_params(ast: &mut Ast) {
     let mut fn_params: HashMap<String, Vec<String>> = HashMap::new();
     let mut fn_bodies: HashMap<String, Vec<Stmt>> = HashMap::new();
     for s in &ast.stmts {
-        if let Stmt::FnDecl { name, params, body, .. } = s {
-            fn_params.insert(name.clone(), params.iter().map(|p| p.name.clone()).collect());
+        if let Stmt::FnDecl {
+            name, params, body, ..
+        } = s
+        {
+            fn_params.insert(
+                name.clone(),
+                params.iter().map(|p| p.name.clone()).collect(),
+            );
             fn_bodies.insert(name.clone(), body.clone());
         }
     }
@@ -4302,7 +4474,15 @@ pub fn compute_consuming_params(ast: &mut Ast) {
                 None => continue,
             };
             for s in body {
-                scan_stmt_for_consuming_flow(ast, s, fname, params, &snapshot, &mut consuming, &mut changed);
+                scan_stmt_for_consuming_flow(
+                    ast,
+                    s,
+                    fname,
+                    params,
+                    &snapshot,
+                    &mut consuming,
+                    &mut changed,
+                );
             }
         }
     }
@@ -4336,9 +4516,21 @@ fn scan_stmt_for_consuming_flow(
         Stmt::LetDecl { init, .. } => {
             scan_expr_for_consuming_flow(ast, *init, fname, params, snapshot, consuming, changed);
         }
-        Stmt::If { cond, then_branch, else_branch } => {
+        Stmt::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
             scan_expr_for_consuming_flow(ast, *cond, fname, params, snapshot, consuming, changed);
-            scan_stmt_for_consuming_flow(ast, then_branch, fname, params, snapshot, consuming, changed);
+            scan_stmt_for_consuming_flow(
+                ast,
+                then_branch,
+                fname,
+                params,
+                snapshot,
+                consuming,
+                changed,
+            );
             if let Some(eb) = else_branch {
                 scan_stmt_for_consuming_flow(ast, eb, fname, params, snapshot, consuming, changed);
             }
@@ -4351,7 +4543,12 @@ fn scan_stmt_for_consuming_flow(
             scan_stmt_for_consuming_flow(ast, body, fname, params, snapshot, consuming, changed);
             scan_expr_for_consuming_flow(ast, *cond, fname, params, snapshot, consuming, changed);
         }
-        Stmt::For { init, cond, step, body } => {
+        Stmt::For {
+            init,
+            cond,
+            step,
+            body,
+        } => {
             if let Some(i) = init {
                 scan_stmt_for_consuming_flow(ast, i, fname, params, snapshot, consuming, changed);
             }
@@ -4368,21 +4565,38 @@ fn scan_stmt_for_consuming_flow(
                 scan_stmt_for_consuming_flow(ast, s, fname, params, snapshot, consuming, changed);
             }
         }
-        Stmt::Switch { scrutinee, cases, default } => {
-            scan_expr_for_consuming_flow(ast, *scrutinee, fname, params, snapshot, consuming, changed);
+        Stmt::Switch {
+            scrutinee,
+            cases,
+            default,
+        } => {
+            scan_expr_for_consuming_flow(
+                ast, *scrutinee, fname, params, snapshot, consuming, changed,
+            );
             for c in cases {
-                scan_expr_for_consuming_flow(ast, c.value, fname, params, snapshot, consuming, changed);
+                scan_expr_for_consuming_flow(
+                    ast, c.value, fname, params, snapshot, consuming, changed,
+                );
                 for s in &c.body {
-                    scan_stmt_for_consuming_flow(ast, s, fname, params, snapshot, consuming, changed);
+                    scan_stmt_for_consuming_flow(
+                        ast, s, fname, params, snapshot, consuming, changed,
+                    );
                 }
             }
             if let Some(d) = default {
                 for s in d {
-                    scan_stmt_for_consuming_flow(ast, s, fname, params, snapshot, consuming, changed);
+                    scan_stmt_for_consuming_flow(
+                        ast, s, fname, params, snapshot, consuming, changed,
+                    );
                 }
             }
         }
-        Stmt::Try { body, catch_body, finally_body, .. } => {
+        Stmt::Try {
+            body,
+            catch_body,
+            finally_body,
+            ..
+        } => {
             for s in body {
                 scan_stmt_for_consuming_flow(ast, s, fname, params, snapshot, consuming, changed);
             }
@@ -4391,7 +4605,9 @@ fn scan_stmt_for_consuming_flow(
             }
             if let Some(fb) = finally_body {
                 for s in fb {
-                    scan_stmt_for_consuming_flow(ast, s, fname, params, snapshot, consuming, changed);
+                    scan_stmt_for_consuming_flow(
+                        ast, s, fname, params, snapshot, consuming, changed,
+                    );
                 }
             }
         }
@@ -4439,7 +4655,9 @@ fn scan_expr_for_consuming_flow(
                         *changed = true;
                     }
                 }
-                scan_expr_for_consuming_flow(ast, *arg, fname, params, snapshot, consuming, changed);
+                scan_expr_for_consuming_flow(
+                    ast, *arg, fname, params, snapshot, consuming, changed,
+                );
             }
             scan_expr_for_consuming_flow(ast, callee, fname, params, snapshot, consuming, changed);
         }
@@ -4473,7 +4691,9 @@ fn scan_expr_for_consuming_flow(
                         *changed = true;
                     }
                 }
-                scan_expr_for_consuming_flow(ast, *arg, fname, params, snapshot, consuming, changed);
+                scan_expr_for_consuming_flow(
+                    ast, *arg, fname, params, snapshot, consuming, changed,
+                );
             }
         }
         Expr::BinOp { left, right, .. } => {
@@ -4503,10 +4723,30 @@ fn scan_expr_for_consuming_flow(
                 scan_expr_for_consuming_flow(ast, e, fname, params, snapshot, consuming, changed);
             }
         }
-        Expr::Ternary { cond, then_branch, else_branch } => {
+        Expr::Ternary {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
             scan_expr_for_consuming_flow(ast, cond, fname, params, snapshot, consuming, changed);
-            scan_expr_for_consuming_flow(ast, then_branch, fname, params, snapshot, consuming, changed);
-            scan_expr_for_consuming_flow(ast, else_branch, fname, params, snapshot, consuming, changed);
+            scan_expr_for_consuming_flow(
+                ast,
+                then_branch,
+                fname,
+                params,
+                snapshot,
+                consuming,
+                changed,
+            );
+            scan_expr_for_consuming_flow(
+                ast,
+                else_branch,
+                fname,
+                params,
+                snapshot,
+                consuming,
+                changed,
+            );
         }
         Expr::Nullish { lhs, rhs } => {
             scan_expr_for_consuming_flow(ast, lhs, fname, params, snapshot, consuming, changed);
@@ -4648,7 +4888,10 @@ pub fn apply_default_args(ast: &mut Ast) {
                 }
             }
             if ok {
-                ast.exprs[i] = Expr::Call { callee, args: new_args };
+                ast.exprs[i] = Expr::Call {
+                    callee,
+                    args: new_args,
+                };
             }
         }
     }
@@ -4672,10 +4915,7 @@ pub fn apply_rest_args(ast: &mut Ast) {
             if let Some(last) = user_params.last() {
                 if last.is_rest {
                     let n_required = user_params.len() - 1;
-                    let rest_ann = last
-                        .type_ann
-                        .clone()
-                        .unwrap_or_else(|| "any[]".into());
+                    let rest_ann = last.type_ann.clone().unwrap_or_else(|| "any[]".into());
                     fn_rest.insert(name.clone(), (n_required, rest_ann));
                 }
             }
@@ -4702,8 +4942,13 @@ pub fn apply_rest_args(ast: &mut Ast) {
     // Emit the helpers as new FnDecls.
     for (rest_ann, helper_name) in &empty_helpers {
         // Skip if already present.
-        let exists = ast.stmts.iter().any(|s| matches!(s, Stmt::FnDecl { name, .. } if name == helper_name));
-        if exists { continue; }
+        let exists = ast
+            .stmts
+            .iter()
+            .any(|s| matches!(s, Stmt::FnDecl { name, .. } if name == helper_name));
+        if exists {
+            continue;
+        }
         let arr_lit = ast.add_expr(Expr::Array(Vec::new()));
         let body = vec![
             Stmt::LetDecl {
@@ -4711,7 +4956,7 @@ pub fn apply_rest_args(ast: &mut Ast) {
                 name: "_e".into(),
                 type_ann: Some(rest_ann.clone()),
                 init: arr_lit,
-            is_var: false,
+                is_var: false,
             },
             Stmt::Return(Some(ast.add_expr(Expr::Ident("_e".into())))),
         ];
@@ -4732,7 +4977,9 @@ pub fn apply_rest_args(ast: &mut Ast) {
                 Expr::Ident(n) => n.clone(),
                 _ => continue,
             };
-            let Some((n_required, rest_ann)) = fn_rest.get(&name).cloned() else { continue };
+            let Some((n_required, rest_ann)) = fn_rest.get(&name).cloned() else {
+                continue;
+            };
             let args_clone = args.clone();
             if args_clone.len() < n_required {
                 continue;
@@ -4742,12 +4989,15 @@ pub fn apply_rest_args(ast: &mut Ast) {
             // Single-spread shape: `f(req…, ...arr)` — pass the spread
             // source array directly as the rest param. Common in
             // delegating wrappers.
-            let single_spread_only = rest_elems.len() == 1
-                && matches!(ast.get_expr(rest_elems[0]), Expr::Spread { .. });
+            let single_spread_only =
+                rest_elems.len() == 1 && matches!(ast.get_expr(rest_elems[0]), Expr::Spread { .. });
             let rest_arr = if rest_elems.is_empty() {
                 let helper_name = empty_helpers.get(&rest_ann).cloned().unwrap();
                 let callee_id = ast.add_expr(Expr::Ident(helper_name));
-                ast.add_expr(Expr::Call { callee: callee_id, args: Vec::new() })
+                ast.add_expr(Expr::Call {
+                    callee: callee_id,
+                    args: Vec::new(),
+                })
             } else if single_spread_only {
                 if let Expr::Spread { expr } = ast.get_expr(rest_elems[0]) {
                     *expr
@@ -4758,7 +5008,10 @@ pub fn apply_rest_args(ast: &mut Ast) {
                 ast.add_expr(Expr::Array(rest_elems))
             };
             new_args.push(rest_arr);
-            ast.exprs[i] = Expr::Call { callee, args: new_args };
+            ast.exprs[i] = Expr::Call {
+                callee,
+                args: new_args,
+            };
         }
     }
 }
@@ -4881,7 +5134,13 @@ pub fn synthesize_forwarders(ast: &mut Ast) {
     // those are already closures and shouldn't be wrapped.
     let mut fn_sigs: HashMap<String, (Vec<Param>, Option<String>)> = HashMap::new();
     for s in &ast.stmts {
-        if let Stmt::FnDecl { name, params, return_type, .. } = s {
+        if let Stmt::FnDecl {
+            name,
+            params,
+            return_type,
+            ..
+        } = s
+        {
             let is_closure_shaped = params.first().is_some_and(|p| p.name == "__env");
             if !is_closure_shaped {
                 fn_sigs.insert(name.clone(), (params.clone(), return_type.clone()));
@@ -4896,19 +5155,25 @@ pub fn synthesize_forwarders(ast: &mut Ast) {
     // collect Return(Ident(global_fn)) pairs that need a forwarder.
     let mut targets: HashSet<String> = HashSet::new();
     for s in &ast.stmts {
-        if let Stmt::FnDecl { return_type, body, params, .. } = s {
+        if let Stmt::FnDecl {
+            return_type,
+            body,
+            params,
+            ..
+        } = s
+        {
             // Skip closure-shaped fns (their bodies were already lifted).
             let is_closure_shaped = params.first().is_some_and(|p| p.name == "__env");
             if is_closure_shaped {
                 continue;
             }
-            let Some(rt) = return_type.as_deref() else { continue };
+            let Some(rt) = return_type.as_deref() else {
+                continue;
+            };
             // Quick sniff: ret type looks like a fn type ann
             // (`(args) => R` parser shape, or `__fn(...)->R` lifted
             // shape).
-            let looks_like_fn = rt.starts_with('(')
-                || rt.contains("=>")
-                || rt.starts_with("__fn(");
+            let looks_like_fn = rt.starts_with('(') || rt.contains("=>") || rt.starts_with("__fn(");
             if !looks_like_fn {
                 continue;
             }
@@ -4969,12 +5234,7 @@ pub fn synthesize_forwarders(ast: &mut Ast) {
     let n = ast.exprs.len();
     let mut return_rewrites: Vec<(usize, ExprId)> = Vec::new();
     for i in 0..ast.stmts.len() {
-        collect_return_ident_rewrites(
-            ast,
-            i,
-            &renames,
-            &mut return_rewrites,
-        );
+        collect_return_ident_rewrites(ast, i, &renames, &mut return_rewrites);
     }
     for (stmt_visit_idx, eid_to_replace) in return_rewrites {
         let _ = stmt_visit_idx;
@@ -4997,15 +5257,17 @@ fn stmt_has_closure_return(ast: &Ast, s: &Stmt) -> bool {
             matches!(ast.get_expr(*eid), Expr::Closure { .. })
                 || matches!(ast.get_expr(*eid), Expr::Ident(n) if n.starts_with("__closure_"))
         }
-        Stmt::If { then_branch, else_branch, .. } => {
+        Stmt::If {
+            then_branch,
+            else_branch,
+            ..
+        } => {
             stmt_has_closure_return(ast, then_branch)
                 || else_branch
                     .as_deref()
                     .is_some_and(|s| stmt_has_closure_return(ast, s))
         }
-        Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
-            stmt_has_closure_return(ast, body)
-        }
+        Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => stmt_has_closure_return(ast, body),
         Stmt::For { body, .. } => stmt_has_closure_return(ast, body),
         Stmt::Block(stmts) | Stmt::Multi(stmts) => {
             stmts.iter().any(|s| stmt_has_closure_return(ast, s))
@@ -5014,16 +5276,21 @@ fn stmt_has_closure_return(ast: &Ast, s: &Stmt) -> bool {
             cases
                 .iter()
                 .any(|c| c.body.iter().any(|s| stmt_has_closure_return(ast, s)))
-                || default.as_ref().is_some_and(|d| {
-                    d.iter().any(|s| stmt_has_closure_return(ast, s))
-                })
+                || default
+                    .as_ref()
+                    .is_some_and(|d| d.iter().any(|s| stmt_has_closure_return(ast, s)))
         }
-        Stmt::Try { body, catch_body, finally_body, .. } => {
+        Stmt::Try {
+            body,
+            catch_body,
+            finally_body,
+            ..
+        } => {
             body.iter().any(|s| stmt_has_closure_return(ast, s))
                 || catch_body.iter().any(|s| stmt_has_closure_return(ast, s))
-                || finally_body.as_ref().is_some_and(|fb| {
-                    fb.iter().any(|s| stmt_has_closure_return(ast, s))
-                })
+                || finally_body
+                    .as_ref()
+                    .is_some_and(|fb| fb.iter().any(|s| stmt_has_closure_return(ast, s)))
         }
         _ => false,
     }
@@ -5054,7 +5321,11 @@ fn collect_fnsig_ident_returns_stmt(
                 out.insert(name.clone());
             }
         }
-        Stmt::If { then_branch, else_branch, .. } => {
+        Stmt::If {
+            then_branch,
+            else_branch,
+            ..
+        } => {
             collect_fnsig_ident_returns_stmt(ast, then_branch, fn_sigs, out);
             if let Some(eb) = else_branch {
                 collect_fnsig_ident_returns_stmt(ast, eb, fn_sigs, out);
@@ -5083,7 +5354,12 @@ fn collect_fnsig_ident_returns_stmt(
                 }
             }
         }
-        Stmt::Try { body, catch_body, finally_body, .. } => {
+        Stmt::Try {
+            body,
+            catch_body,
+            finally_body,
+            ..
+        } => {
             for s in body {
                 collect_fnsig_ident_returns_stmt(ast, s, fn_sigs, out);
             }
@@ -5155,7 +5431,11 @@ fn collect_return_replacements(
                 out.push((*eid, forward_name.clone()));
             }
         }
-        Stmt::If { then_branch, else_branch, .. } => {
+        Stmt::If {
+            then_branch,
+            else_branch,
+            ..
+        } => {
             collect_return_replacements(ast, then_branch, renames, out);
             if let Some(eb) = else_branch {
                 collect_return_replacements(ast, eb, renames, out);
@@ -5184,7 +5464,12 @@ fn collect_return_replacements(
                 }
             }
         }
-        Stmt::Try { body, catch_body, finally_body, .. } => {
+        Stmt::Try {
+            body,
+            catch_body,
+            finally_body,
+            ..
+        } => {
             for s in body {
                 collect_return_replacements(ast, s, renames, out);
             }
@@ -5280,7 +5565,13 @@ pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
     let mut fn_sigs: HashMap<String, (Vec<Param>, Option<String>)> = HashMap::new();
     let mut existing_forwarders: HashSet<String> = HashSet::new();
     for s in &ast.stmts {
-        if let Stmt::FnDecl { name, params, return_type, .. } = s {
+        if let Stmt::FnDecl {
+            name,
+            params,
+            return_type,
+            ..
+        } = s
+        {
             if name.starts_with("__forward_") {
                 existing_forwarders.insert(name.clone());
                 continue;
@@ -5302,10 +5593,8 @@ pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
     let mut struct_field_anns: HashMap<String, HashMap<String, String>> = HashMap::new();
     for s in &ast.stmts {
         if let Stmt::TypeDecl { name, fields, .. } = s {
-            let map: HashMap<String, String> = fields
-                .iter()
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect();
+            let map: HashMap<String, String> =
+                fields.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
             struct_field_anns.insert(name.clone(), map);
         }
     }
@@ -5396,10 +5685,7 @@ pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
 /// trigger an ObjectLit rewrite if needed — defensive).
 fn is_fn_like_ann(s: &str) -> bool {
     let t = s.trim();
-    t.starts_with("__cls(")
-        || t.starts_with("__fn(")
-        || t.contains("=>")
-        || t.starts_with('(')
+    t.starts_with("__cls(") || t.starts_with("__fn(") || t.contains("=>") || t.starts_with('(')
 }
 
 /// Walk one Stmt (and any Stmts / Exprs it contains) looking for
@@ -5409,7 +5695,10 @@ fn collect_fn_to_closure_store_sites(
     ast: &Ast,
     s: &Stmt,
     fn_sigs: &std::collections::HashMap<String, (Vec<Param>, Option<String>)>,
-    struct_field_anns: &std::collections::HashMap<String, std::collections::HashMap<String, String>>,
+    struct_field_anns: &std::collections::HashMap<
+        String,
+        std::collections::HashMap<String, String>,
+    >,
     targets: &mut std::collections::HashSet<String>,
     rewrites: &mut Vec<(ExprId, String)>,
 ) {
@@ -5453,27 +5742,56 @@ fn collect_fn_to_closure_store_sites(
             // and other nested exprs still need walking.
             collect_expr_fn_to_closure(ast, *eid, fn_sigs, targets, rewrites);
         }
-        Stmt::If { cond, then_branch, else_branch } => {
+        Stmt::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
             collect_expr_fn_to_closure(ast, *cond, fn_sigs, targets, rewrites);
             collect_fn_to_closure_store_sites(
-                ast, then_branch, fn_sigs, struct_field_anns, targets, rewrites,
+                ast,
+                then_branch,
+                fn_sigs,
+                struct_field_anns,
+                targets,
+                rewrites,
             );
             if let Some(eb) = else_branch {
                 collect_fn_to_closure_store_sites(
-                    ast, eb, fn_sigs, struct_field_anns, targets, rewrites,
+                    ast,
+                    eb,
+                    fn_sigs,
+                    struct_field_anns,
+                    targets,
+                    rewrites,
                 );
             }
         }
         Stmt::While { cond, body } | Stmt::DoWhile { body, cond } => {
             collect_expr_fn_to_closure(ast, *cond, fn_sigs, targets, rewrites);
             collect_fn_to_closure_store_sites(
-                ast, body, fn_sigs, struct_field_anns, targets, rewrites,
+                ast,
+                body,
+                fn_sigs,
+                struct_field_anns,
+                targets,
+                rewrites,
             );
         }
-        Stmt::For { init, cond, step, body } => {
+        Stmt::For {
+            init,
+            cond,
+            step,
+            body,
+        } => {
             if let Some(init) = init {
                 collect_fn_to_closure_store_sites(
-                    ast, init, fn_sigs, struct_field_anns, targets, rewrites,
+                    ast,
+                    init,
+                    fn_sigs,
+                    struct_field_anns,
+                    targets,
+                    rewrites,
                 );
             }
             if let Some(c) = cond {
@@ -5483,48 +5801,92 @@ fn collect_fn_to_closure_store_sites(
                 collect_expr_fn_to_closure(ast, *stp, fn_sigs, targets, rewrites);
             }
             collect_fn_to_closure_store_sites(
-                ast, body, fn_sigs, struct_field_anns, targets, rewrites,
+                ast,
+                body,
+                fn_sigs,
+                struct_field_anns,
+                targets,
+                rewrites,
             );
         }
         Stmt::Block(stmts) | Stmt::Multi(stmts) => {
             for inner in stmts {
                 collect_fn_to_closure_store_sites(
-                    ast, inner, fn_sigs, struct_field_anns, targets, rewrites,
+                    ast,
+                    inner,
+                    fn_sigs,
+                    struct_field_anns,
+                    targets,
+                    rewrites,
                 );
             }
         }
-        Stmt::Switch { scrutinee, cases, default } => {
+        Stmt::Switch {
+            scrutinee,
+            cases,
+            default,
+        } => {
             collect_expr_fn_to_closure(ast, *scrutinee, fn_sigs, targets, rewrites);
             for c in cases {
                 for inner in &c.body {
                     collect_fn_to_closure_store_sites(
-                        ast, inner, fn_sigs, struct_field_anns, targets, rewrites,
+                        ast,
+                        inner,
+                        fn_sigs,
+                        struct_field_anns,
+                        targets,
+                        rewrites,
                     );
                 }
             }
             if let Some(d) = default {
                 for inner in d {
                     collect_fn_to_closure_store_sites(
-                        ast, inner, fn_sigs, struct_field_anns, targets, rewrites,
+                        ast,
+                        inner,
+                        fn_sigs,
+                        struct_field_anns,
+                        targets,
+                        rewrites,
                     );
                 }
             }
         }
-        Stmt::Try { body, catch_body, finally_body, .. } => {
+        Stmt::Try {
+            body,
+            catch_body,
+            finally_body,
+            ..
+        } => {
             for inner in body {
                 collect_fn_to_closure_store_sites(
-                    ast, inner, fn_sigs, struct_field_anns, targets, rewrites,
+                    ast,
+                    inner,
+                    fn_sigs,
+                    struct_field_anns,
+                    targets,
+                    rewrites,
                 );
             }
             for inner in catch_body {
                 collect_fn_to_closure_store_sites(
-                    ast, inner, fn_sigs, struct_field_anns, targets, rewrites,
+                    ast,
+                    inner,
+                    fn_sigs,
+                    struct_field_anns,
+                    targets,
+                    rewrites,
                 );
             }
             if let Some(fb) = finally_body {
                 for inner in fb {
                     collect_fn_to_closure_store_sites(
-                        ast, inner, fn_sigs, struct_field_anns, targets, rewrites,
+                        ast,
+                        inner,
+                        fn_sigs,
+                        struct_field_anns,
+                        targets,
+                        rewrites,
                     );
                 }
             }
@@ -5580,12 +5942,20 @@ fn collect_expr_fn_to_closure(
         | Expr::As { expr, .. } => {
             collect_expr_fn_to_closure(ast, *expr, fn_sigs, targets, rewrites);
         }
-        Expr::Ternary { cond, then_branch, else_branch } => {
+        Expr::Ternary {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
             collect_expr_fn_to_closure(ast, *cond, fn_sigs, targets, rewrites);
             collect_expr_fn_to_closure(ast, *then_branch, fn_sigs, targets, rewrites);
             collect_expr_fn_to_closure(ast, *else_branch, fn_sigs, targets, rewrites);
         }
-        Expr::Sequence { left, right } | Expr::Nullish { lhs: left, rhs: right } => {
+        Expr::Sequence { left, right }
+        | Expr::Nullish {
+            lhs: left,
+            rhs: right,
+        } => {
             collect_expr_fn_to_closure(ast, *left, fn_sigs, targets, rewrites);
             collect_expr_fn_to_closure(ast, *right, fn_sigs, targets, rewrites);
         }
@@ -5623,12 +5993,17 @@ fn collect_objectlit_fn_to_closure(
     init: ExprId,
     type_ann: Option<&str>,
     fn_sigs: &std::collections::HashMap<String, (Vec<Param>, Option<String>)>,
-    struct_field_anns: &std::collections::HashMap<String, std::collections::HashMap<String, String>>,
+    struct_field_anns: &std::collections::HashMap<
+        String,
+        std::collections::HashMap<String, String>,
+    >,
     targets: &mut std::collections::HashSet<String>,
     rewrites: &mut Vec<(ExprId, String)>,
 ) {
     let Some(ann) = type_ann else { return };
-    let Some(field_anns) = struct_field_anns.get(ann.trim()) else { return };
+    let Some(field_anns) = struct_field_anns.get(ann.trim()) else {
+        return;
+    };
     if let Expr::ObjectLit { fields } = ast.get_expr(init) {
         for (fname, feid) in fields {
             if let Some(fann) = field_anns.get(fname)
@@ -5706,11 +6081,15 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
 
     let n = ast.exprs.len();
     for i in 0..n {
-        let Expr::Call { callee, args } = &ast.exprs[i] else { continue };
+        let Expr::Call { callee, args } = &ast.exprs[i] else {
+            continue;
+        };
         let callee = *callee;
         let args = args.clone();
         // Member(obj, method) with at least one Closure arg.
-        let Expr::Member { obj, name } = ast.get_expr(callee).clone() else { continue };
+        let Expr::Member { obj, name } = ast.get_expr(callee).clone() else {
+            continue;
+        };
         let mut closure_args: Vec<(usize, String)> = Vec::new();
         for (i, a) in args.iter().enumerate() {
             // Two shapes after lift_arrow_fns:
@@ -5768,23 +6147,18 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
         };
         let Some(ann) = obj_ann else { continue };
         // Only handle T[] receivers for the known Array methods.
-        let Some(elem_ann) = ann.strip_suffix("[]") else { continue };
+        let Some(elem_ann) = ann.strip_suffix("[]") else {
+            continue;
+        };
         let elem_ann = elem_ann.to_string();
         // Per-method expected (param annotations, return annotation).
         let expected: Option<(Vec<String>, String)> = match name.as_str() {
-            "sort" => Some((
-                vec![elem_ann.clone(), elem_ann.clone()],
-                "number".into(),
-            )),
+            "sort" => Some((vec![elem_ann.clone(), elem_ann.clone()], "number".into())),
             "map" => Some((vec![elem_ann.clone()], elem_ann.clone())),
             "filter" => Some((vec![elem_ann.clone()], "boolean".into())),
             "forEach" => Some((vec![elem_ann.clone()], "void".into())),
-            "find" | "findLast" => {
-                Some((vec![elem_ann.clone()], "boolean".into()))
-            }
-            "findIndex" | "findLastIndex" => {
-                Some((vec![elem_ann.clone()], "boolean".into()))
-            }
+            "find" | "findLast" => Some((vec![elem_ann.clone()], "boolean".into())),
+            "findIndex" | "findLastIndex" => Some((vec![elem_ann.clone()], "boolean".into())),
             "some" | "every" => Some((vec![elem_ann.clone()], "boolean".into())),
             "flatMap" => {
                 // Return is `T[]` (flattened); inner cb returns array.
@@ -5794,10 +6168,7 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
                 // (acc, cur) => acc — caller supplies the seed; without
                 // type-tracking the seed type, assume elem-typed accum
                 // (works for sum/max/etc.).
-                Some((
-                    vec![elem_ann.clone(), elem_ann.clone()],
-                    elem_ann.clone(),
-                ))
+                Some((vec![elem_ann.clone(), elem_ann.clone()], elem_ann.clone()))
             }
             _ => None,
         };
@@ -5813,7 +6184,12 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
 
     // Apply updates: mutate each lifted FnDecl's params + return type.
     for stmt in &mut ast.stmts {
-        if let Stmt::FnDecl { name, params, return_type, .. } = stmt
+        if let Stmt::FnDecl {
+            name,
+            params,
+            return_type,
+            ..
+        } = stmt
             && let Some((new_param_anns, new_ret_ann)) = updates.get(name)
         {
             // First param of a lifted closure is `__env`; user params
@@ -5971,7 +6347,13 @@ fn collect_and_rewrite_var(
     let drained = std::mem::take(stmts);
     for s in drained {
         match s {
-            Stmt::LetDecl { mutable, name, type_ann, init, is_var: true } => {
+            Stmt::LetDecl {
+                mutable,
+                name,
+                type_ann,
+                init,
+                is_var: true,
+            } => {
                 // P2.1 escape hatches — three cases where we don't
                 // hoist (treat as a regular block-scoped `let`):
                 //   1. User wrote an explicit type annotation
@@ -6033,7 +6415,10 @@ fn collect_and_rewrite_var(
                     let target_id = ExprId(exprs.len() as u32);
                     exprs.push(Expr::Ident(name));
                     let assign_id = ExprId(exprs.len() as u32);
-                    exprs.push(Expr::Assign { target: target_id, value: init });
+                    exprs.push(Expr::Assign {
+                        target: target_id,
+                        value: init,
+                    });
                     new_stmts.push(Stmt::Expr(assign_id));
                 }
             }
@@ -6052,7 +6437,11 @@ fn hoist_recurse_stmt(
     exprs: &mut Vec<Expr>,
 ) {
     match s {
-        Stmt::If { then_branch, else_branch, .. } => {
+        Stmt::If {
+            then_branch,
+            else_branch,
+            ..
+        } => {
             hoist_recurse_stmt(then_branch, hoisted, exprs);
             if let Some(eb) = else_branch.as_deref_mut() {
                 hoist_recurse_stmt(eb, hoisted, exprs);
@@ -6070,7 +6459,14 @@ fn hoist_recurse_stmt(
             // for-init with the equivalent `i = 0` assignment so the
             // loop semantic stays unchanged.
             if let Some(init_box) = init.as_deref_mut() {
-                if let Stmt::LetDecl { name, type_ann, init: init_id, is_var: true, .. } = init_box {
+                if let Stmt::LetDecl {
+                    name,
+                    type_ann,
+                    init: init_id,
+                    is_var: true,
+                    ..
+                } = init_box
+                {
                     // Same escape hatch as the regular collect path:
                     // typed `var i: number = 0` stays put as a let.
                     if type_ann.is_some() {
@@ -6085,7 +6481,10 @@ fn hoist_recurse_stmt(
                             let target_id = ExprId(exprs.len() as u32);
                             exprs.push(Expr::Ident(nm));
                             let assign_id = ExprId(exprs.len() as u32);
-                            exprs.push(Expr::Assign { target: target_id, value: init_eid });
+                            exprs.push(Expr::Assign {
+                                target: target_id,
+                                value: init_eid,
+                            });
                             *init_box = Stmt::Expr(assign_id);
                         } else {
                             *init = None;
@@ -6100,7 +6499,12 @@ fn hoist_recurse_stmt(
         Stmt::ForOfSplitIter { body, .. } | Stmt::ForOf { body, .. } => {
             hoist_recurse_stmt(body, hoisted, exprs);
         }
-        Stmt::Try { body, catch_body, finally_body, .. } => {
+        Stmt::Try {
+            body,
+            catch_body,
+            finally_body,
+            ..
+        } => {
             collect_and_rewrite_var(body, hoisted, exprs);
             collect_and_rewrite_var(catch_body, hoisted, exprs);
             if let Some(fb) = finally_body {
@@ -6151,7 +6555,12 @@ pub fn desugar_nested_fns(ast: &mut Ast) {
     // Pass 1 — top-level FnDecl bodies. Walk nested fns inside parent
     // FnDecl bodies (the original P3.4 scope).
     for stmt in top.iter_mut() {
-        if let Stmt::FnDecl { name: parent_name, body, .. } = stmt {
+        if let Stmt::FnDecl {
+            name: parent_name,
+            body,
+            ..
+        } = stmt
+        {
             let parent = parent_name.clone();
             let mut renames: HashMap<String, String> = HashMap::new();
             let mut lifted: Vec<Stmt> = Vec::new();
@@ -6260,7 +6669,11 @@ fn collect_nested_fns_in_stmt(
         Stmt::Block(body) => {
             collect_nested_fns_to_lift(body, parent_name, renames, lifted, counter);
         }
-        Stmt::If { then_branch, else_branch, .. } => {
+        Stmt::If {
+            then_branch,
+            else_branch,
+            ..
+        } => {
             collect_nested_fns_in_stmt(then_branch, parent_name, renames, lifted, counter);
             if let Some(eb) = else_branch {
                 collect_nested_fns_in_stmt(eb, parent_name, renames, lifted, counter);
@@ -6272,7 +6685,12 @@ fn collect_nested_fns_in_stmt(
         Stmt::For { body, .. } | Stmt::ForOfSplitIter { body, .. } | Stmt::ForOf { body, .. } => {
             collect_nested_fns_in_stmt(body, parent_name, renames, lifted, counter);
         }
-        Stmt::Try { body, catch_body, finally_body, .. } => {
+        Stmt::Try {
+            body,
+            catch_body,
+            finally_body,
+            ..
+        } => {
             collect_nested_fns_to_lift(body, parent_name, renames, lifted, counter);
             collect_nested_fns_to_lift(catch_body, parent_name, renames, lifted, counter);
             if let Some(fb) = finally_body {
@@ -6290,7 +6708,6 @@ fn collect_nested_fns_in_stmt(
         _ => {} // leaf stmts have no nested FnDecl children
     }
 }
-
 
 fn collect_nested_fns_to_lift(
     body: &mut Vec<Stmt>,
@@ -6350,7 +6767,11 @@ fn collect_nested_fns_in_other(
     counter: &mut u32,
 ) {
     match s {
-        Stmt::If { then_branch, else_branch, .. } => {
+        Stmt::If {
+            then_branch,
+            else_branch,
+            ..
+        } => {
             collect_nested_fns_in_other(then_branch, parent, renames, lifted, counter);
             if let Some(eb) = else_branch.as_deref_mut() {
                 collect_nested_fns_in_other(eb, parent, renames, lifted, counter);
@@ -6365,7 +6786,12 @@ fn collect_nested_fns_in_other(
         Stmt::For { body, .. } | Stmt::ForOfSplitIter { body, .. } | Stmt::ForOf { body, .. } => {
             collect_nested_fns_in_other(body, parent, renames, lifted, counter);
         }
-        Stmt::Try { body, catch_body, finally_body, .. } => {
+        Stmt::Try {
+            body,
+            catch_body,
+            finally_body,
+            ..
+        } => {
             collect_nested_fns_to_lift(body, parent, renames, lifted, counter);
             collect_nested_fns_to_lift(catch_body, parent, renames, lifted, counter);
             if let Some(fb) = finally_body {
@@ -6386,27 +6812,23 @@ fn collect_nested_fns_in_other(
     }
 }
 
-fn rewrite_idents_in_body(
-    ast: &mut Ast,
-    body: &mut Vec<Stmt>,
-    renames: &HashMap<String, String>,
-) {
+fn rewrite_idents_in_body(ast: &mut Ast, body: &mut Vec<Stmt>, renames: &HashMap<String, String>) {
     for s in body.iter_mut() {
         rewrite_idents_in_stmt(ast, s, renames);
     }
 }
 
-fn rewrite_idents_in_stmt(
-    ast: &mut Ast,
-    s: &mut Stmt,
-    renames: &HashMap<String, String>,
-) {
+fn rewrite_idents_in_stmt(ast: &mut Ast, s: &mut Stmt, renames: &HashMap<String, String>) {
     match s {
         Stmt::Expr(eid) => rewrite_idents_in_expr(ast, *eid, renames),
         Stmt::LetDecl { init, .. } => rewrite_idents_in_expr(ast, *init, renames),
         Stmt::Return(Some(eid)) => rewrite_idents_in_expr(ast, *eid, renames),
         Stmt::Throw(eid) => rewrite_idents_in_expr(ast, *eid, renames),
-        Stmt::If { cond, then_branch, else_branch } => {
+        Stmt::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
             rewrite_idents_in_expr(ast, *cond, renames);
             rewrite_idents_in_stmt(ast, then_branch, renames);
             if let Some(eb) = else_branch.as_deref_mut() {
@@ -6417,7 +6839,12 @@ fn rewrite_idents_in_stmt(
             rewrite_idents_in_expr(ast, *cond, renames);
             rewrite_idents_in_stmt(ast, body, renames);
         }
-        Stmt::For { init, cond, step, body } => {
+        Stmt::For {
+            init,
+            cond,
+            step,
+            body,
+        } => {
             if let Some(i) = init.as_deref_mut() {
                 rewrite_idents_in_stmt(ast, i, renames);
             }
@@ -6434,7 +6861,12 @@ fn rewrite_idents_in_stmt(
                 rewrite_idents_in_stmt(ast, s2, renames);
             }
         }
-        Stmt::Try { body, catch_body, finally_body, .. } => {
+        Stmt::Try {
+            body,
+            catch_body,
+            finally_body,
+            ..
+        } => {
             for s2 in body.iter_mut() {
                 rewrite_idents_in_stmt(ast, s2, renames);
             }
@@ -6447,7 +6879,11 @@ fn rewrite_idents_in_stmt(
                 }
             }
         }
-        Stmt::Switch { scrutinee, cases, default } => {
+        Stmt::Switch {
+            scrutinee,
+            cases,
+            default,
+        } => {
             rewrite_idents_in_expr(ast, *scrutinee, renames);
             for case in cases.iter_mut() {
                 rewrite_idents_in_expr(ast, case.value, renames);
@@ -6461,12 +6897,16 @@ fn rewrite_idents_in_stmt(
                 }
             }
         }
-        Stmt::ForOfSplitIter { parent, sep, body, .. } => {
+        Stmt::ForOfSplitIter {
+            parent, sep, body, ..
+        } => {
             rewrite_idents_in_expr(ast, *parent, renames);
             rewrite_idents_in_expr(ast, *sep, renames);
             rewrite_idents_in_stmt(ast, body, renames);
         }
-        Stmt::ForOf { elem_expr, body, .. } => {
+        Stmt::ForOf {
+            elem_expr, body, ..
+        } => {
             rewrite_idents_in_expr(ast, *elem_expr, renames);
             rewrite_idents_in_stmt(ast, body, renames);
         }
@@ -6477,11 +6917,7 @@ fn rewrite_idents_in_stmt(
     }
 }
 
-fn rewrite_idents_in_expr(
-    ast: &mut Ast,
-    eid: ExprId,
-    renames: &HashMap<String, String>,
-) {
+fn rewrite_idents_in_expr(ast: &mut Ast, eid: ExprId, renames: &HashMap<String, String>) {
     use std::collections::HashSet;
     let mut seen: HashSet<ExprId> = HashSet::new();
     let mut stack: Vec<ExprId> = vec![eid];
@@ -6506,8 +6942,7 @@ fn rewrite_idents_in_expr(
             Expr::Unary { expr, .. }
             | Expr::TypeOf { expr }
             | Expr::Spread { expr }
-            | Expr::PostIncr { target: expr, .. }
-             => {
+            | Expr::PostIncr { target: expr, .. } => {
                 stack.push(expr);
             }
             Expr::Call { callee, args } => {
@@ -6537,12 +6972,20 @@ fn rewrite_idents_in_expr(
                     stack.push(e);
                 }
             }
-            Expr::Ternary { cond, then_branch, else_branch } => {
+            Expr::Ternary {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
                 stack.push(cond);
                 stack.push(then_branch);
                 stack.push(else_branch);
             }
-            Expr::Nullish { lhs, rhs } | Expr::Sequence { left: lhs, right: rhs } => {
+            Expr::Nullish { lhs, rhs }
+            | Expr::Sequence {
+                left: lhs,
+                right: rhs,
+            } => {
                 stack.push(lhs);
                 stack.push(rhs);
             }
@@ -6638,7 +7081,11 @@ fn rewrite_variadic_push_in_stmts(
             Stmt::Block(inner) | Stmt::Multi(inner) => {
                 rewrite_variadic_push_in_stmts(inner, snapshot, out_exprs);
             }
-            Stmt::If { then_branch, else_branch, .. } => {
+            Stmt::If {
+                then_branch,
+                else_branch,
+                ..
+            } => {
                 rewrite_variadic_push_in_stmt_box(then_branch, snapshot, out_exprs);
                 if let Some(eb) = else_branch {
                     rewrite_variadic_push_in_stmt_box(eb, snapshot, out_exprs);
@@ -6661,7 +7108,12 @@ fn rewrite_variadic_push_in_stmts(
                     rewrite_variadic_push_in_stmts(db, snapshot, out_exprs);
                 }
             }
-            Stmt::Try { body, catch_body, finally_body, .. } => {
+            Stmt::Try {
+                body,
+                catch_body,
+                finally_body,
+                ..
+            } => {
                 rewrite_variadic_push_in_stmts(body, snapshot, out_exprs);
                 rewrite_variadic_push_in_stmts(catch_body, snapshot, out_exprs);
                 if let Some(fb) = finally_body {
@@ -6674,7 +7126,12 @@ fn rewrite_variadic_push_in_stmts(
             Stmt::FnDecl { body, .. } => {
                 rewrite_variadic_push_in_stmts(body, snapshot, out_exprs);
             }
-            Stmt::ClassDecl { ctor, methods, static_methods, .. } => {
+            Stmt::ClassDecl {
+                ctor,
+                methods,
+                static_methods,
+                ..
+            } => {
                 if let Some(c) = ctor {
                     rewrite_variadic_push_in_stmts(&mut c.body, snapshot, out_exprs);
                 }
@@ -6735,11 +7192,7 @@ pub fn escape_analyze_array_literals(ast: &mut Ast) {
     ast.stack_array_literals = found;
 }
 
-fn eal_walk_stmts(
-    ast: &Ast,
-    stmts: &[Stmt],
-    found: &mut std::collections::HashSet<ExprId>,
-) {
+fn eal_walk_stmts(ast: &Ast, stmts: &[Stmt], found: &mut std::collections::HashSet<ExprId>) {
     // Pass 1: at this level, check each `let X = [...]` against the
     // stmts that follow it (in source order — `let` is in scope from
     // its decl to end of block).
@@ -6747,7 +7200,9 @@ fn eal_walk_stmts(
         if let Stmt::LetDecl { name, init, .. } = s
             && let Expr::Array(els) = ast.get_expr(*init)
             && !els.is_empty()
-            && !els.iter().any(|e| matches!(ast.get_expr(*e), Expr::Spread { .. }))
+            && !els
+                .iter()
+                .any(|e| matches!(ast.get_expr(*e), Expr::Spread { .. }))
         {
             // The array literal `init` is X's value. Verify X is
             // stack-safe in stmts[i+1..].
@@ -6763,29 +7218,29 @@ fn eal_walk_stmts(
     }
 }
 
-fn eal_recurse_into(
-    ast: &Ast,
-    s: &Stmt,
-    found: &mut std::collections::HashSet<ExprId>,
-) {
+fn eal_recurse_into(ast: &Ast, s: &Stmt, found: &mut std::collections::HashSet<ExprId>) {
     match s {
         Stmt::Block(inner) | Stmt::Multi(inner) => eal_walk_stmts(ast, inner, found),
-        Stmt::If { then_branch, else_branch, .. } => {
+        Stmt::If {
+            then_branch,
+            else_branch,
+            ..
+        } => {
             eal_recurse_into(ast, then_branch, found);
             if let Some(eb) = else_branch {
                 eal_recurse_into(ast, eb, found);
             }
         }
-        Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
-            eal_recurse_into(ast, body, found)
-        }
+        Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => eal_recurse_into(ast, body, found),
         Stmt::For { init, body, .. } => {
             if let Some(i) = init {
                 eal_recurse_into(ast, i, found);
             }
             eal_recurse_into(ast, body, found);
         }
-        Stmt::ForOfSplitIter { body, .. } | Stmt::ForOf { body, .. } => eal_recurse_into(ast, body, found),
+        Stmt::ForOfSplitIter { body, .. } | Stmt::ForOf { body, .. } => {
+            eal_recurse_into(ast, body, found)
+        }
         Stmt::Switch { cases, default, .. } => {
             for c in cases {
                 eal_walk_stmts(ast, &c.body, found);
@@ -6794,7 +7249,12 @@ fn eal_recurse_into(
                 eal_walk_stmts(ast, db, found);
             }
         }
-        Stmt::Try { body, catch_body, finally_body, .. } => {
+        Stmt::Try {
+            body,
+            catch_body,
+            finally_body,
+            ..
+        } => {
             eal_walk_stmts(ast, body, found);
             eal_walk_stmts(ast, catch_body, found);
             if let Some(fb) = finally_body {
@@ -6841,30 +7301,47 @@ fn eal_stmt_safe(ast: &Ast, s: &Stmt, x_name: &str) -> bool {
             let _ = name;
             eal_expr_safe(ast, *init, x_name)
         }
-        Stmt::If { cond, then_branch, else_branch } => {
+        Stmt::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
             eal_expr_safe(ast, *cond, x_name)
                 && eal_stmt_safe(ast, then_branch, x_name)
-                && else_branch.as_deref().map_or(true, |e| eal_stmt_safe(ast, e, x_name))
+                && else_branch
+                    .as_deref()
+                    .map_or(true, |e| eal_stmt_safe(ast, e, x_name))
         }
         Stmt::While { cond, body } | Stmt::DoWhile { body, cond } => {
             eal_expr_safe(ast, *cond, x_name) && eal_stmt_safe(ast, body, x_name)
         }
-        Stmt::For { init, cond, step, body } => {
-            init.as_deref().map_or(true, |i| eal_stmt_safe(ast, i, x_name))
+        Stmt::For {
+            init,
+            cond,
+            step,
+            body,
+        } => {
+            init.as_deref()
+                .map_or(true, |i| eal_stmt_safe(ast, i, x_name))
                 && cond.map_or(true, |c| eal_expr_safe(ast, c, x_name))
                 && step.map_or(true, |st| eal_expr_safe(ast, st, x_name))
                 && eal_stmt_safe(ast, body, x_name)
         }
-        Stmt::ForOfSplitIter { parent, sep, body, .. } => {
+        Stmt::ForOfSplitIter {
+            parent, sep, body, ..
+        } => {
             eal_expr_safe(ast, *parent, x_name)
                 && eal_expr_safe(ast, *sep, x_name)
                 && eal_stmt_safe(ast, body, x_name)
         }
-        Stmt::ForOf { elem_expr, body, .. } => {
-            eal_expr_safe(ast, *elem_expr, x_name)
-                && eal_stmt_safe(ast, body, x_name)
-        }
-        Stmt::Switch { scrutinee, cases, default } => {
+        Stmt::ForOf {
+            elem_expr, body, ..
+        } => eal_expr_safe(ast, *elem_expr, x_name) && eal_stmt_safe(ast, body, x_name),
+        Stmt::Switch {
+            scrutinee,
+            cases,
+            default,
+        } => {
             eal_expr_safe(ast, *scrutinee, x_name)
                 && cases.iter().all(|c| {
                     eal_expr_safe(ast, c.value, x_name)
@@ -6874,7 +7351,12 @@ fn eal_stmt_safe(ast: &Ast, s: &Stmt, x_name: &str) -> bool {
                     .as_ref()
                     .map_or(true, |db| db.iter().all(|s| eal_stmt_safe(ast, s, x_name)))
         }
-        Stmt::Try { body, catch_body, finally_body, .. } => {
+        Stmt::Try {
+            body,
+            catch_body,
+            finally_body,
+            ..
+        } => {
             body.iter().all(|s| eal_stmt_safe(ast, s, x_name))
                 && catch_body.iter().all(|s| eal_stmt_safe(ast, s, x_name))
                 && finally_body
@@ -6929,15 +7411,17 @@ fn eal_expr_safe(ast: &Ast, eid: ExprId, x_name: &str) -> bool {
             eal_expr_safe(ast, *left, x_name) && eal_expr_safe(ast, *right, x_name)
         }
         Expr::Unary { expr, .. } => eal_expr_safe(ast, *expr, x_name),
-        Expr::Ternary { cond, then_branch, else_branch } => {
+        Expr::Ternary {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
             eal_expr_safe(ast, *cond, x_name)
                 && eal_expr_safe(ast, *then_branch, x_name)
                 && eal_expr_safe(ast, *else_branch, x_name)
         }
         Expr::Array(els) => els.iter().all(|e| eal_expr_safe(ast, *e, x_name)),
-        Expr::ObjectLit { fields } => {
-            fields.iter().all(|(_, e)| eal_expr_safe(ast, *e, x_name))
-        }
+        Expr::ObjectLit { fields } => fields.iter().all(|(_, e)| eal_expr_safe(ast, *e, x_name)),
         Expr::Spread { expr } => eal_expr_safe(ast, *expr, x_name),
         Expr::Nullish { lhs, rhs } => {
             eal_expr_safe(ast, *lhs, x_name) && eal_expr_safe(ast, *rhs, x_name)
@@ -6971,8 +7455,15 @@ fn eal_expr_safe(ast: &Ast, eid: ExprId, x_name: &str) -> bool {
         }
         Expr::New { args, .. } => args.iter().all(|a| eal_expr_safe(ast, *a, x_name)),
         Expr::Super { args } => args.iter().all(|a| eal_expr_safe(ast, *a, x_name)),
-        Expr::This | Expr::NewTarget | Expr::Number(_) | Expr::BigInt { .. } | Expr::String(_) | Expr::Bool(_) | Expr::Null
-        | Expr::Uninit | Expr::Regex { .. } => true,
+        Expr::This
+        | Expr::NewTarget
+        | Expr::Number(_)
+        | Expr::BigInt { .. }
+        | Expr::String(_)
+        | Expr::Bool(_)
+        | Expr::Null
+        | Expr::Uninit
+        | Expr::Regex { .. } => true,
     }
 }
 
@@ -7121,8 +7612,8 @@ fn rewrite_sfi_walk_list(ast: &mut Ast, stmts: &mut Vec<Stmt>, ctx: &mut SplitFo
             name: i_name.clone(),
             type_ann: Some("number".into()),
             init: zero_eid,
-        is_var: false,
-            };
+            is_var: false,
+        };
         let forof = Stmt::ForOfSplitIter {
             var_name: v_name,
             parent: parent_eid,
@@ -7159,22 +7650,30 @@ fn rewrite_sfi_walk_list(ast: &mut Ast, stmts: &mut Vec<Stmt>, ctx: &mut SplitFo
 /// `for (let mut I = 0; I < X.length; I = I + 1) BODY`. None on any
 /// shape mismatch.
 fn for_i_x_length_match(ast: &Ast, s: &Stmt) -> Option<(String, String)> {
-    let Stmt::For { init, cond, step, .. } = s else {
+    let Stmt::For {
+        init, cond, step, ..
+    } = s
+    else {
         return None;
     };
     // init: let mut I = 0
     let i_name = match init.as_deref() {
         Some(Stmt::LetDecl {
-            mutable: true, name, init: init_eid, ..
+            mutable: true,
+            name,
+            init: init_eid,
+            ..
         }) if is_zero_lit(ast, *init_eid) => name.clone(),
         _ => return None,
     };
     let cond_eid = (*cond)?;
     // cond: I < X.length
     let x_name = match ast.get_expr(cond_eid) {
-        Expr::BinOp { op: BinOp::Lt, left, right }
-            if matches!(ast.get_expr(*left), Expr::Ident(n) if *n == i_name) =>
-        {
+        Expr::BinOp {
+            op: BinOp::Lt,
+            left,
+            right,
+        } if matches!(ast.get_expr(*left), Expr::Ident(n) if *n == i_name) => {
             match ast.get_expr(*right) {
                 Expr::Member { obj, name } if name == "length" => match ast.get_expr(*obj) {
                     Expr::Ident(n) => n.clone(),
@@ -7197,7 +7696,11 @@ fn rewrite_sfi_walk_stmt(ast: &mut Ast, s: &mut Stmt, ctx: &mut SplitForICtx) {
         Stmt::Block(inner) | Stmt::Multi(inner) => {
             rewrite_sfi_walk_list(ast, inner, ctx);
         }
-        Stmt::If { then_branch, else_branch, .. } => {
+        Stmt::If {
+            then_branch,
+            else_branch,
+            ..
+        } => {
             rewrite_sfi_walk_stmt(ast, then_branch, ctx);
             if let Some(eb) = else_branch {
                 rewrite_sfi_walk_stmt(ast, eb, ctx);
@@ -7223,7 +7726,12 @@ fn rewrite_sfi_walk_stmt(ast: &mut Ast, s: &mut Stmt, ctx: &mut SplitForICtx) {
                 rewrite_sfi_walk_list(ast, db, ctx);
             }
         }
-        Stmt::Try { body, catch_body, finally_body, .. } => {
+        Stmt::Try {
+            body,
+            catch_body,
+            finally_body,
+            ..
+        } => {
             rewrite_sfi_walk_list(ast, body, ctx);
             rewrite_sfi_walk_list(ast, catch_body, ctx);
             if let Some(fb) = finally_body {
@@ -7267,7 +7775,11 @@ fn is_i_plus_eq_1(ast: &Ast, eid: ExprId, i_name: &str) -> bool {
     // Either `I = I + 1` (Assign) or `I++` (PostIncr) — accept both.
     if let Expr::Assign { target, value } = ast.get_expr(eid)
         && matches!(ast.get_expr(*target), Expr::Ident(n) if n == i_name)
-        && let Expr::BinOp { op: BinOp::Add, left, right } = ast.get_expr(*value)
+        && let Expr::BinOp {
+            op: BinOp::Add,
+            left,
+            right,
+        } = ast.get_expr(*value)
         && matches!(ast.get_expr(*left), Expr::Ident(n) if n == i_name)
         && matches!(ast.get_expr(*right), Expr::Number(n) if *n == 1.0)
     {
@@ -7296,7 +7808,11 @@ fn sfi_stmt_x_safe(ast: &Ast, s: &Stmt, x_name: &str, i_name: &str) -> bool {
         Stmt::Return(Some(eid)) => sfi_expr_x_safe(ast, *eid, x_name, i_name),
         Stmt::Return(None) | Stmt::Break | Stmt::Continue => true,
         Stmt::LetDecl { init, .. } => sfi_expr_x_safe(ast, *init, x_name, i_name),
-        Stmt::If { cond, then_branch, else_branch } => {
+        Stmt::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
             sfi_expr_x_safe(ast, *cond, x_name, i_name)
                 && sfi_stmt_x_safe(ast, then_branch, x_name, i_name)
                 && else_branch
@@ -7307,42 +7823,64 @@ fn sfi_stmt_x_safe(ast: &Ast, s: &Stmt, x_name: &str, i_name: &str) -> bool {
             sfi_expr_x_safe(ast, *cond, x_name, i_name)
                 && sfi_stmt_x_safe(ast, body, x_name, i_name)
         }
-        Stmt::For { init, cond, step, body } => {
+        Stmt::For {
+            init,
+            cond,
+            step,
+            body,
+        } => {
             init.as_deref()
                 .map_or(true, |i| sfi_stmt_x_safe(ast, i, x_name, i_name))
                 && cond.map_or(true, |c| sfi_expr_x_safe(ast, c, x_name, i_name))
                 && step.map_or(true, |st| sfi_expr_x_safe(ast, st, x_name, i_name))
                 && sfi_stmt_x_safe(ast, body, x_name, i_name)
         }
-        Stmt::ForOfSplitIter { parent, sep, body, .. } => {
+        Stmt::ForOfSplitIter {
+            parent, sep, body, ..
+        } => {
             sfi_expr_x_safe(ast, *parent, x_name, i_name)
                 && sfi_expr_x_safe(ast, *sep, x_name, i_name)
                 && sfi_stmt_x_safe(ast, body, x_name, i_name)
         }
-        Stmt::ForOf { elem_expr, body, .. } => {
+        Stmt::ForOf {
+            elem_expr, body, ..
+        } => {
             sfi_expr_x_safe(ast, *elem_expr, x_name, i_name)
                 && sfi_stmt_x_safe(ast, body, x_name, i_name)
         }
-        Stmt::Switch { scrutinee, cases, default } => {
+        Stmt::Switch {
+            scrutinee,
+            cases,
+            default,
+        } => {
             sfi_expr_x_safe(ast, *scrutinee, x_name, i_name)
                 && cases.iter().all(|c| {
                     sfi_expr_x_safe(ast, c.value, x_name, i_name)
-                        && c.body.iter().all(|s| sfi_stmt_x_safe(ast, s, x_name, i_name))
+                        && c.body
+                            .iter()
+                            .all(|s| sfi_stmt_x_safe(ast, s, x_name, i_name))
                 })
                 && default.as_ref().map_or(true, |db| {
                     db.iter().all(|s| sfi_stmt_x_safe(ast, s, x_name, i_name))
                 })
         }
-        Stmt::Try { body, catch_body, finally_body, .. } => {
+        Stmt::Try {
+            body,
+            catch_body,
+            finally_body,
+            ..
+        } => {
             body.iter().all(|s| sfi_stmt_x_safe(ast, s, x_name, i_name))
-                && catch_body.iter().all(|s| sfi_stmt_x_safe(ast, s, x_name, i_name))
-                && finally_body
-                    .as_ref()
-                    .map_or(true, |fb| fb.iter().all(|s| sfi_stmt_x_safe(ast, s, x_name, i_name)))
+                && catch_body
+                    .iter()
+                    .all(|s| sfi_stmt_x_safe(ast, s, x_name, i_name))
+                && finally_body.as_ref().map_or(true, |fb| {
+                    fb.iter().all(|s| sfi_stmt_x_safe(ast, s, x_name, i_name))
+                })
         }
-        Stmt::Block(stmts) | Stmt::Multi(stmts) => {
-            stmts.iter().all(|s| sfi_stmt_x_safe(ast, s, x_name, i_name))
-        }
+        Stmt::Block(stmts) | Stmt::Multi(stmts) => stmts
+            .iter()
+            .all(|s| sfi_stmt_x_safe(ast, s, x_name, i_name)),
         Stmt::YieldInto { value, .. } => sfi_expr_x_safe(ast, *value, x_name, i_name),
         Stmt::FnDecl { .. }
         | Stmt::TypeDecl { .. }
@@ -7382,7 +7920,9 @@ fn sfi_expr_x_safe(ast: &Ast, eid: ExprId, x_name: &str, i_name: &str) -> bool {
         }
         Expr::Call { callee, args } => {
             sfi_expr_x_safe(ast, *callee, x_name, i_name)
-                && args.iter().all(|a| sfi_expr_x_safe(ast, *a, x_name, i_name))
+                && args
+                    .iter()
+                    .all(|a| sfi_expr_x_safe(ast, *a, x_name, i_name))
         }
         Expr::Number(_)
         | Expr::BigInt { .. }
@@ -7394,9 +7934,9 @@ fn sfi_expr_x_safe(ast: &Ast, eid: ExprId, x_name: &str, i_name: &str) -> bool {
         | Expr::NewTarget
         | Expr::Regex { .. } => true,
         Expr::Array(els) => els.iter().all(|e| sfi_expr_x_safe(ast, *e, x_name, i_name)),
-        Expr::ObjectLit { fields } => {
-            fields.iter().all(|(_, e)| sfi_expr_x_safe(ast, *e, x_name, i_name))
-        }
+        Expr::ObjectLit { fields } => fields
+            .iter()
+            .all(|(_, e)| sfi_expr_x_safe(ast, *e, x_name, i_name)),
         Expr::Spread { expr } => sfi_expr_x_safe(ast, *expr, x_name, i_name),
         Expr::BinOp { left, right, .. } => {
             sfi_expr_x_safe(ast, *left, x_name, i_name)
@@ -7407,7 +7947,11 @@ fn sfi_expr_x_safe(ast: &Ast, eid: ExprId, x_name: &str, i_name: &str) -> bool {
                 && sfi_expr_x_safe(ast, *value, x_name, i_name)
         }
         Expr::Unary { expr, .. } => sfi_expr_x_safe(ast, *expr, x_name, i_name),
-        Expr::Ternary { cond, then_branch, else_branch } => {
+        Expr::Ternary {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
             sfi_expr_x_safe(ast, *cond, x_name, i_name)
                 && sfi_expr_x_safe(ast, *then_branch, x_name, i_name)
                 && sfi_expr_x_safe(ast, *else_branch, x_name, i_name)
@@ -7426,11 +7970,14 @@ fn sfi_expr_x_safe(ast: &Ast, eid: ExprId, x_name: &str, i_name: &str) -> bool {
             // closures as black boxes.
             true
         }
-        Expr::Super { args } => args.iter().all(|a| sfi_expr_x_safe(ast, *a, x_name, i_name)),
-        Expr::New { args, .. } => args.iter().all(|a| sfi_expr_x_safe(ast, *a, x_name, i_name)),
+        Expr::Super { args } => args
+            .iter()
+            .all(|a| sfi_expr_x_safe(ast, *a, x_name, i_name)),
+        Expr::New { args, .. } => args
+            .iter()
+            .all(|a| sfi_expr_x_safe(ast, *a, x_name, i_name)),
         Expr::Nullish { lhs, rhs } => {
-            sfi_expr_x_safe(ast, *lhs, x_name, i_name)
-                && sfi_expr_x_safe(ast, *rhs, x_name, i_name)
+            sfi_expr_x_safe(ast, *lhs, x_name, i_name) && sfi_expr_x_safe(ast, *rhs, x_name, i_name)
         }
         Expr::OptChain { obj, .. } => {
             if let Expr::Ident(n) = ast.get_expr(*obj)
@@ -7460,7 +8007,11 @@ fn sfi_rewrite_stmt(ast: &mut Ast, s: &Stmt, x_name: &str, i_name: &str, v_name:
         Stmt::Expr(eid) => Stmt::Expr(sfi_rewrite_expr(ast, *eid, x_name, i_name, v_name)),
         Stmt::Throw(eid) => Stmt::Throw(sfi_rewrite_expr(ast, *eid, x_name, i_name, v_name)),
         Stmt::Yield(eid) => Stmt::Yield(sfi_rewrite_expr(ast, *eid, x_name, i_name, v_name)),
-        Stmt::YieldInto { var, type_ann, value } => Stmt::YieldInto {
+        Stmt::YieldInto {
+            var,
+            type_ann,
+            value,
+        } => Stmt::YieldInto {
             var: var.clone(),
             type_ann: type_ann.clone(),
             value: sfi_rewrite_expr(ast, *value, x_name, i_name, v_name),
@@ -7469,7 +8020,13 @@ fn sfi_rewrite_stmt(ast: &mut Ast, s: &Stmt, x_name: &str, i_name: &str, v_name:
             Stmt::Return(Some(sfi_rewrite_expr(ast, *eid, x_name, i_name, v_name)))
         }
         Stmt::Return(None) => Stmt::Return(None),
-        Stmt::LetDecl { mutable, name, type_ann, init, is_var } => Stmt::LetDecl {
+        Stmt::LetDecl {
+            mutable,
+            name,
+            type_ann,
+            init,
+            is_var,
+        } => Stmt::LetDecl {
             mutable: *mutable,
             name: name.clone(),
             type_ann: type_ann.clone(),
@@ -7479,7 +8036,11 @@ fn sfi_rewrite_stmt(ast: &mut Ast, s: &Stmt, x_name: &str, i_name: &str, v_name:
             // rewritten `var` decl (surfaced by the zero-warn rule).
             is_var: *is_var,
         },
-        Stmt::If { cond, then_branch, else_branch } => Stmt::If {
+        Stmt::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => Stmt::If {
             cond: sfi_rewrite_expr(ast, *cond, x_name, i_name, v_name),
             then_branch: Box::new(sfi_rewrite_stmt(ast, then_branch, x_name, i_name, v_name)),
             else_branch: else_branch
@@ -7494,7 +8055,11 @@ fn sfi_rewrite_stmt(ast: &mut Ast, s: &Stmt, x_name: &str, i_name: &str, v_name:
             body: Box::new(sfi_rewrite_stmt(ast, body, x_name, i_name, v_name)),
             cond: sfi_rewrite_expr(ast, *cond, x_name, i_name, v_name),
         },
-        Stmt::Switch { scrutinee, cases, default } => Stmt::Switch {
+        Stmt::Switch {
+            scrutinee,
+            cases,
+            default,
+        } => Stmt::Switch {
             scrutinee: sfi_rewrite_expr(ast, *scrutinee, x_name, i_name, v_name),
             cases: cases
                 .iter()
@@ -7513,7 +8078,12 @@ fn sfi_rewrite_stmt(ast: &mut Ast, s: &Stmt, x_name: &str, i_name: &str, v_name:
                     .collect()
             }),
         },
-        Stmt::For { init, cond, step, body } => Stmt::For {
+        Stmt::For {
+            init,
+            cond,
+            step,
+            body,
+        } => Stmt::For {
             init: init
                 .as_ref()
                 .map(|i| Box::new(sfi_rewrite_stmt(ast, i, x_name, i_name, v_name))),
@@ -7521,13 +8091,25 @@ fn sfi_rewrite_stmt(ast: &mut Ast, s: &Stmt, x_name: &str, i_name: &str, v_name:
             step: step.map(|st| sfi_rewrite_expr(ast, st, x_name, i_name, v_name)),
             body: Box::new(sfi_rewrite_stmt(ast, body, x_name, i_name, v_name)),
         },
-        Stmt::ForOfSplitIter { var_name, parent, sep, body } => Stmt::ForOfSplitIter {
+        Stmt::ForOfSplitIter {
+            var_name,
+            parent,
+            sep,
+            body,
+        } => Stmt::ForOfSplitIter {
             var_name: var_name.clone(),
             parent: sfi_rewrite_expr(ast, *parent, x_name, i_name, v_name),
             sep: sfi_rewrite_expr(ast, *sep, x_name, i_name, v_name),
             body: Box::new(sfi_rewrite_stmt(ast, body, x_name, i_name, v_name)),
         },
-        Stmt::ForOf { var_name, var_type_ann, src_ident, i_ident, elem_expr, body } => Stmt::ForOf {
+        Stmt::ForOf {
+            var_name,
+            var_type_ann,
+            src_ident,
+            i_ident,
+            elem_expr,
+            body,
+        } => Stmt::ForOf {
             var_name: var_name.clone(),
             var_type_ann: var_type_ann.clone(),
             src_ident: src_ident.clone(),
@@ -7535,26 +8117,31 @@ fn sfi_rewrite_stmt(ast: &mut Ast, s: &Stmt, x_name: &str, i_name: &str, v_name:
             elem_expr: sfi_rewrite_expr(ast, *elem_expr, x_name, i_name, v_name),
             body: Box::new(sfi_rewrite_stmt(ast, body, x_name, i_name, v_name)),
         },
-        Stmt::Try { body, had_catch, catch_param, catch_type, catch_body, finally_body } => {
-            Stmt::Try {
-                body: body
-                    .iter()
+        Stmt::Try {
+            body,
+            had_catch,
+            catch_param,
+            catch_type,
+            catch_body,
+            finally_body,
+        } => Stmt::Try {
+            body: body
+                .iter()
+                .map(|s| sfi_rewrite_stmt(ast, s, x_name, i_name, v_name))
+                .collect(),
+            had_catch: *had_catch,
+            catch_param: catch_param.clone(),
+            catch_type: catch_type.clone(),
+            catch_body: catch_body
+                .iter()
+                .map(|s| sfi_rewrite_stmt(ast, s, x_name, i_name, v_name))
+                .collect(),
+            finally_body: finally_body.as_ref().map(|fb| {
+                fb.iter()
                     .map(|s| sfi_rewrite_stmt(ast, s, x_name, i_name, v_name))
-                    .collect(),
-                had_catch: *had_catch,
-                catch_param: catch_param.clone(),
-                catch_type: catch_type.clone(),
-                catch_body: catch_body
-                    .iter()
-                    .map(|s| sfi_rewrite_stmt(ast, s, x_name, i_name, v_name))
-                    .collect(),
-                finally_body: finally_body.as_ref().map(|fb| {
-                    fb.iter()
-                        .map(|s| sfi_rewrite_stmt(ast, s, x_name, i_name, v_name))
-                        .collect()
-                }),
-            }
-        }
+                    .collect()
+            }),
+        },
         Stmt::Block(stmts) => Stmt::Block(
             stmts
                 .iter()
@@ -7576,7 +8163,13 @@ fn sfi_rewrite_stmt(ast: &mut Ast, s: &Stmt, x_name: &str, i_name: &str, v_name:
     }
 }
 
-fn sfi_rewrite_expr(ast: &mut Ast, eid: ExprId, x_name: &str, i_name: &str, v_name: &str) -> ExprId {
+fn sfi_rewrite_expr(
+    ast: &mut Ast,
+    eid: ExprId,
+    x_name: &str,
+    i_name: &str,
+    v_name: &str,
+) -> ExprId {
     let cur = ast.get_expr(eid).clone();
     match cur {
         Expr::Index { obj, index } => {
@@ -7590,7 +8183,10 @@ fn sfi_rewrite_expr(ast: &mut Ast, eid: ExprId, x_name: &str, i_name: &str, v_na
             }
             let new_obj = sfi_rewrite_expr(ast, obj, x_name, i_name, v_name);
             let new_index = sfi_rewrite_expr(ast, index, x_name, i_name, v_name);
-            ast.add_expr(Expr::Index { obj: new_obj, index: new_index })
+            ast.add_expr(Expr::Index {
+                obj: new_obj,
+                index: new_index,
+            })
         }
         Expr::Member { obj, name } => {
             let new_obj = sfi_rewrite_expr(ast, obj, x_name, i_name, v_name);
@@ -7602,23 +8198,37 @@ fn sfi_rewrite_expr(ast: &mut Ast, eid: ExprId, x_name: &str, i_name: &str, v_na
                 .iter()
                 .map(|a| sfi_rewrite_expr(ast, *a, x_name, i_name, v_name))
                 .collect();
-            ast.add_expr(Expr::Call { callee: new_callee, args: new_args })
+            ast.add_expr(Expr::Call {
+                callee: new_callee,
+                args: new_args,
+            })
         }
         Expr::BinOp { op, left, right } => {
             let l = sfi_rewrite_expr(ast, left, x_name, i_name, v_name);
             let r = sfi_rewrite_expr(ast, right, x_name, i_name, v_name);
-            ast.add_expr(Expr::BinOp { op, left: l, right: r })
+            ast.add_expr(Expr::BinOp {
+                op,
+                left: l,
+                right: r,
+            })
         }
         Expr::Assign { target, value } => {
             let t = sfi_rewrite_expr(ast, target, x_name, i_name, v_name);
             let v = sfi_rewrite_expr(ast, value, x_name, i_name, v_name);
-            ast.add_expr(Expr::Assign { target: t, value: v })
+            ast.add_expr(Expr::Assign {
+                target: t,
+                value: v,
+            })
         }
         Expr::Unary { op, expr } => {
             let e = sfi_rewrite_expr(ast, expr, x_name, i_name, v_name);
             ast.add_expr(Expr::Unary { op, expr: e })
         }
-        Expr::Ternary { cond, then_branch, else_branch } => {
+        Expr::Ternary {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
             let c = sfi_rewrite_expr(ast, cond, x_name, i_name, v_name);
             let t = sfi_rewrite_expr(ast, then_branch, x_name, i_name, v_name);
             let e = sfi_rewrite_expr(ast, else_branch, x_name, i_name, v_name);
@@ -7664,7 +8274,10 @@ fn sfi_rewrite_expr(ast: &mut Ast, eid: ExprId, x_name: &str, i_name: &str, v_na
                 .iter()
                 .map(|a| sfi_rewrite_expr(ast, *a, x_name, i_name, v_name))
                 .collect();
-            ast.add_expr(Expr::New { class_name, args: new_args })
+            ast.add_expr(Expr::New {
+                class_name,
+                args: new_args,
+            })
         }
         // Leaves and shapes that don't carry X-referencing children
         // (Ident / Number / String / Bool / Null / closures / etc) — clone.
@@ -7713,8 +8326,7 @@ fn sfi_rewrite_expr(ast: &mut Ast, eid: ExprId, x_name: &str, i_name: &str, v_na
 pub fn desugar_array_isarray_value(ast: &mut Ast) {
     // Collect every `Expr::Call`'s callee ExprId — those Members are
     // "in callee position" and keep their existing intercept path.
-    let mut callee_exprs: std::collections::HashSet<ExprId> =
-        std::collections::HashSet::new();
+    let mut callee_exprs: std::collections::HashSet<ExprId> = std::collections::HashSet::new();
     for e in &ast.exprs {
         if let Expr::Call { callee, .. } = e {
             callee_exprs.insert(*callee);
@@ -7745,9 +8357,10 @@ pub fn desugar_array_isarray_value(ast: &mut Ast) {
 
     // Emit the stub FnDecl once at module top. Skip if already present
     // (defensive — pass should run once).
-    let exists = ast.stmts.iter().any(|s| {
-        matches!(s, Stmt::FnDecl { name, .. } if name == "__torajs_array_isarray_stub")
-    });
+    let exists = ast
+        .stmts
+        .iter()
+        .any(|s| matches!(s, Stmt::FnDecl { name, .. } if name == "__torajs_array_isarray_stub"));
     if exists {
         return;
     }
@@ -7782,7 +8395,10 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
     // prepended below.
     let mut uses_real_argc: HashSet<String> = HashSet::new();
     for s in &ast.stmts {
-        if let Stmt::FnDecl { name, params, body, .. } = s {
+        if let Stmt::FnDecl {
+            name, params, body, ..
+        } = s
+        {
             // Skip the synthetic `__env` (closure capture vector) and
             // `__this` (class instance) prefix params — they're not
             // user-visible "arguments". Everything after is the
@@ -7813,12 +8429,15 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
             if let Stmt::FnDecl { name, params, .. } = s
                 && uses_real_argc.contains(name)
             {
-                params.insert(0, Param {
-                    name: "__torajs_real_argc".into(),
-                    type_ann: Some("number".into()),
-                    default: None,
-                    is_rest: false,
-                });
+                params.insert(
+                    0,
+                    Param {
+                        name: "__torajs_real_argc".into(),
+                        type_ann: Some("number".into()),
+                        default: None,
+                        is_rest: false,
+                    },
+                );
             }
         }
     }
@@ -7826,7 +8445,9 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
     let stmts_clone: Vec<Stmt> = ast.stmts.clone();
     for (idx, stmt) in stmts_clone.iter().enumerate() {
         if let Stmt::FnDecl { name, body, .. } = stmt {
-            let Some(params) = fn_params.get(name) else { continue };
+            let Some(params) = fn_params.get(name) else {
+                continue;
+            };
             let params = params.clone();
             let real_argc_here = uses_real_argc.contains(name);
             // T-11 — pre-pass: detect any dynamic `arguments[<non-
@@ -7893,7 +8514,10 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
             let mut new_args = Vec::with_capacity(argc + 1);
             new_args.push(argc_lit);
             new_args.extend(args_clone);
-            ast.exprs[i] = Expr::Call { callee, args: new_args };
+            ast.exprs[i] = Expr::Call {
+                callee,
+                args: new_args,
+            };
         }
     }
 }
@@ -7911,35 +8535,55 @@ fn stmt_uses_dynamic_arguments(ast: &Ast, s: &Stmt) -> bool {
         Stmt::Return(opt) => opt.is_some_and(|e| expr_uses_dynamic_arguments(ast, e)),
         Stmt::LetDecl { init, .. } => expr_uses_dynamic_arguments(ast, *init),
         Stmt::YieldInto { value, .. } => expr_uses_dynamic_arguments(ast, *value),
-        Stmt::If { cond, then_branch, else_branch } => {
+        Stmt::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
             expr_uses_dynamic_arguments(ast, *cond)
                 || stmt_uses_dynamic_arguments(ast, then_branch)
-                || else_branch.as_ref().is_some_and(|e| stmt_uses_dynamic_arguments(ast, e))
+                || else_branch
+                    .as_ref()
+                    .is_some_and(|e| stmt_uses_dynamic_arguments(ast, e))
         }
         Stmt::While { cond, body } | Stmt::DoWhile { cond, body } => {
             expr_uses_dynamic_arguments(ast, *cond) || stmt_uses_dynamic_arguments(ast, body)
         }
-        Stmt::For { init, cond, step, body } => {
-            init.as_ref().is_some_and(|s| stmt_uses_dynamic_arguments(ast, s))
+        Stmt::For {
+            init,
+            cond,
+            step,
+            body,
+        } => {
+            init.as_ref()
+                .is_some_and(|s| stmt_uses_dynamic_arguments(ast, s))
                 || cond.is_some_and(|c| expr_uses_dynamic_arguments(ast, c))
                 || step.is_some_and(|st| expr_uses_dynamic_arguments(ast, st))
                 || stmt_uses_dynamic_arguments(ast, body)
         }
-        Stmt::ForOfSplitIter { parent, sep, body, .. } => {
+        Stmt::ForOfSplitIter {
+            parent, sep, body, ..
+        } => {
             expr_uses_dynamic_arguments(ast, *parent)
                 || expr_uses_dynamic_arguments(ast, *sep)
                 || stmt_uses_dynamic_arguments(ast, body)
         }
-        Stmt::ForOf { elem_expr, body, .. } => {
-            expr_uses_dynamic_arguments(ast, *elem_expr)
-                || stmt_uses_dynamic_arguments(ast, body)
-        }
+        Stmt::ForOf {
+            elem_expr, body, ..
+        } => expr_uses_dynamic_arguments(ast, *elem_expr) || stmt_uses_dynamic_arguments(ast, body),
         Stmt::Block(stmts) | Stmt::Multi(stmts) => {
             stmts.iter().any(|s| stmt_uses_dynamic_arguments(ast, s))
         }
-        Stmt::Try { body, catch_body, finally_body, .. } => {
+        Stmt::Try {
+            body,
+            catch_body,
+            finally_body,
+            ..
+        } => {
             body.iter().any(|s| stmt_uses_dynamic_arguments(ast, s))
-                || catch_body.iter().any(|s| stmt_uses_dynamic_arguments(ast, s))
+                || catch_body
+                    .iter()
+                    .any(|s| stmt_uses_dynamic_arguments(ast, s))
                 || finally_body
                     .as_ref()
                     .is_some_and(|fb| fb.iter().any(|s| stmt_uses_dynamic_arguments(ast, s)))
@@ -7968,16 +8612,14 @@ fn expr_uses_dynamic_arguments(ast: &Ast, eid: ExprId) -> bool {
                     return true;
                 }
             }
-            expr_uses_dynamic_arguments(ast, *obj)
-                || expr_uses_dynamic_arguments(ast, *index)
+            expr_uses_dynamic_arguments(ast, *obj) || expr_uses_dynamic_arguments(ast, *index)
         }
         Expr::Member { obj, name } => {
             // `arguments.callee` — currently unhandled; will need its
             // own materialization later. Bare `arguments.<other>`
             // also forces materialize so stuff like
             // `arguments.length.toString()` keeps walking.
-            if matches!(ast.get_expr(*obj), Expr::Ident(n) if n == "arguments")
-                && name != "length"
+            if matches!(ast.get_expr(*obj), Expr::Ident(n) if n == "arguments") && name != "length"
             {
                 return true;
             }
@@ -8005,15 +8647,13 @@ fn expr_uses_dynamic_arguments(ast: &Ast, eid: ExprId) -> bool {
                 })
         }
         Expr::BinOp { left, right, .. } => {
-            expr_uses_dynamic_arguments(ast, *left)
-                || expr_uses_dynamic_arguments(ast, *right)
+            expr_uses_dynamic_arguments(ast, *left) || expr_uses_dynamic_arguments(ast, *right)
         }
         Expr::Unary { expr, .. } | Expr::TypeOf { expr } | Expr::PostIncr { target: expr, .. } => {
             expr_uses_dynamic_arguments(ast, *expr)
         }
         Expr::Assign { target, value } => {
-            expr_uses_dynamic_arguments(ast, *target)
-                || expr_uses_dynamic_arguments(ast, *value)
+            expr_uses_dynamic_arguments(ast, *target) || expr_uses_dynamic_arguments(ast, *value)
         }
         Expr::Array(items) => items.iter().any(|e| {
             // `[...arguments]` — handled inline by spread rewrite.
@@ -8025,11 +8665,15 @@ fn expr_uses_dynamic_arguments(ast: &Ast, eid: ExprId) -> bool {
             }
             expr_uses_dynamic_arguments(ast, *e)
         }),
-        Expr::ObjectLit { fields } => {
-            fields.iter().any(|(_, e)| expr_uses_dynamic_arguments(ast, *e))
-        }
+        Expr::ObjectLit { fields } => fields
+            .iter()
+            .any(|(_, e)| expr_uses_dynamic_arguments(ast, *e)),
         Expr::Spread { expr } => expr_uses_dynamic_arguments(ast, *expr),
-        Expr::Ternary { cond, then_branch, else_branch } => {
+        Expr::Ternary {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
             expr_uses_dynamic_arguments(ast, *cond)
                 || expr_uses_dynamic_arguments(ast, *then_branch)
                 || expr_uses_dynamic_arguments(ast, *else_branch)
@@ -8066,7 +8710,11 @@ fn stmt_has_arguments_length(ast: &Ast, s: &Stmt) -> bool {
         Stmt::Return(opt) => opt.is_some_and(|e| expr_has_arguments_length(ast, e)),
         Stmt::LetDecl { init, .. } => expr_has_arguments_length(ast, *init),
         Stmt::YieldInto { value, .. } => expr_has_arguments_length(ast, *value),
-        Stmt::If { cond, then_branch, else_branch } => {
+        Stmt::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
             expr_has_arguments_length(ast, *cond)
                 || stmt_has_arguments_length(ast, then_branch)
                 || else_branch
@@ -8076,30 +8724,42 @@ fn stmt_has_arguments_length(ast: &Ast, s: &Stmt) -> bool {
         Stmt::While { cond, body } | Stmt::DoWhile { cond, body } => {
             expr_has_arguments_length(ast, *cond) || stmt_has_arguments_length(ast, body)
         }
-        Stmt::For { init, cond, step, body } => {
-            init.as_ref().is_some_and(|s| stmt_has_arguments_length(ast, s))
+        Stmt::For {
+            init,
+            cond,
+            step,
+            body,
+        } => {
+            init.as_ref()
+                .is_some_and(|s| stmt_has_arguments_length(ast, s))
                 || cond.is_some_and(|c| expr_has_arguments_length(ast, c))
                 || step.is_some_and(|st| expr_has_arguments_length(ast, st))
                 || stmt_has_arguments_length(ast, body)
         }
-        Stmt::ForOfSplitIter { parent, sep, body, .. } => {
+        Stmt::ForOfSplitIter {
+            parent, sep, body, ..
+        } => {
             expr_has_arguments_length(ast, *parent)
                 || expr_has_arguments_length(ast, *sep)
                 || stmt_has_arguments_length(ast, body)
         }
-        Stmt::ForOf { elem_expr, body, .. } => {
-            expr_has_arguments_length(ast, *elem_expr)
-                || stmt_has_arguments_length(ast, body)
-        }
+        Stmt::ForOf {
+            elem_expr, body, ..
+        } => expr_has_arguments_length(ast, *elem_expr) || stmt_has_arguments_length(ast, body),
         Stmt::Block(stmts) | Stmt::Multi(stmts) => {
             stmts.iter().any(|s| stmt_has_arguments_length(ast, s))
         }
-        Stmt::Try { body, catch_body, finally_body, .. } => {
+        Stmt::Try {
+            body,
+            catch_body,
+            finally_body,
+            ..
+        } => {
             body.iter().any(|s| stmt_has_arguments_length(ast, s))
                 || catch_body.iter().any(|s| stmt_has_arguments_length(ast, s))
-                || finally_body.as_ref().is_some_and(|fb| {
-                    fb.iter().any(|s| stmt_has_arguments_length(ast, s))
-                })
+                || finally_body
+                    .as_ref()
+                    .is_some_and(|fb| fb.iter().any(|s| stmt_has_arguments_length(ast, s)))
         }
         // Nested FnDecl is an independent scope; its `arguments`
         // refers to the inner fn, not the outer one we're scanning.
@@ -8124,9 +8784,9 @@ fn expr_has_arguments_length(ast: &Ast, eid: ExprId) -> bool {
         Expr::BinOp { left, right, .. } => {
             expr_has_arguments_length(ast, *left) || expr_has_arguments_length(ast, *right)
         }
-        Expr::Unary { expr, .. }
-        | Expr::TypeOf { expr }
-        | Expr::PostIncr { target: expr, .. } => expr_has_arguments_length(ast, *expr),
+        Expr::Unary { expr, .. } | Expr::TypeOf { expr } | Expr::PostIncr { target: expr, .. } => {
+            expr_has_arguments_length(ast, *expr)
+        }
         Expr::Assign { target, value } => {
             expr_has_arguments_length(ast, *target) || expr_has_arguments_length(ast, *value)
         }
@@ -8135,11 +8795,15 @@ fn expr_has_arguments_length(ast: &Ast, eid: ExprId) -> bool {
                 || args.iter().any(|a| expr_has_arguments_length(ast, *a))
         }
         Expr::Array(items) => items.iter().any(|e| expr_has_arguments_length(ast, *e)),
-        Expr::ObjectLit { fields } => {
-            fields.iter().any(|(_, e)| expr_has_arguments_length(ast, *e))
-        }
+        Expr::ObjectLit { fields } => fields
+            .iter()
+            .any(|(_, e)| expr_has_arguments_length(ast, *e)),
         Expr::Spread { expr } => expr_has_arguments_length(ast, *expr),
-        Expr::Ternary { cond, then_branch, else_branch } => {
+        Expr::Ternary {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
             expr_has_arguments_length(ast, *cond)
                 || expr_has_arguments_length(ast, *then_branch)
                 || expr_has_arguments_length(ast, *else_branch)
@@ -8167,8 +8831,8 @@ fn synth_arguments_local(ast: &mut Ast, params: &[String]) -> Stmt {
         name: "__torajs_arguments".into(),
         type_ann: Some("any[]".into()),
         init,
-    is_var: false,
-            }
+        is_var: false,
+    }
 }
 
 fn rewrite_arguments_in_stmt(
@@ -8179,12 +8843,23 @@ fn rewrite_arguments_in_stmt(
 ) -> Stmt {
     match s {
         Stmt::Expr(eid) => Stmt::Expr(rewrite_arguments_in_expr(ast, *eid, params, uses_real_argc)),
-        Stmt::Throw(eid) => Stmt::Throw(rewrite_arguments_in_expr(ast, *eid, params, uses_real_argc)),
-        Stmt::Return(Some(eid)) => {
-            Stmt::Return(Some(rewrite_arguments_in_expr(ast, *eid, params, uses_real_argc)))
+        Stmt::Throw(eid) => {
+            Stmt::Throw(rewrite_arguments_in_expr(ast, *eid, params, uses_real_argc))
         }
+        Stmt::Return(Some(eid)) => Stmt::Return(Some(rewrite_arguments_in_expr(
+            ast,
+            *eid,
+            params,
+            uses_real_argc,
+        ))),
         Stmt::Return(None) => Stmt::Return(None),
-        Stmt::LetDecl { mutable, name, type_ann, init, is_var } => Stmt::LetDecl {
+        Stmt::LetDecl {
+            mutable,
+            name,
+            type_ann,
+            init,
+            is_var,
+        } => Stmt::LetDecl {
             mutable: *mutable,
             name: name.clone(),
             type_ann: type_ann.clone(),
@@ -8205,9 +8880,18 @@ fn rewrite_arguments_in_stmt(
                 .map(|s| rewrite_arguments_in_stmt(ast, s, params, uses_real_argc))
                 .collect(),
         ),
-        Stmt::If { cond, then_branch, else_branch } => Stmt::If {
+        Stmt::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => Stmt::If {
             cond: rewrite_arguments_in_expr(ast, *cond, params, uses_real_argc),
-            then_branch: Box::new(rewrite_arguments_in_stmt(ast, then_branch, params, uses_real_argc)),
+            then_branch: Box::new(rewrite_arguments_in_stmt(
+                ast,
+                then_branch,
+                params,
+                uses_real_argc,
+            )),
             else_branch: else_branch
                 .as_ref()
                 .map(|eb| Box::new(rewrite_arguments_in_stmt(ast, eb, params, uses_real_argc))),
@@ -8220,32 +8904,44 @@ fn rewrite_arguments_in_stmt(
             cond: rewrite_arguments_in_expr(ast, *cond, params, uses_real_argc),
             body: Box::new(rewrite_arguments_in_stmt(ast, body, params, uses_real_argc)),
         },
-        Stmt::For { init, cond, step, body } => Stmt::For {
-            init: init.as_ref().map(|i| Box::new(rewrite_arguments_in_stmt(ast, i, params, uses_real_argc))),
+        Stmt::For {
+            init,
+            cond,
+            step,
+            body,
+        } => Stmt::For {
+            init: init
+                .as_ref()
+                .map(|i| Box::new(rewrite_arguments_in_stmt(ast, i, params, uses_real_argc))),
             cond: cond.map(|c| rewrite_arguments_in_expr(ast, c, params, uses_real_argc)),
             step: step.map(|u| rewrite_arguments_in_expr(ast, u, params, uses_real_argc)),
             body: Box::new(rewrite_arguments_in_stmt(ast, body, params, uses_real_argc)),
         },
-        Stmt::Try { body, had_catch, catch_param, catch_type, catch_body, finally_body } => {
-            Stmt::Try {
-                body: body
-                    .iter()
+        Stmt::Try {
+            body,
+            had_catch,
+            catch_param,
+            catch_type,
+            catch_body,
+            finally_body,
+        } => Stmt::Try {
+            body: body
+                .iter()
+                .map(|s| rewrite_arguments_in_stmt(ast, s, params, uses_real_argc))
+                .collect(),
+            had_catch: *had_catch,
+            catch_param: catch_param.clone(),
+            catch_type: catch_type.clone(),
+            catch_body: catch_body
+                .iter()
+                .map(|s| rewrite_arguments_in_stmt(ast, s, params, uses_real_argc))
+                .collect(),
+            finally_body: finally_body.as_ref().map(|fb| {
+                fb.iter()
                     .map(|s| rewrite_arguments_in_stmt(ast, s, params, uses_real_argc))
-                    .collect(),
-                had_catch: *had_catch,
-                catch_param: catch_param.clone(),
-                catch_type: catch_type.clone(),
-                catch_body: catch_body
-                    .iter()
-                    .map(|s| rewrite_arguments_in_stmt(ast, s, params, uses_real_argc))
-                    .collect(),
-                finally_body: finally_body.as_ref().map(|fb| {
-                    fb.iter()
-                        .map(|s| rewrite_arguments_in_stmt(ast, s, params, uses_real_argc))
-                        .collect()
-                }),
-            }
-        }
+                    .collect()
+            }),
+        },
         // Nested FnDecl owns its own arguments scope — leave it for
         // the outer pass to handle independently when it iterates
         // ast.stmts (lift_arrow_fns has already hoisted closures to
@@ -8305,18 +9001,27 @@ fn rewrite_arguments_in_expr(
                 // Dynamic index (or out-of-range literal): route to
                 // the materialized Array<Any> via __torajs_arguments.
                 let new_index = rewrite_arguments_in_expr(ast, index, params, uses_real_argc);
-                let synth_obj =
-                    ast.add_expr(Expr::Ident("__torajs_arguments".into()));
-                return ast.add_expr(Expr::Index { obj: synth_obj, index: new_index });
+                let synth_obj = ast.add_expr(Expr::Ident("__torajs_arguments".into()));
+                return ast.add_expr(Expr::Index {
+                    obj: synth_obj,
+                    index: new_index,
+                });
             }
             let new_obj = rewrite_arguments_in_expr(ast, obj, params, uses_real_argc);
             let new_index = rewrite_arguments_in_expr(ast, index, params, uses_real_argc);
-            ast.add_expr(Expr::Index { obj: new_obj, index: new_index })
+            ast.add_expr(Expr::Index {
+                obj: new_obj,
+                index: new_index,
+            })
         }
         Expr::BinOp { op, left, right } => {
             let l = rewrite_arguments_in_expr(ast, left, params, uses_real_argc);
             let r = rewrite_arguments_in_expr(ast, right, params, uses_real_argc);
-            ast.add_expr(Expr::BinOp { op, left: l, right: r })
+            ast.add_expr(Expr::BinOp {
+                op,
+                left: l,
+                right: r,
+            })
         }
         Expr::Unary { op, expr } => {
             let e2 = rewrite_arguments_in_expr(ast, expr, params, uses_real_argc);
@@ -8340,7 +9045,10 @@ fn rewrite_arguments_in_expr(
                 }
                 new_args.push(rewrite_arguments_in_expr(ast, *a, params, uses_real_argc));
             }
-            ast.add_expr(Expr::Call { callee: c, args: new_args })
+            ast.add_expr(Expr::Call {
+                callee: c,
+                args: new_args,
+            })
         }
         Expr::Member { obj, name } => {
             let o = rewrite_arguments_in_expr(ast, obj, params, uses_real_argc);
@@ -8349,7 +9057,10 @@ fn rewrite_arguments_in_expr(
         Expr::Assign { target, value } => {
             let t = rewrite_arguments_in_expr(ast, target, params, uses_real_argc);
             let v = rewrite_arguments_in_expr(ast, value, params, uses_real_argc);
-            ast.add_expr(Expr::Assign { target: t, value: v })
+            ast.add_expr(Expr::Assign {
+                target: t,
+                value: v,
+            })
         }
         Expr::Array(elems) => {
             /* `[...arguments]` — expand the spread inline. Same shape
@@ -8373,7 +9084,12 @@ fn rewrite_arguments_in_expr(
         Expr::ObjectLit { fields } => {
             let new_fields: Vec<(String, ExprId)> = fields
                 .iter()
-                .map(|(n, e)| (n.clone(), rewrite_arguments_in_expr(ast, *e, params, uses_real_argc)))
+                .map(|(n, e)| {
+                    (
+                        n.clone(),
+                        rewrite_arguments_in_expr(ast, *e, params, uses_real_argc),
+                    )
+                })
                 .collect();
             ast.add_expr(Expr::ObjectLit { fields: new_fields })
         }
@@ -8396,7 +9112,11 @@ fn rewrite_uninit_in_stmts(stmts: &mut Vec<Stmt>, exprs: &[Expr]) {
             Stmt::Block(inner) | Stmt::Multi(inner) => {
                 rewrite_uninit_in_stmts(inner, exprs);
             }
-            Stmt::If { then_branch, else_branch, .. } => {
+            Stmt::If {
+                then_branch,
+                else_branch,
+                ..
+            } => {
                 if let Stmt::Block(b) | Stmt::Multi(b) = then_branch.as_mut() {
                     rewrite_uninit_in_stmts(b, exprs);
                 }
@@ -8416,7 +9136,12 @@ fn rewrite_uninit_in_stmts(stmts: &mut Vec<Stmt>, exprs: &[Expr]) {
                     rewrite_uninit_in_stmts(b, exprs);
                 }
             }
-            Stmt::Try { body, catch_body, finally_body, .. } => {
+            Stmt::Try {
+                body,
+                catch_body,
+                finally_body,
+                ..
+            } => {
                 rewrite_uninit_in_stmts(body, exprs);
                 rewrite_uninit_in_stmts(catch_body, exprs);
                 if let Some(fb) = finally_body {
@@ -8443,8 +9168,7 @@ fn rewrite_uninit_in_stmts(stmts: &mut Vec<Stmt>, exprs: &[Expr]) {
         let mut found: Option<(usize, ExprId)> = None;
         while j < stmts.len() {
             if let Stmt::Expr(eid) = &stmts[j]
-                && let Some(Expr::Assign { target, value }) =
-                    exprs.get(eid.0 as usize)
+                && let Some(Expr::Assign { target, value }) = exprs.get(eid.0 as usize)
                 && let Some(Expr::Ident(n)) = exprs.get(target.0 as usize)
                 && n == &name
             {
@@ -8516,7 +9240,13 @@ pub fn desugar_function_prototype_methods(ast: &mut Ast) {
     // avoid double-rewriting on repeat invocations.
     let mut fn_sigs: HashMap<String, (Vec<Param>, Option<String>)> = HashMap::new();
     for s in &ast.stmts {
-        if let Stmt::FnDecl { name, params, return_type, .. } = s {
+        if let Stmt::FnDecl {
+            name,
+            params,
+            return_type,
+            ..
+        } = s
+        {
             if name.starts_with("__bound_") || name.starts_with("__bind_create_") {
                 continue;
             }
@@ -8686,11 +9416,7 @@ pub fn desugar_function_prototype_methods(ast: &mut Ast) {
                     })
                     .collect();
                 let ret_type_str = fn_ret.clone().unwrap_or_else(|| "void".to_string());
-                let factory_ret = format!(
-                    "__cls({})->{}",
-                    rem_tys.join("|"),
-                    ret_type_str
-                );
+                let factory_ret = format!("__cls({})->{}", rem_tys.join("|"), ret_type_str);
                 // Factory body: `return Closure { fn_name: __bound_<id>,
                 // captures: [cap_names] };`
                 let closure_expr_id = ast.add_expr(Expr::Closure {
@@ -8758,14 +9484,18 @@ pub fn desugar_implicit_generics(ast: &mut Ast) {
     let mut outer_binds: std::collections::HashMap<String, String> =
         std::collections::HashMap::new();
     for s in stmts.iter() {
-        if let Stmt::LetDecl { name, type_ann, init, .. } = s {
+        if let Stmt::LetDecl {
+            name,
+            type_ann,
+            init,
+            ..
+        } = s
+        {
             if let Some(ann) = type_ann {
                 outer_binds.insert(name.clone(), ann.clone());
             } else {
                 let bs: Vec<Param> = binds_to_params(&outer_binds);
-                if let Some(ann) = infer_expr_ann_with(
-                    ast_exprs_view, *init, &bs, &outer_binds,
-                ) {
+                if let Some(ann) = infer_expr_ann_with(ast_exprs_view, *init, &bs, &outer_binds) {
                     outer_binds.insert(name.clone(), ann);
                 }
             }
@@ -8816,9 +9546,7 @@ pub fn desugar_implicit_generics(ast: &mut Ast) {
             // had defaulted bare-arg cases. Apply the same "any"
             // default here for `__env`-prefixed closures so the two
             // paths converge.
-            if first_kind.as_deref() == Some("__env")
-                && name.starts_with("__closure_")
-            {
+            if first_kind.as_deref() == Some("__env") && name.starts_with("__closure_") {
                 for p in params.iter_mut().skip(1) {
                     if p.type_ann.is_none() {
                         p.type_ann = Some("any".to_string());
@@ -8829,9 +9557,9 @@ pub fn desugar_implicit_generics(ast: &mut Ast) {
                 && return_type.is_none()
                 && body_has_value_return(body)
             {
-                if let Some(inferred) = infer_return_ann_seeded(
-                    ast_exprs_view, body, params, &outer_binds,
-                ) {
+                if let Some(inferred) =
+                    infer_return_ann_seeded(ast_exprs_view, body, params, &outer_binds)
+                {
                     *return_type = Some(inferred);
                 }
             }
@@ -8990,17 +9718,8 @@ type AstExprsView<'a> = &'a [Expr];
 /// `number` out as the return). Lookups that fall off the simple-
 /// shape grammar (Member / Call / Index / object literal / etc.) bail
 /// to None — the typechecker still owns the deeper analysis.
-fn infer_return_ann(
-    exprs: AstExprsView,
-    body: &[Stmt],
-    params: &[Param],
-) -> Option<String> {
-    infer_return_ann_seeded(
-        exprs,
-        body,
-        params,
-        &std::collections::HashMap::new(),
-    )
+fn infer_return_ann(exprs: AstExprsView, body: &[Stmt], params: &[Param]) -> Option<String> {
+    infer_return_ann_seeded(exprs, body, params, &std::collections::HashMap::new())
 }
 
 /// T-19.p — variant that takes a pre-seeded binds map. Used by the
@@ -9051,7 +9770,12 @@ fn collect_let_binding_anns_stmt(
     binds: &mut std::collections::HashMap<String, String>,
 ) {
     match s {
-        Stmt::LetDecl { name, type_ann, init, .. } => {
+        Stmt::LetDecl {
+            name,
+            type_ann,
+            init,
+            ..
+        } => {
             // Explicit annotation wins.
             if let Some(ann) = type_ann {
                 binds.insert(name.clone(), ann.clone());
@@ -9065,7 +9789,11 @@ fn collect_let_binding_anns_stmt(
                 binds.insert(name.clone(), ann);
             }
         }
-        Stmt::If { then_branch, else_branch, .. } => {
+        Stmt::If {
+            then_branch,
+            else_branch,
+            ..
+        } => {
             collect_let_binding_anns_stmt(exprs, then_branch, binds);
             if let Some(eb) = else_branch {
                 collect_let_binding_anns_stmt(exprs, eb, binds);
@@ -9083,7 +9811,12 @@ fn collect_let_binding_anns_stmt(
         Stmt::Block(stmts) | Stmt::Multi(stmts) => {
             collect_let_binding_anns(exprs, stmts, binds);
         }
-        Stmt::Try { body, catch_body, finally_body, .. } => {
+        Stmt::Try {
+            body,
+            catch_body,
+            finally_body,
+            ..
+        } => {
             collect_let_binding_anns(exprs, body, binds);
             collect_let_binding_anns(exprs, catch_body, binds);
             if let Some(fb) = finally_body {
@@ -9094,9 +9827,7 @@ fn collect_let_binding_anns_stmt(
     }
 }
 
-fn binds_to_params(
-    binds: &std::collections::HashMap<String, String>,
-) -> Vec<Param> {
+fn binds_to_params(binds: &std::collections::HashMap<String, String>) -> Vec<Param> {
     binds
         .iter()
         .map(|(k, v)| Param {
@@ -9144,7 +9875,11 @@ fn collect_return_anns_stmt(
             true
         }
         Stmt::Return(None) => true,
-        Stmt::If { then_branch, else_branch, .. } => {
+        Stmt::If {
+            then_branch,
+            else_branch,
+            ..
+        } => {
             if !collect_return_anns_stmt(exprs, then_branch, binds, acc) {
                 return false;
             }
@@ -9166,10 +9901,13 @@ fn collect_return_anns_stmt(
             }
             collect_return_anns_stmt(exprs, body, binds, acc)
         }
-        Stmt::Block(stmts) | Stmt::Multi(stmts) => {
-            collect_return_anns(exprs, stmts, binds, acc)
-        }
-        Stmt::Try { body, catch_body, finally_body, .. } => {
+        Stmt::Block(stmts) | Stmt::Multi(stmts) => collect_return_anns(exprs, stmts, binds, acc),
+        Stmt::Try {
+            body,
+            catch_body,
+            finally_body,
+            ..
+        } => {
             if !collect_return_anns(exprs, body, binds, acc) {
                 return false;
             }
@@ -9208,14 +9946,27 @@ fn infer_expr_ann_with(
         Expr::String(_) => Some("string".into()),
         Expr::Bool(_) => Some("boolean".into()),
         Expr::BinOp { op, left, right } => match op {
-            BinOp::Lt | BinOp::Gt | BinOp::Le | BinOp::Ge
-            | BinOp::Eq | BinOp::Neq | BinOp::LooseEq | BinOp::LooseNeq
-            | BinOp::LAnd | BinOp::LOr => {
-                Some("boolean".into())
-            }
-            BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod | BinOp::Pow
-            | BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor
-            | BinOp::Shl | BinOp::Shr | BinOp::UShr => Some("number".into()),
+            BinOp::Lt
+            | BinOp::Gt
+            | BinOp::Le
+            | BinOp::Ge
+            | BinOp::Eq
+            | BinOp::Neq
+            | BinOp::LooseEq
+            | BinOp::LooseNeq
+            | BinOp::LAnd
+            | BinOp::LOr => Some("boolean".into()),
+            BinOp::Sub
+            | BinOp::Mul
+            | BinOp::Div
+            | BinOp::Mod
+            | BinOp::Pow
+            | BinOp::BitAnd
+            | BinOp::BitOr
+            | BinOp::BitXor
+            | BinOp::Shl
+            | BinOp::Shr
+            | BinOp::UShr => Some("number".into()),
             // `+` is the only ambiguous op (number add OR string
             // concat); fall back to per-side inference and only commit
             // when both agree on a concrete primitive.
@@ -9268,24 +10019,28 @@ fn body_has_value_return(body: &[Stmt]) -> bool {
 fn stmt_has_value_return(s: &Stmt) -> bool {
     match s {
         Stmt::Return(Some(_)) => true,
-        Stmt::If { then_branch, else_branch, .. } => {
+        Stmt::If {
+            then_branch,
+            else_branch,
+            ..
+        } => {
             stmt_has_value_return(then_branch)
                 || else_branch.as_deref().is_some_and(stmt_has_value_return)
         }
-        Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
-            stmt_has_value_return(body)
-        }
+        Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => stmt_has_value_return(body),
         Stmt::For { init, body, .. } => {
-            init.as_deref().is_some_and(stmt_has_value_return)
-                || stmt_has_value_return(body)
+            init.as_deref().is_some_and(stmt_has_value_return) || stmt_has_value_return(body)
         }
         Stmt::Block(stmts) | Stmt::Multi(stmts) => body_has_value_return(stmts),
-        Stmt::Try { body, catch_body, finally_body, .. } => {
+        Stmt::Try {
+            body,
+            catch_body,
+            finally_body,
+            ..
+        } => {
             body_has_value_return(body)
                 || body_has_value_return(catch_body)
-                || finally_body
-                    .as_deref()
-                    .is_some_and(body_has_value_return)
+                || finally_body.as_deref().is_some_and(body_has_value_return)
         }
         // Nested FnDecl returns are scoped to the inner fn — skip.
         Stmt::FnDecl { .. } => false,
@@ -9317,13 +10072,22 @@ fn collect_let_init_anns(
     }
     for s in body {
         match s {
-            Stmt::LetDecl { name, type_ann: None, init, .. } => {
+            Stmt::LetDecl {
+                name,
+                type_ann: None,
+                init,
+                ..
+            } => {
                 if let Some(ann) = ann_of(ast, *init) {
                     out.insert(name.clone(), ann);
                 }
             }
             Stmt::Block(stmts) | Stmt::Multi(stmts) => collect_let_init_anns(ast, stmts, out),
-            Stmt::If { then_branch, else_branch, .. } => {
+            Stmt::If {
+                then_branch,
+                else_branch,
+                ..
+            } => {
                 collect_let_init_anns(ast, std::slice::from_ref(then_branch.as_ref()), out);
                 if let Some(eb) = else_branch {
                     collect_let_init_anns(ast, std::slice::from_ref(eb.as_ref()), out);
@@ -9346,11 +10110,19 @@ fn collect_let_init_anns(
 fn collect_let_anns(body: &[Stmt], out: &mut std::collections::HashMap<String, String>) {
     for s in body {
         match s {
-            Stmt::LetDecl { name, type_ann: Some(ann), .. } => {
+            Stmt::LetDecl {
+                name,
+                type_ann: Some(ann),
+                ..
+            } => {
                 out.insert(name.clone(), ann.clone());
             }
             Stmt::Block(stmts) | Stmt::Multi(stmts) => collect_let_anns(stmts, out),
-            Stmt::If { then_branch, else_branch, .. } => {
+            Stmt::If {
+                then_branch,
+                else_branch,
+                ..
+            } => {
                 collect_let_anns(std::slice::from_ref(then_branch.as_ref()), out);
                 if let Some(eb) = else_branch {
                     collect_let_anns(std::slice::from_ref(eb.as_ref()), out);
@@ -9400,7 +10172,9 @@ fn free_vars_of_arrow(
 
 fn walk_stmt(ast: &Ast, s: &Stmt, bound: &mut Vec<String>, out: &mut Vec<String>) {
     match s {
-        Stmt::Expr(eid) | Stmt::Return(Some(eid)) | Stmt::Yield(eid) => walk_expr(ast, *eid, bound, out),
+        Stmt::Expr(eid) | Stmt::Return(Some(eid)) | Stmt::Yield(eid) => {
+            walk_expr(ast, *eid, bound, out)
+        }
         Stmt::YieldInto { value, .. } => walk_expr(ast, *value, bound, out),
         Stmt::Return(None) => {}
         Stmt::LetDecl { name, init, .. } => {
@@ -9433,7 +10207,11 @@ fn walk_stmt(ast: &Ast, s: &Stmt, bound: &mut Vec<String>, out: &mut Vec<String>
             bound.truncate(saved);
             walk_expr(ast, *cond, bound, out);
         }
-        Stmt::Switch { scrutinee, cases, default } => {
+        Stmt::Switch {
+            scrutinee,
+            cases,
+            default,
+        } => {
             walk_expr(ast, *scrutinee, bound, out);
             for c in cases {
                 walk_expr(ast, c.value, bound, out);
@@ -9483,7 +10261,12 @@ fn walk_stmt(ast: &Ast, s: &Stmt, bound: &mut Vec<String>, out: &mut Vec<String>
                 walk_stmt(ast, st, bound, out);
             }
         }
-        Stmt::ForOfSplitIter { var_name, parent, sep, body } => {
+        Stmt::ForOfSplitIter {
+            var_name,
+            parent,
+            sep,
+            body,
+        } => {
             // Same scope hygiene as Stmt::For — var_name binds inside
             // the body only.
             walk_expr(ast, *parent, bound, out);
@@ -9493,7 +10276,12 @@ fn walk_stmt(ast: &Ast, s: &Stmt, bound: &mut Vec<String>, out: &mut Vec<String>
             walk_stmt(ast, body, bound, out);
             bound.truncate(saved);
         }
-        Stmt::ForOf { var_name, elem_expr, body, .. } => {
+        Stmt::ForOf {
+            var_name,
+            elem_expr,
+            body,
+            ..
+        } => {
             walk_expr(ast, *elem_expr, bound, out);
             let saved = bound.len();
             bound.push(var_name.clone());
@@ -9614,12 +10402,7 @@ pub fn fn_throw_info(ast: &Ast, body: &[Stmt]) -> (bool, Vec<String>) {
     (direct, called)
 }
 
-fn scan_stmt_for_throws(
-    ast: &Ast,
-    s: &Stmt,
-    direct: &mut bool,
-    called: &mut Vec<String>,
-) {
+fn scan_stmt_for_throws(ast: &Ast, s: &Stmt, direct: &mut bool, called: &mut Vec<String>) {
     match s {
         Stmt::Throw(eid) => {
             *direct = true;
@@ -9650,7 +10433,11 @@ fn scan_stmt_for_throws(
             scan_stmt_for_throws(ast, body, direct, called);
             scan_expr_for_calls(ast, *cond, called);
         }
-        Stmt::Switch { scrutinee, cases, default } => {
+        Stmt::Switch {
+            scrutinee,
+            cases,
+            default,
+        } => {
             scan_expr_for_calls(ast, *scrutinee, called);
             for c in cases {
                 scan_expr_for_calls(ast, c.value, called);
@@ -9686,12 +10473,16 @@ fn scan_stmt_for_throws(
                 scan_stmt_for_throws(ast, st, direct, called);
             }
         }
-        Stmt::ForOfSplitIter { parent, sep, body, .. } => {
+        Stmt::ForOfSplitIter {
+            parent, sep, body, ..
+        } => {
             scan_expr_for_calls(ast, *parent, called);
             scan_expr_for_calls(ast, *sep, called);
             scan_stmt_for_throws(ast, body, direct, called);
         }
-        Stmt::ForOf { elem_expr, body, .. } => {
+        Stmt::ForOf {
+            elem_expr, body, ..
+        } => {
             scan_expr_for_calls(ast, *elem_expr, called);
             scan_stmt_for_throws(ast, body, direct, called);
         }
@@ -9775,12 +10566,19 @@ fn scan_expr_for_calls(ast: &Ast, eid: ExprId, out: &mut Vec<String>) {
                 scan_expr_for_calls(ast, *a, out);
             }
         }
-        Expr::Ternary { cond, then_branch, else_branch } => {
+        Expr::Ternary {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
             scan_expr_for_calls(ast, *cond, out);
             scan_expr_for_calls(ast, *then_branch, out);
             scan_expr_for_calls(ast, *else_branch, out);
         }
-        Expr::TypeOf { expr } | Expr::Spread { expr } | Expr::InstanceOf { expr, .. } | Expr::As { expr, .. } => scan_expr_for_calls(ast, *expr, out),
+        Expr::TypeOf { expr }
+        | Expr::Spread { expr }
+        | Expr::InstanceOf { expr, .. }
+        | Expr::As { expr, .. } => scan_expr_for_calls(ast, *expr, out),
         Expr::Sequence { left, right } => {
             scan_expr_for_calls(ast, *left, out);
             scan_expr_for_calls(ast, *right, out);
@@ -9792,8 +10590,14 @@ fn scan_expr_for_calls(ast: &Ast, eid: ExprId, out: &mut Vec<String>) {
         Expr::OptChain { obj, .. } => scan_expr_for_calls(ast, *obj, out),
         Expr::PostIncr { target, .. } => scan_expr_for_calls(ast, *target, out),
         Expr::This | Expr::NewTarget => {}
-        Expr::Ident(_) | Expr::String(_) | Expr::Number(_) | Expr::BigInt { .. } | Expr::Bool(_)
-        | Expr::Null | Expr::Uninit | Expr::Regex { .. } => {}
+        Expr::Ident(_)
+        | Expr::String(_)
+        | Expr::Number(_)
+        | Expr::BigInt { .. }
+        | Expr::Bool(_)
+        | Expr::Null
+        | Expr::Uninit
+        | Expr::Regex { .. } => {}
     }
 }
 
@@ -9807,8 +10611,13 @@ fn walk_expr(ast: &Ast, eid: ExprId, bound: &mut Vec<String>, out: &mut Vec<Stri
                 out.push(name.clone());
             }
         }
-        Expr::String(_) | Expr::Number(_) | Expr::BigInt { .. } | Expr::Bool(_)
-        | Expr::Null | Expr::Uninit | Expr::Regex { .. } => {}
+        Expr::String(_)
+        | Expr::Number(_)
+        | Expr::BigInt { .. }
+        | Expr::Bool(_)
+        | Expr::Null
+        | Expr::Uninit
+        | Expr::Regex { .. } => {}
         Expr::BinOp { left, right, .. } => {
             walk_expr(ast, *left, bound, out);
             walk_expr(ast, *right, bound, out);
@@ -9871,12 +10680,19 @@ fn walk_expr(ast: &Ast, eid: ExprId, bound: &mut Vec<String>, out: &mut Vec<Stri
                 walk_expr(ast, *a, bound, out);
             }
         }
-        Expr::Ternary { cond, then_branch, else_branch } => {
+        Expr::Ternary {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
             walk_expr(ast, *cond, bound, out);
             walk_expr(ast, *then_branch, bound, out);
             walk_expr(ast, *else_branch, bound, out);
         }
-        Expr::TypeOf { expr } | Expr::Spread { expr } | Expr::InstanceOf { expr, .. } | Expr::As { expr, .. } => walk_expr(ast, *expr, bound, out),
+        Expr::TypeOf { expr }
+        | Expr::Spread { expr }
+        | Expr::InstanceOf { expr, .. }
+        | Expr::As { expr, .. } => walk_expr(ast, *expr, bound, out),
         Expr::Sequence { left, right } => {
             walk_expr(ast, *left, bound, out);
             walk_expr(ast, *right, bound, out);
@@ -9896,7 +10712,8 @@ impl Ast {
         self.exprs.push(e);
         // Sentinel span until parser (or a desugar pass) sets a real
         // one via `set_expr_span`. Both fields zero means "unknown".
-        self.expr_spans.push(crate::lexer::Span { start: 0, end: 0 });
+        self.expr_spans
+            .push(crate::lexer::Span { start: 0, end: 0 });
         id
     }
 
@@ -9974,7 +10791,11 @@ impl Ast {
                 println!("{pad}Yield");
                 self.print_expr(*eid, indent + 1);
             }
-            Stmt::YieldInto { var, type_ann, value } => {
+            Stmt::YieldInto {
+                var,
+                type_ann,
+                value,
+            } => {
                 println!("{pad}YieldInto var={var} ty={type_ann:?}");
                 self.print_expr(*value, indent + 1);
             }
@@ -9985,7 +10806,13 @@ impl Ast {
                 init,
                 is_var,
             } => {
-                let kw = if *is_var { "var" } else if *mutable { "let" } else { "const" };
+                let kw = if *is_var {
+                    "var"
+                } else if *mutable {
+                    "let"
+                } else {
+                    "const"
+                };
                 match type_ann {
                     Some(ann) => println!("{pad}{kw} {name}: {ann}"),
                     None => println!("{pad}{kw} {name}"),
@@ -10021,7 +10848,11 @@ impl Ast {
                 println!("{pad}  cond:");
                 self.print_expr(*cond, indent + 2);
             }
-            Stmt::Switch { scrutinee, cases, default } => {
+            Stmt::Switch {
+                scrutinee,
+                cases,
+                default,
+            } => {
                 println!("{pad}Switch");
                 println!("{pad}  on:");
                 self.print_expr(*scrutinee, indent + 2);
@@ -10039,7 +10870,12 @@ impl Ast {
                     }
                 }
             }
-            Stmt::For { init, cond, step, body } => {
+            Stmt::For {
+                init,
+                cond,
+                step,
+                body,
+            } => {
                 println!("{pad}For");
                 if let Some(i) = init {
                     println!("{pad}  init:");
@@ -10058,7 +10894,12 @@ impl Ast {
             }
             Stmt::Break => println!("{pad}Break"),
             Stmt::Continue => println!("{pad}Continue"),
-            Stmt::ForOfSplitIter { var_name, parent, sep, body } => {
+            Stmt::ForOfSplitIter {
+                var_name,
+                parent,
+                sep,
+                body,
+            } => {
                 println!("{pad}ForOfSplitIter {var_name}");
                 println!("{pad}  parent:");
                 self.print_expr(*parent, indent + 2);
@@ -10067,7 +10908,13 @@ impl Ast {
                 println!("{pad}  body:");
                 self.print_stmt(body, indent + 2);
             }
-            Stmt::ForOf { var_name, src_ident, elem_expr, body, .. } => {
+            Stmt::ForOf {
+                var_name,
+                src_ident,
+                elem_expr,
+                body,
+                ..
+            } => {
                 println!("{pad}ForOf {var_name} of {src_ident}[i]");
                 println!("{pad}  elem:");
                 self.print_expr(*elem_expr, indent + 2);
@@ -10082,7 +10929,7 @@ impl Ast {
                 body,
                 catch_param,
                 catch_type: _,
-            had_catch: _,
+                had_catch: _,
                 catch_body,
                 finally_body,
             } => {
@@ -10149,10 +10996,7 @@ impl Ast {
                 type_params,
                 fields,
             } => {
-                let parts: Vec<String> = fields
-                    .iter()
-                    .map(|(n, t)| format!("{n}: {t}"))
-                    .collect();
+                let parts: Vec<String> = fields.iter().map(|(n, t)| format!("{n}: {t}")).collect();
                 let tps = if type_params.is_empty() {
                     String::new()
                 } else {
@@ -10178,10 +11022,7 @@ impl Ast {
                 methods,
                 static_methods: _,
             } => {
-                let parts: Vec<String> = fields
-                    .iter()
-                    .map(|(n, t)| format!("{n}: {t}"))
-                    .collect();
+                let parts: Vec<String> = fields.iter().map(|(n, t)| format!("{n}: {t}")).collect();
                 let ext = match parent {
                     Some(p) => format!(" extends {p}"),
                     None => String::new(),
@@ -10329,7 +11170,11 @@ impl Ast {
                     self.print_expr(*a, indent + 1);
                 }
             }
-            Expr::Ternary { cond, then_branch, else_branch } => {
+            Expr::Ternary {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
                 println!("{pad}Ternary");
                 self.print_expr(*cond, indent + 1);
                 self.print_expr(*then_branch, indent + 1);

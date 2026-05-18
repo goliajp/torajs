@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use inkwell::{FloatPredicate, IntPredicate};
+use inkwell::AddressSpace;
 use inkwell::OptimizationLevel;
 use inkwell::attributes::{Attribute, AttributeLoc};
 use inkwell::context::Context;
@@ -27,9 +27,9 @@ use inkwell::passes::PassBuilderOptions;
 use inkwell::targets::{
     CodeModel, FileType, InitializationConfig, RelocMode, Target, TargetMachine,
 };
-use inkwell::AddressSpace;
 use inkwell::types::{BasicMetadataTypeEnum, BasicTypeEnum, FunctionType};
 use inkwell::values::{BasicMetadataValueEnum, BasicValueEnum, FunctionValue, IntValue};
+use inkwell::{FloatPredicate, IntPredicate};
 
 use crate::ssa::{self as s, BinOp, FPred, IPred, InstKind, Module, Operand, Terminator, Type};
 
@@ -102,7 +102,14 @@ pub fn compile(
     source_path: Option<&Path>,
     ast: Option<&crate::ast::Ast>,
 ) -> Result<(), CompileError> {
-    compile_for(ssa_module, out_path, opt, source_path, ast, CompileTarget::Native)
+    compile_for(
+        ssa_module,
+        out_path,
+        opt,
+        source_path,
+        ast,
+        CompileTarget::Native,
+    )
 }
 
 pub fn compile_for(
@@ -113,7 +120,15 @@ pub fn compile_for(
     ast: Option<&crate::ast::Ast>,
     target: CompileTarget,
 ) -> Result<(), CompileError> {
-    compile_for_kind(ssa_module, out_path, opt, source_path, ast, target, OutputKind::Executable)
+    compile_for_kind(
+        ssa_module,
+        out_path,
+        opt,
+        source_path,
+        ast,
+        target,
+        OutputKind::Executable,
+    )
 }
 
 /// V3-16 — extended entry point that lets the caller pick
@@ -145,10 +160,7 @@ pub fn compile_for_kind(
             i32_t.const_int(3, false),
         );
         let filename = p.file_name().and_then(|s| s.to_str()).unwrap_or("(stdin)");
-        let directory = p
-            .parent()
-            .and_then(|d| d.to_str())
-            .unwrap_or(".");
+        let directory = p.parent().and_then(|d| d.to_str()).unwrap_or(".");
         let (dibuilder, compile_unit) = llvm_module.create_debug_info_builder(
             true,
             inkwell::debug_info::DWARFSourceLanguage::C,
@@ -166,7 +178,10 @@ pub fn compile_for_kind(
             /* sysroot (LLVM 22) */ "",
             /* sdk (LLVM 22) */ "",
         );
-        Some(DebugCtx { dibuilder, compile_unit })
+        Some(DebugCtx {
+            dibuilder,
+            compile_unit,
+        })
     });
 
     // Pass A: declare libc decls + the intrinsics whose body the backend owns.
@@ -263,12 +278,8 @@ pub fn compile_for_kind(
                 mark_alwaysinline(&ctx, f);
                 f
             }
-            "__torajs_arr_push" => {
-                define_arr_push(&ctx, &llvm_module, realloc, memmove)
-            }
-            "__torajs_arr_reserve" => {
-                define_arr_reserve(&ctx, &llvm_module, realloc)
-            }
+            "__torajs_arr_push" => define_arr_push(&ctx, &llvm_module, realloc, memmove),
+            "__torajs_arr_reserve" => define_arr_reserve(&ctx, &llvm_module, realloc),
             "__torajs_arr_push_unchecked" => {
                 let f = define_arr_push_unchecked(&ctx, &llvm_module);
                 // hot intrinsic, body is ~5 instructions; force-inline so
@@ -289,9 +300,7 @@ pub fn compile_for_kind(
                 mark_alwaysinline(&ctx, f);
                 f
             }
-            "__torajs_str_slice" => {
-                define_str_slice(&ctx, &llvm_module, str_alloc_pooled, memcpy)
-            }
+            "__torajs_str_slice" => define_str_slice(&ctx, &llvm_module, str_alloc_pooled, memcpy),
             "__torajs_str_char_code_at" => {
                 let f = define_str_char_code_at(&ctx, &llvm_module);
                 // hot intrinsic — body is bounds check + byte load + zext.
@@ -314,9 +323,7 @@ pub fn compile_for_kind(
                 "__torajs_str_ends_with",
                 true,
             ),
-            "__torajs_str_index_of" => {
-                define_str_index_of(&ctx, &llvm_module, memcmp)
-            }
+            "__torajs_str_index_of" => define_str_index_of(&ctx, &llvm_module, memcmp),
             "__torajs_str_includes" => {
                 // index_of must be defined first — it is, since the
                 // pass-A loop iterates ssa_module.funcs in declaration
@@ -415,18 +422,10 @@ pub fn compile_for_kind(
             "__torajs_math_log1p" => {
                 define_math_unary(&ctx, &llvm_module, "__torajs_math_log1p", "log1p")
             }
-            "__torajs_throw_set" => {
-                define_throw_set(&ctx, &llvm_module)
-            }
-            "__torajs_throw_check" => {
-                define_throw_check(&ctx, &llvm_module)
-            }
-            "__torajs_throw_take" => {
-                define_throw_take(&ctx, &llvm_module)
-            }
-            "__torajs_throw_take_tag" => {
-                define_throw_take_tag(&ctx, &llvm_module)
-            }
+            "__torajs_throw_set" => define_throw_set(&ctx, &llvm_module),
+            "__torajs_throw_check" => define_throw_check(&ctx, &llvm_module),
+            "__torajs_throw_take" => define_throw_take(&ctx, &llvm_module),
+            "__torajs_throw_take_tag" => define_throw_take_tag(&ctx, &llvm_module),
             _ => declare_ssa_fn(&ctx, &llvm_module, f, target),
         };
         // Tag malloc-shaped intrinsics with `noalias` on the return so
@@ -502,11 +501,7 @@ pub fn compile_for_kind(
                     .map(|o| i32_t.const_int(*o as u64, false))
                     .collect();
                 let arr = i32_t.const_array(&consts);
-                let g = llvm_module.add_global(
-                    arr_t,
-                    None,
-                    &format!(".__class_offsets_{i}"),
-                );
+                let g = llvm_module.add_global(arr_t, None, &format!(".__class_offsets_{i}"));
                 g.set_initializer(&arr);
                 g.set_constant(true);
                 g.set_linkage(inkwell::module::Linkage::Private);
@@ -640,13 +635,9 @@ pub fn compile_for_kind(
         if let Some(dctx) = debug_ctx.as_ref()
             && let Some(sp) = fn_map[i].get_subprogram()
         {
-            let loc = dctx.dibuilder.create_debug_location(
-                &ctx,
-                0,
-                0,
-                sp.as_debug_info_scope(),
-                None,
-            );
+            let loc =
+                dctx.dibuilder
+                    .create_debug_location(&ctx, 0, 0, sp.as_debug_info_scope(), None);
             builder.set_current_debug_location(loc);
         }
         let lower = FnLower {
@@ -732,8 +723,7 @@ pub fn compile_for_kind(
             )
         }
     };
-    let target_obj =
-        Target::from_triple(&triple).map_err(|e| CompileError::Emit(e.to_string()))?;
+    let target_obj = Target::from_triple(&triple).map_err(|e| CompileError::Emit(e.to_string()))?;
     let machine = target_obj
         .create_target_machine(
             &triple,
@@ -802,19 +792,16 @@ pub fn compile_for_kind(
     let mut o_paths: Vec<PathBuf> = Vec::with_capacity(torajs_runtime::SOURCES.len());
     for (filename, _) in torajs_runtime::SOURCES {
         let stem = filename.trim_end_matches(".c");
-        c_paths.push(std::env::temp_dir().join(format!(
-            "torajs-runtime-{stem}-{pid}-{}.c",
-            rand_suffix()
-        )));
-        o_paths.push(std::env::temp_dir().join(format!(
-            "torajs-runtime-{stem}-{pid}-{}.o",
-            rand_suffix()
-        )));
+        c_paths.push(
+            std::env::temp_dir().join(format!("torajs-runtime-{stem}-{pid}-{}.c", rand_suffix())),
+        );
+        o_paths.push(
+            std::env::temp_dir().join(format!("torajs-runtime-{stem}-{pid}-{}.o", rand_suffix())),
+        );
     }
     for (idx, (filename, src)) in torajs_runtime::SOURCES.iter().enumerate() {
-        std::fs::write(&c_paths[idx], src).map_err(|e| {
-            CompileError::Link(format!("write {filename}: {e}"))
-        })?;
+        std::fs::write(&c_paths[idx], src)
+            .map_err(|e| CompileError::Link(format!("write {filename}: {e}")))?;
     }
     // T-20 (v0.6.0) — for wasm32-wasi, use LLVM 22 clang with the
     // wasm32-wasip1 triple + wasi-libc sysroot from Homebrew. cc on
@@ -823,29 +810,25 @@ pub fn compile_for_kind(
     // toolchain at runtime so the developer doesn't have to set
     // env vars (the prefix lookup is one process spawn at compile
     // time, dominated by LLVM's optimize pass anyway).
-    let (cc_cmd, cc_target_args, cc_opt_arg, link_cmd_name): (
-        &str,
-        Vec<String>,
-        &str,
-        &str,
-    ) = match target {
-        CompileTarget::Native => ("cc", Vec::new(), "-O3", "cc"),
-        CompileTarget::Wasm32Wasi => {
-            let (clang_path, sysroot) = wasi_paths_for_target()?;
-            (
-                Box::leak(clang_path.into_boxed_str()),
-                vec![
-                    "--target=wasm32-wasip1".into(),
-                    format!("--sysroot={sysroot}"),
-                ],
-                "-O2", // wasm-ld + LTO + O3 hits a verifier issue in
-                       // LLVM 22; O2 is the documented stable level
-                       // for the wasm backend (matches Emscripten's
-                       // default).
-                "wasm-ld",
-            )
-        }
-    };
+    let (cc_cmd, cc_target_args, cc_opt_arg, link_cmd_name): (&str, Vec<String>, &str, &str) =
+        match target {
+            CompileTarget::Native => ("cc", Vec::new(), "-O3", "cc"),
+            CompileTarget::Wasm32Wasi => {
+                let (clang_path, sysroot) = wasi_paths_for_target()?;
+                (
+                    Box::leak(clang_path.into_boxed_str()),
+                    vec![
+                        "--target=wasm32-wasip1".into(),
+                        format!("--sysroot={sysroot}"),
+                    ],
+                    "-O2", // wasm-ld + LTO + O3 hits a verifier issue in
+                    // LLVM 22; O2 is the documented stable level
+                    // for the wasm backend (matches Emscripten's
+                    // default).
+                    "wasm-ld",
+                )
+            }
+        };
     // -flto lets the linker inline cross-TU calls between the
     // LLVM-emitted object and the C runtime.
     for (idx, (filename, _)) in torajs_runtime::SOURCES.iter().enumerate() {
@@ -862,12 +845,14 @@ pub fn compile_for_kind(
             .arg(&o_paths[idx])
             .arg(&c_paths[idx])
             .status()
-            .map_err(|e| {
-                CompileError::Link(format!("spawning cc -c ({filename}): {e}"))
-            })?;
+            .map_err(|e| CompileError::Link(format!("spawning cc -c ({filename}): {e}")))?;
         if !status.success() {
-            for p in &c_paths { let _ = std::fs::remove_file(p); }
-            for p in o_paths.iter().take(idx) { let _ = std::fs::remove_file(p); }
+            for p in &c_paths {
+                let _ = std::fs::remove_file(p);
+            }
+            for p in o_paths.iter().take(idx) {
+                let _ = std::fs::remove_file(p);
+            }
             return Err(CompileError::Link(format!(
                 "cc -c {filename} exited {status}"
             )));
@@ -967,8 +952,12 @@ pub fn compile_for_kind(
             .status();
     }
     let _ = std::fs::remove_file(&obj_path);
-    for p in &c_paths { let _ = std::fs::remove_file(p); }
-    for p in &o_paths { let _ = std::fs::remove_file(p); }
+    for p in &c_paths {
+        let _ = std::fs::remove_file(p);
+    }
+    for p in &o_paths {
+        let _ = std::fs::remove_file(p);
+    }
     if !status.success() {
         return Err(CompileError::Link(format!("cc exited {status}")));
     }
@@ -1184,31 +1173,56 @@ fn define_split_iter_next<'ctx>(
     let iter = f.get_nth_param(0).unwrap().into_pointer_value();
     let out = f.get_nth_param(1).unwrap().into_pointer_value();
 
-    let gep = |b: &inkwell::builder::Builder<'ctx>, base: inkwell::values::PointerValue<'ctx>, off: u64, name: &str| -> inkwell::values::PointerValue<'ctx> {
+    let gep = |b: &inkwell::builder::Builder<'ctx>,
+               base: inkwell::values::PointerValue<'ctx>,
+               off: u64,
+               name: &str|
+     -> inkwell::values::PointerValue<'ctx> {
         unsafe {
-            b.build_in_bounds_gep(i8_t, base, &[i64_t.const_int(off, false)], name).unwrap()
+            b.build_in_bounds_gep(i8_t, base, &[i64_t.const_int(off, false)], name)
+                .unwrap()
         }
     };
 
     // exhausted byte at iter+40
     let exh_p = gep(&builder, iter, 40, "exh_p");
-    let exh = builder.build_load(i8_t, exh_p, "exh").unwrap().into_int_value();
+    let exh = builder
+        .build_load(i8_t, exh_p, "exh")
+        .unwrap()
+        .into_int_value();
     let is_exh = builder
         .build_int_compare(IntPredicate::NE, exh, i8_t.const_int(0, false), "is_exh")
         .unwrap();
-    builder.build_conditional_branch(is_exh, return_false, load_state).unwrap();
+    builder
+        .build_conditional_branch(is_exh, return_false, load_state)
+        .unwrap();
 
     // load_state: read parent / parent_len / sep_data / sep_len / pos.
     builder.position_at_end(load_state);
-    let parent = builder.build_load(ptr_t, iter, "parent").unwrap().into_pointer_value();
+    let parent = builder
+        .build_load(ptr_t, iter, "parent")
+        .unwrap()
+        .into_pointer_value();
     let parent_len_p = gep(&builder, iter, 8, "plen_p");
-    let parent_len = builder.build_load(i64_t, parent_len_p, "plen").unwrap().into_int_value();
+    let parent_len = builder
+        .build_load(i64_t, parent_len_p, "plen")
+        .unwrap()
+        .into_int_value();
     let sep_data_p = gep(&builder, iter, 16, "sd_p");
-    let sep_data = builder.build_load(ptr_t, sep_data_p, "sd").unwrap().into_pointer_value();
+    let sep_data = builder
+        .build_load(ptr_t, sep_data_p, "sd")
+        .unwrap()
+        .into_pointer_value();
     let sep_len_p = gep(&builder, iter, 24, "sl_p");
-    let sep_len = builder.build_load(i64_t, sep_len_p, "sl").unwrap().into_int_value();
+    let sep_len = builder
+        .build_load(i64_t, sep_len_p, "sl")
+        .unwrap()
+        .into_int_value();
     let pos_p = gep(&builder, iter, 32, "pos_p");
-    let pos = builder.build_load(i64_t, pos_p, "pos").unwrap().into_int_value();
+    let pos = builder
+        .build_load(i64_t, pos_p, "pos")
+        .unwrap()
+        .into_int_value();
     // parent bytes start at parent + STR_HDR_DATA_OFF (= 16).
     let parent_bytes = gep(&builder, parent, 16, "pbytes");
 
@@ -1217,13 +1231,22 @@ fn define_split_iter_next<'ctx>(
         .build_int_compare(IntPredicate::EQ, sep_len, i64_t.const_int(0, false), "sl_z")
         .unwrap();
     let single_or_multi = ctx.append_basic_block(f, "single_or_multi");
-    builder.build_conditional_branch(sl_zero, empty_sep_blk, single_or_multi).unwrap();
+    builder
+        .build_conditional_branch(sl_zero, empty_sep_blk, single_or_multi)
+        .unwrap();
 
     builder.position_at_end(single_or_multi);
     let sl_one = builder
-        .build_int_compare(IntPredicate::EQ, sep_len, i64_t.const_int(1, false), "sl_one")
+        .build_int_compare(
+            IntPredicate::EQ,
+            sep_len,
+            i64_t.const_int(1, false),
+            "sl_one",
+        )
         .unwrap();
-    builder.build_conditional_branch(sl_one, single_sep_blk, multi_sep_blk).unwrap();
+    builder
+        .build_conditional_branch(sl_one, single_sep_blk, multi_sep_blk)
+        .unwrap();
 
     // empty_sep: if pos >= parent_len → exhaust+ret 0; else emit single
     // char view and advance pos.
@@ -1231,7 +1254,9 @@ fn define_split_iter_next<'ctx>(
     let pos_ge_plen = builder
         .build_int_compare(IntPredicate::UGE, pos, parent_len, "pos_ge_plen")
         .unwrap();
-    builder.build_conditional_branch(pos_ge_plen, exhaust_and_false_blk, empty_emit).unwrap();
+    builder
+        .build_conditional_branch(pos_ge_plen, exhaust_and_false_blk, empty_emit)
+        .unwrap();
     builder.position_at_end(empty_emit);
     // empty_sep emits len=1; the next pos = pos+1 (computed here so
     // it's defined in this predecessor of emit_blk for the phi).
@@ -1242,7 +1267,10 @@ fn define_split_iter_next<'ctx>(
 
     // single_sep: scan from pos for first occurrence of sep_data[0].
     builder.position_at_end(single_sep_blk);
-    let b = builder.build_load(i8_t, sep_data, "b").unwrap().into_int_value();
+    let b = builder
+        .build_load(i8_t, sep_data, "b")
+        .unwrap()
+        .into_int_value();
     builder.build_unconditional_branch(scan_loop).unwrap();
     // scan_loop: phi k starting at pos; if k >= plen → scan_done with k=plen
     builder.position_at_end(scan_loop);
@@ -1253,16 +1281,29 @@ fn define_split_iter_next<'ctx>(
         .build_int_compare(IntPredicate::UGE, k_val, parent_len, "k_ge")
         .unwrap();
     let scan_check_byte = ctx.append_basic_block(f, "scan_check");
-    builder.build_conditional_branch(k_ge_plen, scan_done, scan_check_byte).unwrap();
+    builder
+        .build_conditional_branch(k_ge_plen, scan_done, scan_check_byte)
+        .unwrap();
     builder.position_at_end(scan_check_byte);
-    let byte_ptr = unsafe { builder.build_in_bounds_gep(i8_t, parent_bytes, &[k_val], "bp").unwrap() };
-    let byte_val = builder.build_load(i8_t, byte_ptr, "by").unwrap().into_int_value();
+    let byte_ptr = unsafe {
+        builder
+            .build_in_bounds_gep(i8_t, parent_bytes, &[k_val], "bp")
+            .unwrap()
+    };
+    let byte_val = builder
+        .build_load(i8_t, byte_ptr, "by")
+        .unwrap()
+        .into_int_value();
     let byte_eq = builder
         .build_int_compare(IntPredicate::EQ, byte_val, b, "by_eq")
         .unwrap();
-    builder.build_conditional_branch(byte_eq, scan_done, scan_step).unwrap();
+    builder
+        .build_conditional_branch(byte_eq, scan_done, scan_step)
+        .unwrap();
     builder.position_at_end(scan_step);
-    let k_next = builder.build_int_add(k_val, i64_t.const_int(1, false), "k_n").unwrap();
+    let k_next = builder
+        .build_int_add(k_val, i64_t.const_int(1, false), "k_n")
+        .unwrap();
     k_phi.add_incoming(&[(&k_next, scan_step)]);
     builder.build_unconditional_branch(scan_loop).unwrap();
     builder.position_at_end(scan_done);
@@ -1282,12 +1323,18 @@ fn define_split_iter_next<'ctx>(
         .build_int_compare(IntPredicate::UGT, mk_plus_sl, parent_len, "mk_oob")
         .unwrap();
     let multi_oob = ctx.append_basic_block(f, "multi_oob");
-    builder.build_conditional_branch(mk_oob, multi_oob, multi_check_match).unwrap();
+    builder
+        .build_conditional_branch(mk_oob, multi_oob, multi_check_match)
+        .unwrap();
     builder.position_at_end(multi_oob);
     builder.build_unconditional_branch(multi_done).unwrap();
     builder.position_at_end(multi_check_match);
     // memcmp(parent_bytes + mk, sep_data, sep_len)
-    let cand_ptr = unsafe { builder.build_in_bounds_gep(i8_t, parent_bytes, &[mk_val], "cand").unwrap() };
+    let cand_ptr = unsafe {
+        builder
+            .build_in_bounds_gep(i8_t, parent_bytes, &[mk_val], "cand")
+            .unwrap()
+    };
     // T-20.b — `m.get_function` must use the same target-resolved
     // name we declared with above. On wasm32-wasi the bridge
     // intercepts `memcmp` → `__torajs_libc_memcmp`.
@@ -1295,7 +1342,11 @@ fn define_split_iter_next<'ctx>(
         .get_function(libc_name("memcmp", target))
         .expect("memcmp declared");
     let cmp = builder
-        .build_call(memcmp_fn, &[cand_ptr.into(), sep_data.into(), sep_len.into()], "cmp")
+        .build_call(
+            memcmp_fn,
+            &[cand_ptr.into(), sep_data.into(), sep_len.into()],
+            "cmp",
+        )
         .unwrap()
         .try_as_basic_value()
         .unwrap_basic()
@@ -1303,9 +1354,13 @@ fn define_split_iter_next<'ctx>(
     let cmp_eq = builder
         .build_int_compare(IntPredicate::EQ, cmp, i32_t.const_int(0, false), "cmp_eq")
         .unwrap();
-    builder.build_conditional_branch(cmp_eq, multi_done, multi_step).unwrap();
+    builder
+        .build_conditional_branch(cmp_eq, multi_done, multi_step)
+        .unwrap();
     builder.position_at_end(multi_step);
-    let mk_n = builder.build_int_add(mk_val, i64_t.const_int(1, false), "mk_n").unwrap();
+    let mk_n = builder
+        .build_int_add(mk_val, i64_t.const_int(1, false), "mk_n")
+        .unwrap();
     mk_phi.add_incoming(&[(&mk_n, multi_step)]);
     builder.build_unconditional_branch(multi_loop).unwrap();
     builder.position_at_end(multi_done);
@@ -1388,26 +1443,44 @@ fn define_split_iter_next<'ctx>(
     // bytes). Distinguish via separate phi tracking would be cleaner —
     // add an `is_empty_sep` bool phi.
     let is_empty = is_empty_phi.as_basic_value().into_int_value();
-    let exhaust_now = builder.build_and(k_eq_plen, builder.build_not(is_empty, "not_empty").unwrap(), "exhaust_now").unwrap();
-    builder.build_conditional_branch(exhaust_now, mark_exhausted_blk, advance_pos_blk).unwrap();
+    let exhaust_now = builder
+        .build_and(
+            k_eq_plen,
+            builder.build_not(is_empty, "not_empty").unwrap(),
+            "exhaust_now",
+        )
+        .unwrap();
+    builder
+        .build_conditional_branch(exhaust_now, mark_exhausted_blk, advance_pos_blk)
+        .unwrap();
 
     builder.position_at_end(advance_pos_blk);
-    let new_pos = builder.build_int_add(k_final, stride_final, "new_pos").unwrap();
+    let new_pos = builder
+        .build_int_add(k_final, stride_final, "new_pos")
+        .unwrap();
     builder.build_store(pos_p, new_pos).unwrap();
     builder.build_unconditional_branch(return_true).unwrap();
 
     builder.position_at_end(mark_exhausted_blk);
-    builder.build_store(exh_p, i8_t.const_int(1, false)).unwrap();
+    builder
+        .build_store(exh_p, i8_t.const_int(1, false))
+        .unwrap();
     builder.build_unconditional_branch(return_true).unwrap();
 
     builder.position_at_end(exhaust_and_false_blk);
-    builder.build_store(exh_p, i8_t.const_int(1, false)).unwrap();
+    builder
+        .build_store(exh_p, i8_t.const_int(1, false))
+        .unwrap();
     builder.build_unconditional_branch(return_false).unwrap();
 
     builder.position_at_end(return_true);
-    builder.build_return(Some(&bool_t.const_int(1, false))).unwrap();
+    builder
+        .build_return(Some(&bool_t.const_int(1, false)))
+        .unwrap();
     builder.position_at_end(return_false);
-    builder.build_return(Some(&bool_t.const_int(0, false))).unwrap();
+    builder
+        .build_return(Some(&bool_t.const_int(0, false)))
+        .unwrap();
 
     let _ = i16_t; // suppress unused warning
     f
@@ -1816,7 +1889,12 @@ fn emit_arr_alloc_header<'ctx>(
     // type_tag @ +4 = TAG_ARR
     let tag_ptr = unsafe {
         builder
-            .build_in_bounds_gep(i8_t, p, &[i64_t.const_int(STR_HDR_TYPE_TAG_OFF, false)], "arr_tag")
+            .build_in_bounds_gep(
+                i8_t,
+                p,
+                &[i64_t.const_int(STR_HDR_TYPE_TAG_OFF, false)],
+                "arr_tag",
+            )
             .unwrap()
     };
     builder
@@ -1825,7 +1903,12 @@ fn emit_arr_alloc_header<'ctx>(
     // flags @ +6 = 0
     let flags_ptr = unsafe {
         builder
-            .build_in_bounds_gep(i8_t, p, &[i64_t.const_int(STR_HDR_FLAGS_OFF, false)], "arr_flags")
+            .build_in_bounds_gep(
+                i8_t,
+                p,
+                &[i64_t.const_int(STR_HDR_FLAGS_OFF, false)],
+                "arr_flags",
+            )
             .unwrap()
     };
     builder
@@ -1834,14 +1917,24 @@ fn emit_arr_alloc_header<'ctx>(
     // len @ +8
     let len_ptr = unsafe {
         builder
-            .build_in_bounds_gep(i8_t, p, &[i64_t.const_int(ARR_HDR_LEN_OFF, false)], "arr_len_p")
+            .build_in_bounds_gep(
+                i8_t,
+                p,
+                &[i64_t.const_int(ARR_HDR_LEN_OFF, false)],
+                "arr_len_p",
+            )
             .unwrap()
     };
     builder.build_store(len_ptr, len).unwrap();
     // cap @ +16
     let cap_ptr = unsafe {
         builder
-            .build_in_bounds_gep(i8_t, p, &[i64_t.const_int(ARR_HDR_CAP_OFF, false)], "arr_cap_p")
+            .build_in_bounds_gep(
+                i8_t,
+                p,
+                &[i64_t.const_int(ARR_HDR_CAP_OFF, false)],
+                "arr_cap_p",
+            )
             .unwrap()
     };
     builder.build_store(cap_ptr, cap).unwrap();
@@ -1962,9 +2055,7 @@ fn arr_head_load<'ctx>(
         .build_load(i32_t, head_ptr, &format!("{name}_h32"))
         .unwrap()
         .into_int_value();
-    builder
-        .build_int_z_extend(head_i32, i64_t, name)
-        .unwrap()
+    builder.build_int_z_extend(head_i32, i64_t, name).unwrap()
 }
 
 /// Load the Arr's `len` field (`*(u64*)(p + ARR_HDR_LEN_OFF)`).
@@ -1986,7 +2077,10 @@ fn arr_len_load<'ctx>(
             )
             .unwrap()
     };
-    builder.build_load(i64_t, len_ptr, name).unwrap().into_int_value()
+    builder
+        .build_load(i64_t, len_ptr, name)
+        .unwrap()
+        .into_int_value()
 }
 
 /// Load the Arr's `cap` field (`*(u32*)(p + ARR_HDR_CAP_OFF)`)
@@ -2015,9 +2109,7 @@ fn arr_cap_load<'ctx>(
         .build_load(i32_t, cap_ptr, &format!("{name}_c32"))
         .unwrap()
         .into_int_value();
-    builder
-        .build_int_z_extend(cap_i32, i64_t, name)
-        .unwrap()
+    builder.build_int_z_extend(cap_i32, i64_t, name).unwrap()
 }
 
 /// Emit one `[N x i8]` private constant per interned string. Just the raw
@@ -2214,7 +2306,11 @@ fn define_str_concat<'ctx>(
     let p_data = str_data_ptr(ctx, &builder, p, "p_data");
     let a_data = str_data_ptr(ctx, &builder, a, "a_data");
     builder
-        .build_call(memcpy, &[p_data.into(), a_data.into(), a_len.into()], "_cp_a")
+        .build_call(
+            memcpy,
+            &[p_data.into(), a_data.into(), a_len.into()],
+            "_cp_a",
+        )
         .unwrap();
     // p_data2 = p_data + a_len
     let p_data2 = unsafe {
@@ -2224,7 +2320,11 @@ fn define_str_concat<'ctx>(
     };
     let b_data = str_data_ptr(ctx, &builder, b, "b_data");
     builder
-        .build_call(memcpy, &[p_data2.into(), b_data.into(), b_len.into()], "_cp_b")
+        .build_call(
+            memcpy,
+            &[p_data2.into(), b_data.into(), b_len.into()],
+            "_cp_b",
+        )
         .unwrap();
 
     builder.build_return(Some(&p)).unwrap();
@@ -2263,9 +2363,7 @@ fn define_str_slice<'ctx>(
     let start_neg = builder
         .build_int_compare(IntPredicate::SLT, start, zero, "start_neg")
         .unwrap();
-    let start_plus_len = builder
-        .build_int_add(start, len, "start_plus_len")
-        .unwrap();
+    let start_plus_len = builder.build_int_add(start, len, "start_plus_len").unwrap();
     let start_pl_neg = builder
         .build_int_compare(IntPredicate::SLT, start_plus_len, zero, "spl_neg")
         .unwrap();
@@ -2287,9 +2385,7 @@ fn define_str_slice<'ctx>(
     let end_neg = builder
         .build_int_compare(IntPredicate::SLT, end, zero, "end_neg")
         .unwrap();
-    let end_plus_len = builder
-        .build_int_add(end, len, "end_plus_len")
-        .unwrap();
+    let end_plus_len = builder.build_int_add(end, len, "end_plus_len").unwrap();
     let end_pl_neg = builder
         .build_int_compare(IntPredicate::SLT, end_plus_len, zero, "epl_neg")
         .unwrap();
@@ -2316,9 +2412,7 @@ fn define_str_slice<'ctx>(
         .unwrap()
         .into_int_value();
 
-    let new_len = builder
-        .build_int_sub(end_c, start_c, "new_len")
-        .unwrap();
+    let new_len = builder.build_int_sub(end_c, start_c, "new_len").unwrap();
     let p = emit_str_alloc_header(ctx, &builder, str_alloc_pooled, new_len);
     let p_data = str_data_ptr(ctx, &builder, p, "p_data");
     let s_data_base = str_data_ptr(ctx, &builder, s, "s_data_base");
@@ -2341,10 +2435,7 @@ fn define_str_slice<'ctx>(
 /// M6.1 — `__torajs_str_char_code_at(*StrRepr s, i64 i) -> i64`. Returns
 /// the byte at index `i` zero-extended to i64. M6.1 stub: returns 0
 /// for out-of-bounds (TS spec is NaN, but we don't have NaN-as-i64).
-fn define_str_char_code_at<'ctx>(
-    ctx: &'ctx Context,
-    m: &LlvmModule<'ctx>,
-) -> FunctionValue<'ctx> {
+fn define_str_char_code_at<'ctx>(ctx: &'ctx Context, m: &LlvmModule<'ctx>) -> FunctionValue<'ctx> {
     let builder = ctx.create_builder();
     let i64_t = ctx.i64_type();
     let i8_t = ctx.i8_type();
@@ -2495,9 +2586,7 @@ fn define_str_index_of<'ctx>(
     builder.position_at_end(header_blk);
     let i_slot = builder.build_alloca(i64_t, "i").unwrap();
     builder.build_store(i_slot, zero).unwrap();
-    let max_i = builder
-        .build_int_sub(s_len, sub_len, "max_i")
-        .unwrap();
+    let max_i = builder.build_int_sub(s_len, sub_len, "max_i").unwrap();
     let s_data_base = str_data_ptr(ctx, &builder, s, "s_data_base");
     let sub_data = str_data_ptr(ctx, &builder, sub, "sub_data");
     let header_inner = ctx.append_basic_block(f, "header_inner");
@@ -2528,7 +2617,11 @@ fn define_str_index_of<'ctx>(
             .unwrap()
     };
     let r = builder
-        .build_call(memcmp, &[s_data.into(), sub_data.into(), sub_len.into()], "r")
+        .build_call(
+            memcmp,
+            &[s_data.into(), sub_data.into(), sub_len.into()],
+            "r",
+        )
         .unwrap()
         .try_as_basic_value()
         .unwrap_basic()
@@ -2620,11 +2713,7 @@ fn define_print_bool<'ctx>(
         .unwrap();
     let putc = |ch: u8| {
         builder
-            .build_call(
-                putchar,
-                &[i32_t.const_int(ch as u64, false).into()],
-                "",
-            )
+            .build_call(putchar, &[i32_t.const_int(ch as u64, false).into()], "")
             .unwrap();
     };
     builder.position_at_end(true_blk);
@@ -2650,10 +2739,7 @@ fn define_print_bool<'ctx>(
 /// in C runtime, which handles JS-spec NaN / Infinity formatting
 /// (was: printf("%g\n", x), which printed lowercase "nan" — a
 /// bun-divergence on every test262 NaN case).
-fn define_print_f64<'ctx>(
-    ctx: &'ctx Context,
-    m: &LlvmModule<'ctx>,
-) -> FunctionValue<'ctx> {
+fn define_print_f64<'ctx>(ctx: &'ctx Context, m: &LlvmModule<'ctx>) -> FunctionValue<'ctx> {
     let f64_t = ctx.f64_type();
     let void_t = ctx.void_type();
     let helper_t = void_t.fn_type(&[f64_t.into()], false);
@@ -3004,9 +3090,7 @@ fn define_arr_push<'ctx>(
     let len = arr_len_load(ctx, &builder, arr_in, "len");
     let cap = arr_cap_load(ctx, &builder, arr_in, "cap");
     let head = arr_head_load(ctx, &builder, arr_in, "head");
-    let phys_used = builder
-        .build_int_add(head, len, "phys_used")
-        .unwrap();
+    let phys_used = builder.build_int_add(head, len, "phys_used").unwrap();
     let need_room = builder
         .build_int_compare(IntPredicate::UGE, phys_used, cap, "need_room")
         .unwrap();
@@ -3017,7 +3101,12 @@ fn define_arr_push<'ctx>(
     // need_room_blk: head>0 → compact, else → grow
     builder.position_at_end(need_room_blk);
     let head_pos = builder
-        .build_int_compare(IntPredicate::UGT, head, i64_t.const_int(0, false), "head_pos")
+        .build_int_compare(
+            IntPredicate::UGT,
+            head,
+            i64_t.const_int(0, false),
+            "head_pos",
+        )
         .unwrap();
     builder
         .build_conditional_branch(head_pos, compact_blk, after_compact_blk)
@@ -3038,7 +3127,11 @@ fn define_arr_push<'ctx>(
         .build_int_mul(len, i64_t.const_int(8, false), "len_bytes")
         .unwrap();
     builder
-        .build_call(memmove, &[raw_data.into(), src.into(), len_bytes.into()], "_mm")
+        .build_call(
+            memmove,
+            &[raw_data.into(), src.into(), len_bytes.into()],
+            "_mm",
+        )
         .unwrap();
     let head_p = unsafe {
         builder
@@ -3053,7 +3146,9 @@ fn define_arr_push<'ctx>(
     builder
         .build_store(head_p, i32_t.const_int(0, false))
         .unwrap();
-    builder.build_unconditional_branch(after_compact_blk).unwrap();
+    builder
+        .build_unconditional_branch(after_compact_blk)
+        .unwrap();
 
     // after_compact_blk: if len == cap, realloc; else go to store
     builder.position_at_end(after_compact_blk);
@@ -3078,12 +3173,7 @@ fn define_arr_push<'ctx>(
         .build_int_mul(cap, i64_t.const_int(2, false), "cap_x2")
         .unwrap();
     let new_cap = builder
-        .build_select(
-            cap_zero,
-            i64_t.const_int(4, false),
-            cap_x2,
-            "new_cap",
-        )
+        .build_select(cap_zero, i64_t.const_int(4, false), cap_x2, "new_cap")
         .unwrap()
         .into_int_value();
     let new_cap_bytes = builder
@@ -3191,11 +3281,7 @@ fn define_arr_reserve<'ctx>(
         .build_int_mul(new_cap, i64_t.const_int(8, false), "")
         .unwrap();
     let new_total = builder
-        .build_int_add(
-            new_bytes,
-            i64_t.const_int(ARR_HDR_DATA_OFF, false),
-            "",
-        )
+        .build_int_add(new_bytes, i64_t.const_int(ARR_HDR_DATA_OFF, false), "")
         .unwrap();
     let arr_grown = builder
         .build_call(realloc, &[arr_in.into(), new_total.into()], "arr_grown")
@@ -3285,10 +3371,7 @@ fn define_arr_push_unchecked<'ctx>(
 /// Defining the body in inkwell + alwaysinline = LLVM inlines at the
 /// IR level before the .o ever forms; the `bl __torajs_arr_shift`
 /// in fifo-queue's hot loop disappears.
-fn define_arr_shift<'ctx>(
-    ctx: &'ctx Context,
-    m: &LlvmModule<'ctx>,
-) -> FunctionValue<'ctx> {
+fn define_arr_shift<'ctx>(ctx: &'ctx Context, m: &LlvmModule<'ctx>) -> FunctionValue<'ctx> {
     let builder = ctx.create_builder();
     let i64_t = ctx.i64_type();
     let i32_t = ctx.i32_type();
@@ -3316,9 +3399,7 @@ fn define_arr_shift<'ctx>(
         .build_load(i32_t, head_p, "head32")
         .unwrap()
         .into_int_value();
-    let head64 = builder
-        .build_int_z_extend(head32, i64_t, "head64")
-        .unwrap();
+    let head64 = builder.build_int_z_extend(head32, i64_t, "head64").unwrap();
     let head_x8 = builder
         .build_int_mul(head64, i64_t.const_int(8, false), "head_x8")
         .unwrap();
@@ -3395,9 +3476,7 @@ fn define_arr_drop<'ctx>(
     // that never had `arr.x = v` written.
     let arrprops_drop_entry = m
         .get_function("__torajs_arrprops_drop_entry")
-        .unwrap_or_else(|| {
-            m.add_function("__torajs_arrprops_drop_entry", fn_t, None)
-        });
+        .unwrap_or_else(|| m.add_function("__torajs_arrprops_drop_entry", fn_t, None));
     let f = m.add_function("__torajs_arr_drop", fn_t, None);
     let entry = ctx.append_basic_block(f, "entry");
     let static_check_blk = ctx.append_basic_block(f, "static_check");
@@ -3434,10 +3513,19 @@ fn define_arr_drop<'ctx>(
         .unwrap()
         .into_int_value();
     let masked = builder
-        .build_and(flags, i16_t.const_int(STATIC_LITERAL_FLAG as u64, false), "masked")
+        .build_and(
+            flags,
+            i16_t.const_int(STATIC_LITERAL_FLAG as u64, false),
+            "masked",
+        )
         .unwrap();
     let is_static = builder
-        .build_int_compare(IntPredicate::NE, masked, i16_t.const_int(0, false), "is_static")
+        .build_int_compare(
+            IntPredicate::NE,
+            masked,
+            i16_t.const_int(0, false),
+            "is_static",
+        )
         .unwrap();
     builder
         .build_conditional_branch(is_static, ret_blk, dec_blk)
@@ -3474,7 +3562,9 @@ fn define_arr_drop<'ctx>(
     // T-29 — drop side-table props entry (no-op for arrays without
     // props). Called BEFORE free so the entry can read arr_ptr to
     // identify its bucket.
-    builder.build_call(arrprops_drop_entry, &[arg.into()], "_apd").unwrap();
+    builder
+        .build_call(arrprops_drop_entry, &[arg.into()], "_apd")
+        .unwrap();
     builder.build_call(free, &[arg.into()], "_f").unwrap();
     builder.build_unconditional_branch(ret_blk).unwrap();
 
@@ -3543,10 +3633,19 @@ fn define_str_drop<'ctx>(
         .unwrap()
         .into_int_value();
     let masked = builder
-        .build_and(flags, i16_t.const_int(STATIC_LITERAL_FLAG as u64, false), "masked")
+        .build_and(
+            flags,
+            i16_t.const_int(STATIC_LITERAL_FLAG as u64, false),
+            "masked",
+        )
         .unwrap();
     let is_static = builder
-        .build_int_compare(IntPredicate::NE, masked, i16_t.const_int(0, false), "is_static")
+        .build_int_compare(
+            IntPredicate::NE,
+            masked,
+            i16_t.const_int(0, false),
+            "is_static",
+        )
         .unwrap();
     builder
         .build_conditional_branch(is_static, ret_blk, dec_blk)
@@ -3634,10 +3733,10 @@ fn define_str_print<'ctx>(
     // NULL guard — Nullable<Str> slots and uncaptured regex group slots
     // pass NULL through. Print "null\n" rather than segfault on the
     // len read at offset +8.
-    let null_check = builder
-        .build_is_null(s, "is_null")
+    let null_check = builder.build_is_null(s, "is_null").unwrap();
+    builder
+        .build_conditional_branch(null_check, null_b, nonnull_b)
         .unwrap();
-    builder.build_conditional_branch(null_check, null_b, nonnull_b).unwrap();
 
     builder.position_at_end(null_b);
     for ch in b"null\n" {
@@ -3665,7 +3764,9 @@ fn define_str_print<'ctx>(
     let cmp = builder
         .build_int_compare(inkwell::IntPredicate::ULT, i, len, "")
         .unwrap();
-    builder.build_conditional_branch(cmp, body_b, exit_b).unwrap();
+    builder
+        .build_conditional_branch(cmp, body_b, exit_b)
+        .unwrap();
 
     // body: c = data[i]; putchar((i32) c); i = i + 1; back to cond
     builder.position_at_end(body_b);
@@ -3678,16 +3779,9 @@ fn define_str_print<'ctx>(
             .build_in_bounds_gep(i8_t, data, &[i_now], "")
             .unwrap()
     };
-    let c = builder
-        .build_load(i8_t, p, "")
-        .unwrap()
-        .into_int_value();
-    let c32 = builder
-        .build_int_z_extend(c, i32_t, "")
-        .unwrap();
-    builder
-        .build_call(putchar, &[c32.into()], "")
-        .unwrap();
+    let c = builder.build_load(i8_t, p, "").unwrap().into_int_value();
+    let c32 = builder.build_int_z_extend(c, i32_t, "").unwrap();
+    builder.build_call(putchar, &[c32.into()], "").unwrap();
     let next = builder
         .build_int_add(i_now, i64_t.const_int(1, false), "")
         .unwrap();
@@ -3697,9 +3791,7 @@ fn define_str_print<'ctx>(
     // exit: putchar('\n'); ret void
     builder.position_at_end(exit_b);
     let newline = i32_t.const_int(b'\n' as u64, false);
-    builder
-        .build_call(putchar, &[newline.into()], "")
-        .unwrap();
+    builder.build_call(putchar, &[newline.into()], "").unwrap();
     builder.build_return(None).unwrap();
     f
 }
@@ -3764,15 +3856,15 @@ fn define_print_i64<'ctx>(
     builder
         .build_call(putchar, &[minus_ch.into()], "_minus")
         .unwrap();
-    let neg_arg = builder
-        .build_int_neg(arg, "neg_arg")
-        .unwrap();
+    let neg_arg = builder.build_int_neg(arg, "neg_arg").unwrap();
     builder.build_store(n_a, neg_arg).unwrap();
     builder.build_unconditional_branch(loop1).unwrap();
 
     builder.position_at_end(zero_blk);
     let zero_ch = i32_t.const_int(b'0' as u64, false);
-    builder.build_call(putchar, &[zero_ch.into()], "_z").unwrap();
+    builder
+        .build_call(putchar, &[zero_ch.into()], "_z")
+        .unwrap();
     let newline_ch = i32_t.const_int(b'\n' as u64, false);
     builder
         .build_call(putchar, &[newline_ch.into()], "_nl_z")
@@ -3902,9 +3994,28 @@ fn build_fn_type<'ctx>(ctx: &'ctx Context, params: &[Type], ret: Type) -> Functi
         Type::I32 => ctx.i32_type().fn_type(&param_metas, false),
         Type::F64 => ctx.f64_type().fn_type(&param_metas, false),
         Type::Bool => ctx.bool_type().fn_type(&param_metas, false),
-        Type::Ptr | Type::Str | Type::Substr | Type::Obj(_) | Type::Arr(_) | Type::FnSig(_) | Type::Closure(_) | Type::RegExp | Type::Date | Type::Any | Type::Symbol | Type::Promise | Type::BigInt | Type::WeakRef | Type::WeakMap | Type::WeakSet | Type::Map | Type::Set | Type::MapIter | Type::ArrIter => {
-            ctx.ptr_type(AddressSpace::default()).fn_type(&param_metas, false)
-        }
+        Type::Ptr
+        | Type::Str
+        | Type::Substr
+        | Type::Obj(_)
+        | Type::Arr(_)
+        | Type::FnSig(_)
+        | Type::Closure(_)
+        | Type::RegExp
+        | Type::Date
+        | Type::Any
+        | Type::Symbol
+        | Type::Promise
+        | Type::BigInt
+        | Type::WeakRef
+        | Type::WeakMap
+        | Type::WeakSet
+        | Type::Map
+        | Type::Set
+        | Type::MapIter
+        | Type::ArrIter => ctx
+            .ptr_type(AddressSpace::default())
+            .fn_type(&param_metas, false),
     }
 }
 
@@ -3917,9 +4028,26 @@ fn basic_meta_type<'ctx>(ctx: &'ctx Context, t: Type) -> BasicMetadataTypeEnum<'
         // Str + Ptr both lower to a single opaque pointer. The SSA-level
         // distinction matters for the lowerer's dispatch decisions, not for
         // codegen.
-        Type::Ptr | Type::Str | Type::Substr | Type::Obj(_) | Type::Arr(_) | Type::FnSig(_) | Type::Closure(_) | Type::RegExp | Type::Date | Type::Any | Type::Symbol | Type::Promise | Type::BigInt | Type::WeakRef | Type::WeakMap | Type::WeakSet | Type::Map | Type::Set | Type::MapIter | Type::ArrIter => {
-            ctx.ptr_type(AddressSpace::default()).into()
-        }
+        Type::Ptr
+        | Type::Str
+        | Type::Substr
+        | Type::Obj(_)
+        | Type::Arr(_)
+        | Type::FnSig(_)
+        | Type::Closure(_)
+        | Type::RegExp
+        | Type::Date
+        | Type::Any
+        | Type::Symbol
+        | Type::Promise
+        | Type::BigInt
+        | Type::WeakRef
+        | Type::WeakMap
+        | Type::WeakSet
+        | Type::Map
+        | Type::Set
+        | Type::MapIter
+        | Type::ArrIter => ctx.ptr_type(AddressSpace::default()).into(),
         Type::Void => panic!("void cannot be a parameter type"),
     }
 }
@@ -3932,9 +4060,26 @@ fn basic_type<'ctx>(ctx: &'ctx Context, t: Type) -> BasicTypeEnum<'ctx> {
         Type::I32 => ctx.i32_type().into(),
         Type::F64 => ctx.f64_type().into(),
         Type::Bool => ctx.bool_type().into(),
-        Type::Ptr | Type::Str | Type::Substr | Type::Obj(_) | Type::Arr(_) | Type::FnSig(_) | Type::Closure(_) | Type::RegExp | Type::Date | Type::Any | Type::Symbol | Type::Promise | Type::BigInt | Type::WeakRef | Type::WeakMap | Type::WeakSet | Type::Map | Type::Set | Type::MapIter | Type::ArrIter => {
-            ctx.ptr_type(AddressSpace::default()).into()
-        }
+        Type::Ptr
+        | Type::Str
+        | Type::Substr
+        | Type::Obj(_)
+        | Type::Arr(_)
+        | Type::FnSig(_)
+        | Type::Closure(_)
+        | Type::RegExp
+        | Type::Date
+        | Type::Any
+        | Type::Symbol
+        | Type::Promise
+        | Type::BigInt
+        | Type::WeakRef
+        | Type::WeakMap
+        | Type::WeakSet
+        | Type::Map
+        | Type::Set
+        | Type::MapIter
+        | Type::ArrIter => ctx.ptr_type(AddressSpace::default()).into(),
         Type::Void => panic!("void cannot be a basic type (alloca/load/store)"),
     }
 }
@@ -4000,10 +4145,9 @@ impl<'a, 'ctx> FnLower<'a, 'ctx> {
              * here we forward those params to __torajs_argv_init.
              * Done before the user's main body runs. */
             if b_idx == 0 && self.ssa_fn.name == "main" {
-                if let (Some(argc), Some(argv)) = (
-                    self.llvm_fn.get_nth_param(0),
-                    self.llvm_fn.get_nth_param(1),
-                ) {
+                if let (Some(argc), Some(argv)) =
+                    (self.llvm_fn.get_nth_param(0), self.llvm_fn.get_nth_param(1))
+                {
                     /* fn_map indexes by the SSA module's func order;
                      * find __torajs_argv_init by name in the SSA fns. */
                     for (i, sf) in self.ssa_module.funcs.iter().enumerate() {
@@ -4056,8 +4200,17 @@ impl<'a, 'ctx> FnLower<'a, 'ctx> {
         let result_val = match &inst.kind {
             InstKind::BinOp(op, a, b) => {
                 let r: BasicValueEnum = match op {
-                    BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::SDiv | BinOp::SRem
-                    | BinOp::And | BinOp::Or | BinOp::Xor | BinOp::Shl | BinOp::AShr | BinOp::LShr => {
+                    BinOp::Add
+                    | BinOp::Sub
+                    | BinOp::Mul
+                    | BinOp::SDiv
+                    | BinOp::SRem
+                    | BinOp::And
+                    | BinOp::Or
+                    | BinOp::Xor
+                    | BinOp::Shl
+                    | BinOp::AShr
+                    | BinOp::LShr => {
                         let av = self.operand_int(a);
                         let bv = self.operand_int(b);
                         let r = match op {
@@ -4070,8 +4223,12 @@ impl<'a, 'ctx> FnLower<'a, 'ctx> {
                             BinOp::Or => self.builder.build_or(av, bv, "").unwrap(),
                             BinOp::Xor => self.builder.build_xor(av, bv, "").unwrap(),
                             BinOp::Shl => self.builder.build_left_shift(av, bv, "").unwrap(),
-                            BinOp::AShr => self.builder.build_right_shift(av, bv, true, "").unwrap(),
-                            BinOp::LShr => self.builder.build_right_shift(av, bv, false, "").unwrap(),
+                            BinOp::AShr => {
+                                self.builder.build_right_shift(av, bv, true, "").unwrap()
+                            }
+                            BinOp::LShr => {
+                                self.builder.build_right_shift(av, bv, false, "").unwrap()
+                            }
                             _ => unreachable!(),
                         };
                         BasicValueEnum::IntValue(r)
@@ -4163,28 +4320,19 @@ impl<'a, 'ctx> FnLower<'a, 'ctx> {
             InstKind::SiToFp(op) => {
                 let v = self.operand_int(op);
                 let f = ctx_f64(self.ctx);
-                let r = self
-                    .builder
-                    .build_signed_int_to_float(v, f, "")
-                    .unwrap();
+                let r = self.builder.build_signed_int_to_float(v, f, "").unwrap();
                 Some(BasicValueEnum::FloatValue(r))
             }
             InstKind::FpToSi(op) => {
                 let v = self.operand(op).into_float_value();
                 let i = self.ctx.i64_type();
-                let r = self
-                    .builder
-                    .build_float_to_signed_int(v, i, "")
-                    .unwrap();
+                let r = self.builder.build_float_to_signed_int(v, i, "").unwrap();
                 Some(BasicValueEnum::IntValue(r))
             }
             InstKind::ZExtBoolToI64(op) => {
                 let v = self.operand_int(op);
                 let i64_ty = self.ctx.i64_type();
-                let r = self
-                    .builder
-                    .build_int_z_extend(v, i64_ty, "")
-                    .unwrap();
+                let r = self.builder.build_int_z_extend(v, i64_ty, "").unwrap();
                 Some(BasicValueEnum::IntValue(r))
             }
             InstKind::BitCastF64ToI64(op) => {
@@ -4193,19 +4341,13 @@ impl<'a, 'ctx> FnLower<'a, 'ctx> {
                 // preserves bits exactly (vs `fptosi` which truncates).
                 let v = self.operand(op).into_float_value();
                 let i64_ty = self.ctx.i64_type();
-                let r = self
-                    .builder
-                    .build_bit_cast(v, i64_ty, "")
-                    .unwrap();
+                let r = self.builder.build_bit_cast(v, i64_ty, "").unwrap();
                 Some(r)
             }
             InstKind::BitCastI64ToF64(op) => {
                 let v = self.operand_int(op);
                 let f64_ty = self.ctx.f64_type();
-                let r = self
-                    .builder
-                    .build_bit_cast(v, f64_ty, "")
-                    .unwrap();
+                let r = self.builder.build_bit_cast(v, f64_ty, "").unwrap();
                 Some(r)
             }
             InstKind::IntToPtr(op) => {
@@ -4217,10 +4359,7 @@ impl<'a, 'ctx> FnLower<'a, 'ctx> {
                 // instructions dispatch correctly.
                 let v = self.operand_int(op);
                 let ptr_ty = self.ctx.ptr_type(AddressSpace::default());
-                let r = self
-                    .builder
-                    .build_int_to_ptr(v, ptr_ty, "")
-                    .unwrap();
+                let r = self.builder.build_int_to_ptr(v, ptr_ty, "").unwrap();
                 Some(BasicValueEnum::PointerValue(r))
             }
             InstKind::TruncI64ToBool(op) => {
@@ -4229,10 +4368,7 @@ impl<'a, 'ctx> FnLower<'a, 'ctx> {
                 // int64_t value slot.
                 let v = self.operand_int(op);
                 let i1_ty = self.ctx.bool_type();
-                let r = self
-                    .builder
-                    .build_int_truncate(v, i1_ty, "")
-                    .unwrap();
+                let r = self.builder.build_int_truncate(v, i1_ty, "").unwrap();
                 Some(BasicValueEnum::IntValue(r))
             }
             InstKind::StringRef(sid) => {
@@ -4266,18 +4402,14 @@ impl<'a, 'ctx> FnLower<'a, 'ctx> {
                 let i64_t = self.ctx.i64_type();
                 let f64_t = self.ctx.f64_type();
                 let ptr_t = self.ctx.ptr_type(AddressSpace::default());
-                let mut argv: Vec<BasicMetadataValueEnum> =
-                    Vec::with_capacity(args.len());
+                let mut argv: Vec<BasicMetadataValueEnum> = Vec::with_capacity(args.len());
                 for (i, a) in args.iter().enumerate() {
                     let raw = self.operand(a);
                     let coerced: BasicValueEnum = if i < expected.len() {
                         match expected[i] {
                             BasicMetadataTypeEnum::IntType(it) => match raw {
                                 BasicValueEnum::PointerValue(p) => {
-                                    self.builder
-                                        .build_ptr_to_int(p, i64_t, "")
-                                        .unwrap()
-                                        .into()
+                                    self.builder.build_ptr_to_int(p, i64_t, "").unwrap().into()
                                 }
                                 BasicValueEnum::FloatValue(f) => {
                                     // Float arg into an int param —
@@ -4303,10 +4435,7 @@ impl<'a, 'ctx> FnLower<'a, 'ctx> {
                             },
                             BasicMetadataTypeEnum::PointerType(_) => {
                                 if let BasicValueEnum::IntValue(v) = raw {
-                                    self.builder
-                                        .build_int_to_ptr(v, ptr_t, "")
-                                        .unwrap()
-                                        .into()
+                                    self.builder.build_int_to_ptr(v, ptr_t, "").unwrap().into()
                                 } else {
                                     raw
                                 }
@@ -4352,12 +4481,7 @@ impl<'a, 'ctx> FnLower<'a, 'ctx> {
                     let i8_t = self.ctx.i8_type();
                     unsafe {
                         self.builder
-                            .build_in_bounds_gep(
-                                i8_t,
-                                p,
-                                &[i64_t.const_int(*offset, false)],
-                                "",
-                            )
+                            .build_in_bounds_gep(i8_t, p, &[i64_t.const_int(*offset, false)], "")
                             .unwrap()
                     }
                 };
@@ -4374,12 +4498,7 @@ impl<'a, 'ctx> FnLower<'a, 'ctx> {
                     let i8_t = self.ctx.i8_type();
                     unsafe {
                         self.builder
-                            .build_in_bounds_gep(
-                                i8_t,
-                                p,
-                                &[i64_t.const_int(*offset, false)],
-                                "",
-                            )
+                            .build_in_bounds_gep(i8_t, p, &[i64_t.const_int(*offset, false)], "")
                             .unwrap()
                     }
                 };
@@ -4475,17 +4594,11 @@ impl<'a, 'ctx> FnLower<'a, 'ctx> {
                     let coerced: BasicValueEnum = match (v, ret_ty) {
                         (BasicValueEnum::IntValue(iv), Some(rt)) if rt.is_pointer_type() => {
                             let ptr_t = self.ctx.ptr_type(AddressSpace::default());
-                            self.builder
-                                .build_int_to_ptr(iv, ptr_t, "")
-                                .unwrap()
-                                .into()
+                            self.builder.build_int_to_ptr(iv, ptr_t, "").unwrap().into()
                         }
                         (BasicValueEnum::PointerValue(pv), Some(rt)) if rt.is_int_type() => {
                             let i64_t = self.ctx.i64_type();
-                            self.builder
-                                .build_ptr_to_int(pv, i64_t, "")
-                                .unwrap()
-                                .into()
+                            self.builder.build_ptr_to_int(pv, i64_t, "").unwrap().into()
                         }
                         _ => v,
                     };
@@ -4513,19 +4626,15 @@ impl<'a, 'ctx> FnLower<'a, 'ctx> {
             Operand::ConstI32(n) => {
                 BasicValueEnum::IntValue(self.ctx.i32_type().const_int(*n as u64, true))
             }
-            Operand::ConstF64(n) => {
-                BasicValueEnum::FloatValue(self.ctx.f64_type().const_float(*n))
-            }
+            Operand::ConstF64(n) => BasicValueEnum::FloatValue(self.ctx.f64_type().const_float(*n)),
             Operand::ConstBool(b) => {
                 BasicValueEnum::IntValue(self.ctx.bool_type().const_int(*b as u64, false))
             }
-            Operand::ConstPtrNull => {
-                BasicValueEnum::PointerValue(
-                    self.ctx
-                        .ptr_type(inkwell::AddressSpace::default())
-                        .const_null(),
-                )
-            }
+            Operand::ConstPtrNull => BasicValueEnum::PointerValue(
+                self.ctx
+                    .ptr_type(inkwell::AddressSpace::default())
+                    .const_null(),
+            ),
         }
     }
 

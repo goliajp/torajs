@@ -55,10 +55,7 @@ type WorkItem = (PathBuf, Vec<NamedImport>);
 /// visited (BFS order, deduplicated). `tr run`'s cache key includes
 /// every entry so an edit to a transitively-imported file invalidates
 /// the cache slot for the main file.
-pub fn resolve_imports(
-    ast: &mut Ast,
-    base_dir: &Path,
-) -> Result<Vec<(PathBuf, Vec<u8>)>, String> {
+pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, Vec<u8>)>, String> {
     let mut closure_files: Vec<(PathBuf, Vec<u8>)> = Vec::new();
     let mut visited: HashSet<PathBuf> = HashSet::new();
     let mut work: VecDeque<WorkItem> = VecDeque::new();
@@ -126,8 +123,7 @@ pub fn resolve_imports(
                     work.push_back((path, named));
                 }
                 Stmt::ExportDecl {
-                    inner: Some(boxed),
-                    ..
+                    inner: Some(boxed), ..
                 } => {
                     let mut inner = *boxed;
                     // Type decls always inject — TS doesn't require type
@@ -252,4 +248,3 @@ fn rename_decl(s: &mut Stmt, new_name: String) {
         _ => {}
     }
 }
-

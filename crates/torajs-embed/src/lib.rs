@@ -76,10 +76,10 @@ pub fn eval_source(src: &str) -> EvalOutcome {
 }
 
 fn compile_to_temp(src: &str) -> Result<PathBuf, EvalOutcome> {
-    let tokens = lexer::tokenize(src)
-        .map_err(|e| EvalOutcome::CompileError(format!("lex: {e}")))?;
-    let mut a = parser::parse(&tokens)
-        .map_err(|e| EvalOutcome::CompileError(format!("parse: {e}")))?;
+    let tokens =
+        lexer::tokenize(src).map_err(|e| EvalOutcome::CompileError(format!("lex: {e}")))?;
+    let mut a =
+        parser::parse(&tokens).map_err(|e| EvalOutcome::CompileError(format!("parse: {e}")))?;
     a.source = src.to_string();
     a.warm_newline_cache();
     ast::unwrap_exports(&mut a);
@@ -119,8 +119,8 @@ fn compile_to_temp(src: &str) -> Result<PathBuf, EvalOutcome> {
     ast::apply_default_args(&mut a);
     ast::apply_rest_args(&mut a);
     ast::compute_consuming_params(&mut a);
-    let (gcs, expr_types) = check::check_with_types(&a)
-        .map_err(|e| EvalOutcome::CompileError(format!("type: {e}")))?;
+    let (gcs, expr_types) =
+        check::check_with_types(&a).map_err(|e| EvalOutcome::CompileError(format!("type: {e}")))?;
     let module = ssa_lower::lower_with_types(&a, &gcs, &expr_types);
     let out = std::env::temp_dir().join(format!(
         "torajs-embed-{}-{}",
@@ -219,7 +219,11 @@ pub unsafe fn compile_function<T: Copy>(
         .map_err(|e| format!("dlsym({entry_symbol}): {e}"))?;
     let f = *symbol;
     drop(symbol);
-    Ok(LoadedFunction { _lib: lib, f, path: dylib })
+    Ok(LoadedFunction {
+        _lib: lib,
+        f,
+        path: dylib,
+    })
 }
 
 fn compile_to_dylib(src: &str) -> Result<PathBuf, String> {
@@ -335,7 +339,10 @@ mod tests {
     #[test]
     fn eval_hello() {
         let out = eval_source("console.log(1 + 2)");
-        assert!(matches!(out, EvalOutcome::Ok { exit_code: 0 }), "got {out:?}");
+        assert!(
+            matches!(out, EvalOutcome::Ok { exit_code: 0 }),
+            "got {out:?}"
+        );
     }
 
     #[test]
@@ -375,26 +382,26 @@ function torajs_add(a: number, b: number): number {
         ast::desugar_builtin_imports(&mut a);
         ast::desugar_builtin_new(&mut a);
         ast::inject_builtin_classes(&mut a);
-    ast::desugar_classes(&mut a);
+        ast::desugar_classes(&mut a);
         ast::synthesize_class_globals(&mut a);
         ast::tag_struct_field_closure_types(&mut a);
         ast::lift_arrow_fns(&mut a);
         ast::infer_anonymous_closure_params(&mut a);
         ast::synthesize_forwarders(&mut a);
         ast::synthesize_fn_to_closure_forwarders(&mut a);
-    ast::desugar_function_prototype_methods(&mut a);
+        ast::desugar_function_prototype_methods(&mut a);
         // P2.1 — order matters: uninit_let inlines `let x; x = e` into
-    // `let x = e` for early type binding. var_hoist creates synthetic
-    // `let x = Uninit` that should NOT be inlined (var semantics
-    // require x to be undefined at every read before its assignment,
-    // not at the declaration site). Run uninit_let FIRST so it only
-    // sees user-written `let x;` (which IS legal to inline), then
-    // var_hoist inserts hoisted `let x = Uninit` that uninit_let
-    // never gets a chance to touch.
-    ast::desugar_uninit_let(&mut a);
-    ast::desugar_var_hoist(&mut a);
+        // `let x = e` for early type binding. var_hoist creates synthetic
+        // `let x = Uninit` that should NOT be inlined (var semantics
+        // require x to be undefined at every read before its assignment,
+        // not at the declaration site). Run uninit_let FIRST so it only
+        // sees user-written `let x;` (which IS legal to inline), then
+        // var_hoist inserts hoisted `let x = Uninit` that uninit_let
+        // never gets a chance to touch.
+        ast::desugar_uninit_let(&mut a);
+        ast::desugar_var_hoist(&mut a);
         ast::desugar_array_isarray_value(&mut a);
-    ast::desugar_arguments_object(&mut a);
+        ast::desugar_arguments_object(&mut a);
         ast::rewrite_split_for_i_to_iter(&mut a);
         ast::escape_analyze_array_literals(&mut a);
         ast::desugar_implicit_generics(&mut a);
@@ -403,10 +410,7 @@ function torajs_add(a: number, b: number): number {
         ast::compute_consuming_params(&mut a);
         let (gcs, exprs) = torajs_core::check::check_with_types(&a).unwrap();
         let m = ssa_lower::lower_with_types(&a, &gcs, &exprs);
-        let out = std::env::temp_dir().join(format!(
-            "torajs-embed-test-{}.dylib",
-            rand_suffix()
-        ));
+        let out = std::env::temp_dir().join(format!("torajs-embed-test-{}.dylib", rand_suffix()));
         ssa_inkwell::compile_for_kind(
             &m,
             &out,
@@ -422,8 +426,7 @@ function torajs_add(a: number, b: number): number {
 
         // dlopen + look up the symbol + call it.
         unsafe {
-            let lib = libloading::Library::new(&out)
-                .expect("Library::new on emitted dylib");
+            let lib = libloading::Library::new(&out).expect("Library::new on emitted dylib");
             let add: libloading::Symbol<unsafe extern "C" fn(i64, i64) -> i64> =
                 lib.get(b"torajs_add").expect("symbol torajs_add");
             assert_eq!(add(2, 3), 5);
@@ -445,13 +448,9 @@ function torajs_mul(a: number, b: number): number {
   return a * b;
 }
 "#;
-        let f = unsafe {
-            compile_function::<unsafe extern "C" fn(i64, i64) -> i64>(
-                src,
-                "torajs_mul",
-            )
-        }
-        .expect("compile_function");
+        let f =
+            unsafe { compile_function::<unsafe extern "C" fn(i64, i64) -> i64>(src, "torajs_mul") }
+                .expect("compile_function");
         unsafe {
             assert_eq!(f.ptr()(6, 7), 42);
             assert_eq!(f.ptr()(-3, 5), -15);
@@ -469,14 +468,10 @@ function f1(x: number): number { return x + 1; }
         let src2 = r#"
 function f2(x: number): number { return x * 10; }
 "#;
-        let h1 = unsafe {
-            compile_function::<unsafe extern "C" fn(i64) -> i64>(src1, "f1")
-        }
-        .unwrap();
-        let h2 = unsafe {
-            compile_function::<unsafe extern "C" fn(i64) -> i64>(src2, "f2")
-        }
-        .unwrap();
+        let h1 =
+            unsafe { compile_function::<unsafe extern "C" fn(i64) -> i64>(src1, "f1") }.unwrap();
+        let h2 =
+            unsafe { compile_function::<unsafe extern "C" fn(i64) -> i64>(src2, "f2") }.unwrap();
         unsafe {
             assert_eq!(h1.ptr()(5), 6);
             assert_eq!(h2.ptr()(5), 50);

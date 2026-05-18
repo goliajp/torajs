@@ -49,7 +49,10 @@ pub fn lint(source: &str) -> Result<Vec<Diagnostic>, LintError> {
     let tokens = lexer::tokenize(source).map_err(LintError::Lex)?;
     let ast = parser::parse(&tokens).map_err(LintError::Parse)?;
     let mut diags = Vec::new();
-    let mut linter = Linter { ast: &ast, diags: &mut diags };
+    let mut linter = Linter {
+        ast: &ast,
+        diags: &mut diags,
+    };
     linter.run();
     Ok(diags)
 }
@@ -110,9 +113,14 @@ impl<'a> Linter<'a> {
             Stmt::LetDecl { name, init, .. } => {
                 // shadowed-let — does any enclosing scope declare the
                 // same name?
-                if scopes.iter().take(scopes.len().saturating_sub(1)).any(|s| s.contains(name)) {
-                    self.diags
-                        .push(warn(format!("shadowed-let: `{name}` shadows an outer binding")));
+                if scopes
+                    .iter()
+                    .take(scopes.len().saturating_sub(1))
+                    .any(|s| s.contains(name))
+                {
+                    self.diags.push(warn(format!(
+                        "shadowed-let: `{name}` shadows an outer binding"
+                    )));
                 }
                 // Record in current scope.
                 if let Some(top) = scopes.last_mut() {
@@ -129,7 +137,12 @@ impl<'a> Linter<'a> {
                     ));
                 }
             }
-            Stmt::ImportDecl { default, namespace, named, .. } => {
+            Stmt::ImportDecl {
+                default,
+                namespace,
+                named,
+                ..
+            } => {
                 let mut check = |name: &str| {
                     if !refs.contains(name) {
                         self.diags.push(warn(format!(
@@ -164,7 +177,12 @@ impl<'a> Linter<'a> {
                 self.lint_block(body, refs, scopes);
                 scopes.pop();
             }
-            Stmt::ClassDecl { ctor, methods, static_methods, .. } => {
+            Stmt::ClassDecl {
+                ctor,
+                methods,
+                static_methods,
+                ..
+            } => {
                 if let Some(c) = ctor {
                     scopes.push(scope_from_params(&c.params));
                     self.lint_block(&c.body, refs, scopes);
@@ -176,7 +194,11 @@ impl<'a> Linter<'a> {
                     scopes.pop();
                 }
             }
-            Stmt::If { then_branch, else_branch, .. } => {
+            Stmt::If {
+                then_branch,
+                else_branch,
+                ..
+            } => {
                 self.lint_stmt(then_branch, refs, scopes);
                 if let Some(eb) = else_branch {
                     self.lint_stmt(eb, refs, scopes);
@@ -185,7 +207,8 @@ impl<'a> Linter<'a> {
             Stmt::While { body, .. }
             | Stmt::DoWhile { body, .. }
             | Stmt::For { body, .. }
-            | Stmt::ForOfSplitIter { body, .. } | Stmt::ForOf { body, .. } => {
+            | Stmt::ForOfSplitIter { body, .. }
+            | Stmt::ForOf { body, .. } => {
                 self.lint_stmt(body, refs, scopes);
             }
             Stmt::Switch { cases, default, .. } => {
@@ -278,7 +301,13 @@ fn block_can_throw(ast: &Ast, stmts: &[Stmt]) -> bool {
 fn stmt_can_throw(ast: &Ast, s: &Stmt) -> bool {
     match s {
         Stmt::Throw(_) => true,
-        Stmt::Try { body, catch_body, finally_body, had_catch, .. } => {
+        Stmt::Try {
+            body,
+            catch_body,
+            finally_body,
+            had_catch,
+            ..
+        } => {
             // A nested try with its own catch absorbs its body's
             // throws — but the catch / finally bodies themselves may
             // still throw upward.
@@ -286,37 +315,55 @@ fn stmt_can_throw(ast: &Ast, s: &Stmt) -> bool {
                 return true;
             }
             block_can_throw(ast, catch_body)
-                || finally_body.as_ref().map(|fb| block_can_throw(ast, fb)).unwrap_or(false)
+                || finally_body
+                    .as_ref()
+                    .map(|fb| block_can_throw(ast, fb))
+                    .unwrap_or(false)
         }
         Stmt::Expr(eid) => expr_can_throw(ast, *eid),
         Stmt::Return(Some(eid)) => expr_can_throw(ast, *eid),
         Stmt::LetDecl { init, .. } => expr_can_throw(ast, *init),
         Stmt::Yield(eid) => expr_can_throw(ast, *eid),
         Stmt::YieldInto { value, .. } => expr_can_throw(ast, *value),
-        Stmt::If { cond, then_branch, else_branch } => {
+        Stmt::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
             expr_can_throw(ast, *cond)
                 || stmt_can_throw(ast, then_branch)
-                || else_branch.as_ref().map(|e| stmt_can_throw(ast, e)).unwrap_or(false)
+                || else_branch
+                    .as_ref()
+                    .map(|e| stmt_can_throw(ast, e))
+                    .unwrap_or(false)
         }
         Stmt::While { cond, body } | Stmt::DoWhile { cond, body } => {
             expr_can_throw(ast, *cond) || stmt_can_throw(ast, body)
         }
-        Stmt::For { init, cond, step, body } => {
-            init.as_ref().map(|s| stmt_can_throw(ast, s)).unwrap_or(false)
+        Stmt::For {
+            init,
+            cond,
+            step,
+            body,
+        } => {
+            init.as_ref()
+                .map(|s| stmt_can_throw(ast, s))
+                .unwrap_or(false)
                 || cond.map(|c| expr_can_throw(ast, c)).unwrap_or(false)
                 || step.map(|c| expr_can_throw(ast, c)).unwrap_or(false)
                 || stmt_can_throw(ast, body)
         }
-        Stmt::ForOfSplitIter { parent, sep, body, .. } => {
-            expr_can_throw(ast, *parent)
-                || expr_can_throw(ast, *sep)
-                || stmt_can_throw(ast, body)
-        }
-        Stmt::ForOf { elem_expr, body, .. } => {
-            expr_can_throw(ast, *elem_expr)
-                || stmt_can_throw(ast, body)
-        }
-        Stmt::Switch { scrutinee, cases, default } => {
+        Stmt::ForOfSplitIter {
+            parent, sep, body, ..
+        } => expr_can_throw(ast, *parent) || expr_can_throw(ast, *sep) || stmt_can_throw(ast, body),
+        Stmt::ForOf {
+            elem_expr, body, ..
+        } => expr_can_throw(ast, *elem_expr) || stmt_can_throw(ast, body),
+        Stmt::Switch {
+            scrutinee,
+            cases,
+            default,
+        } => {
             if expr_can_throw(ast, *scrutinee) {
                 return true;
             }
@@ -325,12 +372,16 @@ fn stmt_can_throw(ast: &Ast, s: &Stmt) -> bool {
                     return true;
                 }
             }
-            default.as_ref().map(|d| block_can_throw(ast, d)).unwrap_or(false)
+            default
+                .as_ref()
+                .map(|d| block_can_throw(ast, d))
+                .unwrap_or(false)
         }
         Stmt::Block(stmts) | Stmt::Multi(stmts) => block_can_throw(ast, stmts),
-        Stmt::ExportDecl { inner, .. } => {
-            inner.as_ref().map(|s| stmt_can_throw(ast, s)).unwrap_or(false)
-        }
+        Stmt::ExportDecl { inner, .. } => inner
+            .as_ref()
+            .map(|s| stmt_can_throw(ast, s))
+            .unwrap_or(false),
         Stmt::Return(None)
         | Stmt::Break
         | Stmt::Continue
@@ -349,19 +400,22 @@ fn expr_can_throw(ast: &Ast, eid: ExprId) -> bool {
         Expr::BinOp { left, right, .. } => {
             expr_can_throw(ast, *left) || expr_can_throw(ast, *right)
         }
-        Expr::Unary { expr, .. } | Expr::TypeOf { expr } | Expr::PostIncr { target: expr, .. } | Expr::As { expr, .. } => {
-            expr_can_throw(ast, *expr)
-        }
-        Expr::Sequence { left, right } => {
-            expr_can_throw(ast, *left) || expr_can_throw(ast, *right)
-        }
+        Expr::Unary { expr, .. }
+        | Expr::TypeOf { expr }
+        | Expr::PostIncr { target: expr, .. }
+        | Expr::As { expr, .. } => expr_can_throw(ast, *expr),
+        Expr::Sequence { left, right } => expr_can_throw(ast, *left) || expr_can_throw(ast, *right),
         Expr::Assign { target, value } => {
             expr_can_throw(ast, *target) || expr_can_throw(ast, *value)
         }
         Expr::Array(items) => items.iter().any(|e| expr_can_throw(ast, *e)),
         Expr::ObjectLit { fields } => fields.iter().any(|(_, e)| expr_can_throw(ast, *e)),
         Expr::Spread { expr } => expr_can_throw(ast, *expr),
-        Expr::Ternary { cond, then_branch, else_branch } => {
+        Expr::Ternary {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
             expr_can_throw(ast, *cond)
                 || expr_can_throw(ast, *then_branch)
                 || expr_can_throw(ast, *else_branch)
@@ -384,9 +438,7 @@ fn expr_can_throw(ast: &Ast, eid: ExprId) -> bool {
 
 fn count_refs_stmt(ast: &Ast, s: &Stmt, refs: &mut HashMap<String, usize>) {
     match s {
-        Stmt::Expr(eid)
-        | Stmt::Throw(eid)
-        | Stmt::Yield(eid) => count_refs_expr(ast, *eid, refs),
+        Stmt::Expr(eid) | Stmt::Throw(eid) | Stmt::Yield(eid) => count_refs_expr(ast, *eid, refs),
         Stmt::Return(opt) => {
             if let Some(e) = opt {
                 count_refs_expr(ast, *e, refs);
@@ -394,7 +446,11 @@ fn count_refs_stmt(ast: &Ast, s: &Stmt, refs: &mut HashMap<String, usize>) {
         }
         Stmt::LetDecl { init, .. } => count_refs_expr(ast, *init, refs),
         Stmt::YieldInto { value, .. } => count_refs_expr(ast, *value, refs),
-        Stmt::If { cond, then_branch, else_branch } => {
+        Stmt::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
             count_refs_expr(ast, *cond, refs);
             count_refs_stmt(ast, then_branch, refs);
             if let Some(eb) = else_branch {
@@ -405,7 +461,12 @@ fn count_refs_stmt(ast: &Ast, s: &Stmt, refs: &mut HashMap<String, usize>) {
             count_refs_expr(ast, *cond, refs);
             count_refs_stmt(ast, body, refs);
         }
-        Stmt::For { init, cond, step, body } => {
+        Stmt::For {
+            init,
+            cond,
+            step,
+            body,
+        } => {
             if let Some(i) = init {
                 count_refs_stmt(ast, i, refs);
             }
@@ -417,16 +478,24 @@ fn count_refs_stmt(ast: &Ast, s: &Stmt, refs: &mut HashMap<String, usize>) {
             }
             count_refs_stmt(ast, body, refs);
         }
-        Stmt::ForOfSplitIter { parent, sep, body, .. } => {
+        Stmt::ForOfSplitIter {
+            parent, sep, body, ..
+        } => {
             count_refs_expr(ast, *parent, refs);
             count_refs_expr(ast, *sep, refs);
             count_refs_stmt(ast, body, refs);
         }
-        Stmt::ForOf { elem_expr, body, .. } => {
+        Stmt::ForOf {
+            elem_expr, body, ..
+        } => {
             count_refs_expr(ast, *elem_expr, refs);
             count_refs_stmt(ast, body, refs);
         }
-        Stmt::Switch { scrutinee, cases, default } => {
+        Stmt::Switch {
+            scrutinee,
+            cases,
+            default,
+        } => {
             count_refs_expr(ast, *scrutinee, refs);
             for c in cases {
                 count_refs_expr(ast, c.value, refs);
@@ -440,7 +509,12 @@ fn count_refs_stmt(ast: &Ast, s: &Stmt, refs: &mut HashMap<String, usize>) {
                 }
             }
         }
-        Stmt::Try { body, catch_body, finally_body, .. } => {
+        Stmt::Try {
+            body,
+            catch_body,
+            finally_body,
+            ..
+        } => {
             for s in body {
                 count_refs_stmt(ast, s, refs);
             }
@@ -468,7 +542,13 @@ fn count_refs_stmt(ast: &Ast, s: &Stmt, refs: &mut HashMap<String, usize>) {
                 count_refs_stmt(ast, s, refs);
             }
         }
-        Stmt::ClassDecl { ctor, methods, static_methods, static_fields, .. } => {
+        Stmt::ClassDecl {
+            ctor,
+            methods,
+            static_methods,
+            static_fields,
+            ..
+        } => {
             if let Some(c) = ctor {
                 for s in &c.body {
                     count_refs_stmt(ast, s, refs);
@@ -483,7 +563,11 @@ fn count_refs_stmt(ast: &Ast, s: &Stmt, refs: &mut HashMap<String, usize>) {
                 count_refs_expr(ast, sf.init, refs);
             }
         }
-        Stmt::ExportDecl { inner, default_expr, .. } => {
+        Stmt::ExportDecl {
+            inner,
+            default_expr,
+            ..
+        } => {
             if let Some(s) = inner {
                 count_refs_stmt(ast, s, refs);
             }
@@ -491,10 +575,7 @@ fn count_refs_stmt(ast: &Ast, s: &Stmt, refs: &mut HashMap<String, usize>) {
                 count_refs_expr(ast, *e, refs);
             }
         }
-        Stmt::TypeDecl { .. }
-        | Stmt::ImportDecl { .. }
-        | Stmt::Break
-        | Stmt::Continue => {}
+        Stmt::TypeDecl { .. } | Stmt::ImportDecl { .. } | Stmt::Break | Stmt::Continue => {}
     }
 }
 
@@ -555,7 +636,11 @@ fn count_refs_expr(ast: &Ast, eid: ExprId, refs: &mut HashMap<String, usize>) {
                 count_refs_expr(ast, *a, refs);
             }
         }
-        Expr::Ternary { cond, then_branch, else_branch } => {
+        Expr::Ternary {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
             count_refs_expr(ast, *cond, refs);
             count_refs_expr(ast, *then_branch, refs);
             count_refs_expr(ast, *else_branch, refs);

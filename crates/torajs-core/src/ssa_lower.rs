@@ -119,53 +119,147 @@ enum NumWidth {
 /// object.
 fn ns_has_own_property(ns: &str, key: &str) -> bool {
     match ns {
-        "Number" => matches!(key,
-            "NaN" | "POSITIVE_INFINITY" | "NEGATIVE_INFINITY" | "EPSILON"
-            | "MAX_SAFE_INTEGER" | "MIN_SAFE_INTEGER"
-            | "MAX_VALUE" | "MIN_VALUE"
-            | "parseInt" | "parseFloat" | "isInteger" | "isNaN"
-            | "isFinite" | "isSafeInteger"
-            | "prototype" | "length" | "name"),
-        "String" => matches!(key,
-            "fromCharCode" | "fromCodePoint" | "raw"
-            | "prototype" | "length" | "name"),
+        "Number" => matches!(
+            key,
+            "NaN"
+                | "POSITIVE_INFINITY"
+                | "NEGATIVE_INFINITY"
+                | "EPSILON"
+                | "MAX_SAFE_INTEGER"
+                | "MIN_SAFE_INTEGER"
+                | "MAX_VALUE"
+                | "MIN_VALUE"
+                | "parseInt"
+                | "parseFloat"
+                | "isInteger"
+                | "isNaN"
+                | "isFinite"
+                | "isSafeInteger"
+                | "prototype"
+                | "length"
+                | "name"
+        ),
+        "String" => matches!(
+            key,
+            "fromCharCode" | "fromCodePoint" | "raw" | "prototype" | "length" | "name"
+        ),
         "Boolean" => matches!(key, "prototype" | "length" | "name"),
-        "Symbol" => matches!(key,
-            "iterator" | "asyncIterator" | "toPrimitive" | "toStringTag"
-            | "hasInstance" | "isConcatSpreadable" | "match" | "matchAll"
-            | "replace" | "search" | "split" | "species" | "unscopables"
-            | "for" | "keyFor"
-            | "prototype" | "length" | "name"),
-        "BigInt" => matches!(key,
-            "asIntN" | "asUintN"
-            | "prototype" | "length" | "name"),
-        "Object" => matches!(key,
-            "keys" | "values" | "entries" | "assign" | "freeze" | "isFrozen"
-            | "create" | "fromEntries" | "is" | "getOwnPropertyNames"
-            | "getPrototypeOf" | "setPrototypeOf"
-            | "defineProperty" | "defineProperties" | "getOwnPropertyDescriptor"
-            | "preventExtensions" | "isExtensible" | "seal" | "isSealed"
-            | "prototype" | "length" | "name"),
-        "Array" => matches!(key,
-            "isArray" | "from" | "of"
-            | "prototype" | "length" | "name"),
-        "Math" => matches!(key,
-            "PI" | "E" | "LN2" | "LN10" | "LOG2E" | "LOG10E"
-            | "SQRT2" | "SQRT1_2"
-            | "abs" | "ceil" | "floor" | "round" | "trunc" | "sign"
-            | "sqrt" | "cbrt" | "exp" | "log" | "log2" | "log10" | "log1p" | "expm1"
-            | "pow" | "min" | "max" | "hypot"
-            | "sin" | "cos" | "tan" | "asin" | "acos" | "atan" | "atan2"
-            | "sinh" | "cosh" | "tanh" | "asinh" | "acosh" | "atanh"
-            | "random" | "imul" | "clz32" | "fround"),
+        "Symbol" => matches!(
+            key,
+            "iterator"
+                | "asyncIterator"
+                | "toPrimitive"
+                | "toStringTag"
+                | "hasInstance"
+                | "isConcatSpreadable"
+                | "match"
+                | "matchAll"
+                | "replace"
+                | "search"
+                | "split"
+                | "species"
+                | "unscopables"
+                | "for"
+                | "keyFor"
+                | "prototype"
+                | "length"
+                | "name"
+        ),
+        "BigInt" => matches!(key, "asIntN" | "asUintN" | "prototype" | "length" | "name"),
+        "Object" => matches!(
+            key,
+            "keys"
+                | "values"
+                | "entries"
+                | "assign"
+                | "freeze"
+                | "isFrozen"
+                | "create"
+                | "fromEntries"
+                | "is"
+                | "getOwnPropertyNames"
+                | "getPrototypeOf"
+                | "setPrototypeOf"
+                | "defineProperty"
+                | "defineProperties"
+                | "getOwnPropertyDescriptor"
+                | "preventExtensions"
+                | "isExtensible"
+                | "seal"
+                | "isSealed"
+                | "prototype"
+                | "length"
+                | "name"
+        ),
+        "Array" => matches!(
+            key,
+            "isArray" | "from" | "of" | "prototype" | "length" | "name"
+        ),
+        "Math" => matches!(
+            key,
+            "PI" | "E"
+                | "LN2"
+                | "LN10"
+                | "LOG2E"
+                | "LOG10E"
+                | "SQRT2"
+                | "SQRT1_2"
+                | "abs"
+                | "ceil"
+                | "floor"
+                | "round"
+                | "trunc"
+                | "sign"
+                | "sqrt"
+                | "cbrt"
+                | "exp"
+                | "log"
+                | "log2"
+                | "log10"
+                | "log1p"
+                | "expm1"
+                | "pow"
+                | "min"
+                | "max"
+                | "hypot"
+                | "sin"
+                | "cos"
+                | "tan"
+                | "asin"
+                | "acos"
+                | "atan"
+                | "atan2"
+                | "sinh"
+                | "cosh"
+                | "tanh"
+                | "asinh"
+                | "acosh"
+                | "atanh"
+                | "random"
+                | "imul"
+                | "clz32"
+                | "fround"
+        ),
         "JSON" => matches!(key, "stringify" | "parse"),
-        "Reflect" => matches!(key,
-            "apply" | "construct" | "defineProperty" | "deleteProperty"
-            | "get" | "getOwnPropertyDescriptor" | "getPrototypeOf"
-            | "has" | "isExtensible" | "ownKeys" | "preventExtensions"
-            | "set" | "setPrototypeOf"),
-        "Function" | "RegExp" | "Date" | "Error" | "Promise" | "Map" | "Set"
-            => matches!(key, "prototype" | "length" | "name"),
+        "Reflect" => matches!(
+            key,
+            "apply"
+                | "construct"
+                | "defineProperty"
+                | "deleteProperty"
+                | "get"
+                | "getOwnPropertyDescriptor"
+                | "getPrototypeOf"
+                | "has"
+                | "isExtensible"
+                | "ownKeys"
+                | "preventExtensions"
+                | "set"
+                | "setPrototypeOf"
+        ),
+        "Function" | "RegExp" | "Date" | "Error" | "Promise" | "Map" | "Set" => {
+            matches!(key, "prototype" | "length" | "name")
+        }
         _ => false,
     }
 }
@@ -175,8 +269,13 @@ fn infer_arg_width(ast: &Ast, eid: ExprId) -> NumWidth {
         // Genuinely fractional, OR magnitude past i64 range (e.g. `1e21`)
         // — both must promote to f64 since `n as i64` would saturate.
         Expr::Number(n) if n.fract() != 0.0 || n.abs() >= 9.223372036854776e18 => NumWidth::F64,
-        Expr::BinOp { op: AstBinOp::Div, .. } => NumWidth::F64,
-        Expr::Unary { op: AstUnaryOp::Neg, expr } => infer_arg_width(ast, *expr),
+        Expr::BinOp {
+            op: AstBinOp::Div, ..
+        } => NumWidth::F64,
+        Expr::Unary {
+            op: AstUnaryOp::Neg,
+            expr,
+        } => infer_arg_width(ast, *expr),
         Expr::Call { callee, .. } => {
             // Math.* methods all return f64 (libm-shaped intrinsics).
             // String.fromCharCode and Number.parseInt return non-Number
@@ -220,8 +319,7 @@ fn substitute_in_ann(ann: &str, subst: &[(String, String)]) -> String {
     let mut i = 0usize;
     while i < bytes.len() {
         let c = bytes[i];
-        let is_word_start =
-            c.is_ascii_alphabetic() || c == b'_';
+        let is_word_start = c.is_ascii_alphabetic() || c == b'_';
         if !is_word_start {
             out.push(c as char);
             i += 1;
@@ -322,10 +420,7 @@ fn compute_typevar_widths(
     call_eid: ExprId,
     callee_name: &str,
     type_args: &[check_mod::Type],
-    generics: &HashMap<
-        String,
-        (Vec<String>, Vec<Param>, Option<String>, Vec<Stmt>),
-    >,
+    generics: &HashMap<String, (Vec<String>, Vec<Param>, Option<String>, Vec<Stmt>)>,
 ) -> Vec<NumWidth> {
     let arg_eids: Vec<ExprId> = match ast.get_expr(call_eid) {
         Expr::Call { args, .. } => args.clone(),
@@ -372,8 +467,7 @@ fn monomorphize_generics(
 ) -> (Vec<Stmt>, CallRetargets, std::collections::HashSet<String>) {
     let mut mono_decls: Vec<Stmt> = Vec::new();
     let mut call_retargets: CallRetargets = HashMap::new();
-    let mut generic_fn_names: std::collections::HashSet<String> =
-        std::collections::HashSet::new();
+    let mut generic_fn_names: std::collections::HashSet<String> = std::collections::HashSet::new();
     // Cache: (name, [annotation_strings]) → mono_name. Re-uses an existing
     // monomorphization when two call sites infer the same type args.
     let mut cache: HashMap<(String, Vec<String>), String> = HashMap::new();
@@ -391,17 +485,15 @@ fn monomorphize_generics(
                 return_type,
                 body,
                 is_generator: _,
-            } if !type_params.is_empty() => {
-                Some((
-                    name.clone(),
-                    (
-                        type_params.clone(),
-                        params.clone(),
-                        return_type.clone(),
-                        body.clone(),
-                    ),
-                ))
-            }
+            } if !type_params.is_empty() => Some((
+                name.clone(),
+                (
+                    type_params.clone(),
+                    params.clone(),
+                    return_type.clone(),
+                    body.clone(),
+                ),
+            )),
             _ => None,
         })
         .collect();
@@ -463,17 +555,12 @@ fn monomorphize_generics(
                 *ann = substitute_in_ann(ann, &subst);
             }
         }
-        let new_return_type = return_type
-            .as_ref()
-            .map(|rt| substitute_in_ann(rt, &subst));
+        let new_return_type = return_type.as_ref().map(|rt| substitute_in_ann(rt, &subst));
         // Deep-clone the body's expression graph so each mono body has
         // FRESH ExprIds. Without this, multiple instantiations of the
         // same generic share one expression arena and the
         // transitive-rewrite step below would overwrite each other.
-        let mut new_body: Vec<Stmt> = body
-            .iter()
-            .map(|s| deep_clone_stmt(ast, s))
-            .collect();
+        let mut new_body: Vec<Stmt> = body.iter().map(|s| deep_clone_stmt(ast, s)).collect();
         for s in new_body.iter_mut() {
             substitute_in_stmt(s, &subst);
         }
@@ -527,7 +614,11 @@ fn rewrite_tvdefault_in_stmt(ast: &mut Ast, s: &Stmt, subst: &[(String, String)]
             }
         }
         Stmt::LetDecl { init, .. } => rewrite_tvdefault_in_expr(ast, *init, subst),
-        Stmt::If { cond, then_branch, else_branch } => {
+        Stmt::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
             rewrite_tvdefault_in_expr(ast, *cond, subst);
             rewrite_tvdefault_in_stmt(ast, then_branch, subst);
             if let Some(eb) = else_branch {
@@ -542,30 +633,62 @@ fn rewrite_tvdefault_in_stmt(ast: &mut Ast, s: &Stmt, subst: &[(String, String)]
             rewrite_tvdefault_in_stmt(ast, body, subst);
             rewrite_tvdefault_in_expr(ast, *cond, subst);
         }
-        Stmt::For { init, cond, step, body } => {
-            if let Some(i) = init { rewrite_tvdefault_in_stmt(ast, i, subst); }
-            if let Some(c) = cond { rewrite_tvdefault_in_expr(ast, *c, subst); }
-            if let Some(s2) = step { rewrite_tvdefault_in_expr(ast, *s2, subst); }
+        Stmt::For {
+            init,
+            cond,
+            step,
+            body,
+        } => {
+            if let Some(i) = init {
+                rewrite_tvdefault_in_stmt(ast, i, subst);
+            }
+            if let Some(c) = cond {
+                rewrite_tvdefault_in_expr(ast, *c, subst);
+            }
+            if let Some(s2) = step {
+                rewrite_tvdefault_in_expr(ast, *s2, subst);
+            }
             rewrite_tvdefault_in_stmt(ast, body, subst);
         }
-        Stmt::Switch { scrutinee, cases, default } => {
+        Stmt::Switch {
+            scrutinee,
+            cases,
+            default,
+        } => {
             rewrite_tvdefault_in_expr(ast, *scrutinee, subst);
             for c in cases {
                 rewrite_tvdefault_in_expr(ast, c.value, subst);
-                for s in &c.body { rewrite_tvdefault_in_stmt(ast, s, subst); }
+                for s in &c.body {
+                    rewrite_tvdefault_in_stmt(ast, s, subst);
+                }
             }
             if let Some(db) = default {
-                for s in db { rewrite_tvdefault_in_stmt(ast, s, subst); }
+                for s in db {
+                    rewrite_tvdefault_in_stmt(ast, s, subst);
+                }
             }
         }
         Stmt::Block(stmts) | Stmt::Multi(stmts) => {
-            for s in stmts { rewrite_tvdefault_in_stmt(ast, s, subst); }
+            for s in stmts {
+                rewrite_tvdefault_in_stmt(ast, s, subst);
+            }
         }
-        Stmt::Try { body, catch_body, finally_body, .. } => {
-            for s in body { rewrite_tvdefault_in_stmt(ast, s, subst); }
-            for s in catch_body { rewrite_tvdefault_in_stmt(ast, s, subst); }
+        Stmt::Try {
+            body,
+            catch_body,
+            finally_body,
+            ..
+        } => {
+            for s in body {
+                rewrite_tvdefault_in_stmt(ast, s, subst);
+            }
+            for s in catch_body {
+                rewrite_tvdefault_in_stmt(ast, s, subst);
+            }
             if let Some(fb) = finally_body {
-                for s in fb { rewrite_tvdefault_in_stmt(ast, s, subst); }
+                for s in fb {
+                    rewrite_tvdefault_in_stmt(ast, s, subst);
+                }
             }
         }
         _ => {}
@@ -581,7 +704,7 @@ fn rewrite_tvdefault_in_expr(ast: &mut Ast, eid: ExprId, subst: &[(String, Strin
                 if tp_name == tv {
                     let new_expr = match ann.as_str() {
                         "number" | "i64" => Expr::Number(0.0),
-                        "f64" => Expr::Number(0.5),  // forces fract() != 0 → ConstF64
+                        "f64" => Expr::Number(0.5), // forces fract() != 0 → ConstF64
                         "boolean" => Expr::Bool(false),
                         "string" => Expr::String(String::new()),
                         _ => Expr::Number(0.0),
@@ -599,7 +722,9 @@ fn rewrite_tvdefault_in_expr(ast: &mut Ast, eid: ExprId, subst: &[(String, Strin
             rewrite_tvdefault_in_expr(ast, left, subst);
             rewrite_tvdefault_in_expr(ast, right, subst);
         }
-        Expr::Unary { expr, .. } | Expr::TypeOf { expr } | Expr::Spread { expr }
+        Expr::Unary { expr, .. }
+        | Expr::TypeOf { expr }
+        | Expr::Spread { expr }
         | Expr::InstanceOf { expr, .. } => {
             rewrite_tvdefault_in_expr(ast, expr, subst);
         }
@@ -608,7 +733,9 @@ fn rewrite_tvdefault_in_expr(ast: &mut Ast, eid: ExprId, subst: &[(String, Strin
         }
         Expr::Call { callee, args } => {
             rewrite_tvdefault_in_expr(ast, callee, subst);
-            for a in args { rewrite_tvdefault_in_expr(ast, a, subst); }
+            for a in args {
+                rewrite_tvdefault_in_expr(ast, a, subst);
+            }
         }
         Expr::Assign { target, value } => {
             rewrite_tvdefault_in_expr(ast, target, subst);
@@ -619,12 +746,20 @@ fn rewrite_tvdefault_in_expr(ast: &mut Ast, eid: ExprId, subst: &[(String, Strin
             rewrite_tvdefault_in_expr(ast, index, subst);
         }
         Expr::Array(els) => {
-            for e in els { rewrite_tvdefault_in_expr(ast, e, subst); }
+            for e in els {
+                rewrite_tvdefault_in_expr(ast, e, subst);
+            }
         }
         Expr::ObjectLit { fields } => {
-            for (_, e) in fields { rewrite_tvdefault_in_expr(ast, e, subst); }
+            for (_, e) in fields {
+                rewrite_tvdefault_in_expr(ast, e, subst);
+            }
         }
-        Expr::Ternary { cond, then_branch, else_branch } => {
+        Expr::Ternary {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
             rewrite_tvdefault_in_expr(ast, cond, subst);
             rewrite_tvdefault_in_expr(ast, then_branch, subst);
             rewrite_tvdefault_in_expr(ast, else_branch, subst);
@@ -634,7 +769,9 @@ fn rewrite_tvdefault_in_expr(ast: &mut Ast, eid: ExprId, subst: &[(String, Strin
             rewrite_tvdefault_in_expr(ast, rhs, subst);
         }
         Expr::New { args, .. } | Expr::Super { args } => {
-            for a in args { rewrite_tvdefault_in_expr(ast, a, subst); }
+            for a in args {
+                rewrite_tvdefault_in_expr(ast, a, subst);
+            }
         }
         Expr::PostIncr { target, .. } => {
             rewrite_tvdefault_in_expr(ast, target, subst);
@@ -651,10 +788,14 @@ fn deep_clone_stmt(ast: &mut Ast, s: &Stmt) -> Stmt {
     match s {
         Stmt::Expr(eid) => Stmt::Expr(deep_clone_expr(ast, *eid)),
         Stmt::Throw(eid) => Stmt::Throw(deep_clone_expr(ast, *eid)),
-        Stmt::Return(maybe) => {
-            Stmt::Return(maybe.map(|eid| deep_clone_expr(ast, eid)))
-        }
-        Stmt::LetDecl { mutable, name, type_ann, init, is_var } => Stmt::LetDecl {
+        Stmt::Return(maybe) => Stmt::Return(maybe.map(|eid| deep_clone_expr(ast, eid))),
+        Stmt::LetDecl {
+            mutable,
+            name,
+            type_ann,
+            init,
+            is_var,
+        } => Stmt::LetDecl {
             mutable: *mutable,
             name: name.clone(),
             type_ann: type_ann.clone(),
@@ -664,10 +805,16 @@ fn deep_clone_stmt(ast: &mut Ast, s: &Stmt) -> Stmt {
             // dropping var-hoist semantics (zero-warn surfaced it).
             is_var: *is_var,
         },
-        Stmt::If { cond, then_branch, else_branch } => Stmt::If {
+        Stmt::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => Stmt::If {
             cond: deep_clone_expr(ast, *cond),
             then_branch: Box::new(deep_clone_stmt(ast, then_branch)),
-            else_branch: else_branch.as_ref().map(|e| Box::new(deep_clone_stmt(ast, e))),
+            else_branch: else_branch
+                .as_ref()
+                .map(|e| Box::new(deep_clone_stmt(ast, e))),
         },
         Stmt::While { cond, body } => Stmt::While {
             cond: deep_clone_expr(ast, *cond),
@@ -677,37 +824,52 @@ fn deep_clone_stmt(ast: &mut Ast, s: &Stmt) -> Stmt {
             body: Box::new(deep_clone_stmt(ast, body)),
             cond: deep_clone_expr(ast, *cond),
         },
-        Stmt::For { init, cond, step, body } => Stmt::For {
+        Stmt::For {
+            init,
+            cond,
+            step,
+            body,
+        } => Stmt::For {
             init: init.as_ref().map(|i| Box::new(deep_clone_stmt(ast, i))),
             cond: cond.map(|c| deep_clone_expr(ast, c)),
             step: step.map(|s2| deep_clone_expr(ast, s2)),
             body: Box::new(deep_clone_stmt(ast, body)),
         },
-        Stmt::Switch { scrutinee, cases, default } => Stmt::Switch {
+        Stmt::Switch {
+            scrutinee,
+            cases,
+            default,
+        } => Stmt::Switch {
             scrutinee: deep_clone_expr(ast, *scrutinee),
-            cases: cases.iter().map(|c| crate::ast::SwitchCase {
-                value: deep_clone_expr(ast, c.value),
-                body: c.body.iter().map(|s| deep_clone_stmt(ast, s)).collect(),
-            }).collect(),
-            default: default.as_ref().map(|db| {
-                db.iter().map(|s| deep_clone_stmt(ast, s)).collect()
-            }),
+            cases: cases
+                .iter()
+                .map(|c| crate::ast::SwitchCase {
+                    value: deep_clone_expr(ast, c.value),
+                    body: c.body.iter().map(|s| deep_clone_stmt(ast, s)).collect(),
+                })
+                .collect(),
+            default: default
+                .as_ref()
+                .map(|db| db.iter().map(|s| deep_clone_stmt(ast, s)).collect()),
         },
-        Stmt::Block(stmts) => Stmt::Block(
-            stmts.iter().map(|s| deep_clone_stmt(ast, s)).collect()
-        ),
-        Stmt::Multi(stmts) => Stmt::Multi(
-            stmts.iter().map(|s| deep_clone_stmt(ast, s)).collect()
-        ),
-        Stmt::Try { body, had_catch, catch_param, catch_type, catch_body, finally_body } => Stmt::Try {
+        Stmt::Block(stmts) => Stmt::Block(stmts.iter().map(|s| deep_clone_stmt(ast, s)).collect()),
+        Stmt::Multi(stmts) => Stmt::Multi(stmts.iter().map(|s| deep_clone_stmt(ast, s)).collect()),
+        Stmt::Try {
+            body,
+            had_catch,
+            catch_param,
+            catch_type,
+            catch_body,
+            finally_body,
+        } => Stmt::Try {
             body: body.iter().map(|s| deep_clone_stmt(ast, s)).collect(),
             had_catch: *had_catch,
             catch_param: catch_param.clone(),
             catch_type: catch_type.clone(),
             catch_body: catch_body.iter().map(|s| deep_clone_stmt(ast, s)).collect(),
-            finally_body: finally_body.as_ref().map(|fb| {
-                fb.iter().map(|s| deep_clone_stmt(ast, s)).collect()
-            }),
+            finally_body: finally_body
+                .as_ref()
+                .map(|fb| fb.iter().map(|s| deep_clone_stmt(ast, s)).collect()),
         },
         // Stmts that don't carry ExprIds — clone trivially.
         other => other.clone(),
@@ -719,7 +881,10 @@ fn deep_clone_expr(ast: &mut Ast, eid: ExprId) -> ExprId {
         Expr::Ident(n) => Expr::Ident(n.clone()),
         Expr::String(s) => Expr::String(s.clone()),
         Expr::Number(n) => Expr::Number(*n),
-        Expr::BigInt { digits, radix } => Expr::BigInt { digits: digits.clone(), radix: *radix },
+        Expr::BigInt { digits, radix } => Expr::BigInt {
+            digits: digits.clone(),
+            radix: *radix,
+        },
         Expr::Bool(b) => Expr::Bool(*b),
         Expr::Null => Expr::Null,
         Expr::Uninit => Expr::Uninit,
@@ -730,7 +895,9 @@ fn deep_clone_expr(ast: &mut Ast, eid: ExprId) -> ExprId {
         Expr::This => Expr::This,
         Expr::NewTarget => Expr::NewTarget,
         Expr::BinOp { op, left, right } => {
-            let op = *op; let l = *left; let r = *right;
+            let op = *op;
+            let l = *left;
+            let r = *right;
             Expr::BinOp {
                 op,
                 left: deep_clone_expr(ast, l),
@@ -738,27 +905,44 @@ fn deep_clone_expr(ast: &mut Ast, eid: ExprId) -> ExprId {
             }
         }
         Expr::Unary { op, expr } => {
-            let op = *op; let e = *expr;
-            Expr::Unary { op, expr: deep_clone_expr(ast, e) }
+            let op = *op;
+            let e = *expr;
+            Expr::Unary {
+                op,
+                expr: deep_clone_expr(ast, e),
+            }
         }
         Expr::Member { obj, name } => {
-            let o = *obj; let name = name.clone();
-            Expr::Member { obj: deep_clone_expr(ast, o), name }
+            let o = *obj;
+            let name = name.clone();
+            Expr::Member {
+                obj: deep_clone_expr(ast, o),
+                name,
+            }
         }
         Expr::Call { callee, args } => {
-            let c = *callee; let args = args.clone();
+            let c = *callee;
+            let args = args.clone();
             Expr::Call {
                 callee: deep_clone_expr(ast, c),
                 args: args.into_iter().map(|a| deep_clone_expr(ast, a)).collect(),
             }
         }
         Expr::Assign { target, value } => {
-            let t = *target; let v = *value;
-            Expr::Assign { target: deep_clone_expr(ast, t), value: deep_clone_expr(ast, v) }
+            let t = *target;
+            let v = *value;
+            Expr::Assign {
+                target: deep_clone_expr(ast, t),
+                value: deep_clone_expr(ast, v),
+            }
         }
         Expr::Index { obj, index } => {
-            let o = *obj; let i = *index;
-            Expr::Index { obj: deep_clone_expr(ast, o), index: deep_clone_expr(ast, i) }
+            let o = *obj;
+            let i = *index;
+            Expr::Index {
+                obj: deep_clone_expr(ast, o),
+                index: deep_clone_expr(ast, i),
+            }
         }
         Expr::Array(els) => {
             let els = els.clone();
@@ -767,12 +951,17 @@ fn deep_clone_expr(ast: &mut Ast, eid: ExprId) -> ExprId {
         Expr::ObjectLit { fields } => {
             let fields = fields.clone();
             Expr::ObjectLit {
-                fields: fields.into_iter()
+                fields: fields
+                    .into_iter()
                     .map(|(n, e)| (n, deep_clone_expr(ast, e)))
                     .collect(),
             }
         }
-        Expr::ArrowFn { params, return_type, body } => {
+        Expr::ArrowFn {
+            params,
+            return_type,
+            body,
+        } => {
             let params = params.clone();
             let return_type = return_type.clone();
             let body: Vec<Stmt> = body.iter().map(|s| s.clone()).collect();
@@ -803,8 +992,14 @@ fn deep_clone_expr(ast: &mut Ast, eid: ExprId) -> ExprId {
                 args: args.into_iter().map(|a| deep_clone_expr(ast, a)).collect(),
             }
         }
-        Expr::Ternary { cond, then_branch, else_branch } => {
-            let c = *cond; let t = *then_branch; let e = *else_branch;
+        Expr::Ternary {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            let c = *cond;
+            let t = *then_branch;
+            let e = *else_branch;
             Expr::Ternary {
                 cond: deep_clone_expr(ast, c),
                 then_branch: deep_clone_expr(ast, t),
@@ -813,37 +1008,59 @@ fn deep_clone_expr(ast: &mut Ast, eid: ExprId) -> ExprId {
         }
         Expr::TypeOf { expr } => {
             let e = *expr;
-            Expr::TypeOf { expr: deep_clone_expr(ast, e) }
+            Expr::TypeOf {
+                expr: deep_clone_expr(ast, e),
+            }
         }
         Expr::InstanceOf { expr, class_name } => {
-            let e = *expr; let cn = class_name.clone();
-            Expr::InstanceOf { expr: deep_clone_expr(ast, e), class_name: cn }
+            let e = *expr;
+            let cn = class_name.clone();
+            Expr::InstanceOf {
+                expr: deep_clone_expr(ast, e),
+                class_name: cn,
+            }
         }
         Expr::Spread { expr } => {
             let e = *expr;
-            Expr::Spread { expr: deep_clone_expr(ast, e) }
+            Expr::Spread {
+                expr: deep_clone_expr(ast, e),
+            }
         }
         Expr::Nullish { lhs, rhs } => {
-            let l = *lhs; let r = *rhs;
+            let l = *lhs;
+            let r = *rhs;
             Expr::Nullish {
                 lhs: deep_clone_expr(ast, l),
                 rhs: deep_clone_expr(ast, r),
             }
         }
         Expr::OptChain { obj, name } => {
-            let o = *obj; let name = name.clone();
-            Expr::OptChain { obj: deep_clone_expr(ast, o), name }
+            let o = *obj;
+            let name = name.clone();
+            Expr::OptChain {
+                obj: deep_clone_expr(ast, o),
+                name,
+            }
         }
         Expr::PostIncr { target, is_inc } => {
-            let t = *target; let is_inc = *is_inc;
-            Expr::PostIncr { target: deep_clone_expr(ast, t), is_inc }
+            let t = *target;
+            let is_inc = *is_inc;
+            Expr::PostIncr {
+                target: deep_clone_expr(ast, t),
+                is_inc,
+            }
         }
         Expr::As { expr, ty_ann } => {
-            let e = *expr; let ty_ann = ty_ann.clone();
-            Expr::As { expr: deep_clone_expr(ast, e), ty_ann }
+            let e = *expr;
+            let ty_ann = ty_ann.clone();
+            Expr::As {
+                expr: deep_clone_expr(ast, e),
+                ty_ann,
+            }
         }
         Expr::Sequence { left, right } => {
-            let l = *left; let r = *right;
+            let l = *left;
+            let r = *right;
             Expr::Sequence {
                 left: deep_clone_expr(ast, l),
                 right: deep_clone_expr(ast, r),
@@ -880,16 +1097,32 @@ fn rewrite_inner_generic_calls(
         worklist: &mut std::collections::VecDeque<(String, Vec<String>)>,
     ) {
         match s {
-            Stmt::Expr(eid) | Stmt::Throw(eid) => walk_expr(ast, *eid, generics, outer_tp, outer_anns, cache, worklist),
+            Stmt::Expr(eid) | Stmt::Throw(eid) => {
+                walk_expr(ast, *eid, generics, outer_tp, outer_anns, cache, worklist)
+            }
             Stmt::Return(maybe) => {
                 if let Some(eid) = maybe {
                     walk_expr(ast, *eid, generics, outer_tp, outer_anns, cache, worklist);
                 }
             }
-            Stmt::LetDecl { init, .. } => walk_expr(ast, *init, generics, outer_tp, outer_anns, cache, worklist),
-            Stmt::If { cond, then_branch, else_branch } => {
+            Stmt::LetDecl { init, .. } => {
+                walk_expr(ast, *init, generics, outer_tp, outer_anns, cache, worklist)
+            }
+            Stmt::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
                 walk_expr(ast, *cond, generics, outer_tp, outer_anns, cache, worklist);
-                walk_stmt(ast, then_branch, generics, outer_tp, outer_anns, cache, worklist);
+                walk_stmt(
+                    ast,
+                    then_branch,
+                    generics,
+                    outer_tp,
+                    outer_anns,
+                    cache,
+                    worklist,
+                );
                 if let Some(eb) = else_branch {
                     walk_stmt(ast, eb, generics, outer_tp, outer_anns, cache, worklist);
                 }
@@ -902,7 +1135,12 @@ fn rewrite_inner_generic_calls(
                 walk_stmt(ast, body, generics, outer_tp, outer_anns, cache, worklist);
                 walk_expr(ast, *cond, generics, outer_tp, outer_anns, cache, worklist);
             }
-            Stmt::For { init, cond, step, body } => {
+            Stmt::For {
+                init,
+                cond,
+                step,
+                body,
+            } => {
                 if let Some(i) = init {
                     walk_stmt(ast, i, generics, outer_tp, outer_anns, cache, worklist);
                 }
@@ -914,10 +1152,18 @@ fn rewrite_inner_generic_calls(
                 }
                 walk_stmt(ast, body, generics, outer_tp, outer_anns, cache, worklist);
             }
-            Stmt::Switch { scrutinee, cases, default } => {
-                walk_expr(ast, *scrutinee, generics, outer_tp, outer_anns, cache, worklist);
+            Stmt::Switch {
+                scrutinee,
+                cases,
+                default,
+            } => {
+                walk_expr(
+                    ast, *scrutinee, generics, outer_tp, outer_anns, cache, worklist,
+                );
                 for c in cases {
-                    walk_expr(ast, c.value, generics, outer_tp, outer_anns, cache, worklist);
+                    walk_expr(
+                        ast, c.value, generics, outer_tp, outer_anns, cache, worklist,
+                    );
                     for s in &c.body {
                         walk_stmt(ast, s, generics, outer_tp, outer_anns, cache, worklist);
                     }
@@ -933,7 +1179,12 @@ fn rewrite_inner_generic_calls(
                     walk_stmt(ast, s, generics, outer_tp, outer_anns, cache, worklist);
                 }
             }
-            Stmt::Try { body, catch_body, finally_body, .. } => {
+            Stmt::Try {
+                body,
+                catch_body,
+                finally_body,
+                ..
+            } => {
                 for s in body {
                     walk_stmt(ast, s, generics, outer_tp, outer_anns, cache, worklist);
                 }
@@ -967,9 +1218,15 @@ fn rewrite_inner_generic_calls(
                     if let Some((inner_tp, _, _, _)) = generics.get(name) {
                         if inner_tp == outer_tp {
                             Some((*callee, name.clone(), args_clone))
-                        } else { None }
-                    } else { None }
-                } else { None }
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
             }
             _ => None,
         };
@@ -1007,11 +1264,14 @@ fn rewrite_inner_generic_calls(
                 }
             }
             Expr::BinOp { left, right, .. } => {
-                let l = *left; let r = *right;
+                let l = *left;
+                let r = *right;
                 walk_expr(ast, l, generics, outer_tp, outer_anns, cache, worklist);
                 walk_expr(ast, r, generics, outer_tp, outer_anns, cache, worklist);
             }
-            Expr::Unary { expr, .. } | Expr::TypeOf { expr } | Expr::Spread { expr }
+            Expr::Unary { expr, .. }
+            | Expr::TypeOf { expr }
+            | Expr::Spread { expr }
             | Expr::InstanceOf { expr, .. } => {
                 let e = *expr;
                 walk_expr(ast, e, generics, outer_tp, outer_anns, cache, worklist);
@@ -1021,12 +1281,14 @@ fn rewrite_inner_generic_calls(
                 walk_expr(ast, o, generics, outer_tp, outer_anns, cache, worklist);
             }
             Expr::Assign { target, value } => {
-                let t = *target; let v = *value;
+                let t = *target;
+                let v = *value;
                 walk_expr(ast, t, generics, outer_tp, outer_anns, cache, worklist);
                 walk_expr(ast, v, generics, outer_tp, outer_anns, cache, worklist);
             }
             Expr::Index { obj, index } => {
-                let o = *obj; let i = *index;
+                let o = *obj;
+                let i = *index;
                 walk_expr(ast, o, generics, outer_tp, outer_anns, cache, worklist);
                 walk_expr(ast, i, generics, outer_tp, outer_anns, cache, worklist);
             }
@@ -1042,14 +1304,21 @@ fn rewrite_inner_generic_calls(
                     walk_expr(ast, e, generics, outer_tp, outer_anns, cache, worklist);
                 }
             }
-            Expr::Ternary { cond, then_branch, else_branch } => {
-                let c = *cond; let t = *then_branch; let e = *else_branch;
+            Expr::Ternary {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
+                let c = *cond;
+                let t = *then_branch;
+                let e = *else_branch;
                 walk_expr(ast, c, generics, outer_tp, outer_anns, cache, worklist);
                 walk_expr(ast, t, generics, outer_tp, outer_anns, cache, worklist);
                 walk_expr(ast, e, generics, outer_tp, outer_anns, cache, worklist);
             }
             Expr::Nullish { lhs, rhs } => {
-                let l = *lhs; let r = *rhs;
+                let l = *lhs;
+                let r = *rhs;
                 walk_expr(ast, l, generics, outer_tp, outer_anns, cache, worklist);
                 walk_expr(ast, r, generics, outer_tp, outer_anns, cache, worklist);
             }
@@ -1068,7 +1337,15 @@ fn rewrite_inner_generic_calls(
     }
 
     for s in body.iter() {
-        walk_stmt(ast, s, generics, outer_type_params, outer_arg_anns, cache, worklist);
+        walk_stmt(
+            ast,
+            s,
+            generics,
+            outer_type_params,
+            outer_arg_anns,
+            cache,
+            worklist,
+        );
     }
 }
 
@@ -1135,8 +1412,20 @@ fn lower_inner(
     //   __torajs_str_print       — write StrRepr's bytes + trailing newline
     //                              to stdout. Replaces the old NUL-terminated
     //                              `print_str` (deleted in P2.2.b).
-    let print_i64_id = declare_intrinsic(&mut module, &mut fn_table, "print_i64", &[Type::I64], Type::Void);
-    let print_f64_id = declare_intrinsic(&mut module, &mut fn_table, "print_f64", &[Type::F64], Type::Void);
+    let print_i64_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "print_i64",
+        &[Type::I64],
+        Type::Void,
+    );
+    let print_f64_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "print_f64",
+        &[Type::F64],
+        Type::Void,
+    );
     let print_bool_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -1868,27 +2157,91 @@ fn lower_inner(
         &[Type::Date],
         Type::I64,
     );
-    let date_get_utc_full_year_id = declare_intrinsic(&mut module, &mut fn_table, "__torajs_date_get_utc_full_year", &[Type::Date], Type::I64);
-    let date_get_utc_month_id = declare_intrinsic(&mut module, &mut fn_table, "__torajs_date_get_utc_month", &[Type::Date], Type::I64);
-    let date_get_utc_date_id = declare_intrinsic(&mut module, &mut fn_table, "__torajs_date_get_utc_date", &[Type::Date], Type::I64);
-    let date_get_utc_hours_id = declare_intrinsic(&mut module, &mut fn_table, "__torajs_date_get_utc_hours", &[Type::Date], Type::I64);
-    let date_get_utc_minutes_id = declare_intrinsic(&mut module, &mut fn_table, "__torajs_date_get_utc_minutes", &[Type::Date], Type::I64);
-    let date_get_utc_seconds_id = declare_intrinsic(&mut module, &mut fn_table, "__torajs_date_get_utc_seconds", &[Type::Date], Type::I64);
-    let date_get_utc_milliseconds_id = declare_intrinsic(&mut module, &mut fn_table, "__torajs_date_get_utc_milliseconds", &[Type::Date], Type::I64);
-    let date_get_utc_day_id = declare_intrinsic(&mut module, &mut fn_table, "__torajs_date_get_utc_day", &[Type::Date], Type::I64);
+    let date_get_utc_full_year_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_date_get_utc_full_year",
+        &[Type::Date],
+        Type::I64,
+    );
+    let date_get_utc_month_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_date_get_utc_month",
+        &[Type::Date],
+        Type::I64,
+    );
+    let date_get_utc_date_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_date_get_utc_date",
+        &[Type::Date],
+        Type::I64,
+    );
+    let date_get_utc_hours_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_date_get_utc_hours",
+        &[Type::Date],
+        Type::I64,
+    );
+    let date_get_utc_minutes_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_date_get_utc_minutes",
+        &[Type::Date],
+        Type::I64,
+    );
+    let date_get_utc_seconds_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_date_get_utc_seconds",
+        &[Type::Date],
+        Type::I64,
+    );
+    let date_get_utc_milliseconds_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_date_get_utc_milliseconds",
+        &[Type::Date],
+        Type::I64,
+    );
+    let date_get_utc_day_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_date_get_utc_day",
+        &[Type::Date],
+        Type::I64,
+    );
     /* Phase 2.0b.2 — component ctor + ISO parse + Date.UTC + Date.parse. */
     let date_from_components_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
         "__torajs_date_from_components",
-        &[Type::I64, Type::I64, Type::I64, Type::I64, Type::I64, Type::I64, Type::I64],
+        &[
+            Type::I64,
+            Type::I64,
+            Type::I64,
+            Type::I64,
+            Type::I64,
+            Type::I64,
+            Type::I64,
+        ],
         Type::Date,
     );
     let date_utc_components_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
         "__torajs_date_utc_components",
-        &[Type::I64, Type::I64, Type::I64, Type::I64, Type::I64, Type::I64, Type::I64],
+        &[
+            Type::I64,
+            Type::I64,
+            Type::I64,
+            Type::I64,
+            Type::I64,
+            Type::I64,
+            Type::I64,
+        ],
         Type::I64,
     );
     let date_from_iso_id = declare_intrinsic(
@@ -2724,7 +3077,14 @@ fn lower_inner(
         &mut module,
         &mut fn_table,
         "__torajs_map_iter_next",
-        &[Type::Map, Type::Ptr, Type::Ptr, Type::Ptr, Type::Ptr, Type::Ptr],
+        &[
+            Type::Map,
+            Type::Ptr,
+            Type::Ptr,
+            Type::Ptr,
+            Type::Ptr,
+            Type::Ptr,
+        ],
         Type::I64,
     );
     /* P6.4b — Map / Set keys / values iterator factories + step +
@@ -3955,8 +4315,7 @@ fn lower_inner(
     // first; iterate to fixed-point — a fn is may_throw if
     // direct_throw OR it calls any may_throw fn. Stops when no
     // new names get added in a pass.
-    let mut may_throw: std::collections::HashSet<String> =
-        std::collections::HashSet::new();
+    let mut may_throw: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut decl_throw_info: Vec<(String, bool, Vec<String>)> = Vec::new();
     for stmt in &ast.stmts {
         if let Stmt::FnDecl { name, body, .. } = stmt {
@@ -3995,8 +4354,7 @@ fn lower_inner(
     // instantiation during pass 1/2 can intern new layouts without
     // borrow-checker fights against `&mut module.funcs`. Written back
     // at the end of `lower()`.
-    let mut struct_layouts: Vec<Vec<(String, Type)>> =
-        std::mem::take(&mut module.struct_layouts);
+    let mut struct_layouts: Vec<Vec<(String, Type)>> = std::mem::take(&mut module.struct_layouts);
     // V3-05 — two-phase TypeDecl resolution so self-referential
     // classes (`class Node { next: Node | null }`) work. Phase 1
     // reserves a fresh sid + empty layout for every non-generic
@@ -4049,8 +4407,7 @@ fn lower_inner(
         } = stmt
         {
             if !type_params.is_empty() {
-                generic_struct_decls
-                    .insert(name.clone(), (type_params.clone(), fields.clone()));
+                generic_struct_decls.insert(name.clone(), (type_params.clone(), fields.clone()));
                 continue;
             }
             // V3-18 wedge — already handled in the placeholder
@@ -4137,11 +4494,7 @@ fn lower_inner(
     // are the Pass-0 intrinsics declared above.
     for (idx, f) in module.funcs.iter().enumerate() {
         let fid = FuncId(idx as u32);
-        let param_tys: Vec<Type> = f
-            .params
-            .iter()
-            .map(|p| f.values[p.0 as usize].ty)
-            .collect();
+        let param_tys: Vec<Type> = f.params.iter().map(|p| f.values[p.0 as usize].ty).collect();
         let sig = intern_fn_sig(&mut fn_sigs, param_tys, f.ret);
         fn_sig_ids.insert(fid, sig);
     }
@@ -4210,12 +4563,13 @@ fn lower_inner(
     // main lowers, so closure bodies that depend on top-level captures
     // must lower AFTER main, not just after user fns. Pipeline now:
     // Pass 2A user fns → Pass 3 main → Pass 2B closure bodies (reverse).
-    let (user_decls, mut closure_decls): (Vec<_>, Vec<_>) = decl_indices
-        .into_iter()
-        .partition(|(stmt_idx, _)| match &ast.stmts[*stmt_idx] {
-            Stmt::FnDecl { name, .. } => !name.starts_with("__closure_"),
-            _ => true,
-        });
+    let (user_decls, mut closure_decls): (Vec<_>, Vec<_>) =
+        decl_indices
+            .into_iter()
+            .partition(|(stmt_idx, _)| match &ast.stmts[*stmt_idx] {
+                Stmt::FnDecl { name, .. } => !name.starts_with("__closure_"),
+                _ => true,
+            });
     closure_decls.reverse();
     let decl_indices: Vec<_> = user_decls;
 
@@ -4238,7 +4592,9 @@ fn lower_inner(
             fn_table.insert(drop_name.clone(), fid);
             let drop_sig = intern_fn_sig(&mut fn_sigs, vec![Type::Ptr], Type::Void);
             fn_sig_ids.insert(fid, drop_sig);
-            module.funcs.push(ssa::Function::new(&drop_name, Type::Void));
+            module
+                .funcs
+                .push(ssa::Function::new(&drop_name, Type::Void));
             env_drop_fids.push((name.clone(), fid, drop_sig));
         }
     }
@@ -4670,8 +5026,8 @@ fn lower_inner(
             init,
             type_ann,
             mutable,
-        is_var: false,
-            } = stmt
+            is_var: false,
+        } = stmt
         {
             // Number / Bool literal init stays on the K.1 fast path —
             // those are Copy types so inlining the constant at every
@@ -4681,10 +5037,8 @@ fn lower_inner(
             // alloc per read (uncovered by `m-oo-04-static`'s leak
             // audit — `Counter.label !== "ctr"` was paying a fresh
             // alloc on the LHS at every comparison).
-            let init_is_inline_literal = matches!(
-                ast.get_expr(*init),
-                Expr::Number(_) | Expr::Bool(_)
-            );
+            let init_is_inline_literal =
+                matches!(ast.get_expr(*init), Expr::Number(_) | Expr::Bool(_));
             // V3-18 m1.h.26 — only the IMMUTABLE inline-literal case
             // can be inlined at every read. Mutable globals (e.g.
             // static class fields like `Counter.value = 0`) need a
@@ -4931,7 +5285,9 @@ fn lower_inner(
                 let mut cur: Option<String> = Some(cname.clone());
                 let mut depth = 0u32;
                 while let Some(name) = cur {
-                    if depth > 64 { break; }
+                    if depth > 64 {
+                        break;
+                    }
                     let candidate = format!("__cm_{name}__{m_name}");
                     if let Some(fid) = fn_table.get(&candidate) {
                         found = Some(*fid);
@@ -4963,10 +5319,8 @@ fn lower_inner(
      * excluded — cycle detection on them is a follow-up that
      * needs heap-header-keyed sid lookup. */
     {
-        let mut class_names_by_tag: Vec<(&String, u32)> = class_name_to_tag
-            .iter()
-            .map(|(n, t)| (n, *t))
-            .collect();
+        let mut class_names_by_tag: Vec<(&String, u32)> =
+            class_name_to_tag.iter().map(|(n, t)| (n, *t)).collect();
         class_names_by_tag.sort_by_key(|(_, t)| *t);
         for (cname, _tag) in &class_names_by_tag {
             let sid = match module.struct_layouts.iter().enumerate().find_map(|(i, _)| {
@@ -5071,10 +5425,7 @@ fn synthesize_env_drop(
             );
             f.append_void(
                 entry,
-                InstKind::Call(
-                    intrinsics.capture_box_drop,
-                    vec![Operand::Value(slot_ptr)],
-                ),
+                InstKind::Call(intrinsics.capture_box_drop, vec![Operand::Value(slot_ptr)]),
             );
         }
         // Non-Copy captures: env borrows the heap pointer; outer
@@ -5093,7 +5444,6 @@ fn synthesize_env_drop(
     f.set_term(entry, Terminator::Ret(None));
     f
 }
-
 
 /// FuncIds of every backend-provided runtime entry point. Threaded through
 /// every lowering site that needs to emit a runtime call. Single struct so
@@ -5673,18 +6023,13 @@ fn body_returns_closure(ast: &Ast, body: &[Stmt]) -> bool {
     // `return f` as equivalent to `return Expr::Closure{...}`. This
     // matches the common pattern of factory fns that build a closure
     // into a local before returning it.
-    let mut closure_locals: std::collections::HashSet<String> =
-        std::collections::HashSet::new();
+    let mut closure_locals: std::collections::HashSet<String> = std::collections::HashSet::new();
     collect_closure_locals(ast, body, &mut closure_locals);
     body.iter()
         .any(|s| stmt_returns_closure(ast, s, &closure_locals))
 }
 
-fn collect_closure_locals(
-    ast: &Ast,
-    body: &[Stmt],
-    out: &mut std::collections::HashSet<String>,
-) {
+fn collect_closure_locals(ast: &Ast, body: &[Stmt], out: &mut std::collections::HashSet<String>) {
     for s in body {
         match s {
             Stmt::LetDecl { name, init, .. } => {
@@ -5723,9 +6068,7 @@ fn collect_closure_locals(
                     collect_closure_locals(ast, fb, out);
                 }
             }
-            Stmt::Switch {
-                cases, default, ..
-            } => {
+            Stmt::Switch { cases, default, .. } => {
                 for c in cases {
                     collect_closure_locals(ast, &c.body, out);
                 }
@@ -5836,16 +6179,16 @@ fn body_has_ident_return_to_global(ast: &Ast, body: &[Stmt]) -> bool {
         .any(|s| stmt_has_ident_return(ast, s, &fnsig_fns))
 }
 
-fn stmt_has_ident_return(
-    ast: &Ast,
-    s: &Stmt,
-    globals: &std::collections::HashSet<String>,
-) -> bool {
+fn stmt_has_ident_return(ast: &Ast, s: &Stmt, globals: &std::collections::HashSet<String>) -> bool {
     match s {
         Stmt::Return(Some(eid)) => {
             matches!(ast.get_expr(*eid), Expr::Ident(n) if globals.contains(n))
         }
-        Stmt::If { then_branch, else_branch, .. } => {
+        Stmt::If {
+            then_branch,
+            else_branch,
+            ..
+        } => {
             stmt_has_ident_return(ast, then_branch, globals)
                 || else_branch
                     .as_deref()
@@ -5860,19 +6203,26 @@ fn stmt_has_ident_return(
         }
         Stmt::Switch { cases, default, .. } => {
             cases.iter().any(|c| {
-                c.body.iter().any(|s| stmt_has_ident_return(ast, s, globals))
-            }) || default.as_ref().is_some_and(|d| {
-                d.iter().any(|s| stmt_has_ident_return(ast, s, globals))
-            })
+                c.body
+                    .iter()
+                    .any(|s| stmt_has_ident_return(ast, s, globals))
+            }) || default
+                .as_ref()
+                .is_some_and(|d| d.iter().any(|s| stmt_has_ident_return(ast, s, globals)))
         }
-        Stmt::Try { body, catch_body, finally_body, .. } => {
+        Stmt::Try {
+            body,
+            catch_body,
+            finally_body,
+            ..
+        } => {
             body.iter().any(|s| stmt_has_ident_return(ast, s, globals))
                 || catch_body
                     .iter()
                     .any(|s| stmt_has_ident_return(ast, s, globals))
-                || finally_body.as_ref().is_some_and(|fb| {
-                    fb.iter().any(|s| stmt_has_ident_return(ast, s, globals))
-                })
+                || finally_body
+                    .as_ref()
+                    .is_some_and(|fb| fb.iter().any(|s| stmt_has_ident_return(ast, s, globals)))
         }
         _ => false,
     }
@@ -6025,8 +6375,7 @@ fn parse_type(
                 _ => {}
             }
         }
-        let close = close_idx
-            .unwrap_or_else(|| panic!("ssa-lower: malformed fn-type `{s}`"));
+        let close = close_idx.unwrap_or_else(|| panic!("ssa-lower: malformed fn-type `{s}`"));
         let params_str = &rest[..close];
         let after = &rest[close + 1..];
         let ret_str = after
@@ -6107,8 +6456,7 @@ fn parse_type(
                 _ => {}
             }
         }
-        let close = close_idx
-            .unwrap_or_else(|| panic!("ssa-lower: malformed cls-type `{s}`"));
+        let close = close_idx.unwrap_or_else(|| panic!("ssa-lower: malformed cls-type `{s}`"));
         let params_str = &rest[..close];
         let after = &rest[close + 1..];
         let ret_str = after
@@ -6364,11 +6712,7 @@ fn intern_arr_layout(arr_layouts: &mut Vec<Type>, elem: Type) -> ssa::ArrId {
     id
 }
 
-fn intern_fn_sig(
-    fn_sigs: &mut Vec<(Vec<Type>, Type)>,
-    params: Vec<Type>,
-    ret: Type,
-) -> ssa::SigId {
+fn intern_fn_sig(fn_sigs: &mut Vec<(Vec<Type>, Type)>, params: Vec<Type>, ret: Type) -> ssa::SigId {
     for (i, ex) in fn_sigs.iter().enumerate() {
         if ex.0 == params && ex.1 == ret {
             return ssa::SigId(i as u32);
@@ -6389,14 +6733,18 @@ fn collect_closure_captures_in_stmt(
     out: &mut std::collections::HashSet<String>,
 ) {
     match s {
-        Stmt::Expr(eid)
-        | Stmt::Throw(eid)
-        | Stmt::Yield(eid) => collect_closure_captures_in_expr(ast, *eid, out),
+        Stmt::Expr(eid) | Stmt::Throw(eid) | Stmt::Yield(eid) => {
+            collect_closure_captures_in_expr(ast, *eid, out)
+        }
         Stmt::YieldInto { value, .. } => collect_closure_captures_in_expr(ast, *value, out),
         Stmt::Return(Some(eid)) => collect_closure_captures_in_expr(ast, *eid, out),
         Stmt::Return(None) => {}
         Stmt::LetDecl { init, .. } => collect_closure_captures_in_expr(ast, *init, out),
-        Stmt::If { cond, then_branch, else_branch } => {
+        Stmt::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
             collect_closure_captures_in_expr(ast, *cond, out);
             collect_closure_captures_in_stmt(ast, then_branch, out);
             if let Some(eb) = else_branch {
@@ -6411,7 +6759,12 @@ fn collect_closure_captures_in_stmt(
             collect_closure_captures_in_stmt(ast, body, out);
             collect_closure_captures_in_expr(ast, *cond, out);
         }
-        Stmt::For { init, cond, step, body } => {
+        Stmt::For {
+            init,
+            cond,
+            step,
+            body,
+        } => {
             if let Some(i) = init {
                 collect_closure_captures_in_stmt(ast, i, out);
             }
@@ -6428,7 +6781,11 @@ fn collect_closure_captures_in_stmt(
                 collect_closure_captures_in_stmt(ast, s, out);
             }
         }
-        Stmt::Switch { scrutinee, cases, default } => {
+        Stmt::Switch {
+            scrutinee,
+            cases,
+            default,
+        } => {
             collect_closure_captures_in_expr(ast, *scrutinee, out);
             for c in cases {
                 collect_closure_captures_in_expr(ast, c.value, out);
@@ -6442,7 +6799,12 @@ fn collect_closure_captures_in_stmt(
                 }
             }
         }
-        Stmt::Try { body, catch_body, finally_body, .. } => {
+        Stmt::Try {
+            body,
+            catch_body,
+            finally_body,
+            ..
+        } => {
             for s in body {
                 collect_closure_captures_in_stmt(ast, s, out);
             }
@@ -6507,7 +6869,11 @@ fn collect_closure_captures_in_expr(
                 collect_closure_captures_in_expr(ast, *e, out);
             }
         }
-        Expr::Ternary { cond, then_branch, else_branch } => {
+        Expr::Ternary {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
             collect_closure_captures_in_expr(ast, *cond, out);
             collect_closure_captures_in_expr(ast, *then_branch, out);
             collect_closure_captures_in_expr(ast, *else_branch, out);
@@ -6681,10 +7047,7 @@ fn lower_fn(
             };
             ctx.f.append_inst(
                 ctx.cur_block,
-                InstKind::Call(
-                    ctx.intrinsics.capture_box_alloc,
-                    vec![init_i64],
-                ),
+                InstKind::Call(ctx.intrinsics.capture_box_alloc, vec![init_i64]),
                 Type::Ptr,
                 None,
             )
@@ -6711,8 +7074,7 @@ fn lower_fn(
         // non-Copy params as `moved` keeps fn-end drop emission from
         // freeing what we don't own. Escape-captured params transfer
         // ownership to env (env-drop frees the heap slot).
-        let borrows_caller =
-            is_env_param || is_class_self || !ty.is_copy() || escape_captured;
+        let borrows_caller = is_env_param || is_class_self || !ty.is_copy() || escape_captured;
         ctx.locals.insert(
             pname.clone(),
             LocalInfo {
@@ -6747,11 +7109,8 @@ fn lower_fn(
         // `__env` first param purely for ABI uniformity; they emit no
         // env-load preamble and don't depend on the
         // construction-site-populated `closure_captures` side channel.
-        let cap_meta: Vec<(Type, bool)> = ctx
-            .closure_captures
-            .get(name)
-            .cloned()
-            .unwrap_or_else(|| {
+        let cap_meta: Vec<(Type, bool)> =
+            ctx.closure_captures.get(name).cloned().unwrap_or_else(|| {
                 panic!(
                     "ssa-lower: lifted closure `{name}` has no capture types — \
                      construction site must run before body lowering"
@@ -6770,7 +7129,8 @@ fn lower_fn(
             .copied()
             .expect("__env param materialized as local")
             .slot;
-        for (i, (cap_name, (cap_ty, is_byref))) in cap_names.iter().zip(cap_meta.iter()).enumerate() {
+        for (i, (cap_name, (cap_ty, is_byref))) in cap_names.iter().zip(cap_meta.iter()).enumerate()
+        {
             let cap_ty = *cap_ty;
             let is_byref = *is_byref;
             let env_ptr = ctx.f.append_inst(
@@ -6813,8 +7173,7 @@ fn lower_fn(
                 // pushes inside the closure mirror back to env+offset
                 // for subsequent invocations of the same closure.
                 if matches!(cap_ty, Type::Arr(_)) {
-                    ctx.captured_arr_writeback
-                        .insert(local, (env_slot, offset));
+                    ctx.captured_arr_writeback.insert(local, (env_slot, offset));
                 }
                 local
             };
@@ -6878,7 +7237,11 @@ fn detect_push_loop_arrays(
     /* init: `let i = 0` (literal 0; const 0 is enough — anything
      * else means the loop isn't a simple 0..N walk). */
     let i_name = match init? {
-        Stmt::LetDecl { name, init: init_eid, .. } => match ast.get_expr(*init_eid) {
+        Stmt::LetDecl {
+            name,
+            init: init_eid,
+            ..
+        } => match ast.get_expr(*init_eid) {
             Expr::Number(n) if *n == 0.0 => name.clone(),
             _ => return None,
         },
@@ -6886,12 +7249,14 @@ fn detect_push_loop_arrays(
     };
     /* cond: `i < bound`. Capture bound expression. */
     let bound_eid = match ast.get_expr(cond?) {
-        Expr::BinOp { op: crate::ast::BinOp::Lt, left, right } => {
-            match ast.get_expr(*left) {
-                Expr::Ident(n) if n == &i_name => *right,
-                _ => return None,
-            }
-        }
+        Expr::BinOp {
+            op: crate::ast::BinOp::Lt,
+            left,
+            right,
+        } => match ast.get_expr(*left) {
+            Expr::Ident(n) if n == &i_name => *right,
+            _ => return None,
+        },
         _ => return None,
     };
     /* step: `i = i + 1` shape (parser desugars i++ / i+=1 to this). */
@@ -7398,35 +7763,51 @@ impl<'a> LowerCtx<'a> {
     /// otherwise. Used by the LetDecl arm to dispatch to the
     /// caller-driven JSON parser when the slot has a concrete T.
     fn is_bun_file_json_await(&self, eid: ExprId) -> Option<ExprId> {
-        let Expr::Member { obj: outer_call, name } = self.ast.get_expr(eid) else {
+        let Expr::Member {
+            obj: outer_call,
+            name,
+        } = self.ast.get_expr(eid)
+        else {
             return None;
         };
         if name != "value" {
             return None;
         }
-        let Expr::Call { callee: json_callee, args: json_args } =
-            self.ast.get_expr(*outer_call) else {
+        let Expr::Call {
+            callee: json_callee,
+            args: json_args,
+        } = self.ast.get_expr(*outer_call)
+        else {
             return None;
         };
         if !json_args.is_empty() {
             return None;
         }
-        let Expr::Member { obj: file_call, name: jname } =
-            self.ast.get_expr(*json_callee) else {
+        let Expr::Member {
+            obj: file_call,
+            name: jname,
+        } = self.ast.get_expr(*json_callee)
+        else {
             return None;
         };
         if jname != "json" {
             return None;
         }
-        let Expr::Call { callee: file_callee, args: file_args } =
-            self.ast.get_expr(*file_call) else {
+        let Expr::Call {
+            callee: file_callee,
+            args: file_args,
+        } = self.ast.get_expr(*file_call)
+        else {
             return None;
         };
         if file_args.len() != 1 {
             return None;
         }
-        let Expr::Member { obj: bun_id, name: fname } =
-            self.ast.get_expr(*file_callee) else {
+        let Expr::Member {
+            obj: bun_id,
+            name: fname,
+        } = self.ast.get_expr(*file_callee)
+        else {
             return None;
         };
         if fname != "file" {
@@ -7535,11 +7916,14 @@ impl<'a> LowerCtx<'a> {
                 let else_blk = self.f.add_block();
                 let after_blk = self.f.add_block();
                 let slot = self.alloca_in_entry(Type::Str, Some("__c_bool"));
-                self.f.set_term(self.cur_block, Terminator::CondBr {
-                    cond: val,
-                    then_blk,
-                    else_blk,
-                });
+                self.f.set_term(
+                    self.cur_block,
+                    Terminator::CondBr {
+                        cond: val,
+                        then_blk,
+                        else_blk,
+                    },
+                );
                 self.f.append_void(
                     then_blk,
                     InstKind::Store(Operand::Value(true_ptr), Operand::Value(slot), 0),
@@ -7584,9 +7968,9 @@ impl<'a> LowerCtx<'a> {
                 self.emit_drop_value(Operand::Value(body), Type::Str);
                 Operand::Value(formatted)
             }
-            other => panic!(
-                "ssa-lower: console multi-arg coercion of type {other:?} not supported"
-            ),
+            other => {
+                panic!("ssa-lower: console multi-arg coercion of type {other:?} not supported")
+            }
         }
     }
 
@@ -7709,11 +8093,14 @@ impl<'a> LowerCtx<'a> {
                 let else_blk = self.f.add_block();
                 let after_blk = self.f.add_block();
                 let slot = self.alloca_in_entry(Type::Str, Some("__json_bool"));
-                self.f.set_term(self.cur_block, Terminator::CondBr {
-                    cond: val_op,
-                    then_blk,
-                    else_blk,
-                });
+                self.f.set_term(
+                    self.cur_block,
+                    Terminator::CondBr {
+                        cond: val_op,
+                        then_blk,
+                        else_blk,
+                    },
+                );
                 self.f.append_void(
                     then_blk,
                     InstKind::Store(Operand::Value(true_ptr), Operand::Value(slot), 0),
@@ -7755,10 +8142,7 @@ impl<'a> LowerCtx<'a> {
                 );
                 let v = self.f.append_inst(
                     self.cur_block,
-                    InstKind::Call(
-                        self.intrinsics.json_quote_str,
-                        vec![Operand::Value(owned)],
-                    ),
+                    InstKind::Call(self.intrinsics.json_quote_str, vec![Operand::Value(owned)]),
                     Type::Str,
                     None,
                 );
@@ -7789,11 +8173,7 @@ impl<'a> LowerCtx<'a> {
                 let i_slot = self.alloca(Type::I64, Some("__json_i"));
                 self.f.append_void(
                     self.cur_block,
-                    InstKind::Store(
-                        Operand::ConstI64(0),
-                        Operand::Value(i_slot),
-                        0,
-                    ),
+                    InstKind::Store(Operand::ConstI64(0), Operand::Value(i_slot), 0),
                 );
                 let header_blk = self.f.add_block();
                 let body_blk = self.f.add_block();
@@ -7808,38 +8188,36 @@ impl<'a> LowerCtx<'a> {
                 );
                 let in_bounds = self.f.append_inst(
                     self.cur_block,
-                    InstKind::ICmp(
-                        IPred::Slt,
-                        Operand::Value(i_now),
-                        Operand::Value(len),
-                    ),
+                    InstKind::ICmp(IPred::Slt, Operand::Value(i_now), Operand::Value(len)),
                     Type::Bool,
                     None,
                 );
-                self.f.set_term(self.cur_block, Terminator::CondBr {
-                    cond: Operand::Value(in_bounds),
-                    then_blk: body_blk,
-                    else_blk: after_blk,
-                });
+                self.f.set_term(
+                    self.cur_block,
+                    Terminator::CondBr {
+                        cond: Operand::Value(in_bounds),
+                        then_blk: body_blk,
+                        else_blk: after_blk,
+                    },
+                );
                 self.cur_block = body_blk;
                 // If i > 0, append ",".
                 let need_sep = self.f.append_inst(
                     self.cur_block,
-                    InstKind::ICmp(
-                        IPred::Sgt,
-                        Operand::Value(i_now),
-                        Operand::ConstI64(0),
-                    ),
+                    InstKind::ICmp(IPred::Sgt, Operand::Value(i_now), Operand::ConstI64(0)),
                     Type::Bool,
                     None,
                 );
                 let sep_blk = self.f.add_block();
                 let no_sep_blk = self.f.add_block();
-                self.f.set_term(self.cur_block, Terminator::CondBr {
-                    cond: Operand::Value(need_sep),
-                    then_blk: sep_blk,
-                    else_blk: no_sep_blk,
-                });
+                self.f.set_term(
+                    self.cur_block,
+                    Terminator::CondBr {
+                        cond: Operand::Value(need_sep),
+                        then_blk: sep_blk,
+                        else_blk: no_sep_blk,
+                    },
+                );
                 self.cur_block = sep_blk;
                 let acc_now = self.f.append_inst(
                     self.cur_block,
@@ -7871,11 +8249,7 @@ impl<'a> LowerCtx<'a> {
                 );
                 let elem = self.f.append_inst(
                     self.cur_block,
-                    InstKind::LoadDyn(
-                        elem_ty,
-                        Operand::Value(arr_ptr),
-                        off,
-                    ),
+                    InstKind::LoadDyn(elem_ty, Operand::Value(arr_ptr), off),
                     elem_ty,
                     None,
                 );
@@ -7901,21 +8275,13 @@ impl<'a> LowerCtx<'a> {
                 );
                 let i_next = self.f.append_inst(
                     self.cur_block,
-                    InstKind::BinOp(
-                        SsaBinOp::Add,
-                        Operand::Value(i_now),
-                        Operand::ConstI64(1),
-                    ),
+                    InstKind::BinOp(SsaBinOp::Add, Operand::Value(i_now), Operand::ConstI64(1)),
                     Type::I64,
                     None,
                 );
                 self.f.append_void(
                     self.cur_block,
-                    InstKind::Store(
-                        Operand::Value(i_next),
-                        Operand::Value(i_slot),
-                        0,
-                    ),
+                    InstKind::Store(Operand::Value(i_next), Operand::Value(i_slot), 0),
                 );
                 self.f.set_term(self.cur_block, Terminator::Br(header_blk));
                 self.cur_block = after_blk;
@@ -8020,9 +8386,7 @@ impl<'a> LowerCtx<'a> {
                 );
                 Operand::Value(result)
             }
-            other => panic!(
-                "ssa-lower: JSON.stringify on type {other:?} not yet supported"
-            ),
+            other => panic!("ssa-lower: JSON.stringify on type {other:?} not yet supported"),
         }
     }
 
@@ -8048,10 +8412,7 @@ impl<'a> LowerCtx<'a> {
             Type::I64 => {
                 let v = self.f.append_inst(
                     self.cur_block,
-                    InstKind::Call(
-                        self.intrinsics.json_parse_int,
-                        vec![text_op, cursor_ptr],
-                    ),
+                    InstKind::Call(self.intrinsics.json_parse_int, vec![text_op, cursor_ptr]),
                     Type::I64,
                     None,
                 );
@@ -8060,10 +8421,7 @@ impl<'a> LowerCtx<'a> {
             Type::F64 => {
                 let v = self.f.append_inst(
                     self.cur_block,
-                    InstKind::Call(
-                        self.intrinsics.json_parse_float,
-                        vec![text_op, cursor_ptr],
-                    ),
+                    InstKind::Call(self.intrinsics.json_parse_float, vec![text_op, cursor_ptr]),
                     Type::F64,
                     None,
                 );
@@ -8073,20 +8431,13 @@ impl<'a> LowerCtx<'a> {
                 // Helper returns I64 (0/1); coerce by ne-zero.
                 let v = self.f.append_inst(
                     self.cur_block,
-                    InstKind::Call(
-                        self.intrinsics.json_parse_bool,
-                        vec![text_op, cursor_ptr],
-                    ),
+                    InstKind::Call(self.intrinsics.json_parse_bool, vec![text_op, cursor_ptr]),
                     Type::I64,
                     None,
                 );
                 let b = self.f.append_inst(
                     self.cur_block,
-                    InstKind::ICmp(
-                        IPred::Ne,
-                        Operand::Value(v),
-                        Operand::ConstI64(0),
-                    ),
+                    InstKind::ICmp(IPred::Ne, Operand::Value(v), Operand::ConstI64(0)),
                     Type::Bool,
                     None,
                 );
@@ -8095,10 +8446,7 @@ impl<'a> LowerCtx<'a> {
             Type::Str => {
                 let v = self.f.append_inst(
                     self.cur_block,
-                    InstKind::Call(
-                        self.intrinsics.json_parse_string,
-                        vec![text_op, cursor_ptr],
-                    ),
+                    InstKind::Call(self.intrinsics.json_parse_string, vec![text_op, cursor_ptr]),
                     Type::Str,
                     None,
                 );
@@ -8121,21 +8469,14 @@ impl<'a> LowerCtx<'a> {
                 // realloc.
                 let initial = self.f.append_inst(
                     self.cur_block,
-                    InstKind::Call(
-                        self.intrinsics.arr_alloc,
-                        vec![Operand::ConstI64(0)],
-                    ),
+                    InstKind::Call(self.intrinsics.arr_alloc, vec![Operand::ConstI64(0)]),
                     slot_ty,
                     None,
                 );
                 let arr_slot = self.alloca(slot_ty, Some("__json_arr"));
                 self.f.append_void(
                     self.cur_block,
-                    InstKind::Store(
-                        Operand::Value(initial),
-                        Operand::Value(arr_slot),
-                        0,
-                    ),
+                    InstKind::Store(Operand::Value(initial), Operand::Value(arr_slot), 0),
                 );
                 // arr_first('[', ']') — 0 if immediately ']' (consumed),
                 // 1 if a value follows (NOT consumed).
@@ -8153,11 +8494,7 @@ impl<'a> LowerCtx<'a> {
                 let after = self.f.add_block();
                 let nonempty = self.f.append_inst(
                     self.cur_block,
-                    InstKind::ICmp(
-                        IPred::Ne,
-                        Operand::Value(first),
-                        Operand::ConstI64(0),
-                    ),
+                    InstKind::ICmp(IPred::Ne, Operand::Value(first), Operand::ConstI64(0)),
                     Type::Bool,
                     None,
                 );
@@ -8188,11 +8525,7 @@ impl<'a> LowerCtx<'a> {
                 );
                 self.f.append_void(
                     self.cur_block,
-                    InstKind::Store(
-                        Operand::Value(new_arr),
-                        Operand::Value(arr_slot),
-                        0,
-                    ),
+                    InstKind::Store(Operand::Value(new_arr), Operand::Value(arr_slot), 0),
                 );
                 self.f.set_term(self.cur_block, Terminator::Br(header));
                 self.cur_block = header;
@@ -8207,11 +8540,7 @@ impl<'a> LowerCtx<'a> {
                 );
                 let cont = self.f.append_inst(
                     self.cur_block,
-                    InstKind::ICmp(
-                        IPred::Eq,
-                        Operand::Value(step),
-                        Operand::ConstI64(1),
-                    ),
+                    InstKind::ICmp(IPred::Eq, Operand::Value(step), Operand::ConstI64(1)),
                     Type::Bool,
                     None,
                 );
@@ -8246,8 +8575,7 @@ impl<'a> LowerCtx<'a> {
                 // header (24 B) + N fields × 8 B; class_tag = 0
                 // (parsed objects are anonymous structs, not class
                 // instances), vtable_ptr = null.
-                let total_size =
-                    OBJ_HEADER_SIZE + (layout.len() as u64) * 8;
+                let total_size = OBJ_HEADER_SIZE + (layout.len() as u64) * 8;
                 let obj_ptr_v = self.f.append_inst(
                     self.cur_block,
                     InstKind::Call(
@@ -8271,11 +8599,7 @@ impl<'a> LowerCtx<'a> {
                 );
                 let nonempty = self.f.append_inst(
                     self.cur_block,
-                    InstKind::ICmp(
-                        IPred::Ne,
-                        Operand::Value(first),
-                        Operand::ConstI64(0),
-                    ),
+                    InstKind::ICmp(IPred::Ne, Operand::Value(first), Operand::ConstI64(0)),
                     Type::Bool,
                     None,
                 );
@@ -8308,11 +8632,7 @@ impl<'a> LowerCtx<'a> {
                             self.cur_block,
                             InstKind::Call(
                                 self.intrinsics.json_arr_step,
-                                vec![
-                                    text_op,
-                                    cursor_ptr,
-                                    Operand::ConstI64(b'}' as i64),
-                                ],
+                                vec![text_op, cursor_ptr, Operand::ConstI64(b'}' as i64)],
                             ),
                             Type::I64,
                             None,
@@ -8333,9 +8653,8 @@ impl<'a> LowerCtx<'a> {
                     // throw a clear error.
                     let bytes = fname.as_bytes().to_vec();
                     let want_len = bytes.len() as i64;
-                    let want_sid = ssa::StringId(
-                        (self.string_id_base + self.new_strings.len()) as u32,
-                    );
+                    let want_sid =
+                        ssa::StringId((self.string_id_base + self.new_strings.len()) as u32);
                     self.new_strings.push(bytes);
                     let want_ptr = self.f.append_inst(
                         self.cur_block,
@@ -8358,11 +8677,7 @@ impl<'a> LowerCtx<'a> {
                     );
                     let key_ok = self.f.append_inst(
                         self.cur_block,
-                        InstKind::ICmp(
-                            IPred::Ne,
-                            Operand::Value(eq),
-                            Operand::ConstI64(0),
-                        ),
+                        InstKind::ICmp(IPred::Ne, Operand::Value(eq), Operand::ConstI64(0)),
                         Type::Bool,
                         None,
                     );
@@ -8379,9 +8694,7 @@ impl<'a> LowerCtx<'a> {
                     // bad path: drop the parsed key + throw.
                     self.cur_block = bad_blk;
                     self.emit_drop_value(Operand::Value(key), Type::Str);
-                    let err_msg = format!(
-                        "JSON.parse: expected field \"{fname}\""
-                    );
+                    let err_msg = format!("JSON.parse: expected field \"{fname}\"");
                     let err_str = self.intern_string_literal(&err_msg);
                     // P4.7 — throw_set now takes (tag, value). String
                     // err lowers as ANY_HEAP=4 with the str ptr as
@@ -8391,10 +8704,7 @@ impl<'a> LowerCtx<'a> {
                         self.cur_block,
                         InstKind::Call(
                             self.intrinsics.throw_set,
-                            vec![
-                                Operand::ConstI64(4),
-                                Operand::Value(err_str),
-                            ],
+                            vec![Operand::ConstI64(4), Operand::Value(err_str)],
                         ),
                     );
                     self.f.set_term(self.cur_block, Terminator::Br(ok_blk));
@@ -8407,21 +8717,15 @@ impl<'a> LowerCtx<'a> {
                         self.cur_block,
                         InstKind::Call(
                             self.intrinsics.json_eat_char,
-                            vec![
-                                text_op,
-                                cursor_ptr,
-                                Operand::ConstI64(b':' as i64),
-                            ],
+                            vec![text_op, cursor_ptr, Operand::ConstI64(b':' as i64)],
                         ),
                     );
                     // Parse field value (recursive).
                     let fv = self.lower_json_parse(text_op, cursor_ptr, *fty);
                     // Store at field offset.
                     let field_off = OBJ_HEADER_SIZE + (i as u64) * 8;
-                    self.f.append_void(
-                        self.cur_block,
-                        InstKind::Store(fv, obj_ptr, field_off),
-                    );
+                    self.f
+                        .append_void(self.cur_block, InstKind::Store(fv, obj_ptr, field_off));
                 }
                 // After the last field, expect '}' — emit arr_step
                 // with terminator='}' which consumes either ',' (and
@@ -8431,20 +8735,14 @@ impl<'a> LowerCtx<'a> {
                     self.cur_block,
                     InstKind::Call(
                         self.intrinsics.json_eat_char,
-                        vec![
-                            text_op,
-                            cursor_ptr,
-                            Operand::ConstI64(b'}' as i64),
-                        ],
+                        vec![text_op, cursor_ptr, Operand::ConstI64(b'}' as i64)],
                     ),
                 );
                 self.f.set_term(self.cur_block, Terminator::Br(after));
                 self.cur_block = after;
                 obj_ptr
             }
-            other => panic!(
-                "ssa-lower: JSON.parse into type {other:?} not yet supported"
-            ),
+            other => panic!("ssa-lower: JSON.parse into type {other:?} not yet supported"),
         }
     }
 
@@ -8563,7 +8861,11 @@ impl<'a> LowerCtx<'a> {
                         stack.push(e);
                     }
                 }
-                Expr::Ternary { cond, then_branch, else_branch } => {
+                Expr::Ternary {
+                    cond,
+                    then_branch,
+                    else_branch,
+                } => {
                     stack.push(cond);
                     stack.push(then_branch);
                     stack.push(else_branch);
@@ -8642,12 +8944,7 @@ impl<'a> LowerCtx<'a> {
     /// branches. Used by Array helpers that take user-provided indices
     /// (start / end / target) and need to match the C runtime's clamp
     /// semantics for the in-place case.
-    fn clamp_i64_to_range(
-        &mut self,
-        v: Operand,
-        lo: Operand,
-        hi: Operand,
-    ) -> Operand {
+    fn clamp_i64_to_range(&mut self, v: Operand, lo: Operand, hi: Operand) -> Operand {
         // step 1: max(v, lo)
         let too_low = self.f.append_inst(
             self.cur_block,
@@ -8659,20 +8956,19 @@ impl<'a> LowerCtx<'a> {
         let lo_t = self.f.add_block();
         let lo_f = self.f.add_block();
         let lo_after = self.f.add_block();
-        self.f.set_term(self.cur_block, Terminator::CondBr {
-            cond: Operand::Value(too_low),
-            then_blk: lo_t,
-            else_blk: lo_f,
-        });
-        self.f.append_void(
-            lo_t,
-            InstKind::Store(lo, Operand::Value(lo_slot), 0),
+        self.f.set_term(
+            self.cur_block,
+            Terminator::CondBr {
+                cond: Operand::Value(too_low),
+                then_blk: lo_t,
+                else_blk: lo_f,
+            },
         );
+        self.f
+            .append_void(lo_t, InstKind::Store(lo, Operand::Value(lo_slot), 0));
         self.f.set_term(lo_t, Terminator::Br(lo_after));
-        self.f.append_void(
-            lo_f,
-            InstKind::Store(v, Operand::Value(lo_slot), 0),
-        );
+        self.f
+            .append_void(lo_f, InstKind::Store(v, Operand::Value(lo_slot), 0));
         self.f.set_term(lo_f, Terminator::Br(lo_after));
         self.cur_block = lo_after;
         let after_lo = self.f.append_inst(
@@ -8692,15 +8988,16 @@ impl<'a> LowerCtx<'a> {
         let hi_t = self.f.add_block();
         let hi_f = self.f.add_block();
         let hi_after = self.f.add_block();
-        self.f.set_term(self.cur_block, Terminator::CondBr {
-            cond: Operand::Value(too_high),
-            then_blk: hi_t,
-            else_blk: hi_f,
-        });
-        self.f.append_void(
-            hi_t,
-            InstKind::Store(hi, Operand::Value(hi_slot), 0),
+        self.f.set_term(
+            self.cur_block,
+            Terminator::CondBr {
+                cond: Operand::Value(too_high),
+                then_blk: hi_t,
+                else_blk: hi_f,
+            },
         );
+        self.f
+            .append_void(hi_t, InstKind::Store(hi, Operand::Value(hi_slot), 0));
         self.f.set_term(hi_t, Terminator::Br(hi_after));
         self.f.append_void(
             hi_f,
@@ -8743,20 +9040,21 @@ impl<'a> LowerCtx<'a> {
         let neg_blk = self.f.add_block();
         let pos_blk = self.f.add_block();
         let join = self.f.add_block();
-        self.f.set_term(self.cur_block, Terminator::CondBr {
-            cond: Operand::Value(is_neg),
-            then_blk: neg_blk,
-            else_blk: pos_blk,
-        });
+        self.f.set_term(
+            self.cur_block,
+            Terminator::CondBr {
+                cond: Operand::Value(is_neg),
+                then_blk: neg_blk,
+                else_blk: pos_blk,
+            },
+        );
         self.f.append_void(
             neg_blk,
             InstKind::Store(Operand::Value(plus_len), Operand::Value(eff_slot), 0),
         );
         self.f.set_term(neg_blk, Terminator::Br(join));
-        self.f.append_void(
-            pos_blk,
-            InstKind::Store(v, Operand::Value(eff_slot), 0),
-        );
+        self.f
+            .append_void(pos_blk, InstKind::Store(v, Operand::Value(eff_slot), 0));
         self.f.set_term(pos_blk, Terminator::Br(join));
         self.cur_block = join;
         let effective = self.f.append_inst(
@@ -8765,11 +9063,7 @@ impl<'a> LowerCtx<'a> {
             Type::I64,
             None,
         );
-        self.clamp_i64_to_range(
-            Operand::Value(effective),
-            Operand::ConstI64(0),
-            len,
-        )
+        self.clamp_i64_to_range(Operand::Value(effective), Operand::ConstI64(0), len)
     }
 
     /// T-13.5 deque: load `head * 8` from arr (the byte offset of
@@ -8786,7 +9080,11 @@ impl<'a> LowerCtx<'a> {
         );
         let head = self.f.append_inst(
             self.cur_block,
-            InstKind::BinOp(SsaBinOp::LShr, Operand::Value(packed), Operand::ConstI64(32)),
+            InstKind::BinOp(
+                SsaBinOp::LShr,
+                Operand::Value(packed),
+                Operand::ConstI64(32),
+            ),
             Type::I64,
             None,
         );
@@ -8836,7 +9134,11 @@ impl<'a> LowerCtx<'a> {
         );
         let with_data = self.f.append_inst(
             self.cur_block,
-            InstKind::BinOp(SsaBinOp::Add, Operand::Value(scaled), Operand::ConstI64(ARR_DATA_OFF as i64)),
+            InstKind::BinOp(
+                SsaBinOp::Add,
+                Operand::Value(scaled),
+                Operand::ConstI64(ARR_DATA_OFF as i64),
+            ),
             Type::I64,
             None,
         );
@@ -8884,11 +9186,14 @@ impl<'a> LowerCtx<'a> {
             Type::Bool,
             None,
         );
-        self.f.set_term(self.cur_block, Terminator::CondBr {
-            cond: Operand::Value(cond),
-            then_blk: body,
-            else_blk: after,
-        });
+        self.f.set_term(
+            self.cur_block,
+            Terminator::CondBr {
+                cond: Operand::Value(cond),
+                then_blk: body,
+                else_blk: after,
+            },
+        );
         self.cur_block = body;
         let scaled = self.f.append_inst(
             self.cur_block,
@@ -8899,7 +9204,11 @@ impl<'a> LowerCtx<'a> {
         // T-13.5: off = scaled + ARR_DATA_OFF + head_x8
         let off_no_head = self.f.append_inst(
             self.cur_block,
-            InstKind::BinOp(SsaBinOp::Add, Operand::Value(scaled), Operand::ConstI64(ARR_DATA_OFF as i64)),
+            InstKind::BinOp(
+                SsaBinOp::Add,
+                Operand::Value(scaled),
+                Operand::ConstI64(ARR_DATA_OFF as i64),
+            ),
             Type::I64,
             None,
         );
@@ -8942,12 +9251,7 @@ impl<'a> LowerCtx<'a> {
     /// offsets). Generates an SSA `for (i = start; i < end; i++)` loop;
     /// LLVM mem2reg + loop opts collapse it to whatever the target ISA
     /// likes best.
-    fn emit_arr_rc_inc_range(
-        &mut self,
-        arr: Operand,
-        start: Operand,
-        end: Operand,
-    ) {
+    fn emit_arr_rc_inc_range(&mut self, arr: Operand, start: Operand, end: Operand) {
         let i_slot = self.alloca_in_entry(Type::I64, Some("__inc_i"));
         self.f.append_void(
             self.cur_block,
@@ -8973,11 +9277,14 @@ impl<'a> LowerCtx<'a> {
             Type::Bool,
             None,
         );
-        self.f.set_term(self.cur_block, Terminator::CondBr {
-            cond: Operand::Value(cond),
-            then_blk: body,
-            else_blk: after,
-        });
+        self.f.set_term(
+            self.cur_block,
+            Terminator::CondBr {
+                cond: Operand::Value(cond),
+                then_blk: body,
+                else_blk: after,
+            },
+        );
         // body: rc_inc(arr[i]); i++
         self.cur_block = body;
         let scaled = self.f.append_inst(
@@ -8989,7 +9296,11 @@ impl<'a> LowerCtx<'a> {
         // T-13.5: off = scaled + ARR_DATA_OFF + head_x8
         let off_no_head = self.f.append_inst(
             self.cur_block,
-            InstKind::BinOp(SsaBinOp::Add, Operand::Value(scaled), Operand::ConstI64(ARR_DATA_OFF as i64)),
+            InstKind::BinOp(
+                SsaBinOp::Add,
+                Operand::Value(scaled),
+                Operand::ConstI64(ARR_DATA_OFF as i64),
+            ),
             Type::I64,
             None,
         );
@@ -9038,10 +9349,7 @@ impl<'a> LowerCtx<'a> {
         );
         let dst = self.f.append_inst(
             self.cur_block,
-            InstKind::Call(
-                self.intrinsics.arr_alloc,
-                vec![Operand::Value(src_len)],
-            ),
+            InstKind::Call(self.intrinsics.arr_alloc, vec![Operand::Value(src_len)]),
             declared_ty,
             None,
         );
@@ -9072,11 +9380,14 @@ impl<'a> LowerCtx<'a> {
             Type::Bool,
             None,
         );
-        self.f.set_term(self.cur_block, Terminator::CondBr {
-            cond: Operand::Value(cmp),
-            then_blk: body,
-            else_blk: after,
-        });
+        self.f.set_term(
+            self.cur_block,
+            Terminator::CondBr {
+                cond: Operand::Value(cmp),
+                then_blk: body,
+                else_blk: after,
+            },
+        );
         self.cur_block = body;
         // T-13.5: src may be shifted (head>0) — use head-aware offset.
         // dst is freshly allocated above so head=0; reuse the raw
@@ -9123,11 +9434,7 @@ impl<'a> LowerCtx<'a> {
         );
         let i_next = self.f.append_inst(
             self.cur_block,
-            InstKind::BinOp(
-                SsaBinOp::Add,
-                Operand::Value(i_now),
-                Operand::ConstI64(1),
-            ),
+            InstKind::BinOp(SsaBinOp::Add, Operand::Value(i_now), Operand::ConstI64(1)),
             Type::I64,
             None,
         );
@@ -9148,20 +9455,16 @@ impl<'a> LowerCtx<'a> {
         match ty {
             Type::Str => {
                 let drop_fid = self.intrinsics.str_drop;
-                self.f.append_void(
-                    self.cur_block,
-                    InstKind::Call(drop_fid, vec![val]),
-                );
+                self.f
+                    .append_void(self.cur_block, InstKind::Call(drop_fid, vec![val]));
             }
             Type::Substr => {
                 // Phase Substr.A — view's drop dec's self refcount, then
                 // dec's parent's refcount before freeing. Runtime helper
                 // handles the chain.
                 let drop_fid = self.intrinsics.substr_drop;
-                self.f.append_void(
-                    self.cur_block,
-                    InstKind::Call(drop_fid, vec![val]),
-                );
+                self.f
+                    .append_void(self.cur_block, InstKind::Call(drop_fid, vec![val]));
             }
             Type::Obj(sid) => {
                 // V3-05 — self-referential class layouts (`class Node
@@ -9197,11 +9500,14 @@ impl<'a> LowerCtx<'a> {
                     Type::Bool,
                     None,
                 );
-                self.f.set_term(self.cur_block, Terminator::CondBr {
-                    cond: Operand::Value(null_check),
-                    then_blk: after,
-                    else_blk: dec_blk,
-                });
+                self.f.set_term(
+                    self.cur_block,
+                    Terminator::CondBr {
+                        cond: Operand::Value(null_check),
+                        then_blk: after,
+                        else_blk: dec_blk,
+                    },
+                );
                 self.cur_block = dec_blk;
                 let rc_now = self.f.append_inst(
                     self.cur_block,
@@ -9232,19 +9538,23 @@ impl<'a> LowerCtx<'a> {
                  * BUFFERED flag so dup-buffering doesn't grow
                  * the buffer; the gate plus class-sid gate keep
                  * the cost off the anonymous-struct path. */
-                let is_class_sid = self.ast.class_parents.keys().any(|cn|
-                    matches!(self.aliases.get(cn), Some(Type::Obj(s)) if s.0 == sid.0)
-                );
+                let is_class_sid =
+                    self.ast.class_parents.keys().any(
+                        |cn| matches!(self.aliases.get(cn), Some(Type::Obj(s)) if s.0 == sid.0),
+                    );
                 let buffer_blk = if is_class_sid {
                     self.f.add_block()
                 } else {
                     after
                 };
-                self.f.set_term(self.cur_block, Terminator::CondBr {
-                    cond: Operand::Value(is_zero),
-                    then_blk: walk_blk,
-                    else_blk: buffer_blk,
-                });
+                self.f.set_term(
+                    self.cur_block,
+                    Terminator::CondBr {
+                        cond: Operand::Value(is_zero),
+                        then_blk: walk_blk,
+                        else_blk: buffer_blk,
+                    },
+                );
                 if is_class_sid {
                     self.cur_block = buffer_blk;
                     self.f.append_void(
@@ -9318,10 +9628,8 @@ impl<'a> LowerCtx<'a> {
                 // slot walk + per-tag child drop + free.
                 if elem_ty == Type::Any {
                     let drop_fid = self.intrinsics.arr_drop_any;
-                    self.f.append_void(
-                        self.cur_block,
-                        InstKind::Call(drop_fid, vec![val]),
-                    );
+                    self.f
+                        .append_void(self.cur_block, InstKind::Call(drop_fid, vec![val]));
                     return;
                 }
                 if elem_ty.is_refcounted() {
@@ -9339,10 +9647,8 @@ impl<'a> LowerCtx<'a> {
                     );
                 }
                 let drop_fid = self.intrinsics.arr_drop;
-                self.f.append_void(
-                    self.cur_block,
-                    InstKind::Call(drop_fid, vec![val]),
-                );
+                self.f
+                    .append_void(self.cur_block, InstKind::Call(drop_fid, vec![val]));
             }
             Type::Closure(_) => {
                 // Per-closure env-drop: load drop_fn ptr from
@@ -9359,8 +9665,7 @@ impl<'a> LowerCtx<'a> {
                     None,
                 );
                 // void(ptr) signature — same as the synthesized drop fns.
-                let drop_void_sig =
-                    intern_fn_sig(self.fn_sigs, vec![Type::Ptr], Type::Void);
+                let drop_void_sig = intern_fn_sig(self.fn_sigs, vec![Type::Ptr], Type::Void);
                 self.f.append_void(
                     self.cur_block,
                     InstKind::CallIndirect(drop_void_sig, Operand::Value(drop_fn_ptr), vec![val]),
@@ -9534,12 +9839,9 @@ impl<'a> LowerCtx<'a> {
             .collect();
         entries.sort_by(|a, b| a.0.cmp(&b.0));
         for (name, ty) in entries {
-            let ptr = self.f.append_inst(
-                self.cur_block,
-                InstKind::GlobalRef(name),
-                Type::Ptr,
-                None,
-            );
+            let ptr =
+                self.f
+                    .append_inst(self.cur_block, InstKind::GlobalRef(name), Type::Ptr, None);
             let v = self.f.append_inst(
                 self.cur_block,
                 InstKind::Load(ty, Operand::Value(ptr), 0),
@@ -9626,7 +9928,7 @@ impl<'a> LowerCtx<'a> {
                 name,
                 type_ann,
                 init,
-            is_var: false,
+                is_var: false,
             } => {
                 // M6.3 — `let v: T = JSON.parse(text)` — caller-driven
                 // typed parse. ssa_lower picks up `T` from `type_ann`
@@ -9641,8 +9943,7 @@ impl<'a> LowerCtx<'a> {
                  * routes through the same caller-driven JSON parser
                  * machinery as `JSON.parse(text)`, but with the file
                  * read inlined: read file → parse with slot's T. */
-                if let Some(mut slot_ty_for_parse) =
-                    self.try_resolve_type_ann(type_ann.as_deref())
+                if let Some(mut slot_ty_for_parse) = self.try_resolve_type_ann(type_ann.as_deref())
                     && let Some(path_eid) = self.is_bun_file_json_await(*init)
                 {
                     if matches!(slot_ty_for_parse, Type::I64)
@@ -9653,21 +9954,14 @@ impl<'a> LowerCtx<'a> {
                     let path_op = self.lower_expr(path_eid);
                     let str_v = self.f.append_inst(
                         self.cur_block,
-                        InstKind::Call(
-                            self.intrinsics.fs_read_file_sync,
-                            vec![path_op],
-                        ),
+                        InstKind::Call(self.intrinsics.fs_read_file_sync, vec![path_op]),
                         Type::Str,
                         None,
                     );
                     let cursor = self.alloca(Type::I64, Some("__json_pos"));
                     self.f.append_void(
                         self.cur_block,
-                        InstKind::Store(
-                            Operand::ConstI64(0),
-                            Operand::Value(cursor),
-                            0,
-                        ),
+                        InstKind::Store(Operand::ConstI64(0), Operand::Value(cursor), 0),
                     );
                     let result = self.lower_json_parse(
                         Operand::Value(str_v),
@@ -9692,14 +9986,10 @@ impl<'a> LowerCtx<'a> {
                             scope_depth: cur_depth,
                         },
                     );
-                    self.scope_stack
-                        .last_mut()
-                        .unwrap()
-                        .push(name.clone());
+                    self.scope_stack.last_mut().unwrap().push(name.clone());
                     return;
                 }
-                if let Some(mut slot_ty_for_parse) =
-                    self.try_resolve_type_ann(type_ann.as_deref())
+                if let Some(mut slot_ty_for_parse) = self.try_resolve_type_ann(type_ann.as_deref())
                     && self.is_json_parse_call(*init)
                 {
                     // T-02 (v0.3.0) — `let v: number = JSON.parse(...)`
@@ -9718,8 +10008,7 @@ impl<'a> LowerCtx<'a> {
                     {
                         slot_ty_for_parse = Type::F64;
                     }
-                    let text_eid = if let Expr::Call { args, .. } =
-                        self.ast.get_expr(*init).clone()
+                    let text_eid = if let Expr::Call { args, .. } = self.ast.get_expr(*init).clone()
                     {
                         args[0]
                     } else {
@@ -9729,17 +10018,10 @@ impl<'a> LowerCtx<'a> {
                     let cursor = self.alloca(Type::I64, Some("__json_pos"));
                     self.f.append_void(
                         self.cur_block,
-                        InstKind::Store(
-                            Operand::ConstI64(0),
-                            Operand::Value(cursor),
-                            0,
-                        ),
+                        InstKind::Store(Operand::ConstI64(0), Operand::Value(cursor), 0),
                     );
-                    let result = self.lower_json_parse(
-                        text_op,
-                        Operand::Value(cursor),
-                        slot_ty_for_parse,
-                    );
+                    let result =
+                        self.lower_json_parse(text_op, Operand::Value(cursor), slot_ty_for_parse);
                     // The text Str — if it was a freshly-owned op
                     // (literal / call result / concat), drop it now;
                     // a borrow (Ident / Member / Index) is the source
@@ -9780,18 +10062,16 @@ impl<'a> LowerCtx<'a> {
                 // trip; key-matching scan deferred). Each entry's
                 // value is untagged from the Any box and stored into
                 // the matching struct field at runtime.
-                if let Some(slot_ty) =
-                    self.try_resolve_type_ann(type_ann.as_deref())
+                if let Some(slot_ty) = self.try_resolve_type_ann(type_ann.as_deref())
                     && self.is_fromentries_call(*init)
                     && let Type::Obj(sid) = slot_ty
                 {
-                    let entries_eid = if let Expr::Call { args, .. } =
-                        self.ast.get_expr(*init).clone()
-                    {
-                        args[0]
-                    } else {
-                        unreachable!()
-                    };
+                    let entries_eid =
+                        if let Expr::Call { args, .. } = self.ast.get_expr(*init).clone() {
+                            args[0]
+                        } else {
+                            unreachable!()
+                        };
                     let entries_op = self.lower_expr(entries_eid);
                     let layout = self.struct_layouts[sid.0 as usize].clone();
                     // Allocate the output struct.
@@ -9875,9 +10155,9 @@ impl<'a> LowerCtx<'a> {
                                 );
                                 Operand::Value(val_raw)
                             }
-                            other => panic!(
-                                "not yet supported: Object.fromEntries field type {other:?}"
-                            ),
+                            other => {
+                                panic!("not yet supported: Object.fromEntries field type {other:?}")
+                            }
                         };
                         let off = OBJ_HEADER_SIZE + (idx as u64) * 8;
                         self.f.append_void(
@@ -9933,10 +10213,7 @@ impl<'a> LowerCtx<'a> {
                     {
                         let v = self.f.append_inst(
                             self.cur_block,
-                            InstKind::Call(
-                                self.intrinsics.arr_alloc,
-                                vec![Operand::ConstI64(0)],
-                            ),
+                            InstKind::Call(self.intrinsics.arr_alloc, vec![Operand::ConstI64(0)]),
                             slot_ty,
                             None,
                         );
@@ -9963,8 +10240,7 @@ impl<'a> LowerCtx<'a> {
                             );
                         }
                     }
-                    let coerced = if slot_ty == Type::F64
-                        && self.operand_ty(&init_val) == Type::I64
+                    let coerced = if slot_ty == Type::F64 && self.operand_ty(&init_val) == Type::I64
                     {
                         self.coerce_to_f64(init_val)
                     } else {
@@ -9996,12 +10272,9 @@ impl<'a> LowerCtx<'a> {
                 {
                     let ty = Type::FnSig(sig_id);
                     let slot = self.alloca(ty, Some(name));
-                    let v = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::FnAddr(fid),
-                        ty,
-                        None,
-                    );
+                    let v = self
+                        .f
+                        .append_inst(self.cur_block, InstKind::FnAddr(fid), ty, None);
                     self.f.append_void(
                         self.cur_block,
                         InstKind::Store(Operand::Value(v), Operand::Value(slot), 0),
@@ -10099,10 +10372,7 @@ impl<'a> LowerCtx<'a> {
                     };
                     let v = self.f.append_inst(
                         self.cur_block,
-                        InstKind::Call(
-                            alloc_fn,
-                            vec![Operand::ConstI64(0)],
-                        ),
+                        InstKind::Call(alloc_fn, vec![Operand::ConstI64(0)]),
                         ty,
                         None,
                     );
@@ -10160,9 +10430,7 @@ impl<'a> LowerCtx<'a> {
                 // 'declared Any, init has Number' typecheck rejection
                 // into a proper boxed-value flow that downstream Any-
                 // aware ops can dispatch on.
-                let init_val = if ty == Type::Any
-                    && self.operand_ty(&init_val) != Type::Any
-                {
+                let init_val = if ty == Type::Any && self.operand_ty(&init_val) != Type::Any {
                     self.box_to_any_from_expr(*init, init_val)
                 } else {
                     init_val
@@ -10198,8 +10466,7 @@ impl<'a> LowerCtx<'a> {
                 // slot is just transient — stack alloca dies with the
                 // construction frame, which is fine because the
                 // closure no longer needs to read through the slot.
-                let escape_captured =
-                    ty.is_copy() && self.escape_captured_lets.contains(name);
+                let escape_captured = ty.is_copy() && self.escape_captured_lets.contains(name);
                 let slot = if escape_captured {
                     // T-15.g.5 — refcounted capture box (16 bytes:
                     // 8-byte rc + 8-byte value). The helper writes
@@ -10234,10 +10501,7 @@ impl<'a> LowerCtx<'a> {
                     };
                     self.f.append_inst(
                         self.cur_block,
-                        InstKind::Call(
-                            self.intrinsics.capture_box_alloc,
-                            vec![init_i64],
-                        ),
+                        InstKind::Call(self.intrinsics.capture_box_alloc, vec![init_i64]),
                         Type::Ptr,
                         None,
                     )
@@ -10257,10 +10521,7 @@ impl<'a> LowerCtx<'a> {
                 if let Some(prev) = self.locals.get(name).copied()
                     && prev.scope_depth < cur_depth
                 {
-                    let top_shadow = self
-                        .shadow_stack
-                        .last_mut()
-                        .expect("shadow frame");
+                    let top_shadow = self.shadow_stack.last_mut().expect("shadow frame");
                     top_shadow.push((name.clone(), prev));
                 }
                 self.locals.insert(
@@ -10315,7 +10576,12 @@ impl<'a> LowerCtx<'a> {
 
                 self.cur_block = after;
             }
-            Stmt::ForOfSplitIter { var_name, parent, sep, body } => {
+            Stmt::ForOfSplitIter {
+                var_name,
+                parent,
+                sep,
+                body,
+            } => {
                 // P-iter — `for (let v of <parent>.split(<sep_lit>)) body`.
                 // Layout:
                 //
@@ -10346,18 +10612,12 @@ impl<'a> LowerCtx<'a> {
                 let parent_op = self.lower_expr(*parent);
                 let sep_op = self.lower_expr(*sep);
 
-                let iter_slot = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::AllocaBytes(48),
-                    Type::Ptr,
-                    None,
-                );
-                let sub_slot = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::AllocaBytes(32),
-                    Type::Ptr,
-                    None,
-                );
+                let iter_slot =
+                    self.f
+                        .append_inst(self.cur_block, InstKind::AllocaBytes(48), Type::Ptr, None);
+                let sub_slot =
+                    self.f
+                        .append_inst(self.cur_block, InstKind::AllocaBytes(32), Type::Ptr, None);
 
                 // Open a scope frame for `var_name`. v_slot stores the
                 // ptr to sub_slot; reads of `v` load that ptr.
@@ -10366,11 +10626,7 @@ impl<'a> LowerCtx<'a> {
                 let v_slot = self.alloca(Type::Substr, Some(var_name));
                 self.f.append_void(
                     self.cur_block,
-                    InstKind::Store(
-                        Operand::Value(sub_slot),
-                        Operand::Value(v_slot),
-                        0,
-                    ),
+                    InstKind::Store(Operand::Value(sub_slot), Operand::Value(v_slot), 0),
                 );
                 {
                     let cur_depth = self.scope_stack.len() - 1;
@@ -10393,11 +10649,7 @@ impl<'a> LowerCtx<'a> {
                     self.cur_block,
                     InstKind::Call(
                         self.intrinsics.split_iter_init,
-                        vec![
-                            Operand::Value(iter_slot),
-                            parent_op,
-                            sep_op,
-                        ],
+                        vec![Operand::Value(iter_slot), parent_op, sep_op],
                     ),
                 );
 
@@ -10412,10 +10664,7 @@ impl<'a> LowerCtx<'a> {
                     self.cur_block,
                     InstKind::Call(
                         self.intrinsics.split_iter_next,
-                        vec![
-                            Operand::Value(iter_slot),
-                            Operand::Value(sub_slot),
-                        ],
+                        vec![Operand::Value(iter_slot), Operand::Value(sub_slot)],
                     ),
                     Type::Bool,
                     None,
@@ -10457,7 +10706,14 @@ impl<'a> LowerCtx<'a> {
                 let _ = self.shadow_stack.pop().expect("shadow frame");
                 self.locals.remove(var_name);
             }
-            Stmt::ForOf { var_name, var_type_ann: _, src_ident: _, i_ident, elem_expr, body } => {
+            Stmt::ForOf {
+                var_name,
+                var_type_ann: _,
+                src_ident: _,
+                i_ident,
+                elem_expr,
+                body,
+            } => {
                 // P5.3 — generic `for (let v of <expr>) body`. Parser
                 // hoisted <expr> into `src_ident` (or it was already an
                 // Ident) and pre-built `elem_expr = src_ident[i_ident]`
@@ -10478,7 +10734,10 @@ impl<'a> LowerCtx<'a> {
                 let src_ref_eid = if let Expr::Index { obj, .. } = self.ast.get_expr(*elem_expr) {
                     *obj
                 } else {
-                    panic!("for-of: elem_expr must be Expr::Index, got {:?}", self.ast.get_expr(*elem_expr));
+                    panic!(
+                        "for-of: elem_expr must be Expr::Index, got {:?}",
+                        self.ast.get_expr(*elem_expr)
+                    );
                 };
                 let src_ptr_op = self.lower_expr(src_ref_eid);
                 let src_ty = self.operand_ty(&src_ptr_op);
@@ -10491,7 +10750,10 @@ impl<'a> LowerCtx<'a> {
                 // just steps directly. P6.4c-C3 — Type::ArrIter
                 // (from `arr.keys() / .values() / .entries()`) uses
                 // the parallel arr_iter_step intrinsic.
-                if matches!(src_ty, Type::Map | Type::Set | Type::MapIter | Type::ArrIter) {
+                if matches!(
+                    src_ty,
+                    Type::Map | Type::Set | Type::MapIter | Type::ArrIter
+                ) {
                     self.lower_for_of_map_like(src_ptr_op, src_ty, var_name, body);
                     return;
                 }
@@ -10514,11 +10776,7 @@ impl<'a> LowerCtx<'a> {
                         let iter_fn = format!("__cm_{cname}____sym_Symbol_iterator__");
                         if let Some(&iter_fid) = self.fn_table.get(&iter_fn) {
                             self.lower_for_of_iter_protocol(
-                                src_ptr_op,
-                                iter_fid,
-                                var_name,
-                                body,
-                                &cname,
+                                src_ptr_op, iter_fid, var_name, body, &cname,
                             );
                             return;
                         }
@@ -10546,11 +10804,7 @@ impl<'a> LowerCtx<'a> {
                 let i_slot = self.alloca(Type::I64, Some(i_ident));
                 self.f.append_void(
                     self.cur_block,
-                    InstKind::Store(
-                        Operand::ConstI64(0),
-                        Operand::Value(i_slot),
-                        0,
-                    ),
+                    InstKind::Store(Operand::ConstI64(0), Operand::Value(i_slot), 0),
                 );
                 {
                     let cur_depth = self.scope_stack.len() - 1;
@@ -10608,11 +10862,7 @@ impl<'a> LowerCtx<'a> {
                 );
                 let cond_val = self.f.append_inst(
                     self.cur_block,
-                    InstKind::ICmp(
-                        IPred::Slt,
-                        Operand::Value(i_now),
-                        Operand::Value(end_val),
-                    ),
+                    InstKind::ICmp(IPred::Slt, Operand::Value(i_now), Operand::Value(end_val)),
                     Type::Bool,
                     None,
                 );
@@ -10718,21 +10968,13 @@ impl<'a> LowerCtx<'a> {
                 );
                 let i_next = self.f.append_inst(
                     self.cur_block,
-                    InstKind::BinOp(
-                        SsaBinOp::Add,
-                        Operand::Value(i_cur),
-                        Operand::ConstI64(1),
-                    ),
+                    InstKind::BinOp(SsaBinOp::Add, Operand::Value(i_cur), Operand::ConstI64(1)),
                     Type::I64,
                     None,
                 );
                 self.f.append_void(
                     self.cur_block,
-                    InstKind::Store(
-                        Operand::Value(i_next),
-                        Operand::Value(i_slot),
-                        0,
-                    ),
+                    InstKind::Store(Operand::Value(i_next), Operand::Value(i_slot), 0),
                 );
                 self.f.set_term(self.cur_block, Terminator::Br(header));
 
@@ -10809,8 +11051,7 @@ impl<'a> LowerCtx<'a> {
 
                 // Pre-allocate body blocks so fall-through across cases
                 // resolves to the next body, not its compare site.
-                let body_blks: Vec<BlockId> =
-                    cases.iter().map(|_| self.f.add_block()).collect();
+                let body_blks: Vec<BlockId> = cases.iter().map(|_| self.f.add_block()).collect();
                 let default_blk = if default.is_some() {
                     Some(self.f.add_block())
                 } else {
@@ -10859,10 +11100,7 @@ impl<'a> LowerCtx<'a> {
                                     };
                                     self.f.append_inst(
                                         cmp_blk,
-                                        InstKind::Call(
-                                            intrinsic,
-                                            vec![scrut_val, v],
-                                        ),
+                                        InstKind::Call(intrinsic, vec![scrut_val, v]),
                                         Type::Bool,
                                         None,
                                     )
@@ -10875,10 +11113,7 @@ impl<'a> LowerCtx<'a> {
                                 };
                                 self.f.append_inst(
                                     cmp_blk,
-                                    InstKind::Call(
-                                        intrinsic,
-                                        vec![scrut_val, v],
-                                    ),
+                                    InstKind::Call(intrinsic, vec![scrut_val, v]),
                                     Type::Bool,
                                     None,
                                 )
@@ -10929,7 +11164,8 @@ impl<'a> LowerCtx<'a> {
                         }
                     }
                     if self.cur_open() {
-                        self.f.set_term(self.cur_block, Terminator::Br(fall_through));
+                        self.f
+                            .set_term(self.cur_block, Terminator::Br(fall_through));
                     }
                     // Position cur_block for the next iteration's cmp
                     // (it's the block just made via "next_cmp_or_default"
@@ -10964,7 +11200,12 @@ impl<'a> LowerCtx<'a> {
                 self.loop_stack.pop();
                 self.cur_block = after;
             }
-            Stmt::For { init, cond, step, body } => {
+            Stmt::For {
+                init,
+                cond,
+                step,
+                body,
+            } => {
                 // M1.6 — `for (init; cond; step) body`. Create blocks for
                 // header (cond), body, step, after. continue_target is
                 // step (so step runs on continue too).
@@ -10985,7 +11226,8 @@ impl<'a> LowerCtx<'a> {
                  * Closes 4 vs-rust losses (stack-pop / fifo /
                  * array-map / generic-id) all of which fill an
                  * array in a tight 0..N loop. */
-                let pushed_arrays = detect_push_loop_arrays(self.ast, init.as_deref(), *cond, *step, body);
+                let pushed_arrays =
+                    detect_push_loop_arrays(self.ast, init.as_deref(), *cond, *step, body);
                 let mut reserve_emitted: Vec<String> = Vec::new();
                 if let Some((bound_eid, names)) = &pushed_arrays {
                     /* Lower the bound expression once before the
@@ -11015,7 +11257,11 @@ impl<'a> LowerCtx<'a> {
                         );
                         let target_cap = self.f.append_inst(
                             self.cur_block,
-                            InstKind::BinOp(SsaBinOp::Add, Operand::Value(initial_len_v), bound_op.clone()),
+                            InstKind::BinOp(
+                                SsaBinOp::Add,
+                                Operand::Value(initial_len_v),
+                                bound_op.clone(),
+                            ),
                             Type::I64,
                             None,
                         );
@@ -11030,11 +11276,7 @@ impl<'a> LowerCtx<'a> {
                         );
                         self.f.append_void(
                             self.cur_block,
-                            InstKind::Store(
-                                Operand::Value(reserved),
-                                Operand::Value(info.slot),
-                                0,
-                            ),
+                            InstKind::Store(Operand::Value(reserved), Operand::Value(info.slot), 0),
                         );
                         /* Hoist head_x8 + ARR_DATA_OFF once. After
                          * reserve the array's storage is committed;
@@ -11065,11 +11307,7 @@ impl<'a> LowerCtx<'a> {
                         let len_slot = self.alloca(Type::I64, Some("__push_len"));
                         self.f.append_void(
                             self.cur_block,
-                            InstKind::Store(
-                                Operand::Value(len_after),
-                                Operand::Value(len_slot),
-                                0,
-                            ),
+                            InstKind::Store(Operand::Value(len_after), Operand::Value(len_slot), 0),
                         );
                         self.push_unchecked_for.insert(
                             name.clone(),
@@ -11186,8 +11424,7 @@ impl<'a> LowerCtx<'a> {
                     .last()
                     .expect("ssa-lower: `break` outside of any loop");
                 if let Some(&fb) = self.try_finally_stack.last()
-                    && self.try_finally_loop_depth.last().copied()
-                        == Some(self.loop_stack.len())
+                    && self.try_finally_loop_depth.last().copied() == Some(self.loop_stack.len())
                 {
                     let flag = match self.pending_break_flag {
                         Some(f) => f,
@@ -11199,11 +11436,7 @@ impl<'a> LowerCtx<'a> {
                     };
                     self.f.append_void(
                         self.cur_block,
-                        InstKind::Store(
-                            Operand::ConstBool(true),
-                            Operand::Value(flag),
-                            0,
-                        ),
+                        InstKind::Store(Operand::ConstBool(true), Operand::Value(flag), 0),
                     );
                     let cb = self.cur_block;
                     self.f.set_term(cb, Terminator::Br(fb));
@@ -11217,8 +11450,7 @@ impl<'a> LowerCtx<'a> {
                     .last()
                     .expect("ssa-lower: `continue` outside of any loop");
                 if let Some(&fb) = self.try_finally_stack.last()
-                    && self.try_finally_loop_depth.last().copied()
-                        == Some(self.loop_stack.len())
+                    && self.try_finally_loop_depth.last().copied() == Some(self.loop_stack.len())
                 {
                     let flag = match self.pending_continue_flag {
                         Some(f) => f,
@@ -11230,11 +11462,7 @@ impl<'a> LowerCtx<'a> {
                     };
                     self.f.append_void(
                         self.cur_block,
-                        InstKind::Store(
-                            Operand::ConstBool(true),
-                            Operand::Value(flag),
-                            0,
-                        ),
+                        InstKind::Store(Operand::ConstBool(true), Operand::Value(flag), 0),
                     );
                     let cb = self.cur_block;
                     self.f.set_term(cb, Terminator::Br(fb));
@@ -11279,79 +11507,78 @@ impl<'a> LowerCtx<'a> {
                     self.expr_types.get(&*eid),
                     Some(crate::check::Type::Undefined)
                 );
-                let (tag_op, val_op): (Operand, Operand) = if is_undef
-                    && matches!(v_ty, Type::Ptr)
+                let (tag_op, val_op): (Operand, Operand) = if is_undef && matches!(v_ty, Type::Ptr)
                 {
                     (Operand::ConstI64(5), Operand::ConstI64(0))
                 } else {
                     match v_ty {
-                    Type::I64 | Type::I32 => (Operand::ConstI64(2), v),
-                    Type::F64 => {
-                        let bits = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::BitCastF64ToI64(v),
-                            Type::I64,
-                            None,
-                        );
-                        (Operand::ConstI64(3), Operand::Value(bits))
-                    }
-                    Type::Bool => {
-                        let zext = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::ZExtBoolToI64(v),
-                            Type::I64,
-                            None,
-                        );
-                        (Operand::ConstI64(1), Operand::Value(zext))
-                    }
-                    Type::Any => {
-                        // Already boxed — extract tag/value from the
-                        // box at +8/+16. Throw forwards the inner
-                        // (tag, value) so the wrapping any-box becomes
-                        // unowned and will be released by the source
-                        // binding's drop. Catch reconstructs as needed.
-                        let tag_v = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Load(Type::I64, v.clone(), 8),
-                            Type::I64,
-                            None,
-                        );
-                        let val_v = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Load(Type::I64, v.clone(), 16),
-                            Type::I64,
-                            None,
-                        );
-                        // Need to bump the inner refcount: source
-                        // binding will dec when scope ends (consume_all
-                        // marks the binding moved, but the any-box
-                        // itself drops via end-of-fn drops which will
-                        // dec its content). Throw must keep the
-                        // inner alive across that.
-                        self.f.append_void(
-                            self.cur_block,
-                            InstKind::Call(
-                                self.intrinsics.any_payload_rc_inc,
-                                vec![Operand::Value(tag_v), Operand::Value(val_v)],
-                            ),
-                        );
-                        (Operand::Value(tag_v), Operand::Value(val_v))
-                    }
-                    Type::Ptr if matches!(v, Operand::ConstPtrNull) => {
-                        (Operand::ConstI64(0), Operand::ConstI64(0))
-                    }
-                    _ if v_ty.is_refcounted() => {
-                        // ANY_HEAP=4. Ownership transfers to the throw
-                        // slot; no rc_inc here (consume_all marked the
-                        // source binding moved so end-of-fn drop skips).
-                        (Operand::ConstI64(4), v)
-                    }
-                    _ => {
-                        // Fallback: pass as-is with a HEAP tag. Matches
-                        // pre-P4.7 behavior for any unusual operand
-                        // type that reached this arm.
-                        (Operand::ConstI64(4), v)
-                    }
+                        Type::I64 | Type::I32 => (Operand::ConstI64(2), v),
+                        Type::F64 => {
+                            let bits = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::BitCastF64ToI64(v),
+                                Type::I64,
+                                None,
+                            );
+                            (Operand::ConstI64(3), Operand::Value(bits))
+                        }
+                        Type::Bool => {
+                            let zext = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::ZExtBoolToI64(v),
+                                Type::I64,
+                                None,
+                            );
+                            (Operand::ConstI64(1), Operand::Value(zext))
+                        }
+                        Type::Any => {
+                            // Already boxed — extract tag/value from the
+                            // box at +8/+16. Throw forwards the inner
+                            // (tag, value) so the wrapping any-box becomes
+                            // unowned and will be released by the source
+                            // binding's drop. Catch reconstructs as needed.
+                            let tag_v = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Load(Type::I64, v.clone(), 8),
+                                Type::I64,
+                                None,
+                            );
+                            let val_v = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Load(Type::I64, v.clone(), 16),
+                                Type::I64,
+                                None,
+                            );
+                            // Need to bump the inner refcount: source
+                            // binding will dec when scope ends (consume_all
+                            // marks the binding moved, but the any-box
+                            // itself drops via end-of-fn drops which will
+                            // dec its content). Throw must keep the
+                            // inner alive across that.
+                            self.f.append_void(
+                                self.cur_block,
+                                InstKind::Call(
+                                    self.intrinsics.any_payload_rc_inc,
+                                    vec![Operand::Value(tag_v), Operand::Value(val_v)],
+                                ),
+                            );
+                            (Operand::Value(tag_v), Operand::Value(val_v))
+                        }
+                        Type::Ptr if matches!(v, Operand::ConstPtrNull) => {
+                            (Operand::ConstI64(0), Operand::ConstI64(0))
+                        }
+                        _ if v_ty.is_refcounted() => {
+                            // ANY_HEAP=4. Ownership transfers to the throw
+                            // slot; no rc_inc here (consume_all marked the
+                            // source binding moved so end-of-fn drop skips).
+                            (Operand::ConstI64(4), v)
+                        }
+                        _ => {
+                            // Fallback: pass as-is with a HEAP tag. Matches
+                            // pre-P4.7 behavior for any unusual operand
+                            // type that reached this arm.
+                            (Operand::ConstI64(4), v)
+                        }
                     }
                 };
                 self.f.append_void(
@@ -11416,8 +11643,11 @@ impl<'a> LowerCtx<'a> {
                 // For `try {} finally {}` the throw target while body
                 // runs is the finally (which propagates after running),
                 // OR fn-propagate if no finally either.
-                let catch_blk: Option<BlockId> =
-                    if *had_catch { Some(self.f.add_block()) } else { None };
+                let catch_blk: Option<BlockId> = if *had_catch {
+                    Some(self.f.add_block())
+                } else {
+                    None
+                };
 
                 // review #0001 fix — push finally onto try_finally_stack
                 // so `Stmt::Return` inside body / catch routes through
@@ -11437,8 +11667,7 @@ impl<'a> LowerCtx<'a> {
                 // body — throw target = catch (if had_catch) else
                 // finally (if has finally) else fn-propagate (no push).
                 self.cur_block = body_blk;
-                let body_throw_target =
-                    catch_blk.or(finally_blk);
+                let body_throw_target = catch_blk.or(finally_blk);
                 if let Some(t) = body_throw_target {
                     self.try_stack.push(t);
                 }
@@ -11468,166 +11697,166 @@ impl<'a> LowerCtx<'a> {
                 // present, push it as the throw target so a re-throw
                 // inside catch still runs finally.
                 if let Some(catch_blk) = catch_blk {
-                self.cur_block = catch_blk;
-                self.scope_stack.push(Vec::new());
-                self.shadow_stack.push(Vec::new());
-                if let Some(p) = catch_param {
-                    // M4.3 — slot type comes from `catch (e: T)` ann.
-                    // throw_take returns i64; if the user annotated a
-                    // ptr-shaped type (string / obj / arr / closure), the
-                    // backend's call-boundary cast helper widens i64 →
-                    // ptr at the Store.
-                    //
-                    // P7.2b-2 — an *unannotated* `catch (e)` binds Any,
-                    // not I64. Per TS spec the catch parameter is
-                    // implicitly `any` (an explicit non-any/unknown
-                    // annotation is TS1196); the M4.1 I64 default was a
-                    // pre-spec tora-ism that silently corrupted any
-                    // non-int throw (string / float / object caught
-                    // untyped read back as a raw pointer / f64 bits).
-                    // Any routes through the tag-aware any_box
-                    // reconstruction below — correct for every thrown
-                    // type. Enabled by P7.2b-1: `catch (e) { return e
-                    // + n }` from a numeric-ret fn now flows
-                    // any_add → any_to_number at the return boundary.
-                    let e_ty = match catch_type {
-                        Some(ann) => parse_type(
-                            Some(ann.as_str()),
-                            self.aliases,
-                            self.arr_layouts,
-                            self.fn_sigs,
-                            self.generic_struct_decls,
-                            self.struct_layouts,
-                        ),
-                        None => Type::Any,
-                    };
-                    // P4.7 — catch `: any` reconstructs an Any-box from
-                    // (tag, value). Read tag FIRST (no side-effects),
-                    // then value (clears active). The order matters —
-                    // throw_take's body store-zeroes __torajs_throw_active
-                    // but leaves the tag/value globals untouched, so the
-                    // peek-tag call must come before throw_take.
-                    let slot_v = if matches!(e_ty, Type::Any) {
-                        let tag_v = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Call(self.intrinsics.throw_take_tag, vec![]),
-                            Type::I64,
-                            None,
-                        );
-                        let val_v = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Call(self.intrinsics.throw_take, vec![]),
-                            Type::I64,
-                            Some(p),
-                        );
-                        let boxed = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Call(
-                                self.intrinsics.any_box,
-                                vec![Operand::Value(tag_v), Operand::Value(val_v)],
+                    self.cur_block = catch_blk;
+                    self.scope_stack.push(Vec::new());
+                    self.shadow_stack.push(Vec::new());
+                    if let Some(p) = catch_param {
+                        // M4.3 — slot type comes from `catch (e: T)` ann.
+                        // throw_take returns i64; if the user annotated a
+                        // ptr-shaped type (string / obj / arr / closure), the
+                        // backend's call-boundary cast helper widens i64 →
+                        // ptr at the Store.
+                        //
+                        // P7.2b-2 — an *unannotated* `catch (e)` binds Any,
+                        // not I64. Per TS spec the catch parameter is
+                        // implicitly `any` (an explicit non-any/unknown
+                        // annotation is TS1196); the M4.1 I64 default was a
+                        // pre-spec tora-ism that silently corrupted any
+                        // non-int throw (string / float / object caught
+                        // untyped read back as a raw pointer / f64 bits).
+                        // Any routes through the tag-aware any_box
+                        // reconstruction below — correct for every thrown
+                        // type. Enabled by P7.2b-1: `catch (e) { return e
+                        // + n }` from a numeric-ret fn now flows
+                        // any_add → any_to_number at the return boundary.
+                        let e_ty = match catch_type {
+                            Some(ann) => parse_type(
+                                Some(ann.as_str()),
+                                self.aliases,
+                                self.arr_layouts,
+                                self.fn_sigs,
+                                self.generic_struct_decls,
+                                self.struct_layouts,
                             ),
-                            Type::Any,
-                            None,
+                            None => Type::Any,
+                        };
+                        // P4.7 — catch `: any` reconstructs an Any-box from
+                        // (tag, value). Read tag FIRST (no side-effects),
+                        // then value (clears active). The order matters —
+                        // throw_take's body store-zeroes __torajs_throw_active
+                        // but leaves the tag/value globals untouched, so the
+                        // peek-tag call must come before throw_take.
+                        let slot_v = if matches!(e_ty, Type::Any) {
+                            let tag_v = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(self.intrinsics.throw_take_tag, vec![]),
+                                Type::I64,
+                                None,
+                            );
+                            let val_v = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(self.intrinsics.throw_take, vec![]),
+                                Type::I64,
+                                Some(p),
+                            );
+                            let boxed = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(
+                                    self.intrinsics.any_box,
+                                    vec![Operand::Value(tag_v), Operand::Value(val_v)],
+                                ),
+                                Type::Any,
+                                None,
+                            );
+                            Operand::Value(boxed)
+                        } else {
+                            let v = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(self.intrinsics.throw_take, vec![]),
+                                Type::I64,
+                                Some(p),
+                            );
+                            Operand::Value(v)
+                        };
+                        let slot = self.alloca(e_ty, Some(p));
+                        // For ptr-shaped e_ty the backend's cast helper
+                        // turns the i64 throw_take result into a ptr at
+                        // the Store; same shape as M6.1's ptr↔i64 path.
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Store(slot_v, Operand::Value(slot), 0),
                         );
-                        Operand::Value(boxed)
+                        self.locals.insert(
+                            p.clone(),
+                            LocalInfo {
+                                slot,
+                                ty: e_ty,
+                                // M4.3 fix — caught value is OWNED by the
+                                // catch local. throw_take() cleared the
+                                // global, so the heap behind `e` is now
+                                // ours; if catch falls through, the scope-
+                                // close drop below frees it. consume rules
+                                // (return e / throw e) flip moved=true via
+                                // the standard machinery.
+                                moved: false,
+                                scope_depth: self.scope_stack.len() - 1,
+                            },
+                        );
+                        self.scope_stack.last_mut().unwrap().push(p.clone());
                     } else {
-                        let v = self.f.append_inst(
+                        self.f.append_void(
                             self.cur_block,
                             InstKind::Call(self.intrinsics.throw_take, vec![]),
-                            Type::I64,
-                            Some(p),
                         );
-                        Operand::Value(v)
-                    };
-                    let slot = self.alloca(e_ty, Some(p));
-                    // For ptr-shaped e_ty the backend's cast helper
-                    // turns the i64 throw_take result into a ptr at
-                    // the Store; same shape as M6.1's ptr↔i64 path.
-                    self.f.append_void(
-                        self.cur_block,
-                        InstKind::Store(slot_v, Operand::Value(slot), 0),
-                    );
-                    self.locals.insert(
-                        p.clone(),
-                        LocalInfo {
-                            slot,
-                            ty: e_ty,
-                            // M4.3 fix — caught value is OWNED by the
-                            // catch local. throw_take() cleared the
-                            // global, so the heap behind `e` is now
-                            // ours; if catch falls through, the scope-
-                            // close drop below frees it. consume rules
-                            // (return e / throw e) flip moved=true via
-                            // the standard machinery.
-                            moved: false,
-                            scope_depth: self.scope_stack.len() - 1,
-                        },
-                    );
-                    self.scope_stack.last_mut().unwrap().push(p.clone());
-                } else {
-                    self.f.append_void(
-                        self.cur_block,
-                        InstKind::Call(self.intrinsics.throw_take, vec![]),
-                    );
-                }
-                if let Some(fb) = finally_blk {
-                    self.try_stack.push(fb);
-                }
-                for s in catch_body {
-                    self.lower_stmt(s);
-                    if !self.cur_open() {
-                        break;
                     }
-                }
-                if finally_blk.is_some() {
-                    self.try_stack.pop();
-                }
-                if self.cur_open() {
-                    // M4.3 fix — drop owned non-Copy locals declared in
-                    // the catch scope (including the catch param if not
-                    // consumed by `return e` / `throw e`). Mirrors
-                    // Stmt::Block's scope-close drop loop. Without this,
-                    // catch (e: string) { fall-through } leaked the
-                    // whole string heap on every iteration.
-                    let frame_names: Vec<String> = self
-                        .scope_stack
-                        .last()
-                        .map(|f| f.clone())
-                        .unwrap_or_default();
-                    for name in &frame_names {
-                        let info = match self.locals.get(name) {
-                            Some(i) => *i,
-                            None => continue,
-                        };
-                        if info.moved || info.ty.is_copy() {
-                            continue;
+                    if let Some(fb) = finally_blk {
+                        self.try_stack.push(fb);
+                    }
+                    for s in catch_body {
+                        self.lower_stmt(s);
+                        if !self.cur_open() {
+                            break;
                         }
-                        let val = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Load(info.ty, Operand::Value(info.slot), 0),
-                            info.ty,
-                            None,
-                        );
-                        self.emit_drop_value(Operand::Value(val), info.ty);
                     }
-                    let cb = self.cur_block;
-                    self.f.set_term(cb, Terminator::Br(post_target));
-                }
-                // Match Stmt::Block's discipline — when popping the
-                // catch scope, also remove its locals from self.locals.
-                // Without this, `e` lingered as "owned" and fn-end
-                // drop emission tried to drop it in the after_blk
-                // (which is unreachable when both body+catch return),
-                // producing cross-block value references that cranelift
-                // rejects ("unmapped SSA value N").
-                let catch_frame = self.scope_stack.pop().unwrap_or_default();
-                let catch_shadows = self.shadow_stack.pop().unwrap_or_default();
-                for name in catch_frame {
-                    self.locals.remove(&name);
-                }
-                for (name, prev) in catch_shadows {
-                    self.locals.insert(name, prev);
-                }
+                    if finally_blk.is_some() {
+                        self.try_stack.pop();
+                    }
+                    if self.cur_open() {
+                        // M4.3 fix — drop owned non-Copy locals declared in
+                        // the catch scope (including the catch param if not
+                        // consumed by `return e` / `throw e`). Mirrors
+                        // Stmt::Block's scope-close drop loop. Without this,
+                        // catch (e: string) { fall-through } leaked the
+                        // whole string heap on every iteration.
+                        let frame_names: Vec<String> = self
+                            .scope_stack
+                            .last()
+                            .map(|f| f.clone())
+                            .unwrap_or_default();
+                        for name in &frame_names {
+                            let info = match self.locals.get(name) {
+                                Some(i) => *i,
+                                None => continue,
+                            };
+                            if info.moved || info.ty.is_copy() {
+                                continue;
+                            }
+                            let val = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Load(info.ty, Operand::Value(info.slot), 0),
+                                info.ty,
+                                None,
+                            );
+                            self.emit_drop_value(Operand::Value(val), info.ty);
+                        }
+                        let cb = self.cur_block;
+                        self.f.set_term(cb, Terminator::Br(post_target));
+                    }
+                    // Match Stmt::Block's discipline — when popping the
+                    // catch scope, also remove its locals from self.locals.
+                    // Without this, `e` lingered as "owned" and fn-end
+                    // drop emission tried to drop it in the after_blk
+                    // (which is unreachable when both body+catch return),
+                    // producing cross-block value references that cranelift
+                    // rejects ("unmapped SSA value N").
+                    let catch_frame = self.scope_stack.pop().unwrap_or_default();
+                    let catch_shadows = self.shadow_stack.pop().unwrap_or_default();
+                    for name in catch_frame {
+                        self.locals.remove(&name);
+                    }
+                    for (name, prev) in catch_shadows {
+                        self.locals.insert(name, prev);
+                    }
                 } // close `if let Some(catch_blk) = catch_blk`
 
                 // finally — runs on every normal+catch fall-through
@@ -11667,11 +11896,7 @@ impl<'a> LowerCtx<'a> {
                         );
                         let throw_cmp = self.f.append_inst(
                             self.cur_block,
-                            InstKind::ICmp(
-                                IPred::Ne,
-                                Operand::Value(active),
-                                Operand::ConstI64(0),
-                            ),
+                            InstKind::ICmp(IPred::Ne, Operand::Value(active), Operand::ConstI64(0)),
                             Type::Bool,
                             None,
                         );
@@ -11752,10 +11977,8 @@ impl<'a> LowerCtx<'a> {
                                 );
                                 self.emit_drops_for_owned_locals();
                                 let cb4 = self.cur_block;
-                                self.f.set_term(
-                                    cb4,
-                                    Terminator::Ret(Some(Operand::Value(v))),
-                                );
+                                self.f
+                                    .set_term(cb4, Terminator::Ret(Some(Operand::Value(v))));
                             }
                             self.cur_block = no_ret_blk;
                         }
@@ -11794,20 +12017,14 @@ impl<'a> LowerCtx<'a> {
                             // iteration if it were continue) would
                             // spuriously re-fire pending_break.
                             let cur_loop_len = self.loop_stack.len();
-                            let outer_in_same_loop = self
-                                .try_finally_loop_depth
-                                .last()
-                                .copied()
-                                == Some(cur_loop_len);
+                            let outer_in_same_loop =
+                                self.try_finally_loop_depth.last().copied() == Some(cur_loop_len);
                             if outer_in_same_loop
-                                && let Some(outer_fb) =
-                                    self.try_finally_stack.last().copied()
+                                && let Some(outer_fb) = self.try_finally_stack.last().copied()
                             {
                                 let cb4 = self.cur_block;
                                 self.f.set_term(cb4, Terminator::Br(outer_fb));
-                            } else if let Some((_, brk_target)) =
-                                self.loop_stack.last().copied()
-                            {
+                            } else if let Some((_, brk_target)) = self.loop_stack.last().copied() {
                                 self.f.append_void(
                                     self.cur_block,
                                     InstKind::Store(
@@ -11849,20 +12066,14 @@ impl<'a> LowerCtx<'a> {
                             );
                             self.cur_block = cont_blk;
                             let cur_loop_len = self.loop_stack.len();
-                            let outer_in_same_loop = self
-                                .try_finally_loop_depth
-                                .last()
-                                .copied()
-                                == Some(cur_loop_len);
+                            let outer_in_same_loop =
+                                self.try_finally_loop_depth.last().copied() == Some(cur_loop_len);
                             if outer_in_same_loop
-                                && let Some(outer_fb) =
-                                    self.try_finally_stack.last().copied()
+                                && let Some(outer_fb) = self.try_finally_stack.last().copied()
                             {
                                 let cb4 = self.cur_block;
                                 self.f.set_term(cb4, Terminator::Br(outer_fb));
-                            } else if let Some((cont_target, _)) =
-                                self.loop_stack.last().copied()
-                            {
+                            } else if let Some((cont_target, _)) = self.loop_stack.last().copied() {
                                 // Clear flag before jumping — otherwise
                                 // the same try-finally re-fires on the
                                 // next iteration's pass through.
@@ -11992,11 +12203,7 @@ impl<'a> LowerCtx<'a> {
                     }
                     self.f.append_void(
                         self.cur_block,
-                        InstKind::Store(
-                            Operand::ConstBool(true),
-                            Operand::Value(flag),
-                            0,
-                        ),
+                        InstKind::Store(Operand::ConstBool(true), Operand::Value(flag), 0),
                     );
                     let cb = self.cur_block;
                     self.f.set_term(cb, Terminator::Br(target));
@@ -12039,9 +12246,7 @@ impl<'a> LowerCtx<'a> {
                     // annotation and keeps the raw value; coercing
                     // here would *change* the value) — left to its
                     // pre-existing path, tracked as B-ret-any-nonnum.
-                    if actual == Type::Any
-                        && matches!(self.f.ret, Type::I64 | Type::F64)
-                    {
+                    if actual == Type::Any && matches!(self.f.ret, Type::I64 | Type::F64) {
                         return self.coerce_any_to_number(op, self.f.ret);
                     }
                     if self.f.ret == Type::F64 && actual == Type::I64 {
@@ -12058,10 +12263,7 @@ impl<'a> LowerCtx<'a> {
                     } else if self.f.ret == Type::Str && actual == Type::Substr {
                         let v = self.f.append_inst(
                             self.cur_block,
-                            InstKind::Call(
-                                self.intrinsics.substr_to_owned,
-                                vec![op],
-                            ),
+                            InstKind::Call(self.intrinsics.substr_to_owned, vec![op]),
                             Type::Str,
                             None,
                         );
@@ -12070,8 +12272,7 @@ impl<'a> LowerCtx<'a> {
                         // owned Str now carries the bytes.
                         self.emit_drop_value(op, Type::Substr);
                         Operand::Value(v)
-                    } else if let (Type::Arr(want_id), Type::Arr(got_id))
-                        = (self.f.ret, actual)
+                    } else if let (Type::Arr(want_id), Type::Arr(got_id)) = (self.f.ret, actual)
                         && self.arr_layouts[want_id.0 as usize] == Type::Str
                         && self.arr_layouts[got_id.0 as usize] == Type::Substr
                     {
@@ -12154,15 +12355,10 @@ impl<'a> LowerCtx<'a> {
         // intends to mutate the bytes in place (none today, but a
         // future builder might) must clone first.
         let bytes = s.as_bytes().to_vec();
-        let sid =
-            ssa::StringId((self.string_id_base + self.new_strings.len()) as u32);
+        let sid = ssa::StringId((self.string_id_base + self.new_strings.len()) as u32);
         self.new_strings.push(bytes);
-        self.f.append_inst(
-            self.cur_block,
-            InstKind::StaticStrRef(sid),
-            Type::Str,
-            None,
-        )
+        self.f
+            .append_inst(self.cur_block, InstKind::StaticStrRef(sid), Type::Str, None)
     }
 
     /// T-10.c (v0.4.0) — cheap AST-shape probe for Array literal
@@ -12319,19 +12515,12 @@ impl<'a> LowerCtx<'a> {
                 _ if v_ty.is_refcounted() => {
                     self.f.append_void(
                         self.cur_block,
-                        InstKind::Call(
-                            self.intrinsics.rc_inc,
-                            vec![v_raw.clone()],
-                        ),
+                        InstKind::Call(self.intrinsics.rc_inc, vec![v_raw.clone()]),
                     );
                     (4, v_raw)
                 }
-                Type::Ptr if matches!(v_raw, Operand::ConstPtrNull) => {
-                    (0, Operand::ConstI64(0))
-                }
-                _ => panic!(
-                    "ssa-lower: dynobj init unsupported field type {v_ty:?}"
-                ),
+                Type::Ptr if matches!(v_raw, Operand::ConstPtrNull) => (0, Operand::ConstI64(0)),
+                _ => panic!("ssa-lower: dynobj init unsupported field type {v_ty:?}"),
             };
             let key_str = self.intern_string_literal(&fname);
             let slot = self.alloca(Type::Ptr, Some("__dynobj_init_slot"));
@@ -12470,9 +12659,7 @@ impl<'a> LowerCtx<'a> {
             Type::Ptr if matches!(val, Operand::ConstPtrNull) => {
                 (Operand::ConstI64(0), Operand::ConstI64(0))
             }
-            other => panic!(
-                "ssa-lower: box_to_tag_value type {other:?} not supported"
-            ),
+            other => panic!("ssa-lower: box_to_tag_value type {other:?} not supported"),
         }
     }
 
@@ -12545,12 +12732,7 @@ impl<'a> LowerCtx<'a> {
             self.cur_block,
             InstKind::Call(
                 self.intrinsics.dynobj_set,
-                vec![
-                    Operand::Value(slot),
-                    Operand::Value(key_str),
-                    tag,
-                    val_op,
-                ],
+                vec![Operand::Value(slot), Operand::Value(key_str), tag, val_op],
             ),
         );
         // P3.attribute-flag-tracking — fnprops user assign can hit a
@@ -12565,11 +12747,7 @@ impl<'a> LowerCtx<'a> {
         );
         self.f.append_void(
             self.cur_block,
-            InstKind::Store(
-                Operand::Value(new_live),
-                closure_op,
-                CLOSURE_PROPS_OFF,
-            ),
+            InstKind::Store(Operand::Value(new_live), closure_op, CLOSURE_PROPS_OFF),
         );
     }
 
@@ -12707,9 +12885,7 @@ impl<'a> LowerCtx<'a> {
                     (4, val)
                 }
             }
-            other => panic!(
-                "ssa-lower: box_to_any element type {other:?} not supported"
-            ),
+            other => panic!("ssa-lower: box_to_any element type {other:?} not supported"),
         };
         let v = self.f.append_inst(
             self.cur_block,
@@ -12738,7 +12914,10 @@ impl<'a> LowerCtx<'a> {
             .count() as i64;
         let mut arr = self.f.append_inst(
             self.cur_block,
-            InstKind::Call(self.intrinsics.arr_alloc_any, vec![Operand::ConstI64(literal_count)]),
+            InstKind::Call(
+                self.intrinsics.arr_alloc_any,
+                vec![Operand::ConstI64(literal_count)],
+            ),
             Type::Arr(arr_id),
             None,
         );
@@ -12946,7 +13125,9 @@ impl<'a> LowerCtx<'a> {
                         // `__torajs_arr_alloc_any_filled`. Look it up
                         // by name since we didn't store its FuncId
                         // in the Intrinsics struct.
-                        *self.fn_table.get("__torajs_arr_alloc_any_filled")
+                        *self
+                            .fn_table
+                            .get("__torajs_arr_alloc_any_filled")
                             .expect("__torajs_arr_alloc_any_filled intrinsic missing"),
                         vec![arg_i64],
                     ),
@@ -12992,10 +13173,7 @@ impl<'a> LowerCtx<'a> {
                     );
                     self.f.append_void(
                         self.cur_block,
-                        InstKind::Call(
-                            self.intrinsics.rc_inc,
-                            vec![Operand::Value(v)],
-                        ),
+                        InstKind::Call(self.intrinsics.rc_inc, vec![Operand::Value(v)]),
                     );
                     return Operand::Value(v);
                 }
@@ -13089,12 +13267,9 @@ impl<'a> LowerCtx<'a> {
                     && let Some(sig_id) = self.fn_sig_ids.get(&fid).copied()
                 {
                     let ty = Type::FnSig(sig_id);
-                    let v = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::FnAddr(fid),
-                        ty,
-                        None,
-                    );
+                    let v = self
+                        .f
+                        .append_inst(self.cur_block, InstKind::FnAddr(fid), ty, None);
                     return Operand::Value(v);
                 }
                 // Top-level `const X = LITERAL` fallback for Copy
@@ -13123,7 +13298,12 @@ impl<'a> LowerCtx<'a> {
                         // after assignments. Inlining the original
                         // init bakes the pre-write value into every
                         // read site.
-                        if let Stmt::LetDecl { name: n, init, mutable, .. } = s
+                        if let Stmt::LetDecl {
+                            name: n,
+                            init,
+                            mutable,
+                            ..
+                        } = s
                             && n == &name_owned
                             && !*mutable
                         {
@@ -13274,9 +13454,7 @@ impl<'a> LowerCtx<'a> {
                         }
                         let snapshot = match self.locals.get(&name) {
                             Some(i) => *i,
-                            None => panic!(
-                                "ssa-lower: assign to unknown ident `{name}`"
-                            ),
+                            None => panic!("ssa-lower: assign to unknown ident `{name}`"),
                         };
                         // Lower rhs FIRST — it might internally consume the
                         // lhs binding (e.g. `s = s + "x"` — concat takes
@@ -13305,10 +13483,7 @@ impl<'a> LowerCtx<'a> {
                             if needs_inc {
                                 self.f.append_void(
                                     self.cur_block,
-                                    InstKind::Call(
-                                        self.intrinsics.rc_inc,
-                                        vec![v],
-                                    ),
+                                    InstKind::Call(self.intrinsics.rc_inc, vec![v]),
                                 );
                             }
                         }
@@ -13374,8 +13549,7 @@ impl<'a> LowerCtx<'a> {
                             self.box_to_any(v)
                         } else if snapshot.ty == Type::F64 && v_ty == Type::I64 {
                             self.coerce_to_f64(v)
-                        } else if matches!(snapshot.ty, Type::I64 | Type::F64)
-                            && v_ty == Type::Any
+                        } else if matches!(snapshot.ty, Type::I64 | Type::F64) && v_ty == Type::Any
                         {
                             // P7.2b-2 — symmetric to box_to_any above:
                             // Any value into a concrete numeric slot
@@ -13385,31 +13559,19 @@ impl<'a> LowerCtx<'a> {
                         } else {
                             v
                         };
-                        let post_rhs =
-                            *self.locals.get(&name).unwrap_or(&snapshot);
+                        let post_rhs = *self.locals.get(&name).unwrap_or(&snapshot);
                         if !snapshot.ty.is_copy() && !post_rhs.moved {
                             let old = self.f.append_inst(
                                 self.cur_block,
-                                InstKind::Load(
-                                    snapshot.ty,
-                                    Operand::Value(snapshot.slot),
-                                    0,
-                                ),
+                                InstKind::Load(snapshot.ty, Operand::Value(snapshot.slot), 0),
                                 snapshot.ty,
                                 None,
                             );
-                            self.emit_drop_value(
-                                Operand::Value(old),
-                                snapshot.ty,
-                            );
+                            self.emit_drop_value(Operand::Value(old), snapshot.ty);
                         }
                         self.f.append_void(
                             self.cur_block,
-                            InstKind::Store(
-                                v,
-                                Operand::Value(snapshot.slot),
-                                0,
-                            ),
+                            InstKind::Store(v, Operand::Value(snapshot.slot), 0),
                         );
                         // The slot now owns a fresh value — clear `moved`
                         // so subsequent reads work and end-of-fn drop fires.
@@ -13490,7 +13652,11 @@ impl<'a> LowerCtx<'a> {
                                     let slot = self.alloca(Type::Ptr, Some("__dynobj_slot"));
                                     self.f.append_void(
                                         self.cur_block,
-                                        InstKind::Store(Operand::Value(dynobj), Operand::Value(slot), 0),
+                                        InstKind::Store(
+                                            Operand::Value(dynobj),
+                                            Operand::Value(slot),
+                                            0,
+                                        ),
                                     );
                                     self.f.append_void(
                                         self.cur_block,
@@ -13512,10 +13678,7 @@ impl<'a> LowerCtx<'a> {
                                 _ if v_ty.is_refcounted() => {
                                     self.f.append_void(
                                         self.cur_block,
-                                        InstKind::Call(
-                                            self.intrinsics.rc_inc,
-                                            vec![v_raw.clone()],
-                                        ),
+                                        InstKind::Call(self.intrinsics.rc_inc, vec![v_raw.clone()]),
                                     );
                                     (4, v_raw)
                                 }
@@ -13569,11 +13732,7 @@ impl<'a> LowerCtx<'a> {
                             );
                             self.f.append_void(
                                 self.cur_block,
-                                InstKind::Store(
-                                    Operand::Value(new_dynobj),
-                                    obj_val.clone(),
-                                    16,
-                                ),
+                                InstKind::Store(Operand::Value(new_dynobj), obj_val.clone(), 16),
                             );
                             return Operand::ConstI64(0);
                         }
@@ -13588,12 +13747,7 @@ impl<'a> LowerCtx<'a> {
                             let v_raw = self.lower_expr(*value);
                             self.consume_if_ident(*value);
                             let (tag, val_op) = self.box_to_tag_value(v_raw);
-                            self.fn_props_set(
-                                obj_val.clone(),
-                                &field,
-                                tag,
-                                val_op,
-                            );
+                            self.fn_props_set(obj_val.clone(), &field, tag, val_op);
                             return Operand::ConstI64(0);
                         }
                         // T-27.b — FnSig (top-level FnDecl) routes
@@ -13609,12 +13763,7 @@ impl<'a> LowerCtx<'a> {
                                 self.cur_block,
                                 InstKind::Call(
                                     self.intrinsics.fnprops_set,
-                                    vec![
-                                        obj_val.clone(),
-                                        Operand::Value(key_str),
-                                        tag,
-                                        val_op,
-                                    ],
+                                    vec![obj_val.clone(), Operand::Value(key_str), tag, val_op],
                                 ),
                             );
                             return Operand::ConstI64(0);
@@ -13633,24 +13782,16 @@ impl<'a> LowerCtx<'a> {
                                 self.cur_block,
                                 InstKind::Call(
                                     self.intrinsics.arrprops_set,
-                                    vec![
-                                        obj_val.clone(),
-                                        Operand::Value(key_str),
-                                        tag,
-                                        val_op,
-                                    ],
+                                    vec![obj_val.clone(), Operand::Value(key_str), tag, val_op],
                                 ),
                             );
                             return Operand::ConstI64(0);
                         }
                         let sid = match obj_ty {
                             Type::Obj(sid) => sid,
-                            other => panic!(
-                                "ssa-lower: field assign on non-obj {other:?}"
-                            ),
+                            other => panic!("ssa-lower: field assign on non-obj {other:?}"),
                         };
-                        let layout =
-                            self.struct_layouts[sid.0 as usize].clone();
+                        let layout = self.struct_layouts[sid.0 as usize].clone();
                         let (idx, field_ty) = layout
                             .iter()
                             .enumerate()
@@ -13662,9 +13803,7 @@ impl<'a> LowerCtx<'a> {
                                 }
                             })
                             .unwrap_or_else(|| {
-                                panic!(
-                                    "ssa-lower: struct {sid:?} has no field `{field}`"
-                                )
+                                panic!("ssa-lower: struct {sid:?} has no field `{field}`")
                             });
                         let offset = OBJ_HEADER_SIZE + (idx as u64) * 8;
                         // T-09.d (v0.4.0) — frozen mutation guard.
@@ -13715,15 +13854,10 @@ impl<'a> LowerCtx<'a> {
                                 field_ty,
                                 None,
                             );
-                            self.emit_drop_value(
-                                Operand::Value(old),
-                                field_ty,
-                            );
+                            self.emit_drop_value(Operand::Value(old), field_ty);
                         }
-                        self.f.append_void(
-                            self.cur_block,
-                            InstKind::Store(v, obj_val, offset),
-                        );
+                        self.f
+                            .append_void(self.cur_block, InstKind::Store(v, obj_val, offset));
                         v
                     }
                     Expr::Index { obj, index } => {
@@ -13733,12 +13867,8 @@ impl<'a> LowerCtx<'a> {
                         let arr_val = self.lower_expr(obj);
                         let arr_ty = self.operand_ty(&arr_val);
                         let elem_ty = match arr_ty {
-                            Type::Arr(arr_id) => {
-                                self.arr_layouts[arr_id.0 as usize]
-                            }
-                            other => panic!(
-                                "ssa-lower: index assign on non-array {other:?}"
-                            ),
+                            Type::Arr(arr_id) => self.arr_layouts[arr_id.0 as usize],
+                            other => panic!("ssa-lower: index assign on non-array {other:?}"),
                         };
                         let idx_val = self.lower_expr(index);
                         // P0.10 — Array<Any>[i] = <concrete>. The Any
@@ -13828,22 +13958,13 @@ impl<'a> LowerCtx<'a> {
                                 self.cur_block,
                                 InstKind::Call(
                                     self.intrinsics.arr_set_any,
-                                    vec![
-                                        arr_val,
-                                        idx_val,
-                                        Operand::ConstI64(tag),
-                                        value_op,
-                                    ],
+                                    vec![arr_val, idx_val, Operand::ConstI64(tag), value_op],
                                 ),
                             );
                             return v_raw;
                         }
                         // T-13.5: head-aware byte offset for indexed assign.
-                        let offset = self.emit_arr_slot_byte_offset(
-                            arr_val.clone(),
-                            idx_val,
-                            3,
-                        );
+                        let offset = self.emit_arr_slot_byte_offset(arr_val.clone(), idx_val, 3);
                         let v = self.lower_expr(*value);
                         self.consume_if_ident(*value);
                         // Drop old elem if non-Copy. M1.2 MVP only ships
@@ -13853,32 +13974,17 @@ impl<'a> LowerCtx<'a> {
                         if !elem_ty.is_copy() {
                             let old = self.f.append_inst(
                                 self.cur_block,
-                                InstKind::LoadDyn(
-                                    elem_ty,
-                                    arr_val.clone(),
-                                    offset.clone(),
-                                ),
+                                InstKind::LoadDyn(elem_ty, arr_val.clone(), offset.clone()),
                                 elem_ty,
                                 None,
                             );
-                            self.emit_drop_value(
-                                Operand::Value(old),
-                                elem_ty,
-                            );
+                            self.emit_drop_value(Operand::Value(old), elem_ty);
                         }
-                        self.f.append_void(
-                            self.cur_block,
-                            InstKind::StoreDyn(
-                                v,
-                                arr_val,
-                                offset,
-                            ),
-                        );
+                        self.f
+                            .append_void(self.cur_block, InstKind::StoreDyn(v, arr_val, offset));
                         v
                     }
-                    other => panic!(
-                        "ssa-lower: unsupported assign target: {other:?}"
-                    ),
+                    other => panic!("ssa-lower: unsupported assign target: {other:?}"),
                 }
             }
             Expr::BinOp { op, left, right } => {
@@ -13906,8 +14012,7 @@ impl<'a> LowerCtx<'a> {
                         Expr::Ident(n) if n == "undefined");
                     let r_is_null = matches!(self.ast.get_expr(*right), Expr::Null);
                     if (l_is_undef || l_is_null) && (r_is_undef || r_is_null) {
-                        let same = (l_is_undef && r_is_undef)
-                            || (l_is_null && r_is_null);
+                        let same = (l_is_undef && r_is_undef) || (l_is_null && r_is_null);
                         let result = if matches!(*op, AstBinOp::Eq) {
                             same
                         } else {
@@ -13950,9 +14055,7 @@ impl<'a> LowerCtx<'a> {
                 // str_concat_runtime for the matching change.
                 // P1.5/P1.8 — pass the operand ExprIds so the Eq/Neq
                 // Any-side packing can pick ANY_UNDEF=5 vs ANY_NULL=0.
-                let result = self.lower_binop_with_ids(
-                    *op, a, b, Some(*left), Some(*right),
-                );
+                let result = self.lower_binop_with_ids(*op, a, b, Some(*left), Some(*right));
                 // Drop fresh-owned refcounted operands left over from
                 // BinOp on Str / Substr (Eq / Neq / Add). lower_binop
                 // doesn't consume — every concat / str_eq path keeps
@@ -14077,10 +14180,7 @@ impl<'a> LowerCtx<'a> {
                             // the sign-preserving FSub from -0.0.
                             let r = self.f.append_inst(
                                 self.cur_block,
-                                InstKind::Call(
-                                    self.intrinsics.str_to_number,
-                                    vec![v],
-                                ),
+                                InstKind::Call(self.intrinsics.str_to_number, vec![v]),
                                 Type::F64,
                                 None,
                             );
@@ -14100,10 +14200,7 @@ impl<'a> LowerCtx<'a> {
                             // f64 so NaN can survive parse failures.
                             let r = self.f.append_inst(
                                 self.cur_block,
-                                InstKind::Call(
-                                    self.intrinsics.str_to_number,
-                                    vec![v],
-                                ),
+                                InstKind::Call(self.intrinsics.str_to_number, vec![v]),
                                 Type::F64,
                                 None,
                             );
@@ -14130,11 +14227,7 @@ impl<'a> LowerCtx<'a> {
                         let v = self.coerce_to_bool(v);
                         let r = self.f.append_inst(
                             self.cur_block,
-                            InstKind::BinOp(
-                                SsaBinOp::Xor,
-                                v,
-                                Operand::ConstBool(true),
-                            ),
+                            InstKind::BinOp(SsaBinOp::Xor, v, Operand::ConstBool(true)),
                             Type::Bool,
                             None,
                         );
@@ -14150,10 +14243,7 @@ impl<'a> LowerCtx<'a> {
                                 // arithmetic path (caller side).
                                 let r = self.f.append_inst(
                                     self.cur_block,
-                                    InstKind::Call(
-                                        self.intrinsics.bigint_neg,
-                                        vec![v],
-                                    ),
+                                    InstKind::Call(self.intrinsics.bigint_neg, vec![v]),
                                     Type::BigInt,
                                     None,
                                 );
@@ -14178,11 +14268,7 @@ impl<'a> LowerCtx<'a> {
                                 // signed zeros.
                                 let r = self.f.append_inst(
                                     self.cur_block,
-                                    InstKind::BinOp(
-                                        SsaBinOp::FSub,
-                                        Operand::ConstF64(-0.0),
-                                        v,
-                                    ),
+                                    InstKind::BinOp(SsaBinOp::FSub, Operand::ConstF64(-0.0), v),
                                     Type::F64,
                                     None,
                                 );
@@ -14191,11 +14277,7 @@ impl<'a> LowerCtx<'a> {
                             _ => {
                                 let r = self.f.append_inst(
                                     self.cur_block,
-                                    InstKind::BinOp(
-                                        SsaBinOp::Sub,
-                                        Operand::ConstI64(0),
-                                        v,
-                                    ),
+                                    InstKind::BinOp(SsaBinOp::Sub, Operand::ConstI64(0), v),
                                     Type::I64,
                                     None,
                                 );
@@ -14223,11 +14305,7 @@ impl<'a> LowerCtx<'a> {
                         // all values that fit in int32.
                         let r = self.f.append_inst(
                             self.cur_block,
-                            InstKind::BinOp(
-                                SsaBinOp::Xor,
-                                v,
-                                Operand::ConstI64(-1),
-                            ),
+                            InstKind::BinOp(SsaBinOp::Xor, v, Operand::ConstI64(-1)),
                             Type::I64,
                             None,
                         );
@@ -14381,10 +14459,7 @@ impl<'a> LowerCtx<'a> {
                                 // NaN can't fit i64.
                                 let v = self.f.append_inst(
                                     self.cur_block,
-                                    InstKind::Call(
-                                        self.intrinsics.str_to_number,
-                                        vec![arg_op],
-                                    ),
+                                    InstKind::Call(self.intrinsics.str_to_number, vec![arg_op]),
                                     Type::F64,
                                     None,
                                 );
@@ -14399,38 +14474,26 @@ impl<'a> LowerCtx<'a> {
                             Type::Str | Type::Substr => arg_op,
                             Type::I64 => Operand::Value(self.f.append_inst(
                                 self.cur_block,
-                                InstKind::Call(
-                                    self.intrinsics.i64_to_str,
-                                    vec![arg_op],
-                                ),
+                                InstKind::Call(self.intrinsics.i64_to_str, vec![arg_op]),
                                 Type::Str,
                                 None,
                             )),
                             Type::F64 => Operand::Value(self.f.append_inst(
                                 self.cur_block,
-                                InstKind::Call(
-                                    self.intrinsics.f64_to_str,
-                                    vec![arg_op],
-                                ),
+                                InstKind::Call(self.intrinsics.f64_to_str, vec![arg_op]),
                                 Type::Str,
                                 None,
                             )),
                             Type::Bool => Operand::Value(self.f.append_inst(
                                 self.cur_block,
-                                InstKind::Call(
-                                    self.intrinsics.bool_to_str,
-                                    vec![arg_op],
-                                ),
+                                InstKind::Call(self.intrinsics.bool_to_str, vec![arg_op]),
                                 Type::Str,
                                 None,
                             )),
                             Type::Ptr if matches!(arg_op, Operand::ConstPtrNull) => {
                                 Operand::Value(self.f.append_inst(
                                     self.cur_block,
-                                    InstKind::Call(
-                                        self.intrinsics.null_to_str,
-                                        vec![],
-                                    ),
+                                    InstKind::Call(self.intrinsics.null_to_str, vec![]),
                                     Type::Str,
                                     None,
                                 ))
@@ -14520,18 +14583,36 @@ impl<'a> LowerCtx<'a> {
                 // toString returns "[object NS]" (close enough for the
                 // test262 cases probing the call-doesn't-throw
                 // behavior).
-                if let Expr::Member { obj: recv_id, name: m_name } =
-                    self.ast.get_expr(*callee)
+                if let Expr::Member {
+                    obj: recv_id,
+                    name: m_name,
+                } = self.ast.get_expr(*callee)
                     && let Expr::Ident(ns) = self.ast.get_expr(*recv_id)
-                    && matches!(ns.as_str(),
-                        "Number" | "String" | "Boolean" | "Symbol"
-                        | "BigInt" | "Object" | "Array" | "Math"
-                        | "JSON" | "Reflect" | "RegExp" | "Date"
-                        | "Error" | "Promise" | "Map" | "Set"
-                        | "console" | "Function")
-                    && matches!(m_name.as_str(),
-                        "hasOwnProperty" | "propertyIsEnumerable"
-                        | "isPrototypeOf")
+                    && matches!(
+                        ns.as_str(),
+                        "Number"
+                            | "String"
+                            | "Boolean"
+                            | "Symbol"
+                            | "BigInt"
+                            | "Object"
+                            | "Array"
+                            | "Math"
+                            | "JSON"
+                            | "Reflect"
+                            | "RegExp"
+                            | "Date"
+                            | "Error"
+                            | "Promise"
+                            | "Map"
+                            | "Set"
+                            | "console"
+                            | "Function"
+                    )
+                    && matches!(
+                        m_name.as_str(),
+                        "hasOwnProperty" | "propertyIsEnumerable" | "isPrototypeOf"
+                    )
                 {
                     // Compile-time lookup: if args[0] is a string literal,
                     // check whether the name is a known own property of
@@ -14567,15 +14648,32 @@ impl<'a> LowerCtx<'a> {
                     }
                     return Operand::ConstBool(result);
                 }
-                if let Expr::Member { obj: recv_id, name: m_name } =
-                    self.ast.get_expr(*callee)
+                if let Expr::Member {
+                    obj: recv_id,
+                    name: m_name,
+                } = self.ast.get_expr(*callee)
                     && let Expr::Ident(ns) = self.ast.get_expr(*recv_id)
-                    && matches!(ns.as_str(),
-                        "Number" | "String" | "Boolean" | "Symbol"
-                        | "BigInt" | "Object" | "Array" | "Math"
-                        | "JSON" | "Reflect" | "RegExp" | "Date"
-                        | "Error" | "Promise" | "Map" | "Set"
-                        | "console" | "Function")
+                    && matches!(
+                        ns.as_str(),
+                        "Number"
+                            | "String"
+                            | "Boolean"
+                            | "Symbol"
+                            | "BigInt"
+                            | "Object"
+                            | "Array"
+                            | "Math"
+                            | "JSON"
+                            | "Reflect"
+                            | "RegExp"
+                            | "Date"
+                            | "Error"
+                            | "Promise"
+                            | "Map"
+                            | "Set"
+                            | "console"
+                            | "Function"
+                    )
                     && m_name == "toString"
                 {
                     let s = format!("function {ns}() {{ [native code] }}");
@@ -14617,12 +14715,9 @@ impl<'a> LowerCtx<'a> {
                                         Type::Ptr,
                                         None,
                                     );
-                                    let argv: Vec<Operand> = args
-                                        .iter()
-                                        .map(|a| self.lower_expr(*a))
-                                        .collect();
-                                    let (_params, ret_ty) =
-                                        self.fn_sigs[sig_id.0 as usize].clone();
+                                    let argv: Vec<Operand> =
+                                        args.iter().map(|a| self.lower_expr(*a)).collect();
+                                    let (_params, ret_ty) = self.fn_sigs[sig_id.0 as usize].clone();
                                     if ret_ty == Type::Void {
                                         self.f.append_void(
                                             self.cur_block,
@@ -14676,13 +14771,9 @@ impl<'a> LowerCtx<'a> {
                                         Vec::with_capacity(user_params.len() + 1);
                                     env_first_params.push(Type::Ptr);
                                     env_first_params.extend(user_params);
-                                    let env_first_sig = intern_fn_sig(
-                                        self.fn_sigs,
-                                        env_first_params,
-                                        ret_ty,
-                                    );
-                                    let mut argv: Vec<Operand> =
-                                        Vec::with_capacity(args.len() + 1);
+                                    let env_first_sig =
+                                        intern_fn_sig(self.fn_sigs, env_first_params, ret_ty);
+                                    let mut argv: Vec<Operand> = Vec::with_capacity(args.len() + 1);
                                     argv.push(Operand::Value(closure_env));
                                     for a in args {
                                         argv.push(self.lower_expr(*a));
@@ -14726,18 +14817,32 @@ impl<'a> LowerCtx<'a> {
                 // (class instance objects). Catch BEFORE any other
                 // Member-method dispatch since these names overlap
                 // nothing else.
-                if let Expr::Member { obj: recv_id, name: m_name } =
-                    self.ast.get_expr(*callee)
-                    && matches!(m_name.as_str(),
-                        "valueOf" | "hasOwnProperty" | "propertyIsEnumerable"
-                        | "isPrototypeOf" | "toString")
+                if let Expr::Member {
+                    obj: recv_id,
+                    name: m_name,
+                } = self.ast.get_expr(*callee)
+                    && matches!(
+                        m_name.as_str(),
+                        "valueOf"
+                            | "hasOwnProperty"
+                            | "propertyIsEnumerable"
+                            | "isPrototypeOf"
+                            | "toString"
+                    )
                 {
                     let recv_op = self.lower_expr(*recv_id);
                     let recv_ty = self.operand_ty(&recv_op);
-                    let is_prim = matches!(recv_ty,
-                        Type::F64 | Type::I64 | Type::I32
-                        | Type::Str | Type::Substr | Type::Bool
-                        | Type::BigInt | Type::Symbol);
+                    let is_prim = matches!(
+                        recv_ty,
+                        Type::F64
+                            | Type::I64
+                            | Type::I32
+                            | Type::Str
+                            | Type::Substr
+                            | Type::Bool
+                            | Type::BigInt
+                            | Type::Symbol
+                    );
                     let is_obj = matches!(recv_ty, Type::Obj(_));
                     if is_prim || is_obj {
                         // valueOf returns the receiver as-is (identity).
@@ -14771,8 +14876,10 @@ impl<'a> LowerCtx<'a> {
                             //     Each name is interned as a literal Str
                             //     (zero-alloc for the comparison).
                             if let Type::Obj(sid) = recv_ty
-                                && matches!(m_name.as_str(),
-                                    "hasOwnProperty" | "propertyIsEnumerable")
+                                && matches!(
+                                    m_name.as_str(),
+                                    "hasOwnProperty" | "propertyIsEnumerable"
+                                )
                                 && let Some(arg_eid) = args.first()
                             {
                                 if let Expr::String(key) = self.ast.get_expr(*arg_eid) {
@@ -14865,15 +14972,11 @@ impl<'a> LowerCtx<'a> {
                      * + return shape as the base). */
                     let base_fn_name = format!("__cm_{}__{method_name}", owners[0]);
                     let base_fid = *self.fn_table.get(&base_fn_name).unwrap_or_else(|| {
-                        panic!(
-                            "ssa-lower: __dispatch interception lost base fn `{base_fn_name}`"
-                        )
+                        panic!("ssa-lower: __dispatch interception lost base fn `{base_fn_name}`")
                     });
                     let ret_ty = self.f_ret_type_hint(base_fid);
                     let sig_id = *self.fn_sig_ids.get(&base_fid).unwrap_or_else(|| {
-                        panic!(
-                            "ssa-lower: __dispatch base fn `{base_fn_name}` has no SigId"
-                        )
+                        panic!("ssa-lower: __dispatch base fn `{base_fn_name}` has no SigId")
                     });
                     let vt = self.f.append_inst(
                         self.cur_block,
@@ -14883,11 +14986,7 @@ impl<'a> LowerCtx<'a> {
                     );
                     let fn_ptr = self.f.append_inst(
                         self.cur_block,
-                        InstKind::Load(
-                            Type::Ptr,
-                            Operand::Value(vt),
-                            (method_idx as u64) * 8,
-                        ),
+                        InstKind::Load(Type::Ptr, Operand::Value(vt), (method_idx as u64) * 8),
                         Type::Ptr,
                         None,
                     );
@@ -14902,11 +15001,13 @@ impl<'a> LowerCtx<'a> {
                 // `n.toFixed(d)` / `n.toString()` — primitive Number methods.
                 // Receiver is i64 or f64; route to the matching intrinsic
                 // (toString currently returns the same as `String(n)`).
-                if let Expr::Member { obj: recv_id, name: m_name } = self.ast.get_expr(*callee)
+                if let Expr::Member {
+                    obj: recv_id,
+                    name: m_name,
+                } = self.ast.get_expr(*callee)
                     && matches!(
                         m_name.as_str(),
-                        "toFixed" | "toString" | "toLocaleString"
-                        | "toExponential" | "toPrecision"
+                        "toFixed" | "toString" | "toLocaleString" | "toExponential" | "toPrecision"
                     )
                 {
                     let recv_op = self.lower_expr(*recv_id);
@@ -14917,10 +15018,7 @@ impl<'a> LowerCtx<'a> {
                     if recv_ty == Type::BigInt && m_name == "toString" {
                         let v = self.f.append_inst(
                             self.cur_block,
-                            InstKind::Call(
-                                self.intrinsics.bigint_to_string,
-                                vec![recv_op],
-                            ),
+                            InstKind::Call(self.intrinsics.bigint_to_string, vec![recv_op]),
                             Type::Str,
                             None,
                         );
@@ -14932,10 +15030,7 @@ impl<'a> LowerCtx<'a> {
                     {
                         let v = self.f.append_inst(
                             self.cur_block,
-                            InstKind::Call(
-                                self.intrinsics.symbol_to_str,
-                                vec![recv_op],
-                            ),
+                            InstKind::Call(self.intrinsics.symbol_to_str, vec![recv_op]),
                             Type::Str,
                             None,
                         );
@@ -14945,15 +15040,11 @@ impl<'a> LowerCtx<'a> {
                     // toString → "true"/"false" via the bool_to_str
                     // intrinsic (already used by string-coerce). valueOf
                     // is identity on the bool.
-                    if recv_ty == Type::Bool
-                        && (m_name == "toString" || m_name == "toLocaleString")
+                    if recv_ty == Type::Bool && (m_name == "toString" || m_name == "toLocaleString")
                     {
                         let v = self.f.append_inst(
                             self.cur_block,
-                            InstKind::Call(
-                                self.intrinsics.bool_to_str,
-                                vec![recv_op],
-                            ),
+                            InstKind::Call(self.intrinsics.bool_to_str, vec![recv_op]),
                             Type::Str,
                             None,
                         );
@@ -15009,21 +15100,27 @@ impl<'a> LowerCtx<'a> {
                             return Operand::Value(v);
                         }
                         let target = match m_name.as_str() {
-                            "toFixed" => if is_f64 {
-                                self.intrinsics.num_to_fixed_f
-                            } else {
-                                self.intrinsics.num_to_fixed_i
-                            },
-                            "toExponential" => if is_f64 {
-                                self.intrinsics.num_to_exp_f
-                            } else {
-                                self.intrinsics.num_to_exp_i
-                            },
-                            "toPrecision" => if is_f64 {
-                                self.intrinsics.num_to_precision_f
-                            } else {
-                                self.intrinsics.num_to_precision_i
-                            },
+                            "toFixed" => {
+                                if is_f64 {
+                                    self.intrinsics.num_to_fixed_f
+                                } else {
+                                    self.intrinsics.num_to_fixed_i
+                                }
+                            }
+                            "toExponential" => {
+                                if is_f64 {
+                                    self.intrinsics.num_to_exp_f
+                                } else {
+                                    self.intrinsics.num_to_exp_i
+                                }
+                            }
+                            "toPrecision" => {
+                                if is_f64 {
+                                    self.intrinsics.num_to_precision_f
+                                } else {
+                                    self.intrinsics.num_to_precision_i
+                                }
+                            }
                             // toString / toLocaleString: i64_to_str /
                             // f64_to_str — same formatters powering
                             // Number-to-String coercion in `+`. tr's
@@ -15031,11 +15128,13 @@ impl<'a> LowerCtx<'a> {
                             // toLocaleString collapses to the canonical
                             // decimal form (matches bun for ASCII /
                             // POSIX locales).
-                            _ => if is_f64 {
-                                self.intrinsics.f64_to_str
-                            } else {
-                                self.intrinsics.i64_to_str
-                            },
+                            _ => {
+                                if is_f64 {
+                                    self.intrinsics.f64_to_str
+                                } else {
+                                    self.intrinsics.i64_to_str
+                                }
+                            }
                         };
                         let mut argv = vec![recv_op];
                         for a in args {
@@ -15056,8 +15155,7 @@ impl<'a> LowerCtx<'a> {
                         // (toExponential/toPrecision with 0 still
                         // gives reasonable output even if not exact
                         // spec — covered case-by-case in fixtures).
-                        if matches!(m_name.as_str(),
-                            "toFixed" | "toExponential" | "toPrecision")
+                        if matches!(m_name.as_str(), "toFixed" | "toExponential" | "toPrecision")
                             && args.is_empty()
                         {
                             argv.push(Operand::ConstI64(0));
@@ -15072,7 +15170,10 @@ impl<'a> LowerCtx<'a> {
                     }
                 }
                 // `Array.isArray(value)` — compile-time static check.
-                if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
+                if let Expr::Member {
+                    obj: ns_id,
+                    name: m_name,
+                } = self.ast.get_expr(*callee)
                     && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
                     && ns == "Array"
                     && m_name == "isArray"
@@ -15088,10 +15189,18 @@ impl<'a> LowerCtx<'a> {
                     if let Expr::Ident(arg_name) = self.ast.get_expr(args[0])
                         && matches!(
                             arg_name.as_str(),
-                            "Math" | "JSON" | "Array" | "Object"
-                            | "Number" | "String" | "Boolean"
-                            | "Date" | "RegExp" | "Symbol"
-                            | "console" | "globalThis"
+                            "Math"
+                                | "JSON"
+                                | "Array"
+                                | "Object"
+                                | "Number"
+                                | "String"
+                                | "Boolean"
+                                | "Date"
+                                | "RegExp"
+                                | "Symbol"
+                                | "console"
+                                | "globalThis"
                         )
                     {
                         return Operand::ConstBool(false);
@@ -15106,7 +15215,10 @@ impl<'a> LowerCtx<'a> {
                 // type of the argument: primitives → direct formatter,
                 // strings → quote helper, arrays/structs → loop / static
                 // unfold + str_concat chain. No GC, single linear sweep.
-                if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
+                if let Expr::Member {
+                    obj: ns_id,
+                    name: m_name,
+                } = self.ast.get_expr(*callee)
                     && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
                     && ns == "JSON"
                     && m_name == "stringify"
@@ -15120,7 +15232,10 @@ impl<'a> LowerCtx<'a> {
                 // pairwise str_concat builds the final string. Single-arg is
                 // the hot path; multi-arg builds an O(n) chain. Empty arg
                 // list yields the literal "".
-                if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
+                if let Expr::Member {
+                    obj: ns_id,
+                    name: m_name,
+                } = self.ast.get_expr(*callee)
                     && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
                     && ns == "String"
                     && (m_name == "fromCharCode" || m_name == "fromCodePoint")
@@ -15143,10 +15258,7 @@ impl<'a> LowerCtx<'a> {
                             Some(prev) => {
                                 let cat = self.f.append_inst(
                                     self.cur_block,
-                                    InstKind::Call(
-                                        self.intrinsics.str_concat,
-                                        vec![prev, one_op],
-                                    ),
+                                    InstKind::Call(self.intrinsics.str_concat, vec![prev, one_op]),
                                     Type::Str,
                                     None,
                                 );
@@ -15180,11 +15292,14 @@ impl<'a> LowerCtx<'a> {
                                 let else_blk = self.f.add_block();
                                 let after_blk = self.f.add_block();
                                 let slot = self.alloca_in_entry(Type::I64, Some("__bool_n"));
-                                self.f.set_term(self.cur_block, Terminator::CondBr {
-                                    cond: arg,
-                                    then_blk,
-                                    else_blk,
-                                });
+                                self.f.set_term(
+                                    self.cur_block,
+                                    Terminator::CondBr {
+                                        cond: arg,
+                                        then_blk,
+                                        else_blk,
+                                    },
+                                );
                                 self.f.append_void(
                                     then_blk,
                                     InstKind::Store(Operand::ConstI64(1), Operand::Value(slot), 0),
@@ -15211,9 +15326,7 @@ impl<'a> LowerCtx<'a> {
                                 None,
                             )),
                             Type::Ptr => Operand::ConstI64(0), // null → 0
-                            other => panic!(
-                                "ssa-lower: Number() on type {other:?} not supported"
-                            ),
+                            other => panic!("ssa-lower: Number() on type {other:?} not supported"),
                         };
                         return v;
                     } else {
@@ -15242,19 +15355,30 @@ impl<'a> LowerCtx<'a> {
                                 let else_blk = self.f.add_block();
                                 let after_blk = self.f.add_block();
                                 let slot = self.alloca_in_entry(Type::Str, Some("__bool_str"));
-                                self.f.set_term(self.cur_block, Terminator::CondBr {
-                                    cond: arg,
-                                    then_blk,
-                                    else_blk,
-                                });
+                                self.f.set_term(
+                                    self.cur_block,
+                                    Terminator::CondBr {
+                                        cond: arg,
+                                        then_blk,
+                                        else_blk,
+                                    },
+                                );
                                 self.f.append_void(
                                     then_blk,
-                                    InstKind::Store(Operand::Value(true_ptr), Operand::Value(slot), 0),
+                                    InstKind::Store(
+                                        Operand::Value(true_ptr),
+                                        Operand::Value(slot),
+                                        0,
+                                    ),
                                 );
                                 self.f.set_term(then_blk, Terminator::Br(after_blk));
                                 self.f.append_void(
                                     else_blk,
-                                    InstKind::Store(Operand::Value(false_ptr), Operand::Value(slot), 0),
+                                    InstKind::Store(
+                                        Operand::Value(false_ptr),
+                                        Operand::Value(slot),
+                                        0,
+                                    ),
                                 );
                                 self.f.set_term(else_blk, Terminator::Br(after_blk));
                                 self.cur_block = after_blk;
@@ -15266,9 +15390,7 @@ impl<'a> LowerCtx<'a> {
                                 );
                                 Operand::Value(v)
                             }
-                            other => panic!(
-                                "ssa-lower: String() on type {other:?} not supported"
-                            ),
+                            other => panic!("ssa-lower: String() on type {other:?} not supported"),
                         };
                         return v;
                     }
@@ -15355,9 +15477,7 @@ impl<'a> LowerCtx<'a> {
                                     // isNaN(NaN) = true. Drop the
                                     // borrow if fresh-owned to keep
                                     // refcount balanced.
-                                    if arg_ty.is_refcounted()
-                                        && self.expr_is_fresh_owned(args[0])
-                                    {
+                                    if arg_ty.is_refcounted() && self.expr_is_fresh_owned(args[0]) {
                                         self.emit_drop_value(arg_op, arg_ty);
                                     }
                                     return Operand::ConstBool(name == "isNaN");
@@ -15394,8 +15514,10 @@ impl<'a> LowerCtx<'a> {
                 // torajs (see roadmap), so JSON's `null` keyword has no
                 // direct counterpart — programs use the typed union
                 // shape instead.
-                if let Expr::Member { obj: ns_id, name: m_name } =
-                    self.ast.get_expr(*callee)
+                if let Expr::Member {
+                    obj: ns_id,
+                    name: m_name,
+                } = self.ast.get_expr(*callee)
                     && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
                     && ns == "JSON"
                     && m_name == "stringify"
@@ -15407,7 +15529,10 @@ impl<'a> LowerCtx<'a> {
                 }
                 // `Math.hypot` — variadic. Lower as
                 // sqrt(sum of args²) via Mul + Add fold + math_sqrt call.
-                if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
+                if let Expr::Member {
+                    obj: ns_id,
+                    name: m_name,
+                } = self.ast.get_expr(*callee)
                     && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
                     && ns == "Math"
                     && m_name == "hypot"
@@ -15454,7 +15579,10 @@ impl<'a> LowerCtx<'a> {
                 // `Math.min` / `Math.max` — variadic, fold into a pairwise
                 // reduction. ssa-lower emits left-to-right: r = min(a,b);
                 // r = min(r, c); r = min(r, d); ...
-                if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
+                if let Expr::Member {
+                    obj: ns_id,
+                    name: m_name,
+                } = self.ast.get_expr(*callee)
                     && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
                     && ns == "Math"
                     && (m_name == "min" || m_name == "max")
@@ -15502,7 +15630,10 @@ impl<'a> LowerCtx<'a> {
                 // route to a single str-based intrinsic; isInteger /
                 // isNaN / isFinite dispatch on the arg's SSA type at
                 // lower-time (i64 → trivial answer, f64 → runtime check).
-                if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
+                if let Expr::Member {
+                    obj: ns_id,
+                    name: m_name,
+                } = self.ast.get_expr(*callee)
                     && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
                     && ns == "Number"
                 {
@@ -15524,7 +15655,8 @@ impl<'a> LowerCtx<'a> {
                             // through unchecked is a known v0 hole; doc'd
                             // in the test port.
                             let r_ty = self.operand_ty(&r);
-                            if r_ty != Type::I64 && r_ty != Type::I32
+                            if r_ty != Type::I64
+                                && r_ty != Type::I32
                                 && !matches!(r, Operand::ConstI64(_))
                             {
                                 panic!(
@@ -15559,9 +15691,7 @@ impl<'a> LowerCtx<'a> {
                             // is refcounted (string / object / array)
                             // so the const-false return doesn't leak.
                             if !matches!(arg_ty, Type::I64 | Type::F64 | Type::I32) {
-                                if arg_ty.is_refcounted()
-                                    && self.expr_is_fresh_owned(args[0])
-                                {
+                                if arg_ty.is_refcounted() && self.expr_is_fresh_owned(args[0]) {
                                     self.emit_drop_value(arg_op, arg_ty);
                                 }
                                 return Operand::ConstBool(false);
@@ -15573,7 +15703,9 @@ impl<'a> LowerCtx<'a> {
                                 ("isNaN", _) => self.intrinsics.num_is_nan_i,
                                 ("isFinite", Type::F64) => self.intrinsics.num_is_finite_f,
                                 ("isFinite", _) => self.intrinsics.num_is_finite_i,
-                                ("isSafeInteger", Type::F64) => self.intrinsics.num_is_safe_integer_f,
+                                ("isSafeInteger", Type::F64) => {
+                                    self.intrinsics.num_is_safe_integer_f
+                                }
                                 ("isSafeInteger", _) => self.intrinsics.num_is_safe_integer_i,
                                 _ => unreachable!(),
                             };
@@ -15594,7 +15726,10 @@ impl<'a> LowerCtx<'a> {
                 // comes from the first arg; check.rs already verified
                 // every arg unifies on it. Empty `Array.of()` is
                 // rejected upstream (no anchor).
-                if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
+                if let Expr::Member {
+                    obj: ns_id,
+                    name: m_name,
+                } = self.ast.get_expr(*callee)
                     && m_name == "of"
                     && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
                     && ns == "Array"
@@ -15610,20 +15745,13 @@ impl<'a> LowerCtx<'a> {
                     let arr_id = intern_arr_layout(self.arr_layouts, elem_ty);
                     let arr_ptr = self.f.append_inst(
                         self.cur_block,
-                        InstKind::Call(
-                            self.intrinsics.arr_alloc,
-                            vec![Operand::ConstI64(n)],
-                        ),
+                        InstKind::Call(self.intrinsics.arr_alloc, vec![Operand::ConstI64(n)]),
                         Type::Arr(arr_id),
                         None,
                     );
                     self.f.append_void(
                         self.cur_block,
-                        InstKind::Store(
-                            Operand::ConstI64(n),
-                            Operand::Value(arr_ptr),
-                            ARR_LEN_OFF,
-                        ),
+                        InstKind::Store(Operand::ConstI64(n), Operand::Value(arr_ptr), ARR_LEN_OFF),
                     );
                     for (i, val) in elem_vals.iter().enumerate() {
                         let off = ARR_DATA_OFF + (i as u64) * 8;
@@ -15647,7 +15775,10 @@ impl<'a> LowerCtx<'a> {
                 // value-mismatch under writable=false). For Array
                 // obj, the existing arr_set_length_validate /
                 // arrprops_set paths keep their behavior.
-                if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
+                if let Expr::Member {
+                    obj: ns_id,
+                    name: m_name,
+                } = self.ast.get_expr(*callee)
                     && m_name == "defineProperty"
                     && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
                     && ns == "Object"
@@ -15689,15 +15820,21 @@ impl<'a> LowerCtx<'a> {
                     let mut flags_byte: i64 = 0;
                     if let Some(b) = desc_writable {
                         flags_byte |= 1 << 3; // present
-                        if b { flags_byte |= 1 << 0; }
+                        if b {
+                            flags_byte |= 1 << 0;
+                        }
                     }
                     if let Some(b) = desc_enumerable {
                         flags_byte |= 1 << 4;
-                        if b { flags_byte |= 1 << 1; }
+                        if b {
+                            flags_byte |= 1 << 1;
+                        }
                     }
                     if let Some(b) = desc_configurable {
                         flags_byte |= 1 << 5;
-                        if b { flags_byte |= 1 << 2; }
+                        if b {
+                            flags_byte |= 1 << 2;
+                        }
                     }
                     if value_eid.is_some() {
                         flags_byte |= 1 << 6; // value present
@@ -15735,10 +15872,7 @@ impl<'a> LowerCtx<'a> {
                             _ if v_ty.is_refcounted() => {
                                 this.f.append_void(
                                     this.cur_block,
-                                    InstKind::Call(
-                                        this.intrinsics.rc_inc,
-                                        vec![v_raw.clone()],
-                                    ),
+                                    InstKind::Call(this.intrinsics.rc_inc, vec![v_raw.clone()]),
                                 );
                                 (4, v_raw)
                             }
@@ -15798,12 +15932,7 @@ impl<'a> LowerCtx<'a> {
                                 self.cur_block,
                                 InstKind::Call(
                                     self.intrinsics.arrprops_set,
-                                    vec![
-                                        obj_op,
-                                        key_op,
-                                        Operand::ConstI64(tag),
-                                        val_op,
-                                    ],
+                                    vec![obj_op, key_op, Operand::ConstI64(tag), val_op],
                                 ),
                             );
                         }
@@ -15872,11 +16001,7 @@ impl<'a> LowerCtx<'a> {
                     );
                     self.f.append_void(
                         self.cur_block,
-                        InstKind::Store(
-                            Operand::Value(new_dynobj),
-                            obj_op,
-                            16,
-                        ),
+                        InstKind::Store(Operand::Value(new_dynobj), obj_op, 16),
                     );
                     return Operand::ConstI64(0);
                 }
@@ -15888,7 +16013,10 @@ impl<'a> LowerCtx<'a> {
                 // Missing key returns Any-boxed undefined (per spec
                 // §19.1.2.10). Builtin shapes (Array.length etc.) are
                 // a follow-up.
-                if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
+                if let Expr::Member {
+                    obj: ns_id,
+                    name: m_name,
+                } = self.ast.get_expr(*callee)
                     && m_name == "getOwnPropertyDescriptor"
                     && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
                     && ns == "Object"
@@ -15907,7 +16035,10 @@ impl<'a> LowerCtx<'a> {
                     );
                     return Operand::Value(v);
                 }
-                if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
+                if let Expr::Member {
+                    obj: ns_id,
+                    name: m_name,
+                } = self.ast.get_expr(*callee)
                     && m_name == "from"
                     && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
                     && ns == "Array"
@@ -15916,9 +16047,7 @@ impl<'a> LowerCtx<'a> {
                     let arg_op = self.lower_expr(args[0]);
                     let arg_ty = self.operand_ty(&arg_op);
                     if !matches!(arg_ty, Type::Str) {
-                        panic!(
-                            "ssa-lower: Array.from requires a string arg, got {arg_ty:?}"
-                        );
+                        panic!("ssa-lower: Array.from requires a string arg, got {arg_ty:?}");
                     }
                     let arr_id = intern_arr_layout(self.arr_layouts, Type::Str);
                     let v = self.f.append_inst(
@@ -15970,10 +16099,7 @@ impl<'a> LowerCtx<'a> {
                             self.cur_block,
                             InstKind::Call(
                                 self.intrinsics.proto_register,
-                                vec![
-                                    Operand::ConstI64(tag as i64),
-                                    proto_op,
-                                ],
+                                vec![Operand::ConstI64(tag as i64), proto_op],
                             ),
                         );
                     } else {
@@ -16002,10 +16128,7 @@ impl<'a> LowerCtx<'a> {
                             self.cur_block,
                             InstKind::Call(
                                 self.intrinsics.class_register,
-                                vec![
-                                    Operand::ConstI64(tag as i64),
-                                    class_op,
-                                ],
+                                vec![Operand::ConstI64(tag as i64), class_op],
                             ),
                         );
                     } else {
@@ -16108,7 +16231,10 @@ impl<'a> LowerCtx<'a> {
                 // ANY_NULL when no prototype is available (tag 0 /
                 // missing __proto__). Pre-P4.2 the stub returned
                 // ConstPtrNull unconditionally.
-                if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
+                if let Expr::Member {
+                    obj: ns_id,
+                    name: m_name,
+                } = self.ast.get_expr(*callee)
                     && m_name == "getPrototypeOf"
                     && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
                     && ns == "Object"
@@ -16127,10 +16253,7 @@ impl<'a> LowerCtx<'a> {
                     // ident saw a dangling pointer (UAF).
                     let v = self.lower_expr(args[0]);
                     let v_ty = self.operand_ty(&v);
-                    let arg_is_ident = matches!(
-                        self.ast.get_expr(args[0]),
-                        Expr::Ident(_)
-                    );
+                    let arg_is_ident = matches!(self.ast.get_expr(args[0]), Expr::Ident(_));
                     let proto = match v_ty {
                         Type::Obj(_) => {
                             let tag = self.f.append_inst(
@@ -16151,10 +16274,7 @@ impl<'a> LowerCtx<'a> {
                         }
                         Type::Any => self.f.append_inst(
                             self.cur_block,
-                            InstKind::Call(
-                                self.intrinsics.get_proto_of_any,
-                                vec![v.clone()],
-                            ),
+                            InstKind::Call(self.intrinsics.get_proto_of_any, vec![v.clone()]),
                             Type::Any,
                             None,
                         ),
@@ -16177,7 +16297,10 @@ impl<'a> LowerCtx<'a> {
                     // takes ownership without further rc_inc.
                     return Operand::Value(proto);
                 }
-                if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
+                if let Expr::Member {
+                    obj: ns_id,
+                    name: m_name,
+                } = self.ast.get_expr(*callee)
                     && m_name == "assign"
                     && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
                     && ns == "Object"
@@ -16204,10 +16327,7 @@ impl<'a> LowerCtx<'a> {
                                 *fty,
                                 None,
                             );
-                            self.emit_drop_value(
-                                Operand::Value(old),
-                                *fty,
-                            );
+                            self.emit_drop_value(Operand::Value(old), *fty);
                         }
                         // Load source.field (borrow).
                         let src_v = self.f.append_inst(
@@ -16221,11 +16341,7 @@ impl<'a> LowerCtx<'a> {
                             // rc_inc so target gets its own array.
                             let len = self.f.append_inst(
                                 self.cur_block,
-                                InstKind::Load(
-                                    Type::I64,
-                                    Operand::Value(src_v),
-                                    ARR_LEN_OFF,
-                                ),
+                                InstKind::Load(Type::I64, Operand::Value(src_v), ARR_LEN_OFF),
                                 Type::I64,
                                 None,
                             );
@@ -16246,11 +16362,7 @@ impl<'a> LowerCtx<'a> {
                             if elem_ty.is_refcounted() {
                                 let cloned_len = self.f.append_inst(
                                     self.cur_block,
-                                    InstKind::Load(
-                                        Type::I64,
-                                        Operand::Value(cloned),
-                                        ARR_LEN_OFF,
-                                    ),
+                                    InstKind::Load(Type::I64, Operand::Value(cloned), ARR_LEN_OFF),
                                     Type::I64,
                                     None,
                                 );
@@ -16275,11 +16387,7 @@ impl<'a> LowerCtx<'a> {
                         };
                         self.f.append_void(
                             self.cur_block,
-                            InstKind::Store(
-                                to_store,
-                                target_op,
-                                offset,
-                            ),
+                            InstKind::Store(to_store, target_op, offset),
                         );
                     }
                     return target_op;
@@ -16289,7 +16397,10 @@ impl<'a> LowerCtx<'a> {
                 // values in declaration order. Same alloc + store
                 // pattern as Object.keys, with field reads instead of
                 // name interns.
-                if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
+                if let Expr::Member {
+                    obj: ns_id,
+                    name: m_name,
+                } = self.ast.get_expr(*callee)
                     && m_name == "values"
                     && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
                     && ns == "Object"
@@ -16298,9 +16409,7 @@ impl<'a> LowerCtx<'a> {
                     let arg_op = self.lower_expr(args[0]);
                     let arg_ty = self.operand_ty(&arg_op);
                     let Type::Obj(sid) = arg_ty else {
-                        panic!(
-                            "ssa-lower: Object.values requires a struct arg, got {arg_ty:?}"
-                        );
+                        panic!("ssa-lower: Object.values requires a struct arg, got {arg_ty:?}");
                     };
                     let layout = self.struct_layouts[sid.0 as usize].clone();
                     let n = layout.len() as i64;
@@ -16308,20 +16417,13 @@ impl<'a> LowerCtx<'a> {
                     let arr_id = intern_arr_layout(self.arr_layouts, elem_ty);
                     let arr_ptr = self.f.append_inst(
                         self.cur_block,
-                        InstKind::Call(
-                            self.intrinsics.arr_alloc,
-                            vec![Operand::ConstI64(n)],
-                        ),
+                        InstKind::Call(self.intrinsics.arr_alloc, vec![Operand::ConstI64(n)]),
                         Type::Arr(arr_id),
                         None,
                     );
                     self.f.append_void(
                         self.cur_block,
-                        InstKind::Store(
-                            Operand::ConstI64(n),
-                            Operand::Value(arr_ptr),
-                            ARR_LEN_OFF,
-                        ),
+                        InstKind::Store(Operand::ConstI64(n), Operand::Value(arr_ptr), ARR_LEN_OFF),
                     );
                     for (i, _) in layout.iter().enumerate() {
                         let field_off = OBJ_HEADER_SIZE + (i as u64) * 8;
@@ -16334,11 +16436,7 @@ impl<'a> LowerCtx<'a> {
                         let arr_off = ARR_DATA_OFF + (i as u64) * 8;
                         self.f.append_void(
                             self.cur_block,
-                            InstKind::Store(
-                                Operand::Value(v),
-                                Operand::Value(arr_ptr),
-                                arr_off,
-                            ),
+                            InstKind::Store(Operand::Value(v), Operand::Value(arr_ptr), arr_off),
                         );
                     }
                     return Operand::Value(arr_ptr);
@@ -16349,7 +16447,10 @@ impl<'a> LowerCtx<'a> {
                  * either declared on the struct or not). Variable-key
                  * paths are deferred to a runtime helper that does
                  * field-name string comparison against the struct layout. */
-                if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
+                if let Expr::Member {
+                    obj: ns_id,
+                    name: m_name,
+                } = self.ast.get_expr(*callee)
                     && m_name == "hasOwn"
                     && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
                     && ns == "Object"
@@ -16370,7 +16471,7 @@ impl<'a> LowerCtx<'a> {
                         return Operand::ConstBool(has);
                     }
                 }
-// `Object.keys(obj)` / `Object.getOwnPropertyNames(obj)` —
+                // `Object.keys(obj)` / `Object.getOwnPropertyNames(obj)` —
                 // emit a compile-time constant string array of obj's
                 // struct field names. Zero-cost reflection: the struct
                 // layout is known at lower time, so the result is just
@@ -16378,7 +16479,10 @@ impl<'a> LowerCtx<'a> {
                 // writing `["x", "y", ...]` by hand. tr has no
                 // prototype chain, so own == all and the two surfaces
                 // share this lowering.
-                if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
+                if let Expr::Member {
+                    obj: ns_id,
+                    name: m_name,
+                } = self.ast.get_expr(*callee)
                     && (m_name == "keys" || m_name == "getOwnPropertyNames")
                     && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
                     && ns == "Object"
@@ -16400,31 +16504,20 @@ impl<'a> LowerCtx<'a> {
                     let arr_id = intern_arr_layout(self.arr_layouts, str_ty);
                     let arr_ptr = self.f.append_inst(
                         self.cur_block,
-                        InstKind::Call(
-                            self.intrinsics.arr_alloc,
-                            vec![Operand::ConstI64(n)],
-                        ),
+                        InstKind::Call(self.intrinsics.arr_alloc, vec![Operand::ConstI64(n)]),
                         Type::Arr(arr_id),
                         None,
                     );
                     self.f.append_void(
                         self.cur_block,
-                        InstKind::Store(
-                            Operand::ConstI64(n),
-                            Operand::Value(arr_ptr),
-                            ARR_LEN_OFF,
-                        ),
+                        InstKind::Store(Operand::ConstI64(n), Operand::Value(arr_ptr), ARR_LEN_OFF),
                     );
                     for (i, fname) in field_names.iter().enumerate() {
                         let str_v = self.intern_string_literal(fname);
                         let off = ARR_DATA_OFF + (i as u64) * 8;
                         self.f.append_void(
                             self.cur_block,
-                            InstKind::Store(
-                                Operand::Value(str_v),
-                                Operand::Value(arr_ptr),
-                                off,
-                            ),
+                            InstKind::Store(Operand::Value(str_v), Operand::Value(arr_ptr), off),
                         );
                     }
                     return Operand::Value(arr_ptr);
@@ -16432,7 +16525,10 @@ impl<'a> LowerCtx<'a> {
                 /* T-13.b (v0.4.0) — Symbol.for(key) / Symbol.keyFor(s).
                  * Direct delegation to the runtime registry helpers
                  * declared in the intrinsics block. */
-                if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
+                if let Expr::Member {
+                    obj: ns_id,
+                    name: m_name,
+                } = self.ast.get_expr(*callee)
                     && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
                     && ns == "Symbol"
                     && (m_name == "for" || m_name == "keyFor")
@@ -16464,10 +16560,12 @@ impl<'a> LowerCtx<'a> {
                  * __torajs_promise_get_value, calls cb, resolves
                  * result. T-15.g.4 generalizes to non-i64 types and
                  * Type::Closure (env-carrying) cb. */
-                if let Expr::Member { obj: src_id, name: m_name } = self.ast.get_expr(*callee)
+                if let Expr::Member {
+                    obj: src_id,
+                    name: m_name,
+                } = self.ast.get_expr(*callee)
                     && (m_name == "then" || m_name == "catch" || m_name == "finally")
-                    && (args.len() == 1
-                        || (m_name == "then" && args.len() == 2))
+                    && (args.len() == 1 || (m_name == "then" && args.len() == 2))
                 {
                     // Static-type check (no eager lower) — same pattern
                     // as the await Member dispatch. Only fire when src
@@ -16479,7 +16577,9 @@ impl<'a> LowerCtx<'a> {
                             .get(n)
                             .map(|info| matches!(info.ty, Type::Promise))
                             .unwrap_or(false),
-                        Expr::Call { callee: src_callee, .. } => {
+                        Expr::Call {
+                            callee: src_callee, ..
+                        } => {
                             // Built-in Promise.resolve / Promise.reject statics.
                             let static_ctor = matches!(
                                 self.ast.get_expr(*src_callee),
@@ -16501,18 +16601,17 @@ impl<'a> LowerCtx<'a> {
                             // User fn whose declared return type is
                             // Type::Promise (async desugar / Promise<T>
                             // return annotation).
-                            let fn_returns_promise = if let Expr::Ident(fn_name) =
-                                self.ast.get_expr(*src_callee)
-                            {
-                                self.fn_table
-                                    .get(fn_name)
-                                    .copied()
-                                    .and_then(|fid| self.signatures.get(&fid).copied())
-                                    .map(|ty| matches!(ty, Type::Promise))
-                                    .unwrap_or(false)
-                            } else {
-                                false
-                            };
+                            let fn_returns_promise =
+                                if let Expr::Ident(fn_name) = self.ast.get_expr(*src_callee) {
+                                    self.fn_table
+                                        .get(fn_name)
+                                        .copied()
+                                        .and_then(|fid| self.signatures.get(&fid).copied())
+                                        .map(|ty| matches!(ty, Type::Promise))
+                                        .unwrap_or(false)
+                                } else {
+                                    false
+                                };
                             // T-19.g — fs/promises async returns +
                             // Bun.file(...).text/.exists also produce
                             // built-in Promise. Mirrors the
@@ -16550,8 +16649,11 @@ impl<'a> LowerCtx<'a> {
                                                 )
                                         )
                             );
-                            static_ctor || then_chain || fn_returns_promise
-                                || fs_async || bun_file_text
+                            static_ctor
+                                || then_chain
+                                || fn_returns_promise
+                                || fs_async
+                                || bun_file_text
                         }
                         _ => false,
                     };
@@ -16575,10 +16677,7 @@ impl<'a> LowerCtx<'a> {
                             };
                             let mid = self.f.append_inst(
                                 self.cur_block,
-                                InstKind::Call(
-                                    then_fid,
-                                    vec![src_op.clone(), on_ok],
-                                ),
+                                InstKind::Call(then_fid, vec![src_op.clone(), on_ok]),
                                 Type::Promise,
                                 None,
                             );
@@ -16617,10 +16716,7 @@ impl<'a> LowerCtx<'a> {
                             };
                             self.f.append_inst(
                                 self.cur_block,
-                                InstKind::Call(
-                                    then_intrinsic,
-                                    vec![src_op.clone(), cb_op],
-                                ),
+                                InstKind::Call(then_intrinsic, vec![src_op.clone(), cb_op]),
                                 Type::Promise,
                                 None,
                             )
@@ -16647,7 +16743,10 @@ impl<'a> LowerCtx<'a> {
                  * path string. `.text()` / future `.json()` /
                  * `.arrayBuffer()` dispatch off it use the path
                  * directly. */
-                if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
+                if let Expr::Member {
+                    obj: ns_id,
+                    name: m_name,
+                } = self.ast.get_expr(*callee)
                     && m_name == "file"
                     && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
                     && ns == "Bun"
@@ -16662,7 +16761,10 @@ impl<'a> LowerCtx<'a> {
                  * ignored (bun uses it to gate JSC's concurrent GC;
                  * we always run synchronously). Both forms produce
                  * void. */
-                if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
+                if let Expr::Member {
+                    obj: ns_id,
+                    name: m_name,
+                } = self.ast.get_expr(*callee)
                     && m_name == "gc"
                     && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
                     && ns == "Bun"
@@ -16738,7 +16840,10 @@ impl<'a> LowerCtx<'a> {
                  * The body is already alloc'd at fetch time
                  * (offset 16); .text() reads + bumps its rc + wraps
                  * in a fulfilled Promise. */
-                if let Expr::Member { obj: resp_id, name: m_name } = self.ast.get_expr(*callee)
+                if let Expr::Member {
+                    obj: resp_id,
+                    name: m_name,
+                } = self.ast.get_expr(*callee)
                     && m_name == "text"
                     && args.is_empty()
                     && matches!(
@@ -16755,10 +16860,7 @@ impl<'a> LowerCtx<'a> {
                     );
                     self.f.append_void(
                         self.cur_block,
-                        InstKind::Call(
-                            self.intrinsics.rc_inc,
-                            vec![Operand::Value(body_v)],
-                        ),
+                        InstKind::Call(self.intrinsics.rc_inc, vec![Operand::Value(body_v)]),
                     );
                     let p_v = self.f.append_inst(
                         self.cur_block,
@@ -16776,7 +16878,10 @@ impl<'a> LowerCtx<'a> {
                  * Promise.resolve(...). MVP routes through
                  * fs_read_file_sync; real I/O suspension lands with
                  * T-16 state-machine async/await. */
-                if let Expr::Member { obj: file_id, name: m_name } = self.ast.get_expr(*callee)
+                if let Expr::Member {
+                    obj: file_id,
+                    name: m_name,
+                } = self.ast.get_expr(*callee)
                     && (m_name == "text" || m_name == "exists")
                     && args.is_empty()
                 {
@@ -16803,10 +16908,7 @@ impl<'a> LowerCtx<'a> {
                         if m_name == "text" {
                             let str_v = self.f.append_inst(
                                 self.cur_block,
-                                InstKind::Call(
-                                    self.intrinsics.fs_read_file_sync,
-                                    vec![path_op],
-                                ),
+                                InstKind::Call(self.intrinsics.fs_read_file_sync, vec![path_op]),
                                 Type::Str,
                                 None,
                             );
@@ -16825,20 +16927,14 @@ impl<'a> LowerCtx<'a> {
                         // wrap in Promise (primitive variant).
                         let bool_v = self.f.append_inst(
                             self.cur_block,
-                            InstKind::Call(
-                                self.intrinsics.fs_exists_sync,
-                                vec![path_op],
-                            ),
+                            InstKind::Call(self.intrinsics.fs_exists_sync, vec![path_op]),
                             Type::Bool,
                             None,
                         );
                         let arg_i64 = self.coerce_bool_to_i64(Operand::Value(bool_v));
                         let p_v = self.f.append_inst(
                             self.cur_block,
-                            InstKind::Call(
-                                self.intrinsics.promise_alloc_fulfilled,
-                                vec![arg_i64],
-                            ),
+                            InstKind::Call(self.intrinsics.promise_alloc_fulfilled, vec![arg_i64]),
                             Type::Promise,
                             None,
                         );
@@ -16852,13 +16948,21 @@ impl<'a> LowerCtx<'a> {
                  * async/await. The user-visible Promise<T> contract is
                  * preserved so `await fs.readFile(p)` yields the
                  * file contents. */
-                if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
+                if let Expr::Member {
+                    obj: ns_id,
+                    name: m_name,
+                } = self.ast.get_expr(*callee)
                     && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
                     && ns == "fs_promises"
                     && matches!(
                         m_name.as_str(),
-                        "readFile" | "writeFile" | "appendFile" | "unlink"
-                            | "mkdir" | "exists" | "readdir"
+                        "readFile"
+                            | "writeFile"
+                            | "appendFile"
+                            | "unlink"
+                            | "mkdir"
+                            | "exists"
+                            | "readdir"
                     )
                 {
                     let arg_ops: Vec<Operand> = args
@@ -16916,8 +17020,13 @@ impl<'a> LowerCtx<'a> {
                 }
                 /* T-17.a / .b / .c / .d (v0.5.0) — Promise.all /
                  * .race / .any / .allSettled sync fast paths. */
-                if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
-                    && (m_name == "all" || m_name == "race" || m_name == "any"
+                if let Expr::Member {
+                    obj: ns_id,
+                    name: m_name,
+                } = self.ast.get_expr(*callee)
+                    && (m_name == "all"
+                        || m_name == "race"
+                        || m_name == "any"
                         || m_name == "allSettled")
                     && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
                     && ns == "Promise"
@@ -16926,9 +17035,9 @@ impl<'a> LowerCtx<'a> {
                     let arr_op = self.lower_expr(args[0]);
                     self.consume_if_ident(args[0]);
                     let fid = match m_name.as_str() {
-                        "all"  => self.intrinsics.promise_all_sync,
+                        "all" => self.intrinsics.promise_all_sync,
                         "race" => self.intrinsics.promise_race_sync,
-                        "any"  => self.intrinsics.promise_any_sync,
+                        "any" => self.intrinsics.promise_any_sync,
                         "allSettled" => self.intrinsics.promise_allsettled_sync,
                         _ => unreachable!(),
                     };
@@ -16949,7 +17058,10 @@ impl<'a> LowerCtx<'a> {
                  * The arg's owned ref transfers to the Promise; the
                  * Promise drops via __torajs_value_drop_heap on its
                  * own drop. */
-                if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
+                if let Expr::Member {
+                    obj: ns_id,
+                    name: m_name,
+                } = self.ast.get_expr(*callee)
                     && (m_name == "resolve" || m_name == "reject")
                     && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
                     && ns == "Promise"
@@ -16968,23 +17080,30 @@ impl<'a> LowerCtx<'a> {
                     if matches!(arg_ty, Type::Promise) && m_name == "resolve" {
                         let v = self.f.append_inst(
                             self.cur_block,
-                            InstKind::Call(
-                                self.intrinsics.promise_resolve_thenable,
-                                vec![arg_op],
-                            ),
+                            InstKind::Call(self.intrinsics.promise_resolve_thenable, vec![arg_op]),
                             Type::Promise,
                             None,
                         );
                         return Operand::Value(v);
                     }
-                    let is_heap = matches!(arg_ty, Type::Str | Type::Substr | Type::Obj(_)
-                        | Type::Arr(_) | Type::Closure(_) | Type::RegExp | Type::Date
-                        | Type::Symbol | Type::Promise | Type::Any);
+                    let is_heap = matches!(
+                        arg_ty,
+                        Type::Str
+                            | Type::Substr
+                            | Type::Obj(_)
+                            | Type::Arr(_)
+                            | Type::Closure(_)
+                            | Type::RegExp
+                            | Type::Date
+                            | Type::Symbol
+                            | Type::Promise
+                            | Type::Any
+                    );
                     let fid = match (m_name.as_str(), is_heap) {
                         ("resolve", false) => self.intrinsics.promise_alloc_fulfilled,
-                        ("reject",  false) => self.intrinsics.promise_alloc_rejected,
-                        ("resolve", true)  => self.intrinsics.promise_alloc_fulfilled_heap,
-                        ("reject",  true)  => self.intrinsics.promise_alloc_rejected_heap,
+                        ("reject", false) => self.intrinsics.promise_alloc_rejected,
+                        ("resolve", true) => self.intrinsics.promise_alloc_fulfilled_heap,
+                        ("reject", true) => self.intrinsics.promise_alloc_rejected_heap,
                         _ => unreachable!(),
                     };
                     // Bool is i64-shaped via ZExtBoolToI64; the helper
@@ -17018,7 +17137,10 @@ impl<'a> LowerCtx<'a> {
                  * return the value unchanged (freeze) or `true`
                  * (isFrozen) on primitives. test262 15.2.3.9-1-3 /
                  * 15.2.3.9-1-4 / 15.2.3.12-1-3 cover this. */
-                if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
+                if let Expr::Member {
+                    obj: ns_id,
+                    name: m_name,
+                } = self.ast.get_expr(*callee)
                     && (m_name == "freeze" || m_name == "isFrozen")
                     && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
                     && ns == "Object"
@@ -17026,10 +17148,7 @@ impl<'a> LowerCtx<'a> {
                 {
                     let arg_op = self.lower_expr(args[0]);
                     let arg_ty = self.operand_ty(&arg_op);
-                    let is_primitive = matches!(
-                        arg_ty,
-                        Type::I64 | Type::F64 | Type::Bool
-                    );
+                    let is_primitive = matches!(arg_ty, Type::I64 | Type::F64 | Type::Bool);
                     if is_primitive {
                         if m_name == "freeze" {
                             // freeze(primitive) → returns primitive as-is
@@ -17058,7 +17177,10 @@ impl<'a> LowerCtx<'a> {
                  * for table-style storage); 2-arg `Object.create(
                  * proto, descriptors)` is treated the same — the
                  * descriptors arg is ignored (subset). */
-                if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
+                if let Expr::Member {
+                    obj: ns_id,
+                    name: m_name,
+                } = self.ast.get_expr(*callee)
                     && m_name == "create"
                     && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
                     && ns == "Object"
@@ -17091,7 +17213,10 @@ impl<'a> LowerCtx<'a> {
                  * prototype chain for dynobj-backed objects yet).
                  * Returns the obj per spec. The proto arg is
                  * evaluated for side effects then discarded. */
-                if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
+                if let Expr::Member {
+                    obj: ns_id,
+                    name: m_name,
+                } = self.ast.get_expr(*callee)
                     && (m_name == "setPrototypeOf"
                         || m_name == "preventExtensions"
                         || m_name == "seal"
@@ -17112,7 +17237,10 @@ impl<'a> LowerCtx<'a> {
                  * sealed bits separate from frozen, so default to
                  * spec's "extensible=true / sealed=false" until a
                  * full attribute substrate lands. Eval-drop arg. */
-                if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
+                if let Expr::Member {
+                    obj: ns_id,
+                    name: m_name,
+                } = self.ast.get_expr(*callee)
                     && (m_name == "isExtensible" || m_name == "isSealed")
                     && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
                     && ns == "Object"
@@ -17129,7 +17257,10 @@ impl<'a> LowerCtx<'a> {
                  * into the outer Array<Any>. Mirrors Object.keys's
                  * zero-cost reflection but yields the (key, value)
                  * pair shape JS callers expect. */
-                if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
+                if let Expr::Member {
+                    obj: ns_id,
+                    name: m_name,
+                } = self.ast.get_expr(*callee)
                     && m_name == "entries"
                     && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
                     && ns == "Object"
@@ -17139,9 +17270,9 @@ impl<'a> LowerCtx<'a> {
                     let arg_ty = self.operand_ty(&arg_op);
                     let layout: Vec<(String, Type)> = match arg_ty {
                         Type::Obj(sid) => self.struct_layouts[sid.0 as usize].clone(),
-                        other => panic!(
-                            "ssa-lower: Object.entries requires a struct arg, got {other:?}"
-                        ),
+                        other => {
+                            panic!("ssa-lower: Object.entries requires a struct arg, got {other:?}")
+                        }
                     };
                     let n = layout.len() as i64;
                     // Outer is Array<Array<Any>> — each slot holds a
@@ -17149,27 +17280,17 @@ impl<'a> LowerCtx<'a> {
                     // slot stride (regular arr_alloc) is correct.
                     // Inner uses arr_alloc_any (16-byte tagged slots).
                     let inner_arr_id = intern_arr_layout(self.arr_layouts, Type::Any);
-                    let outer_arr_id = intern_arr_layout(
-                        self.arr_layouts,
-                        Type::Arr(inner_arr_id),
-                    );
+                    let outer_arr_id = intern_arr_layout(self.arr_layouts, Type::Arr(inner_arr_id));
                     let outer = self.f.append_inst(
                         self.cur_block,
-                        InstKind::Call(
-                            self.intrinsics.arr_alloc,
-                            vec![Operand::ConstI64(n)],
-                        ),
+                        InstKind::Call(self.intrinsics.arr_alloc, vec![Operand::ConstI64(n)]),
                         Type::Arr(outer_arr_id),
                         None,
                     );
                     // Pre-set len so direct stores at offset 16+i*8 work.
                     self.f.append_void(
                         self.cur_block,
-                        InstKind::Store(
-                            Operand::ConstI64(n),
-                            Operand::Value(outer),
-                            ARR_LEN_OFF,
-                        ),
+                        InstKind::Store(Operand::ConstI64(n), Operand::Value(outer), ARR_LEN_OFF),
                     );
                     for (idx, (fname, fty)) in layout.iter().enumerate() {
                         // Inner Array<Any> with cap=2: [key, value].
@@ -17189,10 +17310,7 @@ impl<'a> LowerCtx<'a> {
                         // owning ref (matches T-10.b push_any contract).
                         self.f.append_void(
                             self.cur_block,
-                            InstKind::Call(
-                                self.intrinsics.rc_inc,
-                                vec![Operand::Value(key_str)],
-                            ),
+                            InstKind::Call(self.intrinsics.rc_inc, vec![Operand::Value(key_str)]),
                         );
                         let inner_after_key = self.f.append_inst(
                             self.cur_block,
@@ -17240,27 +17358,20 @@ impl<'a> LowerCtx<'a> {
                             t if t.is_refcounted() => {
                                 self.f.append_void(
                                     self.cur_block,
-                                    InstKind::Call(
-                                        self.intrinsics.rc_inc,
-                                        vec![val_op.clone()],
-                                    ),
+                                    InstKind::Call(self.intrinsics.rc_inc, vec![val_op.clone()]),
                                 );
                                 (4, val_op)
                             }
                             Type::Ptr => (0, Operand::ConstI64(0)),
-                            other => panic!(
-                                "not yet supported: Object.entries field type {other:?}"
-                            ),
+                            other => {
+                                panic!("not yet supported: Object.entries field type {other:?}")
+                            }
                         };
                         let inner_after_val = self.f.append_inst(
                             self.cur_block,
                             InstKind::Call(
                                 self.intrinsics.arr_push_any,
-                                vec![
-                                    inner_op,
-                                    Operand::ConstI64(tag),
-                                    push_val,
-                                ],
+                                vec![inner_op, Operand::ConstI64(tag), push_val],
                             ),
                             Type::Arr(inner_arr_id),
                             None,
@@ -17292,7 +17403,10 @@ impl<'a> LowerCtx<'a> {
                  * Mismatched-type args (e.g. Object.is("1", 1)) return
                  * a constant `false` since `===` says so.
                  */
-                if let Expr::Member { obj: ns_id, name: m_name } = self.ast.get_expr(*callee)
+                if let Expr::Member {
+                    obj: ns_id,
+                    name: m_name,
+                } = self.ast.get_expr(*callee)
                     && m_name == "is"
                     && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
                     && ns == "Object"
@@ -17402,10 +17516,8 @@ impl<'a> LowerCtx<'a> {
                     }
                     let is_str = arg_ty == Type::Str;
                     let target = self.console_print_target(method, arg_ty);
-                    self.f.append_void(
-                        self.cur_block,
-                        InstKind::Call(target, vec![arg]),
-                    );
+                    self.f
+                        .append_void(self.cur_block, InstKind::Call(target, vec![arg]));
                     if is_str && !is_borrow {
                         self.emit_drop_value(arg, Type::Str);
                     }
@@ -17452,10 +17564,8 @@ impl<'a> LowerCtx<'a> {
                     }
                     let target = self.console_print_target(method, Type::Str);
                     let final_str = acc.unwrap();
-                    self.f.append_void(
-                        self.cur_block,
-                        InstKind::Call(target, vec![final_str]),
-                    );
+                    self.f
+                        .append_void(self.cur_block, InstKind::Call(target, vec![final_str]));
                     self.emit_drop_value(final_str, Type::Str);
                     return Operand::ConstI64(0);
                 }
@@ -17540,11 +17650,7 @@ impl<'a> LowerCtx<'a> {
                         );
                         let elem = self.f.append_inst(
                             self.cur_block,
-                            InstKind::LoadDyn(
-                                elem_ty,
-                                Operand::Value(cur_arr),
-                                off,
-                            ),
+                            InstKind::LoadDyn(elem_ty, Operand::Value(cur_arr), off),
                             elem_ty,
                             None,
                         );
@@ -17610,10 +17716,7 @@ impl<'a> LowerCtx<'a> {
                         let elem_ty = self.arr_layouts[arr_id.0 as usize];
                         let v = self.f.append_inst(
                             self.cur_block,
-                            InstKind::Call(
-                                self.intrinsics.arr_shift,
-                                vec![arr_op],
-                            ),
+                            InstKind::Call(self.intrinsics.arr_shift, vec![arr_op]),
                             elem_ty,
                             None,
                         );
@@ -17654,32 +17757,19 @@ impl<'a> LowerCtx<'a> {
                     if elem_ty.is_refcounted() {
                         self.f.append_void(
                             self.cur_block,
-                            InstKind::Call(
-                                self.intrinsics.rc_inc,
-                                vec![val],
-                            ),
+                            InstKind::Call(self.intrinsics.rc_inc, vec![val]),
                         );
                     }
                     self.f.append_void(
                         self.cur_block,
-                        InstKind::Store(
-                            Operand::Value(new_arr),
-                            Operand::Value(info.slot),
-                            0,
-                        ),
+                        InstKind::Store(Operand::Value(new_arr), Operand::Value(info.slot), 0),
                     );
-                    if let Some((env_slot, env_offset)) = self
-                        .captured_arr_writeback
-                        .get(&info.slot)
-                        .copied()
+                    if let Some((env_slot, env_offset)) =
+                        self.captured_arr_writeback.get(&info.slot).copied()
                     {
                         let env_ptr = self.f.append_inst(
                             self.cur_block,
-                            InstKind::Load(
-                                Type::Ptr,
-                                Operand::Value(env_slot),
-                                0,
-                            ),
+                            InstKind::Load(Type::Ptr, Operand::Value(env_slot), 0),
                             Type::Ptr,
                             None,
                         );
@@ -17755,10 +17845,7 @@ impl<'a> LowerCtx<'a> {
                                     // array's slot owns a balanced ref.
                                     self.f.append_void(
                                         self.cur_block,
-                                        InstKind::Call(
-                                            self.intrinsics.rc_inc,
-                                            vec![v_raw.clone()],
-                                        ),
+                                        InstKind::Call(self.intrinsics.rc_inc, vec![v_raw.clone()]),
                                     );
                                     (4, v_raw)
                                 }
@@ -17813,11 +17900,7 @@ impl<'a> LowerCtx<'a> {
                                 self.cur_block,
                                 InstKind::Call(
                                     self.intrinsics.arr_push_any,
-                                    vec![
-                                        Operand::Value(cur_arr),
-                                        Operand::ConstI64(tag),
-                                        push_val,
-                                    ],
+                                    vec![Operand::Value(cur_arr), Operand::ConstI64(tag), push_val],
                                 ),
                                 arr_ty,
                                 None,
@@ -17863,10 +17946,7 @@ impl<'a> LowerCtx<'a> {
                          * no realloc-writeback) to skip the per-iter
                          * branch. Returns void, so we don't update
                          * info.slot (the ptr didn't change). */
-                        let unchecked_state = self
-                            .push_unchecked_for
-                            .get(recv_name)
-                            .copied();
+                        let unchecked_state = self.push_unchecked_for.get(recv_name).copied();
                         if let Some(state) = unchecked_state {
                             /* Inline fast-push: skip the runtime call,
                              * read the hoisted len from len_slot, write
@@ -17876,11 +17956,7 @@ impl<'a> LowerCtx<'a> {
                              * full byte offset is head_off + len*8. */
                             let len_now = self.f.append_inst(
                                 self.cur_block,
-                                InstKind::Load(
-                                    Type::I64,
-                                    Operand::Value(state.len_slot),
-                                    0,
-                                ),
+                                InstKind::Load(Type::I64, Operand::Value(state.len_slot), 0),
                                 Type::I64,
                                 None,
                             );
@@ -17933,10 +18009,7 @@ impl<'a> LowerCtx<'a> {
                             if elem_ty.is_refcounted() {
                                 self.f.append_void(
                                     self.cur_block,
-                                    InstKind::Call(
-                                        self.intrinsics.rc_inc,
-                                        vec![val],
-                                    ),
+                                    InstKind::Call(self.intrinsics.rc_inc, vec![val]),
                                 );
                             }
                             return Operand::ConstI64(0);
@@ -17953,19 +18026,12 @@ impl<'a> LowerCtx<'a> {
                         if elem_ty.is_refcounted() {
                             self.f.append_void(
                                 self.cur_block,
-                                InstKind::Call(
-                                    self.intrinsics.rc_inc,
-                                    vec![val],
-                                ),
+                                InstKind::Call(self.intrinsics.rc_inc, vec![val]),
                             );
                         }
                         self.f.append_void(
                             self.cur_block,
-                            InstKind::Store(
-                                Operand::Value(new_arr),
-                                Operand::Value(info.slot),
-                                0,
-                            ),
+                            InstKind::Store(Operand::Value(new_arr), Operand::Value(info.slot), 0),
                         );
                         // M2 — if this ident is a captured array, the
                         // env block holds the pre-realloc ptr value.
@@ -17977,18 +18043,12 @@ impl<'a> LowerCtx<'a> {
                         // means the outer slot keeps its original ptr;
                         // capturing-and-mutating + outer-scope-reads is
                         // a documented limitation.
-                        if let Some((env_slot, env_offset)) = self
-                            .captured_arr_writeback
-                            .get(&info.slot)
-                            .copied()
+                        if let Some((env_slot, env_offset)) =
+                            self.captured_arr_writeback.get(&info.slot).copied()
                         {
                             let env_ptr = self.f.append_inst(
                                 self.cur_block,
-                                InstKind::Load(
-                                    Type::Ptr,
-                                    Operand::Value(env_slot),
-                                    0,
-                                ),
+                                InstKind::Load(Type::Ptr, Operand::Value(env_slot), 0),
                                 Type::Ptr,
                                 None,
                             );
@@ -18049,37 +18109,29 @@ impl<'a> LowerCtx<'a> {
                         if elem_ty.is_refcounted() {
                             self.f.append_void(
                                 self.cur_block,
-                                InstKind::Call(
-                                    self.intrinsics.rc_inc,
-                                    vec![val],
-                                ),
+                                InstKind::Call(self.intrinsics.rc_inc, vec![val]),
                             );
                         }
                         self.f.append_void(
                             self.cur_block,
-                            InstKind::Store(
-                                Operand::Value(new_arr),
-                                Operand::Value(slot_ptr),
-                                0,
-                            ),
+                            InstKind::Store(Operand::Value(new_arr), Operand::Value(slot_ptr), 0),
                         );
                         return Operand::ConstI64(0);
                     }
                     // (b) `obj.field.push(v)` — field-receiver path. We load
                     // the struct pointer once (borrow), find the field's
                     // offset, then load → push → store-back at that offset.
-                    if let Expr::Member { obj: struct_id, name: field_name } =
-                        self.ast.get_expr(*recv_id)
+                    if let Expr::Member {
+                        obj: struct_id,
+                        name: field_name,
+                    } = self.ast.get_expr(*recv_id)
                     {
                         let obj_val = self.lower_expr(*struct_id);
                         let obj_ty = self.operand_ty(&obj_val);
                         if let Type::Obj(sid) = obj_ty {
-                            let layout =
-                                self.struct_layouts[sid.0 as usize].clone();
-                            if let Some((idx, field_ty)) = layout
-                                .iter()
-                                .enumerate()
-                                .find_map(|(i, (fname, fty))| {
+                            let layout = self.struct_layouts[sid.0 as usize].clone();
+                            if let Some((idx, field_ty)) =
+                                layout.iter().enumerate().find_map(|(i, (fname, fty))| {
                                     if fname == field_name {
                                         Some((i, *fty))
                                     } else {
@@ -18112,19 +18164,12 @@ impl<'a> LowerCtx<'a> {
                                 if elem_ty.is_refcounted() {
                                     self.f.append_void(
                                         self.cur_block,
-                                        InstKind::Call(
-                                            self.intrinsics.rc_inc,
-                                            vec![val],
-                                        ),
+                                        InstKind::Call(self.intrinsics.rc_inc, vec![val]),
                                     );
                                 }
                                 self.f.append_void(
                                     self.cur_block,
-                                    InstKind::Store(
-                                        Operand::Value(new_arr),
-                                        obj_val,
-                                        offset,
-                                    ),
+                                    InstKind::Store(Operand::Value(new_arr), obj_val, offset),
                                 );
                                 return Operand::ConstI64(0);
                             }
@@ -18206,14 +18251,9 @@ impl<'a> LowerCtx<'a> {
                  * arms below. */
                 if let Expr::Member { obj, name } = self.ast.get_expr(*callee) {
                     let m_name = name.clone();
-                    let weakmap_method = matches!(
-                        m_name.as_str(),
-                        "set" | "get" | "has" | "delete"
-                    );
-                    let weakset_method = matches!(
-                        m_name.as_str(),
-                        "add" | "has" | "delete"
-                    );
+                    let weakmap_method =
+                        matches!(m_name.as_str(), "set" | "get" | "has" | "delete");
+                    let weakset_method = matches!(m_name.as_str(), "add" | "has" | "delete");
                     if weakmap_method || weakset_method {
                         /* peek at receiver type without lowering
                          * effects */
@@ -18225,7 +18265,8 @@ impl<'a> LowerCtx<'a> {
                         let do_weakset = weakset_method && recv_ty_hint == Some(Type::WeakSet);
                         if do_weakmap || do_weakset {
                             let recv_op = self.lower_expr(*obj);
-                            let arg_ops: Vec<Operand> = args.iter().map(|a| self.lower_expr(*a)).collect();
+                            let arg_ops: Vec<Operand> =
+                                args.iter().map(|a| self.lower_expr(*a)).collect();
                             let (target, ret_ty) = if do_weakmap {
                                 match m_name.as_str() {
                                     "set" => (self.intrinsics.weakmap_set, Type::Void),
@@ -18246,10 +18287,8 @@ impl<'a> LowerCtx<'a> {
                             full_args.push(recv_op);
                             full_args.extend(arg_ops);
                             if ret_ty == Type::Void {
-                                self.f.append_void(
-                                    self.cur_block,
-                                    InstKind::Call(target, full_args),
-                                );
+                                self.f
+                                    .append_void(self.cur_block, InstKind::Call(target, full_args));
                                 return Operand::ConstI64(0);
                             }
                             let v = self.f.append_inst(
@@ -18265,7 +18304,11 @@ impl<'a> LowerCtx<'a> {
                             if matches!(m_name.as_str(), "has" | "delete") {
                                 let b = self.f.append_inst(
                                     self.cur_block,
-                                    InstKind::ICmp(IPred::Ne, Operand::Value(v), Operand::ConstI64(0)),
+                                    InstKind::ICmp(
+                                        IPred::Ne,
+                                        Operand::Value(v),
+                                        Operand::ConstI64(0),
+                                    ),
                                     Type::Bool,
                                     None,
                                 );
@@ -18285,8 +18328,14 @@ impl<'a> LowerCtx<'a> {
                     let m_name = name.clone();
                     let set_method = matches!(
                         m_name.as_str(),
-                        "add" | "has" | "delete" | "clear" | "forEach"
-                            | "keys" | "values" | "entries"
+                        "add"
+                            | "has"
+                            | "delete"
+                            | "clear"
+                            | "forEach"
+                            | "keys"
+                            | "values"
+                            | "entries"
                     );
                     if set_method {
                         let recv_ty_hint = match self.ast.get_expr(*obj) {
@@ -18423,16 +18472,14 @@ impl<'a> LowerCtx<'a> {
                                      * it twice (value side ignored —
                                      * pinned ANY_UNDEF). */
                                     debug_assert_eq!(args.len(), 1);
-                                    let known_fid: Option<FuncId> =
-                                        match self.ast.get_expr(args[0]) {
-                                            Expr::Closure { fn_name, .. } => {
-                                                self.fn_table.get(fn_name).copied()
-                                            }
-                                            Expr::Ident(name) => {
-                                                self.fn_table.get(name).copied()
-                                            }
-                                            _ => None,
-                                        };
+                                    let known_fid: Option<FuncId> = match self.ast.get_expr(args[0])
+                                    {
+                                        Expr::Closure { fn_name, .. } => {
+                                            self.fn_table.get(fn_name).copied()
+                                        }
+                                        Expr::Ident(name) => self.fn_table.get(name).copied(),
+                                        _ => None,
+                                    };
                                     let fn_val = self.lower_expr(args[0]);
                                     let fn_ty = self.operand_ty(&fn_val);
 
@@ -18597,11 +18644,7 @@ impl<'a> LowerCtx<'a> {
                             self.cur_block,
                             InstKind::Call(
                                 step_fid,
-                                vec![
-                                    recv_op,
-                                    Operand::Value(tag_slot),
-                                    Operand::Value(val_slot),
-                                ],
+                                vec![recv_op, Operand::Value(tag_slot), Operand::Value(val_slot)],
                             ),
                             Type::I64,
                             None,
@@ -18634,21 +18677,15 @@ impl<'a> LowerCtx<'a> {
                         /* `done` = (live == 0). */
                         let done_bool = self.f.append_inst(
                             self.cur_block,
-                            InstKind::ICmp(
-                                IPred::Eq,
-                                Operand::Value(live),
-                                Operand::ConstI64(0),
-                            ),
+                            InstKind::ICmp(IPred::Eq, Operand::Value(live), Operand::ConstI64(0)),
                             Type::Bool,
                             None,
                         );
                         /* Intern IteratorResult<any> struct layout
                          * (matches check.rs's (Type::MapIter, "next")
                          * return shape: `{ value: any, done: boolean }`). */
-                        let iter_result_fields: Vec<(String, Type)> = vec![
-                            ("value".into(), Type::Any),
-                            ("done".into(), Type::Bool),
-                        ];
+                        let iter_result_fields: Vec<(String, Type)> =
+                            vec![("value".into(), Type::Any), ("done".into(), Type::Bool)];
                         let sid = match self
                             .struct_layouts
                             .iter()
@@ -18722,8 +18759,15 @@ impl<'a> LowerCtx<'a> {
                     let m_name = name.clone();
                     let map_method = matches!(
                         m_name.as_str(),
-                        "set" | "get" | "has" | "delete" | "clear" | "forEach"
-                            | "keys" | "values" | "entries"
+                        "set"
+                            | "get"
+                            | "has"
+                            | "delete"
+                            | "clear"
+                            | "forEach"
+                            | "keys"
+                            | "values"
+                            | "entries"
                     );
                     if map_method {
                         let recv_ty_hint = match self.ast.get_expr(*obj) {
@@ -18902,16 +18946,14 @@ impl<'a> LowerCtx<'a> {
                                      * FnSig). Devirt opportunity if
                                      * args[0] is an Expr::Closure or
                                      * Ident → known FuncId. */
-                                    let known_fid: Option<FuncId> =
-                                        match self.ast.get_expr(args[0]) {
-                                            Expr::Closure { fn_name, .. } => {
-                                                self.fn_table.get(fn_name).copied()
-                                            }
-                                            Expr::Ident(name) => {
-                                                self.fn_table.get(name).copied()
-                                            }
-                                            _ => None,
-                                        };
+                                    let known_fid: Option<FuncId> = match self.ast.get_expr(args[0])
+                                    {
+                                        Expr::Closure { fn_name, .. } => {
+                                            self.fn_table.get(fn_name).copied()
+                                        }
+                                        Expr::Ident(name) => self.fn_table.get(name).copied(),
+                                        _ => None,
+                                    };
                                     let fn_val = self.lower_expr(args[0]);
                                     let fn_ty = self.operand_ty(&fn_val);
 
@@ -19077,17 +19119,30 @@ impl<'a> LowerCtx<'a> {
                 if let Expr::Member { obj, name } = self.ast.get_expr(*callee)
                     && matches!(
                         name.as_str(),
-                        "getTime" | "valueOf" | "toISOString"
-                        | "getFullYear" | "getUTCFullYear"
-                        | "getMonth" | "getUTCMonth"
-                        | "getDate" | "getUTCDate"
-                        | "getHours" | "getUTCHours"
-                        | "getMinutes" | "getUTCMinutes"
-                        | "getSeconds" | "getUTCSeconds"
-                        | "getMilliseconds" | "getUTCMilliseconds"
-                        | "getDay" | "getUTCDay"
-                        | "setTime" | "setYear" | "getYear"
-                        | "toGMTString" | "toUTCString"
+                        "getTime"
+                            | "valueOf"
+                            | "toISOString"
+                            | "getFullYear"
+                            | "getUTCFullYear"
+                            | "getMonth"
+                            | "getUTCMonth"
+                            | "getDate"
+                            | "getUTCDate"
+                            | "getHours"
+                            | "getUTCHours"
+                            | "getMinutes"
+                            | "getUTCMinutes"
+                            | "getSeconds"
+                            | "getUTCSeconds"
+                            | "getMilliseconds"
+                            | "getUTCMilliseconds"
+                            | "getDay"
+                            | "getUTCDay"
+                            | "setTime"
+                            | "setYear"
+                            | "getYear"
+                            | "toGMTString"
+                            | "toUTCString"
                     )
                 {
                     let recv_op = self.lower_expr(*obj);
@@ -19095,9 +19150,7 @@ impl<'a> LowerCtx<'a> {
                     if recv_ty == Type::Date {
                         let method = name.clone();
                         // T-30 setters take 1 arg (Number → I64).
-                        let arg_ops: Vec<Operand> = if method == "setTime"
-                            || method == "setYear"
-                        {
+                        let arg_ops: Vec<Operand> = if method == "setTime" || method == "setYear" {
                             debug_assert_eq!(args.len(), 1);
                             let a = self.lower_expr(args[0]);
                             vec![recv_op, self.coerce_to_i64(a)]
@@ -19120,7 +19173,9 @@ impl<'a> LowerCtx<'a> {
                             "getSeconds" => (self.intrinsics.date_get_seconds, Type::I64),
                             "getUTCSeconds" => (self.intrinsics.date_get_utc_seconds, Type::I64),
                             "getMilliseconds" => (self.intrinsics.date_get_milliseconds, Type::I64),
-                            "getUTCMilliseconds" => (self.intrinsics.date_get_utc_milliseconds, Type::I64),
+                            "getUTCMilliseconds" => {
+                                (self.intrinsics.date_get_utc_milliseconds, Type::I64)
+                            }
                             "getDay" => (self.intrinsics.date_get_day, Type::I64),
                             "getUTCDay" => (self.intrinsics.date_get_utc_day, Type::I64),
                             // T-30
@@ -19154,10 +19209,7 @@ impl<'a> LowerCtx<'a> {
                                 let s = self.lower_expr(args[0]);
                                 let v = self.f.append_inst(
                                     self.cur_block,
-                                    InstKind::Call(
-                                        self.intrinsics.regex_test,
-                                        vec![recv_op, s],
-                                    ),
+                                    InstKind::Call(self.intrinsics.regex_test, vec![recv_op, s]),
                                     Type::Bool,
                                     None,
                                 );
@@ -19169,18 +19221,13 @@ impl<'a> LowerCtx<'a> {
                                 let arr_id = intern_arr_layout(self.arr_layouts, Type::Str);
                                 let v = self.f.append_inst(
                                     self.cur_block,
-                                    InstKind::Call(
-                                        self.intrinsics.regex_exec,
-                                        vec![recv_op, s],
-                                    ),
+                                    InstKind::Call(self.intrinsics.regex_exec, vec![recv_op, s]),
                                     Type::Arr(arr_id),
                                     None,
                                 );
                                 return Operand::Value(v);
                             }
-                            _ => unreachable!(
-                                "regex method `{method}` not yet wired"
-                            ),
+                            _ => unreachable!("regex method `{method}` not yet wired"),
                         }
                     }
                 }
@@ -19206,14 +19253,19 @@ impl<'a> LowerCtx<'a> {
                 // the dominant idioms and all the test262 cases at
                 // hand use these shapes.
                 if let Expr::Member { obj, name } = self.ast.get_expr(*callee)
-                    && matches!(name.as_str(), "replace" | "replaceAll" | "split" | "match" | "matchAll")
+                    && matches!(
+                        name.as_str(),
+                        "replace" | "replaceAll" | "split" | "match" | "matchAll"
+                    )
                     && !args.is_empty()
                 {
                     let arg0_is_regex = match self.ast.get_expr(args[0]) {
                         Expr::Regex { .. } => true,
-                        Expr::Ident(n) => {
-                            self.locals.get(n).map(|info| info.ty == Type::RegExp).unwrap_or(false)
-                        }
+                        Expr::Ident(n) => self
+                            .locals
+                            .get(n)
+                            .map(|info| info.ty == Type::RegExp)
+                            .unwrap_or(false),
                         _ => false,
                     };
                     if arg0_is_regex {
@@ -19239,10 +19291,8 @@ impl<'a> LowerCtx<'a> {
                             "matchAll" => {
                                 /* outer = Array<Array<Str>>, inner arr_id
                                  * = Array<Str> from above. */
-                                let outer_id = intern_arr_layout(
-                                    self.arr_layouts,
-                                    Type::Arr(arr_id),
-                                );
+                                let outer_id =
+                                    intern_arr_layout(self.arr_layouts, Type::Arr(arr_id));
                                 let v = self.f.append_inst(
                                     self.cur_block,
                                     InstKind::Call(
@@ -19276,10 +19326,7 @@ impl<'a> LowerCtx<'a> {
                                 };
                                 let v = self.f.append_inst(
                                     self.cur_block,
-                                    InstKind::Call(
-                                        target,
-                                        vec![recv_op, re_op, repl],
-                                    ),
+                                    InstKind::Call(target, vec![recv_op, re_op, repl]),
                                     Type::Str,
                                     None,
                                 );
@@ -19297,19 +19344,46 @@ impl<'a> LowerCtx<'a> {
                 if let Expr::Member { obj, name } = self.ast.get_expr(*callee)
                     && matches!(
                         name.as_str(),
-                        "slice" | "substring" | "substr"
-                        | "charCodeAt" | "codePointAt" | "charAt"
-                        | "startsWith" | "endsWith"
-                        | "includes" | "indexOf" | "split" | "join" | "repeat"
-                        | "toUpperCase" | "toLowerCase"
-                        | "trim" | "trimStart" | "trimEnd" | "trimLeft" | "trimRight"
-                        | "padStart" | "padEnd"
-                        | "replace" | "replaceAll"
-                        | "reverse" | "toReversed" | "with"
-                        | "fill" | "at" | "concat" | "sort" | "toSorted" | "flat"
-                        | "lastIndexOf" | "localeCompare" | "copyWithin"
-                        | "normalize" | "search"
-                        | "toString" | "toLocaleString"
+                        "slice"
+                            | "substring"
+                            | "substr"
+                            | "charCodeAt"
+                            | "codePointAt"
+                            | "charAt"
+                            | "startsWith"
+                            | "endsWith"
+                            | "includes"
+                            | "indexOf"
+                            | "split"
+                            | "join"
+                            | "repeat"
+                            | "toUpperCase"
+                            | "toLowerCase"
+                            | "trim"
+                            | "trimStart"
+                            | "trimEnd"
+                            | "trimLeft"
+                            | "trimRight"
+                            | "padStart"
+                            | "padEnd"
+                            | "replace"
+                            | "replaceAll"
+                            | "reverse"
+                            | "toReversed"
+                            | "with"
+                            | "fill"
+                            | "at"
+                            | "concat"
+                            | "sort"
+                            | "toSorted"
+                            | "flat"
+                            | "lastIndexOf"
+                            | "localeCompare"
+                            | "copyWithin"
+                            | "normalize"
+                            | "search"
+                            | "toString"
+                            | "toLocaleString"
                     )
                 {
                     let recv_op = self.lower_expr(*obj);
@@ -19340,11 +19414,7 @@ impl<'a> LowerCtx<'a> {
                         let (base, base_off) = self.emit_str_data_base(recv_op, recv_ty);
                         let off_v = self.f.append_inst(
                             self.cur_block,
-                            InstKind::BinOp(
-                                SsaBinOp::Add,
-                                base_off,
-                                Operand::ConstI64(lit_idx),
-                            ),
+                            InstKind::BinOp(SsaBinOp::Add, base_off, Operand::ConstI64(lit_idx)),
                             Type::I64,
                             None,
                         );
@@ -19374,11 +19444,7 @@ impl<'a> LowerCtx<'a> {
                         let idx_val = self.lower_expr(args[0]);
                         let end = self.f.append_inst(
                             self.cur_block,
-                            InstKind::BinOp(
-                                SsaBinOp::Add,
-                                idx_val,
-                                Operand::ConstI64(1),
-                            ),
+                            InstKind::BinOp(SsaBinOp::Add, idx_val, Operand::ConstI64(1)),
                             Type::I64,
                             None,
                         );
@@ -19398,19 +19464,12 @@ impl<'a> LowerCtx<'a> {
                     // because Substr.charAt has no view-aware
                     // fast path and would otherwise hit the
                     // 'unsupported Substr method' panic.
-                    if recv_ty == Type::Substr
-                        && method == "charAt"
-                        && args.is_empty()
-                    {
+                    if recv_ty == Type::Substr && method == "charAt" && args.is_empty() {
                         let v = self.f.append_inst(
                             self.cur_block,
                             InstKind::Call(
                                 self.intrinsics.substr_slice,
-                                vec![
-                                    recv_op,
-                                    Operand::ConstI64(0),
-                                    Operand::ConstI64(1),
-                                ],
+                                vec![recv_op, Operand::ConstI64(0), Operand::ConstI64(1)],
                             ),
                             Type::Substr,
                             None,
@@ -19424,27 +19483,13 @@ impl<'a> LowerCtx<'a> {
                             "charCodeAt" | "codePointAt" => {
                                 Some((self.intrinsics.substr_char_code_at, Type::I64))
                             }
-                            "startsWith" => {
-                                Some((self.intrinsics.substr_starts_with, Type::Bool))
-                            }
-                            "endsWith" => {
-                                Some((self.intrinsics.substr_ends_with, Type::Bool))
-                            }
-                            "includes" => {
-                                Some((self.intrinsics.substr_includes, Type::Bool))
-                            }
-                            "indexOf" => {
-                                Some((self.intrinsics.substr_index_of, Type::I64))
-                            }
-                            "slice" => {
-                                Some((self.intrinsics.substr_slice, Type::Substr))
-                            }
-                            "substring" => {
-                                Some((self.intrinsics.substr_substring, Type::Substr))
-                            }
-                            "trim" => {
-                                Some((self.intrinsics.substr_trim, Type::Substr))
-                            }
+                            "startsWith" => Some((self.intrinsics.substr_starts_with, Type::Bool)),
+                            "endsWith" => Some((self.intrinsics.substr_ends_with, Type::Bool)),
+                            "includes" => Some((self.intrinsics.substr_includes, Type::Bool)),
+                            "indexOf" => Some((self.intrinsics.substr_index_of, Type::I64)),
+                            "slice" => Some((self.intrinsics.substr_slice, Type::Substr)),
+                            "substring" => Some((self.intrinsics.substr_substring, Type::Substr)),
+                            "trim" => Some((self.intrinsics.substr_trim, Type::Substr)),
                             "trimStart" | "trimLeft" => {
                                 Some((self.intrinsics.substr_trim_start, Type::Substr))
                             }
@@ -19463,9 +19508,7 @@ impl<'a> LowerCtx<'a> {
                             // also accept 0/1 args; fill defaults the
                             // same way as the Str path. Substr len is
                             // at offset 8 of the Substr layout.
-                            if matches!(method.as_str(), "slice" | "substring")
-                                && args.len() < 2
-                            {
+                            if matches!(method.as_str(), "slice" | "substring") && args.len() < 2 {
                                 if args.is_empty() {
                                     argv.push(Operand::ConstI64(0));
                                 }
@@ -19479,8 +19522,7 @@ impl<'a> LowerCtx<'a> {
                             }
                             // V3-18 wedge — Substr.charCodeAt /
                             // codePointAt 0-arg defaults pos to 0.
-                            if matches!(method.as_str(),
-                                "charCodeAt" | "codePointAt")
+                            if matches!(method.as_str(), "charCodeAt" | "codePointAt")
                                 && args.is_empty()
                             {
                                 argv.push(Operand::ConstI64(0));
@@ -19503,10 +19545,7 @@ impl<'a> LowerCtx<'a> {
                             _ => {
                                 let owned = self.f.append_inst(
                                     self.cur_block,
-                                    InstKind::Call(
-                                        self.intrinsics.substr_to_owned,
-                                        vec![recv_op],
-                                    ),
+                                    InstKind::Call(self.intrinsics.substr_to_owned, vec![recv_op]),
                                     Type::Str,
                                     None,
                                 );
@@ -19521,8 +19560,12 @@ impl<'a> LowerCtx<'a> {
                                     "toUpperCase" => (self.intrinsics.str_to_upper, Type::Str),
                                     "toLowerCase" => (self.intrinsics.str_to_lower, Type::Str),
                                     "trim" => (self.intrinsics.str_trim, Type::Str),
-                                    "trimStart" | "trimLeft" => (self.intrinsics.str_trim_start, Type::Str),
-                                    "trimEnd" | "trimRight" => (self.intrinsics.str_trim_end, Type::Str),
+                                    "trimStart" | "trimLeft" => {
+                                        (self.intrinsics.str_trim_start, Type::Str)
+                                    }
+                                    "trimEnd" | "trimRight" => {
+                                        (self.intrinsics.str_trim_end, Type::Str)
+                                    }
                                     "padStart" => (self.intrinsics.str_pad_start, Type::Str),
                                     "padEnd" => (self.intrinsics.str_pad_end, Type::Str),
                                     "startsWith" => (self.intrinsics.str_starts_with, Type::Bool),
@@ -19530,7 +19573,9 @@ impl<'a> LowerCtx<'a> {
                                     "includes" => (self.intrinsics.str_includes, Type::Bool),
                                     "indexOf" => (self.intrinsics.str_index_of, Type::I64),
                                     "lastIndexOf" => (self.intrinsics.str_last_index_of, Type::I64),
-                                    "localeCompare" => (self.intrinsics.str_locale_compare, Type::I64),
+                                    "localeCompare" => {
+                                        (self.intrinsics.str_locale_compare, Type::I64)
+                                    }
                                     // V3-18 wedge — Substr.search routes
                                     // through str_index_of after
                                     // materializing (same as Str.search):
@@ -19540,9 +19585,9 @@ impl<'a> LowerCtx<'a> {
                                     "repeat" => (self.intrinsics.str_repeat, Type::Str),
                                     "replace" => (self.intrinsics.str_replace, Type::Str),
                                     "replaceAll" => (self.intrinsics.str_replace_all, Type::Str),
-                                    other => panic!(
-                                        "ssa-lower: unsupported Substr method `{other}`"
-                                    ),
+                                    other => {
+                                        panic!("ssa-lower: unsupported Substr method `{other}`")
+                                    }
                                 };
                                 let v = self.f.append_inst(
                                     self.cur_block,
@@ -19573,8 +19618,7 @@ impl<'a> LowerCtx<'a> {
                     // index and route through the existing 1-arg
                     // paths below.
                     if matches!(recv_ty, Type::Str | Type::Substr)
-                        && matches!(method.as_str(),
-                            "charAt" | "charCodeAt" | "codePointAt")
+                        && matches!(method.as_str(), "charAt" | "charCodeAt" | "codePointAt")
                         && args.is_empty()
                     {
                         let idx_val = Operand::ConstI64(0);
@@ -19594,11 +19638,7 @@ impl<'a> LowerCtx<'a> {
                                     self.cur_block,
                                     InstKind::Call(
                                         self.intrinsics.substr_slice,
-                                        vec![
-                                            recv_op,
-                                            idx_val,
-                                            Operand::ConstI64(1),
-                                        ],
+                                        vec![recv_op, idx_val, Operand::ConstI64(1)],
                                     ),
                                     Type::Substr,
                                     None,
@@ -19636,21 +19676,14 @@ impl<'a> LowerCtx<'a> {
                             // bytes from past the parent's data.
                             self.f.append_inst(
                                 self.cur_block,
-                                InstKind::Call(
-                                    self.intrinsics.str_char_at,
-                                    vec![recv_op, idx_val],
-                                ),
+                                InstKind::Call(self.intrinsics.str_char_at, vec![recv_op, idx_val]),
                                 Type::Substr,
                                 None,
                             )
                         } else {
                             let end = self.f.append_inst(
                                 self.cur_block,
-                                InstKind::BinOp(
-                                    SsaBinOp::Add,
-                                    idx_val,
-                                    Operand::ConstI64(1),
-                                ),
+                                InstKind::BinOp(SsaBinOp::Add, idx_val, Operand::ConstI64(1)),
                                 Type::I64,
                                 None,
                             );
@@ -19689,15 +19722,32 @@ impl<'a> LowerCtx<'a> {
                     if recv_ty == Type::Str
                         && matches!(
                             method.as_str(),
-                            "slice" | "substring" | "substr"
-                            | "charCodeAt" | "codePointAt"
-                            | "startsWith"
-                            | "endsWith" | "includes" | "indexOf" | "split" | "repeat"
-                            | "toUpperCase" | "toLowerCase"
-                            | "trim" | "trimStart" | "trimEnd" | "trimLeft" | "trimRight"
-                            | "padStart" | "padEnd"
-                            | "replace" | "replaceAll" | "at"
-                            | "lastIndexOf" | "localeCompare" | "search"
+                            "slice"
+                                | "substring"
+                                | "substr"
+                                | "charCodeAt"
+                                | "codePointAt"
+                                | "startsWith"
+                                | "endsWith"
+                                | "includes"
+                                | "indexOf"
+                                | "split"
+                                | "repeat"
+                                | "toUpperCase"
+                                | "toLowerCase"
+                                | "trim"
+                                | "trimStart"
+                                | "trimEnd"
+                                | "trimLeft"
+                                | "trimRight"
+                                | "padStart"
+                                | "padEnd"
+                                | "replace"
+                                | "replaceAll"
+                                | "at"
+                                | "lastIndexOf"
+                                | "localeCompare"
+                                | "search"
                         )
                     {
                         let mut argv = Vec::with_capacity(args.len() + 1);
@@ -19708,9 +19758,7 @@ impl<'a> LowerCtx<'a> {
                         // V3-18 m1.h.36 — String.slice / substring with
                         // 0 or 1 args: fill in the missing positions
                         // with start=0, end=str.length (per JS spec).
-                        if matches!(method.as_str(), "slice" | "substring")
-                            && args.len() < 2
-                        {
+                        if matches!(method.as_str(), "slice" | "substring") && args.len() < 2 {
                             if args.is_empty() {
                                 argv.push(Operand::ConstI64(0));
                             }
@@ -19739,18 +19787,14 @@ impl<'a> LowerCtx<'a> {
                         // V3-18 m1.h.45 — String.padStart / padEnd with 1
                         // arg: default fill string is " " per JS spec
                         // §21.1.3.16.
-                        if matches!(method.as_str(), "padStart" | "padEnd")
-                            && args.len() == 1
-                        {
+                        if matches!(method.as_str(), "padStart" | "padEnd") && args.len() == 1 {
                             let space = self.intern_string_literal(" ");
                             argv.push(Operand::Value(space));
                         }
                         // V3-18 m1.h.50 — String.indexOf / lastIndexOf
                         // with the 2-arg (needle, fromIndex) shape route
                         // to the dedicated _from runtime helpers.
-                        if matches!(method.as_str(), "indexOf" | "lastIndexOf")
-                            && args.len() == 2
-                        {
+                        if matches!(method.as_str(), "indexOf" | "lastIndexOf") && args.len() == 2 {
                             let target = if method == "indexOf" {
                                 self.intrinsics.str_index_of_from
                             } else {
@@ -19767,8 +19811,7 @@ impl<'a> LowerCtx<'a> {
                         // V3-18 m1.h.51 — startsWith / endsWith / includes
                         // 2-arg (needle, position) shape: route to
                         // dedicated _from helpers.
-                        if matches!(method.as_str(),
-                            "startsWith" | "endsWith" | "includes")
+                        if matches!(method.as_str(), "startsWith" | "endsWith" | "includes")
                             && args.len() == 2
                         {
                             let target = match method.as_str() {
@@ -19803,7 +19846,9 @@ impl<'a> LowerCtx<'a> {
                             // byte-Str layout — both return the byte at
                             // the index, indistinguishable inside the
                             // ASCII / Latin-1 range tests stick to.
-                            "charCodeAt" | "codePointAt" => (self.intrinsics.str_char_code_at, Type::I64),
+                            "charCodeAt" | "codePointAt" => {
+                                (self.intrinsics.str_char_code_at, Type::I64)
+                            }
                             "startsWith" => (self.intrinsics.str_starts_with, Type::Bool),
                             "endsWith" => (self.intrinsics.str_ends_with, Type::Bool),
                             "includes" => (self.intrinsics.str_includes, Type::Bool),
@@ -19834,10 +19879,7 @@ impl<'a> LowerCtx<'a> {
                                 // header) but element views still alias
                                 // the source bytes, no per-substring
                                 // copy.
-                                let arr_id = intern_arr_layout(
-                                    self.arr_layouts,
-                                    Type::Substr,
-                                );
+                                let arr_id = intern_arr_layout(self.arr_layouts, Type::Substr);
                                 if args.len() == 2 {
                                     let split_v = self.f.append_inst(
                                         self.cur_block,
@@ -19859,10 +19901,7 @@ impl<'a> LowerCtx<'a> {
                                         None,
                                     );
                                     let limit_op = argv[2].clone();
-                                    let take_slot = self.alloca(
-                                        Type::I64,
-                                        Some("__split_take"),
-                                    );
+                                    let take_slot = self.alloca(Type::I64, Some("__split_take"));
                                     let lt = self.f.append_inst(
                                         self.cur_block,
                                         InstKind::ICmp(
@@ -19887,11 +19926,7 @@ impl<'a> LowerCtx<'a> {
                                     self.cur_block = then_blk;
                                     self.f.append_void(
                                         self.cur_block,
-                                        InstKind::Store(
-                                            limit_op,
-                                            Operand::Value(take_slot),
-                                            0,
-                                        ),
+                                        InstKind::Store(limit_op, Operand::Value(take_slot), 0),
                                     );
                                     self.f.set_term(self.cur_block, Terminator::Br(after_blk));
                                     self.cur_block = else_blk;
@@ -19907,11 +19942,7 @@ impl<'a> LowerCtx<'a> {
                                     self.cur_block = after_blk;
                                     let take = self.f.append_inst(
                                         self.cur_block,
-                                        InstKind::Load(
-                                            Type::I64,
-                                            Operand::Value(take_slot),
-                                            0,
-                                        ),
+                                        InstKind::Load(Type::I64, Operand::Value(take_slot), 0),
                                         Type::I64,
                                         None,
                                     );
@@ -19951,9 +19982,7 @@ impl<'a> LowerCtx<'a> {
                     // §22.1.3.30. Same element-type constraint as
                     // join itself.
                     if let Type::Arr(elem_arr_id) = recv_ty
-                        && (method == "join"
-                            || method == "toString"
-                            || method == "toLocaleString")
+                        && (method == "join" || method == "toString" || method == "toLocaleString")
                     {
                         let elem_ty = self.arr_layouts[elem_arr_id.0 as usize];
                         // V3-18 m1.h.43 — element-type dispatch for
@@ -20002,9 +20031,7 @@ impl<'a> LowerCtx<'a> {
                         } else if let Expr::Number(d) = self.ast.get_expr(args[0]) {
                             *d as i64
                         } else {
-                            panic!(
-                                "ssa-lower: flat depth must be a number literal"
-                            );
+                            panic!("ssa-lower: flat depth must be a number literal");
                         };
                         if depth == 0 {
                             // Shallow clone: arr_slice(recv, 0, len) +
@@ -20045,15 +20072,16 @@ impl<'a> LowerCtx<'a> {
                         let mut cur = recv_op;
                         let mut cur_ty = recv_ty;
                         for _ in 0..depth {
-                            let Type::Arr(outer_id) = cur_ty else { break; };
+                            let Type::Arr(outer_id) = cur_ty else {
+                                break;
+                            };
                             let outer_elem = self.arr_layouts[outer_id.0 as usize];
-                            let Type::Arr(_) = outer_elem else { break; };
+                            let Type::Arr(_) = outer_elem else {
+                                break;
+                            };
                             let v = self.f.append_inst(
                                 self.cur_block,
-                                InstKind::Call(
-                                    self.intrinsics.arr_flat,
-                                    vec![cur],
-                                ),
+                                InstKind::Call(self.intrinsics.arr_flat, vec![cur]),
                                 outer_elem,
                                 None,
                             );
@@ -20090,11 +20118,7 @@ impl<'a> LowerCtx<'a> {
                                 self.cur_block,
                                 InstKind::Call(
                                     self.intrinsics.arr_slice,
-                                    vec![
-                                        recv_op,
-                                        Operand::ConstI64(0),
-                                        Operand::Value(len),
-                                    ],
+                                    vec![recv_op, Operand::ConstI64(0), Operand::Value(len)],
                                 ),
                                 Type::Arr(arr_id),
                                 None,
@@ -20129,11 +20153,7 @@ impl<'a> LowerCtx<'a> {
                         // i = 1
                         self.f.append_void(
                             self.cur_block,
-                            InstKind::Store(
-                                Operand::ConstI64(1),
-                                Operand::Value(i_slot),
-                                0,
-                            ),
+                            InstKind::Store(Operand::ConstI64(1), Operand::Value(i_slot), 0),
                         );
                         let outer_hdr = self.f.add_block();
                         let outer_body = self.f.add_block();
@@ -20149,11 +20169,7 @@ impl<'a> LowerCtx<'a> {
                         );
                         let in_outer = self.f.append_inst(
                             self.cur_block,
-                            InstKind::ICmp(
-                                IPred::Slt,
-                                Operand::Value(i_now),
-                                Operand::Value(len),
-                            ),
+                            InstKind::ICmp(IPred::Slt, Operand::Value(i_now), Operand::Value(len)),
                             Type::Bool,
                             None,
                         );
@@ -20181,22 +20197,14 @@ impl<'a> LowerCtx<'a> {
                         );
                         let cur = self.f.append_inst(
                             self.cur_block,
-                            InstKind::LoadDyn(
-                                elem_ty,
-                                Operand::Value(arr_ptr),
-                                off_i,
-                            ),
+                            InstKind::LoadDyn(elem_ty, Operand::Value(arr_ptr), off_i),
                             elem_ty,
                             None,
                         );
                         let j_slot = self.alloca(Type::I64, Some("__sort_j"));
                         self.f.append_void(
                             self.cur_block,
-                            InstKind::Store(
-                                Operand::Value(i_now2),
-                                Operand::Value(j_slot),
-                                0,
-                            ),
+                            InstKind::Store(Operand::Value(i_now2), Operand::Value(j_slot), 0),
                         );
                         // inner loop: while j > 0 && cmp(xs[j-1], cur) > 0: shift
                         let inner_hdr = self.f.add_block();
@@ -20214,11 +20222,7 @@ impl<'a> LowerCtx<'a> {
                         );
                         let j_pos = self.f.append_inst(
                             self.cur_block,
-                            InstKind::ICmp(
-                                IPred::Sgt,
-                                Operand::Value(j_now),
-                                Operand::ConstI64(0),
-                            ),
+                            InstKind::ICmp(IPred::Sgt, Operand::Value(j_now), Operand::ConstI64(0)),
                             Type::Bool,
                             None,
                         );
@@ -20249,11 +20253,7 @@ impl<'a> LowerCtx<'a> {
                         );
                         let prev = self.f.append_inst(
                             self.cur_block,
-                            InstKind::LoadDyn(
-                                elem_ty,
-                                Operand::Value(arr_ptr),
-                                off_jm1.clone(),
-                            ),
+                            InstKind::LoadDyn(elem_ty, Operand::Value(arr_ptr), off_jm1.clone()),
                             elem_ty,
                             None,
                         );
@@ -20309,10 +20309,7 @@ impl<'a> LowerCtx<'a> {
                                         self.cur_block,
                                         InstKind::Call(
                                             self.intrinsics.str_locale_compare,
-                                            vec![
-                                                Operand::Value(prev),
-                                                Operand::Value(cur),
-                                            ],
+                                            vec![Operand::Value(prev), Operand::Value(cur)],
                                         ),
                                         Type::I64,
                                         None,
@@ -20364,11 +20361,7 @@ impl<'a> LowerCtx<'a> {
                         );
                         let prev2 = self.f.append_inst(
                             self.cur_block,
-                            InstKind::LoadDyn(
-                                elem_ty,
-                                Operand::Value(arr_ptr),
-                                off_jm1_b,
-                            ),
+                            InstKind::LoadDyn(elem_ty, Operand::Value(arr_ptr), off_jm1_b),
                             elem_ty,
                             None,
                         );
@@ -20382,11 +20375,7 @@ impl<'a> LowerCtx<'a> {
                         );
                         self.f.append_void(
                             self.cur_block,
-                            InstKind::Store(
-                                Operand::Value(j_minus_1),
-                                Operand::Value(j_slot),
-                                0,
-                            ),
+                            InstKind::Store(Operand::Value(j_minus_1), Operand::Value(j_slot), 0),
                         );
                         self.f.set_term(self.cur_block, Terminator::Br(inner_hdr));
                         // inner after: xs[j] = cur
@@ -20423,11 +20412,7 @@ impl<'a> LowerCtx<'a> {
                         );
                         self.f.append_void(
                             self.cur_block,
-                            InstKind::Store(
-                                Operand::Value(i_next),
-                                Operand::Value(i_slot),
-                                0,
-                            ),
+                            InstKind::Store(Operand::Value(i_next), Operand::Value(i_slot), 0),
                         );
                         self.f.set_term(self.cur_block, Terminator::Br(outer_hdr));
                         self.cur_block = outer_after;
@@ -20448,10 +20433,7 @@ impl<'a> LowerCtx<'a> {
                             let other = self.lower_expr(*a);
                             let v = self.f.append_inst(
                                 self.cur_block,
-                                InstKind::Call(
-                                    self.intrinsics.str_concat,
-                                    vec![acc, other],
-                                ),
+                                InstKind::Call(self.intrinsics.str_concat, vec![acc, other]),
                                 Type::Str,
                                 None,
                             );
@@ -20505,10 +20487,7 @@ impl<'a> LowerCtx<'a> {
                             let other = self.lower_expr(*a);
                             let v = self.f.append_inst(
                                 self.cur_block,
-                                InstKind::Call(
-                                    self.intrinsics.arr_concat,
-                                    vec![acc, other],
-                                ),
+                                InstKind::Call(self.intrinsics.arr_concat, vec![acc, other]),
                                 Type::Arr(arr_id),
                                 None,
                             );
@@ -20548,21 +20527,13 @@ impl<'a> LowerCtx<'a> {
                         );
                         let is_neg = self.f.append_inst(
                             self.cur_block,
-                            InstKind::ICmp(
-                                IPred::Slt,
-                                i_val,
-                                Operand::ConstI64(0),
-                            ),
+                            InstKind::ICmp(IPred::Slt, i_val, Operand::ConstI64(0)),
                             Type::Bool,
                             None,
                         );
                         let i_plus_len = self.f.append_inst(
                             self.cur_block,
-                            InstKind::BinOp(
-                                SsaBinOp::Add,
-                                i_val,
-                                Operand::Value(len),
-                            ),
+                            InstKind::BinOp(SsaBinOp::Add, i_val, Operand::Value(len)),
                             Type::I64,
                             None,
                         );
@@ -20573,14 +20544,21 @@ impl<'a> LowerCtx<'a> {
                         let pos_blk = self.f.add_block();
                         let after_blk = self.f.add_block();
                         let cb = self.cur_block;
-                        self.f.set_term(cb, Terminator::CondBr {
-                            cond: Operand::Value(is_neg),
-                            then_blk: neg_blk,
-                            else_blk: pos_blk,
-                        });
+                        self.f.set_term(
+                            cb,
+                            Terminator::CondBr {
+                                cond: Operand::Value(is_neg),
+                                then_blk: neg_blk,
+                                else_blk: pos_blk,
+                            },
+                        );
                         self.f.append_void(
                             neg_blk,
-                            InstKind::Store(Operand::Value(i_plus_len), Operand::Value(adj_slot), 0),
+                            InstKind::Store(
+                                Operand::Value(i_plus_len),
+                                Operand::Value(adj_slot),
+                                0,
+                            ),
                         );
                         self.f.set_term(neg_blk, Terminator::Br(after_blk));
                         self.f.append_void(
@@ -20596,11 +20574,8 @@ impl<'a> LowerCtx<'a> {
                             None,
                         );
                         // T-13.5 deque: head-aware offset for arr.at(i).
-                        let off = self.emit_arr_slot_byte_offset(
-                            recv_op.clone(),
-                            Operand::Value(adj),
-                            3,
-                        );
+                        let off =
+                            self.emit_arr_slot_byte_offset(recv_op.clone(), Operand::Value(adj), 3);
                         let v = self.f.append_inst(
                             self.cur_block,
                             InstKind::LoadDyn(elem_ty, recv_op, off),
@@ -20652,10 +20627,7 @@ impl<'a> LowerCtx<'a> {
                             None,
                         );
                         let raw_target = self.lower_expr(args[0]);
-                        let target = self.relative_to_len(
-                            raw_target,
-                            Operand::Value(len_for_norm),
-                        );
+                        let target = self.relative_to_len(raw_target, Operand::Value(len_for_norm));
                         let start = if args.len() >= 2 {
                             let raw = self.lower_expr(args[1]);
                             self.relative_to_len(raw, Operand::Value(len_for_norm))
@@ -20723,11 +20695,7 @@ impl<'a> LowerCtx<'a> {
                                 Type::I64,
                                 None,
                             );
-                            self.emit_arr_rc_inc_range(
-                                recv_op,
-                                lo,
-                                Operand::Value(src_end),
-                            );
+                            self.emit_arr_rc_inc_range(recv_op, lo, Operand::Value(src_end));
                             self.emit_arr_rc_drop_range(
                                 recv_op,
                                 elem_ty,
@@ -20754,10 +20722,7 @@ impl<'a> LowerCtx<'a> {
                     {
                         let v = self.f.append_inst(
                             self.cur_block,
-                            InstKind::Call(
-                                self.intrinsics.arr_reverse,
-                                vec![recv_op],
-                            ),
+                            InstKind::Call(self.intrinsics.arr_reverse, vec![recv_op]),
                             Type::Arr(arr_id),
                             None,
                         );
@@ -20775,10 +20740,7 @@ impl<'a> LowerCtx<'a> {
                     {
                         let v = self.f.append_inst(
                             self.cur_block,
-                            InstKind::Call(
-                                self.intrinsics.arr_to_reversed,
-                                vec![recv_op],
-                            ),
+                            InstKind::Call(self.intrinsics.arr_to_reversed, vec![recv_op]),
                             Type::Arr(arr_id),
                             None,
                         );
@@ -20825,10 +20787,7 @@ impl<'a> LowerCtx<'a> {
                         }
                         let v = self.f.append_inst(
                             self.cur_block,
-                            InstKind::Call(
-                                self.intrinsics.arr_with,
-                                vec![recv_op, i_val, v_val],
-                            ),
+                            InstKind::Call(self.intrinsics.arr_with, vec![recv_op, i_val, v_val]),
                             Type::Arr(arr_id),
                             None,
                         );
@@ -20951,11 +20910,14 @@ impl<'a> LowerCtx<'a> {
                             Type::Bool,
                             None,
                         );
-                        self.f.set_term(self.cur_block, Terminator::CondBr {
-                            cond: Operand::Value(cond),
-                            then_blk: body,
-                            else_blk: after,
-                        });
+                        self.f.set_term(
+                            self.cur_block,
+                            Terminator::CondBr {
+                                cond: Operand::Value(cond),
+                                then_blk: body,
+                                else_blk: after,
+                            },
+                        );
                         self.cur_block = body;
                         // T-13.5: head-aware offset for arr.fill loop.
                         let off = self.emit_arr_slot_byte_offset(
@@ -20970,17 +20932,19 @@ impl<'a> LowerCtx<'a> {
                             None,
                         );
                         self.emit_drop_value(Operand::Value(old), elem_ty);
-                        self.f.append_void(
-                            self.cur_block,
-                            InstKind::StoreDyn(value, recv_op, off),
-                        );
+                        self.f
+                            .append_void(self.cur_block, InstKind::StoreDyn(value, recv_op, off));
                         self.f.append_void(
                             self.cur_block,
                             InstKind::Call(self.intrinsics.rc_inc, vec![value]),
                         );
                         let i_next = self.f.append_inst(
                             self.cur_block,
-                            InstKind::BinOp(SsaBinOp::Add, Operand::Value(i_now), Operand::ConstI64(1)),
+                            InstKind::BinOp(
+                                SsaBinOp::Add,
+                                Operand::Value(i_now),
+                                Operand::ConstI64(1),
+                            ),
                             Type::I64,
                             None,
                         );
@@ -21059,9 +21023,7 @@ impl<'a> LowerCtx<'a> {
                     // includes returns a boolean. All three share the
                     // per-element compare dispatch (ICmp / FCmp / str_eq).
                     if let Type::Arr(arr_id) = recv_ty
-                        && (method == "indexOf"
-                            || method == "lastIndexOf"
-                            || method == "includes")
+                        && (method == "indexOf" || method == "lastIndexOf" || method == "includes")
                         && (args.len() == 1 || args.len() == 2)
                     {
                         let want_bool = method == "includes";
@@ -21106,15 +21068,10 @@ impl<'a> LowerCtx<'a> {
                             (Type::F64, Type::I64) => self.coerce_to_f64(needle_raw),
                             _ => needle_raw,
                         };
-                        let result_slot =
-                            self.alloca_in_entry(Type::I64, Some("__idx"));
+                        let result_slot = self.alloca_in_entry(Type::I64, Some("__idx"));
                         self.f.append_void(
                             self.cur_block,
-                            InstKind::Store(
-                                Operand::ConstI64(-1),
-                                Operand::Value(result_slot),
-                                0,
-                            ),
+                            InstKind::Store(Operand::ConstI64(-1), Operand::Value(result_slot), 0),
                         );
                         let len_v = self.f.append_inst(
                             self.cur_block,
@@ -21156,11 +21113,14 @@ impl<'a> LowerCtx<'a> {
                             let neg_blk = self.f.add_block();
                             let pos_blk = self.f.add_block();
                             let join_blk = self.f.add_block();
-                            self.f.set_term(self.cur_block, Terminator::CondBr {
-                                cond: Operand::Value(neg),
-                                then_blk: neg_blk,
-                                else_blk: pos_blk,
-                            });
+                            self.f.set_term(
+                                self.cur_block,
+                                Terminator::CondBr {
+                                    cond: Operand::Value(neg),
+                                    then_blk: neg_blk,
+                                    else_blk: pos_blk,
+                                },
+                            );
                             // neg path: effective = raw + len
                             self.cur_block = neg_blk;
                             let plus_len = self.f.append_inst(
@@ -21171,7 +21131,11 @@ impl<'a> LowerCtx<'a> {
                             );
                             let pl_neg = self.f.append_inst(
                                 self.cur_block,
-                                InstKind::ICmp(IPred::Slt, Operand::Value(plus_len), Operand::ConstI64(0)),
+                                InstKind::ICmp(
+                                    IPred::Slt,
+                                    Operand::Value(plus_len),
+                                    Operand::ConstI64(0),
+                                ),
                                 Type::Bool,
                                 None,
                             );
@@ -21180,20 +21144,31 @@ impl<'a> LowerCtx<'a> {
                             let neg_floor = if want_last { -1 } else { 0 };
                             let zero_blk = self.f.add_block();
                             let plus_blk = self.f.add_block();
-                            self.f.set_term(self.cur_block, Terminator::CondBr {
-                                cond: Operand::Value(pl_neg),
-                                then_blk: zero_blk,
-                                else_blk: plus_blk,
-                            });
+                            self.f.set_term(
+                                self.cur_block,
+                                Terminator::CondBr {
+                                    cond: Operand::Value(pl_neg),
+                                    then_blk: zero_blk,
+                                    else_blk: plus_blk,
+                                },
+                            );
                             let eff_slot = self.alloca_in_entry(Type::I64, Some("__eff"));
                             self.f.append_void(
                                 zero_blk,
-                                InstKind::Store(Operand::ConstI64(neg_floor), Operand::Value(eff_slot), 0),
+                                InstKind::Store(
+                                    Operand::ConstI64(neg_floor),
+                                    Operand::Value(eff_slot),
+                                    0,
+                                ),
                             );
                             self.f.set_term(zero_blk, Terminator::Br(join_blk));
                             self.f.append_void(
                                 plus_blk,
-                                InstKind::Store(Operand::Value(plus_len), Operand::Value(eff_slot), 0),
+                                InstKind::Store(
+                                    Operand::Value(plus_len),
+                                    Operand::Value(eff_slot),
+                                    0,
+                                ),
                             );
                             self.f.set_term(plus_blk, Terminator::Br(join_blk));
                             // pos path: effective = raw_i
@@ -21213,37 +21188,60 @@ impl<'a> LowerCtx<'a> {
                                 // end_slot = clamp(eff + 1, 0, len)
                                 self.f.append_void(
                                     self.cur_block,
-                                    InstKind::Store(Operand::ConstI64(0), Operand::Value(i_slot), 0),
+                                    InstKind::Store(
+                                        Operand::ConstI64(0),
+                                        Operand::Value(i_slot),
+                                        0,
+                                    ),
                                 );
                                 let end_raw = self.f.append_inst(
                                     self.cur_block,
-                                    InstKind::BinOp(SsaBinOp::Add, Operand::Value(eff), Operand::ConstI64(1)),
+                                    InstKind::BinOp(
+                                        SsaBinOp::Add,
+                                        Operand::Value(eff),
+                                        Operand::ConstI64(1),
+                                    ),
                                     Type::I64,
                                     None,
                                 );
                                 // upper-clamp to len
                                 let over = self.f.append_inst(
                                     self.cur_block,
-                                    InstKind::ICmp(IPred::Sgt, Operand::Value(end_raw), Operand::Value(len_v)),
+                                    InstKind::ICmp(
+                                        IPred::Sgt,
+                                        Operand::Value(end_raw),
+                                        Operand::Value(len_v),
+                                    ),
                                     Type::Bool,
                                     None,
                                 );
                                 let over_blk = self.f.add_block();
                                 let ok_blk = self.f.add_block();
                                 let join2 = self.f.add_block();
-                                self.f.set_term(self.cur_block, Terminator::CondBr {
-                                    cond: Operand::Value(over),
-                                    then_blk: over_blk,
-                                    else_blk: ok_blk,
-                                });
+                                self.f.set_term(
+                                    self.cur_block,
+                                    Terminator::CondBr {
+                                        cond: Operand::Value(over),
+                                        then_blk: over_blk,
+                                        else_blk: ok_blk,
+                                    },
+                                );
                                 self.f.append_void(
                                     over_blk,
-                                    InstKind::Store(Operand::Value(len_v), Operand::Value(end_slot), 0),
+                                    InstKind::Store(
+                                        Operand::Value(len_v),
+                                        Operand::Value(end_slot),
+                                        0,
+                                    ),
                                 );
                                 self.f.set_term(over_blk, Terminator::Br(join2));
                                 self.f.append_void(
                                     ok_blk,
-                                    InstKind::Store(Operand::Value(end_raw), Operand::Value(end_slot), 0),
+                                    InstKind::Store(
+                                        Operand::Value(end_raw),
+                                        Operand::Value(end_slot),
+                                        0,
+                                    ),
                                 );
                                 self.f.set_term(ok_blk, Terminator::Br(join2));
                                 self.cur_block = join2;
@@ -21257,11 +21255,7 @@ impl<'a> LowerCtx<'a> {
                         } else {
                             self.f.append_void(
                                 self.cur_block,
-                                InstKind::Store(
-                                    Operand::ConstI64(0),
-                                    Operand::Value(i_slot),
-                                    0,
-                                ),
+                                InstKind::Store(Operand::ConstI64(0), Operand::Value(i_slot), 0),
                             );
                         }
                         let header = self.f.add_block();
@@ -21356,11 +21350,7 @@ impl<'a> LowerCtx<'a> {
                         let eq = match elem_ty {
                             Type::F64 => self.f.append_inst(
                                 self.cur_block,
-                                InstKind::FCmp(
-                                    FPred::Oeq,
-                                    Operand::Value(elem),
-                                    needle,
-                                ),
+                                InstKind::FCmp(FPred::Oeq, Operand::Value(elem), needle),
                                 Type::Bool,
                                 None,
                             ),
@@ -21418,9 +21408,7 @@ impl<'a> LowerCtx<'a> {
                                             );
                                             (1, Operand::Value(zext))
                                         }
-                                        Type::Ptr
-                                            if matches!(needle, Operand::ConstPtrNull) =>
-                                        {
+                                        Type::Ptr if matches!(needle, Operand::ConstPtrNull) => {
                                             (0, Operand::ConstI64(0))
                                         }
                                         t if t.is_refcounted() => (4, needle.clone()),
@@ -21443,11 +21431,7 @@ impl<'a> LowerCtx<'a> {
                             }
                             _ => self.f.append_inst(
                                 self.cur_block,
-                                InstKind::ICmp(
-                                    IPred::Eq,
-                                    Operand::Value(elem),
-                                    needle,
-                                ),
+                                InstKind::ICmp(IPred::Eq, Operand::Value(elem), needle),
                                 Type::Bool,
                                 None,
                             ),
@@ -21466,11 +21450,7 @@ impl<'a> LowerCtx<'a> {
                         self.cur_block = found;
                         self.f.append_void(
                             self.cur_block,
-                            InstKind::Store(
-                                Operand::Value(i_cur),
-                                Operand::Value(result_slot),
-                                0,
-                            ),
+                            InstKind::Store(Operand::Value(i_cur), Operand::Value(result_slot), 0),
                         );
                         let cb = self.cur_block;
                         // indexOf / includes break on first match;
@@ -21494,11 +21474,7 @@ impl<'a> LowerCtx<'a> {
                         );
                         self.f.append_void(
                             self.cur_block,
-                            InstKind::Store(
-                                Operand::Value(next_i),
-                                Operand::Value(i_slot),
-                                0,
-                            ),
+                            InstKind::Store(Operand::Value(next_i), Operand::Value(i_slot), 0),
                         );
                         let cb = self.cur_block;
                         self.f.set_term(cb, Terminator::Br(header));
@@ -21514,11 +21490,7 @@ impl<'a> LowerCtx<'a> {
                             // `includes` — return (result_slot != -1) as Bool.
                             let b = self.f.append_inst(
                                 self.cur_block,
-                                InstKind::ICmp(
-                                    IPred::Ne,
-                                    Operand::Value(r),
-                                    Operand::ConstI64(-1),
-                                ),
+                                InstKind::ICmp(IPred::Ne, Operand::Value(r), Operand::ConstI64(-1)),
                                 Type::Bool,
                                 None,
                             );
@@ -21535,17 +21507,13 @@ impl<'a> LowerCtx<'a> {
                 if let Expr::Member { obj, name } = self.ast.get_expr(*callee)
                     && matches!(
                         name.as_str(),
-                        "findIndex" | "findLastIndex"
-                        | "find" | "findLast"
-                        | "some" | "every"
+                        "findIndex" | "findLastIndex" | "find" | "findLast" | "some" | "every"
                     )
                 {
                     let recv_op = self.lower_expr(*obj);
                     let recv_ty = self.operand_ty(&recv_op);
                     if !matches!(recv_ty, Type::Arr(_)) {
-                        panic!(
-                            "ssa-lower: `.{name}(...)` on non-array receiver type {recv_ty:?}"
-                        );
+                        panic!("ssa-lower: `.{name}(...)` on non-array receiver type {recv_ty:?}");
                     }
                     let method = name.clone();
                     let is_reverse = method == "findLastIndex" || method == "findLast";
@@ -21578,8 +21546,7 @@ impl<'a> LowerCtx<'a> {
                     } else {
                         Type::Bool
                     };
-                    let result_slot =
-                        self.alloca_in_entry(result_ty, Some("__pred_res"));
+                    let result_slot = self.alloca_in_entry(result_ty, Some("__pred_res"));
                     let default_op: Operand = match method.as_str() {
                         "findIndex" | "findLastIndex" => Operand::ConstI64(-1),
                         "some" => Operand::ConstBool(false),
@@ -21641,7 +21608,11 @@ impl<'a> LowerCtx<'a> {
                         InstKind::ICmp(
                             if is_reverse { IPred::Sge } else { IPred::Slt },
                             Operand::Value(i_now),
-                            if is_reverse { Operand::ConstI64(0) } else { Operand::Value(len) },
+                            if is_reverse {
+                                Operand::ConstI64(0)
+                            } else {
+                                Operand::Value(len)
+                            },
                         ),
                         Type::Bool,
                         None,
@@ -21670,19 +21641,11 @@ impl<'a> LowerCtx<'a> {
                     );
                     let elem = self.f.append_inst(
                         self.cur_block,
-                        InstKind::LoadDyn(
-                            elem_ty,
-                            Operand::Value(src_arr),
-                            off,
-                        ),
+                        InstKind::LoadDyn(elem_ty, Operand::Value(src_arr), off),
                         elem_ty,
                         None,
                     );
-                    let pred_v = self.call_fn_value(
-                        fn_val,
-                        fn_ty,
-                        vec![Operand::Value(elem)],
-                    );
+                    let pred_v = self.call_fn_value(fn_val, fn_ty, vec![Operand::Value(elem)]);
                     // Decide branch based on method semantics. some +
                     // findIndex break on `pred == true`; every breaks on
                     // `pred == false`.
@@ -21750,7 +21713,11 @@ impl<'a> LowerCtx<'a> {
                     let i_next = self.f.append_inst(
                         self.cur_block,
                         InstKind::BinOp(
-                            if is_reverse { SsaBinOp::Sub } else { SsaBinOp::Add },
+                            if is_reverse {
+                                SsaBinOp::Sub
+                            } else {
+                                SsaBinOp::Add
+                            },
                             Operand::Value(i_then),
                             Operand::ConstI64(1),
                         ),
@@ -21759,11 +21726,7 @@ impl<'a> LowerCtx<'a> {
                     );
                     self.f.append_void(
                         self.cur_block,
-                        InstKind::Store(
-                            Operand::Value(i_next),
-                            Operand::Value(i_slot),
-                            0,
-                        ),
+                        InstKind::Store(Operand::Value(i_next), Operand::Value(i_slot), 0),
                     );
                     self.f.set_term(self.cur_block, Terminator::Br(header_blk));
                     self.cur_block = after_blk;
@@ -21787,9 +21750,7 @@ impl<'a> LowerCtx<'a> {
                     let recv_op = self.lower_expr(*obj);
                     let recv_ty = self.operand_ty(&recv_op);
                     let Type::Arr(_) = recv_ty else {
-                        panic!(
-                            "ssa-lower: flatMap on non-array receiver {recv_ty:?}"
-                        );
+                        panic!("ssa-lower: flatMap on non-array receiver {recv_ty:?}");
                     };
                     let arr_ty = recv_ty;
                     let src_arr = match recv_op {
@@ -21810,21 +21771,14 @@ impl<'a> LowerCtx<'a> {
                     // Allocate dst (cap=0; arr_push grows on demand).
                     let dst_init = self.f.append_inst(
                         self.cur_block,
-                        InstKind::Call(
-                            self.intrinsics.arr_alloc,
-                            vec![Operand::ConstI64(0)],
-                        ),
+                        InstKind::Call(self.intrinsics.arr_alloc, vec![Operand::ConstI64(0)]),
                         dst_arr_ty,
                         None,
                     );
                     let dst_slot = self.alloca(dst_arr_ty, Some("__fm_dst"));
                     self.f.append_void(
                         self.cur_block,
-                        InstKind::Store(
-                            Operand::Value(dst_init),
-                            Operand::Value(dst_slot),
-                            0,
-                        ),
+                        InstKind::Store(Operand::Value(dst_init), Operand::Value(dst_slot), 0),
                     );
                     // Outer loop: i in 0..src.length.
                     let oh = self.f.add_block();
@@ -21855,11 +21809,14 @@ impl<'a> LowerCtx<'a> {
                         Type::Bool,
                         None,
                     );
-                    self.f.set_term(self.cur_block, Terminator::CondBr {
-                        cond: Operand::Value(cmp),
-                        then_blk: ob,
-                        else_blk: oa,
-                    });
+                    self.f.set_term(
+                        self.cur_block,
+                        Terminator::CondBr {
+                            cond: Operand::Value(cmp),
+                            then_blk: ob,
+                            else_blk: oa,
+                        },
+                    );
                     self.cur_block = ob;
                     // Load src[i].
                     let src_elem_ty = self.arr_layouts[match arr_ty {
@@ -21874,20 +21831,12 @@ impl<'a> LowerCtx<'a> {
                     );
                     let elem = self.f.append_inst(
                         self.cur_block,
-                        InstKind::LoadDyn(
-                            src_elem_ty,
-                            Operand::Value(src_arr),
-                            off,
-                        ),
+                        InstKind::LoadDyn(src_elem_ty, Operand::Value(src_arr), off),
                         src_elem_ty,
                         None,
                     );
                     // Call closure(elem) → inner_arr.
-                    let inner_arr = self.call_fn_value(
-                        fn_val,
-                        fn_ty,
-                        vec![Operand::Value(elem)],
-                    );
+                    let inner_arr = self.call_fn_value(fn_val, fn_ty, vec![Operand::Value(elem)]);
                     // Inner loop: j in 0..inner_arr.length, push each
                     // into dst, rc_inc if refcounted.
                     let ih = self.f.add_block();
@@ -21914,15 +21863,22 @@ impl<'a> LowerCtx<'a> {
                     );
                     let jcmp = self.f.append_inst(
                         self.cur_block,
-                        InstKind::ICmp(IPred::Slt, Operand::Value(j_now), Operand::Value(inner_len)),
+                        InstKind::ICmp(
+                            IPred::Slt,
+                            Operand::Value(j_now),
+                            Operand::Value(inner_len),
+                        ),
                         Type::Bool,
                         None,
                     );
-                    self.f.set_term(self.cur_block, Terminator::CondBr {
-                        cond: Operand::Value(jcmp),
-                        then_blk: ib,
-                        else_blk: ia,
-                    });
+                    self.f.set_term(
+                        self.cur_block,
+                        Terminator::CondBr {
+                            cond: Operand::Value(jcmp),
+                            then_blk: ib,
+                            else_blk: ia,
+                        },
+                    );
                     self.cur_block = ib;
                     // T-13.5: head-aware offset for flatMap inner walk.
                     let joff = self.emit_arr_slot_byte_offset(
@@ -21932,11 +21888,7 @@ impl<'a> LowerCtx<'a> {
                     );
                     let inner_elem = self.f.append_inst(
                         self.cur_block,
-                        InstKind::LoadDyn(
-                            dst_elem_ty,
-                            Operand::Value(inner_arr),
-                            joff,
-                        ),
+                        InstKind::LoadDyn(dst_elem_ty, Operand::Value(inner_arr), joff),
                         dst_elem_ty,
                         None,
                     );
@@ -21966,19 +21918,11 @@ impl<'a> LowerCtx<'a> {
                     );
                     self.f.append_void(
                         self.cur_block,
-                        InstKind::Store(
-                            Operand::Value(new_dst),
-                            Operand::Value(dst_slot),
-                            0,
-                        ),
+                        InstKind::Store(Operand::Value(new_dst), Operand::Value(dst_slot), 0),
                     );
                     let j_next = self.f.append_inst(
                         self.cur_block,
-                        InstKind::BinOp(
-                            SsaBinOp::Add,
-                            Operand::Value(j_now),
-                            Operand::ConstI64(1),
-                        ),
+                        InstKind::BinOp(SsaBinOp::Add, Operand::Value(j_now), Operand::ConstI64(1)),
                         Type::I64,
                         None,
                     );
@@ -22080,9 +22024,7 @@ impl<'a> LowerCtx<'a> {
                         // Note: keep this branch minimal — most non-Arr
                         // member calls are Math.* / String.length /
                         // console.log handled before reaching here.
-                        panic!(
-                            "ssa-lower: `.{name}(...)` on non-array receiver type {recv_ty:?}"
-                        );
+                        panic!("ssa-lower: `.{name}(...)` on non-array receiver type {recv_ty:?}");
                     }
                     let method = name.clone();
                     let arr_ty = recv_ty;
@@ -22134,8 +22076,7 @@ impl<'a> LowerCtx<'a> {
                         && let Some(sig_id) = match fn_ty {
                             Type::FnSig(s) | Type::Closure(s) => Some(s),
                             _ => None,
-                        }
-                    {
+                        } {
                         let ret = self.fn_sigs[sig_id.0 as usize].1;
                         let arr_id = intern_arr_layout(self.arr_layouts, ret);
                         Type::Arr(arr_id)
@@ -22147,21 +22088,14 @@ impl<'a> LowerCtx<'a> {
                     let dst_slot = if matches!(method.as_str(), "map" | "filter") {
                         let dst_arr = self.f.append_inst(
                             self.cur_block,
-                            InstKind::Call(
-                                self.intrinsics.arr_alloc,
-                                vec![Operand::ConstI64(0)],
-                            ),
+                            InstKind::Call(self.intrinsics.arr_alloc, vec![Operand::ConstI64(0)]),
                             dst_arr_ty,
                             None,
                         );
                         let slot = self.alloca(dst_arr_ty, Some("__iter_dst"));
                         self.f.append_void(
                             self.cur_block,
-                            InstKind::Store(
-                                Operand::Value(dst_arr),
-                                Operand::Value(slot),
-                                0,
-                            ),
+                            InstKind::Store(Operand::Value(dst_arr), Operand::Value(slot), 0),
                         );
                         Some(slot)
                     } else {
@@ -22185,11 +22119,7 @@ impl<'a> LowerCtx<'a> {
                     let i_slot = self.alloca(Type::I64, Some("__iter_i"));
                     self.f.append_void(
                         self.cur_block,
-                        InstKind::Store(
-                            Operand::ConstI64(0),
-                            Operand::Value(i_slot),
-                            0,
-                        ),
+                        InstKind::Store(Operand::ConstI64(0), Operand::Value(i_slot), 0),
                     );
                     let len = self.f.append_inst(
                         self.cur_block,
@@ -22221,11 +22151,7 @@ impl<'a> LowerCtx<'a> {
                         );
                         self.f.append_void(
                             self.cur_block,
-                            InstKind::Store(
-                                Operand::Value(reserved),
-                                Operand::Value(slot),
-                                0,
-                            ),
+                            InstKind::Store(Operand::Value(reserved), Operand::Value(slot), 0),
                         );
                     }
                     self.f.set_term(self.cur_block, Terminator::Br(header_blk));
@@ -22239,11 +22165,7 @@ impl<'a> LowerCtx<'a> {
                     );
                     let cmp = self.f.append_inst(
                         self.cur_block,
-                        InstKind::ICmp(
-                            IPred::Slt,
-                            Operand::Value(i_now),
-                            Operand::Value(len),
-                        ),
+                        InstKind::ICmp(IPred::Slt, Operand::Value(i_now), Operand::Value(len)),
                         Type::Bool,
                         None,
                     );
@@ -22271,11 +22193,7 @@ impl<'a> LowerCtx<'a> {
                     );
                     let elem = self.f.append_inst(
                         self.cur_block,
-                        InstKind::LoadDyn(
-                            elem_ty,
-                            Operand::Value(src_arr),
-                            off,
-                        ),
+                        InstKind::LoadDyn(elem_ty, Operand::Value(src_arr), off),
                         elem_ty,
                         None,
                     );
@@ -22286,7 +22204,9 @@ impl<'a> LowerCtx<'a> {
                      * above). */
                     let do_call = |this: &mut Self, args: Vec<Operand>| -> ValueId {
                         match known_fid {
-                            Some(fid) => this.call_fn_value_devirt(fid, fn_val.clone(), fn_ty, args),
+                            Some(fid) => {
+                                this.call_fn_value_devirt(fid, fn_val.clone(), fn_ty, args)
+                            }
                             None => this.call_fn_value(fn_val.clone(), fn_ty, args),
                         }
                     };
@@ -22300,11 +22220,7 @@ impl<'a> LowerCtx<'a> {
                             // ptr back into the slot).
                             let cur_dst = self.f.append_inst(
                                 self.cur_block,
-                                InstKind::Load(
-                                    dst_arr_ty,
-                                    Operand::Value(dst_slot.unwrap()),
-                                    0,
-                                ),
+                                InstKind::Load(dst_arr_ty, Operand::Value(dst_slot.unwrap()), 0),
                                 dst_arr_ty,
                                 None,
                             );
@@ -22331,11 +22247,7 @@ impl<'a> LowerCtx<'a> {
                             self.cur_block = push_blk;
                             let cur_dst = self.f.append_inst(
                                 self.cur_block,
-                                InstKind::Load(
-                                    dst_arr_ty,
-                                    Operand::Value(dst_slot.unwrap()),
-                                    0,
-                                ),
+                                InstKind::Load(dst_arr_ty, Operand::Value(dst_slot.unwrap()), 0),
                                 dst_arr_ty,
                                 None,
                             );
@@ -22352,15 +22264,12 @@ impl<'a> LowerCtx<'a> {
                         "reduce" => {
                             let acc_now = self.f.append_inst(
                                 self.cur_block,
-                                InstKind::Load(
-                                    elem_ty,
-                                    Operand::Value(acc_slot.unwrap()),
-                                    0,
-                                ),
+                                InstKind::Load(elem_ty, Operand::Value(acc_slot.unwrap()), 0),
                                 elem_ty,
                                 None,
                             );
-                            let new_acc = do_call(self, vec![Operand::Value(acc_now), Operand::Value(elem)]);
+                            let new_acc =
+                                do_call(self, vec![Operand::Value(acc_now), Operand::Value(elem)]);
                             self.f.append_void(
                                 self.cur_block,
                                 InstKind::Store(
@@ -22394,11 +22303,7 @@ impl<'a> LowerCtx<'a> {
                     );
                     self.f.append_void(
                         self.cur_block,
-                        InstKind::Store(
-                            Operand::Value(i_next),
-                            Operand::Value(i_slot),
-                            0,
-                        ),
+                        InstKind::Store(Operand::Value(i_next), Operand::Value(i_slot), 0),
                     );
                     self.f.set_term(self.cur_block, Terminator::Br(header_blk));
                     // after — produce method's result.
@@ -22407,11 +22312,7 @@ impl<'a> LowerCtx<'a> {
                         "map" | "filter" => {
                             let v = self.f.append_inst(
                                 self.cur_block,
-                                InstKind::Load(
-                                    dst_arr_ty,
-                                    Operand::Value(dst_slot.unwrap()),
-                                    0,
-                                ),
+                                InstKind::Load(dst_arr_ty, Operand::Value(dst_slot.unwrap()), 0),
                                 dst_arr_ty,
                                 None,
                             );
@@ -22420,11 +22321,7 @@ impl<'a> LowerCtx<'a> {
                         "reduce" => {
                             let v = self.f.append_inst(
                                 self.cur_block,
-                                InstKind::Load(
-                                    elem_ty,
-                                    Operand::Value(acc_slot.unwrap()),
-                                    0,
-                                ),
+                                InstKind::Load(elem_ty, Operand::Value(acc_slot.unwrap()), 0),
                                 elem_ty,
                                 None,
                             );
@@ -22458,13 +22355,11 @@ impl<'a> LowerCtx<'a> {
                     );
                     // Prepend Type::Ptr to the user-facing param list to
                     // get the underlying signature with the env first.
-                    let (user_params, ret_ty) =
-                        self.fn_sigs[user_sig_id.0 as usize].clone();
+                    let (user_params, ret_ty) = self.fn_sigs[user_sig_id.0 as usize].clone();
                     let mut env_first_params = Vec::with_capacity(user_params.len() + 1);
                     env_first_params.push(Type::Ptr);
                     env_first_params.extend(user_params.iter().copied());
-                    let env_first_sig =
-                        intern_fn_sig(self.fn_sigs, env_first_params, ret_ty);
+                    let env_first_sig = intern_fn_sig(self.fn_sigs, env_first_params, ret_ty);
 
                     // P0.5 mirror — when the closure's user-facing param
                     // at position i is Type::Any, box the concrete arg
@@ -22507,21 +22402,13 @@ impl<'a> LowerCtx<'a> {
                     if ret_ty == Type::Void {
                         self.f.append_void(
                             self.cur_block,
-                            InstKind::CallIndirect(
-                                env_first_sig,
-                                Operand::Value(fn_ptr),
-                                argv,
-                            ),
+                            InstKind::CallIndirect(env_first_sig, Operand::Value(fn_ptr), argv),
                         );
                         return Operand::ConstI64(0);
                     }
                     let v = self.f.append_inst(
                         self.cur_block,
-                        InstKind::CallIndirect(
-                            env_first_sig,
-                            Operand::Value(fn_ptr),
-                            argv,
-                        ),
+                        InstKind::CallIndirect(env_first_sig, Operand::Value(fn_ptr), argv),
                         ret_ty,
                         None,
                     );
@@ -22582,21 +22469,13 @@ impl<'a> LowerCtx<'a> {
                     if ret_ty == Type::Void {
                         self.f.append_void(
                             self.cur_block,
-                            InstKind::CallIndirect(
-                                sig_id,
-                                Operand::Value(fn_ptr),
-                                argv,
-                            ),
+                            InstKind::CallIndirect(sig_id, Operand::Value(fn_ptr), argv),
                         );
                         return Operand::ConstI64(0);
                     }
                     let v = self.f.append_inst(
                         self.cur_block,
-                        InstKind::CallIndirect(
-                            sig_id,
-                            Operand::Value(fn_ptr),
-                            argv,
-                        ),
+                        InstKind::CallIndirect(sig_id, Operand::Value(fn_ptr), argv),
                         result_ty,
                         None,
                     );
@@ -22618,9 +22497,7 @@ impl<'a> LowerCtx<'a> {
                         Type::Closure(user_sig_id) => {
                             let env_ptr = match callee_op {
                                 Operand::Value(v) => v,
-                                _ => panic!(
-                                    "ssa-lower: closure callee must be an SSA value"
-                                ),
+                                _ => panic!("ssa-lower: closure callee must be an SSA value"),
                             };
                             let fn_ptr = self.f.append_inst(
                                 self.cur_block,
@@ -22634,14 +22511,11 @@ impl<'a> LowerCtx<'a> {
                             );
                             let (user_params, ret_ty) =
                                 self.fn_sigs[user_sig_id.0 as usize].clone();
-                            let mut env_first =
-                                Vec::with_capacity(user_params.len() + 1);
+                            let mut env_first = Vec::with_capacity(user_params.len() + 1);
                             env_first.push(Type::Ptr);
                             env_first.extend(user_params);
-                            let env_first_sig =
-                                intern_fn_sig(self.fn_sigs, env_first, ret_ty);
-                            let mut argv: Vec<Operand> =
-                                Vec::with_capacity(args.len() + 1);
+                            let env_first_sig = intern_fn_sig(self.fn_sigs, env_first, ret_ty);
+                            let mut argv: Vec<Operand> = Vec::with_capacity(args.len() + 1);
                             argv.push(Operand::Value(env_ptr));
                             for a in args {
                                 argv.push(self.lower_expr(*a));
@@ -22662,11 +22536,7 @@ impl<'a> LowerCtx<'a> {
                             }
                             let v = self.f.append_inst(
                                 self.cur_block,
-                                InstKind::CallIndirect(
-                                    env_first_sig,
-                                    Operand::Value(fn_ptr),
-                                    argv,
-                                ),
+                                InstKind::CallIndirect(env_first_sig, Operand::Value(fn_ptr), argv),
                                 ret_ty,
                                 None,
                             );
@@ -22675,36 +22545,24 @@ impl<'a> LowerCtx<'a> {
                         Type::FnSig(sig_id) => {
                             let fn_ptr = match callee_op {
                                 Operand::Value(v) => v,
-                                _ => panic!(
-                                    "ssa-lower: fnsig callee must be an SSA value"
-                                ),
+                                _ => panic!("ssa-lower: fnsig callee must be an SSA value"),
                             };
                             let ret_ty = self.fn_sigs[sig_id.0 as usize].1;
-                            let argv: Vec<Operand> = args
-                                .iter()
-                                .map(|a| self.lower_expr(*a))
-                                .collect();
+                            let argv: Vec<Operand> =
+                                args.iter().map(|a| self.lower_expr(*a)).collect();
                             for a in args {
                                 self.consume_if_ident(*a);
                             }
                             if ret_ty == Type::Void {
                                 self.f.append_void(
                                     self.cur_block,
-                                    InstKind::CallIndirect(
-                                        sig_id,
-                                        Operand::Value(fn_ptr),
-                                        argv,
-                                    ),
+                                    InstKind::CallIndirect(sig_id, Operand::Value(fn_ptr), argv),
                                 );
                                 return Operand::ConstI64(0);
                             }
                             let v = self.f.append_inst(
                                 self.cur_block,
-                                InstKind::CallIndirect(
-                                    sig_id,
-                                    Operand::Value(fn_ptr),
-                                    argv,
-                                ),
+                                InstKind::CallIndirect(sig_id, Operand::Value(fn_ptr), argv),
                                 ret_ty,
                                 None,
                             );
@@ -22721,17 +22579,13 @@ impl<'a> LowerCtx<'a> {
                 // specialized FuncId by name and use it instead of the
                 // generic ident's resolve.
                 let target = if let Some(mono_name) = self.call_retargets.get(&eid).cloned() {
-                    *self
-                        .fn_table
-                        .get(&mono_name)
-                        .unwrap_or_else(|| panic!(
-                            "ssa-lower: monomorphized fn `{mono_name}` missing from fn_table"
-                        ))
+                    *self.fn_table.get(&mono_name).unwrap_or_else(|| {
+                        panic!("ssa-lower: monomorphized fn `{mono_name}` missing from fn_table")
+                    })
                 } else {
                     self.resolve_callee(*callee)
                 };
-                let mut argv: Vec<Operand> =
-                    args.iter().map(|a| self.lower_expr(*a)).collect();
+                let mut argv: Vec<Operand> = args.iter().map(|a| self.lower_expr(*a)).collect();
                 // T-28 — pad trailing missing Type::Any params with
                 // ANY_UNDEF Any-box operands. check.rs's arity_pad_count
                 // recorded the missing count for this Call ExprId iff
@@ -22835,9 +22689,9 @@ impl<'a> LowerCtx<'a> {
                     }
                 }
                 let ret_ty = self.f_ret_type_hint(target);
-                let v = self
-                    .f
-                    .append_inst(self.cur_block, InstKind::Call(target, argv), ret_ty, None);
+                let v =
+                    self.f
+                        .append_inst(self.cur_block, InstKind::Call(target, argv), ret_ty, None);
                 self.emit_throw_check(Some(target));
                 Operand::Value(v)
             }
@@ -22882,10 +22736,7 @@ impl<'a> LowerCtx<'a> {
                             if st.is_refcounted() {
                                 self.f.append_void(
                                     self.cur_block,
-                                    InstKind::Call(
-                                        self.intrinsics.rc_inc,
-                                        vec![Operand::Value(v)],
-                                    ),
+                                    InstKind::Call(self.intrinsics.rc_inc, vec![Operand::Value(v)]),
                                 );
                             }
                             let v_op = Operand::Value(v);
@@ -22907,15 +22758,16 @@ impl<'a> LowerCtx<'a> {
                     // array-literal fix; without it, two struct lits
                     // sharing a refcounted Obj field (`{x: a}; {x: a}`)
                     // would double-walk-drop the shared element.
-                    let needs_inc = ty.is_refcounted() && match self.ast.get_expr(*eid) {
-                        Expr::Ident(name) => self
-                            .locals
-                            .get(name)
-                            .map(|info| !info.moved)
-                            .unwrap_or(false),
-                        Expr::Member { .. } | Expr::Index { .. } => true,
-                        _ => false,
-                    };
+                    let needs_inc = ty.is_refcounted()
+                        && match self.ast.get_expr(*eid) {
+                            Expr::Ident(name) => self
+                                .locals
+                                .get(name)
+                                .map(|info| !info.moved)
+                                .unwrap_or(false),
+                            Expr::Member { .. } | Expr::Index { .. } => true,
+                            _ => false,
+                        };
                     if needs_inc {
                         self.f.append_void(
                             self.cur_block,
@@ -22944,9 +22796,11 @@ impl<'a> LowerCtx<'a> {
                     if reg.len() != field_tys.len() {
                         return false;
                     }
-                    reg.iter().zip(field_tys.iter()).all(|((rn, rt), (ln, lt))| {
-                        rn == ln && (rt == lt || (*lt == Type::Ptr && rt.is_pointer_shaped()))
-                    })
+                    reg.iter()
+                        .zip(field_tys.iter())
+                        .all(|((rn, rt), (ln, lt))| {
+                            rn == ln && (rt == lt || (*lt == Type::Ptr && rt.is_pointer_shaped()))
+                        })
                 };
                 // V3-18 P2.4.c — auto-register anonymous struct layouts
                 // when the literal doesn't match any pre-declared
@@ -23024,7 +22878,8 @@ impl<'a> LowerCtx<'a> {
                 let vtable_class: Option<&str> = if self.ast.method_index.is_empty() {
                     None
                 } else {
-                    self.f.name
+                    self.f
+                        .name
                         .strip_prefix("__new_")
                         .filter(|c| self.class_name_to_tag.contains_key(*c))
                 };
@@ -23042,11 +22897,7 @@ impl<'a> LowerCtx<'a> {
                 };
                 self.f.append_void(
                     self.cur_block,
-                    InstKind::Store(
-                        vtable_ptr_op,
-                        Operand::Value(obj_ptr),
-                        OBJ_VTABLE_OFF,
-                    ),
+                    InstKind::Store(vtable_ptr_op, Operand::Value(obj_ptr), OBJ_VTABLE_OFF),
                 );
                 for (i, val) in field_vals.iter().enumerate() {
                     let offset = OBJ_HEADER_SIZE + i as u64 * 8;
@@ -23070,9 +22921,9 @@ impl<'a> LowerCtx<'a> {
                     && (name == "length" || name == "name")
                 {
                     let fn_decl = self.ast.stmts.iter().find_map(|s| match s {
-                        Stmt::FnDecl { name: n, params, .. } if n == fn_name_ref => {
-                            Some((n.clone(), params.clone()))
-                        }
+                        Stmt::FnDecl {
+                            name: n, params, ..
+                        } if n == fn_name_ref => Some((n.clone(), params.clone())),
                         _ => None,
                     });
                     if let Some((fn_name_owned, params)) = fn_decl {
@@ -23120,7 +22971,8 @@ impl<'a> LowerCtx<'a> {
                         let (params, _) = &self.fn_sigs[sig_id.0 as usize];
                         // Lifted closures prepend hidden __env Ptr; the
                         // JS-visible param count excludes it.
-                        let visible = if !params.is_empty() && params[0] == Type::Ptr
+                        let visible = if !params.is_empty()
+                            && params[0] == Type::Ptr
                             && fn_name_ref.starts_with("__closure_")
                         {
                             params.len() - 1
@@ -23221,18 +23073,17 @@ impl<'a> LowerCtx<'a> {
                             // User fn whose declared return type is
                             // Type::Promise (e.g. an `async` body's
                             // desugared Promise.resolve return).
-                            let fn_returns_promise = if let Expr::Ident(fn_name) =
-                                self.ast.get_expr(*callee)
-                            {
-                                self.fn_table
-                                    .get(fn_name)
-                                    .copied()
-                                    .and_then(|fid| self.signatures.get(&fid).copied())
-                                    .map(|ty| matches!(ty, Type::Promise))
-                                    .unwrap_or(false)
-                            } else {
-                                false
-                            };
+                            let fn_returns_promise =
+                                if let Expr::Ident(fn_name) = self.ast.get_expr(*callee) {
+                                    self.fn_table
+                                        .get(fn_name)
+                                        .copied()
+                                        .and_then(|fid| self.signatures.get(&fid).copied())
+                                        .map(|ty| matches!(ty, Type::Promise))
+                                        .unwrap_or(false)
+                                } else {
+                                    false
+                                };
                             // T-21 — `fetch(url)` returns a built-in
                             // Promise<Response>; same lower path as
                             // the other Promise-producing call sites.
@@ -23252,8 +23103,13 @@ impl<'a> LowerCtx<'a> {
                                             Some(crate::check::Type::Object("Response"))
                                         )
                             );
-                            static_ctor || then_chain || fn_returns_promise || fs_async
-                                || bun_file_text || fetch_call || response_text
+                            static_ctor
+                                || then_chain
+                                || fn_returns_promise
+                                || fs_async
+                                || bun_file_text
+                                || fetch_call
+                                || response_text
                         }
                         _ => false,
                     }
@@ -23304,10 +23160,7 @@ impl<'a> LowerCtx<'a> {
                     });
                     let raw_v = self.f.append_inst(
                         self.cur_block,
-                        InstKind::Call(
-                            self.intrinsics.promise_get_value,
-                            vec![obj_op.clone()],
-                        ),
+                        InstKind::Call(self.intrinsics.promise_get_value, vec![obj_op.clone()]),
                         Type::I64,
                         None,
                     );
@@ -23318,13 +23171,22 @@ impl<'a> LowerCtx<'a> {
                         // (Response from T-21 fetch — body Str at +16,
                         // status i64 at +8 read via direct Load with
                         // hardcoded offsets at the call site).
-                        Some(t) if matches!(
-                            t,
-                            Type::Str | Type::Substr | Type::Obj(_) | Type::Arr(_)
-                                | Type::Closure(_) | Type::RegExp | Type::Date
-                                | Type::Symbol | Type::Promise | Type::Any
-                                | Type::Ptr
-                        ) => {
+                        Some(t)
+                            if matches!(
+                                t,
+                                Type::Str
+                                    | Type::Substr
+                                    | Type::Obj(_)
+                                    | Type::Arr(_)
+                                    | Type::Closure(_)
+                                    | Type::RegExp
+                                    | Type::Date
+                                    | Type::Symbol
+                                    | Type::Promise
+                                    | Type::Any
+                                    | Type::Ptr
+                            ) =>
+                        {
                             let ptr = self.f.append_inst(
                                 self.cur_block,
                                 InstKind::IntToPtr(Operand::Value(raw_v)),
@@ -23347,10 +23209,7 @@ impl<'a> LowerCtx<'a> {
                             // Promise's lifetime.
                             self.f.append_void(
                                 self.cur_block,
-                                InstKind::Call(
-                                    self.intrinsics.rc_inc,
-                                    vec![Operand::Value(ptr)],
-                                ),
+                                InstKind::Call(self.intrinsics.rc_inc, vec![Operand::Value(ptr)]),
                             );
                             ptr
                         }
@@ -23416,8 +23275,7 @@ impl<'a> LowerCtx<'a> {
                 {
                     // The Bun.file(path) lowering passthroughs the
                     // path Str unchanged. Re-extract path arg.
-                    let path_eid = if let Expr::Call { args, .. } =
-                        self.ast.get_expr(*obj).clone()
+                    let path_eid = if let Expr::Call { args, .. } = self.ast.get_expr(*obj).clone()
                     {
                         args[0]
                     } else {
@@ -23500,7 +23358,10 @@ impl<'a> LowerCtx<'a> {
                  * lowers to ConstPtrNull (the env namespace marker
                  * above). We discard that value and emit getenv with
                  * the property name as a Str literal. */
-                if let Expr::Member { obj: inner_obj, name: inner_name } = self.ast.get_expr(*obj)
+                if let Expr::Member {
+                    obj: inner_obj,
+                    name: inner_name,
+                } = self.ast.get_expr(*obj)
                     && inner_name == "env"
                     && let Expr::Ident(n) = self.ast.get_expr(*inner_obj)
                     && n == "process"
@@ -23531,9 +23392,7 @@ impl<'a> LowerCtx<'a> {
                         "LOG2E" => Operand::ConstF64(std::f64::consts::LOG2_E),
                         "LOG10E" => Operand::ConstF64(std::f64::consts::LOG10_E),
                         "SQRT2" => Operand::ConstF64(std::f64::consts::SQRT_2),
-                        "SQRT1_2" => {
-                            Operand::ConstF64(std::f64::consts::FRAC_1_SQRT_2)
-                        }
+                        "SQRT1_2" => Operand::ConstF64(std::f64::consts::FRAC_1_SQRT_2),
                         other => panic!("ssa-lower: unknown Math constant `{other}`"),
                     };
                 }
@@ -23579,7 +23438,7 @@ impl<'a> LowerCtx<'a> {
                             let v = self.intern_string_literal("Number");
                             Operand::Value(v)
                         }
-                        "length" => Operand::ConstI64(1),  // Number ctor arity
+                        "length" => Operand::ConstI64(1), // Number ctor arity
                         other => panic!("ssa-lower: unknown Number constant `{other}`"),
                     };
                 }
@@ -23588,11 +23447,22 @@ impl<'a> LowerCtx<'a> {
                 // `.name` returns the namespace name, `.length` returns
                 // the constructor's arity.
                 if let Expr::Ident(n) = self.ast.get_expr(*obj)
-                    && matches!(n.as_str(),
-                        "String" | "Boolean" | "Symbol" | "BigInt"
-                        | "Object" | "Array" | "RegExp" | "Date"
-                        | "Error" | "Promise" | "Map" | "Set"
-                        | "Function")
+                    && matches!(
+                        n.as_str(),
+                        "String"
+                            | "Boolean"
+                            | "Symbol"
+                            | "BigInt"
+                            | "Object"
+                            | "Array"
+                            | "RegExp"
+                            | "Date"
+                            | "Error"
+                            | "Promise"
+                            | "Map"
+                            | "Set"
+                            | "Function"
+                    )
                 {
                     match name.as_str() {
                         "prototype" => {
@@ -23628,15 +23498,22 @@ impl<'a> LowerCtx<'a> {
                 // just emit ConstPtrNull (typeof on the result still
                 // routes through the typeof-Member path which
                 // returns "function" for namespace ctors).
-                if matches!(obj_ty,
-                    Type::I64 | Type::F64 | Type::I32 | Type::Bool
-                    | Type::Str | Type::Substr | Type::BigInt | Type::Symbol)
-                    && name == "constructor"
+                if matches!(
+                    obj_ty,
+                    Type::I64
+                        | Type::F64
+                        | Type::I32
+                        | Type::Bool
+                        | Type::Str
+                        | Type::Substr
+                        | Type::BigInt
+                        | Type::Symbol
+                ) && name == "constructor"
                 {
                     let _ = obj_val; // operand may have side effects but
-                                     // for primitive borrows there's none
-                                     // to flush; intentionally drop the
-                                     // value
+                    // for primitive borrows there's none
+                    // to flush; intentionally drop the
+                    // value
                     return Operand::ConstPtrNull;
                 }
                 // V3-18 m1.h.47 — Symbol.prototype.description.
@@ -23647,10 +23524,7 @@ impl<'a> LowerCtx<'a> {
                 if obj_ty == Type::Symbol && name == "description" {
                     let v = self.f.append_inst(
                         self.cur_block,
-                        InstKind::Call(
-                            self.intrinsics.symbol_description,
-                            vec![obj_val],
-                        ),
+                        InstKind::Call(self.intrinsics.symbol_description, vec![obj_val]),
                         Type::Str,
                         None,
                     );
@@ -23872,21 +23746,17 @@ impl<'a> LowerCtx<'a> {
                 }
                 let sid = match obj_ty {
                     Type::Obj(sid) => sid,
-                    _ => panic!(
-                        "ssa-lower: member access on non-object {obj_ty:?} (.{name})"
-                    ),
+                    _ => panic!("ssa-lower: member access on non-object {obj_ty:?} (.{name})"),
                 };
                 let layout = &self.struct_layouts[sid.0 as usize];
                 let (idx, field_ty) = layout
                     .iter()
                     .enumerate()
-                    .find_map(|(i, (fname, fty))| {
-                        if fname == name {
-                            Some((i, *fty))
-                        } else {
-                            None
-                        }
-                    })
+                    .find_map(
+                        |(i, (fname, fty))| {
+                            if fname == name { Some((i, *fty)) } else { None }
+                        },
+                    )
                     .unwrap_or_else(|| {
                         panic!(
                             "ssa-lower: struct {sid:?} has no field `{name}` (layout: {layout:?})"
@@ -23924,19 +23794,16 @@ impl<'a> LowerCtx<'a> {
                     let arr_id = intern_arr_layout(self.arr_layouts, Type::Any);
                     let alloc_call = self.f.append_inst(
                         self.cur_block,
-                        InstKind::Call(
-                            self.intrinsics.arr_alloc_any,
-                            vec![Operand::ConstI64(0)],
-                        ),
+                        InstKind::Call(self.intrinsics.arr_alloc_any, vec![Operand::ConstI64(0)]),
                         Type::Arr(arr_id),
                         None,
                     );
                     return Operand::Value(alloc_call);
                 }
                 let element_ids: Vec<ExprId> = elements.clone();
-                let has_spread = element_ids.iter().any(|eid| {
-                    matches!(self.ast.get_expr(*eid), Expr::Spread { .. })
-                });
+                let has_spread = element_ids
+                    .iter()
+                    .any(|eid| matches!(self.ast.get_expr(*eid), Expr::Spread { .. }));
                 // T-10.c (v0.4.0) — heterogeneous Array literal
                 // (`[1, 'a', true]`) routes through the tagged-slot
                 // Array<Any> codegen path. Cheap AST-shape probe: if
@@ -23973,10 +23840,8 @@ impl<'a> LowerCtx<'a> {
                     // `[]` inners specially based on anchor_ty.
                     // (The probe's allocations get discarded but LLVM's
                     // DCE drops them at -O1+.)
-                    let mut elem_vals: Vec<Operand> =
-                        Vec::with_capacity(element_ids.len());
-                    let mut elem_inc_after: Vec<bool> =
-                        Vec::with_capacity(element_ids.len());
+                    let mut elem_vals: Vec<Operand> = Vec::with_capacity(element_ids.len());
+                    let mut elem_inc_after: Vec<bool> = Vec::with_capacity(element_ids.len());
                     for eid in &element_ids {
                         if matches!(self.ast.get_expr(*eid), Expr::Array(els) if els.is_empty())
                             && let Some(Type::Arr(inner_id)) = anchor_ty
@@ -24004,15 +23869,16 @@ impl<'a> LowerCtx<'a> {
                         // the slot as a transferred ref → double-walk-drop
                         // at scope end → UAF on shared elements. Same
                         // shape as Stmt::Assign's rhs-borrow inc.
-                        let needs_inc = v_ty.is_refcounted() && match self.ast.get_expr(*eid) {
-                            Expr::Ident(name) => self
-                                .locals
-                                .get(name)
-                                .map(|info| !info.moved)
-                                .unwrap_or(false),
-                            Expr::Member { .. } | Expr::Index { .. } => true,
-                            _ => false,
-                        };
+                        let needs_inc = v_ty.is_refcounted()
+                            && match self.ast.get_expr(*eid) {
+                                Expr::Ident(name) => self
+                                    .locals
+                                    .get(name)
+                                    .map(|info| !info.moved)
+                                    .unwrap_or(false),
+                                Expr::Member { .. } | Expr::Index { .. } => true,
+                                _ => false,
+                            };
                         if !needs_inc {
                             self.consume_if_ident(*eid);
                         }
@@ -24028,8 +23894,8 @@ impl<'a> LowerCtx<'a> {
                     // heap because the STATIC_LITERAL flag short-
                     // circuits arr_drop's element-walk, leaking rc
                     // refs to those elements.
-                    let on_stack = self.ast.stack_array_literals.contains(&eid)
-                        && !elem_ty.is_refcounted();
+                    let on_stack =
+                        self.ast.stack_array_literals.contains(&eid) && !elem_ty.is_refcounted();
                     let arr_ptr = if on_stack {
                         // Layout: [hdr:8][len:8][cap:8][slots:N*8].
                         // Header packed as one i64 store: rc=0 in low
@@ -24060,21 +23926,14 @@ impl<'a> LowerCtx<'a> {
                     } else {
                         self.f.append_inst(
                             self.cur_block,
-                            InstKind::Call(
-                                self.intrinsics.arr_alloc,
-                                vec![Operand::ConstI64(n)],
-                            ),
+                            InstKind::Call(self.intrinsics.arr_alloc, vec![Operand::ConstI64(n)]),
                             Type::Arr(arr_id),
                             None,
                         )
                     };
                     self.f.append_void(
                         self.cur_block,
-                        InstKind::Store(
-                            Operand::ConstI64(n),
-                            Operand::Value(arr_ptr),
-                            ARR_LEN_OFF,
-                        ),
+                        InstKind::Store(Operand::ConstI64(n), Operand::Value(arr_ptr), ARR_LEN_OFF),
                     );
                     for (i, val) in elem_vals.iter().enumerate() {
                         let off = ARR_DATA_OFF + (i as u64) * 8;
@@ -24085,10 +23944,7 @@ impl<'a> LowerCtx<'a> {
                         if elem_inc_after[i] {
                             self.f.append_void(
                                 self.cur_block,
-                                InstKind::Call(
-                                    self.intrinsics.rc_inc,
-                                    vec![*val],
-                                ),
+                                InstKind::Call(self.intrinsics.rc_inc, vec![*val]),
                             );
                         }
                     }
@@ -24126,7 +23982,11 @@ impl<'a> LowerCtx<'a> {
                         {
                             elem_ty = Some(self.arr_layouts[arr_id.0 as usize]);
                         }
-                        lowered.push(LoweredItem { op: v, src_eid: inner, is_spread: true });
+                        lowered.push(LoweredItem {
+                            op: v,
+                            src_eid: inner,
+                            is_spread: true,
+                        });
                     } else {
                         let v = self.lower_expr(*eid);
                         let v_ty = self.operand_ty(&v);
@@ -24134,7 +23994,11 @@ impl<'a> LowerCtx<'a> {
                             elem_ty = Some(v_ty);
                         }
                         literal_count += 1;
-                        lowered.push(LoweredItem { op: v, src_eid: *eid, is_spread: false });
+                        lowered.push(LoweredItem {
+                            op: v,
+                            src_eid: *eid,
+                            is_spread: false,
+                        });
                     }
                 }
                 let elem_is_refcounted = elem_ty.unwrap_or(Type::I64).is_refcounted();
@@ -24149,7 +24013,11 @@ impl<'a> LowerCtx<'a> {
                     if !elem_is_refcounted {
                         self.consume_if_ident(li.src_eid);
                     }
-                    items.push(if li.is_spread { Item::Spread(li.op) } else { Item::Lit(li.op) });
+                    items.push(if li.is_spread {
+                        Item::Spread(li.op)
+                    } else {
+                        Item::Lit(li.op)
+                    });
                 }
                 let elem_ty = elem_ty.unwrap_or(Type::I64);
                 let arr_id = intern_arr_layout(self.arr_layouts, elem_ty);
@@ -24178,11 +24046,7 @@ impl<'a> LowerCtx<'a> {
                         );
                         let summed = self.f.append_inst(
                             self.cur_block,
-                            InstKind::BinOp(
-                                SsaBinOp::Add,
-                                total,
-                                Operand::Value(len),
-                            ),
+                            InstKind::BinOp(SsaBinOp::Add, total, Operand::Value(len)),
                             Type::I64,
                             None,
                         );
@@ -24211,10 +24075,7 @@ impl<'a> LowerCtx<'a> {
                             if elem_is_refcounted {
                                 self.f.append_void(
                                     self.cur_block,
-                                    InstKind::Call(
-                                        self.intrinsics.rc_inc,
-                                        vec![v],
-                                    ),
+                                    InstKind::Call(self.intrinsics.rc_inc, vec![v]),
                                 );
                             }
                         }
@@ -24283,21 +24144,14 @@ impl<'a> LowerCtx<'a> {
                         // OOB indices stored garbage offsets.
                         self.f.append_inst(
                             self.cur_block,
-                            InstKind::Call(
-                                self.intrinsics.str_char_at,
-                                vec![arr_val, idx_val],
-                            ),
+                            InstKind::Call(self.intrinsics.str_char_at, vec![arr_val, idx_val]),
                             Type::Substr,
                             None,
                         )
                     } else {
                         let end = self.f.append_inst(
                             self.cur_block,
-                            InstKind::BinOp(
-                                SsaBinOp::Add,
-                                idx_val,
-                                Operand::ConstI64(1),
-                            ),
+                            InstKind::BinOp(SsaBinOp::Add, idx_val, Operand::ConstI64(1)),
                             Type::I64,
                             None,
                         );
@@ -24315,9 +24169,7 @@ impl<'a> LowerCtx<'a> {
                 }
                 let elem_ty = match arr_ty {
                     Type::Arr(arr_id) => self.arr_layouts[arr_id.0 as usize],
-                    other => panic!(
-                        "ssa-lower: index access on non-array type {other:?}"
-                    ),
+                    other => panic!("ssa-lower: index access on non-array type {other:?}"),
                 };
                 let idx_val = self.lower_expr(*index);
                 // T-10.d.i — `xs[i]` on Array<Any>: 16-byte slot stride
@@ -24349,10 +24201,7 @@ impl<'a> LowerCtx<'a> {
                     );
                     let value = self.f.append_inst(
                         self.cur_block,
-                        InstKind::Call(
-                            self.intrinsics.arr_get_any_value,
-                            vec![arr_val, idx_val],
-                        ),
+                        InstKind::Call(self.intrinsics.arr_get_any_value, vec![arr_val, idx_val]),
                         Type::I64,
                         None,
                     );
@@ -24371,11 +24220,7 @@ impl<'a> LowerCtx<'a> {
                 let head_x8 = self.emit_arr_head_x8(arr_val.clone());
                 let scaled = self.f.append_inst(
                     self.cur_block,
-                    InstKind::BinOp(
-                        SsaBinOp::Shl,
-                        idx_val,
-                        Operand::ConstI64(3),
-                    ),
+                    InstKind::BinOp(SsaBinOp::Shl, idx_val, Operand::ConstI64(3)),
                     Type::I64,
                     None,
                 );
@@ -24391,11 +24236,7 @@ impl<'a> LowerCtx<'a> {
                 );
                 let offset = self.f.append_inst(
                     self.cur_block,
-                    InstKind::BinOp(
-                        SsaBinOp::Add,
-                        Operand::Value(offset_no_head),
-                        head_x8,
-                    ),
+                    InstKind::BinOp(SsaBinOp::Add, Operand::Value(offset_no_head), head_x8),
                     Type::I64,
                     None,
                 );
@@ -24414,11 +24255,9 @@ impl<'a> LowerCtx<'a> {
                 // typed as `Type::Closure(user_sig)`.
                 let fn_name = fn_name.clone();
                 let captures = captures.clone();
-                let fid = self
-                    .fn_table
-                    .get(&fn_name)
-                    .copied()
-                    .unwrap_or_else(|| panic!("ssa-lower: closure target `{fn_name}` not in fn table"));
+                let fid = self.fn_table.get(&fn_name).copied().unwrap_or_else(|| {
+                    panic!("ssa-lower: closure target `{fn_name}` not in fn table")
+                });
                 // Build the user-facing signature (without env first param)
                 // by reading the lifted FnDecl's params from the AST and
                 // skipping the `__env` first param. Ret type matches the
@@ -24458,8 +24297,7 @@ impl<'a> LowerCtx<'a> {
                     }
                     (params_v, ret_v)
                 };
-                let user_sig =
-                    intern_fn_sig(self.fn_sigs, user_param_tys, user_ret_ty);
+                let user_sig = intern_fn_sig(self.fn_sigs, user_param_tys, user_ret_ty);
                 let closure_ty = Type::Closure(user_sig);
 
                 // Resolve capture types from current locals + decide
@@ -24469,26 +24307,18 @@ impl<'a> LowerCtx<'a> {
                 let cap_tys: Vec<Type> = captures
                     .iter()
                     .map(|c| {
-                        self.locals
-                            .get(c)
-                            .map(|l| l.ty)
-                            .unwrap_or_else(|| {
-                                panic!(
-                                    "ssa-lower: closure capture `{c}` not in scope"
-                                )
-                            })
+                        self.locals.get(c).map(|l| l.ty).unwrap_or_else(|| {
+                            panic!("ssa-lower: closure capture `{c}` not in scope")
+                        })
                     })
                     .collect();
                 // Copy captures always go by-ref now: the let-decl
                 // pre-pass heap-allocs slots that escape closures
                 // capture, so info.slot is a stable pointer
                 // regardless of enclosing fn's return type.
-                let cap_meta: Vec<(Type, bool)> = cap_tys
-                    .iter()
-                    .map(|t| (*t, t.is_copy()))
-                    .collect();
-                self.closure_captures
-                    .insert(fn_name.clone(), cap_meta);
+                let cap_meta: Vec<(Type, bool)> =
+                    cap_tys.iter().map(|t| (*t, t.is_copy())).collect();
+                self.closure_captures.insert(fn_name.clone(), cap_meta);
 
                 // Phase 2C: Closure env layout (24-byte header + captures):
                 //   env+0   : universal heap header (refcount + type_tag=CLOSURE + flags)
@@ -24500,8 +24330,7 @@ impl<'a> LowerCtx<'a> {
                 //   env+24  : cap0
                 //   env+32  : cap1
                 //   ...
-                let alloc_size = CLOSURE_CAP_BASE_OFF as i64
-                    + 8 * (captures.len() as i64);
+                let alloc_size = CLOSURE_CAP_BASE_OFF as i64 + 8 * (captures.len() as i64);
                 let env_v = self.f.append_inst(
                     self.cur_block,
                     InstKind::Call(
@@ -24591,9 +24420,7 @@ impl<'a> LowerCtx<'a> {
                 //  - Non-Copy types: by-value of the heap pointer.
                 //    Outer marked moved so the heap doesn't double-
                 //    free; env owns the pointer until env-drop fires.
-                for (i, (cap_name, cap_ty)) in
-                    captures.iter().zip(cap_tys.iter()).enumerate()
-                {
+                for (i, (cap_name, cap_ty)) in captures.iter().zip(cap_tys.iter()).enumerate() {
                     let info = *self.locals.get(cap_name).expect("capture in scope");
                     let offset = CLOSURE_CAP_BASE_OFF + (i as u64) * 8;
                     if cap_ty.is_copy() {
@@ -24640,11 +24467,7 @@ impl<'a> LowerCtx<'a> {
                         );
                         self.f.append_void(
                             self.cur_block,
-                            InstKind::Store(
-                                Operand::Value(v),
-                                Operand::Value(env_v),
-                                offset,
-                            ),
+                            InstKind::Store(Operand::Value(v), Operand::Value(env_v), offset),
                         );
                         if let Some(outer) = self.locals.get_mut(cap_name) {
                             outer.moved = true;
@@ -24742,19 +24565,14 @@ impl<'a> LowerCtx<'a> {
                 if let Expr::Ident(name) = self.ast.get_expr(*expr) {
                     let global_kind: Option<&'static str> = match name.as_str() {
                         "undefined" => Some("undefined"),
-                        "Math" | "JSON" | "Reflect" | "globalThis" | "console" => {
-                            Some("object")
-                        }
-                        "Number" | "String" | "Boolean" | "Symbol" | "Date"
-                        | "Array" | "Object" | "RegExp" | "Error" | "Function"
-                        | "Promise" | "Map" | "Set" | "WeakMap" | "WeakSet"
-                        | "Proxy" | "BigInt" | "ArrayBuffer" | "DataView"
-                        | "TypeError" | "RangeError" | "SyntaxError"
-                        | "ReferenceError" | "parseInt" | "parseFloat"
-                        | "isNaN" | "isFinite" | "encodeURI" | "decodeURI"
-                        | "encodeURIComponent" | "decodeURIComponent" => {
-                            Some("function")
-                        }
+                        "Math" | "JSON" | "Reflect" | "globalThis" | "console" => Some("object"),
+                        "Number" | "String" | "Boolean" | "Symbol" | "Date" | "Array"
+                        | "Object" | "RegExp" | "Error" | "Function" | "Promise" | "Map"
+                        | "Set" | "WeakMap" | "WeakSet" | "Proxy" | "BigInt" | "ArrayBuffer"
+                        | "DataView" | "TypeError" | "RangeError" | "SyntaxError"
+                        | "ReferenceError" | "parseInt" | "parseFloat" | "isNaN" | "isFinite"
+                        | "encodeURI" | "decodeURI" | "encodeURIComponent"
+                        | "decodeURIComponent" => Some("function"),
                         // P4.6 — Phase A1's synthesize_class_globals
                         // rewrites every user-declared class Ident to
                         // `__class_<NAME>`. Per spec §13.5.3 a class
@@ -24785,34 +24603,62 @@ impl<'a> LowerCtx<'a> {
                 // .propertyIsEnumerable, .isPrototypeOf, .valueOf,
                 // .toString) — all are first-class function refs in
                 // JS regardless of receiver shape.
-                if let Expr::Member { name: member_name, .. } = self.ast.get_expr(*expr)
-                    && matches!(member_name.as_str(),
-                        "constructor" | "hasOwnProperty"
-                        | "propertyIsEnumerable" | "isPrototypeOf"
-                        | "valueOf" | "toString" | "toLocaleString")
+                if let Expr::Member {
+                    name: member_name, ..
+                } = self.ast.get_expr(*expr)
+                    && matches!(
+                        member_name.as_str(),
+                        "constructor"
+                            | "hasOwnProperty"
+                            | "propertyIsEnumerable"
+                            | "isPrototypeOf"
+                            | "valueOf"
+                            | "toString"
+                            | "toLocaleString"
+                    )
                 {
                     return Operand::Value(self.intern_string_literal("function"));
                 }
-                if let Expr::Member { obj, name: member_name } = self.ast.get_expr(*expr)
+                if let Expr::Member {
+                    obj,
+                    name: member_name,
+                } = self.ast.get_expr(*expr)
                     && let Expr::Ident(ns) = self.ast.get_expr(*obj)
                 {
                     // Well-known Symbol singletons typeof as "symbol".
-                    let is_symbol_well_known = ns == "Symbol" && matches!(
-                        member_name.as_str(),
-                        "iterator" | "asyncIterator" | "toPrimitive"
-                            | "toStringTag" | "hasInstance" | "isConcatSpreadable"
-                            | "match" | "replace" | "search" | "split" | "species"
-                            | "unscopables"
-                    );
-                    let is_math_const = ns == "Math" && matches!(
-                        member_name.as_str(),
-                        "PI" | "E" | "LN2" | "LN10" | "LOG2E" | "LOG10E" | "SQRT2" | "SQRT1_2"
-                    );
-                    let is_number_const = ns == "Number" && matches!(
-                        member_name.as_str(),
-                        "MAX_VALUE" | "MIN_VALUE" | "MAX_SAFE_INTEGER" | "MIN_SAFE_INTEGER"
-                            | "EPSILON" | "POSITIVE_INFINITY" | "NEGATIVE_INFINITY" | "NaN"
-                    );
+                    let is_symbol_well_known = ns == "Symbol"
+                        && matches!(
+                            member_name.as_str(),
+                            "iterator"
+                                | "asyncIterator"
+                                | "toPrimitive"
+                                | "toStringTag"
+                                | "hasInstance"
+                                | "isConcatSpreadable"
+                                | "match"
+                                | "replace"
+                                | "search"
+                                | "split"
+                                | "species"
+                                | "unscopables"
+                        );
+                    let is_math_const = ns == "Math"
+                        && matches!(
+                            member_name.as_str(),
+                            "PI" | "E" | "LN2" | "LN10" | "LOG2E" | "LOG10E" | "SQRT2" | "SQRT1_2"
+                        );
+                    let is_number_const = ns == "Number"
+                        && matches!(
+                            member_name.as_str(),
+                            "MAX_VALUE"
+                                | "MIN_VALUE"
+                                | "MAX_SAFE_INTEGER"
+                                | "MIN_SAFE_INTEGER"
+                                | "EPSILON"
+                                | "POSITIVE_INFINITY"
+                                | "NEGATIVE_INFINITY"
+                                | "NaN"
+                        );
                     // V3-18 m2.c — `.prototype` typeofs as "object";
                     // `.name` as "string"; `.length` as "number".
                     let is_proto_obj = member_name == "prototype";
@@ -24820,10 +24666,24 @@ impl<'a> LowerCtx<'a> {
                     let is_length_prop = member_name == "length";
                     let ns_known = matches!(
                         ns.as_str(),
-                        "Math" | "JSON" | "Reflect" | "globalThis" | "console"
-                            | "Object" | "Array" | "String" | "Number" | "Boolean"
-                            | "Symbol" | "Date" | "RegExp" | "Error" | "BigInt"
-                            | "Promise" | "Map" | "Set"
+                        "Math"
+                            | "JSON"
+                            | "Reflect"
+                            | "globalThis"
+                            | "console"
+                            | "Object"
+                            | "Array"
+                            | "String"
+                            | "Number"
+                            | "Boolean"
+                            | "Symbol"
+                            | "Date"
+                            | "RegExp"
+                            | "Error"
+                            | "BigInt"
+                            | "Promise"
+                            | "Map"
+                            | "Set"
                     );
                     if ns_known {
                         let s = if is_symbol_well_known {
@@ -24934,8 +24794,7 @@ impl<'a> LowerCtx<'a> {
                 let result = match (class_name_str, &actual_ty) {
                     ("Array", Type::Arr(_)) => Some(true),
                     ("Array", _) => Some(false),
-                    ("Function", Type::Closure(_)) | ("Function", Type::FnSig(_))
-                        => Some(true),
+                    ("Function", Type::Closure(_)) | ("Function", Type::FnSig(_)) => Some(true),
                     ("Function", _) => Some(false),
                     // Object instanceof: any class instance is an
                     // Object; every Type::Obj qualifies. Primitives
@@ -24945,8 +24804,7 @@ impl<'a> LowerCtx<'a> {
                     ("Object", Type::Date) => Some(true),
                     ("Object", Type::RegExp) => Some(true),
                     ("Object", Type::Promise) => Some(true),
-                    ("Object", Type::Closure(_)) | ("Object", Type::FnSig(_))
-                        => Some(true),  // functions are Objects in JS
+                    ("Object", Type::Closure(_)) | ("Object", Type::FnSig(_)) => Some(true), // functions are Objects in JS
                     ("Object", _) => Some(false),
                     ("Number" | "String" | "Boolean" | "BigInt" | "Symbol", _) => {
                         // Primitives never satisfy these (subset has no
@@ -24980,18 +24838,16 @@ impl<'a> LowerCtx<'a> {
                         let mut cur = Some(c.clone());
                         let mut depth = 0u32;
                         while let Some(name) = cur {
-                            if depth > 64 { break; }
+                            if depth > 64 {
+                                break;
+                            }
                             if name == *class_name {
                                 if let Some(tag) = self.class_name_to_tag.get(c) {
                                     descendant_tags.push(*tag);
                                 }
                                 break;
                             }
-                            cur = self
-                                .ast
-                                .class_parents
-                                .get(&name)
-                                .and_then(|p| p.clone());
+                            cur = self.ast.class_parents.get(&name).and_then(|p| p.clone());
                             depth += 1;
                         }
                     }
@@ -25026,11 +24882,7 @@ impl<'a> LowerCtx<'a> {
                         None => eq,
                         Some(prev) => self.f.append_inst(
                             self.cur_block,
-                            InstKind::BinOp(
-                                SsaBinOp::Or,
-                                Operand::Value(prev),
-                                Operand::Value(eq),
-                            ),
+                            InstKind::BinOp(SsaBinOp::Or, Operand::Value(prev), Operand::Value(eq)),
                             Type::Bool,
                             None,
                         ),
@@ -25095,7 +24947,11 @@ impl<'a> LowerCtx<'a> {
                     );
                     let nullish = self.f.append_inst(
                         self.cur_block,
-                        InstKind::BinOp(SsaBinOp::Or, Operand::Value(is_null), Operand::Value(is_undef)),
+                        InstKind::BinOp(
+                            SsaBinOp::Or,
+                            Operand::Value(is_null),
+                            Operand::Value(is_undef),
+                        ),
                         Type::Bool,
                         None,
                     );
@@ -25106,8 +24962,8 @@ impl<'a> LowerCtx<'a> {
                         cb,
                         Terminator::CondBr {
                             cond: Operand::Value(nullish),
-                            then_blk: after,        // skip — slot already holds rhs
-                            else_blk: unbox_blk,    // overwrite with unboxed lhs
+                            then_blk: after,     // skip — slot already holds rhs
+                            else_blk: unbox_blk, // overwrite with unboxed lhs
                         },
                     );
                     // unbox path: load value field, type-cast to rhs_ty,
@@ -25124,10 +24980,7 @@ impl<'a> LowerCtx<'a> {
                     let unboxed: Operand = if matches!(rhs_ty, Type::Any) {
                         self.f.append_void(
                             self.cur_block,
-                            InstKind::Call(
-                                self.intrinsics.rc_inc,
-                                vec![lhs_op.clone()],
-                            ),
+                            InstKind::Call(self.intrinsics.rc_inc, vec![lhs_op.clone()]),
                         );
                         lhs_op.clone()
                     } else {
@@ -25151,7 +25004,11 @@ impl<'a> LowerCtx<'a> {
                             Type::Bool => {
                                 let b = self.f.append_inst(
                                     self.cur_block,
-                                    InstKind::ICmp(IPred::Ne, Operand::Value(val), Operand::ConstI64(0)),
+                                    InstKind::ICmp(
+                                        IPred::Ne,
+                                        Operand::Value(val),
+                                        Operand::ConstI64(0),
+                                    ),
                                     Type::Bool,
                                     None,
                                 );
@@ -25162,7 +25019,10 @@ impl<'a> LowerCtx<'a> {
                                 // ptr. rc_inc so we own a balanced share.
                                 self.f.append_void(
                                     self.cur_block,
-                                    InstKind::Call(self.intrinsics.rc_inc, vec![Operand::Value(val)]),
+                                    InstKind::Call(
+                                        self.intrinsics.rc_inc,
+                                        vec![Operand::Value(val)],
+                                    ),
                                 );
                                 Operand::Value(val)
                             }
@@ -25311,9 +25171,7 @@ impl<'a> LowerCtx<'a> {
                     .enumerate()
                     .find(|(_, (n, _))| n == name)
                     .map(|(i, (_, t))| (i, *t))
-                    .unwrap_or_else(|| {
-                        panic!("ssa-lower: no field `{name}` on struct {sid:?}")
-                    });
+                    .unwrap_or_else(|| panic!("ssa-lower: no field `{name}` on struct {sid:?}"));
                 let offset = OBJ_HEADER_SIZE + (field_idx as u64) * 8;
                 let v = self.f.append_inst(
                     self.cur_block,
@@ -25388,9 +25246,7 @@ impl<'a> LowerCtx<'a> {
                         }
                         let info = match self.locals.get(&name) {
                             Some(i) => *i,
-                            None => panic!(
-                                "ssa-lower: post-incr on unknown ident `{name}`"
-                            ),
+                            None => panic!("ssa-lower: post-incr on unknown ident `{name}`"),
                         };
                         let old = self.f.append_inst(
                             self.cur_block,
@@ -25412,11 +25268,7 @@ impl<'a> LowerCtx<'a> {
                         );
                         self.f.append_void(
                             self.cur_block,
-                            InstKind::Store(
-                                Operand::Value(new_v),
-                                Operand::Value(info.slot),
-                                0,
-                            ),
+                            InstKind::Store(Operand::Value(new_v), Operand::Value(info.slot), 0),
                         );
                         Operand::Value(old)
                     }
@@ -25425,12 +25277,9 @@ impl<'a> LowerCtx<'a> {
                         let obj_ty = self.operand_ty(&obj_val);
                         let sid = match obj_ty {
                             Type::Obj(sid) => sid,
-                            other => panic!(
-                                "ssa-lower: post-incr field on non-obj {other:?}"
-                            ),
+                            other => panic!("ssa-lower: post-incr field on non-obj {other:?}"),
                         };
-                        let layout =
-                            self.struct_layouts[sid.0 as usize].clone();
+                        let layout = self.struct_layouts[sid.0 as usize].clone();
                         let (idx, field_ty) = layout
                             .iter()
                             .enumerate()
@@ -25442,9 +25291,7 @@ impl<'a> LowerCtx<'a> {
                                 }
                             })
                             .unwrap_or_else(|| {
-                                panic!(
-                                    "ssa-lower: struct {sid:?} has no field `{field}`"
-                                )
+                                panic!("ssa-lower: struct {sid:?} has no field `{field}`")
                             });
                         let offset = OBJ_HEADER_SIZE + (idx as u64) * 8;
                         let old = self.f.append_inst(
@@ -25476,25 +25323,15 @@ impl<'a> LowerCtx<'a> {
                         let arr_ty = self.operand_ty(&arr_val);
                         let elem_ty = match arr_ty {
                             Type::Arr(arr_id) => self.arr_layouts[arr_id.0 as usize],
-                            other => panic!(
-                                "ssa-lower: post-incr index on non-array {other:?}"
-                            ),
+                            other => panic!("ssa-lower: post-incr index on non-array {other:?}"),
                         };
                         let idx_val = self.lower_expr(index);
                         // T-13.5: head-aware offset, computed once for
                         // both load (old) and store (new).
-                        let offset = self.emit_arr_slot_byte_offset(
-                            arr_val.clone(),
-                            idx_val,
-                            3,
-                        );
+                        let offset = self.emit_arr_slot_byte_offset(arr_val.clone(), idx_val, 3);
                         let old = self.f.append_inst(
                             self.cur_block,
-                            InstKind::LoadDyn(
-                                elem_ty,
-                                arr_val.clone(),
-                                offset.clone(),
-                            ),
+                            InstKind::LoadDyn(elem_ty, arr_val.clone(), offset.clone()),
                             elem_ty,
                             None,
                         );
@@ -25512,17 +25349,11 @@ impl<'a> LowerCtx<'a> {
                         );
                         self.f.append_void(
                             self.cur_block,
-                            InstKind::StoreDyn(
-                                Operand::Value(new_v),
-                                arr_val,
-                                offset,
-                            ),
+                            InstKind::StoreDyn(Operand::Value(new_v), arr_val, offset),
                         );
                         Operand::Value(old)
                     }
-                    other => panic!(
-                        "ssa-lower: post-incr target shape not supported: {other:?}"
-                    ),
+                    other => panic!("ssa-lower: post-incr target shape not supported: {other:?}"),
                 }
             }
             // V3-07 — `expr as T`. At SSA, the cast is identity:
@@ -25587,9 +25418,7 @@ impl<'a> LowerCtx<'a> {
     fn coerce_bool_to_i64(&mut self, op: Operand) -> Operand {
         match self.operand_ty(&op) {
             Type::Bool => match op {
-                Operand::ConstBool(b) => {
-                    Operand::ConstI64(if b { 1 } else { 0 })
-                }
+                Operand::ConstBool(b) => Operand::ConstI64(if b { 1 } else { 0 }),
                 Operand::Value(_) => {
                     let v = self.f.append_inst(
                         self.cur_block,
@@ -25635,12 +25464,9 @@ impl<'a> LowerCtx<'a> {
                     }
                 }
                 Operand::Value(_) => {
-                    let v = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::FpToSi(op),
-                        Type::I64,
-                        None,
-                    );
+                    let v =
+                        self.f
+                            .append_inst(self.cur_block, InstKind::FpToSi(op), Type::I64, None);
                     Operand::Value(v)
                 }
                 _ => op,
@@ -25668,12 +25494,9 @@ impl<'a> LowerCtx<'a> {
                     }
                 }
                 Operand::Value(_) => {
-                    let v = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::FpToSi(op),
-                        Type::I64,
-                        None,
-                    );
+                    let v =
+                        self.f
+                            .append_inst(self.cur_block, InstKind::FpToSi(op), Type::I64, None);
                     Operand::Value(v)
                 }
                 _ => op,
@@ -25691,12 +25514,9 @@ impl<'a> LowerCtx<'a> {
             Type::I64 => match op {
                 Operand::ConstI64(n) => Operand::ConstF64(n as f64),
                 Operand::Value(_) => {
-                    let v = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::SiToFp(op),
-                        Type::F64,
-                        None,
-                    );
+                    let v =
+                        self.f
+                            .append_inst(self.cur_block, InstKind::SiToFp(op), Type::F64, None);
                     Operand::Value(v)
                 }
                 _ => op,
@@ -25726,7 +25546,6 @@ impl<'a> LowerCtx<'a> {
             self.coerce_to_i64(num)
         }
     }
-
 
     /// Type-aware BinOp lowering. Decision rule:
     ///   - `/` always produces f64. Both operands coerced to f64. (Use `>>`
@@ -25774,11 +25593,7 @@ impl<'a> LowerCtx<'a> {
                 // 16 + offset → byte offset into parent
                 let total_off = self.f.append_inst(
                     self.cur_block,
-                    InstKind::BinOp(
-                        SsaBinOp::Add,
-                        Operand::Value(offset),
-                        Operand::ConstI64(16),
-                    ),
+                    InstKind::BinOp(SsaBinOp::Add, Operand::Value(offset), Operand::ConstI64(16)),
                     Type::I64,
                     None,
                 );
@@ -25788,11 +25603,7 @@ impl<'a> LowerCtx<'a> {
         }
     }
 
-    fn emit_inline_str_eq_bytes(
-        &mut self,
-        other: Operand,
-        bytes: &[u8],
-    ) -> Operand {
+    fn emit_inline_str_eq_bytes(&mut self, other: Operand, bytes: &[u8]) -> Operand {
         // For Substr we still load len at offset 8 (same as Str), but
         // bytes are accessed via (parent_data + offset). Compute the
         // data pointer once per call, then per-byte loads use it.
@@ -25821,11 +25632,14 @@ impl<'a> LowerCtx<'a> {
             None,
         );
         let cmp_blk = self.f.add_block();
-        self.f.set_term(self.cur_block, Terminator::CondBr {
-            cond: Operand::Value(len_eq),
-            then_blk: cmp_blk,
-            else_blk: done_blk,
-        });
+        self.f.set_term(
+            self.cur_block,
+            Terminator::CondBr {
+                cond: Operand::Value(len_eq),
+                then_blk: cmp_blk,
+                else_blk: done_blk,
+            },
+        );
         self.cur_block = cmp_blk;
         if bytes.is_empty() {
             // len-eq alone determines truth.
@@ -25851,11 +25665,7 @@ impl<'a> LowerCtx<'a> {
                 // Substr the add stays but i is small const.
                 let off_i = self.f.append_inst(
                     self.cur_block,
-                    InstKind::BinOp(
-                        SsaBinOp::Add,
-                        base_off,
-                        Operand::ConstI64(i as i64),
-                    ),
+                    InstKind::BinOp(SsaBinOp::Add, base_off, Operand::ConstI64(i as i64)),
                     Type::I64,
                     None,
                 );
@@ -25885,11 +25695,14 @@ impl<'a> LowerCtx<'a> {
                     Type::Bool,
                     None,
                 );
-                self.f.set_term(self.cur_block, Terminator::CondBr {
-                    cond: Operand::Value(eq),
-                    then_blk: chain[i + 1],
-                    else_blk: done_blk,
-                });
+                self.f.set_term(
+                    self.cur_block,
+                    Terminator::CondBr {
+                        cond: Operand::Value(eq),
+                        then_blk: chain[i + 1],
+                        else_blk: done_blk,
+                    },
+                );
             }
             self.cur_block = chain[bytes.len()];
             self.f.append_void(
@@ -25941,14 +25754,10 @@ impl<'a> LowerCtx<'a> {
         let l_expr = self.ast.get_expr(left).clone();
         let r_expr = self.ast.get_expr(right).clone();
         let (member_expr, ctor_name): (Expr, String) = match (l_expr, r_expr) {
-            (Expr::Member { obj, name }, Expr::Ident(c))
-                if name == "constructor" =>
-            {
+            (Expr::Member { obj, name }, Expr::Ident(c)) if name == "constructor" => {
                 (self.ast.get_expr(obj).clone(), c)
             }
-            (Expr::Ident(c), Expr::Member { obj, name })
-                if name == "constructor" =>
-            {
+            (Expr::Ident(c), Expr::Member { obj, name }) if name == "constructor" => {
                 (self.ast.get_expr(obj).clone(), c)
             }
             _ => return None,
@@ -26033,10 +25842,16 @@ impl<'a> LowerCtx<'a> {
         let saved_left = self.binop_left_undef_id.take();
         let saved_right = self.binop_right_undef_id.take();
         self.binop_left_undef_id = left_id.filter(|eid| {
-            matches!(self.expr_types.get(eid), Some(crate::check::Type::Undefined))
+            matches!(
+                self.expr_types.get(eid),
+                Some(crate::check::Type::Undefined)
+            )
         });
         self.binop_right_undef_id = right_id.filter(|eid| {
-            matches!(self.expr_types.get(eid), Some(crate::check::Type::Undefined))
+            matches!(
+                self.expr_types.get(eid),
+                Some(crate::check::Type::Undefined)
+            )
         });
         let r = self.lower_binop_inner(op, a, b);
         self.binop_left_undef_id = saved_left;
@@ -26098,17 +25913,22 @@ impl<'a> LowerCtx<'a> {
         // ToPrimitive→ToString fallback); arith → any_arith with
         // op code; ordering → any_compare with op code (Bool
         // result).
-        if matches!(op,
-            AstBinOp::Add | AstBinOp::Sub | AstBinOp::Mul
-            | AstBinOp::Div | AstBinOp::Mod
-            | AstBinOp::Lt | AstBinOp::Le | AstBinOp::Gt | AstBinOp::Ge
+        if matches!(
+            op,
+            AstBinOp::Add
+                | AstBinOp::Sub
+                | AstBinOp::Mul
+                | AstBinOp::Div
+                | AstBinOp::Mod
+                | AstBinOp::Lt
+                | AstBinOp::Le
+                | AstBinOp::Gt
+                | AstBinOp::Ge
         ) {
             let a_ty = self.operand_ty(&a);
             let b_ty = self.operand_ty(&b);
             if matches!(a_ty, Type::Any) || matches!(b_ty, Type::Any) {
-                let pack = |this: &mut Self, op_v: Operand, op_ty: Type|
-                    -> (Operand, Operand)
-                {
+                let pack = |this: &mut Self, op_v: Operand, op_ty: Type| -> (Operand, Operand) {
                     if matches!(op_ty, Type::Any) {
                         // Any-typed operand: load tag + value from box.
                         let tag = this.f.append_inst(
@@ -26327,11 +26147,23 @@ impl<'a> LowerCtx<'a> {
         }
         let coerce_op = matches!(
             op,
-            AstBinOp::Add | AstBinOp::Sub | AstBinOp::Mul | AstBinOp::Div | AstBinOp::Mod
-                | AstBinOp::Lt | AstBinOp::Gt | AstBinOp::Le | AstBinOp::Ge
-                | AstBinOp::BitAnd | AstBinOp::BitOr | AstBinOp::BitXor
-                | AstBinOp::Shl | AstBinOp::Shr | AstBinOp::UShr
-                | AstBinOp::LooseEq | AstBinOp::LooseNeq
+            AstBinOp::Add
+                | AstBinOp::Sub
+                | AstBinOp::Mul
+                | AstBinOp::Div
+                | AstBinOp::Mod
+                | AstBinOp::Lt
+                | AstBinOp::Gt
+                | AstBinOp::Le
+                | AstBinOp::Ge
+                | AstBinOp::BitAnd
+                | AstBinOp::BitOr
+                | AstBinOp::BitXor
+                | AstBinOp::Shl
+                | AstBinOp::Shr
+                | AstBinOp::UShr
+                | AstBinOp::LooseEq
+                | AstBinOp::LooseNeq
         );
         let (a, b) = if coerce_op {
             let a_ty = self.operand_ty(&a);
@@ -26344,10 +26176,8 @@ impl<'a> LowerCtx<'a> {
             let b_coerce = matches!(b_ty, Type::I64 | Type::Bool) || b_is_null;
             // Trigger only when at least one side is non-Number — pure
             // Number+Number stays on the existing fast path.
-            let either_bool_or_null = matches!(a_ty, Type::Bool)
-                || matches!(b_ty, Type::Bool)
-                || a_is_null
-                || b_is_null;
+            let either_bool_or_null =
+                matches!(a_ty, Type::Bool) || matches!(b_ty, Type::Bool) || a_is_null || b_is_null;
             if either_bool_or_null && a_coerce && b_coerce {
                 let a2 = if a_is_null {
                     Operand::ConstI64(0)
@@ -26404,8 +26234,12 @@ impl<'a> LowerCtx<'a> {
                 }
                 if matches!(
                     op,
-                    AstBinOp::Lt | AstBinOp::Gt | AstBinOp::Le | AstBinOp::Ge
-                        | AstBinOp::Eq | AstBinOp::Neq
+                    AstBinOp::Lt
+                        | AstBinOp::Gt
+                        | AstBinOp::Le
+                        | AstBinOp::Ge
+                        | AstBinOp::Eq
+                        | AstBinOp::Neq
                 ) {
                     let c = self.f.append_inst(
                         self.cur_block,
@@ -26463,7 +26297,7 @@ impl<'a> LowerCtx<'a> {
                     | (Type::F64, Type::Substr)
                     | (Type::BigInt, Type::Substr)
             ) || (str_or_substr(a_ty) && bool_or_null(b_ty, &b))
-              || (str_or_substr(b_ty) && bool_or_null(a_ty, &a));
+                || (str_or_substr(b_ty) && bool_or_null(a_ty, &a));
             // Any Substr operand: route through view-aware concat
             // helpers. One alloc + two memcpys (vs. 2 allocs + 3
             // memcpys via substr_to_owned + str_concat).
@@ -26503,10 +26337,7 @@ impl<'a> LowerCtx<'a> {
                         Type::Substr => {
                             let r = ctx.f.append_inst(
                                 ctx.cur_block,
-                                InstKind::Call(
-                                    ctx.intrinsics.substr_to_owned,
-                                    vec![v],
-                                ),
+                                InstKind::Call(ctx.intrinsics.substr_to_owned, vec![v]),
                                 Type::Str,
                                 None,
                             );
@@ -26515,10 +26346,7 @@ impl<'a> LowerCtx<'a> {
                         Type::I64 => {
                             let r = ctx.f.append_inst(
                                 ctx.cur_block,
-                                InstKind::Call(
-                                    ctx.intrinsics.i64_to_str,
-                                    vec![v],
-                                ),
+                                InstKind::Call(ctx.intrinsics.i64_to_str, vec![v]),
                                 Type::Str,
                                 None,
                             );
@@ -26527,10 +26355,7 @@ impl<'a> LowerCtx<'a> {
                         Type::F64 => {
                             let r = ctx.f.append_inst(
                                 ctx.cur_block,
-                                InstKind::Call(
-                                    ctx.intrinsics.f64_to_str,
-                                    vec![v],
-                                ),
+                                InstKind::Call(ctx.intrinsics.f64_to_str, vec![v]),
                                 Type::Str,
                                 None,
                             );
@@ -26567,9 +26392,7 @@ impl<'a> LowerCtx<'a> {
                             );
                             Operand::Value(r)
                         }
-                        other => panic!(
-                            "ssa-lower: mixed string concat unexpected type {other:?}"
-                        ),
+                        other => panic!("ssa-lower: mixed string concat unexpected type {other:?}"),
                     }
                 };
                 let a_str = coerce(self, a);
@@ -26601,8 +26424,10 @@ impl<'a> LowerCtx<'a> {
         // are String, compares as String (which is content-equal).
         // Pre-fix only AstBinOp::Eq / Neq (strict) reached this dispatch;
         // LooseEq / LooseNeq fell through and tora returned false.
-        if matches!(op, AstBinOp::Eq | AstBinOp::Neq | AstBinOp::LooseEq | AstBinOp::LooseNeq)
-            && (a_ty == Type::Str || a_ty == Type::Substr)
+        if matches!(
+            op,
+            AstBinOp::Eq | AstBinOp::Neq | AstBinOp::LooseEq | AstBinOp::LooseNeq
+        ) && (a_ty == Type::Str || a_ty == Type::Substr)
             && (b_ty == Type::Str || b_ty == Type::Substr)
         {
             // Pick correct comparator based on operand types. Substr
@@ -26630,10 +26455,7 @@ impl<'a> LowerCtx<'a> {
                     );
                     self.f.append_void(
                         self.cur_block,
-                        InstKind::Call(
-                            self.intrinsics.str_drop,
-                            vec![Operand::Value(owned)],
-                        ),
+                        InstKind::Call(self.intrinsics.str_drop, vec![Operand::Value(owned)]),
                     );
                     if matches!(op, AstBinOp::Neq | AstBinOp::LooseNeq) {
                         let r = self.f.append_inst(
@@ -26680,8 +26502,11 @@ impl<'a> LowerCtx<'a> {
         // Substr operands not yet supported here — would need a
         // substr-vs-str comparator; can materialize on the fly when those
         // call sites surface in conformance / test262.
-        if matches!(op, AstBinOp::Lt | AstBinOp::Gt | AstBinOp::Le | AstBinOp::Ge)
-            && a_ty == Type::Str && b_ty == Type::Str
+        if matches!(
+            op,
+            AstBinOp::Lt | AstBinOp::Gt | AstBinOp::Le | AstBinOp::Ge
+        ) && a_ty == Type::Str
+            && b_ty == Type::Str
         {
             let c = self.f.append_inst(
                 self.cur_block,
@@ -26709,8 +26534,7 @@ impl<'a> LowerCtx<'a> {
         // takes + returns f64. Force both operands into the float
         // path so downstream consumers see a Number-shaped result.
         let force_float = matches!(op, AstBinOp::Div | AstBinOp::Pow);
-        let either_float =
-            self.operand_ty(&a) == Type::F64 || self.operand_ty(&b) == Type::F64;
+        let either_float = self.operand_ty(&a) == Type::F64 || self.operand_ty(&b) == Type::F64;
         let is_float = force_float || either_float;
 
         if is_float {
@@ -26726,8 +26550,12 @@ impl<'a> LowerCtx<'a> {
             // §13.10 numeric remainder for non-integer Number.
             if matches!(
                 op,
-                AstBinOp::BitAnd | AstBinOp::BitOr | AstBinOp::BitXor
-                    | AstBinOp::Shl | AstBinOp::Shr | AstBinOp::UShr
+                AstBinOp::BitAnd
+                    | AstBinOp::BitOr
+                    | AstBinOp::BitXor
+                    | AstBinOp::Shl
+                    | AstBinOp::Shr
+                    | AstBinOp::UShr
             ) {
                 let ai = self.coerce_f64_to_i64_for_bitwise(a);
                 let bi = self.coerce_f64_to_i64_for_bitwise(b);
@@ -26816,18 +26644,8 @@ impl<'a> LowerCtx<'a> {
                 // mask `b` to its bottom 5 bits — then logical-shift.
                 // The result is always non-negative ≤ 2^32-1, fitting
                 // back into i64 directly.
-                let mask32 = self.bin(
-                    SsaBinOp::And,
-                    a,
-                    Operand::ConstI64(0xFFFF_FFFF),
-                    Type::I64,
-                );
-                let masked_shift = self.bin(
-                    SsaBinOp::And,
-                    b,
-                    Operand::ConstI64(0x1F),
-                    Type::I64,
-                );
+                let mask32 = self.bin(SsaBinOp::And, a, Operand::ConstI64(0xFFFF_FFFF), Type::I64);
+                let masked_shift = self.bin(SsaBinOp::And, b, Operand::ConstI64(0x1F), Type::I64);
                 self.bin(SsaBinOp::LShr, mask32, masked_shift, Type::I64)
             }
             AstBinOp::Lt => self.cmp(IPred::Slt, a, b),
@@ -26880,18 +26698,14 @@ impl<'a> LowerCtx<'a> {
         );
         self.cur_block = eval_b;
         let b = self.lower_expr(right);
-        self.f.append_void(
-            self.cur_block,
-            InstKind::Store(b, Operand::Value(slot), 0),
-        );
+        self.f
+            .append_void(self.cur_block, InstKind::Store(b, Operand::Value(slot), 0));
         self.f.set_term(self.cur_block, Terminator::Br(merge));
         self.cur_block = false_blk;
         // a is the falsy value — return it directly (matches JS:
         // `0 && expr` returns 0, not false; `"" && expr` returns "").
-        self.f.append_void(
-            self.cur_block,
-            InstKind::Store(a, Operand::Value(slot), 0),
-        );
+        self.f
+            .append_void(self.cur_block, InstKind::Store(a, Operand::Value(slot), 0));
         self.f.set_term(self.cur_block, Terminator::Br(merge));
         self.cur_block = merge;
         let v = self.f.append_inst(
@@ -26924,17 +26738,13 @@ impl<'a> LowerCtx<'a> {
         self.cur_block = true_blk;
         // a is truthy — return it directly (matches JS: `5 || 0`
         // returns 5; `"x" || ""` returns "x").
-        self.f.append_void(
-            self.cur_block,
-            InstKind::Store(a, Operand::Value(slot), 0),
-        );
+        self.f
+            .append_void(self.cur_block, InstKind::Store(a, Operand::Value(slot), 0));
         self.f.set_term(self.cur_block, Terminator::Br(merge));
         self.cur_block = eval_b;
         let b = self.lower_expr(right);
-        self.f.append_void(
-            self.cur_block,
-            InstKind::Store(b, Operand::Value(slot), 0),
-        );
+        self.f
+            .append_void(self.cur_block, InstKind::Store(b, Operand::Value(slot), 0));
         self.f.set_term(self.cur_block, Terminator::Br(merge));
         self.cur_block = merge;
         let v = self.f.append_inst(
@@ -26998,11 +26808,7 @@ impl<'a> LowerCtx<'a> {
                 // null branch: store false.
                 self.f.append_void(
                     null_blk,
-                    InstKind::Store(
-                        Operand::ConstBool(false),
-                        Operand::Value(result_slot),
-                        0,
-                    ),
+                    InstKind::Store(Operand::ConstBool(false), Operand::Value(result_slot), 0),
                 );
                 self.f.set_term(null_blk, Terminator::Br(merge));
                 // non-null branch: load len, compare > 0.
@@ -27167,7 +26973,8 @@ impl<'a> LowerCtx<'a> {
                     };
                 }
                 /* v0.3 #3 — process.<method>. */
-                let is_process = matches!(self.ast.get_expr(*obj), Expr::Ident(n) if n == "process");
+                let is_process =
+                    matches!(self.ast.get_expr(*obj), Expr::Ident(n) if n == "process");
                 if is_process {
                     return match name.as_str() {
                         "exit" => self.intrinsics.process_exit,
@@ -27179,8 +26986,10 @@ impl<'a> LowerCtx<'a> {
                  * and process.stdin.read(). The receiver here is a
                  * Member, not an Ident, so dispatch on the inner
                  * Member shape. */
-                if let Expr::Member { obj: inner_obj, name: inner_name } =
-                    self.ast.get_expr(*obj).clone()
+                if let Expr::Member {
+                    obj: inner_obj,
+                    name: inner_name,
+                } = self.ast.get_expr(*obj).clone()
                     && matches!(self.ast.get_expr(inner_obj), Expr::Ident(n) if n == "process")
                 {
                     return match (inner_name.as_str(), name.as_str()) {
@@ -27323,9 +27132,7 @@ impl<'a> LowerCtx<'a> {
     ) -> ValueId {
         let (args, drops) = self.materialize_call_args(fn_ty, args);
         let ret_ty = match fn_ty {
-            Type::Closure(sig_id) | Type::FnSig(sig_id) => {
-                self.fn_sigs[sig_id.0 as usize].1
-            }
+            Type::Closure(sig_id) | Type::FnSig(sig_id) => self.fn_sigs[sig_id.0 as usize].1,
             other => panic!("call_fn_value_devirt: expected Closure/FnSig, got {other:?}"),
         };
         let mut argv: Vec<Operand> = match fn_ty {
@@ -27365,8 +27172,7 @@ impl<'a> LowerCtx<'a> {
                     Type::Ptr,
                     None,
                 );
-                let (user_params, ret_ty) =
-                    self.fn_sigs[user_sig_id.0 as usize].clone();
+                let (user_params, ret_ty) = self.fn_sigs[user_sig_id.0 as usize].clone();
                 let mut env_first = Vec::with_capacity(user_params.len() + 1);
                 env_first.push(Type::Ptr);
                 env_first.extend(user_params);
@@ -27389,18 +27195,12 @@ impl<'a> LowerCtx<'a> {
                 let ret_ty = self.fn_sigs[sig_id.0 as usize].1;
                 self.f.append_inst(
                     self.cur_block,
-                    InstKind::CallIndirect(
-                        sig_id,
-                        Operand::Value(fn_ptr_val),
-                        args,
-                    ),
+                    InstKind::CallIndirect(sig_id, Operand::Value(fn_ptr_val), args),
                     ret_ty,
                     None,
                 )
             }
-            other => panic!(
-                "ssa-lower: call_fn_value: expected Closure or FnSig, got {other:?}"
-            ),
+            other => panic!("ssa-lower: call_fn_value: expected Closure or FnSig, got {other:?}"),
         }
     }
 
@@ -27623,7 +27423,9 @@ impl<'a> LowerCtx<'a> {
             let mut cur = Some(c.clone());
             let mut depth = 0u32;
             while let Some(name) = cur {
-                if depth > 64 { break; }
+                if depth > 64 {
+                    break;
+                }
                 if name == *class_name {
                     if let Some(tag) = self.class_name_to_tag.get(c) {
                         out.push(*tag);
@@ -27712,8 +27514,14 @@ impl<'a> LowerCtx<'a> {
 
         // 3. Find value/done field offsets in the step struct.
         let step_layout = &self.struct_layouts[step_sid.0 as usize];
-        let value_field = step_layout.iter().enumerate().find(|(_, (n, _))| n == "value");
-        let done_field = step_layout.iter().enumerate().find(|(_, (n, _))| n == "done");
+        let value_field = step_layout
+            .iter()
+            .enumerate()
+            .find(|(_, (n, _))| n == "value");
+        let done_field = step_layout
+            .iter()
+            .enumerate()
+            .find(|(_, (n, _))| n == "done");
         let Some((value_idx, (_, value_ty))) = value_field.map(|(i, p)| (i, p.clone())) else {
             panic!(
                 "ssa-lower: for-of protocol — step struct missing `value` field (got {step_layout:?})"
@@ -27725,9 +27533,7 @@ impl<'a> LowerCtx<'a> {
             );
         };
         if !matches!(done_ty, Type::Bool) {
-            panic!(
-                "ssa-lower: for-of protocol — step.done must be boolean, got {done_ty:?}"
-            );
+            panic!("ssa-lower: for-of protocol — step.done must be boolean, got {done_ty:?}");
         }
         let value_off = OBJ_HEADER_SIZE + (value_idx as u64) * 8;
         let done_off = OBJ_HEADER_SIZE + (done_idx as u64) * 8;
@@ -27899,8 +27705,13 @@ impl<'a> LowerCtx<'a> {
         //    through `map_iter_step`; ArrIter goes through
         //    `arr_iter_step` (parallel API, same `(tag, payload)`
         //    out-pair contract).
-        let (iter_op, should_drop_iter, var_ty, iter_ty, step_fid):
-            (Operand, bool, Type, Type, FuncId) = match src_ty {
+        let (iter_op, should_drop_iter, var_ty, iter_ty, step_fid): (
+            Operand,
+            bool,
+            Type,
+            Type,
+            FuncId,
+        ) = match src_ty {
             Type::Map => {
                 /* Map default iter = entries() per spec §23.1.4. */
                 let v = self.f.append_inst(
@@ -27950,9 +27761,9 @@ impl<'a> LowerCtx<'a> {
                 Type::ArrIter,
                 self.intrinsics.arr_iter_step,
             ),
-            _ => unreachable!(
-                "lower_for_of_map_like: src_ty must be Map | Set | MapIter | ArrIter"
-            ),
+            _ => {
+                unreachable!("lower_for_of_map_like: src_ty must be Map | Set | MapIter | ArrIter")
+            }
         };
 
         // 2. Stash iter in slot so per-iter step loads keep load /

@@ -127,7 +127,9 @@ fn is_identifier_name(s: &str) -> bool {
 }
 
 fn unwrap_generator_return_ann(ann: &str) -> String {
-    let Some(open) = ann.find('<') else { return ann.to_string() };
+    let Some(open) = ann.find('<') else {
+        return ann.to_string();
+    };
     if !ann.ends_with('>') {
         return ann.to_string();
     }
@@ -170,14 +172,22 @@ impl Parser<'_> {
     /// Defaults to (0, 0) sentinel if either index is OOB so callers
     /// don't have to thread Option through.
     fn add_expr_at(&mut self, start_pos: usize, e: Expr) -> ExprId {
-        let start = self.tokens.get(start_pos).map(|t| t.span.start).unwrap_or(0);
+        let start = self
+            .tokens
+            .get(start_pos)
+            .map(|t| t.span.start)
+            .unwrap_or(0);
         let end = if self.pos > 0 {
-            self.tokens.get(self.pos - 1).map(|t| t.span.end).unwrap_or(start)
+            self.tokens
+                .get(self.pos - 1)
+                .map(|t| t.span.end)
+                .unwrap_or(start)
         } else {
             start
         };
         let id = self.ast.add_expr(e);
-        self.ast.set_expr_span(id, crate::lexer::Span { start, end });
+        self.ast
+            .set_expr_span(id, crate::lexer::Span { start, end });
         id
     }
 
@@ -215,8 +225,10 @@ impl Parser<'_> {
                 let next = self.tokens.get(self.pos + 1).map(|t| &t.token);
                 if matches!(
                     next,
-                    Some(Token::Ident(_)) | Some(Token::Void)
-                        | Some(Token::LBrace) | Some(Token::LParen)
+                    Some(Token::Ident(_))
+                        | Some(Token::Void)
+                        | Some(Token::LBrace)
+                        | Some(Token::LParen)
                 ) {
                     self.pos += 1;
                 }
@@ -305,7 +317,10 @@ impl Parser<'_> {
             // V3-18 wedge — `{ ... } | null` shape. Mirror the
             // post-Ident pipe handler below for the inline-obj case.
             while matches!(self.peek(), Token::LBracket)
-                && matches!(self.tokens.get(self.pos + 1).map(|s| &s.token), Some(Token::RBracket))
+                && matches!(
+                    self.tokens.get(self.pos + 1).map(|s| &s.token),
+                    Some(Token::RBracket)
+                )
             {
                 self.pos += 2;
                 name.push_str("[]");
@@ -335,7 +350,10 @@ impl Parser<'_> {
         if let Token::String(_) = self.peek() {
             self.pos += 1;
             while matches!(self.peek(), Token::Pipe)
-                && matches!(self.tokens.get(self.pos + 1).map(|s| &s.token), Some(Token::String(_)))
+                && matches!(
+                    self.tokens.get(self.pos + 1).map(|s| &s.token),
+                    Some(Token::String(_))
+                )
             {
                 self.pos += 2;
             }
@@ -346,7 +364,10 @@ impl Parser<'_> {
         if let Token::Number(_) = self.peek() {
             self.pos += 1;
             while matches!(self.peek(), Token::Pipe)
-                && matches!(self.tokens.get(self.pos + 1).map(|s| &s.token), Some(Token::Number(_)))
+                && matches!(
+                    self.tokens.get(self.pos + 1).map(|s| &s.token),
+                    Some(Token::Number(_))
+                )
             {
                 self.pos += 2;
             }
@@ -357,8 +378,10 @@ impl Parser<'_> {
         if matches!(self.peek(), Token::True | Token::False) {
             self.pos += 1;
             while matches!(self.peek(), Token::Pipe)
-                && matches!(self.tokens.get(self.pos + 1).map(|s| &s.token),
-                    Some(Token::True) | Some(Token::False))
+                && matches!(
+                    self.tokens.get(self.pos + 1).map(|s| &s.token),
+                    Some(Token::True) | Some(Token::False)
+                )
             {
                 self.pos += 2;
             }
@@ -671,8 +694,8 @@ impl Parser<'_> {
                     name: it_name.clone(),
                     type_ann: Some(gen_class),
                     init: src,
-                is_var: false,
-            });
+                    is_var: false,
+                });
 
                 let it_ref = self.ast.add_expr(Expr::Ident(it_name));
                 let next_member = self.ast.add_expr(Expr::Member {
@@ -688,8 +711,8 @@ impl Parser<'_> {
                     name: step_name.clone(),
                     type_ann: Some(step_ty),
                     init: next_call,
-                is_var: false,
-            };
+                    is_var: false,
+                };
 
                 let step_ref_done = self.ast.add_expr(Expr::Ident(step_name.clone()));
                 let done_member = self.ast.add_expr(Expr::Member {
@@ -738,7 +761,13 @@ impl Parser<'_> {
             _ => (None, false),
         };
         if let Some(mutable) = mutable {
-            let kw = if is_var { "var" } else if mutable { "let" } else { "const" };
+            let kw = if is_var {
+                "var"
+            } else if mutable {
+                "let"
+            } else {
+                "const"
+            };
             self.pos += 1;
             // Destructuring: `let [a, b] = src` or `let { x, y } = src`.
             // Parsed inline so it shares the let-decl's lookahead. Both
@@ -783,15 +812,24 @@ impl Parser<'_> {
                 // patterns like `let x\nswitch (x) {...}` parse.
                 let next_is_stmt_start = matches!(
                     self.peek(),
-                    Token::Switch | Token::If | Token::For | Token::While
-                        | Token::Try | Token::Function | Token::Class
-                        | Token::Let | Token::Const | Token::Var
-                        | Token::Return | Token::Throw | Token::Break
-                        | Token::Continue | Token::Do | Token::RBrace
+                    Token::Switch
+                        | Token::If
+                        | Token::For
+                        | Token::While
+                        | Token::Try
+                        | Token::Function
+                        | Token::Class
+                        | Token::Let
+                        | Token::Const
+                        | Token::Var
+                        | Token::Return
+                        | Token::Throw
+                        | Token::Break
+                        | Token::Continue
+                        | Token::Do
+                        | Token::RBrace
                 );
-                if matches!(self.peek(), Token::Semi | Token::Comma)
-                    || next_is_stmt_start
-                {
+                if matches!(self.peek(), Token::Semi | Token::Comma) || next_is_stmt_start {
                     if !mutable {
                         return Err(format!(
                             "`const {name}` requires an initializer at {}",
@@ -833,7 +871,11 @@ impl Parser<'_> {
                     if matches!(self.peek(), Token::Semi) {
                         self.pos += 1;
                     }
-                    return Ok(Stmt::YieldInto { var: name, type_ann, value });
+                    return Ok(Stmt::YieldInto {
+                        var: name,
+                        type_ann,
+                        value,
+                    });
                 }
                 let init = self.parse_expr()?;
                 decls.push(Stmt::LetDecl {
@@ -1020,9 +1062,7 @@ impl Parser<'_> {
                 if is_rest {
                     self.pos += 1;
                 }
-                if !is_rest
-                    && matches!(self.peek(), Token::LBracket | Token::LBrace)
-                {
+                if !is_rest && matches!(self.peek(), Token::LBracket | Token::LBrace) {
                     let synth = self.parse_destr_param(&mut param_destr_lets)?;
                     let type_ann = if matches!(self.peek(), Token::Colon) {
                         self.pos += 1;
@@ -1115,10 +1155,7 @@ impl Parser<'_> {
                 match self.peek() {
                     Token::Comma => {
                         if is_rest {
-                            return Err(format!(
-                                "rest parameter must be last at {}",
-                                self.at()
-                            ));
+                            return Err(format!("rest parameter must be last at {}", self.at()));
                         }
                         self.pos += 1;
                         // V3-18 wedge — trailing comma in fn-decl param list.
@@ -1242,11 +1279,7 @@ impl Parser<'_> {
     /// new source name. The flat MVP from the v3 wedge cycle becomes
     /// the depth-1 case of this recursion — no behaviour change for
     /// existing fixtures.
-    fn parse_destr_into(
-        &mut self,
-        src_name: String,
-        lets: &mut Vec<Stmt>,
-    ) -> Result<(), String> {
+    fn parse_destr_into(&mut self, src_name: String, lets: &mut Vec<Stmt>) -> Result<(), String> {
         match self.peek() {
             Token::LBracket => self.parse_destr_array_into(src_name, lets),
             Token::LBrace => self.parse_destr_object_into(src_name, lets),
@@ -1271,9 +1304,10 @@ impl Parser<'_> {
                 // both consume it.
                 let src_ref = self.ast.add_expr(Expr::Ident(src_name.clone()));
                 let idx_lit = self.ast.add_expr(Expr::Number(elem_idx as f64));
-                let elem = self
-                    .ast
-                    .add_expr(Expr::Index { obj: src_ref, index: idx_lit });
+                let elem = self.ast.add_expr(Expr::Index {
+                    obj: src_ref,
+                    index: idx_lit,
+                });
                 match self.peek() {
                     Token::Ident(n) => {
                         let nn = n.clone();
@@ -1285,16 +1319,15 @@ impl Parser<'_> {
                         // tora's array source is fixed-length, so
                         // the runtime check collapses to a plain
                         // `src.length > i` ternary.
-                        let init_expr = self.maybe_parse_destr_default(
-                            elem, src_name.clone(), elem_idx,
-                        )?;
+                        let init_expr =
+                            self.maybe_parse_destr_default(elem, src_name.clone(), elem_idx)?;
                         lets.push(Stmt::LetDecl {
                             mutable: false,
                             name: nn,
                             type_ann: None,
                             init: init_expr,
-                        is_var: false,
-            });
+                            is_var: false,
+                        });
                     }
                     Token::LBracket | Token::LBrace => {
                         let nested_id = self.mint_desugar_id();
@@ -1308,16 +1341,15 @@ impl Parser<'_> {
                         // step 4d — default fires before destructure).
                         let mut nested_body_lets: Vec<Stmt> = Vec::new();
                         self.parse_destr_into(nested_src.clone(), &mut nested_body_lets)?;
-                        let init_expr = self.maybe_parse_destr_default(
-                            elem, src_name.clone(), elem_idx,
-                        )?;
+                        let init_expr =
+                            self.maybe_parse_destr_default(elem, src_name.clone(), elem_idx)?;
                         lets.push(Stmt::LetDecl {
                             mutable: false,
                             name: nested_src.clone(),
                             type_ann: None,
                             init: init_expr,
-                        is_var: false,
-            });
+                            is_var: false,
+                        });
                         lets.extend(nested_body_lets);
                     }
                     Token::DotDotDot => {
@@ -1352,8 +1384,8 @@ impl Parser<'_> {
                                     name: nn,
                                     type_ann: None,
                                     init: slice_call,
-                                is_var: false,
-            });
+                                    is_var: false,
+                                });
                             }
                             Token::LBracket | Token::LBrace => {
                                 // Rest target is itself a pattern —
@@ -1368,8 +1400,8 @@ impl Parser<'_> {
                                     name: rest_src,
                                     type_ann: None,
                                     init: slice_call,
-                                is_var: false,
-            });
+                                    is_var: false,
+                                });
                                 lets.extend(rest_body_lets);
                             }
                             t => {
@@ -1475,10 +1507,7 @@ impl Parser<'_> {
     /// For non-Nullable struct fields the field is always
     /// present and the default is dead code — same observable
     /// behaviour as bun in the typed case.
-    fn maybe_parse_object_destr_default(
-        &mut self,
-        load_expr: ExprId,
-    ) -> Result<ExprId, String> {
+    fn maybe_parse_object_destr_default(&mut self, load_expr: ExprId) -> Result<ExprId, String> {
         if !matches!(self.peek(), Token::Eq) {
             return Ok(load_expr);
         }
@@ -1509,10 +1538,9 @@ impl Parser<'_> {
             loop {
                 let (field, field_is_kw) = match self.peek() {
                     Token::Ident(n) => (n.clone(), false),
-                    t if Self::keyword_property_name(t).is_some() => (
-                        Self::keyword_property_name(t).unwrap().to_string(),
-                        true,
-                    ),
+                    t if Self::keyword_property_name(t).is_some() => {
+                        (Self::keyword_property_name(t).unwrap().to_string(), true)
+                    }
                     t => {
                         return Err(format!(
                             "expected identifier in object param destructuring, got {t:?} at {}",
@@ -1522,9 +1550,10 @@ impl Parser<'_> {
                 };
                 self.pos += 1;
                 let src_ref = self.ast.add_expr(Expr::Ident(src_name.clone()));
-                let mem = self
-                    .ast
-                    .add_expr(Expr::Member { obj: src_ref, name: field.clone() });
+                let mem = self.ast.add_expr(Expr::Member {
+                    obj: src_ref,
+                    name: field.clone(),
+                });
                 if matches!(self.peek(), Token::Colon) {
                     self.pos += 1;
                     match self.peek() {
@@ -1538,8 +1567,8 @@ impl Parser<'_> {
                                 name: nn,
                                 type_ann: None,
                                 init: init_expr,
-                            is_var: false,
-            });
+                                is_var: false,
+                            });
                         }
                         Token::LBracket | Token::LBrace => {
                             // P-PARSE.7 — `{ x: [a, b] = [1, 2] }`.
@@ -1557,8 +1586,8 @@ impl Parser<'_> {
                                 name: nested_src.clone(),
                                 type_ann: None,
                                 init: init_expr,
-                            is_var: false,
-            });
+                                is_var: false,
+                            });
                             lets.extend(nested_body_lets);
                         }
                         t => {
@@ -1581,8 +1610,8 @@ impl Parser<'_> {
                         name: field,
                         type_ann: None,
                         init: init_expr,
-                    is_var: false,
-            });
+                        is_var: false,
+                    });
                 }
                 match self.peek() {
                     Token::Comma => {
@@ -1672,10 +1701,7 @@ impl Parser<'_> {
                         let synth_name = format!("__catch_destr_{}", self.pos);
                         self.pos += 1; // skip opener
                         let mut idx = 0u32;
-                        while !matches!(
-                            self.peek(),
-                            Token::RBrace | Token::RBracket | Token::Eof
-                        ) {
+                        while !matches!(self.peek(), Token::RBrace | Token::RBracket | Token::Eof) {
                             let bind_name = match self.peek() {
                                 Token::Ident(n) => {
                                     let s = n.clone();
@@ -1689,9 +1715,7 @@ impl Parser<'_> {
                                     ));
                                 }
                             };
-                            let stored_name = if is_obj
-                                && matches!(self.peek(), Token::Colon)
-                            {
+                            let stored_name = if is_obj && matches!(self.peek(), Token::Colon) {
                                 self.pos += 1;
                                 match self.peek() {
                                     Token::Ident(n) => {
@@ -1764,9 +1788,7 @@ impl Parser<'_> {
             {
                 let mut prepend: Vec<Stmt> = Vec::with_capacity(destr_bindings.len());
                 for (bind_name, src_key, _is_obj) in destr_bindings.iter() {
-                    let obj_eid = self
-                        .ast
-                        .add_expr(Expr::Ident(catch_n.clone()));
+                    let obj_eid = self.ast.add_expr(Expr::Ident(catch_n.clone()));
                     let member_eid = self.ast.add_expr(Expr::Member {
                         obj: obj_eid,
                         name: src_key.clone(),
@@ -1779,9 +1801,7 @@ impl Parser<'_> {
                         is_var: false,
                     });
                 }
-                let mut new_body: Vec<Stmt> = Vec::with_capacity(
-                    catch_body.len() + prepend.len(),
-                );
+                let mut new_body: Vec<Stmt> = Vec::with_capacity(catch_body.len() + prepend.len());
                 new_body.extend(prepend);
                 new_body.extend(catch_body.drain(..));
                 catch_body = new_body;
@@ -2069,7 +2089,10 @@ impl Parser<'_> {
             while matches!(self.peek(), Token::Comma) {
                 self.pos += 1;
                 let next = self.parse_expr()?;
-                s = self.ast.add_expr(Expr::Sequence { left: s, right: next });
+                s = self.ast.add_expr(Expr::Sequence {
+                    left: s,
+                    right: next,
+                });
             }
             Some(s)
         };
@@ -2083,7 +2106,12 @@ impl Parser<'_> {
             }
         }
         let body = Box::new(self.parse_stmt()?);
-        Ok(Stmt::For { init, cond, step, body })
+        Ok(Stmt::For {
+            init,
+            cond,
+            step,
+            body,
+        })
     }
 
     /// Try to recognize a `for ( (let|const) IDENT (: T)? ("of"|"in") EXPR )`
@@ -2171,71 +2199,70 @@ impl Parser<'_> {
         // Bound binding name still required to be an Ident
         // (reserved-word fields require explicit `field: name`
         // rename — same rule as parse_object_destructuring).
-        let destruct_obj: Option<Vec<(String, String)>> = if destruct_names.is_none()
-            && matches!(self.peek(), Token::LBrace)
-        {
-            let start = self.pos;
-            self.pos += 1; // consume `{`
-            let mut entries: Vec<(String, String)> = Vec::new();
-            let ok = loop {
-                let (field, field_is_kw) = match self.peek() {
-                    Token::Ident(n) => (n.clone(), false),
-                    t if Self::keyword_property_name(t).is_some() => {
-                        (Self::keyword_property_name(t).unwrap().to_string(), true)
-                    }
-                    _ => break false,
-                };
-                self.pos += 1;
-                let bound = if matches!(self.peek(), Token::Colon) {
-                    self.pos += 1;
-                    match self.peek() {
-                        Token::Ident(n) => {
-                            let nn = n.clone();
-                            self.pos += 1;
-                            nn
+        let destruct_obj: Option<Vec<(String, String)>> =
+            if destruct_names.is_none() && matches!(self.peek(), Token::LBrace) {
+                let start = self.pos;
+                self.pos += 1; // consume `{`
+                let mut entries: Vec<(String, String)> = Vec::new();
+                let ok = loop {
+                    let (field, field_is_kw) = match self.peek() {
+                        Token::Ident(n) => (n.clone(), false),
+                        t if Self::keyword_property_name(t).is_some() => {
+                            (Self::keyword_property_name(t).unwrap().to_string(), true)
                         }
                         _ => break false,
-                    }
-                } else {
-                    if field_is_kw {
-                        // Same diagnostic as parse_object_destructuring:
-                        // can't use a reserved word as a binding name.
-                        break false;
-                    }
-                    field.clone()
-                };
-                entries.push((field, bound));
-                match self.peek() {
-                    Token::Comma => {
+                    };
+                    self.pos += 1;
+                    let bound = if matches!(self.peek(), Token::Colon) {
                         self.pos += 1;
-                        if matches!(self.peek(), Token::RBrace) {
-                            break true;
+                        match self.peek() {
+                            Token::Ident(n) => {
+                                let nn = n.clone();
+                                self.pos += 1;
+                                nn
+                            }
+                            _ => break false,
                         }
+                    } else {
+                        if field_is_kw {
+                            // Same diagnostic as parse_object_destructuring:
+                            // can't use a reserved word as a binding name.
+                            break false;
+                        }
+                        field.clone()
+                    };
+                    entries.push((field, bound));
+                    match self.peek() {
+                        Token::Comma => {
+                            self.pos += 1;
+                            if matches!(self.peek(), Token::RBrace) {
+                                break true;
+                            }
+                        }
+                        Token::RBrace => break true,
+                        _ => break false,
                     }
-                    Token::RBrace => break true,
-                    _ => break false,
+                };
+                if !ok {
+                    self.pos = saved;
+                    return Ok(None);
                 }
+                self.pos += 1; // consume `}`
+                // Optional `: T` annotation on the pattern — discarded.
+                if matches!(self.peek(), Token::Colon) {
+                    self.pos += 1;
+                    let _ = self.parse_type_ann();
+                }
+                let is_of = matches!(self.peek(), Token::Ident(n) if n == "of");
+                if !is_of {
+                    self.pos = start;
+                    self.pos = saved;
+                    return Ok(None);
+                }
+                Some(entries)
+            } else {
+                None
             };
-            if !ok {
-                self.pos = saved;
-                return Ok(None);
-            }
-            self.pos += 1; // consume `}`
-            // Optional `: T` annotation on the pattern — discarded.
-            if matches!(self.peek(), Token::Colon) {
-                self.pos += 1;
-                let _ = self.parse_type_ann();
-            }
-            let is_of = matches!(self.peek(), Token::Ident(n) if n == "of");
-            if !is_of {
-                self.pos = start;
-                self.pos = saved;
-                return Ok(None);
-            }
-            Some(entries)
-        } else {
-            None
-        };
         let var_name = if destruct_names.is_some() || destruct_obj.is_some() {
             let id = self.mint_desugar_id();
             format!("__forof_destr_{id}")
@@ -2311,14 +2338,17 @@ impl Parser<'_> {
             for (i, n) in names.iter().enumerate() {
                 let src_ref = self.ast.add_expr(Expr::Ident(var_name.clone()));
                 let idx = self.ast.add_expr(Expr::Number(i as f64));
-                let elem = self.ast.add_expr(Expr::Index { obj: src_ref, index: idx });
+                let elem = self.ast.add_expr(Expr::Index {
+                    obj: src_ref,
+                    index: idx,
+                });
                 pre.push(Stmt::LetDecl {
                     mutable: false,
                     name: n.clone(),
                     type_ann: None,
                     init: elem,
-                is_var: false,
-            });
+                    is_var: false,
+                });
             }
             pre.push(body);
             body = Stmt::Block(pre);
@@ -2326,16 +2356,17 @@ impl Parser<'_> {
             let mut pre: Vec<Stmt> = Vec::new();
             for (field, bound) in entries {
                 let src_ref = self.ast.add_expr(Expr::Ident(var_name.clone()));
-                let elem = self
-                    .ast
-                    .add_expr(Expr::Member { obj: src_ref, name: field.clone() });
+                let elem = self.ast.add_expr(Expr::Member {
+                    obj: src_ref,
+                    name: field.clone(),
+                });
                 pre.push(Stmt::LetDecl {
                     mutable: false,
                     name: bound.clone(),
                     type_ann: None,
                     init: elem,
-                is_var: false,
-            });
+                    is_var: false,
+                });
             }
             pre.push(body);
             body = Stmt::Block(pre);
@@ -2352,7 +2383,10 @@ impl Parser<'_> {
         // sep falls back to the generic for-of array path below.
         if kind == "of"
             && let Expr::Call { callee, args } = self.ast.get_expr(src)
-            && let Expr::Member { obj: parent, name: m_name } = self.ast.get_expr(*callee)
+            && let Expr::Member {
+                obj: parent,
+                name: m_name,
+            } = self.ast.get_expr(*callee)
             && m_name == "split"
             && args.len() == 1
             && matches!(self.ast.get_expr(args[0]), Expr::String(_))
@@ -2399,7 +2433,7 @@ impl Parser<'_> {
                 name: it_name.clone(),
                 type_ann: Some(gen_class),
                 init: src,
-            is_var: false,
+                is_var: false,
             });
 
             // Inside while(true):
@@ -2421,7 +2455,7 @@ impl Parser<'_> {
                 name: step_name.clone(),
                 type_ann: Some(step_ty),
                 init: next_call,
-            is_var: false,
+                is_var: false,
             };
 
             let step_ref_done = self.ast.add_expr(Expr::Ident(step_name.clone()));
@@ -2445,7 +2479,7 @@ impl Parser<'_> {
                 name: var_name,
                 type_ann: Some(yield_ty),
                 init: value_member,
-            is_var: false,
+                is_var: false,
             };
 
             let loop_body = Stmt::Block(vec![step_decl, done_check, var_decl, body]);
@@ -2609,8 +2643,7 @@ impl Parser<'_> {
         if matches!(self.peek(), Token::Semi) {
             self.pos += 1;
         }
-        let stmts =
-            self.emit_array_destructuring(mutable, &entries, rest_name.as_deref(), src);
+        let stmts = self.emit_array_destructuring(mutable, &entries, rest_name.as_deref(), src);
         // Stmt::Multi flattens at lowering time, so the user-visible
         // lets join the surrounding scope rather than a fresh frame —
         // matches TS semantics where `let [a, b] = src; …; a` works.
@@ -2642,21 +2675,24 @@ impl Parser<'_> {
                 name: src_ref_name.clone(),
                 type_ann: None,
                 init: src,
-            is_var: false,
+                is_var: false,
             });
         }
         for (i, entry) in entries.iter().enumerate() {
             if let Some(name) = entry {
                 let src_ref = self.ast.add_expr(Expr::Ident(src_ref_name.clone()));
                 let idx = self.ast.add_expr(Expr::Number(i as f64));
-                let elem = self.ast.add_expr(Expr::Index { obj: src_ref, index: idx });
+                let elem = self.ast.add_expr(Expr::Index {
+                    obj: src_ref,
+                    index: idx,
+                });
                 stmts.push(Stmt::LetDecl {
                     mutable,
                     name: name.clone(),
                     type_ann: None,
                     init: elem,
-                is_var: false,
-            });
+                    is_var: false,
+                });
             }
             // None = elision: skip, position counter still advances.
         }
@@ -2665,19 +2701,21 @@ impl Parser<'_> {
             // entries consumed (including elisions). Array.slice with a
             // single positive arg returns the suffix, exactly per spec.
             let src_ref = self.ast.add_expr(Expr::Ident(src_ref_name.clone()));
-            let slice_member = self
-                .ast
-                .add_expr(Expr::Member { obj: src_ref, name: "slice".to_string() });
+            let slice_member = self.ast.add_expr(Expr::Member {
+                obj: src_ref,
+                name: "slice".to_string(),
+            });
             let start = self.ast.add_expr(Expr::Number(entries.len() as f64));
-            let slice_call = self
-                .ast
-                .add_expr(Expr::Call { callee: slice_member, args: vec![start] });
+            let slice_call = self.ast.add_expr(Expr::Call {
+                callee: slice_member,
+                args: vec![start],
+            });
             stmts.push(Stmt::LetDecl {
                 mutable,
                 name: rest.to_string(),
                 type_ann: None,
                 init: slice_call,
-            is_var: false,
+                is_var: false,
             });
         }
         stmts
@@ -2794,7 +2832,7 @@ impl Parser<'_> {
                 name: src_ref_name.clone(),
                 type_ann: None,
                 init: src,
-            is_var: false,
+                is_var: false,
             });
         }
         for (field, bound) in entries {
@@ -2808,7 +2846,7 @@ impl Parser<'_> {
                 name: bound.clone(),
                 type_ann: None,
                 init: mem,
-            is_var: false,
+                is_var: false,
             });
         }
         stmts
@@ -2826,10 +2864,7 @@ impl Parser<'_> {
     /// could in principle build an Array+join (1 array alloc + 1 join
     /// alloc instead of N concats) for ≥3 interpolations; deferred to a
     /// later optimization once profiling shows template heavy use.
-    fn lower_template_parts(
-        &mut self,
-        parts: &[lexer::TemplatePart],
-    ) -> Result<ExprId, String> {
+    fn lower_template_parts(&mut self, parts: &[lexer::TemplatePart]) -> Result<ExprId, String> {
         if parts.is_empty() {
             return Ok(self.ast.add_expr(Expr::String(String::new())));
         }
@@ -2899,15 +2934,13 @@ impl Parser<'_> {
         // a two-token sequence; parse_nullish / parse_logical_or /
         // parse_logical_and decline to consume their op when an `=`
         // follows so this branch sees them.
-        let logical_assign: Option<&str> = match (
-            self.peek(),
-            self.tokens.get(self.pos + 1).map(|s| &s.token),
-        ) {
-            (Token::QuestionQuestion, Some(Token::Eq)) => Some("??"),
-            (Token::PipePipe, Some(Token::Eq)) => Some("||"),
-            (Token::AmpAmp, Some(Token::Eq)) => Some("&&"),
-            _ => None,
-        };
+        let logical_assign: Option<&str> =
+            match (self.peek(), self.tokens.get(self.pos + 1).map(|s| &s.token)) {
+                (Token::QuestionQuestion, Some(Token::Eq)) => Some("??"),
+                (Token::PipePipe, Some(Token::Eq)) => Some("||"),
+                (Token::AmpAmp, Some(Token::Eq)) => Some("&&"),
+                _ => None,
+            };
         if let Some(op_name) = logical_assign {
             self.pos += 2;
             let value = self.parse_assign()?;
@@ -2933,23 +2966,25 @@ impl Parser<'_> {
         // compound forms — `target = target <op> value` with a cloned
         // lhs read. Lex emits these as 2- / 3-token sequences (e.g.
         // `Pipe Eq`, `ShrShr Eq`).
-        let bit_assign: Option<BinOp> = match (
-            self.peek(),
-            self.tokens.get(self.pos + 1).map(|s| &s.token),
-        ) {
-            (Token::Pipe, Some(Token::Eq)) => Some(BinOp::BitOr),
-            (Token::Caret, Some(Token::Eq)) => Some(BinOp::BitXor),
-            (Token::Amp, Some(Token::Eq)) => Some(BinOp::BitAnd),
-            (Token::ShlShl, Some(Token::Eq)) => Some(BinOp::Shl),
-            (Token::ShrShr, Some(Token::Eq)) => Some(BinOp::Shr),
-            (Token::ShrShrShr, Some(Token::Eq)) => Some(BinOp::UShr),
-            _ => None,
-        };
+        let bit_assign: Option<BinOp> =
+            match (self.peek(), self.tokens.get(self.pos + 1).map(|s| &s.token)) {
+                (Token::Pipe, Some(Token::Eq)) => Some(BinOp::BitOr),
+                (Token::Caret, Some(Token::Eq)) => Some(BinOp::BitXor),
+                (Token::Amp, Some(Token::Eq)) => Some(BinOp::BitAnd),
+                (Token::ShlShl, Some(Token::Eq)) => Some(BinOp::Shl),
+                (Token::ShrShr, Some(Token::Eq)) => Some(BinOp::Shr),
+                (Token::ShrShrShr, Some(Token::Eq)) => Some(BinOp::UShr),
+                _ => None,
+            };
         if let Some(op) = bit_assign {
             self.pos += 2;
             let value = self.parse_assign()?;
             let lhs = self.clone_expr_for_compound(target);
-            let rhs = self.ast.add_expr(Expr::BinOp { op, left: lhs, right: value });
+            let rhs = self.ast.add_expr(Expr::BinOp {
+                op,
+                left: lhs,
+                right: value,
+            });
             return Ok(self.ast.add_expr(Expr::Assign { target, value: rhs }));
         }
         // Plain `=` and the compound forms (`+= -= *= /= %=`). Compound
@@ -2975,7 +3010,11 @@ impl Parser<'_> {
             // AST is arena-backed so we just append a fresh expr that
             // re-reads the same Ident / Member / Index.
             let lhs = self.clone_expr_for_compound(target);
-            let rhs = self.ast.add_expr(Expr::BinOp { op, left: lhs, right: value });
+            let rhs = self.ast.add_expr(Expr::BinOp {
+                op,
+                left: lhs,
+                right: value,
+            });
             return Ok(self.ast.add_expr(Expr::Assign { target, value: rhs }));
         }
         Ok(self.ast.add_expr(Expr::Assign { target, value }))
@@ -2991,11 +3030,15 @@ impl Parser<'_> {
     fn clone_expr_for_compound(&mut self, eid: ExprId) -> ExprId {
         let cloned = match self.ast.get_expr(eid) {
             Expr::Ident(name) => Expr::Ident(name.clone()),
-            Expr::Member { obj, name } => Expr::Member { obj: *obj, name: name.clone() },
-            Expr::Index { obj, index } => Expr::Index { obj: *obj, index: *index },
-            other => panic!(
-                "parser: invalid compound-assign target shape {other:?}"
-            ),
+            Expr::Member { obj, name } => Expr::Member {
+                obj: *obj,
+                name: name.clone(),
+            },
+            Expr::Index { obj, index } => Expr::Index {
+                obj: *obj,
+                index: *index,
+            },
+            other => panic!("parser: invalid compound-assign target shape {other:?}"),
         };
         self.ast.add_expr(cloned)
     }
@@ -3034,7 +3077,10 @@ impl Parser<'_> {
         // for parse_assign to handle. Decline `??` here when `=`
         // follows.
         while matches!(self.peek(), Token::QuestionQuestion)
-            && !matches!(self.tokens.get(self.pos + 1).map(|s| &s.token), Some(Token::Eq))
+            && !matches!(
+                self.tokens.get(self.pos + 1).map(|s| &s.token),
+                Some(Token::Eq)
+            )
         {
             self.pos += 1;
             let right = self.parse_logical_or()?;
@@ -3051,7 +3097,10 @@ impl Parser<'_> {
         // V3-18 wedge — `||=` belongs to parse_assign; decline `||`
         // when `=` follows.
         while matches!(self.peek(), Token::PipePipe)
-            && !matches!(self.tokens.get(self.pos + 1).map(|s| &s.token), Some(Token::Eq))
+            && !matches!(
+                self.tokens.get(self.pos + 1).map(|s| &s.token),
+                Some(Token::Eq)
+            )
         {
             self.pos += 1;
             let right = self.parse_logical_and()?;
@@ -3069,7 +3118,10 @@ impl Parser<'_> {
         // V3-18 wedge — `&&=` belongs to parse_assign; decline `&&`
         // when `=` follows.
         while matches!(self.peek(), Token::AmpAmp)
-            && !matches!(self.tokens.get(self.pos + 1).map(|s| &s.token), Some(Token::Eq))
+            && !matches!(
+                self.tokens.get(self.pos + 1).map(|s| &s.token),
+                Some(Token::Eq)
+            )
         {
             self.pos += 1;
             let right = self.parse_bit_or()?;
@@ -3087,7 +3139,10 @@ impl Parser<'_> {
         // V3-18 wedge — `|=` belongs to parse_assign; decline `|` when
         // `=` follows.
         while matches!(self.peek(), Token::Pipe)
-            && !matches!(self.tokens.get(self.pos + 1).map(|s| &s.token), Some(Token::Eq))
+            && !matches!(
+                self.tokens.get(self.pos + 1).map(|s| &s.token),
+                Some(Token::Eq)
+            )
         {
             self.pos += 1;
             let right = self.parse_bit_xor()?;
@@ -3104,7 +3159,10 @@ impl Parser<'_> {
         let mut left = self.parse_bit_and()?;
         // V3-18 wedge — `^=` belongs to parse_assign.
         while matches!(self.peek(), Token::Caret)
-            && !matches!(self.tokens.get(self.pos + 1).map(|s| &s.token), Some(Token::Eq))
+            && !matches!(
+                self.tokens.get(self.pos + 1).map(|s| &s.token),
+                Some(Token::Eq)
+            )
         {
             self.pos += 1;
             let right = self.parse_bit_and()?;
@@ -3121,7 +3179,10 @@ impl Parser<'_> {
         let mut left = self.parse_equality()?;
         // V3-18 wedge — `&=` belongs to parse_assign.
         while matches!(self.peek(), Token::Amp)
-            && !matches!(self.tokens.get(self.pos + 1).map(|s| &s.token), Some(Token::Eq))
+            && !matches!(
+                self.tokens.get(self.pos + 1).map(|s| &s.token),
+                Some(Token::Eq)
+            )
         {
             self.pos += 1;
             let right = self.parse_equality()?;
@@ -3160,9 +3221,11 @@ impl Parser<'_> {
                 self.pos += 1;
                 let class_name = match self.peek() {
                     Token::Ident(s) => s.clone(),
-                    other => return Err(format!(
-                        "expected class name after `instanceof`, got {other:?}"
-                    )),
+                    other => {
+                        return Err(format!(
+                            "expected class name after `instanceof`, got {other:?}"
+                        ));
+                    }
                 };
                 self.pos += 1;
                 left = self.ast.add_expr(Expr::InstanceOf {
@@ -3207,9 +3270,13 @@ impl Parser<'_> {
         let mut left = self.parse_additive()?;
         loop {
             // V3-18 wedge — `<<=` `>>=` `>>>=` belong to parse_assign.
-            if matches!(self.tokens.get(self.pos + 1).map(|s| &s.token), Some(Token::Eq))
-                && matches!(self.peek(), Token::ShlShl | Token::ShrShr | Token::ShrShrShr)
-            {
+            if matches!(
+                self.tokens.get(self.pos + 1).map(|s| &s.token),
+                Some(Token::Eq)
+            ) && matches!(
+                self.peek(),
+                Token::ShlShl | Token::ShrShr | Token::ShrShrShr
+            ) {
                 return Ok(left);
             }
             let op = match self.peek() {
@@ -3363,10 +3430,7 @@ impl Parser<'_> {
                 left: lhs_clone,
                 right: one,
             });
-            return Ok(self.ast.add_expr(Expr::Assign {
-                target,
-                value: rhs,
-            }));
+            return Ok(self.ast.add_expr(Expr::Assign { target, value: rhs }));
         }
         self.parse_postfix()
     }
@@ -3617,23 +3681,39 @@ impl Parser<'_> {
                 // operators, statement boundaries.
                 Token::Bang => {
                     let next = self.tokens.get(self.pos + 1).map(|s| &s.token);
-                    let postfix_ok = matches!(next,
-                        Some(Token::Semi) | Some(Token::Comma) | Some(Token::RParen)
-                        | Some(Token::RBracket) | Some(Token::RBrace)
-                        | Some(Token::Dot) | Some(Token::Eq)
-                        | Some(Token::Colon) | Some(Token::QuestionDot)
-                        | Some(Token::EqEq) | Some(Token::EqEqEq)
-                        | Some(Token::BangEq) | Some(Token::BangEqEq)
-                        | Some(Token::Plus) | Some(Token::Minus)
-                        | Some(Token::Star) | Some(Token::Slash)
-                        | Some(Token::Percent) | Some(Token::Amp)
-                        | Some(Token::Pipe) | Some(Token::Lt)
-                        | Some(Token::Gt)
-                        | Some(Token::AmpAmp)
-                        | Some(Token::PipePipe) | Some(Token::Question)
-                        | Some(Token::FatArrow) | Some(Token::LParen)
-                        | Some(Token::LBracket) | Some(Token::Eof)
-                        | None);
+                    let postfix_ok = matches!(
+                        next,
+                        Some(Token::Semi)
+                            | Some(Token::Comma)
+                            | Some(Token::RParen)
+                            | Some(Token::RBracket)
+                            | Some(Token::RBrace)
+                            | Some(Token::Dot)
+                            | Some(Token::Eq)
+                            | Some(Token::Colon)
+                            | Some(Token::QuestionDot)
+                            | Some(Token::EqEq)
+                            | Some(Token::EqEqEq)
+                            | Some(Token::BangEq)
+                            | Some(Token::BangEqEq)
+                            | Some(Token::Plus)
+                            | Some(Token::Minus)
+                            | Some(Token::Star)
+                            | Some(Token::Slash)
+                            | Some(Token::Percent)
+                            | Some(Token::Amp)
+                            | Some(Token::Pipe)
+                            | Some(Token::Lt)
+                            | Some(Token::Gt)
+                            | Some(Token::AmpAmp)
+                            | Some(Token::PipePipe)
+                            | Some(Token::Question)
+                            | Some(Token::FatArrow)
+                            | Some(Token::LParen)
+                            | Some(Token::LBracket)
+                            | Some(Token::Eof)
+                            | None
+                    );
                     if !postfix_ok {
                         return Ok(node);
                     }
@@ -3641,10 +3721,13 @@ impl Parser<'_> {
                     // Encode as `As { ty_ann: "__nonnull__" }` so
                     // check.rs can narrow Nullable<T> → T while
                     // ssa_lower keeps it as identity.
-                    node = self.add_expr_at(start_pos, Expr::As {
-                        expr: node,
-                        ty_ann: "__nonnull__".into(),
-                    });
+                    node = self.add_expr_at(
+                        start_pos,
+                        Expr::As {
+                            expr: node,
+                            ty_ann: "__nonnull__".into(),
+                        },
+                    );
                 }
                 Token::Ident(s) if s == "satisfies" => {
                     // TS satisfies is type-only; runtime no-op. Parse
@@ -3679,7 +3762,10 @@ impl Parser<'_> {
             while matches!(self.peek(), Token::Comma) {
                 self.pos += 1;
                 let next = self.parse_expr()?;
-                last = self.ast.add_expr(Expr::Sequence { left: last, right: next });
+                last = self.ast.add_expr(Expr::Sequence {
+                    left: last,
+                    right: next,
+                });
             }
             match self.peek() {
                 Token::RParen => self.pos += 1,
@@ -3742,7 +3828,9 @@ impl Parser<'_> {
             // chain — here both Ident and LParen lead to arrow form.
             // For Ident case, peek+2 must be FatArrow.
             let is_arrow = if matches!(t1.token, Token::Ident(_)) {
-                self.tokens.get(self.pos + 2).is_some_and(|t| matches!(t.token, Token::FatArrow))
+                self.tokens
+                    .get(self.pos + 2)
+                    .is_some_and(|t| matches!(t.token, Token::FatArrow))
             } else {
                 // LParen — scan to matching RParen, then check for FatArrow
                 let mut j = self.pos + 2;
@@ -3755,7 +3843,9 @@ impl Parser<'_> {
                     }
                     j += 1;
                 }
-                self.tokens.get(j).is_some_and(|t| matches!(t.token, Token::FatArrow))
+                self.tokens
+                    .get(j)
+                    .is_some_and(|t| matches!(t.token, Token::FatArrow))
             };
             if is_arrow {
                 self.pos += 1; // consume `async`
@@ -3907,7 +3997,9 @@ impl Parser<'_> {
          * Detect by peeking Ident + FatArrow before falling through
          * to the regular Ident expression. */
         if let Token::Ident(n) = &self.tokens[pos].token {
-            let next_is_arrow = self.tokens.get(pos + 1)
+            let next_is_arrow = self
+                .tokens
+                .get(pos + 1)
                 .map(|t| matches!(t.token, Token::FatArrow))
                 .unwrap_or(false);
             if next_is_arrow {
@@ -3921,10 +4013,12 @@ impl Parser<'_> {
                     }
                     match self.peek() {
                         Token::RBrace => self.pos += 1,
-                        t => return Err(format!(
-                            "expected `}}` after arrow body, got {t:?} at {}",
-                            self.at()
-                        )),
+                        t => {
+                            return Err(format!(
+                                "expected `}}` after arrow body, got {t:?} at {}",
+                                self.at()
+                            ));
+                        }
                     }
                     stmts
                 } else {
@@ -4029,9 +4123,9 @@ impl Parser<'_> {
                         Token::RParen => self.pos += 1,
                         t => return Err(format!("expected `)`, got {t:?} at {}", self.at())),
                     }
-                    let callee = self.ast.add_expr(
-                        Expr::Ident(format!("__supercall__{m_name}")),
-                    );
+                    let callee = self
+                        .ast
+                        .add_expr(Expr::Ident(format!("__supercall__{m_name}")));
                     return Ok(self.ast.add_expr(Expr::Call { callee, args }));
                 }
                 match self.peek() {
@@ -4170,10 +4264,7 @@ impl Parser<'_> {
                         // — skip past the `: TypeAnnotation` and look for
                         // `=>`. Type annotation is IDENT followed by
                         // optional `<...>` generics + `[]` array suffixes.
-                        if matches!(
-                            self.tokens.get(i + 1).map(|s| &s.token),
-                            Some(Token::Colon)
-                        ) {
+                        if matches!(self.tokens.get(i + 1).map(|s| &s.token), Some(Token::Colon)) {
                             // Scan past the type ann to look for `=>`.
                             let mut j = i + 2;
                             // Type starts with an identifier — or
@@ -4192,10 +4283,7 @@ impl Parser<'_> {
                             // very rough scan; if we hit a stray `>`
                             // before the next plausible `=>`, fall back
                             // to "not arrow".
-                            if matches!(
-                                self.tokens.get(j).map(|s| &s.token),
-                                Some(Token::Lt)
-                            ) {
+                            if matches!(self.tokens.get(j).map(|s| &s.token), Some(Token::Lt)) {
                                 let mut g = 1;
                                 j += 1;
                                 while j < self.tokens.len() && g > 0 {
@@ -4223,13 +4311,12 @@ impl Parser<'_> {
                             // union shape this subset's type-ann
                             // parser supports). Allow `() : T | null
                             // => ...` to lookahead-detect as arrow.
-                            if matches!(
-                                self.tokens.get(j).map(|s| &s.token),
-                                Some(Token::Pipe)
-                            ) && matches!(
-                                self.tokens.get(j + 1).map(|s| &s.token),
-                                Some(Token::Null)
-                            ) {
+                            if matches!(self.tokens.get(j).map(|s| &s.token), Some(Token::Pipe))
+                                && matches!(
+                                    self.tokens.get(j + 1).map(|s| &s.token),
+                                    Some(Token::Null)
+                                )
+                            {
                                 j += 2;
                             }
                             return matches!(
@@ -4304,7 +4391,9 @@ impl Parser<'_> {
             // regular field with `async` as the field name. For Ident,
             // peek+2 must be LParen. For LBracket, peek matches.
             let is_method = matches!(t1.token, Token::LBracket)
-                || self.tokens.get(self.pos + 2)
+                || self
+                    .tokens
+                    .get(self.pos + 2)
                     .is_some_and(|t| matches!(t.token, Token::LParen));
             if is_method {
                 // Drop: `async`
@@ -4697,7 +4786,11 @@ impl Parser<'_> {
                 full.extend(body);
                 full
             };
-            let value = self.ast.add_expr(Expr::ArrowFn { params, return_type, body });
+            let value = self.ast.add_expr(Expr::ArrowFn {
+                params,
+                return_type,
+                body,
+            });
             return Ok((name, value));
         }
         // Property shorthand: `{ x }` is sugar for `{ x: x }`. Triggers
@@ -4743,7 +4836,12 @@ impl Parser<'_> {
             };
             self.pos += 1;
             self.skip_optional_semi();
-            return Ok(Stmt::ImportDecl { default, namespace, named, source });
+            return Ok(Stmt::ImportDecl {
+                default,
+                namespace,
+                named,
+                source,
+            });
         }
         // Default import: `import x ...` (next token is Ident).
         if let Token::Ident(_) = self.peek() {
@@ -4764,10 +4862,12 @@ impl Parser<'_> {
             self.expect_ident_keyword("as")?;
             let n = match self.peek() {
                 Token::Ident(n) => n.clone(),
-                t => return Err(format!(
-                    "expected namespace ident after `* as`, got {t:?} at {}",
-                    self.at()
-                )),
+                t => {
+                    return Err(format!(
+                        "expected namespace ident after `* as`, got {t:?} at {}",
+                        self.at()
+                    ));
+                }
             };
             self.pos += 1;
             namespace = Some(n);
@@ -4778,20 +4878,24 @@ impl Parser<'_> {
             while !matches!(self.peek(), Token::RBrace) {
                 let orig = match self.peek() {
                     Token::Ident(n) => n.clone(),
-                    t => return Err(format!(
-                        "expected ident in import named clause, got {t:?} at {}",
-                        self.at()
-                    )),
+                    t => {
+                        return Err(format!(
+                            "expected ident in import named clause, got {t:?} at {}",
+                            self.at()
+                        ));
+                    }
                 };
                 self.pos += 1;
                 let alias = if matches!(self.peek(), Token::Ident(n) if n == "as") {
                     self.pos += 1;
                     let a = match self.peek() {
                         Token::Ident(n) => n.clone(),
-                        t => return Err(format!(
-                            "expected alias ident after `as`, got {t:?} at {}",
-                            self.at()
-                        )),
+                        t => {
+                            return Err(format!(
+                                "expected alias ident after `as`, got {t:?} at {}",
+                                self.at()
+                            ));
+                        }
                     };
                     self.pos += 1;
                     Some(a)
@@ -4809,14 +4913,21 @@ impl Parser<'_> {
         self.expect_ident_keyword("from")?;
         let source = match self.peek() {
             Token::String(s) => s.clone(),
-            t => return Err(format!(
-                "expected string source after `from`, got {t:?} at {}",
-                self.at()
-            )),
+            t => {
+                return Err(format!(
+                    "expected string source after `from`, got {t:?} at {}",
+                    self.at()
+                ));
+            }
         };
         self.pos += 1;
         self.skip_optional_semi();
-        Ok(Stmt::ImportDecl { default, namespace, named, source })
+        Ok(Stmt::ImportDecl {
+            default,
+            namespace,
+            named,
+            source,
+        })
     }
 
     /// Phase K.1 — `export` declaration parser. Recognized shapes:
@@ -4843,20 +4954,24 @@ impl Parser<'_> {
             while !matches!(self.peek(), Token::RBrace) {
                 let orig = match self.peek() {
                     Token::Ident(n) => n.clone(),
-                    t => return Err(format!(
-                        "expected ident in export named clause, got {t:?} at {}",
-                        self.at()
-                    )),
+                    t => {
+                        return Err(format!(
+                            "expected ident in export named clause, got {t:?} at {}",
+                            self.at()
+                        ));
+                    }
                 };
                 self.pos += 1;
                 let alias = if matches!(self.peek(), Token::Ident(n) if n == "as") {
                     self.pos += 1;
                     let a = match self.peek() {
                         Token::Ident(n) => n.clone(),
-                        t => return Err(format!(
-                            "expected alias ident after `as`, got {t:?} at {}",
-                            self.at()
-                        )),
+                        t => {
+                            return Err(format!(
+                                "expected alias ident after `as`, got {t:?} at {}",
+                                self.at()
+                            ));
+                        }
                     };
                     self.pos += 1;
                     Some(a)
@@ -4893,10 +5008,7 @@ impl Parser<'_> {
                 self.pos += 1;
                 Ok(())
             }
-            t => Err(format!(
-                "expected `{kw}`, got {t:?} at {}",
-                self.at()
-            )),
+            t => Err(format!("expected `{kw}`, got {t:?} at {}", self.at())),
         }
     }
 
@@ -5008,7 +5120,11 @@ impl Parser<'_> {
         if matches!(self.peek(), Token::Semi) {
             self.pos += 1;
         }
-        Ok(Stmt::TypeDecl { name, type_params, fields })
+        Ok(Stmt::TypeDecl {
+            name,
+            type_params,
+            fields,
+        })
     }
 
     fn parse_type_decl(&mut self) -> Result<Stmt, String> {
@@ -5065,7 +5181,12 @@ impl Parser<'_> {
         }
         match self.peek() {
             Token::Eq => self.pos += 1,
-            t => return Err(format!("expected `=` after type name, got {t:?} at {}", self.at())),
+            t => {
+                return Err(format!(
+                    "expected `=` after type name, got {t:?} at {}",
+                    self.at()
+                ));
+            }
         }
         // V3-18 wedge — bare type alias: `type ID = <type>` (RHS
         // is a non-struct type-ann like `number` / `string[]` /
@@ -5142,10 +5263,7 @@ impl Parser<'_> {
         let name = match self.peek() {
             Token::Ident(n) => n.clone(),
             t => {
-                return Err(format!(
-                    "expected class name, got {t:?} at {}",
-                    self.at()
-                ));
+                return Err(format!("expected class name, got {t:?} at {}", self.at()));
             }
         };
         self.pos += 1;
@@ -5586,9 +5704,7 @@ impl Parser<'_> {
                             ));
                         }
                         if ctor.is_some() {
-                            return Err(format!(
-                                "duplicate constructor in class `{name}`"
-                            ));
+                            return Err(format!("duplicate constructor in class `{name}`"));
                         }
                         // V3-18 wedge — for each TS parameter-property
                         // (e.g. `public x: number`), promote to an
@@ -5602,10 +5718,9 @@ impl Parser<'_> {
                                 let ty_ann = p.type_ann.clone().unwrap_or_else(|| "any".into());
                                 fields.push((p.name.clone(), ty_ann));
                                 if *vis != ast::Visibility::Public {
-                                    self.ast.member_visibility.insert(
-                                        (name.clone(), p.name.clone()),
-                                        *vis,
-                                    );
+                                    self.ast
+                                        .member_visibility
+                                        .insert((name.clone(), p.name.clone()), *vis);
                                 }
                                 if *rd {
                                     self.ast
@@ -5635,13 +5750,11 @@ impl Parser<'_> {
                                 self.at()
                             ));
                         }
-                        let visibility =
-                            explicit_visibility.unwrap_or(ast::Visibility::Public);
+                        let visibility = explicit_visibility.unwrap_or(ast::Visibility::Public);
                         if visibility != ast::Visibility::Public {
-                            self.ast.member_visibility.insert(
-                                (name.clone(), member_name.clone()),
-                                visibility,
-                            );
+                            self.ast
+                                .member_visibility
+                                .insert((name.clone(), member_name.clone()), visibility);
                         }
                         let m = ClassMethod {
                             name: member_name,
@@ -5674,8 +5787,7 @@ impl Parser<'_> {
                         self.pos += 2; // consume name + colon
                     }
                     let ty = self.parse_type_ann()?;
-                    let visibility =
-                        explicit_visibility.unwrap_or(ast::Visibility::Public);
+                    let visibility = explicit_visibility.unwrap_or(ast::Visibility::Public);
                     if visibility != ast::Visibility::Public {
                         self.ast
                             .member_visibility
@@ -5748,17 +5860,18 @@ impl Parser<'_> {
                         Expr::Number(_) => "number",
                         Expr::String(_) => "string",
                         Expr::Bool(_) => "boolean",
-                        _ => return Err(format!(
-                            "untyped class field `{member_name}` requires a literal initializer (number / string / boolean) for type inference at {}",
-                            self.at()
-                        )),
+                        _ => {
+                            return Err(format!(
+                                "untyped class field `{member_name}` requires a literal initializer (number / string / boolean) for type inference at {}",
+                                self.at()
+                            ));
+                        }
                     };
                     let ty = inferred.to_string();
                     if matches!(self.peek(), Token::Semi) {
                         self.pos += 1;
                     }
-                    let visibility =
-                        explicit_visibility.unwrap_or(ast::Visibility::Public);
+                    let visibility = explicit_visibility.unwrap_or(ast::Visibility::Public);
                     if visibility != ast::Visibility::Public {
                         self.ast
                             .member_visibility
@@ -5821,9 +5934,15 @@ impl Parser<'_> {
                 Some(c) => {
                     let mut body = prefix;
                     body.extend(c.body);
-                    ClassCtor { params: c.params, body }
+                    ClassCtor {
+                        params: c.params,
+                        body,
+                    }
                 }
-                None => ClassCtor { params: Vec::new(), body: prefix },
+                None => ClassCtor {
+                    params: Vec::new(),
+                    body: prefix,
+                },
             });
         }
         Ok(Stmt::ClassDecl {
@@ -5852,8 +5971,7 @@ impl Parser<'_> {
     /// single field-name to promote).
     fn parse_ctor_param_list(
         &mut self,
-    ) -> Result<(Vec<Param>, Vec<(usize, ast::Visibility, bool)>, Vec<Stmt>), String>
-    {
+    ) -> Result<(Vec<Param>, Vec<(usize, ast::Visibility, bool)>, Vec<Stmt>), String> {
         match self.peek() {
             Token::LParen => self.pos += 1,
             t => return Err(format!("expected `(`, got {t:?} at {}", self.at())),
@@ -6003,10 +6121,7 @@ impl Parser<'_> {
                 match self.peek() {
                     Token::Comma => {
                         if is_rest {
-                            return Err(format!(
-                                "rest parameter must be last at {}",
-                                self.at()
-                            ));
+                            return Err(format!("rest parameter must be last at {}", self.at()));
                         }
                         self.pos += 1;
                         if matches!(self.peek(), Token::RParen) {
@@ -6137,14 +6252,16 @@ impl Parser<'_> {
                 } else {
                     None
                 };
-                params.push(Param { name: pname, type_ann, default, is_rest });
+                params.push(Param {
+                    name: pname,
+                    type_ann,
+                    default,
+                    is_rest,
+                });
                 match self.peek() {
                     Token::Comma => {
                         if is_rest {
-                            return Err(format!(
-                                "rest parameter must be last at {}",
-                                self.at()
-                            ));
+                            return Err(format!("rest parameter must be last at {}", self.at()));
                         }
                         self.pos += 1;
                         // V3-18 wedge — trailing comma in param list,

@@ -248,7 +248,9 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                     let mut digits = String::from("0.");
                     while let Some(c) = peek(bytes, i) {
                         if c.is_ascii_digit() || c == b'_' {
-                            if c != b'_' { digits.push(c as char); }
+                            if c != b'_' {
+                                digits.push(c as char);
+                            }
                             i += 1;
                         } else {
                             break;
@@ -425,16 +427,14 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                             }
                             p += 1;
                         }
-                        let pattern =
-                            String::from_utf8_lossy(&bytes[body_start..p]).into_owned();
+                        let pattern = String::from_utf8_lossy(&bytes[body_start..p]).into_owned();
                         // Flags: any trailing ASCII letters.
                         let flags_start = p + 1;
                         let mut q = flags_start;
                         while q < len as usize && bytes[q].is_ascii_alphabetic() {
                             q += 1;
                         }
-                        let flags =
-                            String::from_utf8_lossy(&bytes[flags_start..q]).into_owned();
+                        let flags = String::from_utf8_lossy(&bytes[flags_start..q]).into_owned();
                         i = q as u32;
                         emit(&mut out, Token::Regex { pattern, flags }, start, i);
                     }
@@ -553,23 +553,68 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                     if c == b'\\' && i + 1 < len {
                         let esc = bytes[i as usize + 1];
                         match esc {
-                            b'n' => { buf.push(b'\n'); i += 2; continue; }
-                            b'r' => { buf.push(b'\r'); i += 2; continue; }
-                            b't' => { buf.push(b'\t'); i += 2; continue; }
-                            b'b' => { buf.push(0x08); i += 2; continue; }
-                            b'f' => { buf.push(0x0c); i += 2; continue; }
-                            b'v' => { buf.push(0x0b); i += 2; continue; }
-                            b'0' => { buf.push(0); i += 2; continue; }
-                            b'\\' => { buf.push(b'\\'); i += 2; continue; }
-                            b'\'' => { buf.push(b'\''); i += 2; continue; }
-                            b'"' => { buf.push(b'"'); i += 2; continue; }
-                            b'`' => { buf.push(b'`'); i += 2; continue; }
+                            b'n' => {
+                                buf.push(b'\n');
+                                i += 2;
+                                continue;
+                            }
+                            b'r' => {
+                                buf.push(b'\r');
+                                i += 2;
+                                continue;
+                            }
+                            b't' => {
+                                buf.push(b'\t');
+                                i += 2;
+                                continue;
+                            }
+                            b'b' => {
+                                buf.push(0x08);
+                                i += 2;
+                                continue;
+                            }
+                            b'f' => {
+                                buf.push(0x0c);
+                                i += 2;
+                                continue;
+                            }
+                            b'v' => {
+                                buf.push(0x0b);
+                                i += 2;
+                                continue;
+                            }
+                            b'0' => {
+                                buf.push(0);
+                                i += 2;
+                                continue;
+                            }
+                            b'\\' => {
+                                buf.push(b'\\');
+                                i += 2;
+                                continue;
+                            }
+                            b'\'' => {
+                                buf.push(b'\'');
+                                i += 2;
+                                continue;
+                            }
+                            b'"' => {
+                                buf.push(b'"');
+                                i += 2;
+                                continue;
+                            }
+                            b'`' => {
+                                buf.push(b'`');
+                                i += 2;
+                                continue;
+                            }
                             // V3-18 m1.h.33 — `\xNN` hex escape (2 hex
                             // digits → byte). Per JS spec §12.8.4.1
                             // HexEscapeSequence.
                             b'x' if i + 3 < len
                                 && bytes[i as usize + 2].is_ascii_hexdigit()
-                                && bytes[i as usize + 3].is_ascii_hexdigit() => {
+                                && bytes[i as usize + 3].is_ascii_hexdigit() =>
+                            {
                                 let hi = (bytes[i as usize + 2] as char).to_digit(16).unwrap();
                                 let lo = (bytes[i as usize + 3] as char).to_digit(16).unwrap();
                                 let cp = (hi * 16 + lo) as u32;
@@ -583,7 +628,8 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                                 && bytes[i as usize + 2].is_ascii_hexdigit()
                                 && bytes[i as usize + 3].is_ascii_hexdigit()
                                 && bytes[i as usize + 4].is_ascii_hexdigit()
-                                && bytes[i as usize + 5].is_ascii_hexdigit() => {
+                                && bytes[i as usize + 5].is_ascii_hexdigit() =>
+                            {
                                 let mut cp: u32 = 0;
                                 for k in 2..=5 {
                                     cp = cp * 16
@@ -600,7 +646,8 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                                 let mut k = i as usize + 3;
                                 let mut cp: u32 = 0;
                                 let mut digits = 0;
-                                while k < len as usize && bytes[k].is_ascii_hexdigit() && digits < 6 {
+                                while k < len as usize && bytes[k].is_ascii_hexdigit() && digits < 6
+                                {
                                     cp = cp * 16 + (bytes[k] as char).to_digit(16).unwrap();
                                     k += 1;
                                     digits += 1;
@@ -615,7 +662,11 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                                 i += 2;
                                 continue;
                             }
-                            other => { buf.push(other); i += 2; continue; }
+                            other => {
+                                buf.push(other);
+                                i += 2;
+                                continue;
+                            }
                         }
                     }
                     buf.push(c);
@@ -646,9 +697,7 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                 let mut buf: Vec<u8> = Vec::new();
                 loop {
                     if i >= len {
-                        return Err(format!(
-                            "unterminated template literal starting at {start}"
-                        ));
+                        return Err(format!("unterminated template literal starting at {start}"));
                     }
                     let b = bytes[i as usize];
                     if b == b'`' {
@@ -772,9 +821,7 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                 // literals per JS spec §12.8.3. Both lex as base-2 / -8
                 // u64, then cast to f64 (matching the existing 0x...
                 // path). Same `n` BigInt suffix support.
-                if b == b'0'
-                    && peek(bytes, i + 1).is_some_and(|c| c == b'b' || c == b'B')
-                {
+                if b == b'0' && peek(bytes, i + 1).is_some_and(|c| c == b'b' || c == b'B') {
                     i += 2;
                     let dig_start = i;
                     while i < len
@@ -790,7 +837,12 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                     let raw = std::str::from_utf8(&bytes[dig_start as usize..i as usize])
                         .expect("ascii bin digits are valid utf-8");
                     let cleaned;
-                    let s: &str = if raw.contains('_') { cleaned = raw.replace('_', ""); &cleaned } else { raw };
+                    let s: &str = if raw.contains('_') {
+                        cleaned = raw.replace('_', "");
+                        &cleaned
+                    } else {
+                        raw
+                    };
                     // P0.10 — binary BigInt `0b...n` per ES spec
                     // §12.9.3. ssa_lower's bigint_from_decimal /
                     // bigint_from_hex are the only helpers wired
@@ -804,10 +856,15 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                         let n: u64 = u64::from_str_radix(s, 2)
                             .map_err(|_| format!("invalid binary BigInt at {start}"))?;
                         i += 1;
-                        emit(&mut out, Token::BigInt {
-                            digits: n.to_string(),
-                            radix: 10,
-                        }, start, i);
+                        emit(
+                            &mut out,
+                            Token::BigInt {
+                                digits: n.to_string(),
+                                radix: 10,
+                            },
+                            start,
+                            i,
+                        );
                         continue;
                     }
                     let n: u64 = u64::from_str_radix(s, 2)
@@ -815,9 +872,7 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                     emit(&mut out, Token::Number(n as f64), start, i);
                     continue;
                 }
-                if b == b'0'
-                    && peek(bytes, i + 1).is_some_and(|c| c == b'o' || c == b'O')
-                {
+                if b == b'0' && peek(bytes, i + 1).is_some_and(|c| c == b'o' || c == b'O') {
                     i += 2;
                     let dig_start = i;
                     while i < len
@@ -832,17 +887,27 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                     let raw = std::str::from_utf8(&bytes[dig_start as usize..i as usize])
                         .expect("ascii oct digits are valid utf-8");
                     let cleaned;
-                    let s: &str = if raw.contains('_') { cleaned = raw.replace('_', ""); &cleaned } else { raw };
+                    let s: &str = if raw.contains('_') {
+                        cleaned = raw.replace('_', "");
+                        &cleaned
+                    } else {
+                        raw
+                    };
                     // P0.10 — octal BigInt `0o...n`. Same pre-
                     // convert-to-decimal shape as binary BigInt.
                     if peek(bytes, i) == Some(b'n') {
                         let n: u64 = u64::from_str_radix(s, 8)
                             .map_err(|_| format!("invalid octal BigInt at {start}"))?;
                         i += 1;
-                        emit(&mut out, Token::BigInt {
-                            digits: n.to_string(),
-                            radix: 10,
-                        }, start, i);
+                        emit(
+                            &mut out,
+                            Token::BigInt {
+                                digits: n.to_string(),
+                                radix: 10,
+                            },
+                            start,
+                            i,
+                        );
                         continue;
                     }
                     let n: u64 = u64::from_str_radix(s, 8)
@@ -853,9 +918,7 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                 // 0x... hex literal — TS / JS standard. Parse as u64 and
                 // cast to f64; values up to 2^53 round-trip exactly,
                 // which covers every realistic bitwise / mask use.
-                if b == b'0'
-                    && peek(bytes, i + 1).is_some_and(|c| c == b'x' || c == b'X')
-                {
+                if b == b'0' && peek(bytes, i + 1).is_some_and(|c| c == b'x' || c == b'X') {
                     i += 2; // skip "0x"
                     let hex_start = i;
                     while i < len
@@ -869,7 +932,12 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                     let raw = std::str::from_utf8(&bytes[hex_start as usize..i as usize])
                         .expect("ascii hex digits are valid utf-8");
                     let cleaned;
-                    let s: &str = if raw.contains('_') { cleaned = raw.replace('_', ""); &cleaned } else { raw };
+                    let s: &str = if raw.contains('_') {
+                        cleaned = raw.replace('_', "");
+                        &cleaned
+                    } else {
+                        raw
+                    };
                     /* T-25 BigInt: `0x...n`. Hex-radix BigInt literal. */
                     if peek(bytes, i) == Some(b'n') {
                         let digits = s.to_string();
@@ -888,9 +956,7 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                 // `_` or leading/trailing `_` aren't valid but our
                 // tolerant parse silently allows them — strict spec
                 // rejection is a polish item.
-                while i < len
-                    && (bytes[i as usize].is_ascii_digit() || bytes[i as usize] == b'_')
-                {
+                while i < len && (bytes[i as usize].is_ascii_digit() || bytes[i as usize] == b'_') {
                     i += 1;
                 }
                 if peek(bytes, i) == Some(b'.')
@@ -923,14 +989,11 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                         // of the integer literal. Eat the dot when
                         // the lookahead disqualifies member-access
                         // (Ident-start letter, `_`, `$`).
-                        !c.is_ascii_alphanumeric() && c != b'_' && c != b'$'
-                            && c != b'.'  // already covered by next branch
+                        !c.is_ascii_alphanumeric() && c != b'_' && c != b'$' && c != b'.' // already covered by next branch
                     })
                 {
                     i += 1;
-                } else if peek(bytes, i) == Some(b'.')
-                    && peek(bytes, i + 1) == Some(b'.')
-                {
+                } else if peek(bytes, i) == Some(b'.') && peek(bytes, i + 1) == Some(b'.') {
                     // V3-18 m1.h.21 — `0..toString()` form. JS spec
                     // §12.8.3 allows DecimalLiteral to end with a
                     // trailing `.`; the second `.` then begins a
@@ -946,15 +1009,13 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                 // `+` / `-`, then one or more digits. Only consume when
                 // the suffix is a real exponent — `1eFoo` parses as the
                 // number `1` followed by the ident `eFoo`.
-                if (peek(bytes, i) == Some(b'e') || peek(bytes, i) == Some(b'E'))
-                    && {
-                        let mut j = i + 1;
-                        if peek(bytes, j) == Some(b'+') || peek(bytes, j) == Some(b'-') {
-                            j += 1;
-                        }
-                        peek(bytes, j).is_some_and(|c| c.is_ascii_digit())
+                if (peek(bytes, i) == Some(b'e') || peek(bytes, i) == Some(b'E')) && {
+                    let mut j = i + 1;
+                    if peek(bytes, j) == Some(b'+') || peek(bytes, j) == Some(b'-') {
+                        j += 1;
                     }
-                {
+                    peek(bytes, j).is_some_and(|c| c.is_ascii_digit())
+                } {
                     i += 1;
                     if peek(bytes, i) == Some(b'+') || peek(bytes, i) == Some(b'-') {
                         i += 1;

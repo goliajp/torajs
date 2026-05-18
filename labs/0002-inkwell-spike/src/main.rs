@@ -164,7 +164,9 @@ fn build_fib40<'ctx>(ctx: &'ctx Context) -> Module<'ctx> {
         let lt2 = builder
             .build_int_compare(inkwell::IntPredicate::SLT, n, two, "lt2")
             .unwrap();
-        builder.build_conditional_branch(lt2, base, recurse).unwrap();
+        builder
+            .build_conditional_branch(lt2, base, recurse)
+            .unwrap();
 
         builder.position_at_end(base);
         builder.build_return(Some(&n)).unwrap();
@@ -293,9 +295,7 @@ fn build_popcount<'ctx>(ctx: &'ctx Context) -> Module<'ctx> {
     builder
         .build_store(total_a, i64_t.const_int(0, false))
         .unwrap();
-    builder
-        .build_store(i_a, i64_t.const_int(0, false))
-        .unwrap();
+    builder.build_store(i_a, i64_t.const_int(0, false)).unwrap();
     builder.build_unconditional_branch(loop_h).unwrap();
 
     builder.position_at_end(loop_h);
@@ -333,7 +333,9 @@ fn build_popcount<'ctx>(ctx: &'ctx Context) -> Module<'ctx> {
         .build_load(i64_t, total_a, "total_ret")
         .unwrap()
         .into_int_value();
-    builder.build_call(print_i64, &[total.into()], "_pr").unwrap();
+    builder
+        .build_call(print_i64, &[total.into()], "_pr")
+        .unwrap();
     builder
         .build_return(Some(&i32_t.const_int(0, false)))
         .unwrap();

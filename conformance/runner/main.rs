@@ -74,12 +74,7 @@ fn main() {
             }
         }
     }
-    println!(
-        "\n{} pass / {} fail / {} skip",
-        pass,
-        fail.len(),
-        skip
-    );
+    println!("\n{} pass / {} fail / {} skip", pass, fail.len(), skip);
     if !fail.is_empty() {
         println!("\nfailures:");
         for (n, r) in &fail {
@@ -98,9 +93,7 @@ fn collect_cases(dir: &Path) -> Vec<Case> {
         Ok(e) => e,
         Err(e) => die(&format!("read_dir {}: {e}", dir.display())),
     };
-    let mut paths: Vec<PathBuf> = entries
-        .filter_map(|e| e.ok().map(|x| x.path()))
-        .collect();
+    let mut paths: Vec<PathBuf> = entries.filter_map(|e| e.ok().map(|x| x.path())).collect();
     paths.sort();
     for p in paths {
         if p.is_dir() {
@@ -159,11 +152,19 @@ fn run_case(c: &Case, manifest: &Path) -> Outcome {
     let oracle = match &c.expected_override {
         Some(p) => match std::fs::read_to_string(p) {
             Ok(s) => s,
-            Err(e) => return Outcome::Fail { reason: format!("read {}: {e}", p.display()) },
+            Err(e) => {
+                return Outcome::Fail {
+                    reason: format!("read {}: {e}", p.display()),
+                };
+            }
         },
         None => match exec("bun", &["run", c.src.to_str().unwrap()], None) {
             Ok((s, _)) => s,
-            Err(e) => return Outcome::Skip { reason: format!("bun: {e}") },
+            Err(e) => {
+                return Outcome::Skip {
+                    reason: format!("bun: {e}"),
+                };
+            }
         },
     };
 
@@ -183,7 +184,11 @@ fn run_case(c: &Case, manifest: &Path) -> Outcome {
         Some(c),
     ) {
         Ok((s, _)) => s,
-        Err(e) => return Outcome::Fail { reason: format!("jit: {e}") },
+        Err(e) => {
+            return Outcome::Fail {
+                reason: format!("jit: {e}"),
+            };
+        }
     };
     if jit != oracle {
         return Outcome::Fail {
@@ -209,11 +214,17 @@ fn run_case(c: &Case, manifest: &Path) -> Outcome {
         ],
         Some(c),
     ) {
-        return Outcome::Fail { reason: format!("aot build: {e}") };
+        return Outcome::Fail {
+            reason: format!("aot build: {e}"),
+        };
     }
     let aot = match exec(aot_bin.to_str().unwrap(), &[], Some(c)) {
         Ok((s, _)) => s,
-        Err(e) => return Outcome::Fail { reason: format!("aot run: {e}") },
+        Err(e) => {
+            return Outcome::Fail {
+                reason: format!("aot run: {e}"),
+            };
+        }
     };
     let _ = std::fs::remove_file(&aot_bin);
     if aot != oracle {

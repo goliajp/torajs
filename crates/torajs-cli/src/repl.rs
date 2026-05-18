@@ -25,8 +25,8 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::{Command, ExitCode, Stdio};
 
-use rustyline::error::ReadlineError;
 use rustyline::DefaultEditor;
+use rustyline::error::ReadlineError;
 use torajs_core::{ast, check, lexer, parser};
 
 const PROMPT_PRIMARY: &str = "tr> ";
@@ -50,7 +50,11 @@ pub fn run() -> ExitCode {
     let mut pending = String::new();
 
     loop {
-        let prompt = if pending.is_empty() { PROMPT_PRIMARY } else { PROMPT_CONTINUE };
+        let prompt = if pending.is_empty() {
+            PROMPT_PRIMARY
+        } else {
+            PROMPT_CONTINUE
+        };
         let line = match rl.readline(prompt) {
             Ok(s) => s,
             Err(ReadlineError::Interrupted) => {
@@ -160,7 +164,10 @@ struct Session {
 
 impl Session {
     fn new() -> Self {
-        Self { chunks: Vec::new(), last_output_lines: 0 }
+        Self {
+            chunks: Vec::new(),
+            last_output_lines: 0,
+        }
     }
 
     fn clear(&mut self) {
@@ -200,15 +207,13 @@ impl Session {
 
     fn run_and_print(&mut self) -> Result<(), String> {
         let src = self.committed_source();
-        let exe = std::env::current_exe()
-            .map_err(|e| format!("locating tr binary: {e}"))?;
+        let exe = std::env::current_exe().map_err(|e| format!("locating tr binary: {e}"))?;
         let tmp = std::env::temp_dir().join(format!(
             "torajs-repl-{}-{}.ts",
             std::process::id(),
             rand_suffix()
         ));
-        fs::write(&tmp, &src)
-            .map_err(|e| format!("writing temp source: {e}"))?;
+        fs::write(&tmp, &src).map_err(|e| format!("writing temp source: {e}"))?;
         let out = Command::new(&exe)
             .arg("run")
             .arg(&tmp)
@@ -308,12 +313,28 @@ fn wrap_chunk(input: &str) -> String {
 
 fn is_statement_shape(input: &str) -> bool {
     const KEYS: &[&str] = &[
-        "let ", "const ", "var ", "function ", "class ", "type ", "import ",
-        "export ", "if ", "for ", "while ", "do ", "switch ", "return ",
-        "throw ", "try ", "{", "//", "async ", "interface ",
+        "let ",
+        "const ",
+        "var ",
+        "function ",
+        "class ",
+        "type ",
+        "import ",
+        "export ",
+        "if ",
+        "for ",
+        "while ",
+        "do ",
+        "switch ",
+        "return ",
+        "throw ",
+        "try ",
+        "{",
+        "//",
+        "async ",
+        "interface ",
     ];
-    KEYS.iter().any(|k| input.starts_with(k))
-        || input.contains('\n') // multi-line input is almost always a block
+    KEYS.iter().any(|k| input.starts_with(k)) || input.contains('\n') // multi-line input is almost always a block
 }
 
 fn history_path() -> Option<PathBuf> {

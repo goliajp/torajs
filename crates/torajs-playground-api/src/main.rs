@@ -212,7 +212,7 @@ async fn run(State(state): State<AppState>, Json(req): Json<RunReq>) -> Response
             .arg("-W")
             .arg("timeout=5s")
             .arg("-W")
-            .arg("max-memory-size=67108864")  // 64 MiB cap
+            .arg("max-memory-size=67108864") // 64 MiB cap
             .arg("--")
             .arg(&wasm_path)
             .output(),
@@ -254,8 +254,14 @@ async fn run(State(state): State<AppState>, Json(req): Json<RunReq>) -> Response
         Ok(Ok(o)) => o,
     };
 
-    let stdout = trim_to(String::from_utf8_lossy(&output.stdout).to_string(), MAX_STDOUT_BYTES);
-    let stderr = trim_to(String::from_utf8_lossy(&output.stderr).to_string(), MAX_STDERR_BYTES);
+    let stdout = trim_to(
+        String::from_utf8_lossy(&output.stdout).to_string(),
+        MAX_STDOUT_BYTES,
+    );
+    let stderr = trim_to(
+        String::from_utf8_lossy(&output.stderr).to_string(),
+        MAX_STDERR_BYTES,
+    );
     let exit_code = output.status.code().unwrap_or(-1);
 
     info!(
@@ -276,7 +282,11 @@ async fn run(State(state): State<AppState>, Json(req): Json<RunReq>) -> Response
             compile_ms,
             run_ms,
             cached,
-            error: if exit_code != 0 { Some("run_trap") } else { None },
+            error: if exit_code != 0 {
+                Some("run_trap")
+            } else {
+                None
+            },
         }),
     )
         .into_response()
@@ -334,7 +344,10 @@ async fn compile(
     };
     if !out.status.success() {
         let stderr = String::from_utf8_lossy(&out.stderr).to_string();
-        return Err(CompileError::DiagnosticOnly(trim_to(stderr, MAX_STDERR_BYTES)));
+        return Err(CompileError::DiagnosticOnly(trim_to(
+            stderr,
+            MAX_STDERR_BYTES,
+        )));
     }
 
     /* Promote to cache atomically. rename within the same dir is

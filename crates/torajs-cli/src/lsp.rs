@@ -17,13 +17,11 @@ use std::path::PathBuf;
 
 use lsp_server::{Connection, Message, Notification, Request, Response};
 use lsp_types::{
-    Diagnostic, DiagnosticSeverity, DidChangeTextDocumentParams,
-    DidCloseTextDocumentParams, DidOpenTextDocumentParams,
-    GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents,
-    HoverParams, HoverProviderCapability, InitializeParams,
-    InitializeResult, Location, MarkupContent, MarkupKind,
-    OneOf, Position, PublishDiagnosticsParams, Range, ServerCapabilities,
-    ServerInfo, TextDocumentSyncCapability, TextDocumentSyncKind, Url,
+    Diagnostic, DiagnosticSeverity, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
+    DidOpenTextDocumentParams, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents,
+    HoverParams, HoverProviderCapability, InitializeParams, InitializeResult, Location,
+    MarkupContent, MarkupKind, OneOf, Position, PublishDiagnosticsParams, Range,
+    ServerCapabilities, ServerInfo, TextDocumentSyncCapability, TextDocumentSyncKind, Url,
 };
 
 const SERVER_NAME: &str = "tr";
@@ -33,9 +31,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
     let (connection, io_threads) = Connection::stdio();
 
     let capabilities = ServerCapabilities {
-        text_document_sync: Some(TextDocumentSyncCapability::Kind(
-            TextDocumentSyncKind::FULL,
-        )),
+        text_document_sync: Some(TextDocumentSyncCapability::Kind(TextDocumentSyncKind::FULL)),
         hover_provider: Some(HoverProviderCapability::Simple(true)),
         definition_provider: Some(OneOf::Left(true)),
         ..Default::default()
@@ -47,8 +43,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
     };
 
     let (initialize_id, initialize_params) = connection.initialize_start()?;
-    let _params: InitializeParams =
-        serde_json::from_value(initialize_params).unwrap_or_default();
+    let _params: InitializeParams = serde_json::from_value(initialize_params).unwrap_or_default();
 
     let initialize_result = InitializeResult {
         capabilities,
@@ -91,16 +86,14 @@ fn handle_notification(
 ) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
     match notif.method.as_str() {
         "textDocument/didOpen" => {
-            let p: DidOpenTextDocumentParams =
-                serde_json::from_value(notif.params)?;
+            let p: DidOpenTextDocumentParams = serde_json::from_value(notif.params)?;
             let uri = p.text_document.uri.clone();
             let text = p.text_document.text;
             docs.insert(uri.clone(), text.clone());
             publish_diagnostics(connection, &uri, &text)?;
         }
         "textDocument/didChange" => {
-            let p: DidChangeTextDocumentParams =
-                serde_json::from_value(notif.params)?;
+            let p: DidChangeTextDocumentParams = serde_json::from_value(notif.params)?;
             let uri = p.text_document.uri.clone();
             // Full-sync mode: changes is a single-element vec with
             // the entire new text. (Per the capability we declared.)
@@ -110,8 +103,7 @@ fn handle_notification(
             }
         }
         "textDocument/didClose" => {
-            let p: DidCloseTextDocumentParams =
-                serde_json::from_value(notif.params)?;
+            let p: DidCloseTextDocumentParams = serde_json::from_value(notif.params)?;
             docs.remove(&p.text_document.uri);
             // Clear diagnostics on close so the editor stops showing
             // stale squiggles.
@@ -135,10 +127,7 @@ fn publish_diagnostics(
         diagnostics: diags,
         version: None,
     };
-    let notif = Notification::new(
-        "textDocument/publishDiagnostics".into(),
-        params,
-    );
+    let notif = Notification::new("textDocument/publishDiagnostics".into(), params);
     connection.sender.send(Message::Notification(notif))?;
     Ok(())
 }
@@ -239,8 +228,14 @@ fn compute_diagnostics(uri: &Url, text: &str) -> Vec<Diagnostic> {
 fn error_at_origin(message: String) -> Diagnostic {
     Diagnostic {
         range: Range {
-            start: Position { line: 0, character: 0 },
-            end: Position { line: 0, character: 1 },
+            start: Position {
+                line: 0,
+                character: 0,
+            },
+            end: Position {
+                line: 0,
+                character: 1,
+            },
         },
         severity: Some(DiagnosticSeverity::ERROR),
         code: None,
@@ -262,8 +257,14 @@ fn error_at_origin(message: String) -> Diagnostic {
 fn diagnostic_from_core(text: &str, d: torajs_core::check::Diagnostic) -> Diagnostic {
     let range = if d.span.start == 0 && d.span.end == 0 {
         Range {
-            start: Position { line: 0, character: 0 },
-            end: Position { line: 0, character: 1 },
+            start: Position {
+                line: 0,
+                character: 0,
+            },
+            end: Position {
+                line: 0,
+                character: 1,
+            },
         }
     } else {
         Range {
@@ -303,9 +304,7 @@ fn handle_request(
             };
             let uri = p.text_document_position_params.text_document.uri;
             let pos = p.text_document_position_params.position;
-            let hover = docs
-                .get(&uri)
-                .and_then(|text| compute_hover(text, pos));
+            let hover = docs.get(&uri).and_then(|text| compute_hover(text, pos));
             Response::new_ok(req.id, hover)
         }
         "textDocument/definition" => {
@@ -320,9 +319,11 @@ fn handle_request(
             let location = docs
                 .get(&uri)
                 .and_then(|text| compute_definition(text, pos))
-                .map(|range| Location { uri: uri.clone(), range });
-            let resp: Option<GotoDefinitionResponse> =
-                location.map(GotoDefinitionResponse::Scalar);
+                .map(|range| Location {
+                    uri: uri.clone(),
+                    range,
+                });
+            let resp: Option<GotoDefinitionResponse> = location.map(GotoDefinitionResponse::Scalar);
             Response::new_ok(req.id, resp)
         }
         _ => Response::new_err(
@@ -424,7 +425,10 @@ fn byte_to_position(text: &str, byte: u32) -> Position {
             col += 1;
         }
     }
-    Position { line, character: col }
+    Position {
+        line,
+        character: col,
+    }
 }
 
 /// L-4 — goto-def. Approximate symbol table built by source-text
@@ -495,9 +499,7 @@ fn ident_at_byte(text: &str, byte: u32) -> Option<String> {
 fn scan_top_level_symbols(text: &str) -> HashMap<String, u32> {
     let mut symbols: HashMap<String, u32> = HashMap::new();
     let bytes = text.as_bytes();
-    let keywords: &[&[u8]] = &[
-        b"function", b"class", b"type", b"let", b"const",
-    ];
+    let keywords: &[&[u8]] = &[b"function", b"class", b"type", b"let", b"const"];
     let mut i = 0usize;
     while i < bytes.len() {
         // Skip line comments.
@@ -537,7 +539,10 @@ fn scan_top_level_symbols(text: &str) -> HashMap<String, u32> {
         // Must be at a token boundary: previous char is whitespace /
         // start-of-file, and following char is whitespace.
         let at_boundary = i == 0
-            || matches!(bytes[i - 1], b' ' | b'\t' | b'\n' | b'\r' | b';' | b'}' | b'{');
+            || matches!(
+                bytes[i - 1],
+                b' ' | b'\t' | b'\n' | b'\r' | b';' | b'}' | b'{'
+            );
         if at_boundary {
             for kw in keywords {
                 if i + kw.len() < bytes.len()
@@ -553,7 +558,9 @@ fn scan_top_level_symbols(text: &str) -> HashMap<String, u32> {
                     }
                     let name_start = j;
                     while j < bytes.len()
-                        && (bytes[j].is_ascii_alphanumeric() || bytes[j] == b'_' || bytes[j] == b'$')
+                        && (bytes[j].is_ascii_alphanumeric()
+                            || bytes[j] == b'_'
+                            || bytes[j] == b'$')
                     {
                         j += 1;
                     }
@@ -576,7 +583,10 @@ fn scan_top_level_symbols(text: &str) -> HashMap<String, u32> {
 /// Walk every Expr looking for the smallest span containing `byte`.
 /// O(n) over the arena — fine for hover latency on 1 K-line files;
 /// L-6 may add a position index if needed.
-fn smallest_containing_expr(ast: &torajs_core::ast::Ast, byte: u32) -> Option<torajs_core::ast::ExprId> {
+fn smallest_containing_expr(
+    ast: &torajs_core::ast::Ast,
+    byte: u32,
+) -> Option<torajs_core::ast::ExprId> {
     let mut best: Option<(torajs_core::ast::ExprId, u32)> = None;
     for (i, span) in ast.expr_spans.iter().enumerate() {
         if span.start == 0 && span.end == 0 {

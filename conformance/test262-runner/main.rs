@@ -92,7 +92,12 @@ fn parse_args() -> Args {
             }
         }
     }
-    Args { limit, filter, workers, report_bugs }
+    Args {
+        limit,
+        filter,
+        workers,
+        report_bugs,
+    }
 }
 
 fn collect_cases(root: &Path, filter: Option<&str>) -> Vec<PathBuf> {
@@ -114,10 +119,7 @@ fn collect_cases(root: &Path, filter: Option<&str>) -> Vec<PathBuf> {
             }
             // Test262 includes _FIXTURE.js helper sources that aren't
             // standalone test cases — they're loaded by includes:.
-            let stem = p
-                .file_name()
-                .and_then(|s| s.to_str())
-                .unwrap_or_default();
+            let stem = p.file_name().and_then(|s| s.to_str()).unwrap_or_default();
             if stem.ends_with("_FIXTURE.js") {
                 continue;
             }
@@ -242,9 +244,7 @@ fn transform_source(src: &str) -> String {
                     j += 1;
                 }
                 let id_start = j;
-                while j < bytes.len()
-                    && (bytes[j].is_ascii_alphanumeric() || bytes[j] == b'_')
-                {
+                while j < bytes.len() && (bytes[j].is_ascii_alphanumeric() || bytes[j] == b'_') {
                     j += 1;
                 }
                 if j > id_start {
@@ -276,26 +276,27 @@ fn transform_source(src: &str) -> String {
         // test262-harness.ts. Order: longer needles first (no
         // ambiguity here since all are distinct identifiers).
         const T262_HELPER_REWRITES: &[(&[u8], &str)] = &[
-            (b"verifyProperty(",            "__t262_verifyProperty("),
-            (b"compareArray(",              "__t262_compareArray("),
-            (b"verifyConfigurable(",        "__t262_verifyConfigurable("),
-            (b"verifyEnumerable(",          "__t262_verifyEnumerable("),
-            (b"verifyWritable(",            "__t262_verifyWritable("),
-            (b"verifyNotConfigurable(",     "__t262_verifyNotConfigurable("),
-            (b"verifyNotEnumerable(",       "__t262_verifyNotEnumerable("),
-            (b"verifyNotWritable(",         "__t262_verifyNotWritable("),
-            (b"verifyCallableProperty(",    "__t262_verifyCallableProperty("),
-            (b"verifyEqualTo(",             "__t262_verifyEqualTo("),
-            (b"isConfigurable(",            "__t262_isConfigurable("),
-            (b"isEnumerable(",              "__t262_isEnumerable("),
-            (b"isSameValue(",               "__t262_isSameValue("),
-            (b"isWritable(",                "__t262_isWritable("),
-            (b"isConstructor(",             "__t262_isConstructor("),
-            (b"assertRelativeDateMs(",      "__t262_assertRelativeDateMs("),
+            (b"verifyProperty(", "__t262_verifyProperty("),
+            (b"compareArray(", "__t262_compareArray("),
+            (b"verifyConfigurable(", "__t262_verifyConfigurable("),
+            (b"verifyEnumerable(", "__t262_verifyEnumerable("),
+            (b"verifyWritable(", "__t262_verifyWritable("),
+            (b"verifyNotConfigurable(", "__t262_verifyNotConfigurable("),
+            (b"verifyNotEnumerable(", "__t262_verifyNotEnumerable("),
+            (b"verifyNotWritable(", "__t262_verifyNotWritable("),
+            (b"verifyCallableProperty(", "__t262_verifyCallableProperty("),
+            (b"verifyEqualTo(", "__t262_verifyEqualTo("),
+            (b"isConfigurable(", "__t262_isConfigurable("),
+            (b"isEnumerable(", "__t262_isEnumerable("),
+            (b"isSameValue(", "__t262_isSameValue("),
+            (b"isWritable(", "__t262_isWritable("),
+            (b"isConstructor(", "__t262_isConstructor("),
+            (b"assertRelativeDateMs(", "__t262_assertRelativeDateMs("),
         ];
         let mut hit_helper = false;
         for (needle, replacement) in T262_HELPER_REWRITES {
-            if starts_with_at(bytes, i, needle) && !preceded_by_dot(bytes, i)
+            if starts_with_at(bytes, i, needle)
+                && !preceded_by_dot(bytes, i)
                 && !preceded_by_word(bytes, i)
             {
                 out.push_str(replacement);
@@ -391,11 +392,8 @@ fn run_case(path: &Path, harness: &str, tr_bin: &Path, slot: usize) -> Outcome {
     // tr's read_source treats it as a normal source file (extension
     // isn't actually checked but the convention matches the rest of
     // the pipeline).
-    let tmp_path = std::env::temp_dir().join(format!(
-        "torajs-test262-{}-{}.ts",
-        std::process::id(),
-        slot
-    ));
+    let tmp_path =
+        std::env::temp_dir().join(format!("torajs-test262-{}-{}.ts", std::process::id(), slot));
     if let Err(e) = std::fs::write(&tmp_path, &full) {
         return Outcome::HarnessError {
             msg: format!("write tmp: {e}"),
@@ -601,51 +599,56 @@ fn main() {
             let bugs = &bugs;
             let harness_err = &harness_err;
             let progress = &progress;
-            scope.spawn(move || loop {
-                let idx = {
-                    let mut g = queue.lock().unwrap();
-                    let i = *g;
-                    *g += 1;
-                    i
-                };
-                if idx >= cases.len() {
-                    break;
-                }
-                let p = &cases[idx];
-                let outcome = run_case(p, harness, tr_bin, slot);
-                match outcome {
-                    Outcome::Pass => {
-                        pass.fetch_add(1, Ordering::Relaxed);
+            scope.spawn(move || {
+                loop {
+                    let idx = {
+                        let mut g = queue.lock().unwrap();
+                        let i = *g;
+                        *g += 1;
+                        i
+                    };
+                    if idx >= cases.len() {
+                        break;
                     }
-                    Outcome::BunSkip => {
-                        bun_skip.fetch_add(1, Ordering::Relaxed);
-                    }
-                    Outcome::Incompatible { kind, msg } => {
-                        let mut m = incompat.lock().unwrap();
-                        *m.entry(kind.clone()).or_insert(0) += 1;
-                        drop(m);
-                        let mut s = incompat_samples.lock().unwrap();
-                        let v = s.entry(kind).or_default();
-                        if v.len() < 30 {
+                    let p = &cases[idx];
+                    let outcome = run_case(p, harness, tr_bin, slot);
+                    match outcome {
+                        Outcome::Pass => {
+                            pass.fetch_add(1, Ordering::Relaxed);
+                        }
+                        Outcome::BunSkip => {
+                            bun_skip.fetch_add(1, Ordering::Relaxed);
+                        }
+                        Outcome::Incompatible { kind, msg } => {
+                            let mut m = incompat.lock().unwrap();
+                            *m.entry(kind.clone()).or_insert(0) += 1;
+                            drop(m);
+                            let mut s = incompat_samples.lock().unwrap();
+                            let v = s.entry(kind).or_default();
+                            if v.len() < 30 {
+                                v.push((p.clone(), msg));
+                            }
+                        }
+                        Outcome::Bug { kind, msg } => {
+                            let mut v = bugs.lock().unwrap();
+                            v.push((p.clone(), kind, msg));
+                        }
+                        Outcome::HarnessError { msg } => {
+                            let mut v = harness_err.lock().unwrap();
                             v.push((p.clone(), msg));
                         }
                     }
-                    Outcome::Bug { kind, msg } => {
-                        let mut v = bugs.lock().unwrap();
-                        v.push((p.clone(), kind, msg));
+                    let n = progress.fetch_add(1, Ordering::Relaxed) + 1;
+                    if n.is_multiple_of(200) {
+                        let pct = (n as f64 / cases.len() as f64) * 100.0;
+                        let elapsed = start.elapsed().as_secs_f64();
+                        let rate = n as f64 / elapsed;
+                        print!(
+                            "  [{n}/{total} {pct:.1}% — {rate:.0}/s]\r",
+                            total = cases.len()
+                        );
+                        let _ = std::io::stdout().flush();
                     }
-                    Outcome::HarnessError { msg } => {
-                        let mut v = harness_err.lock().unwrap();
-                        v.push((p.clone(), msg));
-                    }
-                }
-                let n = progress.fetch_add(1, Ordering::Relaxed) + 1;
-                if n.is_multiple_of(200) {
-                    let pct = (n as f64 / cases.len() as f64) * 100.0;
-                    let elapsed = start.elapsed().as_secs_f64();
-                    let rate = n as f64 / elapsed;
-                    print!("  [{n}/{total} {pct:.1}% — {rate:.0}/s]\r", total = cases.len());
-                    let _ = std::io::stdout().flush();
                 }
             });
         }
@@ -704,7 +707,9 @@ fn main() {
 
     if std::env::var("TORAJS_T262_DUMP_INCOMPAT").is_ok() {
         for (k, _) in &incompat_sorted {
-            let Some(samples) = incompat_samples.get(k) else { continue };
+            let Some(samples) = incompat_samples.get(k) else {
+                continue;
+            };
             println!("\n--- sample {k} ({} cases) ---", samples.len());
             for (p, msg) in samples.iter().take(20) {
                 let rel = p.strip_prefix(root).unwrap_or(p);

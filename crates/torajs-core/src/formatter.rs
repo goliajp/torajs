@@ -189,11 +189,23 @@ impl<'a> Formatter<'a> {
                 self.write_indent();
                 self.fmt_expr(*eid);
             }
-            Stmt::LetDecl { mutable, name, type_ann, init, is_var } => {
+            Stmt::LetDecl {
+                mutable,
+                name,
+                type_ann,
+                init,
+                is_var,
+            } => {
                 self.write_indent();
                 // `var` must format as `var` — emitting let/const here
                 // silently rewrote `var x` decls (zero-warn surfaced it).
-                self.write(if *is_var { "var " } else if *mutable { "let " } else { "const " });
+                self.write(if *is_var {
+                    "var "
+                } else if *mutable {
+                    "let "
+                } else {
+                    "const "
+                });
                 self.write(name);
                 if let Some(ann) = type_ann {
                     self.write(": ");
@@ -217,7 +229,11 @@ impl<'a> Formatter<'a> {
                 self.write("yield ");
                 self.fmt_expr(*eid);
             }
-            Stmt::YieldInto { var, type_ann, value } => {
+            Stmt::YieldInto {
+                var,
+                type_ann,
+                value,
+            } => {
                 self.write_indent();
                 self.write("let ");
                 self.write(var);
@@ -265,7 +281,11 @@ impl<'a> Formatter<'a> {
                     self.fmt_stmt(s);
                 }
             }
-            Stmt::If { cond, then_branch, else_branch } => {
+            Stmt::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
                 self.write_indent();
                 self.write("if (");
                 self.fmt_expr(*cond);
@@ -296,7 +316,12 @@ impl<'a> Formatter<'a> {
                 self.fmt_expr(*cond);
                 self.write(")");
             }
-            Stmt::For { init, cond, step, body } => {
+            Stmt::For {
+                init,
+                cond,
+                step,
+                body,
+            } => {
                 self.write_indent();
                 self.write("for (");
                 if let Some(i) = init {
@@ -313,7 +338,12 @@ impl<'a> Formatter<'a> {
                 self.write(") ");
                 self.fmt_braced_or_inline(body);
             }
-            Stmt::ForOfSplitIter { var_name, parent, sep, body } => {
+            Stmt::ForOfSplitIter {
+                var_name,
+                parent,
+                sep,
+                body,
+            } => {
                 // Format back to source-level `for (let v of x.split(s)) body`
                 // since that's what the user wrote pre-parser-rewrite.
                 self.write_indent();
@@ -326,7 +356,13 @@ impl<'a> Formatter<'a> {
                 self.write(")) ");
                 self.fmt_braced_or_inline(body);
             }
-            Stmt::ForOf { var_name, var_type_ann, src_ident, body, .. } => {
+            Stmt::ForOf {
+                var_name,
+                var_type_ann,
+                src_ident,
+                body,
+                ..
+            } => {
                 self.write_indent();
                 self.write("for (let ");
                 self.write(var_name);
@@ -393,7 +429,11 @@ impl<'a> Formatter<'a> {
                     self.write("}");
                 }
             }
-            Stmt::Switch { scrutinee, cases, default } => {
+            Stmt::Switch {
+                scrutinee,
+                cases,
+                default,
+            } => {
                 self.write_indent();
                 self.write("switch (");
                 self.fmt_expr(*scrutinee);
@@ -460,7 +500,11 @@ impl<'a> Formatter<'a> {
                 self.write_indent();
                 self.write("}");
             }
-            Stmt::TypeDecl { name, type_params, fields } => {
+            Stmt::TypeDecl {
+                name,
+                type_params,
+                fields,
+            } => {
                 self.write_indent();
                 self.write("type ");
                 self.write(name);
@@ -551,7 +595,12 @@ impl<'a> Formatter<'a> {
                 self.write_indent();
                 self.write("}");
             }
-            Stmt::ImportDecl { default, namespace, named, source } => {
+            Stmt::ImportDecl {
+                default,
+                namespace,
+                named,
+                source,
+            } => {
                 self.write_indent();
                 self.write("import ");
                 let mut wrote_clause = false;
@@ -592,7 +641,11 @@ impl<'a> Formatter<'a> {
                 self.write(source);
                 self.write("'");
             }
-            Stmt::ExportDecl { inner, named, default_expr } => {
+            Stmt::ExportDecl {
+                inner,
+                named,
+                default_expr,
+            } => {
                 self.write_indent();
                 self.write("export ");
                 if let Some(eid) = default_expr {
@@ -634,10 +687,22 @@ impl<'a> Formatter<'a> {
         // `for (init; ...)` accepts a LetDecl or an ExprStmt as init.
         // Reuse the regular Stmt formatter but with indent suppressed.
         match s {
-            Stmt::LetDecl { mutable, name, type_ann, init, is_var } => {
+            Stmt::LetDecl {
+                mutable,
+                name,
+                type_ann,
+                init,
+                is_var,
+            } => {
                 // `var` must format as `var` (zero-warn surfaced this
                 // arm silently rewriting `var` → let/const).
-                self.write(if *is_var { "var " } else if *mutable { "let " } else { "const " });
+                self.write(if *is_var {
+                    "var "
+                } else if *mutable {
+                    "let "
+                } else {
+                    "const "
+                });
                 self.write(name);
                 if let Some(ann) = type_ann {
                     self.write(": ");
@@ -871,7 +936,11 @@ impl<'a> Formatter<'a> {
                 }
                 self.write(" }");
             }
-            Expr::ArrowFn { params, return_type, body } => {
+            Expr::ArrowFn {
+                params,
+                return_type,
+                body,
+            } => {
                 self.fmt_params(params);
                 if let Some(ret) = return_type {
                     self.write(": ");
@@ -933,7 +1002,11 @@ impl<'a> Formatter<'a> {
                 }
                 self.write(")");
             }
-            Expr::Ternary { cond, then_branch, else_branch } => {
+            Expr::Ternary {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
                 self.fmt_expr(*cond);
                 self.write(" ? ");
                 self.fmt_expr(*then_branch);
