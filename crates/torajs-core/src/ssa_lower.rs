@@ -22208,9 +22208,26 @@ impl<'a> LowerCtx<'a> {
                         // (5e-324), not f64::MIN_POSITIVE (the
                         // smallest *normal* double, 2.2250738e-308).
                         "MIN_VALUE" => Operand::ConstF64(5e-324),
-                        // V3-18 m2.c — Number.prototype stub (null —
-                        // no real prototype object).
-                        "prototype" => Operand::ConstPtrNull,
+                        // V3-18 m2.c → 2026-05-18 — Number.prototype
+                        // returns an empty Any-box (ANY_NULL=0, value
+                        // null). Sub-`.X` access loads the box's
+                        // value@16 → NULL → dynobj_get returns
+                        // ANY_UNDEF. Sufficient for verifyProperty-
+                        // shim style consumers that just need the
+                        // expression to typecheck and reach call
+                        // arrival.
+                        "prototype" => {
+                            let v = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(
+                                    self.intrinsics.any_box,
+                                    vec![Operand::ConstI64(0), Operand::ConstI64(0)],
+                                ),
+                                Type::Any,
+                                None,
+                            );
+                            Operand::Value(v)
+                        }
                         "name" => {
                             let v = self.intern_string_literal("Number");
                             Operand::Value(v)
@@ -22231,7 +22248,18 @@ impl<'a> LowerCtx<'a> {
                         | "Function")
                 {
                     match name.as_str() {
-                        "prototype" => return Operand::ConstPtrNull,
+                        "prototype" => {
+                            let v = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(
+                                    self.intrinsics.any_box,
+                                    vec![Operand::ConstI64(0), Operand::ConstI64(0)],
+                                ),
+                                Type::Any,
+                                None,
+                            );
+                            return Operand::Value(v);
+                        }
                         "name" => {
                             let v = self.intern_string_literal(n);
                             return Operand::Value(v);

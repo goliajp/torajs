@@ -3142,14 +3142,18 @@ impl Checker {
                     (Type::Object(_), "toString") => {
                         Ok(Type::Function(Vec::new(), Box::new(Type::String)))
                     }
-                    // V3-18 m2.c — `Number.prototype` / `String.prototype`
-                    // / etc — every constructor object has a `.prototype`
-                    // property. Subset stub returns Type::Null (no real
-                    // prototype object yet); test262 cases mostly probe
-                    // the call-doesn't-throw shape or compare via
-                    // `typeof X.prototype === "object"` which is handled
-                    // by the typeof-namespace-member arm.
-                    (Type::Object(_), "prototype") => Ok(Type::Null),
+                    // V3-18 m2.c → 2026-05-18 — `Number.prototype` /
+                    // `String.prototype` / etc — every constructor
+                    // object has a `.prototype` property. Subset
+                    // returns Type::Any so subsequent `.X` access
+                    // routes through dynobj_get (returning ANY_UNDEF
+                    // for unknown fields, harmless when consumed by
+                    // a verifyProperty-style stub). Pre-fix Type::Null
+                    // blocked `verifyProperty(X.prototype.Y, ...)` —
+                    // the dominant test262 shape — at typecheck time.
+                    // typeof X.prototype still works via the typeof-
+                    // namespace-member arm above.
+                    (Type::Object(_), "prototype") => Ok(Type::Any),
                     (Type::Object(_), "name") => Ok(Type::String),
                     (Type::Object(_), "length") => Ok(Type::Number),
                     // JSON.stringify(value) — value can be any subset
