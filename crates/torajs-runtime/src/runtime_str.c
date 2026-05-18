@@ -157,6 +157,7 @@ typedef struct __attribute__((aligned(8))) {
 #define __TORAJS_TAG_WEAKMAP 12 /* T-26.B — WeakMap: header + bucket table; entries observed via weakref registry */
 #define __TORAJS_TAG_WEAKSET 13 /* T-26.B — WeakSet: same as WeakMap minus the value side */
 #define __TORAJS_TAG_MAP     15 /* P6.1 — strong-ref Map<K,V>: header + n_entries + capacity + tombstones + entries ptr */
+#define __TORAJS_TAG_MAP_ITER 16 /* P6.4b — stateful Map iterator: header + map_ptr + cursor + kind */
 #define __TORAJS_TAG_DYNOBJ  14 /* P3.1 — dynamic-property object (HashMap-backed):
                                  * header(8) + count(u32) + cap(u32) +
                                  * tombstones(u32) + pad(u32) + buckets[cap] of
@@ -1363,6 +1364,7 @@ extern void __torajs_weakref_drop(void *p);
 extern void __torajs_weakmap_drop(void *p);
 extern void __torajs_weakset_drop(void *p);
 extern void __torajs_map_drop(void *p);
+extern void __torajs_map_iter_drop(void *p);
 
 void __torajs_value_drop_heap(void *child) {
     if (child == NULL) return;
@@ -1404,6 +1406,12 @@ void __torajs_value_drop_heap(void *child) {
              * live entries, drops each (key, value) heap ref, and
              * frees the entries array + Map struct. */
             __torajs_map_drop(child);
+            break;
+        }
+        case __TORAJS_TAG_MAP_ITER: {
+            /* P6.4b — MapIter holds a strong ref to the source
+             * Map; map_iter_drop releases it + frees the iter. */
+            __torajs_map_iter_drop(child);
             break;
         }
         case __TORAJS_TAG_DYNOBJ: {

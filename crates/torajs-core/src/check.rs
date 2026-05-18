@@ -123,6 +123,11 @@ pub enum Type {
     /// P6.1 — `Set<T>`. Strong-ref hash set backed by `Map<T, undef>`.
     /// `s.add(v)` / `s.has(v)` / `s.delete(v)` / `s.size` per spec.
     Set,
+    /// P6.4b — `MapIter`. Stateful iterator returned by
+    /// `m.keys() / .values() / .entries()`. `iter.next()` returns
+    /// `IteratorResult<any>` = `{ value: any, done: boolean }`.
+    /// Holds a strong ref to the source Map.
+    MapIter,
     /// v0 hack — `console.log`'s parameter accepts any printable type.
     /// Replace with a sum/union type later.
     Any,
@@ -794,6 +799,7 @@ fn resolve_type_ann_full(
         "weakset" | "WeakSet" => Some(Type::WeakSet),
         "Map" => Some(Type::Map),
         "Set" => Some(Type::Set),
+        "mapiter" | "MapIter" => Some(Type::MapIter),
         // `any` is recognized as a real type in the resolver only as a
         // late-stage fallback — `desugar_implicit_generics` rewrites
         // every annotated `: any` to a fresh TypeVar before this layer
@@ -1225,6 +1231,7 @@ pub fn type_to_ann(ty: &Type) -> String {
         Type::WeakSet => "weakset".into(),
         Type::Map => "Map".into(),
         Type::Set => "Set".into(),
+        Type::MapIter => "mapiter".into(),
         // T-28-substrate — SSA Type::Any is its own slot type at the
         // SSA layer (parse_type's "any" round-trips to Type::Any).
         // Pre-T-28-substrate this collapsed to "number" because Any-
@@ -3758,6 +3765,31 @@ impl Checker {
                             Box::new(Type::Void),
                         )],
                         Box::new(Type::Void),
+                    )),
+                    /* P6.4b — Map.keys / .values return a stateful
+                     * MapIter (spec §23.1.3.8 / §23.1.3.13). The
+                     * iter's `next()` produces `IteratorResult<any>`
+                     * = `{ value: any, done: boolean }`. .entries is
+                     * deferred to P6.4c (needs Array<Any> alloc per
+                     * step + boxed (k, v) write). */
+                    (Type::Map, "keys") | (Type::Map, "values") => Ok(Type::Function(
+                        Vec::new(),
+                        Box::new(Type::MapIter),
+                    )),
+                    /* P6.4b — Set.keys = .values per spec §24.2.3.5
+                     * (returns iterator over the elements). */
+                    (Type::Set, "keys") | (Type::Set, "values") => Ok(Type::Function(
+                        Vec::new(),
+                        Box::new(Type::MapIter),
+                    )),
+                    /* P6.4b — MapIter.next() returns the spec-
+                     * shaped IteratorResult struct. */
+                    (Type::MapIter, "next") => Ok(Type::Function(
+                        Vec::new(),
+                        Box::new(Type::Struct(vec![
+                            ("value".into(), Type::Any),
+                            ("done".into(), Type::Boolean),
+                        ])),
                     )),
                     /* P6.2 — Set<T> methods. add takes a single Any-
                      * typed value; storage piggy-backs on Map<T,

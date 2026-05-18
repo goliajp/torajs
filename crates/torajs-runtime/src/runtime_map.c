@@ -655,3 +655,124 @@ int64_t __torajs_map_iter_next(void *p,
     *cursor = (int64_t)m->n_used;
     return 0;
 }
+
+/* ============================================================
+ * P6.4b — MapIter: stateful iterator returned by `m.keys() /
+ * .values() / .entries()`. Holds a strong ref to the source Map
+ * (so the entries[] array stays live through the iteration) plus
+ * a cursor + kind. The user-facing surface is `iter.next()`,
+ * returning an `IteratorResult<T>` (the SSA side wraps the value
+ * payload into an Any-box + builds the struct).
+ *
+ * Three kinds:
+ *   - KEYS    — yield the key of each live entry
+ *   - VALUES  — yield the value of each live entry
+ *   - ENTRIES — yield `[key, value]` (a fresh Array<Any> per step;
+ *               substrate landed in P6.4c, NOT this commit)
+ *
+ * MapIter occupies its own type tag so it routes through
+ * `value_drop_heap` correctly when used as an Any-box payload.
+ * Tag 16 — next free slot after MAP=15.
+ * ============================================================ */
+
+#define __TORAJS_TAG_MAP_ITER 16
+
+#define MAP_ITER_KEYS    0
+#define MAP_ITER_VALUES  1
+#define MAP_ITER_ENTRIES 2
+
+typedef struct {
+    __torajs_heap_header_t header;
+    Map *map;         /* strong-ref to source Map; rc_inc on create, rc_dec on drop */
+    int64_t cursor;   /* entries[] index of the NEXT slot to inspect, or n_used when done */
+    uint32_t kind;
+    uint32_t _pad;
+} MapIter;
+
+static void *map_iter_create_with_kind(void *map_p, uint32_t kind) {
+    MapIter *it = (MapIter *)malloc(sizeof(MapIter));
+    it->header.refcount = 1;
+    it->header.type_tag = __TORAJS_TAG_MAP_ITER;
+    it->header.flags = 0;
+    it->map = (Map *)map_p;
+    it->cursor = 0;
+    it->kind = kind;
+    it->_pad = 0;
+    /* Hold a strong ref to the source so iteration stays valid
+     * even if the caller drops their binding mid-iter. */
+    if (map_p != NULL) __torajs_rc_inc(map_p);
+    return it;
+}
+
+void *__torajs_map_iter_create_keys(void *map_p) {
+    return map_iter_create_with_kind(map_p, MAP_ITER_KEYS);
+}
+
+void *__torajs_map_iter_create_values(void *map_p) {
+    return map_iter_create_with_kind(map_p, MAP_ITER_VALUES);
+}
+
+/* P6.4b iter step. Advances the cursor + fills the (out_tag,
+ * out_payload) pair with the next iterated value per the iter's
+ * kind. Returns 1 if a value was produced, 0 if the cursor has
+ * run past the end. On hit, the (tag, payload) pair is delivered
+ * WITHOUT an rc_inc on the heap payload — the caller wraps it via
+ * __torajs_any_box (which rc_incs heap payloads itself), so the
+ * box adopts ownership. This mirrors the contract used by
+ * map_iter_next for forEach. */
+int64_t __torajs_map_iter_step(void *iter_p,
+                               int64_t *out_tag, int64_t *out_payload) {
+    if (!iter_p) {
+        *out_tag = __TORAJS_ANY_UNDEF;
+        *out_payload = 0;
+        return 0;
+    }
+    MapIter *it = (MapIter *)iter_p;
+    Map *m = it->map;
+    if (!m) {
+        *out_tag = __TORAJS_ANY_UNDEF;
+        *out_payload = 0;
+        return 0;
+    }
+    uint32_t i = (uint32_t)it->cursor;
+    while (i < m->n_used) {
+        MapEntry *e = &m->entries[i];
+        i += 1;
+        if (e->hash == ENTRY_HASH_TOMBSTONE) continue;
+        switch (it->kind) {
+        case MAP_ITER_KEYS:
+            *out_tag = (int64_t)e->key_tag;
+            *out_payload = (int64_t)e->key_payload;
+            break;
+        case MAP_ITER_VALUES:
+            *out_tag = (int64_t)e->value_tag;
+            *out_payload = (int64_t)e->value_payload;
+            break;
+        default:
+            /* MAP_ITER_ENTRIES lands in P6.4c — needs Array<Any>
+             * alloc per step + boxed (k, v) write. */
+            *out_tag = __TORAJS_ANY_UNDEF;
+            *out_payload = 0;
+            break;
+        }
+        it->cursor = (int64_t)i;
+        return 1;
+    }
+    it->cursor = (int64_t)m->n_used;
+    *out_tag = __TORAJS_ANY_UNDEF;
+    *out_payload = 0;
+    return 0;
+}
+
+/* rc-aware drop. Routes through value_drop_heap's TAG_MAP_ITER arm
+ * (wired in runtime_str.c). Releases the strong ref on the source
+ * Map + frees the iter struct itself. */
+void __torajs_map_iter_drop(void *p) {
+    if (!p) return;
+    MapIter *it = (MapIter *)p;
+    if (it->header.flags & 4 /* STATIC_LITERAL */) return;
+    it->header.refcount -= 1;
+    if (it->header.refcount != 0) return;
+    if (it->map != NULL) __torajs_value_drop_heap(it->map);
+    free(it);
+}

@@ -2704,6 +2704,39 @@ fn lower_inner(
         &[Type::Map, Type::Ptr, Type::Ptr, Type::Ptr, Type::Ptr, Type::Ptr],
         Type::I64,
     );
+    /* P6.4b — Map / Set keys / values iterator factories + step +
+     * drop. The iter holds a strong ref to the source Map; map_iter_
+     * step advances + fills the (value_tag, value_payload) pair so
+     * the SSA side can rebuild the `IteratorResult<any>` struct
+     * each call. */
+    let map_iter_create_keys_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_map_iter_create_keys",
+        &[Type::Map],
+        Type::MapIter,
+    );
+    let map_iter_create_values_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_map_iter_create_values",
+        &[Type::Map],
+        Type::MapIter,
+    );
+    let map_iter_step_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_map_iter_step",
+        &[Type::MapIter, Type::Ptr, Type::Ptr],
+        Type::I64,
+    );
+    let map_iter_drop_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_map_iter_drop",
+        &[Type::MapIter],
+        Type::Void,
+    );
     /* T-26.C — Bacon-Rajan cycle collector. cycle_buffer is hot-
      * path: called from the inline Obj drop's else-branch when
      * rc stays positive. cycle_collect is the manual `gc()`
@@ -4407,6 +4440,10 @@ fn lower_inner(
         map_size: map_size_id,
         map_drop: map_drop_id,
         map_iter_next: map_iter_next_id,
+        map_iter_create_keys: map_iter_create_keys_id,
+        map_iter_create_values: map_iter_create_values_id,
+        map_iter_step: map_iter_step_id,
+        map_iter_drop: map_iter_drop_id,
         weakset_create: weakset_create_id,
         weakset_add: weakset_add_id,
         weakset_has: weakset_has_id,
@@ -5243,6 +5280,10 @@ struct Intrinsics {
     map_size: FuncId,
     map_drop: FuncId,
     map_iter_next: FuncId,
+    map_iter_create_keys: FuncId,
+    map_iter_create_values: FuncId,
+    map_iter_step: FuncId,
+    map_iter_drop: FuncId,
     weakset_create: FuncId,
     weakset_add: FuncId,
     weakset_has: FuncId,
@@ -6195,6 +6236,8 @@ fn parse_type(
         // the tagged-Any slot layout in runtime_map.c.
         "Map" | "map" => Type::Map,
         "Set" | "set" => Type::Set,
+        // P6.4b — Map iterator handle returned by m.keys / .values / .entries.
+        "mapiter" => Type::MapIter,
         // T-26.B (v0.7) — WeakMap / WeakSet. Type-erased keys + values.
         "weakmap" => Type::WeakMap,
         "weakset" => Type::WeakSet,
@@ -9323,14 +9366,21 @@ impl<'a> LowerCtx<'a> {
                 );
             }
             Type::Set => {
-                /* P6.2 — Set wires through map_drop once the Set
-                 * substrate lands. P6.1 ships only Type::Map active;
-                 * Type::Set is reserved here so unused-binding sites
-                 * don't fault, and the Map drop path will be reused
-                 * when P6.2 desugars `new Set()` into a Map. */
+                /* P6.2 — Set storage is a Map under the hood; drop
+                 * walks the same entry/value drop chain. */
                 self.f.append_void(
                     self.cur_block,
                     InstKind::Call(self.intrinsics.map_drop, vec![val]),
+                );
+            }
+            Type::MapIter => {
+                /* P6.4b — MapIter drop releases the strong ref it
+                 * holds on the source Map + frees the iter struct
+                 * (rc-aware, so refcount > 1 is a no-op until the
+                 * last alias goes out of scope). */
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.map_iter_drop, vec![val]),
                 );
             }
             other if other.is_copy() => {
@@ -18005,6 +18055,7 @@ impl<'a> LowerCtx<'a> {
                     let set_method = matches!(
                         m_name.as_str(),
                         "add" | "has" | "delete" | "clear" | "forEach"
+                            | "keys" | "values"
                     );
                     if set_method {
                         let recv_ty_hint = match self.ast.get_expr(*obj) {
@@ -18094,6 +18145,24 @@ impl<'a> LowerCtx<'a> {
                                         InstKind::Call(self.intrinsics.map_clear, vec![recv_op]),
                                     );
                                     return Operand::ConstI64(0);
+                                }
+                                "keys" | "values" => {
+                                    /* P6.4b — Set.keys / .values are
+                                     * aliased per spec §24.2.3.5 /
+                                     * §24.2.3.10. Both yield the
+                                     * Set's elements (stored as the
+                                     * key side of the Map). */
+                                    debug_assert!(args.is_empty());
+                                    let v = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::Call(
+                                            self.intrinsics.map_iter_create_keys,
+                                            vec![recv_op],
+                                        ),
+                                        Type::MapIter,
+                                        None,
+                                    );
+                                    return Operand::Value(v);
                                 }
                                 "forEach" => {
                                     /* P6.4a — `s.forEach(cb)`. Set
@@ -18247,6 +18316,144 @@ impl<'a> LowerCtx<'a> {
                         }
                     }
                 }
+                /* P6.4b — `iter.next()` on a Type::MapIter receiver.
+                 * Calls map_iter_step + builds the spec-shaped
+                 * `IteratorResult<any>` struct = `{ value: any,
+                 * done: boolean }` per call. The struct layout is
+                 * interned into self.struct_layouts (matching the
+                 * layout check.rs's (Type::MapIter, "next") returns
+                 * so the StructId aligns with the caller's typing). */
+                if let Expr::Member { obj, name } = self.ast.get_expr(*callee)
+                    && name == "next"
+                    && args.is_empty()
+                {
+                    let recv_ty_hint = match self.ast.get_expr(*obj) {
+                        Expr::Ident(n) => self.locals.get(n).map(|info| info.ty),
+                        _ => None,
+                    };
+                    if recv_ty_hint == Some(Type::MapIter) {
+                        let recv_op = self.lower_expr(*obj);
+                        /* Out-slots for (tag, payload). */
+                        let tag_slot = self.alloca(Type::I64, Some("__iter_tag"));
+                        let val_slot = self.alloca(Type::I64, Some("__iter_val"));
+                        let live = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.map_iter_step,
+                                vec![
+                                    recv_op,
+                                    Operand::Value(tag_slot),
+                                    Operand::Value(val_slot),
+                                ],
+                            ),
+                            Type::I64,
+                            None,
+                        );
+                        let tag_v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(Type::I64, Operand::Value(tag_slot), 0),
+                            Type::I64,
+                            None,
+                        );
+                        let val_v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(Type::I64, Operand::Value(val_slot), 0),
+                            Type::I64,
+                            None,
+                        );
+                        /* Box the (tag, payload) into a Type::Any
+                         * (the runtime handles ANY_HEAP rc_inc).
+                         * For non-live (end of iter), tag is
+                         * ANY_UNDEF and box wraps undefined. */
+                        let value_box = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.any_box,
+                                vec![Operand::Value(tag_v), Operand::Value(val_v)],
+                            ),
+                            Type::Any,
+                            None,
+                        );
+                        /* `done` = (live == 0). */
+                        let done_bool = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::ICmp(
+                                IPred::Eq,
+                                Operand::Value(live),
+                                Operand::ConstI64(0),
+                            ),
+                            Type::Bool,
+                            None,
+                        );
+                        /* Intern IteratorResult<any> struct layout
+                         * (matches check.rs's (Type::MapIter, "next")
+                         * return shape: `{ value: any, done: boolean }`). */
+                        let iter_result_fields: Vec<(String, Type)> = vec![
+                            ("value".into(), Type::Any),
+                            ("done".into(), Type::Bool),
+                        ];
+                        let sid = match self
+                            .struct_layouts
+                            .iter()
+                            .position(|f| f == &iter_result_fields)
+                        {
+                            Some(i) => ssa::StructId(i as u32),
+                            None => {
+                                let new_id = ssa::StructId(self.struct_layouts.len() as u32);
+                                self.struct_layouts.push(iter_result_fields);
+                                new_id
+                            }
+                        };
+                        let size = (OBJ_HEADER_SIZE as i64) + 2 * 8;
+                        let obj_ptr = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.obj_alloc,
+                                vec![Operand::ConstI64(size)],
+                            ),
+                            Type::Obj(sid),
+                            None,
+                        );
+                        self.emit_obj_header_init(Operand::Value(obj_ptr));
+                        /* Class tag = 0 (anonymous struct, no class), */
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Store(
+                                Operand::ConstI64(0),
+                                Operand::Value(obj_ptr),
+                                OBJ_CLASS_TAG_OFF,
+                            ),
+                        );
+                        /* vtable = null. */
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Store(
+                                Operand::ConstPtrNull,
+                                Operand::Value(obj_ptr),
+                                OBJ_VTABLE_OFF,
+                            ),
+                        );
+                        /* Field 0 — "value" at OBJ_HEADER_SIZE. */
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Store(
+                                Operand::Value(value_box),
+                                Operand::Value(obj_ptr),
+                                OBJ_HEADER_SIZE,
+                            ),
+                        );
+                        /* Field 1 — "done" at OBJ_HEADER_SIZE + 8. */
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Store(
+                                Operand::Value(done_bool),
+                                Operand::Value(obj_ptr),
+                                OBJ_HEADER_SIZE + 8,
+                            ),
+                        );
+                        return Operand::Value(obj_ptr);
+                    }
+                }
                 /* P6.1 — Map<K, V> method dispatch. Receiver
                  * Type::Map; key + value flow through
                  * `box_to_tag_value` so the runtime helper sees an
@@ -18259,6 +18466,7 @@ impl<'a> LowerCtx<'a> {
                     let map_method = matches!(
                         m_name.as_str(),
                         "set" | "get" | "has" | "delete" | "clear" | "forEach"
+                            | "keys" | "values"
                     );
                     if map_method {
                         let recv_ty_hint = match self.ast.get_expr(*obj) {
@@ -18379,6 +18587,36 @@ impl<'a> LowerCtx<'a> {
                                         InstKind::Call(self.intrinsics.map_clear, vec![recv_op]),
                                     );
                                     return Operand::ConstI64(0);
+                                }
+                                "keys" => {
+                                    /* P6.4b — `m.keys()` returns a
+                                     * stateful MapIter scanning
+                                     * entries[] yielding the key
+                                     * side of each live (k, v). */
+                                    debug_assert!(args.is_empty());
+                                    let v = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::Call(
+                                            self.intrinsics.map_iter_create_keys,
+                                            vec![recv_op],
+                                        ),
+                                        Type::MapIter,
+                                        None,
+                                    );
+                                    return Operand::Value(v);
+                                }
+                                "values" => {
+                                    debug_assert!(args.is_empty());
+                                    let v = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::Call(
+                                            self.intrinsics.map_iter_create_values,
+                                            vec![recv_op],
+                                        ),
+                                        Type::MapIter,
+                                        None,
+                                    );
+                                    return Operand::Value(v);
                                 }
                                 "forEach" => {
                                     debug_assert_eq!(args.len(), 1);
@@ -24332,7 +24570,8 @@ impl<'a> LowerCtx<'a> {
                     | Type::WeakMap
                     | Type::WeakSet
                     | Type::Map
-                    | Type::Set => "object",
+                    | Type::Set
+                    | Type::MapIter => "object",
                     Type::Void | Type::Ptr => "object",
                     // P0.2 — typeof on a Type::Any operand routes
                     // through __torajs_any_typeof, which reads the

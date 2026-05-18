@@ -196,6 +196,15 @@ pub enum Type {
     /// `Map<T, undefined>` storage; same SameValueZero key equality.
     /// Lowers to a single pointer.
     Set,
+    /// P6.4b — `Type::MapIter`. Stateful iterator returned by
+    /// `m.keys() / .values() / .entries()`. Holds a strong ref to
+    /// the source `Map` (so the entries[] array stays live during
+    /// iteration) + a cursor + kind tag. The user surface is
+    /// `iter.next()` returning an `IteratorResult<T>` struct; the
+    /// runtime helper just produces the `(tag, payload)` pair and
+    /// the SSA side wraps it into the spec-shaped struct. Lowers
+    /// to a single pointer.
+    MapIter,
     /// T-10 (v0.4.0) — `Type::Any` carries a tagged value at runtime:
     /// either a primitive (i64 / f64 / bool / null) or a heap pointer
     /// (Str / Obj / Arr / Closure / RegExp / Date). At the SSA layer
@@ -236,6 +245,7 @@ impl Type {
             Type::WeakSet => "weakset",
             Type::Map => "map",
             Type::Set => "set",
+            Type::MapIter => "mapiter",
         }
     }
 
@@ -289,6 +299,7 @@ impl Type {
                 | Type::WeakSet
                 | Type::Map
                 | Type::Set
+                | Type::MapIter
         )
     }
 
@@ -1109,6 +1120,17 @@ mod tests {
         assert!(!Type::Set.is_copy());
         assert!(Type::Map.is_pointer_shaped());
         assert!(Type::Set.is_pointer_shaped());
+    }
+
+    #[test]
+    fn map_iter_type_wiring() {
+        // P6.4b substrate sanity — Type::MapIter is a refcounted
+        // heap pointer (holds strong ref to the source Map), affine,
+        // distinct as_str so type-erased call sites can detect it.
+        assert_eq!(Type::MapIter.as_str(), "mapiter");
+        assert!(Type::MapIter.is_refcounted());
+        assert!(!Type::MapIter.is_copy());
+        assert!(Type::MapIter.is_pointer_shaped());
     }
 
     #[test]
