@@ -834,3 +834,138 @@ void __torajs_map_iter_drop(void *p) {
     if (it->map != NULL) __torajs_value_drop_heap(it->map);
     free(it);
 }
+
+/* ============================================================
+ * P6.4c-C3 — ArrIter: stateful iterator returned by
+ * `arr.keys() / .values() / .entries()` for Array<Any> sources.
+ * Same shape as MapIter — distinct type tag (17) so the drop
+ * dispatch + Type::ArrIter SSA-level distinction stay clean.
+ * Restricted to Array<Any> for now; typed Array<T> for non-Any T
+ * needs an elem-tag field + per-tag step path (P5.4 follow-up).
+ *
+ * Array<Any> internal layout (defined in runtime_str.c):
+ *   header(8) + len u64 + cap u32 + head_offset u32 + slots[cap]
+ * Each slot is 16 bytes: tag u64 + payload u64. Read via the
+ * `any_slot_tag_` / `any_slot_val_` accessors from runtime_str.c —
+ * here we don't need them directly because the SSA side rebuilds
+ * the IteratorResult struct from the (tag, payload) pair we emit.
+ * ============================================================ */
+
+#define __TORAJS_TAG_ARR_ITER 17
+
+#define ARR_ITER_KEYS    0
+#define ARR_ITER_VALUES  1
+#define ARR_ITER_ENTRIES 2
+
+#define __TORAJS_ARR_HDR_SIZE 24
+#define __TORAJS_ANY_SLOT_BYTES 16
+
+typedef struct {
+    __torajs_heap_header_t header;
+    void *arr;        /* strong-ref to source Array<Any> */
+    int64_t cursor;   /* next slot index to inspect */
+    uint32_t kind;
+    uint32_t _pad;
+} ArrIter;
+
+static void *arr_iter_create_with_kind(void *arr_p, uint32_t kind) {
+    ArrIter *it = (ArrIter *)malloc(sizeof(ArrIter));
+    it->header.refcount = 1;
+    it->header.type_tag = __TORAJS_TAG_ARR_ITER;
+    it->header.flags = 0;
+    it->arr = arr_p;
+    it->cursor = 0;
+    it->kind = kind;
+    it->_pad = 0;
+    if (arr_p != NULL) __torajs_rc_inc(arr_p);
+    return it;
+}
+
+void *__torajs_arr_iter_create_keys(void *arr_p) {
+    return arr_iter_create_with_kind(arr_p, ARR_ITER_KEYS);
+}
+
+void *__torajs_arr_iter_create_values(void *arr_p) {
+    return arr_iter_create_with_kind(arr_p, ARR_ITER_VALUES);
+}
+
+void *__torajs_arr_iter_create_entries(void *arr_p) {
+    return arr_iter_create_with_kind(arr_p, ARR_ITER_ENTRIES);
+}
+
+/* Advance the iter + fill (out_tag, out_payload) per kind. Returns
+ * 1 on hit, 0 when cursor has run past arr.length. */
+int64_t __torajs_arr_iter_step(void *iter_p,
+                               int64_t *out_tag, int64_t *out_payload) {
+    if (!iter_p) {
+        *out_tag = __TORAJS_ANY_UNDEF;
+        *out_payload = 0;
+        return 0;
+    }
+    ArrIter *it = (ArrIter *)iter_p;
+    void *arr = it->arr;
+    if (!arr) {
+        *out_tag = __TORAJS_ANY_UNDEF;
+        *out_payload = 0;
+        return 0;
+    }
+    uint64_t len = *(uint64_t *)((uint8_t *)arr + 8);
+    uint32_t i = (uint32_t)it->cursor;
+    if ((uint64_t)i >= len) {
+        *out_tag = __TORAJS_ANY_UNDEF;
+        *out_payload = 0;
+        return 0;
+    }
+    uint8_t *slot_base = (uint8_t *)arr + __TORAJS_ARR_HDR_SIZE
+                         + (size_t)i * __TORAJS_ANY_SLOT_BYTES;
+    uint64_t slot_tag = *(uint64_t *)slot_base;
+    uint64_t slot_val = *(uint64_t *)(slot_base + 8);
+    it->cursor = (int64_t)(i + 1);
+    switch (it->kind) {
+    case ARR_ITER_KEYS:
+        *out_tag = __TORAJS_ANY_I64;
+        *out_payload = (int64_t)i;
+        break;
+    case ARR_ITER_VALUES:
+        *out_tag = (int64_t)slot_tag;
+        *out_payload = (int64_t)slot_val;
+        break;
+    case ARR_ITER_ENTRIES: {
+        /* Yield `[index, value]` Array<Any>. Same alloc-and-pre-
+         * dec-refcount pattern as Map.entries (map_iter_make_pair_arr). */
+        void *out_arr = __torajs_arr_alloc_any(2);
+        /* Element 0 — the i64 index (primitive, no rc_inc). */
+        out_arr = __torajs_arr_push_any(out_arr,
+                                        (uint64_t)__TORAJS_ANY_I64,
+                                        (uint64_t)i);
+        /* Element 1 — the slot's tagged value. Heap payload needs
+         * rc_inc before push (push adopts the pre-bumped ref). */
+        if ((slot_tag & 0xff) == (uint64_t)__TORAJS_ANY_HEAP && slot_val != 0) {
+            __torajs_rc_inc((void *)(uintptr_t)slot_val);
+        }
+        out_arr = __torajs_arr_push_any(out_arr, slot_tag, slot_val);
+        /* Caller's any_box will rc_inc out_arr (→ 2 with only one
+         * drop chain → leak); pre-decrement so the inc lands at 1. */
+        ((__torajs_heap_header_t *)out_arr)->refcount -= 1;
+        *out_tag = __TORAJS_ANY_HEAP;
+        *out_payload = (int64_t)(uintptr_t)out_arr;
+        break;
+    }
+    default:
+        *out_tag = __TORAJS_ANY_UNDEF;
+        *out_payload = 0;
+        break;
+    }
+    return 1;
+}
+
+/* rc-aware drop. Same shape as map_iter_drop. */
+void __torajs_arr_iter_drop(void *p) {
+    if (!p) return;
+    ArrIter *it = (ArrIter *)p;
+    if (it->header.flags & 4 /* STATIC_LITERAL */) return;
+    it->header.refcount -= 1;
+    if (it->header.refcount != 0) return;
+    if (it->arr != NULL) __torajs_value_drop_heap(it->arr);
+    free(it);
+}

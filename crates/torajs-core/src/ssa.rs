@@ -205,6 +205,13 @@ pub enum Type {
     /// the SSA side wraps it into the spec-shaped struct. Lowers
     /// to a single pointer.
     MapIter,
+    /// P6.4c-C3 — `Type::ArrIter`. Same shape as `MapIter` but
+    /// scanning an `Array<Any>` source. Returned by
+    /// `arr.keys() / .values() / .entries()`. Restricted to
+    /// `Array<Any>` for now — typed-T arrays have an 8B-per-slot
+    /// layout that the runtime helper can't walk without an
+    /// elem-tag parameter (P5.4 follow-up).
+    ArrIter,
     /// T-10 (v0.4.0) — `Type::Any` carries a tagged value at runtime:
     /// either a primitive (i64 / f64 / bool / null) or a heap pointer
     /// (Str / Obj / Arr / Closure / RegExp / Date). At the SSA layer
@@ -246,6 +253,7 @@ impl Type {
             Type::Map => "map",
             Type::Set => "set",
             Type::MapIter => "mapiter",
+            Type::ArrIter => "arriter",
         }
     }
 
@@ -300,6 +308,7 @@ impl Type {
                 | Type::Map
                 | Type::Set
                 | Type::MapIter
+                | Type::ArrIter
         )
     }
 
@@ -1131,6 +1140,16 @@ mod tests {
         assert!(Type::MapIter.is_refcounted());
         assert!(!Type::MapIter.is_copy());
         assert!(Type::MapIter.is_pointer_shaped());
+    }
+
+    #[test]
+    fn arr_iter_type_wiring() {
+        // P6.4c-C3 — Type::ArrIter parallel to MapIter (Array<Any>
+        // source side, same iteration substrate shape).
+        assert_eq!(Type::ArrIter.as_str(), "arriter");
+        assert!(Type::ArrIter.is_refcounted());
+        assert!(!Type::ArrIter.is_copy());
+        assert!(Type::ArrIter.is_pointer_shaped());
     }
 
     #[test]

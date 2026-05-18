@@ -128,6 +128,11 @@ pub enum Type {
     /// `IteratorResult<any>` = `{ value: any, done: boolean }`.
     /// Holds a strong ref to the source Map.
     MapIter,
+    /// P6.4c-C3 — `ArrIter`. Parallel to MapIter but scanning
+    /// `Array<Any>` source. Returned by `arr.keys() / .values() /
+    /// .entries()`. `iter.next()` returns the same
+    /// `IteratorResult<any>` shape.
+    ArrIter,
     /// v0 hack — `console.log`'s parameter accepts any printable type.
     /// Replace with a sum/union type later.
     Any,
@@ -800,6 +805,7 @@ fn resolve_type_ann_full(
         "Map" => Some(Type::Map),
         "Set" => Some(Type::Set),
         "mapiter" | "MapIter" => Some(Type::MapIter),
+        "arriter" | "ArrIter" => Some(Type::ArrIter),
         // `any` is recognized as a real type in the resolver only as a
         // late-stage fallback — `desugar_implicit_generics` rewrites
         // every annotated `: any` to a fresh TypeVar before this layer
@@ -1232,6 +1238,7 @@ pub fn type_to_ann(ty: &Type) -> String {
         Type::Map => "Map".into(),
         Type::Set => "Set".into(),
         Type::MapIter => "mapiter".into(),
+        Type::ArrIter => "arriter".into(),
         // T-28-substrate — SSA Type::Any is its own slot type at the
         // SSA layer (parse_type's "any" round-trips to Type::Any).
         // Pre-T-28-substrate this collapsed to "number" because Any-
@@ -2504,7 +2511,7 @@ impl Checker {
                 let src_is_iter_subset = matches!(
                     src_kind,
                     Some(Type::Struct(_)) | Some(Type::Map) | Some(Type::Set)
-                        | Some(Type::MapIter)
+                        | Some(Type::MapIter) | Some(Type::ArrIter)
                 );
                 let elem_ty = if src_is_iter_subset {
                     match src_kind {
@@ -3819,6 +3826,15 @@ impl Checker {
                             ("done".into(), Type::Boolean),
                         ])),
                     )),
+                    /* P6.4c-C3 — ArrIter.next() shape matches
+                     * MapIter (both produce `IteratorResult<any>`). */
+                    (Type::ArrIter, "next") => Ok(Type::Function(
+                        Vec::new(),
+                        Box::new(Type::Struct(vec![
+                            ("value".into(), Type::Any),
+                            ("done".into(), Type::Boolean),
+                        ])),
+                    )),
                     /* P6.2 — Set<T> methods. add takes a single Any-
                      * typed value; storage piggy-backs on Map<T,
                      * undef> at runtime. */
@@ -4432,6 +4448,20 @@ impl Checker {
                             Box::new(Type::Void),
                         );
                         Ok(Type::Function(vec![fn_ty], Box::new(Type::Void)))
+                    }
+                    /* P6.4c-C3 / P5.4 — Array<Any>.keys / .values /
+                     * .entries returning ArrIter. Typed Array<T> for
+                     * non-Any T uses a different slot layout (i64 /
+                     * Str ptr / etc., 8B per slot vs Array<Any>'s 16B
+                     * tagged slot) so the runtime helper would
+                     * mis-walk; restrict to Array<Any> for now.
+                     * Typed-T support is a follow-up. */
+                    (Type::Array(elem), "keys")
+                    | (Type::Array(elem), "values")
+                    | (Type::Array(elem), "entries")
+                        if matches!(**elem, Type::Any) =>
+                    {
+                        Ok(Type::Function(Vec::new(), Box::new(Type::ArrIter)))
                     }
                     // `xs.includes(needle)` — boolean variant of indexOf.
                     (Type::Array(elem), "includes") => {

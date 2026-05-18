@@ -2737,6 +2737,43 @@ fn lower_inner(
         &[Type::Set],
         Type::MapIter,
     );
+    /* P6.4c-C3 — ArrIter factories + step + drop. Same shape as
+     * MapIter, distinct intrinsics for Array<Any> source layout. */
+    let arr_iter_create_keys_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_arr_iter_create_keys",
+        &[Type::Ptr],
+        Type::ArrIter,
+    );
+    let arr_iter_create_values_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_arr_iter_create_values",
+        &[Type::Ptr],
+        Type::ArrIter,
+    );
+    let arr_iter_create_entries_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_arr_iter_create_entries",
+        &[Type::Ptr],
+        Type::ArrIter,
+    );
+    let arr_iter_step_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_arr_iter_step",
+        &[Type::ArrIter, Type::Ptr, Type::Ptr],
+        Type::I64,
+    );
+    let arr_iter_drop_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_arr_iter_drop",
+        &[Type::ArrIter],
+        Type::Void,
+    );
     let map_iter_step_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -4460,6 +4497,11 @@ fn lower_inner(
         map_iter_create_set_entries: map_iter_create_set_entries_id,
         map_iter_step: map_iter_step_id,
         map_iter_drop: map_iter_drop_id,
+        arr_iter_create_keys: arr_iter_create_keys_id,
+        arr_iter_create_values: arr_iter_create_values_id,
+        arr_iter_create_entries: arr_iter_create_entries_id,
+        arr_iter_step: arr_iter_step_id,
+        arr_iter_drop: arr_iter_drop_id,
         weakset_create: weakset_create_id,
         weakset_add: weakset_add_id,
         weakset_has: weakset_has_id,
@@ -5302,6 +5344,11 @@ struct Intrinsics {
     map_iter_create_set_entries: FuncId,
     map_iter_step: FuncId,
     map_iter_drop: FuncId,
+    arr_iter_create_keys: FuncId,
+    arr_iter_create_values: FuncId,
+    arr_iter_create_entries: FuncId,
+    arr_iter_step: FuncId,
+    arr_iter_drop: FuncId,
     weakset_create: FuncId,
     weakset_add: FuncId,
     weakset_has: FuncId,
@@ -6256,6 +6303,8 @@ fn parse_type(
         "Set" | "set" => Type::Set,
         // P6.4b — Map iterator handle returned by m.keys / .values / .entries.
         "mapiter" => Type::MapIter,
+        // P6.4c-C3 — Array<Any> iterator handle.
+        "arriter" => Type::ArrIter,
         // T-26.B (v0.7) — WeakMap / WeakSet. Type-erased keys + values.
         "weakmap" => Type::WeakMap,
         "weakset" => Type::WeakSet,
@@ -9401,6 +9450,13 @@ impl<'a> LowerCtx<'a> {
                     InstKind::Call(self.intrinsics.map_iter_drop, vec![val]),
                 );
             }
+            Type::ArrIter => {
+                /* P6.4c-C3 — ArrIter mirrors MapIter drop. */
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.arr_iter_drop, vec![val]),
+                );
+            }
             other if other.is_copy() => {
                 // Nothing to drop — caller filtered, but be defensive.
             }
@@ -10405,8 +10461,10 @@ impl<'a> LowerCtx<'a> {
                 // (spec §23.1.4 — Map's @@iterator = entries());
                 // Set default iter yields elements (spec §24.2.5.1 —
                 // Set's @@iterator = values()); a user-bound MapIter
-                // just steps directly.
-                if matches!(src_ty, Type::Map | Type::Set | Type::MapIter) {
+                // just steps directly. P6.4c-C3 — Type::ArrIter
+                // (from `arr.keys() / .values() / .entries()`) uses
+                // the parallel arr_iter_step intrinsic.
+                if matches!(src_ty, Type::Map | Type::Set | Type::MapIter | Type::ArrIter) {
                     self.lower_for_of_map_like(src_ptr_op, src_ty, var_name, body);
                     return;
                 }
@@ -18370,7 +18428,9 @@ impl<'a> LowerCtx<'a> {
                  * done: boolean }` per call. The struct layout is
                  * interned into self.struct_layouts (matching the
                  * layout check.rs's (Type::MapIter, "next") returns
-                 * so the StructId aligns with the caller's typing). */
+                 * so the StructId aligns with the caller's typing).
+                 * P6.4c-C3 — same struct shape for Type::ArrIter,
+                 * routed through `arr_iter_step` instead. */
                 if let Expr::Member { obj, name } = self.ast.get_expr(*callee)
                     && name == "next"
                     && args.is_empty()
@@ -18379,7 +18439,12 @@ impl<'a> LowerCtx<'a> {
                         Expr::Ident(n) => self.locals.get(n).map(|info| info.ty),
                         _ => None,
                     };
-                    if recv_ty_hint == Some(Type::MapIter) {
+                    let step_fid = match recv_ty_hint {
+                        Some(Type::MapIter) => Some(self.intrinsics.map_iter_step),
+                        Some(Type::ArrIter) => Some(self.intrinsics.arr_iter_step),
+                        _ => None,
+                    };
+                    if let Some(step_fid) = step_fid {
                         let recv_op = self.lower_expr(*obj);
                         /* Out-slots for (tag, payload). */
                         let tag_slot = self.alloca(Type::I64, Some("__iter_tag"));
@@ -18387,7 +18452,7 @@ impl<'a> LowerCtx<'a> {
                         let live = self.f.append_inst(
                             self.cur_block,
                             InstKind::Call(
-                                self.intrinsics.map_iter_step,
+                                step_fid,
                                 vec![
                                     recv_op,
                                     Operand::Value(tag_slot),
@@ -21813,6 +21878,42 @@ impl<'a> LowerCtx<'a> {
                     );
                     return Operand::Value(final_dst);
                 }
+                /* P6.4c-C3 — `xs.keys() / .values() / .entries()` on
+                 * Type::Arr<Any> receivers. Routes through the
+                 * `__torajs_arr_iter_create_*` intrinsics returning
+                 * Type::ArrIter (parallel to Map's MapIter). Restricted
+                 * to Array<Any> by check.rs; typed-T arrays would have
+                 * an 8B-per-slot layout the runtime can't walk
+                 * uniformly (P5.4 follow-up). */
+                if let Expr::Member { obj, name } = self.ast.get_expr(*callee)
+                    && matches!(name.as_str(), "keys" | "values" | "entries")
+                    && args.is_empty()
+                {
+                    let recv_op = self.lower_expr(*obj);
+                    let recv_ty = self.operand_ty(&recv_op);
+                    if matches!(recv_ty, Type::Arr(_)) {
+                        let target = match name.as_str() {
+                            "keys" => self.intrinsics.arr_iter_create_keys,
+                            "values" => self.intrinsics.arr_iter_create_values,
+                            "entries" => self.intrinsics.arr_iter_create_entries,
+                            _ => unreachable!(),
+                        };
+                        let v = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(target, vec![recv_op]),
+                            Type::ArrIter,
+                            None,
+                        );
+                        return Operand::Value(v);
+                    }
+                    /* fall through — recv_op was lowered; following
+                     * arms re-dispatch on non-Array receivers, but
+                     * for non-empty-args methods (e.g. Date.set*)
+                     * the dispatch picks up on its own. The receiver
+                     * load is idempotent so re-lowering downstream
+                     * doesn't trigger side-effect duplication. */
+                    let _ = recv_op;
+                }
                 // M6.2 — `xs.map / filter / reduce / forEach (fn[, init])`.
                 // Common shape: receiver lowers to a `Type::Arr` value
                 // (Ident-bound array, or a previous `.map / .filter`
@@ -24640,7 +24741,8 @@ impl<'a> LowerCtx<'a> {
                     | Type::WeakSet
                     | Type::Map
                     | Type::Set
-                    | Type::MapIter => "object",
+                    | Type::MapIter
+                    | Type::ArrIter => "object",
                     Type::Void | Type::Ptr => "object",
                     // P0.2 — typeof on a Type::Any operand routes
                     // through __torajs_any_typeof, which reads the
@@ -27623,10 +27725,15 @@ impl<'a> LowerCtx<'a> {
         body: &Stmt,
     ) {
         // 1. Get / create the iter. For Map / Set we mint a fresh
-        //    MapIter; for an already-MapIter source we borrow it
-        //    (the caller's binding owns the rc; we don't drop it
-        //    at after_blk).
-        let (iter_op, should_drop_iter, var_ty): (Operand, bool, Type) = match src_ty {
+        //    MapIter; for an already-MapIter / ArrIter source we
+        //    borrow it (the caller's binding owns the rc; we don't
+        //    drop it at after_blk). `iter_ty` + `step_fid` track
+        //    the substrate side per source: Map / Set / MapIter go
+        //    through `map_iter_step`; ArrIter goes through
+        //    `arr_iter_step` (parallel API, same `(tag, payload)`
+        //    out-pair contract).
+        let (iter_op, should_drop_iter, var_ty, iter_ty, step_fid):
+            (Operand, bool, Type, Type, FuncId) = match src_ty {
             Type::Map => {
                 /* Map default iter = entries() per spec §23.1.4. */
                 let v = self.f.append_inst(
@@ -27636,7 +27743,13 @@ impl<'a> LowerCtx<'a> {
                     None,
                 );
                 let arr_id = intern_arr_layout(self.arr_layouts, Type::Any);
-                (Operand::Value(v), true, Type::Arr(arr_id))
+                (
+                    Operand::Value(v),
+                    true,
+                    Type::Arr(arr_id),
+                    Type::MapIter,
+                    self.intrinsics.map_iter_step,
+                )
             }
             Type::Set => {
                 /* Set default iter = values() (= keys, since
@@ -27648,17 +27761,38 @@ impl<'a> LowerCtx<'a> {
                     Type::MapIter,
                     None,
                 );
-                (Operand::Value(v), true, Type::Any)
+                (
+                    Operand::Value(v),
+                    true,
+                    Type::Any,
+                    Type::MapIter,
+                    self.intrinsics.map_iter_step,
+                )
             }
-            Type::MapIter => (src_op, false, Type::Any),
-            _ => unreachable!("lower_for_of_map_like: src_ty must be Map | Set | MapIter"),
+            Type::MapIter => (
+                src_op,
+                false,
+                Type::Any,
+                Type::MapIter,
+                self.intrinsics.map_iter_step,
+            ),
+            Type::ArrIter => (
+                src_op,
+                false,
+                Type::Any,
+                Type::ArrIter,
+                self.intrinsics.arr_iter_step,
+            ),
+            _ => unreachable!(
+                "lower_for_of_map_like: src_ty must be Map | Set | MapIter | ArrIter"
+            ),
         };
 
         // 2. Stash iter in slot so per-iter step loads keep load /
         //    store paths uniform with the protocol helper.
         self.scope_stack.push(Vec::new());
         self.shadow_stack.push(Vec::new());
-        let iter_slot = self.alloca(Type::MapIter, Some("__forof_map_it"));
+        let iter_slot = self.alloca(iter_ty, Some("__forof_map_it"));
         self.f.append_void(
             self.cur_block,
             InstKind::Store(iter_op, Operand::Value(iter_slot), 0),
@@ -27677,14 +27811,14 @@ impl<'a> LowerCtx<'a> {
         self.cur_block = header;
         let iter_load = self.f.append_inst(
             self.cur_block,
-            InstKind::Load(Type::MapIter, Operand::Value(iter_slot), 0),
-            Type::MapIter,
+            InstKind::Load(iter_ty, Operand::Value(iter_slot), 0),
+            iter_ty,
             None,
         );
         let live = self.f.append_inst(
             self.cur_block,
             InstKind::Call(
-                self.intrinsics.map_iter_step,
+                step_fid,
                 vec![
                     Operand::Value(iter_load),
                     Operand::Value(tag_slot),
@@ -27729,7 +27863,7 @@ impl<'a> LowerCtx<'a> {
                     None,
                 )
             }
-            Type::Set | Type::MapIter => {
+            Type::Set | Type::MapIter | Type::ArrIter => {
                 let tag_v = self.f.append_inst(
                     self.cur_block,
                     InstKind::Load(Type::I64, Operand::Value(tag_slot), 0),
@@ -27823,11 +27957,11 @@ impl<'a> LowerCtx<'a> {
         if should_drop_iter {
             let iter_load_drop = self.f.append_inst(
                 self.cur_block,
-                InstKind::Load(Type::MapIter, Operand::Value(iter_slot), 0),
-                Type::MapIter,
+                InstKind::Load(iter_ty, Operand::Value(iter_slot), 0),
+                iter_ty,
                 None,
             );
-            self.emit_drop_value(Operand::Value(iter_load_drop), Type::MapIter);
+            self.emit_drop_value(Operand::Value(iter_load_drop), iter_ty);
         }
         let _ = self.scope_stack.pop().expect("for-of-map iter scope");
         let _ = self.shadow_stack.pop().expect("shadow frame");
