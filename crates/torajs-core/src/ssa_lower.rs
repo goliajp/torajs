@@ -2697,6 +2697,13 @@ fn lower_inner(
         &[Type::Map],
         Type::Void,
     );
+    let map_iter_next_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_map_iter_next",
+        &[Type::Map, Type::Ptr, Type::Ptr, Type::Ptr, Type::Ptr, Type::Ptr],
+        Type::I64,
+    );
     /* T-26.C — Bacon-Rajan cycle collector. cycle_buffer is hot-
      * path: called from the inline Obj drop's else-branch when
      * rc stays positive. cycle_collect is the manual `gc()`
@@ -4399,6 +4406,7 @@ fn lower_inner(
         map_clear: map_clear_id,
         map_size: map_size_id,
         map_drop: map_drop_id,
+        map_iter_next: map_iter_next_id,
         weakset_create: weakset_create_id,
         weakset_add: weakset_add_id,
         weakset_has: weakset_has_id,
@@ -5234,6 +5242,7 @@ struct Intrinsics {
     map_clear: FuncId,
     map_size: FuncId,
     map_drop: FuncId,
+    map_iter_next: FuncId,
     weakset_create: FuncId,
     weakset_add: FuncId,
     weakset_has: FuncId,
@@ -17995,7 +18004,7 @@ impl<'a> LowerCtx<'a> {
                     let m_name = name.clone();
                     let set_method = matches!(
                         m_name.as_str(),
-                        "add" | "has" | "delete" | "clear"
+                        "add" | "has" | "delete" | "clear" | "forEach"
                     );
                     if set_method {
                         let recv_ty_hint = match self.ast.get_expr(*obj) {
@@ -18086,6 +18095,153 @@ impl<'a> LowerCtx<'a> {
                                     );
                                     return Operand::ConstI64(0);
                                 }
+                                "forEach" => {
+                                    /* P6.4a — `s.forEach(cb)`. Set
+                                     * callback shape is
+                                     * `(value, value, set)` per spec
+                                     * §24.2.3.6; the storage key is
+                                     * the Set element so we re-box
+                                     * it twice (value side ignored —
+                                     * pinned ANY_UNDEF). */
+                                    debug_assert_eq!(args.len(), 1);
+                                    let known_fid: Option<FuncId> =
+                                        match self.ast.get_expr(args[0]) {
+                                            Expr::Closure { fn_name, .. } => {
+                                                self.fn_table.get(fn_name).copied()
+                                            }
+                                            Expr::Ident(name) => {
+                                                self.fn_table.get(name).copied()
+                                            }
+                                            _ => None,
+                                        };
+                                    let fn_val = self.lower_expr(args[0]);
+                                    let fn_ty = self.operand_ty(&fn_val);
+
+                                    let i_slot = self.alloca(Type::I64, Some("__set_iter_i"));
+                                    /* Sentinel for runtime-side iterator
+                                     * (see Map.forEach above). */
+                                    self.f.append_void(
+                                        self.cur_block,
+                                        InstKind::Store(
+                                            Operand::ConstI64(-1),
+                                            Operand::Value(i_slot),
+                                            0,
+                                        ),
+                                    );
+                                    let kt_slot = self.alloca(Type::I64, Some("__set_iter_kt"));
+                                    let kv_slot = self.alloca(Type::I64, Some("__set_iter_kv"));
+                                    let vt_slot = self.alloca(Type::I64, Some("__set_iter_vt"));
+                                    let vv_slot = self.alloca(Type::I64, Some("__set_iter_vv"));
+
+                                    let header_blk = self.f.add_block();
+                                    let body_blk = self.f.add_block();
+                                    let after_blk = self.f.add_block();
+                                    self.f.set_term(self.cur_block, Terminator::Br(header_blk));
+
+                                    self.cur_block = header_blk;
+                                    let live = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::Call(
+                                            self.intrinsics.map_iter_next,
+                                            vec![
+                                                recv_op.clone(),
+                                                Operand::Value(i_slot),
+                                                Operand::Value(kt_slot),
+                                                Operand::Value(kv_slot),
+                                                Operand::Value(vt_slot),
+                                                Operand::Value(vv_slot),
+                                            ],
+                                        ),
+                                        Type::I64,
+                                        None,
+                                    );
+                                    let cond = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::ICmp(
+                                            IPred::Ne,
+                                            Operand::Value(live),
+                                            Operand::ConstI64(0),
+                                        ),
+                                        Type::Bool,
+                                        None,
+                                    );
+                                    self.f.set_term(
+                                        self.cur_block,
+                                        Terminator::CondBr {
+                                            cond: Operand::Value(cond),
+                                            then_blk: body_blk,
+                                            else_blk: after_blk,
+                                        },
+                                    );
+
+                                    self.cur_block = body_blk;
+                                    let kt_v = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::Load(Type::I64, Operand::Value(kt_slot), 0),
+                                        Type::I64,
+                                        None,
+                                    );
+                                    let kv_v = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::Load(Type::I64, Operand::Value(kv_slot), 0),
+                                        Type::I64,
+                                        None,
+                                    );
+                                    /* Re-box twice so each closure
+                                     * arg is an independently-owned
+                                     * Any-box (avoids double-drop on
+                                     * a shared box). */
+                                    let v_box1 = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::Call(
+                                            self.intrinsics.any_box,
+                                            vec![Operand::Value(kt_v), Operand::Value(kv_v)],
+                                        ),
+                                        Type::Any,
+                                        None,
+                                    );
+                                    let v_box2 = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::Call(
+                                            self.intrinsics.any_box,
+                                            vec![Operand::Value(kt_v), Operand::Value(kv_v)],
+                                        ),
+                                        Type::Any,
+                                        None,
+                                    );
+                                    self.f.append_void(
+                                        self.cur_block,
+                                        InstKind::Call(
+                                            self.intrinsics.rc_inc,
+                                            vec![recv_op.clone()],
+                                        ),
+                                    );
+                                    let _ = match known_fid {
+                                        Some(fid) => self.call_fn_value_devirt(
+                                            fid,
+                                            fn_val.clone(),
+                                            fn_ty,
+                                            vec![
+                                                Operand::Value(v_box1),
+                                                Operand::Value(v_box2),
+                                                recv_op.clone(),
+                                            ],
+                                        ),
+                                        None => self.call_fn_value(
+                                            fn_val.clone(),
+                                            fn_ty,
+                                            vec![
+                                                Operand::Value(v_box1),
+                                                Operand::Value(v_box2),
+                                                recv_op.clone(),
+                                            ],
+                                        ),
+                                    };
+                                    self.f.set_term(self.cur_block, Terminator::Br(header_blk));
+
+                                    self.cur_block = after_blk;
+                                    return Operand::ConstI64(0);
+                                }
                                 _ => unreachable!(),
                             }
                         }
@@ -18102,7 +18258,7 @@ impl<'a> LowerCtx<'a> {
                     let m_name = name.clone();
                     let map_method = matches!(
                         m_name.as_str(),
-                        "set" | "get" | "has" | "delete" | "clear"
+                        "set" | "get" | "has" | "delete" | "clear" | "forEach"
                     );
                     if map_method {
                         let recv_ty_hint = match self.ast.get_expr(*obj) {
@@ -18222,6 +18378,172 @@ impl<'a> LowerCtx<'a> {
                                         self.cur_block,
                                         InstKind::Call(self.intrinsics.map_clear, vec![recv_op]),
                                     );
+                                    return Operand::ConstI64(0);
+                                }
+                                "forEach" => {
+                                    debug_assert_eq!(args.len(), 1);
+                                    /* Lower the callback (Closure or
+                                     * FnSig). Devirt opportunity if
+                                     * args[0] is an Expr::Closure or
+                                     * Ident → known FuncId. */
+                                    let known_fid: Option<FuncId> =
+                                        match self.ast.get_expr(args[0]) {
+                                            Expr::Closure { fn_name, .. } => {
+                                                self.fn_table.get(fn_name).copied()
+                                            }
+                                            Expr::Ident(name) => {
+                                                self.fn_table.get(name).copied()
+                                            }
+                                            _ => None,
+                                        };
+                                    let fn_val = self.lower_expr(args[0]);
+                                    let fn_ty = self.operand_ty(&fn_val);
+
+                                    let i_slot = self.alloca(Type::I64, Some("__map_iter_i"));
+                                    /* Sentinel: cursor == -1 (i64) tells
+                                     * runtime to start from entries[0]
+                                     * (insertion-order walk); each call
+                                     * advances cursor to the next live
+                                     * entry's index. */
+                                    self.f.append_void(
+                                        self.cur_block,
+                                        InstKind::Store(
+                                            Operand::ConstI64(-1),
+                                            Operand::Value(i_slot),
+                                            0,
+                                        ),
+                                    );
+                                    let kt_slot = self.alloca(Type::I64, Some("__map_iter_kt"));
+                                    let kv_slot = self.alloca(Type::I64, Some("__map_iter_kv"));
+                                    let vt_slot = self.alloca(Type::I64, Some("__map_iter_vt"));
+                                    let vv_slot = self.alloca(Type::I64, Some("__map_iter_vv"));
+
+                                    let header_blk = self.f.add_block();
+                                    let body_blk = self.f.add_block();
+                                    let after_blk = self.f.add_block();
+                                    self.f.set_term(self.cur_block, Terminator::Br(header_blk));
+
+                                    /* header — advance the iterator;
+                                     * exit when no more live entries. */
+                                    self.cur_block = header_blk;
+                                    let live = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::Call(
+                                            self.intrinsics.map_iter_next,
+                                            vec![
+                                                recv_op.clone(),
+                                                Operand::Value(i_slot),
+                                                Operand::Value(kt_slot),
+                                                Operand::Value(kv_slot),
+                                                Operand::Value(vt_slot),
+                                                Operand::Value(vv_slot),
+                                            ],
+                                        ),
+                                        Type::I64,
+                                        None,
+                                    );
+                                    let cond = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::ICmp(
+                                            IPred::Ne,
+                                            Operand::Value(live),
+                                            Operand::ConstI64(0),
+                                        ),
+                                        Type::Bool,
+                                        None,
+                                    );
+                                    self.f.set_term(
+                                        self.cur_block,
+                                        Terminator::CondBr {
+                                            cond: Operand::Value(cond),
+                                            then_blk: body_blk,
+                                            else_blk: after_blk,
+                                        },
+                                    );
+
+                                    /* body — re-box the (tag, payload)
+                                     * pairs into Any-boxes, then call
+                                     * the closure with (value, key,
+                                     * map) per spec §23.1.3.6. */
+                                    self.cur_block = body_blk;
+                                    let kt_v = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::Load(Type::I64, Operand::Value(kt_slot), 0),
+                                        Type::I64,
+                                        None,
+                                    );
+                                    let kv_v = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::Load(Type::I64, Operand::Value(kv_slot), 0),
+                                        Type::I64,
+                                        None,
+                                    );
+                                    let vt_v = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::Load(Type::I64, Operand::Value(vt_slot), 0),
+                                        Type::I64,
+                                        None,
+                                    );
+                                    let vv_v = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::Load(Type::I64, Operand::Value(vv_slot), 0),
+                                        Type::I64,
+                                        None,
+                                    );
+                                    let k_box = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::Call(
+                                            self.intrinsics.any_box,
+                                            vec![Operand::Value(kt_v), Operand::Value(kv_v)],
+                                        ),
+                                        Type::Any,
+                                        None,
+                                    );
+                                    let v_box = self.f.append_inst(
+                                        self.cur_block,
+                                        InstKind::Call(
+                                            self.intrinsics.any_box,
+                                            vec![Operand::Value(vt_v), Operand::Value(vv_v)],
+                                        ),
+                                        Type::Any,
+                                        None,
+                                    );
+                                    /* The Map receiver is passed as
+                                     * the 3rd callback arg per spec.
+                                     * rc_inc since each iteration
+                                     * transfers a fresh ref into the
+                                     * closure. */
+                                    self.f.append_void(
+                                        self.cur_block,
+                                        InstKind::Call(
+                                            self.intrinsics.rc_inc,
+                                            vec![recv_op.clone()],
+                                        ),
+                                    );
+                                    let _ = match known_fid {
+                                        Some(fid) => self.call_fn_value_devirt(
+                                            fid,
+                                            fn_val.clone(),
+                                            fn_ty,
+                                            vec![
+                                                Operand::Value(v_box),
+                                                Operand::Value(k_box),
+                                                recv_op.clone(),
+                                            ],
+                                        ),
+                                        None => self.call_fn_value(
+                                            fn_val.clone(),
+                                            fn_ty,
+                                            vec![
+                                                Operand::Value(v_box),
+                                                Operand::Value(k_box),
+                                                recv_op.clone(),
+                                            ],
+                                        ),
+                                    };
+                                    self.f.set_term(self.cur_block, Terminator::Br(header_blk));
+
+                                    self.cur_block = after_blk;
                                     return Operand::ConstI64(0);
                                 }
                                 _ => unreachable!(),

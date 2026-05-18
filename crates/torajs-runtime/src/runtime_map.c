@@ -1,48 +1,61 @@
 /*
  * runtime_map.c — torajs P6.1 strong-ref `Map<K, V>`.
  *
- * `new Map()` returns a heap struct holding an internal
- * open-addressing robin-hood hash table. Both keys and values are
- * stored as 16-byte tagged Any slots so `Map<any, any>` works
- * naturally; typed `Map<string, T>` shapes still share this storage
- * (the SSA side boxes / unboxes at the call boundary).
+ * `new Map()` returns a heap struct holding an internal split-table
+ * hash map (V8 OrderedHashMap / Python dict shape): a separate
+ * `entries[]` array packs every (k, v) in insertion order, while a
+ * `slots[]` array uses open-addressing robin-hood probing to map a
+ * hash to an entry-index. Iteration walks `entries[]` in order, so
+ * `m.forEach / .entries / .keys / .values` see spec-mandated
+ * insertion-order semantics (§23.1.4) — no auxiliary linked list
+ * needed, no entry shuffling on robin-hood displacement (slots
+ * move; entries stay put).
+ *
+ * Both keys and values are stored as 16-byte tagged Any slots so
+ * `Map<any, any>` works naturally; typed `Map<string, T>` shapes
+ * still share this storage (the SSA side boxes / unboxes at the
+ * call boundary).
  *
  * Key equality follows SameValueZero (string byte-equal / IEEE-754
  * number with NaN == NaN / pointer identity for objects / arrays /
  * functions / closures / dates / regex / etc.). Per ES §23.1.3.1
- * Map.prototype.set, the "previous value" semantics apply: setting an
- * existing key replaces the value (the old value's strong ref is
+ * Map.prototype.set, the "previous value" semantics apply: setting
+ * an existing key replaces the value (the old value's strong ref is
  * dropped before the new ref is installed).
  *
  * Heap layout:
  *
  *     [universal_heap_header (8B)]
- *     [n_entries u32]      — live entries (excludes tombstones)
- *     [n_capacity u32]     — bucket array length; always power of 2
- *     [n_tombstones u32]
- *     [_pad u32]           — align
- *     [entries ptr (8B)]   — MapEntry[n_capacity]
+ *     [n_entries u32]        — live entries (excludes tombstones)
+ *     [n_used u32]            — entries used incl. tombstones (≤ entries_cap)
+ *     [entries_cap u32]
+ *     [slots_count u32]       — bucket array length; always power of 2
+ *     [n_tombstones u32]      — slot-side tombstone count
+ *     [_pad u32]              — align
+ *     [slots ptr (8B)]        — u32[slots_count]; each = entry_index or sentinel
+ *     [entries ptr (8B)]      — MapEntry[entries_cap], packed insertion-order
  *
- * `MapEntry` is 40 bytes:
+ * Each slot stores an entry-index plus its real hash so robin-hood
+ * probing can compare without dereferencing the entry. The slot
+ * sentinels are `SLOT_EMPTY = UINT32_MAX` and `SLOT_TOMBSTONE =
+ * UINT32_MAX - 1`. The slot at index `i` is a 64-bit pair
+ * `(hash u32 << 32) | entry_index u32`; entry_index UINT32_MAX
+ * marks empty, UINT32_MAX-1 marks a tombstone.
  *
- *     [hash u32]           — 0 = empty, 1 = tombstone; real hashes
- *                            force MSB so they're always >= 2
- *     [probe_dist u32]     — robin-hood probe distance from the
- *                            entry's "ideal" slot
- *     [key_tag u8 + 7 pad] — Any tag byte (TAG_INT / TAG_HEAP / …)
+ * Each `MapEntry` is 40 bytes:
+ *
+ *     [hash u32]              — 0 = tombstone (live entries always >= 1)
+ *     [_pad u32]
+ *     [key_tag u8 + 7 pad]
  *     [key_payload u64]
  *     [value_tag u8 + 7 pad]
  *     [value_payload u64]
  *
- * Initial capacity is 8; grow on load > 0.75. Tombstones are
- * cleaned out on every grow (no separate compaction pass).
- *
- * P6.1 Step 1 + 2 scope: heap struct + tag + alloc + drop. The
- * actual SameValueZero hash + lookup + set / get / has / delete
- * land in subsequent sub-steps (Step 3+). Drop walks every live
- * entry and drops both key + value via value_drop_heap (which
- * dispatches per-type for heap-tagged Any values; primitive-tagged
- * entries are no-ops).
+ * P6.1 + 2 + 3 ship: heap struct + tag + alloc + drop + SameValueZero
+ * key hash / equality + set + get + has + delete + clear + size.
+ * P6.4a adds the insertion-order iter substrate (entries[]-walk via
+ * `__torajs_map_iter_next`) which forEach / entries / keys / values
+ * consume.
  */
 
 #include <stdint.h>
@@ -81,10 +94,33 @@ extern void __torajs_value_drop_heap(void *p);
 extern void __torajs_rc_inc(void *p);
 extern int64_t __torajs_str_eq(const uint8_t *a, const uint8_t *b);
 
-/* MapEntry — see file header for layout. Total 40 bytes. */
+/* Entry tombstone marker — a slot still pointing here lets iter
+ * detect-and-skip without consulting the slot array. Live entries
+ * always have `entry.hash >= 1` (the bucket-side `hash` mixes in
+ * payload bits + an explicit `| 1` so it never lands on 0). */
+#define ENTRY_HASH_TOMBSTONE 0u
+
+/* Slot sentinels. Stored in the low 32 bits of the slot's 64-bit
+ * cell; the high 32 bits hold the real hash for compare-without-
+ * deref. */
+#define SLOT_EMPTY     0xFFFFFFFFu
+#define SLOT_TOMBSTONE 0xFFFFFFFEu
+
+#define MAP_ENTRIES_INITIAL 8u
+#define MAP_SLOTS_INITIAL   16u
+
+/* Each slot in the open-addressing table is a 64-bit pair packing
+ * the real hash (high 32) + the entry index into entries[] (low 32).
+ * Compare without dereferencing entries[]. */
+typedef uint64_t MapSlot;
+
+#define SLOT_HASH(s)       ((uint32_t)((s) >> 32))
+#define SLOT_INDEX(s)      ((uint32_t)((s) & 0xFFFFFFFFu))
+#define SLOT_MAKE(h, idx)  ((((uint64_t)(h)) << 32) | (uint32_t)(idx))
+
 typedef struct {
     uint32_t hash;
-    uint32_t probe_dist;
+    uint32_t _pad;
     uint8_t  key_tag;
     uint8_t  _kpad[7];
     uint64_t key_payload;
@@ -95,81 +131,15 @@ typedef struct {
 
 typedef struct {
     __torajs_heap_header_t header;
-    uint32_t n_entries;
-    uint32_t n_capacity;
-    uint32_t n_tombstones;
+    uint32_t n_entries;       /* live entry count */
+    uint32_t n_used;          /* entries[] occupied prefix (incl. tombstones) */
+    uint32_t entries_cap;
+    uint32_t slots_count;
+    uint32_t n_tombstones;    /* slot-side tombstones */
     uint32_t _pad;
+    MapSlot *slots;
     MapEntry *entries;
 } Map;
-
-#define MAP_INITIAL_CAPACITY 8u
-#define MAP_HASH_EMPTY 0u
-#define MAP_HASH_TOMBSTONE 1u
-
-/* ============================================================
- * Public API — Step 1 + 2 surface (alloc + drop).
- * ============================================================ */
-
-/* `new Map()` — alloc fresh empty map. capacity is power of 2
- * (8 initially). entries[] is calloc'd so every slot starts with
- * hash == MAP_HASH_EMPTY (== 0). */
-void *__torajs_map_create(void) {
-    Map *m = (Map *)malloc(sizeof(Map));
-    m->header.refcount = 1;
-    m->header.type_tag = __TORAJS_TAG_MAP;
-    m->header.flags = 0;
-    m->n_entries = 0;
-    m->n_capacity = MAP_INITIAL_CAPACITY;
-    m->n_tombstones = 0;
-    m->_pad = 0;
-    m->entries = (MapEntry *)calloc(m->n_capacity, sizeof(MapEntry));
-    return m;
-}
-
-/* Drop a single entry's key + value rc-ref if the corresponding tag
- * carries the heap bit. Heap-tagged Any values point at an
- * rc-aware heap object whose drop is value_drop_heap (which
- * dispatches per-type via the universal heap header). Primitive-
- * tagged entries (int / f64 / bool / null / undef) are no-ops. */
-static void map_entry_drop_refs(MapEntry *e) {
-    if (e->key_tag == __TORAJS_ANY_HEAP) {
-        void *kp = (void *)(uintptr_t)e->key_payload;
-        if (kp != NULL) __torajs_value_drop_heap(kp);
-    }
-    if (e->value_tag == __TORAJS_ANY_HEAP) {
-        void *vp = (void *)(uintptr_t)e->value_payload;
-        if (vp != NULL) __torajs_value_drop_heap(vp);
-    }
-}
-
-/* rc-aware drop. Called from value_drop_heap's TAG_MAP case (Step 5
- * wires this into the dispatch table). On last owner: walk every
- * live entry, drop both refs, free the entries array, free the
- * Map struct. STATIC_LITERAL flag (bit 2) is reserved for future
- * compile-time-known Maps; current Maps are always heap-fresh. */
-void __torajs_map_drop(void *p) {
-    if (!p) return;
-    Map *m = (Map *)p;
-    if (m->header.flags & 4 /* STATIC_LITERAL */) return;
-    m->header.refcount -= 1;
-    if (m->header.refcount != 0) return;
-    for (uint32_t i = 0; i < m->n_capacity; i++) {
-        MapEntry *e = &m->entries[i];
-        if (e->hash == MAP_HASH_EMPTY || e->hash == MAP_HASH_TOMBSTONE) continue;
-        map_entry_drop_refs(e);
-    }
-    free(m->entries);
-    free(m);
-}
-
-/* `m.size` getter — exposed as a plain helper since SSA Member
- * access on a getter goes through this for now. Returns i64 to
- * match the typed-tier callsite (Number is i64-bit-wide at SSA). */
-int64_t __torajs_map_size(void *p) {
-    if (!p) return 0;
-    Map *m = (Map *)p;
-    return (int64_t)m->n_entries;
-}
 
 /* ============================================================
  * Hashing + key equality (SameValueZero, spec §7.2.10).
@@ -197,8 +167,8 @@ static uint32_t map_hash_bytes(const uint8_t *bytes, uint64_t len) {
 }
 
 /* Compute the 32-bit hash for an Any-tagged key. The returned
- * value is always >= 2 — values 0 and 1 are reserved sentinels
- * (empty slot / tombstone) in the bucket array. */
+ * value is always >= 1 — value 0 is reserved as the entry-side
+ * tombstone marker. */
 static uint32_t map_hash_key(uint8_t tag, uint64_t payload) {
     uint32_t h;
     switch (tag) {
@@ -249,7 +219,7 @@ static uint32_t map_hash_key(uint8_t tag, uint64_t payload) {
         h = map_mix_u64(payload ^ 0xbadULL);
         break;
     }
-    if (h < 2) h = 2;
+    if (h == 0) h = 1;
     return h;
 }
 
@@ -292,123 +262,136 @@ static int map_keys_equal(uint8_t ta, uint64_t pa, uint8_t tb, uint64_t pb) {
 }
 
 /* ============================================================
- * Open-addressing robin-hood probing.
+ * Slot table — robin-hood probing over (hash, entry_index) pairs.
  *
- * Each slot stores its full hash + probe distance. On insert we
- * walk the probe sequence comparing probe distances; when we
- * encounter a slot whose probe distance is *less* than ours, we
- * displace it (taking its slot, then continuing to insert the
- * displaced entry). This keeps the variance in probe length low,
- * which is what gives robin-hood its predictable performance.
- *
- * Lookup walks the same sequence but stops as soon as probe
- * distance exceeds the expected distance for the searched key —
- * if the key were present, it would have displaced an entry at
- * that point.
- *
- * Tombstones (hash == 1) participate in probing (skip-and-continue)
- * but are reclaimed on grow. We rehash on (load + tombstones) >
- * 0.75 × capacity.
+ * The entries[] array is the source of truth for `m.set / get / has
+ * / delete`; the slots[] table is purely an acceleration index.
+ * Robin-hood swaps move SLOT cells around, never the underlying
+ * MapEntry — entry indices are stable for the entry's lifetime,
+ * so iteration order (which walks entries[]) is preserved no
+ * matter how much the hash table reshuffles.
  * ============================================================ */
 
 #define MAP_LOAD_NUMER 3
 #define MAP_LOAD_DENOM 4
 
-static void map_grow(Map *m, uint32_t new_cap);
-
-/* Insert an entry into a freshly-zeroed buckets array; assumes no
- * resize is needed (caller has sized the new array). Used by
- * `map_grow`'s rehash loop. */
-static void map_insert_raw(MapEntry *buckets, uint32_t cap,
-                           uint32_t hash,
-                           uint8_t kt, uint64_t kp,
-                           uint8_t vt, uint64_t vp) {
+/* Insert into a freshly-zeroed slots array. Robin-hood: when the
+ * incoming slot's probe distance exceeds the slot it visits, swap
+ * and continue with the displaced cell. Caller is responsible for
+ * having sized the array to accommodate the load. */
+static void map_slot_insert(MapSlot *slots, uint32_t cap, uint32_t hash, uint32_t idx) {
     uint32_t mask = cap - 1;
     uint32_t i = hash & mask;
     uint32_t probe = 0;
-    uint8_t ct_kt = kt, ct_vt = vt;
-    uint64_t ct_kp = kp, ct_vp = vp;
-    uint32_t ct_hash = hash;
+    uint32_t cur_hash = hash;
+    uint32_t cur_idx = idx;
     for (;;) {
-        MapEntry *e = &buckets[i];
-        if (e->hash == MAP_HASH_EMPTY) {
-            e->hash = ct_hash;
-            e->probe_dist = probe;
-            e->key_tag = ct_kt;
-            e->key_payload = ct_kp;
-            e->value_tag = ct_vt;
-            e->value_payload = ct_vp;
+        MapSlot s = slots[i];
+        if (SLOT_INDEX(s) == SLOT_EMPTY) {
+            slots[i] = SLOT_MAKE(cur_hash, cur_idx);
             return;
         }
-        if (e->probe_dist < probe) {
-            /* Robin-hood: displace this richer entry. */
-            uint32_t nh = e->hash; uint32_t np = e->probe_dist;
-            uint8_t nkt = e->key_tag; uint64_t nkp = e->key_payload;
-            uint8_t nvt = e->value_tag; uint64_t nvp = e->value_payload;
-            e->hash = ct_hash; e->probe_dist = probe;
-            e->key_tag = ct_kt; e->key_payload = ct_kp;
-            e->value_tag = ct_vt; e->value_payload = ct_vp;
-            ct_hash = nh; probe = np;
-            ct_kt = nkt; ct_kp = nkp;
-            ct_vt = nvt; ct_vp = nvp;
+        /* Probe distance = how far this slot is from its ideal. */
+        uint32_t slot_ideal = SLOT_HASH(s) & mask;
+        uint32_t slot_probe = (i + cap - slot_ideal) & mask;
+        if (slot_probe < probe) {
+            /* Robin-hood: displace this richer slot. */
+            uint32_t old_hash = SLOT_HASH(s);
+            uint32_t old_idx = SLOT_INDEX(s);
+            slots[i] = SLOT_MAKE(cur_hash, cur_idx);
+            cur_hash = old_hash;
+            cur_idx = old_idx;
+            probe = slot_probe;
         }
         i = (i + 1) & mask;
         probe += 1;
     }
 }
 
-static void map_grow(Map *m, uint32_t new_cap) {
-    MapEntry *old = m->entries;
-    uint32_t old_cap = m->n_capacity;
-    MapEntry *next = (MapEntry *)calloc(new_cap, sizeof(MapEntry));
-    for (uint32_t i = 0; i < old_cap; i++) {
-        MapEntry *e = &old[i];
-        if (e->hash == MAP_HASH_EMPTY || e->hash == MAP_HASH_TOMBSTONE) continue;
-        map_insert_raw(next, new_cap, e->hash,
-                       e->key_tag, e->key_payload,
-                       e->value_tag, e->value_payload);
+/* Look up the entry index for `(tag, payload)`. Returns the slot
+ * index (suitable for tombstone-marking on delete) and entry index
+ * via out-params. Returns 1 on hit; on miss returns 0 and the slot
+ * index where insertion would happen + hash. */
+static int map_lookup_slot(const Map *m, uint8_t tag, uint64_t payload,
+                           uint32_t *out_hash, uint32_t *out_slot_idx,
+                           uint32_t *out_entry_idx) {
+    uint32_t hash = map_hash_key(tag, payload);
+    *out_hash = hash;
+    uint32_t mask = m->slots_count - 1;
+    uint32_t i = hash & mask;
+    uint32_t probe = 0;
+    uint32_t first_tomb = m->slots_count;
+    for (;;) {
+        MapSlot s = m->slots[i];
+        uint32_t s_idx = SLOT_INDEX(s);
+        if (s_idx == SLOT_EMPTY) {
+            *out_slot_idx = (first_tomb != m->slots_count) ? first_tomb : i;
+            *out_entry_idx = SLOT_EMPTY;
+            return 0;
+        }
+        if (s_idx == SLOT_TOMBSTONE) {
+            if (first_tomb == m->slots_count) first_tomb = i;
+        } else if (SLOT_HASH(s) == hash) {
+            MapEntry *e = &m->entries[s_idx];
+            if (map_keys_equal(e->key_tag, e->key_payload, tag, payload)) {
+                *out_slot_idx = i;
+                *out_entry_idx = s_idx;
+                return 1;
+            }
+        } else {
+            /* Robin-hood early termination: if we've outprobed the
+             * resident here and it's not a tombstone, the key
+             * isn't anywhere later in the chain either. */
+            uint32_t slot_ideal = SLOT_HASH(s) & mask;
+            uint32_t slot_probe = (i + m->slots_count - slot_ideal) & mask;
+            if (slot_probe < probe) {
+                *out_slot_idx = (first_tomb != m->slots_count) ? first_tomb : i;
+                *out_entry_idx = SLOT_EMPTY;
+                return 0;
+            }
+        }
+        i = (i + 1) & mask;
+        probe += 1;
+        if (probe >= m->slots_count) {
+            *out_slot_idx = (first_tomb != m->slots_count) ? first_tomb : i;
+            *out_entry_idx = SLOT_EMPTY;
+            return 0;
+        }
     }
-    free(old);
-    m->entries = next;
-    m->n_capacity = new_cap;
+}
+
+/* Rebuild after deletes have accumulated tombstones in entries[],
+ * after the entries[] array runs out of room, or after the slot
+ * table crosses its load threshold. Compacts entries[] (removing
+ * tombstones, preserving insertion order) into a fresh array of
+ * `new_entries_cap` slots, and reinserts into a fresh slots[] of
+ * `new_slots_count` capacity. */
+static void map_rehash(Map *m, uint32_t new_entries_cap, uint32_t new_slots_count) {
+    MapEntry *old_e = m->entries;
+    uint32_t old_used = m->n_used;
+    MapEntry *new_e = (MapEntry *)calloc(new_entries_cap, sizeof(MapEntry));
+    MapSlot *new_s = (MapSlot *)malloc(new_slots_count * sizeof(MapSlot));
+    for (uint32_t k = 0; k < new_slots_count; k++) new_s[k] = SLOT_MAKE(0, SLOT_EMPTY);
+    uint32_t new_used = 0;
+    for (uint32_t k = 0; k < old_used; k++) {
+        MapEntry *src = &old_e[k];
+        if (src->hash == ENTRY_HASH_TOMBSTONE) continue;
+        new_e[new_used] = *src;
+        map_slot_insert(new_s, new_slots_count, src->hash, new_used);
+        new_used += 1;
+    }
+    free(old_e);
+    free(m->slots);
+    m->entries = new_e;
+    m->slots = new_s;
+    m->entries_cap = new_entries_cap;
+    m->slots_count = new_slots_count;
+    m->n_used = new_used;
     m->n_tombstones = 0;
 }
 
-/* Locate the bucket index for `key` if present. Returns capacity
- * (out-of-range) when not found. On match, also fills *out_hash. */
-static uint32_t map_find_slot(const Map *m, uint8_t kt, uint64_t kp,
-                              uint32_t *out_hash) {
-    uint32_t hash = map_hash_key(kt, kp);
-    uint32_t mask = m->n_capacity - 1;
-    uint32_t i = hash & mask;
-    uint32_t probe = 0;
-    for (;;) {
-        MapEntry *e = &m->entries[i];
-        if (e->hash == MAP_HASH_EMPTY) {
-            *out_hash = hash;
-            return m->n_capacity;
-        }
-        if (e->hash != MAP_HASH_TOMBSTONE && e->hash == hash
-            && map_keys_equal(e->key_tag, e->key_payload, kt, kp)) {
-            *out_hash = hash;
-            return i;
-        }
-        if (e->hash != MAP_HASH_TOMBSTONE && e->probe_dist < probe) {
-            /* Past where the key would have been placed. */
-            *out_hash = hash;
-            return m->n_capacity;
-        }
-        i = (i + 1) & mask;
-        probe += 1;
-        if (probe >= m->n_capacity) {
-            *out_hash = hash;
-            return m->n_capacity;
-        }
-    }
-}
-
 /* ============================================================
- * Public API — Step 3 + 4 surface (set / get / has / delete / clear).
+ * Public API.
  *
  * Convention: the SSA-side caller passes Any-tagged (tag, payload)
  * pairs already unboxed. For HEAP-tagged operands the caller has
@@ -421,27 +404,97 @@ static uint32_t map_find_slot(const Map *m, uint8_t kt, uint64_t kp,
  * collections.
  * ============================================================ */
 
+void *__torajs_map_create(void) {
+    Map *m = (Map *)malloc(sizeof(Map));
+    m->header.refcount = 1;
+    m->header.type_tag = __TORAJS_TAG_MAP;
+    m->header.flags = 0;
+    m->n_entries = 0;
+    m->n_used = 0;
+    m->entries_cap = MAP_ENTRIES_INITIAL;
+    m->slots_count = MAP_SLOTS_INITIAL;
+    m->n_tombstones = 0;
+    m->_pad = 0;
+    m->slots = (MapSlot *)malloc(MAP_SLOTS_INITIAL * sizeof(MapSlot));
+    for (uint32_t k = 0; k < MAP_SLOTS_INITIAL; k++) m->slots[k] = SLOT_MAKE(0, SLOT_EMPTY);
+    m->entries = (MapEntry *)calloc(MAP_ENTRIES_INITIAL, sizeof(MapEntry));
+    return m;
+}
+
+/* Drop a single entry's key + value rc-ref if the corresponding tag
+ * carries the heap bit. Heap-tagged Any values point at an
+ * rc-aware heap object whose drop is value_drop_heap (which
+ * dispatches per-type via the universal heap header). Primitive-
+ * tagged entries (int / f64 / bool / null / undef) are no-ops. */
+static void map_entry_drop_refs(MapEntry *e) {
+    if (e->key_tag == __TORAJS_ANY_HEAP) {
+        void *kp = (void *)(uintptr_t)e->key_payload;
+        if (kp != NULL) __torajs_value_drop_heap(kp);
+    }
+    if (e->value_tag == __TORAJS_ANY_HEAP) {
+        void *vp = (void *)(uintptr_t)e->value_payload;
+        if (vp != NULL) __torajs_value_drop_heap(vp);
+    }
+}
+
+/* rc-aware drop. Called from value_drop_heap's TAG_MAP case (see
+ * runtime_str.c). On last owner: walk every live entry, drop both
+ * refs, free the entries + slots arrays, free the Map struct. */
+void __torajs_map_drop(void *p) {
+    if (!p) return;
+    Map *m = (Map *)p;
+    if (m->header.flags & 4 /* STATIC_LITERAL */) return;
+    m->header.refcount -= 1;
+    if (m->header.refcount != 0) return;
+    for (uint32_t i = 0; i < m->n_used; i++) {
+        MapEntry *e = &m->entries[i];
+        if (e->hash == ENTRY_HASH_TOMBSTONE) continue;
+        map_entry_drop_refs(e);
+    }
+    free(m->slots);
+    free(m->entries);
+    free(m);
+}
+
+int64_t __torajs_map_size(void *p) {
+    if (!p) return 0;
+    Map *m = (Map *)p;
+    return (int64_t)m->n_entries;
+}
+
+/* Per-call helper used by every query-path helper: query borrows
+ * the caller's rc bump on a heap-tagged key, so we release it
+ * before returning. */
+static void map_drop_borrowed_key(uint8_t tag, uint64_t payload) {
+    if (tag == __TORAJS_ANY_HEAP) {
+        void *kp = (void *)(uintptr_t)payload;
+        if (kp != NULL) __torajs_value_drop_heap(kp);
+    }
+}
+
 void __torajs_map_set(void *p,
                       int64_t key_tag, int64_t key_payload,
                       int64_t value_tag, int64_t value_payload) {
     if (!p) return;
     Map *m = (Map *)p;
-    /* Reserve room first; grow if (entries + tombstones + 1) crosses
-     * 0.75 × capacity. */
-    if ((m->n_entries + m->n_tombstones + 1) * MAP_LOAD_DENOM
-        > m->n_capacity * MAP_LOAD_NUMER) {
-        map_grow(m, m->n_capacity * 2);
-    }
     uint8_t kt = (uint8_t)key_tag, vt = (uint8_t)value_tag;
     uint64_t kp = (uint64_t)key_payload, vp = (uint64_t)value_payload;
-    uint32_t hash;
-    uint32_t slot = map_find_slot(m, kt, kp, &hash);
-    if (slot < m->n_capacity) {
-        /* Existing entry — drop old value, install new. Caller has
-         * already rc_inc'd the new value (per the ownership
-         * contract); the old key stays in the table so the caller's
-         * key rc bump must be released to keep the count balanced. */
-        MapEntry *e = &m->entries[slot];
+    /* Resize slots first if (used + tombstones) load would exceed
+     * 0.75. We only check slot-side load — entries[] is grown
+     * separately below when it runs out of room. */
+    if ((m->n_entries + m->n_tombstones + 1) * MAP_LOAD_DENOM
+        > m->slots_count * MAP_LOAD_NUMER) {
+        uint32_t new_slots = m->slots_count * 2;
+        uint32_t new_entries = m->entries_cap;
+        if (m->n_entries + 1 > new_entries) new_entries *= 2;
+        map_rehash(m, new_entries, new_slots);
+    }
+    uint32_t hash, slot_idx, entry_idx;
+    int hit = map_lookup_slot(m, kt, kp, &hash, &slot_idx, &entry_idx);
+    if (hit) {
+        /* Overwrite: drop the caller's heap key bump + the old
+         * value ref; install the new value. */
+        MapEntry *e = &m->entries[entry_idx];
         if (e->value_tag == __TORAJS_ANY_HEAP) {
             void *old_vp = (void *)(uintptr_t)e->value_payload;
             if (old_vp != NULL) __torajs_value_drop_heap(old_vp);
@@ -454,22 +507,31 @@ void __torajs_map_set(void *p,
         e->value_payload = vp;
         return;
     }
-    /* Fresh insert — caller's rc_inc on heap key + heap value is
-     * adopted directly into the entry's slot. */
-    map_insert_raw(m->entries, m->n_capacity, hash, kt, kp, vt, vp);
-    m->n_entries += 1;
-}
-
-/* Per-call helper used by every query-path helper: query borrows
- * the caller's rc bump on a heap-tagged key, so we release it
- * before returning. Set / fresh-insert keep the bump (the entry
- * adopts it); set-on-existing also drops since the original key
- * stays in the table. */
-static void map_drop_borrowed_key(uint8_t tag, uint64_t payload) {
-    if (tag == __TORAJS_ANY_HEAP) {
-        void *kp = (void *)(uintptr_t)payload;
-        if (kp != NULL) __torajs_value_drop_heap(kp);
+    /* Fresh insert. Grow entries[] if needed. */
+    if (m->n_used >= m->entries_cap) {
+        uint32_t new_entries = m->entries_cap * 2;
+        map_rehash(m, new_entries, m->slots_count);
+        /* Re-lookup since slot indices have changed under rehash. */
+        hit = map_lookup_slot(m, kt, kp, &hash, &slot_idx, &entry_idx);
+        (void)hit;
     }
+    uint32_t new_idx = m->n_used;
+    MapEntry *e = &m->entries[new_idx];
+    e->hash = hash;
+    e->key_tag = kt;
+    e->key_payload = kp;
+    e->value_tag = vt;
+    e->value_payload = vp;
+    m->n_used += 1;
+    m->n_entries += 1;
+    /* Slot placement: always go through robin-hood probing. The
+     * `slot_idx` returned by `map_lookup_slot` for tombstone
+     * reuse is opportunistic — letting map_slot_insert handle the
+     * chain keeps the invariant that displaced cells are
+     * placed via the proper robin-hood swap. Tombstones are
+     * compacted out on the next rehash trigger. */
+    (void)slot_idx;
+    map_slot_insert(m->slots, m->slots_count, hash, new_idx);
 }
 
 /* Returns 1 / 0 (boolean-shaped) per `m.has(k)` spec §23.1.3.7. */
@@ -477,9 +539,9 @@ int64_t __torajs_map_has(void *p, int64_t key_tag, int64_t key_payload) {
     int64_t r = 0;
     if (p) {
         Map *m = (Map *)p;
-        uint32_t hash;
-        uint32_t slot = map_find_slot(m, (uint8_t)key_tag, (uint64_t)key_payload, &hash);
-        r = slot < m->n_capacity ? 1 : 0;
+        uint32_t hash, slot_idx, entry_idx;
+        r = map_lookup_slot(m, (uint8_t)key_tag, (uint64_t)key_payload,
+                            &hash, &slot_idx, &entry_idx) ? 1 : 0;
     }
     map_drop_borrowed_key((uint8_t)key_tag, (uint64_t)key_payload);
     return r;
@@ -487,8 +549,7 @@ int64_t __torajs_map_has(void *p, int64_t key_tag, int64_t key_payload) {
 
 /* `m.get(k)` — fills out_tag / out_payload with the stored value
  * (rc_inc'd when heap) or with ANY_UNDEF / 0 when absent. The
- * caller owns the returned ref. Two-output convention via out
- * pointers avoids a temp Any-box alloc on the common hit path. */
+ * caller owns the returned ref. */
 void __torajs_map_get(void *p, int64_t key_tag, int64_t key_payload,
                       int64_t *out_tag, int64_t *out_payload) {
     if (!p) {
@@ -498,15 +559,16 @@ void __torajs_map_get(void *p, int64_t key_tag, int64_t key_payload,
         return;
     }
     Map *m = (Map *)p;
-    uint32_t hash;
-    uint32_t slot = map_find_slot(m, (uint8_t)key_tag, (uint64_t)key_payload, &hash);
-    if (slot >= m->n_capacity) {
+    uint32_t hash, slot_idx, entry_idx;
+    int hit = map_lookup_slot(m, (uint8_t)key_tag, (uint64_t)key_payload,
+                              &hash, &slot_idx, &entry_idx);
+    if (!hit) {
         *out_tag = __TORAJS_ANY_UNDEF;
         *out_payload = 0;
         map_drop_borrowed_key((uint8_t)key_tag, (uint64_t)key_payload);
         return;
     }
-    MapEntry *e = &m->entries[slot];
+    MapEntry *e = &m->entries[entry_idx];
     *out_tag = (int64_t)e->value_tag;
     *out_payload = (int64_t)e->value_payload;
     if (e->value_tag == __TORAJS_ANY_HEAP) {
@@ -517,27 +579,29 @@ void __torajs_map_get(void *p, int64_t key_tag, int64_t key_payload,
 }
 
 /* `m.delete(k)` — returns 1 if key was present, 0 otherwise. The
- * entry's key + value refs are dropped; the slot becomes a
- * tombstone (cleaned up on next grow). */
+ * entry is converted to an entries[]-side tombstone (hash=0) and
+ * the slot becomes SLOT_TOMBSTONE so probe chains step over it. */
 int64_t __torajs_map_delete(void *p, int64_t key_tag, int64_t key_payload) {
     int64_t r = 0;
     if (p) {
         Map *m = (Map *)p;
-        uint32_t hash;
-        uint32_t slot = map_find_slot(m, (uint8_t)key_tag, (uint64_t)key_payload, &hash);
-        if (slot < m->n_capacity) {
-            MapEntry *e = &m->entries[slot];
+        uint32_t hash, slot_idx, entry_idx;
+        int hit = map_lookup_slot(m, (uint8_t)key_tag, (uint64_t)key_payload,
+                                  &hash, &slot_idx, &entry_idx);
+        if (hit) {
+            MapEntry *e = &m->entries[entry_idx];
             map_entry_drop_refs(e);
-            e->hash = MAP_HASH_TOMBSTONE;
-            e->probe_dist = 0;
+            e->hash = ENTRY_HASH_TOMBSTONE;
             e->key_tag = 0;
             e->key_payload = 0;
             e->value_tag = 0;
             e->value_payload = 0;
+            m->slots[slot_idx] = SLOT_MAKE(0, SLOT_TOMBSTONE);
             m->n_entries -= 1;
             m->n_tombstones += 1;
-            if (m->n_tombstones > m->n_capacity / 4) {
-                map_grow(m, m->n_capacity);
+            if (m->n_tombstones > m->slots_count / 4) {
+                /* Compact entries[] + reset tombstones. */
+                map_rehash(m, m->entries_cap, m->slots_count);
             }
             r = 1;
         }
@@ -546,17 +610,48 @@ int64_t __torajs_map_delete(void *p, int64_t key_tag, int64_t key_payload) {
     return r;
 }
 
-/* `m.clear()` — drop all entries; keep the buckets array (reset to
- * empty so subsequent inserts skip the initial allocation). */
+/* `m.clear()` — drop all entries; reset the slot table to empty.
+ * Reuses the existing slots / entries allocations. */
 void __torajs_map_clear(void *p) {
     if (!p) return;
     Map *m = (Map *)p;
-    for (uint32_t i = 0; i < m->n_capacity; i++) {
+    for (uint32_t i = 0; i < m->n_used; i++) {
         MapEntry *e = &m->entries[i];
-        if (e->hash == MAP_HASH_EMPTY || e->hash == MAP_HASH_TOMBSTONE) continue;
+        if (e->hash == ENTRY_HASH_TOMBSTONE) continue;
         map_entry_drop_refs(e);
     }
-    memset(m->entries, 0, (size_t)m->n_capacity * sizeof(MapEntry));
+    memset(m->entries, 0, (size_t)m->entries_cap * sizeof(MapEntry));
+    for (uint32_t k = 0; k < m->slots_count; k++) m->slots[k] = SLOT_MAKE(0, SLOT_EMPTY);
     m->n_entries = 0;
+    m->n_used = 0;
     m->n_tombstones = 0;
+}
+
+/* P6.4a — `m.forEach` / `s.forEach` iter step. Walks `entries[]` in
+ * insertion order (spec §23.1.4 / §24.2.4). Cursor is an i64 stack
+ * slot the SSA side stores `-1` into to mark first-call; the helper
+ * resolves that to entry-index 0 and advances by entries[] index
+ * each call. Returns 1 when a live entry is filled into out-params,
+ * 0 when the cursor has run off the end (or the map is empty). */
+int64_t __torajs_map_iter_next(void *p,
+                               int64_t *cursor,
+                               int64_t *out_k_tag, int64_t *out_k_payload,
+                               int64_t *out_v_tag, int64_t *out_v_payload) {
+    if (!p) return 0;
+    Map *m = (Map *)p;
+    int64_t c = *cursor;
+    uint32_t i = (c == -1LL) ? 0u : (uint32_t)c;
+    while (i < m->n_used) {
+        MapEntry *e = &m->entries[i];
+        i += 1;
+        if (e->hash == ENTRY_HASH_TOMBSTONE) continue;
+        *out_k_tag = (int64_t)e->key_tag;
+        *out_k_payload = (int64_t)e->key_payload;
+        *out_v_tag = (int64_t)e->value_tag;
+        *out_v_payload = (int64_t)e->value_payload;
+        *cursor = (int64_t)i;
+        return 1;
+    }
+    *cursor = (int64_t)m->n_used;
+    return 0;
 }

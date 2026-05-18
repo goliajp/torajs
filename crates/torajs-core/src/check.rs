@@ -3748,6 +3748,17 @@ impl Checker {
                         Vec::new(),
                         Box::new(Type::Void),
                     )),
+                    /* P6.4a — Map.forEach. Spec callback shape is
+                     * `(value, key, map) => void`. Both `value` and
+                     * `key` are type-erased to Any since storage is
+                     * the (tag, payload) Any-domain. */
+                    (Type::Map, "forEach") => Ok(Type::Function(
+                        vec![Type::Function(
+                            vec![Type::Any, Type::Any, Type::Map],
+                            Box::new(Type::Void),
+                        )],
+                        Box::new(Type::Void),
+                    )),
                     /* P6.2 — Set<T> methods. add takes a single Any-
                      * typed value; storage piggy-backs on Map<T,
                      * undef> at runtime. */
@@ -3765,6 +3776,16 @@ impl Checker {
                     )),
                     (Type::Set, "clear") => Ok(Type::Function(
                         Vec::new(),
+                        Box::new(Type::Void),
+                    )),
+                    /* P6.4a — Set.forEach. Spec callback shape is
+                     * `(value, value2, set) => void`, where the
+                     * first two args are the same element. */
+                    (Type::Set, "forEach") => Ok(Type::Function(
+                        vec![Type::Function(
+                            vec![Type::Any, Type::Any, Type::Set],
+                            Box::new(Type::Void),
+                        )],
                         Box::new(Type::Void),
                     )),
                     // v0.2 #2 Phase 2.0a — Date instance methods.
