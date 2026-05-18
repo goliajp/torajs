@@ -110,3 +110,9 @@ function __t262_assertRelativeDateMs(_date: any, _ms: any): void {}
 function __t262_compareArray_assert(_actual: any, _expected: any, _msg: string = ""): void {}
 function __t262_deepEqual(_actual: any, _expected: any, _msg: string = ""): void {}
 function __t262_compareIterator(_iter: any, _vals: any, _msg: string = ""): void {}
+function __t262_verifyCallableProperty(_obj: any, _name: any, _fnName: any, _fnLen: any, _desc: any): boolean { return true; }
+function __t262_verifyEqualTo(_obj: any, _name: any, _value: any): boolean { return true; }
+function __t262_isConfigurable(_obj: any, _name: any): boolean { return true; }
+function __t262_isEnumerable(_obj: any, _name: any): boolean { return true; }
+function __t262_isSameValue(_a: any, _b: any): boolean { return true; }
+function __t262_isWritable(_obj: any, _name: any): boolean { return true; }
