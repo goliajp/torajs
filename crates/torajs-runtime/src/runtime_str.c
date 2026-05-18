@@ -156,6 +156,7 @@ typedef struct __attribute__((aligned(8))) {
 #define __TORAJS_TAG_WEAKREF 11 /* T-26 — WeakRef: header + target ptr (NULL = target reclaimed) */
 #define __TORAJS_TAG_WEAKMAP 12 /* T-26.B — WeakMap: header + bucket table; entries observed via weakref registry */
 #define __TORAJS_TAG_WEAKSET 13 /* T-26.B — WeakSet: same as WeakMap minus the value side */
+#define __TORAJS_TAG_MAP     15 /* P6.1 — strong-ref Map<K,V>: header + n_entries + capacity + tombstones + entries ptr */
 #define __TORAJS_TAG_DYNOBJ  14 /* P3.1 — dynamic-property object (HashMap-backed):
                                  * header(8) + count(u32) + cap(u32) +
                                  * tombstones(u32) + pad(u32) + buckets[cap] of
@@ -1361,6 +1362,7 @@ extern void __torajs_bigint_drop(void *p);
 extern void __torajs_weakref_drop(void *p);
 extern void __torajs_weakmap_drop(void *p);
 extern void __torajs_weakset_drop(void *p);
+extern void __torajs_map_drop(void *p);
 
 void __torajs_value_drop_heap(void *child) {
     if (child == NULL) return;
@@ -1393,6 +1395,15 @@ void __torajs_value_drop_heap(void *child) {
         }
         case __TORAJS_TAG_WEAKSET: {
             __torajs_weakset_drop(child);
+            break;
+        }
+        case __TORAJS_TAG_MAP: {
+            /* P6.1 / P6.2 — Map and Set both wear TAG_MAP at the
+             * heap-header level (Type::Set is a SSA-side
+             * distinction; storage is the same). map_drop walks
+             * live entries, drops each (key, value) heap ref, and
+             * frees the entries array + Map struct. */
+            __torajs_map_drop(child);
             break;
         }
         case __TORAJS_TAG_DYNOBJ: {

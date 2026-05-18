@@ -55,7 +55,11 @@ typedef struct __attribute__((aligned(8))) {
     uint16_t flags;
 } __torajs_heap_header_t;
 
-#define __TORAJS_TAG_MAP 6
+/* P6.1 — must NOT collide with the dispatch table in runtime_str.c
+ * (TAG 0-7 already used: STR/OBJ/ARR/CLOSURE/REGEX/DATE/ANY_BOX/
+ * SYMBOL; 8=Promise; 9-14 used by Response/BigInt/WeakRef/
+ * WeakMap/WeakSet/DYNOBJ). Tag 15 is the first free slot. */
+#define __TORAJS_TAG_MAP 15
 
 /* ANY tag enum values shared with runtime_str.c. Only HEAP (4)
  * routes through value_drop_heap on drop; the inline-payload tags
