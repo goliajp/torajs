@@ -2395,8 +2395,13 @@ impl Checker {
                 }
                 self.scopes.pop();
                 // catch in a fresh scope with `e` injected. Type comes
-                // from `(e: T)` annotation — defaults to Number for
-                // backwards compat with M4.1's `throw 99` shape.
+                // from `(e: T)` annotation. P7.2b-2 — an unannotated
+                // `catch (e)` is implicitly `any` per TS spec (an
+                // explicit non-any/unknown annotation is TS1196); the
+                // old Number default was a pre-spec tora-ism. Mirrors
+                // the ssa_lower `None => Type::Any` default so the
+                // check-tier sees `e` as Any too (member access /
+                // arithmetic / return all go through the Any paths).
                 let e_ty = match catch_type {
                     Some(ann) => match resolve_type_ann_full(
                         ann,
@@ -2409,10 +2414,10 @@ impl Checker {
                             self.errors.push_err(format!(
                                 "unknown type `{ann}` in catch param"
                             ));
-                            Type::Number
+                            Type::Any
                         }
                     },
-                    None => Type::Number,
+                    None => Type::Any,
                 };
                 self.scopes.push(HashMap::new());
                 if let Some(p) = catch_param {

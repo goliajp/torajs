@@ -11458,7 +11458,20 @@ impl<'a> LowerCtx<'a> {
                     // throw_take returns i64; if the user annotated a
                     // ptr-shaped type (string / obj / arr / closure), the
                     // backend's call-boundary cast helper widens i64 →
-                    // ptr at the Store. Default = I64 (M4.1 shape).
+                    // ptr at the Store.
+                    //
+                    // P7.2b-2 — an *unannotated* `catch (e)` binds Any,
+                    // not I64. Per TS spec the catch parameter is
+                    // implicitly `any` (an explicit non-any/unknown
+                    // annotation is TS1196); the M4.1 I64 default was a
+                    // pre-spec tora-ism that silently corrupted any
+                    // non-int throw (string / float / object caught
+                    // untyped read back as a raw pointer / f64 bits).
+                    // Any routes through the tag-aware any_box
+                    // reconstruction below — correct for every thrown
+                    // type. Enabled by P7.2b-1: `catch (e) { return e
+                    // + n }` from a numeric-ret fn now flows
+                    // any_add → any_to_number at the return boundary.
                     let e_ty = match catch_type {
                         Some(ann) => parse_type(
                             Some(ann.as_str()),
@@ -11468,7 +11481,7 @@ impl<'a> LowerCtx<'a> {
                             self.generic_struct_decls,
                             self.struct_layouts,
                         ),
-                        None => Type::I64,
+                        None => Type::Any,
                     };
                     // P4.7 — catch `: any` reconstructs an Any-box from
                     // (tag, value). Read tag FIRST (no side-effects),
@@ -12011,23 +12024,7 @@ impl<'a> LowerCtx<'a> {
                     if actual == Type::Any
                         && matches!(self.f.ret, Type::I64 | Type::F64)
                     {
-                        let num = Operand::Value(self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Call(
-                                self.intrinsics.any_to_number,
-                                vec![op],
-                            ),
-                            Type::F64,
-                            None,
-                        ));
-                        return if self.f.ret == Type::F64 {
-                            num
-                        } else {
-                            // I64-declared return: narrow via the
-                            // existing F64→i64 ToInteger path
-                            // (FpToSi; NaN / ±Inf handled).
-                            self.coerce_to_i64(num)
-                        };
+                        return self.coerce_any_to_number(op, self.f.ret);
                     }
                     if self.f.ret == Type::F64 && actual == Type::I64 {
                         self.coerce_to_f64(op)
@@ -13327,6 +13324,17 @@ impl<'a> LowerCtx<'a> {
                             // the boxed v.
                         } else if v_ty != snapshot.ty
                             && !(snapshot.ty == Type::F64 && v_ty == Type::I64)
+                            // P7.2b-2 — Any → numeric slot is coercible
+                            // (ToNumber), not a mismatch. Enables
+                            // `catch (e) { r = e + 1 }` where r is a
+                            // declared `: number` (m4-03 shape): the
+                            // untyped catch now binds Any, any_add
+                            // yields Any, and this slot-store narrows
+                            // it back via coerce_any_to_number below —
+                            // the assignment-site twin of the
+                            // Stmt::Return arm.
+                            && !(matches!(snapshot.ty, Type::I64 | Type::F64)
+                                && v_ty == Type::Any)
                         {
                             // i64-into-f64 slot is auto-coerced below the
                             // existing LetDecl shape; everything else is a
@@ -13348,6 +13356,14 @@ impl<'a> LowerCtx<'a> {
                             self.box_to_any(v)
                         } else if snapshot.ty == Type::F64 && v_ty == Type::I64 {
                             self.coerce_to_f64(v)
+                        } else if matches!(snapshot.ty, Type::I64 | Type::F64)
+                            && v_ty == Type::Any
+                        {
+                            // P7.2b-2 — symmetric to box_to_any above:
+                            // Any value into a concrete numeric slot
+                            // unboxes via ToNumber (shared helper with
+                            // Stmt::Return so the two sinks can't drift).
+                            self.coerce_any_to_number(v, snapshot.ty)
                         } else {
                             v
                         };
@@ -25623,6 +25639,28 @@ impl<'a> LowerCtx<'a> {
                 _ => op,
             },
             other => panic!("ssa-lower: cannot coerce {other:?} to f64"),
+        }
+    }
+
+    /// P7.2b — coerce an Any operand to a concrete numeric: JS spec
+    /// §7.1.4 ToNumber via the one `__torajs_any_to_number` runtime
+    /// helper, then narrowed to `target` (F64 as-is, or I64 via the
+    /// existing F64→i64 ToInteger path). Single place for the
+    /// Any→number sink so Stmt::Return and Assign can't drift apart
+    /// (mirrors coerce_to_bool's `Type::Any => any_to_bool`
+    /// precedent). Caller guarantees `operand_ty(op) == Type::Any`
+    /// and `target` ∈ {I64, F64}.
+    fn coerce_any_to_number(&mut self, op: Operand, target: Type) -> Operand {
+        let num = Operand::Value(self.f.append_inst(
+            self.cur_block,
+            InstKind::Call(self.intrinsics.any_to_number, vec![op]),
+            Type::F64,
+            None,
+        ));
+        if target == Type::F64 {
+            num
+        } else {
+            self.coerce_to_i64(num)
         }
     }
 
