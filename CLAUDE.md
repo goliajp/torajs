@@ -142,13 +142,13 @@ find /private/tmp -maxdepth 1 -name '*.ts' -delete 2>/dev/null
 
 ### 收尾 sequence（HARD RULE 顺序，不可分拆、不可附加任何 token）
 
-按此顺序执行，**第 3 步之后这一 turn 不再输出任何 token**：
+按此顺序执行，**第 3 步之外这一 turn 不再输出任何 token**：
 
 1. 调 `/handoff:handoff save`（让 handoff skill 写出 `.claude/handoff.md`）。
 2. 跑 `hardev/autorun/trigger.sh self`（生成 rotation_id + 写 `.claude/autorun-intent` + 追加一行到 `hardev/autorun/rotations.jsonl`）。
-3. **STOP**。不解释、不收尾、不道别、不"等待 takagi"——sequence 完即静默。
+3. **emit 最多一行 status 确认，然后 STOP**。一行示例：`rotation <id> recorded · /clear + /handoff:handoff resume 切到新 session`。这一行**之外**不再输出任何 token——不解释、不道别、不"等待 takagi"。
 
-"不再输出任何 token" 是关键：LLM 有礼貌啰嗦倾向（"已保存，等下次会话见"之类），写硬之后 rotation log 的时间戳才是干净的 boundary signal；将来 P1 Stop hook 的 marker 时机才能稳定。
+Why 一行而非 0 行：**P0 stage（无 watcher）下，agent-side boundary signal 是 takagi 唯一能在屏幕看到「agent 完成 rotation 已 ready to /clear」的 cue**。完全 STOP 会被误判为 "卡了"（首次 dogfood 已暴露此 UX gap，2026-05-20）。**P1 stage（Stop hook + watcher 上线）后此条 fall back 到完全 STOP**——watcher 进入接管 boundary signaling，UI cue 不再必要。
 
 ### takagi 怎么手动介入
 
@@ -158,7 +158,7 @@ find /private/tmp -maxdepth 1 -name '*.ts' -delete 2>/dev/null
 
 ### Anti-pattern（绝对不做）
 
-- ❌ rotation 后还输出 token（哪怕「好的，已 save」也不行）
+- ❌ rotation 后输出**超过一行**或加 explanation/道别（P0 允许且仅允许 trigger.sh 后 **一行** status confirmation；P1 watcher 上线后回到完全静默）
 - ❌ 用 `/handoff:handoff save` 后跳过 trigger.sh 直接停（rotation log 缺行 = baseline 失真）
 - ❌ trigger.sh 后又自己跑 `/clear` 或 `/handoff:handoff resume`（P0 是手动 rotation，模型不要越权；P1 watcher 才接管这两步）
 - ❌ "感觉差不多"就切（drift 信号是观察事实不是感觉；上面 4 条 trigger 必须有一条成立才切）
