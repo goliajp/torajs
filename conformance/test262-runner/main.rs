@@ -58,6 +58,7 @@ struct Args {
     filter: Option<String>,
     workers: usize,
     report_bugs: usize,
+    json_out: Option<String>,
 }
 
 fn parse_args() -> Args {
@@ -65,6 +66,7 @@ fn parse_args() -> Args {
     let mut filter: Option<String> = None;
     let mut workers = DEFAULT_WORKERS;
     let mut report_bugs = DEFAULT_REPORT_BUGS;
+    let mut json_out: Option<String> = None;
     let mut iter = std::env::args().skip(1);
     while let Some(a) = iter.next() {
         match a.as_str() {
@@ -80,9 +82,10 @@ fn parse_args() -> Args {
                     report_bugs = v;
                 }
             }
+            "--json" => json_out = iter.next(),
             "-h" | "--help" => {
                 eprintln!(
-                    "torajs-test262 — run tc39/test262 against tr\n\nflags:\n  --limit N       only first N cases\n  --filter STR    cases whose path contains STR\n  --workers N     concurrency (default {DEFAULT_WORKERS})\n  --report-bugs N list first N bug failures (default {DEFAULT_REPORT_BUGS})"
+                    "torajs-test262 — run tc39/test262 against tr\n\nflags:\n  --limit N       only first N cases\n  --filter STR    cases whose path contains STR\n  --workers N     concurrency (default {DEFAULT_WORKERS})\n  --report-bugs N list first N bug failures (default {DEFAULT_REPORT_BUGS})\n  --json PATH     also write machine-readable summary to PATH"
                 );
                 std::process::exit(0);
             }
@@ -97,7 +100,116 @@ fn parse_args() -> Args {
         filter,
         workers,
         report_bugs,
+        json_out,
     }
+}
+
+/// Minimal hand-rolled JSON object writer (test262-runner is zero-dep).
+/// Escapes `"` and `\` in strings; everything else assumed ASCII-safe.
+fn write_summary_json(
+    out: &Path,
+    ran_at: &str,
+    head_sha: &str,
+    elapsed_sec: f64,
+    workers: usize,
+    limit: Option<usize>,
+    total_cases: usize,
+    ran: usize,
+    pass: usize,
+    bug: usize,
+    incompatible: usize,
+    bun_skip: usize,
+    harness_error: usize,
+    in_scope: usize,
+    tr_accepted: usize,
+    pass_rate_in_scope: f64,
+    pass_rate_tr_accepted: f64,
+) -> std::io::Result<()> {
+    fn esc(s: &str) -> String {
+        s.replace('\\', "\\\\").replace('"', "\\\"")
+    }
+    let limit_json = match limit {
+        Some(n) => n.to_string(),
+        None => "null".to_string(),
+    };
+    let body = format!(
+        "{{\n  \"ranAt\": \"{ra}\",\n  \"headSha\": \"{hs}\",\n  \"elapsedSec\": {es:.2},\n  \"workers\": {w},\n  \"limit\": {lj},\n  \"totalCases\": {tc},\n  \"ran\": {ran},\n  \"pass\": {pass},\n  \"bug\": {bug},\n  \"incompatible\": {inc},\n  \"bunSkip\": {bs},\n  \"harnessError\": {he},\n  \"inScope\": {is_},\n  \"trAccepted\": {ta},\n  \"passRateInScope\": {pris:.2},\n  \"passRateTrAccepted\": {prta:.2}\n}}\n",
+        ra = esc(ran_at),
+        hs = esc(head_sha),
+        es = elapsed_sec,
+        w = workers,
+        lj = limit_json,
+        tc = total_cases,
+        ran = ran,
+        pass = pass,
+        bug = bug,
+        inc = incompatible,
+        bs = bun_skip,
+        he = harness_error,
+        is_ = in_scope,
+        ta = tr_accepted,
+        pris = pass_rate_in_scope,
+        prta = pass_rate_tr_accepted,
+    );
+    let mut f = std::fs::File::create(out)?;
+    f.write_all(body.as_bytes())?;
+    Ok(())
+}
+
+/// Read git HEAD short sha from `.git/HEAD` chain, falling back to
+/// `git rev-parse` if the chain doesn't resolve to a packed/loose ref.
+/// Best-effort — returns "unknown" on any error since the JSON consumer
+/// must tolerate it (cold-start invocations may not be in a git repo).
+fn detect_head_sha() -> String {
+    if let Ok(out) = std::process::Command::new("git")
+        .args(["rev-parse", "--short", "HEAD"])
+        .output()
+        && out.status.success()
+    {
+        let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if !s.is_empty() {
+            return s;
+        }
+    }
+    "unknown".to_string()
+}
+
+/// RFC 3339 UTC timestamp without external deps. Uses libc gmtime.
+fn now_rfc3339() -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    // Convert epoch seconds to civil date via Howard Hinnant's algorithm.
+    let z = secs as i64;
+    let days = z.div_euclid(86_400);
+    let secs_of_day = z.rem_euclid(86_400);
+    let hh = secs_of_day / 3600;
+    let mm = (secs_of_day / 60) % 60;
+    let ss = secs_of_day % 60;
+    let z_days = days + 719_468;
+    let era = if z_days >= 0 {
+        z_days
+    } else {
+        z_days - 146_096
+    } / 146_097;
+    let doe = (z_days - era * 146_097) as u64;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+    format!(
+        "{y:04}-{m:02}-{d:02}T{hh:02}:{mm:02}:{ss:02}Z",
+        y = y,
+        m = m,
+        d = d,
+        hh = hh,
+        mm = mm,
+        ss = ss,
+    )
 }
 
 fn collect_cases(root: &Path, filter: Option<&str>) -> Vec<PathBuf> {
@@ -734,6 +846,38 @@ fn main() {
         println!("\nharness errors (first 5):");
         for (p, msg) in harness_err.iter().take(5) {
             println!("  {}: {msg}", p.display());
+        }
+    }
+
+    // --json: machine-readable summary for downstream consumers (hardev
+    // dashboard's snapshot.mjs reads this, falls back to historical
+    // values if absent). Written last so the JSON reflects the same
+    // values shown in the stdout report above.
+    if let Some(out_path) = args.json_out.as_deref() {
+        let ran_at = now_rfc3339();
+        let head_sha = detect_head_sha();
+        if let Err(e) = write_summary_json(
+            Path::new(out_path),
+            &ran_at,
+            &head_sha,
+            elapsed,
+            args.workers,
+            args.limit,
+            total,
+            cases.len(),
+            pass,
+            bugs.len(),
+            incompat_total,
+            bun_skip,
+            harness_err.len(),
+            in_scope,
+            tr_accepted,
+            pass_rate_in_scope,
+            pass_rate_tr_accepted,
+        ) {
+            eprintln!("warn: --json write to {out_path}: {e}");
+        } else {
+            println!("\njson summary: {out_path}");
         }
     }
 }

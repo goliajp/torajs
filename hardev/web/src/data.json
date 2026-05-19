@@ -1,17 +1,35 @@
 {
-  "generatedAt": "2026-05-19T08:14:41.346Z",
-  "hardevVersion": "0.1.13",
+  "generatedAt": "2026-05-19T22:00:24.820Z",
+  "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 629,
     "fail": 0,
     "skip": 1,
     "raw": "629/0/1"
   },
+  "test262": {
+    "ranAt": "2026-05-19T22:00:04Z",
+    "headSha": "2486552",
+    "elapsedSec": 786.53,
+    "workers": 8,
+    "limit": null,
+    "totalCases": 53174,
+    "ran": 53174,
+    "pass": 3344,
+    "bug": 271,
+    "incompatible": 24699,
+    "bunSkip": 24860,
+    "harnessError": 0,
+    "inScope": 28314,
+    "trAccepted": 3615,
+    "passRateInScope": 11.81,
+    "passRateTrAccepted": 92.5
+  },
   "torajs": {
-    "commit": "1973e6d",
-    "commitSubject": "docs: roadmap P7 — de-drift checkboxes (P7.1-P7.4 SHIPPED, P7.5 CURRENT)",
-    "phase": "P7",
-    "phaseTitle": "Error type hierarchy + throw any",
+    "commit": "2486552",
+    "commitSubject": "FLAKE-FIX: serialize LLVM codegen via COMPILE_LOCK at ssa_inkwell source",
+    "phase": "P8",
+    "phaseTitle": "Class spec full (private + static blocks + accessor + super)",
     "conformance": {
       "pass": 629,
       "fail": 0,
@@ -58,12 +76,12 @@
     {
       "id": "P7",
       "title": "Error type hierarchy + throw any",
-      "status": "CURRENT"
+      "status": "DONE"
     },
     {
       "id": "P8",
       "title": "Class spec full (private + static blocks + accessor + super)",
-      "status": "queued"
+      "status": "CURRENT"
     },
     {
       "id": "P9",
@@ -156,6 +174,16 @@
     }
   ],
   "changelog": [
+    {
+      "version": "0.1.14",
+      "date": "2026-05-19",
+      "title": "hardev efficiency empirically verified on real P7.5 dev work",
+      "bullets": [
+        "edit→rebuild tr (touch torajs-core, --profile iter) = 4.46 s",
+        "The L2-reopen plan transition (autorun-on-torajs RESUMED, P7.5",
+        "docs/roadmap.md P7 sub-checkboxes de-drifted (P7.1–P7.4 [x] with"
+      ]
+    },
     {
       "version": "0.1.13",
       "date": "2026-05-19",
@@ -531,53 +559,53 @@
   },
   "commits": [
     {
-      "hash": "1973e6d",
-      "subject": "docs: roadmap P7 — de-drift checkboxes (P7.1-P7.4 SHIPPED, P7.5 CURRENT)"
+      "hash": "2486552",
+      "subject": "FLAKE-FIX: serialize LLVM codegen via COMPILE_LOCK at ssa_inkwell source"
     },
     {
-      "hash": "8b8180b",
-      "subject": "hardev v0.1.13: dashboard re-centered torajs-primary (hardev = one supporting section)"
+      "hash": "da95206",
+      "subject": "B-BENCH-VER: latest-stable verify + PATH-drift detect"
     },
     {
-      "hash": "4128987",
-      "subject": "hardev v0.1.12: taskq checker INV-2 (header<->L4 agreement + drift-engine guard)"
+      "hash": "134d10d",
+      "subject": "chore: gitignore .nudo.toml (per-dev IDE config)"
     },
     {
-      "hash": "b261ea8",
-      "subject": "hardev v0.1.11: taskq checker — INV-1a/1b/5 enforced + README charter de-drifted"
+      "hash": "eed8d9f",
+      "subject": "docs: roadmap — P8.2 SHIPPED (class accessors)"
     },
     {
-      "hash": "4328d6a",
-      "subject": "hardev v0.1.10: web dashboard — devops/starters/web scaffold (GDS-stripped), pitch.html design, live progress+bench"
+      "hash": "550a6fd",
+      "subject": "P8.2-A4+A5: accessor read+write end-to-end + round-trip fixture"
     },
     {
-      "hash": "9a29c8d",
-      "subject": "hardev v0.1.9: taskq pillar — invariants spec + first application (de-drift live plan)"
+      "hash": "5db54bf",
+      "subject": "P8.2-A3: desugar renames accessors; side-channel maps populated"
     },
     {
-      "hash": "c1840b2",
-      "subject": "hardev v0.1.8: cleanup pillar — close the devperf-#1 coverage gap"
+      "hash": "acd6202",
+      "subject": "P8.2-A1+A2: parser detects get/set; AST records AccessorKind"
     },
     {
-      "hash": "f2dd9a2",
-      "subject": "hardev: environment.md §0 — ls-t|head unreliable + never rm $VAR (near-miss recorded)"
+      "hash": "4ebdc5b",
+      "subject": "docs: roadmap — P8.1 SHIPPED (5/5 substrate done)"
     },
     {
-      "hash": "dc0810e",
-      "subject": "hardev v0.1.7: bench B2b — artifact-precheck (seconds for tr-unchanged)"
+      "hash": "e966db8",
+      "subject": "P8.1-A4/A5: parse-time mangling for this.#x + round-trip fixture"
     },
     {
-      "hash": "0281a2d",
-      "subject": "hardev v0.1.6: bench B2 — --self per-commit fast path"
+      "hash": "915afa9",
+      "subject": "P8.1-A3: parser accepts #ident after dot (member access)"
     },
     {
-      "hash": "5246021",
-      "subject": "hardev v0.1.5: bench B1b — native N-run aggregation (median + MAD)"
+      "hash": "cb806d3",
+      "subject": "P8.1-A2: parser accepts #ident as private class field (mangled)"
     },
     {
-      "hash": "48dcb4b",
-      "subject": "hardev v0.1.4: bench B1 — bench compare machine regression verdict"
+      "hash": "2747225",
+      "subject": "P8.1-A1: lexer recognizes #ident as PrivateIdent token"
     }
   ],
-  "headSha": "1973e6d"
+  "headSha": "2486552"
 }

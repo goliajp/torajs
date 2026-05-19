@@ -5,6 +5,29 @@ export type Conformance = {
   raw: string
 }
 
+// tc39/test262 spec-conformance snapshot. Populated from
+// `hardev/test262-latest.json` (produced by `torajs-test262 --json`).
+// Absent when no full run has been recorded yet — dashboard renders an
+// explicit "not yet measured" stub rather than fabricating numbers.
+export type Test262 = {
+  ranAt: string
+  headSha: string
+  elapsedSec: number
+  workers: number
+  limit: number | null
+  totalCases: number
+  ran: number
+  pass: number
+  bug: number
+  incompatible: number
+  bunSkip: number
+  harnessError: number
+  inScope: number
+  trAccepted: number
+  passRateInScope: number
+  passRateTrAccepted: number
+}
+
 export type Headline = {
   value: string
   unit: string
@@ -78,6 +101,7 @@ export type SnapshotData = {
   generatedAt: string
   hardevVersion: string
   conformance: Conformance
+  test262: Test262 | null
   torajs: Torajs
   roadmap: RoadmapPhase[]
   headline: Headline[]

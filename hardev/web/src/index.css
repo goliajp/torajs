@@ -418,6 +418,88 @@ section {
   margin-top: 8px;
 }
 
+/* ─── test262 card (full-width, headline metric for spec conformance) ─── */
+.t262-card {
+  margin-top: 24px;
+  padding: 20px 0;
+  border-bottom: 1px solid var(--rule);
+}
+.t262-row {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 24px;
+}
+.t262-main {
+  min-width: 240px;
+}
+.t262-headline {
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-variation-settings:
+    'wdth' 80,
+    'opsz' 96,
+    'wght' 700;
+  font-size: 36px;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  font-feature-settings: 'tnum';
+}
+.t262-headline .d {
+  color: var(--tora);
+  font-size: 18px;
+  margin-left: 6px;
+}
+.t262-headline .pct {
+  color: var(--ink-muted);
+  font-size: 20px;
+  margin-left: 14px;
+  font-variation-settings:
+    'wdth' 90,
+    'opsz' 24,
+    'wght' 500;
+}
+.t262-label {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+  margin-top: 8px;
+}
+.t262-breakdown {
+  display: flex;
+  gap: 22px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 12px;
+  color: var(--ink-muted);
+  flex-wrap: wrap;
+}
+.t262-breakdown b {
+  color: var(--ink);
+  font-weight: 500;
+}
+.t262-stamp {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  color: var(--ink-muted);
+  margin-top: 14px;
+}
+.t262-empty .t262-empty-body {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 12px;
+  color: var(--ink-muted);
+  margin-top: 8px;
+}
+.t262-empty code {
+  font-family: 'IBM Plex Mono', monospace;
+  color: var(--ink);
+  background: var(--rule);
+  padding: 1px 6px;
+  border-radius: 2px;
+  font-size: 11px;
+}
+
 /* ─── Version timeline ─── */
 .timeline {
   margin-top: 18px;

@@ -259,6 +259,52 @@ function buildBench(j) {
 }
 const bench = buildBench(benchPick.json)
 
+// ── test262: latest known full-run JSON (optional) ───────────────────────
+// Produced by `torajs-test262 --json hardev/test262-latest.json`. Absent
+// when no full run is recorded — the dashboard renders a stub in that
+// case rather than fabricating numbers (snapshot rule: no invented data).
+function parseTest262() {
+  const path = join(HARDEV_DIR, 'test262-latest.json')
+  let raw
+  try {
+    raw = read(path)
+  } catch {
+    return null
+  }
+  let j
+  try {
+    j = JSON.parse(raw)
+  } catch (e) {
+    throw new Error(`snapshot: ${path} is not valid JSON — ${e.message}`)
+  }
+  // Required keys; missing any means schema drift between runner + snapshot.
+  const required = [
+    'ranAt',
+    'headSha',
+    'elapsedSec',
+    'workers',
+    'limit',
+    'totalCases',
+    'ran',
+    'pass',
+    'bug',
+    'incompatible',
+    'bunSkip',
+    'harnessError',
+    'inScope',
+    'trAccepted',
+    'passRateInScope',
+    'passRateTrAccepted',
+  ]
+  for (const k of required) {
+    if (!(k in j)) {
+      throw new Error(`snapshot: ${path} missing field "${k}" — runner schema drift?`)
+    }
+  }
+  return j
+}
+const test262 = parseTest262()
+
 // ── conformance: latest known, grep'd from metrics.md / CHANGELOG ────────
 function findConformance() {
   const sources = [metricsMd, read(join(HARDEV_DIR, 'CHANGELOG.md'))]
@@ -350,6 +396,7 @@ const data = {
   generatedAt: new Date().toISOString(),
   hardevVersion: version,
   conformance,
+  test262,
   torajs,
   roadmap,
   headline,
@@ -387,3 +434,10 @@ console.log(
   `  geomean vs bun-aot ${bench.geomeanBunAot?.toFixed(2)}× · vs node-v8 ${bench.geomeanNodeV8?.toFixed(2)}×`
 )
 console.log(`  changelog: ${changelog.length} releases · ${commits.length} commits`)
+if (test262) {
+  console.log(
+    `  test262: ${test262.pass}/${test262.inScope} (${test262.passRateInScope.toFixed(2)}% in-scope) · ranAt ${test262.ranAt} @ ${test262.headSha}`
+  )
+} else {
+  console.log(`  test262: (no hardev/test262-latest.json — run torajs-test262 --json to populate)`)
+}

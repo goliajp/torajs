@@ -1,0 +1,18 @@
+{
+  "ranAt": "2026-05-19T22:00:04Z",
+  "headSha": "2486552",
+  "elapsedSec": 786.53,
+  "workers": 8,
+  "limit": null,
+  "totalCases": 53174,
+  "ran": 53174,
+  "pass": 3344,
+  "bug": 271,
+  "incompatible": 24699,
+  "bunSkip": 24860,
+  "harnessError": 0,
+  "inScope": 28314,
+  "trAccepted": 3615,
+  "passRateInScope": 11.81,
+  "passRateTrAccepted": 92.50
+}

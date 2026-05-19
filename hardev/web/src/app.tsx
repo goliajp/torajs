@@ -32,6 +32,16 @@ function todayLabel(): string {
   return `${y} · ${m} · ${day}`
 }
 
+function shortRanAt(iso: string): string {
+  // "2026-05-20T12:34:56Z" → "2026-05-20"
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  const y = d.getUTCFullYear()
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0')
+  const day = String(d.getUTCDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
 // take the leading fact from a metrics.md `now` cell, drop the [M]/✅ noise
 function shortStatus(p: Pillar): string {
   let s = p.status
@@ -158,7 +168,7 @@ function Progress() {
               /{c.fail}/{c.skip}
             </span>
           </div>
-          <div className="stat-l">conformance · 0 fail</div>
+          <div className="stat-l">subset conformance · 0 fail</div>
         </div>
         <div className="stat-cell">
           <div className="stat-v">{t.phase}</div>
@@ -176,7 +186,63 @@ function Progress() {
           <div className="stat-l">benchmarks won</div>
         </div>
       </div>
+
+      <Test262Card />
     </section>
+  )
+}
+
+// tc39/test262 spec-conformance — the ECMAScript reference suite. The
+// number Anthropic / Bun / V8 are measured against. Distinct from the
+// 'subset conformance' card above (which is the in-tree fixture set
+// torajs has handcrafted). When `data.test262` is null (no full run
+// captured yet) the card renders an explicit stub rather than fabricating
+// numbers — per the snapshot rule that the dashboard never invents data.
+function Test262Card() {
+  const t = data.test262
+  if (!t) {
+    return (
+      <div className="t262-card t262-empty">
+        <div className="t262-label">test262 (tc39 ECMAScript spec suite)</div>
+        <div className="t262-empty-body">
+          no full run recorded yet — run{' '}
+          <code>cargo run -p torajs-test262 --release -- --json hardev/test262-latest.json</code> to
+          populate
+        </div>
+      </div>
+    )
+  }
+  return (
+    <div className="t262-card">
+      <div className="t262-row">
+        <div className="t262-main">
+          <div className="t262-headline">
+            {t.pass}
+            <span className="d">/{t.inScope}</span>
+            <span className="pct">{t.passRateInScope.toFixed(2)}%</span>
+          </div>
+          <div className="t262-label">test262 · tc39 ECMAScript spec suite · in-scope pass</div>
+        </div>
+        <div className="t262-breakdown">
+          <span>
+            <b>{t.bug}</b> bug
+          </span>
+          <span>
+            <b>{t.incompatible}</b> incompatible
+          </span>
+          <span>
+            <b>{t.bunSkip}</b> bun-skip
+          </span>
+          <span>
+            <b>{t.trAccepted}</b> tr-accepted ({t.passRateTrAccepted.toFixed(1)}%)
+          </span>
+        </div>
+      </div>
+      <div className="t262-stamp">
+        ran {shortRanAt(t.ranAt)} · HEAD {t.headSha} · {t.ran.toLocaleString()} of{' '}
+        {t.totalCases.toLocaleString()} cases · {t.workers} workers · {t.elapsedSec.toFixed(0)}s
+      </div>
+    </div>
   )
 }
 

@@ -75,6 +75,30 @@ Establishing metrics *immediately* paid off (this is the point):
 | coverage vs phase under dev | **gap** `[M]`: 26 cases, **no bigint, 1 exception case** — P7 (Error/bigint) shipped with no direct bench coverage | each phase adds ≥1 hot-path case for its substrate `[D]` | coverage auto-tracks the active phase `[D]` |
 | multi-run aggregation | **`bench run --runs N` — native interleaved N-pass median + MAD in one json** `[M]` ✅ B1b SHIPPED (was: same-name overwrite, agent log-parsing) | (met) feed aggregated json into a statistical noise-band verdict | built into a CI statistical `bench compare` `[D]` |
 
+## 5. test262 — ECMAScript spec conformance
+
+The tc39/test262 reference suite is the cross-engine standard every TS/JS
+runtime is measured against. Distinct from §1's *subset* conformance
+(631/0/1 — torajs's hand-curated in-tree fixtures that prove the strict
+TS slice it accepts is bun-equivalent). test262 measures **how much of
+the full ECMAScript surface torajs has reached so far** — the leading
+indicator for "what % of programs Bun runs will torajs also run".
+
+| Metric | now (v0.1.0) | after v1 | after v2 |
+|---|---|---|---|
+| in-scope pass rate | **3344/28314 (11.81 %)** `[M]` `hardev/test262-latest.json` @ `2486552` (53,174 total cases, 786 s wall, 8 workers; in-scope = bun-pass cases torajs at least attempted = 28,314) | ≥ 30 % `[D]` (each P8–P13 substrate phase opens spec slices: classes, regex, async, Unicode, IEEE-754) | **≥ 90 %** on the in-scope slice — v1.0 hard gate (`docs/100-percent-plan.md`) `[D]` |
+| tr-accepted parity | **3344/3615 (92.50 %)** `[M]` — when tr accepts a case, the result agrees with bun 92.5 % of the time; the remaining 271 are "bug" classified (real spec gaps to fix, not subset-boundary rejects) | ≥ 99 % (zero silent divergence on the accepted slice) `[D]` | 100 % (every accepted program is byte-equivalent to bun) `[D]` |
+| total bug count | **271** `[M]` (cases tr accepts but produces wrong output) | ≤ 100 (P8 + P11 + P12 each close known bug clusters) `[D]` | ≤ 10 (residual rare-edge spec corners) `[D]` |
+| dashboard surface | **devserver :6002 `Test262Card` — pass/in-scope + rate + breakdown (bug / incompatible / bun-skip) + ran-at + HEAD stamp** `[M]` ✅ DASH-T262 SHIPPED — single source of truth so any takagi/agent glance sees the live number | unchanged | dashboard auto-refresh via per-commit `torajs-test262 --json` in CI `[D]` |
+| measurement freshness | **manual `--json` invocation** `[M]` (8 workers · ~13 min wall · zero-dep runner) — re-run after substrate phase ships | nightly cron (CI machine) | per-PR delta in CI `[D]` |
+
+How the number is *meant* to be read:
+
+- `pass / inScope` is the **headline** — what spec slice torajs gets right when it doesn't bail out at the subset boundary.
+- `incompatible` (24,699) is **not** a bug — those are cases tr correctly rejects with a documented boundary message (regex, Symbol, Proxy, Function constructor, ...). Every one of them points at a future roadmap phase, not a permanent design boundary (`feedback_torajs_ambition`).
+- `bun-skip` (24,860) are negative tests, harness-dependent tests, and test262 internals that the oracle (bun) also doesn't run — not interesting for either runtime.
+- `bug` (271) is the real backlog: cases that pass the subset boundary, get accepted by tr, but diverge from bun. **These are the spec gaps** to close phase by phase.
+
 ## How to keep this file honest
 
 1. Never write an untagged number. `[M]` must cite the command/log.
