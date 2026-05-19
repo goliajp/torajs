@@ -19,3 +19,6 @@ vendor/
 # Bun's `bun build --compile` leaves these cache files wherever it ran.
 # Bench harness invokes it from the workspace root, so they land here.
 .*.bun-build
+
+# Per-developer IDE config (nudo)
+.nudo.toml
