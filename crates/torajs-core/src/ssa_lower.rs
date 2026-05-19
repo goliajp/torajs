@@ -13855,6 +13855,15 @@ impl<'a> LowerCtx<'a> {
                                 vec![obj_val.clone()],
                             ),
                         );
+                        // P7.4-frozen — obj_check_not_frozen now arms a
+                        // real TypeError (instead of process abort) when
+                        // the target is frozen. Force the throw-check
+                        // here (intrinsic → emit_throw_check(Some) would
+                        // skip it) so it diverts to the try/catch or
+                        // propagates BEFORE the field store below — the
+                        // illegal mutation must not happen. Mirrors the
+                        // a-2 dynobj writable=false pattern.
+                        self.emit_throw_check(None);
                         // V3-06 — `this.kids = []` in a constructor.
                         // Mirrors the K.6 LetDecl-global path: empty
                         // array literals lack inferable element type

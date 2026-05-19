@@ -3209,7 +3209,17 @@ void __torajs_obj_check_not_frozen(const void *p) {
     if (p == NULL) return;
     const __torajs_heap_header_t *h = (const __torajs_heap_header_t *)p;
     if (h->flags & __TORAJS_FLAG_FROZEN) {
-        __torajs_panic("TypeError: Attempted to assign to readonly property");
+        /* P7.4-frozen — real catchable TypeError instead of process
+         * abort (spec §10.1.5 OrdinarySet: strict assignment to a
+         * non-writable property throws). Mirrors a-2's dynobj
+         * writable=false path. torajs_throw_type_error RETURNS (only
+         * arms the throw slot) — bail now; ssa_lower emits an
+         * emit_throw_check(None) right after this call which diverts
+         * to the user's try/catch (or propagates) BEFORE the field
+         * store, so the illegal mutation never happens. Prefix
+         * stripped: .message is the bare text, .name is "TypeError". */
+        torajs_throw_type_error("Attempted to assign to readonly property");
+        return;
     }
 }
 
