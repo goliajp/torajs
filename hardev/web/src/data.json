@@ -1,6 +1,6 @@
 {
-  "generatedAt": "2026-05-19T08:07:42.892Z",
-  "hardevVersion": "0.1.12",
+  "generatedAt": "2026-05-19T08:14:41.346Z",
+  "hardevVersion": "0.1.13",
   "conformance": {
     "pass": 629,
     "fail": 0,
@@ -8,8 +8,8 @@
     "raw": "629/0/1"
   },
   "torajs": {
-    "commit": "4128987",
-    "commitSubject": "hardev v0.1.12: taskq checker INV-2 (header<->L4 agreement + drift-engine guard)",
+    "commit": "1973e6d",
+    "commitSubject": "docs: roadmap P7 — de-drift checkboxes (P7.1-P7.4 SHIPPED, P7.5 CURRENT)",
     "phase": "P7",
     "phaseTitle": "Error type hierarchy + throw any",
     "conformance": {
@@ -156,6 +156,17 @@
     }
   ],
   "changelog": [
+    {
+      "version": "0.1.13",
+      "date": "2026-05-19",
+      "title": "dashboard re-centered torajs-primary (hardev = one supporting section)",
+      "bullets": [
+        "Render order now Header(torajs) → Hero(\"TypeScript, compiled to",
+        "snapshot.mjs +roadmap (real parse of docs/roadmap.md ### P<N>",
+        "Independently audited: render order correct, zero GDS, roadmap",
+        "Honest deviation (agent-flagged, verified): docs/roadmap.md P7"
+      ]
+    },
     {
       "version": "0.1.12",
       "date": "2026-05-19",
@@ -520,6 +531,14 @@
   },
   "commits": [
     {
+      "hash": "1973e6d",
+      "subject": "docs: roadmap P7 — de-drift checkboxes (P7.1-P7.4 SHIPPED, P7.5 CURRENT)"
+    },
+    {
+      "hash": "8b8180b",
+      "subject": "hardev v0.1.13: dashboard re-centered torajs-primary (hardev = one supporting section)"
+    },
+    {
       "hash": "4128987",
       "subject": "hardev v0.1.12: taskq checker INV-2 (header<->L4 agreement + drift-engine guard)"
     },
@@ -558,15 +577,7 @@
     {
       "hash": "48dcb4b",
       "subject": "hardev v0.1.4: bench B1 — bench compare machine regression verdict"
-    },
-    {
-      "hash": "0726979",
-      "subject": "hardev v0.1.3: bench B0 — bench always measures the current ship binary"
-    },
-    {
-      "hash": "778fcdc",
-      "subject": "hardev v0.1.2: devperf #1 — fast iteration profile (~11.4x inner loop)"
     }
   ],
-  "headSha": "4128987"
+  "headSha": "1973e6d"
 }

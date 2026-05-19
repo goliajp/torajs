@@ -4,6 +4,38 @@ Incubation versioning, semver-ish. One entry per shipped hardev change.
 A pillar item is "shipped" only when its metric in `metrics.md` is
 re-measured and the *now* column updated.
 
+## v0.1.14 — 2026-05-19 — hardev efficiency empirically verified on real P7.5 dev work
+
+takagi reopened torajs autorun (full-force P7.5) and asked to test
+whether hardev actually speeds dev. Measured on REAL torajs substrate
+work (not a synthetic bench):
+
+- **edit→rebuild `tr` (touch torajs-core, `--profile iter`) = 4.46 s**
+  under this session's heavy concurrent load, vs **28.5 s** under
+  `--release` = **~6.4×** real speedup (idle best-case ~11.4×). The
+  order-of-magnitude win (seconds vs half-a-minute) HELD on real P7.5
+  substrate iteration. metrics.md §1 edit→rebuild row updated with
+  this empirical-on-real-work datapoint; dashboard re-snapshotted
+  (live :6002, hardev §03).
+- The L2-reopen plan transition (autorun-on-torajs RESUMED, P7.5
+  LIVE, hardev → standing tooling) was fully de-drifted across §7
+  header / directive block / L4-checklist / L3a — taskq `check.sh`
+  caught the half-applied de-drift THREE times (INV-1b version lag,
+  stale directive block, stale line-109) and was satisfied only
+  after every stale side was corrected (never silenced). taskq
+  proven on a real plan-state transition. checker PASS.
+- docs/roadmap.md P7 sub-checkboxes de-drifted (P7.1–P7.4 [x] with
+  ship refs, P7.5 CURRENT) — `1973e6d`.
+
+P7.5 #1 GROUND done (autorun): probed try/catch/finally vs bun on
+spec-§14.13 — 3/4 pass; **real gap found (bun-verified, not
+guessed): an Error thrown THROUGH a `finally` then caught loses its
+instance type** (`e instanceof Error` = false in tr, true in bun;
+finally runs correctly otherwise). That is the P7.5 substrate defect
+to fix next.
+
+CHANGELOG/VERSION 0.1.14.
+
 ## v0.1.13 — 2026-05-19 — dashboard re-centered torajs-primary (hardev = one supporting section)
 
 takagi (emphatic, 3×): torajs is the product; hardev is a tool whose
