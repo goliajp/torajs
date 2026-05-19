@@ -626,6 +626,20 @@ pub struct Ast {
     /// class init context is allowed; check.rs's caller-context tracking
     /// lifts the restriction for the same path that visibility uses.
     pub readonly_fields: std::collections::HashSet<(String, String)>,
+    /// P8.2 — accessor descriptor side-channel maps (ES §10.1.7).
+    /// `(class_name, property_name) → return_type` for getters and
+    /// `(class_name, property_name) → param_type` for setters. Populated
+    /// by `desugar_classes` while walking ClassDecl members tagged
+    /// with `accessor_kind = Some(...)`. The desugared FnDecl is named
+    /// `__cm_<class>__<prop>_get` / `__cm_<class>__<prop>_set` so it
+    /// can't collide with a same-named regular method or with a
+    /// pair of get/set on the same property. check.rs reads the
+    /// getter map at Member type resolution (read side) and the
+    /// setter map at Assign-Member typecheck (write side); ssa_lower
+    /// reads both to emit a Call to the synthesised method instead of
+    /// a direct field Load / Store at offset.
+    pub accessor_getters: std::collections::HashMap<(String, String), String>,
+    pub accessor_setters: std::collections::HashMap<(String, String), String>,
     /// Phase L.2 — names of `async function` declarations recorded by
     /// the parser. desugar_async iterates ast.stmts and, for any
     /// FnDecl whose name is in this set, wraps the return value in a
@@ -2871,6 +2885,12 @@ pub fn desugar_classes(ast: &mut Ast) {
     let mut class_field_preludes: std::collections::HashMap<String, Vec<Stmt>> =
         std::collections::HashMap::new();
     let mut appended: Vec<Stmt> = Vec::new();
+    // P8.2 — buffered accessor map population. Each entry is
+    // (class_name, property_name, synthesised_fn_name). Drained into
+    // `ast.accessor_getters` / `ast.accessor_setters` at the end of
+    // desugar_classes, after the borrow on `ast` is released.
+    let mut accessor_getter_records: Vec<(String, String, String)> = Vec::new();
+    let mut accessor_setter_records: Vec<(String, String, String)> = Vec::new();
     // M-OO.4 — accumulator for `let __sf_<C>__<name>: T = init;`
     // declarations. These get **prepended** to `ast.stmts` (not
     // appended) so the synthetic `main` fn runs them before any
@@ -3074,6 +3094,20 @@ pub fn desugar_classes(ast: &mut Ast) {
     // lower time (handled by the `Type::Obj` Member-call arm).
     for (_, cname, _tp, _, _, _, _, methods, _) in &class_index {
         for m in methods {
+            // P8.2 — accessor methods (`get X` / `set X`) don't go through
+            // the `__dispatch_<M>` method-dispatch path; `c.X` /
+            // `c.X = v` are Member access / Assign sites that ssa_lower
+            // routes to the synthesised `__cm_<C>__X_get` / `_set`
+            // directly via the accessor side-channel maps. Keeping them
+            // out of `method_owners` prevents (a) a spurious
+            // `__dispatch_X` body that calls the never-emitted
+            // `__cm_<C>__X` (collision with the regular-method name)
+            // and (b) a same-name getter+setter pair (or accessor +
+            // regular method) from being miscounted as the override-
+            // case multi-owner chain.
+            if m.accessor_kind.is_some() {
+                continue;
+            }
             method_owners
                 .entry(m.name.clone())
                 .or_default()
@@ -3588,8 +3622,29 @@ pub fn desugar_classes(ast: &mut Ast) {
                 is_rest: false,
             });
             params.extend(m.params.iter().cloned());
+            // P8.2 — accessor methods get a `_get` / `_set` suffix on
+            // their synthesised FnDecl so a get/set pair on the same
+            // property name doesn't collide with each other or with a
+            // same-named regular method. The dispatch maps below let
+            // check.rs / ssa_lower recover the synthesised name from
+            // the user-written `c.prop` / `c.prop = v`.
+            let suffix = match m.accessor_kind {
+                Some(AccessorKind::Getter) => "_get",
+                Some(AccessorKind::Setter) => "_set",
+                None => "",
+            };
+            let fn_name = format!("__cm_{cname}__{}{suffix}", m.name);
+            match m.accessor_kind {
+                Some(AccessorKind::Getter) => {
+                    accessor_getter_records.push((cname.clone(), m.name.clone(), fn_name.clone()));
+                }
+                Some(AccessorKind::Setter) => {
+                    accessor_setter_records.push((cname.clone(), m.name.clone(), fn_name.clone()));
+                }
+                None => {}
+            }
             appended.push(Stmt::FnDecl {
-                name: format!("__cm_{cname}__{}", m.name),
+                name: fn_name,
                 type_params: type_params.clone(),
                 params,
                 return_type: rewrite_this_in_ann(&m.return_type, &this_ann),
@@ -3760,6 +3815,22 @@ pub fn desugar_classes(ast: &mut Ast) {
         .enumerate()
         .map(|(i, n)| (n.clone(), i as u32))
         .collect();
+
+    // P8.2 — drain the accessor records into Ast's side-channel maps.
+    // Done at the tail so the map is complete before any check / lower
+    // pass runs. Duplicate entries (same (class, prop) declared twice
+    // as a getter, etc.) are silently overwritten — the parser already
+    // would have produced two ClassMethod entries that desugar emits
+    // with the same FnDecl name, which the existing dedup at the
+    // FnDecl level catches as "redeclaration". The maps just point
+    // at the final winner, which is fine since the FnDecl-level
+    // error halts the pipeline before any of this is consulted.
+    for (cname, prop, fn_name) in accessor_getter_records {
+        ast.accessor_getters.insert((cname, prop), fn_name);
+    }
+    for (cname, prop, fn_name) in accessor_setter_records {
+        ast.accessor_setters.insert((cname, prop), fn_name);
+    }
 }
 
 /// True iff the call receiver is `this.<field>` AND the named
