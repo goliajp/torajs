@@ -127,6 +127,42 @@ find /private/tmp -maxdepth 1 -name '*.ts' -delete 2>/dev/null
 
 不要把"我没看到问题"当成"没问题"——硬盘填满是渐进的，发现就晚了。
 
+## Autorun rotation protocol (HARD RULE)
+
+长时间 autorun 推进会出现 drift（中文规则破裂、4-layer 越层、silent-wrong 风险升高）。`hardev/autorun/` pillar 治理这件事。本节是**模型侧协议**——必须严格遵守，因为它跟 `hardev/autorun/trigger.sh` + `rotations.jsonl` + 未来的 P1 watcher 是配套的闭环，违反 = 协议失效 = takagi 又得手动管 session 切换。
+
+### 何时触发 rotation
+
+完成以下任一即触发——**自评估，不等 takagi 提**：
+
+1. **phase 收口**：一个 L3a hot 项的全部 step ship 完，且 trigger P{n}→P{n+1} 已 met。
+2. **drift 已发生**：刚 break 了一条 CLAUDE.md HARD RULE（中文沟通 / 4-layer / disk hygiene 等）——再继续 head 不会变清醒，应该切。
+3. **silent-wrong 风险升高**：自己开始觉得"这一段重写好几遍了"/"命名前后不一"/"刚才那个 prose 是从记忆来的没 verify"——疲劳信号，切。
+4. **commit 计数 ≥ 5 且当前 hot 项接近 done**：保守 cap，避免单 session 推过远。
+
+### 收尾 sequence（HARD RULE 顺序，不可分拆、不可附加任何 token）
+
+按此顺序执行，**第 3 步之后这一 turn 不再输出任何 token**：
+
+1. 调 `/handoff:handoff save`（让 handoff skill 写出 `.claude/handoff.md`）。
+2. 跑 `hardev/autorun/trigger.sh self`（生成 rotation_id + 写 `.claude/autorun-intent` + 追加一行到 `hardev/autorun/rotations.jsonl`）。
+3. **STOP**。不解释、不收尾、不道别、不"等待 takagi"——sequence 完即静默。
+
+"不再输出任何 token" 是关键：LLM 有礼貌啰嗦倾向（"已保存，等下次会话见"之类），写硬之后 rotation log 的时间戳才是干净的 boundary signal；将来 P1 Stop hook 的 marker 时机才能稳定。
+
+### takagi 怎么手动介入
+
+- **takagi 想强制切**：跑 `hardev/autorun/trigger.sh manual`（同样产生 rotation_id，但 trigger 字段=`manual`）。
+- **takagi 想取消刚触发的 rotation**：`rm .claude/autorun-intent`（rotations.jsonl 那行保留作 audit trail，**不要 amend log**）。
+- **takagi 想看历史 rotation**：`hardev/autorun/log.sh` 或 `--tail 10` / `--json`。
+
+### Anti-pattern（绝对不做）
+
+- ❌ rotation 后还输出 token（哪怕「好的，已 save」也不行）
+- ❌ 用 `/handoff:handoff save` 后跳过 trigger.sh 直接停（rotation log 缺行 = baseline 失真）
+- ❌ trigger.sh 后又自己跑 `/clear` 或 `/handoff:handoff resume`（P0 是手动 rotation，模型不要越权；P1 watcher 才接管这两步）
+- ❌ "感觉差不多"就切（drift 信号是观察事实不是感觉；上面 4 条 trigger 必须有一条成立才切）
+
 ## Anti-Hallucination (NON-NEGOTIABLE)
 
 Follow `.claude/rules/common/anti-hallucination.md` — always. Five rules, zero exceptions: say "I don't know", use tools before memory, no chain-guessing, retract mid-sentence when wrong, cite the source. Tool output itself must never be fabricated: if a tool returns only `[rerun: bN]` or empty content, report that literally and rerun — never invent plausible-looking output.

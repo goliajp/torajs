@@ -99,6 +99,32 @@ How the number is *meant* to be read:
 - `bun-skip` (24,860) are negative tests, harness-dependent tests, and test262 internals that the oracle (bun) also doesn't run — not interesting for either runtime.
 - `bug` (271) is the real backlog: cases that pass the subset boundary, get accepted by tr, but diverge from bun. **These are the spec gaps** to close phase by phase.
 
+## 6. autorun — agent-session 编排治理 (incubating, v0.1.x)
+
+Keep long-running agent autorun **low-drift, observable, machine-
+governed** instead of hand-rotated. Methodology unchanged — **measure
+first, automate second**. v0.1.x intentionally ships no daemon and no
+auto-rotation; it ships the protocol + the structured log + the metric
+slots, so a 1-week baseline can ground the P1 automation decisions.
+
+| Metric | now (v0.1.x) | after v1 | after v2 |
+|---|---|---|---|
+| rotations recorded | **`[D]` baseline pending** — `hardev/autorun/rotations.jsonl` per-developer; first row written by `hardev/autorun/trigger.sh` | ≥ 10 rotations / week (steady cadence visible) | dashboard panel surfaces 7-day rolling rate |
+| session length (commit→rotation interval) | **`[D]` baseline pending** — derived from `ts` of consecutive rotations | distribution stable to ±25 % (cadence predictable, not drift-driven) | dashboard surfaces median + p95 |
+| handoff fidelity | **`[D]` takagi hand-flagged** — % of post-rotation sessions where the first user message does NOT need to clarify lost state | ≥ 95 % | ≥ 99 %, auto-detected by comparing handoff vs first-turn outputs |
+| drift-incident rate | **`[D]` takagi hand-counted** — events per session where Claude broke a CLAUDE.md HARD RULE (Chinese-only / 4-layer / disk hygiene) | ↓ trend after rotation cadence stabilises | ≤ 1 / 10 sessions, auto-detected pre-rotation |
+| unstaged-loss incidents during rotation | **0** `[D]` (no measurement window opened yet — P0 has no automated /clear so the risk is currently zero by construction) | 0 (INV-2 enforced by P1 watcher pre-act gate) | 0 + automatic rollback if regression detected |
+| conformance regression introduced by rotation | **0** `[D]` (same caveat as above) | 0 (INV-3 enforced — post-rotation conformance ≥ pre-rotation) | 0 + post-rotation gate runs automatically |
+| protocol surface | **CLAUDE.md HARD RULE «Autorun rotation protocol» + `hardev/autorun/README.md` (P0 SHIPPED)** `[M]` — sequence: `/handoff:handoff save` → `hardev/autorun/trigger.sh self` → no further tokens this turn | unchanged at v1 | unchanged |
+| automation level | **manual** `[M]` — operator runs `/clear` and `/handoff:handoff resume` themselves; the agent only records intent | **automatic** `[D]` — Stop hook writes marker, watcher (`launchd`) drives `/clear` + resume via `tmux send-keys` | self-healing — daemon heartbeats and crash-restarts itself, multi-project |
+
+How to read this section: every `[D]` here is **intentional** — the
+data needed to ground a real `now` value is what the v0.1.x ship is
+designed to gather. Filling them in is a normal v1 deliverable, NOT a
+debt. The headline judgement of this pillar is precisely that "ship
+mechanism without metric" is the wrong order; the slot stays empty
+until the trigger log has enough rows to compute one.
+
 ## How to keep this file honest
 
 1. Never write an untagged number. `[M]` must cite the command/log.

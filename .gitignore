@@ -22,3 +22,7 @@ vendor/
 
 # Per-developer IDE config (nudo)
 .nudo.toml
+
+# hardev autorun — per-developer runtime data
+# (rotation log accumulates per-machine session history; not source)
+hardev/autorun/rotations.jsonl
