@@ -411,15 +411,18 @@ spec-conformant.
 
 **Substrate checklist** (strict order):
 
-- [ ] **P7.1** Error class + subclass hierarchy in stdlib (depends on
-      P4 class hierarchy)
-- [ ] **P7.2** `throw <any value>` (currently restricted to Str / a
-      few shapes)
-- [ ] **P7.3** Stack trace captured at throw site (uses DWARF data)
-- [ ] **P7.4** Native errors: runtime helpers throw real RangeError /
-      TypeError where spec says
+- [x] **P7.1** Error class + subclass hierarchy in stdlib — SHIPPED
+      `f2f5aa0` (inject TypeError/RangeError/SyntaxError/ReferenceError)
+- [x] **P7.2** `throw <any value>` — SHIPPED `42d072d`/`d57bbfc`/`e3d5c7d`
+      (throw undefined→ANY_UNDEF + Any-return coercion + untyped catch→Any)
+- [x] **P7.3** Stack trace captured at throw site — SHIPPED `68b24dc`
+      (minimal-correct §20.5.3.4 toString header; frame capture → L3b)
+- [x] **P7.4** Native errors throw real RangeError / TypeError —
+      SHIPPED a-1 `76252b6` / a-2 `c2dc3af` / a-b+#15 `76ace15` /
+      frozen `683bd95` (conformance 629/0/1)
 - [ ] **P7.5** try / catch / finally state-machine matches spec
-      ordering
+      ordering — **CURRENT** (last P7 substrate item; 4/5 done →
+      5/5 trips the P7→P8 trigger)
 
 ---
 
