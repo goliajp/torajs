@@ -90,9 +90,56 @@ else
   fi
 fi
 
+# --- INV-2: cross-section agreement (the gap the v0.1.11 dogfood exposed) ----
+# INV-2a — header phase status ↔ L4-checklist must AGREE. (caught D2:
+# L4 said "P7.4 ~95% next=frozen" while the header said "P7.4 CLOSED".)
+# Robust form: assert the POSITIVE agreement is present, not the
+# absence of a negative string — the L4 line legitimately quotes the
+# old stale text inside its own de-drift correction note, so a naive
+# "grep for the bad string" would false-positive on that meta-note.
+# order-independent: the header phrases it "P7 CLOSED 到 P7.4" (CLOSED
+# precedes P7.4), so a `P7.4.*CLOSED` regex silently mis-detects N/A
+# (a false-N/A = silent non-enforcement, same trap class as the INV-5
+# body-grep bug). Trigger if the header mentions P7.4 AND a closed
+# marker anywhere, regardless of order.
+if printf '%s' "$header" | grep -qF 'P7.4' \
+   && printf '%s' "$header" | grep -qE 'CLOSED|全 close|全 done'; then
+  l4=$(grep -m1 '5 项 substrate 全过才升 P8' "$PLAN")
+  if [ -z "$l4" ]; then
+    note "INV-2a N/A (no L4-checklist summary line)"
+  elif printf '%s' "$l4" | grep -qE 'P7\.4 全 done|P7\.1/P7\.2/P7\.3/P7\.4 全 done'; then
+    note "INV-2a OK — L4-checklist affirmatively agrees header (P7.4 done)"
+  else
+    violate "2a" "header says P7.4 CLOSED but the L4-checklist line does not affirmatively state 'P7.4 全 done' — layer disagreement ($l4)"
+  fi
+else
+  note "INV-2a N/A (header does not assert a P7.4-closed state)"
+fi
+
+# INV-2b — drift-engine guard: the L2 directive blockquote must NOT
+# re-grow a `hardev v0.1.x` version narrative. The v0.1.11 dogfood
+# found the directive block was a hand-maintained PARALLEL DECAYING
+# COPY of CHANGELOG (the file's single biggest drift engine); it was
+# collapsed to a non-decaying pointer ("version SoT = CHANGELOG, do
+# not duplicate here"). Any hardev-version token reappearing inside
+# that blockquote = the parallel copy regrowing → structural drift.
+dblock=$(awk '
+  /^> .*⚠️.*L2 指令/ {inb=1}
+  inb && /^>/ {print; next}
+  inb && !/^>/ {exit}
+' "$PLAN")
+if [ -z "$dblock" ]; then
+  note "INV-2b N/A (no L2 directive blockquote)"
+elif printf '%s' "$dblock" | grep -qE 'hardev v0\.[0-9]+\.[0-9]+'; then
+  bad=$(printf '%s' "$dblock" | grep -oE 'hardev v0\.[0-9]+\.[0-9]+' | head -1)
+  violate "2b" "L2 directive block re-asserts a hardev version ($bad) — the decaying parallel-copy drift engine is regrowing; version SoT is §7 header + CHANGELOG.md, keep the directive block non-decaying"
+else
+  note "INV-2b OK — directive block carries no version narrative (drift engine stays dead)"
+fi
+
 echo
 if [ "$fail" -eq 0 ]; then
-  echo "hardev taskq check: PASS — plan source consistent (INV-1a/1b/5)"
+  echo "hardev taskq check: PASS — plan source consistent (INV-1a/1b/2a/2b/5)"
   exit 0
 else
   echo "hardev taskq check: FAIL — de-drift the plan source (taskq/README.md), do not silence the check"

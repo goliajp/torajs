@@ -4,6 +4,29 @@ Incubation versioning, semver-ish. One entry per shipped hardev change.
 A pillar item is "shipped" only when its metric in `metrics.md` is
 re-measured and the *now* column updated.
 
+## v0.1.12 — 2026-05-19 — taskq checker INV-2 (the gap the v0.1.11 dogfood exposed)
+
+- `taskq/check.sh` +INV-2: **INV-2a** header phase-state ↔
+  L4-checklist must affirmatively agree (caught D2: L4 "P7.4 ~95%
+  next=frozen" vs header "P7.4 CLOSED"; uses a positive-assertion
+  predicate so the L4 line's own de-drift correction-note quoting
+  the old stale text doesn't false-positive). **INV-2b** the L2
+  directive blockquote must carry NO `hardev v0.1.x` token —
+  structurally prevents the decaying parallel-copy drift engine
+  (the v0.1.11 dogfood's biggest finding) from regrowing.
+- Acceptance caught+fixed a second checker bug (after the v0.1.11
+  INV-5 body-grep false-negative): INV-2a's trigger regex required
+  `P7.4` before `CLOSED`, but the header phrases it "P7 CLOSED 到
+  P7.4" → silent false-N/A (non-enforcement). Rewrote order-
+  independent. Verified: PASS on the consistent plan; FAIL on
+  synthetic INV-2a (L4 drops the affirmation) and INV-2b (version
+  token injected into the directive block).
+- check.sh now enforces INV-1a/1b/2a/2b/5. Remaining INV-3/4/6/7
+  (hot=actual & pointers cross-ref git+tasks; predicate-form;
+  counter re-derivation) = follow-on.
+
+bash tooling, no substrate. CHANGELOG/VERSION 0.1.12.
+
 ## v0.1.11 — 2026-05-19 — taskq checker: INV-1a/1b/5 enforced (spec → tooling)
 
 The taskq spec (v0.1.9 INV-1…7) gets its enforcer — same spec→tooling
