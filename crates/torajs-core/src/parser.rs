@@ -5498,6 +5498,12 @@ impl Parser<'_> {
                 if matches!(
                     next,
                     Some(Token::Ident(_))
+                        // P8.1 — `static #x` shapes are recognized here so
+                        // the field-decl dispatch below can reject them
+                        // with a targeted "static private fields not yet
+                        // supported" error rather than leaving `static` to
+                        // be treated as a regular field name.
+                        | Some(Token::PrivateIdent(_))
                         | Some(Token::Catch)
                         | Some(Token::Finally)
                         | Some(Token::Return)
@@ -5596,6 +5602,38 @@ impl Parser<'_> {
             } else {
                 match self.peek() {
                     Token::Ident(n) => n.clone(),
+                    // P8.1 — `#name` PrivateIdentifier as a class member
+                    // name. Two effects: (a) mangle the name to
+                    // `__priv_<ClassName>__<name>` so the existing
+                    // public-field machinery (struct_layouts, member
+                    // resolution, codegen) handles it uniformly without
+                    // a parallel data path; (b) force visibility to
+                    // Private regardless of any earlier `public`/
+                    // `protected` modifier — `#` is the spec marker
+                    // for hard-private (exact-class-only access),
+                    // distinct from the TS-modifier `private` which
+                    // also allows Protected-style subclass access.
+                    // Cross-class enforcement happens at typecheck
+                    // (check.rs P8.1-A4); ssa_lower sees a regular
+                    // String name (P8.1-A5 validates round-trip).
+                    //
+                    // `static #x` is out of P8.1 scope — reject here
+                    // with a targeted error rather than silently
+                    // synthesizing a static mangled name we can't yet
+                    // lower correctly. The `is_static` lookahead above
+                    // recognizes `static <PrivateIdent>` so we land in
+                    // this arm.
+                    Token::PrivateIdent(n) => {
+                        if is_static {
+                            return Err(format!(
+                                "static private fields (`static #{n}`) not yet supported in class `{name}` — defer P8.x followup (at {})",
+                                self.at()
+                            ));
+                        }
+                        let priv_name = n.clone();
+                        explicit_visibility = Some(ast::Visibility::Private);
+                        format!("__priv_{name}__{priv_name}")
+                    }
                     // V3-18 wedge — accept the full reserved-word list
                     // as class member names per ES spec §12.7.6
                     // (PropertyName allows IdentifierName which includes
