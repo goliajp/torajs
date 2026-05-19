@@ -66,6 +66,7 @@ pub fn parse_into(tokens: &[Spanned], target: &mut Ast) -> Result<usize, String>
         ast: taken,
         desugar_id: id_offset,
         generator_fns: std::collections::HashMap::new(),
+        current_class: None,
     };
     let result = p.parse_program();
     *target = p.ast;
@@ -90,6 +91,17 @@ struct Parser<'a> {
     /// shape. Limitation: only direct call sites are detected — `let g
     /// = gen(); for (let v of g)` won't recognise `g` as an iterator.
     generator_fns: std::collections::HashMap<String, String>,
+    /// P8.1 — name of the class whose body we are currently inside,
+    /// or None outside any class. Set at the top of
+    /// `parse_class_decl_with_abstract` (after the class name is
+    /// captured), restored on its successful exit. Read by
+    /// `member_name_after_dot` so `this.#x` (and any `#`-prefixed
+    /// member access lexically inside the class body) can mangle to
+    /// `__priv_<class>__<name>` at parse time. For non-`this`
+    /// receivers (`c.#x` where c: C), parser-time mangling is not
+    /// possible without static type info — those flow through as
+    /// raw `#name` and typecheck/desugar can mangle later (P8.x).
+    current_class: Option<String>,
 }
 
 /// V3-18 wedge — strip the standard generator/iterator wrapper from
@@ -2894,6 +2906,7 @@ impl Parser<'_> {
                         ast: std::mem::take(&mut self.ast),
                         desugar_id: self.desugar_id,
                         generator_fns: std::mem::take(&mut self.generator_fns),
+                        current_class: self.current_class.clone(),
                     };
                     let result = sub.parse_expr()?;
                     // Tokens vec ends with Token::Eof; anything before
@@ -3499,18 +3512,30 @@ impl Parser<'_> {
             self.pos += 1;
             return Some(n);
         }
-        // P8.1 — `this.#x` / `c.#x` PrivateIdentifier after dot. Store the
-        // name with the leading `#` preserved (e.g. `"#x"`); the typechecker
-        // (A4) recognises the prefix and resolves it to the mangled form
-        // `__priv_<ClassOfObj>__x`. Mangling at parse-time would require
-        // threading current-class context through the Parser, but typecheck
-        // already does class-type lookup for `this` and other receivers, so
-        // doing the rename there is cheaper and keeps the parser context-
-        // free. The `#` prefix is the parse-to-typecheck contract.
+        // P8.1 — `#name` PrivateIdentifier after dot. When we are
+        // lexically inside a class body (`current_class` is Some) the
+        // access is necessarily through `this.#x` or `c.#x` for a `c`
+        // typed as the same class — both bind to the SAME class's
+        // private slot, so mangling to `__priv_<current_class>__<n>`
+        // at parse time is correct and matches the field-decl
+        // mangling that A2 wrote into struct_layouts. Cross-class
+        // access (e.g. inside D's method, `c: C` and `c.#x`) is
+        // rejected by the existing `Visibility::Private` exact-class
+        // check in check.rs (M-OO.5 — exact-class match for
+        // Private), because the mangled name carries the declaring
+        // class in its prefix.
+        //
+        // Outside any class (`current_class` is None) `#name` access
+        // has no defined binding — keep the raw `#`-prefixed name so
+        // the type / lookup layer fails cleanly with "no field `#x`
+        // on Struct" instead of accidentally finding a Public field.
         if let Token::PrivateIdent(n) = self.peek() {
             let n = n.clone();
             self.pos += 1;
-            return Some(format!("#{n}"));
+            return Some(match &self.current_class {
+                Some(cls) => format!("__priv_{cls}__{n}"),
+                None => format!("#{n}"),
+            });
         }
         let kw = Self::keyword_property_name(self.peek())?;
         self.pos += 1;
@@ -5280,6 +5305,14 @@ impl Parser<'_> {
             }
         };
         self.pos += 1;
+        // P8.1 — set `current_class` so private-member parsing inside
+        // this class body can mangle `this.#x` to `__priv_<class>__x`.
+        // Saved/restored at every successful return path; on `return
+        // Err(...)` we don't restore (parse has failed; parser state
+        // is moot). Cloned for nested classes — the recursive call
+        // overwrites; we restore the outer name on its successful exit.
+        let saved_class = self.current_class.take();
+        self.current_class = Some(name.clone());
         // Optional generic type params: `class Map<K, V> { ... }`.
         let mut type_params: Vec<String> = Vec::new();
         if matches!(self.peek(), Token::Lt) {
@@ -5996,6 +6029,10 @@ impl Parser<'_> {
                 },
             });
         }
+        // P8.1 — restore the outer class context (parse-error paths
+        // skip this; the parser is in an error state and the value
+        // is moot).
+        self.current_class = saved_class;
         Ok(Stmt::ClassDecl {
             name,
             type_params,
