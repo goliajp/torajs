@@ -127,11 +127,15 @@ conformance 并行不改正确性，bench 并行摧毁计时可信度，故 benc
 不再顺带产 `target/release/tr`。bench runner 描述符硬编码 `target/release/tr`。
 **风险**：若跑 bench 前没人 `cargo build --release -p torajs-cli`，bench 测的
 是 stale/缺失的 release 二进制 = 测错东西 = 违反第一硬规则（覆盖/正确性）。
-**做法**：bench-harness（或其唯一入口脚本）启动时**强制** `cargo build
---release -p torajs-cli` 并校验 `target/release/tr` mtime ≥ 最近 torajs 源改
-mtime，否则 fail-fast 拒跑。**验收**：故意留 stale release-tr 跑 bench → 被
-拒并提示；正常路径自动 release-build 后再测。**状态：TODO（B 系列最高前置，
-B1 之前——没有它 bench 数据可能无效）**
+**做法（已实现）**：`bench run` 启动即 `ensure_release_tr(workspace)` —
+`cargo build --release -p torajs-cli`（cwd=workspace，幂等），失败 fail-fast
+拒跑，并校验 `target/release/tr` 存在。选 auto-build 而非纯 fail-fast：幂等
+（fresh 0.08s no-op / stale 重建），bench 永远测当前 ship 二进制，零人工步、
+零 footgun。
+**✅ DONE 2026-05-19**（实测）：stale release-tr（上次建的是 iter）→ B0 触发
+自动重建 30.48s 后正常 bench；fresh → guard 0.08s no-op 直接 bench。fmt clean,
+0-warn。bench-harness tooling，无 substrate（不需 conformance gate）。
+**状态：DONE ✅**
 
 ### B1 — artifact_bytes 自动 gate + N-run 原生聚合【最大置信度收益，~零速度成本】
 

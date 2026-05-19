@@ -4,6 +4,23 @@ Incubation versioning, semver-ish. One entry per shipped hardev change.
 A pillar item is "shipped" only when its metric in `metrics.md` is
 re-measured and the *now* column updated.
 
+## v0.1.3 — 2026-05-19 — bench B0 SHIPPED: bench always measures the current ship binary
+
+Closes the operational footgun devperf #1 introduced (conformance no
+longer side-produces `target/release/tr`).
+
+- `bench/harness/src/main.rs`: `run_cmd` now calls `ensure_release_tr`
+  before any case — `cargo build --release -p torajs-cli` (cwd =
+  workspace), fail-fast on build error, verify `target/release/tr`
+  exists. Auto-build (not pure fail-fast) chosen: idempotent, zero
+  manual step, bench can never silently measure a stale/missing
+  binary (first hard rule: bench must measure the real ship artifact).
+- Verified: stale release-tr (last build was `target/iter/tr` from
+  devperf #1) → B0 rebuilt it (30.5 s) then benched correctly; fresh
+  → guard no-ops in 0.08 s. fmt clean, 0-warn. bench-harness tooling,
+  no substrate (no conformance gate needed).
+- `optimization-backlog.md` bench B0 → DONE; VERSION 0.1.3.
+
 ## v0.1.2 — 2026-05-19 — devperf #1 SHIPPED: fast iteration profile (~11.4× inner loop)
 
 First hardev pillar tooling shipped. The 28.5 s inner-loop tax found

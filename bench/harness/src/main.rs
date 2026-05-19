@@ -138,6 +138,19 @@ fn run_cmd(bench_dir: &Path, args: &[String]) -> Result<bool> {
     }
 
     let workspace = bench_dir.parent().context("bench_dir has no parent")?;
+
+    // hardev bench B0 — bench MUST measure the real fat-LTO ship
+    // binary. Since hardev devperf #1, the conformance runner builds
+    // `target/iter/tr` (fast profile), so a bench run can no longer
+    // assume `cargo run -p torajs-conformance` left a fresh
+    // `target/release/tr` behind. The runner descriptors hardcode
+    // `target/release/tr`; running against a stale/missing one would
+    // silently measure the wrong thing (violates the first hard
+    // rule). Force a release build up front — idempotent (cargo
+    // no-ops in ~0.05 s when fresh, rebuilds when stale), so bench
+    // always times the current ship binary.
+    ensure_release_tr(workspace)?;
+
     let work_dir = env::temp_dir().join(format!("torajs-bench-{}", std::process::id()));
     std::fs::create_dir_all(&work_dir).context("creating work_dir")?;
 
@@ -163,4 +176,34 @@ fn run_cmd(bench_dir: &Path, args: &[String]) -> Result<bool> {
 
     let _ = std::fs::remove_dir_all(&work_dir);
     Ok(all_ok)
+}
+
+/// hardev bench B0 — guarantee `target/release/tr` is the *current*
+/// fat-LTO ship binary before any timing run. Idempotent: cargo
+/// no-ops (~0.05 s) when fresh, rebuilds when stale. Fail-fast on a
+/// build error — a loud build failure beats silently benchmarking a
+/// stale or missing binary (first hard rule: bench must measure the
+/// real ship artifact, full coverage/correctness).
+fn ensure_release_tr(workspace: &Path) -> Result<()> {
+    eprintln!(
+        "→ hardev B0: cargo build --release -p torajs-cli (ensure target/release/tr is current)"
+    );
+    let status = std::process::Command::new("cargo")
+        .args(["build", "--release", "-p", "torajs-cli"])
+        .current_dir(workspace)
+        .status()
+        .context("spawning `cargo build --release -p torajs-cli`")?;
+    if !status.success() {
+        anyhow::bail!(
+            "release build of torajs-cli failed — refusing to benchmark a stale/missing target/release/tr"
+        );
+    }
+    let tr = workspace.join("target/release/tr");
+    if !tr.is_file() {
+        anyhow::bail!(
+            "release build reported success but {} is missing",
+            tr.display()
+        );
+    }
+    Ok(())
 }
