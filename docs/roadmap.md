@@ -447,7 +447,17 @@ fields, static blocks, accessor properties, super-in-arrow.
       and subclass access rejected at typecheck. Static `#x` and
       non-`this` typed-receiver `c.#x` (where c: C) outside the
       class body defer to P8.x followups.
-- [ ] **P8.2** Class getters / setters (accessor descriptors)
+- [x] **P8.2** Class getters / setters (accessor descriptors) —
+      SHIPPED A1+A2 `acd6202` (parser detects get/set contextual
+      keywords + AST `accessor_kind` on ClassMethod) / A3
+      `5db54bf` (desugar renames accessors to
+      `__cm_<C>__<name>_get/_set` + side-channel maps + filter
+      from `__dispatch_<M>` synth) / A4+A5 `550a6fd` (check.rs
+      Member read + Assign-Member write resolution via the maps
+      + ssa_lower Call emission + round-trip fixture
+      `class-accessor-001-get-set.ts` → 631/0/1 conformance).
+      `c.value` reads the getter; `c.value = v` writes the
+      setter; both single-Call, no runtime dispatch.
 - [ ] **P8.3** Static blocks `static { ... }`
 - [ ] **P8.4** Lexical super resolution in nested arrows
 - [ ] **P8.5** Class expressions as values
