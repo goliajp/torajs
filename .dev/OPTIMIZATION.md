@@ -8,7 +8,7 @@
 
 ---
 
-## P1 — 并行化 conformance runner【最大杠杆，质量绝对中性】
+## P1 — 并行化 conformance runner【最大杠杆，质量绝对中性】✅ DONE
 
 **现状**：`conformance/runner/main.rs:61` 纯串行 `for c in &cases`，~628 cases。
 **做法**：worker-pool 并行（参照 `conformance/test262-runner/main.rs` 已有的
@@ -21,7 +21,18 @@ cases、同样 3 子步、同样 byte-equal 判定。并行不改变正确性是
 **验收**：`conformance` 仍输出 **627/0/1**（与串行逐字节同集）且墙钟 ≤ 基线/核数×1.5
 （8 核 → 目标 ≤ ~5min）；连跑 3 次结果稳定（无并发 flake，参照 task #11 的
 torajs-embed 隔离教训）。
-**预估**：~30min → ~4-5min（8 核）。**状态：TODO（最高优先）**
+**预估**：~30min → ~4-5min（8 核）。
+
+**✅ 已 ship `6ab22f9`（2026-05-19）**。比预估更好：实现里**额外**把 628× per-case
+`cargo run`（带 build-lock 争用）换成**启动时 `cargo build` 一次**（cargo 经
+`--message-format=json` 自报 binary 绝对路径，正统、无 target-dir 猜测、无新依赖），
+之后每 case 直调 `tr` binary。per-case temp 路径加 `-s{slot}-p{pid}` 唯一化；
+结果按原始 case 顺序回放打印 → 跨run + vs串行**逐字节同序**；`.dSYM` 同边界清理
+（Disk Hygiene）。**实测**：3 次连跑均 `627 pass / 0 fail / 1 skip`，墙钟
+**174.86 / 180.52 / 180.76 s ≈ 3.0min**（vs 串行 ~30min → **~10x**，优于
+≤5min 目标）；跨run ok/skip/FAIL 行集逐字节相同 → **零并发 flake**。
+（1 skip = `perf-005-dwarf-panic-fs`，bun 自身 exit 1 的既有预期 skip，未变。）
+**状态：DONE ✅**
 
 ## P2 — 内容寻址 `tr build` 缓存（sccache-for-tr）
 

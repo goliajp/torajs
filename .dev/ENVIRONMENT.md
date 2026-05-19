@@ -45,8 +45,10 @@
 
 ## 4. conformance gate 的真实成本结构（优化重点）
 
-- `conformance/runner/main.rs:61` 是**纯串行** `for c in &cases`（无 rayon/
-  thread/workers）。~628 cases。
+- ~~`conformance/runner/main.rs:61` 是**纯串行**~~ → **P1 已并行化**
+  （`6ab22f9`）：启动 `cargo build` 一次拿 tr 路径，8-worker pool 跑 ~628
+  cases，结果原序回放。墙钟 ~30min → ~3min。下面成本结构描述保留作历史/
+  并行后第二大成本（tr→SSA→LLVM）参考。
 - 每 case 跑 3 子步：① bun run（或 `.expected` 覆盖）② `tr run` ③ `tr build &&
   ./out`，三者 byte-equal 才 pass。
 - 实测墙钟：在共享 contended fallback + 机器并发负载下 **~50min**；切 torajs
@@ -64,7 +66,8 @@
 |---|---|---|
 | 空 target 从头 release build | 60.83s | sccache 命中主导；非真"从头" |
 | 增量 no-op build | ~0.16s | 稳态 |
-| full conformance（628，串行，内置隔离 target） | ~30min | 优化前基线；目标见 OPTIMIZATION.md |
+| full conformance（628，串行，内置隔离 target） | ~30min | 优化前基线 |
+| full conformance（628，**并行 8 workers**，内置隔离 target） | **~3.0min** | P1 后实测（174–181s ×3，627/0/1，零 flake）；commit `6ab22f9` |
 | full conformance（共享 contended fallback） | ~50min | 旧环境，已不再用于 torajs |
 
 后续每做一项优化，在 OPTIMIZATION.md 记新墙钟 + 对照此表。
