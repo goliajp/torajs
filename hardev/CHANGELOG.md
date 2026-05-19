@@ -4,6 +4,30 @@ Incubation versioning, semver-ish. One entry per shipped hardev change.
 A pillar item is "shipped" only when its metric in `metrics.md` is
 re-measured and the *now* column updated.
 
+## v0.1.5 — 2026-05-19 — bench B1b SHIPPED: native N-run aggregation (median + MAD)
+
+- `bench run --runs N` (default 1, fully backward-compatible). N
+  **full interleaved passes** (whole case×runner matrix per pass,
+  repeated N times) so the median samples machine-state variance
+  across time (the historical "3 full-suite runs" intent), not N
+  back-to-back runs of one cell.
+- Per-cell aggregation (`report::aggregate`): `run_ms` = median,
+  `run_stddev_ms` = **MAD** (robust spread, barely moved by a single
+  mac thermal spike), `compile_ms` = median, `artifact_bytes` =
+  shared value if all identical else median (benign ±N linker drift,
+  already handled by `bench compare`), `status` = worst (a single
+  failing pass is never hidden). `Report.runs` records aggregation
+  depth so readers/`bench compare` interpret the spread correctly.
+- Kills the same-name-overwrite + agent-log-parsing workflow: one
+  statistically-sound json per invocation, directly consumable by
+  `bench compare`.
+- Verified: `run fib40 --runtime torajs --runs 3` → json `runs:3`,
+  fib40 median 176.194 ms / MAD 4.0612; `bench compare` consumes it;
+  no flag → `runs:1`, single-pass behavior unchanged. fmt clean,
+  0-warn. bench-harness tooling, no substrate.
+- `optimization-backlog.md` B1b → DONE; `metrics.md` §4 multi-run
+  row → SHIPPED; VERSION 0.1.5.
+
 ## v0.1.4 — 2026-05-19 — bench B1 SHIPPED: `bench compare` machine regression verdict
 
 The reporting gap takagi named ("agent hand-runs ad-hoc python to

@@ -28,6 +28,9 @@ fn print_usage() {
         "    run [case]                    run all cases (or one case) on all available runtimes"
     );
     println!("        --runtime r1,r2           filter to a comma-separated runtime list");
+    println!(
+        "        --runs N                  N full interleaved passes; row = median run_ms + MAD"
+    );
     println!("        --no-save                 don't write results/<file>.json");
     println!();
     println!(
@@ -104,6 +107,7 @@ fn run_cmd(bench_dir: &Path, args: &[String]) -> Result<bool> {
     let mut case_filter: Option<String> = None;
     let mut runtime_filter: Option<Vec<String>> = None;
     let mut no_save = false;
+    let mut runs: usize = 1;
 
     let mut i = 0;
     while i < args.len() {
@@ -111,6 +115,17 @@ fn run_cmd(bench_dir: &Path, args: &[String]) -> Result<bool> {
             "--no-save" => {
                 no_save = true;
                 i += 1;
+            }
+            "--runs" => {
+                let v = args
+                    .get(i + 1)
+                    .context("--runs requires a positive integer")?;
+                runs = v
+                    .parse::<usize>()
+                    .ok()
+                    .filter(|&n| n >= 1)
+                    .context("--runs requires a positive integer")?;
+                i += 2;
             }
             "--runtime" => {
                 let v = args.get(i + 1).context("--runtime requires a value")?;
@@ -171,12 +186,37 @@ fn run_cmd(bench_dir: &Path, args: &[String]) -> Result<bool> {
     std::fs::create_dir_all(&work_dir).context("creating work_dir")?;
 
     let mut report = report::Report::new(bench_dir)?;
+    report.runs = runs;
     let mut all_ok = true;
 
-    for c in &cases {
-        for r in &runners {
-            eprintln!("→ {} × {}", c.name, r.name);
-            let outcome = bench::run_one(c, r, &work_dir, workspace)?;
+    // hardev bench B1b — N full interleaved passes (full case×runner
+    // matrix per pass, repeated `runs` times) so the median samples
+    // machine-state variance ACROSS time (matches the historical
+    // "3 full-suite runs" intent), not N back-to-back runs of one
+    // cell. One aggregated row per cell → one statistically-sound
+    // json, no same-name overwrite, no log-parsing.
+    let nr = runners.len();
+    let mut acc: Vec<Vec<bench::RunOutcome>> = (0..cases.len() * nr).map(|_| Vec::new()).collect();
+    for pass in 1..=runs {
+        for (ci, c) in cases.iter().enumerate() {
+            for (ri, r) in runners.iter().enumerate() {
+                if runs > 1 {
+                    eprintln!("→ {} × {} (pass {pass}/{runs})", c.name, r.name);
+                } else {
+                    eprintln!("→ {} × {}", c.name, r.name);
+                }
+                acc[ci * nr + ri].push(bench::run_one(c, r, &work_dir, workspace)?);
+            }
+        }
+    }
+    for (ci, _c) in cases.iter().enumerate() {
+        for ri in 0..nr {
+            let passes = std::mem::take(&mut acc[ci * nr + ri]);
+            let outcome = if passes.len() > 1 {
+                report::aggregate(passes)
+            } else {
+                passes.into_iter().next().expect("at least one pass")
+            };
             if !outcome.is_ok() {
                 all_ok = false;
             }

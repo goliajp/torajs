@@ -73,7 +73,7 @@ Establishing metrics *immediately* paid off (this is the point):
 | trustworthy signal | **artifact_bytes only** `[M]` (deterministic); run_ms cross-day **±15 % systematic + up to +200 % single-point** `[M]` = unusable for verdicts | artifact-gate primary + same-machine-state run_ms `[D]` | machine-hygiene-gated run_ms becomes trustworthy too `[D]` |
 | per-commit gate wall | **~10 min** `[M]` full 8-runner (585 s clean / 912 s under load this session) | **seconds** for tr-unchanged via `--self` + artifact-precheck `[D]` | seconds always; full cross-runtime only at phase-close `[D]` |
 | coverage vs phase under dev | **gap** `[M]`: 26 cases, **no bigint, 1 exception case** — P7 (Error/bigint) shipped with no direct bench coverage | each phase adds ≥1 hot-path case for its substrate `[D]` | coverage auto-tracks the active phase `[D]` |
-| multi-run aggregation | **not supported** `[M]` (same-name json overwrite; agent parses logs) | native N-run median/MAD artifact `[D]` | built into `bench compare` `[D]` |
+| multi-run aggregation | **`bench run --runs N` — native interleaved N-pass median + MAD in one json** `[M]` ✅ B1b SHIPPED (was: same-name overwrite, agent log-parsing) | (met) feed aggregated json into a statistical noise-band verdict | built into a CI statistical `bench compare` `[D]` |
 
 ## How to keep this file honest
 

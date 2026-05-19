@@ -152,14 +152,20 @@ by-construction 是噪声，永不报）。**验收实测**：精确复现先前
 无 substrate（验收即测试，不需 conformance gate）。
 **状态：DONE ✅**（compare 核心）
 
-### B1b — N-run 原生聚合（同名覆盖修复，median/MAD）【follow-on，质量】
+### B1b — N-run 原生聚合（median/MAD）✅ DONE
 
-`report.rs` `write_json` 用 `{date}-{host}-{sha}.json` 固定名 → 同 sha 多跑
-互相覆盖，pipeline 的 "3-run median" 在 json 层做不到（本会话被迫 log-parse）。
-**做法**：多 run 不覆盖（文件名加 run-nonce 或 `--runs-aggregate N` 原生收集
-N 次取 median-of-medians + MAD 写一个聚合 json），`bench compare` 吃聚合文件。
-**验收**：3-run 聚合 json 含 median+MAD；`compare` 用它给带噪声带的裁定。
-**状态：TODO（B1 follow-on，B2 之前）**
+**✅ DONE 2026-05-19**：`bench run --runs N`（默认 1，完全向后兼容）。
+N 个**完整 interleaved pass**（每 pass 跑全 case×runner 矩阵，重复 N 次 →
+median 采样跨时机机器状态变异，匹配历史"3 full-suite run"本意，非 N 次
+背靠背单 cell）。per-cell 聚合：`run_ms`=median、`run_stddev_ms`=**MAD**
+（robust spread，单点 thermal 尖峰几乎不动它）、`compile_ms`=median、
+`artifact_bytes`=全同则取该值否则 median（±N 字节 linker 漂移良性，compare
+已保守处理）、`status`=worst（单 pass fail 不被聚合掩盖）。`Report.runs`
+字段记聚合深度。**一次调用产一个统计稳健 json，无同名覆盖、无 log-parse
+hack。** **验收实测**：`run fib40 --runtime torajs --runs 3` → json `runs:3`，
+fib40 median 176.194ms / MAD 4.0612；`bench compare` 直接吃；无 flag → runs:1
+单 pass 行为不变。fmt clean、0-warn。无 substrate。
+**状态：DONE ✅**
 
 ### B1-orig — （原 B1 描述存档，已被上面拆分实现）
 
