@@ -3,6 +3,7 @@ mod case;
 mod compare;
 mod report;
 mod runner;
+mod version_check;
 
 use anyhow::{Context, Result};
 use std::env;
@@ -209,6 +210,15 @@ fn run_cmd(bench_dir: &Path, args: &[String]) -> Result<bool> {
     }
 
     let workspace = bench_dir.parent().context("bench_dir has no parent")?;
+
+    // B-BENCH-VER — fail fast if any externally-provided runtime drifted
+    // below its latest-stable floor. Policy: bench/latest-stable.toml.
+    // In-tree runners (torajs / torajs-run) skip automatically — their
+    // version IS git HEAD, not a downloaded toolchain. Bench numbers that
+    // compare against an old node/bun/go/rust are self-deception; verify
+    // before any timing.
+    let floors = version_check::load_floors(&bench_dir.join("latest-stable.toml"))?;
+    version_check::verify_versions(&runners, &floors, workspace)?;
 
     // hardev bench B0 — bench MUST measure the real fat-LTO ship
     // binary. Since hardev devperf #1, the conformance runner builds
