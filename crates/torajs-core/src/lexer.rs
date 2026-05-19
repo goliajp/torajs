@@ -3,6 +3,12 @@
 #[derive(Debug, Clone, PartialEq)]
 pub enum Token {
     Ident(String),
+    /// P8.1 — `#name` PrivateIdentifier (ES2022 §6.2.10). Holds the
+    /// identifier body without the leading `#`. Distinct from `Ident`
+    /// so the parser can route private-field declarations and
+    /// `this.#x` accesses through a name-mangling step (encoding
+    /// the class binding) without disturbing the public-name path.
+    PrivateIdent(String),
     String(String),
     Number(f64),
     /// T-25 — `BigInt` literal. Holds the lexeme's digit body
@@ -1060,6 +1066,23 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                     .parse()
                     .map_err(|_| format!("invalid number at {start}"))?;
                 emit(&mut out, Token::Number(n), start, i);
+            }
+            b'#' if peek(bytes, i + 1).is_some_and(is_ident_start) => {
+                // P8.1 — `#name` PrivateIdentifier. Consume `#`, then
+                // lex the identifier body like a normal `Ident` but
+                // emit `Token::PrivateIdent(name)` carrying just the
+                // name (no `#`). A bare `#` not followed by an ident
+                // start falls through to the unexpected-byte error
+                // below — narrow-surface (no use for `#` outside
+                // PrivateIdentifier yet).
+                i += 1;
+                let ident_start = i;
+                while i < len && is_ident_cont(bytes[i as usize]) {
+                    i += 1;
+                }
+                let name = std::str::from_utf8(&bytes[ident_start as usize..i as usize])
+                    .expect("ascii ident slice is valid utf-8");
+                emit(&mut out, Token::PrivateIdent(name.to_string()), start, i);
             }
             _ => return Err(format!("unexpected byte {b:#x} at {start}")),
         }
