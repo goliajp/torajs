@@ -5593,6 +5593,39 @@ impl Parser<'_> {
                     self.at()
                 ));
             }
+            // P8.2 — accessor descriptor: `get X(): T { ... }` /
+            // `set X(v: T) { ... }`. The lexer emits `get` / `set` as
+            // `Token::Ident("get" | "set")` (they are contextual
+            // keywords per ES §13.4); recognise the form here so the
+            // property name + body falls through to the existing
+            // method-parsing path, with the accessor kind tagged on
+            // the resulting `ClassMethod`. Lookahead requires the
+            // property-name slot to be a regular identifier (or
+            // PrivateIdent for `get #x`, deferred — current narrow
+            // surface accepts only public accessor names) AND the
+            // slot after that to be `(` so we never mistakenly
+            // consume `get` when it is being used as a member name
+            // (`class C { get(): T { ... } }` — `get` as a method
+            // name is still legal). Static accessors (`static get X`)
+            // are recognised through the existing is_static lookahead
+            // since `static` already accepts a following Ident.
+            let mut accessor_kind: Option<ast::AccessorKind> = None;
+            if let Token::Ident(s) = self.peek()
+                && (s == "get" || s == "set")
+            {
+                let kw = s.clone();
+                let name_tok = self.tokens.get(self.pos + 1).map(|t| &t.token);
+                let after_name = self.tokens.get(self.pos + 2).map(|t| &t.token);
+                if matches!(name_tok, Some(Token::Ident(_)))
+                    && matches!(after_name, Some(Token::LParen))
+                {
+                    accessor_kind = Some(match kw.as_str() {
+                        "get" => ast::AccessorKind::Getter,
+                        _ => ast::AccessorKind::Setter,
+                    });
+                    self.pos += 1; // consume `get` / `set`
+                }
+            }
             // P5.2 — computed-key class member `[Symbol.iterator]() {
             // ... }`. Mirrors the object-literal computed-key handling
             // (parse_object_field) so the same `__sym_Symbol_iterator__`
@@ -5847,6 +5880,7 @@ impl Parser<'_> {
                             body,
                             is_abstract: is_abstract_method,
                             visibility,
+                            accessor_kind,
                         };
                         if is_static {
                             static_methods.push(m);

@@ -534,13 +534,40 @@ pub struct ClassMethod {
     /// declaring class; `Protected` rejects access from outside the
     /// declaring class + its descendants.
     pub visibility: Visibility,
+    /// P8.2 — accessor kind for `get X(): T { ... }` / `set X(v: T) { ... }`
+    /// class members (ECMA §10.1.7 — accessor descriptors). `None` for
+    /// regular methods (no `get`/`set` keyword); `Some(Getter)` or
+    /// `Some(Setter)` when the parser saw the contextual keyword.
+    /// Downstream uses: check.rs resolves `c.X` (read) to the getter's
+    /// `return_type`, and `c.X = v` (write) to the setter's first param
+    /// type; ssa_lower emits a Call to `__cm_<Class>__<X>_get` /
+    /// `_set` instead of a Load / Store at the member offset.
+    pub accessor_kind: Option<AccessorKind>,
+}
+
+/// P8.2 — accessor descriptor kind (ES §10.1.7). Stored on
+/// `ClassMethod` for members declared with the `get` / `set`
+/// contextual keywords. Affects: parser member-name dispatch
+/// (consume the keyword, parse the property name + body as a
+/// method); check.rs Member type resolution (use accessor's
+/// type signature, not field layout); ssa_lower Member load/store
+/// (emit Call to the accessor instead of direct Load/Store at offset);
+/// desugar (synthesize `__cm_<Class>__<prop>_get` / `_set` method
+/// bindings so dispatch finds them).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum AccessorKind {
+    Getter,
+    Setter,
 }
 
 /// M-OO.5 — TypeScript-style visibility modifier on class members.
 /// `Public` is the parse-time default and never appears explicitly in
 /// the source; `Private` corresponds to `private`; `Protected` to
-/// `protected`. (TS also has `#name` private fields with a different
-/// runtime story, which torajs doesn't ship — only the modifier form.)
+/// `protected`. The spec-defined hard-private `#name` form ships in
+/// P8.1 (see [[P8.1]] in roadmap.md) via parse-time mangling to
+/// `__priv_<Class>__<name>` and Visibility::Private with exact-class
+/// enforcement; this enum carries both — the mangling prefix marks
+/// `#`-style.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Visibility {
     Public,
@@ -1107,6 +1134,7 @@ pub fn desugar_generators(ast: &mut Ast) {
             body: next_body_with_stash,
             is_abstract: false,
             visibility: Visibility::Public,
+            accessor_kind: None,
         };
         // For Phase J MVP, generator parameters are stored as fields on
         // the iterator object so the body can reference them through
