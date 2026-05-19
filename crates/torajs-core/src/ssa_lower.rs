@@ -11906,6 +11906,75 @@ impl<'a> LowerCtx<'a> {
                     self.cur_block = fb;
                     self.scope_stack.push(Vec::new());
                     self.shadow_stack.push(Vec::new());
+                    // P7.5 O5 fix — suspend pending throw at finally entry.
+                    // ECMA §14.13.3: finally executes regardless of try's
+                    // completion; if finally completes normally, try's
+                    // pending completion (throw) re-applies. Without this,
+                    // any may-throw call inside the finally body (e.g.
+                    // `new Error(...)` triggering obj_check_not_frozen at
+                    // every Member-Assign) emits emit_throw_check, which
+                    // reads the global throw_active and sees the outer
+                    // pending=1 → spurious propagation BEFORE the call
+                    // could complete (manifests as e.g. Error ctor field
+                    // assigns being skipped, struct returned uninitialized).
+                    //
+                    // Snapshot (active, tag, value) into entry-block
+                    // allocas (alloca_in_entry — loads at finally tail
+                    // must dominate from both restore and skip-restore
+                    // paths), then clear active via throw_take. Finally
+                    // body now runs with active=0; its emit_throw_check
+                    // sites only fire when the body itself throws fresh.
+                    // Tail dispatch (below) restores the pending iff
+                    // finally body completed without re-throwing.
+                    let saved_active_slot =
+                        self.alloca_in_entry(Type::I64, Some("__o5_saved_active"));
+                    let saved_tag_slot = self.alloca_in_entry(Type::I64, Some("__o5_saved_tag"));
+                    let saved_value_slot =
+                        self.alloca_in_entry(Type::I64, Some("__o5_saved_value"));
+                    let snap_active = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(self.intrinsics.throw_check, vec![]),
+                        Type::I64,
+                        None,
+                    );
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Store(
+                            Operand::Value(snap_active),
+                            Operand::Value(saved_active_slot),
+                            0,
+                        ),
+                    );
+                    let snap_tag = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(self.intrinsics.throw_take_tag, vec![]),
+                        Type::I64,
+                        None,
+                    );
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Store(
+                            Operand::Value(snap_tag),
+                            Operand::Value(saved_tag_slot),
+                            0,
+                        ),
+                    );
+                    // throw_take returns value AND clears active. After
+                    // this, throw_active=0 (regardless of prior state).
+                    let snap_value = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(self.intrinsics.throw_take, vec![]),
+                        Type::I64,
+                        None,
+                    );
+                    self.f.append_void(
+                        self.cur_block,
+                        InstKind::Store(
+                            Operand::Value(snap_value),
+                            Operand::Value(saved_value_slot),
+                            0,
+                        ),
+                    );
                     for s in fbody {
                         self.lower_stmt(s);
                         if !self.cur_open() {
@@ -11913,6 +11982,95 @@ impl<'a> LowerCtx<'a> {
                         }
                     }
                     if self.cur_open() {
+                        // P7.5 O5 fix — restore pending throw before tail
+                        // dispatch IF finally body completed normally
+                        // without throwing fresh. Three sub-cases:
+                        //   (a) new_active=1: finally itself threw a new
+                        //       value (overrides per §14.13.3) → skip
+                        //       restore, dispatch will propagate the new
+                        //       throw.
+                        //   (b) new_active=0, saved_active=0: no pending
+                        //       at entry, finally fall-through → no-op,
+                        //       continue to pending_return / fall-thru.
+                        //   (c) new_active=0, saved_active=1: pending at
+                        //       entry, finally completed without throw →
+                        //       restore (active=1, tag, value) via
+                        //       throw_set; dispatch sees active=1 and
+                        //       propagates the original pending.
+                        let probe_active = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Call(self.intrinsics.throw_check, vec![]),
+                            Type::I64,
+                            None,
+                        );
+                        let probe_cmp = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::ICmp(
+                                IPred::Ne,
+                                Operand::Value(probe_active),
+                                Operand::ConstI64(0),
+                            ),
+                            Type::Bool,
+                            None,
+                        );
+                        let dispatch_blk = self.f.add_block();
+                        let check_saved_blk = self.f.add_block();
+                        let cbr = self.cur_block;
+                        self.f.set_term(
+                            cbr,
+                            Terminator::CondBr {
+                                cond: Operand::Value(probe_cmp),
+                                then_blk: dispatch_blk,
+                                else_blk: check_saved_blk,
+                            },
+                        );
+                        self.cur_block = check_saved_blk;
+                        let sa = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(Type::I64, Operand::Value(saved_active_slot), 0),
+                            Type::I64,
+                            None,
+                        );
+                        let sa_cmp = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::ICmp(IPred::Ne, Operand::Value(sa), Operand::ConstI64(0)),
+                            Type::Bool,
+                            None,
+                        );
+                        let do_restore_blk = self.f.add_block();
+                        let cbr2 = self.cur_block;
+                        self.f.set_term(
+                            cbr2,
+                            Terminator::CondBr {
+                                cond: Operand::Value(sa_cmp),
+                                then_blk: do_restore_blk,
+                                else_blk: dispatch_blk,
+                            },
+                        );
+                        self.cur_block = do_restore_blk;
+                        let st = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(Type::I64, Operand::Value(saved_tag_slot), 0),
+                            Type::I64,
+                            None,
+                        );
+                        let sv = self.f.append_inst(
+                            self.cur_block,
+                            InstKind::Load(Type::I64, Operand::Value(saved_value_slot), 0),
+                            Type::I64,
+                            None,
+                        );
+                        // throw_set(tag, value) writes active=1 + tag + value.
+                        self.f.append_void(
+                            self.cur_block,
+                            InstKind::Call(
+                                self.intrinsics.throw_set,
+                                vec![Operand::Value(st), Operand::Value(sv)],
+                            ),
+                        );
+                        let cbr3 = self.cur_block;
+                        self.f.set_term(cbr3, Terminator::Br(dispatch_blk));
+                        self.cur_block = dispatch_blk;
                         // Three-way dispatch at finally tail (in priority
                         // order):
                         //   1. throw_active → propagate (catch / next-
