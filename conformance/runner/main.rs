@@ -12,10 +12,27 @@
 //! placing an `.expected` file alongside the `.ts`; presence of
 //! `.expected` overrides bun's output.
 //!
+//! Parallelism: the `tr` binary is built ONCE up front (cargo tells us
+//! the exact path via `--message-format=json`), then every case invokes
+//! that binary directly across a worker pool. This removes ~N× per-case
+//! `cargo run` overhead and the cargo build-lock contention that would
+//! otherwise serialize concurrent cases. Scheduling only — the set of
+//! cases, the 3 sub-steps, and the byte-equal check are unchanged, so
+//! the pass/fail verdict is identical to the sequential runner.
+//! Per-case temp paths are made worker/pid-unique to stay collision-safe
+//! under concurrency. Results are replayed in original case order so the
+//! output is byte-stable across runs (and across the sequential→parallel
+//! switch). Default 8 workers; override with `--workers N`.
+//!
 //! Exit code: 0 if all pass, 1 if any fail.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Instant;
+
+const DEFAULT_WORKERS: usize = 8;
 
 #[derive(Debug, Clone)]
 struct Case {
@@ -32,6 +49,8 @@ enum Outcome {
 }
 
 fn main() {
+    let workers = parse_workers();
+
     let repo_root = match std::env::current_dir() {
         Ok(p) => p,
         Err(e) => die(&format!("cwd: {e}")),
@@ -53,13 +72,72 @@ fn main() {
         die("torajs CLI not found — run from repo root");
     }
 
-    println!("running {} conformance cases\n", cases.len());
+    // Build `tr` exactly once. cargo reports the produced binary's
+    // absolute path in its JSON artifact stream — orthodox, no
+    // target-dir guessing, no extra deps.
+    let tr_bin = build_tr_once(&manifest, &repo_root);
 
+    println!(
+        "running {} conformance cases — {} workers, tr = {}\n",
+        cases.len(),
+        workers,
+        tr_bin.display()
+    );
+
+    // Per-case result slots, filled by workers, replayed in order.
+    let results: Vec<Mutex<Option<Outcome>>> = (0..cases.len()).map(|_| Mutex::new(None)).collect();
+    let queue = Mutex::new(0usize);
+    let progress = AtomicUsize::new(0);
+    let total = cases.len();
+    let start = Instant::now();
+
+    std::thread::scope(|scope| {
+        for slot in 0..workers {
+            let queue = &queue;
+            let cases = &cases;
+            let results = &results;
+            let tr_bin = &tr_bin;
+            let progress = &progress;
+            scope.spawn(move || {
+                loop {
+                    let idx = {
+                        let mut g = queue.lock().unwrap();
+                        let i = *g;
+                        *g += 1;
+                        i
+                    };
+                    if idx >= cases.len() {
+                        break;
+                    }
+                    let outcome = run_case(&cases[idx], tr_bin, slot);
+                    *results[idx].lock().unwrap() = Some(outcome);
+                    let n = progress.fetch_add(1, Ordering::Relaxed) + 1;
+                    if n.is_multiple_of(50) || n == total {
+                        let pct = (n as f64 / total as f64) * 100.0;
+                        let secs = start.elapsed().as_secs_f64();
+                        let rate = if secs > 0.0 { n as f64 / secs } else { 0.0 };
+                        print!("  [{n}/{total} {pct:.0}% — {rate:.1}/s]\r");
+                        let _ = std::io::Write::flush(&mut std::io::stdout());
+                    }
+                }
+            });
+        }
+    });
+
+    // Replay in original case order → byte-stable, sequential-identical.
+    println!();
     let mut pass = 0;
     let mut fail = Vec::new();
     let mut skip = 0;
-    for c in &cases {
-        match run_case(c, &manifest) {
+    for (i, c) in cases.iter().enumerate() {
+        let outcome = results[i]
+            .lock()
+            .unwrap()
+            .take()
+            .unwrap_or_else(|| Outcome::Fail {
+                reason: "worker produced no result".to_string(),
+            });
+        match outcome {
             Outcome::Pass => {
                 pass += 1;
                 println!("  ok    {}", c.name);
@@ -85,6 +163,71 @@ fn main() {
         }
         std::process::exit(1);
     }
+}
+
+fn parse_workers() -> usize {
+    let mut args = std::env::args().skip(1);
+    while let Some(a) = args.next() {
+        if a == "--workers" {
+            if let Some(v) = args
+                .next()
+                .and_then(|s| s.parse::<usize>().ok())
+                .filter(|&v| v >= 1)
+            {
+                return v;
+            }
+            die("--workers expects a positive integer");
+        }
+    }
+    DEFAULT_WORKERS
+}
+
+/// Build `tr` once and return the exact binary path cargo produced.
+/// Uses `--message-format=json` so cargo itself reports the artifact
+/// location — no target-dir inference. Falls back to
+/// `<repo>/target/release/tr` only if the JSON has no `tr` artifact.
+fn build_tr_once(manifest: &Path, repo_root: &Path) -> PathBuf {
+    let out = Command::new("cargo")
+        .args([
+            "build",
+            "--release",
+            "--quiet",
+            "--manifest-path",
+            manifest.to_str().unwrap(),
+            "--message-format=json",
+        ])
+        .output()
+        .unwrap_or_else(|e| die(&format!("spawn cargo build: {e}")));
+    if !out.status.success() {
+        die(&format!(
+            "cargo build tr failed: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+    // Each line is a JSON object; the compiler-artifact for the `tr`
+    // binary carries `"executable":"<abs path .../tr>"`. Hand-extract
+    // (no serde dep): keep the last such path.
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let mut found: Option<PathBuf> = None;
+    for line in stdout.lines() {
+        if let Some(pos) = line.find("\"executable\":\"") {
+            let rest = &line[pos + "\"executable\":\"".len()..];
+            if let Some(end) = rest.find('"') {
+                let path = &rest[..end];
+                if path.ends_with("/tr") {
+                    found = Some(PathBuf::from(path));
+                }
+            }
+        }
+    }
+    let tr_bin = found.unwrap_or_else(|| repo_root.join("target/release/tr"));
+    if !tr_bin.is_file() {
+        die(&format!(
+            "tr binary not found after build: {}",
+            tr_bin.display()
+        ));
+    }
+    tr_bin
 }
 
 fn collect_cases(dir: &Path) -> Vec<Case> {
@@ -124,7 +267,7 @@ fn collect_cases(dir: &Path) -> Vec<Case> {
             });
             continue;
         }
-        if !p.extension().is_some_and(|e| e == "ts") {
+        if p.extension().is_none_or(|e| e != "ts") {
             continue;
         }
         let stem = p
@@ -146,7 +289,7 @@ fn collect_cases(dir: &Path) -> Vec<Case> {
     out
 }
 
-fn run_case(c: &Case, manifest: &Path) -> Outcome {
+fn run_case(c: &Case, tr_bin: &Path, slot: usize) -> Outcome {
     // Step 1: oracle output. Either an explicit .expected file or
     // whatever bun produces.
     let oracle = match &c.expected_override {
@@ -158,7 +301,7 @@ fn run_case(c: &Case, manifest: &Path) -> Outcome {
                 };
             }
         },
-        None => match exec("bun", &["run", c.src.to_str().unwrap()], None) {
+        None => match exec("bun", &["run", c.src.to_str().unwrap()]) {
             Ok((s, _)) => s,
             Err(e) => {
                 return Outcome::Skip {
@@ -168,21 +311,8 @@ fn run_case(c: &Case, manifest: &Path) -> Outcome {
         },
     };
 
-    // Step 2: torajs JIT
-    let jit = match exec(
-        "cargo",
-        &[
-            "run",
-            "--release",
-            "--quiet",
-            "--manifest-path",
-            manifest.to_str().unwrap(),
-            "--",
-            "run",
-            c.src.to_str().unwrap(),
-        ],
-        Some(c),
-    ) {
+    // Step 2: torajs JIT (prebuilt tr binary, invoked directly)
+    let jit = match exec(tr_bin.to_str().unwrap(), &["run", c.src.to_str().unwrap()]) {
         Ok((s, _)) => s,
         Err(e) => {
             return Outcome::Fail {
@@ -196,37 +326,38 @@ fn run_case(c: &Case, manifest: &Path) -> Outcome {
         };
     }
 
-    // Step 3: torajs AOT
-    let aot_bin = std::env::temp_dir().join(format!("torajs-conf-{}", c.name));
+    // Step 3: torajs AOT. Output path is worker/pid-unique so
+    // concurrent cases never collide on the binary or its .dSYM.
+    let pid = std::process::id();
+    let aot_bin = std::env::temp_dir().join(format!("torajs-conf-{}-s{slot}-p{pid}", c.name));
+    let aot_dsym = aot_bin.with_extension("dSYM");
     if let Err(e) = exec(
-        "cargo",
+        tr_bin.to_str().unwrap(),
         &[
-            "run",
-            "--release",
-            "--quiet",
-            "--manifest-path",
-            manifest.to_str().unwrap(),
-            "--",
             "build",
             c.src.to_str().unwrap(),
             "-o",
             aot_bin.to_str().unwrap(),
         ],
-        Some(c),
     ) {
+        let _ = std::fs::remove_file(&aot_bin);
+        let _ = std::fs::remove_dir_all(&aot_dsym);
         return Outcome::Fail {
             reason: format!("aot build: {e}"),
         };
     }
-    let aot = match exec(aot_bin.to_str().unwrap(), &[], Some(c)) {
+    let aot = match exec(aot_bin.to_str().unwrap(), &[]) {
         Ok((s, _)) => s,
         Err(e) => {
+            let _ = std::fs::remove_file(&aot_bin);
+            let _ = std::fs::remove_dir_all(&aot_dsym);
             return Outcome::Fail {
                 reason: format!("aot run: {e}"),
             };
         }
     };
     let _ = std::fs::remove_file(&aot_bin);
+    let _ = std::fs::remove_dir_all(&aot_dsym);
     if aot != oracle {
         return Outcome::Fail {
             reason: format!("aot ≠ oracle:\n  oracle: {oracle:?}\n  aot:    {aot:?}"),
@@ -235,7 +366,7 @@ fn run_case(c: &Case, manifest: &Path) -> Outcome {
     Outcome::Pass
 }
 
-fn exec(cmd: &str, args: &[&str], _ctx: Option<&Case>) -> Result<(String, String), String> {
+fn exec(cmd: &str, args: &[&str]) -> Result<(String, String), String> {
     let out = Command::new(cmd)
         .args(args)
         .output()
