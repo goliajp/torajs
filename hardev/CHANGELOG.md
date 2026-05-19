@@ -4,6 +4,25 @@ Incubation versioning, semver-ish. One entry per shipped hardev change.
 A pillar item is "shipped" only when its metric in `metrics.md` is
 re-measured and the *now* column updated.
 
+## v0.1.6 — 2026-05-19 — bench B2 SHIPPED: `--self` per-commit fast path
+
+- `bench run --self`: restrict to the torajs runtimes
+  (torajs / torajs-run), dropping bun/node/go/rust/python — those are
+  the SOTA cross-runtime comparison (a phase-close concern), not a
+  per-commit regression gate. ~3-4x faster per-commit.
+- Coverage NOT reduced: the regression target is torajs vs its own
+  baseline; phase-close still runs the full 8-runner matrix (first
+  hard rule). An explicit `--runtime` always overrides `--self`. A
+  per-commit-scope notice is printed so a `--self` run is never
+  mistaken for a phase-close full run.
+- Verified: `run fib40 --self` → only fib40×{torajs,torajs-run} +
+  notice; `--runtime bun-jsc` overrides (no notice, bun-jsc only);
+  --help lists it. fmt clean, 0-warn, no substrate.
+- artifact-precheck (skip timed runs when artifact_bytes unchanged
+  vs a baseline → seconds) split out as **B2b** (follow-on).
+- `optimization-backlog.md` B2 → DONE (+ B2b filed); `metrics.md`
+  §4 per-commit-gate row updated; VERSION 0.1.6.
+
 ## v0.1.5 — 2026-05-19 — bench B1b SHIPPED: native N-run aggregation (median + MAD)
 
 - `bench run --runs N` (default 1, fully backward-compatible). N

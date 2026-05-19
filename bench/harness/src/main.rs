@@ -31,6 +31,12 @@ fn print_usage() {
     println!(
         "        --runs N                  N full interleaved passes; row = median run_ms + MAD"
     );
+    println!(
+        "        --self                    per-commit fast path: torajs runtimes only (~3-4×;"
+    );
+    println!(
+        "                                  phase-close must still run the full 8-runner matrix)"
+    );
     println!("        --no-save                 don't write results/<file>.json");
     println!();
     println!(
@@ -108,12 +114,17 @@ fn run_cmd(bench_dir: &Path, args: &[String]) -> Result<bool> {
     let mut runtime_filter: Option<Vec<String>> = None;
     let mut no_save = false;
     let mut runs: usize = 1;
+    let mut self_only = false;
 
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
             "--no-save" => {
                 no_save = true;
+                i += 1;
+            }
+            "--self" => {
+                self_only = true;
                 i += 1;
             }
             "--runs" => {
@@ -154,6 +165,21 @@ fn run_cmd(bench_dir: &Path, args: &[String]) -> Result<bool> {
         anyhow::bail!(
             "no cases match{}",
             case_filter.map(|n| format!(" `{n}`")).unwrap_or_default()
+        );
+    }
+
+    // hardev bench B2 — `--self` is the per-commit fast path: only the
+    // torajs runtimes (drop bun/node/go/rust/python — those are the
+    // SOTA cross-runtime comparison, a phase-close concern, not a
+    // per-commit regression gate). ~3–4× faster per-commit. Does NOT
+    // reduce coverage: the regression target is torajs vs its own
+    // baseline; phase-close still runs the full 8-runner matrix
+    // (first hard rule). An explicit `--runtime` always wins.
+    if self_only && runtime_filter.is_none() {
+        runtime_filter = Some(vec!["torajs".to_string(), "torajs-run".to_string()]);
+        eprintln!(
+            "→ hardev B2: --self per-commit scope (torajs only; \
+             phase-close must run the full 8-runner matrix)"
         );
     }
 

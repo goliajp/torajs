@@ -182,7 +182,28 @@ median-of-medians + MAD + 置信区间写一个聚合 json）。
 3-run 聚合 json 含 median+MAD；artifact-delta 未 justify 时退出码非 0。
 **状态：TODO（最高优先）**
 
-### B2 — `--self` 快速回归模式 + artifact 预检【最大速度收益，per-commit 10min→秒级】
+### B2 — `--self` per-commit 快速路径 ✅ DONE（artifact 预检拆 B2b）
+
+**✅ DONE 2026-05-19**：`bench run --self` → 仅 torajs/torajs-run runtime（丢
+bun/node/go/rust/python——那是 SOTA 横向对比 = phase-close 关注，非 per-commit
+回归门）。per-commit ~3-4× 提速，**覆盖不减**（回归 target 是 torajs vs 自身
+baseline；phase-close 仍全 8-runner，第一硬规则）。显式 `--runtime` 永远 override
+`--self`。打印 per-commit-scope notice 防误当 phase-close。**验收实测**：
+`run fib40 --self` 仅 fib40×{torajs,torajs-run}+notice；`--runtime bun-jsc`
+override（无 notice，仅 bun-jsc）；help 显示。fmt clean、0-warn、无 substrate。
+**状态：DONE ✅**
+
+### B2b — artifact 预检（artifact 不变跳 timed → 秒级）【follow-on，最大速度】
+
+**做法**：`bench run --self --vs <baseline.json>`：对每 case 走 torajs runner 的
+compile 路径只 stat artifact_bytes（无 hyperfine、无 timed run），逐一对 baseline。
+全 identical → "0 regression by construction（机器码未变），timed 跳过" 秒级 exit 0；
+任一 differ → 该 case fallback 跑完整 timed（覆盖不减）。**质量为何中性**：artifact
+不变 ⟺ 机器码不变 ⟺ run_ms 不可能真回归（教科书 + 本会话实证）；变了仍全 timed
+测，第一硬规则满足。**验收**：tr 不变 `--vs` 秒级 PASS；改 torajs-core 后该 case
+fallback timed 且结论与全 timed 跑一致。**状态：TODO（B2 follow-on）**
+
+### B2-orig — （原 B2 描述存档，已拆 B2 + B2b 实现/计划）
 
 **现状**：全跑 8 runner × 26 case ≈ 585s/run；per-commit 回归门其实只需 torajs
 vs 自身 baseline，bun/node/go/rust/python 是 SOTA 横向对比（phase-close 关注）。
