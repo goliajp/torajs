@@ -58,10 +58,28 @@ export type Commit = {
   subject: string
 }
 
+export type RoadmapStatus = 'DONE' | 'CURRENT' | 'queued' | 'post-v1.0'
+
+export type RoadmapPhase = {
+  id: string
+  title: string
+  status: RoadmapStatus
+}
+
+export type Torajs = {
+  commit: string
+  commitSubject: string
+  phase: string | null
+  phaseTitle: string | null
+  conformance: Conformance
+}
+
 export type SnapshotData = {
   generatedAt: string
   hardevVersion: string
   conformance: Conformance
+  torajs: Torajs
+  roadmap: RoadmapPhase[]
   headline: Headline[]
   pillars: Pillar[]
   changelog: Release[]

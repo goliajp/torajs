@@ -468,6 +468,127 @@ section {
   margin-top: 4px;
 }
 
+/* ─── Roadmap inline (pitch.html) ─── */
+.roadmap {
+  margin-top: 18px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 12.5px;
+}
+.rm-row {
+  display: grid;
+  grid-template-columns: 60px 1fr 90px;
+  gap: 16px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--rule-soft);
+  align-items: baseline;
+}
+.rm-row .ph {
+  font-weight: 600;
+  color: var(--ink-muted);
+  letter-spacing: 0.1em;
+}
+.rm-row.done .ph {
+  color: var(--tora);
+}
+.rm-row.cur .ph {
+  color: var(--ink);
+}
+.rm-row .desc {
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-variation-settings:
+    'wdth' 92,
+    'opsz' 14,
+    'wght' 400;
+  font-size: 13.5px;
+  color: var(--ink-soft);
+  line-height: 1.45;
+}
+.rm-row.done .desc,
+.rm-row.cur .desc {
+  color: var(--ink);
+}
+.rm-row .st {
+  text-align: right;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+.rm-row.done .st {
+  color: var(--tora);
+}
+.rm-row.cur .st {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/* ─── hardev: secondary tooling section (quieter than 01–02) ─── */
+.tool {
+  margin-top: 6px;
+  padding: 20px 24px;
+  border: 1px solid var(--rule);
+  background: var(--paper);
+}
+.tool .tool-lede {
+  font-size: 13.5px;
+  color: var(--ink-soft);
+  line-height: 1.55;
+  max-width: 64ch;
+  margin-bottom: 18px;
+}
+.tool .tool-lede b {
+  color: var(--ink);
+  font-weight: 600;
+}
+.tool-pillars {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px 28px;
+  padding: 14px 0;
+  border-top: 1px solid var(--rule-soft);
+  border-bottom: 1px solid var(--rule-soft);
+}
+.tp-row {
+  display: grid;
+  grid-template-columns: 84px 1fr;
+  gap: 14px;
+  align-items: baseline;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.tp-row .tp-tag {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--tora);
+}
+.tp-row .tp-txt {
+  color: var(--ink-soft);
+}
+.tool-velocity {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 28px;
+  margin-top: 16px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11.5px;
+  color: var(--ink-soft);
+}
+.tool-velocity b {
+  color: var(--tora);
+  font-weight: 600;
+  font-feature-settings: 'tnum';
+}
+.tool-cap {
+  margin-top: 14px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.05em;
+  color: var(--ink-muted);
+  line-height: 1.6;
+}
+
 /* ─── Commits ─── */
 .commits {
   margin-top: 18px;
@@ -569,5 +690,12 @@ footer .quote {
   }
   .tl-row .date {
     display: none;
+  }
+  .tool-pillars {
+    grid-template-columns: 1fr;
+  }
+  .rm-row {
+    grid-template-columns: 48px 1fr 68px;
+    gap: 10px;
   }
 }

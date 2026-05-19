@@ -1,12 +1,106 @@
 {
-  "generatedAt": "2026-05-19T07:44:38.085Z",
-  "hardevVersion": "0.1.11",
+  "generatedAt": "2026-05-19T08:07:42.892Z",
+  "hardevVersion": "0.1.12",
   "conformance": {
     "pass": 629,
     "fail": 0,
     "skip": 1,
     "raw": "629/0/1"
   },
+  "torajs": {
+    "commit": "4128987",
+    "commitSubject": "hardev v0.1.12: taskq checker INV-2 (header<->L4 agreement + drift-engine guard)",
+    "phase": "P7",
+    "phaseTitle": "Error type hierarchy + throw any",
+    "conformance": {
+      "pass": 629,
+      "fail": 0,
+      "skip": 1,
+      "raw": "629/0/1"
+    }
+  },
+  "roadmap": [
+    {
+      "id": "P0",
+      "title": "Untyped-JS surface",
+      "status": "DONE"
+    },
+    {
+      "id": "P1",
+      "title": "undefined as a real value",
+      "status": "DONE"
+    },
+    {
+      "id": "P2",
+      "title": "var/function hoisting",
+      "status": "DONE"
+    },
+    {
+      "id": "P3",
+      "title": "Property-bag objects",
+      "status": "DONE"
+    },
+    {
+      "id": "P4",
+      "title": "Class hierarchies + prototype chain",
+      "status": "DONE"
+    },
+    {
+      "id": "P5",
+      "title": "Iterator protocol",
+      "status": "DONE"
+    },
+    {
+      "id": "P6",
+      "title": "Map / Set / WeakMap / WeakSet",
+      "status": "DONE"
+    },
+    {
+      "id": "P7",
+      "title": "Error type hierarchy + throw any",
+      "status": "CURRENT"
+    },
+    {
+      "id": "P8",
+      "title": "Class spec full (private + static blocks + accessor + super)",
+      "status": "queued"
+    },
+    {
+      "id": "P9",
+      "title": "Regex full",
+      "status": "queued"
+    },
+    {
+      "id": "P10",
+      "title": "Promise + async-await + Generator",
+      "status": "queued"
+    },
+    {
+      "id": "P11",
+      "title": "String Unicode",
+      "status": "queued"
+    },
+    {
+      "id": "P12",
+      "title": "Number IEEE 754 conformance",
+      "status": "queued"
+    },
+    {
+      "id": "P13",
+      "title": "Module system → v1.0 gate",
+      "status": "queued"
+    },
+    {
+      "id": "P14",
+      "title": "Proxy + Reflect",
+      "status": "post-v1.0"
+    },
+    {
+      "id": "P15",
+      "title": "Tail call + edge spec",
+      "status": "post-v1.0"
+    }
+  ],
   "headline": [
     {
       "value": "11.4",
@@ -48,7 +142,7 @@
       "key": "taskq",
       "name": "taskq",
       "tagline": "task-queue L1–L4 governance",
-      "scope": "making the 4-layer planning architecture (L1 roadmap / L2 version / L3a hot / L3b cold / L4 trigger) an enforced, trackable discipline rather than prose",
+      "scope": "making the 4-layer planning architecture an enforced, machine-checkable discipline rather than prose",
       "metricName": "invariants spec",
       "status": "7 machine-checkable invariants spec'd [M] ✅ taskq v0.1.9 — hardev/taskq/README.md INV-1…7, each grounded in a concrete observed drift (was: nothing, governance was vibes)"
     },
@@ -62,6 +156,16 @@
     }
   ],
   "changelog": [
+    {
+      "version": "0.1.12",
+      "date": "2026-05-19",
+      "title": "taskq checker INV-2 (the gap the v0.1.11 dogfood exposed)",
+      "bullets": [
+        "taskq/check.sh +INV-2: INV-2a header phase-state ↔",
+        "Acceptance caught+fixed a second checker bug (after the v0.1.11",
+        "check.sh now enforces INV-1a/1b/2a/2b/5. Remaining INV-3/4/6/7"
+      ]
+    },
     {
       "version": "0.1.11",
       "date": "2026-05-19",
@@ -416,6 +520,14 @@
   },
   "commits": [
     {
+      "hash": "4128987",
+      "subject": "hardev v0.1.12: taskq checker INV-2 (header<->L4 agreement + drift-engine guard)"
+    },
+    {
+      "hash": "b261ea8",
+      "subject": "hardev v0.1.11: taskq checker — INV-1a/1b/5 enforced + README charter de-drifted"
+    },
+    {
       "hash": "4328d6a",
       "subject": "hardev v0.1.10: web dashboard — devops/starters/web scaffold (GDS-stripped), pitch.html design, live progress+bench"
     },
@@ -454,15 +566,7 @@
     {
       "hash": "778fcdc",
       "subject": "hardev v0.1.2: devperf #1 — fast iteration profile (~11.4x inner loop)"
-    },
-    {
-      "hash": "c587803",
-      "subject": "hardev v0.1.1: devperf P0 root-caused — sccache myth busted, true build lever found"
-    },
-    {
-      "hash": "96b5813",
-      "subject": "hardev: v0.1.0 — incubate Rust-specialized R&D-support framework + observability baseline"
     }
   ],
-  "headSha": "4328d6a"
+  "headSha": "4128987"
 }

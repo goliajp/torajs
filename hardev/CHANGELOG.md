@@ -4,6 +4,34 @@ Incubation versioning, semver-ish. One entry per shipped hardev change.
 A pillar item is "shipped" only when its metric in `metrics.md` is
 re-measured and the *now* column updated.
 
+## v0.1.13 — 2026-05-19 — dashboard re-centered torajs-primary (hardev = one supporting section)
+
+takagi (emphatic, 3×): torajs is the product; hardev is a tool whose
+value is measured in torajs dev velocity. The dashboard was
+hardev-centric — flipped to torajs-primary, restoring labs/pitch.html's
+own emphasis (aesthetic/tokens unchanged, only structure/content).
+
+- Render order now Header(torajs) → Hero("TypeScript, compiled to
+  silicon" — torajs is an AOT TS→native runtime) → **§01 Progress**
+  (the P0→P15 roadmap parsed from docs/roadmap.md + status-grid:
+  conformance 629/0/1, current phase, commit, 26/26) → §02 Benchmark
+  (torajs vs bun-aot/bun-jsc/node-v8) → **§03 hardev** (one compact
+  SECONDARY section: 4 pillars + dev-loop velocity, framed as "what
+  hardev buys torajs development").
+- snapshot.mjs +`roadmap` (real parse of docs/roadmap.md `### P<N>`
+  headings → id/title/status DONE|CURRENT|queued|post-v1.0) +
+  `torajs` (commit/phase/conformance). pillars+headline now feed §03.
+- Independently audited: render order correct, zero GDS, roadmap
+  P0-P6 DONE / P7 CURRENT real from docs/roadmap.md, build rc=0.
+- Honest deviation (agent-flagged, verified): docs/roadmap.md P7
+  sub-checkboxes are all `[ ]` even though P7.4 shipped (683bd95) —
+  a real torajs-progress drift in roadmap.md itself. The snapshot
+  reports phase-level truth (P7=CURRENT) and does NOT fabricate
+  "P7.4 closed"; roadmap.md's stale sub-boxes are de-drifted
+  separately (torajs docs, next commit).
+
+CHANGELOG/VERSION 0.1.13.
+
 ## v0.1.12 — 2026-05-19 — taskq checker INV-2 (the gap the v0.1.11 dogfood exposed)
 
 - `taskq/check.sh` +INV-2: **INV-2a** header phase-state ↔

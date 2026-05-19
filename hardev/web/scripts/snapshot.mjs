@@ -16,6 +16,8 @@ const WEB_DIR = resolve(__dirname, '..')
 const HARDEV_DIR = resolve(WEB_DIR, '..')
 const REPO_ROOT = resolve(HARDEV_DIR, '..')
 
+const sh = (cmd) => execSync(cmd, { cwd: REPO_ROOT }).toString().trim()
+
 const read = (p) => readFileSync(p, 'utf8')
 
 // ── hardev VERSION ────────────────────────────────────────────────────────
@@ -271,9 +273,55 @@ function findConformance() {
 }
 const conformance = findConformance()
 
+// ── roadmap: parse docs/roadmap.md `### P<N> — <title> (<status>)` ───────
+// Status is derived from keywords present in the heading line:
+//   DONE/closed/shipped/✅ → 'DONE'
+//   CURRENT                → 'CURRENT'
+//   post-v1.0              → 'post-v1.0'
+//   else                   → 'queued'
+// The trailing parenthetical is only stripped from the title when it is a
+// status marker (so titles like "Class spec full (private + ...)" survive).
+function parseRoadmap() {
+  const md = read(join(REPO_ROOT, 'docs', 'roadmap.md'))
+  const headRe = /^###\s+(P\d+(?:\.\d+)?)\s+—\s+(.+?)\s*$/gm
+  const seen = new Set()
+  const phases = []
+  let m
+  while ((m = headRe.exec(md)) !== null) {
+    const id = m[1].trim()
+    // only top-level P<N> phases (skip P-PARSE etc. and P<N>.<x> sub-headings)
+    if (!/^P\d+$/.test(id)) continue
+    if (seen.has(id)) continue
+    seen.add(id)
+
+    let title = m[2].trim()
+    const heading = `${id} — ${title}`
+    let status
+    if (/\bCURRENT\b/i.test(heading)) status = 'CURRENT'
+    else if (/\bpost-v1\.0\b/i.test(heading)) status = 'post-v1.0'
+    else if (/DONE|closed|shipped|✅/i.test(heading)) status = 'DONE'
+    else status = 'queued'
+
+    // strip a trailing `( ... )` only if it carries the status keyword
+    const tail = title.match(/\s*\(([^()]*)\)\s*$/)
+    if (
+      tail &&
+      /DONE|closed|shipped|✅|CURRENT|post-v1\.0/i.test(tail[1])
+    ) {
+      title = title.slice(0, tail.index).trim()
+    }
+
+    const num = Number(id.slice(1))
+    phases.push({ id, num, title, status })
+  }
+  phases.sort((a, b) => a.num - b.num)
+  return phases.map(({ id, title, status }) => ({ id, title, status }))
+}
+const roadmap = parseRoadmap()
+
 // ── recent commits ──────────────────────────────────────────────────────
 function recentCommits() {
-  const out = execSync('git log --oneline -12', { cwd: REPO_ROOT }).toString().trim()
+  const out = sh('git log --oneline -12')
   return out.split('\n').map((line) => {
     const sp = line.indexOf(' ')
     return { hash: line.slice(0, sp), subject: line.slice(sp + 1) }
@@ -282,11 +330,28 @@ function recentCommits() {
 const commits = recentCommits()
 const headSha = commits.length ? commits[0].hash : null
 
+// ── torajs: current dev state (git HEAD + CURRENT phase + conformance) ────
+function buildTorajs() {
+  const commit = sh('git log -1 --format=%h')
+  const commitSubject = sh('git log -1 --format=%s')
+  const cur = roadmap.find((p) => p.status === 'CURRENT')
+  return {
+    commit,
+    commitSubject,
+    phase: cur ? cur.id : null,
+    phaseTitle: cur ? cur.title : null,
+    conformance,
+  }
+}
+const torajs = buildTorajs()
+
 // ── assemble ────────────────────────────────────────────────────────────
 const data = {
   generatedAt: new Date().toISOString(),
   hardevVersion: version,
   conformance,
+  torajs,
+  roadmap,
   headline,
   pillars,
   changelog,
@@ -306,6 +371,15 @@ writeFileSync(outPath, JSON.stringify(data, null, 2) + '\n')
 
 console.log(`snapshot → ${outPath}`)
 console.log(`  hardev v${version} · conformance ${conformance.raw}`)
+console.log(
+  `  torajs: ${torajs.commit} "${torajs.commitSubject}" · phase ${torajs.phase} (${torajs.phaseTitle})`
+)
+console.log(
+  `  roadmap: ${roadmap.length} phases · ${roadmap.filter((p) => p.status === 'DONE').length} DONE · ` +
+    `${roadmap.filter((p) => p.status === 'CURRENT').length} CURRENT · ` +
+    `${roadmap.filter((p) => p.status === 'queued').length} queued · ` +
+    `${roadmap.filter((p) => p.status === 'post-v1.0').length} post-v1.0`
+)
 console.log(
   `  bench: ${data.bench.sourceFile} @ ${data.bench.gitSha?.slice(0, 7)} · ${bench.caseCount} cases · ${bench.wonCount} won`
 )

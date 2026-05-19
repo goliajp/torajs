@@ -1,13 +1,22 @@
 import rawData from './data.json'
-import type { Pillar, SnapshotData } from './types'
+import type { Pillar, RoadmapPhase, SnapshotData } from './types'
 
 const data = rawData as unknown as SnapshotData
 
-const PILLAR_TITLES: Record<string, string> = {
-  devperf: 'Dev-loop performance',
-  cleanup: 'Garbage / stale-artifact control',
-  taskq: 'L1–L4 plan governance',
-  bench: 'Benchmark · coverage · verdict',
+// hardev is the SECONDARY tooling section — these one-liners describe what
+// each pillar buys torajs development, framed as dev-velocity effect.
+const PILLAR_ONELINE: Record<string, string> = {
+  devperf: 'build/cache levers — sccache, project-private cargo-target, the real bottlenecks',
+  cleanup: 'enumerable regenerable junk reclaimed safely · dry-run-default · never touches source',
+  taskq: 'the L1–L4 planning architecture made a machine-checkable, enforced discipline',
+  bench: 'trustworthy, reproducible, machine-judged regression verdicts · fast per-commit path',
+}
+
+const STATUS_LABEL: Record<string, string> = {
+  DONE: 'done',
+  CURRENT: 'current',
+  queued: 'queued',
+  'post-v1.0': 'post-v1.0',
 }
 
 function fmt(n: number | null): string {
@@ -30,11 +39,16 @@ function shortStatus(p: Pillar): string {
     .replace(/✅/g, '')
     .replace(/\s+/g, ' ')
     .trim()
-  // first clause up to an em-dash or sentence stop, capped
   const cut = s.search(/ — | – | \(/)
   if (cut > 24) s = s.slice(0, cut).trim()
   if (s.length > 130) s = s.slice(0, 127).trimEnd() + '…'
   return s
+}
+
+function rmClass(p: RoadmapPhase): string {
+  if (p.status === 'DONE') return 'rm-row done'
+  if (p.status === 'CURRENT') return 'rm-row cur'
+  return 'rm-row'
 }
 
 function Header() {
@@ -42,36 +56,63 @@ function Header() {
     <header>
       <div className="container">
         <span className="brand">
-          hardev
+          torajs
           <span className="dot" />
         </span>
         <div className="right">
-          <span>v{data.hardevVersion}</span>
           <span>{todayLabel()}</span>
-          <span className="live">torajs R&amp;D-support · live</span>
+          <span className="live">internal · dev status</span>
         </div>
       </div>
     </header>
   )
 }
 
+// hero KPIs are derived from the snapshot bench numbers — never hardcoded.
+function heroKpis() {
+  const b = data.bench
+  const startup = b.rows.find((r) => r.case === 'startup')
+  return [
+    {
+      value: fmt(b.geomeanBunAot),
+      unit: '×',
+      label: 'geomean faster than bun-aot',
+      sub: `geomean across ${b.caseCount} benchmarks · vs bun build --compile`,
+    },
+    {
+      value: startup && startup.speedup != null ? startup.speedup.toFixed(2) : '—',
+      unit: '×',
+      label: 'faster cold start',
+      sub:
+        startup != null
+          ? `startup case: ${fmt(startup.torajs)} ms vs ${fmt(startup.bunAot)} ms (bun-aot) · ${fmt(startup.nodeV8)} ms (node)`
+          : 'startup case',
+    },
+    {
+      value: `${b.wonCount}`,
+      unit: ` / ${b.caseCount}`,
+      label: 'benchmarks won',
+      sub: 'torajs beats the best of bun-aot / bun-jsc on every case',
+    },
+  ]
+}
+
 function Hero() {
   return (
     <div className="hero">
       <h1>
-        torajs dev,
+        TypeScript,
         <br />
-        <span className="accent">instrumented.</span>
+        <span className="accent">compiled to silicon.</span>
       </h1>
       <p className="lede">
-        <b>hardev</b> is the Rust-specialized R&amp;D-support framework incubating inside torajs —
-        the company&rsquo;s bun-class AOT TypeScript runtime. Four pillars (devperf · cleanup ·
-        taskq · bench), metrics-first, acceptance-gated. It makes the develop → verify → ship loop
-        fast, clean, and trustworthy <em>without ever trading away verification coverage</em>.
+        <b>torajs</b> is an ahead-of-time TypeScript runtime that emits standalone native binaries.
+        Same TS programs as Bun. No JIT, no interpreter, no embedded runtime — the program{' '}
+        <em>is</em> the binary, full throughput from the first nanosecond.
       </p>
 
       <div className="kpi">
-        {data.headline.map((h) => (
+        {heroKpis().map((h) => (
           <div className="kpi-item" key={h.label}>
             <div className="kpi-num">
               {h.value}
@@ -86,30 +127,60 @@ function Hero() {
   )
 }
 
-function Pillars() {
+// SECTION 01 — Progress (PRIMARY): the torajs P0→P15 roadmap story.
+function Progress() {
+  const rm = data.roadmap
+  const t = data.torajs
+  const c = data.conformance
+  const b = data.bench
   return (
     <section>
       <div className="h2">
-        <span className="num">01</span>The four pillars
-        <span className="sub">metrics-first · acceptance-gated</span>
+        <span className="num">01</span>Progress
+        <span className="sub">P0 → P15 substrate roadmap</span>
       </div>
-      <div className="pillars">
-        {data.pillars.map((p) => (
-          <div className="pillar" key={p.key}>
-            <div className="pillar-tag">{p.name}</div>
-            <h3>{PILLAR_TITLES[p.key] ?? p.name}</h3>
-            <p className="scope">{p.scope}</p>
-            <div className="metric">
-              <span className="mk">{p.metricName ? p.metricName : 'current status'}</span>
-              {shortStatus(p)}
-            </div>
+
+      <div className="roadmap">
+        {rm.map((p) => (
+          <div className={rmClass(p)} key={p.id}>
+            <div className="ph">{p.id}</div>
+            <div className="desc">{p.title}</div>
+            <div className="st">{STATUS_LABEL[p.status] ?? p.status}</div>
           </div>
         ))}
+      </div>
+
+      <div className="status-grid" style={{ marginTop: 24 }}>
+        <div className="stat-cell">
+          <div className="stat-v">
+            {c.pass}
+            <span className="d">
+              /{c.fail}/{c.skip}
+            </span>
+          </div>
+          <div className="stat-l">conformance · 0 fail</div>
+        </div>
+        <div className="stat-cell">
+          <div className="stat-v">{t.phase}</div>
+          <div className="stat-l">current phase</div>
+        </div>
+        <div className="stat-cell">
+          <div className="stat-v">{t.commit}</div>
+          <div className="stat-l">torajs HEAD</div>
+        </div>
+        <div className="stat-cell">
+          <div className="stat-v">
+            {b.wonCount}
+            <span className="d">/{b.caseCount}</span>
+          </div>
+          <div className="stat-l">benchmarks won</div>
+        </div>
       </div>
     </section>
   )
 }
 
+// SECTION 02 — Benchmark (the torajs proof): torajs vs the world.
 function Bench() {
   const b = data.bench
   return (
@@ -168,68 +239,48 @@ function Bench() {
   )
 }
 
-function Progress() {
+// SECTION 03 — hardev (the TOOL, secondary): what the R&D-support
+// tooling buys torajs development. Compact, quieter than 01–02.
+function Hardev() {
   const cl = data.changelog
   return (
     <section>
       <div className="h2">
-        <span className="num">03</span>Progress
-        <span className="sub">hardev changelog · newest first</span>
+        <span className="num">03</span>hardev
+        <span className="sub">R&amp;D-support tooling · v{data.hardevVersion}</span>
       </div>
+      <div className="tool">
+        <p className="tool-lede">
+          <b>hardev</b> is the Rust-specialized R&amp;D-support framework that instruments this dev
+          loop — four pillars, metrics-first, acceptance-gated. Its only job is to make torajs
+          development fast and correct <em>without ever trading away verification coverage</em>.
+        </p>
 
-      <div className="status-grid">
-        <div className="stat-cell">
-          <div className="stat-v">
-            {data.conformance.pass}
-            <span className="d">
-              /{data.conformance.fail}/{data.conformance.skip}
-            </span>
-          </div>
-          <div className="stat-l">conformance · 0 fail</div>
-        </div>
-        <div className="stat-cell">
-          <div className="stat-v">v{data.hardevVersion}</div>
-          <div className="stat-l">hardev version</div>
-        </div>
-        <div className="stat-cell">
-          <div className="stat-v">
-            4<span className="u">/ 4</span>
-          </div>
-          <div className="stat-l">pillars shipped</div>
-        </div>
-        <div className="stat-cell">
-          <div className="stat-v">
-            {data.bench.caseCount}
-            <span className="d">/{data.bench.wonCount}</span>
-          </div>
-          <div className="stat-l">benchmarks won</div>
-        </div>
-      </div>
-
-      <div className="timeline">
-        {cl.map((r) => (
-          <div className="tl-row" key={r.version}>
-            <div className="ph">v{r.version}</div>
-            <div className="date">{r.date}</div>
-            <div className="body">
-              <div className="title">{r.title}</div>
-              {r.bullets[0] && <div className="sum">{r.bullets[0]}</div>}
+        <div className="tool-pillars">
+          {data.pillars.map((p) => (
+            <div className="tp-row" key={p.key}>
+              <span className="tp-tag">{p.name}</span>
+              <span className="tp-txt">{PILLAR_ONELINE[p.key] ?? shortStatus(p)}</span>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
 
-      <div className="h2" style={{ marginTop: 40 }}>
-        <span className="num">03b</span>Recent commits
-        <span className="sub">git log · torajs HEAD</span>
-      </div>
-      <div className="commits">
-        {data.commits.map((c) => (
-          <div className="cm-row" key={c.hash}>
-            <span className="hash">{c.hash}</span>
-            <span className="subj">{c.subject}</span>
-          </div>
-        ))}
+        <div className="tool-velocity">
+          <span>
+            edit→rebuild tr <b>28.5 s → 2.49 s</b>
+          </span>
+          <span>
+            per-commit gate <b>~10 min → seconds</b>
+          </span>
+          <span>
+            full conformance <b>~30 min → ~3 min</b>
+          </span>
+        </div>
+
+        <p className="tool-cap">
+          what hardev buys torajs development — measured dev-loop velocity, conformance-equivalent
+          (629/0/1) · latest: v{cl[0]?.version} {cl[0]?.title}
+        </p>
       </div>
     </section>
   )
@@ -240,10 +291,10 @@ function Footer() {
     <footer>
       <div className="container">
         <span className="quote">
-          &ldquo;Measure before you optimize. Never trade away what is verified.&rdquo;
+          &ldquo;Bun proved TS can be the runtime. torajs makes it the binary.&rdquo;
         </span>
         <span>
-          commit <code style={{ color: 'var(--ink)' }}>{data.headSha}</code>
+          commit <code style={{ color: 'var(--ink)' }}>{data.torajs.commit}</code>
         </span>
         <span>Rust · LLVM · static C runtime</span>
         <span>
@@ -260,9 +311,9 @@ export function App() {
       <Header />
       <div className="container">
         <Hero />
-        <Pillars />
-        <Bench />
         <Progress />
+        <Bench />
+        <Hardev />
       </div>
       <Footer />
     </>
