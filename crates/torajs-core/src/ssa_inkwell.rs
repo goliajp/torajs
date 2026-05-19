@@ -16,6 +16,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::Mutex;
 
 use inkwell::AddressSpace;
 use inkwell::OptimizationLevel;
@@ -131,6 +132,21 @@ pub fn compile_for(
     )
 }
 
+/// Serializes every codegen invocation through `compile_for_kind`.
+/// LLVM holds non-thread-safe global state (target/pass registration,
+/// command-line option parsing, internal statistics), so two compiles
+/// running in parallel — e.g. the embed crate's parallel `cargo test`,
+/// or any future caller spinning up workers — race on those globals
+/// and SIGSEGV/SIGBUS intermittently. The textbook fix is to wrap the
+/// unsafe boundary at the source: a single static Mutex around the
+/// one funnel point (`compile_for_kind`) — `compile` and `compile_for`
+/// both route through it, so all 5 workspace callsites
+/// (torajs-embed × 3, torajs-cli × 2) are covered without per-callsite
+/// changes. `Mutex::new` is const since Rust 1.63 so this is a true
+/// zero-init static. cli is single-threaded (no contention); embed
+/// tests serialize their codegen passes (intended — that's the fix).
+static COMPILE_LOCK: Mutex<()> = Mutex::new(());
+
 /// V3-16 — extended entry point that lets the caller pick
 /// executable vs shared-lib output. `compile_for` keeps the
 /// existing executable-only signature so existing callers
@@ -145,6 +161,12 @@ pub fn compile_for_kind(
     target: CompileTarget,
     kind: OutputKind,
 ) -> Result<(), CompileError> {
+    // Serialize all LLVM codegen — see COMPILE_LOCK doc above. Poisoning
+    // can only happen if a previous compile panicked mid-codegen, which
+    // would itself be a bug worth surfacing; expect rather than recover.
+    let _guard = COMPILE_LOCK
+        .lock()
+        .expect("ssa_inkwell COMPILE_LOCK poisoned by a prior panicking compile");
     let ctx = Context::create();
     let llvm_module = ctx.create_module("torajs");
     let builder = ctx.create_builder();
