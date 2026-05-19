@@ -34,19 +34,34 @@
   风险 + 去掉共享盘并发争用**（modest），**不是** build 提速（sccache 已覆盖）。
   不要再说"换 target 位置提速 N x"。
 
-## 3. sccache ⚠️ 假设被实测推翻（hardev v0.1.0 metrics-first 发现，待 root-cause）
+## 3. sccache 对 torajs 内循环无关 + 真杠杆 = ship-profile 全量重编（devperf P0 ROOT-CAUSED 2026-05-19）
 
-- `RUSTC_WRAPPER=/opt/homebrew/bin/sccache`（环境变量，shell profile 设；
-  **不在** `~/.cargo/config.toml` 里）。配置存在。
-- ~~实测 stats（2026-05-19 早）：12133 requests，3285 hits，工作正常~~
-  **此结论被推翻**：hardev v0.1.0 建基线时 `sccache --show-stats` 实测
-  **0.00 % 命中率（1284 requests / 85 executed / 0 hits / 85 misses 全 Rust）**。
-  早先 3285 hits 的数字与当前 0% 矛盾——可能 stats 被 reset、cache 错 key、
-  或早数字来自不同机器状态。**未 root-cause 前，"sccache 是 build 真杠杆"
-  这条 `[A]` 不可信**（见 `metrics.md` §0/§1 headline finding）。
-- **devperf P0**：build-speed 真杠杆当前**未知**。在 root-cause sccache（为何
-  0 命中）之前，不得再声称"动磁盘没用、sccache 已覆盖"——那建立在已被推翻
-  的假设上。任何 build 提速决策必须先重测，不沿用本节旧断言。
+旧断言"sccache 3285 hits / build 真杠杆 / 动磁盘没用"——**双重错误，已 root-cause**：
+
+- **sccache 是全机全局共享服务**（`sccache --show-stats` 是跨所有项目计数，
+  实测时 pid 94050 正为**别的项目** `frz`（INTEL2T shared cache）服务）。
+  那个"0% / 3285 hits"都是全局快照、非 torajs 专属信号，无参考价值。
+- **结构性**：`Non-cacheable calls 1373`，`Non-cacheable reasons: crate-type`。
+  sccache **设计上只缓存 lib/rlib，不缓存 `bin`/proc-macro/build-script**。
+  torajs 热重建 = `tr`（torajs-cli **bin**，永不缓存）+ 改 torajs-core 源
+  （改了 = genuine miss = **正确**，非 cache 故障）。**sccache 结构上无法
+  加速 torajs 迭代内循环**——这不是配置 bug，是 sccache 本质。
+- **真杠杆 = profile**。`Cargo.toml [profile.release]` = `opt-level=3,
+  lto="fat", codegen-units=1, strip=true`（最大优化 **ship** profile）。
+  但 torajs **每次迭代构建都 `--release`**（conformance 建 tr / bench /
+  所有 `cargo build`）。**实测：touch torajs-core → 重建 tr = 28.5s**
+  （fat-LTO 全程序 + cgu=1 无 codegen 并行 = 最慢）；no-op 0.05s（cargo
+  正确跳过）。每次源改付 28.5s × 每会话数百次 = dev-loop 主导成本，一直
+  被 sccache 误解掩盖。
+- **对产物对**（fat-LTO/cgu=1 给 ship 二进制最高 runtime 性能 = 高性能
+  pillar）；**对迭代灾难**。修法 = **独立快速迭代 profile**
+  （lto=off / cgu=many / opt 低）用于功能迭代 + conformance（语义与
+  opt-level 无关 → 628/0/1 仍证正确性，第一硬规则不破：覆盖不减）；
+  **bench + 最终 ship 仍用 fat-LTO release**（bench 必须测真 ship 二进制）。
+  见 `optimization-backlog.md` devperf #1 + `metrics.md` §1 重测。
+- **教训**：旧 §3 是 metrics-first 之前"凭印象记 ground truth"的反例
+  ——一个全局工具的全局快照被当成 torajs 专属结论写进 ground truth。
+  今后 build 性能结论必须 (a) 区分全局/项目 (b) 受控实测 (c) 标 provenance。
 
 ## 4. conformance gate 的真实成本结构（优化重点）
 

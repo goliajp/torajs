@@ -4,6 +4,36 @@ Incubation versioning, semver-ish. One entry per shipped hardev change.
 A pillar item is "shipped" only when its metric in `metrics.md` is
 re-measured and the *now* column updated.
 
+## v0.1.1 — 2026-05-19 — devperf P0 root-caused (sccache myth busted, true lever found)
+
+First metrics-driven investigation. Outcome: the sccache "0 %" was not
+a misconfig to fix — it is **structural** (machine-global shared server;
+sccache never caches `bin`/proc-macro/build-script; a changed
+`torajs-core` source is a *correct* miss). The prior `environment.md`
+§3 "sccache is the real build lever (3285 hits)" was a global
+cross-project snapshot mis-recorded as a torajs conclusion.
+
+**The real lever, found because we measured**: `[profile.release]`
+(`lto="fat", codegen-units=1`, max-opt ship profile) is reused for
+*every* iteration build. Measured: **touch `torajs-core` → rebuild
+`tr` = 28.5 s** (no-op = 0.05 s). That tax × hundreds/session was the
+hidden dominant dev-loop cost.
+
+- `environment.md` §3 rewritten: refuted claim → root-caused truth +
+  the "don't write a global tool's global snapshot into project ground
+  truth" lesson.
+- `metrics.md` §0 + §1: re-measured. New headline metric
+  **edit→rebuild wall = 28.5 s [M]** (v1 target ≤ 5 s); sccache hit
+  rate dropped as a torajs lever (was a misconception, not a target).
+- `optimization-backlog.md`: **devperf #1** filed — fast iteration
+  profile (lto=off/cgu=many/low-opt) for functional+conformance work
+  (opt-level is semantics-invariant → 629/0/1 still proves
+  correctness, coverage unchanged); bench+ship keep fat-LTO release.
+  Machine-decidable acceptance attached.
+
+No code/config changed yet (P0 = root-cause + plan). devperf #1
+(the profile fix) is the next autorun item.
+
 ## v0.1.0 — 2026-05-19 — incubation scaffold + observability baseline
 
 Named, versioned, Rust-specialized R&D-support framework, incubated

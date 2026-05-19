@@ -8,6 +8,29 @@
 
 ---
 
+## devperf #1 — 快速迭代 profile【最大杠杆，root-caused 2026-05-19】
+
+**root-cause（devperf P0，task #22）**：sccache 对 torajs 内循环结构性无关
+（全局共享 + bin/改源 non-cacheable，非 bug）。真杠杆 = `[profile.release]`
+（`lto="fat", codegen-units=1`，最大优化 **ship** profile）被**每次迭代构建
+复用**。**实测 touch torajs-core → 重建 tr = 28.5s**（vs no-op 0.05s）。
+**做法**：新增独立快速迭代 profile（`[profile.<name>]` 继承 release 但
+`lto=false, codegen-units=256, opt-level=1, debug=false`），把**功能迭代 +
+conformance 的 tr build** 切到它；**bench + 最终 ship 仍 `--release`**（fat-LTO
+真 ship 二进制）。
+**质量为何中性（带证明）**：opt-level/LTO/cgu **不改程序语义**（教科书不变量）
+→ 快 profile 的 tr 与 release 的 tr 对所有 conformance case **stdout 逐字节
+相同**；故 conformance 用快 profile **仍是同覆盖同 byte-equal 判定**，正确性
+等价。**bench 不切**（bench 测 ship 二进制 runtime 性能，必须 fat-LTO；切了
+就测错东西 = 违反第一硬规则）→ 覆盖/正确性零损失。
+**可机器判定验收**：① 快 profile 跑 full conformance **仍 629/0/1**（实证
+correctness-equivalence）；② `touch torajs-core && build tr(fast)` 墙钟
+**≤ 5s**（vs 28.5s baseline）；③ bench 仍走 `--release`（grep 确认 bench-harness
+runner 描述符未改 + 一次 bench 跑 artifact_bytes 与 release baseline 一致）；
+④ 0-warn / fmt-clean 不破。
+**预估**：内循环 28.5s → ≤5s（~6x），叠加 conformance 并行（P1）后 dev-loop
+质变。**状态：TODO（devperf 最高优先，autorun next）**
+
 ## P1 — 并行化 conformance runner【最大杠杆，质量绝对中性】✅ DONE
 
 **现状**：`conformance/runner/main.rs:61` 纯串行 `for c in &cases`，~628 cases。

@@ -19,22 +19,35 @@
 Establishing metrics *immediately* paid off (this is the point):
 
 - **sccache hit rate = 0.00 %** `[M]` (`sccache --show-stats`, this
-  session: 1284 requests, 85 executed, **0 hits / 85 misses, all Rust**).
-  This **contradicts** the prior assumption in `environment.md` §3 ("real
-  build lever, working, 3285 hits"). Either stats reset, the cache is
-  mis-keyed, or the earlier figure was a different machine state. **Flag**:
-  devperf P0 — `environment.md` §3's "sccache is the real lever" claim is
-  now `[A]` *unverified*; the true build-speed lever is unknown until
-  this is root-caused. This is exactly why metrics precede optimization.
+  session: 0 hits / 85 misses; **`Non-cacheable calls 1373`,
+  reason `crate-type`**). **ROOT-CAUSED** (devperf P0, same session):
+  (a) sccache is a **machine-global shared server** — `--show-stats`
+  counts all projects (caught it serving a *different* project `frz`
+  mid-measurement); the old "3285 hits" was a global cross-project
+  snapshot, never a torajs signal. (b) **Structural**: sccache only
+  caches lib/rlib, **never `bin`/proc-macro/build-script**; torajs's
+  hot rebuild is the `tr` **bin** + changed-`torajs-core`-source
+  (a *correct* miss). **sccache structurally cannot accelerate
+  torajs's inner loop — not a bug.** (c) **The real lever was hidden
+  by this misconception**: `[profile.release]` = `lto="fat",
+  codegen-units=1` (max-opt **ship** profile) is used for *every*
+  iteration build → **measured 28.5 s to rebuild `tr` after touching
+  `torajs-core`** `[M]`. That 28.5 s × hundreds/session is the
+  dominant dev-loop tax. Fix = a fast iteration profile for
+  functional+conformance work (semantics are opt-level-invariant →
+  629/0/1 still proves correctness, coverage unchanged), bench+ship
+  keep fat-LTO release. This is *exactly* why metrics precede
+  optimization: a global tool's global snapshot had been written into
+  ground truth as a torajs-specific conclusion, hiding the true lever.
 
 ## 1. devperf — dev-loop performance
 
 | Metric | now (v0.1.0) | after v1 | after v2 |
 |---|---|---|---|
 | full conformance wall (629 cases) | **~3.0–3.5 min** `[M]` parallel 8-worker (174–208 s ×N this session; shipped `6ab22f9`, was ~30 min serial) | ≤ 2 min (artifact-precheck skips timed re-verify when tr unchanged) `[D]` | ≤ 30 s for the common "tr unchanged" case `[D]` |
-| sccache hit rate | **0.00 %** `[M]` ⚠️ (assumed-positive, actually zero) | ≥ 80 % steady-state after root-cause `[D]` | ≥ 95 % + shared/remote cache `[D]` |
-| from-scratch release build wall | `[A]` ~60 s claimed sccache-accelerated — **unverified** given 0 % hits; re-measure | known & ≤ measured-now `[D]` | ≤ 1/2 of v1 `[D]` |
-| incremental no-op build | `[A]` ~0.16 s (prior env.md; not re-measured this run) | re-measured & tracked `[D]` | unchanged (already optimal) |
+| **edit→rebuild `tr` wall** (THE inner-loop metric) | **28.5 s** `[M]` (touch torajs-core → `cargo build --release -p torajs-cli`; fat-LTO + cgu=1 ship profile used for every iteration) | **≤ 5 s** `[D]` via fast iteration profile (lto=off/cgu=many/low-opt) for functional+conformance; bench+ship keep release | ≤ 2 s `[D]` |
+| sccache hit rate | **structurally ~0 % for torajs inner loop** `[M]` — global shared server, bin/changed-src non-cacheable by design (NOT a fixable misconfig) | n/a — dropped as a torajs lever (was a misconception); deps-only cold-start benefit is incidental | n/a |
+| no-op rebuild | **0.05 s** `[M]` (cargo correctly skips; steady-state optimal) | unchanged | unchanged |
 
 ## 2. cleanup — garbage / stale-artifact control
 
