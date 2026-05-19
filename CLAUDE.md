@@ -170,14 +170,14 @@ torajs/
 ├── labs/            ← experiments, language-agnostic, throwaway-friendly
 ├── examples/        ← end-to-end demos and integration test fixtures
 ├── docs/            ← project documentation (incl. canonical roadmap)
-├── .dev/            ← R&D-environment optimization theme (perf + auto-cleanup, quality-preserving; persistent & evolving)
+├── hardev/          ← `hardev` — Rust-specialized R&D-support framework (devperf / cleanup / taskq / bench), incubating in-project; versioned
 ├── .claude/         ← Claude Code rules (synced from devops/dotclaude, gitignored)
 └── CLAUDE.md        ← this file
 ```
 
 `labs/` is intentionally unconstrained — anything goes; promote to `crates/` or delete when done. `examples/` is for runnable demos, not unit tests (those live next to source).
 
-**`.dev/` (read `.dev/README.md` before any dev-environment / build-speed / disk-cleanup work)** — the standing R&D-environment optimization theme. First hard rule: no optimization may reduce verification coverage or correctness. Contains `ENVIRONMENT.md` (build/cache ground truth + corrected gotchas), `OPTIMIZATION.md` (quality-neutral perf backlog, prioritized), `clean.sh` (safe dry-run-default stale-file cleaner). It is committed and evolving — extend it, don't bypass it, when doing dev-env work.
+**`hardev/` (read `hardev/README.md` + `hardev/metrics.md` before any dev-environment / build-speed / disk-cleanup / bench / task-governance work)** — `hardev` is the project's Rust-specialized R&D-support framework, incubating in-project, versioned (`hardev/VERSION` + `CHANGELOG.md`). Four pillars: **devperf** (build/cache speed), **cleanup** (`cleanup/clean.sh` safe stale-file cleaner), **taskq** (L1–L4 plan governance), **bench** (bench perf/coverage/reporting). First hard rule: no optimization or automation may reduce verification coverage or correctness. `metrics.md` is the observability source of truth (now → v1 → v2, provenance-tagged); `environment.md` is build/cache/bench ground truth; `optimization-backlog.md` is the leverage-ranked acceptance-gated backlog. It is committed and evolving — extend it, don't bypass it, when doing R&D-support work. Measure before optimize: never touch a pillar without a metric + baseline in `metrics.md`.
 
 ## Plan
 
