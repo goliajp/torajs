@@ -3,6 +3,21 @@
 记录**实测确认**的环境事实，尤其**反直觉**和**已纠正的错误认知**。
 后续做优化前先读这里，避免基于错误前提行动。每条都标实测来源。
 
+## 0. ⚠️ `ls -t … | head -1` 在本机不可信 + 绝不 `rm $VAR`（本会话两次踩坑）
+
+`ls -t bench/results/*.json | head -1` **数次返回旧的已提交文件而非刚写的新文件**
+（mtime 排序在本机 APFS / 多文件场景不可靠）。bench-harness 自己会打印
+`results: <绝对路径>` —— **永远用那个输出路径**，绝不用 `ls -t|head` 猜。
+更严重：把猜错的路径塞进 `$BJ` 然后测试 scaffolding `rm -f "$BJ"` →
+**误删了 `683bd95` 提交的真·全量 baseline `2026-05-19-mini-23a6e31.json`**
+（208 行/26 case/8 runtime），靠会话末强制 disk-hygiene audit 的
+"D 文件 → look before delete" 才发现，`git checkout --` 复原。
+**铁律**：(a) 取刚生成文件用工具自报的绝对路径，不用 `ls -t|head`；
+(b) `rm -f "$VAR"` 前必确认 `$VAR` 不是 tracked/committed（`git ls-files`
+查；或只 `rm` 明确 untracked 的 `??`）；(c) 这正是 CLAUDE.md disk-hygiene +
+anti-hallucination "verify before delete" HARD RULE 存在的原因——它本会话
+真的兜住了一次数据丢失。
+
 ## 1. cargo target dir（torajs = 项目私有内置盘）
 
 - 全局机制（见 `~/.claude-shared/global/cargo-target-dir.md`）：`~/.local/bin/cargo`
