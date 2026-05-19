@@ -4319,7 +4319,7 @@ fn lower_inner(
     let mut decl_throw_info: Vec<(String, bool, Vec<String>)> = Vec::new();
     for stmt in &ast.stmts {
         if let Stmt::FnDecl { name, body, .. } = stmt {
-            let (direct, called) = ast::fn_throw_info(ast, body);
+            let (direct, called) = ast::fn_throw_info(ast, body, expr_types);
             if direct {
                 may_throw.insert(name.clone());
             }
@@ -5961,6 +5961,7 @@ fn synthesize_main(
             push_unchecked_for: std::collections::HashMap::new(),
             binop_left_undef_id: None,
             binop_right_undef_id: None,
+            bigint_op_may_throw: false,
             globals,
             is_main_fn: true,
             drop_inline_stack: std::collections::HashSet::new(),
@@ -6995,6 +6996,7 @@ fn lower_fn(
         push_unchecked_for: std::collections::HashMap::new(),
         binop_left_undef_id: None,
         binop_right_undef_id: None,
+        bigint_op_may_throw: false,
         globals,
         is_main_fn: false,
         drop_inline_stack: std::collections::HashSet::new(),
@@ -7545,6 +7547,16 @@ struct LowerCtx<'a> {
     /// Any-side packing reads these to pick ANY_UNDEF=5 vs ANY_NULL=0.
     binop_left_undef_id: Option<ExprId>,
     binop_right_undef_id: Option<ExprId>,
+    /// P7.4-a-b — set by `lower_binop_inner` when a bigint
+    /// Div/Mod/Pow/Shl/Shr is dispatched (those runtime helpers can
+    /// call `__torajs_throw_range_error`). The enclosing `Expr::BinOp`
+    /// arm `std::mem::take`s it and emits the throw-check AFTER the
+    /// refcounted operands are dropped — emitting it inside
+    /// `lower_binop_inner` would split the block before those drops and
+    /// strand them across the split. #13's binding-slot entry-hoist
+    /// keeps the `let c = …` slot in the entry block so the post-split
+    /// scope-end drop's load still resolves.
+    bigint_op_may_throw: bool,
     /// Phase K.3 — module-level data globals (top-level `let X: T = init`
     /// where T is a primitive Copy type). Read by the ident-read fallback
     /// to emit `GlobalRef + Load` for cross-fn reads, and by the LetDecl
@@ -14093,6 +14105,17 @@ impl<'a> LowerCtx<'a> {
                 let b_ty = self.operand_ty(&b);
                 if b_ty.is_refcounted() && self.expr_is_fresh_owned(*right) {
                     self.emit_drop_value(b, b_ty);
+                }
+                // P7.4-a-b — a bigint Div/Mod/Pow/Shl/Shr helper may
+                // have called __torajs_throw_range_error. Emit the
+                // throw-check AFTER the operands are dropped (a block
+                // split before the drops would strand the refcounted
+                // a/b). Last action on the normal path; #13's binding-
+                // slot entry-hoist keeps a `let c = …` slot in the
+                // entry block so the post-split scope-end drop's load
+                // still resolves.
+                if std::mem::take(&mut self.bigint_op_may_throw) {
+                    self.emit_throw_check(None);
                 }
                 result
             }
@@ -26251,6 +26274,23 @@ impl<'a> LowerCtx<'a> {
                         Type::BigInt,
                         None,
                     );
+                    // P7.4-a-b — these bigint helpers can call
+                    // __torajs_throw_range_error (divide-by-zero /
+                    // negative exponent / shift too large). Flag it so
+                    // the enclosing Expr::BinOp arm emits the throw-
+                    // check AFTER dropping the refcounted operands;
+                    // emitting it here would split the block before the
+                    // a/b drops and strand them.
+                    if matches!(
+                        op,
+                        AstBinOp::Div
+                            | AstBinOp::Mod
+                            | AstBinOp::Pow
+                            | AstBinOp::Shl
+                            | AstBinOp::Shr
+                    ) {
+                        self.bigint_op_may_throw = true;
+                    }
                     return Operand::Value(v);
                 }
                 if matches!(

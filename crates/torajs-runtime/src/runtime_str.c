@@ -3948,6 +3948,16 @@ static void torajs_throw_range_error(const char *msg) {
     torajs_throw_native(2 /* RangeError */, msg);
 }
 
+/* P7.4-a-b — exported wrapper so runtime_bigint.c (a separately
+ * compiled TU) can route divide-by-zero / negative-exponent / shift-
+ * too-large to a real catchable RangeError instance instead of
+ * __torajs_panic (process abort). Same throw-slot convention as
+ * torajs_throw_native; ssa_lower's emit_throw_check after the bigint
+ * op propagates to the user's try/catch or the function boundary. */
+void __torajs_throw_range_error(const char *msg) {
+    torajs_throw_range_error(msg);
+}
+
 /* P3.attribute-flag-tracking — sibling of torajs_throw_range_error
  * used by `__torajs_dynobj_set` (writable=false implicit assign) and
  * `__torajs_dynobj_define` (spec §10.1.6.3 transition violations).

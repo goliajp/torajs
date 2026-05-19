@@ -2595,7 +2595,17 @@ pub fn inject_builtin_classes(ast: &mut Ast) {
         })
     };
 
-    // Subclasses to inject: referenced AND not user-shadowed.
+    // P7.4-a-b — bigint `/ % ** << >>` and `BigInt(x)` can throw a
+    // real RangeError at runtime (divide-by-zero / negative exponent /
+    // shift too large / non-integer). If the program uses bigint at
+    // all, imply RangeError so its `__new_RangeError` factory is
+    // registered into the native-error registry (slot 2); otherwise
+    // the runtime throw degrades to a bare string instead of a
+    // catchable RangeError instance.
+    let uses_bigint =
+        ast.exprs.iter().any(|e| matches!(e, Expr::BigInt { .. })) || referenced("BigInt");
+
+    // Subclasses to inject: (referenced OR implied) AND not user-shadowed.
     let want_sub: Vec<&str> = ERROR_SUBCLASSES
         .iter()
         .copied()
@@ -2604,7 +2614,8 @@ pub fn inject_builtin_classes(ast: &mut Ast) {
                 .stmts
                 .iter()
                 .any(|s| matches!(s, Stmt::ClassDecl { name, .. } if name == *n));
-            !shadowed && referenced(n)
+            let implied = *n == "RangeError" && uses_bigint;
+            !shadowed && (referenced(n) || implied)
         })
         .collect();
 
@@ -10393,61 +10404,87 @@ fn is_global_name(name: &str) -> bool {
 /// deduplicated list of identifier names referenced as direct call
 /// callees (`Expr::Call { callee: Ident(name) }`). The lowerer combines
 /// this with a fixed-point closure to compute may_throw transitively.
-pub fn fn_throw_info(ast: &Ast, body: &[Stmt]) -> (bool, Vec<String>) {
+///
+/// P7.4-a-b — `direct_throw` is ALSO set for IMPLICIT runtime throws the
+/// AST has no `throw` node for: a bigint `Div/Mod/Pow/Shl/Shr` (the
+/// runtime helper calls `__torajs_throw_range_error` on divide-by-zero
+/// / negative-exponent / shift-too-large) and a `BigInt(x)` conversion
+/// (RangeError on a non-integer / non-finite argument). Without this a
+/// named fn whose only throw is one of these wouldn't be in `may_throw`,
+/// so the caller's `emit_throw_check` would be skipped and the real
+/// RangeError silently swallowed. The bigint-op test mirrors ssa_lower's
+/// runtime dispatch condition exactly — `op ∈ {Div,Mod,Pow,Shl,Shr}`
+/// AND BOTH operands type `check::Type::BigInt` per `expr_types` — so it
+/// is precise: number `/ % ** << >>` is never marked (no bench-tr
+/// hot-path throw-check regression), and every bigint throwing op is
+/// (no silent swallow).
+pub fn fn_throw_info(
+    ast: &Ast,
+    body: &[Stmt],
+    expr_types: &std::collections::HashMap<ExprId, crate::check::Type>,
+) -> (bool, Vec<String>) {
     let mut direct = false;
     let mut called: Vec<String> = Vec::new();
     for s in body {
-        scan_stmt_for_throws(ast, s, &mut direct, &mut called);
+        scan_stmt_for_throws(ast, s, &mut direct, &mut called, expr_types);
     }
     (direct, called)
 }
 
-fn scan_stmt_for_throws(ast: &Ast, s: &Stmt, direct: &mut bool, called: &mut Vec<String>) {
+fn scan_stmt_for_throws(
+    ast: &Ast,
+    s: &Stmt,
+    direct: &mut bool,
+    called: &mut Vec<String>,
+    expr_types: &std::collections::HashMap<ExprId, crate::check::Type>,
+) {
     match s {
         Stmt::Throw(eid) => {
             *direct = true;
-            scan_expr_for_calls(ast, *eid, called);
+            scan_expr_for_calls(ast, *eid, called, direct, expr_types);
         }
         Stmt::Expr(eid) | Stmt::Return(Some(eid)) | Stmt::Yield(eid) => {
-            scan_expr_for_calls(ast, *eid, called)
+            scan_expr_for_calls(ast, *eid, called, direct, expr_types)
         }
-        Stmt::YieldInto { value, .. } => scan_expr_for_calls(ast, *value, called),
+        Stmt::YieldInto { value, .. } => {
+            scan_expr_for_calls(ast, *value, called, direct, expr_types)
+        }
         Stmt::Return(None) | Stmt::Break | Stmt::Continue => {}
-        Stmt::LetDecl { init, .. } => scan_expr_for_calls(ast, *init, called),
+        Stmt::LetDecl { init, .. } => scan_expr_for_calls(ast, *init, called, direct, expr_types),
         Stmt::If {
             cond,
             then_branch,
             else_branch,
         } => {
-            scan_expr_for_calls(ast, *cond, called);
-            scan_stmt_for_throws(ast, then_branch, direct, called);
+            scan_expr_for_calls(ast, *cond, called, direct, expr_types);
+            scan_stmt_for_throws(ast, then_branch, direct, called, expr_types);
             if let Some(eb) = else_branch {
-                scan_stmt_for_throws(ast, eb, direct, called);
+                scan_stmt_for_throws(ast, eb, direct, called, expr_types);
             }
         }
         Stmt::While { cond, body } => {
-            scan_expr_for_calls(ast, *cond, called);
-            scan_stmt_for_throws(ast, body, direct, called);
+            scan_expr_for_calls(ast, *cond, called, direct, expr_types);
+            scan_stmt_for_throws(ast, body, direct, called, expr_types);
         }
         Stmt::DoWhile { body, cond } => {
-            scan_stmt_for_throws(ast, body, direct, called);
-            scan_expr_for_calls(ast, *cond, called);
+            scan_stmt_for_throws(ast, body, direct, called, expr_types);
+            scan_expr_for_calls(ast, *cond, called, direct, expr_types);
         }
         Stmt::Switch {
             scrutinee,
             cases,
             default,
         } => {
-            scan_expr_for_calls(ast, *scrutinee, called);
+            scan_expr_for_calls(ast, *scrutinee, called, direct, expr_types);
             for c in cases {
-                scan_expr_for_calls(ast, c.value, called);
+                scan_expr_for_calls(ast, c.value, called, direct, expr_types);
                 for s in &c.body {
-                    scan_stmt_for_throws(ast, s, direct, called);
+                    scan_stmt_for_throws(ast, s, direct, called, expr_types);
                 }
             }
             if let Some(db) = default {
                 for s in db {
-                    scan_stmt_for_throws(ast, s, direct, called);
+                    scan_stmt_for_throws(ast, s, direct, called, expr_types);
                 }
             }
         }
@@ -10458,33 +10495,33 @@ fn scan_stmt_for_throws(ast: &Ast, s: &Stmt, direct: &mut bool, called: &mut Vec
             body,
         } => {
             if let Some(i) = init {
-                scan_stmt_for_throws(ast, i, direct, called);
+                scan_stmt_for_throws(ast, i, direct, called, expr_types);
             }
             if let Some(c) = cond {
-                scan_expr_for_calls(ast, *c, called);
+                scan_expr_for_calls(ast, *c, called, direct, expr_types);
             }
             if let Some(st) = step {
-                scan_expr_for_calls(ast, *st, called);
+                scan_expr_for_calls(ast, *st, called, direct, expr_types);
             }
-            scan_stmt_for_throws(ast, body, direct, called);
+            scan_stmt_for_throws(ast, body, direct, called, expr_types);
         }
         Stmt::Block(stmts) | Stmt::Multi(stmts) => {
             for st in stmts {
-                scan_stmt_for_throws(ast, st, direct, called);
+                scan_stmt_for_throws(ast, st, direct, called, expr_types);
             }
         }
         Stmt::ForOfSplitIter {
             parent, sep, body, ..
         } => {
-            scan_expr_for_calls(ast, *parent, called);
-            scan_expr_for_calls(ast, *sep, called);
-            scan_stmt_for_throws(ast, body, direct, called);
+            scan_expr_for_calls(ast, *parent, called, direct, expr_types);
+            scan_expr_for_calls(ast, *sep, called, direct, expr_types);
+            scan_stmt_for_throws(ast, body, direct, called, expr_types);
         }
         Stmt::ForOf {
             elem_expr, body, ..
         } => {
-            scan_expr_for_calls(ast, *elem_expr, called);
-            scan_stmt_for_throws(ast, body, direct, called);
+            scan_expr_for_calls(ast, *elem_expr, called, direct, expr_types);
+            scan_stmt_for_throws(ast, body, direct, called, expr_types);
         }
         Stmt::Try {
             body,
@@ -10493,14 +10530,14 @@ fn scan_stmt_for_throws(ast: &Ast, s: &Stmt, direct: &mut bool, called: &mut Vec
             ..
         } => {
             for st in body {
-                scan_stmt_for_throws(ast, st, direct, called);
+                scan_stmt_for_throws(ast, st, direct, called, expr_types);
             }
             for st in catch_body {
-                scan_stmt_for_throws(ast, st, direct, called);
+                scan_stmt_for_throws(ast, st, direct, called, expr_types);
             }
             if let Some(fb) = finally_body {
                 for st in fb {
-                    scan_stmt_for_throws(ast, st, direct, called);
+                    scan_stmt_for_throws(ast, st, direct, called, expr_types);
                 }
             }
         }
@@ -10512,58 +10549,96 @@ fn scan_stmt_for_throws(ast: &Ast, s: &Stmt, direct: &mut bool, called: &mut Vec
         Stmt::ImportDecl { .. } => {}
         Stmt::ExportDecl { inner, .. } => {
             if let Some(inner) = inner {
-                scan_stmt_for_throws(ast, inner, direct, called);
+                scan_stmt_for_throws(ast, inner, direct, called, expr_types);
             }
         }
     }
 }
 
-fn scan_expr_for_calls(ast: &Ast, eid: ExprId, out: &mut Vec<String>) {
+fn scan_expr_for_calls(
+    ast: &Ast,
+    eid: ExprId,
+    out: &mut Vec<String>,
+    direct: &mut bool,
+    expr_types: &std::collections::HashMap<ExprId, crate::check::Type>,
+) {
     match ast.get_expr(eid) {
         Expr::Call { callee, args } => {
             if let Expr::Ident(name) = ast.get_expr(*callee) {
                 if !out.contains(name) {
                     out.push(name.clone());
                 }
+                // P7.4-a-b — `BigInt(x)` throws a real RangeError on a
+                // non-integer / non-finite argument (runtime_bigint.c →
+                // __torajs_throw_range_error). Conservatively flag every
+                // BigInt() call as may-throw: such calls are rare and
+                // never hot-path, so the over-approximation costs at
+                // most one cold-path throw-check while guaranteeing the
+                // RangeError can't be silently swallowed across a fn
+                // boundary. `BigInt` is a global ctor, not user-named,
+                // so it never enters `out` (called user-fn names).
+                if name == "BigInt" {
+                    *direct = true;
+                }
             }
-            scan_expr_for_calls(ast, *callee, out);
+            scan_expr_for_calls(ast, *callee, out, direct, expr_types);
             for a in args {
-                scan_expr_for_calls(ast, *a, out);
+                scan_expr_for_calls(ast, *a, out, direct, expr_types);
             }
         }
-        Expr::BinOp { left, right, .. } => {
-            scan_expr_for_calls(ast, *left, out);
-            scan_expr_for_calls(ast, *right, out);
+        Expr::BinOp { op, left, right } => {
+            // P7.4-a-b — a bigint Div/Mod/Pow/Shl/Shr lowers to a
+            // runtime helper that calls __torajs_throw_range_error
+            // (divide-by-zero / negative exponent / shift too large).
+            // This mirrors ssa_lower's runtime dispatch condition
+            // EXACTLY (op in the throwing set AND both operands typed
+            // BigInt) so it is precise: number `/ % ** << >>` is never
+            // flagged (no bench-tr hot-path throw-check regression),
+            // and every bigint throwing op is (no silent swallow
+            // across a named-fn boundary).
+            if matches!(
+                op,
+                BinOp::Div | BinOp::Mod | BinOp::Pow | BinOp::Shl | BinOp::Shr
+            ) && matches!(expr_types.get(left), Some(crate::check::Type::BigInt))
+                && matches!(expr_types.get(right), Some(crate::check::Type::BigInt))
+            {
+                *direct = true;
+            }
+            scan_expr_for_calls(ast, *left, out, direct, expr_types);
+            scan_expr_for_calls(ast, *right, out, direct, expr_types);
         }
-        Expr::Unary { expr, .. } => scan_expr_for_calls(ast, *expr, out),
-        Expr::Member { obj, .. } => scan_expr_for_calls(ast, *obj, out),
+        Expr::Unary { expr, .. } => scan_expr_for_calls(ast, *expr, out, direct, expr_types),
+        Expr::Member { obj, .. } => scan_expr_for_calls(ast, *obj, out, direct, expr_types),
         Expr::Assign { target, value } => {
-            scan_expr_for_calls(ast, *target, out);
-            scan_expr_for_calls(ast, *value, out);
+            scan_expr_for_calls(ast, *target, out, direct, expr_types);
+            scan_expr_for_calls(ast, *value, out, direct, expr_types);
         }
         Expr::Index { obj, index } => {
-            scan_expr_for_calls(ast, *obj, out);
-            scan_expr_for_calls(ast, *index, out);
+            scan_expr_for_calls(ast, *obj, out, direct, expr_types);
+            scan_expr_for_calls(ast, *index, out, direct, expr_types);
         }
         Expr::Array(elems) => {
             for e in elems {
-                scan_expr_for_calls(ast, *e, out);
+                scan_expr_for_calls(ast, *e, out, direct, expr_types);
             }
         }
         Expr::ObjectLit { fields } => {
             for (_, e) in fields {
-                scan_expr_for_calls(ast, *e, out);
+                scan_expr_for_calls(ast, *e, out, direct, expr_types);
             }
         }
         // ArrowFn / Closure bodies are walked separately (their own
         // FnDecls — lifted by lift_arrow_fns); from this fn's
         // perspective the closure body's calls don't propagate to the
         // outer fn's may_throw bit until the outer fn actually invokes
-        // the closure (which is itself a Call → tracked above).
+        // the closure (which is itself a Call → tracked above). Same
+        // reasoning applies to the bigint-throw bit: a throwing bigint
+        // op INSIDE the closure belongs to the closure's own lifted
+        // FnDecl, not the enclosing fn.
         Expr::ArrowFn { .. } | Expr::Closure { .. } => {}
         Expr::New { args, .. } | Expr::Super { args } => {
             for a in args {
-                scan_expr_for_calls(ast, *a, out);
+                scan_expr_for_calls(ast, *a, out, direct, expr_types);
             }
         }
         Expr::Ternary {
@@ -10571,24 +10646,24 @@ fn scan_expr_for_calls(ast: &Ast, eid: ExprId, out: &mut Vec<String>) {
             then_branch,
             else_branch,
         } => {
-            scan_expr_for_calls(ast, *cond, out);
-            scan_expr_for_calls(ast, *then_branch, out);
-            scan_expr_for_calls(ast, *else_branch, out);
+            scan_expr_for_calls(ast, *cond, out, direct, expr_types);
+            scan_expr_for_calls(ast, *then_branch, out, direct, expr_types);
+            scan_expr_for_calls(ast, *else_branch, out, direct, expr_types);
         }
         Expr::TypeOf { expr }
         | Expr::Spread { expr }
         | Expr::InstanceOf { expr, .. }
-        | Expr::As { expr, .. } => scan_expr_for_calls(ast, *expr, out),
+        | Expr::As { expr, .. } => scan_expr_for_calls(ast, *expr, out, direct, expr_types),
         Expr::Sequence { left, right } => {
-            scan_expr_for_calls(ast, *left, out);
-            scan_expr_for_calls(ast, *right, out);
+            scan_expr_for_calls(ast, *left, out, direct, expr_types);
+            scan_expr_for_calls(ast, *right, out, direct, expr_types);
         }
         Expr::Nullish { lhs, rhs } => {
-            scan_expr_for_calls(ast, *lhs, out);
-            scan_expr_for_calls(ast, *rhs, out);
+            scan_expr_for_calls(ast, *lhs, out, direct, expr_types);
+            scan_expr_for_calls(ast, *rhs, out, direct, expr_types);
         }
-        Expr::OptChain { obj, .. } => scan_expr_for_calls(ast, *obj, out),
-        Expr::PostIncr { target, .. } => scan_expr_for_calls(ast, *target, out),
+        Expr::OptChain { obj, .. } => scan_expr_for_calls(ast, *obj, out, direct, expr_types),
+        Expr::PostIncr { target, .. } => scan_expr_for_calls(ast, *target, out, direct, expr_types),
         Expr::This | Expr::NewTarget => {}
         Expr::Ident(_)
         | Expr::String(_)

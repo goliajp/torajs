@@ -42,6 +42,11 @@ typedef struct __attribute__((aligned(8))) {
 extern uint8_t *__torajs_str_alloc_pooled(uint64_t len);
 extern int __torajs_rc_dec(void *p);
 extern void __torajs_panic(const char *msg);
+/* P7.4-a-b — defined in runtime_str.c. Routes a bigint RangeError
+ * (divide-by-zero / negative exponent / shift-too-large / non-integer
+ * BigInt()) into a real catchable RangeError instance via the native-
+ * error registry, instead of __torajs_panic's process abort. */
+extern void __torajs_throw_range_error(const char *msg);
 
 typedef struct {
     __torajs_heap_header_t header;
@@ -289,7 +294,14 @@ static BigIntHeader *bigint_mag_shr_(const BigIntHeader *a, uint64_t n);
 #include <math.h>
 void *__torajs_bigint_from_number(double v) {
     if (!isfinite(v) || floor(v) != v) {
-        __torajs_panic("RangeError: BigInt() expects a finite integer Number");
+        __torajs_throw_range_error("BigInt() expects a finite integer Number");
+        /* throw_range_error RETURNS (unlike the old noreturn
+         * __torajs_panic) — it only arms the thread-local throw slot
+         * for ssa_lower's emit_throw_check to propagate. Bail now so
+         * the rest of the fn never runs on the bad value. The dummy
+         * return is never consumed: the throw-check diverts the caller
+         * before the result is read. */
+        return NULL;
     }
     if (v == 0.0) {
         return bigint_alloc_raw(0);
@@ -732,7 +744,8 @@ void *__torajs_bigint_div(void *a_, void *b_) {
     const BigIntHeader *a = (const BigIntHeader *)a_;
     const BigIntHeader *b = (const BigIntHeader *)b_;
     if (b->len == 0) {
-        __torajs_panic("RangeError: BigInt divide by zero");
+        __torajs_throw_range_error("BigInt divide by zero");
+        return NULL; /* throw_range_error returns — bail before divmod */
     }
     BigIntHeader *q;
     BigIntHeader *r;
@@ -749,7 +762,8 @@ void *__torajs_bigint_mod(void *a_, void *b_) {
     const BigIntHeader *a = (const BigIntHeader *)a_;
     const BigIntHeader *b = (const BigIntHeader *)b_;
     if (b->len == 0) {
-        __torajs_panic("RangeError: BigInt divide by zero");
+        __torajs_throw_range_error("BigInt divide by zero");
+        return NULL; /* throw_range_error returns — bail before divmod */
     }
     BigIntHeader *q;
     BigIntHeader *r;
@@ -769,7 +783,8 @@ void *__torajs_bigint_pow(void *base_, void *exp_) {
     const BigIntHeader *base = (const BigIntHeader *)base_;
     const BigIntHeader *exp = (const BigIntHeader *)exp_;
     if (exp->sign) {
-        __torajs_panic("RangeError: BigInt negative exponent");
+        __torajs_throw_range_error("BigInt negative exponent");
+        return NULL; /* throw_range_error returns — bail before pow */
     }
     /* Result starts at 1n. */
     BigIntHeader *result = bigint_alloc_raw(1);
@@ -1211,11 +1226,17 @@ void *__torajs_bigint_shr(void *a_, void *n_);
 static int64_t bigint_to_i64_for_shift(const BigIntHeader *n) {
     if (n->len == 0) return 0;
     if (n->len > 1) {
-        __torajs_panic("RangeError: BigInt shift amount too large");
+        __torajs_throw_range_error("BigInt shift amount too large");
+        /* throw_range_error RETURNS — without this bail the bogus
+         * huge shift would flow into __torajs_bigint_shl and blow
+         * memory (SEGV) before ssa_lower's post-call throw-check ever
+         * runs. 0 is a safe no-op shift; never consumed (diverted). */
+        return 0;
     }
     uint64_t v = bigint_words_c(n)[0];
     if (v > (uint64_t)INT64_MAX) {
-        __torajs_panic("RangeError: BigInt shift amount too large");
+        __torajs_throw_range_error("BigInt shift amount too large");
+        return 0; /* same: bail before the bogus shift reaches shl */
     }
     int64_t s = (int64_t)v;
     return n->sign ? -s : s;
