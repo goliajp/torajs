@@ -403,7 +403,7 @@ substrate path so theoretically 0 regression on hot Array / Closure
 
 ---
 
-### P7 — Error type hierarchy + throw any (CURRENT)
+### P7 — Error type hierarchy + throw any (DONE)
 
 **Goal**: real Error subtypes (TypeError, RangeError, SyntaxError, …);
 `throw` accepts any value; try/catch/finally state machine
@@ -420,13 +420,17 @@ spec-conformant.
 - [x] **P7.4** Native errors throw real RangeError / TypeError —
       SHIPPED a-1 `76252b6` / a-2 `c2dc3af` / a-b+#15 `76ace15` /
       frozen `683bd95` (conformance 629/0/1)
-- [ ] **P7.5** try / catch / finally state-machine matches spec
-      ordering — **CURRENT** (last P7 substrate item; 4/5 done →
-      5/5 trips the P7→P8 trigger)
+- [x] **P7.5** try / catch / finally state-machine matches spec
+      ordering — SHIPPED `1e84f1b` (suspend pending throw across
+      finally body per ECMA §14.13.3; closes the O5 spurious-
+      propagation bug where finally's first may-throw call saw
+      throw_active=1 from the pending and propagated before the
+      callee could complete) — **P7 substrate 5/5 DONE**, trigger
+      P7→P8 MET, conformance 629/0/1 preserved
 
 ---
 
-### P8 — Class spec full (private + static blocks + accessor + super)
+### P8 — Class spec full (private + static blocks + accessor + super) (CURRENT)
 
 **Goal**: complete the class feature set started in P4 — private
 fields, static blocks, accessor properties, super-in-arrow.
