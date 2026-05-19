@@ -69,7 +69,7 @@ Establishing metrics *immediately* paid off (this is the point):
 
 | Metric | now (v0.1.0) | after v1 | after v2 |
 |---|---|---|---|
-| regression verdict | **manual ad-hoc python by the agent** `[M]` — not a command, not reproducible, not in-repo | `bench compare` subcommand: machine verdict + exit code `[D]` | statistical (MAD/Mann-Whitney) noise-band verdict in CI `[D]` |
+| regression verdict | **`bench compare` — machine verdict + exit code, reproducible, in-repo** `[M]` ✅ B1 SHIPPED `0726979`+ (was: ad-hoc agent python). artifact_bytes hard gate + noise-aware run_ms; reproduced the prior hand-finding exactly | (met early) add N-run aggregation input (B1b) | statistical (MAD/Mann-Whitney) noise-band verdict in CI `[D]` |
 | trustworthy signal | **artifact_bytes only** `[M]` (deterministic); run_ms cross-day **±15 % systematic + up to +200 % single-point** `[M]` = unusable for verdicts | artifact-gate primary + same-machine-state run_ms `[D]` | machine-hygiene-gated run_ms becomes trustworthy too `[D]` |
 | per-commit gate wall | **~10 min** `[M]` full 8-runner (585 s clean / 912 s under load this session) | **seconds** for tr-unchanged via `--self` + artifact-precheck `[D]` | seconds always; full cross-runtime only at phase-close `[D]` |
 | coverage vs phase under dev | **gap** `[M]`: 26 cases, **no bigint, 1 exception case** — P7 (Error/bigint) shipped with no direct bench coverage | each phase adds ≥1 hot-path case for its substrate `[D]` | coverage auto-tracks the active phase `[D]` |

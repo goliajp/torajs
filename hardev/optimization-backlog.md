@@ -137,7 +137,31 @@ conformance 并行不改正确性，bench 并行摧毁计时可信度，故 benc
 0-warn。bench-harness tooling，无 substrate（不需 conformance gate）。
 **状态：DONE ✅**
 
-### B1 — artifact_bytes 自动 gate + N-run 原生聚合【最大置信度收益，~零速度成本】
+### B1 — artifact_bytes 自动 gate（`bench compare`）✅ DONE + N-run 聚合(→B1b)
+
+**✅ DONE 2026-05-19**：`bench compare <base> <cur> [--allow-artifact-delta
+case:runtime,…]`（`bench/harness/src/compare.rs` + main.rs 接线）。编码本会话
+实证方法论：**artifact_bytes 硬门**（确定性唯一可信信号；任一 per-case 变 =
+回归疑似 → 退出码 1，除非 `--allow-artifact-delta` justify）+ **run_ms
+noise-aware**（仅当同 case artifact **也**变才分类；artifact 不变则 run 差
+by-construction 是噪声，永不报）。**验收实测**：精确复现先前手跑 python 结论
+（8b73988→76ace15：torajs `array-sum-1m -16` / `throw-catch-100k +416`，
+逐一吻合；94 identical）；未 justify→VERDICT FAIL exit 1；justify→PASS exit 0；
+同文件→0 delta PASS。fmt clean、0-warn。**灭"agent 手跑 ad-hoc python"
+反模式 —— 回归裁定现可复现、在仓库、机器判定。** bench-harness tooling，
+无 substrate（验收即测试，不需 conformance gate）。
+**状态：DONE ✅**（compare 核心）
+
+### B1b — N-run 原生聚合（同名覆盖修复，median/MAD）【follow-on，质量】
+
+`report.rs` `write_json` 用 `{date}-{host}-{sha}.json` 固定名 → 同 sha 多跑
+互相覆盖，pipeline 的 "3-run median" 在 json 层做不到（本会话被迫 log-parse）。
+**做法**：多 run 不覆盖（文件名加 run-nonce 或 `--runs-aggregate N` 原生收集
+N 次取 median-of-medians + MAD 写一个聚合 json），`bench compare` 吃聚合文件。
+**验收**：3-run 聚合 json 含 median+MAD；`compare` 用它给带噪声带的裁定。
+**状态：TODO（B1 follow-on，B2 之前）**
+
+### B1-orig — （原 B1 描述存档，已被上面拆分实现）
 
 **现状**：`report.rs` 仅 `fs::write` 同名 `{date}-{host}-{sha}.json`（同 sha 多跑
 互相覆盖）；无 `compare` 子命令、无 baseline-diff、无回归判定。`artifact_bytes`

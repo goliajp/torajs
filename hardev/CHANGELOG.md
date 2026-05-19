@@ -4,6 +4,30 @@ Incubation versioning, semver-ish. One entry per shipped hardev change.
 A pillar item is "shipped" only when its metric in `metrics.md` is
 re-measured and the *now* column updated.
 
+## v0.1.4 — 2026-05-19 — bench B1 SHIPPED: `bench compare` machine regression verdict
+
+The reporting gap takagi named ("agent hand-runs ad-hoc python to
+eyeball two json files — not a command, not reproducible, not
+in-repo") is closed.
+
+- `bench/harness/src/compare.rs` + main.rs wiring: `bench compare
+  <baseline.json> <current.json> [--allow-artifact-delta
+  case:runtime,…]`. Encodes the empirically-established methodology:
+  **artifact_bytes is the HARD GATE** (deterministic; any per-case
+  change = regression suspect → exit 1 unless justified);
+  **run_ms is noise-aware** (only classified where the same case's
+  artifact_bytes ALSO changed; identical artifact ⇒ run delta is
+  noise by construction, informational only).
+- Verified: reproduces the earlier hand-python finding exactly
+  (8b73988→76ace15: torajs `array-sum-1m -16`, `throw-catch-100k
+  +416`; 94 identical); unjustified → VERDICT FAIL exit 1;
+  `--allow-artifact-delta` → PASS exit 0; identical files → 0 delta
+  PASS. fmt clean, 0-warn. bench-harness tooling, no substrate.
+- N-run native aggregation (the same-name-overwrite fix) split out
+  as **B1b** (follow-on, before B2).
+- `optimization-backlog.md` B1 → DONE (+ B1b filed); `metrics.md`
+  §4 regression-verdict row → SHIPPED; VERSION 0.1.4.
+
 ## v0.1.3 — 2026-05-19 — bench B0 SHIPPED: bench always measures the current ship binary
 
 Closes the operational footgun devperf #1 introduced (conformance no

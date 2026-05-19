@@ -1,5 +1,6 @@
 mod bench;
 mod case;
+mod compare;
 mod report;
 mod runner;
 
@@ -29,6 +30,16 @@ fn print_usage() {
     println!("        --runtime r1,r2           filter to a comma-separated runtime list");
     println!("        --no-save                 don't write results/<file>.json");
     println!();
+    println!(
+        "    compare <base> <cur>          machine regression verdict (artifact_bytes hard gate +"
+    );
+    println!(
+        "                                  noise-aware run_ms); exit 1 on unjustified regression"
+    );
+    println!(
+        "        --allow-artifact-delta c:r  justify intended per-case artifact_bytes change(s)"
+    );
+    println!();
     println!("    --help, -h                    print this help");
 }
 
@@ -43,6 +54,11 @@ fn main() -> ExitCode {
             Err(e) => fatal(e),
         },
         Some("run") => match run_cmd(&bench_dir, &args[1..]) {
+            Ok(true) => ExitCode::SUCCESS,
+            Ok(false) => ExitCode::from(1),
+            Err(e) => fatal(e),
+        },
+        Some("compare") => match compare::compare(&args[1..]) {
             Ok(true) => ExitCode::SUCCESS,
             Ok(false) => ExitCode::from(1),
             Err(e) => fatal(e),
