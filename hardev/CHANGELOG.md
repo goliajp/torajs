@@ -4,6 +4,36 @@ Incubation versioning, semver-ish. One entry per shipped hardev change.
 A pillar item is "shipped" only when its metric in `metrics.md` is
 re-measured and the *now* column updated.
 
+## v0.1.10 — 2026-05-19 — hardev web dashboard (devops/starters/web scaffold, no GDS, pitch.html design)
+
+A live webserver surfacing torajs **dev progress + benchmark**, the
+visualization layer over the metrics/bench/changelog/git data.
+
+- `hardev/web/` — Vite 8 + React 19 + TS, scaffolded from
+  `devops/starters/web` with **ALL GDS stripped** (zero `gds` /
+  `@goliapkg/gds` anywhere — verified). Design-led ("frontend-design"):
+  the `labs/pitch.html` editorial aesthetic ported verbatim (paper/ink
+  tokens, `#d04920` tora-orange, IBM Plex Sans/Mono, the bench-table /
+  KPI / pillars / roadmap / status-grid layout), refined for a living
+  dashboard. No component library, not Tailwind.
+- `scripts/snapshot.mjs` (no-dep Node ESM) reads REAL repo data →
+  `src/data.json`: hardev VERSION + CHANGELOG releases, the 4 pillars
+  (README + metrics.md), `[M]` headline dev-loop metrics (with a hard
+  assert-guard so it fails loudly rather than drift if metrics.md's
+  literal numbers change), the newest full bench json (26 cases / 8
+  runtimes — currently `2026-05-19-mini-23a6e31.json` @ 23a6e31,
+  geomean 4.24× vs bun-aot / 20.15× vs node-v8), conformance 629/0/1,
+  recent commits. `build` runs snapshot first; "keep updated" =
+  re-run snapshot.
+- Independently verified: `bun install` ok · snapshot writes valid
+  real data.json · `bun run build` rc=0 clean (snapshot→tsc→prettier
+  →vite, dist built) · zero GDS · dev server serves then stops ·
+  pitch.html tokens present (41 in index.css). node_modules/dist
+  gitignored (not committed).
+
+Pillar-adjacent: this is hardev's reporting/visualization surface
+(complements bench 汇报 + taskq governance + metrics-first).
+
 ## v0.1.9 — 2026-05-19 — taskq pillar: invariants spec + first application (de-drift live plan)
 
 The 4th and hardest pillar gets its first increment. Same pattern as

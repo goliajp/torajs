@@ -1,0 +1,458 @@
+{
+  "generatedAt": "2026-05-19T07:39:13.013Z",
+  "hardevVersion": "0.1.10",
+  "conformance": {
+    "pass": 629,
+    "fail": 0,
+    "skip": 1,
+    "raw": "629/0/1"
+  },
+  "headline": [
+    {
+      "value": "11.4",
+      "unit": "×",
+      "label": "faster inner loop",
+      "sub": "edit→rebuild tr: 28.5 s → 2.49 s · [profile.iter], conformance-equivalent (629/0/1)"
+    },
+    {
+      "value": "1.91",
+      "unit": "s",
+      "label": "per-commit bench gate",
+      "sub": "artifact-precheck skips all timed runs when tr unchanged · was ~10 min full 8-runner"
+    },
+    {
+      "value": "~3",
+      "unit": "min",
+      "label": "full conformance",
+      "sub": "629 cases, 8-worker parallel · was ~30 min serial (~10× from parallelize)"
+    }
+  ],
+  "pillars": [
+    {
+      "key": "devperf",
+      "name": "devperf",
+      "tagline": "dev-loop performance",
+      "scope": "build/cache speed, sccache, project-private cargo-target, the real levers (not folklore)",
+      "metricName": "full conformance wall (629 cases)",
+      "status": "~3.0–3.5 min [M] parallel 8-worker (174–208 s ×N this session; shipped 6ab22f9, was ~30 min serial)"
+    },
+    {
+      "key": "cleanup",
+      "name": "cleanup",
+      "tagline": "garbage / stale-artifact control",
+      "scope": "enumerable regenerable junk reclaimed safely; dry-run-default; never touch source/committed/foreign",
+      "metricName": "junk-source coverage",
+      "status": "devperf-#1 byproduct target/iter (195 MB) now covered [M] ✅ — was a real gap (the fast-iter cache the cleaner couldn't see); target/release stays guarded (bench-required), verified in dry-run"
+    },
+    {
+      "key": "taskq",
+      "name": "taskq",
+      "tagline": "task-queue L1–L4 governance",
+      "scope": "making the 4-layer planning architecture (L1 roadmap / L2 version / L3a hot / L3b cold / L4 trigger) an enforced, trackable discipline rather than prose",
+      "metricName": "invariants spec",
+      "status": "7 machine-checkable invariants spec'd [M] ✅ taskq v0.1.9 — hardev/taskq/README.md INV-1…7, each grounded in a concrete observed drift (was: nothing, governance was vibes)"
+    },
+    {
+      "key": "bench",
+      "name": "bench",
+      "tagline": "benchmark performance · coverage · reporting",
+      "scope": "trustworthy, reproducible, machine-judged regression verdicts; fast per-commit path; coverage that tracks the phase under development",
+      "metricName": "regression verdict",
+      "status": "bench compare — machine verdict + exit code, reproducible, in-repo [M] ✅ B1 SHIPPED 0726979+ (was: ad-hoc agent python). artifact_bytes hard gate + noise-aware run_ms; reproduced the prior hand-finding exactly"
+    }
+  ],
+  "changelog": [
+    {
+      "version": "0.1.10",
+      "date": "2026-05-19",
+      "title": "hardev web dashboard (devops/starters/web scaffold, no GDS, pitch.html design)",
+      "bullets": [
+        "hardev/web/ — Vite 8 + React 19 + TS, scaffolded from",
+        "scripts/snapshot.mjs (no-dep Node ESM) reads REAL repo data →",
+        "Independently verified: bun install ok · snapshot writes valid"
+      ]
+    },
+    {
+      "version": "0.1.9",
+      "date": "2026-05-19",
+      "title": "taskq pillar: invariants spec + first application (de-drift live plan)",
+      "bullets": [
+        "hardev/taskq/README.md: the taskq mandate + **7 machine-checkable",
+        "First application — de-drifted the live plan source",
+        "metrics.md §3 taskq rows advanced (spec'd + first application);"
+      ]
+    },
+    {
+      "version": "0.1.8",
+      "date": "2026-05-19",
+      "title": "cleanup pillar: close the devperf-#1 coverage gap",
+      "bullets": [
+        "hardev/cleanup/clean.sh §5 now also reclaims target/iter (the",
+        "Rebranded the script header/banners .dev/clean.sh → `hardev",
+        "metrics.md §2: junk-source-coverage metric advanced (target/iter",
+        "VERSION 0.1.8."
+      ]
+    },
+    {
+      "version": "0.1.7",
+      "date": "2026-05-19",
+      "title": "bench B2b SHIPPED: artifact-precheck (seconds for tr-unchanged)",
+      "bullets": [
+        "bench::artifact_only (compile once, no hyperfine, stat output",
+        "If every selected torajs artifact is byte-identical to baseline →",
+        "Verified both branches: PASS (artifacts identical → SKIPPED 1.91 s);",
+        "optimization-backlog.md B2b → DONE; metrics.md §4"
+      ]
+    },
+    {
+      "version": "0.1.6",
+      "date": "2026-05-19",
+      "title": "bench B2 SHIPPED: `--self` per-commit fast path",
+      "bullets": [
+        "bench run --self: restrict to the torajs runtimes",
+        "Coverage NOT reduced: the regression target is torajs vs its own",
+        "Verified: run fib40 --self → only fib40×{torajs,torajs-run} +",
+        "artifact-precheck (skip timed runs when artifact_bytes unchanged"
+      ]
+    },
+    {
+      "version": "0.1.5",
+      "date": "2026-05-19",
+      "title": "bench B1b SHIPPED: native N-run aggregation (median + MAD)",
+      "bullets": [
+        "bench run --runs N (default 1, fully backward-compatible). N",
+        "Per-cell aggregation (report::aggregate): run_ms = median,",
+        "Kills the same-name-overwrite + agent-log-parsing workflow: one",
+        "Verified: run fib40 --runtime torajs --runs 3 → json runs:3,"
+      ]
+    },
+    {
+      "version": "0.1.4",
+      "date": "2026-05-19",
+      "title": "bench B1 SHIPPED: `bench compare` machine regression verdict",
+      "bullets": [
+        "bench/harness/src/compare.rs + main.rs wiring: `bench compare",
+        "Verified: reproduces the earlier hand-python finding exactly",
+        "N-run native aggregation (the same-name-overwrite fix) split out",
+        "optimization-backlog.md B1 → DONE (+ B1b filed); metrics.md"
+      ]
+    },
+    {
+      "version": "0.1.3",
+      "date": "2026-05-19",
+      "title": "bench B0 SHIPPED: bench always measures the current ship binary",
+      "bullets": [
+        "bench/harness/src/main.rs: run_cmd now calls ensure_release_tr",
+        "Verified: stale release-tr (last build was target/iter/tr from",
+        "optimization-backlog.md bench B0 → DONE; VERSION 0.1.3."
+      ]
+    },
+    {
+      "version": "0.1.2",
+      "date": "2026-05-19",
+      "title": "devperf #1 SHIPPED: fast iteration profile (~11.4× inner loop)",
+      "bullets": [
+        "Cargo.toml: added [profile.iter] (inherits release; `lto=false,",
+        "conformance/runner/main.rs: builds tr with --profile iter",
+        "Measured: touch torajs-core → rebuild tr = 2.49 s (was",
+        "Correctness-equivalence empirically proven: full conformance"
+      ]
+    },
+    {
+      "version": "0.1.1",
+      "date": "2026-05-19",
+      "title": "devperf P0 root-caused (sccache myth busted, true lever found)",
+      "bullets": [
+        "environment.md §3 rewritten: refuted claim → root-caused truth +",
+        "metrics.md §0 + §1: re-measured. New headline metric",
+        "optimization-backlog.md: devperf #1 filed — fast iteration"
+      ]
+    },
+    {
+      "version": "0.1.0",
+      "date": "2026-05-19",
+      "title": "incubation scaffold + observability baseline",
+      "bullets": [
+        "Promoted the standing .dev/ R&D-environment theme into the named",
+        "Charter (README.md): identity, the first hard rule (no",
+        "metrics.md: observability baseline with provenance tags",
+        "Headline finding from measuring: sccache --show-stats →"
+      ]
+    }
+  ],
+  "bench": {
+    "rows": [
+      {
+        "case": "popcount",
+        "bunAot": 106.350459,
+        "bunJsc": 79.27516700000001,
+        "nodeV8": 204.962333,
+        "torajs": 3.875959,
+        "speedup": 20.453045813952112
+      },
+      {
+        "case": "throw-catch-100k",
+        "bunAot": 44.629541,
+        "bunJsc": 48.01666600000001,
+        "nodeV8": 414.20629199999996,
+        "torajs": 3.187459,
+        "speedup": 14.001604726523542
+      },
+      {
+        "case": "fifo-queue-100k",
+        "bunAot": 21.588459,
+        "bunJsc": 27.914666,
+        "nodeV8": 96.848375,
+        "torajs": 1.859459,
+        "speedup": 11.610075296094188
+      },
+      {
+        "case": "promise-chain-1k",
+        "bunAot": 25.258167,
+        "bunJsc": 23.055708000000003,
+        "nodeV8": 159.44204100000002,
+        "torajs": 2.3218750000000004,
+        "speedup": 9.9297800269179
+      },
+      {
+        "case": "collatz",
+        "bunAot": 759.301375,
+        "bunJsc": 946.873417,
+        "nodeV8": 5115.162709,
+        "torajs": 119.288459,
+        "speedup": 6.365254286669928
+      },
+      {
+        "case": "array-sum-1m",
+        "bunAot": 150.692291,
+        "bunJsc": 103.07258399999999,
+        "nodeV8": 788.27625,
+        "torajs": 18.378042,
+        "speedup": 5.6084638396190405
+      },
+      {
+        "case": "promise-all-1k",
+        "bunAot": 11.240165999999999,
+        "bunJsc": 11.76475,
+        "nodeV8": 106.732375,
+        "torajs": 2.101333,
+        "speedup": 5.349064617554666
+      },
+      {
+        "case": "generic-pair-1m",
+        "bunAot": 21.360500000000002,
+        "bunJsc": 20.474709,
+        "nodeV8": 134.825167,
+        "torajs": 3.895375,
+        "speedup": 5.256158649680711
+      },
+      {
+        "case": "rpn-eval-100k",
+        "bunAot": 28.833375,
+        "bunJsc": 33.965209,
+        "nodeV8": 156.2045,
+        "torajs": 5.687792000000001,
+        "speedup": 5.069344132134226
+      },
+      {
+        "case": "promise-await-100k",
+        "bunAot": 28.681083000000005,
+        "bunJsc": 35.134209,
+        "nodeV8": 151.025625,
+        "torajs": 5.9258750000000004,
+        "speedup": 4.839974349779569
+      },
+      {
+        "case": "stack-pop-1m",
+        "bunAot": 32.28570800000001,
+        "bunJsc": 29.106208000000002,
+        "nodeV8": 158.77870800000002,
+        "torajs": 6.595458,
+        "speedup": 4.413068508661567
+      },
+      {
+        "case": "generic-id-1m",
+        "bunAot": 71.08787500000001,
+        "bunJsc": 76.41212500000002,
+        "nodeV8": 267.043792,
+        "torajs": 16.527875,
+        "speedup": 4.301089825522035
+      },
+      {
+        "case": "async-fn-call-100k",
+        "bunAot": 25.264584000000003,
+        "bunJsc": 31.655542,
+        "nodeV8": 147.575166,
+        "torajs": 5.957250000000001,
+        "speedup": 4.240980989550548
+      },
+      {
+        "case": "csv-trim-100k",
+        "bunAot": 31.450041000000006,
+        "bunJsc": 38.287208,
+        "nodeV8": 130.133292,
+        "torajs": 7.7104170000000005,
+        "speedup": 4.078902736388966
+      },
+      {
+        "case": "closure-pipeline-1m",
+        "bunAot": 94.511584,
+        "bunJsc": 93.36595799999999,
+        "nodeV8": 291.567375,
+        "torajs": 22.975375000000003,
+        "speedup": 4.06374033068013
+      },
+      {
+        "case": "startup",
+        "bunAot": 20.7387285,
+        "bunJsc": 16.537875,
+        "nodeV8": 142.2683335,
+        "torajs": 4.2888340000000005,
+        "speedup": 3.8560305668160617
+      },
+      {
+        "case": "closure-counter",
+        "bunAot": 92.533208,
+        "bunJsc": 83.06645900000001,
+        "nodeV8": 322.150417,
+        "torajs": 24.365167,
+        "speedup": 3.4092300290820914
+      },
+      {
+        "case": "array-map-1m",
+        "bunAot": 129.70195900000002,
+        "bunJsc": 173.841958,
+        "nodeV8": 1069.232417,
+        "torajs": 39.879625000000004,
+        "speedup": 3.252336475079693
+      },
+      {
+        "case": "fib40",
+        "bunAot": 448.6069170000001,
+        "bunJsc": 448.049,
+        "nodeV8": 772.801584,
+        "torajs": 192.47033299999998,
+        "speedup": 2.3278860332205067
+      },
+      {
+        "case": "ackermann",
+        "bunAot": 28.912167000000004,
+        "bunJsc": 35.78058300000001,
+        "nodeV8": 213.657958,
+        "torajs": 12.977125000000001,
+        "speedup": 2.227933151603302
+      },
+      {
+        "case": "csv-rebuild-100k",
+        "bunAot": 25.761540999999998,
+        "bunJsc": 26.555459,
+        "nodeV8": 105.1805,
+        "torajs": 11.8735,
+        "speedup": 2.169666989514465
+      },
+      {
+        "case": "split-only-100k",
+        "bunAot": 27.722042,
+        "bunJsc": 26.464499999999997,
+        "nodeV8": 155.07004200000003,
+        "torajs": 12.593625000000001,
+        "speedup": 2.1014203614924214
+      },
+      {
+        "case": "promise-then-100k",
+        "bunAot": 23.032542000000003,
+        "bunJsc": 27.045833,
+        "nodeV8": 140.870125,
+        "torajs": 11.136042,
+        "speedup": 2.068287996758633
+      },
+      {
+        "case": "mandelbrot",
+        "bunAot": 78.827792,
+        "bunJsc": 68.1965,
+        "nodeV8": 236.59975000000006,
+        "torajs": 44.181958,
+        "speedup": 1.5435372963778562
+      },
+      {
+        "case": "prime_count",
+        "bunAot": 67.769333,
+        "bunJsc": 84.04845800000001,
+        "nodeV8": 214.912292,
+        "torajs": 58.127167,
+        "speedup": 1.1658805425697076
+      },
+      {
+        "case": "gcd1m",
+        "bunAot": 58.75925000000001,
+        "bunJsc": 57.894042000000006,
+        "nodeV8": 165.67299999999997,
+        "torajs": 49.694333,
+        "speedup": 1.1650028988214813
+      }
+    ],
+    "geomeanBunAot": 4.240694509668713,
+    "geomeanNodeV8": 20.14786906174775,
+    "peak": 20.453045813952112,
+    "peakCase": "popcount",
+    "min": 1.1650028988214813,
+    "minCase": "gcd1m",
+    "caseCount": 26,
+    "wonCount": 26,
+    "sourceFile": "bench/results/2026-05-19-mini-23a6e31.json",
+    "gitSha": "23a6e314a113abecec115e9186dd2ddb75a14ed2",
+    "startedAt": "2026-05-19T04:02:33Z",
+    "host": "mini.local"
+  },
+  "commits": [
+    {
+      "hash": "9a29c8d",
+      "subject": "hardev v0.1.9: taskq pillar — invariants spec + first application (de-drift live plan)"
+    },
+    {
+      "hash": "c1840b2",
+      "subject": "hardev v0.1.8: cleanup pillar — close the devperf-#1 coverage gap"
+    },
+    {
+      "hash": "f2dd9a2",
+      "subject": "hardev: environment.md §0 — ls-t|head unreliable + never rm $VAR (near-miss recorded)"
+    },
+    {
+      "hash": "dc0810e",
+      "subject": "hardev v0.1.7: bench B2b — artifact-precheck (seconds for tr-unchanged)"
+    },
+    {
+      "hash": "0281a2d",
+      "subject": "hardev v0.1.6: bench B2 — --self per-commit fast path"
+    },
+    {
+      "hash": "5246021",
+      "subject": "hardev v0.1.5: bench B1b — native N-run aggregation (median + MAD)"
+    },
+    {
+      "hash": "48dcb4b",
+      "subject": "hardev v0.1.4: bench B1 — bench compare machine regression verdict"
+    },
+    {
+      "hash": "0726979",
+      "subject": "hardev v0.1.3: bench B0 — bench always measures the current ship binary"
+    },
+    {
+      "hash": "778fcdc",
+      "subject": "hardev v0.1.2: devperf #1 — fast iteration profile (~11.4x inner loop)"
+    },
+    {
+      "hash": "c587803",
+      "subject": "hardev v0.1.1: devperf P0 root-caused — sccache myth busted, true build lever found"
+    },
+    {
+      "hash": "96b5813",
+      "subject": "hardev: v0.1.0 — incubate Rust-specialized R&D-support framework + observability baseline"
+    },
+    {
+      "hash": "683bd95",
+      "subject": "core + runtime + conformance: P7.4-frozen — frozen-object readonly assign throws real catchable TypeError (closes P7.4)"
+    }
+  ],
+  "headSha": "9a29c8d"
+}

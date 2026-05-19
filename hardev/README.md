@@ -68,6 +68,8 @@ records the charter; concrete tooling is backlog.
 | `environment.md` | build/cache/bench **ground truth** + corrected misconceptions (devperf + bench pillars) | update whenever an environment fact changes |
 | `optimization-backlog.md` | leverage-ranked, acceptance-gated, quality-neutral backlog (devperf + bench) | mark done + record measured wall; append new items |
 | `cleanup/clean.sh` | safe dry-run-default stale-file cleaner (cleanup pillar) | add a grep-able glob rule per new enumerable junk source |
+| `taskq/README.md` | L1–L4 governance — 7 machine-checkable invariants (INV-1…7) | a checker enforces them; spec → tooling |
+| `web/` | live dashboard webserver (Vite/React, no GDS, pitch.html design) — dev progress + benchmark over a real-data snapshot | re-run `scripts/snapshot.mjs` to refresh; `bun run dev` to serve |
 
 ## How to extend hardev (for future sessions / developers)
 
