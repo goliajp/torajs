@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 #
-# torajs dev-env stale-file cleaner  (.dev theme)
+# hardev cleanup pillar — torajs stale-file cleaner
 #
 # Removes ONLY regenerable / pure-scratch artifacts. Never touches
 # source / committed / .git / non-torajs paths / shared infra. Dry-run
 # is the DEFAULT: without --force it only prints what it would remove
 # and how much it would reclaim, deleting nothing.
 #
-#   .dev/clean.sh                         # dry-run (default, safe)
-#   .dev/clean.sh --force                 # actually delete
-#   .dev/clean.sh --force --keep-logs 5   # keep newest N log files (default 3)
+#   hardev/cleanup/clean.sh                       # dry-run (default, safe)
+#   hardev/cleanup/clean.sh --force               # actually delete
+#   hardev/cleanup/clean.sh --force --keep-logs 5 # keep newest N logs (default 3)
 #
 # Principles (aligned with CLAUDE.md Disk Hygiene HARD RULE +
 # classic-errors): verify-before-delete (du -sh big dirs); macOS /tmp
@@ -36,9 +36,9 @@ done
 case "$KEEP_LOGS" in (*[!0-9]*|'') KEEP_LOGS=3 ;; esac
 
 if [ "$FORCE" -eq 1 ]; then
-  echo "=== torajs .dev/clean.sh — DELETE ==="
+  echo "=== hardev cleanup — DELETE ==="
 else
-  echo "=== torajs .dev/clean.sh — DRY-RUN (no --force; preview only) ==="
+  echo "=== hardev cleanup — DRY-RUN (no --force; preview only) ==="
 fi
 echo "repo: $REPO ; keep newest $KEEP_LOGS logs per family"
 echo
@@ -87,11 +87,18 @@ echo "[4] repo *.bun-build caches"
 while IFS= read -r f; do act_rm "$f"; done < <(
   find "$REPO" -maxdepth 4 -name '*.bun-build' 2>/dev/null)
 
-# 5. project-private target waste subtrees (workflow is --release only;
-#    debug/doc are pure waste). NEVER rm target/release (live cache),
-#    NEVER cargo clean, NEVER touch ~/.cargo-target-fallback.
-echo "[5] <repo>/target/{debug,doc} waste (release kept)"
-for sub in debug doc; do
+# 5. project-private target regenerable subtrees:
+#    - debug / doc  = pure waste (workflow never builds them)
+#    - iter         = hardev devperf #1 fast-iteration profile cache;
+#                     regenerable (conformance runner rebuilds it on
+#                     demand: ~18s cold all-deps once, then ~2.5s
+#                     incremental). Safe to reclaim under disk
+#                     pressure — costs only that one-time rebuild.
+#    NEVER rm target/release (the live ship/bench-required binary —
+#    bench B0 + bench runners hardcode it; guarded below). NEVER
+#    `cargo clean`, NEVER touch ~/.cargo-target-fallback.
+echo "[5] <repo>/target/{debug,doc,iter} regenerable (release kept)"
+for sub in debug doc iter; do
   [ -d "$REPO/target/$sub" ] && act_rm "$REPO/target/$sub"
 done
 

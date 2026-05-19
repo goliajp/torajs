@@ -4,6 +4,34 @@ Incubation versioning, semver-ish. One entry per shipped hardev change.
 A pillar item is "shipped" only when its metric in `metrics.md` is
 re-measured and the *now* column updated.
 
+## v0.1.8 — 2026-05-19 — cleanup pillar: close the devperf-#1 coverage gap
+
+First cleanup-pillar increment (was zero tooling beyond the inherited
+script).
+
+- `hardev/cleanup/clean.sh` §5 now also reclaims `target/iter` (the
+  hardev devperf-#1 fast-iteration profile cache — 195 MB measured,
+  regenerable: conformance rebuilds it ~18 s cold / ~2.5 s
+  incremental). It was a real coverage gap: devperf #1 introduced a
+  large regenerable subtree the cleaner could not see. `target/debug`
+  / `target/doc` stay (pure waste); `target/release` stays GUARDED
+  (the live ship/bench-required binary — bench B0 + runners hardcode
+  it). Verified in dry-run: target/iter listed (~195 MB), release in
+  the never-cleaned skip-list, rc=0, dry-run still the default.
+- Rebranded the script header/banners `.dev/clean.sh` → `hardev
+  cleanup`.
+- `metrics.md` §2: junk-source-coverage metric advanced (target/iter
+  covered); cleanup-invocation metric stated honestly — `--force` is
+  operator-invoked-under-disk-pressure BY DESIGN, not a gap;
+  auto-running it to tick a metric would delete useful cache for no
+  reason, contradicting the pillar's own philosophy.
+- VERSION 0.1.8.
+
+Pillar status: devperf ✅ (lever found+fixed) · bench ✅ v1 core
+(B0/B1/B1b/B2/B2b) · cleanup ✅ first increment (coverage gap closed;
+hook automation deferred to Claude Code settings per README) · taskq
+= still prose-only (next).
+
 ## v0.1.7 — 2026-05-19 — bench B2b SHIPPED: artifact-precheck (seconds for tr-unchanged)
 
 The per-commit bench gate is now SECONDS when the machine code is

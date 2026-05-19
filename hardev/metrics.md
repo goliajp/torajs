@@ -53,8 +53,8 @@ Establishing metrics *immediately* paid off (this is the point):
 
 | Metric | now (v0.1.0) | after v1 | after v2 |
 |---|---|---|---|
-| reclaimable junk visible to tool | **~0 MB right now** `[M]` (dry-run; tree kept clean by manual hygiene this session) — but tool only knows the globs it has | every enumerable junk source has a grep-able rule `[D]` | n/a (coverage, not size, is the metric) |
-| cleanup invocation | **manual, dry-run-default, never run `--force` for real** `[M]` (smoke-tested only) | invoked automatically via Claude Code hook at session boundaries `[D]` | self-auditing: warns when an *unknown* large dir appears `[D]` |
+| junk-source coverage | **devperf-#1 byproduct `target/iter` (195 MB) now covered** `[M]` ✅ — was a real gap (the fast-iter cache the cleaner couldn't see); `target/release` stays guarded (bench-required), verified in dry-run | each new junk source gets a grep-able rule (process invariant) | n/a (coverage, not size, is the metric) |
+| cleanup invocation | **dry-run-default; `--force` operator-invoked under disk pressure (by design, not a gap)** `[M]` — dry-run correctness verified (right targets, guards hold). Auto-running `--force` to tick a metric would delete useful cache for no reason — contradicts the pillar's own "reclaim under pressure" philosophy | hook-triggered at session boundaries (Claude Code settings.json / update-config skill — deferred per README) | self-auditing: warn when an *unknown* large dir appears `[D]` |
 | disk-hygiene incidents | history: 1 catastrophic (688 GB bun-build, pre-hardev) `[M]` | 0 (hook-enforced) `[D]` | 0 + early-warning before threshold `[D]` |
 
 ## 3. taskq — L1–L4 governance
