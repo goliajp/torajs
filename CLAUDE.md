@@ -170,11 +170,14 @@ torajs/
 ├── labs/            ← experiments, language-agnostic, throwaway-friendly
 ├── examples/        ← end-to-end demos and integration test fixtures
 ├── docs/            ← project documentation (incl. canonical roadmap)
+├── .dev/            ← R&D-environment optimization theme (perf + auto-cleanup, quality-preserving; persistent & evolving)
 ├── .claude/         ← Claude Code rules (synced from devops/dotclaude, gitignored)
 └── CLAUDE.md        ← this file
 ```
 
 `labs/` is intentionally unconstrained — anything goes; promote to `crates/` or delete when done. `examples/` is for runnable demos, not unit tests (those live next to source).
+
+**`.dev/` (read `.dev/README.md` before any dev-environment / build-speed / disk-cleanup work)** — the standing R&D-environment optimization theme. First hard rule: no optimization may reduce verification coverage or correctness. Contains `ENVIRONMENT.md` (build/cache ground truth + corrected gotchas), `OPTIMIZATION.md` (quality-neutral perf backlog, prioritized), `clean.sh` (safe dry-run-default stale-file cleaner). It is committed and evolving — extend it, don't bypass it, when doing dev-env work.
 
 ## Plan
 
