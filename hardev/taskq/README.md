@@ -60,10 +60,14 @@ Each is a machine-decidable predicate over the plan-source file.
   live plan source (collapse the stale P7 L3a/L4 prose under
   archaeology, make every section agree with the directive block).
   Pure governance; no language/runtime change.
-- **next**: a `hardev` checker (script or `bench`-sibling subcommand)
-  that parses the plan-source file and asserts INV-1…7, exit-coded,
-  runnable as a pre-commit / session-boundary gate (analogous to
-  `bench compare` for perf). Spec → tooling, same as every pillar.
+- **v0.1.11 (done)**: `check.sh` enforces the robust subset
+  **INV-1a/1b/5** exit-coded (parses plan source + git; bash, no
+  deps). Acceptance caught+fixed a false-negative (INV-5 must be a
+  structural heading check, not a body-window grep).
+- **next**: extend the checker to INV-2/3/4/6/7 (cross-ref git HEAD
+  subject + task statuses for hot=actual / pointers-resolve; detect
+  non-predicate L4 triggers; re-derive `N/M` counters). Spec →
+  tooling, same as every pillar.
 - **v2**: invariants checked on every memory edit (hook), counters
   auto-derived, zero silent drift.
 

@@ -14,8 +14,12 @@
 > cargo / sccache / cargo-target / rustfmt / clippy / hyperfine-aware by
 > design, not a generic CI shell.
 >
-> **Version**: see `VERSION` + `CHANGELOG.md`. Currently **v0.1.0**
-> (incubation scaffold).
+> **Version**: see `VERSION` + `CHANGELOG.md` (authoritative). All four
+> pillars now have shipped tooling/spec; a live dashboard
+> (`web/`, `bun run dev`) surfaces progress+bench. taskq's own
+> `check.sh` enforces this file's freshness — so this paragraph
+> intentionally does **not** hard-code a version number (that would be
+> the very drift taskq exists to kill); read `VERSION`.
 
 ## First hard rule (non-negotiable)
 
@@ -40,10 +44,11 @@ leverage-ranked, acceptance-gated work.
 
 | Pillar | Scope | Today's artifacts |
 |---|---|---|
-| **1. devperf** — dev-loop performance | build/cache speed, sccache, project-private cargo-target, the real levers (not folklore) | `environment.md` (ground truth + corrected misconceptions), `optimization-backlog.md` (devperf items + the shipped conformance-parallelize ~10x) |
-| **2. cleanup** — garbage / stale-artifact control | enumerable regenerable junk reclaimed safely; dry-run-default; never touch source/committed/foreign | `cleanup/clean.sh` (the tooling form of CLAUDE.md's Disk Hygiene HARD RULE) |
-| **3. taskq** — task-queue L1–L4 governance | making the 4-layer planning architecture (L1 roadmap / L2 version / L3a hot / L3b cold / L4 trigger) an enforced, trackable discipline rather than prose | charter below; tooling is the next concrete step |
-| **4. bench** — benchmark performance · coverage · reporting | trustworthy, reproducible, machine-judged regression verdicts; fast per-commit path; coverage that tracks the phase under development | `optimization-backlog.md` §bench (B1–B4 / D1–D5); `environment.md` §4b (cross-day mac run_ms bias = ground truth) |
+| **1. devperf** — dev-loop performance | build/cache speed, sccache, project-private cargo-target, the real levers (not folklore) | SHIPPED: sccache myth root-caused + `[profile.iter]` (edit→rebuild 28.5s→2.49s). `environment.md` ground truth; `optimization-backlog.md` |
+| **2. cleanup** — garbage / stale-artifact control | enumerable regenerable junk reclaimed safely; dry-run-default; never touch source/committed/foreign | SHIPPED: `cleanup/clean.sh` (covers target/iter; target/release guarded) |
+| **3. taskq** — task-queue L1–L4 governance | making the 4-layer planning architecture an enforced, machine-checkable discipline rather than prose | SHIPPED: `taskq/README.md` INV-1…7 spec + `taskq/check.sh` enforcing INV-1a/1b/5 exit-coded |
+| **4. bench** — benchmark performance · coverage · reporting | trustworthy, reproducible, machine-judged regression verdicts; fast per-commit path; coverage that tracks the phase under development | SHIPPED: B0/B1/B1b/B2/B2b (`bench compare`, `--self`, `--vs` precheck). `optimization-backlog.md` §bench; `environment.md` §4b |
+| **+ web** — live dashboard (reporting surface) | progress + bench over a real-data snapshot, pitch.html aesthetic, no GDS | SHIPPED: `web/` (`bun run dev`) |
 
 ### Pillar 3 — taskq L1–L4 governance (charter)
 
@@ -68,7 +73,7 @@ records the charter; concrete tooling is backlog.
 | `environment.md` | build/cache/bench **ground truth** + corrected misconceptions (devperf + bench pillars) | update whenever an environment fact changes |
 | `optimization-backlog.md` | leverage-ranked, acceptance-gated, quality-neutral backlog (devperf + bench) | mark done + record measured wall; append new items |
 | `cleanup/clean.sh` | safe dry-run-default stale-file cleaner (cleanup pillar) | add a grep-able glob rule per new enumerable junk source |
-| `taskq/README.md` | L1–L4 governance — 7 machine-checkable invariants (INV-1…7) | a checker enforces them; spec → tooling |
+| `taskq/README.md` + `taskq/check.sh` | L1–L4 governance — 7 invariants (INV-1…7); `check.sh` enforces INV-1a/1b/5 exit-coded | extend checker to INV-2/3/4/6/7 |
 | `web/` | live dashboard webserver (Vite/React, no GDS, pitch.html design) — dev progress + benchmark over a real-data snapshot | re-run `scripts/snapshot.mjs` to refresh; `bun run dev` to serve |
 
 ## How to extend hardev (for future sessions / developers)

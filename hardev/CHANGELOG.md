@@ -4,6 +4,35 @@ Incubation versioning, semver-ish. One entry per shipped hardev change.
 A pillar item is "shipped" only when its metric in `metrics.md` is
 re-measured and the *now* column updated.
 
+## v0.1.11 — 2026-05-19 — taskq checker: INV-1a/1b/5 enforced (spec → tooling)
+
+The taskq spec (v0.1.9 INV-1…7) gets its enforcer — same spec→tooling
+arc as every pillar.
+
+- `hardev/taskq/check.sh` (bash, no deps, like cleanup/clean.sh):
+  parses the live plan source + git, asserts the mechanically-robust
+  zero-false-positive subset, exit-coded (session-boundary /
+  pre-commit gate, like `bench compare`):
+  - **INV-1a** header must reference the current `git HEAD` short sha
+    (caught D1: header lagged HEAD by 10 commits).
+  - **INV-1b** if focus=hardev, header must name the current
+    `hardev/VERSION` (D1-class version lag).
+  - **INV-5** a closed-work `## L3a` section's HEADING LINE must
+    carry an `ARCHAEOLOGY` marker (caught D3: shipped P7 hot queue
+    read as live; the file's own "read L3a top" protocol mis-routes).
+- Acceptance caught & fixed a real checker false-negative: INV-5 v1
+  grepped the body window for "archaeology", which the banner's own
+  explanatory prose matches even after the marker is stripped →
+  rewrote to a STRUCTURAL heading-line check (the unambiguous marker
+  de-drift adds, a drifted state lacks). Verified: PASS on the
+  current consistent plan; FAIL on synthetic INV-1a (stale HEAD) and
+  INV-5 (heading reverted to plain) drift.
+- Deeper INV-2/3/4/6/7 (cross-ref git/tasks, predicate-form, counter
+  re-derivation) = follow-on. taskq/README.md roadmap updated.
+
+bash tooling, no substrate. CHANGELOG/VERSION 0.1.11; README index
++= taskq/check.sh. dashboard snapshot re-run → v0.1.11 live.
+
 ## v0.1.10 — 2026-05-19 — hardev web dashboard (devops/starters/web scaffold, no GDS, pitch.html design)
 
 A live webserver surfacing torajs **dev progress + benchmark**, the
