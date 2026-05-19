@@ -61,9 +61,9 @@ Establishing metrics *immediately* paid off (this is the point):
 
 | Metric | now (v0.1.0) | after v1 | after v2 |
 |---|---|---|---|
-| plan representation | **hand-maintained prose** in status-memory `[M]` | layer-tagged structured items (L1/L2/L3a/L3b/L4 explicit fields) `[D]` | same, tool-validated on every edit `[D]` |
-| observed drift this session | **3 incidents** `[M]`: stale "2/5 done" predated P7.3; L2 directive changed twice mid-session without memory catching up until prompted; tasks #16–#20 filed ad-hoc | drift detector flags layer-mixing / stale counters `[D]` | 0 silent drift (machine-checked invariants) `[D]` |
-| L4 trigger form | **prose, sometimes "feel like it"** `[M]` | machine-evaluable predicate per phase `[D]` | auto-checked after every ship; blocks wrong advance `[D]` |
+| invariants spec | **7 machine-checkable invariants spec'd** `[M]` ✅ taskq v0.1.9 — `hardev/taskq/README.md` INV-1…7, each grounded in a concrete observed drift (was: nothing, governance was vibes) | a checker enforces them exit-coded | checked on every memory edit |
+| observed drift | **5 incidents catalogued + 4 de-drifted in the live plan source** `[M]` ✅ — D1 header self-contradiction / D2 L4-vs-directive "P7.4 95% vs CLOSED" / D3 L3a stale P7 hot prose / D4 dead `#15→#12` pointer fixed & banner-marked archaeology this commit (taskq INV-1/2/3/5 first application) | drift checker auto-flags | 0 silent drift |
+| L4 trigger form | **INV-6 spec'd: must be a state predicate, never "feel like it"** `[M]` (enforcement = the future checker) | checker rejects non-predicate triggers | auto-checked after every ship |
 
 ## 4. bench — performance · coverage · reporting
 

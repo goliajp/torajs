@@ -4,6 +4,44 @@ Incubation versioning, semver-ish. One entry per shipped hardev change.
 A pillar item is "shipped" only when its metric in `metrics.md` is
 re-measured and the *now* column updated.
 
+## v0.1.9 — 2026-05-19 — taskq pillar: invariants spec + first application (de-drift live plan)
+
+The 4th and hardest pillar gets its first increment. Same pattern as
+every pillar: spec before tooling.
+
+- `hardev/taskq/README.md`: the taskq mandate + **7 machine-checkable
+  L1–L4 invariants** (INV-1 single source of truth · INV-2 layer
+  agreement · INV-3 hot=actual · INV-4 pointers resolve forward ·
+  INV-5 closed→archaeology · INV-6 L4 trigger is a predicate · INV-7
+  counters re-derived). Each grounded in a CONCRETE drift observed in
+  the live plan source while grounding this pillar (receipts, not
+  hypotheticals).
+- **First application** — de-drifted the live plan source
+  (`memory/project_status_*.md`), which a reader following its own
+  protocol ("read L3a top, take #1") would have mis-followed into the
+  stale shipped P7 plan:
+  - D1: top header self-contradicted (`HEAD 683bd95 … 629-gate
+    in-flight` vs the up-to-date directive block) → header now points
+    at the authoritative block.
+  - D2: L4 checklist said `P7.4 ~95%, next=frozen` while the
+    directive said `P7.4 CLOSED` → corrected (P7.4 closed; P7.5 is
+    cold because autorun-on-P7 is paused, not "L3a next").
+  - D3: `## L3a — Hot 计划` (all shipped P7 prose) → banner-marked
+    ARCHAEOLOGY, points at the real hot (hardev / taskq).
+  - D4: the `## a-b 实施 fork` section + its dead `#15→#12` pointer
+    → banner-marked ARCHAEOLOGY (all shipped).
+- `metrics.md` §3 taskq rows advanced (spec'd + first application);
+  VERSION 0.1.9.
+
+Pure governance — no language/runtime change, no substrate. Next
+taskq increment: a checker (hardev script / bench-sibling) that
+parses the plan source and asserts INV-1…7 exit-coded, runnable as
+a session-boundary / pre-commit gate. Spec → tooling, same as the
+other pillars.
+
+ALL FOUR PILLARS now have shipped tooling/spec: devperf ✅ · bench ✅
+v1 core · cleanup ✅ · taskq ✅ first increment.
+
 ## v0.1.8 — 2026-05-19 — cleanup pillar: close the devperf-#1 coverage gap
 
 First cleanup-pillar increment (was zero tooling beyond the inherited
