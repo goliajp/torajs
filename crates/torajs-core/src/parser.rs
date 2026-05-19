@@ -3499,6 +3499,19 @@ impl Parser<'_> {
             self.pos += 1;
             return Some(n);
         }
+        // P8.1 — `this.#x` / `c.#x` PrivateIdentifier after dot. Store the
+        // name with the leading `#` preserved (e.g. `"#x"`); the typechecker
+        // (A4) recognises the prefix and resolves it to the mangled form
+        // `__priv_<ClassOfObj>__x`. Mangling at parse-time would require
+        // threading current-class context through the Parser, but typecheck
+        // already does class-type lookup for `this` and other receivers, so
+        // doing the rename there is cheaper and keeps the parser context-
+        // free. The `#` prefix is the parse-to-typecheck contract.
+        if let Token::PrivateIdent(n) = self.peek() {
+            let n = n.clone();
+            self.pos += 1;
+            return Some(format!("#{n}"));
+        }
         let kw = Self::keyword_property_name(self.peek())?;
         self.pos += 1;
         Some(kw.to_string())
