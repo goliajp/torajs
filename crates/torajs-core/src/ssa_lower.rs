@@ -13982,6 +13982,42 @@ impl<'a> LowerCtx<'a> {
                             Type::Obj(sid) => sid,
                             other => panic!("ssa-lower: field assign on non-obj {other:?}"),
                         };
+                        // P8.2 — accessor write: `c.value = v` where C
+                        // declares `set value(n: T)`. desugar_classes
+                        // renamed the setter's FnDecl to
+                        // `__cm_<C>__<name>_set` and recorded
+                        // `(C, name) → fn_name` in
+                        // `ast.accessor_setters`. Emit a Call to the
+                        // setter with `[obj_val, value]` and return
+                        // the value (parallel to a normal Store which
+                        // also evaluates to the value). Skips the
+                        // struct field lookup + Store path below.
+                        let mut setter_cname: Option<String> = None;
+                        for (n, ty) in self.aliases.iter() {
+                            if matches!(ty, Type::Obj(s) if s.0 == sid.0)
+                                && self.ast.class_parents.contains_key(n)
+                            {
+                                setter_cname = Some(n.clone());
+                                break;
+                            }
+                        }
+                        if let Some(cname) = setter_cname
+                            && let Some(setter_fn) = self
+                                .ast
+                                .accessor_setters
+                                .get(&(cname.clone(), field.clone()))
+                                .cloned()
+                            && let Some(fid) = self.fn_table.get(&setter_fn).copied()
+                        {
+                            let v = self.lower_expr(*value);
+                            self.consume_if_ident(*value);
+                            self.f.append_void(
+                                self.cur_block,
+                                InstKind::Call(fid, vec![obj_val, v.clone()]),
+                            );
+                            self.emit_throw_check(Some(fid));
+                            return v;
+                        }
                         let layout = self.struct_layouts[sid.0 as usize].clone();
                         let (idx, field_ty) = layout
                             .iter()
@@ -23959,6 +23995,43 @@ impl<'a> LowerCtx<'a> {
                     Type::Obj(sid) => sid,
                     _ => panic!("ssa-lower: member access on non-object {obj_ty:?} (.{name})"),
                 };
+                // P8.2 — accessor read: `c.value` where C declares
+                // `get value(): T`. desugar_classes renamed the
+                // getter's FnDecl to `__cm_<C>__<name>_get` and
+                // recorded `(C, name) → fn_name` in
+                // `ast.accessor_getters`. Emit a Call to the getter
+                // and return its value, bypassing the struct-layout
+                // field lookup below (the accessor name is not a
+                // real field). Reverse-lookup obj's class from the
+                // struct's sid via the aliases table — same idiom as
+                // the Phase I.1 method-dispatch path at line ~10800.
+                let mut accessor_cname: Option<String> = None;
+                for (n, ty) in self.aliases.iter() {
+                    if matches!(ty, Type::Obj(s) if s.0 == sid.0)
+                        && self.ast.class_parents.contains_key(n)
+                    {
+                        accessor_cname = Some(n.clone());
+                        break;
+                    }
+                }
+                if let Some(cname) = accessor_cname
+                    && let Some(getter_fn) = self
+                        .ast
+                        .accessor_getters
+                        .get(&(cname.clone(), name.clone()))
+                        .cloned()
+                    && let Some(fid) = self.fn_table.get(&getter_fn).copied()
+                {
+                    let ret_ty = self.f_ret_type_hint(fid);
+                    let v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(fid, vec![obj_val]),
+                        ret_ty,
+                        None,
+                    );
+                    self.emit_throw_check(Some(fid));
+                    return Operand::Value(v);
+                }
                 let layout = &self.struct_layouts[sid.0 as usize];
                 let (idx, field_ty) = layout
                     .iter()

@@ -3199,6 +3199,32 @@ impl Checker {
                 {
                     return Ok(resolve_class_ref(ty, &self.aliases));
                 }
+                // P8.2 — accessor read: `c.value` where the resolved
+                // class C has a `get value(): T` declaration. After the
+                // struct-field lookup misses (accessors aren't fields),
+                // probe `accessor_getters` for the receiver's class and
+                // return the getter's declared return type. ssa_lower
+                // emits a `Call(__cm_<C>__value_get, c)` at the
+                // matching Member arm — type-wise we just return the
+                // getter's `ret` so caller sites see a normal value
+                // (not a Function), matching ES §10.1.7 [[Get]]
+                // semantics.
+                if let Type::Struct(_) = &resolved_obj_ty {
+                    let mut accessor_class: Option<String> = None;
+                    for (n, ty) in self.aliases.iter() {
+                        if *ty == resolved_obj_ty && ast.class_parents.contains_key(n) {
+                            accessor_class = Some(n.clone());
+                            break;
+                        }
+                    }
+                    if let Some(cls) = accessor_class
+                        && let Some(getter_fn) =
+                            ast.accessor_getters.get(&(cls.clone(), name.clone()))
+                        && let Some(Type::Function(_params, ret)) = self.globals.get(getter_fn)
+                    {
+                        return Ok(resolve_class_ref(ret, &self.aliases));
+                    }
+                }
                 /* T-15.g.2 (v0.5.0) — built-in `Promise<T>.value` returns
                  * T. The parser desugars `await p` to `p.value` (Phase L
                  * MVP — synchronous read of the resolved value), so this
@@ -6799,6 +6825,50 @@ impl Checker {
                                 "field assignment target must be a struct, got {obj_ty:?}"
                             ));
                         };
+                        // P8.2 — accessor write: `c.value = v` where C
+                        // declares `set value(n: T)`. Before falling into
+                        // the regular field-find, look up the setter in
+                        // `accessor_setters`; if present, validate the
+                        // RHS against the setter's value-param type
+                        // (`__this` first, then the user-declared param).
+                        // Reverse-lookup obj's class from the struct
+                        // shape via the aliases table — same idiom as
+                        // the read-side accessor probe above. ssa_lower
+                        // emits a Call to the setter at the matching
+                        // Assign-Member arm.
+                        let mut setter_class: Option<String> = None;
+                        for (n, ty) in self.aliases.iter() {
+                            if *ty == obj_ty && ast.class_parents.contains_key(n) {
+                                setter_class = Some(n.clone());
+                                break;
+                            }
+                        }
+                        if let Some(cls) = setter_class
+                            && let Some(setter_fn) = ast
+                                .accessor_setters
+                                .get(&(cls.clone(), field.clone()))
+                                .cloned()
+                            && let Some(Type::Function(params, _ret)) =
+                                self.globals.get(&setter_fn).cloned()
+                            && params.len() >= 2
+                        {
+                            // `params[0]` is the implicit `__this`;
+                            // `params[1]` is the user-declared value
+                            // param's type.
+                            let setter_param_ty = params[1].clone();
+                            let value_ty = self.type_of(ast, *value)?;
+                            if !is_assignable_to_resolved(
+                                &setter_param_ty,
+                                &value_ty,
+                                &self.aliases,
+                            ) {
+                                return Err(format!(
+                                    "type mismatch assigning to accessor `{cls}.{field}`: setter expects {setter_param_ty:?}, value is {value_ty:?}"
+                                ));
+                            }
+                            self.consume(ast, *value);
+                            return Ok(setter_param_ty);
+                        }
                         let Some((_, field_ty)) = fields.iter().find(|(n, _)| n == &field) else {
                             return Err(format!("no field `{field}` on type {obj_ty:?}"));
                         };
