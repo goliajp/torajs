@@ -29,7 +29,22 @@ correctness-equivalence）；② `touch torajs-core && build tr(fast)` 墙钟
 runner 描述符未改 + 一次 bench 跑 artifact_bytes 与 release baseline 一致）；
 ④ 0-warn / fmt-clean 不破。
 **预估**：内循环 28.5s → ≤5s（~6x），叠加 conformance 并行（P1）后 dev-loop
-质变。**状态：TODO（devperf 最高优先，autorun next）**
+质变。
+
+**✅ DONE 2026-05-19**（实测全达，超目标）：
+- `[profile.iter]`（inherits release；`lto=false, codegen-units=256,
+  opt-level=1, strip=false`）+ conformance/runner `--release`→`--profile iter`。
+- **edit→rebuild tr: 28.5s → 2.49s（~11.4×，目标 ≤5s 超额）**。
+- **full conformance(iter tr) = 629/0/1**（correctness-equivalence 实证；
+  opt-level/LTO 语义不变在 torajs 629 真实 case 成立）。
+- bench/ship 物理隔离：`target/iter/tr` ≠ `target/release/tr`，bench runner
+  描述符硬编码 `target/release/tr` 未改 → 结构上不受影响。
+- **⚠️ 操作 nuance（非静默）**：以前 `cargo run -p torajs-conformance` 顺带
+  产出 `target/release/tr`；现在它产 `target/iter/tr`。**bench 前必须显式
+  `cargo build --release -p torajs-cli`** 否则 `target/release/tr` 可能 stale/
+  缺失 → bench 测错二进制（违反第一硬规则）。这是 bench pillar 须吸收的契约
+  （bench-harness/caller 应在跑 bench 前强制 release-build；记入 bench D-系列）。
+**状态：DONE ✅**
 
 ## P1 — 并行化 conformance runner【最大杠杆，质量绝对中性】✅ DONE
 
@@ -105,6 +120,18 @@ bun 升级 / case 编辑时 re-bless（脚本化 + 记 bun 版本）。re-bless 
 绝不能以降低计时置信度换取**（与 conformance 并行化的免费提速本质不同——
 conformance 并行不改正确性，bench 并行摧毁计时可信度，故 bench 提速只能"少做
 冗余功"不能"并行"）。按 confidence-preserving 优先排序：
+
+### B0 — bench 前强制 release-build 契约【正确性前置，devperf #1 引入，必做】
+
+**背景**：devperf #1 后 `cargo run -p torajs-conformance` 产 `target/iter/tr`，
+不再顺带产 `target/release/tr`。bench runner 描述符硬编码 `target/release/tr`。
+**风险**：若跑 bench 前没人 `cargo build --release -p torajs-cli`，bench 测的
+是 stale/缺失的 release 二进制 = 测错东西 = 违反第一硬规则（覆盖/正确性）。
+**做法**：bench-harness（或其唯一入口脚本）启动时**强制** `cargo build
+--release -p torajs-cli` 并校验 `target/release/tr` mtime ≥ 最近 torajs 源改
+mtime，否则 fail-fast 拒跑。**验收**：故意留 stale release-tr 跑 bench → 被
+拒并提示；正常路径自动 release-build 后再测。**状态：TODO（B 系列最高前置，
+B1 之前——没有它 bench 数据可能无效）**
 
 ### B1 — artifact_bytes 自动 gate + N-run 原生聚合【最大置信度收益，~零速度成本】
 

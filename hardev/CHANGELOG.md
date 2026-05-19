@@ -4,6 +4,40 @@ Incubation versioning, semver-ish. One entry per shipped hardev change.
 A pillar item is "shipped" only when its metric in `metrics.md` is
 re-measured and the *now* column updated.
 
+## v0.1.2 — 2026-05-19 — devperf #1 SHIPPED: fast iteration profile (~11.4× inner loop)
+
+First hardev pillar tooling shipped. The 28.5 s inner-loop tax found
+in v0.1.1 is gone.
+
+- `Cargo.toml`: added `[profile.iter]` (inherits release; `lto=false,
+  codegen-units=256, opt-level=1, strip=false`). `[profile.release]`
+  untouched.
+- `conformance/runner/main.rs`: builds tr with `--profile iter`
+  instead of `--release` (+ fallback path / docs).
+- **Measured**: touch `torajs-core` → rebuild `tr` = **2.49 s** (was
+  28.5 s under `--release`) = **~11.4×**. Cold all-deps iter build
+  18.5 s one-time; no-op 0.05 s.
+- **Correctness-equivalence empirically proven**: full conformance
+  with the iter-profile tr = **629 / 0 / 1** (0 FAIL). opt-level / LTO
+  / codegen-units are semantics-invariant — an `iter` tr is
+  byte-for-byte stdout-equal to a `release` tr on every case. Same
+  coverage, same byte-equal verdict, first hard rule intact.
+- **bench + ship unaffected**: `target/iter/tr` and `target/release/tr`
+  are physically separate; bench runner descriptors hardcode
+  `target/release/tr`, unchanged.
+- **Operational contract introduced (not silent)**: conformance no
+  longer incidentally produces `target/release/tr`. A bench run MUST
+  be preceded by `cargo build --release -p torajs-cli` or it measures
+  a stale/missing binary (= measuring the wrong thing). Filed as
+  **bench B0** (highest bench prerequisite — fail-fast if release-tr
+  is stale).
+- `metrics.md` §1 edit→rebuild row → SHIPPED/measured; VERSION 0.1.2.
+
+Combined with the P1 conformance parallelization (~10×), the torajs
+dev loop is qualitatively transformed: edit → (2.5 s build) →
+(~3 min full 629-case correctness) instead of (28.5 s build) →
+(~30 min serial).
+
 ## v0.1.1 — 2026-05-19 — devperf P0 root-caused (sccache myth busted, true lever found)
 
 First metrics-driven investigation. Outcome: the sccache "0 %" was not

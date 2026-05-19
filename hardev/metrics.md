@@ -45,7 +45,7 @@ Establishing metrics *immediately* paid off (this is the point):
 | Metric | now (v0.1.0) | after v1 | after v2 |
 |---|---|---|---|
 | full conformance wall (629 cases) | **~3.0–3.5 min** `[M]` parallel 8-worker (174–208 s ×N this session; shipped `6ab22f9`, was ~30 min serial) | ≤ 2 min (artifact-precheck skips timed re-verify when tr unchanged) `[D]` | ≤ 30 s for the common "tr unchanged" case `[D]` |
-| **edit→rebuild `tr` wall** (THE inner-loop metric) | **28.5 s** `[M]` (touch torajs-core → `cargo build --release -p torajs-cli`; fat-LTO + cgu=1 ship profile used for every iteration) | **≤ 5 s** `[D]` via fast iteration profile (lto=off/cgu=many/low-opt) for functional+conformance; bench+ship keep release | ≤ 2 s `[D]` |
+| **edit→rebuild `tr` wall** (THE inner-loop metric) | **2.49 s** `[M]` ✅ devperf #1 SHIPPED `<this commit>` — `[profile.iter]` (lto=off/cgu=256/opt=1) for functional+conformance; was 28.5 s under `--release`; **~11.4×**. correctness-equivalence empirically proven (full conformance under iter tr = **629/0/1**, opt-level/LTO are semantics-invariant). bench+ship keep `--release` (separate `target/release/tr`) | (met early) hold ≤ 5 s; track regressions | ≤ 2 s `[D]` |
 | sccache hit rate | **structurally ~0 % for torajs inner loop** `[M]` — global shared server, bin/changed-src non-cacheable by design (NOT a fixable misconfig) | n/a — dropped as a torajs lever (was a misconception); deps-only cold-start benefit is incidental | n/a |
 | no-op rebuild | **0.05 s** `[M]` (cargo correctly skips; steady-state optimal) | unchanged | unchanged |
 

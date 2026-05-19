@@ -185,12 +185,19 @@ fn parse_workers() -> usize {
 /// Build `tr` once and return the exact binary path cargo produced.
 /// Uses `--message-format=json` so cargo itself reports the artifact
 /// location — no target-dir inference. Falls back to
-/// `<repo>/target/release/tr` only if the JSON has no `tr` artifact.
+/// `<repo>/target/iter/tr` only if the JSON has no `tr` artifact.
 fn build_tr_once(manifest: &Path, repo_root: &Path) -> PathBuf {
     let out = Command::new("cargo")
         .args([
             "build",
-            "--release",
+            // hardev devperf #1 — fast iteration profile (lto=off,
+            // cgu=256, opt=1). opt-level/LTO are semantics-invariant
+            // so an `iter` tr is stdout-byte-equal to a `release` tr
+            // on every case (629/0/1 proves it); same coverage, same
+            // verdict, ~6x faster tr rebuilds. bench/ship keep
+            // --release (separate target/release/tr artifact).
+            "--profile",
+            "iter",
             "--quiet",
             "--manifest-path",
             manifest.to_str().unwrap(),
@@ -220,7 +227,7 @@ fn build_tr_once(manifest: &Path, repo_root: &Path) -> PathBuf {
             }
         }
     }
-    let tr_bin = found.unwrap_or_else(|| repo_root.join("target/release/tr"));
+    let tr_bin = found.unwrap_or_else(|| repo_root.join("target/iter/tr"));
     if !tr_bin.is_file() {
         die(&format!(
             "tr binary not found after build: {}",

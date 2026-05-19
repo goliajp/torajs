@@ -23,3 +23,23 @@ opt-level = 3
 lto = "fat"
 codegen-units = 1
 strip = true
+
+# hardev devperf #1 — fast iteration profile. Used ONLY for functional
+# iteration + the conformance gate (conformance/runner builds tr with
+# `--profile iter`). opt-level / LTO / codegen-units do NOT change
+# program semantics (textbook invariant), so an `iter`-built tr is
+# byte-for-byte stdout-equivalent to a `release`-built tr on every
+# conformance case — same coverage, same byte-equal verdict (629/0/1
+# proves it empirically). bench + final ship STILL use `--release`
+# (fat-LTO ship binary); bench runners hardcode target/release/tr, a
+# physically separate artifact from target/iter/tr, so they are
+# structurally unaffected. Knobs chosen for fast compile while keeping
+# the conformance run fast enough: no whole-program LTO, max codegen
+# parallelism, opt-level=1 (NOT 0 — a -O0 tr would make conformance
+# case execution too slow, a bad trade).
+[profile.iter]
+inherits = "release"
+lto = false
+codegen-units = 256
+opt-level = 1
+strip = false
