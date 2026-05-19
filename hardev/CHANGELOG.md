@@ -4,6 +4,34 @@ Incubation versioning, semver-ish. One entry per shipped hardev change.
 A pillar item is "shipped" only when its metric in `metrics.md` is
 re-measured and the *now* column updated.
 
+## v0.1.7 — 2026-05-19 — bench B2b SHIPPED: artifact-precheck (seconds for tr-unchanged)
+
+The per-commit bench gate is now SECONDS when the machine code is
+unchanged, with zero coverage loss.
+
+- `bench::artifact_only` (compile once, no hyperfine, stat output
+  size) + `compare::load_artifacts` (reuses the compare parser) +
+  main.rs `--vs <baseline.json>` precheck.
+- If every selected torajs artifact is byte-identical to baseline →
+  machine code unchanged → no perf regression is physically possible
+  → ALL timed runs skipped, exit 0 in ~2 s (measured 1.91 s vs the
+  ~10 min full run). If ANY artifact differs / is unknown → list
+  them and FALL BACK to the full timed measurement (coverage never
+  reduced — first hard rule). Safe by construction: skip only when
+  provably no codegen change.
+- Verified both branches: PASS (artifacts identical → SKIPPED 1.91 s);
+  fallback (throw-catch-100k vs 8b73988 real +416 → "1 changed →
+  falling back to FULL timed" → timed runs proceed). fmt clean,
+  0-warn, no substrate.
+- `optimization-backlog.md` B2b → DONE; `metrics.md` §4
+  per-commit-gate row → seconds-for-unchanged; VERSION 0.1.7.
+
+Bench pillar v1 core COMPLETE: B0 (always-fresh ship binary) · B1
+(machine compare verdict) · B1b (N-run median/MAD) · B2 (--self
+per-commit scope) · B2b (artifact-precheck seconds). Remaining bench
+= B3 (phase-tracking coverage; needs an active language phase, P7
+paused) · B4 (machine hygiene + methodology, polish).
+
 ## v0.1.6 — 2026-05-19 — bench B2 SHIPPED: `--self` per-commit fast path
 
 - `bench run --self`: restrict to the torajs runtimes

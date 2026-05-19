@@ -54,6 +54,16 @@ fn load(path: &str) -> Result<BTreeMap<(String, String), Row>> {
         .collect())
 }
 
+/// hardev bench B2b — baseline artifact_bytes keyed by (case, runtime),
+/// for the `--vs` artifact-precheck. Reuses the same parser as
+/// `bench compare`; does not expose `Row`.
+pub fn load_artifacts(path: &str) -> Result<BTreeMap<(String, String), Option<u64>>> {
+    Ok(load(path)?
+        .into_iter()
+        .map(|(k, r)| (k, r.artifact_bytes))
+        .collect())
+}
+
 /// `bench compare <baseline.json> <current.json>
 ///                [--allow-artifact-delta case:runtime[,case:runtime…]]`
 ///

@@ -197,6 +197,78 @@ pub fn run_one(
     Ok(outcome)
 }
 
+/// hardev bench B2b — artifact-only pass: compile ONCE (no hyperfine,
+/// no timed run) and capture the produced binary's byte size. Used by
+/// the `--vs` artifact-precheck: if every case's artifact_bytes is
+/// byte-identical to the baseline, the machine code is unchanged, so
+/// there can be no perf regression *by construction* and the
+/// expensive timed run is safely skipped (seconds, not minutes).
+/// Falling back to the full timed `run_one` whenever an artifact
+/// differs keeps coverage intact (first hard rule). Only meaningful
+/// for runners that produce an artifact (the `torajs` AOT runner);
+/// returns `artifact_bytes: None` otherwise.
+pub fn artifact_only(
+    case: &Case,
+    runner: &Runner,
+    work_dir: &Path,
+    workspace: &Path,
+) -> Result<RunOutcome> {
+    let src_path = case.dir.join(&runner.src_filename);
+    let mut outcome = RunOutcome {
+        case: case.name.clone(),
+        runtime: runner.name.clone(),
+        runtime_version: None,
+        status: Status::Ok,
+        compile_ms: None,
+        run_ms: None,
+        run_stddev_ms: None,
+        artifact_bytes: None,
+        stdout_match: None,
+        error: None,
+    };
+    if !src_path.exists() {
+        outcome.status = Status::Skipped;
+        outcome.error = Some(format!("no source file: {}", src_path.display()));
+        return Ok(outcome);
+    }
+    let Some(compile_template) = &runner.compile else {
+        outcome.status = Status::Skipped;
+        outcome.error = Some("runner has no compile step (no artifact)".into());
+        return Ok(outcome);
+    };
+    let out_path = work_dir.join(format!("{}-{}", case.name, runner.name));
+    let ctx = TemplateContext {
+        src: src_path.to_string_lossy().to_string(),
+        out: out_path.to_string_lossy().to_string(),
+        case: case.name.clone(),
+        workspace: workspace.to_string_lossy().to_string(),
+    };
+    let compile_cmd = ctx.substitute(compile_template);
+    let compile_env: Vec<(String, String)> = case
+        .torajs_opt
+        .as_ref()
+        .filter(|_| runner.name == "torajs")
+        .map(|f| vec![("TORAJS_OPT".to_string(), f.clone())])
+        .unwrap_or_default();
+    match exec_capture_status(&compile_cmd, &compile_env) {
+        Ok(()) => {}
+        Err(CompileError::NotYetImplemented(stderr)) => {
+            outcome.status = Status::Skipped;
+            outcome.error = Some(stderr);
+            return Ok(outcome);
+        }
+        Err(CompileError::Real(msg)) => {
+            outcome.status = Status::Failed;
+            outcome.error = Some(format!("compile failed: {msg}"));
+            return Ok(outcome);
+        }
+    }
+    if let Ok(meta) = std::fs::metadata(&out_path) {
+        outcome.artifact_bytes = Some(meta.len());
+    }
+    Ok(outcome)
+}
+
 /// Compile-step error categorized by exit code.
 ///
 /// Exit code 3 is reserved as "not yet implemented" — the runner exists and

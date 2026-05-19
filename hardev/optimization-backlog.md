@@ -193,15 +193,23 @@ baseline；phase-close 仍全 8-runner，第一硬规则）。显式 `--runtime`
 override（无 notice，仅 bun-jsc）；help 显示。fmt clean、0-warn、无 substrate。
 **状态：DONE ✅**
 
-### B2b — artifact 预检（artifact 不变跳 timed → 秒级）【follow-on，最大速度】
+### B2b — artifact 预检（artifact 不变跳 timed → 秒级）✅ DONE
 
 **做法**：`bench run --self --vs <baseline.json>`：对每 case 走 torajs runner 的
 compile 路径只 stat artifact_bytes（无 hyperfine、无 timed run），逐一对 baseline。
 全 identical → "0 regression by construction（机器码未变），timed 跳过" 秒级 exit 0；
 任一 differ → 该 case fallback 跑完整 timed（覆盖不减）。**质量为何中性**：artifact
 不变 ⟺ 机器码不变 ⟺ run_ms 不可能真回归（教科书 + 本会话实证）；变了仍全 timed
-测，第一硬规则满足。**验收**：tr 不变 `--vs` 秒级 PASS；改 torajs-core 后该 case
-fallback timed 且结论与全 timed 跑一致。**状态：TODO（B2 follow-on）**
+测，第一硬规则满足。
+**✅ DONE 2026-05-19**：`bench::artifact_only`（compile 一次无 hyperfine + stat
+size）+ `compare::load_artifacts`（复用 compare parser）+ main.rs `--vs` 预检。
+全 identical+无 unknown → "0 regression by construction → timed SKIPPED" 秒级
+exit 0；任一 changed/unknown → 列出 + "falling back to FULL timed（coverage
+preserved）" 续跑全 timed。**验收实测**：PASS 路径（artifact 全同 → skip **1.91s**
+vs 分钟级）；fallback 路径（throw-catch-100k vs 8b73988 真差 +416 → "1 changed
+→ falling back" → 续跑 timed）。fmt clean、0-warn、无 substrate。safe-by-
+construction（仅可证无 codegen 变化才跳）。
+**状态：DONE ✅**
 
 ### B2-orig — （原 B2 描述存档，已拆 B2 + B2b 实现/计划）
 
