@@ -74,6 +74,74 @@ bun 升级 / case 编辑时 re-bless（脚本化 + 记 bun 版本）。re-bless 
 
 ---
 
+## bench-harness 专项（2026-05-19 提出；置信度/速度/覆盖/专业性 4 轴）
+
+起源：P7.4-a-b ship 后跑 bench 实证单次 run_ms 摆 [−65%,+171%]（远超文档 ±20-40%），
+且 pipeline 规定的 "3-run median" 在 json 层做不到（同名覆盖）。grounded 自
+`bench/harness/src/{bench,report}.rs`。**第一硬规则在此尤其关键：bench 的提速
+绝不能以降低计时置信度换取**（与 conformance 并行化的免费提速本质不同——
+conformance 并行不改正确性，bench 并行摧毁计时可信度，故 bench 提速只能"少做
+冗余功"不能"并行"）。按 confidence-preserving 优先排序：
+
+### B1 — artifact_bytes 自动 gate + N-run 原生聚合【最大置信度收益，~零速度成本】
+
+**现状**：`report.rs` 仅 `fs::write` 同名 `{date}-{host}-{sha}.json`（同 sha 多跑
+互相覆盖）；无 `compare` 子命令、无 baseline-diff、无回归判定。`artifact_bytes`
+（确定性、mac-noise-immune、最可靠回归信号）只能人肉 eyeball。
+**做法**：① `bench compare <baseline.json>` 子命令：per-case artifact_bytes 必须
+逐字节一致否则 FAIL（或显式 `--allow-artifact-delta <case> <reason>` justify）；
+② 多 run 不覆盖（文件名加 run-nonce 或原生 `--runs-aggregate N` 收集 N 次取
+median-of-medians + MAD + 置信区间写一个聚合 json）。
+**为何不降置信/覆盖**：纯增判定能力，不删任何 case、不减子步。把人肉对比变成
+机器硬门是**提升**置信度。
+**验收**：`bench compare` 对 76ace15 vs 8b73988 自动输出 24/26 identical / 2 shift；
+3-run 聚合 json 含 median+MAD；artifact-delta 未 justify 时退出码非 0。
+**状态：TODO（最高优先）**
+
+### B2 — `--self` 快速回归模式 + artifact 预检【最大速度收益，per-commit 10min→秒级】
+
+**现状**：全跑 8 runner × 26 case ≈ 585s/run；per-commit 回归门其实只需 torajs
+vs 自身 baseline，bun/node/go/rust/python 是 SOTA 横向对比（phase-close 关注）。
+**做法**：① `bench run --self`：只跑 torajs / torajs-run，跳过其它 runtime；
+② artifact 预检：先比 artifact_bytes（确定性、亚秒），全 identical 即秒级判
+0-regression，仅变化的 case 才回退跑 timed。
+**为何不降置信/覆盖**：`--self` 仅用于**per-commit 回归门**；**phase-close 仍
+强制全 8-runner 全 case + B1 artifact gate**（SOTA 验证一字不变）。预检逻辑：
+artifact 不变 ⟺ 机器码不变 ⟺ run_ms 不可能真回归（教科书结论），故跳 timed
+是无损的。
+**验收**：`--self` 输出与全跑的 torajs 行逐字段一致且耗时 ≤ 1/3；预检命中时
+总耗时 < 10s 且结论与全 timed 跑一致。
+**状态：TODO（高优先，B1 之后——B1 提供 compare 基建）**
+
+### B3 — 覆盖跟着 phase 走（P7：throw/bigint hot case）【覆盖缺口】
+
+**现状**：26 case **无 bigint**、仅 1 个 exception-ish（throw-catch-100k）。
+a-b/#15 的 perf 影响 bench 没直接测（只能靠 artifact_bytes 推理）。P7=Error
+phase，throw/catch/finally + bigint hot path 在被改时恰恰覆盖不足。
+**做法**：每个加 substrate 的 phase 同步加打其 hot path 的 bench case。P7 →
+`bigint-arith-1m`（Div/Mod/Pow 循环）+ `try-throw-catch-1m`（深 try 嵌套 +
+跨 fn throw 传播，正好测 #15 may-throw 路径）。
+**为何不降置信/覆盖**：纯**增**覆盖。新 case 与既有同标准（expected.txt +
+cross-runtime + artifact gate）。
+**验收**：P7 close 时 bench 含 ≥1 bigint + ≥1 throw-propagation case，且
+artifact gate 对它们生效。
+**状态：TODO（与 P7.5 / phase-close 同期）**
+
+### B4 — 机器状态卫生 + 统计裁定 + 对比方法学文档【专业性】
+
+**现状**：无 nice/CPU-pin/QoS/空闲检测（本会话噪声爆炸即并发抢占）；无统计
+回归裁定（需 delta 超噪声带→pass/fail）；runs/warmup 固定不按 case 时长缩放
+（sub-2ms case 需更多 runs）；横向对比公平性（go/rust 是否 release/-O3）未
+文档化，削弱"SOTA vs bun/node/go"可信度。
+**做法**：① runner 前置 `nice -n -5` / QoS + 跑前检测 load，超阈值 warn/defer；
+② B1 的 compare 加 MAD-based 或 Mann-Whitney 噪声带裁定；③ run_runs 按上次
+median 自适应（快 case 多跑）；④ 写 `bench/METHODOLOGY.md` 记录各 runtime
+编译/优化档与公平性论证。
+**为何不降置信/覆盖**：全部**提升**置信度与可信度，不动 case 集。
+**状态：TODO（专业性收尾，B1-B3 之后）**
+
+---
+
 ## 已应用（本专题起源会话，2026-05-19）
 
 - **torajs 项目私有内置 target**（去共享盘并发争用 + cargo-clean 隔离）：~50min →

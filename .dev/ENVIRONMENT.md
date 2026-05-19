@@ -60,6 +60,25 @@
   部分被 sccache 缓存（C/C++ 1388 hits），但 tr→SSA→LLVM 是 torajs 自己的活，
   628× 跑，**不被 cargo/sccache 覆盖** → 这是并行化之外的第二大成本。
 
+## 4b. ⚠️ 跨天 mac bench run_ms 有系统性环境偏移（实证 2026-05-19）
+
+P7.4-a-b ship 后 3-run bench median 对照 baseline `8b73988`（2026-05-18 测）：
+**所有 case 系统性 +15~17%**，**包括 artifact_bytes 逐字节相同的 case**
+（fib40/mandelbrot/gcd1m — 机器码 provably 未变）。机器码相同 → +15% run_ms
+物理上不可能是真回归 → 偏移源是**环境**：baseline 另一天空闲机测，当前 run
+是机器连跑数小时 conformance+build+bench（thermal throttle + 抢占）测的。
+
+**铁律**：
+- **artifact_bytes 是唯一可信的回归判据**（确定性、mac-noise-immune；同 tr+同源
+  逐字节相同 ⟺ 机器码未变 ⟺ 0 perf regression by construction）。
+- **跨天 / 跨机器状态的 mac run_ms 比较不可作回归裁定**——系统性偏移可达 ±15%+，
+  单点尖峰可达 +200%+（实测 fib40 单 run 566ms vs 152）。
+- run_ms 仅在**同一 idle 机器状态、同次会话内**对比才有限可信；做正式 perf 裁定
+  需 `.dev` B1（同机基线 + 统计带）/ B4（机器状态卫生）落地后。
+- `-NN B` 量级的 artifact 漂移若在 run 间于不同 case 间跳动 = 良性 linker
+  非确定性（非 per-case codegen 变化）；只有**跨 run 稳定**的 artifact delta 才
+  追究（如 a-b 的 throw-catch +416B = throw-runtime relink，预期非回归）。
+
 ## 5. 关键时间基线（2026-05-19，留作优化前后对比锚点）
 
 | 项 | 墙钟 | 备注 |
