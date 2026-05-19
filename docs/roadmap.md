@@ -437,8 +437,16 @@ fields, static blocks, accessor properties, super-in-arrow.
 
 **Substrate checklist** (strict order):
 
-- [ ] **P8.1** `#priv` private fields (parser + lower with name
-      mangling)
+- [x] **P8.1** `#priv` private fields (parser + lower with name
+      mangling) — SHIPPED A1 `2747225` (lexer PrivateIdent) /
+      A2 `cb806d3` (parser field-decl accept + mangling) /
+      A3 `915afa9` (parser dot-access raw `#`) /
+      A4+A5 `e966db8` (parse-time current_class mangling + round-trip
+      fixture `class-priv-001-this-field.ts` → 630/0/1 conformance).
+      Hard-private (exact-class only — no Protected); cross-class
+      and subclass access rejected at typecheck. Static `#x` and
+      non-`this` typed-receiver `c.#x` (where c: C) outside the
+      class body defer to P8.x followups.
 - [ ] **P8.2** Class getters / setters (accessor descriptors)
 - [ ] **P8.3** Static blocks `static { ... }`
 - [ ] **P8.4** Lexical super resolution in nested arrows
