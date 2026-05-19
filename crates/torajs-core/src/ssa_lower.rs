@@ -8767,6 +8767,27 @@ impl<'a> LowerCtx<'a> {
             .append_inst(BlockId(0), InstKind::Alloca(ty), Type::Ptr, name)
     }
 
+    /// LetDecl binding-slot allocation. A refcounted binding is dropped
+    /// at scope end, and that drop's `load <slot>` can land in a block
+    /// with multiple predecessors sharing no dominator but entry (e.g.
+    /// the post-try continuation, reachable from both the try-normal
+    /// and catch paths). If the slot were `alloca`'d in whatever block
+    /// lowering happened to be in — which a mid-expression block split
+    /// (a may-throw call / bigint op) moves forward — that block won't
+    /// dominate the drop's load and codegen rejects ("unmapped SSA
+    /// value", since ssa_inkwell maps values in block-insertion order).
+    /// Entry-hoisting refcounted slots is the standard LLVM shape (all
+    /// allocas in entry; mem2reg promotes them) and removes the whole
+    /// fragility class. Copy slots have no scope-end drop, so they keep
+    /// the cheaper in-place alloca (no behavior change for them).
+    fn binding_slot_alloca(&mut self, ty: Type, name: &str) -> ValueId {
+        if ty.is_refcounted() {
+            self.alloca_in_entry(ty, Some(name))
+        } else {
+            self.alloca(ty, Some(name))
+        }
+    }
+
     /// Same as `alloca_in_entry` but also seeds the slot with `false`
     /// (for Bool flags) in the entry block. Without this, the flag is
     /// uninitialized memory on paths that reach the finally tail without
@@ -9971,7 +9992,7 @@ impl<'a> LowerCtx<'a> {
                     // Drop the intermediate Str — fs_read_file_sync
                     // returns a fresh owned Str.
                     self.emit_drop_value(Operand::Value(str_v), Type::Str);
-                    let slot = self.alloca(slot_ty_for_parse, Some(name));
+                    let slot = self.binding_slot_alloca(slot_ty_for_parse, name);
                     self.f.append_void(
                         self.cur_block,
                         InstKind::Store(result, Operand::Value(slot), 0),
@@ -10035,7 +10056,7 @@ impl<'a> LowerCtx<'a> {
                     // storage. We synthesize a slot directly because
                     // the fall-through path expects to discover ty
                     // from init_val + type_ann, which already aligns.
-                    let slot = self.alloca(slot_ty_for_parse, Some(name));
+                    let slot = self.binding_slot_alloca(slot_ty_for_parse, name);
                     self.f.append_void(
                         self.cur_block,
                         InstKind::Store(result, Operand::Value(slot), 0),
@@ -10172,7 +10193,7 @@ impl<'a> LowerCtx<'a> {
                     self.emit_drop_value(entries_op.clone(), self.operand_ty(&entries_op));
                     // Store result into LetDecl slot using the
                     // synthesized slot pattern (mirrors JSON.parse arm).
-                    let slot = self.alloca(slot_ty, Some(name));
+                    let slot = self.binding_slot_alloca(slot_ty, name);
                     self.f.append_void(
                         self.cur_block,
                         InstKind::Store(obj_op, Operand::Value(slot), 0),
@@ -10271,7 +10292,7 @@ impl<'a> LowerCtx<'a> {
                     && let Some(sig_id) = self.fn_sig_ids.get(&fid).copied()
                 {
                     let ty = Type::FnSig(sig_id);
-                    let slot = self.alloca(ty, Some(name));
+                    let slot = self.binding_slot_alloca(ty, name);
                     let v = self
                         .f
                         .append_inst(self.cur_block, InstKind::FnAddr(fid), ty, None);
@@ -10506,7 +10527,7 @@ impl<'a> LowerCtx<'a> {
                         None,
                     )
                 } else {
-                    let slot = self.alloca(ty, Some(name));
+                    let slot = self.binding_slot_alloca(ty, name);
                     self.f.append_void(
                         self.cur_block,
                         InstKind::Store(init_val, Operand::Value(slot), 0),
