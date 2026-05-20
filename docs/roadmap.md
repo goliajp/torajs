@@ -606,7 +606,56 @@ groups, Unicode flag, sticky flag.
       P9.1 closing advances L3a to P9.2 (named capture groups + back-
       references). P9 phase has 5 substeps; closing all unlocks P9→P10
       trigger.
-- [ ] **P9.2** Named capture groups + back-references
+- [x] **P9.2** Named capture groups + back-references — SHIPPED A1+A2+A3
+      `8a5aa61` (A1: parser + matcher substrate) + `4b12de4` (A2: .groups
+      accessor) + `<A3>` (fixtures + this roadmap). A1 lands the regex
+      engine substrate: parser accepts `(?<name>X)` (records name in a
+      new Parser.names table aligned with capture_idx); `\k<name>` emits
+      NK_BACKREF resolved post-parse via the name table; `\1..\9` emits
+      NK_BACKREF{idx} validated against final n_captures. New OP_BACKREF
+      opcode + per-thread `br_offset` state machine in the outer match
+      loop consumes the captured slice byte-at-a-time across steps
+      (continuation re-scheduling bypasses the visited table so a fresh
+      backref entry isn't blocked by an in-flight continuation at the
+      same pc — they carry different state). i-flag aware via the
+      existing char_eq path. A2 attaches `.groups` to match-result
+      arrays: RegExp now persists capture_names past parse, and a new
+      attach_groups helper builds a dynobj of name → captured Str, set
+      on the array via the existing arrprops side-table. `m.groups`
+      reads already lower through arrprops_get (the typechecker routes
+      Array.<unknown> to Type::Any), so no compile-side changes were
+      needed. Non-participating named groups → ANY_UNDEF entries per
+      spec §22.2.5.7. A3 fixtures: `regex-011-named-capture.ts` (parser
+      acceptance + positional / `.exec` access), `regex-012-backref.ts`
+      (positional `\1..\9` single/multi-char + non-participating +
+      i-flag + alternation), `regex-013-named-backref.ts` (`\k<name>`
+      single/multi-char + forward refs + mixed positional/named refs +
+      i-flag), `regex-014-groups-dict.ts` (`.groups.NAME` access on
+      `match` / `exec` + non-participating undefined + named+positional
+      coexistence). Conformance 640 → 6XX (+4).
+
+      Narrow-surface design choice (per [[feedback-narrow-abi-surface]]):
+      parser owns the name table; matcher stays positional. Alternative —
+      push name resolution into the matcher — would surface-broaden Op +
+      Thread for no runtime benefit. The Thompson NFA + multi-byte backref
+      tension (Russ Cox style normally precludes backref) is resolved by
+      the per-thread `br_offset` state machine — the only invasive change
+      was replacing Thread's unused `pad` field with `br_offset` (same
+      sizeof).
+
+      L3b follow-ups recorded:
+      - ECMA Annex B OctalEscape / IdentityEscape for `\N` when N >
+        n_captures (currently rejected at parse; bun returns false-
+        match on regex-execution rather than rejecting the literal).
+      - OP_CLASS i-flag awareness (pre-existing; `[a-z]/i.test("A")` →
+        false on tora vs true on bun). Independent of P9.2 but surfaced
+        while writing fixtures.
+      - Typechecker RegExpMatchArray type — `.match()` / `.exec()`
+        currently return `Array<String>`, so `.groups` access requires
+        `as any` cast in source. Surface ergonomics improvement, not a
+        correctness gap.
+
+      P9.2 closing advances L3a to P9.3 (Unicode flag).
 - [ ] **P9.3** Unicode flag (`u` / `v`) — character class handling
 - [ ] **P9.4** Sticky flag (`y`) — lastIndex semantics
 - [ ] **P9.5** `String.prototype.replace(regex, fn)` callback form
