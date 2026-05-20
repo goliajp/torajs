@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-05-20T12:05:34.959Z",
+  "generatedAt": "2026-05-20T17:34:32.940Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 629,
@@ -26,8 +26,8 @@
     "passRateTrAccepted": 92.5
   },
   "torajs": {
-    "commit": "c836e13",
-    "commitSubject": "P9.3-A3: fixture-lock + roadmap [SHIPPED]",
+    "commit": "fb2fd0c",
+    "commitSubject": "P9.4-A2: regex sticky fixture-lock + roadmap [SHIPPED]",
     "phase": "P8",
     "phaseTitle": "Class spec full (private + static blocks + accessor + super)",
     "conformance": {
@@ -559,6 +559,22 @@
   },
   "commits": [
     {
+      "hash": "fb2fd0c",
+      "subject": "P9.4-A2: regex sticky fixture-lock + roadmap [SHIPPED]"
+    },
+    {
+      "hash": "4f59eb8",
+      "subject": "P9.4-A1.1: sticky-aware replace + replaceAll + split + matchAll"
+    },
+    {
+      "hash": "9fe2ebb",
+      "subject": "P9.4-A1: regex sticky flag + lastIndex r/w semantics"
+    },
+    {
+      "hash": "00e54fc",
+      "subject": "chore: refresh hardev dashboard snapshot for rotation #8 close"
+    },
+    {
       "hash": "c836e13",
       "subject": "P9.3-A3: fixture-lock + roadmap [SHIPPED]"
     },
@@ -589,43 +605,38 @@
     {
       "hash": "e1f8219",
       "subject": "P9.1-A2: fixture-lock + roadmap [SHIPPED]"
-    },
-    {
-      "hash": "0404b08",
-      "subject": "P9.1-A1: regex lookbehind (positive + negative)"
-    },
-    {
-      "hash": "bcf3d2d",
-      "subject": "P8.5-A2: fixture-lock + roadmap [SHIPPED]"
-    },
-    {
-      "hash": "769a224",
-      "subject": "P8.5-A1: class expressions as values"
-    },
-    {
-      "hash": "0b98472",
-      "subject": "P8.4-A2: fixture-lock + roadmap [SHIPPED]"
     }
   ],
-  "headSha": "c836e13",
+  "headSha": "fb2fd0c",
   "autorun": {
-    "total": 7,
+    "total": 8,
     "baselineTarget": 10,
-    "bySelf": 7,
+    "bySelf": 8,
     "byManual": 0,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1779272399-171b",
-      "at": "2026-05-20T10:19:59Z",
-      "ts": 1779272399,
+      "rotationId": "r-1779279071-6982",
+      "at": "2026-05-20T12:11:11Z",
+      "ts": 1779279071,
       "trigger": "self",
-      "prevHead": "6b3f602",
-      "handoffSha": "sha256:526b8e8b814f9c86bc94b03bad6de763b5b0325a37aabc51400f1287e55f4b23",
+      "prevHead": "00e54fc",
+      "handoffSha": "sha256:c36e8cfabb573b88382d8e713619b191c5347fd0a22d4d1e9a2d6b156ad0f416",
       "handoffAgeSec": 5,
-      "conformanceBefore": "640/0/1",
+      "conformanceBefore": "644/0/1",
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1779279071-6982",
+        "at": "2026-05-20T12:11:11Z",
+        "ts": 1779279071,
+        "trigger": "self",
+        "prevHead": "00e54fc",
+        "handoffSha": "sha256:c36e8cfabb573b88382d8e713619b191c5347fd0a22d4d1e9a2d6b156ad0f416",
+        "handoffAgeSec": 5,
+        "conformanceBefore": "644/0/1",
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1779272399-171b",
         "at": "2026-05-20T10:19:59Z",
