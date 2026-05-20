@@ -994,6 +994,14 @@ typedef struct {
     /* Pattern bytes preserved for re.toString() — Phase 1b. */
     uint8_t *src_bytes;
     int64_t src_len;
+    /* Phase 1c.4.c — named-capture name table persisted past parse so
+     * that match/exec output construction can build `.groups`. Indexed
+     * by capture_idx 1..n_captures; NULL / 0 = unnamed positional group.
+     * Names are owned copies (malloc + memcpy of the source bytes) so
+     * they outlive the original pattern string. Freed in regex_drop. */
+    uint8_t **capture_names;
+    int *capture_name_lens;
+    int n_named_captures; /* count of non-NULL entries — 0 = no `.groups` needed */
 } RegExp;
 
 static uint8_t parse_flags(const uint8_t *p, int64_t len) {
@@ -1076,6 +1084,25 @@ void *__torajs_regex_compile(const void *pattern_str, const void *flags_str) {
      * `\1..\9` against the now-known capture count. Done before the
      * `rejected` check so resolution failure also lands in `rejected`. */
     if (root && !ps.err && resolve_backrefs(root, &ps)) ps.err = 1;
+    /* Persist named-capture table for `.groups` construction at match
+     * time. Allocate parallel arrays sized n_captures+1 (slot 0 unused).
+     * Owned copies of name bytes — Parser.names_ptr points into the
+     * caller's pattern string which is not refcounted past compile. */
+    if (root && !ps.err && ps.n_captures > 0) {
+        size_t arr_cap = (size_t)(ps.n_captures + 1);
+        re->capture_names = (uint8_t **)calloc(arr_cap, sizeof(uint8_t *));
+        re->capture_name_lens = (int *)calloc(arr_cap, sizeof(int));
+        for (int i = 1; i <= ps.n_captures; i++) {
+            int nl = ps.names_len[i];
+            if (nl > 0 && ps.names_ptr[i] != NULL) {
+                uint8_t *copy = (uint8_t *)malloc((size_t)nl);
+                memcpy(copy, ps.names_ptr[i], (size_t)nl);
+                re->capture_names[i] = copy;
+                re->capture_name_lens[i] = nl;
+                re->n_named_captures++;
+            }
+        }
+    }
     if (!root || ps.err || ps.i != ps.len) {
         /* Parse failure (lookahead / lookbehind / named groups / etc.).
          * Mark the regex as `rejected` and emit a never-match stub.
@@ -1132,6 +1159,13 @@ void __torajs_regex_drop(void *re_ptr) {
     for (int i = 0; i < re->prog.n_sub_progs; i++) prog_free(re->prog.sub_progs[i]);
     if (re->prog.sub_progs) free(re->prog.sub_progs);
     if (re->src_bytes) free(re->src_bytes);
+    if (re->capture_names) {
+        for (int i = 1; i <= re->n_captures; i++) {
+            if (re->capture_names[i]) free(re->capture_names[i]);
+        }
+        free(re->capture_names);
+    }
+    if (re->capture_name_lens) free(re->capture_name_lens);
     free(re);
 }
 
@@ -1596,6 +1630,16 @@ int64_t __torajs_regex_test(const void *re_ptr, const void *str_ptr) {
 extern uint8_t *__torajs_str_alloc_pooled(uint64_t len);
 extern void *__torajs_arr_alloc(uint64_t initial_cap);
 extern void *__torajs_arr_push(void *arr, int64_t val);
+extern void *__torajs_dynobj_alloc(void);
+extern void __torajs_dynobj_set(void **obj_slot, void *key, uint64_t tag, uint64_t value);
+extern void __torajs_arrprops_set(void *arr_ptr, void *key, int64_t tag, int64_t value);
+extern void __torajs_str_drop(void *s);
+
+/* ANY tag used when a heap-shaped value (Str / dynobj / etc.) is
+ * stored in a dynobj bucket. Must match runtime_str.c's __TORAJS_ANY_HEAP.
+ * Used here by the `.groups` attachment path. */
+#define REGEX_ANY_HEAP   4
+#define REGEX_ANY_UNDEF  5
 
 /* Abort with "not yet supported:" for a rejected regex. The test262
  * runner classifies stderr starting with this prefix as incompatible
@@ -1620,6 +1664,51 @@ static uint8_t *str_from_bytes(const uint8_t *data, int64_t len) {
     uint8_t *p = __torajs_str_alloc_pooled((uint64_t)len);
     if (len > 0) memcpy(p + __TORAJS_STR_HDR_SIZE, data, (size_t)len);
     return p;
+}
+
+/* Build `.groups` dynobj from the named captures recorded on `re` and
+ * the just-finished match's saves[]. Attaches the dict to `arr` via the
+ * runtime_str.c arrprops side table (so `arr.groups` resolves via the
+ * standard Array.<unknown-prop> path). Skips work entirely if `re` has
+ * no named captures.
+ *
+ * Refcount discipline:
+ *  - inner key ("digits", "first", ...): allocated rc=1, dynobj_set
+ *    rc_inc's → rc=2, we str_drop → rc=1, dict owns the surviving ref.
+ *  - inner value (captured Str or undefined sentinel 0): allocated
+ *    rc=1, dynobj_set stores without rc_inc — dict takes the ref.
+ *  - outer key ("groups"): same rc=1→drop pattern as inner key.
+ *  - outer value (the groups dynobj): created rc=1, arrprops_set
+ *    stores without rc_inc — arrprops table owns.
+ * arrprops_drop_entry (called from arr_drop on refcount 0) walks the
+ * outer entry → drops the inner dynobj → drops each inner entry's
+ * key + value. */
+static void attach_groups(void *arr, const RegExp *re, const uint8_t *s,
+                          const int64_t *saves) {
+    if (re->n_named_captures == 0 || re->capture_names == NULL) return;
+    void *groups = __torajs_dynobj_alloc();
+    for (int i = 1; i <= re->n_captures && i < REGEX_MAX_CAPTURES; i++) {
+        if (re->capture_names[i] == NULL) continue;
+        uint8_t *name_key = str_from_bytes(re->capture_names[i],
+                                            re->capture_name_lens[i]);
+        int64_t gs = saves[2 * i];
+        int64_t ge = saves[2 * i + 1];
+        if (gs < 0 || ge < 0) {
+            /* Non-participating named group → ANY_UNDEF entry per spec
+             * (m.groups.NAME === undefined). */
+            __torajs_dynobj_set(&groups, name_key, REGEX_ANY_UNDEF, 0);
+        } else {
+            uint8_t *val_str = str_from_bytes(s + gs, ge - gs);
+            __torajs_dynobj_set(&groups, name_key, REGEX_ANY_HEAP,
+                                (uint64_t)(uintptr_t)val_str);
+        }
+        __torajs_str_drop(name_key);
+    }
+    static const uint8_t k_groups_bytes[] = { 'g','r','o','u','p','s' };
+    uint8_t *outer_key = str_from_bytes(k_groups_bytes, 6);
+    __torajs_arrprops_set(arr, outer_key, REGEX_ANY_HEAP,
+                          (int64_t)(intptr_t)groups);
+    __torajs_str_drop(outer_key);
 }
 
 /* Find next match in `s` starting at `start`. Returns packed i64:
@@ -1692,6 +1781,10 @@ void *__torajs_str_match_regex(const void *str_ptr, const void *re_ptr) {
                     out = __torajs_arr_push(out, (int64_t)(intptr_t)grp);
                 }
             }
+            /* Phase 1c.4.c — attach `.groups` for named captures (same
+             * mechanism as regex_exec). Global mode strips captures per
+             * JS spec, so no .groups in that branch. */
+            attach_groups(out, re, s, saves);
             break;
         }
         /* Empty match — bump pos by 1 to avoid spinning forever. */
@@ -1986,6 +2079,10 @@ void *__torajs_regex_exec(const void *re_ptr, const void *str_ptr) {
             out = __torajs_arr_push(out, (int64_t)(intptr_t)grp);
         }
     }
+    /* Phase 1c.4.c — attach `.groups` if the regex has named captures.
+     * arrprops side-table owns the dict; Array.<unknown-prop> lowering
+     * already routes `result.groups` reads through arrprops_get. */
+    attach_groups(out, re, s, saves);
     return out;
 }
 
