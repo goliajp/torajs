@@ -480,7 +480,42 @@ fields, static blocks, accessor properties, super-in-arrow.
       use `ClassName.member` form (per
       `class-static-inheritance-001.ts`); A5 follows that
       convention.
-- [ ] **P8.4** Lexical super resolution in nested arrows
+- [x] **P8.4** Arrow return-type inference for Call shape
+      [SHIPPED `416c606` (A1) + `<A2-pending>` (A2)]. Originally framed
+      as a narrow super-in-nested-arrow fix; probing during the ship
+      cycle surfaced the actual root cause as a broader inference gap:
+      `infer_expr_ann_with` bailed on every `Expr::Call`, so any
+      bare-arrow body of shape `() => fn()` (with or without super)
+      had its lifted closure FnDecl's return_type default to Void and
+      typecheck rejected the surrounding code as a mismatch.
+      A1 plumbs a fn_sigs table (built at desugar_implicit_generics
+      entry from non-`__closure_*`, non-generic top-level FnDecls with
+      an explicit return ann; includes desugar_classes-synthesized
+      `__cm_<C>__<m>` whose return ann comes from the user-declared
+      method) through the static return-ann sniff chain
+      (infer_return_ann / infer_return_ann_seeded /
+      collect_return_anns(_stmt) / collect_let_binding_anns(_stmt) /
+      infer_expr_ann_with). infer_expr_ann_with gains a `Expr::Call`
+      arm that resolves bare-Ident callees through fn_sigs. Three
+      filters keep propagation sound: skip `__closure_*` (their own
+      return ann is being inferred this pass), skip generic fns
+      (TypeVar return is per-call-site mono), require bare-Ident callee
+      (Member/Index need typechecker collaboration). Super in nested
+      arrows rides this fix for free: desugar_classes Pass 1.5 / 1.6
+      collectors already recurse into ArrowFn body and rewrite super
+      ExprIds in place. A2 ships fixtures `class-super-arrow-001-
+      nested.ts` (P8.4 named surface — super.method() / super.method(a,b)
+      / super(args) in nested arrows + let-aliased) and
+      `arrow-infer-callret-001.ts` (broader surface — number / string /
+      boolean returning fns / block-body / param-forwarded). Known
+      follow-ups parked in L3b: (i) let-bound closure call sites
+      (`const inner = () => super.x(); const outer = () => inner()` —
+      outer's Call(Ident("inner")) needs binds-level closure return-
+      type resolution, separate substrate item); (ii) IIFE shape
+      `(() => fn())()` where ssa_lower rejects `callee = Closure {...}`
+      (independent of inference scope, lift_arrow_fns emits the closure
+      as immediate callee — substrate gap in ssa_lower call-site
+      dispatch).
 - [ ] **P8.5** Class expressions as values
 
 ---
