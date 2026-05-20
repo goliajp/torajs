@@ -130,6 +130,11 @@ static void cc_add_space(CharClass *cc) {
     cc_add(cc, '\r');
 }
 
+/* Capture-group limits — used by parser (name table) and matcher
+ * (Thread.saves array). Both sites must agree on the cap. */
+#define REGEX_MAX_CAPTURES  32   /* > 32 capture groups → "regex too large" */
+#define REGEX_SAVE_SLOTS    (REGEX_MAX_CAPTURES * 2)
+
 /* ============================================================
  * Regex AST — recursive structure produced by the parser.
  * Compiled to flat bytecode by `compile()`.
@@ -151,6 +156,7 @@ typedef enum {
     NK_NEG_LOOKAHEAD,  /* (?!X) — zero-width negative assertion */
     NK_LOOKBEHIND,     /* (?<=X) — zero-width positive lookbehind */
     NK_NEG_LOOKBEHIND, /* (?<!X) — zero-width negative lookbehind */
+    NK_BACKREF,        /* \N (decimal) or \k<name> — references capture N. */
 } NodeKind;
 
 typedef struct Node {
@@ -170,8 +176,15 @@ typedef struct Node {
     struct Node *child;
     /* GROUP — capture index (assigned in source order, 1-based; 0 is
      * reserved for the whole-match record). -1 = non-capturing
-     * (`(?:...)`). Phase 1c.1 — capturing groups + re.exec. */
+     * (`(?:...)`). Phase 1c.1 — capturing groups + re.exec.
+     * BACKREF — references this capture index (1..n_captures). -1 means
+     * unresolved named ref (look up via `backref_name` after parse). */
     int capture_idx;
+    /* BACKREF named — name bytes point into pattern buffer (no copy);
+     * resolved to capture_idx via Parser.names[] post-parse. Both NULL
+     * / 0 for unnamed `\N` backrefs and non-BACKREF nodes. */
+    const uint8_t *backref_name;
+    int backref_name_len;
 } Node;
 
 static Node *node_new(NodeKind kind) {
@@ -215,6 +228,12 @@ typedef struct {
      * `parse_atom` opens a `(...)` (NOT `(?:...)`). Group index 0 is
      * reserved for the whole-match span; the first user group is 1. */
     int n_captures;
+    /* Name table for named capture groups (`(?<name>X)`, Phase 1c.4.c).
+     * Indexed by capture_idx (1..n_captures). Names point into the
+     * pattern bytes (no copy); only valid during parse. NULL/0 = unnamed.
+     * Slot 0 unused (whole-match record). */
+    const uint8_t *names_ptr[REGEX_MAX_CAPTURES + 1];
+    int names_len[REGEX_MAX_CAPTURES + 1];
 } Parser;
 
 static int p_eof(const Parser *ps) { return ps->i >= ps->len; }
@@ -228,6 +247,7 @@ static int p_match(Parser *ps, uint8_t c) {
 /* Forward decls — the grammar is mutually recursive
  * (alt → concat → repeat → atom → alt). */
 static Node *parse_alt(Parser *ps);
+static int is_word_byte(uint8_t c);
 
 /* `\X` escape — produce either a single literal CHAR node (for
  * \n / \t / etc + pattern metas like \. \* \+) or a CLASS node
@@ -236,15 +256,16 @@ static Node *parse_escape(Parser *ps) {
     if (p_eof(ps)) { ps->err = 1; return NULL; }
     uint8_t c = p_get(ps);
     /* `\1`..`\9` — DecimalEscape. JS spec: if N <= n_captures it's a
-     * backreference to capture N; otherwise it's an IdentityEscape
-     * (literal digit). Backreferences are Phase 1c.5; until then any
-     * `\N` (N is 1-9) marks the regex as rejected so .exec / .match
-     * / .replace* / .split paths abort (→ incompatible bucket) rather
-     * than producing wrong matches. .test() returns false silently
-     * via the rejected-stub path. */
+     * backreference to capture N (Phase 1c.4.c — implemented). Forward
+     * references are allowed; resolution defers to a post-parse walk
+     * that knows the final `n_captures`. When N > n_captures, ECMA
+     * Annex B says interpret as OctalEscape / IdentityEscape (literal
+     * digit) — that fallback is L3b follow-up; today such patterns are
+     * rejected at post-parse time (preserving Phase 1b behavior). */
     if (c >= '1' && c <= '9') {
-        ps->err = 1;
-        return NULL;
+        Node *n = node_new(NK_BACKREF);
+        n->capture_idx = c - '0';
+        return n;
     }
     switch (c) {
         case 'n': { Node *n = node_new(NK_CHAR); n->ch = '\n'; return n; }
@@ -261,6 +282,33 @@ static Node *parse_escape(Parser *ps) {
         case 'S': { Node *n = node_new(NK_CLASS); cc_clear(&n->cc); cc_add_space(&n->cc); n->cc.negate = 1; return n; }
         case 'b': return node_new(NK_WBOUND);
         case 'B': return node_new(NK_NWBOUND);
+        case 'k': {
+            /* `\k<name>` — named back-reference (Phase 1c.4.c). Per ECMA
+             * Annex B, in patterns with no named groups `\k` is treated
+             * as a literal "k" — but since named groups are now accepted
+             * (`(?<name>X)`), any `\k` in a pattern that ALSO contains
+             * a named group is unambiguously a named backref. For
+             * simplicity tora treats `\k<` as always a backref intro;
+             * if name resolution fails at post-parse, the regex is
+             * rejected. Resolution is deferred to a post-parse walk
+             * over the AST so forward references work. */
+            if (p_eof(ps) || p_peek(ps) != '<') { ps->err = 1; return NULL; }
+            p_get(ps); /* consume '<' */
+            const uint8_t *name_start = ps->p + ps->i;
+            while (!p_eof(ps) && p_peek(ps) != '>') {
+                if (!is_word_byte(p_peek(ps))) { ps->err = 1; return NULL; }
+                p_get(ps);
+            }
+            if (p_eof(ps)) { ps->err = 1; return NULL; }
+            int name_len = (int)(ps->p + ps->i - name_start);
+            if (name_len == 0) { ps->err = 1; return NULL; }
+            p_get(ps); /* consume '>' */
+            Node *n = node_new(NK_BACKREF);
+            n->capture_idx = -1; /* unresolved — fixed up post-parse */
+            n->backref_name = name_start;
+            n->backref_name_len = name_len;
+            return n;
+        }
         case 'x': {
             /* `\xHH` — hex escape, 2 digits. */
             if (ps->i + 2 > ps->len) { ps->err = 1; return NULL; }
@@ -422,8 +470,8 @@ static Node *parse_atom(Parser *ps) {
                 p_get(ps); p_get(ps);
                 kind = NK_NEG_LOOKAHEAD;
             } else if (after == '<') {
-                /* `(?<=...)` / `(?<!...)` lookbehind. `(?<name>...)`
-                 * named groups remain rejected (Phase 1c.4.c). */
+                /* `(?<=...)` / `(?<!...)` lookbehind (Phase 1c.4.b).
+                 * `(?<name>...)` named capture group (Phase 1c.4.c). */
                 uint8_t after2 = (ps->i + 2 < ps->len) ? ps->p[ps->i + 2] : 0;
                 if (after2 == '=') {
                     p_get(ps); p_get(ps); p_get(ps);
@@ -431,6 +479,26 @@ static Node *parse_atom(Parser *ps) {
                 } else if (after2 == '!') {
                     p_get(ps); p_get(ps); p_get(ps);
                     kind = NK_NEG_LOOKBEHIND;
+                } else if (is_word_byte(after2)) {
+                    /* `(?<name>...)` — capture group with name. Allocate
+                     * the next sequential capture_idx and record the
+                     * name bytes (no copy) in the parser's name table.
+                     * Names use the same word-byte rule as identifiers
+                     * (`[A-Za-z0-9_]`); empty names rejected. */
+                    p_get(ps); p_get(ps); /* consume `?<` */
+                    const uint8_t *name_start = ps->p + ps->i;
+                    while (!p_eof(ps) && p_peek(ps) != '>') {
+                        if (!is_word_byte(p_peek(ps))) { ps->err = 1; return NULL; }
+                        p_get(ps);
+                    }
+                    if (p_eof(ps)) { ps->err = 1; return NULL; }
+                    int name_len = (int)(ps->p + ps->i - name_start);
+                    if (name_len == 0) { ps->err = 1; return NULL; }
+                    p_get(ps); /* consume `>` */
+                    capture_idx = ++ps->n_captures;
+                    if (capture_idx > REGEX_MAX_CAPTURES) { ps->err = 1; return NULL; }
+                    ps->names_ptr[capture_idx] = name_start;
+                    ps->names_len[capture_idx] = name_len;
                 } else {
                     ps->err = 1;
                     return NULL;
@@ -629,6 +697,11 @@ typedef enum {
      * and probing whether the sub matches s[j..pos] exactly. */
     OP_LOOKBEHIND,
     OP_NEG_LOOKBEHIND,
+    /* Phase 1c.4.c — backref. `a` = capture_idx (1..n_captures). At
+     * match time the matcher fetches the captured slice (saves[2*idx
+     * .. 2*idx+1]) and consumes that many bytes from input via a
+     * per-thread `br_offset` state machine (see Thread + outer loop). */
+    OP_BACKREF,
 } Op;
 
 typedef struct {
@@ -860,6 +933,13 @@ static void compile_node(Program *p, const Node *n) {
             }
             break;
         }
+        case NK_BACKREF: {
+            /* `n->capture_idx` is the 1-based capture index (validated
+             * post-parse to be ≤ n_captures). */
+            Inst i = { OP_BACKREF, 0, 0, n->capture_idx, 0 };
+            prog_emit(p, i);
+            break;
+        }
         case NK_LOOKAHEAD:
         case NK_NEG_LOOKAHEAD:
         case NK_LOOKBEHIND:
@@ -932,6 +1012,42 @@ static uint8_t parse_flags(const uint8_t *p, int64_t len) {
     return out;
 }
 
+/* Resolve NK_BACKREF nodes after `parse_alt` finishes (which is when
+ * the full capture set + name table are known). Returns 0 on success,
+ * 1 on any unresolved reference (named ref to unknown name, or
+ * positional `\N` where N > n_captures — the ECMA Annex B
+ * OctalEscape / IdentityEscape fallback for the positional case is
+ * L3b follow-up). */
+static int resolve_backrefs(Node *n, const Parser *ps) {
+    if (!n) return 0;
+    if (n->kind == NK_BACKREF) {
+        if (n->backref_name) {
+            int found = 0;
+            for (int i = 1; i <= ps->n_captures; i++) {
+                if (ps->names_len[i] == n->backref_name_len
+                    && memcmp(ps->names_ptr[i], n->backref_name,
+                              (size_t)n->backref_name_len) == 0) {
+                    n->capture_idx = i;
+                    n->backref_name = NULL;
+                    n->backref_name_len = 0;
+                    found = 1;
+                    break;
+                }
+            }
+            if (!found) return 1;
+        } else {
+            if (n->capture_idx < 1 || n->capture_idx > ps->n_captures) {
+                return 1;
+            }
+        }
+    }
+    if (n->child && resolve_backrefs(n->child, ps)) return 1;
+    for (int i = 0; i < n->n_kids; i++) {
+        if (resolve_backrefs(n->kids[i], ps)) return 1;
+    }
+    return 0;
+}
+
 /* ============================================================
  * Public API.
  * ============================================================ */
@@ -953,9 +1069,13 @@ void *__torajs_regex_compile(const void *pattern_str, const void *flags_str) {
     memcpy(re->src_bytes, pat, (size_t)plen);
     re->src_len = plen;
 
-    Parser ps = { pat, plen, 0, re->flags, 0, 0 };
+    Parser ps = { pat, plen, 0, re->flags, 0, 0, {0}, {0} };
     Node *root = parse_alt(&ps);
     re->n_captures = ps.n_captures;
+    /* Post-parse fixup — resolve `\k<name>` to capture_idx and validate
+     * `\1..\9` against the now-known capture count. Done before the
+     * `rejected` check so resolution failure also lands in `rejected`. */
+    if (root && !ps.err && resolve_backrefs(root, &ps)) ps.err = 1;
     if (!root || ps.err || ps.i != ps.len) {
         /* Parse failure (lookahead / lookbehind / named groups / etc.).
          * Mark the regex as `rejected` and emit a never-match stub.
@@ -1030,12 +1150,17 @@ void __torajs_regex_drop(void *re_ptr) {
  * captured" (group is on a branch the matcher didn't take).
  * ============================================================ */
 
-#define REGEX_MAX_CAPTURES  32   /* > 32 capture groups → "regex too large" */
-#define REGEX_SAVE_SLOTS    (REGEX_MAX_CAPTURES * 2)
+/* REGEX_MAX_CAPTURES / REGEX_SAVE_SLOTS defined earlier near the AST. */
 
 typedef struct {
     int pc;
-    int pad;
+    /* `br_offset` — byte progress within an active OP_BACKREF
+     * evaluation (0..cap_len). 0 = fresh entry / not in a backref.
+     * When the matcher advances a thread within a multi-byte backref,
+     * it re-schedules the thread at the SAME pc with br_offset
+     * incremented; once br_offset == cap_len, the thread advances
+     * to pc+1 with br_offset reset to 0. Phase 1c.4.c. */
+    int br_offset;
     int64_t saves[REGEX_SAVE_SLOTS];
 } Thread;
 
@@ -1217,6 +1342,7 @@ static void add_thread(
         default: {
             Thread *t = &tl->list[tl->n++];
             t->pc = pc;
+            t->br_offset = 0;
             memcpy(t->saves, saves, sizeof(t->saves));
         }
     }
@@ -1287,6 +1413,57 @@ static int64_t vm_match_at(
                 case OP_CLASS: {
                     if (pos < slen && cc_test(&p->classes[ins.a], s[pos])) {
                         add_thread(&nxt_tl, &nxt_vt, pc + 1, p, s, slen, pos + 1, flags, t->saves);
+                    }
+                    break;
+                }
+                case OP_BACKREF: {
+                    /* Per-thread state machine: `t->br_offset` tracks
+                     * byte progress within this backref evaluation
+                     * (0..cap_len). Each outer-loop step consumes ONE
+                     * input byte and advances br_offset by 1; when
+                     * br_offset reaches cap_len, the thread advances
+                     * to pc+1. cap_len == 0 (empty / non-participating
+                     * capture) is an epsilon hop into cur_tl at the
+                     * same pos.
+                     *
+                     * Continuation re-scheduling (br_offset > 0) does
+                     * NOT touch the visited table: visited is keyed
+                     * by pc, and the fresh entrant to OP_BACKREF in
+                     * the same step has br_offset=0 and must not be
+                     * blocked by this thread (their state differs).
+                     * See classic-errors note about Thompson NFA +
+                     * backref dedup in this file's design notes. */
+                    int idx = ins.a;
+                    int slot_s = 2 * idx;
+                    int slot_e = 2 * idx + 1;
+                    int64_t cs = (idx >= 1 && slot_e < REGEX_SAVE_SLOTS)
+                                 ? t->saves[slot_s] : -1;
+                    int64_t ce = (idx >= 1 && slot_e < REGEX_SAVE_SLOTS)
+                                 ? t->saves[slot_e] : -1;
+                    int64_t cap_len = (cs < 0 || ce < 0) ? 0 : (ce - cs);
+                    if (cap_len == 0) {
+                        /* Epsilon-style — schedule pc+1 in cur_tl at
+                         * the same pos. The outer for-loop on cur_tl
+                         * keeps re-reading cur_tl.n which now grows;
+                         * the visited-table dedup ensures no infinite
+                         * insertion at the same pc. */
+                        add_thread(&cur_tl, &cur_vt, pc + 1, p, s, slen, pos, flags, t->saves);
+                    } else if (pos < slen
+                               && char_eq(s[cs + t->br_offset], s[pos], flags)) {
+                        int new_offset = t->br_offset + 1;
+                        if (new_offset == cap_len) {
+                            /* Backref complete — advance pc, reset
+                             * br_offset (add_thread default sets 0). */
+                            add_thread(&nxt_tl, &nxt_vt, pc + 1, p, s, slen, pos + 1, flags, t->saves);
+                        } else {
+                            /* Continue same pc next step with offset
+                             * bumped. Direct insert (bypass visited)
+                             * — see comment above. */
+                            Thread *t_new = &nxt_tl.list[nxt_tl.n++];
+                            t_new->pc = pc;
+                            t_new->br_offset = new_offset;
+                            memcpy(t_new->saves, t->saves, sizeof(t_new->saves));
+                        }
                     }
                     break;
                 }
