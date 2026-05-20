@@ -438,11 +438,16 @@ pub enum Stmt {
         /// method along the inheritance chain.
         is_abstract: bool,
         fields: Vec<(String, String)>,
-        /// M-OO.4 — `static fieldName: T = init`. Each entry desugars to a
-        /// top-level `let __sf_<Class>__<name>: T = init` (LetDecl) which
-        /// the K.3/K.4 globals machinery picks up. Init is required (no
-        /// constructor to default-init in).
-        static_fields: Vec<StaticField>,
+        /// P8.3 — ordered list of static initialization steps. Each entry
+        /// is either `StaticInit::Field(StaticField)` (desugars to
+        /// `let __sf_<Class>__<name>: T = init`) or `StaticInit::Block(Vec<Stmt>)`
+        /// (desugars to `__sb_<Class>__<idx>()` named-fn + a top-level
+        /// call at the entry's position). Order in this vec **is** the
+        /// emit order — spec §15.7.10 requires interleaving with fields,
+        /// so static fields and static blocks share one vec, not two.
+        /// Static methods stay in `static_methods` (they're declarations,
+        /// not init steps).
+        static_init: Vec<StaticInit>,
         ctor: Option<ClassCtor>,
         methods: Vec<ClassMethod>,
         /// M-OO.4 — `static methodName(args): R { body }`. Each entry
@@ -585,6 +590,23 @@ pub struct StaticField {
     pub name: String,
     pub type_ann: String,
     pub init: ExprId,
+}
+
+/// P8.3 — one entry in a class's static initialization sequence, kept
+/// in **source order** so the desugar emit preserves the spec-required
+/// interleaving (ES2022 §15.7.10 ClassStaticBlockEvaluation):
+/// `class C { static x = 1; static { f(); } static y = 2; }` runs
+/// x-init, then the block, then y-init — three independent vecs would
+/// lose this order. Static methods stay in `ClassDecl.static_methods`:
+/// they're declarations, not init steps, and don't participate in the
+/// interleave.
+#[derive(Debug, Clone)]
+pub enum StaticInit {
+    /// `static name: T = init`
+    Field(StaticField),
+    /// `static { stmts; }` — body executed once at class-init time
+    /// with `this` bound to the class itself (textbook static-context).
+    Block(Vec<Stmt>),
 }
 
 #[derive(Debug, Clone, Default)]
@@ -1195,7 +1217,7 @@ pub fn desugar_generators(ast: &mut Ast) {
             parent: None,
             is_abstract: false,
             fields: class_fields,
-            static_fields: Vec::new(),
+            static_init: Vec::new(),
             ctor: Some(ctor_with_params),
             methods: vec![next_method],
             static_methods: Vec::new(),
@@ -2496,7 +2518,7 @@ fn build_error_class(ast: &mut Ast) -> Stmt {
             ("name".to_string(), "string".to_string()),
             ("stack".to_string(), "string".to_string()),
         ],
-        static_fields: Vec::new(),
+        static_init: Vec::new(),
         ctor: Some(ctor),
         methods: Vec::new(),
         static_methods: Vec::new(),
@@ -2562,7 +2584,7 @@ fn build_error_subclass(ast: &mut Ast, sub_name: &str) -> Stmt {
         parent: Some("Error".to_string()),
         is_abstract: false,
         fields: Vec::new(),
-        static_fields: Vec::new(),
+        static_init: Vec::new(),
         ctor: Some(ctor),
         methods: Vec::new(),
         static_methods: Vec::new(),
@@ -2926,7 +2948,7 @@ pub fn desugar_classes(ast: &mut Ast) {
                 parent,
                 is_abstract: _,
                 fields,
-                static_fields,
+                static_init,
                 ctor,
                 methods,
                 static_methods,
@@ -2936,7 +2958,18 @@ pub fn desugar_classes(ast: &mut Ast) {
                 type_params.clone(),
                 parent.clone(),
                 fields.clone(),
-                static_fields.clone(),
+                // P8.3-A1: snapshot only the Field variants; the desugar
+                // path below still operates on StaticField. Block emit
+                // ships in A3 (along with parser support in A2). Until
+                // then no Block can reach this filter — parser is the
+                // sole producer and only emits Field.
+                static_init
+                    .iter()
+                    .filter_map(|si| match si {
+                        StaticInit::Field(sf) => Some(sf.clone()),
+                        StaticInit::Block(_) => None,
+                    })
+                    .collect::<Vec<StaticField>>(),
                 ctor.clone(),
                 methods.clone(),
                 static_methods.clone(),
@@ -11191,7 +11224,7 @@ impl Ast {
                 parent,
                 is_abstract: _,
                 fields,
-                static_fields: _,
+                static_init: _,
                 ctor,
                 methods,
                 static_methods: _,

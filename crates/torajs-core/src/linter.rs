@@ -23,7 +23,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::ast::{Ast, Expr, ExprId, Param, Stmt};
+use crate::ast::{Ast, Expr, ExprId, Param, StaticInit, Stmt};
 use crate::check::{Diagnostic, Severity};
 use crate::lexer::{self, Span};
 use crate::parser;
@@ -546,7 +546,7 @@ fn count_refs_stmt(ast: &Ast, s: &Stmt, refs: &mut HashMap<String, usize>) {
             ctor,
             methods,
             static_methods,
-            static_fields,
+            static_init,
             ..
         } => {
             if let Some(c) = ctor {
@@ -559,8 +559,15 @@ fn count_refs_stmt(ast: &Ast, s: &Stmt, refs: &mut HashMap<String, usize>) {
                     count_refs_stmt(ast, s, refs);
                 }
             }
-            for sf in static_fields {
-                count_refs_expr(ast, sf.init, refs);
+            for si in static_init {
+                match si {
+                    StaticInit::Field(sf) => count_refs_expr(ast, sf.init, refs),
+                    StaticInit::Block(stmts) => {
+                        for s in stmts {
+                            count_refs_stmt(ast, s, refs);
+                        }
+                    }
+                }
             }
         }
         Stmt::ExportDecl {

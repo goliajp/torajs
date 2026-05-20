@@ -31,7 +31,9 @@
 //! with a `not yet supported: fmt(<variant>)` message — same shape
 //! as ssa_lower's panic-hook contract.
 
-use crate::ast::{Ast, BinOp, ClassMethod, Expr, ExprId, Param, Stmt, UnaryOp, Visibility};
+use crate::ast::{
+    Ast, BinOp, ClassMethod, Expr, ExprId, Param, StaticInit, Stmt, UnaryOp, Visibility,
+};
 use crate::lexer;
 use crate::parser;
 
@@ -526,7 +528,7 @@ impl<'a> Formatter<'a> {
                 parent,
                 is_abstract,
                 fields,
-                static_fields,
+                static_init,
                 ctor,
                 methods,
                 static_methods,
@@ -552,18 +554,34 @@ impl<'a> Formatter<'a> {
                     self.write(ann);
                     self.newline();
                 }
-                for sf in static_fields {
+                for si in static_init {
                     self.write_indent();
-                    self.write("static ");
-                    self.write(&sf.name);
-                    self.write(": ");
-                    self.write(&sf.type_ann);
-                    self.write(" = ");
-                    self.fmt_expr(sf.init);
-                    self.newline();
+                    match si {
+                        StaticInit::Field(sf) => {
+                            self.write("static ");
+                            self.write(&sf.name);
+                            self.write(": ");
+                            self.write(&sf.type_ann);
+                            self.write(" = ");
+                            self.fmt_expr(sf.init);
+                            self.newline();
+                        }
+                        StaticInit::Block(stmts) => {
+                            self.write("static {");
+                            self.newline();
+                            self.indent += 1;
+                            for s in stmts {
+                                self.fmt_stmt(s);
+                            }
+                            self.indent -= 1;
+                            self.write_indent();
+                            self.write("}");
+                            self.newline();
+                        }
+                    }
                 }
                 if let Some(ctor) = ctor {
-                    if !fields.is_empty() || !static_fields.is_empty() {
+                    if !fields.is_empty() || !static_init.is_empty() {
                         self.newline();
                     }
                     self.write_indent();

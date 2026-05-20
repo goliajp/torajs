@@ -30,7 +30,7 @@
 //! array_lit := `[` (expr (`,` expr)*)? `]`
 //! type_ann := IDENT (`[` `]`)*
 
-use crate::ast::{self, Ast, BinOp, ClassCtor, ClassMethod, Expr, ExprId, Param, Stmt};
+use crate::ast::{self, Ast, BinOp, ClassCtor, ClassMethod, Expr, ExprId, Param, StaticInit, Stmt};
 use crate::lexer::{self, Spanned, Token};
 
 pub fn parse(tokens: &[Spanned]) -> Result<Ast, String> {
@@ -6073,7 +6073,10 @@ impl Parser<'_> {
             parent,
             is_abstract,
             fields,
-            static_fields,
+            // P8.3-A1: parser still only collects `static name: T = init`
+            // entries (wrapped here as Field). Static-block recognition
+            // (`static { ... }` → StaticInit::Block(stmts)) lands in A2.
+            static_init: static_fields.into_iter().map(StaticInit::Field).collect(),
             ctor,
             methods,
             static_methods,
