@@ -67,6 +67,8 @@ pub fn parse_into(tokens: &[Spanned], target: &mut Ast) -> Result<usize, String>
         desugar_id: id_offset,
         generator_fns: std::collections::HashMap::new(),
         current_class: None,
+        synth_classes: Vec::new(),
+        class_value_aliases: std::collections::HashMap::new(),
     };
     let result = p.parse_program();
     *target = p.ast;
@@ -102,6 +104,32 @@ struct Parser<'a> {
     /// possible without static type info — those flow through as
     /// raw `#name` and typecheck/desugar can mangle later (P8.x).
     current_class: Option<String>,
+    /// P8.5 — parser-synthesized ClassDecls produced when a class
+    /// appears in expression position (`const F = class { ... }`,
+    /// `new (class { ... })()`, etc.). Each entry is anonymous on
+    /// the source side; parser mints `__ClassExpr_<id>` via
+    /// `mint_desugar_id`. Drained at the end of every `parse_stmt`
+    /// in `parse_program` and prepended to that stmt in `ast.stmts`,
+    /// so declaration order (parent before child, synth before use)
+    /// is preserved without re-splicing at AST root (which would
+    /// break the `stmt_offset` contract of `parse_into`).
+    synth_classes: Vec<Stmt>,
+    /// P8.5 — narrow-surface alias map: const-bindings whose init is
+    /// directly a class expression (`const F = class { ... }`) or
+    /// directly another such binding (`const G = F`). Maps the const
+    /// name to the underlying `__ClassExpr_<id>` synth name. Read by
+    /// `parse_new` to rewrite `new F()` → `new __ClassExpr_<id>()`
+    /// at parse time, dispatching through the static factory
+    /// `__new___ClassExpr_<id>` synthesized by `desugar_classes`.
+    /// Avoids a downstream dynamic-ctor-dispatch substrate (which
+    /// would touch typecheck + ssa_lower) at the cost of these
+    /// narrow-form limitations: (i) `let` and reassignment shapes
+    /// fall through to the regular ident path (still error); (ii) no
+    /// scope-tracking — an inner-fn-body `const F = class {}` would
+    /// overwrite an outer alias of the same name (test262 corpus
+    /// rarely collides; if it does, lift to a scope stack). The full
+    /// dynamic-ctor-dispatch substrate is parked as an L3b follow-up.
+    class_value_aliases: std::collections::HashMap<String, String>,
 }
 
 /// V3-18 wedge — strip the standard generator/iterator wrapper from
@@ -540,6 +568,19 @@ impl Parser<'_> {
     fn parse_program(&mut self) -> Result<(), String> {
         while !matches!(self.peek(), Token::Eof) {
             let stmt = self.parse_stmt()?;
+            // P8.5 — flush parser-synthesized class expressions
+            // (`__ClassExpr_<id>` ClassDecls produced by class-in-
+            // expression-position) immediately before the stmt that
+            // owns their use site. Preserves: (i) parent-before-child
+            // for `class extends Parent` (Parent was pushed in an
+            // earlier iteration); (ii) synth-before-use (Ident hop in
+            // the about-to-be-pushed stmt). Append-only — does not
+            // alter the `stmt_offset` contract that `parse_into` relies
+            // on for module merging.
+            if !self.synth_classes.is_empty() {
+                let synth: Vec<Stmt> = std::mem::take(&mut self.synth_classes);
+                self.ast.stmts.extend(synth);
+            }
             self.ast.stmts.push(stmt);
         }
         Ok(())
@@ -637,7 +678,7 @@ impl Parser<'_> {
             && matches!(next.token, Token::Class)
         {
             self.pos += 1; // consume `abstract`
-            return self.parse_class_decl_with_abstract(true);
+            return self.parse_class_decl_with_abstract(true, false, false);
         }
         if matches!(self.peek(), Token::Return) {
             return self.parse_return();
@@ -890,6 +931,30 @@ impl Parser<'_> {
                     });
                 }
                 let init = self.parse_expr()?;
+                // P8.5 — narrow-surface class-value alias registration.
+                // For const-bindings only, peek the init expr:
+                //   (i) `const F = class { ... }` → init is the synth
+                //       Ident emitted by parse_primary's Class branch
+                //       (`__ClassExpr_<id>`). Register F → that name.
+                //   (ii) `const G = F` where F is already an alias →
+                //        propagate so G also maps to the underlying
+                //        synth class.
+                // The map is read by parse_new to rewrite `new F()` /
+                // `new G()` into a static factory call against the
+                // synth name. let/var bindings and reassignment are
+                // intentionally skipped (those need real dynamic-ctor
+                // dispatch, parked as L3b).
+                if !mutable && !is_var {
+                    if let Expr::Ident(init_name) = self.ast.get_expr(init) {
+                        if init_name.starts_with("__ClassExpr_") {
+                            self.class_value_aliases
+                                .insert(name.clone(), init_name.clone());
+                        } else if let Some(target) = self.class_value_aliases.get(init_name) {
+                            let target = target.clone();
+                            self.class_value_aliases.insert(name.clone(), target);
+                        }
+                    }
+                }
                 decls.push(Stmt::LetDecl {
                     mutable,
                     name,
@@ -2907,6 +2972,13 @@ impl Parser<'_> {
                         desugar_id: self.desugar_id,
                         generator_fns: std::mem::take(&mut self.generator_fns),
                         current_class: self.current_class.clone(),
+                        synth_classes: Vec::new(),
+                        // Sub-parser sees outer aliases so a template
+                        // interpolation can do `${new F()}` where F is
+                        // an outer const-class binding. Sub-parser
+                        // never adds aliases itself (only stmt-level
+                        // const-decls register).
+                        class_value_aliases: self.class_value_aliases.clone(),
                     };
                     let result = sub.parse_expr()?;
                     // Tokens vec ends with Token::Eof; anything before
@@ -2920,6 +2992,11 @@ impl Parser<'_> {
                     self.ast = sub.ast;
                     self.desugar_id = sub.desugar_id;
                     self.generator_fns = sub.generator_fns;
+                    // P8.5 — propagate any class expressions parsed
+                    // inside the template interpolation back to the
+                    // outer parser so they flush at the enclosing
+                    // stmt boundary.
+                    self.synth_classes.append(&mut sub.synth_classes);
                     result
                 }
             };
@@ -3838,6 +3915,33 @@ impl Parser<'_> {
         if matches!(self.peek(), Token::Function) {
             return self.parse_fn_expr();
         }
+        // P8.5 — class expression in expression position
+        // (ES spec §15.7.4 ClassExpression). Forms:
+        //   const F = class { ... }                  // anonymous
+        //   const F = class Inner { ... }            // named (inner
+        //                                            //   self-binding
+        //                                            //   not yet wired)
+        //   const F = class extends Parent { ... }   // extends
+        //   foo(class { ... })                       // class as argument
+        // Strategy (a): parse as a ClassDecl with an `__ClassExpr_<id>`
+        // synth name, buffer to `synth_classes` for splice immediately
+        // before this stmt's push in `parse_program`, then emit
+        // `Expr::Ident("__ClassExpr_<id>")` at the original use site.
+        // The existing class machinery (desugar_classes,
+        // synthesize_class_globals) lifts this Ident to the value-form
+        // class global with zero changes downstream. Spec deviations
+        // documented as L3b: anonymous `.name === "__ClassExpr_<id>"`
+        // (should be `""`); named `Inner` self-binding inside body
+        // doesn't resolve to the synth name.
+        if matches!(self.peek(), Token::Class) {
+            let stmt = self.parse_class_decl_with_abstract(false, true, true)?;
+            let cls_name = match &stmt {
+                Stmt::ClassDecl { name, .. } => name.clone(),
+                _ => unreachable!("parse_class_decl_with_abstract returns ClassDecl"),
+            };
+            self.synth_classes.push(stmt);
+            return Ok(self.ast.add_expr(Expr::Ident(cls_name)));
+        }
         // P0.10 — async function expression `async function() {...}` /
         // `async function NAME() {...}` per ES spec §15.8.5
         // AsyncFunctionExpression. Used in test262 for `async function()
@@ -4214,7 +4318,65 @@ impl Parser<'_> {
                     }
                 }
                 let class_name = match self.peek() {
-                    Token::Ident(n) => n.clone(),
+                    Token::Ident(n) => {
+                        let n = n.clone();
+                        self.pos += 1;
+                        // P8.5 — narrow alias resolution. If `new F()`
+                        // and F is a const-bound class expression,
+                        // rewrite to `new __ClassExpr_<id>()` so the
+                        // static-factory path resolves to the synth
+                        // class's `__new___ClassExpr_<id>`. Avoids a
+                        // dynamic-ctor-dispatch substrate change.
+                        self.class_value_aliases.get(&n).cloned().unwrap_or(n)
+                    }
+                    // P8.5 — `new class { ... }(args)` /
+                    // `new class Foo { ... }(args)`. Parse the class
+                    // expression inline as a ClassDecl with synth name,
+                    // buffer to synth_classes, and use the synth name
+                    // as the new target. parse_class_decl_with_abstract
+                    // consumes `class` + body itself.
+                    Token::Class => {
+                        let stmt = self.parse_class_decl_with_abstract(false, true, true)?;
+                        let cls_name = match &stmt {
+                            Stmt::ClassDecl { name, .. } => name.clone(),
+                            _ => unreachable!(),
+                        };
+                        self.synth_classes.push(stmt);
+                        cls_name
+                    }
+                    // P8.5 — `new (expr)(args)` per ES spec §13.3.5
+                    // NewExpression: the callee may be a parenthesized
+                    // expression. tora handles the case where the inner
+                    // expression resolves to an Ident — which covers
+                    // `new (class { ... })()` (the class-expression
+                    // branch in parse_primary emits an Ident at that
+                    // inner site) and `new (SomeClass)()`. Non-Ident
+                    // callees (dynamic ctor invocation through a
+                    // computed value) require runtime constructor
+                    // dispatch — V3-later.
+                    Token::LParen => {
+                        self.pos += 1;
+                        let inner = self.parse_expr()?;
+                        match self.peek() {
+                            Token::RParen => self.pos += 1,
+                            t => {
+                                return Err(format!(
+                                    "expected `)` after `new (...`, got {t:?} at {}",
+                                    self.at()
+                                ));
+                            }
+                        }
+                        match self.ast.get_expr(inner) {
+                            Expr::Ident(n) => n.clone(),
+                            other => {
+                                return Err(format!(
+                                    "new (expr) callee must resolve to a class ident (got \
+                                     {other:?}) at {}",
+                                    self.at()
+                                ));
+                            }
+                        }
+                    }
                     t => {
                         return Err(format!(
                             "expected class name after `new`, got {t:?} at {}",
@@ -4222,7 +4384,6 @@ impl Parser<'_> {
                         ));
                     }
                 };
-                self.pos += 1;
                 // V3-18 wedge — accept-and-skip TS type args on built-in
                 // generics: `new Set<number>()`. Subset doesn't mono-
                 // instantiate built-ins by type-arg yet, so we just
@@ -5293,18 +5454,46 @@ impl Parser<'_> {
     /// post-parse by `desugar_classes` into a `TypeDecl` + a series of
     /// `FnDecl`s. The parser only assembles the structure here.
     fn parse_class_decl(&mut self) -> Result<Stmt, String> {
-        self.parse_class_decl_with_abstract(false)
+        self.parse_class_decl_with_abstract(false, false, false)
     }
 
-    fn parse_class_decl_with_abstract(&mut self, is_abstract: bool) -> Result<Stmt, String> {
+    fn parse_class_decl_with_abstract(
+        &mut self,
+        is_abstract: bool,
+        allow_anon: bool,
+        force_synth: bool,
+    ) -> Result<Stmt, String> {
         self.pos += 1; // consume `class`
         let name = match self.peek() {
-            Token::Ident(n) => n.clone(),
+            // P8.5 — `force_synth`: even when a class-expression-position
+            // class carries an inner name (`class Inner { ... }`),
+            // consume-and-discard it so the synth name controls all
+            // downstream resolution. Inner self-binding (Inner referring
+            // to the class inside its own body) is an L3b follow-up.
+            Token::Ident(_) if force_synth => {
+                self.pos += 1;
+                let id = self.mint_desugar_id();
+                format!("__ClassExpr_{id}")
+            }
+            Token::Ident(n) => {
+                let n = n.clone();
+                self.pos += 1;
+                n
+            }
+            // P8.5 — anonymous class expression (`const F = class { ... }`,
+            // `new (class { ... })()`). Mint a unique synth name that
+            // `synthesize_class_globals` will expose as
+            // `__class___ClassExpr_<id>`. Source-side anonymous → user
+            // code never references this name directly; only the
+            // parser-emitted Ident at the original use site does.
+            _ if allow_anon => {
+                let id = self.mint_desugar_id();
+                format!("__ClassExpr_{id}")
+            }
             t => {
                 return Err(format!("expected class name, got {t:?} at {}", self.at()));
             }
         };
-        self.pos += 1;
         // P8.1 — set `current_class` so private-member parsing inside
         // this class body can mangle `this.#x` to `__priv_<class>__x`.
         // Saved/restored at every successful return path; on `return
