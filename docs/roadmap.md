@@ -740,7 +740,78 @@ groups, Unicode flag, sticky flag.
         only Name-only form; Name=Value is L3b.
 
       P9.3 closing advances L3a to P9.4 (Sticky flag).
-- [ ] **P9.4** Sticky flag (`y`) — lastIndex semantics
+- [x] **P9.4** Sticky flag (`y`) — lastIndex semantics — SHIPPED
+      A1+A1.1+A2 `9fe2ebb` (A1: RegExp.last_index field + accessors +
+      sticky/global lastIndex semantics in __torajs_regex_exec and
+      __torajs_str_match_regex non-global path) + `4f59eb8` (A1.1:
+      sticky-aware replace/replaceAll/split/matchAll) + `<A2>`
+      (fixtures + this roadmap).
+
+      A1 introduces `int64_t RegExp.last_index` (calloc init 0) +
+      runtime accessors __torajs_regex_get_last_index /
+      __torajs_regex_set_last_index + a new `vm_match_anchor` helper
+      for single-position anchored match (used by sticky paths to
+      anchor at lastIndex with miss-on-continuation-byte under u
+      flag). Surface routing: ssa_lower adds read-side branch (call
+      get_last_index returning I64) and write-side branch (coerce_to_i64
+      + call set_last_index) for the `re.lastIndex` member; check.rs
+      adds `(Type::RegExp, "lastIndex") => Type::Number` for reads
+      and a permissive write-arm before the struct-only check.
+
+      Semantics: sticky (`y`) anchors at lastIndex with single
+      attempt; global (`g`) starts search from lastIndex; plain
+      ignores lastIndex and never writes it. Y takes precedence
+      when both flags set. On miss with tracking, reset lastIndex
+      to 0 per spec §22.2.5.2.2; on hit, write match end.
+
+      A1.1 surfaced during fixture verification — the other regex
+      iterators (replace / replaceAll / split / matchAll) kept their
+      own loops over vm_search_from_with_ws and silently disagreed
+      with bun under y flag (e.g. `"aXab".replace(/a/gy, "Y")` gave
+      "YXYb" because the loop walked past the sticky failure at
+      index 1 to the next 'a'). Same narrow-surface fix in all four
+      functions: branch on sticky → vm_match_anchor at `pos` → break
+      loop on miss. Pattern mirrors P9.3-A2.1 (substrate fix exposed
+      at fixture-write time, ship as independent gated commit).
+
+      A2 fixture `regex-017-sticky.ts` (15 cases): sticky anchor +
+      r/w/reset, sticky walk via repeated exec, sticky miss mid-string,
+      lastIndex > length / negative clamp, g-only advance, plain
+      flag ignore, g+y interaction (both anchor and advance),
+      sticky replace + replaceAll (the cases that surfaced A1.1),
+      s.match with sticky hit + miss, lastIndex from indexOf,
+      multi-char pattern anchored advance. Each block byte-equal
+      vs bun. A1 + A1.1 gates each 646/0/1 (0 regression vs
+      post-P9.3 baseline). A2 ships fixture-only per autorun
+      pipeline fixture-only exception (no substrate change).
+
+      Narrow-surface design (per [[feedback-narrow-abi-surface]]):
+      no Inst layout change, no new IR opcode, no Node field
+      addition. RegExp struct grows by one int64 (last_index); two
+      new runtime accessors + one vm-internal helper
+      (vm_match_anchor); two new compile-time intrinsics; one
+      read-side + one write-side dispatch arm in both check.rs and
+      ssa_lower.rs.
+
+      L3b follow-ups recorded:
+      - `RegExp.prototype.test()` should also honor sticky/global
+        lastIndex per spec — currently calls vm_search_from(0,
+        flags) ignoring lastIndex (line 2083). Trivial fix mirror
+        of exec(); deferred to surface the trade with a clear
+        commit (test() semantics affect many test262 entries).
+      - `vm_match_anchor` internally allocates workspace; could be
+        promoted to a `_with_ws` variant for tight-loop reuse. Not
+        a measurable hot-path concern at current case sizes.
+      - regex_exec's miss returns `[]` not `null` (Phase 1c.4
+        Nullable<Array>) and hit-result lacks `index` / `input` /
+        `groups` props as separate attachments (Phase 1c.4 array-
+        prop). Unrelated to P9.4 but the new fixture uses
+        `m !== null && m[0] === ...` shape to side-step them.
+      - sticky split / matchAll behaviour on g+y is now correct
+        for the iteration but doesn't yet match bun's `g`-required
+        TypeError for `matchAll(non-g-regex)` (Phase 1c.4 work).
+
+      P9.4 closing advances L3a to P9.5 (replace callback fn).
 - [ ] **P9.5** `String.prototype.replace(regex, fn)` callback form
 
 ---
