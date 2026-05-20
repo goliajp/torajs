@@ -458,7 +458,28 @@ fields, static blocks, accessor properties, super-in-arrow.
       `class-accessor-001-get-set.ts` → 631/0/1 conformance).
       `c.value` reads the getter; `c.value = v` writes the
       setter; both single-Call, no runtime dispatch.
-- [ ] **P8.3** Static blocks `static { ... }`
+- [x] **P8.3** Static blocks `static { ... }` — SHIPPED A1
+      `551a34a` (AST shape migration: ClassDecl `static_fields` →
+      `static_init: Vec<StaticInit>` with `Field | Block` variants,
+      mechanical refactor across ast.rs / parser.rs / formatter.rs /
+      linter.rs) / A2 `641f0b3` (parser adds `static + LBrace`
+      lookahead branch parsing block stmts into
+      `StaticInit::Block(stmts)`; desugar still loud-panics on Block
+      pending A3) / A3 `322be4f` (desugar walks Vec<StaticInit> in
+      source order: Field → existing `__sf_<C>__<name>` LetDecl;
+      Block → `__sb_<C>__<idx>` named-fn appended + top-level
+      `Stmt::Expr(Call(...))` pushed into static_field_inits at the
+      entry's index — preserves ES spec §15.7.10 interleaving) /
+      A5 `class-static-001-blocks.ts` (4-case fixture: single
+      block / interleave field+block / multi-block cross-ref /
+      block-only). Known follow-up (NOT phase-blocker, parallel
+      to existing static-method limitation): `this` inside a
+      static block body currently fails typecheck the same way
+      `this` inside a static method body does — both lift to
+      top-level fns with no `__this` param. Existing class fixtures
+      use `ClassName.member` form (per
+      `class-static-inheritance-001.ts`); A5 follows that
+      convention.
 - [ ] **P8.4** Lexical super resolution in nested arrows
 - [ ] **P8.5** Class expressions as values
 
