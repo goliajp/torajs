@@ -9640,6 +9640,35 @@ pub fn desugar_implicit_generics(ast: &mut Ast) {
     let Ast { stmts, exprs, .. } = ast;
     let ast_exprs_view: AstExprsView = &*exprs;
 
+    // P8.4 — build a (fn_name → return_ann) lookup table from top-level
+    // user FnDecls so the static return-type sniff can resolve Call-
+    // shaped returns. Two filters keep the propagation sound:
+    //   1. Skip `__closure_*` — these are lifted arrows whose own
+    //      return_type is being inferred in this very pass; their
+    //      signature is not yet stable.
+    //   2. Skip generic fns (`type_params` non-empty) — their return
+    //      ann is a TypeVar resolved per call-site by monomorphization,
+    //      not a concrete type propagable into a closure body.
+    // FnDecls with `return_type: None` self-filter via the `Some(rt)`
+    // pattern. desugar_classes' synthesized `__cm_<C>__<m>` FnDecls
+    // carry the user-declared method return annotation, so super-
+    // rewritten arrow bodies (`() => __cm_A__greet(__this)`) infer
+    // correctly through this same table.
+    let mut fn_sigs: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    for s in stmts.iter() {
+        if let Stmt::FnDecl {
+            name,
+            return_type: Some(rt),
+            type_params,
+            ..
+        } = s
+            && !name.starts_with("__closure_")
+            && type_params.is_empty()
+        {
+            fn_sigs.insert(name.clone(), rt.clone());
+        }
+    }
+
     /* T-19.p — pre-collect outer bindings the capturing-closure
      * return-type sniff can use to resolve captured idents. Without
      * this seed, `(v: number) => v + cap` bails out of the static
@@ -9672,7 +9701,9 @@ pub fn desugar_implicit_generics(ast: &mut Ast) {
                 outer_binds.insert(name.clone(), ann.clone());
             } else {
                 let bs: Vec<Param> = binds_to_params(&outer_binds);
-                if let Some(ann) = infer_expr_ann_with(ast_exprs_view, *init, &bs, &outer_binds) {
+                if let Some(ann) =
+                    infer_expr_ann_with(ast_exprs_view, *init, &bs, &outer_binds, &fn_sigs)
+                {
                     outer_binds.insert(name.clone(), ann);
                 }
             }
@@ -9735,7 +9766,7 @@ pub fn desugar_implicit_generics(ast: &mut Ast) {
                 && body_has_value_return(body)
             {
                 if let Some(inferred) =
-                    infer_return_ann_seeded(ast_exprs_view, body, params, &outer_binds)
+                    infer_return_ann_seeded(ast_exprs_view, body, params, &outer_binds, &fn_sigs)
                 {
                     *return_type = Some(inferred);
                 }
@@ -9774,7 +9805,7 @@ pub fn desugar_implicit_generics(ast: &mut Ast) {
                 }
             }
             if return_type.is_none() && body_has_value_return(body) {
-                if let Some(inferred) = infer_return_ann(ast_exprs_view, body, params) {
+                if let Some(inferred) = infer_return_ann(ast_exprs_view, body, params, &fn_sigs) {
                     *return_type = Some(inferred);
                 }
             }
@@ -9864,7 +9895,7 @@ pub fn desugar_implicit_generics(ast: &mut Ast) {
             // user who genuinely wants per-call-site mono writes
             // `function id<T>(x: T): T { ... }`.
         } else if return_type.is_none() && body_has_value_return(body) {
-            if let Some(inferred) = infer_return_ann(ast_exprs_view, body, params) {
+            if let Some(inferred) = infer_return_ann(ast_exprs_view, body, params, &fn_sigs) {
                 *return_type = Some(inferred);
             }
         }
@@ -9895,8 +9926,19 @@ type AstExprsView<'a> = &'a [Expr];
 /// `number` out as the return). Lookups that fall off the simple-
 /// shape grammar (Member / Call / Index / object literal / etc.) bail
 /// to None — the typechecker still owns the deeper analysis.
-fn infer_return_ann(exprs: AstExprsView, body: &[Stmt], params: &[Param]) -> Option<String> {
-    infer_return_ann_seeded(exprs, body, params, &std::collections::HashMap::new())
+fn infer_return_ann(
+    exprs: AstExprsView,
+    body: &[Stmt],
+    params: &[Param],
+    fn_sigs: &std::collections::HashMap<String, String>,
+) -> Option<String> {
+    infer_return_ann_seeded(
+        exprs,
+        body,
+        params,
+        &std::collections::HashMap::new(),
+        fn_sigs,
+    )
 }
 
 /// T-19.p — variant that takes a pre-seeded binds map. Used by the
@@ -9911,6 +9953,7 @@ fn infer_return_ann_seeded(
     body: &[Stmt],
     params: &[Param],
     outer_binds: &std::collections::HashMap<String, String>,
+    fn_sigs: &std::collections::HashMap<String, String>,
 ) -> Option<String> {
     let mut binds: std::collections::HashMap<String, String> = outer_binds.clone();
     for p in params {
@@ -9918,9 +9961,9 @@ fn infer_return_ann_seeded(
             binds.insert(p.name.clone(), ann.clone());
         }
     }
-    collect_let_binding_anns(exprs, body, &mut binds);
+    collect_let_binding_anns(exprs, body, &mut binds, fn_sigs);
     let mut acc: Option<String> = None;
-    if !collect_return_anns(exprs, body, &binds, &mut acc) {
+    if !collect_return_anns(exprs, body, &binds, fn_sigs, &mut acc) {
         return None;
     }
     acc
@@ -9935,9 +9978,10 @@ fn collect_let_binding_anns(
     exprs: AstExprsView,
     body: &[Stmt],
     binds: &mut std::collections::HashMap<String, String>,
+    fn_sigs: &std::collections::HashMap<String, String>,
 ) {
     for s in body {
-        collect_let_binding_anns_stmt(exprs, s, binds);
+        collect_let_binding_anns_stmt(exprs, s, binds, fn_sigs);
     }
 }
 
@@ -9945,6 +9989,7 @@ fn collect_let_binding_anns_stmt(
     exprs: AstExprsView,
     s: &Stmt,
     binds: &mut std::collections::HashMap<String, String>,
+    fn_sigs: &std::collections::HashMap<String, String>,
 ) {
     match s {
         Stmt::LetDecl {
@@ -9962,7 +10007,7 @@ fn collect_let_binding_anns_stmt(
             // built up to here, so `let x = 3; let y = x + 1;` chains
             // correctly.
             let bs: Vec<Param> = binds_to_params(binds);
-            if let Some(ann) = infer_expr_ann_with(exprs, *init, &bs, binds) {
+            if let Some(ann) = infer_expr_ann_with(exprs, *init, &bs, binds, fn_sigs) {
                 binds.insert(name.clone(), ann);
             }
         }
@@ -9971,22 +10016,22 @@ fn collect_let_binding_anns_stmt(
             else_branch,
             ..
         } => {
-            collect_let_binding_anns_stmt(exprs, then_branch, binds);
+            collect_let_binding_anns_stmt(exprs, then_branch, binds, fn_sigs);
             if let Some(eb) = else_branch {
-                collect_let_binding_anns_stmt(exprs, eb, binds);
+                collect_let_binding_anns_stmt(exprs, eb, binds, fn_sigs);
             }
         }
         Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
-            collect_let_binding_anns_stmt(exprs, body, binds);
+            collect_let_binding_anns_stmt(exprs, body, binds, fn_sigs);
         }
         Stmt::For { init, body, .. } => {
             if let Some(i) = init {
-                collect_let_binding_anns_stmt(exprs, i, binds);
+                collect_let_binding_anns_stmt(exprs, i, binds, fn_sigs);
             }
-            collect_let_binding_anns_stmt(exprs, body, binds);
+            collect_let_binding_anns_stmt(exprs, body, binds, fn_sigs);
         }
         Stmt::Block(stmts) | Stmt::Multi(stmts) => {
-            collect_let_binding_anns(exprs, stmts, binds);
+            collect_let_binding_anns(exprs, stmts, binds, fn_sigs);
         }
         Stmt::Try {
             body,
@@ -9994,10 +10039,10 @@ fn collect_let_binding_anns_stmt(
             finally_body,
             ..
         } => {
-            collect_let_binding_anns(exprs, body, binds);
-            collect_let_binding_anns(exprs, catch_body, binds);
+            collect_let_binding_anns(exprs, body, binds, fn_sigs);
+            collect_let_binding_anns(exprs, catch_body, binds, fn_sigs);
             if let Some(fb) = finally_body {
-                collect_let_binding_anns(exprs, fb, binds);
+                collect_let_binding_anns(exprs, fb, binds, fn_sigs);
             }
         }
         _ => {}
@@ -10022,10 +10067,11 @@ fn collect_return_anns(
     exprs: AstExprsView,
     body: &[Stmt],
     binds: &std::collections::HashMap<String, String>,
+    fn_sigs: &std::collections::HashMap<String, String>,
     acc: &mut Option<String>,
 ) -> bool {
     for s in body {
-        if !collect_return_anns_stmt(exprs, s, binds, acc) {
+        if !collect_return_anns_stmt(exprs, s, binds, fn_sigs, acc) {
             return false;
         }
     }
@@ -10036,12 +10082,13 @@ fn collect_return_anns_stmt(
     exprs: AstExprsView,
     s: &Stmt,
     binds: &std::collections::HashMap<String, String>,
+    fn_sigs: &std::collections::HashMap<String, String>,
     acc: &mut Option<String>,
 ) -> bool {
     match s {
         Stmt::Return(Some(eid)) => {
             let bs = binds_to_params(binds);
-            let Some(ann) = infer_expr_ann_with(exprs, *eid, &bs, binds) else {
+            let Some(ann) = infer_expr_ann_with(exprs, *eid, &bs, binds, fn_sigs) else {
                 return false;
             };
             match acc {
@@ -10057,42 +10104,44 @@ fn collect_return_anns_stmt(
             else_branch,
             ..
         } => {
-            if !collect_return_anns_stmt(exprs, then_branch, binds, acc) {
+            if !collect_return_anns_stmt(exprs, then_branch, binds, fn_sigs, acc) {
                 return false;
             }
             if let Some(eb) = else_branch
-                && !collect_return_anns_stmt(exprs, eb, binds, acc)
+                && !collect_return_anns_stmt(exprs, eb, binds, fn_sigs, acc)
             {
                 return false;
             }
             true
         }
         Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
-            collect_return_anns_stmt(exprs, body, binds, acc)
+            collect_return_anns_stmt(exprs, body, binds, fn_sigs, acc)
         }
         Stmt::For { init, body, .. } => {
             if let Some(i) = init
-                && !collect_return_anns_stmt(exprs, i, binds, acc)
+                && !collect_return_anns_stmt(exprs, i, binds, fn_sigs, acc)
             {
                 return false;
             }
-            collect_return_anns_stmt(exprs, body, binds, acc)
+            collect_return_anns_stmt(exprs, body, binds, fn_sigs, acc)
         }
-        Stmt::Block(stmts) | Stmt::Multi(stmts) => collect_return_anns(exprs, stmts, binds, acc),
+        Stmt::Block(stmts) | Stmt::Multi(stmts) => {
+            collect_return_anns(exprs, stmts, binds, fn_sigs, acc)
+        }
         Stmt::Try {
             body,
             catch_body,
             finally_body,
             ..
         } => {
-            if !collect_return_anns(exprs, body, binds, acc) {
+            if !collect_return_anns(exprs, body, binds, fn_sigs, acc) {
                 return false;
             }
-            if !collect_return_anns(exprs, catch_body, binds, acc) {
+            if !collect_return_anns(exprs, catch_body, binds, fn_sigs, acc) {
                 return false;
             }
             if let Some(fb) = finally_body
-                && !collect_return_anns(exprs, fb, binds, acc)
+                && !collect_return_anns(exprs, fb, binds, fn_sigs, acc)
             {
                 return false;
             }
@@ -10116,6 +10165,7 @@ fn infer_expr_ann_with(
     eid: ExprId,
     params: &[Param],
     binds: &std::collections::HashMap<String, String>,
+    fn_sigs: &std::collections::HashMap<String, String>,
 ) -> Option<String> {
     let e = exprs.get(eid.0 as usize)?;
     match e {
@@ -10148,8 +10198,8 @@ fn infer_expr_ann_with(
             // concat); fall back to per-side inference and only commit
             // when both agree on a concrete primitive.
             BinOp::Add => {
-                let l = infer_expr_ann_with(exprs, *left, params, binds)?;
-                let r = infer_expr_ann_with(exprs, *right, params, binds)?;
+                let l = infer_expr_ann_with(exprs, *left, params, binds, fn_sigs)?;
+                let r = infer_expr_ann_with(exprs, *right, params, binds, fn_sigs)?;
                 // JS spec: `string + anything` and `anything + string`
                 // both coerce to string concat; `number + number` stays
                 // number. Other shapes (e.g. number+boolean → number,
@@ -10177,7 +10227,23 @@ fn infer_expr_ann_with(
             }
             binds.get(name).cloned()
         }
-        // Conservatively bail on Member / Call / Index / etc.
+        // P8.4 — bare-Ident-callee Call resolves through the fn_sigs
+        // table so `() => greet()` (and `() => __cm_A__greet(__this)`
+        // after super-rewrite) infers the arrow's return type from
+        // greet's signature instead of falling back to Void. Restricted
+        // to bare Ident callee + non-generic fn (TypeVar return is the
+        // monomorphization path, not propagable into closures); fn_sigs
+        // is built upstream from non-`__closure_*` top-level FnDecls
+        // with an explicit return_type.
+        Expr::Call { callee, .. } => {
+            if let Some(Expr::Ident(name)) = exprs.get(callee.0 as usize)
+                && let Some(ret) = fn_sigs.get(name)
+            {
+                return Some(ret.clone());
+            }
+            None
+        }
+        // Conservatively bail on Member / Index / etc.
         // The typechecker's regular path will produce the right errors;
         // we only override when statically obvious.
         _ => None,
