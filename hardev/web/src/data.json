@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-05-20T03:16:14.432Z",
+  "generatedAt": "2026-05-20T12:05:34.959Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 629,
@@ -26,8 +26,8 @@
     "passRateTrAccepted": 92.5
   },
   "torajs": {
-    "commit": "641f0b3",
-    "commitSubject": "P8.3-A2: parser accepts `static { ... }` + loud panic until A3",
+    "commit": "c836e13",
+    "commitSubject": "P9.3-A3: fixture-lock + roadmap [SHIPPED]",
     "phase": "P8",
     "phaseTitle": "Class spec full (private + static blocks + accessor + super)",
     "conformance": {
@@ -559,73 +559,128 @@
   },
   "commits": [
     {
-      "hash": "641f0b3",
-      "subject": "P8.3-A2: parser accepts `static { ... }` + loud panic until A3"
+      "hash": "c836e13",
+      "subject": "P9.3-A3: fixture-lock + roadmap [SHIPPED]"
     },
     {
-      "hash": "551a34a",
-      "subject": "P8.3-A1: ClassDecl static_init AST shape migration"
+      "hash": "6244622",
+      "subject": "P9.3-A2.1: regex search start-pos skips UTF-8 continuation bytes under u flag"
     },
     {
-      "hash": "a21f297",
-      "subject": "hardev/autorun P0.1: allow one-line status after trigger (UX gap fix)"
+      "hash": "97dcf93",
+      "subject": "P9.3-A2: regex \\p{Letter|Number|ASCII} property class + OP_CLASS code-point"
     },
     {
-      "hash": "869914d",
-      "subject": "hardev/autorun P0: rotation protocol + manual trigger + JSONL log"
+      "hash": "3fd8cfe",
+      "subject": "P9.3-A1: regex unicode flag — \\u{} escape + dot astral matching"
     },
     {
-      "hash": "aaaef71",
-      "subject": "DASH-T262: test262 headline metric on devserver (:6002)"
+      "hash": "6b3f602",
+      "subject": "P9.2-A3: fixture-lock + roadmap [SHIPPED]"
     },
     {
-      "hash": "2486552",
-      "subject": "FLAKE-FIX: serialize LLVM codegen via COMPILE_LOCK at ssa_inkwell source"
+      "hash": "4b12de4",
+      "subject": "P9.2-A2: regex .groups accessor on match results"
     },
     {
-      "hash": "da95206",
-      "subject": "B-BENCH-VER: latest-stable verify + PATH-drift detect"
+      "hash": "8a5aa61",
+      "subject": "P9.2-A1: regex named groups + backref runtime"
     },
     {
-      "hash": "134d10d",
-      "subject": "chore: gitignore .nudo.toml (per-dev IDE config)"
+      "hash": "e1f8219",
+      "subject": "P9.1-A2: fixture-lock + roadmap [SHIPPED]"
     },
     {
-      "hash": "eed8d9f",
-      "subject": "docs: roadmap — P8.2 SHIPPED (class accessors)"
+      "hash": "0404b08",
+      "subject": "P9.1-A1: regex lookbehind (positive + negative)"
     },
     {
-      "hash": "550a6fd",
-      "subject": "P8.2-A4+A5: accessor read+write end-to-end + round-trip fixture"
+      "hash": "bcf3d2d",
+      "subject": "P8.5-A2: fixture-lock + roadmap [SHIPPED]"
     },
     {
-      "hash": "5db54bf",
-      "subject": "P8.2-A3: desugar renames accessors; side-channel maps populated"
+      "hash": "769a224",
+      "subject": "P8.5-A1: class expressions as values"
     },
     {
-      "hash": "acd6202",
-      "subject": "P8.2-A1+A2: parser detects get/set; AST records AccessorKind"
+      "hash": "0b98472",
+      "subject": "P8.4-A2: fixture-lock + roadmap [SHIPPED]"
     }
   ],
-  "headSha": "641f0b3",
+  "headSha": "c836e13",
   "autorun": {
-    "total": 2,
+    "total": 7,
     "baselineTarget": 10,
-    "bySelf": 2,
+    "bySelf": 7,
     "byManual": 0,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1779239322-6428",
-      "at": "2026-05-20T01:08:42Z",
-      "ts": 1779239322,
+      "rotationId": "r-1779272399-171b",
+      "at": "2026-05-20T10:19:59Z",
+      "ts": 1779272399,
       "trigger": "self",
-      "prevHead": "641f0b3",
-      "handoffSha": "sha256:7996f96e982e47fb8131fcb870915baf2118955c1b7623a8f1907443162112de",
-      "handoffAgeSec": 2,
-      "conformanceBefore": "631/0/1",
+      "prevHead": "6b3f602",
+      "handoffSha": "sha256:526b8e8b814f9c86bc94b03bad6de763b5b0325a37aabc51400f1287e55f4b23",
+      "handoffAgeSec": 5,
+      "conformanceBefore": "640/0/1",
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1779272399-171b",
+        "at": "2026-05-20T10:19:59Z",
+        "ts": 1779272399,
+        "trigger": "self",
+        "prevHead": "6b3f602",
+        "handoffSha": "sha256:526b8e8b814f9c86bc94b03bad6de763b5b0325a37aabc51400f1287e55f4b23",
+        "handoffAgeSec": 5,
+        "conformanceBefore": "640/0/1",
+        "commitsInSession": null
+      },
+      {
+        "rotationId": "r-1779265047-549c",
+        "at": "2026-05-20T08:17:27Z",
+        "ts": 1779265047,
+        "trigger": "self",
+        "prevHead": "e1f8219",
+        "handoffSha": "sha256:4b2f2876223aae92ff355f087b63d1093961665157e149a5f8b0063a89c05681",
+        "handoffAgeSec": 7489,
+        "conformanceBefore": "640/0/1",
+        "commitsInSession": null
+      },
+      {
+        "rotationId": "r-1779257562-2ae1",
+        "at": "2026-05-20T06:12:42Z",
+        "ts": 1779257562,
+        "trigger": "self",
+        "prevHead": "bcf3d2d",
+        "handoffSha": "sha256:4b2f2876223aae92ff355f087b63d1093961665157e149a5f8b0063a89c05681",
+        "handoffAgeSec": 4,
+        "conformanceBefore": "637/0/1",
+        "commitsInSession": null
+      },
+      {
+        "rotationId": "r-1779255171-3822",
+        "at": "2026-05-20T05:32:51Z",
+        "ts": 1779255171,
+        "trigger": "self",
+        "prevHead": "0b98472",
+        "handoffSha": "sha256:fd70683409b17f97950bca15ddd5a91da248d15546abc7beb3d73a9dc0d38b06",
+        "handoffAgeSec": 3,
+        "conformanceBefore": "634/0/1",
+        "commitsInSession": null
+      },
+      {
+        "rotationId": "r-1779248370-4272",
+        "at": "2026-05-20T03:39:30Z",
+        "ts": 1779248370,
+        "trigger": "self",
+        "prevHead": "92f87f1",
+        "handoffSha": "sha256:9c22936f6b253adb558df6ee007ad3335c881054a4c7032b58aac5b168270f92",
+        "handoffAgeSec": 3,
+        "conformanceBefore": "632/0/1",
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1779239322-6428",
         "at": "2026-05-20T01:08:42Z",
