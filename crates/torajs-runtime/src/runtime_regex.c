@@ -80,8 +80,53 @@ extern int __torajs_rc_dec(void *p);
 #define RE_FLAG_G 0x02u  /* global — used by iteration helpers */
 #define RE_FLAG_M 0x04u  /* multiline ^/$ */
 #define RE_FLAG_S 0x08u  /* dotall — `.` matches newline */
-#define RE_FLAG_U 0x10u  /* unicode (parser only — full Unicode is v1.0) */
+#define RE_FLAG_U 0x10u  /* unicode — enables \u{HHHH..} extended escape
+                          * and code-point-aware OP_ANYCHAR advance (P9.3-A1).
+                          * \p{...} property class + code-point OP_CLASS land
+                          * in P9.3-A2. */
 #define RE_FLAG_Y 0x20u  /* sticky — used by iteration helpers */
+
+/* ============================================================
+ * UTF-8 helpers — used by P9.3 u-flag handling. The input string
+ * is always well-formed UTF-8 (JS strings round-trip through tora's
+ * Str storage). These are minimal: utf8_len_for inspects the leading
+ * byte to report the encoded byte length; utf8_encode_cp encodes a
+ * code point into 1–4 bytes. No decoder is needed for A1 (OP_ANYCHAR
+ * only needs the byte length; literal escapes encode at parse time).
+ * Decoder for OP_CLASS / \p{...} arrives in A2.
+ * ============================================================ */
+
+static int utf8_len_for(uint8_t b) {
+    if ((b & 0x80u) == 0x00u) return 1;       /* 0xxxxxxx */
+    if ((b & 0xE0u) == 0xC0u) return 2;       /* 110xxxxx */
+    if ((b & 0xF0u) == 0xE0u) return 3;       /* 1110xxxx */
+    if ((b & 0xF8u) == 0xF0u) return 4;       /* 11110xxx */
+    return 1;                                  /* continuation / invalid — defensive */
+}
+
+static int utf8_encode_cp(int32_t cp, uint8_t out[4]) {
+    if (cp < 0 || cp > 0x10FFFF) return 0;
+    if (cp < 0x80) {
+        out[0] = (uint8_t)cp;
+        return 1;
+    }
+    if (cp < 0x800) {
+        out[0] = (uint8_t)(0xC0u | (uint32_t)(cp >> 6));
+        out[1] = (uint8_t)(0x80u | (uint32_t)(cp & 0x3F));
+        return 2;
+    }
+    if (cp < 0x10000) {
+        out[0] = (uint8_t)(0xE0u | (uint32_t)(cp >> 12));
+        out[1] = (uint8_t)(0x80u | (uint32_t)((cp >> 6) & 0x3F));
+        out[2] = (uint8_t)(0x80u | (uint32_t)(cp & 0x3F));
+        return 3;
+    }
+    out[0] = (uint8_t)(0xF0u | (uint32_t)(cp >> 18));
+    out[1] = (uint8_t)(0x80u | (uint32_t)((cp >> 12) & 0x3F));
+    out[2] = (uint8_t)(0x80u | (uint32_t)((cp >> 6) & 0x3F));
+    out[3] = (uint8_t)(0x80u | (uint32_t)(cp & 0x3F));
+    return 4;
+}
 
 /* ============================================================
  * Char class — 256-bit bitmap + inversion bit. One per CLASS
@@ -323,6 +368,83 @@ static Node *parse_escape(Parser *ps) {
             else if (h2 >= 'A' && h2 <= 'F') v |= (uint8_t)(h2 - 'A' + 10);
             else { ps->err = 1; return NULL; }
             Node *n = node_new(NK_CHAR); n->ch = v; return n;
+        }
+        case 'u': {
+            /* `\uHHHH` (4-digit, always valid) or `\u{HHHH..}`
+             * (extended, requires u flag). Encodes the code point to
+             * 1–4 UTF-8 bytes and emits NK_CHAR (1 byte) or NK_CONCAT
+             * of NK_CHARs (>1 bytes). Byte-stream matcher then matches
+             * the same bytes in well-formed UTF-8 input — no new
+             * opcode needed (per narrow-surface principle).
+             *
+             * Pre-existing bug also fixed: `\uHHHH` without u flag
+             * used to parse as literal `u` followed by literal digits.
+             * Now correctly parses as the encoded character. */
+            int32_t cp = -1;
+            if (!p_eof(ps) && p_peek(ps) == '{' && (ps->flags & RE_FLAG_U)) {
+                /* Extended `\u{HHHH..}` form — u flag only. */
+                p_get(ps); /* consume `{` */
+                int64_t val = 0;
+                int ndig = 0;
+                while (!p_eof(ps) && p_peek(ps) != '}') {
+                    uint8_t h = p_get(ps);
+                    int d;
+                    if (h >= '0' && h <= '9') d = h - '0';
+                    else if (h >= 'a' && h <= 'f') d = h - 'a' + 10;
+                    else if (h >= 'A' && h <= 'F') d = h - 'A' + 10;
+                    else { ps->err = 1; return NULL; }
+                    val = (val << 4) | (int64_t)d;
+                    if (val > 0x10FFFF) { ps->err = 1; return NULL; }
+                    ndig++;
+                }
+                if (ndig == 0 || p_eof(ps)) { ps->err = 1; return NULL; }
+                p_get(ps); /* consume `}` */
+                /* Lone surrogate (U+D800..U+DFFF) is a SyntaxError
+                 * under u flag per ECMA-262 §22.2.1.1. */
+                if (val >= 0xD800 && val <= 0xDFFF) { ps->err = 1; return NULL; }
+                cp = (int32_t)val;
+            } else if (ps->i + 4 <= ps->len) {
+                /* `\uHHHH` 4-digit form — always valid. */
+                int32_t val = 0;
+                int ok = 1;
+                for (int j = 0; j < 4; j++) {
+                    uint8_t h = ps->p[ps->i + j];
+                    int d;
+                    if (h >= '0' && h <= '9') d = h - '0';
+                    else if (h >= 'a' && h <= 'f') d = h - 'a' + 10;
+                    else if (h >= 'A' && h <= 'F') d = h - 'A' + 10;
+                    else { ok = 0; break; }
+                    val = (val << 4) | d;
+                }
+                if (ok) {
+                    ps->i += 4;
+                    cp = val;
+                }
+            }
+            if (cp < 0) {
+                /* Lenient fallback: bare `\u` not followed by valid
+                 * escape form is treated as literal `u` (matches the
+                 * legacy default-case behavior for unknown escapes
+                 * in non-u mode). Strict u-mode SyntaxError is L3b. */
+                Node *n = node_new(NK_CHAR);
+                n->ch = 'u';
+                return n;
+            }
+            uint8_t buf[4];
+            int blen = utf8_encode_cp(cp, buf);
+            if (blen == 0) { ps->err = 1; return NULL; }
+            if (blen == 1) {
+                Node *n = node_new(NK_CHAR);
+                n->ch = buf[0];
+                return n;
+            }
+            Node *seq = node_new(NK_CONCAT);
+            for (int b = 0; b < blen; b++) {
+                Node *cn = node_new(NK_CHAR);
+                cn->ch = buf[b];
+                node_push_kid(seq, cn);
+            }
+            return seq;
         }
         default: {
             /* Any other char after \ is literal (covers \. \* \+ \?
@@ -1195,6 +1317,17 @@ typedef struct {
      * incremented; once br_offset == cap_len, the thread advances
      * to pc+1 with br_offset reset to 0. Phase 1c.4.c. */
     int br_offset;
+    /* `u_skip` — outer-step defer counter for OP_ANYCHAR under u flag
+     * with a multi-byte code point at the consume site. The Thompson
+     * NFA outer loop advances by 1 byte per step; under u flag a
+     * single `.` should consume 1 code point (1–4 bytes), so when
+     * adv > 1 we schedule the destination thread at pos+adv with
+     * u_skip = adv-1 so the thread sits in the queue for adv-1 outer
+     * steps (consuming the continuation bytes implicitly) before
+     * dispatching its op. Bypass-visited defer keeps the queued
+     * thread alive across steps without colliding with fresh entrants
+     * at the same pc. P9.3-A1. */
+    int u_skip;
     int64_t saves[REGEX_SAVE_SLOTS];
 } Thread;
 
@@ -1377,6 +1510,7 @@ static void add_thread(
             Thread *t = &tl->list[tl->n++];
             t->pc = pc;
             t->br_offset = 0;
+            t->u_skip = 0;
             memcpy(t->saves, saves, sizeof(t->saves));
         }
     }
@@ -1430,6 +1564,20 @@ static int64_t vm_match_at(
         for (int ti = 0; ti < cur_tl.n && !saw_match_this_step; ti++) {
             const Thread *t = &cur_tl.list[ti];
             int pc = t->pc;
+            /* P9.3-A1 — u_skip defer. A thread in-flight from an
+             * OP_ANYCHAR multi-byte consume sits in the queue for
+             * (adv-1) outer steps before dispatching. Bypass-visited
+             * forward to nxt_tl so the deferred thread survives
+             * step-to-step swaps without colliding with fresh entrants
+             * at the same pc. */
+            if (t->u_skip > 0) {
+                Thread *t_new = &nxt_tl.list[nxt_tl.n++];
+                t_new->pc = pc;
+                t_new->u_skip = t->u_skip - 1;
+                t_new->br_offset = t->br_offset;
+                memcpy(t_new->saves, t->saves, sizeof(t_new->saves));
+                continue;
+            }
             Inst ins = p->insts[pc];
             switch (ins.op) {
                 case OP_CHAR: {
@@ -1440,7 +1588,35 @@ static int64_t vm_match_at(
                 }
                 case OP_ANYCHAR: {
                     if (pos < slen && ((flags & RE_FLAG_S) || s[pos] != '\n')) {
-                        add_thread(&nxt_tl, &nxt_vt, pc + 1, p, s, slen, pos + 1, flags, t->saves);
+                        /* Under u flag, `.` consumes one code point —
+                         * advance by the UTF-8 byte length of the
+                         * leading byte at pos. Astral chars (4-byte
+                         * emoji etc.) advance by 4, BMP non-ASCII by
+                         * 2–3, ASCII by 1. Without u flag, classic
+                         * byte-by-byte (1) per pre-P9.3 behavior.
+                         * Defensive: if the leading byte indicates a
+                         * length that runs past slen, fall back to 1
+                         * (well-formed UTF-8 input shouldn't hit this).
+                         *
+                         * When adv > 1, the resulting thread(s) are
+                         * patched with u_skip = adv-1 so they wait
+                         * adv-1 outer steps before dispatching (see
+                         * Thread.u_skip comment). Patches every newly-
+                         * added thread because OP_SPLIT/OP_SAVE/etc.
+                         * in the epsilon chain at pc+1 may produce
+                         * multiple terminal threads. */
+                        int adv = 1;
+                        if (flags & RE_FLAG_U) {
+                            int ul = utf8_len_for(s[pos]);
+                            if (ul >= 1 && pos + ul <= slen) adv = ul;
+                        }
+                        int n_before = nxt_tl.n;
+                        add_thread(&nxt_tl, &nxt_vt, pc + 1, p, s, slen, pos + adv, flags, t->saves);
+                        if (adv > 1) {
+                            for (int j = n_before; j < nxt_tl.n; j++) {
+                                nxt_tl.list[j].u_skip = adv - 1;
+                            }
+                        }
                     }
                     break;
                 }
@@ -1496,6 +1672,7 @@ static int64_t vm_match_at(
                             Thread *t_new = &nxt_tl.list[nxt_tl.n++];
                             t_new->pc = pc;
                             t_new->br_offset = new_offset;
+                            t_new->u_skip = 0;
                             memcpy(t_new->saves, t->saves, sizeof(t_new->saves));
                         }
                     }
@@ -1527,7 +1704,12 @@ static int64_t vm_match_at(
      * recent next-list at this point.) Same end_target gate as above. */
     for (int ti = 0; ti < cur_tl.n; ti++) {
         const Thread *t = &cur_tl.list[ti];
+        /* u_skip > 0 means a multi-byte ANYCHAR consume is still
+         * unfinished — the thread isn't ready to accept. (Shouldn't
+         * happen given the pos+ul <= slen guard at OP_ANYCHAR, but
+         * defensive guard keeps the invariant local.) */
         if (p->insts[t->pc].op == OP_MATCH
+            && t->u_skip == 0
             && (end_target < 0 || slen == end_target)) {
             end_pos = slen;
             if (out_saves) memcpy(out_saves, t->saves, sizeof(t->saves));
