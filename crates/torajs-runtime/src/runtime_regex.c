@@ -147,8 +147,10 @@ typedef enum {
     NK_ALT,
     NK_REPEAT,
     NK_GROUP, /* non-capturing — child only; capturing semantics later */
-    NK_LOOKAHEAD,     /* (?=X) — zero-width positive assertion */
-    NK_NEG_LOOKAHEAD, /* (?!X) — zero-width negative assertion */
+    NK_LOOKAHEAD,      /* (?=X) — zero-width positive assertion */
+    NK_NEG_LOOKAHEAD,  /* (?!X) — zero-width negative assertion */
+    NK_LOOKBEHIND,     /* (?<=X) — zero-width positive lookbehind */
+    NK_NEG_LOOKBEHIND, /* (?<!X) — zero-width negative lookbehind */
 } NodeKind;
 
 typedef struct Node {
@@ -403,8 +405,8 @@ static Node *parse_atom(Parser *ps) {
         /* `(?:...)` non-capturing.
          * `(?=...)` positive lookahead — Phase 1c.4.
          * `(?!...)` negative lookahead — Phase 1c.4.
-         * `(?<=...)` / `(?<!...)` lookbehind — Phase 1c.4.b (reverse
-         *   matcher needed; rejected for now).
+         * `(?<=...)` positive lookbehind — Phase 1c.4.b.
+         * `(?<!...)` negative lookbehind — Phase 1c.4.b.
          * `(?<name>...)` named capture group — Phase 1c.4.c (rejected).
          * Otherwise capturing group; gets next sequential index. */
         NodeKind kind = NK_GROUP;
@@ -420,9 +422,19 @@ static Node *parse_atom(Parser *ps) {
                 p_get(ps); p_get(ps);
                 kind = NK_NEG_LOOKAHEAD;
             } else if (after == '<') {
-                /* lookbehind / named group — Phase 1c.4.b/c. */
-                ps->err = 1;
-                return NULL;
+                /* `(?<=...)` / `(?<!...)` lookbehind. `(?<name>...)`
+                 * named groups remain rejected (Phase 1c.4.c). */
+                uint8_t after2 = (ps->i + 2 < ps->len) ? ps->p[ps->i + 2] : 0;
+                if (after2 == '=') {
+                    p_get(ps); p_get(ps); p_get(ps);
+                    kind = NK_LOOKBEHIND;
+                } else if (after2 == '!') {
+                    p_get(ps); p_get(ps); p_get(ps);
+                    kind = NK_NEG_LOOKBEHIND;
+                } else {
+                    ps->err = 1;
+                    return NULL;
+                }
             } else {
                 ps->err = 1;
                 return NULL;
@@ -612,6 +624,11 @@ typedef enum {
      * Positive: continue if sub matched. Negative: continue if not. */
     OP_LOOKAHEAD,
     OP_NEG_LOOKAHEAD,
+    /* Phase 1c.4.b — lookbehind. Same sub-Program shape as lookahead;
+     * matcher resolves by scanning candidate start positions j ∈ [0..pos]
+     * and probing whether the sub matches s[j..pos] exactly. */
+    OP_LOOKBEHIND,
+    OP_NEG_LOOKBEHIND,
 } Op;
 
 typedef struct {
@@ -844,18 +861,30 @@ static void compile_node(Program *p, const Node *n) {
             break;
         }
         case NK_LOOKAHEAD:
-        case NK_NEG_LOOKAHEAD: {
-            /* Compile the lookahead body into its own sub-Program with
-             * an OP_MATCH at the end. Main bytecode emits OP_LOOKAHEAD
-             * (or OP_NEG_LOOKAHEAD) with `a` = sub-program index.
-             * The matcher resolves the assertion at add_thread time
-             * by recursively running vm_match_at on the sub-program. */
+        case NK_NEG_LOOKAHEAD:
+        case NK_LOOKBEHIND:
+        case NK_NEG_LOOKBEHIND: {
+            /* Compile the assertion body into its own sub-Program with
+             * an OP_MATCH at the end. Main bytecode emits the matching
+             * OP_LOOKAHEAD / OP_NEG_LOOKAHEAD / OP_LOOKBEHIND /
+             * OP_NEG_LOOKBEHIND with `a` = sub-program index. The
+             * matcher resolves the assertion at add_thread time:
+             *   - lookahead:  vm_match_at(sub, start=pos)
+             *   - lookbehind: try each start j ∈ [0..pos], probe whether
+             *                 sub matches s[j..pos] exactly (forward
+             *                 sub-prog with end_target = pos). */
             Program *sub = (Program *)calloc(1, sizeof(Program));
             compile_node(sub, n->child);
             Inst m = { OP_MATCH, 0, 0, 0, 0 };
             prog_emit(sub, m);
             int sub_idx = prog_add_sub(p, sub);
-            uint8_t op = (n->kind == NK_LOOKAHEAD) ? OP_LOOKAHEAD : OP_NEG_LOOKAHEAD;
+            uint8_t op;
+            switch (n->kind) {
+                case NK_LOOKAHEAD:      op = OP_LOOKAHEAD; break;
+                case NK_NEG_LOOKAHEAD:  op = OP_NEG_LOOKAHEAD; break;
+                case NK_LOOKBEHIND:     op = OP_LOOKBEHIND; break;
+                default:                op = OP_NEG_LOOKBEHIND; break;
+            }
             Inst la = { op, 0, 0, sub_idx, 0 };
             prog_emit(p, la);
             break;
@@ -1039,7 +1068,13 @@ static int char_eq(uint8_t a, uint8_t b, uint8_t flags) {
     return 0;
 }
 
-/* Forward decl — vm_match_at is below; lookahead resolution recurses. */
+/* Forward decl — vm_match_at is below; lookahead resolution recurses.
+ *
+ * `end_target` gates the leftmost-first MATCH semantics:
+ *   - end_target < 0  → normal mode: any MATCH at any pos wins
+ *   - end_target >= 0 → length-restricted mode: only MATCH at
+ *                       pos == end_target commits (used by lookbehind
+ *                       to ask "does sub match s[start..end_target]?"). */
 static int64_t vm_match_at(
     const Program *p,
     const uint8_t *s, int64_t slen,
@@ -1048,7 +1083,8 @@ static int64_t vm_match_at(
     Thread *cur, Thread *nxt,
     uint32_t *visited_cur, uint32_t *visited_nxt,
     uint32_t *step_id_ref,
-    int64_t *out_saves
+    int64_t *out_saves,
+    int64_t end_target
 );
 
 /* Phase 1c.4 — sub-pattern probe for lookahead resolution. Allocates
@@ -1066,9 +1102,34 @@ static int sub_probe(const Program *sub, const uint8_t *s, int64_t slen,
     uint32_t *vn = (uint32_t *)calloc((size_t)sub->n_insts, sizeof(uint32_t));
     uint32_t step_id = 0;
     int64_t end = vm_match_at(sub, s, slen, pos, flags, cur, nxt, vc, vn,
-                              &step_id, NULL);
+                              &step_id, NULL, -1);
     free(cur); free(nxt); free(vc); free(vn);
     return end >= 0 ? 1 : 0;
+}
+
+/* Phase 1c.4.b — lookbehind probe. Asks: does the sub-program have any
+ * match s[j..pos] for some 0 ≤ j ≤ pos? Implementation: try each j from
+ * pos down to 0 with vm_match_at(.., end_target=pos), accept on first
+ * hit. O(pos × sub_len) worst case; in practice the body is short and
+ * the loop bails on the first feasible j. (Future P14+ perf upgrade
+ * path: compile body backwards and scan reverse — same Approach as V8.
+ * That change replaces only this fn; AST / op / parser stay put.) */
+static int sub_probe_ending_at(const Program *sub, const uint8_t *s, int64_t slen,
+                               int64_t pos, uint8_t flags) {
+    if (sub->n_insts == 0) return 1;
+    Thread *cur = (Thread *)malloc(sizeof(Thread) * (size_t)sub->n_insts);
+    Thread *nxt = (Thread *)malloc(sizeof(Thread) * (size_t)sub->n_insts);
+    uint32_t *vc = (uint32_t *)calloc((size_t)sub->n_insts, sizeof(uint32_t));
+    uint32_t *vn = (uint32_t *)calloc((size_t)sub->n_insts, sizeof(uint32_t));
+    uint32_t step_id = 0;
+    int ok = 0;
+    for (int64_t j = pos; j >= 0; j--) {
+        int64_t end = vm_match_at(sub, s, slen, j, flags, cur, nxt, vc, vn,
+                                  &step_id, NULL, /* end_target = */ pos);
+        if (end == pos) { ok = 1; break; }
+    }
+    free(cur); free(nxt); free(vc); free(vn);
+    return ok;
 }
 
 /* Add `pc` (carrying `saves`) to `tl`, transitively expanding
@@ -1139,6 +1200,20 @@ static void add_thread(
             }
             return;
         }
+        case OP_LOOKBEHIND: {
+            const Program *sub = p->sub_progs[ins.a];
+            if (sub_probe_ending_at(sub, s, slen, pos, flags)) {
+                add_thread(tl, vt, pc + 1, p, s, slen, pos, flags, saves);
+            }
+            return;
+        }
+        case OP_NEG_LOOKBEHIND: {
+            const Program *sub = p->sub_progs[ins.a];
+            if (!sub_probe_ending_at(sub, s, slen, pos, flags)) {
+                add_thread(tl, vt, pc + 1, p, s, slen, pos, flags, saves);
+            }
+            return;
+        }
         default: {
             Thread *t = &tl->list[tl->n++];
             t->pc = pc;
@@ -1161,7 +1236,8 @@ static int64_t vm_match_at(
     Thread *cur, Thread *nxt,
     uint32_t *visited_cur, uint32_t *visited_nxt,
     uint32_t *step_id_ref,
-    int64_t *out_saves
+    int64_t *out_saves,
+    int64_t end_target
 ) {
     ThreadList cur_tl = { cur, 0, 0 };
     ThreadList nxt_tl = { nxt, 0, 0 };
@@ -1184,6 +1260,10 @@ static int64_t vm_match_at(
      * of the outer pos loop — keep advancing until the live thread
      * set drains. The latest MATCH seen wins. */
     for (int64_t pos = start_pos; pos <= slen; pos++) {
+        /* Length-restricted (lookbehind) mode short-circuit: once pos
+         * exceeds end_target, no later MATCH can satisfy the length
+         * constraint — stop advancing. */
+        if (end_target >= 0 && pos > end_target) break;
         nxt_tl.n = 0;
         nxt_tl.step_id = ++(*step_id_ref);
         int saw_match_this_step = 0;
@@ -1211,13 +1291,17 @@ static int64_t vm_match_at(
                     break;
                 }
                 case OP_MATCH:
-                    /* Higher-priority threads at this step were already
-                     * processed (they ran first by ti order). Any later
-                     * MATCH or extension via lower-priority threads is
-                     * a worse choice — stop scanning this step. */
-                    saw_match_this_step = 1;
-                    end_pos = pos;
-                    if (out_saves) memcpy(out_saves, t->saves, sizeof(t->saves));
+                    /* Normal mode: leftmost-first wins, stop scanning
+                     * this step (lower-priority threads can't beat).
+                     * Length-restricted mode: only commit if pos meets
+                     * end_target; on mismatch, this thread is dead but
+                     * keep scanning — other threads may extend further
+                     * via nxt_tl and MATCH later at the right length. */
+                    if (end_target < 0 || pos == end_target) {
+                        saw_match_this_step = 1;
+                        end_pos = pos;
+                        if (out_saves) memcpy(out_saves, t->saves, sizeof(t->saves));
+                    }
                     break;
                 default:
                     break;
@@ -1229,10 +1313,11 @@ static int64_t vm_match_at(
     }
     /* End-of-input: any thread sitting on MATCH after the loop is also
      * an acceptance — record it. (cur_tl has been swapped to the most
-     * recent next-list at this point.) */
+     * recent next-list at this point.) Same end_target gate as above. */
     for (int ti = 0; ti < cur_tl.n; ti++) {
         const Thread *t = &cur_tl.list[ti];
-        if (p->insts[t->pc].op == OP_MATCH) {
+        if (p->insts[t->pc].op == OP_MATCH
+            && (end_target < 0 || slen == end_target)) {
             end_pos = slen;
             if (out_saves) memcpy(out_saves, t->saves, sizeof(t->saves));
             break;
@@ -1261,7 +1346,8 @@ static int vm_search_from(
     uint32_t step_id = 0;
     int hit = 0;
     for (int64_t st = from_pos; st <= slen; st++) {
-        int64_t end = vm_match_at(p, s, slen, st, flags, cur, nxt, vc, vn, &step_id, out_saves);
+        int64_t end = vm_match_at(p, s, slen, st, flags, cur, nxt, vc, vn,
+                                  &step_id, out_saves, -1);
         if (end >= 0) {
             *out_start = st;
             *out_end = end;
@@ -1291,7 +1377,8 @@ static int vm_search_from_with_ws(
     int64_t *out_saves
 ) {
     for (int64_t st = from_pos; st <= slen; st++) {
-        int64_t end = vm_match_at(p, s, slen, st, flags, cur, nxt, vc, vn, step_id_ref, out_saves);
+        int64_t end = vm_match_at(p, s, slen, st, flags, cur, nxt, vc, vn,
+                                  step_id_ref, out_saves, -1);
         if (end >= 0) {
             *out_start = st;
             *out_end = end;
