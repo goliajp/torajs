@@ -1379,6 +1379,11 @@ typedef struct {
     uint8_t **capture_names;
     int *capture_name_lens;
     int n_named_captures; /* count of non-NULL entries — 0 = no `.groups` needed */
+    /* P9.4 — `RegExp.prototype.lastIndex` per ES spec §22.2.6.9.
+     * Writable from JS via get/set helpers; read at the start of exec
+     * when the regex carries `g` or `y`, and written after each call
+     * (match end on hit, 0 on miss). Init to 0 by calloc. */
+    int64_t last_index;
 } RegExp;
 
 static uint8_t parse_flags(const uint8_t *p, int64_t len) {
@@ -2080,6 +2085,60 @@ static int vm_search_from_with_ws(
     return 0;
 }
 
+/* P9.4 — anchored single-position match for sticky (`y`) flag. Tries
+ * exactly one start position (`at`) and returns 1 on match, 0 on miss.
+ * Mirrors `vm_search_from`'s ABI (alloc + dispatch + free) but skips
+ * the position-bumping loop. Under u flag, an `at` landing on a UTF-8
+ * continuation byte is treated as a miss to match bun's sticky-on-
+ * code-point-boundary behaviour. */
+static int vm_match_anchor(
+    const Program *p,
+    const uint8_t *s, int64_t slen,
+    int64_t at,
+    uint8_t flags,
+    int64_t *out_start, int64_t *out_end,
+    int64_t *out_saves
+) {
+    if (p->n_insts == 0) return 0;
+    if (at < 0 || at > slen) return 0;
+    if ((flags & RE_FLAG_U) && at < slen && (s[at] & 0xC0u) == 0x80u) {
+        return 0;
+    }
+    Thread *cur = (Thread *)malloc(sizeof(Thread) * (size_t)p->n_insts);
+    Thread *nxt = (Thread *)malloc(sizeof(Thread) * (size_t)p->n_insts);
+    uint32_t *vc = (uint32_t *)calloc((size_t)p->n_insts, sizeof(uint32_t));
+    uint32_t *vn = (uint32_t *)calloc((size_t)p->n_insts, sizeof(uint32_t));
+    uint32_t step_id = 0;
+    int hit = 0;
+    int64_t end = vm_match_at(p, s, slen, at, flags, cur, nxt, vc, vn,
+                              &step_id, out_saves, -1);
+    if (end >= 0) {
+        *out_start = at;
+        *out_end = end;
+        hit = 1;
+    }
+    free(cur); free(nxt); free(vc); free(vn);
+    return hit;
+}
+
+/* P9.4 — `RegExp.prototype.lastIndex` accessors. Plain field on the
+ * RegExp heap object; the compile-time layer routes `re.lastIndex` /
+ * `re.lastIndex = N` through these. Spec coerces RHS via ToLength
+ * (non-negative integer); we accept the raw int64 from the typed-tier
+ * lowering, which matches how integer literals + simple arithmetic
+ * lower today. F64 → I64 coercion at the assignment site is L3b. */
+int64_t __torajs_regex_get_last_index(const void *re_ptr) {
+    if (!re_ptr) return 0;
+    const RegExp *re = (const RegExp *)re_ptr;
+    return re->last_index;
+}
+
+void __torajs_regex_set_last_index(void *re_ptr, int64_t idx) {
+    if (!re_ptr) return;
+    RegExp *re = (RegExp *)re_ptr;
+    re->last_index = idx;
+}
+
 int64_t __torajs_regex_test(const void *re_ptr, const void *str_ptr) {
     if (!re_ptr) return 0;
     const RegExp *re = (const RegExp *)re_ptr;
@@ -2223,7 +2282,9 @@ int64_t __torajs_regex_find(const void *re_ptr, const void *str_ptr, int64_t sta
 void *__torajs_str_match_regex(const void *str_ptr, const void *re_ptr) {
     void *out = __torajs_arr_alloc(0);
     if (!re_ptr || !str_ptr) return out;
-    const RegExp *re = (const RegExp *)re_ptr;
+    /* Drop const — P9.4 non-global sticky needs to write back
+     * lastIndex (same kernel as regex_exec; spec §22.2.5.8). */
+    RegExp *re = (RegExp *)re_ptr;
     if (re->rejected) abort_unsupported(re);
     const uint8_t *s = __TORAJS_STR_CDATA(str_ptr);
     int64_t slen = (int64_t)__TORAJS_STR_LEN(str_ptr);
@@ -2236,16 +2297,34 @@ void *__torajs_str_match_regex(const void *str_ptr, const void *re_ptr) {
 
     int64_t pos = 0;
     int global = (re->flags & RE_FLAG_G) ? 1 : 0;
+    int sticky = (re->flags & RE_FLAG_Y) ? 1 : 0;
     /* Phase 1c.1: without `g`, JS spec says s.match returns an
      * array shaped like RegExp.exec — [match, group1, group2, ...].
      * With `g`, captures are stripped and only whole-match strings
-     * appear (the spec drops capture info in the global case). */
+     * appear (the spec drops capture info in the global case).
+     * P9.4: non-global sticky anchors at lastIndex (single attempt,
+     * write back match end on hit / 0 on miss). Global ignores
+     * lastIndex per spec (s.match with g iterates the whole string). */
     int64_t saves[REGEX_SAVE_SLOTS];
     while (pos <= slen) {
         int64_t st, en;
-        if (!vm_search_from_with_ws(&re->prog, s, slen, pos, re->flags,
-                                    cur, nxt, vc, vn, &step_id, &st, &en,
-                                    global ? NULL : saves)) break;
+        int hit;
+        if (!global && sticky) {
+            int64_t start = re->last_index;
+            if (start < 0) start = 0;
+            if (start > slen) {
+                hit = 0;
+            } else {
+                hit = vm_match_anchor(&re->prog, s, slen, start, re->flags,
+                                      &st, &en, saves);
+            }
+            re->last_index = hit ? en : 0;
+        } else {
+            hit = vm_search_from_with_ws(&re->prog, s, slen, pos, re->flags,
+                                         cur, nxt, vc, vn, &step_id, &st, &en,
+                                         global ? NULL : saves);
+        }
+        if (!hit) break;
         uint8_t *seg = str_from_bytes(s + st, en - st);
         out = __torajs_arr_push(out, (int64_t)(intptr_t)seg);
         if (!global) {
@@ -2535,14 +2614,40 @@ void *__torajs_str_split_regex(const void *str_ptr, const void *re_ptr) {
 void *__torajs_regex_exec(const void *re_ptr, const void *str_ptr) {
     void *out = __torajs_arr_alloc(0);
     if (!re_ptr || !str_ptr) return out;
-    const RegExp *re = (const RegExp *)re_ptr;
+    /* Drop const so we can write back last_index for sticky/global. The
+     * earlier `const RegExp *` was vestigial — exec is the kernel that
+     * mutates lastIndex per spec. */
+    RegExp *re = (RegExp *)re_ptr;
     if (re->rejected) abort_unsupported(re);
     const uint8_t *s = __TORAJS_STR_CDATA(str_ptr);
     int64_t slen = (int64_t)__TORAJS_STR_LEN(str_ptr);
 
+    /* P9.4 — sticky (`y`) anchors at lastIndex with a single attempt;
+     * global (`g`) starts the search at lastIndex; plain ignores
+     * lastIndex and never writes it. y takes precedence over g per
+     * spec (when both are set the anchor wins). On miss with tracking,
+     * reset lastIndex to 0 per spec §22.2.5.2.2. */
+    int sticky = (re->flags & RE_FLAG_Y) ? 1 : 0;
+    int global = (re->flags & RE_FLAG_G) ? 1 : 0;
+    int track = sticky || global;
+    int64_t start = track ? re->last_index : 0;
+    if (start < 0) start = 0;
+
     int64_t saves[REGEX_SAVE_SLOTS];
     int64_t st, en;
-    if (!vm_search_from(&re->prog, s, slen, 0, re->flags, &st, &en, saves)) return out;
+    int hit;
+    if (track && start > slen) {
+        hit = 0;
+    } else if (sticky) {
+        hit = vm_match_anchor(&re->prog, s, slen, start, re->flags, &st, &en, saves);
+    } else {
+        hit = vm_search_from(&re->prog, s, slen, start, re->flags, &st, &en, saves);
+    }
+    if (!hit) {
+        if (track) re->last_index = 0;
+        return out;
+    }
+    if (track) re->last_index = en;
 
     /* [0] = whole match */
     uint8_t *whole = str_from_bytes(s + st, en - st);

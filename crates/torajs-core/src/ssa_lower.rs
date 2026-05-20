@@ -2022,6 +2022,25 @@ fn lower_inner(
         &[Type::Str, Type::RegExp],
         Type::Ptr,
     );
+    // P9.4 — `RegExp.prototype.lastIndex` get/set. The kernel field
+    // lives on the RegExp heap object; the surface routes `re.lastIndex`
+    // reads + writes through these two helpers. `regex_exec` and
+    // `s.match(re)` non-global both consult and update the same field
+    // when the regex carries `g` or `y`.
+    let regex_get_last_index_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_regex_get_last_index",
+        &[Type::RegExp],
+        Type::I64,
+    );
+    let regex_set_last_index_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_regex_set_last_index",
+        &[Type::RegExp, Type::I64],
+        Type::Void,
+    );
     // v0.2 #2 — Date class. Phase 2.0a substrate:
     //   __torajs_date_now()             → Date  (`new Date()`)
     //   __torajs_date_from_ms(i64)      → Date  (`new Date(ms)`)
@@ -4723,6 +4742,8 @@ fn lower_inner(
         regex_split: regex_split_id,
         regex_exec: regex_exec_id,
         regex_match_all: regex_match_all_id,
+        regex_get_last_index: regex_get_last_index_id,
+        regex_set_last_index: regex_set_last_index_id,
         date_now: date_now_id,
         date_from_ms: date_from_ms_id,
         date_drop: date_drop_id,
@@ -5559,6 +5580,12 @@ struct Intrinsics {
     regex_split: FuncId,
     regex_exec: FuncId,
     regex_match_all: FuncId,
+    /// P9.4 — `RegExp.prototype.lastIndex` accessors. Get returns the
+    /// raw int64 field on the RegExp heap object; set stores it
+    /// without coercion (typed-tier passes integer literals or
+    /// arithmetic results that already lower to I64).
+    regex_get_last_index: FuncId,
+    regex_set_last_index: FuncId,
     date_now: FuncId,
     date_from_ms: FuncId,
     date_drop: FuncId,
@@ -13977,6 +14004,26 @@ impl<'a> LowerCtx<'a> {
                                 ),
                             );
                             return Operand::ConstI64(0);
+                        }
+                        // P9.4 — `re.lastIndex = N`. Lower the RHS,
+                        // coerce to i64 (matches the runtime helper's
+                        // signature; integer literals stay as I64,
+                        // F64 truncates via FpToSi per JS ToInteger),
+                        // then store via the accessor. Returns the
+                        // coerced value as the assign expression's
+                        // result (parallel to a struct field store).
+                        if obj_ty == Type::RegExp && field == "lastIndex" {
+                            let v_raw = self.lower_expr(*value);
+                            self.consume_if_ident(*value);
+                            let v_i64 = self.coerce_to_i64(v_raw);
+                            self.f.append_void(
+                                self.cur_block,
+                                InstKind::Call(
+                                    self.intrinsics.regex_set_last_index,
+                                    vec![obj_val.clone(), v_i64.clone()],
+                                ),
+                            );
+                            return v_i64;
                         }
                         let sid = match obj_ty {
                             Type::Obj(sid) => sid,
@@ -23785,6 +23832,19 @@ impl<'a> LowerCtx<'a> {
                         self.cur_block,
                         InstKind::Call(self.intrinsics.regex_get_source, vec![obj_val]),
                         Type::Str,
+                        None,
+                    );
+                    return Operand::Value(v);
+                }
+                // P9.4 — `re.lastIndex` reads the int64 field on the
+                // RegExp heap object via the runtime accessor. The
+                // value tracks across exec / match calls when the
+                // regex carries `g` or `y`.
+                if obj_ty == Type::RegExp && name == "lastIndex" {
+                    let v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(self.intrinsics.regex_get_last_index, vec![obj_val]),
+                        Type::I64,
                         None,
                     );
                     return Operand::Value(v);

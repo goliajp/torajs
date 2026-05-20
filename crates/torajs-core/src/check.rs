@@ -3869,6 +3869,12 @@ impl Checker {
                     // time wires through a runtime intrinsic that
                     // wraps re->src_bytes in a Str.
                     (Type::RegExp, "source") => Ok(Type::String),
+                    // P9.4 — `re.lastIndex` is a writable Number per
+                    // spec §22.2.6.9. ssa_lower routes reads through
+                    // __torajs_regex_get_last_index; writes through
+                    // __torajs_regex_set_last_index (see assign-Member
+                    // arm). Tracks across exec/match when g or y set.
+                    (Type::RegExp, "lastIndex") => Ok(Type::Number),
                     // Phase 1c.1 — re.exec(s) returns Array<Str>:
                     // [matched, group1, group2, ...] on hit, empty
                     // array on miss. JS spec returns null on miss;
@@ -6819,6 +6825,21 @@ impl Checker {
                             let _ = self.type_of(ast, *value)?;
                             self.consume(ast, *value);
                             return Ok(Type::Any);
+                        }
+                        // P9.4 — `re.lastIndex = N`. Accept any
+                        // numeric RHS (lowering coerces F64 to I64 via
+                        // ToInteger; integer types pass through). The
+                        // store goes through __torajs_regex_set_last_index
+                        // at ssa-lower time.
+                        if matches!(obj_ty, Type::RegExp) && field == "lastIndex" {
+                            let value_ty = self.type_of(ast, *value)?;
+                            if !matches!(value_ty, Type::Number) {
+                                return Err(format!(
+                                    "type mismatch assigning to `RegExp.lastIndex`: expected number, got {value_ty:?}"
+                                ));
+                            }
+                            self.consume(ast, *value);
+                            return Ok(Type::Number);
                         }
                         let Type::Struct(fields) = &obj_ty else {
                             return Err(format!(
