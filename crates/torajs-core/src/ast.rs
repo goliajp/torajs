@@ -2933,7 +2933,7 @@ pub fn desugar_classes(ast: &mut Ast) {
         Vec<String>, // type_params
         Option<String>,
         Vec<(String, String)>,
-        Vec<StaticField>, // static_fields
+        Vec<StaticInit>, // static_init (Field | Block, source-ordered)
         Option<ClassCtor>,
         Vec<ClassMethod>,
         Vec<ClassMethod>, // static_methods
@@ -2958,26 +2958,7 @@ pub fn desugar_classes(ast: &mut Ast) {
                 type_params.clone(),
                 parent.clone(),
                 fields.clone(),
-                // P8.3-A1/A2: snapshot only the Field variants; the desugar
-                // emit body below still walks Vec<StaticField>. P8.3-A3
-                // rewrites this snapshot to walk Vec<StaticInit> directly
-                // and emit `__sb_<C>__<idx>` calls in source order. Until
-                // A3 ships we PANIC on Block (rather than silently dropping
-                // its stmts) — silent-wrong is rejected per
-                // [[feedback_no_tech_debt]]; the parser accepts `static { ... }`
-                // since A2 so the loud failure tells the user exactly which
-                // phase step is missing.
-                static_init
-                    .iter()
-                    .map(|si| match si {
-                        StaticInit::Field(sf) => sf.clone(),
-                        StaticInit::Block(_) => panic!(
-                            "P8.3 incomplete: class `{name}` contains a `static {{ ... }}` block; \
-                             parser accepts the syntax (P8.3-A2 shipped) but desugar emit is \
-                             pending (P8.3-A3). Remove the static block until P8.3 phase completes."
-                        ),
-                    })
-                    .collect::<Vec<StaticField>>(),
+                static_init.clone(),
                 ctor.clone(),
                 methods.clone(),
                 static_methods.clone(),
@@ -3481,12 +3462,18 @@ pub fn desugar_classes(ast: &mut Ast) {
     // whose key is in the table to a plain `Expr::Ident(replacement)`.
     let mut static_member_rewrites: std::collections::HashMap<(String, String), String> =
         std::collections::HashMap::new();
-    for (_, cname, _, _, _, sfs, _, _, sms) in &class_index {
-        for sf in sfs {
-            static_member_rewrites.insert(
-                (cname.clone(), sf.name.clone()),
-                format!("__sf_{cname}__{}", sf.name),
-            );
+    for (_, cname, _, _, _, sis, _, _, sms) in &class_index {
+        // P8.3-A3 — only StaticInit::Field entries are addressable as
+        // `ClassName.member`; static blocks have no member name and are
+        // emitted as `__sb_<C>__<idx>` named fns called at top level,
+        // so they do not contribute to the static-member rewrite table.
+        for si in sis {
+            if let StaticInit::Field(sf) = si {
+                static_member_rewrites.insert(
+                    (cname.clone(), sf.name.clone()),
+                    format!("__sf_{cname}__{}", sf.name),
+                );
+            }
         }
         for sm in sms {
             static_member_rewrites.insert(
@@ -3514,11 +3501,18 @@ pub fn desugar_classes(ast: &mut Ast) {
         .collect();
     let mut class_static_index: std::collections::HashMap<String, (Vec<String>, Vec<String>)> =
         std::collections::HashMap::new();
-    for (_, cname, _, _, _, sfs, _, _, sms) in &class_index {
+    for (_, cname, _, _, _, sis, _, _, sms) in &class_index {
         class_static_index.insert(
             cname.clone(),
             (
-                sfs.iter().map(|sf| sf.name.clone()).collect(),
+                // P8.3-A3 — same Field-only filter as the rewrite table:
+                // static blocks have no member name to inherit.
+                sis.iter()
+                    .filter_map(|si| match si {
+                        StaticInit::Field(sf) => Some(sf.name.clone()),
+                        StaticInit::Block(_) => None,
+                    })
+                    .collect(),
                 sms.iter().map(|sm| sm.name.clone()).collect(),
             ),
         );
@@ -3553,7 +3547,7 @@ pub fn desugar_classes(ast: &mut Ast) {
         type_params,
         _parent,
         _own_fields,
-        static_fields,
+        static_init,
         ctor,
         methods,
         static_methods,
@@ -3725,38 +3719,70 @@ pub fn desugar_classes(ast: &mut Ast) {
         // runs before any pass that might mutate the expression
         // referenced by it.
         //
-        // CRITICAL: static field LetDecls go into `static_field_inits`
-        // (NOT `appended`) so they can be prepended to `ast.stmts`
-        // before the user's top-level code runs. Otherwise the synth
-        // main fn would call `check()` BEFORE the static field slot
-        // was initialized — every read of `Counter.label` inside
-        // `check()` would see the slot's null/zero default. This was
-        // a real silent leak + correctness bug uncovered by the
-        // m-oo-04-static `leaks --atExit` audit.
-        for sf in &static_fields {
-            // V3-18 m1.h.26 — static fields with primitive Copy
-            // types (number / boolean / int width-specifiers) are
-            // mutable by default (`Counter.value = 5` is valid
-            // TS). Refcount-typed fields (string / string[] /
-            // Foo[] / etc) stay `mutable: false` because
-            // ssa_lower's globals registry can't yet handle
-            // mutable refcount globals — Str writes would need
-            // ARC-dec-old + ARC-inc-new + writeback to the slot,
-            // which the K.6 globals path doesn't yet emit. Marking
-            // those as mutable makes ssa_lower skip them from
-            // globals entirely (line ~3947), and the read path
-            // then fails with "unknown ident".
-            let is_copy_prim = matches!(
-                sf.type_ann.as_str(),
-                "number" | "boolean" | "i64" | "f64" | "bool" | "i32"
-            );
-            static_field_inits.push(Stmt::LetDecl {
-                mutable: is_copy_prim,
-                name: format!("__sf_{cname}__{}", sf.name),
-                type_ann: Some(sf.type_ann.clone()),
-                init: sf.init,
-                is_var: false,
-            });
+        // P8.3-A3 — `static { ... }` blocks share this walk with
+        // static fields so spec §15.7.10 source-order interleaving
+        // is preserved (a `static x = 1; static { use(C.x) } static
+        // y = 2; static { use(C.y) }` sequence emits four entries
+        // into `static_field_inits` in that exact order). Each
+        // Block desugars to a named-fn `__sb_<C>__<idx>` (mirrors
+        // `__sm_<C>__<m>`, no `__this` param, void return) appended
+        // to `ast.stmts`, plus a top-level `Stmt::Expr(Call(...))`
+        // at the block's source-order position.
+        //
+        // CRITICAL: static field LetDecls + static block Calls go
+        // into `static_field_inits` (NOT `appended`) so they can be
+        // prepended to `ast.stmts` before the user's top-level code
+        // runs. Otherwise the synth main fn would call `check()`
+        // BEFORE the static slot was initialized — every read of
+        // `Counter.label` inside `check()` would see the slot's
+        // null/zero default. This was a real silent leak +
+        // correctness bug uncovered by the m-oo-04-static
+        // `leaks --atExit` audit.
+        for (block_idx, si) in static_init.iter().enumerate() {
+            match si {
+                StaticInit::Field(sf) => {
+                    // V3-18 m1.h.26 — static fields with primitive Copy
+                    // types (number / boolean / int width-specifiers) are
+                    // mutable by default (`Counter.value = 5` is valid
+                    // TS). Refcount-typed fields (string / string[] /
+                    // Foo[] / etc) stay `mutable: false` because
+                    // ssa_lower's globals registry can't yet handle
+                    // mutable refcount globals — Str writes would need
+                    // ARC-dec-old + ARC-inc-new + writeback to the slot,
+                    // which the K.6 globals path doesn't yet emit. Marking
+                    // those as mutable makes ssa_lower skip them from
+                    // globals entirely (line ~3947), and the read path
+                    // then fails with "unknown ident".
+                    let is_copy_prim = matches!(
+                        sf.type_ann.as_str(),
+                        "number" | "boolean" | "i64" | "f64" | "bool" | "i32"
+                    );
+                    static_field_inits.push(Stmt::LetDecl {
+                        mutable: is_copy_prim,
+                        name: format!("__sf_{cname}__{}", sf.name),
+                        type_ann: Some(sf.type_ann.clone()),
+                        init: sf.init,
+                        is_var: false,
+                    });
+                }
+                StaticInit::Block(stmts) => {
+                    let fn_name = format!("__sb_{cname}__{block_idx}");
+                    appended.push(Stmt::FnDecl {
+                        name: fn_name.clone(),
+                        type_params: type_params.clone(),
+                        params: Vec::new(),
+                        return_type: Some("void".into()),
+                        body: stmts.clone(),
+                        is_generator: false,
+                    });
+                    let callee_id = ast.add_expr(Expr::Ident(fn_name));
+                    let call_id = ast.add_expr(Expr::Call {
+                        callee: callee_id,
+                        args: Vec::new(),
+                    });
+                    static_field_inits.push(Stmt::Expr(call_id));
+                }
+            }
         }
 
         // M-OO.4 — emit `function __sm_<C>__<name>(...): R { body }`
@@ -3893,7 +3919,7 @@ fn receiver_is_this_builtin_field(
         Vec<String>,
         Option<String>,
         Vec<(String, String)>,
-        Vec<StaticField>,
+        Vec<StaticInit>,
         Option<ClassCtor>,
         Vec<ClassMethod>,
         Vec<ClassMethod>,
