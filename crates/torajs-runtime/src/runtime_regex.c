@@ -128,6 +128,129 @@ static int utf8_encode_cp(int32_t cp, uint8_t out[4]) {
     return 4;
 }
 
+static int32_t utf8_decode_cp(const uint8_t *s, int *out_len) {
+    uint8_t b = s[0];
+    if ((b & 0x80u) == 0u) { *out_len = 1; return (int32_t)b; }
+    if ((b & 0xE0u) == 0xC0u) {
+        *out_len = 2;
+        return ((int32_t)(b & 0x1Fu) << 6)
+             | (int32_t)(s[1] & 0x3Fu);
+    }
+    if ((b & 0xF0u) == 0xE0u) {
+        *out_len = 3;
+        return ((int32_t)(b & 0x0Fu) << 12)
+             | ((int32_t)(s[1] & 0x3Fu) << 6)
+             | (int32_t)(s[2] & 0x3Fu);
+    }
+    if ((b & 0xF8u) == 0xF0u) {
+        *out_len = 4;
+        return ((int32_t)(b & 0x07u) << 18)
+             | ((int32_t)(s[1] & 0x3Fu) << 12)
+             | ((int32_t)(s[2] & 0x3Fu) << 6)
+             | (int32_t)(s[3] & 0x3Fu);
+    }
+    *out_len = 1; return (int32_t)b; /* invalid lead — defensive */
+}
+
+/* ============================================================
+ * Unicode property tables (P9.3-A2).
+ *
+ * Curated subsets of UCD Letter / Number categories — covers the
+ * dominant test262 usages (Greek, Cyrillic, Hebrew, Arabic, CJK,
+ * Hangul, Hiragana, Katakana, common decimal-digit scripts).
+ *
+ * ASCII portions live in the regular bitmap (populated by
+ * cc_add_property_*) so cc_test_cp dispatches: cp < 128 → bitmap,
+ * cp ≥ 128 → range table.
+ *
+ * The full UCD Letter category has hundreds of ranges; the curated
+ * subset here is intentionally a partial cover. L3b follow-up: full
+ * UCD import or generated table. Per docs/design-principles.md the
+ * pragma is "正统 / textbook" — minimum-viable property table that
+ * lifts the dominant test262 cases, then iterate.
+ * ============================================================ */
+
+typedef struct { int32_t lo; int32_t hi; } UProp_Range;
+
+static const UProp_Range UCD_LETTER[] = {
+    /* Latin-1 supplement letters (cp > 0x7F) */
+    {0x00AA, 0x00AA}, {0x00B5, 0x00B5}, {0x00BA, 0x00BA},
+    {0x00C0, 0x00D6}, {0x00D8, 0x00F6}, {0x00F8, 0x024F},
+    /* IPA + Spacing Modifier */
+    {0x0250, 0x02AF}, {0x02B0, 0x02C1}, {0x02C6, 0x02D1},
+    {0x02E0, 0x02E4}, {0x02EC, 0x02EC}, {0x02EE, 0x02EE},
+    /* Greek and Coptic */
+    {0x0370, 0x0373}, {0x0376, 0x0377}, {0x037A, 0x037D},
+    {0x037F, 0x037F},
+    {0x0386, 0x0386}, {0x0388, 0x038A}, {0x038C, 0x038C},
+    {0x038E, 0x03A1}, {0x03A3, 0x03F5}, {0x03F7, 0x0481},
+    /* Cyrillic */
+    {0x048A, 0x052F},
+    /* Armenian */
+    {0x0531, 0x0556}, {0x0561, 0x0587},
+    /* Hebrew letters */
+    {0x05D0, 0x05EA}, {0x05F0, 0x05F2},
+    /* Arabic letters */
+    {0x0620, 0x064A}, {0x066E, 0x066F}, {0x0671, 0x06D3},
+    {0x06D5, 0x06D5}, {0x06E5, 0x06E6}, {0x06EE, 0x06EF},
+    {0x06FA, 0x06FC}, {0x06FF, 0x06FF},
+    /* Devanagari letters */
+    {0x0904, 0x0939}, {0x093D, 0x093D}, {0x0950, 0x0950},
+    {0x0958, 0x0961},
+    /* Thai letters */
+    {0x0E01, 0x0E30}, {0x0E32, 0x0E33}, {0x0E40, 0x0E46},
+    /* Hiragana */
+    {0x3041, 0x3096}, {0x309D, 0x309F},
+    /* Katakana */
+    {0x30A1, 0x30FA}, {0x30FC, 0x30FF},
+    /* CJK Unified Ideographs (basic + extension A) */
+    {0x3400, 0x4DBF}, {0x4E00, 0x9FFF},
+    /* Hangul Syllables */
+    {0xAC00, 0xD7A3},
+};
+
+static const UProp_Range UCD_NUMBER[] = {
+    /* Latin-1 numeric */
+    {0x00B2, 0x00B3}, {0x00B9, 0x00B9}, {0x00BC, 0x00BE},
+    /* Arabic-Indic digits */
+    {0x0660, 0x0669}, {0x06F0, 0x06F9},
+    /* NKo */
+    {0x07C0, 0x07C9},
+    /* Devanagari digits */
+    {0x0966, 0x096F},
+    /* Bengali */
+    {0x09E6, 0x09EF}, {0x09F4, 0x09F9},
+    /* Gurmukhi / Gujarati / Oriya / Tamil / Telugu / Kannada / Malayalam */
+    {0x0A66, 0x0A6F}, {0x0AE6, 0x0AEF}, {0x0B66, 0x0B6F},
+    {0x0BE6, 0x0BF2}, {0x0C66, 0x0C6F}, {0x0CE6, 0x0CEF},
+    {0x0D66, 0x0D75},
+    /* Sinhala / Thai / Lao / Tibetan / Myanmar */
+    {0x0DE6, 0x0DEF}, {0x0E50, 0x0E59}, {0x0ED0, 0x0ED9},
+    {0x0F20, 0x0F33}, {0x1040, 0x1049}, {0x1090, 0x1099},
+    /* Khmer / Mongolian */
+    {0x17E0, 0x17E9}, {0x1810, 0x1819},
+    /* Fullwidth digits */
+    {0xFF10, 0xFF19},
+};
+
+#define UCD_LETTER_N (int)(sizeof(UCD_LETTER) / sizeof(UCD_LETTER[0]))
+#define UCD_NUMBER_N (int)(sizeof(UCD_NUMBER) / sizeof(UCD_NUMBER[0]))
+
+static int uprop_range_contains(const UProp_Range *t, int n, int32_t cp) {
+    int lo = 0, hi = n - 1;
+    while (lo <= hi) {
+        int mid = (lo + hi) >> 1;
+        if (cp < t[mid].lo) hi = mid - 1;
+        else if (cp > t[mid].hi) lo = mid + 1;
+        else return 1;
+    }
+    return 0;
+}
+
+/* CharClass.u_props bitfield values (see CharClass struct). */
+#define UP_LETTER 0x01u
+#define UP_NUMBER 0x02u
+
 /* ============================================================
  * Char class — 256-bit bitmap + inversion bit. One per CLASS
  * instruction. Owned by the RegExp.
@@ -136,11 +259,18 @@ static int utf8_encode_cp(int32_t cp, uint8_t out[4]) {
 typedef struct {
     uint8_t bits[32];
     uint8_t negate;
+    /* P9.3-A2 — Unicode property bitfield. When set (via \p{NAME} in
+     * a u-flag pattern), cc_test_cp consults the static UCD tables for
+     * cp ≥ 128. ASCII portion of each property lives in the regular
+     * bitmap (populated by cc_add_property_*). Class-level `negate`
+     * still applies after the union. */
+    uint8_t u_props;
 } CharClass;
 
 static void cc_clear(CharClass *cc) {
     for (int i = 0; i < 32; i++) cc->bits[i] = 0;
     cc->negate = 0;
+    cc->u_props = 0;
 }
 static void cc_add(CharClass *cc, uint8_t ch) {
     cc->bits[ch >> 3] |= (uint8_t)(1u << (ch & 7));
@@ -151,6 +281,30 @@ static void cc_add_range(CharClass *cc, uint8_t lo, uint8_t hi) {
 }
 static int cc_test(const CharClass *cc, uint8_t ch) {
     int in = (cc->bits[ch >> 3] >> (ch & 7)) & 1;
+    return cc->negate ? !in : in;
+}
+
+/* P9.3-A2 — code-point membership test for u flag.
+ *
+ * cp < 128 is bitmap-tested (ASCII portion of any property lives in
+ * the bitmap, populated by cc_add_property_*). cp ≥ 128 with no
+ * u_props set is a miss (bitmap doesn't reach there). cp ≥ 128 with
+ * u_props bits set scans the curated UCD tables. Class-level negate
+ * inverts after the OR. */
+static int cc_test_cp(const CharClass *cc, int32_t cp) {
+    int in = 0;
+    if (cp >= 0 && cp < 256) {
+        in = (cc->bits[cp >> 3] >> (cp & 7)) & 1;
+    }
+    if (!in && cc->u_props && cp >= 0x80) {
+        if ((cc->u_props & UP_LETTER) &&
+            uprop_range_contains(UCD_LETTER, UCD_LETTER_N, cp)) {
+            in = 1;
+        } else if ((cc->u_props & UP_NUMBER) &&
+                   uprop_range_contains(UCD_NUMBER, UCD_NUMBER_N, cp)) {
+            in = 1;
+        }
+    }
     return cc->negate ? !in : in;
 }
 
@@ -173,6 +327,25 @@ static void cc_add_space(CharClass *cc) {
     cc_add(cc, '\v');
     cc_add(cc, '\f');
     cc_add(cc, '\r');
+}
+
+/* P9.3-A2 — \p{NAME} class population. ASCII portion lands in the
+ * bitmap; cp ≥ 128 portion is covered by UCD_* range tables (see
+ * cc_test_cp). v0.1 supports L (Letter), N (Number), ASCII; aliases
+ * resolved by parse_escape. */
+static void cc_add_property_letter(CharClass *cc) {
+    cc_add_range(cc, 'A', 'Z');
+    cc_add_range(cc, 'a', 'z');
+    cc->u_props |= UP_LETTER;
+}
+static void cc_add_property_number(CharClass *cc) {
+    cc_add_range(cc, '0', '9');
+    cc->u_props |= UP_NUMBER;
+}
+static void cc_add_property_ascii(CharClass *cc) {
+    /* \p{ASCII} = [\x00-\x7F] — bitmap covers it entirely; no u_props
+     * bit needed (cp ≥ 128 never matches ASCII). */
+    for (int c = 0; c <= 0x7F; c++) cc_add(cc, (uint8_t)c);
 }
 
 /* Capture-group limits — used by parser (name table) and matcher
@@ -446,6 +619,58 @@ static Node *parse_escape(Parser *ps) {
             }
             return seq;
         }
+        case 'p':
+        case 'P': {
+            /* `\p{NAME}` / `\P{NAME}` — Unicode property class.
+             * Requires u flag (per ECMA-262 §22.2.1.1). Without u flag,
+             * fall through to literal `p`/`P` for back-compat.
+             * v0.1 supports L (Letter), N (Number), ASCII. Unknown
+             * names → SyntaxError. */
+            if (!(ps->flags & RE_FLAG_U)) {
+                Node *n = node_new(NK_CHAR);
+                n->ch = c;
+                return n;
+            }
+            if (p_eof(ps) || p_peek(ps) != '{') { ps->err = 1; return NULL; }
+            p_get(ps); /* consume `{` */
+            const uint8_t *name_start = ps->p + ps->i;
+            while (!p_eof(ps) && p_peek(ps) != '}') {
+                uint8_t ch = p_peek(ps);
+                /* Accept word bytes for property name. (Real spec
+                 * allows `=` for Name=Value form — L3b follow-up.) */
+                if (!is_word_byte(ch)) { ps->err = 1; return NULL; }
+                p_get(ps);
+            }
+            if (p_eof(ps)) { ps->err = 1; return NULL; }
+            int name_len = (int)(ps->p + ps->i - name_start);
+            if (name_len == 0) { ps->err = 1; return NULL; }
+            p_get(ps); /* consume `}` */
+            Node *n = node_new(NK_CLASS);
+            cc_clear(&n->cc);
+            int matched = 0;
+            if ((name_len == 1 && name_start[0] == 'L')
+                || (name_len == 6 && memcmp(name_start, "Letter", 6) == 0)) {
+                cc_add_property_letter(&n->cc);
+                matched = 1;
+            } else if ((name_len == 1 && name_start[0] == 'N')
+                       || (name_len == 6 && memcmp(name_start, "Number", 6) == 0)) {
+                cc_add_property_number(&n->cc);
+                matched = 1;
+            } else if (name_len == 5 && memcmp(name_start, "ASCII", 5) == 0) {
+                cc_add_property_ascii(&n->cc);
+                matched = 1;
+            }
+            if (!matched) {
+                node_free(n);
+                ps->err = 1;
+                return NULL;
+            }
+            /* `\P{X}` — negate at class level. (Inside [^...] this
+             * stacks: cc_test_cp applies class-level negate after the
+             * union, matching the bun observable behavior.) */
+            if (c == 'P') n->cc.negate = 1;
+            return n;
+        }
         default: {
             /* Any other char after \ is literal (covers \. \* \+ \?
              * \( \) \[ \] \{ \} \| \\ \/ \^ \$ — and unknown escapes
@@ -532,6 +757,36 @@ static Node *parse_class(Parser *ps) {
                     else { ps->err = 1; node_free(n); return NULL; }
                     c = v;
                     break;
+                }
+                case 'p': {
+                    /* P9.3-A2 — `\p{NAME}` inside `[...]` under u flag.
+                     * OR-unions the property into the current class.
+                     * Without u flag, falls through to literal `p`.
+                     * `\P{X}` inside class (complement) is L3b. */
+                    if (!(ps->flags & RE_FLAG_U)) { c = e; break; }
+                    if (p_eof(ps) || p_peek(ps) != '{') { ps->err = 1; node_free(n); return NULL; }
+                    p_get(ps); /* consume `{` */
+                    const uint8_t *ns = ps->p + ps->i;
+                    while (!p_eof(ps) && p_peek(ps) != '}') {
+                        if (!is_word_byte(p_peek(ps))) { ps->err = 1; node_free(n); return NULL; }
+                        p_get(ps);
+                    }
+                    if (p_eof(ps)) { ps->err = 1; node_free(n); return NULL; }
+                    int nl = (int)(ps->p + ps->i - ns);
+                    if (nl == 0) { ps->err = 1; node_free(n); return NULL; }
+                    p_get(ps); /* consume `}` */
+                    int ok = 0;
+                    if ((nl == 1 && ns[0] == 'L')
+                        || (nl == 6 && memcmp(ns, "Letter", 6) == 0)) {
+                        cc_add_property_letter(&n->cc); ok = 1;
+                    } else if ((nl == 1 && ns[0] == 'N')
+                               || (nl == 6 && memcmp(ns, "Number", 6) == 0)) {
+                        cc_add_property_number(&n->cc); ok = 1;
+                    } else if (nl == 5 && memcmp(ns, "ASCII", 5) == 0) {
+                        cc_add_property_ascii(&n->cc); ok = 1;
+                    }
+                    if (!ok) { ps->err = 1; node_free(n); return NULL; }
+                    continue;
                 }
                 default: c = e;
             }
@@ -1621,8 +1876,39 @@ static int64_t vm_match_at(
                     break;
                 }
                 case OP_CLASS: {
-                    if (pos < slen && cc_test(&p->classes[ins.a], s[pos])) {
-                        add_thread(&nxt_tl, &nxt_vt, pc + 1, p, s, slen, pos + 1, flags, t->saves);
+                    if (pos < slen) {
+                        const CharClass *cc = &p->classes[ins.a];
+                        int adv = 1;
+                        int match = 0;
+                        if (flags & RE_FLAG_U) {
+                            /* Decode one code point at s[pos]; test
+                             * against cc as a code-point set. Advance
+                             * by the encoded byte length and patch
+                             * u_skip on the scheduled thread(s) so the
+                             * outer loop waits adv-1 steps before
+                             * dispatching pc+1. Same u_skip pattern
+                             * as OP_ANYCHAR (P9.3-A1). */
+                            int ul = utf8_len_for(s[pos]);
+                            if (ul >= 1 && pos + ul <= slen) {
+                                int dec_len;
+                                int32_t cp = utf8_decode_cp(s + pos, &dec_len);
+                                adv = (dec_len > 0) ? dec_len : ul;
+                                match = cc_test_cp(cc, cp);
+                            } else {
+                                match = cc_test(cc, s[pos]);
+                            }
+                        } else {
+                            match = cc_test(cc, s[pos]);
+                        }
+                        if (match) {
+                            int n_before = nxt_tl.n;
+                            add_thread(&nxt_tl, &nxt_vt, pc + 1, p, s, slen, pos + adv, flags, t->saves);
+                            if (adv > 1) {
+                                for (int j = n_before; j < nxt_tl.n; j++) {
+                                    nxt_tl.list[j].u_skip = adv - 1;
+                                }
+                            }
+                        }
                     }
                     break;
                 }
