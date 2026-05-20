@@ -2470,11 +2470,23 @@ void *__torajs_str_replace_regex(
     int64_t out_len = 0;
     int64_t pos = 0;
     int64_t saves[REGEX_SAVE_SLOTS];
+    /* P9.4-A1.1 — sticky (`y`) anchors the inner search to `pos` and
+     * breaks on first miss. Without this the loop would skip over the
+     * anchor failure and find the next match elsewhere, which silently
+     * disagrees with bun (e.g. /a/gy on "aXab" → "YXab" not "YXYb"). */
+    int sticky = (re->flags & RE_FLAG_Y) ? 1 : 0;
 
     while (pos <= slen) {
         int64_t st, en;
-        if (!vm_search_from_with_ws(&re->prog, s, slen, pos, re->flags,
-                                    cur, nxt, vc, vn, &step_id, &st, &en, saves)) break;
+        int hit;
+        if (sticky) {
+            hit = vm_match_anchor(&re->prog, s, slen, pos, re->flags,
+                                  &st, &en, saves);
+        } else {
+            hit = vm_search_from_with_ws(&re->prog, s, slen, pos, re->flags,
+                                         cur, nxt, vc, vn, &step_id, &st, &en, saves);
+        }
+        if (!hit) break;
         emit_bytes(s + pos, st - pos, &out, &out_len, &out_cap);
         expand_repl(repl, repl_len, s, st, en, saves, re->n_captures,
                     &out, &out_len, &out_cap);
@@ -2524,11 +2536,20 @@ void *__torajs_str_replace_all_regex(
     int64_t out_len = 0;
     int64_t pos = 0;
     int64_t saves[REGEX_SAVE_SLOTS];
+    /* P9.4-A1.1 — sticky-aware loop (see replace_regex). */
+    int sticky = (re->flags & RE_FLAG_Y) ? 1 : 0;
 
     while (pos <= slen) {
         int64_t st, en;
-        if (!vm_search_from_with_ws(&re->prog, s, slen, pos, re->flags,
-                                    cur, nxt, vc, vn, &step_id, &st, &en, saves)) break;
+        int hit;
+        if (sticky) {
+            hit = vm_match_anchor(&re->prog, s, slen, pos, re->flags,
+                                  &st, &en, saves);
+        } else {
+            hit = vm_search_from_with_ws(&re->prog, s, slen, pos, re->flags,
+                                         cur, nxt, vc, vn, &step_id, &st, &en, saves);
+        }
+        if (!hit) break;
         emit_bytes(s + pos, st - pos, &out, &out_len, &out_cap);
         expand_repl(repl, repl_len, s, st, en, saves, re->n_captures,
                     &out, &out_len, &out_cap);
@@ -2567,10 +2588,19 @@ void *__torajs_str_split_regex(const void *str_ptr, const void *re_ptr) {
     uint32_t step_id = 0;
 
     int64_t pos = 0;
+    /* P9.4-A1.1 — sticky-aware loop (see replace_regex). */
+    int sticky = (re->flags & RE_FLAG_Y) ? 1 : 0;
     while (pos <= slen) {
         int64_t st, en;
-        if (!vm_search_from_with_ws(&re->prog, s, slen, pos, re->flags,
-                                    cur, nxt, vc, vn, &step_id, &st, &en, NULL)) break;
+        int hit;
+        if (sticky) {
+            hit = vm_match_anchor(&re->prog, s, slen, pos, re->flags,
+                                  &st, &en, NULL);
+        } else {
+            hit = vm_search_from_with_ws(&re->prog, s, slen, pos, re->flags,
+                                         cur, nxt, vc, vn, &step_id, &st, &en, NULL);
+        }
+        if (!hit) break;
         if (en == st) {
             /* Empty separator — JS specifies splitting after each char:
              * "ab".split(//) → ["a","b"]. We mirror that: take one byte,
@@ -2698,10 +2728,19 @@ void *__torajs_str_match_all_regex(const void *str_ptr, const void *re_ptr) {
 
     int64_t pos = 0;
     int64_t saves[REGEX_SAVE_SLOTS];
+    /* P9.4-A1.1 — sticky-aware loop (see replace_regex). */
+    int sticky = (re->flags & RE_FLAG_Y) ? 1 : 0;
     while (pos <= slen) {
         int64_t st, en;
-        if (!vm_search_from_with_ws(&re->prog, s, slen, pos, re->flags,
-                                    cur, nxt, vc, vn, &step_id, &st, &en, saves)) break;
+        int hit;
+        if (sticky) {
+            hit = vm_match_anchor(&re->prog, s, slen, pos, re->flags,
+                                  &st, &en, saves);
+        } else {
+            hit = vm_search_from_with_ws(&re->prog, s, slen, pos, re->flags,
+                                         cur, nxt, vc, vn, &step_id, &st, &en, saves);
+        }
+        if (!hit) break;
         /* Build exec-shape inner array [match, g1, g2, ...]. */
         void *inner = __torajs_arr_alloc(0);
         uint8_t *whole = str_from_bytes(s + st, en - st);
