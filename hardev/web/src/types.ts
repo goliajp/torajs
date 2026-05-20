@@ -97,6 +97,33 @@ export type Torajs = {
   conformance: Conformance
 }
 
+export type Rotation = {
+  rotationId: string
+  at: string
+  ts: number
+  trigger: 'self' | 'manual' | 'hook' | 'daemon'
+  prevHead: string
+  handoffSha: string
+  handoffAgeSec: number
+  conformanceBefore: string | null
+  commitsInSession: number | null
+}
+
+// autorun pillar (5th hardev pillar — rotation governance). P0+P0.1
+// shipped: manual trigger.sh + JSONL log; P1 (Stop hook + watcher +
+// auto-/clear + auto-resume) unlocks once baseline ≥ baselineTarget
+// rotations are accumulated. Null when no rows in rotations.jsonl yet.
+export type Autorun = {
+  total: number
+  baselineTarget: number
+  bySelf: number
+  byManual: number
+  byOther: number
+  last: Rotation | null
+  recent: Rotation[]
+  rotationsFile: string
+}
+
 export type SnapshotData = {
   generatedAt: string
   hardevVersion: string
@@ -110,4 +137,5 @@ export type SnapshotData = {
   bench: Bench
   commits: Commit[]
   headSha: string | null
+  autorun: Autorun | null
 }

@@ -1,5 +1,5 @@
 import rawData from './data.json'
-import type { Pillar, RoadmapPhase, SnapshotData } from './types'
+import type { Pillar, RoadmapPhase, Rotation, SnapshotData } from './types'
 
 const data = rawData as unknown as SnapshotData
 
@@ -40,6 +40,28 @@ function shortRanAt(iso: string): string {
   const m = String(d.getUTCMonth() + 1).padStart(2, '0')
   const day = String(d.getUTCDate()).padStart(2, '0')
   return `${y}-${m}-${day}`
+}
+
+function rotationStamp(iso: string): string {
+  // "2026-05-20T01:08:42Z" → "2026-05-20 01:08 UTC"
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  const y = d.getUTCFullYear()
+  const mo = String(d.getUTCMonth() + 1).padStart(2, '0')
+  const day = String(d.getUTCDate()).padStart(2, '0')
+  const hh = String(d.getUTCHours()).padStart(2, '0')
+  const mm = String(d.getUTCMinutes()).padStart(2, '0')
+  return `${y}-${mo}-${day} ${hh}:${mm} UTC`
+}
+
+function rotationAge(ts: number, nowSec: number): string {
+  // ts is unix seconds; nowSec is unix seconds of the snapshot
+  const diff = nowSec - ts
+  if (diff < 0) return 'just now'
+  if (diff < 60) return `${diff}s ago`
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`
+  return `${Math.floor(diff / 86400)}d ago`
 }
 
 // take the leading fact from a metrics.md `now` cell, drop the [M]/✅ noise
@@ -246,6 +268,91 @@ function Test262Card() {
   )
 }
 
+// hardev/autorun pillar (5th pillar — rotation governance). Reads
+// data.autorun (populated from hardev/autorun/rotations.jsonl by
+// snapshot.mjs). When null, renders an explicit stub instead of
+// fabricating numbers — same snapshot rule as Test262Card.
+function AutorunCard() {
+  const a = data.autorun
+  if (!a) {
+    return (
+      <div className="t262-card t262-empty">
+        <div className="t262-label">autorun · rotation log (5th pillar)</div>
+        <div className="t262-empty-body">
+          no rotations recorded yet — run <code>hardev/autorun/trigger.sh self</code> or{' '}
+          <code>manual</code> to append a row to <code>hardev/autorun/rotations.jsonl</code>
+        </div>
+      </div>
+    )
+  }
+  const nowSec = Math.floor(new Date(data.generatedAt).getTime() / 1000)
+  const baselineMet = a.total >= a.baselineTarget
+  const baselinePct = Math.min(100, Math.round((a.total / a.baselineTarget) * 100))
+  return (
+    <div className="t262-card">
+      <div className="t262-row">
+        <div className="t262-main">
+          <div className="t262-headline">
+            {a.total}
+            <span className="d">/{a.baselineTarget}</span>
+            <span className="pct">{baselinePct}%</span>
+          </div>
+          <div className="t262-label">
+            autorun · rotation governance (5th pillar · P0+P0.1 shipped)
+          </div>
+        </div>
+        <div className="t262-breakdown">
+          <span>
+            <b>{a.bySelf}</b> self
+          </span>
+          <span>
+            <b>{a.byManual}</b> manual
+          </span>
+          {a.byOther > 0 && (
+            <span>
+              <b>{a.byOther}</b> other
+            </span>
+          )}
+          <span>
+            P1 watcher <b>{baselineMet ? 'unlocked' : `${a.baselineTarget - a.total} rows away`}</b>
+          </span>
+        </div>
+      </div>
+      {a.recent.length > 0 && (
+        <table className="autorun-recent">
+          <thead>
+            <tr>
+              <th>rotation</th>
+              <th>when</th>
+              <th>trigger</th>
+              <th>HEAD</th>
+              <th>handoff age</th>
+              <th>conformance</th>
+            </tr>
+          </thead>
+          <tbody>
+            {a.recent.map((r: Rotation) => (
+              <tr key={r.rotationId}>
+                <td className="case">{r.rotationId}</td>
+                <td>{rotationAge(r.ts, nowSec)}</td>
+                <td>{r.trigger}</td>
+                <td>{r.prevHead}</td>
+                <td>{r.handoffAgeSec}s</td>
+                <td>{r.conformanceBefore ?? '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      <div className="t262-stamp">
+        log: <code>{a.rotationsFile}</code>
+        {a.last && ` · last ${rotationStamp(a.last.at)}`} · P1 unlocks at ≥{a.baselineTarget} rows
+        (Stop hook + watcher + auto-/clear + auto-resume)
+      </div>
+    </div>
+  )
+}
+
 // SECTION 02 — Benchmark (the torajs proof): torajs vs the world.
 function Bench() {
   const b = data.bench
@@ -347,6 +454,8 @@ function Hardev() {
           what hardev buys torajs development — measured dev-loop velocity, conformance-equivalent
           (629/0/1) · latest: v{cl[0]?.version} {cl[0]?.title}
         </p>
+
+        <AutorunCard />
       </div>
     </section>
   )

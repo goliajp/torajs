@@ -305,6 +305,76 @@ function parseTest262() {
 }
 const test262 = parseTest262()
 
+// ── autorun: rotation governance log (5th pillar, P0+P0.1 shipped) ───────
+// Reads hardev/autorun/rotations.jsonl (one JSON object per line) and
+// summarises baseline progress + trigger distribution + recent rotations.
+// File absent or empty → autorun = null (dashboard renders an explicit
+// "no rotations recorded" stub rather than fabricating numbers).
+function parseAutorun() {
+  const path = join(HARDEV_DIR, 'autorun', 'rotations.jsonl')
+  let raw
+  try {
+    raw = read(path)
+  } catch {
+    return null
+  }
+  const lines = raw.split('\n').filter((l) => l.trim().length > 0)
+  if (lines.length === 0) return null
+  const rotations = []
+  for (const [i, line] of lines.entries()) {
+    let j
+    try {
+      j = JSON.parse(line)
+    } catch (e) {
+      throw new Error(
+        `snapshot: ${path} line ${i + 1} is not valid JSON — ${e.message}`
+      )
+    }
+    const required = [
+      'rotationId',
+      'at',
+      'ts',
+      'trigger',
+      'prevHead',
+      'handoffSha',
+      'handoffAgeSec',
+    ]
+    for (const k of required) {
+      if (!(k in j)) {
+        throw new Error(
+          `snapshot: ${path} line ${i + 1} missing field "${k}" — schema drift?`
+        )
+      }
+    }
+    rotations.push({
+      rotationId: j.rotationId,
+      at: j.at,
+      ts: j.ts,
+      trigger: j.trigger,
+      prevHead: j.prevHead,
+      handoffSha: j.handoffSha,
+      handoffAgeSec: j.handoffAgeSec,
+      conformanceBefore: j.conformanceBefore ?? null,
+      commitsInSession: j.commitsInSession ?? null,
+    })
+  }
+  rotations.sort((a, b) => b.ts - a.ts)
+  const bySelf = rotations.filter((r) => r.trigger === 'self').length
+  const byManual = rotations.filter((r) => r.trigger === 'manual').length
+  const byOther = rotations.length - bySelf - byManual
+  return {
+    total: rotations.length,
+    baselineTarget: 10,
+    bySelf,
+    byManual,
+    byOther,
+    last: rotations[0] ?? null,
+    recent: rotations.slice(0, 10),
+    rotationsFile: 'hardev/autorun/rotations.jsonl',
+  }
+}
+const autorun = parseAutorun()
+
 // ── conformance: latest known, grep'd from metrics.md / CHANGELOG ────────
 function findConformance() {
   const sources = [metricsMd, read(join(HARDEV_DIR, 'CHANGELOG.md'))]
@@ -411,6 +481,7 @@ const data = {
   },
   commits,
   headSha,
+  autorun,
 }
 
 const outPath = join(WEB_DIR, 'src', 'data.json')
@@ -440,4 +511,13 @@ if (test262) {
   )
 } else {
   console.log(`  test262: (no hardev/test262-latest.json — run torajs-test262 --json to populate)`)
+}
+if (autorun) {
+  const last = autorun.last
+  console.log(
+    `  autorun: ${autorun.total}/${autorun.baselineTarget} rotations · self ${autorun.bySelf} / manual ${autorun.byManual}` +
+      (last ? ` · last ${last.rotationId} (${last.trigger}) @ ${last.at}` : '')
+  )
+} else {
+  console.log(`  autorun: (no hardev/autorun/rotations.jsonl rows yet)`)
 }

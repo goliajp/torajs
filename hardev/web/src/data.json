@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-05-19T22:00:24.820Z",
+  "generatedAt": "2026-05-20T03:16:14.432Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 629,
@@ -26,8 +26,8 @@
     "passRateTrAccepted": 92.5
   },
   "torajs": {
-    "commit": "2486552",
-    "commitSubject": "FLAKE-FIX: serialize LLVM codegen via COMPILE_LOCK at ssa_inkwell source",
+    "commit": "641f0b3",
+    "commitSubject": "P8.3-A2: parser accepts `static { ... }` + loud panic until A3",
     "phase": "P8",
     "phaseTitle": "Class spec full (private + static blocks + accessor + super)",
     "conformance": {
@@ -559,6 +559,26 @@
   },
   "commits": [
     {
+      "hash": "641f0b3",
+      "subject": "P8.3-A2: parser accepts `static { ... }` + loud panic until A3"
+    },
+    {
+      "hash": "551a34a",
+      "subject": "P8.3-A1: ClassDecl static_init AST shape migration"
+    },
+    {
+      "hash": "a21f297",
+      "subject": "hardev/autorun P0.1: allow one-line status after trigger (UX gap fix)"
+    },
+    {
+      "hash": "869914d",
+      "subject": "hardev/autorun P0: rotation protocol + manual trigger + JSONL log"
+    },
+    {
+      "hash": "aaaef71",
+      "subject": "DASH-T262: test262 headline metric on devserver (:6002)"
+    },
+    {
       "hash": "2486552",
       "subject": "FLAKE-FIX: serialize LLVM codegen via COMPILE_LOCK at ssa_inkwell source"
     },
@@ -585,27 +605,50 @@
     {
       "hash": "acd6202",
       "subject": "P8.2-A1+A2: parser detects get/set; AST records AccessorKind"
-    },
-    {
-      "hash": "4ebdc5b",
-      "subject": "docs: roadmap — P8.1 SHIPPED (5/5 substrate done)"
-    },
-    {
-      "hash": "e966db8",
-      "subject": "P8.1-A4/A5: parse-time mangling for this.#x + round-trip fixture"
-    },
-    {
-      "hash": "915afa9",
-      "subject": "P8.1-A3: parser accepts #ident after dot (member access)"
-    },
-    {
-      "hash": "cb806d3",
-      "subject": "P8.1-A2: parser accepts #ident as private class field (mangled)"
-    },
-    {
-      "hash": "2747225",
-      "subject": "P8.1-A1: lexer recognizes #ident as PrivateIdent token"
     }
   ],
-  "headSha": "2486552"
+  "headSha": "641f0b3",
+  "autorun": {
+    "total": 2,
+    "baselineTarget": 10,
+    "bySelf": 2,
+    "byManual": 0,
+    "byOther": 0,
+    "last": {
+      "rotationId": "r-1779239322-6428",
+      "at": "2026-05-20T01:08:42Z",
+      "ts": 1779239322,
+      "trigger": "self",
+      "prevHead": "641f0b3",
+      "handoffSha": "sha256:7996f96e982e47fb8131fcb870915baf2118955c1b7623a8f1907443162112de",
+      "handoffAgeSec": 2,
+      "conformanceBefore": "631/0/1",
+      "commitsInSession": null
+    },
+    "recent": [
+      {
+        "rotationId": "r-1779239322-6428",
+        "at": "2026-05-20T01:08:42Z",
+        "ts": 1779239322,
+        "trigger": "self",
+        "prevHead": "641f0b3",
+        "handoffSha": "sha256:7996f96e982e47fb8131fcb870915baf2118955c1b7623a8f1907443162112de",
+        "handoffAgeSec": 2,
+        "conformanceBefore": "631/0/1",
+        "commitsInSession": null
+      },
+      {
+        "rotationId": "r-1779230667-6b3d",
+        "at": "2026-05-19T22:44:27Z",
+        "ts": 1779230667,
+        "trigger": "self",
+        "prevHead": "869914d",
+        "handoffSha": "sha256:80b12efacad462a0abb6ae9b237f747c692c49e5f024b0aec85506e9df5c161c",
+        "handoffAgeSec": 0,
+        "conformanceBefore": "631/0/1",
+        "commitsInSession": null
+      }
+    ],
+    "rotationsFile": "hardev/autorun/rotations.jsonl"
+  }
 }
