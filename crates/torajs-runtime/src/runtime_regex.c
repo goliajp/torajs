@@ -2025,6 +2025,15 @@ static int vm_search_from(
     uint32_t step_id = 0;
     int hit = 0;
     for (int64_t st = from_pos; st <= slen; st++) {
+        /* Under u flag, start positions must land on code-point
+         * boundaries — skip UTF-8 continuation bytes so the matcher
+         * doesn't decode a continuation byte (0x80..0xBF) as a stand-
+         * alone code point and accidentally satisfy `[^\p{...}]`
+         * mid-sequence. P9.3-A2 fix. */
+        if ((flags & RE_FLAG_U) && st < slen
+            && (s[st] & 0xC0u) == 0x80u) {
+            continue;
+        }
         int64_t end = vm_match_at(p, s, slen, st, flags, cur, nxt, vc, vn,
                                   &step_id, out_saves, -1);
         if (end >= 0) {
@@ -2056,6 +2065,10 @@ static int vm_search_from_with_ws(
     int64_t *out_saves
 ) {
     for (int64_t st = from_pos; st <= slen; st++) {
+        if ((flags & RE_FLAG_U) && st < slen
+            && (s[st] & 0xC0u) == 0x80u) {
+            continue;
+        }
         int64_t end = vm_match_at(p, s, slen, st, flags, cur, nxt, vc, vn,
                                   step_id_ref, out_saves, -1);
         if (end >= 0) {
