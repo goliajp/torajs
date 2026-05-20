@@ -516,7 +516,56 @@ fields, static blocks, accessor properties, super-in-arrow.
       (independent of inference scope, lift_arrow_fns emits the closure
       as immediate callee — substrate gap in ssa_lower call-site
       dispatch).
-- [ ] **P8.5** Class expressions as values
+- [x] **P8.5** Class expressions as values — SHIPPED A1+A2
+      `769a224` (parser-level substrate) + `<A2>` (fixture-lock +
+      roadmap). ES §15.7.4 ClassExpression covered: anonymous form
+      (`const F = class { ... }`), named-inner-discarded form (`const
+      F = class Inner { ... }`), extends form (`const F = class
+      extends A { ... }`), and parenthesized-new-callee form (`new
+      (class { ... })()`). Strategy (a) parser-synth ClassDecl +
+      value-ref Ident — parse_primary's new Token::Class branch buffers
+      the class as `__ClassExpr_<id>` in a `synth_classes` Vec (flushed
+      before each stmt push in parse_program to preserve parent-
+      before-child + synth-before-use ordering), emits Ident at the use
+      site; the existing class-as-value substrate (`__class_<C>` +
+      synthesize_class_globals's Ident rewrite) lifts it uniformly.
+      parse_new gained Token::Class + Token::LParen arms for the
+      `new class { ... }()` and `new (...)()` forms. A narrow alias map
+      (`class_value_aliases: HashMap`) registers `const F = class {
+      ... }` bindings so `new F()` rewrites to the static factory
+      `__new___ClassExpr_<id>` at parse time — avoids a downstream
+      dynamic-ctor-dispatch substrate. A2 fixtures: `class-expr-001-
+      anonymous.ts` (single-method / ctor+field / two distinct
+      classes / alias chain / cross-method call), `class-expr-002-
+      named-extends.ts` (inner-name discarded, extends with method
+      override, alias-of-extends), `class-expr-003-immediate-new.ts`
+      (bare IIFE, IIFE-with-ctor-args, no-paren `new class`, extends
+      with own ctor, instance-as-value-through-fn). Conformance
+      634 → 637 (+3). Substrate-untouched downstream (desugar_classes
+      / synthesize_class_globals / check / ssa_lower zero changes).
+
+      L3b follow-ups (parked, not P8.5 scope):
+      - Inner self-binding (`class Inner { ... }` body referencing
+        Inner currently fails — Inner is discarded by force_synth)
+      - Anonymous `.name === ""` per spec (currently
+        `"__ClassExpr_<id>"`)
+      - Full dynamic-ctor-dispatch substrate for `let F = class {};
+        F = ...; new F()` / `function makeF() {...}; const F =
+        makeF(); new F()` / arbitrary callee expressions through New
+      - Alias scope-stack for fn-body shadowing (inner const-decl
+        currently overwrites outer alias of the same name)
+      - 3+ classes sharing the same method name → dispatch corruption
+        (pre-existing, surfaced by P8.5-A2 fixture draft; reproducible
+        with literal top-level form too — `class A { tag() {...} }
+        class B { tag() {...} } class C { tag() {...} }` emits
+        `a c c` instead of `a b c`)
+      - Subclass without own constructor inheriting parent's
+        constructor signature (pre-existing — subclass default-ctor
+        synthesis ignores parent's arity; reproducible with literal
+        top-level subclass form)
+
+      With P8.5 shipped, P8 is fully closed (P8.1/2/3/4/5 all done) —
+      P8 → P9 phase trigger met.
 
 ---
 
