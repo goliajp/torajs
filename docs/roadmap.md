@@ -576,8 +576,36 @@ groups, Unicode flag, sticky flag.
 
 **Substrate checklist** (strict order):
 
-- [ ] **P9.1** Lookbehind / lookahead (current NFA needs backtracking
-      extension)
+- [x] **P9.1** Lookbehind / lookahead — SHIPPED A1+A2 `0404b08`
+      (runtime_regex.c lookbehind substrate) + `<A2>` (fixture-lock +
+      roadmap). Lookahead `(?=X)` / `(?!X)` was already in place from
+      Phase 1c.4 (sub-Program + sub_probe at current pos); P9.1 lands
+      lookbehind `(?<=X)` / `(?<!X)` to complete the zero-width
+      assertion set. Approach (B) variable-width: vm_match_at gains an
+      `end_target` param (-1 = leftmost-first as before; ≥0 = only
+      MATCH at pos==end_target commits + outer loop short-circuits once
+      pos > end_target), and a new `sub_probe_ending_at` scans candidate
+      start positions j ∈ [0..pos] invoking vm_match_at on the forward
+      sub-Program with end_target = pos. The forward-compile sub stays
+      shared with lookahead — no second compile mode. A2 fixtures:
+      `regex-008-lookbehind.ts` (positive/negative × at-start /
+      mid-pattern / combined-with-lookahead), `regex-009-lookbehind-
+      variable.ts` (alternation in body / quantifier in body / char-
+      class with quantifier / negative-with-quantifier), `regex-010-
+      lookbehind-replace.ts` (replace / replaceAll / match / .test()
+      with anchors). Conformance 637 → 6XX (+3). No AST / parser /
+      lookahead behavioral change.
+
+      Why Approach B vs (A) reverse-compile sub: minimal AST surface
+      (no second compile mode), narrow-surface fix per 设计原则 #4
+      (规范). Worst-case O(pos · sub_len) acceptable for v0.1 — body
+      lengths in practice are short. Upgrade path to (A) replaces only
+      sub_probe_ending_at; AST / op / parser stay put — a future
+      perf-axis phase can swap implementations transparently.
+
+      P9.1 closing advances L3a to P9.2 (named capture groups + back-
+      references). P9 phase has 5 substeps; closing all unlocks P9→P10
+      trigger.
 - [ ] **P9.2** Named capture groups + back-references
 - [ ] **P9.3** Unicode flag (`u` / `v`) — character class handling
 - [ ] **P9.4** Sticky flag (`y`) — lastIndex semantics
