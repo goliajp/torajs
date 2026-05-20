@@ -656,7 +656,90 @@ groups, Unicode flag, sticky flag.
         correctness gap.
 
       P9.2 closing advances L3a to P9.3 (Unicode flag).
-- [ ] **P9.3** Unicode flag (`u` / `v`) — character class handling
+- [x] **P9.3** Unicode flag (`u`) — character class handling — SHIPPED
+      A1+A2+A2.1+A3 `3fd8cfe` (A1: `\u{}` / `\uHHHH` escape + `.`
+      astral) + `97dcf93` (A2: `\p{Letter|Number|ASCII}` + OP_CLASS
+      code-point) + `6244622` (A2.1: search start-pos skips UTF-8
+      continuation bytes) + `<A3>` (fixtures + this roadmap).
+
+      A1 adds u-flag mechanics: parse_escape recognises `\u{HHHH..}`
+      (extended form, u flag only) and `\uHHHH` (4-digit form,
+      always — also fixes a pre-existing parser bug where `\uHHHH`
+      was treated as literal `u<digits>` even without u flag). Both
+      forms encode to UTF-8 bytes and emit as NK_CONCAT of NK_CHARs,
+      so the byte-step Thompson NFA matches the encoded sequence
+      naturally without a new opcode. `.` (OP_ANYCHAR) under u flag
+      advances by `utf8_len_for(s[pos])` (1–4 bytes); the destination
+      thread is patched with a new `Thread.u_skip` defer counter so
+      the outer step queue waits adv-1 steps (consuming continuation
+      bytes implicitly) before dispatching the next op. Bypass-
+      visited defer keeps the queued thread alive across step swaps
+      without colliding with fresh entrants at the same pc — same
+      pattern as P9.2-A1's OP_BACKREF `br_offset`.
+
+      A2 adds Unicode property classes: `\p{L|Letter}`, `\p{N|Number}`,
+      `\p{ASCII}` parsed in parse_escape (outside class) and
+      parse_class (inside `[...]` — OR-unions into the existing
+      class). `\P{X}` outside class = class-level negate. ASCII
+      portion lives in the regular bitmap; cp ≥ 128 portion is
+      covered by curated UCD subset tables (Greek, Cyrillic, Hebrew,
+      Arabic, Devanagari, Thai, Hiragana, Katakana, CJK, Hangul,
+      common decimal-digit scripts). A new CharClass.u_props bitfield
+      + cc_test_cp helper dispatches: cp < 256 → bitmap, cp ≥ 128 →
+      uprop_range_contains binary search. OP_CLASS under u flag
+      decodes one code point at s[pos] via utf8_decode_cp, tests via
+      cc_test_cp, and reuses the A1 u_skip patch for multi-byte
+      advance.
+
+      A2.1 is a follow-up to A2: the byte-iterating search start
+      loops (vm_search_from + vm_search_from_with_ws) skip UTF-8
+      continuation bytes (`(s[st] & 0xC0) == 0x80`) under u flag,
+      so `/[^\p{L}]/u.test("漢")` doesn't accidentally accept the
+      mid-sequence continuation byte 0xBC as a stand-alone non-
+      Letter code point. Code-point-aligned start positions only.
+
+      A3 fixtures: `regex-015-unicode-flag.ts` (extended `\u{}` BMP
+      + astral, `\uHHHH` with/without u flag, `.` astral + anchored,
+      `.match(/./u)` for emoji / BMP / ASCII, `.+` over multiple
+      astrals, mixed ASCII+astral, literal multi-byte in pattern,
+      `\u{}` leading-zero variants), `regex-016-unicode-properties.ts`
+      (\p{L|Letter} / \p{N|Number} / \p{ASCII} positive, \P
+      negation, .match with \p{L}+, /\p{L}+/gu global, `[\p{L}\p{N}]/u`
+      union, `[^\p{L}]/u` class-level negate, mixed bitmap+property
+      `[a-z\p{N}]/u`, replace with property, anchored property,
+      alias resolution). Conformance 644 → 6XX (+2 with the new
+      fixtures).
+
+      Narrow-surface design choice (per [[feedback-narrow-abi-
+      surface]]): no new opcode, no Inst layout change, no Node
+      field addition. Code-point semantics realised entirely via the
+      Thread.u_skip defer queue + CharClass.u_props bitfield +
+      static UCD tables — same narrow-surface playbook as P9.1
+      (sub_probe_ending_at) and P9.2 (br_offset). The Thompson NFA
+      "1 byte per outer step" invariant is preserved; u-flag work
+      happens in scheduled-defer pattern instead of changing the
+      outer loop's step granularity.
+
+      L3b follow-ups recorded:
+      - Full UCD property tables — v0.1 ships hand-curated subsets
+        (Greek/Cyrillic/Hebrew/Arabic/CJK/Hangul/Hiragana/Katakana
+        + common-script decimals). Real \p{L} has hundreds of
+        ranges; auto-import from UCD data files is L3b. Dominant
+        test262 cases pass with the curated subset.
+      - `\P{X}` inside class (complement semantics inside `[...]`)
+        — current v0.1 errors out; correct semantics requires either
+        per-property complement tables or a "negative-bitfield" mode
+        on CharClass.
+      - `v` flag (ES2024 set notation `[[\p{X}--[a-z]]]`) — separate
+        substep beyond v0.1.
+      - Lone surrogate handling — `"\uD800".match(/\uD800/)` differs
+        from bun's UTF-16 view (tora's WTF-8 byte representation
+        doesn't perfectly round-trip ill-formed inputs). Edge of
+        spec, low test262 impact.
+      - Property=Value form (`\p{Script=Latin}`) — parser accepts
+        only Name-only form; Name=Value is L3b.
+
+      P9.3 closing advances L3a to P9.4 (Sticky flag).
 - [ ] **P9.4** Sticky flag (`y`) — lastIndex semantics
 - [ ] **P9.5** `String.prototype.replace(regex, fn)` callback form
 
