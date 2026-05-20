@@ -35,7 +35,8 @@ Establishing metrics *immediately* paid off (this is the point):
   `torajs-core`** `[M]`. That 28.5 s × hundreds/session is the
   dominant dev-loop tax. Fix = a fast iteration profile for
   functional+conformance work (semantics are opt-level-invariant →
-  629/0/1 still proves correctness, coverage unchanged), bench+ship
+  646/0/1 still proves correctness, coverage unchanged — was 629/0/1
+  at v0.1.0 first-measure, now 646 post P9.3/P9.4 fixtures), bench+ship
   keep fat-LTO release. This is *exactly* why metrics precede
   optimization: a global tool's global snapshot had been written into
   ground truth as a torajs-specific conclusion, hiding the true lever.
@@ -44,7 +45,7 @@ Establishing metrics *immediately* paid off (this is the point):
 
 | Metric | now (v0.1.0) | after v1 | after v2 |
 |---|---|---|---|
-| full conformance wall (629 cases) | **~3.0–3.5 min** `[M]` parallel 8-worker (174–208 s ×N this session; shipped `6ab22f9`, was ~30 min serial) | ≤ 2 min (artifact-precheck skips timed re-verify when tr unchanged) `[D]` | ≤ 30 s for the common "tr unchanged" case `[D]` |
+| full conformance wall (646 cases) | **~3.0–3.5 min** `[M]` parallel 8-worker (174–208 s ×N this session at 629 cases; shipped `6ab22f9`, was ~30 min serial; case count now 646 post P9.3/P9.4 — wall holds linear) | ≤ 2 min (artifact-precheck skips timed re-verify when tr unchanged) `[D]` | ≤ 30 s for the common "tr unchanged" case `[D]` |
 | **edit→rebuild `tr` wall** (THE inner-loop metric) | **2.49 s idle / 4.46 s under heavy load** `[M]` ✅ devperf #1 SHIPPED — `[profile.iter]`; was **28.5 s** under `--release`. **Re-measured on REAL P7.5 dev work (2026-05-19, takagi "test if hardev actually speeds dev"): 4.46 s** under this session's heavy concurrent load = **~6.4×**; idle best-case ~11.4×. The order-of-magnitude gain (seconds vs half-a-minute) is real and held on real torajs substrate work, not a synthetic micro-bench. correctness-equivalence proven (conformance under iter tr = 629/0/1). bench+ship keep `--release` | hold ≤ 5 s typical; track | ≤ 2 s `[D]` |
 | sccache hit rate | **structurally ~0 % for torajs inner loop** `[M]` — global shared server, bin/changed-src non-cacheable by design (NOT a fixable misconfig) | n/a — dropped as a torajs lever (was a misconception); deps-only cold-start benefit is incidental | n/a |
 | no-op rebuild | **0.05 s** `[M]` (cargo correctly skips; steady-state optimal) | unchanged | unchanged |

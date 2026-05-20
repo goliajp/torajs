@@ -1,11 +1,11 @@
 {
-  "generatedAt": "2026-05-20T17:34:32.940Z",
+  "generatedAt": "2026-05-20T17:46:27.392Z",
   "hardevVersion": "0.1.14",
   "conformance": {
-    "pass": 629,
+    "pass": 646,
     "fail": 0,
     "skip": 1,
-    "raw": "629/0/1"
+    "raw": "646/0/1"
   },
   "test262": {
     "ranAt": "2026-05-19T22:00:04Z",
@@ -26,15 +26,15 @@
     "passRateTrAccepted": 92.5
   },
   "torajs": {
-    "commit": "fb2fd0c",
-    "commitSubject": "P9.4-A2: regex sticky fixture-lock + roadmap [SHIPPED]",
-    "phase": "P8",
-    "phaseTitle": "Class spec full (private + static blocks + accessor + super)",
+    "commit": "f587735",
+    "commitSubject": "chore: refresh hardev dashboard snapshot for rotation #9 close",
+    "phase": "P9",
+    "phaseTitle": "Regex full",
     "conformance": {
-      "pass": 629,
+      "pass": 646,
       "fail": 0,
       "skip": 1,
-      "raw": "629/0/1"
+      "raw": "646/0/1"
     }
   },
   "roadmap": [
@@ -81,12 +81,12 @@
     {
       "id": "P8",
       "title": "Class spec full (private + static blocks + accessor + super)",
-      "status": "CURRENT"
+      "status": "DONE"
     },
     {
       "id": "P9",
       "title": "Regex full",
-      "status": "queued"
+      "status": "CURRENT"
     },
     {
       "id": "P10",
@@ -145,8 +145,8 @@
       "name": "devperf",
       "tagline": "dev-loop performance",
       "scope": "build/cache speed, sccache, project-private cargo-target, the real levers (not folklore)",
-      "metricName": "full conformance wall (629 cases)",
-      "status": "~3.0–3.5 min [M] parallel 8-worker (174–208 s ×N this session; shipped 6ab22f9, was ~30 min serial)"
+      "metricName": "full conformance wall (646 cases)",
+      "status": "~3.0–3.5 min [M] parallel 8-worker (174–208 s ×N this session at 629 cases; shipped 6ab22f9, was ~30 min serial; case count now 646 post P9.3/P9.4 — wall holds linear)"
     },
     {
       "key": "cleanup",
@@ -559,6 +559,10 @@
   },
   "commits": [
     {
+      "hash": "f587735",
+      "subject": "chore: refresh hardev dashboard snapshot for rotation #9 close"
+    },
+    {
       "hash": "fb2fd0c",
       "subject": "P9.4-A2: regex sticky fixture-lock + roadmap [SHIPPED]"
     },
@@ -601,31 +605,38 @@
     {
       "hash": "8a5aa61",
       "subject": "P9.2-A1: regex named groups + backref runtime"
-    },
-    {
-      "hash": "e1f8219",
-      "subject": "P9.1-A2: fixture-lock + roadmap [SHIPPED]"
     }
   ],
-  "headSha": "fb2fd0c",
+  "headSha": "f587735",
   "autorun": {
-    "total": 8,
+    "total": 9,
     "baselineTarget": 10,
-    "bySelf": 8,
+    "bySelf": 9,
     "byManual": 0,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1779279071-6982",
-      "at": "2026-05-20T12:11:11Z",
-      "ts": 1779279071,
+      "rotationId": "r-1779298696-6306",
+      "at": "2026-05-20T17:38:16Z",
+      "ts": 1779298696,
       "trigger": "self",
-      "prevHead": "00e54fc",
-      "handoffSha": "sha256:c36e8cfabb573b88382d8e713619b191c5347fd0a22d4d1e9a2d6b156ad0f416",
-      "handoffAgeSec": 5,
-      "conformanceBefore": "644/0/1",
+      "prevHead": "f587735",
+      "handoffSha": "sha256:d69990632bff4a61c7affeeee9b0fbbb2669183176fb2c74ba02828dff8cf956",
+      "handoffAgeSec": 4,
+      "conformanceBefore": "646/0/1",
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1779298696-6306",
+        "at": "2026-05-20T17:38:16Z",
+        "ts": 1779298696,
+        "trigger": "self",
+        "prevHead": "f587735",
+        "handoffSha": "sha256:d69990632bff4a61c7affeeee9b0fbbb2669183176fb2c74ba02828dff8cf956",
+        "handoffAgeSec": 4,
+        "conformanceBefore": "646/0/1",
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1779279071-6982",
         "at": "2026-05-20T12:11:11Z",

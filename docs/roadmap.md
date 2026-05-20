@@ -430,7 +430,7 @@ spec-conformant.
 
 ---
 
-### P8 — Class spec full (private + static blocks + accessor + super) (CURRENT)
+### P8 — Class spec full (private + static blocks + accessor + super) (DONE)
 
 **Goal**: complete the class feature set started in P4 — private
 fields, static blocks, accessor properties, super-in-arrow.
@@ -569,7 +569,7 @@ fields, static blocks, accessor properties, super-in-arrow.
 
 ---
 
-### P9 — Regex full
+### P9 — Regex full (CURRENT)
 
 **Goal**: spec-complete RegExp incl. lookahead / lookbehind, named
 groups, Unicode flag, sticky flag.
