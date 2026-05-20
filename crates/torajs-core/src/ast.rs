@@ -2958,16 +2958,24 @@ pub fn desugar_classes(ast: &mut Ast) {
                 type_params.clone(),
                 parent.clone(),
                 fields.clone(),
-                // P8.3-A1: snapshot only the Field variants; the desugar
-                // path below still operates on StaticField. Block emit
-                // ships in A3 (along with parser support in A2). Until
-                // then no Block can reach this filter — parser is the
-                // sole producer and only emits Field.
+                // P8.3-A1/A2: snapshot only the Field variants; the desugar
+                // emit body below still walks Vec<StaticField>. P8.3-A3
+                // rewrites this snapshot to walk Vec<StaticInit> directly
+                // and emit `__sb_<C>__<idx>` calls in source order. Until
+                // A3 ships we PANIC on Block (rather than silently dropping
+                // its stmts) — silent-wrong is rejected per
+                // [[feedback_no_tech_debt]]; the parser accepts `static { ... }`
+                // since A2 so the loud failure tells the user exactly which
+                // phase step is missing.
                 static_init
                     .iter()
-                    .filter_map(|si| match si {
-                        StaticInit::Field(sf) => Some(sf.clone()),
-                        StaticInit::Block(_) => None,
+                    .map(|si| match si {
+                        StaticInit::Field(sf) => sf.clone(),
+                        StaticInit::Block(_) => panic!(
+                            "P8.3 incomplete: class `{name}` contains a `static {{ ... }}` block; \
+                             parser accepts the syntax (P8.3-A2 shipped) but desugar emit is \
+                             pending (P8.3-A3). Remove the static block until P8.3 phase completes."
+                        ),
                     })
                     .collect::<Vec<StaticField>>(),
                 ctor.clone(),

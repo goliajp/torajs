@@ -5400,7 +5400,7 @@ impl Parser<'_> {
             }
         }
         let mut fields: Vec<(String, String)> = Vec::new();
-        let mut static_fields: Vec<ast::StaticField> = Vec::new();
+        let mut static_init: Vec<StaticInit> = Vec::new();
         let mut ctor: Option<ClassCtor> = None;
         let mut methods: Vec<ClassMethod> = Vec::new();
         let mut static_methods: Vec<ClassMethod> = Vec::new();
@@ -5417,10 +5417,44 @@ impl Parser<'_> {
             //   - `fieldName: T;`                       (instance field)
             //   - `static methodName(params): R? { body }`  (M-OO.4)
             //   - `static fieldName: T = init;`              (M-OO.4)
+            //   - `static { stmts; }`                        (P8.3-A2; ES2022 §15.7.10)
             // We disambiguate by lookahead: ident then `(` ⇒ ctor or method;
             // ident then `:` ⇒ field declaration. The `static` modifier is a
             // contextual keyword: only treated as such when the next token
             // is a valid member name shape.
+
+            // P8.3-A2 — `static { ... }` class static block (ES2022 §15.7.10).
+            // Detected at the top of each iteration, before modifier parsing,
+            // because the `is_static`-modifier dispatch below assumes `static`
+            // precedes a member NAME, not a block body. Visibility / readonly
+            // / abstract are not valid on static blocks per spec, so refusing
+            // to consume them above the block is correct — `public static {}`
+            // and similar fall through to the existing modifier-misapplication
+            // error.
+            if let Token::Ident(s) = self.peek()
+                && s == "static"
+                && matches!(
+                    self.tokens.get(self.pos + 1).map(|t| &t.token),
+                    Some(Token::LBrace)
+                )
+            {
+                self.pos += 2; // consume `static` + `{`
+                let mut block_stmts: Vec<Stmt> = Vec::new();
+                while !matches!(self.peek(), Token::RBrace | Token::Eof) {
+                    let s = self.parse_stmt()?;
+                    block_stmts.push(s);
+                }
+                if !matches!(self.peek(), Token::RBrace) {
+                    return Err(format!(
+                        "expected `}}` to close static-block in class `{name}` at {}",
+                        self.at()
+                    ));
+                }
+                self.pos += 1; // consume `}`
+                static_init.push(StaticInit::Block(block_stmts));
+                continue;
+            }
+
             // M-OO.5 — visibility / readonly modifiers (contextual
             // keywords). Order in TS: `[public|private|protected]
             // [static] [readonly] [abstract] memberName`. We accept
@@ -5930,11 +5964,11 @@ impl Parser<'_> {
                         if matches!(self.peek(), Token::Semi) {
                             self.pos += 1;
                         }
-                        static_fields.push(ast::StaticField {
+                        static_init.push(StaticInit::Field(ast::StaticField {
                             name: member_name,
                             type_ann: ty,
                             init,
-                        });
+                        }));
                     } else {
                         // V3-18 wedge — accept `name: T = <init>` for
                         // instance fields. Init runs in ctor scope
@@ -6001,11 +6035,11 @@ impl Parser<'_> {
                             .insert((name.clone(), member_name.clone()));
                     }
                     if is_static {
-                        static_fields.push(ast::StaticField {
+                        static_init.push(StaticInit::Field(ast::StaticField {
                             name: member_name,
                             type_ann: ty,
                             init,
-                        });
+                        }));
                     } else {
                         field_inits.push((member_name.clone(), init));
                         fields.push((member_name, ty));
@@ -6073,10 +6107,7 @@ impl Parser<'_> {
             parent,
             is_abstract,
             fields,
-            // P8.3-A1: parser still only collects `static name: T = init`
-            // entries (wrapped here as Field). Static-block recognition
-            // (`static { ... }` → StaticInit::Block(stmts)) lands in A2.
-            static_init: static_fields.into_iter().map(StaticInit::Field).collect(),
+            static_init,
             ctor,
             methods,
             static_methods,
