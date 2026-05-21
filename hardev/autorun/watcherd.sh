@@ -86,11 +86,21 @@ if ! "$SCRIPT_DIR/check.sh" "$rid" >&2; then
 fi
 
 # 3. Target pane discovery.
+#    Priority:
+#      1. HARDEV_AUTORUN_TMUX_TARGET env var (explicit; recommended)
+#      2. tmux session "hardev-autorun-sink" if it exists (P1.5 dogfood
+#         sink — lets the pipeline be exercised without touching the
+#         real Claude Code session)
+#      3. pane whose current command or title contains "claude"
+#      4. pane whose current command or title contains "node" (Claude
+#         Code TUI runs under node)
 target="${HARDEV_AUTORUN_TMUX_TARGET:-}"
 if [ -z "$target" ] && command -v tmux >/dev/null 2>&1; then
-  # Find a pane whose current command or title contains "claude" or
-  # "node" (Claude Code TUI runs under node). Prefer "claude" match
-  # over generic "node".
+  if tmux has-session -t hardev-autorun-sink 2>/dev/null; then
+    target='hardev-autorun-sink'
+  fi
+fi
+if [ -z "$target" ] && command -v tmux >/dev/null 2>&1; then
   target=$(tmux list-panes -a -F '#{pane_id} #{pane_current_command} #{pane_title}' 2>/dev/null \
     | grep -Ei '\bclaude\b' | head -1 | awk '{print $1}')
   if [ -z "$target" ]; then
