@@ -993,9 +993,41 @@ generator full state machine. v5 merges v4's P9 (Promise) + P14
       .race / .allSettled / .any per spec). P10 phase has 7
       substeps; closing all unlocks P10 → P11 trigger.
 - [ ] **P10.2** Promise.all / .race / .allSettled / .any per spec
-      (currently allSettled is single-T MVP)
-- [ ] **P10.2** Promise.all / .race / .allSettled / .any per spec
-      (currently allSettled is single-T MVP)
+      (currently allSettled is single-T MVP).
+
+      **IN PROGRESS** (resumed-session 2026-05-21):
+
+      - **A1** `5be6b5c` — `Promise.resolve()` / `Promise.reject()`
+        0-arg form per ES spec §27.2.4.7 / §27.2.4.5. 0-arg ≡
+        passing `undefined`. Inner T = `Type::Undefined`.
+        - check.rs:5167 — `args.is_empty()` early-returns
+          `Promise<Undefined>`; `args.len() > 1` errors as
+          "expects 0 or 1 arg".
+        - ssa_lower:17575 — new early branch for `args.is_empty()`
+          synthesizes `Operand::ConstI64(0)` (undefined sentinel,
+          shares i64-0 ABI with null) and dispatches the non-heap
+          `promise_alloc_fulfilled` / `_rejected` allocator. No
+          runtime / IR-helper changes.
+        - Fixture `conformance/cases/async-018-promise-resolve-0arg.ts`
+          covers `Promise.resolve().finally(...)` chain; byte-equal
+          vs bun. Gate **654/0/1** (baseline 653 + async-018, 0
+          regression).
+        - reject() 0-arg runtime-smoked (exit 0, no segfault);
+          fixture deferred to A1.1 once `.catch` accepts inner
+          T=Undefined.
+
+      **Follow-ups (next sub-A's)**:
+
+      - **A1.1** Extend `.then` / `.catch` to accept inner
+        T=Undefined so `Promise.resolve().then(cb)` and
+        `Promise.reject().catch(cb)` typecheck. cb sig design
+        choice open: bare-`() => U` ergonomic form vs spec
+        `(undefined) => U`; cb return propagation to next-stage
+        Promise<U>. Resolve pre-A1.1 ship.
+      - **A2..A_n** Promise.all / .race / .allSettled / .any per
+        spec — current `Promise.allSettled` is single-T MVP;
+        extend to heterogeneous T-tuples per spec.
+
 - [ ] **P10.3** Async iterator + for-await-of (depends on P5)
 - [ ] **P10.4** await on non-Promise: wrap via Promise.resolve
 - [ ] **P10.5** unhandledrejection handler hook
