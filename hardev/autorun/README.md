@@ -129,6 +129,57 @@ P1 扩展（不阻塞本次 ship）：
 **schema 不变性 (HARD RULE)**：现有字段不删、不改语义。新字段只追加，且默认
 允许缺失。下游消费者（dashboard、metrics 报告）必须 tolerate 旧记录。
 
+## INV-1..5 spec（P1.1 SHIPPED — `check.sh`）
+
+5 条 pre-act 不变量。任何一个 FAIL，rotation 都**不允许**继续（Stop hook
+不写 marker；watcher 不发 tmux send-keys）。机器化把 P0 baseline 暴露
+出来的真实失败模式（row #6 `handoffAgeSec = 7489 s`）变成 gate。
+
+| ID | 不变量 | 失败 = 什么风险 | 实现 |
+|----|--------|----------------|------|
+| **INV-1** | `.claude/handoff.md` 的 mtime age < 90 s | handoff 描述的状态早于 trigger 时 HEAD —— 新 session 接到一份过时的 handoff（**这就是 P0 row #6 的真实失败**） | `autorun_file_age_sec` |
+| **INV-2** | `git -C <project> status --porcelain` 输出为空 | rotation 即将 /clear；未 commit 的改动（staged 或 unstaged）会对新 session 不可见 ⇒ 静默丢失 work | `git status --porcelain` |
+| **INV-3** | 当前 `conformanceBefore` ≥ `rotations.jsonl` 末尾一行的 `conformanceBefore`（按 first /-separated 数字比较） | rotation 之前已经引入了 conformance 回归而未察觉。P0 baseline 10 行天然 monotonic non-decreasing，P1 把它变成 gate 而非观察 | `autorun_conformance_now` + tail jsonl |
+| **INV-4** | `handoff.md` non-empty 且含 `> saved:` blockquote 行 | 文件存在但内容是 phantom（0 字节、半写、误 touch）—— mtime 满足 INV-1 也救不了，这是结构性 fallback | `grep -q '^> saved:' handoff.md` |
+| **INV-5** | 新生成 `rotation_id` 不在 `rotations.jsonl` 已有行中 | id 冲突会污染下游 audit / dashboard 的 join。绝对发生概率 ≈1/65536（同秒），guard 成本零 | `grep -q "\"rotationId\":\"$ID\"" rotations.jsonl` |
+
+调用约定：
+
+```
+hardev/autorun/check.sh [rotation_id]
+```
+
+- 缺 `rotation_id`：INV-5 SKIP，其余照跑
+- 退出 0：全部 PASS（或 SKIP）；适合作为 `&&` 链 gate
+- 退出 1：至少一个 FAIL；stderr 末尾一行 `FAILED: INV-N [INV-M ...]`
+- 退出 2：内部错误（lib.sh 缺、git 不可用、project dir 不存在）
+
+stdout 每条 INV 一行 `INV-N STATE detail`，行格式稳定供 P1.2 Stop hook
++ P1.3 watcher + `check_self_test.sh` parse。
+
+**Self-test**：`hardev/autorun/check_self_test.sh` — 4 case 端到端：
+GREEN happy / INV-1 stale / INV-2 dirty / INV-5 dup-id。Trap 恢复所有
+副作用（handoff.md mtime + fake-dirty marker）。在 GREEN tree 上手动跑
+应当 `4 pass · 0 fail` 退出 0。
+
+**调用现场**（P1.2 / P1.3 落地后）：
+
+```
+# Stop hook (P1.2):
+if [ -f "$INTENT_FILE" ]; then
+  rid=$(cat "$INTENT_FILE")
+  if "$AUTORUN_DIR/check.sh" "$rid" >&2; then
+    printf '%s\n' "$rid" > "$MARKER_FILE"
+  fi
+fi
+
+# Watcher (P1.3) — defense in depth re-check before acting:
+if "$AUTORUN_DIR/check.sh" >&2; then
+  tmux send-keys -t "$pane" '/clear' Enter
+  ...
+fi
+```
+
 ## P0 acceptance（本次 ship 验收口径）
 
 机器可判项：
