@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.hardev.autorun</string>
+
+    <!-- Single-shot watcherd, dry-run by default. Replace `--dry-run`
+         with `--apply` only after P1.5 dogfood. -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>@@PROJECT_DIR@@/hardev/autorun/watcherd.sh</string>
+        <string>--dry-run</string>
+    </array>
+
+    <!-- WatchPaths: launchd spawns the ProgramArguments every time
+         this path is created / modified / deleted. The rm at end of
+         watcherd produces a delete event but ProgramArguments
+         re-launch sees a missing marker and exits 0. -->
+    <key>WatchPaths</key>
+    <array>
+        <string>@@PROJECT_DIR@@/.claude/autorun-marker</string>
+    </array>
+
+    <key>StandardOutPath</key>
+    <string>@@HOME@@/Library/Logs/hardev/autorun.out.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>@@HOME@@/Library/Logs/hardev/autorun.err.log</string>
+
+    <key>WorkingDirectory</key>
+    <string>@@PROJECT_DIR@@</string>
+
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>KeepAlive</key>
+    <false/>
+
+    <!-- launchd's default PATH is minimal; ensure brew binaries
+         (tmux, fswatch) are reachable. -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+</dict>
+</plist>

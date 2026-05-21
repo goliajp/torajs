@@ -303,6 +303,67 @@ marker 在 GREEN 路径上消费一次（rm）。**RED 路径下 marker 也 rm**
 `--apply` 模式由 takagi 在 P1.5 dogfood 时显式开启；P1.3/P1.4 默认
 `--dry-run` 让 takagi 可以观察 5 次完整路径才决定 go-live。
 
+## launchd LaunchAgent（P1.4 SHIPPED — plist + install/uninstall）
+
+P1.4 把 watcherd 接到 launchd `WatchPaths`：每次 `.claude/autorun-marker`
+被 create / modify / delete, launchd 自动 spawn 一次 watcherd。**没有
+长驻 daemon**——launchd 本身 already 长驻，watcherd 是按事件 fork 的
+single-shot child。
+
+### 文件结构
+
+```
+hardev/autorun/com.hardev.autorun.plist.template   ← in tree, has placeholders
+hardev/autorun/install_launchd.sh                  ← sed-fills template → ~/Library/LaunchAgents/
+hardev/autorun/uninstall_launchd.sh                ← bootout + rm
+~/Library/LaunchAgents/com.hardev.autorun.plist    ← per-developer, NOT in tree
+~/Library/Logs/hardev/autorun.{out,err}.log         ← stdout/stderr of watcherd
+```
+
+### plist 关键字段
+
+| 字段 | 值 | 为什么 |
+|---|---|---|
+| `Label` | `com.hardev.autorun` | 唯一 launchctl id |
+| `ProgramArguments` | `[bash, watcherd.sh, --dry-run]` | safety default —— **不会真 send-keys** until takagi 显式改成 `--apply` |
+| `WatchPaths` | `.claude/autorun-marker` | launchd 监听文件 create/modify/delete |
+| `StandardOut/ErrPath` | `~/Library/Logs/hardev/autorun.{out,err}.log` | 持久 log；rm 不影响 service |
+| `RunAtLoad` | `false` | load 时不立即跑（双保险） |
+| `KeepAlive` | `false` | one-shot per event（watcherd 跑完即退） |
+| `EnvironmentVariables.PATH` | `/opt/homebrew/bin:...` | launchd 默认 PATH 太简，tmux/fswatch 找不到 |
+
+### Install / Uninstall
+
+```bash
+# Install (idempotent — replaces any existing load):
+hardev/autorun/install_launchd.sh
+
+# Disable / remove:
+hardev/autorun/uninstall_launchd.sh
+```
+
+`install_launchd.sh` 跑 `plutil -lint` 验 plist 合法，`launchctl bootstrap`
+load 进 GUI launchd domain。`uninstall_launchd.sh` `launchctl bootout`
++ `rm` plist。logs 保留供 audit。
+
+### 切换到 --apply
+
+P1.3 / P1.4 默认 `--dry-run`（watcherd 只 log，不真 tmux send-keys）。
+P1.5 dogfood 5 次 GREEN 之后再切：
+
+```bash
+# Edit plist in-place, swap dry-run → apply:
+sed -i.bak 's/--dry-run/--apply/' ~/Library/LaunchAgents/com.hardev.autorun.plist
+hardev/autorun/install_launchd.sh   # reload to pick up the change
+```
+
+### P1.4 验收
+
+1. `install_launchd.sh` exit 0；`launchctl list | grep hardev` 显示一行
+2. 写 `.claude/autorun-marker` → 5 s 内 launchd spawn watcherd →
+   marker 消失 + log 出现在 `~/Library/Logs/hardev/autorun.err.log`
+3. `uninstall_launchd.sh` exit 0；`launchctl list | grep hardev` 0 行
+
 ## P0 acceptance（本次 ship 验收口径）
 
 机器可判项：
