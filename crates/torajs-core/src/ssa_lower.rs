@@ -294,6 +294,125 @@ fn infer_arg_width(ast: &Ast, eid: ExprId) -> NumWidth {
     }
 }
 
+/// P9.5-A1.1 — count capture groups in a regex literal pattern. Used at
+/// ssa-lower time by the `s.replace(re, fn)` dispatch to determine the
+/// callback's expected arity (one match arg + N capture args). Mirrors
+/// the runtime parser's group counter but operates on the raw source-
+/// level pattern string (Expr::Regex.pattern) before tora's regex
+/// compiler runs.
+///
+/// Counting rules per ES spec §22.2.1:
+///   - `(` opens a capture group → +1
+///   - `(?:` `(?=` `(?!` `(?<=` `(?<!` open non-capturing constructs → 0
+///   - `(?<name>` is a named capture → +1 (rule for `<` not followed by `=`/`!`)
+///   - `\(` is a literal paren → 0
+///   - `[...]` char class: parens inside don't count
+///   - `\\` followed by any char escapes that char
+fn count_capture_groups(pattern: &str) -> usize {
+    let bytes = pattern.as_bytes();
+    let mut n = 0usize;
+    let mut in_class = false;
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if b == b'\\' {
+            i += 2;
+            continue;
+        }
+        if in_class {
+            if b == b']' {
+                in_class = false;
+            }
+            i += 1;
+            continue;
+        }
+        if b == b'[' {
+            in_class = true;
+            i += 1;
+            continue;
+        }
+        if b == b'(' {
+            // (?:, (?=, (?!, (?<=, (?<! → non-capturing
+            // (?<name> → capturing named group
+            if i + 2 < bytes.len() && bytes[i + 1] == b'?' {
+                let c = bytes[i + 2];
+                if c == b':' || c == b'=' || c == b'!' {
+                    i += 3;
+                    continue;
+                }
+                if c == b'<' && i + 3 < bytes.len() {
+                    let d = bytes[i + 3];
+                    if d == b'=' || d == b'!' {
+                        i += 4;
+                        continue;
+                    }
+                    // (?<name>... — capturing named group, fall through to +1
+                }
+            }
+            n += 1;
+        }
+        i += 1;
+    }
+    n
+}
+
+#[cfg(test)]
+mod count_capture_groups_tests {
+    use super::count_capture_groups;
+    #[test]
+    fn plain() {
+        assert_eq!(count_capture_groups("foo"), 0);
+        assert_eq!(count_capture_groups(""), 0);
+    }
+    #[test]
+    fn one_group() {
+        assert_eq!(count_capture_groups("(a)"), 1);
+    }
+    #[test]
+    fn nested_groups() {
+        assert_eq!(count_capture_groups("(a(b))"), 2);
+        assert_eq!(count_capture_groups("((a))"), 2);
+    }
+    #[test]
+    fn non_capturing() {
+        assert_eq!(count_capture_groups("(?:a)"), 0);
+        assert_eq!(count_capture_groups("(?=a)b"), 0);
+        assert_eq!(count_capture_groups("(?!a)b"), 0);
+        assert_eq!(count_capture_groups("(?<=a)b"), 0);
+        assert_eq!(count_capture_groups("(?<!a)b"), 0);
+    }
+    #[test]
+    fn named_capture() {
+        assert_eq!(count_capture_groups("(?<n>a)"), 1);
+        assert_eq!(count_capture_groups("(?<first>\\w+) (?<last>\\w+)"), 2);
+    }
+    #[test]
+    fn mixed() {
+        assert_eq!(count_capture_groups("(a)(?:b)(c)"), 2);
+        assert_eq!(count_capture_groups("(\\w+) (\\w+)"), 2);
+        assert_eq!(count_capture_groups("(a)(b)(c)"), 3);
+    }
+    #[test]
+    fn char_class_parens() {
+        assert_eq!(count_capture_groups("[(]"), 0);
+        assert_eq!(count_capture_groups("[(ab)]"), 0);
+        assert_eq!(count_capture_groups("([(a)])"), 1);
+    }
+    #[test]
+    fn escaped_parens() {
+        assert_eq!(count_capture_groups("\\("), 0);
+        assert_eq!(count_capture_groups("\\(a\\)"), 0);
+        assert_eq!(count_capture_groups("(a)\\("), 1);
+    }
+    #[test]
+    fn complex() {
+        // The common bun idiom: (\w+) (\w+) — 2 groups.
+        assert_eq!(count_capture_groups("(\\w+) (\\w+)"), 2);
+        // Mix: 1 named + 1 positional + 1 non-capturing.
+        assert_eq!(count_capture_groups("(?<key>\\w+)(?:=)(\\w+)"), 2);
+    }
+}
+
 /// Encode an annotation string into a name-safe form for use inside a
 /// monomorphized fn name. `number` → `number`; `number[]` → `number_arr`;
 /// `__fn(number)->number` → `fn_number_to_number`. Distinct user types
@@ -1983,22 +2102,25 @@ fn lower_inner(
         &[Type::Str, Type::RegExp, Type::Str],
         Type::Str,
     );
-    // P9.5-A1 — `s.replace(re, fn)` / `s.replaceAll(re, fn)` callback
-    // form. 3rd arg is the closure env block (env+8 holds the lifted
-    // body's fn_addr; runtime invokes (env, match_str) -> ret_str per
-    // match). Same env-pointer ABI as promise_then_closure.
+    // P9.5-A1 / A1.1 — `s.replace(re, fn)` / `s.replaceAll(re, fn)`
+    // callback form. 3rd arg is the closure env block (env+8 holds
+    // the lifted body's fn_addr — same env-pointer ABI as
+    // promise_then_closure). 4th arg is `n_caps` (number of capture
+    // groups in the regex literal, counted statically at ssa-lower
+    // time). Runtime builds N capture Strs from saves[] + invokes
+    // cb with (env, m, g1, ..., gN) via N-specific static cast.
     let regex_replace_fn_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
         "__torajs_str_replace_regex_fn",
-        &[Type::Str, Type::RegExp, Type::Ptr],
+        &[Type::Str, Type::RegExp, Type::Ptr, Type::I64],
         Type::Str,
     );
     let regex_replace_all_fn_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
         "__torajs_str_replace_all_regex_fn",
-        &[Type::Str, Type::RegExp, Type::Ptr],
+        &[Type::Str, Type::RegExp, Type::Ptr, Type::I64],
         Type::Str,
     );
     let regex_split_id = declare_intrinsic(
@@ -19640,47 +19762,91 @@ impl<'a> LowerCtx<'a> {
                                 debug_assert_eq!(args.len(), 2);
                                 let repl = self.lower_expr(args[1]);
                                 let repl_ty = self.operand_ty(&repl);
-                                // P9.5-A1 — fn-callback dispatch. Repl
-                                // arg is either Str (existing path,
-                                // $&/$N expansion via expand_repl) or
-                                // Closure (new path, runtime invokes
-                                // the closure per-match via env+8 ABI).
-                                let target = match (&repl_ty, method.as_str()) {
-                                    (Type::Str, "replace") => self.intrinsics.regex_replace,
-                                    (Type::Str, "replaceAll") => self.intrinsics.regex_replace_all,
-                                    (Type::Closure(sig_id), "replace")
-                                    | (Type::Closure(sig_id), "replaceAll") => {
-                                        // A1 narrow shape: callback must be
-                                        // exactly `(m: Str) -> Str`. Multi-
-                                        // arg callbacks (capture spread /
-                                        // offset+input) are A1.1 — reject
-                                        // here to avoid silent-wrong from
-                                        // C ABI mismatch in the runtime cb
-                                        // cast `(env, match_str) -> ret`.
+                                // P9.5-A1 / A1.1 — fn-callback dispatch.
+                                // Repl is either Str (existing $&/$N
+                                // expand_repl path) or Closure (env+8
+                                // ABI runtime invoke, with N capture
+                                // Strs built from saves[] per match).
+                                //
+                                // For Closure: count regex captures
+                                // statically from the literal pattern
+                                // and validate cb sig is exactly
+                                // `[Str; N+1] -> Str`. Mismatches +
+                                // N > 9 panic at compile-time; never
+                                // silent-wrong from cb cast mismatch.
+                                let (target, opt_n_caps) = match (&repl_ty, method.as_str()) {
+                                    (Type::Str, "replace") => (self.intrinsics.regex_replace, None),
+                                    (Type::Str, "replaceAll") => {
+                                        (self.intrinsics.regex_replace_all, None)
+                                    }
+                                    (Type::Closure(sig_id), m_name) => {
                                         let (params, ret_ty) =
                                             self.fn_sigs[sig_id.0 as usize].clone();
-                                        if params.as_slice() != [Type::Str] || ret_ty != Type::Str {
+                                        if ret_ty != Type::Str
+                                            || !params.iter().all(|t| t == &Type::Str)
+                                        {
                                             panic!(
-                                                "ssa-lower: P9.5-A1 s.{method}(re, fn) — fn must \
-                                                 be `(m: string) => string`, got params={params:?} \
-                                                 ret={ret_ty:?}. Multi-arg callback (capture-spread / \
-                                                 offset+input) is A1.1."
+                                                "ssa-lower: P9.5 s.{m_name}(re, fn) — fn must \
+                                                     have shape `(Str, Str, ..., Str) => Str`, got \
+                                                     params={params:?} ret={ret_ty:?}"
                                             );
                                         }
-                                        if method == "replace" {
+                                        if params.is_empty() {
+                                            panic!(
+                                                "ssa-lower: P9.5 s.{m_name}(re, fn) — fn must \
+                                                     take at least the match arg `(m: string)`"
+                                            );
+                                        }
+                                        let n_caps_expected = params.len() - 1;
+                                        if n_caps_expected > 9 {
+                                            panic!(
+                                                "ssa-lower: P9.5-A1.1 s.{m_name}(re, fn) — \
+                                                     max 9 capture-group cb args, got \
+                                                     {n_caps_expected}. Use the Str-repl form for \
+                                                     this case."
+                                            );
+                                        }
+                                        // For ident-bound regex tora
+                                        // can't count captures
+                                        // statically; A1.1 narrow
+                                        // scope = inline regex literal
+                                        // for N ≥ 1.
+                                        let n_caps_actual = match self.ast.get_expr(args[0]) {
+                                            Expr::Regex { pattern, .. } => {
+                                                count_capture_groups(pattern)
+                                            }
+                                            _ => 0,
+                                        };
+                                        if n_caps_actual != n_caps_expected {
+                                            panic!(
+                                                "ssa-lower: P9.5-A1.1 s.{m_name}(re, fn) — \
+                                                     regex has {n_caps_actual} capture group(s) \
+                                                     but cb takes {n_caps_expected} extra arg(s). \
+                                                     Note: ident-bound regex always assumed \
+                                                     0 captures; inline the regex literal to use \
+                                                     captures."
+                                            );
+                                        }
+                                        let fid = if m_name == "replace" {
                                             self.intrinsics.regex_replace_fn
                                         } else {
                                             self.intrinsics.regex_replace_all_fn
-                                        }
+                                        };
+                                        (fid, Some(n_caps_actual))
                                     }
                                     _ => panic!(
                                         "ssa-lower: s.{method}(re, repl) — repl must be Str \
-                                         or Closure, got {repl_ty:?}"
+                                             or Closure, got {repl_ty:?}"
                                     ),
                                 };
+
+                                let mut call_args = vec![recv_op, re_op, repl];
+                                if let Some(n_caps) = opt_n_caps {
+                                    call_args.push(Operand::ConstI64(n_caps as i64));
+                                }
                                 let v = self.f.append_inst(
                                     self.cur_block,
-                                    InstKind::Call(target, vec![recv_op, re_op, repl]),
+                                    InstKind::Call(target, call_args),
                                     Type::Str,
                                     None,
                                 );

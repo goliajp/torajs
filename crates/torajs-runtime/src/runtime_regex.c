@@ -2568,16 +2568,75 @@ void *__torajs_str_replace_all_regex(
     return result;
 }
 
-/* P9.5-A1 — `s.replace(re, fn)` callback form. `closure_env` is the
- * closure heap block (env+8 holds the lifted body's fn_addr; same ABI
- * as promise_then_closure). Per match, runtime constructs a temp Str
- * for the matched bytes, invokes `(env, match_str) -> ret_str`, and
- * emits ret_str's bytes into the output. Both temp Str's get rc-dec'd
- * inside the loop. When `re` carries `g`, behaves like replaceAll. */
-typedef void *(*replace_cb_fn_t)(void *env, void *match_str);
+/* P9.5-A1 / A1.1 — `s.replace(re, fn)` / `s.replaceAll(re, fn)`
+ * callback form. `closure_env` is the closure heap block (env+8
+ * holds the lifted body's fn_addr; same ABI as promise_then_closure).
+ * Per match, runtime constructs a temp Str for the matched bytes
+ * plus `n_caps` temp Strs for capture groups (saves[2*(i+1)..]) and
+ * invokes the cb. A1 was 0-capture only (typedef `(env, m) -> s`);
+ * A1.1 generalizes to N=0..9 captures, with `invoke_replace_cb`
+ * doing the static N-specific cast inside a switch.
+ *
+ * N > 9 is rejected at ssa-lower (clean compile-time panic). A1.1
+ * narrow scope: non-participating capture groups (saves slot == -1)
+ * emit an empty Str rather than `undefined` — bun spec uses
+ * undefined here; diverges from spec on this corner. Real
+ * `Nullable<Str>` cb params are A1.1.1 follow-up.
+ *
+ * Rc semantics: match_str + caps[] are constructed rc=1, passed
+ * borrowed to cb (cb does not dec), dropped by the helper after cb
+ * returns. ret_str from cb is owned (rc=1) — emit bytes + drop. */
+typedef void *(*replace_cb_0_t)(void *env, void *m);
+typedef void *(*replace_cb_1_t)(void *env, void *m, void *g1);
+typedef void *(*replace_cb_2_t)(void *env, void *m, void *g1, void *g2);
+typedef void *(*replace_cb_3_t)(void *env, void *m, void *g1, void *g2, void *g3);
+typedef void *(*replace_cb_4_t)(void *env, void *m, void *g1, void *g2, void *g3, void *g4);
+typedef void *(*replace_cb_5_t)(void *env, void *m, void *g1, void *g2, void *g3, void *g4, void *g5);
+typedef void *(*replace_cb_6_t)(void *env, void *m, void *g1, void *g2, void *g3, void *g4, void *g5, void *g6);
+typedef void *(*replace_cb_7_t)(void *env, void *m, void *g1, void *g2, void *g3, void *g4, void *g5, void *g6, void *g7);
+typedef void *(*replace_cb_8_t)(void *env, void *m, void *g1, void *g2, void *g3, void *g4, void *g5, void *g6, void *g7, void *g8);
+typedef void *(*replace_cb_9_t)(void *env, void *m, void *g1, void *g2, void *g3, void *g4, void *g5, void *g6, void *g7, void *g8, void *g9);
+
+static void *invoke_replace_cb(
+    int64_t n_caps, void *closure_env, void *fn_ptr, void *m, void **caps
+) {
+    switch ((int)n_caps) {
+    case 0: return ((replace_cb_0_t)fn_ptr)(closure_env, m);
+    case 1: return ((replace_cb_1_t)fn_ptr)(closure_env, m, caps[0]);
+    case 2: return ((replace_cb_2_t)fn_ptr)(closure_env, m, caps[0], caps[1]);
+    case 3: return ((replace_cb_3_t)fn_ptr)(closure_env, m, caps[0], caps[1], caps[2]);
+    case 4: return ((replace_cb_4_t)fn_ptr)(closure_env, m, caps[0], caps[1], caps[2], caps[3]);
+    case 5: return ((replace_cb_5_t)fn_ptr)(closure_env, m, caps[0], caps[1], caps[2], caps[3], caps[4]);
+    case 6: return ((replace_cb_6_t)fn_ptr)(closure_env, m, caps[0], caps[1], caps[2], caps[3], caps[4], caps[5]);
+    case 7: return ((replace_cb_7_t)fn_ptr)(closure_env, m, caps[0], caps[1], caps[2], caps[3], caps[4], caps[5], caps[6]);
+    case 8: return ((replace_cb_8_t)fn_ptr)(closure_env, m, caps[0], caps[1], caps[2], caps[3], caps[4], caps[5], caps[6], caps[7]);
+    case 9: return ((replace_cb_9_t)fn_ptr)(closure_env, m, caps[0], caps[1], caps[2], caps[3], caps[4], caps[5], caps[6], caps[7], caps[8]);
+    default:
+        fprintf(stderr, "__torajs_str_replace_regex_fn: n_caps=%lld out of range [0,9]\n", (long long)n_caps);
+        abort();
+    }
+}
+
+/* Build N capture Strs from saves[]. Each cap slot reads
+ * saves[2*(i+1)] / saves[2*(i+1)+1] (group 0 = whole match handled
+ * separately). Non-participating groups emit empty Str. Caller owns
+ * the returned Strs (rc=1 each) and must drop them. */
+static void build_capture_strs(
+    int64_t n_caps, const int64_t *saves, const uint8_t *s, void **out_caps
+) {
+    for (int64_t i = 0; i < n_caps; i++) {
+        int64_t gs = saves[2 * (i + 1)];
+        int64_t ge = saves[2 * (i + 1) + 1];
+        if (gs < 0 || ge < 0) {
+            out_caps[i] = str_from_bytes((const uint8_t *)"", 0);
+        } else {
+            out_caps[i] = str_from_bytes(s + gs, ge - gs);
+        }
+    }
+}
 
 void *__torajs_str_replace_regex_fn(
-    const void *str_ptr, const void *re_ptr, void *closure_env
+    const void *str_ptr, const void *re_ptr, void *closure_env, int64_t n_caps
 ) {
     if (!re_ptr || !closure_env) {
         return str_from_bytes(__TORAJS_STR_CDATA(str_ptr),
@@ -2590,9 +2649,8 @@ void *__torajs_str_replace_regex_fn(
     int global = (re->flags & RE_FLAG_G) ? 1 : 0;
 
     /* Load fn_addr from env+8 — same env-pointer ABI as
-     * promise_then_closure. Cast to (env*, match_str*) -> ret_str*. */
+     * promise_then_closure. */
     void *fn_ptr = *(void **)((uint8_t *)closure_env + 8);
-    replace_cb_fn_t cb = (replace_cb_fn_t)fn_ptr;
 
     Thread *cur = (Thread *)malloc(sizeof(Thread) * (size_t)re->prog.n_insts);
     Thread *nxt = (Thread *)malloc(sizeof(Thread) * (size_t)re->prog.n_insts);
@@ -2621,8 +2679,13 @@ void *__torajs_str_replace_regex_fn(
         emit_bytes(s + pos, st - pos, &out, &out_len, &out_cap);
 
         uint8_t *match_str = str_from_bytes(s + st, en - st);
-        void *ret_str = cb(closure_env, match_str);
+        void *caps[9] = {0};
+        build_capture_strs(n_caps, saves, s, caps);
+
+        void *ret_str = invoke_replace_cb(n_caps, closure_env, fn_ptr, match_str, caps);
+
         __torajs_str_drop(match_str);
+        for (int64_t i = 0; i < n_caps; i++) __torajs_str_drop(caps[i]);
         if (ret_str) {
             emit_bytes(__TORAJS_STR_CDATA(ret_str),
                        (int64_t)__TORAJS_STR_LEN(ret_str),
@@ -2646,11 +2709,8 @@ void *__torajs_str_replace_regex_fn(
     return result;
 }
 
-/* P9.5-A1 — `s.replaceAll(re, fn)` callback form. Mirrors replace_fn
- * minus the `!global` early-exit so every non-overlapping match
- * triggers cb invocation. */
 void *__torajs_str_replace_all_regex_fn(
-    const void *str_ptr, const void *re_ptr, void *closure_env
+    const void *str_ptr, const void *re_ptr, void *closure_env, int64_t n_caps
 ) {
     if (!re_ptr || !closure_env) {
         return str_from_bytes(__TORAJS_STR_CDATA(str_ptr),
@@ -2662,7 +2722,6 @@ void *__torajs_str_replace_all_regex_fn(
     int64_t slen = (int64_t)__TORAJS_STR_LEN(str_ptr);
 
     void *fn_ptr = *(void **)((uint8_t *)closure_env + 8);
-    replace_cb_fn_t cb = (replace_cb_fn_t)fn_ptr;
 
     Thread *cur = (Thread *)malloc(sizeof(Thread) * (size_t)re->prog.n_insts);
     Thread *nxt = (Thread *)malloc(sizeof(Thread) * (size_t)re->prog.n_insts);
@@ -2691,8 +2750,13 @@ void *__torajs_str_replace_all_regex_fn(
         emit_bytes(s + pos, st - pos, &out, &out_len, &out_cap);
 
         uint8_t *match_str = str_from_bytes(s + st, en - st);
-        void *ret_str = cb(closure_env, match_str);
+        void *caps[9] = {0};
+        build_capture_strs(n_caps, saves, s, caps);
+
+        void *ret_str = invoke_replace_cb(n_caps, closure_env, fn_ptr, match_str, caps);
+
         __torajs_str_drop(match_str);
+        for (int64_t i = 0; i < n_caps; i++) __torajs_str_drop(caps[i]);
         if (ret_str) {
             emit_bytes(__TORAJS_STR_CDATA(ret_str),
                        (int64_t)__TORAJS_STR_LEN(ret_str),
