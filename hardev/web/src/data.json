@@ -1,11 +1,11 @@
 {
-  "generatedAt": "2026-05-21T11:42:47.263Z",
+  "generatedAt": "2026-05-21T13:07:22.028Z",
   "hardevVersion": "0.1.14",
   "conformance": {
-    "pass": 653,
+    "pass": 656,
     "fail": 0,
     "skip": 1,
-    "raw": "653/0/1"
+    "raw": "656/0/1"
   },
   "test262": {
     "ranAt": "2026-05-19T22:00:04Z",
@@ -26,15 +26,15 @@
     "passRateTrAccepted": 92.5
   },
   "torajs": {
-    "commit": "edefc12",
-    "commitSubject": "P10.1-DONE: roadmap close + drain-coverage audit",
+    "commit": "ef3c895",
+    "commitSubject": "P10.2-A2: ssa_lower static_ctor whitelist for Promise statics",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
-      "pass": 653,
+      "pass": 656,
       "fail": 0,
       "skip": 1,
-      "raw": "653/0/1"
+      "raw": "656/0/1"
     }
   },
   "roadmap": [
@@ -145,8 +145,8 @@
       "name": "devperf",
       "tagline": "dev-loop performance",
       "scope": "build/cache speed, sccache, project-private cargo-target, the real levers (not folklore)",
-      "metricName": "full conformance wall (653 cases)",
-      "status": "~3.0–3.5 min [M] parallel 8-worker (174–208 s ×N this session at 629 cases; shipped 6ab22f9, was ~30 min serial; case count now 653 post P9.3/P9.4/P9.5/P10.1 — wall holds linear)"
+      "metricName": "full conformance wall (656 cases)",
+      "status": "~3.0–3.5 min [M] parallel 8-worker (174–208 s ×N this session at 629 cases; shipped 6ab22f9, was ~30 min serial; case count now 656 post P9.3/P9.4/P9.5/P10.1/P10.2 — wall holds linear)"
     },
     {
       "key": "cleanup",
@@ -559,6 +559,30 @@
   },
   "commits": [
     {
+      "hash": "ef3c895",
+      "subject": "P10.2-A2: ssa_lower static_ctor whitelist for Promise statics"
+    },
+    {
+      "hash": "e5a1944",
+      "subject": "P10.2-A1-DONE: roadmap A1 family close + A2 queue narrative"
+    },
+    {
+      "hash": "6c93b90",
+      "subject": "P10.2-A1.1: .then/.catch accept inner T=Undefined on Promise<Undefined>"
+    },
+    {
+      "hash": "c2535d0",
+      "subject": "P10.2-A1-A2: roadmap progress note — A1 SHIPPED, A1.1 queued"
+    },
+    {
+      "hash": "5be6b5c",
+      "subject": "P10.2-A1: Promise.resolve()/.reject() 0-arg = undefined"
+    },
+    {
+      "hash": "91d9329",
+      "subject": "chore(hardev): refresh dashboard after P10.1 ship"
+    },
+    {
       "hash": "edefc12",
       "subject": "P10.1-DONE: roadmap close + drain-coverage audit"
     },
@@ -581,51 +605,38 @@
     {
       "hash": "e7c951c",
       "subject": "chore(hardev): refresh dashboard after autorun P1 ship (10 commits this session)"
-    },
-    {
-      "hash": "6e55118",
-      "subject": "chore(hardev): autorun P1.5 dogfood 5/5 GREEN · pipeline live (--dry-run) (P1.5)"
-    },
-    {
-      "hash": "ff383ae",
-      "subject": "chore(hardev): autorun install_launchd --mode toggle (P1.4.1)"
-    },
-    {
-      "hash": "183ee27",
-      "subject": "chore(hardev): watcherd discovery prefers hardev-autorun-sink session (P1.3.1)"
-    },
-    {
-      "hash": "583240b",
-      "subject": "chore(hardev): autorun launchd LaunchAgent + install scripts (P1.4)"
-    },
-    {
-      "hash": "4f2b1c1",
-      "subject": "chore(hardev): autorun watcher single-shot · dual INV gate (P1.3)"
-    },
-    {
-      "hash": "5f4178a",
-      "subject": "chore(hardev): autorun Stop-hook handler · sentinel consumer (P1.2)"
     }
   ],
-  "headSha": "edefc12",
+  "headSha": "ef3c895",
   "autorun": {
-    "total": 11,
+    "total": 12,
     "baselineTarget": 10,
-    "bySelf": 11,
+    "bySelf": 12,
     "byManual": 0,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1779361154-05a3",
-      "at": "2026-05-21T10:59:14Z",
-      "ts": 1779361154,
+      "rotationId": "r-1779363927-0e0a",
+      "at": "2026-05-21T11:45:27Z",
+      "ts": 1779363927,
       "trigger": "self",
-      "prevHead": "e7c951c",
-      "handoffSha": "sha256:240e8794d7ca7aea043706dab7462d90d5f5b3c2983ef8de10f64f979d453f80",
-      "handoffAgeSec": 5,
-      "conformanceBefore": "650/0/1",
+      "prevHead": "91d9329",
+      "handoffSha": "sha256:ba1c7a02e6e3af20147b12dfa74c94f0eb668ae54f55011d15a111dd576d4515",
+      "handoffAgeSec": 7,
+      "conformanceBefore": "653/0/1",
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1779363927-0e0a",
+        "at": "2026-05-21T11:45:27Z",
+        "ts": 1779363927,
+        "trigger": "self",
+        "prevHead": "91d9329",
+        "handoffSha": "sha256:ba1c7a02e6e3af20147b12dfa74c94f0eb668ae54f55011d15a111dd576d4515",
+        "handoffAgeSec": 7,
+        "conformanceBefore": "653/0/1",
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1779361154-05a3",
         "at": "2026-05-21T10:59:14Z",
@@ -723,17 +734,6 @@
         "handoffSha": "sha256:9c22936f6b253adb558df6ee007ad3335c881054a4c7032b58aac5b168270f92",
         "handoffAgeSec": 3,
         "conformanceBefore": "632/0/1",
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1779239322-6428",
-        "at": "2026-05-20T01:08:42Z",
-        "ts": 1779239322,
-        "trigger": "self",
-        "prevHead": "641f0b3",
-        "handoffSha": "sha256:7996f96e982e47fb8131fcb870915baf2118955c1b7623a8f1907443162112de",
-        "handoffAgeSec": 2,
-        "conformanceBefore": "631/0/1",
         "commitsInSession": null
       }
     ],

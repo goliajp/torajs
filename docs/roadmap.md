@@ -1041,20 +1041,64 @@ generator full state machine. v5 merges v4's P9 (Promise) + P14
       P10.2-A1 family closed (A1 substrate + A1-A2 docs + A1.1
       substrate). Two gates monotonic 654 → 655 / 0 / 1.
 
+      - **A2** `ef3c895` — ssa_lower static_ctor whitelist for
+        Promise statics. Smoke probe during this rotation revealed
+        `Promise.race(ps).then(cb)` failed at lower time with
+        "not yet supported: ssa-lower: unsupported member call
+        shape: then". Root cause: `src_is_builtin_promise`
+        whitelist at `ssa_lower:~17098` recognized only resolve /
+        reject; the four T-17.a/b/c statics (all / race / any /
+        allSettled) returned `Type::Promise` from check.rs but
+        weren't picked up by the lowering whitelist, so chained
+        calls fell through to the (non-existent) user-class
+        fallback.
+        - ssa_lower:~17098 — extend `static_ctor` match's name
+          set to all six Promise namespace statics via
+          `matches!(src_m.as_str(), "resolve" | "reject" | "all"
+          | "race" | "any" | "allSettled")`. Pattern stays
+          identical (obj==Ident("Promise")).
+        - Zero runtime / IR-helper changes. Zero check.rs
+          changes (each static already returns Type::Promise).
+        - Fixture `conformance/cases/async-020-promise-race-any-then.ts`
+          chains `.then` on `Promise.race(ps)` and
+          `Promise.any(ps)` (both yield Promise<Undefined> for a
+          Promise<Undefined> input array; A1.1's then/catch arm
+          takes over from there). Byte-equal vs bun
+          (`sync\nrace-done\nany-done`).
+        - Gate **656/0/1** (baseline 655 + async-020, 0
+          regression).
+
+      Three gates monotonic 654 → 655 → 656 / 0 / 1. Rotation
+      closes here after A2 ship.
+
       **Next sub-A's queued**:
 
-      - **A2** Extend `Promise.allSettled` accepted T beyond
+      - **A3** Extend `Promise.allSettled` accepted T beyond
         Number-only. check.rs:5333 currently hard-errors with
         "T must be number in v0.5 MVP" — narrow MVP extends T to
         {Number, String, Boolean} primitive set (aligns with
-        `Promise.all` current T support). Heterogeneous
-        T-tuples (per spec) need PromiseId interning substrate
-        (T-15.g.6+), larger scope deferred.
-      - **A3** Smoke-verify Promise.all / .race / .any on
-        `Promise<Undefined>` — the existing arm at check.rs:5310
-        clones inner unconditionally and may already work.
+        `Promise.all` current T support). Result struct value
+        field type must track T monomorphically (each T →
+        distinct Struct type). Heterogeneous T-tuples (per spec)
+        need PromiseId interning substrate (T-15.g.6+), larger
+        scope deferred.
+      - **A4** Extend `.then` / `.catch` to accept inner
+        T=Array<U>. Blocks `Promise.all(ps).then(cb)` (currently
+        fails: "no member .then on type Promise(Array(Undefined))").
+        Mostly a check.rs widening; SSA/runtime unchanged (heap
+        ptr through i64 ABI is standard).
       - **A_n** Heterogeneous T-tuples for Promise.all /
         .allSettled per spec — depends on PromiseId interning.
+
+      **Naming-drift note (rotation boundary)**: e5a1944 (A1-DONE
+      docs) initially queued "A2" as "extend allSettled T". A
+      smoke probe right after A1.1 ship exposed the ssa_lower
+      whitelist gap, which was narrower + more foundational, so
+      this rotation shipped that as "A2" instead, and renamed
+      the allSettled T extension to A3. Mild rotation-protocol
+      trigger-#3 drift signal contributed to this rotation
+      closing here. Recorded so future audits trace the
+      sub-step naming progression cleanly.
 
 - [ ] **P10.3** Async iterator + for-await-of (depends on P5)
 - [ ] **P10.4** await on non-Promise: wrap via Promise.resolve
