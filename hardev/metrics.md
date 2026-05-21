@@ -110,12 +110,12 @@ slots, so a 1-week baseline can ground the P1 automation decisions.
 
 | Metric | now (v0.1.x) | after v1 | after v2 |
 |---|---|---|---|
-| rotations recorded | **`[D]` baseline pending** — `hardev/autorun/rotations.jsonl` per-developer; first row written by `hardev/autorun/trigger.sh` | ≥ 10 rotations / week (steady cadence visible) | dashboard panel surfaces 7-day rolling rate |
-| session length (commit→rotation interval) | **`[D]` baseline pending** — derived from `ts` of consecutive rotations | distribution stable to ±25 % (cadence predictable, not drift-driven) | dashboard surfaces median + p95 |
+| rotations recorded | **52 / week effective** `[M]` — 10 rows over 31.9 h (1.33 d) in `hardev/autorun/rotations.jsonl` @2026-05-21; cadence 5× spec floor (≥10/wk); all 10 `trigger=self` (agent self-eval rate = 100 %) | ≥ 10 rotations / week (steady cadence visible) — **met** | dashboard panel surfaces 7-day rolling rate |
+| session length (commit→rotation interval) | **median 125 min, mean 213 min, range 40–779 min** `[M]` — 9 gaps computed from 10 rows in `hardev/autorun/rotations.jsonl` @2026-05-21; the 2 long gaps (327 min, 779 min) are overnight, not drift | distribution stable to ±25 % (cadence predictable, not drift-driven) | dashboard surfaces median + p95 |
 | handoff fidelity | **`[D]` takagi hand-flagged** — % of post-rotation sessions where the first user message does NOT need to clarify lost state | ≥ 95 % | ≥ 99 %, auto-detected by comparing handoff vs first-turn outputs |
 | drift-incident rate | **`[D]` takagi hand-counted** — events per session where Claude broke a CLAUDE.md HARD RULE (Chinese-only / 4-layer / disk hygiene) | ↓ trend after rotation cadence stabilises | ≤ 1 / 10 sessions, auto-detected pre-rotation |
-| unstaged-loss incidents during rotation | **0** `[D]` (no measurement window opened yet — P0 has no automated /clear so the risk is currently zero by construction) | 0 (INV-2 enforced by P1 watcher pre-act gate) | 0 + automatic rollback if regression detected |
-| conformance regression introduced by rotation | **0** `[D]` (same caveat as above) | 0 (INV-3 enforced — post-rotation conformance ≥ pre-rotation) | 0 + post-rotation gate runs automatically |
+| unstaged-loss incidents during rotation | **0** `[M]` — 10 manual rotations 2026-05-19..21 with 0 incidents takagi-flagged; P0 has no automated /clear so risk is currently zero by construction | 0 (INV-2 enforced by P1 watcher pre-act gate) | 0 + automatic rollback if regression detected |
+| conformance regression introduced by rotation | **0** `[M]` — 10 rotations 2026-05-19..21, `conformanceBefore` 631 → 650 monotonic across the series (rotations.jsonl); 0 incidents takagi-flagged | 0 (INV-3 enforced — post-rotation conformance ≥ pre-rotation) | 0 + post-rotation gate runs automatically |
 | protocol surface | **CLAUDE.md HARD RULE «Autorun rotation protocol» + `hardev/autorun/README.md` (P0 SHIPPED)** `[M]` — sequence: `/handoff:handoff save` → `hardev/autorun/trigger.sh self` → no further tokens this turn | unchanged at v1 | unchanged |
 | automation level | **manual** `[M]` — operator runs `/clear` and `/handoff:handoff resume` themselves; the agent only records intent | **automatic** `[D]` — Stop hook writes marker, watcher (`launchd`) drives `/clear` + resume via `tmux send-keys` | self-healing — daemon heartbeats and crash-restarts itself, multi-project |
 
@@ -125,6 +125,55 @@ designed to gather. Filling them in is a normal v1 deliverable, NOT a
 debt. The headline judgement of this pillar is precisely that "ship
 mechanism without metric" is the wrong order; the slot stays empty
 until the trigger log has enough rows to compute one.
+
+### Baseline observation @2026-05-21 (10-row review per README §"后续路径")
+
+The first review window closed at `rotations.jsonl` row 10. Numbers in
+the *now* column above derive from this window; this sub-section keeps
+the qualitative observations the table cannot hold:
+
+1. **Cadence beats spec floor 5×.** 10 self-triggered rotations in
+   31.9 h (1.33 d) is `52 / week` extrapolated — well past the README
+   floor of `≥ 10 / wk`. The pillar is **not** waiting on cadence to
+   justify P1 automation; cadence is established.
+
+2. **Conformance trajectory is monotonic non-decreasing across the
+   window.** `conformanceBefore` goes `631 → 631 → 632 → 634 → 637 →
+   640 → 640 → 644 → 646 → 650`. The two flats (#1→#2 substrate-only
+   commit; #6→#7 dashboard-only commit) are explainable. P0 dogfood
+   itself introduced **0** conformance regressions — same as the *now*
+   number, with the underlying series as `[M]` provenance.
+
+3. **handoffAgeSec outlier — the canonical P1 case.** Row #6
+   (`r-1779265047-549c`, prevHead `e1f8219`) records
+   `handoffAgeSec = 7489` (≈2 h 5 min), an order of magnitude beyond
+   the planned `INV-1 < 90 s` boundary. Other 9 rows are ≤ 7 s. Reading
+   the row: `handoffSha` matches row #5's, but `prevHead` advanced —
+   i.e. `handoff.md` was saved 2 h before `trigger.sh` ran, and commits
+   were made in the interval. The handoff describing what shipped is
+   now strictly out of date relative to the trigger's `prevHead`. **In
+   P0 this fails silently and nobody notices.** This single row is the
+   strongest existing justification for P1 automation: the watcher
+   gate must refuse to write `.claude/autorun-marker` while
+   `handoff.md` is older than the configured threshold, forcing the
+   agent to re-save before the rotation can proceed.
+
+4. **Trigger source split is degenerate.** 10 / 10 rows are
+   `trigger = self`; zero `manual`. takagi has not had to step in
+   once. Good signal for P1 — the agent's self-eval is already the
+   working hand on the wheel, automation can ride on top without
+   changing who decides "now".
+
+5. **What remains `[D]` after this window.** Handoff fidelity and
+   drift-incident rate stay `[D]` — they need first-turn behavioural
+   logging the P0 ship does not yet collect. P1 watcher is the right
+   layer to start counting these (e.g. heuristic on the first user
+   message after resume), so the slots become deliverables in v1
+   alongside the automation itself, not blockers ahead of it.
+
+The window closes the **measure-first** half of v0.1.x. Next is
+mechanism: P1 (`Stop` hook + watcher + `INV-1..5 check.sh` + launchd).
+See `hardev/autorun/README.md` §"Architecture" Layer 1 and Layer 3.
 
 ## How to keep this file honest
 
