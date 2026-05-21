@@ -1831,12 +1831,30 @@ pub fn desugar_async(ast: &mut Ast) {
             ),
             _ => unreachable!(),
         };
-        let inner_ty = return_type.unwrap_or_else(|| {
+        let declared_ty = return_type.unwrap_or_else(|| {
             panic!(
                 "async function {name} requires an explicit return type \
-                 annotation `: T` (Phase L MVP)"
+                 annotation `: T` or `: Promise<T>` (Phase L MVP)"
             )
         });
+        // P10.3-A2 — accept both annotation forms:
+        //   `async function f(): number { ... }`        → inner_ty = "number"
+        //   `async function f(): Promise<number> { ... }` → inner_ty = "number"
+        // Pre-P10.3-A2 the desugar unconditionally prepended `Promise<...>`,
+        // double-wrapping the idiomatic TS form into `Promise<Promise<T>>` and
+        // surfacing as "return type mismatch: function expects
+        // Promise(Promise(Number)), got Promise(Number)" at first `return e`.
+        // Strip a leading `Promise<...>` wrapper (if any) to recover the
+        // inner T; the body's `return e` rewrites still produce
+        // `Promise.resolve(e)` of type Promise<T>, matching the resolved
+        // promise_ty below.
+        let inner_ty = if let Some(rest) = declared_ty.strip_prefix("Promise<")
+            && let Some(inner) = rest.strip_suffix('>')
+        {
+            inner.to_string()
+        } else {
+            declared_ty.clone()
+        };
         let promise_ty = format!("Promise<{inner_ty}>");
 
         // T-15.h: rewrite each `return e;` to `return Promise.resolve(e);`.
