@@ -10628,6 +10628,8 @@ fn is_global_name(name: &str) -> bool {
             | "encodeURIComponent"
             | "decodeURIComponent"
             | "globalThis"
+            // WHATWG HTML microtask scheduling (P10.1)
+            | "queueMicrotask"
     )
 }
 

@@ -1147,6 +1147,8 @@ fn is_known_builtin_global(name: &str) -> bool {
             | "isNaN"
             | "Function"
             | "eval"
+            // WHATWG HTML microtask scheduling (P10.1)
+            | "queueMicrotask"
     )
 }
 
