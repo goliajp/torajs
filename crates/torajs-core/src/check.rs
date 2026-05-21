@@ -5172,9 +5172,16 @@ impl Checker {
                     && let Expr::Ident(ns) = ast.get_expr(*ns_id)
                     && ns == "Promise"
                 {
-                    if args.len() != 1 {
+                    // P10.2-A1 — 0-arg form: `Promise.resolve()` ≡
+                    // `Promise.resolve(undefined)` per ES spec
+                    // §27.2.4.6 (Promise.reject() symmetrically
+                    // rejects with undefined). Inner T = Undefined.
+                    if args.is_empty() {
+                        return Ok(Type::Promise(Box::new(Type::Undefined)));
+                    }
+                    if args.len() > 1 {
                         return Err(format!(
-                            "Promise.{m_name} expects 1 arg, got {}",
+                            "Promise.{m_name} expects 0 or 1 arg, got {}",
                             args.len()
                         ));
                     }

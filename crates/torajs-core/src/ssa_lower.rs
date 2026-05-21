@@ -17579,6 +17579,35 @@ impl<'a> LowerCtx<'a> {
                     && (m_name == "resolve" || m_name == "reject")
                     && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
                     && ns == "Promise"
+                    && args.is_empty()
+                {
+                    // P10.2-A1 — 0-arg form. Spec equivalence:
+                    //   Promise.resolve() ≡ Promise.resolve(undefined)
+                    //   Promise.reject()  ≡ Promise.reject(undefined)
+                    // Undefined shares the i64-0-sentinel ABI with
+                    // null (see `~7829`), so we synthesize ConstI64(0)
+                    // and dispatch the non-heap fulfilled/rejected
+                    // allocator — same path 1-arg primitive takes.
+                    let fid = match m_name.as_str() {
+                        "resolve" => self.intrinsics.promise_alloc_fulfilled,
+                        "reject" => self.intrinsics.promise_alloc_rejected,
+                        _ => unreachable!(),
+                    };
+                    let v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(fid, vec![Operand::ConstI64(0)]),
+                        Type::Promise,
+                        None,
+                    );
+                    return Operand::Value(v);
+                }
+                if let Expr::Member {
+                    obj: ns_id,
+                    name: m_name,
+                } = self.ast.get_expr(*callee)
+                    && (m_name == "resolve" || m_name == "reject")
+                    && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
+                    && ns == "Promise"
                     && args.len() == 1
                 {
                     let arg_op = self.lower_expr(args[0]);
