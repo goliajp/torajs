@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-05-21T06:32:22.402Z",
+  "generatedAt": "2026-05-21T10:56:11.083Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 650,
@@ -26,8 +26,8 @@
     "passRateTrAccepted": 92.5
   },
   "torajs": {
-    "commit": "1e51a50",
-    "commitSubject": "P9.5-A1.2 fixture-lock + roadmap close [P9 DONE]",
+    "commit": "6e55118",
+    "commitSubject": "chore(hardev): autorun P1.5 dogfood 5/5 GREEN · pipeline live (--dry-run) (P1.5)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -559,6 +559,42 @@
   },
   "commits": [
     {
+      "hash": "6e55118",
+      "subject": "chore(hardev): autorun P1.5 dogfood 5/5 GREEN · pipeline live (--dry-run) (P1.5)"
+    },
+    {
+      "hash": "ff383ae",
+      "subject": "chore(hardev): autorun install_launchd --mode toggle (P1.4.1)"
+    },
+    {
+      "hash": "183ee27",
+      "subject": "chore(hardev): watcherd discovery prefers hardev-autorun-sink session (P1.3.1)"
+    },
+    {
+      "hash": "583240b",
+      "subject": "chore(hardev): autorun launchd LaunchAgent + install scripts (P1.4)"
+    },
+    {
+      "hash": "4f2b1c1",
+      "subject": "chore(hardev): autorun watcher single-shot · dual INV gate (P1.3)"
+    },
+    {
+      "hash": "5f4178a",
+      "subject": "chore(hardev): autorun Stop-hook handler · sentinel consumer (P1.2)"
+    },
+    {
+      "hash": "6587cc8",
+      "subject": "chore(hardev): autorun INV-1..5 + check.sh + self-test (P1.1)"
+    },
+    {
+      "hash": "2921834",
+      "subject": "chore(hardev): autorun §6 baseline write-back · P0→P1 trigger met (P1.0)"
+    },
+    {
+      "hash": "8431146",
+      "subject": "chore(hardev): refresh dashboard for P9 close → P10 start"
+    },
+    {
       "hash": "1e51a50",
       "subject": "P9.5-A1.2 fixture-lock + roadmap close [P9 DONE]"
     },
@@ -569,63 +605,38 @@
     {
       "hash": "503c928",
       "subject": "P9.5-A1.1 fixture-lock + roadmap progress"
-    },
-    {
-      "hash": "a554f8d",
-      "subject": "P9.5-A1.1: regex replace(re, fn) — N-capture spread (N=0..9)"
-    },
-    {
-      "hash": "b0389f0",
-      "subject": "P9.5-A1 fixture-lock + roadmap progress"
-    },
-    {
-      "hash": "851f26d",
-      "subject": "P9.5-A1: regex replace/replaceAll(re, fn) callback — 0-capture MVP"
-    },
-    {
-      "hash": "660196a",
-      "subject": "fix(hardev): unstale dashboard phase + conformance (629 → 646, P8 → P9)"
-    },
-    {
-      "hash": "f587735",
-      "subject": "chore: refresh hardev dashboard snapshot for rotation #9 close"
-    },
-    {
-      "hash": "fb2fd0c",
-      "subject": "P9.4-A2: regex sticky fixture-lock + roadmap [SHIPPED]"
-    },
-    {
-      "hash": "4f59eb8",
-      "subject": "P9.4-A1.1: sticky-aware replace + replaceAll + split + matchAll"
-    },
-    {
-      "hash": "9fe2ebb",
-      "subject": "P9.4-A1: regex sticky flag + lastIndex r/w semantics"
-    },
-    {
-      "hash": "00e54fc",
-      "subject": "chore: refresh hardev dashboard snapshot for rotation #8 close"
     }
   ],
-  "headSha": "1e51a50",
+  "headSha": "6e55118",
   "autorun": {
-    "total": 9,
+    "total": 10,
     "baselineTarget": 10,
-    "bySelf": 9,
+    "bySelf": 10,
     "byManual": 0,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1779298696-6306",
-      "at": "2026-05-20T17:38:16Z",
-      "ts": 1779298696,
+      "rotationId": "r-1779345446-1b29",
+      "at": "2026-05-21T06:37:26Z",
+      "ts": 1779345446,
       "trigger": "self",
-      "prevHead": "f587735",
-      "handoffSha": "sha256:d69990632bff4a61c7affeeee9b0fbbb2669183176fb2c74ba02828dff8cf956",
-      "handoffAgeSec": 4,
-      "conformanceBefore": "646/0/1",
+      "prevHead": "8431146",
+      "handoffSha": "sha256:c960506aacd764807b2b85bd96995c79a5bc68749d20c64e0326bbfc6bf35f11",
+      "handoffAgeSec": 5,
+      "conformanceBefore": "650/0/1",
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1779345446-1b29",
+        "at": "2026-05-21T06:37:26Z",
+        "ts": 1779345446,
+        "trigger": "self",
+        "prevHead": "8431146",
+        "handoffSha": "sha256:c960506aacd764807b2b85bd96995c79a5bc68749d20c64e0326bbfc6bf35f11",
+        "handoffAgeSec": 5,
+        "conformanceBefore": "650/0/1",
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1779298696-6306",
         "at": "2026-05-20T17:38:16Z",
