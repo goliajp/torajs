@@ -19853,6 +19853,15 @@ impl<'a> LowerCtx<'a> {
                                     Type::Arr(outer_id),
                                     None,
                                 );
+                                /* P9.4 follow-up — matchAll throws
+                                 * TypeError per ES §22.1.3.13 when re
+                                 * lacks `g`. The runtime helper sets
+                                 * the catchable throw slot; emit the
+                                 * post-call check here (intrinsic
+                                 * fast-path skips it by default).
+                                 * Mirrors the bigint_op_may_throw
+                                 * pattern at line ~14555. */
+                                self.emit_throw_check(None);
                                 return Operand::Value(v);
                             }
                             "split" => {

@@ -2987,21 +2987,30 @@ void *__torajs_regex_exec(const void *re_ptr, const void *str_ptr) {
     return out;
 }
 
-/* `s.matchAll(re)` — Phase 1c.3.
+extern void __torajs_throw_type_error(const char *msg);
+
+/* `s.matchAll(re)` — Phase 1c.3 + P9.4 follow-up.
  *
- * JS spec: returns an iterator that yields RegExp.exec-shape arrays
- * for each non-overlapping match (and throws TypeError if `re` lacks
- * the `g` flag). tr returns Array<Array<Str>> instead — array of
- * exec-shape arrays — until iterator protocol lands at the surface
- * (Phase 1c.4+). The `g`-required check is also Phase 1c.4 work;
- * for now matchAll iterates regardless of flag (over-permissive vs
- * spec but doesn't produce wrong matches when `g` is set, which is
- * the dominant test262 idiom). */
+ * JS spec §22.1.3.13: returns an iterator that yields RegExp.exec-
+ * shape arrays for each non-overlapping match, and **throws
+ * TypeError if `re` lacks the `g` flag**. tr returns
+ * Array<Array<Str>> instead — array of exec-shape arrays — until
+ * iterator protocol lands at the surface (Phase 1c.4+).
+ *
+ * The `g`-required gate IS enforced now (P9.4 follow-up): missing
+ * `g` raises a catchable TypeError. The previous over-permissive
+ * behavior silently iterated and diverged from bun on every
+ * test262 case probing the gate. */
 void *__torajs_str_match_all_regex(const void *str_ptr, const void *re_ptr) {
     void *outer = __torajs_arr_alloc(0);
     if (!re_ptr || !str_ptr) return outer;
     const RegExp *re = (const RegExp *)re_ptr;
     if (re->rejected) abort_unsupported(re);
+    if (!(re->flags & RE_FLAG_G)) {
+        __torajs_throw_type_error(
+            "String.prototype.matchAll called with a non-global RegExp argument");
+        return outer;
+    }
     const uint8_t *s = __TORAJS_STR_CDATA(str_ptr);
     int64_t slen = (int64_t)__TORAJS_STR_LEN(str_ptr);
 

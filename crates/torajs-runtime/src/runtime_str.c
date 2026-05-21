@@ -3968,6 +3968,16 @@ void __torajs_throw_range_error(const char *msg) {
     torajs_throw_range_error(msg);
 }
 
+/* Parallel exported wrapper for TypeError. Used by runtime_regex.c
+ * (`s.matchAll(re)` with `re` lacking `g` flag per spec §22.1.3.13)
+ * and any future cross-TU site that needs to raise a catchable
+ * TypeError. Mirrors __torajs_throw_range_error: store an instance
+ * in the throw slot; ssa_lower's emit_throw_check after the call
+ * propagates to try/catch or function boundary. */
+void __torajs_throw_type_error(const char *msg) {
+    torajs_throw_type_error(msg);
+}
+
 /* P3.attribute-flag-tracking — sibling of torajs_throw_range_error
  * used by `__torajs_dynobj_set` (writable=false implicit assign) and
  * `__torajs_dynobj_define` (spec §10.1.6.3 transition violations).
