@@ -1,11 +1,11 @@
 {
-  "generatedAt": "2026-05-20T17:46:27.392Z",
+  "generatedAt": "2026-05-21T06:32:22.402Z",
   "hardevVersion": "0.1.14",
   "conformance": {
-    "pass": 646,
+    "pass": 650,
     "fail": 0,
     "skip": 1,
-    "raw": "646/0/1"
+    "raw": "650/0/1"
   },
   "test262": {
     "ranAt": "2026-05-19T22:00:04Z",
@@ -26,15 +26,15 @@
     "passRateTrAccepted": 92.5
   },
   "torajs": {
-    "commit": "f587735",
-    "commitSubject": "chore: refresh hardev dashboard snapshot for rotation #9 close",
-    "phase": "P9",
-    "phaseTitle": "Regex full",
+    "commit": "1e51a50",
+    "commitSubject": "P9.5-A1.2 fixture-lock + roadmap close [P9 DONE]",
+    "phase": "P10",
+    "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
-      "pass": 646,
+      "pass": 650,
       "fail": 0,
       "skip": 1,
-      "raw": "646/0/1"
+      "raw": "650/0/1"
     }
   },
   "roadmap": [
@@ -86,12 +86,12 @@
     {
       "id": "P9",
       "title": "Regex full",
-      "status": "CURRENT"
+      "status": "DONE"
     },
     {
       "id": "P10",
       "title": "Promise + async-await + Generator",
-      "status": "queued"
+      "status": "CURRENT"
     },
     {
       "id": "P11",
@@ -145,8 +145,8 @@
       "name": "devperf",
       "tagline": "dev-loop performance",
       "scope": "build/cache speed, sccache, project-private cargo-target, the real levers (not folklore)",
-      "metricName": "full conformance wall (646 cases)",
-      "status": "~3.0–3.5 min [M] parallel 8-worker (174–208 s ×N this session at 629 cases; shipped 6ab22f9, was ~30 min serial; case count now 646 post P9.3/P9.4 — wall holds linear)"
+      "metricName": "full conformance wall (650 cases)",
+      "status": "~3.0–3.5 min [M] parallel 8-worker (174–208 s ×N this session at 629 cases; shipped 6ab22f9, was ~30 min serial; case count now 650 post P9.3/P9.4/P9.5 — wall holds linear)"
     },
     {
       "key": "cleanup",
@@ -559,6 +559,34 @@
   },
   "commits": [
     {
+      "hash": "1e51a50",
+      "subject": "P9.5-A1.2 fixture-lock + roadmap close [P9 DONE]"
+    },
+    {
+      "hash": "ee92139",
+      "subject": "P9.5-A1.2: regex replace(re, fn) — offset + input args"
+    },
+    {
+      "hash": "503c928",
+      "subject": "P9.5-A1.1 fixture-lock + roadmap progress"
+    },
+    {
+      "hash": "a554f8d",
+      "subject": "P9.5-A1.1: regex replace(re, fn) — N-capture spread (N=0..9)"
+    },
+    {
+      "hash": "b0389f0",
+      "subject": "P9.5-A1 fixture-lock + roadmap progress"
+    },
+    {
+      "hash": "851f26d",
+      "subject": "P9.5-A1: regex replace/replaceAll(re, fn) callback — 0-capture MVP"
+    },
+    {
+      "hash": "660196a",
+      "subject": "fix(hardev): unstale dashboard phase + conformance (629 → 646, P8 → P9)"
+    },
+    {
       "hash": "f587735",
       "subject": "chore: refresh hardev dashboard snapshot for rotation #9 close"
     },
@@ -577,37 +605,9 @@
     {
       "hash": "00e54fc",
       "subject": "chore: refresh hardev dashboard snapshot for rotation #8 close"
-    },
-    {
-      "hash": "c836e13",
-      "subject": "P9.3-A3: fixture-lock + roadmap [SHIPPED]"
-    },
-    {
-      "hash": "6244622",
-      "subject": "P9.3-A2.1: regex search start-pos skips UTF-8 continuation bytes under u flag"
-    },
-    {
-      "hash": "97dcf93",
-      "subject": "P9.3-A2: regex \\p{Letter|Number|ASCII} property class + OP_CLASS code-point"
-    },
-    {
-      "hash": "3fd8cfe",
-      "subject": "P9.3-A1: regex unicode flag — \\u{} escape + dot astral matching"
-    },
-    {
-      "hash": "6b3f602",
-      "subject": "P9.2-A3: fixture-lock + roadmap [SHIPPED]"
-    },
-    {
-      "hash": "4b12de4",
-      "subject": "P9.2-A2: regex .groups accessor on match results"
-    },
-    {
-      "hash": "8a5aa61",
-      "subject": "P9.2-A1: regex named groups + backref runtime"
     }
   ],
-  "headSha": "f587735",
+  "headSha": "1e51a50",
   "autorun": {
     "total": 9,
     "baselineTarget": 10,
