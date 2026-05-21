@@ -992,10 +992,10 @@ generator full state machine. v5 merges v4's P9 (Promise) + P14
       P10.1 closing advances L3a to **P10.2** (Promise.all /
       .race / .allSettled / .any per spec). P10 phase has 7
       substeps; closing all unlocks P10 → P11 trigger.
-- [ ] **P10.2** Promise.all / .race / .allSettled / .any per spec
+- [x] **P10.2** Promise.all / .race / .allSettled / .any per spec
       (currently allSettled is single-T MVP).
 
-      **IN PROGRESS** (resumed-session 2026-05-21):
+      **DONE** (resumed-session 2026-05-21 + 2026-05-22):
 
       - **A1** `5be6b5c` — `Promise.resolve()` / `Promise.reject()`
         0-arg form per ES spec §27.2.4.7 / §27.2.4.5. 0-arg ≡
@@ -1068,37 +1068,72 @@ generator full state machine. v5 merges v4's P9 (Promise) + P14
         - Gate **656/0/1** (baseline 655 + async-020, 0
           regression).
 
-      Three gates monotonic 654 → 655 → 656 / 0 / 1. Rotation
-      closes here after A2 ship.
+      Three gates monotonic 654 → 655 → 656 / 0 / 1 through A2.
 
-      **Next sub-A's queued**:
+      - **A3** `5dd1a91` — `Promise.allSettled` accepted T
+        extends from Number-only to {Number, String, Boolean}
+        primitive set (parity with Promise.all current T support).
+        - check.rs:5333 — match arm widens to
+          `Type::Number | Type::String | Type::Boolean`.
+        - check.rs:5338-5341 — result struct value field type
+          tracks inner T monomorphically (was hardcoded
+          Type::Number). ssa_lower picks up field type from
+          Type::Struct, emits str_drop for String / no-op for
+          Number/Boolean.
+        - runtime_promise.c:570 — `__torajs_promise_allsettled_sync`
+          rc_inc's when `pp->value_is_heap` (the settled struct
+          co-owns the heap value alongside the source Promise).
+          Non-heap path unchanged.
+        - Fixture `conformance/cases/async-021-allsettled-string-bool.ts`
+          covers String (heap, 3 promises), Boolean (non-heap),
+          Number (regression guard). `await Promise.allSettled(...)`
+          per async-017 pattern. Byte-equal vs bun.
+        - Gate **657/0/1** (baseline 656 + async-021, 0 regression).
 
-      - **A3** Extend `Promise.allSettled` accepted T beyond
-        Number-only. check.rs:5333 currently hard-errors with
-        "T must be number in v0.5 MVP" — narrow MVP extends T to
-        {Number, String, Boolean} primitive set (aligns with
-        `Promise.all` current T support). Result struct value
-        field type must track T monomorphically (each T →
-        distinct Struct type). Heterogeneous T-tuples (per spec)
-        need PromiseId interning substrate (T-15.g.6+), larger
-        scope deferred.
-      - **A4** Extend `.then` / `.catch` to accept inner
-        T=Array<U>. Blocks `Promise.all(ps).then(cb)` (currently
-        fails: "no member .then on type Promise(Array(Undefined))").
-        Mostly a check.rs widening; SSA/runtime unchanged (heap
-        ptr through i64 ABI is standard).
+      - **A4** `15caa67` — `.then` / `.catch` accept inner
+        T=Array<U> on Promise<Array<U>>. Unblocks
+        `Promise.all(ps).then(cb)` (previously rejected at
+        typecheck because generic .then arm limited inner T to
+        primitives).
+        - check.rs — new specialized arm matching
+          `(Type::Promise(Type::Array(_)), "then" | "catch")`
+          placed between A1.1's Promise<Undefined> arm and the
+          fetch arm. cb sig validated as `(arr: Array<U>) => V`
+          1-arg structural form.
+        - cb return V: primitive (Number / String / Boolean) →
+          Promise<V>; Void / Undefined → Promise<Undefined>;
+          Array<W> deferred (would need helper-side
+          value_is_heap=true propagation, separate sub-A).
+        - Zero ssa_lower / runtime changes — SSA Type::Promise
+          is unit; existing cb_ty Closure/FnSig dispatch routes
+          correctly; SystemV `int64_t (*)(int64_t)` passes Array
+          ptr in rdi.
+        - Fixture `conformance/cases/async-022-promise-all-then.ts`
+          covers number/string/boolean array → primitive return
+          + number array → void return. Byte-equal vs bun.
+        - Gate **658/0/1** (baseline 657 + async-022, 0 regression).
+
+      Five gates monotonic non-decreasing across A1/A1.1/A2/A3/A4:
+      654 → 655 → 656 → 657 → 658 / 0 / 1.
+
+      **Deferred to a later phase / sub-A**:
       - **A_n** Heterogeneous T-tuples for Promise.all /
-        .allSettled per spec — depends on PromiseId interning.
+        .allSettled per spec — depends on PromiseId interning
+        substrate (T-15.g.6+). Not blocking P10.2 closure;
+        moves to L3b until that substrate lands.
+      - Array<W> cb return on `Promise<Array<U>>.then(cb)` —
+        would need helper-side value_is_heap=true propagation
+        for next Promise's heap value. Not blocking common
+        patterns (Promise.all().then() with .length / element
+        reads is the dominant use case).
 
       **Naming-drift note (rotation boundary)**: e5a1944 (A1-DONE
       docs) initially queued "A2" as "extend allSettled T". A
       smoke probe right after A1.1 ship exposed the ssa_lower
       whitelist gap, which was narrower + more foundational, so
-      this rotation shipped that as "A2" instead, and renamed
-      the allSettled T extension to A3. Mild rotation-protocol
-      trigger-#3 drift signal contributed to this rotation
-      closing here. Recorded so future audits trace the
-      sub-step naming progression cleanly.
+      that rotation shipped it as "A2" instead, and the
+      allSettled T extension became A3. Recorded so future
+      audits trace the sub-step naming progression cleanly.
 
 - [ ] **P10.3** Async iterator + for-await-of (depends on P5)
 - [ ] **P10.4** await on non-Promise: wrap via Promise.resolve
