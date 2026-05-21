@@ -1983,6 +1983,24 @@ fn lower_inner(
         &[Type::Str, Type::RegExp, Type::Str],
         Type::Str,
     );
+    // P9.5-A1 — `s.replace(re, fn)` / `s.replaceAll(re, fn)` callback
+    // form. 3rd arg is the closure env block (env+8 holds the lifted
+    // body's fn_addr; runtime invokes (env, match_str) -> ret_str per
+    // match). Same env-pointer ABI as promise_then_closure.
+    let regex_replace_fn_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_str_replace_regex_fn",
+        &[Type::Str, Type::RegExp, Type::Ptr],
+        Type::Str,
+    );
+    let regex_replace_all_fn_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_str_replace_all_regex_fn",
+        &[Type::Str, Type::RegExp, Type::Ptr],
+        Type::Str,
+    );
     let regex_split_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -4739,6 +4757,8 @@ fn lower_inner(
         regex_match: regex_match_id,
         regex_replace: regex_replace_id,
         regex_replace_all: regex_replace_all_id,
+        regex_replace_fn: regex_replace_fn_id,
+        regex_replace_all_fn: regex_replace_all_fn_id,
         regex_split: regex_split_id,
         regex_exec: regex_exec_id,
         regex_match_all: regex_match_all_id,
@@ -5577,6 +5597,12 @@ struct Intrinsics {
     regex_match: FuncId,
     regex_replace: FuncId,
     regex_replace_all: FuncId,
+    /// P9.5-A1 — fn-callback variants of `s.replace(re, fn)` /
+    /// `s.replaceAll(re, fn)`. 3rd arg is the closure env block (env+8
+    /// = lifted body's fn_addr). Runtime invokes (env, match_str) ->
+    /// ret_str per match.
+    regex_replace_fn: FuncId,
+    regex_replace_all_fn: FuncId,
     regex_split: FuncId,
     regex_exec: FuncId,
     regex_match_all: FuncId,
@@ -19613,10 +19639,44 @@ impl<'a> LowerCtx<'a> {
                             "replace" | "replaceAll" => {
                                 debug_assert_eq!(args.len(), 2);
                                 let repl = self.lower_expr(args[1]);
-                                let target = if method == "replace" {
-                                    self.intrinsics.regex_replace
-                                } else {
-                                    self.intrinsics.regex_replace_all
+                                let repl_ty = self.operand_ty(&repl);
+                                // P9.5-A1 — fn-callback dispatch. Repl
+                                // arg is either Str (existing path,
+                                // $&/$N expansion via expand_repl) or
+                                // Closure (new path, runtime invokes
+                                // the closure per-match via env+8 ABI).
+                                let target = match (&repl_ty, method.as_str()) {
+                                    (Type::Str, "replace") => self.intrinsics.regex_replace,
+                                    (Type::Str, "replaceAll") => self.intrinsics.regex_replace_all,
+                                    (Type::Closure(sig_id), "replace")
+                                    | (Type::Closure(sig_id), "replaceAll") => {
+                                        // A1 narrow shape: callback must be
+                                        // exactly `(m: Str) -> Str`. Multi-
+                                        // arg callbacks (capture spread /
+                                        // offset+input) are A1.1 — reject
+                                        // here to avoid silent-wrong from
+                                        // C ABI mismatch in the runtime cb
+                                        // cast `(env, match_str) -> ret`.
+                                        let (params, ret_ty) =
+                                            self.fn_sigs[sig_id.0 as usize].clone();
+                                        if params.as_slice() != [Type::Str] || ret_ty != Type::Str {
+                                            panic!(
+                                                "ssa-lower: P9.5-A1 s.{method}(re, fn) — fn must \
+                                                 be `(m: string) => string`, got params={params:?} \
+                                                 ret={ret_ty:?}. Multi-arg callback (capture-spread / \
+                                                 offset+input) is A1.1."
+                                            );
+                                        }
+                                        if method == "replace" {
+                                            self.intrinsics.regex_replace_fn
+                                        } else {
+                                            self.intrinsics.regex_replace_all_fn
+                                        }
+                                    }
+                                    _ => panic!(
+                                        "ssa-lower: s.{method}(re, repl) — repl must be Str \
+                                         or Closure, got {repl_ty:?}"
+                                    ),
                                 };
                                 let v = self.f.append_inst(
                                     self.cur_block,

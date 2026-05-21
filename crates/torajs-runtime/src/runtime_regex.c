@@ -2568,6 +2568,153 @@ void *__torajs_str_replace_all_regex(
     return result;
 }
 
+/* P9.5-A1 — `s.replace(re, fn)` callback form. `closure_env` is the
+ * closure heap block (env+8 holds the lifted body's fn_addr; same ABI
+ * as promise_then_closure). Per match, runtime constructs a temp Str
+ * for the matched bytes, invokes `(env, match_str) -> ret_str`, and
+ * emits ret_str's bytes into the output. Both temp Str's get rc-dec'd
+ * inside the loop. When `re` carries `g`, behaves like replaceAll. */
+typedef void *(*replace_cb_fn_t)(void *env, void *match_str);
+
+void *__torajs_str_replace_regex_fn(
+    const void *str_ptr, const void *re_ptr, void *closure_env
+) {
+    if (!re_ptr || !closure_env) {
+        return str_from_bytes(__TORAJS_STR_CDATA(str_ptr),
+                              (int64_t)__TORAJS_STR_LEN(str_ptr));
+    }
+    const RegExp *re = (const RegExp *)re_ptr;
+    if (re->rejected) abort_unsupported(re);
+    const uint8_t *s = __TORAJS_STR_CDATA(str_ptr);
+    int64_t slen = (int64_t)__TORAJS_STR_LEN(str_ptr);
+    int global = (re->flags & RE_FLAG_G) ? 1 : 0;
+
+    /* Load fn_addr from env+8 — same env-pointer ABI as
+     * promise_then_closure. Cast to (env*, match_str*) -> ret_str*. */
+    void *fn_ptr = *(void **)((uint8_t *)closure_env + 8);
+    replace_cb_fn_t cb = (replace_cb_fn_t)fn_ptr;
+
+    Thread *cur = (Thread *)malloc(sizeof(Thread) * (size_t)re->prog.n_insts);
+    Thread *nxt = (Thread *)malloc(sizeof(Thread) * (size_t)re->prog.n_insts);
+    uint32_t *vc = (uint32_t *)calloc((size_t)re->prog.n_insts, sizeof(uint32_t));
+    uint32_t *vn = (uint32_t *)calloc((size_t)re->prog.n_insts, sizeof(uint32_t));
+    uint32_t step_id = 0;
+
+    int64_t out_cap = slen + 16;
+    uint8_t *out = (uint8_t *)malloc((size_t)out_cap);
+    int64_t out_len = 0;
+    int64_t pos = 0;
+    int64_t saves[REGEX_SAVE_SLOTS];
+    int sticky = (re->flags & RE_FLAG_Y) ? 1 : 0;
+
+    while (pos <= slen) {
+        int64_t st, en;
+        int hit;
+        if (sticky) {
+            hit = vm_match_anchor(&re->prog, s, slen, pos, re->flags,
+                                  &st, &en, saves);
+        } else {
+            hit = vm_search_from_with_ws(&re->prog, s, slen, pos, re->flags,
+                                         cur, nxt, vc, vn, &step_id, &st, &en, saves);
+        }
+        if (!hit) break;
+        emit_bytes(s + pos, st - pos, &out, &out_len, &out_cap);
+
+        uint8_t *match_str = str_from_bytes(s + st, en - st);
+        void *ret_str = cb(closure_env, match_str);
+        __torajs_str_drop(match_str);
+        if (ret_str) {
+            emit_bytes(__TORAJS_STR_CDATA(ret_str),
+                       (int64_t)__TORAJS_STR_LEN(ret_str),
+                       &out, &out_len, &out_cap);
+            __torajs_str_drop(ret_str);
+        }
+
+        if (en == st) {
+            if (st < slen) emit_byte(s[st], &out, &out_len, &out_cap);
+            pos = en + 1;
+        } else {
+            pos = en;
+        }
+        if (!global) break;
+    }
+    emit_bytes(s + pos, slen - pos, &out, &out_len, &out_cap);
+
+    uint8_t *result = str_from_bytes(out, out_len);
+    free(out);
+    free(cur); free(nxt); free(vc); free(vn);
+    return result;
+}
+
+/* P9.5-A1 — `s.replaceAll(re, fn)` callback form. Mirrors replace_fn
+ * minus the `!global` early-exit so every non-overlapping match
+ * triggers cb invocation. */
+void *__torajs_str_replace_all_regex_fn(
+    const void *str_ptr, const void *re_ptr, void *closure_env
+) {
+    if (!re_ptr || !closure_env) {
+        return str_from_bytes(__TORAJS_STR_CDATA(str_ptr),
+                              (int64_t)__TORAJS_STR_LEN(str_ptr));
+    }
+    const RegExp *re = (const RegExp *)re_ptr;
+    if (re->rejected) abort_unsupported(re);
+    const uint8_t *s = __TORAJS_STR_CDATA(str_ptr);
+    int64_t slen = (int64_t)__TORAJS_STR_LEN(str_ptr);
+
+    void *fn_ptr = *(void **)((uint8_t *)closure_env + 8);
+    replace_cb_fn_t cb = (replace_cb_fn_t)fn_ptr;
+
+    Thread *cur = (Thread *)malloc(sizeof(Thread) * (size_t)re->prog.n_insts);
+    Thread *nxt = (Thread *)malloc(sizeof(Thread) * (size_t)re->prog.n_insts);
+    uint32_t *vc = (uint32_t *)calloc((size_t)re->prog.n_insts, sizeof(uint32_t));
+    uint32_t *vn = (uint32_t *)calloc((size_t)re->prog.n_insts, sizeof(uint32_t));
+    uint32_t step_id = 0;
+
+    int64_t out_cap = slen + 16;
+    uint8_t *out = (uint8_t *)malloc((size_t)out_cap);
+    int64_t out_len = 0;
+    int64_t pos = 0;
+    int64_t saves[REGEX_SAVE_SLOTS];
+    int sticky = (re->flags & RE_FLAG_Y) ? 1 : 0;
+
+    while (pos <= slen) {
+        int64_t st, en;
+        int hit;
+        if (sticky) {
+            hit = vm_match_anchor(&re->prog, s, slen, pos, re->flags,
+                                  &st, &en, saves);
+        } else {
+            hit = vm_search_from_with_ws(&re->prog, s, slen, pos, re->flags,
+                                         cur, nxt, vc, vn, &step_id, &st, &en, saves);
+        }
+        if (!hit) break;
+        emit_bytes(s + pos, st - pos, &out, &out_len, &out_cap);
+
+        uint8_t *match_str = str_from_bytes(s + st, en - st);
+        void *ret_str = cb(closure_env, match_str);
+        __torajs_str_drop(match_str);
+        if (ret_str) {
+            emit_bytes(__TORAJS_STR_CDATA(ret_str),
+                       (int64_t)__TORAJS_STR_LEN(ret_str),
+                       &out, &out_len, &out_cap);
+            __torajs_str_drop(ret_str);
+        }
+
+        if (en == st) {
+            if (st < slen) emit_byte(s[st], &out, &out_len, &out_cap);
+            pos = en + 1;
+        } else {
+            pos = en;
+        }
+    }
+    emit_bytes(s + pos, slen - pos, &out, &out_len, &out_cap);
+
+    uint8_t *result = str_from_bytes(out, out_len);
+    free(out);
+    free(cur); free(nxt); free(vc); free(vn);
+    return result;
+}
+
 /* `s.split(re)` — splits at each non-overlapping match of `re`. The
  * matched bytes are removed from the output; the input is sliced into
  * the pieces between matches (and before the first / after the last).

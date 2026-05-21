@@ -3733,11 +3733,15 @@ impl Checker {
                         // Pattern arg is either a literal Str (existing
                         // string-only path through __torajs_str_replace
                         // / __torajs_str_replace_all) or a RegExp
-                        // (Phase 1b regex path). Type::Any here lets
-                        // either type pass typecheck; ssa_lower picks
-                        // the dispatch by operand SSA type.
+                        // (Phase 1b regex path). Repl arg is either a
+                        // Str (existing path) or a callback fn (P9.5).
+                        // Both args use Type::Any here so each can pass
+                        // typecheck; ssa_lower picks the dispatch by
+                        // operand SSA type. A1 callback shape required:
+                        // `(m: string) => string` — multi-arg / capture-
+                        // spread callbacks are A1.1.
                         Ok(Type::Function(
-                            vec![Type::Any, Type::String],
+                            vec![Type::Any, Type::Any],
                             Box::new(Type::String),
                         ))
                     }
