@@ -569,7 +569,7 @@ fields, static blocks, accessor properties, super-in-arrow.
 
 ---
 
-### P9 — Regex full (CURRENT)
+### P9 — Regex full (DONE)
 
 **Goal**: spec-complete RegExp incl. lookahead / lookbehind, named
 groups, Unicode flag, sticky flag.
@@ -812,90 +812,98 @@ groups, Unicode flag, sticky flag.
         TypeError for `matchAll(non-g-regex)` (Phase 1c.4 work).
 
       P9.4 closing advances L3a to P9.5 (replace callback fn).
-- [ ] **P9.5** `String.prototype.replace(regex, fn)` callback form —
-      IN PROGRESS · A1 SHIPPED `851f26d` + A2 `b0389f0` + A1.1 SHIPPED
-      `a554f8d` (capture-group spread N=0..9) + `<A1.1-A2>` (fixture
-      + this roadmap progress). A1 lands the **first cross-boundary
-      closure invoke from C runtime** in tora — runtime helpers load
-      fn_addr from env+8 (same ABI as `promise_then_closure`) and
-      invoke `(env, match_str, g1, ..., gN) -> ret_str` per match.
-      A1.1 extends the cb arity from `(m)` to `(m, g1, ..., gN)` where
-      N = static capture-group count of the regex literal (counted
-      at ssa-lower).
+- [x] **P9.5** `String.prototype.replace(regex, fn)` callback form —
+      SHIPPED A1 `851f26d` + A2 `b0389f0` + A1.1 `a554f8d` + A1.1-A2
+      `503c928` + A1.2 `ee92139` + A1.2-A2 `<A2>` (fixture + roadmap
+      close). A1 lands the **first cross-boundary closure invoke from
+      C runtime** in tora — runtime helpers load fn_addr from env+8
+      (same ABI as `promise_then_closure`) and invoke
+      `(env, m, g1, ..., gN [, off, input]) -> ret_str` per match.
+      A1.1 extends from `(m)` to `(m, g1, ..., gN)`; A1.2 adds the
+      trailing `(offset, input)` args per ES spec §22.1.3.18.
 
       `ssa_lower:19613` regex-receiver branch dispatches by repl SSA
       type: `Type::Str` → existing `regex_replace` / `_all` (expand_repl
       path); `Type::Closure` → fn-variant intrinsics. Closure user-sig
-      validated as `[Str; N+1] -> Str` at lower time with N matching
-      the regex's static capture count; mismatches + N>9 panic with a
-      clear compile-time message — never silent-wrong from C ABI cast
-      mismatch. `check.rs:3732` widened the 2nd arg from `Type::String`
-      to `Type::Any` so both Str and Closure pass typecheck. Sticky /
-      global handling mirrors the Str-repl siblings (P9.4-A1.1 semantics
-      preserved through fn path).
+      shape detected at lower time:
+       - `[Str; N+1] -> Str`            → A1.1 (has_off_input=0)
+       - `[Str; N+1, I64, Str] -> Str`  → A1.2 (has_off_input=1)
+      with N matching the regex's static capture count; mismatches +
+      N>9 panic with a clear compile-time message — never silent-wrong
+      from C ABI cast mismatch. `check.rs:3732` widened the 2nd arg from
+      `Type::String` to `Type::Any` so both Str and Closure pass
+      typecheck. Sticky / global handling mirrors the Str-repl
+      siblings (P9.4-A1.1 semantics preserved through fn path).
 
-      **A1.1 runtime layout** (`runtime_regex.c`): 10 `replace_cb_N_t`
-      typedefs (N=0..9), an `invoke_replace_cb(n_caps, env, fn_ptr, m,
-      caps)` static helper doing the N-specific cast inside a switch,
-      and `build_capture_strs(n_caps, saves, s, out_caps)` constructing
-      N Strs from `saves[2*(i+1)..]` per match. Non-participating
-      capture groups (saves slot == -1) emit empty Str rather than
-      `undefined` — A1.1 narrow scope; Nullable<Str> cb params + true
-      undefined semantics are A1.1.1 follow-up.
+      **Runtime layout** (`runtime_regex.c`): 20 cb typedefs total —
+      `replace_cb_N_t` (N=0..9, A1.1 shape) + `replace_cb_N_off_t`
+      (N=0..9, A1.2 shape with trailing offset+input). The
+      `invoke_replace_cb(n_caps, has_off_input, env, fn_ptr, m,
+      caps, off, input)` static helper picks the right cast via a
+      branch on `has_off_input` and a 10-arm switch on `n_caps`.
+      `build_capture_strs(n_caps, saves, s, out_caps)` constructs N
+      Strs from `saves[2*(i+1)..]` per match. Outer helpers pass
+      match-start `st` as offset and the receiver `str_ptr` as input
+      (borrowed — cb must not retain past invocation).
+      Non-participating capture groups (saves slot == -1) emit empty
+      Str rather than `undefined` — A1 narrow scope; Nullable<Str>
+      cb params + true undefined semantics are A1.1.1 follow-up.
 
-      **A1.1 ssa-lower side** (`ssa_lower.rs`): new top-level fn
+      **ssa-lower side** (`ssa_lower.rs`): new top-level fn
       `count_capture_groups(pattern) -> usize` with 9 unit tests
       (plain / nested / non-capturing / named / char-class / escaped).
       Intrinsic sigs widened from `[Str, RegExp, Ptr]` to
-      `[Str, RegExp, Ptr, I64]` to thread n_caps through. For
-      ident-bound regex (where capture count can't be statically
-      derived) n_caps defaults to 0; N≥1 cb with ident regex panics
-      with a clear message.
+      `[Str, RegExp, Ptr, I64, I64]` to thread n_caps + has_off_input
+      through. Closure user-sig shape detected per dispatch site
+      (A1.1 vs A1.2). For ident-bound regex (where capture count
+      can't be statically derived) n_caps defaults to 0; N≥1 cb with
+      ident regex panics with a clear message.
 
       Fixtures:
       - `regex-018-replace-callback.ts` (15 cases, A1 N=0 baseline)
       - `regex-019-replace-callback-captures.ts` (14 cases, A1.1 N=1..3
         including the canonical bun idiom `(\w+) (\w+)` swap)
-      Both fixtures byte-equal vs bun.
+      - `regex-020-replace-callback-offset-input.ts` (10 cases, A1.2
+        full arity — offset + input, mixed with N=0..3 captures)
+      All three fixtures byte-equal vs bun.
 
-      Conformance 646 → 647 @ A1 substrate (gate
-      `/tmp/torajs-conformance-p95a1-851f26d.log`, 0 regression);
-      regex-018 lifts to 648, regex-019 lifts to 649 once runner picks
-      them up.
+      Conformance 646 → 650 across the A1/A1.1/A1.2 chain (gates
+      `/tmp/torajs-conformance-p95a*.log`, 0 regression at each step).
+      The +4 comes from regex-017 (P9.4-A2), regex-018 (P9.5-A1),
+      regex-019 (P9.5-A1.1), regex-020 (P9.5-A1.2).
 
-      A1 + A1.1 scope is intentionally narrow (per [[feedback-narrow-abi-surface]]):
-      this is the first C-runtime closure invoke surface in tora.
-      A1 shipped the ABI pattern with strict `(m: string) => string`;
-      A1.1 generalized to N captures via static parse; A1.2 will add
-      the trailing offset+input args. Each is a clean increment on
-      the proven A1 substrate.
+      A1/A1.1/A1.2 scope is intentionally narrow (per
+      [[feedback-narrow-abi-surface]]): this is the first C-runtime
+      closure invoke surface in tora. A1 shipped the ABI pattern with
+      strict `(m) => ret`; A1.1 generalized to N captures via static
+      parse; A1.2 added the trailing offset+input args. Each was a
+      clean increment on the proven A1 substrate.
 
-      A1/A1.1 constraint: callback param types must be explicitly
-      annotated (`(m: string, g1: string) => string`). Tora's
-      `build_fn_type` already requires this for arrow fns (consistent
-      with `arr.map` / `filter` / `forEach`), so the friction matches
-      existing patterns.
+      Constraint: callback param types must be explicitly annotated
+      (e.g. `(m: string, g1: string, off: number, input: string) =>
+      string`). Tora's `build_fn_type` already requires this for arrow
+      fns (consistent with `arr.map` / `filter` / `forEach`), so the
+      friction matches existing patterns.
 
-      L3b follow-ups still recorded for P9.5 closure:
-      - **A1.2 offset+input args** — extend each `_fn_N` cb-cast
-        typedef to also take trailing `(i64 offset, Str input)` per
-        spec arity. Capture-strs construction unchanged; ssa-lower
-        widens validated user-sig to `[Str; N+1] + [Number, Str]`.
+      L3b follow-ups (independent of P9, deferrable to future phases):
       - **A1.1.1 non-participating groups as undefined** — current
-        A1.1 emits empty Str; spec says `undefined`. Requires
-        Nullable<Str> cb param support.
+        A1.1 emits empty Str for `(a)|(b)`-style alternation where
+        one group doesn't fire. Spec says `undefined`. Requires
+        Nullable<Str> cb param support — independent typecheck
+        work.
       - **String-receiver fn callback** — `"foo".replace("o", fn)`
         (non-regex string pattern) also accepts fn callback per spec;
         currently rejected at typeck via the Str-pattern arm.
         Independent of P9 substrate.
 
-      P9.5 closure requires A1 + A1.1 + A1.2 (full callback arity).
-      Until A1.2 ships, P9.5 stays `[ ]`. Closing P9.5 advances L3a —
-      full P9 phase done → trigger to P10 (Promise + async + Generator).
+      P9.5 closing completes the full P9 phase (5/5). P9 → P10
+      trigger met (substrate checklist 5/5 ✓; conformance 650/0/1
+      holds). L3a advances to P10.1 (Microtask queue with drain at
+      every yield point).
 
 ---
 
-### P10 — Promise + async-await + Generator
+### P10 — Promise + async-await + Generator (CURRENT)
 
 **Goal**: real microtask queue, ordering guarantees, async iterators,
 generator full state machine. v5 merges v4's P9 (Promise) + P14
