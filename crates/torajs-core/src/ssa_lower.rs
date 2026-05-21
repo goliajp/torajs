@@ -23767,7 +23767,20 @@ impl<'a> LowerCtx<'a> {
                                 || fetch_call
                                 || response_text
                         }
-                        _ => false,
+                        /* P10.3 prereq — `await ps[i]` where ps is
+                         * Array<Promise<T>>. Index expr type is
+                         * Type::Promise via expr_types; fall-through
+                         * would reach the panic. Same Promise
+                         * substrate as Ident-bound; lowering just
+                         * needs the whitelist to recognize the
+                         * source shape. Tuple destructuring of
+                         * Array<Promise<T>> + similar dynamic obj
+                         * shapes pick up the same fix automatically
+                         * because we consult expr_types. */
+                        _ => matches!(
+                            self.expr_types.get(obj),
+                            Some(crate::check::Type::Promise(_))
+                        ),
                     }
                 };
                 if obj_is_builtin_promise {
