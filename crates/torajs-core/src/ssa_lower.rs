@@ -10979,13 +10979,35 @@ impl<'a> LowerCtx<'a> {
                 // This keeps the global / closure-env / local-alloca
                 // paths unified — the same machinery that lowers the
                 // body's Ident reads to xs handles this.
-                let src_ref_eid = if let Expr::Index { obj, .. } = self.ast.get_expr(*elem_expr) {
+                //
+                // P10.3-A1 — `for await (decl of iter)` desugar wraps
+                // elem_expr in a `.value` Member access (await desugar)
+                // so the body's per-iter load goes through
+                // promise_get_value. Strip the wrapper to find the
+                // underlying Index for src resolution; per-iter element
+                // lowering at line ~11132 still uses the wrapped
+                // elem_expr so the await semantics flow naturally.
+                let index_eid = match self.ast.get_expr(*elem_expr) {
+                    Expr::Index { .. } => *elem_expr,
+                    Expr::Member { obj, name } if name == "value" => {
+                        if matches!(self.ast.get_expr(*obj), Expr::Index { .. }) {
+                            *obj
+                        } else {
+                            panic!(
+                                "for-of: for-await wrapper expects Member.value over Index, got {:?}",
+                                self.ast.get_expr(*obj)
+                            );
+                        }
+                    }
+                    other => panic!(
+                        "for-of: elem_expr must be Expr::Index or for-await Member.value-over-Index wrapper, got {:?}",
+                        other
+                    ),
+                };
+                let src_ref_eid = if let Expr::Index { obj, .. } = self.ast.get_expr(index_eid) {
                     *obj
                 } else {
-                    panic!(
-                        "for-of: elem_expr must be Expr::Index, got {:?}",
-                        self.ast.get_expr(*elem_expr)
-                    );
+                    unreachable!("index_eid resolution above guarantees Expr::Index");
                 };
                 let src_ptr_op = self.lower_expr(src_ref_eid);
                 let src_ty = self.operand_ty(&src_ptr_op);

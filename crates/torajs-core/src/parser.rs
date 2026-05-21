@@ -2111,6 +2111,21 @@ impl Parser<'_> {
 
     fn parse_for(&mut self) -> Result<Stmt, String> {
         self.pos += 1; // consume `for`
+        // P10.3-A1 — `for await (decl of iter)`. After consuming the
+        // optional `await` keyword the rest of the head parses
+        // identically to a plain `for (...)` for-of. The desugar
+        // wraps the per-iteration element-load in a Member `.value`
+        // access (await desugar) so the user's binding sees the
+        // resolved T instead of Promise<T>. Only the for-of arm of
+        // try_parse_for_of honors is_async; if the head turns out
+        // to be a C-style for, we emit a clean error since `for
+        // await` requires the iterable form.
+        let is_async = if matches!(self.peek(), Token::Await) {
+            self.pos += 1;
+            true
+        } else {
+            false
+        };
         match self.peek() {
             Token::LParen => self.pos += 1,
             t => {
@@ -2129,8 +2144,14 @@ impl Parser<'_> {
         // skip eagerly so the AST stays small), `__forof_end_N` caches
         // length, classic for-loop walks indices, body sees the user's
         // binding rebound from `__src[__i]`.
-        if let Some(stmt) = self.try_parse_for_of()? {
+        if let Some(stmt) = self.try_parse_for_of(is_async)? {
             return Ok(stmt);
+        }
+        if is_async {
+            return Err(format!(
+                "`for await` requires the iterable form `for await (const x of iter)` at {}",
+                self.at()
+            ));
         }
         // init clause — empty (just `;`) or any stmt that ends with `;`.
         let init = if matches!(self.peek(), Token::Semi) {
@@ -2213,7 +2234,7 @@ impl Parser<'_> {
     ///     } }
     /// — so mem2reg trivializes it and the loop runs at the same speed
     /// as a hand-written index walk.
-    fn try_parse_for_of(&mut self) -> Result<Option<Stmt>, String> {
+    fn try_parse_for_of(&mut self, is_async: bool) -> Result<Option<Stmt>, String> {
         let saved = self.pos;
         if !matches!(self.peek(), Token::Let | Token::Const) {
             return Ok(None);
@@ -2593,13 +2614,26 @@ impl Parser<'_> {
         } else {
             format!("__forof_src_{id}")
         };
-        // Pre-allocate elem_expr = src_ident[i_ident].
+        // Pre-allocate elem_expr = src_ident[i_ident]. P10.3-A1 — for
+        // `for await`, wrap the element access in a `.value` Member
+        // (the same desugar parser uses for `await e`). check.rs's
+        // Promise<T>.value arm narrows the loop binding to T; ssa_lower's
+        // P10.3-prereq whitelist (d2a7c61) routes Index-shaped Promise
+        // sources to promise_get_value at the dispatch site.
         let src_ref_for_index = self.ast.add_expr(Expr::Ident(src_ident_name.clone()));
         let i_ref_for_index = self.ast.add_expr(Expr::Ident(i_name.clone()));
-        let elem_expr = self.ast.add_expr(Expr::Index {
+        let index_expr = self.ast.add_expr(Expr::Index {
             obj: src_ref_for_index,
             index: i_ref_for_index,
         });
+        let elem_expr = if is_async {
+            self.ast.add_expr(Expr::Member {
+                obj: index_expr,
+                name: "value".into(),
+            })
+        } else {
+            index_expr
+        };
         let forof_stmt = Stmt::ForOf {
             var_name,
             var_type_ann,
