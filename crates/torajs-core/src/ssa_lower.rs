@@ -3476,6 +3476,18 @@ fn lower_inner(
         &[Type::Ptr],
         Type::Void,
     );
+    /* P10.1-A1.1 — queueMicrotask(cb) simple-fn path. cb is a
+     * Type::FnSig (named fn declaration), ABI `void ()` — raw fn
+     * pointer with no env load. ssa_lower picks this vs
+     * `_closure` based on cb's static type at the queueMicrotask
+     * call site (mirrors promise_then_{simple,closure} dispatch). */
+    let microtask_enqueue_simple_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_queue_microtask_simple",
+        &[Type::Ptr],
+        Type::Void,
+    );
     /* T-15.g.1 — Promise.resolve / Promise.reject statics. Both
      * take an i64-shaped value (caller is responsible for packing
      * heap pointers / bools / f64-bitcasts before the call) and
@@ -4992,6 +5004,7 @@ fn lower_inner(
         obj_check_not_frozen: obj_check_not_frozen_id,
         microtask_drain: microtask_drain_id,
         microtask_enqueue_closure: microtask_enqueue_closure_id,
+        microtask_enqueue_simple: microtask_enqueue_simple_id,
         promise_alloc_fulfilled: promise_alloc_fulfilled_id,
         promise_resolve_thenable: promise_resolve_thenable_id,
         promise_alloc_rejected: promise_alloc_rejected_id,
@@ -5848,6 +5861,13 @@ struct Intrinsics {
     /// the next drain. cb's ABI is `(env*) -> void` (mirrors
     /// finally_closure).
     microtask_enqueue_closure: FuncId,
+    /// P10.1-A1.1 — queueMicrotask(cb) simple-fn (no-env) enqueue.
+    /// Takes a raw fn pointer; runtime dispatcher casts back to
+    /// `void ()` and invokes. No rc (fn pointers are not heap
+    /// objects). Selection happens at the queueMicrotask call
+    /// site based on cb's static type (Type::Closure → _closure,
+    /// Type::FnSig → this one), mirroring promise_then dispatch.
+    microtask_enqueue_simple: FuncId,
     /// v0.5 T-15.g — Promise.resolve / Promise.reject runtime
     /// constructors + drop. The arg value is i64-packed (heap-ptr
     /// cast, bool widened, f64 bitcast).
@@ -15962,26 +15982,32 @@ impl<'a> LowerCtx<'a> {
                             return Operand::Value(v);
                         }
                         "queueMicrotask" => {
-                            /* P10.1-A1 — queueMicrotask(cb). cb is a
-                             * Type::Closure (check.rs enforces; simple-fn
-                             * + namespaced Window.queueMicrotask defer
-                             * to A1.1). Lower cb to its env pointer
-                             * operand and call the runtime helper which
-                             * rc-inc's env, enqueues a single-shot
-                             * dispatcher to the microtask queue. The
-                             * dispatcher runs cb(env), then drops env.
+                            /* P10.1-A1/A1.1 — queueMicrotask(cb). cb is
+                             * `() => void` typed by check.rs as
+                             * Type::Function([], Void). At SSA layer it
+                             * lowers to either Type::Closure (capturing
+                             * lambda — env+8 fn_addr) or Type::FnSig
+                             * (named fn declaration — raw fn ptr).
+                             * Dispatch on cb's static type, mirroring
+                             * promise_then_{simple,closure}.
                              *
                              * Return shape: queueMicrotask returns
                              * undefined per WHATWG HTML §queueMicrotask;
                              * we model Void via ConstI64(0) like other
                              * Type::Void call expressions. */
                             let cb_op = self.lower_expr(args[0]);
+                            let cb_ty = self.operand_ty(&cb_op);
+                            let intrinsic = match cb_ty {
+                                Type::Closure(_) => self.intrinsics.microtask_enqueue_closure,
+                                Type::FnSig(_) => self.intrinsics.microtask_enqueue_simple,
+                                _ => panic!(
+                                    "ssa-lower: queueMicrotask cb expected \
+                                     Closure or FnSig, got {cb_ty:?}"
+                                ),
+                            };
                             self.f.append_inst(
                                 self.cur_block,
-                                InstKind::Call(
-                                    self.intrinsics.microtask_enqueue_closure,
-                                    vec![cb_op],
-                                ),
+                                InstKind::Call(intrinsic, vec![cb_op]),
                                 Type::Void,
                                 None,
                             );

@@ -953,6 +953,32 @@ void __torajs_queue_microtask_closure(void *env) {
     );
 }
 
+/* P10.1-A1.1 — queueMicrotask(cb) where cb is a no-env fn (named fn
+ * declaration → Type::FnSig at SSA). cb ABI is `void ()` — raw fn
+ * pointer with no env load; the microtask carries the fn pointer
+ * directly through the queue's int64_t arg, dispatcher casts back
+ * and calls. No rc inc/dec — fn pointers are not heap objects so
+ * there's nothing to keep alive across the microtask delay (the
+ * code object lives in the binary's .text). ssa_lower picks this
+ * helper over `_closure` based on cb's static type (Type::FnSig vs
+ * Type::Closure) — same dispatch shape as `promise_then_{simple,
+ * closure}`. */
+typedef void (*__torajs_queue_micro_simple_fn_t)(void);
+
+static void queue_micro_simple_dispatch_(int64_t arg) {
+    __torajs_queue_micro_simple_fn_t cb =
+        (__torajs_queue_micro_simple_fn_t)(intptr_t)arg;
+    cb();
+}
+
+void __torajs_queue_microtask_simple(void *fn_ptr) {
+    if (fn_ptr == NULL) return;
+    __torajs_microtask_enqueue(
+        queue_micro_simple_dispatch_,
+        (int64_t)(intptr_t)fn_ptr
+    );
+}
+
 /* ============================================================
  * T-15.g.5 — Capture-box ARC for Copy escape-captured lets.
  *
