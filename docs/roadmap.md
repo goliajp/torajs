@@ -1016,17 +1016,45 @@ generator full state machine. v5 merges v4's P9 (Promise) + P14
           fixture deferred to A1.1 once `.catch` accepts inner
           T=Undefined.
 
-      **Follow-ups (next sub-A's)**:
+      - **A1.1** `6c93b90` — `.then` / `.catch` accept inner
+        T=Undefined on `Promise<Undefined>`. Builds on A1.
+        - check.rs:~5001 — new Call-time arm specializing
+          `(Type::Promise(Type::Undefined), "then" | "catch")`
+          with cb sig `() => U` (0-arg form, ergonomic over
+          spec `(v: undefined) => U`). cb return U: primitive
+          (Number/String/Boolean) → Promise<U>; Void/Undefined
+          → Promise<Undefined>; other → typecheck error.
+        - ssa_lower zero changes — SSA Type::Promise is unit
+          (no inner T), existing cb_ty Closure/FnSig dispatch
+          at line ~17220 routes correctly to promise_then_*
+          helpers without inner-T inspection.
+        - runtime zero changes — `then_simple_dispatch_` casts
+          cb to `int64_t (*)(int64_t)`; SystemV puts unused
+          arg in rdi (cb ignores). Standard ABI tolerance.
+        - Fixture `conformance/cases/async-019-promise-resolve-then-catch.ts`
+          chains `.then` + `.catch` on resolve()/reject() 0-arg
+          with sync interleave; byte-equal vs bun
+          (`sync\nr1\nr2`). Also closes A1's reject() 0-arg
+          runtime-smoke gap (now fixture-tested).
+        - Gate **655/0/1** (baseline 654 + async-019, 0 regression).
 
-      - **A1.1** Extend `.then` / `.catch` to accept inner
-        T=Undefined so `Promise.resolve().then(cb)` and
-        `Promise.reject().catch(cb)` typecheck. cb sig design
-        choice open: bare-`() => U` ergonomic form vs spec
-        `(undefined) => U`; cb return propagation to next-stage
-        Promise<U>. Resolve pre-A1.1 ship.
-      - **A2..A_n** Promise.all / .race / .allSettled / .any per
-        spec — current `Promise.allSettled` is single-T MVP;
-        extend to heterogeneous T-tuples per spec.
+      P10.2-A1 family closed (A1 substrate + A1-A2 docs + A1.1
+      substrate). Two gates monotonic 654 → 655 / 0 / 1.
+
+      **Next sub-A's queued**:
+
+      - **A2** Extend `Promise.allSettled` accepted T beyond
+        Number-only. check.rs:5333 currently hard-errors with
+        "T must be number in v0.5 MVP" — narrow MVP extends T to
+        {Number, String, Boolean} primitive set (aligns with
+        `Promise.all` current T support). Heterogeneous
+        T-tuples (per spec) need PromiseId interning substrate
+        (T-15.g.6+), larger scope deferred.
+      - **A3** Smoke-verify Promise.all / .race / .any on
+        `Promise<Undefined>` — the existing arm at check.rs:5310
+        clones inner unconditionally and may already work.
+      - **A_n** Heterogeneous T-tuples for Promise.all /
+        .allSettled per spec — depends on PromiseId interning.
 
 - [ ] **P10.3** Async iterator + for-await-of (depends on P5)
 - [ ] **P10.4** await on non-Promise: wrap via Promise.resolve
