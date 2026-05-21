@@ -911,34 +911,89 @@ generator full state machine. v5 merges v4's P9 (Promise) + P14
 
 **Substrate checklist** (strict order):
 
-- [ ] **P10.1** Microtask queue with drain at every yield point — IN
-      PROGRESS. A1 SHIPPED `b252492` — `queueMicrotask(cb)` global
-      binding (WHATWG HTML §queueMicrotask). cb is closure-typed
-      `() => void` (Type::Function([], Void) at check layer;
-      Type::Closure at SSA with env+8 fn_addr — same ABI as
-      `finally_closure`). New runtime helper
-      `__torajs_queue_microtask_closure` inc's env at attach,
-      dispatcher loads fn_addr / calls `cb(env)` / drops env via
-      `__torajs_value_drop_heap` after invoke. Wires the language
-      entry to the existing T-15.c microtask queue + T-15.e main-
-      exit drain — substrate was already complete. Fixture
-      `micro-001-queueMicrotask-basic.ts` byte-equal vs bun
-      (`sync\nmt1`). Pre-flight 0 err / 0 warn / fmt clean / 81
-      cargo-test passed; conformance gate
-      `/tmp/torajs-conformance-p10.1-a1.log` PENDING.
+- [x] **P10.1** Microtask queue with drain at every yield point —
+      SHIPPED A1 `b252492` + A1-A2 `a0f699f` + A1.1 `6d134e3` +
+      A1.2 `2d3a317` + A2 `<closing>`. Wires WHATWG HTML
+      §queueMicrotask global to the existing T-15.c microtask
+      queue + T-15.e main-exit drain. Substrate (queue +
+      run-until-idle drain + main-exit auto-call + await drain)
+      was already complete since v0.5; this phase adds the
+      language-layer entry point and the closure-capture
+      visibility fix that lets the cb body schedule further
+      microtasks.
 
-      Follow-ups inside P10.1 (cold backlog — hotify per trigger):
-      - **A1.1** simple-fn (no-env) cb path — currently check.rs
-        rejects `Type::Function` without closure env; would need
-        a `queue_microtask_simple` runtime variant or to widen the
-        existing helper to detect env-vs-fn shape.
-      - **A1.2** broader drain points — current drains: main-exit
-        (T-15.e) + `await` (`ssa_lower:23659`). "every yield point"
-        per spec also includes between top-level statements
-        post-`queueMicrotask` and between sequential Promise.then
-        chains; audit needed to determine actual gap vs spec.
-      - **A1.3** `Window.queueMicrotask` namespaced form (defer
-        until namespace globals land for other Web globals).
+      **A1 `b252492`** — `queueMicrotask(cb)` for closure-typed
+      cb. Runtime: new `__torajs_queue_microtask_closure(env)` +
+      `queue_micro_closure_dispatch_(arg)` mirroring
+      `finally_closure`'s env+8 fn_addr ABI (cb is `void (env*)`;
+      rc-inc env at attach, drop via `__torajs_value_drop_heap`
+      after invoke). SSA: new `microtask_enqueue_closure`
+      intrinsic + bare-name lowering arm in `ssa_lower:15842`.
+      check.rs: new bare-name type-check arm at `~5586`
+      enforcing `Type::Function([], Void)`. Fixture
+      `micro-001-queueMicrotask-basic.ts` byte-equal vs bun.
+
+      **A1-A2 `a0f699f`** — docs-only roadmap progress note.
+
+      **A1.1 `6d134e3`** — simple-fn (named fn decl) cb path. A1
+      always emitted the closure intrinsic regardless of cb
+      type, so passing a named-fn ident (`Type::FnSig`, raw fn
+      ptr) → runtime read garbage at env+8 → SIGBUS. Fix mirrors
+      `promise_then_{simple,closure}` dispatch (`ssa_lower:17152`):
+      branch on cb's static type at the call site. Type::Closure
+      → `_closure` (existing); Type::FnSig → new
+      `__torajs_queue_microtask_simple(fn_ptr)` which casts back
+      to `void ()` and invokes (no rc; fn pointers live in
+      .text). Fixture `micro-002-queueMicrotask-named-fn.ts`.
+
+      **A1.2 `2d3a317`** — visibility of `queueMicrotask` inside
+      closure bodies. Surfaced by nested-microtask probe: cb body
+      that calls `queueMicrotask(...)` failed with "closure
+      `__closure_N` references unknown identifier `queueMicrotask`"
+      because the closure-capture analyzer
+      (`check.rs:7032`) treated the bare ident as a captured
+      local. Pre-existing globals (parseInt / isNaN / ...) were
+      exempt via `ast.rs::is_global_name`; the list missed
+      queueMicrotask. Added it to both that list and
+      `check.rs::is_known_builtin_global` per the in-code
+      sync-comment. Fixture
+      `micro-003-queueMicrotask-nested.ts` exercises 3-level
+      nested chain (mt-1 → mt-2 → mt-3 inside same drain cycle
+      via `__torajs_microtask_run_until_idle`'s
+      `while (mt_head_ < mt_len_)` loop).
+
+      **Drain-coverage audit @ P10.1 close**: spec "every yield
+      point" reduces to main-exit + await + nested-cb scheduling.
+      tora covers all three: T-15.e main-exit drain
+      (`ssa_lower:6163`); T-16 await drain (`ssa_lower:23659`);
+      nested drain via `run_until_idle`'s growing-tail loop.
+      Audit fixtures (`/tmp/p10.1-a1.2-audit-{sequential,nested,
+      deep-nested}.ts`) all byte-equal vs bun.
+
+      **Conformance** monotonic non-decreasing across A1/A1.1/A1.2
+      gates: 651/0/1 (A1, `/tmp/torajs-conformance-p10.1-a1.log`)
+      → 652/0/1 (A1.1,
+      `/tmp/torajs-conformance-p10.1-a1.1.log`)
+      → 653/0/1 (A1.2,
+      `/tmp/torajs-conformance-p10.1-a1.2.log`). +3 = micro-001
+      + micro-002 + micro-003 picked up.
+
+      **Follow-up (L3b, not P10.x scope)**:
+      - **A1.3 `Window.queueMicrotask`** namespaced form — defer
+        until/unless namespace globals matter (tora is
+        Node-runtime style; the bare-name binding suffices).
+      - **const-lambda binding crash** — pre-existing SIGBUS on
+        `const cb = () => {...}; queueMicrotask(cb)` (also
+        reproduces on `.finally(cb)`). Affects multiple
+        closure-cb sites; needs ident-resolution audit (Closure
+        value vs Closure-box rc handling on var read). Out of
+        P10.1 scope.
+
+      P10.1 closing advances L3a to **P10.2** (Promise.all /
+      .race / .allSettled / .any per spec). P10 phase has 7
+      substeps; closing all unlocks P10 → P11 trigger.
+- [ ] **P10.2** Promise.all / .race / .allSettled / .any per spec
+      (currently allSettled is single-T MVP)
 - [ ] **P10.2** Promise.all / .race / .allSettled / .any per spec
       (currently allSettled is single-T MVP)
 - [ ] **P10.3** Async iterator + for-await-of (depends on P5)
