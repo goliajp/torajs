@@ -1,11 +1,11 @@
 {
-  "generatedAt": "2026-05-21T10:56:11.083Z",
+  "generatedAt": "2026-05-21T11:42:47.263Z",
   "hardevVersion": "0.1.14",
   "conformance": {
-    "pass": 650,
+    "pass": 653,
     "fail": 0,
     "skip": 1,
-    "raw": "650/0/1"
+    "raw": "653/0/1"
   },
   "test262": {
     "ranAt": "2026-05-19T22:00:04Z",
@@ -26,15 +26,15 @@
     "passRateTrAccepted": 92.5
   },
   "torajs": {
-    "commit": "6e55118",
-    "commitSubject": "chore(hardev): autorun P1.5 dogfood 5/5 GREEN · pipeline live (--dry-run) (P1.5)",
+    "commit": "edefc12",
+    "commitSubject": "P10.1-DONE: roadmap close + drain-coverage audit",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
-      "pass": 650,
+      "pass": 653,
       "fail": 0,
       "skip": 1,
-      "raw": "650/0/1"
+      "raw": "653/0/1"
     }
   },
   "roadmap": [
@@ -145,8 +145,8 @@
       "name": "devperf",
       "tagline": "dev-loop performance",
       "scope": "build/cache speed, sccache, project-private cargo-target, the real levers (not folklore)",
-      "metricName": "full conformance wall (650 cases)",
-      "status": "~3.0–3.5 min [M] parallel 8-worker (174–208 s ×N this session at 629 cases; shipped 6ab22f9, was ~30 min serial; case count now 650 post P9.3/P9.4/P9.5 — wall holds linear)"
+      "metricName": "full conformance wall (653 cases)",
+      "status": "~3.0–3.5 min [M] parallel 8-worker (174–208 s ×N this session at 629 cases; shipped 6ab22f9, was ~30 min serial; case count now 653 post P9.3/P9.4/P9.5/P10.1 — wall holds linear)"
     },
     {
       "key": "cleanup",
@@ -559,6 +559,30 @@
   },
   "commits": [
     {
+      "hash": "edefc12",
+      "subject": "P10.1-DONE: roadmap close + drain-coverage audit"
+    },
+    {
+      "hash": "2d3a317",
+      "subject": "P10.1-A1.2: queueMicrotask visible inside closure bodies"
+    },
+    {
+      "hash": "6d134e3",
+      "subject": "P10.1-A1.1: queueMicrotask simple-fn (no-env) dispatch"
+    },
+    {
+      "hash": "a0f699f",
+      "subject": "P10.1-A1-A2: roadmap progress note + gate pass"
+    },
+    {
+      "hash": "b252492",
+      "subject": "P10.1-A1: queueMicrotask global + closure dispatch"
+    },
+    {
+      "hash": "e7c951c",
+      "subject": "chore(hardev): refresh dashboard after autorun P1 ship (10 commits this session)"
+    },
+    {
       "hash": "6e55118",
       "subject": "chore(hardev): autorun P1.5 dogfood 5/5 GREEN · pipeline live (--dry-run) (P1.5)"
     },
@@ -581,51 +605,38 @@
     {
       "hash": "5f4178a",
       "subject": "chore(hardev): autorun Stop-hook handler · sentinel consumer (P1.2)"
-    },
-    {
-      "hash": "6587cc8",
-      "subject": "chore(hardev): autorun INV-1..5 + check.sh + self-test (P1.1)"
-    },
-    {
-      "hash": "2921834",
-      "subject": "chore(hardev): autorun §6 baseline write-back · P0→P1 trigger met (P1.0)"
-    },
-    {
-      "hash": "8431146",
-      "subject": "chore(hardev): refresh dashboard for P9 close → P10 start"
-    },
-    {
-      "hash": "1e51a50",
-      "subject": "P9.5-A1.2 fixture-lock + roadmap close [P9 DONE]"
-    },
-    {
-      "hash": "ee92139",
-      "subject": "P9.5-A1.2: regex replace(re, fn) — offset + input args"
-    },
-    {
-      "hash": "503c928",
-      "subject": "P9.5-A1.1 fixture-lock + roadmap progress"
     }
   ],
-  "headSha": "6e55118",
+  "headSha": "edefc12",
   "autorun": {
-    "total": 10,
+    "total": 11,
     "baselineTarget": 10,
-    "bySelf": 10,
+    "bySelf": 11,
     "byManual": 0,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1779345446-1b29",
-      "at": "2026-05-21T06:37:26Z",
-      "ts": 1779345446,
+      "rotationId": "r-1779361154-05a3",
+      "at": "2026-05-21T10:59:14Z",
+      "ts": 1779361154,
       "trigger": "self",
-      "prevHead": "8431146",
-      "handoffSha": "sha256:c960506aacd764807b2b85bd96995c79a5bc68749d20c64e0326bbfc6bf35f11",
+      "prevHead": "e7c951c",
+      "handoffSha": "sha256:240e8794d7ca7aea043706dab7462d90d5f5b3c2983ef8de10f64f979d453f80",
       "handoffAgeSec": 5,
       "conformanceBefore": "650/0/1",
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1779361154-05a3",
+        "at": "2026-05-21T10:59:14Z",
+        "ts": 1779361154,
+        "trigger": "self",
+        "prevHead": "e7c951c",
+        "handoffSha": "sha256:240e8794d7ca7aea043706dab7462d90d5f5b3c2983ef8de10f64f979d453f80",
+        "handoffAgeSec": 5,
+        "conformanceBefore": "650/0/1",
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1779345446-1b29",
         "at": "2026-05-21T06:37:26Z",
@@ -722,17 +733,6 @@
         "prevHead": "641f0b3",
         "handoffSha": "sha256:7996f96e982e47fb8131fcb870915baf2118955c1b7623a8f1907443162112de",
         "handoffAgeSec": 2,
-        "conformanceBefore": "631/0/1",
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1779230667-6b3d",
-        "at": "2026-05-19T22:44:27Z",
-        "ts": 1779230667,
-        "trigger": "self",
-        "prevHead": "869914d",
-        "handoffSha": "sha256:80b12efacad462a0abb6ae9b237f747c692c49e5f024b0aec85506e9df5c161c",
-        "handoffAgeSec": 0,
         "conformanceBefore": "631/0/1",
         "commitsInSession": null
       }
