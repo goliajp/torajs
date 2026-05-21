@@ -2141,11 +2141,42 @@ void __torajs_regex_set_last_index(void *re_ptr, int64_t idx) {
 
 int64_t __torajs_regex_test(const void *re_ptr, const void *str_ptr) {
     if (!re_ptr) return 0;
-    const RegExp *re = (const RegExp *)re_ptr;
+    /* Drop const so we can write back last_index — per spec ES2022
+     * §22.2.5.2 test === (exec(S) !== null), and exec mutates lastIndex
+     * under sticky / global. Pre-P9.4-follow-up this helper ignored
+     * lastIndex and always searched from 0, silently disagreeing with
+     * bun on every `re.test()` walked through a sticky / global regex
+     * (test262 + bun-parity gap). */
+    RegExp *re = (RegExp *)re_ptr;
     const uint8_t *s = __TORAJS_STR_CDATA(str_ptr);
     int64_t slen = (int64_t)__TORAJS_STR_LEN(str_ptr);
+
+    /* Mirror __torajs_regex_exec's sticky/global lastIndex handling.
+     * sticky (`y`) anchors at lastIndex with a single attempt; global
+     * (`g`) starts search at lastIndex; plain ignores lastIndex and
+     * never writes it. y takes precedence over g when both are set.
+     * On miss with tracking, reset lastIndex=0 per §22.2.5.2.2. */
+    int sticky = (re->flags & RE_FLAG_Y) ? 1 : 0;
+    int global = (re->flags & RE_FLAG_G) ? 1 : 0;
+    int track = sticky || global;
+    int64_t start = track ? re->last_index : 0;
+    if (start < 0) start = 0;
+
     int64_t st, en;
-    return vm_search_from(&re->prog, s, slen, 0, re->flags, &st, &en, NULL) ? 1 : 0;
+    int hit;
+    if (track && start > slen) {
+        hit = 0;
+    } else if (sticky) {
+        hit = vm_match_anchor(&re->prog, s, slen, start, re->flags, &st, &en, NULL);
+    } else {
+        hit = vm_search_from(&re->prog, s, slen, start, re->flags, &st, &en, NULL);
+    }
+    if (!hit) {
+        if (track) re->last_index = 0;
+        return 0;
+    }
+    if (track) re->last_index = en;
+    return 1;
 }
 
 /* ============================================================
