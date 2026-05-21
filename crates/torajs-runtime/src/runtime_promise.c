@@ -918,6 +918,42 @@ void *__torajs_promise_then_closure(void *source, void *env) {
 }
 
 /* ============================================================
+ * P10.1-A1 — queueMicrotask(cb: () => void) global.
+ *
+ * cb is a Type::Closure with env+8 fn_addr layout (mirrors
+ * finally_closure: 0-user-arg, void return). The microtask
+ * carries the env pointer directly as the queue's int64_t arg
+ * (no wrapper struct needed — single field). Dispatcher loads
+ * fn_addr from env+8, calls cb(env), then drops the env ref
+ * via __torajs_value_drop_heap so captures + the env block
+ * release exactly once after the task fires.
+ *
+ * Rc discipline: caller (SSA-emit'd queueMicrotask lowering)
+ * passes the closure env borrowed; we inc here to keep the env
+ * alive across the microtask delay. The dispatcher's
+ * value_drop_heap pairs that inc.
+ * ============================================================ */
+typedef void (*__torajs_queue_micro_closure_fn_t)(void *);
+
+static void queue_micro_closure_dispatch_(int64_t arg) {
+    void *env = (void *)(intptr_t)arg;
+    void *fn_ptr = *(void **)((uint8_t *)env + 8);
+    __torajs_queue_micro_closure_fn_t cb =
+        (__torajs_queue_micro_closure_fn_t)fn_ptr;
+    cb(env);
+    __torajs_value_drop_heap(env);
+}
+
+void __torajs_queue_microtask_closure(void *env) {
+    if (env == NULL) return;
+    __torajs_rc_inc(env);
+    __torajs_microtask_enqueue(
+        queue_micro_closure_dispatch_,
+        (int64_t)(intptr_t)env
+    );
+}
+
+/* ============================================================
  * T-15.g.5 — Capture-box ARC for Copy escape-captured lets.
  *
  * When a top-level `let x = 10` is captured by a closure, the

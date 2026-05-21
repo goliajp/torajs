@@ -3464,6 +3464,18 @@ fn lower_inner(
         &[],
         Type::Void,
     );
+    /* P10.1-A1 — queueMicrotask(cb) closure-path enqueue. cb is a
+     * Type::Closure whose env+8 holds the lifted body's fn_addr
+     * (same layout as promise_finally_closure: 0-user-arg, void
+     * return). The runtime helper rc-inc's env at attach and
+     * drops via __torajs_value_drop_heap after invoke. */
+    let microtask_enqueue_closure_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_queue_microtask_closure",
+        &[Type::Ptr],
+        Type::Void,
+    );
     /* T-15.g.1 — Promise.resolve / Promise.reject statics. Both
      * take an i64-shaped value (caller is responsible for packing
      * heap pointers / bools / f64-bitcasts before the call) and
@@ -4979,6 +4991,7 @@ fn lower_inner(
         obj_is_frozen: obj_is_frozen_id,
         obj_check_not_frozen: obj_check_not_frozen_id,
         microtask_drain: microtask_drain_id,
+        microtask_enqueue_closure: microtask_enqueue_closure_id,
         promise_alloc_fulfilled: promise_alloc_fulfilled_id,
         promise_resolve_thenable: promise_resolve_thenable_id,
         promise_alloc_rejected: promise_alloc_rejected_id,
@@ -5830,6 +5843,11 @@ struct Intrinsics {
     /// main exit so chained Promise callbacks run before the
     /// process returns.
     microtask_drain: FuncId,
+    /// P10.1-A1 — queueMicrotask(cb) closure-path enqueue. Takes
+    /// the closure env pointer; runtime rc-inc's + dispatches at
+    /// the next drain. cb's ABI is `(env*) -> void` (mirrors
+    /// finally_closure).
+    microtask_enqueue_closure: FuncId,
     /// v0.5 T-15.g — Promise.resolve / Promise.reject runtime
     /// constructors + drop. The arg value is i64-packed (heap-ptr
     /// cast, bool widened, f64 bitcast).
@@ -15942,6 +15960,32 @@ impl<'a> LowerCtx<'a> {
                                 None,
                             );
                             return Operand::Value(v);
+                        }
+                        "queueMicrotask" => {
+                            /* P10.1-A1 — queueMicrotask(cb). cb is a
+                             * Type::Closure (check.rs enforces; simple-fn
+                             * + namespaced Window.queueMicrotask defer
+                             * to A1.1). Lower cb to its env pointer
+                             * operand and call the runtime helper which
+                             * rc-inc's env, enqueues a single-shot
+                             * dispatcher to the microtask queue. The
+                             * dispatcher runs cb(env), then drops env.
+                             *
+                             * Return shape: queueMicrotask returns
+                             * undefined per WHATWG HTML §queueMicrotask;
+                             * we model Void via ConstI64(0) like other
+                             * Type::Void call expressions. */
+                            let cb_op = self.lower_expr(args[0]);
+                            self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(
+                                    self.intrinsics.microtask_enqueue_closure,
+                                    vec![cb_op],
+                                ),
+                                Type::Void,
+                                None,
+                            );
+                            return Operand::ConstI64(0);
                         }
                         _ => {}
                     }

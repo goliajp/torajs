@@ -5637,6 +5637,30 @@ impl Checker {
                             let _ = self.type_of(ast, args[0])?;
                             return Ok(Type::Boolean);
                         }
+                        "queueMicrotask" => {
+                            // P10.1-A1 — WHATWG HTML §queueMicrotask:
+                            // schedule cb to run as a microtask before
+                            // the next event-loop turn. cb is exactly
+                            // `() => void`. Higher arities / non-void
+                            // ret / simple-fn (no-env) defer to A1.1.
+                            if args.len() != 1 {
+                                return Err(format!(
+                                    "queueMicrotask expects 1 arg, got {}",
+                                    args.len()
+                                ));
+                            }
+                            let cb_ty = self.type_of(ast, args[0])?;
+                            match &cb_ty {
+                                Type::Function(params, ret)
+                                    if params.is_empty() && **ret == Type::Void => {}
+                                _ => {
+                                    return Err(format!(
+                                        "queueMicrotask cb must be `() => void`, got {cb_ty:?}"
+                                    ));
+                                }
+                            }
+                            return Ok(Type::Void);
+                        }
                         _ => {}
                     }
                 }
