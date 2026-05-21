@@ -5,13 +5,14 @@
     <key>Label</key>
     <string>com.hardev.autorun</string>
 
-    <!-- Single-shot watcherd, dry-run by default. Replace `--dry-run`
-         with `--apply` only after P1.5 dogfood. -->
+    <!-- Single-shot watcherd. @@MODE@@ is filled by install_launchd.sh
+         (default --dry-run; pass --mode --apply to opt into real
+         tmux send-keys after P1.5 dogfood). -->
     <key>ProgramArguments</key>
     <array>
         <string>/bin/bash</string>
         <string>@@PROJECT_DIR@@/hardev/autorun/watcherd.sh</string>
-        <string>--dry-run</string>
+        <string>@@MODE@@</string>
     </array>
 
     <!-- WatchPaths: launchd spawns the ProgramArguments every time

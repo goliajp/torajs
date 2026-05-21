@@ -7,13 +7,39 @@
 # any existing load.
 #
 # Usage:
-#   hardev/autorun/install_launchd.sh
+#   hardev/autorun/install_launchd.sh                  # --dry-run (default)
+#   hardev/autorun/install_launchd.sh --mode --apply   # opt into real send-keys
+#   hardev/autorun/install_launchd.sh --mode --dry-run # explicit dry-run
+#
+# --mode <flag> sets the second ProgramArguments string passed to
+# watcherd. Valid values: --dry-run (default; safe), --apply (real
+# tmux send-keys; enable after P1.5 dogfood verified GREEN).
 
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=lib.sh
 . "$SCRIPT_DIR/lib.sh"
+
+MODE='--dry-run'
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --mode)
+      shift
+      MODE="${1:-}"
+      [ -z "$MODE" ] && { echo "install_launchd: --mode needs a value" >&2; exit 2; }
+      case "$MODE" in
+        --dry-run|--apply) ;;
+        *) echo "install_launchd: invalid --mode '$MODE' (expected --dry-run or --apply)" >&2; exit 2 ;;
+      esac
+      shift
+      ;;
+    *)
+      echo "install_launchd: unknown arg '$1'" >&2
+      exit 2
+      ;;
+  esac
+done
 
 PLIST_SRC="$SCRIPT_DIR/com.hardev.autorun.plist.template"
 PLIST_DST="$HOME/Library/LaunchAgents/com.hardev.autorun.plist"
@@ -29,6 +55,7 @@ mkdir -p "$LOG_DIR" "$(dirname "$PLIST_DST")"
 # Substitute placeholders.
 sed -e "s|@@PROJECT_DIR@@|$PROJECT_DIR|g" \
     -e "s|@@HOME@@|$HOME|g" \
+    -e "s|@@MODE@@|$MODE|g" \
     "$PLIST_SRC" > "$PLIST_DST"
 
 # Validate plist syntax.
@@ -52,8 +79,16 @@ if launchctl bootstrap "gui/$UID" "$PLIST_DST"; then
   echo "Status:"
   launchctl print "gui/$UID/com.hardev.autorun" 2>/dev/null | grep -E '\b(state|program)\b' | sed 's/^/  /' || echo "  (launchctl print returned nothing — recently-loaded entries may take a moment to appear)"
   echo
-  echo "Mode: --dry-run (default; watcherd logs would-be send-keys but does not act)."
-  echo "To go live, edit $PLIST_DST and replace '--dry-run' with '--apply', then re-run this script."
+  echo "Mode: $MODE"
+  if [ "$MODE" = '--dry-run' ]; then
+    echo "      (watcherd logs would-be send-keys but does not act)"
+    echo "      To go live, re-run: install_launchd.sh --mode --apply"
+  else
+    echo "      (watcherd will actually tmux send-keys — make sure HARDEV_AUTORUN_TMUX_TARGET"
+    echo "       env var is set, or a 'hardev-autorun-sink' tmux session exists, or a pane"
+    echo "       whose command matches 'claude'/'node' is running)"
+    echo "      To go back to dry-run: install_launchd.sh --mode --dry-run"
+  fi
 else
   echo "install_launchd: launchctl bootstrap failed" >&2
   exit 1

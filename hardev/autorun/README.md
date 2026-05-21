@@ -346,16 +346,23 @@ hardev/autorun/uninstall_launchd.sh
 load 进 GUI launchd domain。`uninstall_launchd.sh` `launchctl bootout`
 + `rm` plist。logs 保留供 audit。
 
-### 切换到 --apply
+### 切换 mode
 
-P1.3 / P1.4 默认 `--dry-run`（watcherd 只 log，不真 tmux send-keys）。
-P1.5 dogfood 5 次 GREEN 之后再切：
+`install_launchd.sh` 接受 `--mode <--dry-run|--apply>`（默认 `--dry-run`）。
+切换不靠手 sed —— 直接：
 
 ```bash
-# Edit plist in-place, swap dry-run → apply:
-sed -i.bak 's/--dry-run/--apply/' ~/Library/LaunchAgents/com.hardev.autorun.plist
-hardev/autorun/install_launchd.sh   # reload to pick up the change
+# Go live (real send-keys; only after P1.5 dogfood GREEN):
+hardev/autorun/install_launchd.sh --mode --apply
+
+# Back to dry-run safety:
+hardev/autorun/install_launchd.sh --mode --dry-run
 ```
+
+Mode 烧进 plist 的 `ProgramArguments[2]`（template 占位符 `@@MODE@@`）。
+重跑 install 自动 bootout + 写新 plist + bootstrap，所以 launchctl cached
+args 也更新到位（手 sed plist 后再调 install 会被 template 覆盖回，**不要
+那么做**）。
 
 ### P1.4 验收
 
