@@ -911,7 +911,34 @@ generator full state machine. v5 merges v4's P9 (Promise) + P14
 
 **Substrate checklist** (strict order):
 
-- [ ] **P10.1** Microtask queue with drain at every yield point
+- [ ] **P10.1** Microtask queue with drain at every yield point — IN
+      PROGRESS. A1 SHIPPED `b252492` — `queueMicrotask(cb)` global
+      binding (WHATWG HTML §queueMicrotask). cb is closure-typed
+      `() => void` (Type::Function([], Void) at check layer;
+      Type::Closure at SSA with env+8 fn_addr — same ABI as
+      `finally_closure`). New runtime helper
+      `__torajs_queue_microtask_closure` inc's env at attach,
+      dispatcher loads fn_addr / calls `cb(env)` / drops env via
+      `__torajs_value_drop_heap` after invoke. Wires the language
+      entry to the existing T-15.c microtask queue + T-15.e main-
+      exit drain — substrate was already complete. Fixture
+      `micro-001-queueMicrotask-basic.ts` byte-equal vs bun
+      (`sync\nmt1`). Pre-flight 0 err / 0 warn / fmt clean / 81
+      cargo-test passed; conformance gate
+      `/tmp/torajs-conformance-p10.1-a1.log` PENDING.
+
+      Follow-ups inside P10.1 (cold backlog — hotify per trigger):
+      - **A1.1** simple-fn (no-env) cb path — currently check.rs
+        rejects `Type::Function` without closure env; would need
+        a `queue_microtask_simple` runtime variant or to widen the
+        existing helper to detect env-vs-fn shape.
+      - **A1.2** broader drain points — current drains: main-exit
+        (T-15.e) + `await` (`ssa_lower:23659`). "every yield point"
+        per spec also includes between top-level statements
+        post-`queueMicrotask` and between sequential Promise.then
+        chains; audit needed to determine actual gap vs spec.
+      - **A1.3** `Window.queueMicrotask` namespaced form (defer
+        until namespace globals land for other Web globals).
 - [ ] **P10.2** Promise.all / .race / .allSettled / .any per spec
       (currently allSettled is single-T MVP)
 - [ ] **P10.3** Async iterator + for-await-of (depends on P5)
