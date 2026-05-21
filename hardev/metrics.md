@@ -117,7 +117,7 @@ slots, so a 1-week baseline can ground the P1 automation decisions.
 | unstaged-loss incidents during rotation | **0** `[M]` — 10 manual rotations 2026-05-19..21 with 0 incidents takagi-flagged; P0 has no automated /clear so risk is currently zero by construction | 0 (INV-2 enforced by P1 watcher pre-act gate) | 0 + automatic rollback if regression detected |
 | conformance regression introduced by rotation | **0** `[M]` — 10 rotations 2026-05-19..21, `conformanceBefore` 631 → 650 monotonic across the series (rotations.jsonl); 0 incidents takagi-flagged | 0 (INV-3 enforced — post-rotation conformance ≥ pre-rotation) | 0 + post-rotation gate runs automatically |
 | protocol surface | **CLAUDE.md HARD RULE «Autorun rotation protocol» + `hardev/autorun/README.md` (P0 SHIPPED)** `[M]` — sequence: `/handoff:handoff save` → `hardev/autorun/trigger.sh self` → no further tokens this turn | unchanged at v1 | unchanged |
-| automation level | **manual** `[M]` — operator runs `/clear` and `/handoff:handoff resume` themselves; the agent only records intent | **automatic** `[D]` — Stop hook writes marker, watcher (`launchd`) drives `/clear` + resume via `tmux send-keys` | self-healing — daemon heartbeats and crash-restarts itself, multi-project |
+| automation level | **wired up · --dry-run default** `[M]` — P1 pipeline live (`check.sh` INV-1..5 + `stop_hook.sh` + `watcherd.sh` + `com.hardev.autorun` LaunchAgent); `--apply` opt-in via `install_launchd.sh --mode --apply` after dogfood | **automatic** `[D]` — Stop hook writes marker, watcher (`launchd`) drives `/clear` + resume via `tmux send-keys` | self-healing — daemon heartbeats and crash-restarts itself, multi-project |
 
 How to read this section: every `[D]` here is **intentional** — the
 data needed to ground a real `now` value is what the v0.1.x ship is
@@ -174,6 +174,46 @@ the qualitative observations the table cannot hold:
 The window closes the **measure-first** half of v0.1.x. Next is
 mechanism: P1 (`Stop` hook + watcher + `INV-1..5 check.sh` + launchd).
 See `hardev/autorun/README.md` §"Architecture" Layer 1 and Layer 3.
+
+### P1 dogfood completion @2026-05-21 (5/5 cycles GREEN)
+
+P1 substrate fully shipped this same day (commits `2921834..ff383ae`,
+8 commits). Pipeline exercised end-to-end via a 5-cycle dogfood:
+
+- Sink tmux session `hardev-autorun-sink` stood up as send-keys
+  receiver (so the real Claude Code session was untouched).
+- `install_launchd.sh --mode --apply` flipped the LaunchAgent to
+  real-send mode for the test.
+- For `i in 1..5`: mock `r-dogfood-cycle-$i` intent → `stop_hook.sh`
+  → marker written → launchd `WatchPaths` spawned watcherd in
+  ≤ 10.5 s wall (5/5 cycles, no incidents) → watcherd ran the dual
+  INV gate → `tmux send-keys` `/clear` + `/handoff:handoff resume`
+  to sink pane → marker rm'd.
+
+Tally (read from `~/Library/Logs/hardev/autorun.err.log` + sink
+`tmux capture-pane`):
+
+- 5 / 5  `stop_hook: rotation r-dogfood-cycle-N green-lit`
+- 5 / 5  `watcherd: rotation r-dogfood-cycle-N · sent /clear +
+  /handoff:handoff resume to 'hardev-autorun-sink'`
+- 5 × `/clear` literal landed in sink pane (sink shell printed
+  `zsh: no such file or directory: /clear` — that's expected; the
+  send-keys reached the pane, sink shell isn't Claude Code)
+- 5 × `/handoff:handoff resume` literal landed in sink pane
+- 0 FAILED / 0 blocked / 0 timeout (15-s wait per cycle)
+- INV-3 PASS at conformance 650/0/1 across all cycles (no
+  regression introduced by dogfood itself)
+
+After verification the plist was reverted to `--dry-run` and the
+sink session killed; the pipeline is now in steady-state
+`--dry-run` waiting on takagi's call to switch to `--apply` for
+real Claude Code rotations.
+
+P1 graduation = **substrate ready · 5/5 cycles GREEN**. `handoff
+fidelity` + `drift-incident rate` rows above stay `[D]` because
+they need production-traffic flagging (a dogfood pane has no
+"first user message after rotation" to evaluate); those numbers
+graduate once a few real `--apply` rotations have been observed.
 
 ## How to keep this file honest
 
