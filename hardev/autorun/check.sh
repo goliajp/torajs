@@ -163,6 +163,15 @@ check_inv4() {
 # collapse to 1 / 65536. Tiny absolute risk, near-zero cost to guard.
 # Without the guard, a duplicate id would silently corrupt downstream
 # audit / dashboard joins.
+#
+# IMPORTANT: this check is only meaningful at the *pre-append* moment
+# (i.e. inside trigger.sh BEFORE it calls autorun_record_rotation). By
+# the time stop_hook / watcherd run, trigger.sh has already appended
+# the rid → any check that passes the rid will FAIL here. The fix is
+# at the call site: stop_hook and watcherd MUST omit the rid → INV-5
+# SKIPs. See stop_hook.sh / watcherd.sh for the rationale comments,
+# and check_self_test.sh case-4 for the path that does pass a rid
+# (simulating a same-second collision).
 check_inv5() {
   if [ -z "$ROTATION_ID" ]; then
     emit INV-5 SKIP "no rotation_id provided"

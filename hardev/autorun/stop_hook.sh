@@ -19,7 +19,8 @@
 # Sentinel lifecycle:
 #
 #   trigger.sh  →  writes .claude/autorun-intent (rotation_id, single line)
-#                  this hook reads it
+#                  AND appends a rotations.jsonl row for the same rid
+#                  before this hook runs
 #   stop_hook   →  on green INV check, writes .claude/autorun-marker
 #                  (same rotation_id) and rm's the intent
 #                  on red, keeps intent so the next turn-end retries
@@ -29,6 +30,14 @@
 # Each sentinel is consumed exactly once on the green path. On the red
 # path, intent is kept (agent may fix the failed invariant and try
 # again next turn-end without re-running trigger.sh).
+#
+# Why we call check.sh WITHOUT the rid: trigger.sh has already appended
+# rotation_id to rotations.jsonl by the time this hook fires. If we
+# passed the rid, INV-5 (rotation_id-uniqueness-in-jsonl) would always
+# FAIL → intent would loop forever and the marker would never appear.
+# INV-5's true call-site is the self-test (which simulates duplicate
+# rids explicitly); the stop-hook/watcher path must omit the rid →
+# INV-5 SKIPs. See README §"INV-1..5 spec" for full rationale.
 #
 # Always exits 0: a hook failure must never break the user's turn.
 
@@ -49,8 +58,10 @@ if [ -z "$rid" ]; then
   exit 0
 fi
 
-# Run the INV-1..5 pre-act gate.
-if "$SCRIPT_DIR/check.sh" "$rid" >&2; then
+# Run the INV-1..5 pre-act gate. Pass NO rid — see header comment for
+# why (INV-5 would otherwise always FAIL since trigger.sh already
+# appended the rid to jsonl before this hook ran).
+if "$SCRIPT_DIR/check.sh" >&2; then
   # Green: hand off to the watcher.
   printf '%s\n' "$rid" > "$MARKER_FILE"
   rm -f "$INTENT_FILE"

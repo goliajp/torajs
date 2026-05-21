@@ -141,7 +141,7 @@ P1 扩展（不阻塞本次 ship）：
 | **INV-2** | `git -C <project> status --porcelain` 输出为空 | rotation 即将 /clear；未 commit 的改动（staged 或 unstaged）会对新 session 不可见 ⇒ 静默丢失 work | `git status --porcelain` |
 | **INV-3** | 当前 `conformanceBefore` ≥ `rotations.jsonl` 末尾一行的 `conformanceBefore`（按 first /-separated 数字比较） | rotation 之前已经引入了 conformance 回归而未察觉。P0 baseline 10 行天然 monotonic non-decreasing，P1 把它变成 gate 而非观察 | `autorun_conformance_now` + tail jsonl |
 | **INV-4** | `handoff.md` non-empty 且含 `> saved:` blockquote 行 | 文件存在但内容是 phantom（0 字节、半写、误 touch）—— mtime 满足 INV-1 也救不了，这是结构性 fallback | `grep -q '^> saved:' handoff.md` |
-| **INV-5** | 新生成 `rotation_id` 不在 `rotations.jsonl` 已有行中 | id 冲突会污染下游 audit / dashboard 的 join。绝对发生概率 ≈1/65536（同秒），guard 成本零 | `grep -q "\"rotationId\":\"$ID\"" rotations.jsonl` |
+| **INV-5** | 新生成 `rotation_id` 不在 `rotations.jsonl` 已有行中 | id 冲突会污染下游 audit / dashboard 的 join。绝对发生概率 ≈1/65536（同秒），guard 成本零。**注意：仅 trigger.sh pre-append + self-test 显式传 rid 触发；stop_hook / watcherd 调用必须省略 rid（trigger.sh 已 append rid → 传则 INV-5 必 FAIL → stale-intent loop）** | `grep -q "\"rotationId\":\"$ID\"" rotations.jsonl` |
 
 调用约定：
 
@@ -165,15 +165,18 @@ GREEN happy / INV-1 stale / INV-2 dirty / INV-5 dup-id。Trap 恢复所有
 **调用现场**（P1.2 / P1.3 落地后）：
 
 ```
-# Stop hook (P1.2):
+# Stop hook (P1.2) — note: NO rid passed (trigger.sh already appended
+# the rid to jsonl before this hook runs; passing it would INV-5 FAIL
+# the rotation forever, see check.sh:INV-5 header).
 if [ -f "$INTENT_FILE" ]; then
   rid=$(cat "$INTENT_FILE")
-  if "$AUTORUN_DIR/check.sh" "$rid" >&2; then
+  if "$AUTORUN_DIR/check.sh" >&2; then
     printf '%s\n' "$rid" > "$MARKER_FILE"
+    rm -f "$INTENT_FILE"
   fi
 fi
 
-# Watcher (P1.3) — defense in depth re-check before acting:
+# Watcher (P1.3) — defense in depth re-check before acting (also no rid):
 if "$AUTORUN_DIR/check.sh" >&2; then
   tmux send-keys -t "$pane" '/clear' Enter
   ...

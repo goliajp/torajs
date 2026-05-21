@@ -78,8 +78,12 @@ fi
 
 # 2. Defense-in-depth INV re-check. State may have changed between
 #    stop_hook writing the marker and now (typically: dev introduced
-#    dirty tree in the gap).
-if ! "$SCRIPT_DIR/check.sh" "$rid" >&2; then
+#    dirty tree in the gap). Pass NO rid: INV-5 (rotation_id
+#    uniqueness in jsonl) would always FAIL here because trigger.sh
+#    appended the rid to jsonl long before stop_hook even ran. INV-5
+#    is only meaningful at the trigger.sh-internal pre-append moment
+#    (and exercised by check_self_test); this stage must SKIP it.
+if ! "$SCRIPT_DIR/check.sh" >&2; then
   echo "watcherd: rotation $rid blocked at watcher gate · INV regressed since stop_hook · marker dropped" >&2
   rm -f "$MARKER_FILE"
   exit 1
