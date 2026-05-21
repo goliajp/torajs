@@ -2597,24 +2597,59 @@ typedef void *(*replace_cb_7_t)(void *env, void *m, void *g1, void *g2, void *g3
 typedef void *(*replace_cb_8_t)(void *env, void *m, void *g1, void *g2, void *g3, void *g4, void *g5, void *g6, void *g7, void *g8);
 typedef void *(*replace_cb_9_t)(void *env, void *m, void *g1, void *g2, void *g3, void *g4, void *g5, void *g6, void *g7, void *g8, void *g9);
 
+/* P9.5-A1.2 — variants with trailing `(offset: number, input: string)`
+ * per ES spec §22.1.3.18 full cb arity. cb sig becomes
+ * `(env, m, g1..gN, offset_i64, input_str) -> ret_str`. ssa-lower
+ * detects sig shape and selects between A1.1 and A1.2 paths via the
+ * `has_off_input` flag threaded into the runtime helper. */
+typedef void *(*replace_cb_0_off_t)(void *env, void *m, int64_t off, void *input);
+typedef void *(*replace_cb_1_off_t)(void *env, void *m, void *g1, int64_t off, void *input);
+typedef void *(*replace_cb_2_off_t)(void *env, void *m, void *g1, void *g2, int64_t off, void *input);
+typedef void *(*replace_cb_3_off_t)(void *env, void *m, void *g1, void *g2, void *g3, int64_t off, void *input);
+typedef void *(*replace_cb_4_off_t)(void *env, void *m, void *g1, void *g2, void *g3, void *g4, int64_t off, void *input);
+typedef void *(*replace_cb_5_off_t)(void *env, void *m, void *g1, void *g2, void *g3, void *g4, void *g5, int64_t off, void *input);
+typedef void *(*replace_cb_6_off_t)(void *env, void *m, void *g1, void *g2, void *g3, void *g4, void *g5, void *g6, int64_t off, void *input);
+typedef void *(*replace_cb_7_off_t)(void *env, void *m, void *g1, void *g2, void *g3, void *g4, void *g5, void *g6, void *g7, int64_t off, void *input);
+typedef void *(*replace_cb_8_off_t)(void *env, void *m, void *g1, void *g2, void *g3, void *g4, void *g5, void *g6, void *g7, void *g8, int64_t off, void *input);
+typedef void *(*replace_cb_9_off_t)(void *env, void *m, void *g1, void *g2, void *g3, void *g4, void *g5, void *g6, void *g7, void *g8, void *g9, int64_t off, void *input);
+
 static void *invoke_replace_cb(
-    int64_t n_caps, void *closure_env, void *fn_ptr, void *m, void **caps
+    int64_t n_caps, int has_off_input,
+    void *closure_env, void *fn_ptr,
+    void *m, void **caps,
+    int64_t off, void *input
 ) {
-    switch ((int)n_caps) {
-    case 0: return ((replace_cb_0_t)fn_ptr)(closure_env, m);
-    case 1: return ((replace_cb_1_t)fn_ptr)(closure_env, m, caps[0]);
-    case 2: return ((replace_cb_2_t)fn_ptr)(closure_env, m, caps[0], caps[1]);
-    case 3: return ((replace_cb_3_t)fn_ptr)(closure_env, m, caps[0], caps[1], caps[2]);
-    case 4: return ((replace_cb_4_t)fn_ptr)(closure_env, m, caps[0], caps[1], caps[2], caps[3]);
-    case 5: return ((replace_cb_5_t)fn_ptr)(closure_env, m, caps[0], caps[1], caps[2], caps[3], caps[4]);
-    case 6: return ((replace_cb_6_t)fn_ptr)(closure_env, m, caps[0], caps[1], caps[2], caps[3], caps[4], caps[5]);
-    case 7: return ((replace_cb_7_t)fn_ptr)(closure_env, m, caps[0], caps[1], caps[2], caps[3], caps[4], caps[5], caps[6]);
-    case 8: return ((replace_cb_8_t)fn_ptr)(closure_env, m, caps[0], caps[1], caps[2], caps[3], caps[4], caps[5], caps[6], caps[7]);
-    case 9: return ((replace_cb_9_t)fn_ptr)(closure_env, m, caps[0], caps[1], caps[2], caps[3], caps[4], caps[5], caps[6], caps[7], caps[8]);
-    default:
-        fprintf(stderr, "__torajs_str_replace_regex_fn: n_caps=%lld out of range [0,9]\n", (long long)n_caps);
-        abort();
+    if (has_off_input) {
+        switch ((int)n_caps) {
+        case 0: return ((replace_cb_0_off_t)fn_ptr)(closure_env, m, off, input);
+        case 1: return ((replace_cb_1_off_t)fn_ptr)(closure_env, m, caps[0], off, input);
+        case 2: return ((replace_cb_2_off_t)fn_ptr)(closure_env, m, caps[0], caps[1], off, input);
+        case 3: return ((replace_cb_3_off_t)fn_ptr)(closure_env, m, caps[0], caps[1], caps[2], off, input);
+        case 4: return ((replace_cb_4_off_t)fn_ptr)(closure_env, m, caps[0], caps[1], caps[2], caps[3], off, input);
+        case 5: return ((replace_cb_5_off_t)fn_ptr)(closure_env, m, caps[0], caps[1], caps[2], caps[3], caps[4], off, input);
+        case 6: return ((replace_cb_6_off_t)fn_ptr)(closure_env, m, caps[0], caps[1], caps[2], caps[3], caps[4], caps[5], off, input);
+        case 7: return ((replace_cb_7_off_t)fn_ptr)(closure_env, m, caps[0], caps[1], caps[2], caps[3], caps[4], caps[5], caps[6], off, input);
+        case 8: return ((replace_cb_8_off_t)fn_ptr)(closure_env, m, caps[0], caps[1], caps[2], caps[3], caps[4], caps[5], caps[6], caps[7], off, input);
+        case 9: return ((replace_cb_9_off_t)fn_ptr)(closure_env, m, caps[0], caps[1], caps[2], caps[3], caps[4], caps[5], caps[6], caps[7], caps[8], off, input);
+        default: break;
+        }
+    } else {
+        switch ((int)n_caps) {
+        case 0: return ((replace_cb_0_t)fn_ptr)(closure_env, m);
+        case 1: return ((replace_cb_1_t)fn_ptr)(closure_env, m, caps[0]);
+        case 2: return ((replace_cb_2_t)fn_ptr)(closure_env, m, caps[0], caps[1]);
+        case 3: return ((replace_cb_3_t)fn_ptr)(closure_env, m, caps[0], caps[1], caps[2]);
+        case 4: return ((replace_cb_4_t)fn_ptr)(closure_env, m, caps[0], caps[1], caps[2], caps[3]);
+        case 5: return ((replace_cb_5_t)fn_ptr)(closure_env, m, caps[0], caps[1], caps[2], caps[3], caps[4]);
+        case 6: return ((replace_cb_6_t)fn_ptr)(closure_env, m, caps[0], caps[1], caps[2], caps[3], caps[4], caps[5]);
+        case 7: return ((replace_cb_7_t)fn_ptr)(closure_env, m, caps[0], caps[1], caps[2], caps[3], caps[4], caps[5], caps[6]);
+        case 8: return ((replace_cb_8_t)fn_ptr)(closure_env, m, caps[0], caps[1], caps[2], caps[3], caps[4], caps[5], caps[6], caps[7]);
+        case 9: return ((replace_cb_9_t)fn_ptr)(closure_env, m, caps[0], caps[1], caps[2], caps[3], caps[4], caps[5], caps[6], caps[7], caps[8]);
+        default: break;
+        }
     }
+    fprintf(stderr, "__torajs_str_replace_regex_fn: n_caps=%lld out of range [0,9]\n", (long long)n_caps);
+    abort();
 }
 
 /* Build N capture Strs from saves[]. Each cap slot reads
@@ -2636,7 +2671,8 @@ static void build_capture_strs(
 }
 
 void *__torajs_str_replace_regex_fn(
-    const void *str_ptr, const void *re_ptr, void *closure_env, int64_t n_caps
+    const void *str_ptr, const void *re_ptr, void *closure_env,
+    int64_t n_caps, int64_t has_off_input
 ) {
     if (!re_ptr || !closure_env) {
         return str_from_bytes(__TORAJS_STR_CDATA(str_ptr),
@@ -2682,7 +2718,10 @@ void *__torajs_str_replace_regex_fn(
         void *caps[9] = {0};
         build_capture_strs(n_caps, saves, s, caps);
 
-        void *ret_str = invoke_replace_cb(n_caps, closure_env, fn_ptr, match_str, caps);
+        void *ret_str = invoke_replace_cb(
+            n_caps, (int)has_off_input, closure_env, fn_ptr,
+            match_str, caps, st, (void *)str_ptr
+        );
 
         __torajs_str_drop(match_str);
         for (int64_t i = 0; i < n_caps; i++) __torajs_str_drop(caps[i]);
@@ -2710,7 +2749,8 @@ void *__torajs_str_replace_regex_fn(
 }
 
 void *__torajs_str_replace_all_regex_fn(
-    const void *str_ptr, const void *re_ptr, void *closure_env, int64_t n_caps
+    const void *str_ptr, const void *re_ptr, void *closure_env,
+    int64_t n_caps, int64_t has_off_input
 ) {
     if (!re_ptr || !closure_env) {
         return str_from_bytes(__TORAJS_STR_CDATA(str_ptr),
@@ -2753,7 +2793,10 @@ void *__torajs_str_replace_all_regex_fn(
         void *caps[9] = {0};
         build_capture_strs(n_caps, saves, s, caps);
 
-        void *ret_str = invoke_replace_cb(n_caps, closure_env, fn_ptr, match_str, caps);
+        void *ret_str = invoke_replace_cb(
+            n_caps, (int)has_off_input, closure_env, fn_ptr,
+            match_str, caps, st, (void *)str_ptr
+        );
 
         __torajs_str_drop(match_str);
         for (int64_t i = 0; i < n_caps; i++) __torajs_str_drop(caps[i]);

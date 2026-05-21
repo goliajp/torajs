@@ -2102,25 +2102,27 @@ fn lower_inner(
         &[Type::Str, Type::RegExp, Type::Str],
         Type::Str,
     );
-    // P9.5-A1 / A1.1 — `s.replace(re, fn)` / `s.replaceAll(re, fn)`
+    // P9.5-A1 / A1.1 / A1.2 — `s.replace(re, fn)` / `s.replaceAll(re, fn)`
     // callback form. 3rd arg is the closure env block (env+8 holds
     // the lifted body's fn_addr — same env-pointer ABI as
     // promise_then_closure). 4th arg is `n_caps` (number of capture
     // groups in the regex literal, counted statically at ssa-lower
-    // time). Runtime builds N capture Strs from saves[] + invokes
-    // cb with (env, m, g1, ..., gN) via N-specific static cast.
+    // time). 5th arg is `has_off_input` (0 = A1.1 cb shape
+    // `(m, g1..gN) -> ret`; 1 = A1.2 cb shape `(m, g1..gN, off, input)
+    // -> ret`). Runtime builds N capture Strs from saves[] + selects
+    // the correct N-specific cast via invoke_replace_cb's switch.
     let regex_replace_fn_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
         "__torajs_str_replace_regex_fn",
-        &[Type::Str, Type::RegExp, Type::Ptr, Type::I64],
+        &[Type::Str, Type::RegExp, Type::Ptr, Type::I64, Type::I64],
         Type::Str,
     );
     let regex_replace_all_fn_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
         "__torajs_str_replace_all_regex_fn",
-        &[Type::Str, Type::RegExp, Type::Ptr, Type::I64],
+        &[Type::Str, Type::RegExp, Type::Ptr, Type::I64, Type::I64],
         Type::Str,
     );
     let regex_split_id = declare_intrinsic(
@@ -19774,7 +19776,9 @@ impl<'a> LowerCtx<'a> {
                                 // `[Str; N+1] -> Str`. Mismatches +
                                 // N > 9 panic at compile-time; never
                                 // silent-wrong from cb cast mismatch.
-                                let (target, opt_n_caps) = match (&repl_ty, method.as_str()) {
+                                // Returns (target_fid, Some((n_caps, has_off_input))) for
+                                // Closure paths, or (target_fid, None) for the Str path.
+                                let (target, opt_extras) = match (&repl_ty, method.as_str()) {
                                     (Type::Str, "replace") => (self.intrinsics.regex_replace, None),
                                     (Type::Str, "replaceAll") => {
                                         (self.intrinsics.regex_replace_all, None)
@@ -19782,22 +19786,37 @@ impl<'a> LowerCtx<'a> {
                                     (Type::Closure(sig_id), m_name) => {
                                         let (params, ret_ty) =
                                             self.fn_sigs[sig_id.0 as usize].clone();
-                                        if ret_ty != Type::Str
-                                            || !params.iter().all(|t| t == &Type::Str)
+                                        if ret_ty != Type::Str {
+                                            panic!(
+                                                "ssa-lower: P9.5 s.{m_name}(re, fn) — fn ret \
+                                                     must be Str, got {ret_ty:?}"
+                                            );
+                                        }
+                                        // Detect cb shape:
+                                        //  - A1.1: [Str; N+1]            → has_off_input=0
+                                        //  - A1.2: [Str; N+1, I64, Str]  → has_off_input=1
+                                        // (A1.2 trailing slots are (offset:number,
+                                        //  input:string) per ES spec.)
+                                        let (n_caps_expected, has_off_input) = if params.len() >= 3
+                                            && params[params.len() - 2] == Type::I64
+                                            && params[params.len() - 1] == Type::Str
+                                            && params[..params.len() - 2]
+                                                .iter()
+                                                .all(|t| t == &Type::Str)
                                         {
+                                            (params.len() - 3, true)
+                                        } else if !params.is_empty()
+                                            && params.iter().all(|t| t == &Type::Str)
+                                        {
+                                            (params.len() - 1, false)
+                                        } else {
                                             panic!(
                                                 "ssa-lower: P9.5 s.{m_name}(re, fn) — fn must \
-                                                     have shape `(Str, Str, ..., Str) => Str`, got \
-                                                     params={params:?} ret={ret_ty:?}"
+                                                     have shape `(Str, ..., Str) => Str` (A1.1) or \
+                                                     `(Str, ..., Str, number, string) => Str` (A1.2), \
+                                                     got params={params:?} ret={ret_ty:?}"
                                             );
-                                        }
-                                        if params.is_empty() {
-                                            panic!(
-                                                "ssa-lower: P9.5 s.{m_name}(re, fn) — fn must \
-                                                     take at least the match arg `(m: string)`"
-                                            );
-                                        }
-                                        let n_caps_expected = params.len() - 1;
+                                        };
                                         if n_caps_expected > 9 {
                                             panic!(
                                                 "ssa-lower: P9.5-A1.1 s.{m_name}(re, fn) — \
@@ -19821,7 +19840,7 @@ impl<'a> LowerCtx<'a> {
                                             panic!(
                                                 "ssa-lower: P9.5-A1.1 s.{m_name}(re, fn) — \
                                                      regex has {n_caps_actual} capture group(s) \
-                                                     but cb takes {n_caps_expected} extra arg(s). \
+                                                     but cb takes {n_caps_expected} capture arg(s). \
                                                      Note: ident-bound regex always assumed \
                                                      0 captures; inline the regex literal to use \
                                                      captures."
@@ -19832,7 +19851,7 @@ impl<'a> LowerCtx<'a> {
                                         } else {
                                             self.intrinsics.regex_replace_all_fn
                                         };
-                                        (fid, Some(n_caps_actual))
+                                        (fid, Some((n_caps_actual, has_off_input)))
                                     }
                                     _ => panic!(
                                         "ssa-lower: s.{method}(re, repl) — repl must be Str \
@@ -19841,8 +19860,9 @@ impl<'a> LowerCtx<'a> {
                                 };
 
                                 let mut call_args = vec![recv_op, re_op, repl];
-                                if let Some(n_caps) = opt_n_caps {
+                                if let Some((n_caps, has_off_input)) = opt_extras {
                                     call_args.push(Operand::ConstI64(n_caps as i64));
+                                    call_args.push(Operand::ConstI64(has_off_input as i64));
                                 }
                                 let v = self.f.append_inst(
                                     self.cur_block,
