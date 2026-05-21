@@ -180,6 +180,65 @@ if "$AUTORUN_DIR/check.sh" >&2; then
 fi
 ```
 
+## Stop hook（P1.2 SHIPPED — `stop_hook.sh`）
+
+P1.2 把 trigger.sh 写的 `autorun-intent` 接到 Claude Code 的 `Stop`
+事件上，把 INV-1..5 检查从"agent 自评估自己跑"升级为"每个 turn-end
+机器执行"。stop_hook 是**唯一**有权把 intent 升级为 marker 的脚本。
+
+### 接线（per-developer，因 `.claude/settings.local.json` gitignored）
+
+```json
+"hooks": {
+  "Stop": [
+    {
+      "hooks": [
+        { "type": "command", "command": "hardev/autorun/stop_hook.sh" }
+      ]
+    }
+  ]
+}
+```
+
+Claude Code 调 hook 时 CWD = 项目根目录，所以相对路径 work；不需要写
+绝对路径，跨开发者 portable。
+
+### Sentinel lifecycle
+
+```
+trigger.sh      → writes .claude/autorun-intent (rotation_id, 1 line)
+                  (P0 + P1 共用 — trigger 自身行为不变)
+stop_hook       → reads intent → runs check.sh <rid>
+                  · GREEN → writes .claude/autorun-marker (same rid) + rm intent
+                  · RED   → keeps intent (next turn-end retries)
+watcherd (P1.3) → fswatch marker → re-runs check.sh → tmux send-keys
+                  /clear + /handoff:handoff resume → rm marker
+```
+
+每个 sentinel 在 GREEN 路径上**精确消费一次**。RED 路径保留 intent，
+让 agent 修复失败的 INV（最常见：tree dirty 就 commit；handoff 旧就
+`/handoff:handoff save`）后下次 turn-end 自动 retry，**无需重跑
+trigger.sh**。
+
+### 不变量
+
+- stop_hook 始终 `exit 0` —— hook 故障必须不能 break 用户的 turn
+- 任何状态变化（写 marker / rm intent）只发生在 GREEN 路径
+- stderr 用于状态 line（`stop_hook: rotation <rid> green-lit · …` 或
+  `… blocked by INV check · …`）+ check.sh 自己的 5 行 INV report
+- 不 spawn 任何长 running 子进程（hook latency = check.sh latency）
+
+### P1.2 验收
+
+机器可判：
+
+1. 无 intent → 无 marker、exit 0
+2. intent + GREEN tree + fresh handoff → marker 文件出现且内容 = rid；
+   intent 被 rm
+3. intent + 任一 INV FAIL → 无 marker；intent 内容保持不变
+
+详见 `hardev/autorun/stop_hook.sh` 文件头注释。
+
 ## P0 acceptance（本次 ship 验收口径）
 
 机器可判项：
