@@ -239,6 +239,70 @@ trigger.sh**。
 
 详见 `hardev/autorun/stop_hook.sh` 文件头注释。
 
+## Watcher（P1.3 SHIPPED — `watcherd.sh`）
+
+P1.3 把 marker 接到 actual session 操作（`tmux send-keys`）。设计原则：
+**watcherd 不是 long-running daemon**，是 single-shot script。P1.4
+launchd `WatchPaths` 在 marker 出现/变化时 spawn 一次 watcherd，跑完
+退出。这跟 [[feedback-only-devserver-persistent]] 完全 align — 不再
+留任何长驻进程。
+
+### 双 gate
+
+INV-1..5 在 P1 pipeline 中跑**两次**:
+
+1. **stop_hook 之前** —— 决定写不写 marker
+2. **watcherd 实际 send-keys 之前** —— 决定发不发 keys
+
+第二次是 **defense-in-depth**：state 可能在 stop_hook 和 watcher act
+之间漂移（典型场景：用户在两者之间手动改了 tree → 引入 dirty）。如果
+第二次 check FAIL，watcher rm marker 阻止再触发（避免 launchd respawn
+loop），exit 1 + stderr 记 "blocked at watcher gate"。
+
+### 模式与目标
+
+```
+hardev/autorun/watcherd.sh                # --dry-run by default (safe)
+hardev/autorun/watcherd.sh --apply        # actually send-keys
+```
+
+目标 pane 选择优先级：
+
+1. `HARDEV_AUTORUN_TMUX_TARGET` env var（推荐设；e.g. `%0`、
+   `session:window.pane`、`=Claude` —— 见 `man tmux` TARGET-PANE）
+2. discover：`tmux list-panes -a` 找 current command 或 title 含
+   `claude` 的 pane；找不到 fall back 到 `node`（Claude Code TUI
+   跑在 node 下）
+3. 都没有 → 不 act，rm marker，exit 1
+
+### Sentinel 行为
+
+marker 在 GREEN 路径上消费一次（rm）。**RED 路径下 marker 也 rm**
+—— 这跟 stop_hook 在 RED 下保留 intent 的设计不一样，因为 marker
+是 launchd-triggered，保留 marker 会让 launchd 反复 respawn watcher
+（无限 loop）。设计权衡：
+
+- stop_hook RED：保留 intent → 下次 turn-end retry，agent 修了
+  state 自然恢复，不靠 trigger.sh 重跑
+- watcher RED：rm marker → 这次 rotation 丢弃，要重跑 trigger.sh
+  （rare path：state 在 stop_hook 和 watcher 之间漂移）
+
+### P1.3 验收
+
+机器可判（详见 P1 ship 后的 acceptance 节）：
+
+1. 无 marker → exit 0 静默
+2. marker + GREEN + target set + --dry-run → log "[DRY-RUN] would
+   send-keys ..." + marker rm + exit 0
+3. marker + RED (artificial stale handoff) → "blocked at watcher
+   gate" + marker rm + exit 1
+4. marker 空内容 → "is empty · dropping" + marker rm + exit 1
+5. marker + GREEN + no target → "no tmux target" + marker rm +
+   exit 1
+
+`--apply` 模式由 takagi 在 P1.5 dogfood 时显式开启；P1.3/P1.4 默认
+`--dry-run` 让 takagi 可以观察 5 次完整路径才决定 go-live。
+
 ## P0 acceptance（本次 ship 验收口径）
 
 机器可判项：
