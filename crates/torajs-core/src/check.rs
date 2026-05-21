@@ -3241,6 +3241,25 @@ impl Checker {
                 {
                     return Ok((**inner).clone());
                 }
+                /* P10.4 — `await e` on non-Promise e per ES spec:
+                 * conceptually `Promise.resolve(e)` is constructed and
+                 * its value is yielded — which for a primitive e
+                 * collapses to e itself. The parser desugars `await e`
+                 * to `e.value`, so when e is a primitive Number /
+                 * String / Boolean, this arm treats `.value` as
+                 * identity and returns the obj's own type. The Promise
+                 * Member arm above takes precedence for actual
+                 * Promise<T>; the user-struct field-lookup arm below
+                 * takes precedence for any declared `{ value: T }`
+                 * struct shape. */
+                if name == "value"
+                    && matches!(
+                        obj_ty,
+                        Type::Number | Type::String | Type::Boolean
+                    )
+                {
+                    return Ok(obj_ty);
+                }
                 // Phase I.1 — class method on Type::Struct. Reverse-lookup
                 // the class name from the struct shape (matches the
                 // first-aliased class with that struct), then probe

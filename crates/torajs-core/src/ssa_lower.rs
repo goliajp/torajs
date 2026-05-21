@@ -23805,6 +23805,28 @@ impl<'a> LowerCtx<'a> {
                         ),
                     }
                 };
+                /* P10.4 — `await e` on non-Promise primitive (Number /
+                 * String / Boolean) per ES spec: conceptually
+                 * `Promise.resolve(e)` is constructed and its value
+                 * yielded, which collapses to e itself for a primitive.
+                 * The parser desugars `await e` to `e.value` Member
+                 * access, so when obj's check-time Type is one of the
+                 * i64-roundtrippable primitives, lower the obj directly
+                 * (identity, no promise allocation, no microtask
+                 * drain — primitives can't carry pending callbacks).
+                 * Keeps the existing Promise<T> path and user-struct
+                 * `.value` Member path unchanged. */
+                if !obj_is_builtin_promise
+                    && name == "value"
+                    && matches!(
+                        self.expr_types.get(obj),
+                        Some(crate::check::Type::Number)
+                            | Some(crate::check::Type::String)
+                            | Some(crate::check::Type::Boolean)
+                    )
+                {
+                    return self.lower_expr(*obj);
+                }
                 if obj_is_builtin_promise {
                     let obj_op = self.lower_expr(*obj);
                     // Drain microtasks first — `await p` semantics
