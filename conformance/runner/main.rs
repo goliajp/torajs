@@ -26,13 +26,24 @@
 //!
 //! Exit code: 0 if all pass, 1 if any fail.
 
+use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 const DEFAULT_WORKERS: usize = 8;
+
+// Hard ceiling per child process invocation. Any single `bun run`,
+// `tr run`, `tr build`, or AOT-binary exec must finish within this
+// budget; otherwise we SIGKILL the child and mark the case Failed
+// with a timeout reason. Real fixtures complete in tens to a few
+// hundred ms; 60 s is conservative even for cold-cache LLVM AOT
+// builds. Without this gate any single hung fixture (e.g. the
+// known throw-010-bigint-rangeerror macOS arm64 malloc-lock case)
+// would block the entire conformance run.
+const PER_EXEC_TIMEOUT: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Clone)]
 struct Case {
@@ -374,23 +385,117 @@ fn run_case(c: &Case, tr_bin: &Path, slot: usize) -> Outcome {
 }
 
 fn exec(cmd: &str, args: &[&str]) -> Result<(String, String), String> {
-    let out = Command::new(cmd)
+    exec_with_timeout(cmd, args, PER_EXEC_TIMEOUT)
+}
+
+fn exec_with_timeout(
+    cmd: &str,
+    args: &[&str],
+    timeout: Duration,
+) -> Result<(String, String), String> {
+    // Spawn with piped stdout/stderr so we can wait with a deadline
+    // and SIGKILL on timeout. `Command::output()` (the previous impl)
+    // had no timeout — a single hung fixture would block the whole
+    // run. Drain pipes from dedicated reader threads to prevent the
+    // child blocking on full pipe buffers (~64 KB on macOS).
+    let mut child = Command::new(cmd)
         .args(args)
-        .output()
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .map_err(|e| format!("spawn {cmd}: {e}"))?;
-    if !out.status.success() {
-        return Err(format!(
-            "{cmd} exited {}: {}",
-            out.status,
-            String::from_utf8_lossy(&out.stderr).trim()
-        ));
+
+    let stdout_pipe = child.stdout.take().expect("stdout piped");
+    let stderr_pipe = child.stderr.take().expect("stderr piped");
+    let stdout_thread = std::thread::spawn(move || {
+        let mut s = String::new();
+        let _ = std::io::BufReader::new(stdout_pipe).read_to_string(&mut s);
+        s
+    });
+    let stderr_thread = std::thread::spawn(move || {
+        let mut s = String::new();
+        let _ = std::io::BufReader::new(stderr_pipe).read_to_string(&mut s);
+        s
+    });
+
+    let start = Instant::now();
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(s)) => break s,
+            Ok(None) => {
+                if start.elapsed() >= timeout {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    // Reader threads will return once the killed
+                    // child's pipe ends are closed by the kernel.
+                    let _ = stdout_thread.join();
+                    let _ = stderr_thread.join();
+                    return Err(format!(
+                        "{cmd} timeout after {}s (SIGKILL)",
+                        timeout.as_secs_f64()
+                    ));
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            Err(e) => return Err(format!("wait {cmd}: {e}")),
+        }
+    };
+
+    let stdout = stdout_thread.join().unwrap_or_default();
+    let stderr = stderr_thread.join().unwrap_or_default();
+
+    if !status.success() {
+        return Err(format!("{cmd} exited {}: {}", status, stderr.trim()));
     }
-    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
     Ok((stdout, stderr))
 }
 
 fn die(msg: &str) -> ! {
     eprintln!("error: {msg}");
     std::process::exit(2);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn exec_returns_stdout_for_quick_command() {
+        let (out, _) = exec("echo", &["hello"]).expect("echo should succeed");
+        assert_eq!(out, "hello\n");
+    }
+
+    #[test]
+    fn exec_with_timeout_kills_hung_child_and_returns_timeout_error() {
+        // Use a tight 200 ms deadline against a 30 s sleep — the
+        // child cannot complete on its own; the deadline branch must
+        // fire and SIGKILL. The whole test should finish in well
+        // under a second (deadline + reader-thread join after the
+        // kernel closes pipes on the killed child).
+        let start = Instant::now();
+        let result = exec_with_timeout("sleep", &["30"], Duration::from_millis(200));
+        let elapsed = start.elapsed();
+        let err = result.expect_err("expected timeout error, got success");
+        assert!(
+            err.contains("timeout") && err.contains("SIGKILL"),
+            "error should mention timeout + SIGKILL, got: {err}"
+        );
+        assert!(
+            elapsed < Duration::from_secs(2),
+            "timeout path took {:?} — should be < 2 s (deadline 200 ms + cleanup)",
+            elapsed
+        );
+    }
+
+    #[test]
+    fn exec_with_timeout_returns_non_zero_exit_normally() {
+        // `false` exits 1 immediately — timeout path must not be on
+        // the hot path for non-hanging non-zero-exit commands.
+        let err = exec_with_timeout("false", &[], Duration::from_secs(5))
+            .expect_err("false should yield non-zero exit error");
+        assert!(
+            err.contains("exited") && !err.contains("timeout"),
+            "non-zero exit must not be mistaken for timeout: {err}"
+        );
+    }
 }
