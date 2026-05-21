@@ -17094,12 +17094,20 @@ impl<'a> LowerCtx<'a> {
                         Expr::Call {
                             callee: src_callee, ..
                         } => {
-                            // Built-in Promise.resolve / Promise.reject statics.
+                            // Built-in Promise namespace statics. resolve/reject (T-15.g.5)
+                            // were the original entries; P10.2-A2 extends to all/race/any/
+                            // allSettled (T-17.a/b/c) so chained `.then`/`.catch`/`.finally`
+                            // on their results lowers through the runtime helpers instead
+                            // of the user-class fallback. check.rs already returns
+                            // Type::Promise for each, so all that's missing here is the
+                            // source-callee shape recognition.
                             let static_ctor = matches!(
                                 self.ast.get_expr(*src_callee),
                                 Expr::Member { obj: ns_id, name: src_m }
-                                    if (src_m == "resolve" || src_m == "reject")
-                                        && matches!(
+                                    if matches!(
+                                        src_m.as_str(),
+                                        "resolve" | "reject" | "all" | "race" | "any" | "allSettled"
+                                    ) && matches!(
                                             self.ast.get_expr(*ns_id),
                                             Expr::Ident(ns) if ns == "Promise"
                                         )
