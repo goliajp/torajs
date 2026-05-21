@@ -4998,6 +4998,60 @@ impl Checker {
                         }
                     }
                 }
+                /* P10.2-A1.1 (resumed-session 2026-05-21) —
+                 * `Promise<Undefined>.then(cb)` / `.catch(cb)`. The
+                 * 0-arg ctor `Promise.resolve()` / `.reject()` (A1)
+                 * produces inner T=Undefined, which the generic
+                 * arm above rejects (it limits inner T to the i64-
+                 * roundtrippable Number/String/Boolean primitives).
+                 *
+                 * cb sig is `() => U` — ergonomic surface for the
+                 * 0-arg ctor (TS spec actually wants `(v: undefined)
+                 * => U`, but bare-`() => U` is what real code looks
+                 * like and what bun accepts as a structural sig).
+                 * The helper still calls cb via SystemV `int64_t
+                 * (*)(int64_t)`; cb just ignores its argument slot.
+                 *
+                 * cb return U: primitive (Number / String / Boolean)
+                 * → Promise<U>; Void / Undefined → Promise<Undefined>.
+                 *
+                 * Both closure-typed and simple-fn-typed cb shapes
+                 * are accepted at this layer; ssa_lower's existing
+                 * cb_ty Closure/FnSig dispatch (line ~17220) routes
+                 * to promise_then_closure / _simple correctly without
+                 * any Promise<T> inner-T inspection (SSA Type::Promise
+                 * is a unit variant). */
+                if let Expr::Member {
+                    obj: src_id,
+                    name: m_name,
+                } = ast.get_expr(*callee)
+                    && (m_name == "then" || m_name == "catch")
+                    && args.len() == 1
+                {
+                    let src_ty = self.type_of(ast, *src_id)?;
+                    if let Type::Promise(inner) = &src_ty
+                        && matches!(**inner, Type::Undefined)
+                    {
+                        let cb_ty = self.type_of(ast, args[0])?;
+                        if let Type::Function(params, ret) = &cb_ty
+                            && params.is_empty()
+                        {
+                            let result_inner = match &**ret {
+                                Type::Number | Type::String | Type::Boolean => (**ret).clone(),
+                                Type::Void | Type::Undefined => Type::Undefined,
+                                other => {
+                                    return Err(format!(
+                                        "Promise.{m_name} on Promise<Undefined>: cb return must be Number / String / Boolean / Void / Undefined, got {other:?}"
+                                    ));
+                                }
+                            };
+                            return Ok(Type::Promise(Box::new(result_inner)));
+                        }
+                        return Err(format!(
+                            "Promise.{m_name} on Promise<Undefined>: cb must be 0-arg `() => U`, got {cb_ty:?}"
+                        ));
+                    }
+                }
                 /* T-21 (v0.6.0) — `fetch(url)` returns Promise<Response>.
                  * Response has `.text(): Promise<string>` and a `status:
                  * number` property; both are SSA-level operations on
