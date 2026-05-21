@@ -35,8 +35,9 @@ Establishing metrics *immediately* paid off (this is the point):
   `torajs-core`** `[M]`. That 28.5 s × hundreds/session is the
   dominant dev-loop tax. Fix = a fast iteration profile for
   functional+conformance work (semantics are opt-level-invariant →
-  656/0/1 still proves correctness, coverage unchanged — was 629/0/1
-  at v0.1.0 first-measure, now 656 post P9.3/P9.4/P9.5/P10.1/P10.2 fixtures), bench+ship
+  660/0/1 still proves correctness, coverage unchanged — was 629/0/1
+  at v0.1.0 first-measure, now 660 post P9.3/P9.4/P9.5/P10.1/P10.2 fixtures
+  + P9.4 follow-ups regex-021/-022), bench+ship
   keep fat-LTO release. This is *exactly* why metrics precede
   optimization: a global tool's global snapshot had been written into
   ground truth as a torajs-specific conclusion, hiding the true lever.
@@ -45,7 +46,7 @@ Establishing metrics *immediately* paid off (this is the point):
 
 | Metric | now (v0.1.0) | after v1 | after v2 |
 |---|---|---|---|
-| full conformance wall (656 cases) | **~3.0–3.5 min** `[M]` parallel 8-worker (174–208 s ×N this session at 629 cases; shipped `6ab22f9`, was ~30 min serial; case count now 656 post P9.3/P9.4/P9.5/P10.1/P10.2 — wall holds linear) | ≤ 2 min (artifact-precheck skips timed re-verify when tr unchanged) `[D]` | ≤ 30 s for the common "tr unchanged" case `[D]` |
+| full conformance wall (660 cases) | **~3.0–3.5 min** `[M]` parallel 8-worker (174–208 s ×N this session at 629 cases; shipped `6ab22f9`, was ~30 min serial; case count now 660 post P9.3/P9.4/P9.5/P10.1/P10.2 + P9.4 follow-ups — wall holds linear) | ≤ 2 min (artifact-precheck skips timed re-verify when tr unchanged) `[D]` | ≤ 30 s for the common "tr unchanged" case `[D]` |
 | **edit→rebuild `tr` wall** (THE inner-loop metric) | **2.49 s idle / 4.46 s under heavy load** `[M]` ✅ devperf #1 SHIPPED — `[profile.iter]`; was **28.5 s** under `--release`. **Re-measured on REAL P7.5 dev work (2026-05-19, takagi "test if hardev actually speeds dev"): 4.46 s** under this session's heavy concurrent load = **~6.4×**; idle best-case ~11.4×. The order-of-magnitude gain (seconds vs half-a-minute) is real and held on real torajs substrate work, not a synthetic micro-bench. correctness-equivalence proven (conformance under iter tr = 629/0/1). bench+ship keep `--release` | hold ≤ 5 s typical; track | ≤ 2 s `[D]` |
 | sccache hit rate | **structurally ~0 % for torajs inner loop** `[M]` — global shared server, bin/changed-src non-cacheable by design (NOT a fixable misconfig) | n/a — dropped as a torajs lever (was a misconception); deps-only cold-start benefit is incidental | n/a |
 | no-op rebuild | **0.05 s** `[M]` (cargo correctly skips; steady-state optimal) | unchanged | unchanged |
@@ -114,8 +115,8 @@ slots, so a 1-week baseline can ground the P1 automation decisions.
 | session length (commit→rotation interval) | **median 125 min, mean 213 min, range 40–779 min** `[M]` — 9 gaps computed from 10 rows in `hardev/autorun/rotations.jsonl` @2026-05-21; the 2 long gaps (327 min, 779 min) are overnight, not drift | distribution stable to ±25 % (cadence predictable, not drift-driven) | dashboard surfaces median + p95 |
 | handoff fidelity | **`[D]` takagi hand-flagged** — % of post-rotation sessions where the first user message does NOT need to clarify lost state | ≥ 95 % | ≥ 99 %, auto-detected by comparing handoff vs first-turn outputs |
 | drift-incident rate | **`[D]` takagi hand-counted** — events per session where Claude broke a CLAUDE.md HARD RULE (Chinese-only / 4-layer / disk hygiene) | ↓ trend after rotation cadence stabilises | ≤ 1 / 10 sessions, auto-detected pre-rotation |
-| unstaged-loss incidents during rotation | **0** `[M]` — 10 manual rotations 2026-05-19..21 with 0 incidents takagi-flagged; P0 has no automated /clear so risk is currently zero by construction | 0 (INV-2 enforced by P1 watcher pre-act gate) | 0 + automatic rollback if regression detected |
-| conformance regression introduced by rotation | **0** `[M]` — 11 rotations 2026-05-19..21, `conformanceBefore` 631 → 650 monotonic across the series (rotations.jsonl); P10.1 sub-A's add 651 → 652 → 653 monotonic on 3 sub-gates; P10.2-A1/A1.1/A2 add 654 → 655 → 656 monotonic on 3 sub-gates; 0 incidents takagi-flagged | 0 (INV-3 enforced — post-rotation conformance ≥ pre-rotation) | 0 + post-rotation gate runs automatically |
+| unstaged-loss incidents during rotation | **0** `[M]` — 13 manual rotations 2026-05-19..22 with 0 incidents takagi-flagged; P0 has no automated /clear so risk is currently zero by construction | 0 (INV-2 enforced by P1 watcher pre-act gate) | 0 + automatic rollback if regression detected |
+| conformance regression introduced by rotation | **0** `[M]` — 13 rotations 2026-05-19..22, `conformanceBefore` 631 → 650 monotonic across the early series (rotations.jsonl); P10.1 sub-A's add 651 → 652 → 653 monotonic on 3 sub-gates; P10.2-A1/A1.1/A2 add 654 → 655 → 656 monotonic on 3 sub-gates; P10.2-A3/A4 add 657 → 658 monotonic on 2 sub-gates; P9.4 follow-ups (test() lastIndex + matchAll g-required) add 659 → 660 monotonic on 2 sub-gates; 0 incidents takagi-flagged | 0 (INV-3 enforced — post-rotation conformance ≥ pre-rotation) | 0 + post-rotation gate runs automatically |
 | protocol surface | **CLAUDE.md HARD RULE «Autorun rotation protocol» + `hardev/autorun/README.md` (P0 SHIPPED)** `[M]` — sequence: `/handoff:handoff save` → `hardev/autorun/trigger.sh self` → no further tokens this turn | unchanged at v1 | unchanged |
 | automation level | **wired up · --dry-run default** `[M]` — P1 pipeline live (`check.sh` INV-1..5 + `stop_hook.sh` + `watcherd.sh` + `com.hardev.autorun` LaunchAgent); `--apply` opt-in via `install_launchd.sh --mode --apply` after dogfood | **automatic** `[D]` — Stop hook writes marker, watcher (`launchd`) drives `/clear` + resume via `tmux send-keys` | self-healing — daemon heartbeats and crash-restarts itself, multi-project |
 
