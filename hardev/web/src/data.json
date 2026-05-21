@@ -1,11 +1,13 @@
 {
-  "generatedAt": "2026-05-21T13:07:22.028Z",
+  "generatedAt": "2026-05-21T16:36:45.091Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 656,
     "fail": 0,
     "skip": 1,
-    "raw": "656/0/1"
+    "raw": "656/0/1",
+    "source": "/tmp/torajs-conformance-p1.2.1-timeout.log",
+    "sourceMtime": "2026-05-21T16:34:29.837Z"
   },
   "test262": {
     "ranAt": "2026-05-19T22:00:04Z",
@@ -26,15 +28,17 @@
     "passRateTrAccepted": 92.5
   },
   "torajs": {
-    "commit": "ef3c895",
-    "commitSubject": "P10.2-A2: ssa_lower static_ctor whitelist for Promise statics",
+    "commit": "9c12295",
+    "commitSubject": "fix(conformance): per-exec timeout · spawn+try_wait+SIGKILL replacement for Command::output() (P1.2.2)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
       "pass": 656,
       "fail": 0,
       "skip": 1,
-      "raw": "656/0/1"
+      "raw": "656/0/1",
+      "source": "/tmp/torajs-conformance-p1.2.1-timeout.log",
+      "sourceMtime": "2026-05-21T16:34:29.837Z"
     }
   },
   "roadmap": [
@@ -559,6 +563,18 @@
   },
   "commits": [
     {
+      "hash": "9c12295",
+      "subject": "fix(conformance): per-exec timeout · spawn+try_wait+SIGKILL replacement for Command::output() (P1.2.2)"
+    },
+    {
+      "hash": "9346fa5",
+      "subject": "fix(hardev): autorun stale-intent loop · stop_hook + watcherd skip INV-5 (P1.2.1)"
+    },
+    {
+      "hash": "8b659e1",
+      "subject": "P10.2-A2-DONE: roadmap A2 narrative fix + hardev dashboard refresh"
+    },
+    {
       "hash": "ef3c895",
       "subject": "P10.2-A2: ssa_lower static_ctor whitelist for Promise statics"
     },
@@ -593,39 +609,38 @@
     {
       "hash": "6d134e3",
       "subject": "P10.1-A1.1: queueMicrotask simple-fn (no-env) dispatch"
-    },
-    {
-      "hash": "a0f699f",
-      "subject": "P10.1-A1-A2: roadmap progress note + gate pass"
-    },
-    {
-      "hash": "b252492",
-      "subject": "P10.1-A1: queueMicrotask global + closure dispatch"
-    },
-    {
-      "hash": "e7c951c",
-      "subject": "chore(hardev): refresh dashboard after autorun P1 ship (10 commits this session)"
     }
   ],
-  "headSha": "ef3c895",
+  "headSha": "9c12295",
   "autorun": {
-    "total": 12,
+    "total": 13,
     "baselineTarget": 10,
-    "bySelf": 12,
+    "bySelf": 13,
     "byManual": 0,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1779363927-0e0a",
-      "at": "2026-05-21T11:45:27Z",
-      "ts": 1779363927,
+      "rotationId": "r-1779369026-6c44",
+      "at": "2026-05-21T13:10:26Z",
+      "ts": 1779369026,
       "trigger": "self",
-      "prevHead": "91d9329",
-      "handoffSha": "sha256:ba1c7a02e6e3af20147b12dfa74c94f0eb668ae54f55011d15a111dd576d4515",
-      "handoffAgeSec": 7,
-      "conformanceBefore": "653/0/1",
+      "prevHead": "8b659e1",
+      "handoffSha": "sha256:a222b973fc25148b543c715bb4f443c6dbe007af40b6a7b7edaade02838649fc",
+      "handoffAgeSec": 9,
+      "conformanceBefore": "656/0/1",
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1779369026-6c44",
+        "at": "2026-05-21T13:10:26Z",
+        "ts": 1779369026,
+        "trigger": "self",
+        "prevHead": "8b659e1",
+        "handoffSha": "sha256:a222b973fc25148b543c715bb4f443c6dbe007af40b6a7b7edaade02838649fc",
+        "handoffAgeSec": 9,
+        "conformanceBefore": "656/0/1",
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1779363927-0e0a",
         "at": "2026-05-21T11:45:27Z",
@@ -723,17 +738,6 @@
         "handoffSha": "sha256:fd70683409b17f97950bca15ddd5a91da248d15546abc7beb3d73a9dc0d38b06",
         "handoffAgeSec": 3,
         "conformanceBefore": "634/0/1",
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1779248370-4272",
-        "at": "2026-05-20T03:39:30Z",
-        "ts": 1779248370,
-        "trigger": "self",
-        "prevHead": "92f87f1",
-        "handoffSha": "sha256:9c22936f6b253adb558df6ee007ad3335c881054a4c7032b58aac5b168270f92",
-        "handoffAgeSec": 3,
-        "conformanceBefore": "632/0/1",
         "commitsInSession": null
       }
     ],

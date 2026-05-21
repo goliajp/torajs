@@ -6,7 +6,7 @@
 // renders entirely from the produced data.json (no fabricated numbers).
 
 import { execSync } from 'node:child_process'
-import { readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -375,17 +375,95 @@ function parseAutorun() {
 }
 const autorun = parseAutorun()
 
-// ── conformance: latest known, grep'd from metrics.md / CHANGELOG ────────
-function findConformance() {
-  const sources = [metricsMd, read(join(HARDEV_DIR, 'CHANGELOG.md'))]
-  const re = /(\d{3,4})\s*\/\s*(\d+)\s*\/\s*(\d+)|(\d{3,4})\s*\/\s*0\s*\/\s*1/
-  for (const src of sources) {
-    const m = src.match(/\b(\d{3,4})\s*\/\s*0\s*\/\s*1\b/)
-    if (m) return { pass: Number(m[1]), fail: 0, skip: 1, raw: `${m[1]}/0/1` }
+// ── conformance: latest /tmp/torajs-conformance-*.log → metrics.md fallback
+// Source-of-truth precedence:
+//   1. Newest /tmp/torajs-conformance-*.log by mtime — the conformance
+//      runner writes one of these per gate run; its summary line
+//      `N pass / M fail / K skip` is the unambiguous current pass-rate.
+//      Reading it here means rotation-close dashboard refresh is *free*
+//      (the gate already produced the file; no extra command required).
+//   2. Static `hardev/metrics.md` / `hardev/CHANGELOG.md` text matching
+//      `N/0/M` — kept as fallback for fresh-clone / log-rotated cases.
+//      May be stale by design (hand-edited markdown narrative).
+//   3. Throw — never fabricate numbers (snapshot rule: no invented data).
+//      Force the operator to either run a gate or update the markdown
+//      narrative rather than silently shipping a wrong number.
+function findLatestConformanceLog() {
+  const tmpDir = '/tmp'
+  let entries
+  try {
+    entries = readdirSync(tmpDir)
+  } catch {
+    return null
   }
-  // fallback shape
-  void re
-  return { pass: 629, fail: 0, skip: 1, raw: '629/0/1' }
+  const candidates = []
+  for (const name of entries) {
+    if (!/^torajs-conformance-.*\.log$/.test(name)) continue
+    const p = join(tmpDir, name)
+    try {
+      const s = statSync(p)
+      if (s.isFile()) candidates.push({ path: p, mtime: s.mtimeMs })
+    } catch {
+      // skip unreadable
+    }
+  }
+  if (candidates.length === 0) return null
+  candidates.sort((a, b) => b.mtime - a.mtime)
+  return candidates[0]
+}
+
+function findConformance() {
+  const latest = findLatestConformanceLog()
+  if (latest) {
+    let txt
+    try {
+      txt = read(latest.path)
+    } catch {
+      txt = null
+    }
+    if (txt) {
+      // Last (or only) `N pass / M fail / K skip` line in the file.
+      // Runner emits it once at the end of a clean run.
+      const re = /^(\d{1,5})\s+pass\s+\/\s+(\d+)\s+fail\s+\/\s+(\d+)\s+skip\s*$/gm
+      let m, last
+      while ((m = re.exec(txt)) !== null) last = m
+      if (last) {
+        const pass = Number(last[1])
+        const fail = Number(last[2])
+        const skip = Number(last[3])
+        return {
+          pass,
+          fail,
+          skip,
+          raw: `${pass}/${fail}/${skip}`,
+          source: latest.path,
+          sourceMtime: new Date(latest.mtime).toISOString(),
+        }
+      }
+    }
+  }
+  const fallbacks = [
+    { name: 'hardev/metrics.md', text: metricsMd },
+    { name: 'hardev/CHANGELOG.md', text: read(join(HARDEV_DIR, 'CHANGELOG.md')) },
+  ]
+  for (const { name, text } of fallbacks) {
+    const m = text.match(/\b(\d{3,4})\s*\/\s*(\d+)\s*\/\s*(\d+)\b/)
+    if (m) {
+      const pass = Number(m[1])
+      const fail = Number(m[2])
+      const skip = Number(m[3])
+      return {
+        pass,
+        fail,
+        skip,
+        raw: `${pass}/${fail}/${skip}`,
+        source: name,
+      }
+    }
+  }
+  throw new Error(
+    'snapshot: no conformance data found — neither /tmp/torajs-conformance-*.log nor metrics.md/CHANGELOG.md carry an N/M/K triple. Run the conformance gate (cargo run --release --bin torajs-conformance) first.'
+  )
 }
 const conformance = findConformance()
 
