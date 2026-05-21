@@ -5052,6 +5052,62 @@ impl Checker {
                         ));
                     }
                 }
+                /* P10.2-A4 (resumed-session 2026-05-22) —
+                 * `Promise<Array<U>>.then(cb)` / `.catch(cb)`. The
+                 * Promise.all<T>(promises) result has inner T=Array<U>,
+                 * which the generic .then/.catch arm above rejects
+                 * (it limits inner T to the i64-roundtrippable
+                 * Number/String/Boolean primitives).
+                 *
+                 * cb sig is `(arr: Array<U>) => V` per spec (1-arg
+                 * structural sig accepted; mirrors A1.1's 0-arg arm
+                 * pattern for Promise<Undefined>). SystemV `int64_t
+                 * (*)(int64_t)` already passes Array ptr in rdi; cb
+                 * reads it directly. No runtime change.
+                 *
+                 * cb return V: primitive (Number / String / Boolean)
+                 * → Promise<V>; Void / Undefined → Promise<Undefined>.
+                 * Array<W> return is deferred (would need helper-side
+                 * value_is_heap=true propagation for next Promise's
+                 * heap value — separate sub-A).
+                 *
+                 * cb does NOT retain the array past invocation —
+                 * source Promise still owns the Array ref for its
+                 * lifetime; the cb only reads through the passed
+                 * ptr. So no rc concern in either direction. */
+                if let Expr::Member {
+                    obj: src_id,
+                    name: m_name,
+                } = ast.get_expr(*callee)
+                    && (m_name == "then" || m_name == "catch")
+                    && args.len() == 1
+                {
+                    let src_ty = self.type_of(ast, *src_id)?;
+                    if let Type::Promise(inner) = &src_ty
+                        && matches!(**inner, Type::Array(_))
+                    {
+                        let inner_arr_ty = (**inner).clone();
+                        let cb_ty = self.type_of(ast, args[0])?;
+                        if let Type::Function(params, ret) = &cb_ty
+                            && params.len() == 1
+                            && params[0] == inner_arr_ty
+                        {
+                            let result_inner = match &**ret {
+                                Type::Number | Type::String | Type::Boolean => (**ret).clone(),
+                                Type::Void | Type::Undefined => Type::Undefined,
+                                other => {
+                                    return Err(format!(
+                                        "Promise.{m_name} on Promise<{inner_arr_ty:?}>: cb return must be Number / String / Boolean / Void / Undefined (got {other:?}); Array<W> return deferred to a later sub-A"
+                                    ));
+                                }
+                            };
+                            return Ok(Type::Promise(Box::new(result_inner)));
+                        }
+                        return Err(format!(
+                            "Promise.{m_name} on Promise<{inner_arr_ty:?}>: cb must be `(arr: {inner_arr_ty:?}) => V`, got {cb_ty:?}"
+                        ));
+                    }
+                }
                 /* T-21 (v0.6.0) — `fetch(url)` returns Promise<Response>.
                  * Response has `.text(): Promise<string>` and a `status:
                  * number` property; both are SSA-level operations on
