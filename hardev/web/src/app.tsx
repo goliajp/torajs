@@ -298,7 +298,7 @@ function AutorunCard() {
             <span className="pct">{baselinePct}%</span>
           </div>
           <div className="t262-label">
-            autorun · rotation governance (5th pillar · P0+P0.1 shipped)
+            autorun · rotation governance (5th pillar · P0+P1 shipped · stop-hook + watcher live)
           </div>
         </div>
         <div className="t262-breakdown">
@@ -314,7 +314,7 @@ function AutorunCard() {
             </span>
           )}
           <span>
-            P1 watcher <b>{baselineMet ? 'unlocked' : `${a.baselineTarget - a.total} rows away`}</b>
+            P1 watcher <b>{baselineMet ? 'deployed' : `${a.baselineTarget - a.total} rows away`}</b>
           </span>
         </div>
       </div>
@@ -346,8 +346,8 @@ function AutorunCard() {
       )}
       <div className="t262-stamp">
         log: <code>{a.rotationsFile}</code>
-        {a.last && ` · last ${rotationStamp(a.last.at)}`} · P1 unlocks at ≥{a.baselineTarget} rows
-        (Stop hook + watcher + auto-/clear + auto-resume)
+        {a.last && ` · last ${rotationStamp(a.last.at)}`} · P1 live: stop-hook + INV-1..5 gate +
+        launchd watcher + auto-/clear + auto-resume (P1.5 dogfood 5/5 GREEN)
       </div>
     </div>
   )
