@@ -812,7 +812,58 @@ groups, Unicode flag, sticky flag.
         TypeError for `matchAll(non-g-regex)` (Phase 1c.4 work).
 
       P9.4 closing advances L3a to P9.5 (replace callback fn).
-- [ ] **P9.5** `String.prototype.replace(regex, fn)` callback form
+- [ ] **P9.5** `String.prototype.replace(regex, fn)` callback form —
+      IN PROGRESS · A1 SHIPPED `851f26d` (substrate: ssa_lower dispatch
+      + new runtime helpers `__torajs_str_replace_regex_fn` / `_all_fn`)
+      + `<A2>` (fixture + this roadmap progress). A1 lands the **first
+      cross-boundary closure invoke from C runtime** in tora — runtime
+      helpers load fn_addr from env+8 (same ABI as `promise_then_closure`)
+      and invoke `(env, match_str) -> ret_str` per match.
+      `ssa_lower:19613` regex-receiver branch dispatches by repl SSA
+      type: `Type::Str` → existing `regex_replace` / `_all` (expand_repl
+      path); `Type::Closure` → new fn-variant intrinsics. Closure
+      user-sig validated as exactly `[Str] -> Str` at lower time;
+      multi-arg callbacks (capture-spread / offset+input) panic with
+      a clear compile-time message — never silent-wrong from a C ABI
+      cast mismatch. `check.rs:3732` widened the 2nd arg from
+      `Type::String` to `Type::Any` so both Str and Closure pass
+      typecheck. Sticky / global handling mirrors the Str-repl
+      siblings (P9.4-A1.1 semantics preserved through fn path). A2
+      fixture: `regex-018-replace-callback.ts` (15 cases — basic /
+      global / replaceAll / sticky+fn / empty-match advance / closure
+      capture / regression of Str-repl path). Conformance 646 → 647
+      @ A1 substrate (gate `/tmp/torajs-conformance-p95a1-851f26d.log`,
+      0 regression); regex-018 lifts to 648 once runner picks up.
+
+      A1 scope is intentionally narrow (per [[feedback-narrow-abi-surface]]):
+      this is the first C-runtime closure invoke surface in tora.
+      A1 ships the ABI pattern with a strict `(m: string) => string`
+      shape; A1.1 will widen to N-capture via static capture-count
+      parse from the regex literal (variadic closure invoke from C);
+      A1.2 may add the offset/input args. Each is a clean increment
+      on the proven A1 substrate.
+
+      A1 constraint: callback must be `(m: string) => string`. Tora's
+      `build_fn_type` already requires explicit param annotations for
+      arrow fns (consistent with `arr.map` / `filter` / `forEach`),
+      so the friction matches existing patterns.
+
+      L3b follow-ups recorded for P9.5 closure:
+      - **A1.1 capture-group spread** — parse regex literal at
+        ssa-lower time to count captures statically; widen callback
+        sig validation to `[Str; N+1] -> Str` (1 match + N captures).
+        Runtime helper variadic dispatch via N-specific cb fn cast.
+      - **A1.2 offset+input args** — extend further to the trailing
+        `(match, ..., offset: number, input: string)` spec arity.
+      - **String-receiver fn callback** — `"foo".replace("o", fn)`
+        (non-regex string pattern) also accepts fn callback per spec;
+        currently rejected at typeck via the Str-pattern arm.
+        Independent of P9 substrate.
+
+      P9.5 closure requires A1 + A1.1 + A1.2 (full callback arity).
+      Until all three ship, P9.5 stays `[ ]`. Closing P9.5 advances
+      L3a — full P9 phase done → trigger to P10 (Promise + async +
+      Generator).
 
 ---
 
