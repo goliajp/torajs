@@ -558,7 +558,16 @@ void *__torajs_promise_allsettled_sync(void *promises_arr) {
             return __torajs_promise_alloc_rejected(0);
         }
     }
-    /* Build result Array of {status, value} structs. */
+    /* Build result Array of {status, value} structs. T-17.c-A3 —
+     * when inner T is heap-typed (Str — picked up by ssa_lower as
+     * value_is_heap=true on the source Promise), the settled struct
+     * co-owns the value, so we rc_inc here. The Promise still holds
+     * its own ref; the inc/dec pairs balance: Promise drop runs
+     * value_drop_heap on its ref, struct drop runs value_drop_heap
+     * on the struct's ref (the ssa-emitted struct-field drop sees
+     * Type::String in the layout and emits str_drop). For non-heap
+     * inner T (Number/Bool, value_is_heap=false), no inc — value
+     * is i64-inline and the struct field carries no drop. */
     void *result_arr = __torajs_arr_alloc(len);
     for (uint64_t i = 0; i < len; i++) {
         Promise *pp = *(Promise **)(data + (head + i) * 8);
@@ -568,6 +577,9 @@ void *__torajs_promise_allsettled_sync(void *promises_arr) {
             continue;
         }
         void *s = alloc_settled_struct_(pp->state, pp->value);
+        if (pp->value_is_heap && pp->value != 0) {
+            __torajs_rc_inc((void *)(intptr_t)pp->value);
+        }
         result_arr = __torajs_arr_push(result_arr, (int64_t)(intptr_t)s);
     }
     return __torajs_promise_alloc_fulfilled_heap((int64_t)(intptr_t)result_arr);

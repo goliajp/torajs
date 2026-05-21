@@ -5324,20 +5324,27 @@ impl Checker {
                     };
                     /* Promise.all → Promise<T[]>; .race / .any →
                      * Promise<T>; .allSettled → Promise<{status,
-                     * value}[]>. The allSettled MVP fixes T to
-                     * Number — the result-element struct shape
-                     * doesn't yet flow inner T through. */
+                     * value}[]>. T-17.c-A3 — allSettled accepts T
+                     * from the {Number, String, Bool} primitive set
+                     * (parity with Promise.all's existing T
+                     * support). Result struct's value field tracks
+                     * the inner T monomorphically — ssa_lower picks
+                     * up the field type via the returned Type::Struct
+                     * and emits the matching field drop (str_drop
+                     * for String; no-op for Number/Bool which are
+                     * i64-inline). Heterogeneous T-tuples per spec
+                     * are deferred until PromiseId interning. */
                     let result = match m_name.as_str() {
                         "all" => Type::Promise(Box::new(Type::Array(Box::new(inner)))),
                         "allSettled" => {
-                            if !matches!(inner, Type::Number) {
+                            if !matches!(inner, Type::Number | Type::String | Type::Boolean) {
                                 return Err(format!(
-                                    "Promise.allSettled: T must be number in v0.5 MVP (got {inner:?}); spec-strict T-generic shape ships post-PromiseId interning"
+                                    "Promise.allSettled: T must be Number, String, or Boolean in v0.5 MVP (got {inner:?}); spec-strict heterogeneous-T shape ships post-PromiseId interning"
                                 ));
                             }
                             Type::Promise(Box::new(Type::Array(Box::new(Type::Struct(vec![
                                 ("status".to_string(), Type::String),
-                                ("value".to_string(), Type::Number),
+                                ("value".to_string(), inner.clone()),
                             ])))))
                         }
                         _ => Type::Promise(Box::new(inner)), // race / any
