@@ -790,6 +790,15 @@ pub fn compile_for_kind(
         }
     };
     let target_obj = Target::from_triple(&triple).map_err(|e| CompileError::Emit(e.to_string()))?;
+    /* Codegen optimization level. NOT bumped to Aggressive: empirically
+     * measured a net -1.5% geomean regression at OptLevel::Aggressive
+     * (2026-05-22 / P-PERF.A2 attempt: gcd1m / generic-id / mandelbrot
+     * +1–6% but async-fn-call +14%, promise-all +11%, startup +4.7%
+     * regressed past noise. Net-negative on Promise/closure allocation
+     * patterns — Aggressive's register-pressure/peephole changes hurt
+     * the alloc-heavy paths more than they help the pure-numeric ones).
+     * Keep Less; the IR pipeline runs at `default<O3>` (per `opt`
+     * above) which is where the bulk of optimization lives. */
     let machine = target_obj
         .create_target_machine(
             &triple,
