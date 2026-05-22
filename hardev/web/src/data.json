@@ -1,13 +1,13 @@
 {
-  "generatedAt": "2026-05-22T09:26:27.174Z",
+  "generatedAt": "2026-05-22T22:46:43.087Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 666,
     "fail": 0,
     "skip": 1,
     "raw": "666/0/1",
-    "source": "/tmp/torajs-conformance-p-perf-a6.log",
-    "sourceMtime": "2026-05-22T08:46:05.423Z"
+    "source": "/tmp/torajs-conformance-p2-4-b.log",
+    "sourceMtime": "2026-05-22T22:43:47.928Z"
   },
   "test262": {
     "ranAt": "2026-05-22T00:58:43Z",
@@ -28,8 +28,8 @@
     "passRateTrAccepted": 92.73
   },
   "torajs": {
-    "commit": "d7bab5b",
-    "commitSubject": "docs(ssa_inkwell): record P-PERF.A5 RelocMode=Static as inconclusive (thermal-confounded) — keep PIC, archive evidence",
+    "commit": "6bec2b8",
+    "commitSubject": "P2.4-b: throw-slot machinery LLVM-IR → Rust — P2 Layer 1 fully closed",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -37,8 +37,8 @@
       "fail": 0,
       "skip": 1,
       "raw": "666/0/1",
-      "source": "/tmp/torajs-conformance-p-perf-a6.log",
-      "sourceMtime": "2026-05-22T08:46:05.423Z"
+      "source": "/tmp/torajs-conformance-p2-4-b.log",
+      "sourceMtime": "2026-05-22T22:43:47.928Z"
     }
   },
   "roadmap": [
@@ -563,73 +563,106 @@
   },
   "commits": [
     {
-      "hash": "d7bab5b",
-      "subject": "docs(ssa_inkwell): record P-PERF.A5 RelocMode=Static as inconclusive (thermal-confounded) — keep PIC, archive evidence"
+      "hash": "6bec2b8",
+      "subject": "P2.4-b: throw-slot machinery LLVM-IR → Rust — P2 Layer 1 fully closed"
     },
     {
-      "hash": "3bf6002",
-      "subject": "docs(ssa_inkwell): record P-PERF.A4 threshold=30 as net-negative · revert to 60, archive bench evidence"
+      "hash": "0342901",
+      "subject": "P2.4-a: torajs-throw scaffold — native-error registry + throw_range/type_error to Rust"
     },
     {
-      "hash": "9bbd256",
-      "subject": "P-PERF.A3: alwaysinline small non-recursive user FnDecls · multiple per-case wins, geomean flat vs bun-aot (honest split)"
+      "hash": "90d4757",
+      "subject": "P2.3-d.4: any_add `+` dispatch moves to Rust — P2.3 any-value family 100% Rust"
     },
     {
-      "hash": "9050729",
-      "subject": "docs(ssa_inkwell): record P-PERF.A2 codegen=Aggressive as net-negative — keep Less; archive bench file as evidence"
+      "hash": "8eb66e2",
+      "subject": "P2.3-d.3: any_arith dispatch (Sub/Mul/Div/Mod) moves to Rust"
     },
     {
-      "hash": "d39238f",
-      "subject": "P-PERF.A1: user FnDecls Internal linkage → IPSCCP/inliner specialization · geomean 3.89→4.16× vs bun-aot (+7%), every case faster (0.6–30.6%)"
+      "hash": "598913d",
+      "subject": "P2.3-d.2: any_compare relational ordering moves to Rust + embed-via-env fix"
     },
     {
-      "hash": "f4cd310",
-      "subject": "progress(bench): 5-pass median quiet-machine baseline @ 14d56f8 (replaces 3-pass 301c826) · 26/26 wins held, 3.89× geomean vs bun-best, 18.34× vs node"
+      "hash": "a8807ed",
+      "subject": "P2.3-d.1: any_to_number ToNumber moves to Rust + Layer-1 link-wiring fix"
     },
     {
-      "hash": "14d56f8",
-      "subject": "progress(test262): rerun @ 081b25f → 3455 / 28314 in-scope (12.20%) · +111 cases vs 2026-05-19"
+      "hash": "5a071a8",
+      "subject": "docs: update architecture-rewrite tracker with P2.3-a / P2.3-b / P2.3-c done markers + P2.3-d NEXT"
     },
     {
-      "hash": "081b25f",
-      "subject": "P10.4 follow-up: await identity extends to non-Promise heap T (Array, BigInt)"
+      "hash": "a1b5a11",
+      "subject": "P2.3-c: any_to_str ToString coercion moves to Rust"
     },
     {
-      "hash": "807f7d1",
-      "subject": "fix(console): coerce_to_str supports Type::Any (catch param, dynobj lookup, etc.)"
+      "hash": "b04d98c",
+      "subject": "P2.3-b: any-value strict equality moves to Rust · payload_eq + any_any_strict_eq + any_strict_eq"
     },
     {
-      "hash": "1b48a77",
-      "subject": "P10.4-A2: await rejected Promise throws the rejection reason (was: silent return 0)"
+      "hash": "cc9f819",
+      "subject": "P2.3-a: torajs-anyvalue Layer-1 substrate · Rust AnyBox replaces C any_box family"
     },
     {
-      "hash": "d6dab10",
-      "subject": "P10.4: await on non-Promise primitive (Number / String / Boolean) per ES spec"
+      "hash": "9422120",
+      "subject": "docs: P2.2 (torajs-rc) marker in architecture-rewrite tracker + add Status column"
     },
     {
-      "hash": "0062f0e",
-      "subject": "P10.3-A2: async fn accepts idiomatic Promise<T> return annotation (not just inner-T)"
+      "hash": "a446c1a",
+      "subject": "P2.2: torajs-rc Layer-1 substrate · Rust refcount + heap-header replaces runtime_str.c"
     }
   ],
-  "headSha": "d7bab5b",
+  "headSha": "6bec2b8",
   "autorun": {
-    "total": 13,
+    "total": 16,
     "baselineTarget": 10,
-    "bySelf": 13,
+    "bySelf": 16,
     "byManual": 0,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1779369026-6c44",
-      "at": "2026-05-21T13:10:26Z",
-      "ts": 1779369026,
+      "rotationId": "r-1779453608-45e2",
+      "at": "2026-05-22T12:40:08Z",
+      "ts": 1779453608,
       "trigger": "self",
-      "prevHead": "8b659e1",
-      "handoffSha": "sha256:a222b973fc25148b543c715bb4f443c6dbe007af40b6a7b7edaade02838649fc",
-      "handoffAgeSec": 9,
-      "conformanceBefore": "656/0/1",
+      "prevHead": "5a071a8",
+      "handoffSha": "sha256:685d0e10d4a51cba4de33ed3584601fbf8022ac37688badbee201efe2eeb159c",
+      "handoffAgeSec": 6,
+      "conformanceBefore": "666/0/1",
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1779453608-45e2",
+        "at": "2026-05-22T12:40:08Z",
+        "ts": 1779453608,
+        "trigger": "self",
+        "prevHead": "5a071a8",
+        "handoffSha": "sha256:685d0e10d4a51cba4de33ed3584601fbf8022ac37688badbee201efe2eeb159c",
+        "handoffAgeSec": 6,
+        "conformanceBefore": "666/0/1",
+        "commitsInSession": null
+      },
+      {
+        "rotationId": "r-1779453604-7f20",
+        "at": "2026-05-22T12:40:04Z",
+        "ts": 1779453604,
+        "trigger": "self",
+        "prevHead": "5a071a8",
+        "handoffSha": "sha256:685d0e10d4a51cba4de33ed3584601fbf8022ac37688badbee201efe2eeb159c",
+        "handoffAgeSec": 2,
+        "conformanceBefore": "666/0/1",
+        "commitsInSession": null
+      },
+      {
+        "rotationId": "r-1779446890-3aec",
+        "at": "2026-05-22T10:48:10Z",
+        "ts": 1779446890,
+        "trigger": "self",
+        "prevHead": "85495c3",
+        "handoffSha": "sha256:3e452901ce4964c3c5414ae9c427ddec1255e4a2467ba29a02e7387b8e916d15",
+        "handoffAgeSec": 7,
+        "conformanceBefore": "629/0/1",
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1779369026-6c44",
         "at": "2026-05-21T13:10:26Z",
@@ -705,39 +738,6 @@
         "handoffSha": "sha256:526b8e8b814f9c86bc94b03bad6de763b5b0325a37aabc51400f1287e55f4b23",
         "handoffAgeSec": 5,
         "conformanceBefore": "640/0/1",
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1779265047-549c",
-        "at": "2026-05-20T08:17:27Z",
-        "ts": 1779265047,
-        "trigger": "self",
-        "prevHead": "e1f8219",
-        "handoffSha": "sha256:4b2f2876223aae92ff355f087b63d1093961665157e149a5f8b0063a89c05681",
-        "handoffAgeSec": 7489,
-        "conformanceBefore": "640/0/1",
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1779257562-2ae1",
-        "at": "2026-05-20T06:12:42Z",
-        "ts": 1779257562,
-        "trigger": "self",
-        "prevHead": "bcf3d2d",
-        "handoffSha": "sha256:4b2f2876223aae92ff355f087b63d1093961665157e149a5f8b0063a89c05681",
-        "handoffAgeSec": 4,
-        "conformanceBefore": "637/0/1",
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1779255171-3822",
-        "at": "2026-05-20T05:32:51Z",
-        "ts": 1779255171,
-        "trigger": "self",
-        "prevHead": "0b98472",
-        "handoffSha": "sha256:fd70683409b17f97950bca15ddd5a91da248d15546abc7beb3d73a9dc0d38b06",
-        "handoffAgeSec": 3,
-        "conformanceBefore": "634/0/1",
         "commitsInSession": null
       }
     ],
