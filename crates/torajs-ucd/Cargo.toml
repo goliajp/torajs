@@ -1,0 +1,25 @@
+[package]
+name = "torajs-ucd"
+description = "Curated Unicode Character Database subset — Letter (L), Number (N), Whitespace ranges as binary-searchable static tables. Sized for ECMAScript regex `\\p{L}` / `\\p{N}` property classes; covers the dominant test262 usage subset (Greek/Cyrillic/Hebrew/Arabic/CJK/Hangul/Hiragana/Katakana for L; the major decimal-digit scripts for N). Zero allocation, `no_std`, single binary-search per cp lookup."
+keywords = ["unicode", "ucd", "torajs", "regex", "ecmascript"]
+categories = ["text-processing", "no-std", "internationalization"]
+readme = "README.md"
+documentation = "https://docs.rs/torajs-ucd"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "ucd"
+harness = false

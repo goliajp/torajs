@@ -2,6 +2,7 @@
 resolver = "3"
 members = [
     "crates/torajs-pool",
+    "crates/torajs-ucd",
     "crates/torajs-runtime",
     "crates/torajs-core",
     "crates/torajs-cli",
