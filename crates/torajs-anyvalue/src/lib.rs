@@ -300,6 +300,99 @@ pub fn payload_rc_inc(tag: i64, value: i64) {
 unsafe extern "C" {
     fn __torajs_value_drop_heap(child: *mut c_void);
     fn __torajs_str_eq(a: *const u8, b: *const u8) -> i64;
+    // P2.3-c — Str-formatting helpers used by `AnyValue::to_str` /
+    // `__torajs_any_to_str`. Each returns a freshly-owned Str
+    // (refcount=1) the caller must drop. The implementations stay
+    // in runtime_str.c through the Layer-2 (`torajs-str`) rewrite.
+    fn __torajs_null_to_str() -> *mut c_void;
+    fn __torajs_undefined_to_str() -> *mut c_void;
+    fn __torajs_bool_to_str(b: i32) -> *mut c_void;
+    fn __torajs_i64_to_str(n: i64) -> *mut c_void;
+    fn __torajs_f64_to_str(n: f64) -> *mut c_void;
+    fn __torajs_str_alloc_pooled(len: u64) -> *mut u8;
+}
+
+// Str heap-byte data offset within the Str layout
+// `[header:8][len:8][bytes:N]` — bytes start at byte 16. Mirror of
+// the C `__TORAJS_STR_HDR_SIZE` constant; declared here so the
+// `to_str` Heap path's placeholder write hits the right offset.
+const STR_HDR_SIZE: usize = 16;
+
+// ============================================================
+// ToString coercion (JS spec §7.1.17)
+// ============================================================
+
+/// Tag-dispatch ToString for a packed `(tag, value)` pair.
+/// Always returns a freshly owned `*mut Str` (refcount = 1)
+/// that the caller is responsible for dropping.
+///
+/// - `Null` → `"null"` (via [`__torajs_null_to_str`])
+/// - `Undef` → `"undefined"` (per ES §7.1.17.1)
+/// - `Bool` → `"true"` / `"false"`
+/// - `I64` → decimal print
+/// - `F64` → IEEE pretty-print (`f64::to_string`-like via the C
+///   helper, kept C through Layer-2 so format semantics stay
+///   identical to bun's `console.log`)
+/// - `Heap` + `Tag::Str` → rc_inc the same Str pointer + return
+///   (no new alloc; caller owns one ref)
+/// - `Heap` + other tag → `"[object]"` placeholder until P3 lands
+///   per-type pretty-print
+///
+/// # Safety
+///
+/// If `tag == Heap`, `value` must be null or a valid `*mut
+/// HeapHeader`. The returned pointer is valid until the caller
+/// `drop`s it (matches the pre-rewrite C contract).
+unsafe fn any_to_str(tag: i64, value: i64) -> *mut c_void {
+    if tag == AnySlotTag::Null as i64 {
+        return unsafe { __torajs_null_to_str() };
+    }
+    if tag == AnySlotTag::Undef as i64 {
+        return unsafe { __torajs_undefined_to_str() };
+    }
+    if tag == AnySlotTag::Bool as i64 {
+        return unsafe { __torajs_bool_to_str((value != 0) as i32) };
+    }
+    if tag == AnySlotTag::I64 as i64 {
+        return unsafe { __torajs_i64_to_str(value) };
+    }
+    if tag == AnySlotTag::F64 as i64 {
+        return unsafe { __torajs_f64_to_str(f64::from_bits(value as u64)) };
+    }
+    if tag == AnySlotTag::Heap as i64 {
+        let child = value as *mut HeapHeader;
+        if child.is_null() {
+            return unsafe { __torajs_null_to_str() };
+        }
+        // SAFETY: child is non-null per the check above; runtime
+        // invariant says it points to a valid header.
+        let h = unsafe { &*child };
+        if matches!(h.tag(), Tag::Str) {
+            // Tag::Str case: just rc_inc + return; the caller now
+            // owns one (additional) reference.
+            unsafe { __torajs_rc_inc(child as *mut c_void) };
+            return child as *mut c_void;
+        }
+        // Object placeholder. Replaced by per-type pretty-print
+        // when P3 lands proper ToString dispatch.
+        const PLACEHOLDER: &[u8] = b"[object]";
+        // SAFETY: str_alloc_pooled returns a Str-shaped heap with
+        // header + len fields written; the body slot starts at
+        // `STR_HDR_SIZE` and is `len` bytes wide. We write
+        // exactly 8 bytes there.
+        unsafe {
+            let p = __torajs_str_alloc_pooled(PLACEHOLDER.len() as u64);
+            core::ptr::copy_nonoverlapping(
+                PLACEHOLDER.as_ptr(),
+                p.add(STR_HDR_SIZE),
+                PLACEHOLDER.len(),
+            );
+            p as *mut c_void
+        }
+    } else {
+        // Unknown tag (defensive): treat as null.
+        unsafe { __torajs_null_to_str() }
+    }
 }
 
 // ============================================================
@@ -486,6 +579,20 @@ pub unsafe extern "C" fn __torajs_any_any_strict_eq(l: *const c_void, r: *const 
             payload_eq(lb.tag, lb.value, rb.value)
         }
     }
+}
+
+/// FFI bridge to [`any_to_str`]. Returns a freshly-owned `Str`
+/// pointer the caller must drop. Used by ssa_lower at every
+/// implicit ToString site (template literals, `+` mixing string
+/// and non-string operands, `console.log(any)` printing, …).
+///
+/// # Safety
+///
+/// For `tag == Heap`, `value` is null or a valid `*mut
+/// HeapHeader` pointing to a live heap object.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_any_to_str(tag: i64, value: i64) -> *mut c_void {
+    unsafe { any_to_str(tag, value) }
 }
 
 /// FFI bridge — Any === concrete (SSA-emitted `(tag, value)` pair

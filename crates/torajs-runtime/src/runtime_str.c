@@ -1808,43 +1808,11 @@ void *__torajs_null_to_str(void);
 void *__torajs_undefined_to_str(void);
 double __torajs_str_to_number(const void *p);
 
-/* P0.6 — Any tag → Str helper. Used by __torajs_any_add when one
- * side is String and the other needs ToString coercion. Returns a
- * fresh owned Str (caller takes ownership). For HEAP/Str case
- * returns the existing pointer with rc bumped (caller still owns
- * a single reference). */
-void *__torajs_any_to_str(int64_t tag, int64_t value) {
-    switch (tag) {
-        case __TORAJS_ANY_NULL: return __torajs_null_to_str();
-        /* P1.5 — ToString(undefined) === "undefined" per spec §7.1.17. */
-        case __TORAJS_ANY_UNDEF: return __torajs_undefined_to_str();
-        case __TORAJS_ANY_BOOL: return __torajs_bool_to_str(value != 0);
-        case __TORAJS_ANY_I64:  return __torajs_i64_to_str(value);
-        case __TORAJS_ANY_F64: {
-            union { int64_t i; double d; } u = { .i = value };
-            return __torajs_f64_to_str(u.d);
-        }
-        case __TORAJS_ANY_HEAP: {
-            void *child = (void *)(uintptr_t)value;
-            if (child == NULL) return __torajs_null_to_str();
-            const __torajs_heap_header_t *h = (const __torajs_heap_header_t *)child;
-            if (h->type_tag == __TORAJS_TAG_STR) {
-                __torajs_rc_inc(child);
-                return child;
-            }
-            /* For Obj / Arr / Closure / etc: spec ToString returns
-             * something like "[object Object]" / element-join. tora
-             * substitutes a placeholder for now ("[object]"); proper
-             * pretty-print arrives with P3 (property bag) work. */
-            const char *placeholder = "[object]";
-            uint64_t plen = 8;
-            uint8_t *p = __torajs_str_alloc_pooled(plen);
-            memcpy(__TORAJS_STR_DATA(p), placeholder, plen);
-            return p;
-        }
-        default: return __torajs_null_to_str();
-    }
-}
+/* P2.3-c — `__torajs_any_to_str` (Any → Str coercion per JS spec
+ * §7.1.17) moved to the Rust `torajs-anyvalue` crate. The
+ * placeholder "[object]" path stays bit-identical until P3 lands
+ * per-type pretty-print. */
+extern void *__torajs_any_to_str(int64_t tag, int64_t value);
 
 /* P0.7 — ToNumber(Any) helper per JS spec §7.1.4. Returns the
  * tagged value coerced to f64. Tag dispatch:
