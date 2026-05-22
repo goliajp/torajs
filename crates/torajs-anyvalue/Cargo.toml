@@ -1,0 +1,33 @@
+[package]
+name = "torajs-anyvalue"
+description = "Boxed Type::Any value primitives for the torajs AOT TypeScript runtime. 24-byte `{ header: HeapHeader, tag: i64, value: i64 }` heap struct + alloc / unbox / drop helpers. Tag-disambiguates inline (null / undef / bool / i64 / f64) from heap (Str / Obj / Arr / ...) payloads. Layer-1 substrate built on torajs-rc. no_std-friendly, 0 runtime deps."
+keywords = ["torajs", "any", "tagged-union", "heap"]
+categories = ["data-structures", "memory-management"]
+readme = "README.md"
+documentation = "https://docs.rs/torajs-anyvalue"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+# Dual emit: `rlib` for cargo workspace builds + unit tests +
+# criterion bench harness; `staticlib` for ssa_inkwell to link
+# into every `tr build` AOT user binary alongside libtorajs_rc.a.
+[lib]
+crate-type = ["rlib", "staticlib"]
+
+[dependencies]
+# Layer-0 / Layer-1 substrate: HeapHeader + Tag enum + rc_inc/dec.
+torajs-rc = { path = "../torajs-rc" }
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "anyvalue"
+harness = false

@@ -24,3 +24,6 @@ torajs-runtime = { path = "../torajs-runtime" }
 # OUT_DIR and that `ssa_inkwell::compile()` links into every
 # `tr build` user-binary alongside the runtime_*.c object files.
 torajs-rc = { path = "../torajs-rc" }
+# Layer-1 substrate: AnyBox heap value (boxed Type::Any). Same dual
+# rlib+staticlib usage as torajs-rc above.
+torajs-anyvalue = { path = "../torajs-anyvalue" }

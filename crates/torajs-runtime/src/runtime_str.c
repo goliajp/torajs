@@ -1655,47 +1655,27 @@ void __torajs_arrprops_drop_entry(void *arr_ptr) {
  * pair-passing complexity. T-10.e or v0.5+ may inline use-site fast
  * paths for `console.log(xs[i])` to avoid the box allocation. */
 
-/* Box layout offsets. Universal heap header is 8 bytes. */
+/* Box layout offsets. Universal heap header is 8 bytes. Kept here
+ * for the in-file `__torajs_any_payload_eq` / `_any_to_str` /
+ * `_any_any_strict_eq` / `_any_strict_eq` / etc. that still read
+ * box fields by const offset (P2.3-b/c/d follow-ups will move
+ * those to Rust too). */
 #define __TORAJS_ANY_BOX_TAG_OFF   8
 #define __TORAJS_ANY_BOX_VAL_OFF   16
 #define __TORAJS_ANY_BOX_SIZE      24
 
-void *__torajs_any_box(int64_t tag, int64_t value) {
-    uint8_t *p = (uint8_t *)malloc(__TORAJS_ANY_BOX_SIZE);
-    __torajs_heap_header_t *h = (__torajs_heap_header_t *)p;
-    h->refcount = 1;
-    h->type_tag = __TORAJS_TAG_ANY_BOX;
-    h->flags = 0;
-    *(int64_t *)(p + __TORAJS_ANY_BOX_TAG_OFF) = tag;
-    *(int64_t *)(p + __TORAJS_ANY_BOX_VAL_OFF) = value;
-    /* If value is a heap pointer, hold an owning ref. The drop
-     * helper releases it. ANY_HEAP children whose ptr is NULL
-     * are still safe — rc_inc no-ops on NULL. */
-    if (tag == __TORAJS_ANY_HEAP) {
-        __torajs_rc_inc((void *)(uintptr_t)value);
-    }
-    return p;
-}
-
-int64_t __torajs_any_unbox_tag(const void *box) {
-    return *(const int64_t *)((const uint8_t *)box + __TORAJS_ANY_BOX_TAG_OFF);
-}
-
-int64_t __torajs_any_unbox_value(const void *box) {
-    return *(const int64_t *)((const uint8_t *)box + __TORAJS_ANY_BOX_VAL_OFF);
-}
-
-/* P4.0 — nested Any-dynobj field substrate. Used by lower_dynobj_init /
- * Member-assign when forwarding an already-boxed Any value's (tag, val)
- * payload into a new bucket. The bucket's slot holds the underlying
- * heap reference directly (not the any-box wrapper), so the new owner
- * needs a +1 on that heap value when tag == HEAP. Non-HEAP tags (I64 /
- * F64 / Bool / Null / Undef) are inline values — no refcount touch. */
-void __torajs_any_payload_rc_inc(int64_t tag, int64_t val) {
-    if (tag == __TORAJS_ANY_HEAP) {
-        __torajs_rc_inc((void *)(uintptr_t)val);
-    }
-}
+/* P2.3-a (2026-05-22 architecture-rewrite) — `__torajs_any_box`,
+ * `__torajs_any_unbox_tag`, `__torajs_any_unbox_value`, and
+ * `__torajs_any_payload_rc_inc` are now provided by the Rust
+ * `torajs-anyvalue` crate (Layer-1 substrate; see
+ * docs/architecture-rewrite.md). C definitions deleted in this
+ * commit. The extern decls below let the rest of runtime_str.c
+ * (any_to_str, strict_eq, etc.) keep calling them; the linker
+ * resolves them from libtorajs_anyvalue.a at `tr build` time. */
+extern void *__torajs_any_box(int64_t tag, int64_t value);
+extern int64_t __torajs_any_unbox_tag(const void *box);
+extern int64_t __torajs_any_unbox_value(const void *box);
+extern void __torajs_any_payload_rc_inc(int64_t tag, int64_t val);
 
 /* P4.2 Phase B+C — class prototype side table. Maps class runtime tag
  * (the same tag stored at OBJ_CLASS_TAG_OFF on instance allocation;
@@ -2269,19 +2249,13 @@ void *__torajs_any_typeof(const void *box) {
     return p;
 }
 
-void __torajs_any_box_drop(void *box) {
-    if (box == NULL) return;
-    __torajs_heap_header_t *h = (__torajs_heap_header_t *)box;
-    if (h->flags & __TORAJS_FLAG_STATIC_LITERAL) return;
-    if (!__torajs_rc_dec(box)) return; /* shared box, keep alive */
-    int64_t tag = *(int64_t *)((uint8_t *)box + __TORAJS_ANY_BOX_TAG_OFF);
-    if (tag == __TORAJS_ANY_HEAP) {
-        void *child = (void *)(uintptr_t)*(int64_t *)
-            ((uint8_t *)box + __TORAJS_ANY_BOX_VAL_OFF);
-        __torajs_value_drop_heap(child);
-    }
-    free(box);
-}
+/* P2.3-a — `__torajs_any_box_drop` is now provided by the Rust
+ * `torajs-anyvalue` crate. The Rust version is byte-equivalent
+ * (null check, STATIC_LITERAL bypass, rc_dec hit-zero gate,
+ * ANY_HEAP child value_drop_heap recurse, dealloc 24 bytes via
+ * `std::alloc::dealloc` matching the same allocator the Rust
+ * side used for the matching `__torajs_any_box` allocation). */
+extern void __torajs_any_box_drop(void *box);
 
 /* T-10.d.i — `console.log(any_value)` dispatch. Reads the box's tag
  * and routes to the matching primitive printer. ANY_HEAP recurses

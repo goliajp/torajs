@@ -75,24 +75,33 @@
 //! guarantee the pointer is null or refers to a live `HeapHeader`.
 //! Single-threaded invariant is contract, not enforced.
 
-// Plain `std` crate. We tried `#![cfg_attr(not(test), no_std)]` for
-// the staticlib build but the dual `crate-type = ["rlib",
-// "staticlib"]` setup forces a single rustc invocation to satisfy
-// both shapes, and the `cfg(test)` toggle then leaves the
-// staticlib without a `#[panic_handler]` while still asking for
-// unwind panics (`panic = "abort"` in workspace profile.release
-// only kicks in when the *whole* compilation tree is rebuilt with
-// std=core+abort, not on this mixed cfg).
+// Plain `std` crate. Tried `#![no_std]` + custom `panic_handler`
+// for tighter staticlib size but it tripped two stable-rustc
+// issues:
 //
-// std is part of the Rust language proper (not a crates.io dep)
-// so this does NOT violate vision #4 (0 deps): `cargo tree -p
-// torajs-rc` still shows zero dependencies. The staticlib carries
-// std code, but post-LTO dead-strip removes every symbol the
-// final user binary doesn't reference — `__torajs_rc_inc` /
-// `__torajs_rc_dec` are the only entry points and they pull in
-// no std code (no `String`, no `Vec`, no panic site that survives
-// release optimization). Empirical binary-size delta from this
-// change is measured during the P2.2 acceptance gate.
+//  1. `cargo test --workspace --release` insists on building the
+//     `staticlib` variant under unwind-panics regardless of
+//     workspace `[profile.test]` / `[profile.release]` panic
+//     settings, so no_std staticlib + precompiled core =
+//     "unwinding panics not supported without std" error.
+//  2. Multiple Layer-1 no_std staticlibs each defining their own
+//     `#[panic_handler]` conflict on the lang item.
+//
+// Accepting std-flavored staticlibs is the practical answer. The
+// `rust_begin_unwind` duplicate between multiple std-bearing
+// staticlibs is suppressed at user-binary link time by
+// `cc -flto` (LLVM's archive linker tolerates the symbol
+// overlap), so every `tr build` user binary links cleanly. Note
+// that `cargo test --workspace --release` still hits a duplicate
+// at the in-process Rust test binary link — per-crate testing
+// (`cargo test -p <crate> --release`) is the acceptance gate
+// variant for now (project status memory captures this).
+//
+// std is a Rust language primitive (not a crates.io dep) so this
+// does not violate vision #4 (0 deps): `cargo tree -p torajs-rc`
+// shows zero dependencies. Post-LTO dead-strip removes every
+// symbol the final user binary doesn't reference — rc_inc /
+// rc_dec pull in no std code.
 
 use std::ffi::c_void;
 use std::ptr::NonNull;

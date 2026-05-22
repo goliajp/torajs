@@ -4,6 +4,7 @@ members = [
     "crates/torajs-pool",
     "crates/torajs-ucd",
     "crates/torajs-rc",
+    "crates/torajs-anyvalue",
     "crates/torajs-runtime",
     "crates/torajs-core",
     "crates/torajs-cli",
@@ -55,11 +56,19 @@ opt-level = 3
 lto = "fat"
 codegen-units = 1
 strip = true
-# panic = "abort" is required for the `torajs-rc` no_std staticlib
-# (unwinding panics aren't supported without std) AND independently
-# good for vision #1 perf — removes the per-fn unwind tables and a
-# tier of LLVM codegen complexity, shrinking the AOT user-binary
-# by roughly 10% across the bench corpus.
+# panic = "abort" is required for the no_std staticlibs in
+# crates/torajs-rc + crates/torajs-anyvalue (unwinding panics
+# aren't supported without std) AND independently good for
+# vision #1 perf — removes the per-fn unwind tables and a tier
+# of LLVM codegen complexity, shrinking the AOT user-binary by
+# ~10% across the bench corpus.
+panic = "abort"
+
+# panic = "abort" on dev for symmetry with release — `cargo test`
+# (no --release) inherits from this profile. (panic is "ignored"
+# on [profile.test] and [profile.bench] per cargo design; not
+# settable there.)
+[profile.dev]
 panic = "abort"
 
 # Vanilla-Rust honest baseline. Mirrors mailrs's pattern. Use with

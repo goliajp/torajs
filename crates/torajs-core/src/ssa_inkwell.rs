@@ -932,18 +932,20 @@ pub fn compile_for_kind(
     // T-15 added runtime_promise.c via this path.
     let pid = std::process::id();
 
-    // P2.2 (architecture-rewrite, Layer-1 substrate): the
-    // `torajs-rc` Rust crate replaces runtime_str.c's
-    // `__torajs_rc_inc` / `__torajs_rc_dec`. The crate's
-    // `crate-type = ["staticlib"]` artifact (libtorajs_rc.a) is
-    // embedded as `crate::TORAJS_RC_STATICLIB` via the build
-    // script; we drop the bytes into a temp `.a` here and append
-    // its path to the link command below so the user binary
-    // resolves those symbols from Rust instead of C.
-    let rc_staticlib_path =
-        std::env::temp_dir().join(format!("torajs-rc-{pid}-{}.a", rand_suffix()));
-    std::fs::write(&rc_staticlib_path, crate::TORAJS_RC_STATICLIB)
-        .map_err(|e| CompileError::Link(format!("write libtorajs_rc.a temp: {e}")))?;
+    // P2.2+ (architecture-rewrite): every Layer-1+ Rust sub-crate
+    // contributing `__torajs_*` symbols ships its staticlib bytes
+    // via `crate::TORAJS_STATICLIBS` (assembled at compile time
+    // by `crates/torajs-core/build.rs`). We drop each one into a
+    // per-build temp `.a` here and collect the paths to append to
+    // the link command below.
+    let mut rust_staticlib_paths: Vec<PathBuf> = Vec::with_capacity(crate::TORAJS_STATICLIBS.len());
+    for (filename, bytes) in crate::TORAJS_STATICLIBS {
+        let stem = filename.trim_end_matches(".a");
+        let p = std::env::temp_dir().join(format!("{stem}-{pid}-{}.a", rand_suffix()));
+        std::fs::write(&p, bytes)
+            .map_err(|e| CompileError::Link(format!("write {filename} temp: {e}")))?;
+        rust_staticlib_paths.push(p);
+    }
 
     let mut c_paths: Vec<PathBuf> = Vec::with_capacity(torajs_runtime::SOURCES.len());
     let mut o_paths: Vec<PathBuf> = Vec::with_capacity(torajs_runtime::SOURCES.len());
@@ -1033,13 +1035,15 @@ pub fn compile_for_kind(
             for op in &o_paths {
                 link_cmd.arg(op);
             }
-            // P2.2 — Layer-1 staticlib (torajs-rc): supplies the
-            // `__torajs_rc_inc` / `__torajs_rc_dec` symbols now
-            // that runtime_str.c no longer defines them. Order
-            // doesn't matter for cc -flto archive consumption;
+            // P2.2+ — Layer-1+ Rust staticlibs: each supplies its
+            // own `__torajs_*` symbols (torajs-rc → rc_inc/dec;
+            // torajs-anyvalue → any_box/unbox/drop/payload_rc_inc).
+            // Order doesn't matter for cc -flto archive consumption;
             // the linker pulls in whichever members are referenced
             // by `*.o` symbols above.
-            link_cmd.arg(&rc_staticlib_path);
+            for p in &rust_staticlib_paths {
+                link_cmd.arg(p);
+            }
             /* T-21 (v0.6.0) — runtime_fetch.c uses libcurl for the
              * sync HTTP fetch. Only link libcurl when the user
              * program actually references `fetch(...)`; otherwise
@@ -1084,15 +1088,15 @@ pub fn compile_for_kind(
             for op in &o_paths {
                 link_cmd.arg(op);
             }
-            // P2.2 — same Layer-1 staticlib on wasm. NOTE: the
-            // staticlib is built with the workspace's host target
+            // P2.2+ — same Layer-1+ staticlibs on wasm. NOTE:
+            // each .a is built with the workspace's host target
             // (e.g. aarch64-apple-darwin) and is NOT directly
             // wasm32-wasi-compatible; this leg of the link will
-            // currently fail. Wasm-arch cross-build of torajs-rc
-            // is queued as P2.2c (L3b) — for the P2.2 substrate
-            // ship we hold the native path correct and isolate
-            // the wasm regression here as a known follow-up.
-            link_cmd.arg(&rc_staticlib_path);
+            // currently fail. Wasm-arch cross-build of every Rust
+            // sub-crate is queued as a follow-up (L3b).
+            for p in &rust_staticlib_paths {
+                link_cmd.arg(p);
+            }
             link_cmd
                 .arg(format!("-L{sysroot}/lib/wasm32-wasip1"))
                 .arg("-lc")
@@ -1131,8 +1135,10 @@ pub fn compile_for_kind(
     for p in &o_paths {
         let _ = std::fs::remove_file(p);
     }
-    // P2.2 — clean up the libtorajs_rc.a temp file from this build.
-    let _ = std::fs::remove_file(&rc_staticlib_path);
+    // P2.2+ — clean up every embedded Rust staticlib temp file.
+    for p in &rust_staticlib_paths {
+        let _ = std::fs::remove_file(p);
+    }
     if !status.success() {
         return Err(CompileError::Link(format!("cc exited {status}")));
     }

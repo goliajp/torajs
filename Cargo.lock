@@ -1835,6 +1835,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "torajs-anyvalue"
+version = "0.1.0"
+dependencies = [
+ "criterion",
+ "torajs-rc",
+]
+
+[[package]]
 name = "torajs-cli"
 version = "0.1.0"
 dependencies = [
@@ -1855,6 +1863,7 @@ name = "torajs-core"
 version = "0.1.0"
 dependencies = [
  "inkwell",
+ "torajs-anyvalue",
  "torajs-rc",
  "torajs-runtime",
 ]
