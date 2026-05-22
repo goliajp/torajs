@@ -80,6 +80,7 @@
 // `tr build` time (cc + LLVM-LTO dedup tolerates std symbol
 // overlap between Rust-emitted .a's).
 
+use std::cmp::Ordering;
 use std::ffi::c_void;
 use std::ptr::NonNull;
 
@@ -583,6 +584,154 @@ impl AnyValue {
 }
 
 // ============================================================
+// Relational comparison (JS spec §7.2.13 IsLessThan + §13.10)
+// ============================================================
+
+/// Byte offset of the `u64 len` field inside the Str heap layout
+/// `[header:8][len:8][bytes:N]`. Used by [`any_compare`] for the
+/// String-String lexicographic byte-compare path. Stays in C until
+/// the Layer-2 `torajs-str` rewrite.
+const STR_LEN_OFF: usize = 8;
+
+/// Op code for ordering compare per ssa_lower's emission.
+/// Mirror of the C `__torajs_any_compare` switch on the `op`
+/// argument: 0=Lt, 1=Le, 2=Gt, 3=Ge.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CompareOp {
+    Lt,
+    Le,
+    Gt,
+    Ge,
+}
+
+impl CompareOp {
+    /// Decode the i64 wire format ssa_lower emits.
+    fn from_i64(op: i64) -> Option<CompareOp> {
+        match op {
+            0 => Some(CompareOp::Lt),
+            1 => Some(CompareOp::Le),
+            2 => Some(CompareOp::Gt),
+            3 => Some(CompareOp::Ge),
+            _ => None,
+        }
+    }
+
+    /// Apply the op to a canonical `Ordering` result. NaN is
+    /// handled by the caller (all four ops return `false` when
+    /// either operand is NaN per ES §7.2.13).
+    #[inline]
+    fn apply(self, cmp: Ordering) -> bool {
+        match self {
+            CompareOp::Lt => cmp.is_lt(),
+            CompareOp::Le => cmp.is_le(),
+            CompareOp::Gt => cmp.is_gt(),
+            CompareOp::Ge => cmp.is_ge(),
+        }
+    }
+}
+
+/// Returns `true` iff the `(tag, value)` pair points to a live
+/// heap object tagged [`Tag::Str`]. Null and non-Heap tags return
+/// `false`.
+///
+/// # Safety
+///
+/// If `tag == AnySlotTag::Heap as i64`, `value` must be null or a
+/// valid `*const HeapHeader`.
+#[inline]
+unsafe fn is_heap_str(tag: i64, value: i64) -> bool {
+    if tag != AnySlotTag::Heap as i64 {
+        return false;
+    }
+    let p = value as *const HeapHeader;
+    if p.is_null() {
+        return false;
+    }
+    // SAFETY: non-null + runtime invariant says it points to a
+    // live heap header.
+    matches!(unsafe { (*p).tag() }, Tag::Str)
+}
+
+/// Lexicographic byte compare of two Str-tagged heap pointers,
+/// matching ES §7.2.13 step 4.b's "Is Less Than" tie-break by
+/// length. Both `la` / `ra` must be non-null `*const u8` pointing
+/// at a Str's HeapHeader; the layout is `[header:8][len:u64@8]
+/// [bytes:len@16]`.
+///
+/// # Safety
+///
+/// `la` and `ra` must be non-null and point to live Str heap
+/// objects. Caller guarantees by virtue of `is_heap_str` having
+/// returned true for both.
+unsafe fn compare_str_lexicographic(la: i64, ra: i64) -> Ordering {
+    let la = la as *const u8;
+    let ra = ra as *const u8;
+    // SAFETY: la/ra non-null per caller invariant; layout-aware
+    // unaligned reads at byte offset 8 (u64-aligned since the
+    // Str heap is 8-aligned).
+    let (l_len, r_len) = unsafe {
+        (
+            (la.add(STR_LEN_OFF) as *const u64).read() as usize,
+            (ra.add(STR_LEN_OFF) as *const u64).read() as usize,
+        )
+    };
+    let min_len = l_len.min(r_len);
+    // SAFETY: byte payload starts at offset STR_HDR_SIZE; each is
+    // at least min_len bytes long (we took the min).
+    let (lb, rb) = unsafe {
+        (
+            std::slice::from_raw_parts(la.add(STR_HDR_SIZE), min_len),
+            std::slice::from_raw_parts(ra.add(STR_HDR_SIZE), min_len),
+        )
+    };
+    match lb.cmp(rb) {
+        Ordering::Equal => l_len.cmp(&r_len),
+        other => other,
+    }
+}
+
+/// `<`, `<=`, `>`, `>=` on two Any-tagged `(tag, value)` pairs per
+/// ES §7.2.13 IsLessThan + §13.10. Both sides go through
+/// `ToPrimitive(hint=Number)`; if BOTH result in String the path
+/// is a lexicographic byte-compare, otherwise both run through
+/// ToNumber and IEEE 754 compare. NaN makes ALL ops return
+/// `false`.
+///
+/// Returns `false` defensively for any unknown `op` value.
+///
+/// # Safety
+///
+/// If either tag is `Heap`, the corresponding value must be null
+/// or a valid `*mut HeapHeader`. ToNumber's Heap+Str path
+/// delegates to the still-C `__torajs_str_to_number`, which
+/// requires the pointer be Tag::Str-headed.
+unsafe fn any_compare(op: i64, lt: i64, lv: i64, rt: i64, rv: i64) -> bool {
+    let op = match CompareOp::from_i64(op) {
+        Some(o) => o,
+        None => return false,
+    };
+    // SAFETY: caller invariant — propagated.
+    let l_is_str = unsafe { is_heap_str(lt, lv) };
+    let r_is_str = unsafe { is_heap_str(rt, rv) };
+    let cmp = if l_is_str && r_is_str {
+        // SAFETY: is_heap_str checked both pointers non-null + Str-
+        // headed; compare_str_lexicographic's invariants hold.
+        unsafe { compare_str_lexicographic(lv, rv) }
+    } else {
+        // SAFETY: caller invariant — propagated to any_to_number.
+        let l = unsafe { any_to_number(lt, lv) };
+        let r = unsafe { any_to_number(rt, rv) };
+        if l.is_nan() || r.is_nan() {
+            return false;
+        }
+        // partial_cmp is total for non-NaN f64 (we just excluded
+        // NaN above); unwrap is provably-safe here.
+        l.partial_cmp(&r).expect("non-NaN f64 comparison is total")
+    };
+    op.apply(cmp)
+}
+
+// ============================================================
 // FFI shims — thin wrappers for ssa_lower-emitted IR
 // ============================================================
 
@@ -734,6 +883,23 @@ pub unsafe extern "C" fn __torajs_any_to_number(box_ptr: *const c_void) -> f64 {
 pub unsafe extern "C" fn __torajs_any_to_number_inner(tag: i64, value: i64) -> f64 {
     // SAFETY: caller invariant — propagated.
     unsafe { any_to_number(tag, value) }
+}
+
+/// FFI bridge — packed-pair relational compare per ES §7.2.13.
+/// `op` is 0=Lt, 1=Le, 2=Gt, 3=Ge; out-of-range op codes return
+/// `false` defensively (IR should never emit them). Used by
+/// ssa_lower at every `<` / `<=` / `>` / `>=` site where either
+/// operand is Any-typed.
+///
+/// # Safety
+///
+/// For `lt == AnySlotTag::Heap as i64`, `lv` is null or a valid
+/// `*mut HeapHeader`. Same constraint on `(rt, rv)`. Caller
+/// promises tags are well-formed.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_any_compare(op: i64, lt: i64, lv: i64, rt: i64, rv: i64) -> bool {
+    // SAFETY: caller invariant — propagated.
+    unsafe { any_compare(op, lt, lv, rt, rv) }
 }
 
 /// FFI bridge — Any === concrete (SSA-emitted `(tag, value)` pair
@@ -1164,5 +1330,180 @@ mod tests {
             assert!(!__torajs_any_strict_eq(p, 3 /* F64 */, 42));
             __torajs_any_box_drop(p);
         }
+    }
+
+    // ---- P2.3-d.2: relational compare ----
+
+    /// Build a fake Str heap block backed by a Vec<u8> the caller
+    /// owns. Layout: `[header:8][len:u64][bytes:N]`. Returns the
+    /// raw pointer + the backing Vec (kept alive by the caller via
+    /// the returned guard).
+    fn make_str_blob(bytes: &[u8]) -> (Vec<u8>, *const u8) {
+        let mut blob = vec![0u8; STR_HDR_SIZE + bytes.len()];
+        // Write a Tag::Str HeapHeader at offset 0.
+        let h = HeapHeader::new(Tag::Str);
+        let h_bytes = unsafe {
+            std::slice::from_raw_parts(
+                &h as *const HeapHeader as *const u8,
+                core::mem::size_of::<HeapHeader>(),
+            )
+        };
+        blob[..h_bytes.len()].copy_from_slice(h_bytes);
+        // Write u64 len at offset 8.
+        let len = bytes.len() as u64;
+        blob[STR_LEN_OFF..STR_LEN_OFF + 8].copy_from_slice(&len.to_ne_bytes());
+        // Write payload at offset STR_HDR_SIZE.
+        blob[STR_HDR_SIZE..].copy_from_slice(bytes);
+        let p = blob.as_ptr();
+        (blob, p)
+    }
+
+    #[test]
+    fn any_compare_inline_lt_le_gt_ge_on_i64() {
+        unsafe {
+            // 1 < 2 family
+            assert!(any_compare(0, 2, 1, 2, 2)); // 1 < 2
+            assert!(any_compare(1, 2, 1, 2, 2)); // 1 <= 2
+            assert!(!any_compare(2, 2, 1, 2, 2)); // 1 > 2
+            assert!(!any_compare(3, 2, 1, 2, 2)); // 1 >= 2
+            // equal
+            assert!(!any_compare(0, 2, 5, 2, 5));
+            assert!(any_compare(1, 2, 5, 2, 5));
+            assert!(!any_compare(2, 2, 5, 2, 5));
+            assert!(any_compare(3, 2, 5, 2, 5));
+        }
+    }
+
+    #[test]
+    fn any_compare_f64_ieee_semantics() {
+        unsafe {
+            let one = 1.0_f64.to_bits() as i64;
+            let two = 2.0_f64.to_bits() as i64;
+            let nan = f64::NAN.to_bits() as i64;
+            // 1.0 < 2.0
+            assert!(any_compare(0, 3, one, 3, two));
+            // NaN < x: false for ALL ops per spec §7.2.13.
+            assert!(!any_compare(0, 3, nan, 3, two));
+            assert!(!any_compare(1, 3, nan, 3, two));
+            assert!(!any_compare(2, 3, nan, 3, two));
+            assert!(!any_compare(3, 3, nan, 3, two));
+            // x op NaN: also false.
+            assert!(!any_compare(0, 3, two, 3, nan));
+        }
+    }
+
+    #[test]
+    fn any_compare_mixed_inline_tags_via_to_number() {
+        unsafe {
+            // Bool(true)=1 < I64(2)
+            assert!(any_compare(0, 1 /* Bool */, 1, 2 /* I64 */, 2));
+            // Null=0 < Bool(true)=1
+            assert!(any_compare(0, 0 /* Null */, 0, 1 /* Bool */, 1));
+            // Undef=NaN compare → false everywhere.
+            assert!(!any_compare(0, 5 /* Undef */, 0, 2 /* I64 */, 0));
+            assert!(!any_compare(1, 5, 0, 2, 0));
+            // I64(5) > Bool(false)=0
+            assert!(any_compare(2, 2, 5, 1, 0));
+            // I64(0) >= Null=0
+            assert!(any_compare(3, 2, 0, 0, 0));
+        }
+    }
+
+    #[test]
+    fn any_compare_str_str_lexicographic() {
+        // Different first byte: "abc" vs "abd"
+        let (_a, pa) = make_str_blob(b"abc");
+        let (_b, pb) = make_str_blob(b"abd");
+        unsafe {
+            assert!(any_compare(0, 4, pa as i64, 4, pb as i64)); // < true
+            assert!(any_compare(1, 4, pa as i64, 4, pb as i64)); // <= true
+            assert!(!any_compare(2, 4, pa as i64, 4, pb as i64)); // > false
+            assert!(!any_compare(3, 4, pa as i64, 4, pb as i64)); // >= false
+        }
+    }
+
+    #[test]
+    fn any_compare_str_str_length_tiebreak() {
+        // Equal prefix, different length: "ab" < "abc"
+        let (_a, pa) = make_str_blob(b"ab");
+        let (_b, pb) = make_str_blob(b"abc");
+        unsafe {
+            assert!(any_compare(0, 4, pa as i64, 4, pb as i64));
+            assert!(!any_compare(2, 4, pa as i64, 4, pb as i64));
+        }
+    }
+
+    #[test]
+    fn any_compare_str_str_equal() {
+        let (_a, pa) = make_str_blob(b"hello");
+        let (_b, pb) = make_str_blob(b"hello");
+        unsafe {
+            assert!(!any_compare(0, 4, pa as i64, 4, pb as i64)); // <
+            assert!(any_compare(1, 4, pa as i64, 4, pb as i64)); // <=
+            assert!(!any_compare(2, 4, pa as i64, 4, pb as i64)); // >
+            assert!(any_compare(3, 4, pa as i64, 4, pb as i64)); // >=
+        }
+    }
+
+    #[test]
+    fn any_compare_str_vs_number_falls_through_to_number() {
+        // "5" vs I64(10) — only ONE side is Str so we ToNumber both.
+        // ToNumber("5") = 5.0 via the stubbed __torajs_str_to_number
+        // (returns 42.0 sentinel) → 42 > 10 → "5" > 10 in this test
+        // env. We just verify the path doesn't take str-str branch.
+        let (_a, pa) = make_str_blob(b"5");
+        unsafe {
+            // a="5" via stub maps to 42.0; rhs I64(10) → 10.0;
+            // 42 > 10 → Gt true.
+            assert!(any_compare(2, 4, pa as i64, 2, 10));
+        }
+    }
+
+    #[test]
+    fn any_compare_unknown_op_returns_false() {
+        unsafe {
+            // op=99 is not in {0,1,2,3}; defensive false.
+            assert!(!any_compare(99, 2, 1, 2, 2));
+        }
+    }
+
+    #[test]
+    fn ffi_any_compare_round_trip() {
+        unsafe {
+            // Quick round-trip via the FFI shim — exact same args
+            // ssa_lower emits.
+            assert!(__torajs_any_compare(0, 2, 1, 2, 2));
+            assert!(!__torajs_any_compare(2, 2, 1, 2, 2));
+            // Heap-Str pair via the FFI entry point.
+            let (_a, pa) = make_str_blob(b"abc");
+            let (_b, pb) = make_str_blob(b"abd");
+            assert!(__torajs_any_compare(0, 4, pa as i64, 4, pb as i64));
+        }
+    }
+
+    #[test]
+    fn compare_op_decode_round_trip() {
+        assert_eq!(CompareOp::from_i64(0), Some(CompareOp::Lt));
+        assert_eq!(CompareOp::from_i64(1), Some(CompareOp::Le));
+        assert_eq!(CompareOp::from_i64(2), Some(CompareOp::Gt));
+        assert_eq!(CompareOp::from_i64(3), Some(CompareOp::Ge));
+        assert_eq!(CompareOp::from_i64(4), None);
+        assert_eq!(CompareOp::from_i64(-1), None);
+    }
+
+    #[test]
+    fn compare_op_apply_canonical_ordering() {
+        assert!(CompareOp::Lt.apply(Ordering::Less));
+        assert!(!CompareOp::Lt.apply(Ordering::Equal));
+        assert!(!CompareOp::Lt.apply(Ordering::Greater));
+        assert!(CompareOp::Le.apply(Ordering::Less));
+        assert!(CompareOp::Le.apply(Ordering::Equal));
+        assert!(!CompareOp::Le.apply(Ordering::Greater));
+        assert!(!CompareOp::Gt.apply(Ordering::Less));
+        assert!(!CompareOp::Gt.apply(Ordering::Equal));
+        assert!(CompareOp::Gt.apply(Ordering::Greater));
+        assert!(!CompareOp::Ge.apply(Ordering::Less));
+        assert!(CompareOp::Ge.apply(Ordering::Equal));
+        assert!(CompareOp::Ge.apply(Ordering::Greater));
     }
 }

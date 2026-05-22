@@ -14,8 +14,16 @@
 /// Embedded staticlib bytes for every Layer-1+ Rust sub-crate
 /// that contributes `__torajs_*` symbols to the final `tr build`
 /// user binary. Each entry is the bytes of `lib<name>.a` as
-/// produced by `cargo build -p <crate> --release` and copied into
-/// `OUT_DIR` by `build.rs`.
+/// produced by `cargo build -p <crate>` in the active profile.
+///
+/// `include_bytes!` resolves at THIS crate's compile time, which
+/// cargo's dep graph guarantees runs AFTER every sub-crate finishes
+/// building (and thus AFTER each `lib<name>.a` is fully written
+/// to `target/<profile>/`). Reading the path from a build-script-
+/// emitted env var (`TORAJS_<NAME>_STATICLIB_PATH`) instead of via
+/// an OUT_DIR copy avoids the build.rs race where the script can
+/// run BEFORE the staticlib artifact is finalized — embedding a
+/// stale copy into `tr`. See `build.rs` for the full rationale.
 ///
 /// `ssa_inkwell::compile()` writes each entry to a per-build temp
 /// `.a` file and appends every path to the cc link command.
@@ -25,11 +33,11 @@
 pub const TORAJS_STATICLIBS: &[(&str, &[u8])] = &[
     (
         "libtorajs_rc.a",
-        include_bytes!(concat!(env!("OUT_DIR"), "/libtorajs_rc.a")),
+        include_bytes!(env!("TORAJS_RC_STATICLIB_PATH")),
     ),
     (
         "libtorajs_anyvalue.a",
-        include_bytes!(concat!(env!("OUT_DIR"), "/libtorajs_anyvalue.a")),
+        include_bytes!(env!("TORAJS_ANYVALUE_STATICLIB_PATH")),
     ),
 ];
 

@@ -1811,6 +1811,16 @@ extern bool __torajs_any_strict_eq(const void *box, int64_t rhs_tag, int64_t rhs
 extern double __torajs_any_to_number(const void *box);
 extern double __torajs_any_to_number_inner(int64_t tag, int64_t value);
 
+/* P2.3-d.2 (2026-05-23 architecture-rewrite) — `__torajs_any_compare`
+ * (relational ordering `<` / `<=` / `>` / `>=` per ES §7.2.13 +
+ * §13.10) now provided by the Rust `torajs-anyvalue` crate.
+ * Definition deleted from this file; the extern decl below lets
+ * ssa_lower-emitted IR keep resolving the public symbol at link
+ * time (no in-file C callers — any_compare is purely an ssa_lower
+ * intrinsic, no internal chain via _inner-style helpers). */
+extern bool __torajs_any_compare(int64_t op, int64_t lt, int64_t lv,
+                                 int64_t rt, int64_t rv);
+
 void *__torajs_str_concat(const uint8_t *a, const uint8_t *b);
 void *__torajs_i64_to_str(int64_t n);
 void *__torajs_f64_to_str(double n);
@@ -1825,78 +1835,6 @@ double __torajs_str_to_number(const void *p);
  * per-type pretty-print. */
 extern void *__torajs_any_to_str(int64_t tag, int64_t value);
 
-/* P0.8 — Any-aware ordering comparison per JS spec §7.2.13
- * IsLessThan and §13.10. Both operands ToPrimitive(hint=Number);
- * if both result in String do lexicographic byte-compare;
- * otherwise ToNumber both and compare in IEEE 754.
- *
- * op codes: 0=Lt, 1=Le, 2=Gt, 3=Ge. The runtime computes the
- * canonical Lt result then flips per op code (Le = !Gt, etc.).
- * NaN comparisons all return false per spec.
- */
-bool __torajs_any_compare(int64_t op, int64_t lt, int64_t lv,
-                          int64_t rt, int64_t rv)
-{
-    /* String detection: HEAP/Str tag on both sides. */
-    bool l_is_str = false;
-    bool r_is_str = false;
-    if (lt == __TORAJS_ANY_HEAP) {
-        void *lp = (void *)(uintptr_t)lv;
-        if (lp != NULL) {
-            const __torajs_heap_header_t *h = (const __torajs_heap_header_t *)lp;
-            l_is_str = h->type_tag == __TORAJS_TAG_STR;
-        }
-    }
-    if (rt == __TORAJS_ANY_HEAP) {
-        void *rp = (void *)(uintptr_t)rv;
-        if (rp != NULL) {
-            const __torajs_heap_header_t *h = (const __torajs_heap_header_t *)rp;
-            r_is_str = h->type_tag == __TORAJS_TAG_STR;
-        }
-    }
-    int cmp;  /* -1 / 0 / +1, or INT_MIN for NaN-undef result */
-    bool nan_path = false;
-    if (l_is_str && r_is_str) {
-        const uint8_t *la = (const uint8_t *)(uintptr_t)lv;
-        const uint8_t *ra = (const uint8_t *)(uintptr_t)rv;
-        uint64_t l_len = __TORAJS_STR_LEN(la);
-        uint64_t r_len = __TORAJS_STR_LEN(ra);
-        const uint8_t *lb = __TORAJS_STR_CDATA(la);
-        const uint8_t *rb = __TORAJS_STR_CDATA(ra);
-        uint64_t min_len = l_len < r_len ? l_len : r_len;
-        int byte_cmp = memcmp(lb, rb, (size_t)min_len);
-        if (byte_cmp != 0) {
-            cmp = byte_cmp < 0 ? -1 : 1;
-        } else if (l_len < r_len) {
-            cmp = -1;
-        } else if (l_len > r_len) {
-            cmp = 1;
-        } else {
-            cmp = 0;
-        }
-    } else {
-        double l = __torajs_any_to_number_inner(lt, lv);
-        double r = __torajs_any_to_number_inner(rt, rv);
-        if (l != l || r != r) {
-            nan_path = true;
-            cmp = 0;  /* unused; all comparisons return false */
-        } else if (l < r) {
-            cmp = -1;
-        } else if (l > r) {
-            cmp = 1;
-        } else {
-            cmp = 0;
-        }
-    }
-    if (nan_path) return false;
-    switch (op) {
-        case 0: return cmp < 0;   /* < */
-        case 1: return cmp <= 0;  /* <= */
-        case 2: return cmp > 0;   /* > */
-        case 3: return cmp >= 0;  /* >= */
-        default: return false;
-    }
-}
 
 /* P0.7 — Any-aware arithmetic dispatcher for `-`, `*`, `/`, `%`.
  * Per JS spec §13.6 / §13.7 / §13.8 / §13.9 — both operands go
