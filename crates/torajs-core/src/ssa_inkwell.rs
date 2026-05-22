@@ -444,10 +444,11 @@ pub fn compile_for_kind(
             "__torajs_math_log1p" => {
                 define_math_unary(&ctx, &llvm_module, "__torajs_math_log1p", "log1p")
             }
-            "__torajs_throw_set" => define_throw_set(&ctx, &llvm_module),
-            "__torajs_throw_check" => define_throw_check(&ctx, &llvm_module),
-            "__torajs_throw_take" => define_throw_take(&ctx, &llvm_module),
-            "__torajs_throw_take_tag" => define_throw_take_tag(&ctx, &llvm_module),
+            // P2.4-b — throw-slot machinery now provided by the
+            // Rust `torajs-throw` crate (statics + extern "C" fns
+            // baked into libtorajs_throw.a). Fall through to
+            // `declare_ssa_fn` so the module gets an external
+            // declaration; the linker resolves at `tr build` time.
             _ => declare_ssa_fn(&ctx, &llvm_module, f, target),
         };
         // Tag malloc-shaped intrinsics with `noalias` on the return so
@@ -3005,134 +3006,17 @@ fn define_math_binary<'ctx>(
     f
 }
 
-/// M4 — exception state. Three module-level i64 globals
-/// (`__torajs_throw_active`, `__torajs_throw_tag`, `__torajs_throw_value`)
-/// plus four runtime helpers operating on them. Lowered code calls
-/// these (never the globals directly) so the same shape works in both
-/// AOT (LLVM IR) and JIT (Rust extern "C" fns over thread-local
-/// statics).
-///
-/// P4.7 — `__torajs_throw_tag` added so a `throw <value>` can record
-/// its dynamic-tag (ANY_I64 / ANY_F64 / ANY_BOOL / ANY_HEAP etc.)
-/// alongside the i64-packed value. Catch sites with `: any`
-/// annotation read both and reconstruct an Any-box; catch sites with
-/// a typed `: T` annotation read only the value (ignoring tag) and
-/// the existing type-cast machinery handles ptr↔i64 widening.
-fn ensure_throw_globals<'ctx>(
-    ctx: &'ctx Context,
-    m: &LlvmModule<'ctx>,
-) -> (
-    inkwell::values::GlobalValue<'ctx>,
-    inkwell::values::GlobalValue<'ctx>,
-    inkwell::values::GlobalValue<'ctx>,
-) {
-    let i64_t = ctx.i64_type();
-    let active = match m.get_global("__torajs_throw_active") {
-        Some(g) => g,
-        None => {
-            let g = m.add_global(i64_t, None, "__torajs_throw_active");
-            g.set_initializer(&i64_t.const_int(0, false));
-            g
-        }
-    };
-    let tag = match m.get_global("__torajs_throw_tag") {
-        Some(g) => g,
-        None => {
-            let g = m.add_global(i64_t, None, "__torajs_throw_tag");
-            g.set_initializer(&i64_t.const_int(0, false));
-            g
-        }
-    };
-    let value = match m.get_global("__torajs_throw_value") {
-        Some(g) => g,
-        None => {
-            let g = m.add_global(i64_t, None, "__torajs_throw_value");
-            g.set_initializer(&i64_t.const_int(0, false));
-            g
-        }
-    };
-    (active, tag, value)
-}
-
-fn define_throw_set<'ctx>(ctx: &'ctx Context, m: &LlvmModule<'ctx>) -> FunctionValue<'ctx> {
-    let (active_g, tag_g, value_g) = ensure_throw_globals(ctx, m);
-    let builder = ctx.create_builder();
-    let i64_t = ctx.i64_type();
-    let void_t = ctx.void_type();
-    // P4.7 — signature is now (tag, value). C callers (
-    // torajs_throw_type_error, torajs_throw_range_error, fetch's
-    // sync-err path) pass HEAP=4 since those errors are str ptrs.
-    let fn_t = void_t.fn_type(&[i64_t.into(), i64_t.into()], false);
-    let f = m.add_function("__torajs_throw_set", fn_t, None);
-    let entry = ctx.append_basic_block(f, "entry");
-    builder.position_at_end(entry);
-    let tag = f.get_nth_param(0).unwrap().into_int_value();
-    let v = f.get_nth_param(1).unwrap().into_int_value();
-    builder
-        .build_store(active_g.as_pointer_value(), i64_t.const_int(1, false))
-        .unwrap();
-    builder.build_store(tag_g.as_pointer_value(), tag).unwrap();
-    builder.build_store(value_g.as_pointer_value(), v).unwrap();
-    builder.build_return(None).unwrap();
-    f
-}
-
-fn define_throw_check<'ctx>(ctx: &'ctx Context, m: &LlvmModule<'ctx>) -> FunctionValue<'ctx> {
-    let (active_g, _, _) = ensure_throw_globals(ctx, m);
-    let builder = ctx.create_builder();
-    let i64_t = ctx.i64_type();
-    let fn_t = i64_t.fn_type(&[], false);
-    let f = m.add_function("__torajs_throw_check", fn_t, None);
-    let entry = ctx.append_basic_block(f, "entry");
-    builder.position_at_end(entry);
-    let v = builder
-        .build_load(i64_t, active_g.as_pointer_value(), "v")
-        .unwrap()
-        .into_int_value();
-    builder.build_return(Some(&v)).unwrap();
-    f
-}
-
-fn define_throw_take<'ctx>(ctx: &'ctx Context, m: &LlvmModule<'ctx>) -> FunctionValue<'ctx> {
-    let (active_g, _, value_g) = ensure_throw_globals(ctx, m);
-    let builder = ctx.create_builder();
-    let i64_t = ctx.i64_type();
-    let fn_t = i64_t.fn_type(&[], false);
-    let f = m.add_function("__torajs_throw_take", fn_t, None);
-    let entry = ctx.append_basic_block(f, "entry");
-    builder.position_at_end(entry);
-    let v = builder
-        .build_load(i64_t, value_g.as_pointer_value(), "v")
-        .unwrap()
-        .into_int_value();
-    builder
-        .build_store(active_g.as_pointer_value(), i64_t.const_int(0, false))
-        .unwrap();
-    builder.build_return(Some(&v)).unwrap();
-    f
-}
-
-/// P4.7 — peek the throw tag without clearing active. Catch sites
-/// with `: any` annotation call this BEFORE throw_take so the tag
-/// is captured (throw_take clears `__torajs_throw_active` as a
-/// side effect but leaves the value/tag slots untouched). Typed-
-/// tier catches don't call this — they only care about the i64
-/// value and let the cast helper widen it.
-fn define_throw_take_tag<'ctx>(ctx: &'ctx Context, m: &LlvmModule<'ctx>) -> FunctionValue<'ctx> {
-    let (_, tag_g, _) = ensure_throw_globals(ctx, m);
-    let builder = ctx.create_builder();
-    let i64_t = ctx.i64_type();
-    let fn_t = i64_t.fn_type(&[], false);
-    let f = m.add_function("__torajs_throw_take_tag", fn_t, None);
-    let entry = ctx.append_basic_block(f, "entry");
-    builder.position_at_end(entry);
-    let v = builder
-        .build_load(i64_t, tag_g.as_pointer_value(), "v")
-        .unwrap()
-        .into_int_value();
-    builder.build_return(Some(&v)).unwrap();
-    f
-}
+// P2.4-b (2026-05-23 architecture-rewrite) — M4 exception state
+// (active/tag/value globals + throw_set/check/take/take_tag
+// helpers) moved out of LLVM-IR emit and into the Rust
+// `torajs-throw` crate. The four extern symbols + the (no-longer-
+// visible) statics are baked into libtorajs_throw.a and linked
+// into every `tr build` user binary alongside libtorajs_rc.a /
+// libtorajs_anyvalue.a. ssa_lower-emitted code now resolves them
+// via the regular external-fn declaration path (the
+// `declare_ssa_fn` fall-through in the `compile()` match further
+// up). The old `ensure_throw_globals` + four `define_throw_*`
+// IR-builders are deleted in this commit.
 
 /// `__torajs_obj_alloc(u64 size) -> *void` — plain `malloc(size)`.
 ///

@@ -60,7 +60,7 @@
 
 use std::ffi::{c_char, c_void};
 use std::ptr;
-use std::sync::atomic::{AtomicPtr, Ordering};
+use std::sync::atomic::{AtomicI64, AtomicPtr, Ordering};
 
 // ============================================================
 // Native-error factory registry
@@ -133,7 +133,8 @@ fn lookup_factory(slot: usize) -> Option<NativeErrorFactory> {
 }
 
 // ============================================================
-// External Str + throw-slot helpers (still in C / LLVM IR for now)
+// External Str helpers (still in C; Layer-2 `torajs-str` rewrite
+// ports them later)
 // ============================================================
 
 unsafe extern "C" {
@@ -144,13 +145,85 @@ unsafe extern "C" {
     /// runtime_str.c` until the Layer-2 `torajs-str` rewrite.
     fn __torajs_str_alloc_pooled(len: u64) -> *mut u8;
 
-    /// Store `(tag, value)` into the thread-local throw slot and
-    /// flag it active. Still LLVM-IR-emitted by ssa_inkwell;
-    /// P2.4-b ports it to a Rust static + extern "C" pair.
-    fn __torajs_throw_set(tag: i64, value: i64);
-
     /// libc `strlen` — Layer-0 system primitive; no `dep` cost.
     fn strlen(s: *const c_char) -> usize;
+}
+
+// ============================================================
+// Throw-slot machinery (LLVM-IR-emitted → Rust statics)
+// ============================================================
+
+/// Process-global "is a throw in flight?" flag. Set to 1 by
+/// [`__torajs_throw_set`]; read by [`__torajs_throw_check`];
+/// cleared back to 0 by [`__torajs_throw_take`]. The runtime is
+/// single-threaded so a relaxed atomic load/store is sufficient
+/// — the AtomicI64 wrapper exists for Rust's safety story (no
+/// `static mut`), not for actual concurrency.
+static THROW_ACTIVE: AtomicI64 = AtomicI64::new(0);
+
+/// Dynamic tag of the in-flight throw value. `AnySlotTag` discrim
+/// (0=Null, 1=Bool, 2=I64, 3=F64, 4=Heap, 5=Undef). Catch sites
+/// with `: any` annotation read this via [`__torajs_throw_take_tag`]
+/// to reconstruct the boxed Any; typed `: T` catches ignore it.
+static THROW_TAG: AtomicI64 = AtomicI64::new(0);
+
+/// Packed i64 payload of the in-flight throw. Bitcast from f64
+/// for F64 tag; raw cast from i64 for I64 tag; cast from
+/// `*mut Heap` for Heap tag. ssa_lower-emitted code reads it via
+/// [`__torajs_throw_take`].
+static THROW_VALUE: AtomicI64 = AtomicI64::new(0);
+
+/// Store `(tag, value)` into the throw slot and flag it active.
+/// Public FFI replacing ssa_inkwell's `define_throw_set` LLVM-IR
+/// emit (P2.4-b: that path is now gone).
+///
+/// # Safety
+///
+/// No Rust-side invariants — `tag` and `value` are opaque i64s.
+/// The caller (ssa_lower-emitted code, C cross-TU wrappers like
+/// any of runtime_promise.c's `__torajs_throw_set(...)` call sites)
+/// chose the encoding.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_throw_set(tag: i64, value: i64) {
+    // Order matters at LLVM-IR level (other paths peek tag+value
+    // after seeing active=1) so we set tag/value first, active
+    // last. Relaxed ordering: single-threaded runtime — there's
+    // no concurrent reader needing happens-before.
+    THROW_TAG.store(tag, Ordering::Relaxed);
+    THROW_VALUE.store(value, Ordering::Relaxed);
+    THROW_ACTIVE.store(1, Ordering::Relaxed);
+}
+
+/// Read the `active` flag — non-zero iff a throw is in flight.
+/// Used by ssa_lower's `emit_throw_check` after every runtime-
+/// intrinsic call that may raise (bigint div-by-zero, dynobj
+/// frozen-set, etc.).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_throw_check() -> i64 {
+    THROW_ACTIVE.load(Ordering::Relaxed)
+}
+
+/// Read the throw value and clear the `active` flag. Called by
+/// the user-fn's catch block (or fn boundary propagation) to
+/// consume the throw — pairs with `__torajs_throw_take_tag` when
+/// the catch is `: any`-typed.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_throw_take() -> i64 {
+    let v = THROW_VALUE.load(Ordering::Relaxed);
+    // Side effect: clear active. Tag + value stay (catch-side
+    // take_tag may run after this).
+    THROW_ACTIVE.store(0, Ordering::Relaxed);
+    v
+}
+
+/// Peek the throw tag without clearing active. Called by `: any`-
+/// typed catches BEFORE `__torajs_throw_take` so the dynamic tag
+/// is captured (take clears active as a side effect but leaves
+/// the tag slot untouched). Typed-tier catches skip this and
+/// let the cast helper widen the i64 value.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_throw_take_tag() -> i64 {
+    THROW_TAG.load(Ordering::Relaxed)
 }
 
 /// Byte offset of the Str payload within the heap layout
@@ -210,15 +283,14 @@ unsafe fn throw_native(slot: i64, msg: *const c_char) {
             // err is a freshly-allocated Str the factory takes
             // ownership of.
             let inst = unsafe { factory(err as *mut c_void) };
-            // SAFETY: __torajs_throw_set is the LLVM-IR-emitted
-            // ABI accepting (tag, value); ANY_TAG_HEAP+inst-ptr is
-            // a well-formed packed pair.
+            // P2.4-b — direct call to the local Rust impl of
+            // __torajs_throw_set (no extern hop). Same observable
+            // semantics as the LLVM-IR-emitted version it replaces.
             unsafe { __torajs_throw_set(ANY_TAG_HEAP, inst as i64) };
             return;
         }
     }
     // Unregistered slot or out-of-range — bare-string fallback.
-    // SAFETY: same as above.
     unsafe { __torajs_throw_set(ANY_TAG_HEAP, err as i64) };
 }
 
@@ -313,5 +385,73 @@ mod tests {
             __torajs_register_native_error(SLOT_RANGE_ERROR as i64, core::ptr::null_mut());
         }
         assert!(lookup_factory(SLOT_RANGE_ERROR).is_none());
+    }
+
+    // ---- P2.4-b: throw-slot machinery ----
+
+    /// Lock around all throw-slot tests so they don't race on the
+    /// global statics. cargo runs tests in parallel by default;
+    /// this serializes the ones that touch THROW_ACTIVE/TAG/VALUE.
+    /// We use a regular `Mutex` (not parking_lot) to avoid any
+    /// crates.io dep.
+    static THROW_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// Clear the throw slot at test start so a prior test's leak
+    /// doesn't pollute the assertion. Returns the mutex guard so
+    /// the lock holds for the duration of the test.
+    fn fresh_throw_slot() -> std::sync::MutexGuard<'static, ()> {
+        let g = THROW_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        THROW_ACTIVE.store(0, Ordering::Relaxed);
+        THROW_TAG.store(0, Ordering::Relaxed);
+        THROW_VALUE.store(0, Ordering::Relaxed);
+        g
+    }
+
+    #[test]
+    fn throw_check_initially_zero() {
+        let _g = fresh_throw_slot();
+        unsafe {
+            assert_eq!(__torajs_throw_check(), 0);
+        }
+    }
+
+    #[test]
+    fn throw_set_flips_active_and_stores_tag_value() {
+        let _g = fresh_throw_slot();
+        unsafe {
+            __torajs_throw_set(4 /* Heap */, 0xDEADBEEF);
+            assert_eq!(__torajs_throw_check(), 1);
+            assert_eq!(__torajs_throw_take_tag(), 4);
+            // take_tag is non-clearing — check stays 1 until take.
+            assert_eq!(__torajs_throw_check(), 1);
+            assert_eq!(__torajs_throw_take(), 0xDEADBEEF);
+            // take clears active.
+            assert_eq!(__torajs_throw_check(), 0);
+            // tag stays after take so a later (defensive) read can
+            // still see it. value also stays (only active resets).
+            assert_eq!(__torajs_throw_take_tag(), 4);
+        }
+    }
+
+    #[test]
+    fn throw_set_overwrites_prior_throw() {
+        let _g = fresh_throw_slot();
+        unsafe {
+            __torajs_throw_set(2, 100);
+            __torajs_throw_set(3, 200);
+            assert_eq!(__torajs_throw_take_tag(), 3);
+            assert_eq!(__torajs_throw_take(), 200);
+        }
+    }
+
+    #[test]
+    fn throw_take_when_inactive_returns_zero_and_stays_clear() {
+        let _g = fresh_throw_slot();
+        unsafe {
+            // Inactive → take returns the stored value (still 0 from
+            // fresh_throw_slot) and active stays 0.
+            assert_eq!(__torajs_throw_take(), 0);
+            assert_eq!(__torajs_throw_check(), 0);
+        }
     }
 }
