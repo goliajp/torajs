@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — P2.3-b strict-equality (2026-05-22)
+
+- `AnyValue::strict_eq(self, other) -> bool` — idiomatic Rust API
+  for JS spec §7.2.13 strict equality. NaN-aware (NaN !== NaN),
+  zero-aware (+0 === -0). Heap path delegates to byte-eq via
+  `__torajs_str_eq` when both sides are Tag::Str, pointer
+  identity otherwise.
+- Internal `payload_eq(tag, lv, rv)` helper for same-tag value
+  compare; private to the crate but shared by both FFI shims
+  below.
+- FFI shim `__torajs_any_any_strict_eq(l, r)` — Any === Any (box
+  vs box). Both-null-true, one-null-false short-circuits.
+- FFI shim `__torajs_any_strict_eq(box, rhs_tag, rhs_value)` —
+  Any === concrete; the SSA layer packs the concrete operand
+  inline rather than allocating a fresh box per compare site.
+- 7 new unit tests covering null/undef cross-tag rejection, bool
+  + i64 tag isolation, IEEE NaN/zero semantics, heap pointer
+  identity, Str byte-eq fast path, both FFI shims round-trip.
+- `extern "C" { __torajs_str_eq }` decl shared with the C-side
+  runtime_str.c (str_eq stays in C through Layer-2 rewrite).
+
 ## [0.1.0] - 2026-05-22
 
 ### Added

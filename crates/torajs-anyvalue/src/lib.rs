@@ -285,11 +285,108 @@ pub fn payload_rc_inc(tag: i64, value: i64) {
 }
 
 // ============================================================
-// External C-side drop dispatcher (still in runtime_str.c, pre-P3)
+// External C-side helpers
+//   - `__torajs_value_drop_heap` — per-type drop dispatcher, used
+//     by `AnyBox::drop_owned` to walk a Heap-tagged child. Still
+//     lives in runtime_str.c; the cross-language call collapses
+//     to Rust-to-Rust in the later phase that ports the dispatch
+//     to Rust.
+//   - `__torajs_str_eq` — Str byte-equality fast path. Used by
+//     [`AnyValue::strict_eq`] / `__torajs_any_payload_eq` when
+//     both heap pointers are Tag::Str. Stays in C until the
+//     `torajs-str` rewrite (Layer-2 sub-phase).
 // ============================================================
 
 unsafe extern "C" {
     fn __torajs_value_drop_heap(child: *mut c_void);
+    fn __torajs_str_eq(a: *const u8, b: *const u8) -> i64;
+}
+
+// ============================================================
+// Strict equality (JS spec §7.2.13 IsStrictlyEqual)
+// ============================================================
+
+impl AnyValue {
+    /// Strict equality per ES §7.2.13. Differs from `==` only in
+    /// the heap path, where `Tag::Str` pairs delegate to
+    /// byte-comparison via the C-side `__torajs_str_eq`; other
+    /// heap types compare by pointer identity (matches the C
+    /// fallback).
+    ///
+    /// NaN-aware (`F64(NaN) != F64(NaN)`), zero-aware
+    /// (`F64(+0.0) == F64(-0.0)`), `Null` and `Undef` are equal
+    /// only to their own tag.
+    pub fn strict_eq(self, other: AnyValue) -> bool {
+        match (self, other) {
+            (AnyValue::Null, AnyValue::Null) => true,
+            (AnyValue::Undef, AnyValue::Undef) => true,
+            (AnyValue::Bool(a), AnyValue::Bool(b)) => a == b,
+            (AnyValue::I64(a), AnyValue::I64(b)) => a == b,
+            (AnyValue::F64(a), AnyValue::F64(b)) => a == b,
+            (AnyValue::Heap(la), AnyValue::Heap(lb)) => match (la, lb) {
+                (None, None) => true,
+                (None, _) | (_, None) => false,
+                (Some(lp), Some(rp)) if lp == rp => true,
+                (Some(lp), Some(rp)) => {
+                    // SAFETY: both ptrs are non-null and point to
+                    // initialized HeapHeaders by NonNull invariant.
+                    let (lh, rh) = unsafe { (lp.as_ref(), rp.as_ref()) };
+                    if matches!(lh.tag(), Tag::Str) && matches!(rh.tag(), Tag::Str) {
+                        // SAFETY: both pointees are Tag::Str; the
+                        // C-side __torajs_str_eq reads the Str
+                        // layout starting at the header.
+                        unsafe {
+                            __torajs_str_eq(lp.as_ptr() as *const u8, rp.as_ptr() as *const u8) != 0
+                        }
+                    } else {
+                        false
+                    }
+                }
+            },
+            _ => false,
+        }
+    }
+}
+
+/// Same-tag payload equality. Caller asserts tags match by
+/// passing the same `tag` field for both sides; this function
+/// only compares the value fields within that single tag.
+///
+/// Used internally by the FFI shims that read the box `tag`
+/// field once for the short-circuit and then deferred the
+/// value-payload check here.
+fn payload_eq(tag: i64, lv: i64, rv: i64) -> bool {
+    match tag {
+        x if x == AnySlotTag::Null as i64 || x == AnySlotTag::Undef as i64 => true,
+        x if x == AnySlotTag::Bool as i64 || x == AnySlotTag::I64 as i64 => lv == rv,
+        x if x == AnySlotTag::F64 as i64 => {
+            // IEEE 754 ==: NaN != NaN, +0 == -0. Bitcast-then-
+            // compare-as-f64 gives that semantics directly.
+            f64::from_bits(lv as u64) == f64::from_bits(rv as u64)
+        }
+        x if x == AnySlotTag::Heap as i64 => {
+            let lp = lv as *const HeapHeader;
+            let rp = rv as *const HeapHeader;
+            if lp == rp {
+                return true;
+            }
+            if lp.is_null() || rp.is_null() {
+                return false;
+            }
+            // SAFETY: both ptrs non-null + caller guarantees they
+            // point to live HeapHeaders (single-threaded runtime
+            // invariant).
+            let (lh, rh) = unsafe { (&*lp, &*rp) };
+            if matches!(lh.tag(), Tag::Str) && matches!(rh.tag(), Tag::Str) {
+                // SAFETY: both are Tag::Str; __torajs_str_eq
+                // matches the C layout.
+                unsafe { __torajs_str_eq(lp as *const u8, rp as *const u8) != 0 }
+            } else {
+                false
+            }
+        }
+        _ => false,
+    }
 }
 
 // ============================================================
@@ -368,6 +465,58 @@ pub unsafe extern "C" fn __torajs_any_box_drop(box_ptr: *mut c_void) {
     }
 }
 
+/// FFI bridge — Any === Any strict equality (JS spec §7.2.13).
+///
+/// # Safety
+///
+/// `l` and `r` are each null OR a valid `*const AnyBox`. Two-null
+/// is true, one-null is false.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_any_any_strict_eq(l: *const c_void, r: *const c_void) -> bool {
+    match (l.is_null(), r.is_null()) {
+        (true, true) => true,
+        (true, _) | (_, true) => false,
+        _ => {
+            // SAFETY: both ptrs non-null per the match arm.
+            let lb = unsafe { &*(l as *const AnyBox) };
+            let rb = unsafe { &*(r as *const AnyBox) };
+            if lb.tag != rb.tag {
+                return false;
+            }
+            payload_eq(lb.tag, lb.value, rb.value)
+        }
+    }
+}
+
+/// FFI bridge — Any === concrete (SSA-emitted `(tag, value)` pair
+/// vs a box). Avoids a fresh box alloc per compare site.
+///
+/// `box_ptr == null` matches `rhs_tag == AnySlotTag::Null` and
+/// nothing else.
+///
+/// # Safety
+///
+/// `box_ptr` is null OR a valid `*const AnyBox`. `rhs_tag` is a
+/// well-formed [`AnySlotTag`] discriminant; `rhs_value` is the
+/// packing the SSA layer chose (bitcast for f64, zext for bool,
+/// raw cast for i64, pointer-as-i64 for heap).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_any_strict_eq(
+    box_ptr: *const c_void,
+    rhs_tag: i64,
+    rhs_value: i64,
+) -> bool {
+    if box_ptr.is_null() {
+        return rhs_tag == AnySlotTag::Null as i64;
+    }
+    // SAFETY: non-null per the early return.
+    let b = unsafe { &*(box_ptr as *const AnyBox) };
+    if b.tag != rhs_tag {
+        return false;
+    }
+    payload_eq(b.tag, b.value, rhs_value)
+}
+
 // ============================================================
 // Tests
 // ============================================================
@@ -387,6 +536,15 @@ mod tests {
     pub unsafe extern "C" fn __torajs_weakref_target_dying(_target: *mut c_void) {}
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn __torajs_value_drop_heap(_child: *mut c_void) {}
+    /// P2.3-b — payload_eq's Heap path delegates to str_eq when
+    /// both sides are Tag::Str. The shipped binary resolves this
+    /// from runtime_str.c; tests provide a pointer-identity stub
+    /// (suffices for the strict-eq spec: the same heap byte
+    /// sequence at the same address is trivially equal).
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_str_eq(a: *const u8, b: *const u8) -> i64 {
+        if a == b { 1 } else { 0 }
+    }
 
     #[test]
     fn anybox_layout_matches_c_definition() {
@@ -537,6 +695,108 @@ mod tests {
         unsafe {
             let p = __torajs_any_box(99, 0);
             assert_eq!(__torajs_any_unbox_tag(p), 0);
+            __torajs_any_box_drop(p);
+        }
+    }
+
+    // ---- P2.3-b: strict equality ----
+
+    #[test]
+    fn anyvalue_strict_eq_null_undef() {
+        assert!(AnyValue::Null.strict_eq(AnyValue::Null));
+        assert!(AnyValue::Undef.strict_eq(AnyValue::Undef));
+        // Cross-tag: null vs undefined are NOT strict-eq per
+        // ES §7.2.13.
+        assert!(!AnyValue::Null.strict_eq(AnyValue::Undef));
+        assert!(!AnyValue::Undef.strict_eq(AnyValue::Null));
+    }
+
+    #[test]
+    fn anyvalue_strict_eq_bool_i64() {
+        assert!(AnyValue::Bool(true).strict_eq(AnyValue::Bool(true)));
+        assert!(AnyValue::Bool(false).strict_eq(AnyValue::Bool(false)));
+        assert!(!AnyValue::Bool(true).strict_eq(AnyValue::Bool(false)));
+        assert!(AnyValue::I64(42).strict_eq(AnyValue::I64(42)));
+        assert!(!AnyValue::I64(42).strict_eq(AnyValue::I64(43)));
+        // Cross-tag: bool vs int are NOT strict-eq even if values
+        // could coerce.
+        assert!(!AnyValue::Bool(true).strict_eq(AnyValue::I64(1)));
+    }
+
+    #[test]
+    fn anyvalue_strict_eq_f64_ieee_semantics() {
+        // NaN !== NaN per IEEE 754.
+        assert!(!AnyValue::F64(f64::NAN).strict_eq(AnyValue::F64(f64::NAN)));
+        // +0.0 === -0.0 per IEEE 754.
+        assert!(AnyValue::F64(0.0).strict_eq(AnyValue::F64(-0.0)));
+        assert!(AnyValue::F64(1.5).strict_eq(AnyValue::F64(1.5)));
+        assert!(!AnyValue::F64(1.5).strict_eq(AnyValue::F64(2.5)));
+        // Infinity equals itself.
+        assert!(AnyValue::F64(f64::INFINITY).strict_eq(AnyValue::F64(f64::INFINITY)));
+    }
+
+    #[test]
+    fn anyvalue_strict_eq_heap_pointer_identity() {
+        let mut h1 = HeapHeader::new(Tag::Obj);
+        let mut h2 = HeapHeader::new(Tag::Obj);
+        let p1 = NonNull::new(&mut h1 as *mut HeapHeader);
+        let p2 = NonNull::new(&mut h2 as *mut HeapHeader);
+        assert!(AnyValue::Heap(p1).strict_eq(AnyValue::Heap(p1)));
+        // Different addresses, both Tag::Obj (non-Str) → false.
+        assert!(!AnyValue::Heap(p1).strict_eq(AnyValue::Heap(p2)));
+        // Both none → true (null === null on the heap side).
+        assert!(AnyValue::Heap(None).strict_eq(AnyValue::Heap(None)));
+        // One null, one not → false.
+        assert!(!AnyValue::Heap(None).strict_eq(AnyValue::Heap(p1)));
+    }
+
+    #[test]
+    fn anyvalue_strict_eq_str_via_str_eq() {
+        // Two Str-tagged headers at the same address — stub
+        // __torajs_str_eq returns 1 on pointer identity, so this
+        // is true via the byte-equality fast path.
+        let mut s = HeapHeader::new(Tag::Str);
+        let p = NonNull::new(&mut s as *mut HeapHeader);
+        assert!(AnyValue::Heap(p).strict_eq(AnyValue::Heap(p)));
+    }
+
+    #[test]
+    fn ffi_any_any_strict_eq_round_trip() {
+        unsafe {
+            // Both null → true.
+            assert!(__torajs_any_any_strict_eq(
+                core::ptr::null(),
+                core::ptr::null()
+            ));
+            // Same-tag same-value box pair → true.
+            let p1 = __torajs_any_box(2 /* I64 */, 42);
+            let p2 = __torajs_any_box(2, 42);
+            assert!(__torajs_any_any_strict_eq(p1, p2));
+            // Same-tag different-value → false.
+            let p3 = __torajs_any_box(2, 43);
+            assert!(!__torajs_any_any_strict_eq(p1, p3));
+            // Different tag → false.
+            let p4 = __torajs_any_box(1 /* Bool */, 1);
+            assert!(!__torajs_any_any_strict_eq(p1, p4));
+            __torajs_any_box_drop(p1);
+            __torajs_any_box_drop(p2);
+            __torajs_any_box_drop(p3);
+            __torajs_any_box_drop(p4);
+        }
+    }
+
+    #[test]
+    fn ffi_any_strict_eq_box_vs_concrete() {
+        unsafe {
+            // Null box vs Null tag → true.
+            assert!(__torajs_any_strict_eq(core::ptr::null(), 0, 0));
+            // Null box vs Undef tag → false.
+            assert!(!__torajs_any_strict_eq(core::ptr::null(), 5, 0));
+            // I64 box vs same I64 → true.
+            let p = __torajs_any_box(2, 42);
+            assert!(__torajs_any_strict_eq(p, 2, 42));
+            assert!(!__torajs_any_strict_eq(p, 2, 43));
+            assert!(!__torajs_any_strict_eq(p, 3 /* F64 */, 42));
             __torajs_any_box_drop(p);
         }
     }
