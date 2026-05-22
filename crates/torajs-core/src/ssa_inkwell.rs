@@ -773,6 +773,22 @@ pub fn compile_for_kind(
          *   - no Call back to self anywhere (recursive fns are
          *     skipped — alwaysinline would infinite-expand).
          *
+         * Threshold tuning history:
+         *   - 60 (P-PERF.A3, 2026-05-22 ship): real wins on
+         *     numeric/array hot paths; only promise-all-1k +4%
+         *     borderline regression.
+         *   - 30 (P-PERF.A4 attempt, reverted): net worse than
+         *     60 across the suite (csv-rebuild +8.6%, async-fn-call
+         *     +8.5%, rpn-eval +11.2% vs A1). Missed the 30-60-inst
+         *     mid-size helper range where A3 was actually winning.
+         *     Geomean 4.16 → 4.15 (-0.3%). The "i-cache pressure"
+         *     hypothesis for the A3 promise-all regression turned
+         *     out wrong — promise-all's cost is elsewhere; the
+         *     mid-size helpers are NET positive.
+         *   - 60 (current, A4 reverted): sweet spot per empirical
+         *     measurement. Don't drop without rebenchmarking on
+         *     the full 26-case suite.
+         *
          * Recursive case (fib40 / ackermann) explicitly excluded.
          * `main` already excluded above. */
         for (i, f) in ssa_module.funcs.iter().enumerate() {
