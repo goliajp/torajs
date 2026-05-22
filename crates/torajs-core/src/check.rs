@@ -3258,11 +3258,7 @@ impl Checker {
                 if name == "value"
                     && matches!(
                         obj_ty,
-                        Type::Number
-                            | Type::String
-                            | Type::Boolean
-                            | Type::Array(_)
-                            | Type::BigInt
+                        Type::Number | Type::String | Type::Boolean | Type::Array(_) | Type::BigInt
                     )
                 {
                     return Ok(obj_ty);

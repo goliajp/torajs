@@ -53,8 +53,7 @@ fn bench_acquire_cold(c: &mut Criterion) {
     // Drop the pool each iter to keep it empty — measures plain malloc/free.
     c.bench_function("acquire_cold_malloc_baseline", |b| {
         b.iter(|| {
-            let pool: FixedPool<Node, 32> =
-                unsafe { FixedPool::new_with_next_offset(NEXT_OFFSET) };
+            let pool: FixedPool<Node, 32> = unsafe { FixedPool::new_with_next_offset(NEXT_OFFSET) };
             let p = unsafe { pool.acquire() };
             black_box(p);
             unsafe { pool.release(p) };
