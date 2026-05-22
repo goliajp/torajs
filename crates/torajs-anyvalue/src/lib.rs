@@ -316,6 +316,17 @@ unsafe extern "C" {
     // until the Layer-2 `torajs-str` rewrite ports `strtod` + the
     // ES whitespace / hex / Infinity grammar.
     fn __torajs_str_to_number(p: *const c_void) -> f64;
+    // P2.3-d.4 — Str concatenation per ES §13.15.3 step b.iv. Reads
+    // both Str layouts (header + len + bytes), allocates a fresh
+    // pooled Str, copies left then right bytes into it; returns a
+    // freshly-owned Str ptr (refcount = 1) the caller must drop.
+    // Stays in C until the Layer-2 `torajs-str` rewrite.
+    fn __torajs_str_concat(a: *const u8, b: *const u8) -> *mut c_void;
+    // P2.3-d.4 — Str dec-ref + dealloc on rc-0. Mirror of the C
+    // rc_dec chain for owned Str pointers; used by any_add to drop
+    // the two intermediate ToString results before returning the
+    // concat.
+    fn __torajs_str_drop(s: *mut c_void);
 }
 
 // Str heap-byte data offset within the Str layout
@@ -828,7 +839,7 @@ unsafe fn any_arith(op: i64, lt: i64, lv: i64, rt: i64, rv: i64) -> *mut c_void 
         let int_result = result as i64;
         // Round-trip check: only box as I64 if the cast is lossless.
         if (int_result as f64) == result {
-            return AnyBox::alloc(AnySlotTag::I64, int_result).as_ptr() as *mut c_void;
+            return alloc_number_i64(int_result);
         }
     }
     alloc_number_f64(result)
@@ -837,10 +848,86 @@ unsafe fn any_arith(op: i64, lt: i64, lv: i64, rt: i64, rv: i64) -> *mut c_void 
 /// Box an f64 into a fresh AnyBox tagged F64. Matches the C ABI's
 /// `__torajs_any_box(ANY_F64, bitcast(f64).i64)` pattern. Shared
 /// helper because any_arith has two callsites for it (defensive
-/// NaN return + main F64 path) and any_add will reuse.
+/// NaN return + main F64 path) and any_add reuses it.
 #[inline]
 fn alloc_number_f64(value: f64) -> *mut c_void {
     AnyBox::alloc(AnySlotTag::F64, value.to_bits() as i64).as_ptr() as *mut c_void
+}
+
+/// Box an i64 into a fresh AnyBox tagged I64. Shared by every
+/// integer-fast-path callsite (any_arith + any_add).
+#[inline]
+fn alloc_number_i64(value: i64) -> *mut c_void {
+    AnyBox::alloc(AnySlotTag::I64, value).as_ptr() as *mut c_void
+}
+
+// ============================================================
+// Addition (`+`) dispatch (JS spec §13.15.3 ApplyStringOrNumeric
+// BinaryOperator)
+// ============================================================
+
+/// `+` on two Any-tagged `(tag, value)` pairs per ES §13.15.3.
+/// If either operand is `Heap` + [`Tag::Str`] the result is the
+/// String concatenation of both operands' `ToString`s. Otherwise
+/// both operands go through ToNumber and the f64 sum is boxed —
+/// I64 when both inputs are i64-shaped (Null/Bool/I64) AND the
+/// sum round-trips through i64 losslessly, else F64.
+///
+/// Returns a fresh owned AnyBox (refcount = 1); caller drops.
+///
+/// # Safety
+///
+/// If either tag is `Heap`, the corresponding value must be null
+/// or a valid `*mut HeapHeader` — propagated through both the
+/// Str-path (where C-side `__torajs_str_concat` reads the Str
+/// layout) and the numeric path (via [`any_to_number`]).
+unsafe fn any_add(lt: i64, lv: i64, rt: i64, rv: i64) -> *mut c_void {
+    // SAFETY: caller invariant — propagated.
+    let l_is_str = unsafe { is_heap_str(lt, lv) };
+    let r_is_str = unsafe { is_heap_str(rt, rv) };
+
+    // String concatenation path (ES §13.15.3 — either side String
+    // wins). Both operands go through ToString; the two
+    // intermediates are dropped after the concat owns its own
+    // copy of the bytes.
+    if l_is_str || r_is_str {
+        // SAFETY: any_to_str preserves the Heap-payload Safety
+        // contract; result is a freshly-owned Str (refcount=1).
+        let l_str = unsafe { any_to_str(lt, lv) };
+        let r_str = unsafe { any_to_str(rt, rv) };
+        // SAFETY: both pointers are freshly-owned Strs whose layout
+        // begins with HeapHeader. __torajs_str_concat reads the
+        // layout, allocates a new Str, returns ownership to us.
+        let concat = unsafe { __torajs_str_concat(l_str as *const u8, r_str as *const u8) };
+        // SAFETY: both Strs were rc=1 from any_to_str; rc_dec to 0
+        // frees them.
+        unsafe {
+            __torajs_str_drop(l_str);
+            __torajs_str_drop(r_str);
+        }
+        return AnyBox::alloc(AnySlotTag::Heap, concat as i64).as_ptr() as *mut c_void;
+    }
+
+    // Numeric path. ToNumber reuses the per-tag dispatch from
+    // P2.3-d.1; same predicates as any_arith for the I64 fast-
+    // path (i64-shaped tags + lossless f64↔i64 round-trip).
+    //
+    // SAFETY: caller invariant — propagated.
+    let l = unsafe { any_to_number(lt, lv) };
+    let r = unsafe { any_to_number(rt, rv) };
+    let sum = l + r;
+
+    if tag_is_i64_shaped(lt)
+        && tag_is_i64_shaped(rt)
+        && sum >= i64::MIN as f64
+        && sum <= i64::MAX as f64
+    {
+        let int_sum = sum as i64;
+        if (int_sum as f64) == sum {
+            return alloc_number_i64(int_sum);
+        }
+    }
+    alloc_number_f64(sum)
 }
 
 // ============================================================
@@ -1034,6 +1121,21 @@ pub unsafe extern "C" fn __torajs_any_arith(
 ) -> *mut c_void {
     // SAFETY: caller invariant — propagated.
     unsafe { any_arith(op, lt, lv, rt, rv) }
+}
+
+/// FFI bridge — packed-pair `+` per ES §13.15.3. Used by ssa_lower
+/// at every `+` site where either operand is Any-typed. Returns a
+/// fresh owned AnyBox (Heap-tagged Str for the concat path, I64 or
+/// F64 for the numeric path); caller must drop.
+///
+/// # Safety
+///
+/// For `lt == AnySlotTag::Heap as i64`, `lv` is null or a valid
+/// `*mut HeapHeader`. Same constraint on `(rt, rv)`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_any_add(lt: i64, lv: i64, rt: i64, rv: i64) -> *mut c_void {
+    // SAFETY: caller invariant — propagated.
+    unsafe { any_add(lt, lv, rt, rv) }
 }
 
 /// FFI bridge — Any === concrete (SSA-emitted `(tag, value)` pair
@@ -1800,4 +1902,80 @@ mod tests {
             assert!(matches!(unbox_drop(p), AnyValue::I64(7)));
         }
     }
+
+    // ---- P2.3-d.4: addition (`+`) dispatch ----
+
+    #[test]
+    fn any_add_i64_plus_i64_returns_i64() {
+        unsafe {
+            // 10 + 3 → I64.
+            let p = any_add(2, 10, 2, 3);
+            assert!(matches!(unbox_drop(p), AnyValue::I64(13)));
+            // Negative result.
+            let p = any_add(2, 3, 2, -10);
+            assert!(matches!(unbox_drop(p), AnyValue::I64(-7)));
+            // Zero result.
+            let p = any_add(2, 5, 2, -5);
+            assert!(matches!(unbox_drop(p), AnyValue::I64(0)));
+        }
+    }
+
+    #[test]
+    fn any_add_bool_null_treated_as_i64_shaped() {
+        unsafe {
+            // true + 1 → 2 (I64). Both Bool/I64 are i64-shaped.
+            let p = any_add(1 /* Bool */, 1, 2 /* I64 */, 1);
+            assert!(matches!(unbox_drop(p), AnyValue::I64(2)));
+            // null + null → 0 (I64).
+            let p = any_add(0 /* Null */, 0, 0 /* Null */, 0);
+            assert!(matches!(unbox_drop(p), AnyValue::I64(0)));
+            // false + true → 1 (I64).
+            let p = any_add(1 /* Bool */, 0, 1 /* Bool */, 1);
+            assert!(matches!(unbox_drop(p), AnyValue::I64(1)));
+        }
+    }
+
+    #[test]
+    fn any_add_f64_input_forces_f64() {
+        unsafe {
+            // F64 + I64 → F64 even if sum is integer-valued.
+            let two_bits = 2.0_f64.to_bits() as i64;
+            let p = any_add(3 /* F64 */, two_bits, 2 /* I64 */, 3);
+            // 2.0 + 3 = 5.0, but F64-tagged input opts out of I64 fast-path.
+            assert!(matches!(unbox_drop(p), AnyValue::F64(x) if x == 5.0));
+        }
+    }
+
+    #[test]
+    fn any_add_fractional_result_uses_f64() {
+        unsafe {
+            // F64 1.5 + I64 2 → 3.5 (F64).
+            let one_half_bits = 1.5_f64.to_bits() as i64;
+            let p = any_add(3, one_half_bits, 2, 2);
+            assert!(matches!(unbox_drop(p), AnyValue::F64(x) if x == 3.5));
+        }
+    }
+
+    #[test]
+    fn any_add_undef_propagates_nan() {
+        unsafe {
+            // undefined + 1 → NaN (Undef toNumber = NaN; any +NaN = NaN).
+            let p = any_add(5 /* Undef */, 0, 2 /* I64 */, 1);
+            assert!(matches!(unbox_drop(p), AnyValue::F64(x) if x.is_nan()));
+        }
+    }
+
+    #[test]
+    fn ffi_any_add_round_trip() {
+        unsafe {
+            // FFI smoke test — Sub via the public symbol.
+            let p = __torajs_any_add(2, 7, 2, 5);
+            assert!(matches!(unbox_drop(p), AnyValue::I64(12)));
+        }
+    }
+
+    // (Str-concat path verified end-to-end via bun-parity fixture +
+    // conformance — providing fully-functional stubs for the entire
+    // any_to_str + str_concat chain would mean re-implementing the
+    // Layer-2 str runtime here; not worth the complexity.)
 }
