@@ -1,0 +1,29 @@
+[package]
+name = "torajs-str"
+description = "Str + Substr heap types + small-Str pool + per-op string fns for the torajs AOT TypeScript runtime. Layer-2 substrate — pointer-stable refcounted Str with pool-aware alloc/free, plus thin extern \"C\" hooks for ssa_inkwell IR + cross-translation-unit Rust callers. no_std-friendly, 0 runtime deps."
+keywords = ["torajs", "string", "pool", "ffi", "runtime"]
+categories = ["text-processing", "data-structures"]
+readme = "README.md"
+documentation = "https://docs.rs/torajs-str"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+# Dual emit: `rlib` for cargo workspace + unit tests; `staticlib`
+# emits libtorajs_str.a so ssa_inkwell can link it into every
+# `tr build` user binary alongside libtorajs_rc.a /
+# libtorajs_anyvalue.a / libtorajs_throw.a.
+[lib]
+crate-type = ["rlib", "staticlib"]
+
+[dependencies]
+# Universal heap header + refcount primitives + Tag::Str + the
+# FLAG_STATIC_LITERAL bit that the free path consults to bypass
+# .rodata Str blocks. Pulled in as a normal rlib dep.
+torajs-rc = { path = "../torajs-rc" }

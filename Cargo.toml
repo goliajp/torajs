@@ -6,6 +6,7 @@ members = [
     "crates/torajs-rc",
     "crates/torajs-anyvalue",
     "crates/torajs-throw",
+    "crates/torajs-str",
     "crates/torajs-runtime",
     "crates/torajs-core",
     "crates/torajs-cli",

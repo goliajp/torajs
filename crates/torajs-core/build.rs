@@ -36,6 +36,7 @@ const STATICLIBS: &[&str] = &[
     "torajs_rc",       // Layer-1: refcount + heap-header
     "torajs_anyvalue", // Layer-1: AnyBox (boxed Type::Any)
     "torajs_throw",    // Layer-1: native-error registry + throw helpers
+    "torajs_str",      // Layer-2: Str layout + small-Str pool + alloc/free
 ];
 
 fn main() {

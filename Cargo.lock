@@ -1866,6 +1866,7 @@ dependencies = [
  "torajs-anyvalue",
  "torajs-rc",
  "torajs-runtime",
+ "torajs-str",
  "torajs-throw",
 ]
 
@@ -1914,6 +1915,13 @@ dependencies = [
 [[package]]
 name = "torajs-runtime"
 version = "0.1.0"
+
+[[package]]
+name = "torajs-str"
+version = "0.1.0"
+dependencies = [
+ "torajs-rc",
+]
 
 [[package]]
 name = "torajs-test262"
