@@ -1,44 +1,44 @@
 {
-  "generatedAt": "2026-05-21T23:00:42.292Z",
+  "generatedAt": "2026-05-22T00:59:10.760Z",
   "hardevVersion": "0.1.14",
   "conformance": {
-    "pass": 660,
+    "pass": 666,
     "fail": 0,
     "skip": 1,
-    "raw": "660/0/1",
-    "source": "/tmp/torajs-conformance-p9.4-matchall-g.log",
-    "sourceMtime": "2026-05-21T22:19:00.786Z"
+    "raw": "666/0/1",
+    "source": "/tmp/torajs-conformance-p10.4-heap.log",
+    "sourceMtime": "2026-05-22T00:21:23.313Z"
   },
   "test262": {
-    "ranAt": "2026-05-19T22:00:04Z",
-    "headSha": "2486552",
-    "elapsedSec": 786.53,
+    "ranAt": "2026-05-22T00:58:43Z",
+    "headSha": "081b25f",
+    "elapsedSec": 1166.21,
     "workers": 8,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 3344,
+    "pass": 3455,
     "bug": 271,
-    "incompatible": 24699,
+    "incompatible": 24588,
     "bunSkip": 24860,
     "harnessError": 0,
     "inScope": 28314,
-    "trAccepted": 3615,
-    "passRateInScope": 11.81,
-    "passRateTrAccepted": 92.5
+    "trAccepted": 3726,
+    "passRateInScope": 12.2,
+    "passRateTrAccepted": 92.73
   },
   "torajs": {
-    "commit": "301c826",
-    "commitSubject": "fix(regex): s.matchAll(re) throws TypeError when re lacks g flag (P9.4 follow-up)",
+    "commit": "081b25f",
+    "commitSubject": "P10.4 follow-up: await identity extends to non-Promise heap T (Array, BigInt)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
-      "pass": 660,
+      "pass": 666,
       "fail": 0,
       "skip": 1,
-      "raw": "660/0/1",
-      "source": "/tmp/torajs-conformance-p9.4-matchall-g.log",
-      "sourceMtime": "2026-05-21T22:19:00.786Z"
+      "raw": "666/0/1",
+      "source": "/tmp/torajs-conformance-p10.4-heap.log",
+      "sourceMtime": "2026-05-22T00:21:23.313Z"
     }
   },
   "roadmap": [
@@ -563,6 +563,38 @@
   },
   "commits": [
     {
+      "hash": "081b25f",
+      "subject": "P10.4 follow-up: await identity extends to non-Promise heap T (Array, BigInt)"
+    },
+    {
+      "hash": "807f7d1",
+      "subject": "fix(console): coerce_to_str supports Type::Any (catch param, dynobj lookup, etc.)"
+    },
+    {
+      "hash": "1b48a77",
+      "subject": "P10.4-A2: await rejected Promise throws the rejection reason (was: silent return 0)"
+    },
+    {
+      "hash": "d6dab10",
+      "subject": "P10.4: await on non-Promise primitive (Number / String / Boolean) per ES spec"
+    },
+    {
+      "hash": "0062f0e",
+      "subject": "P10.3-A2: async fn accepts idiomatic Promise<T> return annotation (not just inner-T)"
+    },
+    {
+      "hash": "3348c9b",
+      "subject": "P10.3-A1: for-await-of narrow MVP on Array<Promise<T>>"
+    },
+    {
+      "hash": "d2a7c61",
+      "subject": "fix(ssa_lower): await on Index / Member / nested expr — extend Promise-source whitelist via expr_types (P10.3 prereq)"
+    },
+    {
+      "hash": "944c894",
+      "subject": "progress: P10.2 close + P9.4 follow-ups · bench 3-pass median + dashboard refresh (HEAD 301c826)"
+    },
+    {
       "hash": "301c826",
       "subject": "fix(regex): s.matchAll(re) throws TypeError when re lacks g flag (P9.4 follow-up)"
     },
@@ -577,41 +609,9 @@
     {
       "hash": "15caa67",
       "subject": "P10.2-A4: .then/.catch accept inner T=Array<U> on Promise<Array<U>>"
-    },
-    {
-      "hash": "5dd1a91",
-      "subject": "P10.2-A3: Promise.allSettled accepted T extends to {Number, String, Boolean}"
-    },
-    {
-      "hash": "455ce75",
-      "subject": "test(hardev): autorun pipeline e2e smoke test · 3 cases incl stale-intent regression guard (P1.5.3)"
-    },
-    {
-      "hash": "d9606a4",
-      "subject": "docs(hardev): autorun dashboard text reflects P1 deployed state (P1.5.2)"
-    },
-    {
-      "hash": "d1581fc",
-      "subject": "feat(hardev): snapshot.mjs auto-picks conformance from /tmp/torajs-conformance-*.log (P1.5.1)"
-    },
-    {
-      "hash": "9c12295",
-      "subject": "fix(conformance): per-exec timeout · spawn+try_wait+SIGKILL replacement for Command::output() (P1.2.2)"
-    },
-    {
-      "hash": "9346fa5",
-      "subject": "fix(hardev): autorun stale-intent loop · stop_hook + watcherd skip INV-5 (P1.2.1)"
-    },
-    {
-      "hash": "8b659e1",
-      "subject": "P10.2-A2-DONE: roadmap A2 narrative fix + hardev dashboard refresh"
-    },
-    {
-      "hash": "ef3c895",
-      "subject": "P10.2-A2: ssa_lower static_ctor whitelist for Promise statics"
     }
   ],
-  "headSha": "301c826",
+  "headSha": "081b25f",
   "autorun": {
     "total": 13,
     "baselineTarget": 10,
