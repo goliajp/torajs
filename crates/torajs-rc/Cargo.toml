@@ -1,0 +1,35 @@
+[package]
+name = "torajs-rc"
+description = "Universal heap-header + non-atomic refcount for torajs runtime. 8-byte aligned `{ refcount: u32, type_tag: u16, flags: u16 }` header at offset 0 of every refcounted heap value. Single-threaded inc/dec with NULL pass-through, STATIC_LITERAL flag bypass, and WeakRef-on-zero hook. no_std, 0 runtime deps."
+keywords = ["refcount", "rc", "torajs", "heap", "no-std"]
+categories = ["memory-management", "no-std"]
+readme = "README.md"
+documentation = "https://docs.rs/torajs-rc"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+# Dual crate-type: `rlib` for cargo workspace builds + unit tests +
+# criterion bench harness; `staticlib` emits libtorajs_rc.a so the
+# `tr build` link step in ssa_inkwell.rs can co-link it with the
+# user binary alongside the runtime_*.c object files. The staticlib
+# is what carries `__torajs_rc_inc` / `__torajs_rc_dec` into final
+# AOT artifacts; the C-side definitions in runtime_str.c are
+# deleted to honor the pure-rust invariant.
+[lib]
+crate-type = ["rlib", "staticlib"]
+
+[dependencies]
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "rc"
+harness = false

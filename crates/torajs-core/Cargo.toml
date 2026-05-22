@@ -18,3 +18,9 @@ path = "src/lib.rs"
 inkwell = { version = "0.9", features = ["llvm22-1-prefer-dynamic"] }
 
 torajs-runtime = { path = "../torajs-runtime" }
+# Layer-1 substrate: rc_inc / rc_dec / HeapHeader. Pulled in for both
+# (a) the rlib (so torajs-core can call rc_inc directly from Rust if
+# needed later) and (b) the staticlib that build.rs copies into
+# OUT_DIR and that `ssa_inkwell::compile()` links into every
+# `tr build` user-binary alongside the runtime_*.c object files.
+torajs-rc = { path = "../torajs-rc" }

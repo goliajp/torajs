@@ -1855,6 +1855,7 @@ name = "torajs-core"
 version = "0.1.0"
 dependencies = [
  "inkwell",
+ "torajs-rc",
  "torajs-runtime",
 ]
 
@@ -1888,6 +1889,13 @@ dependencies = [
 
 [[package]]
 name = "torajs-pool"
+version = "0.1.0"
+dependencies = [
+ "criterion",
+]
+
+[[package]]
+name = "torajs-rc"
 version = "0.1.0"
 dependencies = [
  "criterion",

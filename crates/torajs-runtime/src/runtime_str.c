@@ -238,38 +238,27 @@ typedef struct __attribute__((aligned(8))) {
  */
 #define __TORAJS_FLAG_STATIC_LITERAL 4u
 
-/* Increment refcount of any non-Copy heap object. NULL passes through
- * (sentinel for "no value"). Used by ssa_lower at every slot-copy /
- * borrow-promotion site where ownership becomes shared. */
-void __torajs_rc_inc(void *p) {
-    if (p == NULL) return;
-    __torajs_heap_header_t *h = (__torajs_heap_header_t *)p;
-    if (h->flags & __TORAJS_FLAG_STATIC_LITERAL) return;
-    h->refcount += 1;
-}
-
-/* T-26 — WeakRef hook. Defined in runtime_weakref.c. Called by
- * rc_dec when an object's strong rc transitions to zero so any
- * registered WeakRef can have its target ptr cleared to NULL
- * before the object is freed. The runtime gates the body on a
- * global "any WeakRef alive" counter so non-WeakRef-using
- * programs pay only one untaken branch per dec. */
+/* P2.2 (2026-05-22 architecture-rewrite) — `__torajs_rc_inc` and
+ * `__torajs_rc_dec` are now provided by the Rust `torajs-rc` crate
+ * (Layer 1 of the layered architecture; see
+ * docs/architecture-rewrite.md). Their C definitions used to live
+ * here; deleted at P2.2 ship along with the universal-heap-header
+ * refcount intrinsics, per vision item #3 (pure rust).
+ *
+ * ABI is unchanged — same symbol names, same calling convention,
+ * same byte-for-byte semantics (NULL pass-through,
+ * FLAG_STATIC_LITERAL bypass, WeakRef-on-zero hook ordering). The
+ * `extern` declarations below let the rest of runtime_str.c
+ * (and the other runtime_*.c files via their own externs) keep
+ * calling them; the linker resolves them from libtorajs_rc.a at
+ * `tr build` time.
+ *
+ * `__torajs_weakref_target_dying` stays defined in
+ * runtime_weakref.c; torajs-rc declares it `extern` and calls it
+ * on rc-hit-zero just as the old C version did. */
+extern void __torajs_rc_inc(void *p);
+extern int __torajs_rc_dec(void *p);
 extern void __torajs_weakref_target_dying(void *target);
-
-/* Decrement refcount; return 1 iff it reached zero (caller's per-type
- * drop path uses this to walk owned children before free). NULL passes
- * through (returns 0). */
-int __torajs_rc_dec(void *p) {
-    if (p == NULL) return 0;
-    __torajs_heap_header_t *h = (__torajs_heap_header_t *)p;
-    if (h->flags & __TORAJS_FLAG_STATIC_LITERAL) return 0;
-    h->refcount -= 1;
-    if (h->refcount == 0) {
-        __torajs_weakref_target_dying(p);
-        return 1;
-    }
-    return 0;
-}
 
 /* ============================================================
  * Str layout helpers
