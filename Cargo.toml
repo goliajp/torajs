@@ -12,6 +12,35 @@ members = [
     "conformance/test262-runner",
 ]
 
+# Centralized metadata for sub-crates that opt-in via `<key>.workspace =
+# true` in their own `[package]`. See docs/architecture-rewrite.md for
+# the full layered-crate plan + per-crate Cargo.toml template.
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0 OR MIT"
+repository = "https://github.com/goliajp/torajs"
+homepage = "https://github.com/goliajp/torajs"
+authors = ["GOLIA K.K."]
+
+# Pinned shared dev/runtime deps. Sub-crates reference with
+# `<dep> = { workspace = true }`; root bump rolls through the workspace
+# in one commit.
+[workspace.dependencies]
+criterion = { version = "0.8", default-features = false, features = [
+    "cargo_bench_support",
+] }
+
+# Sub-crates opt in via `[lints] workspace = true`. Existing crates
+# without the opt-in are unaffected (kept their pre-existing lint
+# state) so this addition is non-breaking. New sub-crates land
+# warnings-clean.
+[workspace.lints.rust]
+warnings = "deny"
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+
 # Phase B: tr binary itself runs at max-opt — affects compile_ms only.
 # LTO=fat collapses inkwell + tr crates into a single codegen unit so
 # Rust call sites into LLVM bridge can be cross-crate inlined. Demo
@@ -23,6 +52,18 @@ opt-level = 3
 lto = "fat"
 codegen-units = 1
 strip = true
+
+# Vanilla-Rust honest baseline. Mirrors mailrs's pattern. Use with
+# `cargo build --profile release-vanilla` to compare against
+# `[profile.release]`'s fat-LTO + codegen-units=1 + strip on the
+# same code. Lets us answer "is the perf-first profile actually
+# delivering?" with a measurement, not a guess. NOT for deploy.
+[profile.release-vanilla]
+inherits = "release"
+lto = false
+codegen-units = 16
+opt-level = 3
+strip = false
 
 # hardev devperf #1 — fast iteration profile. Used ONLY for functional
 # iteration + the conformance gate (conformance/runner builds tr with
