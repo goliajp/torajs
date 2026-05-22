@@ -75,6 +75,7 @@
 pub mod alloc;
 pub mod layout;
 pub mod pool;
+pub mod substr;
 
 // Re-export the small surface the rest of the workspace (and the
 // FFI consumers) reach for most often. Keeping this list tight
@@ -84,4 +85,8 @@ pub use alloc::{__torajs_str_alloc_pooled, __torajs_str_free, StrBlock};
 pub use layout::{
     STR_DATA_OFF, STR_HDR_SIZE, STR_LEN_OFF, STR_POOL_PAYLOAD, STR_POOL_SLOTS, block_size,
     packed_header_init,
+};
+pub use substr::{
+    __torajs_substr_create, __torajs_substr_drop, FLAG_SUBSTR_INLINE, SUBSTR_LEN_OFF,
+    SUBSTR_OFFSET_OFF, SUBSTR_PARENT_OFF, SUBSTR_SIZE, SubstrBlock,
 };

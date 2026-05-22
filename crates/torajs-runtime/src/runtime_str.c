@@ -347,12 +347,16 @@ extern void __torajs_str_free(uint8_t *p);
  * drop time; the linker resolves the symbol. */
 void __torajs_str_drop(void *s);
 
-/* Substr cell pool — same shape as the small-Str pool, sized for
- * 32-byte view structs. Hot in any code path that does substr.trim
- * / .slice / .substring inside a tight loop. */
-#define __TORAJS_SUBSTR_POOL_SLOTS 32
-static uint8_t *substr_pool_[__TORAJS_SUBSTR_POOL_SLOTS];
-static int substr_pool_count_ = 0;
+/* Substr cell pool + __torajs_substr_create / __torajs_substr_drop
+ * moved to the `torajs-str::substr` Rust module (P3.1-b, 2026-05-23).
+ * The two cross-TU symbols are now defined by `libtorajs_str.a`;
+ * remaining str fns in this file (and other runtime_*.c) call them
+ * via the forward decls below. The SplitBlock pool (FLAG_SPLIT_BLOCK
+ * + split_pool_blocks_) remains C-resident for now because it shares
+ * dispatch with `__torajs_arr_free` (Layer-3 territory, not yet
+ * ported). P3.1-f / P4 ports that. */
+extern void *__torajs_substr_create(void *parent, uint64_t offset, uint64_t len);
+extern void __torajs_substr_drop(void *v);
 
 /* str_split-block pool — keeps the variable-size single-block
  * allocations made by __torajs_str_split (header + N ptr slots +
@@ -1969,62 +1973,13 @@ void __torajs_print_any(const void *box) {
     }
 }
 
-/* Create a substring view of `parent` (an OWNED Str) starting at
- * `offset` with length `len`. Caller must ensure offset+len ≤
- * parent.length (no bounds check here — matches the unchecked-index
- * convention used by other tr runtime helpers). Bumps parent's
- * refcount so its bytes stay alive while the view exists.
- *
- * For nested views (`substr.slice(...)`), the caller should resolve
- * to the root parent before calling this — view-of-view collapses to
- * view-of-owner so drop chains stay depth-1. (Phase Substr.A only
- * exposes `__torajs_str_split` as a view source, which always passes
- * an OWNED Str as parent; deferred until a slice/substring view path
- * lands.) */
-void *__torajs_substr_create(void *parent, uint64_t offset, uint64_t len) {
-    uint8_t *v;
-    if (substr_pool_count_ > 0) {
-        v = substr_pool_[--substr_pool_count_];
-    } else {
-        v = (uint8_t *)malloc(__TORAJS_SUBSTR_SIZE);
-    }
-    __torajs_heap_header_t *h = (__torajs_heap_header_t *)v;
-    h->refcount = 1;
-    h->type_tag = __TORAJS_TAG_STR;  /* SSA Type::Substr is still "str" at the type-tag layer */
-    h->flags = 0;  /* reserved for future weak/mark bits; view-vs-owned distinguished by SSA Type, not flag */
-    __TORAJS_SUBSTR_LEN(v) = len;
-    *(uint8_t **)(v + __TORAJS_SUBSTR_PARENT_OFF) = (uint8_t *)parent;
-    *(uint64_t *)(v + __TORAJS_SUBSTR_OFFSET_OFF) = offset;
-    __torajs_rc_inc(parent);
-    return v;
-}
-
-/* Drop a Substr view. Two cases distinguished by the INLINE flag:
- *   - standalone (flag clear): dec own refcount; at 0, str_drop(parent)
- *     and free self.
- *   - inline (flag set): the substr struct lives inside a bigger
- *     allocation (typically the array tail produced by str_split). Don't
- *     touch own refcount, don't free self — just dec parent (each inline
- *     substr still holds one parent ref). The enclosing block's drop
- *     reclaims the substr storage when it frees itself. */
-void __torajs_substr_drop(void *v) {
-    if (v == NULL) return;
-    __torajs_heap_header_t *h = (__torajs_heap_header_t *)v;
-    if (h->flags & __TORAJS_FLAG_SUBSTR_INLINE) {
-        void *parent = (void *)*(uint8_t **)((uint8_t *)v + __TORAJS_SUBSTR_PARENT_OFF);
-        __torajs_str_drop(parent);
-        return;
-    }
-    if (__torajs_rc_dec(v)) {
-        void *parent = (void *)*(uint8_t **)((uint8_t *)v + __TORAJS_SUBSTR_PARENT_OFF);
-        __torajs_str_drop(parent);
-        if (substr_pool_count_ < __TORAJS_SUBSTR_POOL_SLOTS) {
-            substr_pool_[substr_pool_count_++] = (uint8_t *)v;
-        } else {
-            free(v);
-        }
-    }
-}
+/* __torajs_substr_create + __torajs_substr_drop moved to the
+ * `torajs-str::substr` Rust module (P3.1-b, 2026-05-23). Forward
+ * decls live near the layout-constants block at the top of this
+ * file. The drop semantics — INLINE flag check, parent rc-dec via
+ * __torajs_str_drop, own-rc dec, pool push or libc free — are
+ * mirrored byte-for-byte in `substr::SubstrBlock::drop_pool_aware`.
+ */
 
 /* Substr → i64: byte at position `i` (zero-extended). Out-of-bounds
  * returns 0, matching `__torajs_str_char_code_at` semantics for OWNED

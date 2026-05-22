@@ -150,5 +150,12 @@ mod tests {
         assert_eq!(occupancy(), STR_POOL_SLOTS);
         assert!(!push(fresh_block(0xDEAD)));
         assert_eq!(occupancy(), STR_POOL_SLOTS);
+        // Pool is now full of fake integer-shaped pointers. They are
+        // NOT valid memory — leaving them in the global pool causes
+        // the next `StrBlock::alloc` (in this test binary, e.g. the
+        // first substr test) to `pop()` one of them and dereference
+        // garbage → SIGSEGV. Clear before releasing the lock so the
+        // pool's process-global state is fresh for the next test.
+        clear_for_test();
     }
 }
