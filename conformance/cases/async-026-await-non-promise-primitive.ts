@@ -27,3 +27,13 @@ console.log('bool-f', b2)
 let p: Promise<number> = Promise.resolve(99)
 let v = await p
 console.log('real-promise', v)
+
+// Heap-typed identity (added P10.4 follow-up): Array / BigInt etc.
+// non-Promise heap values pass through as themselves.
+let arr: number[] = [10, 20, 30]
+let arrv = await arr
+console.log('arr', arrv.length, arrv[0], arrv[2])
+
+let big: bigint = 7n
+let bigv = await big
+console.log('bigint', bigv)

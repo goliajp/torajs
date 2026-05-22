@@ -3243,19 +3243,26 @@ impl Checker {
                 }
                 /* P10.4 — `await e` on non-Promise e per ES spec:
                  * conceptually `Promise.resolve(e)` is constructed and
-                 * its value is yielded — which for a primitive e
-                 * collapses to e itself. The parser desugars `await e`
-                 * to `e.value`, so when e is a primitive Number /
-                 * String / Boolean, this arm treats `.value` as
-                 * identity and returns the obj's own type. The Promise
-                 * Member arm above takes precedence for actual
-                 * Promise<T>; the user-struct field-lookup arm below
-                 * takes precedence for any declared `{ value: T }`
-                 * struct shape. */
+                 * its resolved value is yielded — which for any
+                 * non-thenable e collapses to e itself. The parser
+                 * desugars `await e` to `e.value`; this arm treats
+                 * `.value` as identity for the types that can never
+                 * carry a real `value` field of their own (primitives
+                 * + the built-in heap container types). The Promise
+                 * arm above takes precedence for actual Promise<T>;
+                 * the user-struct field-lookup arm below takes
+                 * precedence for declared `{ value: T }` Struct
+                 * shapes. Type::Object("Symbol" / etc.), Type::Class
+                 * and Type::Struct intentionally fall through —
+                 * those CAN have a real `.value` member. */
                 if name == "value"
                     && matches!(
                         obj_ty,
-                        Type::Number | Type::String | Type::Boolean
+                        Type::Number
+                            | Type::String
+                            | Type::Boolean
+                            | Type::Array(_)
+                            | Type::BigInt
                     )
                 {
                     return Ok(obj_ty);

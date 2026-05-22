@@ -23855,17 +23855,18 @@ impl<'a> LowerCtx<'a> {
                         ),
                     }
                 };
-                /* P10.4 — `await e` on non-Promise primitive (Number /
-                 * String / Boolean) per ES spec: conceptually
-                 * `Promise.resolve(e)` is constructed and its value
-                 * yielded, which collapses to e itself for a primitive.
-                 * The parser desugars `await e` to `e.value` Member
-                 * access, so when obj's check-time Type is one of the
-                 * i64-roundtrippable primitives, lower the obj directly
-                 * (identity, no promise allocation, no microtask
-                 * drain — primitives can't carry pending callbacks).
-                 * Keeps the existing Promise<T> path and user-struct
-                 * `.value` Member path unchanged. */
+                /* P10.4 — `await e` on non-Promise e per ES spec:
+                 * conceptually `Promise.resolve(e)` is constructed and
+                 * its resolved value yielded, which collapses to e
+                 * itself for any non-thenable. The parser desugars
+                 * `await e` to `e.value`; this arm lowers obj directly
+                 * (identity) when its check-time type is a primitive
+                 * or a built-in heap container that can never carry a
+                 * real user-defined `.value` field. No Promise
+                 * allocation, no microtask drain. Type::Object("...")
+                 * and Type::Struct fall through (those CAN have a
+                 * real `.value` member). Pair this arm with the
+                 * matching check.rs arm so typecheck + lowering agree. */
                 if !obj_is_builtin_promise
                     && name == "value"
                     && matches!(
@@ -23873,6 +23874,8 @@ impl<'a> LowerCtx<'a> {
                         Some(crate::check::Type::Number)
                             | Some(crate::check::Type::String)
                             | Some(crate::check::Type::Boolean)
+                            | Some(crate::check::Type::Array(_))
+                            | Some(crate::check::Type::BigInt)
                     )
                 {
                     return self.lower_expr(*obj);
