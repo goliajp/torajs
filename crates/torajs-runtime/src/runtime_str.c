@@ -1800,6 +1800,17 @@ int64_t __torajs_str_eq(const uint8_t *a, const uint8_t *b);
 extern bool __torajs_any_any_strict_eq(const void *l, const void *r);
 extern bool __torajs_any_strict_eq(const void *box, int64_t rhs_tag, int64_t rhs_value);
 
+/* P2.3-d.1 (2026-05-23 architecture-rewrite) — `__torajs_any_to_number`
+ * (public, called by ssa_lower's coerce_any_to_number) and
+ * `__torajs_any_to_number_inner` (packed-pair, still used by the in-
+ * file `__torajs_any_compare` / `__torajs_any_arith` until P2.3-d.2
+ * and .3 port them) are now provided by the Rust `torajs-anyvalue`
+ * crate. Both C definitions deleted in this commit; the extern decls
+ * below let the in-file C callers keep resolving the public symbols
+ * at link time. */
+extern double __torajs_any_to_number(const void *box);
+extern double __torajs_any_to_number_inner(int64_t tag, int64_t value);
+
 void *__torajs_str_concat(const uint8_t *a, const uint8_t *b);
 void *__torajs_i64_to_str(int64_t n);
 void *__torajs_f64_to_str(double n);
@@ -1813,42 +1824,6 @@ double __torajs_str_to_number(const void *p);
  * placeholder "[object]" path stays bit-identical until P3 lands
  * per-type pretty-print. */
 extern void *__torajs_any_to_str(int64_t tag, int64_t value);
-
-/* P0.7 — ToNumber(Any) helper per JS spec §7.1.4. Returns the
- * tagged value coerced to f64. Tag dispatch:
- *   ANY_NULL  → 0.0
- *   ANY_BOOL  → 0.0 / 1.0
- *   ANY_I64   → (double)value
- *   ANY_F64   → bitcast i64-bits → double
- *   ANY_HEAP/Str → strtod via existing __torajs_str_to_number
- *   ANY_HEAP/other → NaN (spec ToNumber on object returns NaN
- *                    for our subset since we don't have valueOf
- *                    method dispatch yet)
- */
-static double __torajs_any_to_number_inner(int64_t tag, int64_t value) {
-    switch (tag) {
-        case __TORAJS_ANY_NULL: return 0.0;
-        /* P1.5 — ToNumber(undefined) === NaN per spec §7.1.4 step 1.
-         * Distinct from ToNumber(null) === 0. */
-        case __TORAJS_ANY_UNDEF: return 0.0 / 0.0;
-        case __TORAJS_ANY_BOOL: return value != 0 ? 1.0 : 0.0;
-        case __TORAJS_ANY_I64:  return (double)value;
-        case __TORAJS_ANY_F64: {
-            union { int64_t i; double d; } u = { .i = value };
-            return u.d;
-        }
-        case __TORAJS_ANY_HEAP: {
-            void *child = (void *)(uintptr_t)value;
-            if (child == NULL) return 0.0;
-            const __torajs_heap_header_t *h = (const __torajs_heap_header_t *)child;
-            if (h->type_tag == __TORAJS_TAG_STR) {
-                return __torajs_str_to_number(child);
-            }
-            return 0.0 / 0.0;  /* NaN */
-        }
-        default: return 0.0 / 0.0;
-    }
-}
 
 /* P0.8 — Any-aware ordering comparison per JS spec §7.2.13
  * IsLessThan and §13.10. Both operands ToPrimitive(hint=Number);
@@ -2081,21 +2056,6 @@ bool __torajs_any_to_bool(const void *box) {
         }
         default: return false;
     }
-}
-
-/* P7.2b — ToNumber(Any) per JS spec §7.1.4, for the Any→numeric
- * coercion sink: `return <any-valued expr>` from a fn whose declared
- * return is a concrete number (e.g. `catch (e: any) { return e + 1
- * }` inside `f(): number`). Symmetric to __torajs_any_to_bool;
- * delegates to the existing static _inner so the per-tag spec rules
- * (NULL→0, UNDEF→NaN, BOOL/I64/F64, HEAP-str→parse, ...) stay in one
- * place — no duplicated tag logic. NULL box is defensive (a real Any
- * always carries a box); ToNumber(null) === 0. */
-double __torajs_any_to_number(const void *box) {
-    if (box == NULL) return 0.0;
-    int64_t tag = *(const int64_t *)((const uint8_t *)box + __TORAJS_ANY_BOX_TAG_OFF);
-    int64_t value = *(const int64_t *)((const uint8_t *)box + __TORAJS_ANY_BOX_VAL_OFF);
-    return __torajs_any_to_number_inner(tag, value);
 }
 
 /* P0.2 — `typeof <Any>` runtime dispatch per JS spec §13.5.3.

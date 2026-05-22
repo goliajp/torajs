@@ -32,16 +32,23 @@ const STATICLIBS: &[&str] = &[
 ];
 
 fn main() {
-    println!("cargo:rerun-if-changed=build.rs");
-    for name in STATICLIBS {
-        // Rerun if the sub-crate's lib.rs or Cargo.toml moves —
-        // the dep graph already triggers a rebuild of the .a, but
-        // we also need build.rs itself re-run so the copy step
-        // refreshes the embedded bytes.
-        let crate_dir = name.replace('_', "-");
-        println!("cargo:rerun-if-changed=../{crate_dir}/src/lib.rs");
-        println!("cargo:rerun-if-changed=../{crate_dir}/Cargo.toml");
-    }
+    // Force this build script to rerun on every cargo invocation.
+    // Reason: cargo's `rerun-if-changed` evaluates watched-path
+    // mtimes BEFORE the dep graph rebuilds. The staticlibs we
+    // copy below (`target/<profile>/lib<name>.a`) are PRODUCED by
+    // dependent sub-crates earlier in the same build pass, so at
+    // the time cargo decides whether to rerun this script the .a
+    // still has its OLD mtime — cargo skips the rerun → the
+    // staticlib bytes embedded in `tr` go stale. Watching upstream
+    // `lib.rs` doesn't fix it either: cargo's per-profile
+    // fingerprint can record the old watch list and skip the
+    // recheck across profile boundaries. Pointing rerun-if-changed
+    // at a non-existent sentinel is the documented cargo idiom for
+    // "always rerun" — cargo treats a missing path as "changed" on
+    // every poll. The copy is ~10ms total, so unconditional rerun
+    // is the cheapest way to guarantee `tr` always embeds the
+    // most-recently-built sub-crate staticlibs.
+    println!("cargo:rerun-if-changed=NULL_FORCE_RERUN");
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR not set by cargo"));
 

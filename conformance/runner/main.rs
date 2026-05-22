@@ -210,12 +210,29 @@ fn build_tr_once(manifest: &Path, repo_root: &Path) -> PathBuf {
             "--profile",
             "iter",
             "--quiet",
-            "--manifest-path",
-            manifest.to_str().unwrap(),
+            // P2.3-d.1: build the entire workspace, not just
+            // torajs-cli's dep graph. The architecture rewrite is
+            // moving runtime helpers into Rust sub-crates with
+            // `crate-type = ["rlib", "staticlib"]`; torajs-cli only
+            // depends on the rlib half via torajs-core. With a
+            // `-p torajs-cli` (or `--manifest-path crates/torajs-
+            // cli/Cargo.toml`) build, cargo's dep graph doesn't
+            // know to refresh the staticlib half, so the `.a`
+            // baked into `tr` via build.rs's `include_bytes!` goes
+            // stale on every sub-crate source edit. `--workspace`
+            // forces every member crate's default targets (lib +
+            // bin) to be built, refreshing both rlib AND staticlib
+            // for each Layer-1+ sub-crate. The added cost is a
+            // handful of small crates compiled at iter profile
+            // (lto=off, cgu=256, opt=1) — negligible vs the cost
+            // of silently shipping a stale staticlib.
+            "--workspace",
             "--message-format=json",
         ])
+        .current_dir(repo_root)
         .output()
         .unwrap_or_else(|e| die(&format!("spawn cargo build: {e}")));
+    let _ = manifest; // kept for callsite symmetry; --workspace is repo-root-anchored.
     if !out.status.success() {
         die(&format!(
             "cargo build tr failed: {}",

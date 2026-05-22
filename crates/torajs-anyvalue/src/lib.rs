@@ -310,6 +310,11 @@ unsafe extern "C" {
     fn __torajs_i64_to_str(n: i64) -> *mut c_void;
     fn __torajs_f64_to_str(n: f64) -> *mut c_void;
     fn __torajs_str_alloc_pooled(len: u64) -> *mut u8;
+    // P2.3-d.1 — Str → IEEE 754 number parser per ES §7.1.4.1.5.
+    // Reads the Str byte layout starting at the header. Stays in C
+    // until the Layer-2 `torajs-str` rewrite ports `strtod` + the
+    // ES whitespace / hex / Infinity grammar.
+    fn __torajs_str_to_number(p: *const c_void) -> f64;
 }
 
 // Str heap-byte data offset within the Str layout
@@ -483,6 +488,101 @@ fn payload_eq(tag: i64, lv: i64, rv: i64) -> bool {
 }
 
 // ============================================================
+// ToNumber coercion (JS spec §7.1.4)
+// ============================================================
+
+/// Tag-dispatch `ToNumber` for a packed `(tag, value)` pair —
+/// mirrors ES §7.1.4 over tora's tagged-Any subset:
+///
+/// - `Null` → `0.0`
+/// - `Undef` → `NaN`
+/// - `Bool` → `1.0` / `0.0`
+/// - `I64` → cast to `f64`
+/// - `F64` → bitcast `i64`-bits → `f64`
+/// - `Heap` + null pointer → `0.0` (defensive — `Heap`-tag NULL
+///   doesn't carry numeric semantics; the C ABI returned 0 here)
+/// - `Heap` + [`Tag::Str`] → parse via [`__torajs_str_to_number`]
+/// - `Heap` + other tag → `NaN` (objects coerce to NaN until the
+///   `valueOf` method dispatch lands in a later phase)
+/// - unknown tag → `NaN` (defensive)
+///
+/// # Safety
+///
+/// If `tag == AnySlotTag::Heap as i64`, `value` must be either
+/// null or a valid `*const HeapHeader` pointing to a live heap
+/// object.
+unsafe fn any_to_number(tag: i64, value: i64) -> f64 {
+    if tag == AnySlotTag::Null as i64 {
+        return 0.0;
+    }
+    if tag == AnySlotTag::Undef as i64 {
+        return f64::NAN;
+    }
+    if tag == AnySlotTag::Bool as i64 {
+        return if value != 0 { 1.0 } else { 0.0 };
+    }
+    if tag == AnySlotTag::I64 as i64 {
+        return value as f64;
+    }
+    if tag == AnySlotTag::F64 as i64 {
+        return f64::from_bits(value as u64);
+    }
+    if tag == AnySlotTag::Heap as i64 {
+        let child = value as *const HeapHeader;
+        if child.is_null() {
+            return 0.0;
+        }
+        // SAFETY: child non-null per the check above; runtime
+        // invariant says it points to a live heap header.
+        let h = unsafe { &*child };
+        if matches!(h.tag(), Tag::Str) {
+            // SAFETY: child is Tag::Str-headed; the C-side
+            // __torajs_str_to_number reads the Str layout from
+            // the header.
+            return unsafe { __torajs_str_to_number(child as *const c_void) };
+        }
+        return f64::NAN;
+    }
+    f64::NAN
+}
+
+impl AnyValue {
+    /// `ToNumber` per ES §7.1.4 — idiomatic-Rust mirror of
+    /// [`any_to_number`] for already-materialized `AnyValue`s.
+    /// Same per-tag rules; the `Heap` case delegates to the C
+    /// `__torajs_str_to_number` for `Tag::Str` and returns `NaN`
+    /// for every other heap type.
+    pub fn to_number(self) -> f64 {
+        match self {
+            AnyValue::Null => 0.0,
+            AnyValue::Undef => f64::NAN,
+            AnyValue::Bool(b) => {
+                if b {
+                    1.0
+                } else {
+                    0.0
+                }
+            }
+            AnyValue::I64(n) => n as f64,
+            AnyValue::F64(n) => n,
+            AnyValue::Heap(None) => 0.0,
+            AnyValue::Heap(Some(p)) => {
+                // SAFETY: NonNull invariant — points to a live
+                // HeapHeader.
+                let h = unsafe { p.as_ref() };
+                if matches!(h.tag(), Tag::Str) {
+                    // SAFETY: pointer is Tag::Str-headed.
+                    unsafe { __torajs_str_to_number(p.as_ptr() as *const c_void) }
+                } else {
+                    f64::NAN
+                }
+            }
+            AnyValue::Unknown => f64::NAN,
+        }
+    }
+}
+
+// ============================================================
 // FFI shims — thin wrappers for ssa_lower-emitted IR
 // ============================================================
 
@@ -595,6 +695,47 @@ pub unsafe extern "C" fn __torajs_any_to_str(tag: i64, value: i64) -> *mut c_voi
     unsafe { any_to_str(tag, value) }
 }
 
+/// FFI bridge — `ToNumber(Any)` per ES §7.1.4, the Any → numeric
+/// coercion sink. Public symbol declared by ssa_lower's
+/// `coerce_any_to_number` (used at every `return <any>` whose
+/// declared return is a concrete number, every `+` between number
+/// and Any, etc.).
+///
+/// Null box is defensive (a real Any always carries a box);
+/// `ToNumber(null)` is `0` per spec, matched here.
+///
+/// # Safety
+///
+/// `box_ptr` is null OR a valid `*const AnyBox` previously
+/// returned by [`__torajs_any_box`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_any_to_number(box_ptr: *const c_void) -> f64 {
+    if box_ptr.is_null() {
+        return 0.0;
+    }
+    // SAFETY: non-null per the early return.
+    let b = unsafe { &*(box_ptr as *const AnyBox) };
+    // SAFETY: well-formed AnyBox — if tag is Heap then value is
+    // either null or a valid *mut HeapHeader.
+    unsafe { any_to_number(b.tag, b.value) }
+}
+
+/// FFI bridge — packed-pair ToNumber. Currently used by the
+/// in-file C callers (`__torajs_any_compare`, `__torajs_any_arith`)
+/// in `runtime_str.c` that haven't been ported yet (P2.3-d.2 and
+/// .3). Once those move to Rust those callers vanish, but the
+/// shim stays public for any future packed-pair callsite.
+///
+/// # Safety
+///
+/// If `tag == AnySlotTag::Heap as i64`, `value` must be null or
+/// a valid `*mut HeapHeader`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_any_to_number_inner(tag: i64, value: i64) -> f64 {
+    // SAFETY: caller invariant — propagated.
+    unsafe { any_to_number(tag, value) }
+}
+
 /// FFI bridge — Any === concrete (SSA-emitted `(tag, value)` pair
 /// vs a box). Avoids a fresh box alloc per compare site.
 ///
@@ -651,6 +792,15 @@ mod tests {
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn __torajs_str_eq(a: *const u8, b: *const u8) -> i64 {
         if a == b { 1 } else { 0 }
+    }
+    /// P2.3-d.1 — Str → number parser. Shipped binary resolves this
+    /// from runtime_str.c; tests provide a sentinel-returning stub
+    /// so the Heap+Str branch in `any_to_number` is observable.
+    /// Returns 42.0 unconditionally — every test that exercises the
+    /// Heap+Str path checks for exactly this value.
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_str_to_number(_p: *const c_void) -> f64 {
+        42.0
     }
 
     #[test]
@@ -889,6 +1039,114 @@ mod tests {
             __torajs_any_box_drop(p2);
             __torajs_any_box_drop(p3);
             __torajs_any_box_drop(p4);
+        }
+    }
+
+    // ---- P2.3-d.1: ToNumber coercion ----
+
+    #[test]
+    fn anyvalue_to_number_inline_tags() {
+        assert_eq!(AnyValue::Null.to_number(), 0.0);
+        assert!(AnyValue::Undef.to_number().is_nan());
+        assert_eq!(AnyValue::Bool(true).to_number(), 1.0);
+        assert_eq!(AnyValue::Bool(false).to_number(), 0.0);
+        assert_eq!(AnyValue::I64(0).to_number(), 0.0);
+        assert_eq!(AnyValue::I64(42).to_number(), 42.0);
+        assert_eq!(AnyValue::I64(-7).to_number(), -7.0);
+        assert_eq!(AnyValue::F64(3.14).to_number(), 3.14);
+        // F64 NaN propagates.
+        assert!(AnyValue::F64(f64::NAN).to_number().is_nan());
+        // Unknown defensively → NaN.
+        assert!(AnyValue::Unknown.to_number().is_nan());
+    }
+
+    #[test]
+    fn anyvalue_to_number_heap_null_is_zero() {
+        // Heap(None) is the "tag=Heap, value=NULL" case — distinct
+        // from AnyValue::Null tag-wise. ToNumber here matches the
+        // C ABI: 0.0 (defensive, not NaN).
+        assert_eq!(AnyValue::Heap(None).to_number(), 0.0);
+    }
+
+    #[test]
+    fn anyvalue_to_number_heap_str_delegates_to_str_to_number() {
+        // Heap+Str → __torajs_str_to_number; test stub returns 42.0.
+        let mut s = HeapHeader::new(Tag::Str);
+        let p = NonNull::new(&mut s as *mut HeapHeader);
+        assert_eq!(AnyValue::Heap(p).to_number(), 42.0);
+    }
+
+    #[test]
+    fn anyvalue_to_number_heap_non_str_is_nan() {
+        // Heap+Obj (or any non-Str) → NaN, matches the C ABI's
+        // "objects coerce to NaN" path (pre-valueOf-method era).
+        let mut h = HeapHeader::new(Tag::Obj);
+        let p = NonNull::new(&mut h as *mut HeapHeader);
+        assert!(AnyValue::Heap(p).to_number().is_nan());
+    }
+
+    #[test]
+    fn ffi_any_to_number_round_trip_inline() {
+        unsafe {
+            // Null box → 0.0.
+            let p_null = __torajs_any_box(0, 0);
+            assert_eq!(__torajs_any_to_number(p_null), 0.0);
+            __torajs_any_box_drop(p_null);
+
+            // Undef box → NaN.
+            let p_undef = __torajs_any_box(5, 0);
+            assert!(__torajs_any_to_number(p_undef).is_nan());
+            __torajs_any_box_drop(p_undef);
+
+            // Bool(true) → 1.0; Bool(false) → 0.0.
+            let p_t = __torajs_any_box(1, 1);
+            let p_f = __torajs_any_box(1, 0);
+            assert_eq!(__torajs_any_to_number(p_t), 1.0);
+            assert_eq!(__torajs_any_to_number(p_f), 0.0);
+            __torajs_any_box_drop(p_t);
+            __torajs_any_box_drop(p_f);
+
+            // I64(123) → 123.0.
+            let p_i = __torajs_any_box(2, 123);
+            assert_eq!(__torajs_any_to_number(p_i), 123.0);
+            __torajs_any_box_drop(p_i);
+
+            // F64(2.5) → 2.5.
+            let bits = 2.5_f64.to_bits() as i64;
+            let p_f64 = __torajs_any_box(3, bits);
+            assert_eq!(__torajs_any_to_number(p_f64), 2.5);
+            __torajs_any_box_drop(p_f64);
+
+            // Null pointer box → 0.0 (defensive).
+            assert_eq!(__torajs_any_to_number(core::ptr::null()), 0.0);
+        }
+    }
+
+    #[test]
+    fn ffi_any_to_number_inner_packed_pair() {
+        unsafe {
+            // Each tag variant via the packed-pair entry point.
+            assert_eq!(__torajs_any_to_number_inner(0 /* Null */, 0), 0.0);
+            assert!(__torajs_any_to_number_inner(5 /* Undef */, 0).is_nan());
+            assert_eq!(__torajs_any_to_number_inner(1 /* Bool */, 1), 1.0);
+            assert_eq!(__torajs_any_to_number_inner(1 /* Bool */, 0), 0.0);
+            assert_eq!(__torajs_any_to_number_inner(2 /* I64  */, 99), 99.0);
+            let bits = (-3.5_f64).to_bits() as i64;
+            assert_eq!(__torajs_any_to_number_inner(3 /* F64  */, bits), -3.5);
+            // Heap-null → 0.0 (defensive C-ABI parity).
+            assert_eq!(__torajs_any_to_number_inner(4 /* Heap */, 0), 0.0);
+            // Unknown tag → NaN.
+            assert!(__torajs_any_to_number_inner(99, 0).is_nan());
+        }
+    }
+
+    #[test]
+    fn ffi_any_to_number_inner_heap_str_delegates() {
+        // Heap-tagged Str via the inner shim → test stub returns 42.0.
+        let mut s = HeapHeader::new(Tag::Str);
+        unsafe {
+            let p = &mut s as *mut HeapHeader as i64;
+            assert_eq!(__torajs_any_to_number_inner(4, p), 42.0);
         }
     }
 
