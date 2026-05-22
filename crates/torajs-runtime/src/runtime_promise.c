@@ -162,13 +162,40 @@ void *__torajs_promise_resolve_thenable(void *p) {
     return __torajs_promise_alloc_rejected(0);
 }
 
-/* Read the resolved value from a fulfilled Promise. T-15.a: callers
- * are responsible for verifying the Promise is fulfilled before
- * calling this. Returns 0 if pending/rejected (placeholder until
- * proper await codegen lands in T-16). */
+/* Read the resolved value from a Promise per spec await semantics:
+ *   FULFILLED → return the resolved value (i64-shaped — heap ptrs
+ *               returned as their bit pattern; caller's check-type
+ *               drives downstream interpretation).
+ *   REJECTED  → write the rejection reason into the catchable throw
+ *               slot via __torajs_throw_set and return 0. ssa_lower's
+ *               emit_throw_check after the call propagates to the
+ *               innermost active try/catch or function boundary.
+ *   PENDING   → return 0 (P10.x async-fn pre-resolve model — the
+ *               sync-resolve path means PENDING here is unexpected
+ *               but we never want to crash, so the silent 0 stays
+ *               as a guard until the full event loop lands).
+ *
+ * Heap-flag aware: rejection value with value_is_heap=true sets the
+ * ANY_HEAP throw tag (4); primitive rejection (Number, Boolean) sets
+ * the I64 throw tag (2). NULL Promise raises the existing rejection
+ * sentinel under ANY_HEAP. Pre-P10.4-A2 this function silently
+ * returned 0 for REJECTED — `await rejectedPromise` looked like
+ * `await fulfilled(0)` to user code, breaking every try/catch
+ * around an awaited rejection (bun-parity gap). */
+extern void __torajs_throw_set(int64_t tag, int64_t value);
+
 int64_t __torajs_promise_get_value(const void *p) {
     if (p == NULL) return 0;
     const Promise *pp = (const Promise *)p;
+    if (pp->state == __TORAJS_PROMISE_REJECTED) {
+        /* Tag 4 = ANY_HEAP, 2 = I64 — matches runtime_str.c's
+         * torajs_throw_native conventions. Reason 0 with non-heap
+         * tag is fine; it's the reason `Promise.reject()` ships as
+         * `undefined` (which P10.2-A1's 0-arg form produces). */
+        int64_t tag = pp->value_is_heap ? 4 : 2;
+        __torajs_throw_set(tag, pp->value);
+        return 0;
+    }
     if (pp->state != __TORAJS_PROMISE_FULFILLED) return 0;
     return pp->value;
 }

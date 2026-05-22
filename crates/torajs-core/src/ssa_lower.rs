@@ -23877,6 +23877,16 @@ impl<'a> LowerCtx<'a> {
                         Type::I64,
                         None,
                     );
+                    /* P10.4-A2 — promise_get_value now writes the
+                     * rejection reason into the catchable throw slot
+                     * when state is REJECTED (was: silent 0 return).
+                     * Emit the post-call throw_check so an `await
+                     * rejectedPromise` inside try / catch propagates
+                     * to the user's handler. Intrinsics are skipped
+                     * by the default fast-path; this is a flagged
+                     * exception (same pattern as matchAll g-required
+                     * and bigint_op_may_throw). */
+                    self.emit_throw_check(None);
                     let v = match inner_ssa_ty {
                         // Heap-shaped T: cast i64 → ptr via IntToPtr.
                         // Type::Ptr is the catch-all for built-in heap
