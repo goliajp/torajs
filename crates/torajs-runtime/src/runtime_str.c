@@ -1072,9 +1072,17 @@ void *__torajs_get_property_descriptor(void *obj_any, void *key) {
     return result;
 }
 
-/* Forward decl — defined further down next to torajs_throw_range_error. */
+/* Forward decl — __torajs_throw_set is still LLVM-IR-emitted by
+ * ssa_inkwell (moves to Rust in P2.4-b). */
 extern void __torajs_throw_set(int64_t tag, int64_t value);
-static void torajs_throw_type_error(const char *msg);
+/* P2.4-a — native-error registry + throw_range/type_error
+ * cross-TU wrappers now provided by the Rust `torajs-throw` crate.
+ * Forward-declared here so the in-file C callers below
+ * (dynobj_set / dynobj_define / arr_set_length_validate / etc.)
+ * resolve them at link time. */
+extern void __torajs_register_native_error(int64_t slot, void *fnptr);
+extern void __torajs_throw_range_error(const char *msg);
+extern void __torajs_throw_type_error(const char *msg);
 
 /* Set `obj[key] = (tag, value)`. Caller is responsible for rc-bumping
  * heap-typed values BEFORE calling (matches arr_push_any contract).
@@ -1106,7 +1114,7 @@ void __torajs_dynobj_set(void **obj_slot, void *key, uint64_t tag, uint64_t valu
     if (found) {
         uint64_t cur_tag = bk[idx].tag;
         if (!(cur_tag & __TORAJS_BUCKET_FLAG_WRITABLE)) {
-            torajs_throw_type_error(
+            __torajs_throw_type_error(
                 "TypeError: Cannot assign to read only property");
             return;
         }
@@ -1199,12 +1207,12 @@ void __torajs_dynobj_define(
              * present-flag change that diverges from current throws. */
             if (has_configurable && desc_configurable && !cur_configurable) {
                 /* Trying to flip false → true. */
-                torajs_throw_type_error(
+                __torajs_throw_type_error(
                     "TypeError: Cannot redefine property: configurable was false");
                 return;
             }
             if (has_enumerable && desc_enumerable != cur_enumerable) {
-                torajs_throw_type_error(
+                __torajs_throw_type_error(
                     "TypeError: Cannot redefine property: enumerable mismatch");
                 return;
             }
@@ -1212,7 +1220,7 @@ void __torajs_dynobj_define(
                 if (has_writable && desc_writable) {
                     /* Cannot upgrade writable false → true under
                      * non-configurable. */
-                    torajs_throw_type_error(
+                    __torajs_throw_type_error(
                         "TypeError: Cannot redefine property: writable was false");
                     return;
                 }
@@ -1225,7 +1233,7 @@ void __torajs_dynobj_define(
                     int same = ((tag & __TORAJS_BUCKET_TAG_MASK) == cur_value_tag)
                         && (value == bk[idx].value);
                     if (!same) {
-                        torajs_throw_type_error(
+                        __torajs_throw_type_error(
                             "TypeError: Cannot redefine property: writable was false, value mismatch");
                         return;
                     }
@@ -2889,7 +2897,7 @@ void __torajs_obj_check_not_frozen(const void *p) {
          * to the user's try/catch (or propagates) BEFORE the field
          * store, so the illegal mutation never happens. Prefix
          * stripped: .message is the bare text, .name is "TypeError". */
-        torajs_throw_type_error("Attempted to assign to readonly property");
+        __torajs_throw_type_error("Attempted to assign to readonly property");
         return;
     }
 }
@@ -3583,81 +3591,16 @@ void *__torajs_str_substring(const uint8_t *s, int64_t start, int64_t end) {
  * around the defineProperty call (the test262 / assert.throws shape)
  * catches it; without a handler the throw propagates to fn boundary.
  */
-/* P7.4 — native-error factory registry. Slots: 0=Error, 1=TypeError,
- * 2=RangeError. Populated once at program startup by a synthesized
- * `__torajs_register_native_error` call (emitted by a later pass for
- * whichever Error-family classes inject_builtin_classes injected). A
- * registered slot holds a fn-ptr to the codegen'd `__new_<C>(message)`
- * factory; a runtime native-error throw then calls it to build a real
- * catchable instance (instanceof / .name / .message / .stack correct).
- *
- * Unregistered slot → graceful fallback to the legacy bare-string
- * throw. This is intentionally the state in P7.4-a-1 (registry skeleton
- * only; nothing registers yet) so behavior is byte-identical to the
- * pre-P7.4 string-throw until P7.4-a-2 wires the startup registration.
- *
- * Single registration at startup, read-only after — no lock (matches
- * the existing single-threaded throw-slot model). */
-typedef void *(*__torajs_native_error_factory_t)(void *message_str);
-static __torajs_native_error_factory_t __torajs_native_error_reg[3] = {0, 0, 0};
-
-void __torajs_register_native_error(int64_t slot, void *fnptr) {
-    if (slot >= 0 && slot < 3) {
-        __torajs_native_error_reg[(int)slot] =
-            (__torajs_native_error_factory_t)fnptr;
-    }
-}
-
-/* Build the message string, then: if the slot's factory is registered
- * call it for a real Error instance and throw that; otherwise throw
- * the bare string (legacy behavior). slot: 1=TypeError, 2=RangeError
- * (0=Error reserved). The ssa_lower-side emit_throw_check after the
- * caller propagates to the user's try/catch either way. */
-static void torajs_throw_native(int64_t slot, const char *msg) {
-    uint64_t len = strlen(msg);
-    uint8_t *err = str_alloc_(len);
-    if (len) memcpy(__TORAJS_STR_DATA(err), msg, (size_t)len);
-    if (slot >= 0 && slot < 3 && __torajs_native_error_reg[slot]) {
-        void *inst = __torajs_native_error_reg[slot]((void *)err);
-        __torajs_throw_set(4 /* ANY_HEAP */, (int64_t)(uintptr_t)inst);
-        return;
-    }
-    __torajs_throw_set(4 /* ANY_HEAP */, (int64_t)(uintptr_t)err);
-}
-
-static void torajs_throw_range_error(const char *msg) {
-    torajs_throw_native(2 /* RangeError */, msg);
-}
-
-/* P7.4-a-b — exported wrapper so runtime_bigint.c (a separately
- * compiled TU) can route divide-by-zero / negative-exponent / shift-
- * too-large to a real catchable RangeError instance instead of
- * __torajs_panic (process abort). Same throw-slot convention as
- * torajs_throw_native; ssa_lower's emit_throw_check after the bigint
- * op propagates to the user's try/catch or the function boundary. */
-void __torajs_throw_range_error(const char *msg) {
-    torajs_throw_range_error(msg);
-}
-
-/* Parallel exported wrapper for TypeError. Used by runtime_regex.c
- * (`s.matchAll(re)` with `re` lacking `g` flag per spec §22.1.3.13)
- * and any future cross-TU site that needs to raise a catchable
- * TypeError. Mirrors __torajs_throw_range_error: store an instance
- * in the throw slot; ssa_lower's emit_throw_check after the call
- * propagates to try/catch or function boundary. */
-void __torajs_throw_type_error(const char *msg) {
-    torajs_throw_type_error(msg);
-}
-
-/* P3.attribute-flag-tracking — sibling of torajs_throw_range_error
- * used by `__torajs_dynobj_set` (writable=false implicit assign) and
- * `__torajs_dynobj_define` (spec §10.1.6.3 transition violations).
- * Same calling convention: store the string into the thread-local
- * throw slot; ssa_lower's emit_throw_check after the call propagates
- * to the user's try/catch (or function boundary). */
-static void torajs_throw_type_error(const char *msg) {
-    torajs_throw_native(1 /* TypeError */, msg);
-}
+/* P2.4-a (2026-05-23 architecture-rewrite) — native-error factory
+ * registry + `__torajs_throw_range_error` / `__torajs_throw_type
+ * _error` cross-TU helpers + the internal `torajs_throw_native`
+ * dispatch now provided by the Rust `torajs-throw` crate. C
+ * definitions deleted from this file; the extern decls forward-
+ * declared near the top (~line 1083) let in-file callers
+ * (dynobj_set / dynobj_define / arr_set_length_validate) keep
+ * resolving the public symbols at link time. The previous static
+ * helpers `torajs_throw_range_error` / `torajs_throw_type_error`
+ * are gone — call sites updated to use the public Rust names. */
 
 void __torajs_arr_set_length_validate(int64_t tag, int64_t value) {
     /* Resolve descriptor.value to a JS Number. tora's typed pack:
@@ -3670,13 +3613,13 @@ void __torajs_arr_set_length_validate(int64_t tag, int64_t value) {
         case 1: return;            /* Bool 0/1 → valid */
         case 2: n = (double)value; break;
         case 3: { union { int64_t i; double d; } u = { .i = value }; n = u.d; break; }
-        default: torajs_throw_range_error("Invalid array length"); return;
+        default: __torajs_throw_range_error("Invalid array length"); return;
     }
     /* Spec §9.4.2.4: throw if ToUint32(v) !== ToNumber(v). Equivalent
      * check: n must be a non-negative integer in [0, 2^32 - 1]. NaN /
      * Infinity / fractional / negative / overflow all fail. */
     if (n != n || n < 0.0 || n > 4294967295.0 || n != (double)(int64_t)n) {
-        torajs_throw_range_error("Invalid array length");
+        __torajs_throw_range_error("Invalid array length");
     }
 }
 

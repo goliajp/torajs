@@ -27,3 +27,6 @@ torajs-rc = { path = "../torajs-rc" }
 # Layer-1 substrate: AnyBox heap value (boxed Type::Any). Same dual
 # rlib+staticlib usage as torajs-rc above.
 torajs-anyvalue = { path = "../torajs-anyvalue" }
+# Layer-1 substrate: native-error factory registry + throw_range/
+# type_error helpers. Same dual rlib+staticlib usage.
+torajs-throw = { path = "../torajs-throw" }

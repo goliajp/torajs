@@ -5,6 +5,7 @@ members = [
     "crates/torajs-ucd",
     "crates/torajs-rc",
     "crates/torajs-anyvalue",
+    "crates/torajs-throw",
     "crates/torajs-runtime",
     "crates/torajs-core",
     "crates/torajs-cli",
@@ -57,11 +58,11 @@ lto = "fat"
 codegen-units = 1
 strip = true
 # panic = "abort" is required for the no_std staticlibs in
-# crates/torajs-rc + crates/torajs-anyvalue (unwinding panics
-# aren't supported without std) AND independently good for
-# vision #1 perf — removes the per-fn unwind tables and a tier
-# of LLVM codegen complexity, shrinking the AOT user-binary by
-# ~10% across the bench corpus.
+# crates/torajs-rc + crates/torajs-anyvalue + crates/torajs-throw
+# (unwinding panics aren't supported without std) AND
+# independently good for vision #1 perf — removes the per-fn
+# unwind tables and a tier of LLVM codegen complexity, shrinking
+# the AOT user-binary by ~10% across the bench corpus.
 panic = "abort"
 
 # panic = "abort" on dev for symmetry with release — `cargo test`

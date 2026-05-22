@@ -1,0 +1,22 @@
+[package]
+name = "torajs-throw"
+description = "Catchable throw-slot machinery + native-error factory registry for the torajs AOT TypeScript runtime. Pairs with ssa_lower's emit_throw_check to power JS-style try/catch propagation across runtime helpers (RangeError on bigint div-by-zero, TypeError on frozen-obj mutation, etc.) and the throw of real catchable Error subclass instances. Layer-1 substrate. no_std-friendly, 0 runtime deps."
+keywords = ["torajs", "exception", "throw", "error", "ffi"]
+categories = ["no-std", "memory-management"]
+readme = "README.md"
+documentation = "https://docs.rs/torajs-throw"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+# Dual emit: `rlib` for cargo workspace builds + unit tests;
+# `staticlib` for ssa_inkwell to link into every `tr build` AOT
+# user binary alongside libtorajs_rc.a / libtorajs_anyvalue.a.
+[lib]
+crate-type = ["rlib", "staticlib"]
