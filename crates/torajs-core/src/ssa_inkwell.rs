@@ -855,6 +855,18 @@ pub fn compile_for_kind(
      * the alloc-heavy paths more than they help the pure-numeric ones).
      * Keep Less; the IR pipeline runs at `default<O3>` (per `opt`
      * above) which is where the bulk of optimization lives. */
+    /* Reloc mode stays at PIC. A P-PERF.A5 attempt switched native
+     * Executable to Static (2026-05-22, reverted same day): hoped
+     * to elide GOT indirection on cross-TU calls, but the bench
+     * cycle ran on a thermal-loaded machine and showed correlated
+     * tora-and-bun regression of 5–15 % across most cases (high
+     * shared noise; couldn't isolate the Static-vs-PIC signal
+     * cleanly). geomean vs bun-aot 4.155 → 4.145, vs node-v8 20.86
+     * → 19.99 — both within noise and not a clear improvement
+     * direction. Keeping PIC until a quiescent-machine rerun can
+     * give a cleaner measurement, or until PGO arrives and re-
+     * justifies the reloc question. Archived bench evidence at
+     * bench/results/2026-05-22-mini-3bf6002.json. */
     let machine = target_obj
         .create_target_machine(
             &triple,
