@@ -759,6 +759,46 @@ pub fn compile_for_kind(
             }
             fn_map[i].set_linkage(inkwell::module::Linkage::Internal);
         }
+
+        /* P-PERF.A3 (2026-05-22) — alwaysinline for small,
+         * non-recursive user fns. LLVM's cost-model inliner is
+         * conservative on fns with loops; small reducer-shaped
+         * helpers (add1, gcd inner, is_prime, etc.) that get
+         * called from a tight outer loop benefit from
+         * unconditional inline → enables downstream vectorize /
+         * unroll on the (now flattened) inner loop.
+         *
+         * Heuristic:
+         *   - body SSA inst count below threshold (60), AND
+         *   - no Call back to self anywhere (recursive fns are
+         *     skipped — alwaysinline would infinite-expand).
+         *
+         * Recursive case (fib40 / ackermann) explicitly excluded.
+         * `main` already excluded above. */
+        for (i, f) in ssa_module.funcs.iter().enumerate() {
+            if f.is_declaration() || intrinsics.contains(&f.name.as_str()) {
+                continue;
+            }
+            if f.name == "main" || f.name == "__main_argc_argv" {
+                continue;
+            }
+            let inst_count: usize = f.blocks.iter().map(|b| b.insts.len()).sum();
+            if inst_count >= 60 {
+                continue;
+            }
+            let self_recursive = f.blocks.iter().any(|b| {
+                b.insts.iter().any(|inst| {
+                    matches!(
+                        inst.kind,
+                        InstKind::Call(fid, _) if ssa_module.func_name(fid) == f.name.as_str()
+                    )
+                })
+            });
+            if self_recursive {
+                continue;
+            }
+            mark_alwaysinline(&ctx, fn_map[i]);
+        }
     }
 
     // Pass D: verify, optimize, emit, link.
