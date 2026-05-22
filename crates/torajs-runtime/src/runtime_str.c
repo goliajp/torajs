@@ -1821,6 +1821,15 @@ extern double __torajs_any_to_number_inner(int64_t tag, int64_t value);
 extern bool __torajs_any_compare(int64_t op, int64_t lt, int64_t lv,
                                  int64_t rt, int64_t rv);
 
+/* P2.3-d.3 (2026-05-23 architecture-rewrite) — `__torajs_any_arith`
+ * (`-`, `*`, `/`, `%` per ES §13.6–§13.9) now provided by the Rust
+ * `torajs-anyvalue` crate. Definition deleted from this file; the
+ * extern decl below lets ssa_lower-emitted IR keep resolving the
+ * public symbol at link time (no in-file C callers — pure ssa_lower
+ * intrinsic, same as any_compare). */
+extern void *__torajs_any_arith(int64_t op, int64_t lt, int64_t lv,
+                                int64_t rt, int64_t rv);
+
 void *__torajs_str_concat(const uint8_t *a, const uint8_t *b);
 void *__torajs_i64_to_str(int64_t n);
 void *__torajs_f64_to_str(double n);
@@ -1835,45 +1844,6 @@ double __torajs_str_to_number(const void *p);
  * per-type pretty-print. */
 extern void *__torajs_any_to_str(int64_t tag, int64_t value);
 
-
-/* P0.7 — Any-aware arithmetic dispatcher for `-`, `*`, `/`, `%`.
- * Per JS spec §13.6 / §13.7 / §13.8 / §13.9 — both operands go
- * through ToNumber then the arithmetic is performed in IEEE 754.
- * Result is always Number (either I64 or F64 boxed in Any).
- *
- * op codes: 0=Sub, 1=Mul, 2=Div, 3=Mod
- */
-void *__torajs_any_arith(int64_t op, int64_t lt, int64_t lv,
-                         int64_t rt, int64_t rv)
-{
-    double l = __torajs_any_to_number_inner(lt, lv);
-    double r = __torajs_any_to_number_inner(rt, rv);
-    double result;
-    switch (op) {
-        case 0: result = l - r; break;
-        case 1: result = l * r; break;
-        case 2: result = l / r; break;
-        case 3: result = fmod(l, r); break;
-        default: result = 0.0 / 0.0; break;
-    }
-    /* I64-encode if both inputs were i64-shaped AND result is
-     * integer-valued in i64 range — keeps Number printing clean
-     * (matches the same logic in __torajs_any_add). */
-    bool l_was_i = (lt == __TORAJS_ANY_NULL || lt == __TORAJS_ANY_BOOL
-                    || lt == __TORAJS_ANY_I64);
-    bool r_was_i = (rt == __TORAJS_ANY_NULL || rt == __TORAJS_ANY_BOOL
-                    || rt == __TORAJS_ANY_I64);
-    if (l_was_i && r_was_i && op != 2  /* div always f64 even for ints */
-        && result >= (double)INT64_MIN && result <= (double)INT64_MAX)
-    {
-        int64_t isum = (int64_t)result;
-        if ((double)isum == result) {
-            return __torajs_any_box(__TORAJS_ANY_I64, isum);
-        }
-    }
-    union { int64_t i; double d; } u = { .d = result };
-    return __torajs_any_box(__TORAJS_ANY_F64, u.i);
-}
 
 /* P0.6 — Any + Any per JS spec §13.15.3 ApplyStringOrNumericBinary
  * Operator with op `+`. Caller packs both operands as (tag, value)

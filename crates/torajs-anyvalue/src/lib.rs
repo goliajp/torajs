@@ -732,6 +732,118 @@ unsafe fn any_compare(op: i64, lt: i64, lv: i64, rt: i64, rv: i64) -> bool {
 }
 
 // ============================================================
+// Arithmetic dispatch (JS spec §13.6 / §13.7 / §13.8 / §13.9)
+// ============================================================
+
+/// Op code for `-`, `*`, `/`, `%` per ssa_lower's emission. Mirror
+/// of the C `__torajs_any_arith` switch on the `op` argument:
+/// 0=Sub, 1=Mul, 2=Div, 3=Mod.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ArithOp {
+    Sub,
+    Mul,
+    Div,
+    Mod,
+}
+
+impl ArithOp {
+    /// Decode the i64 wire format ssa_lower emits.
+    fn from_i64(op: i64) -> Option<ArithOp> {
+        match op {
+            0 => Some(ArithOp::Sub),
+            1 => Some(ArithOp::Mul),
+            2 => Some(ArithOp::Div),
+            3 => Some(ArithOp::Mod),
+            _ => None,
+        }
+    }
+
+    /// Apply the op to two already-ToNumber-d operands. ES §13.9
+    /// `%` matches C's `fmod` (sign of dividend; NaN on `y == 0`);
+    /// Rust's `f64 % f64` lowers to `fmod` on every host we target,
+    /// so the Mod arm is a one-liner with no special-casing.
+    #[inline]
+    fn apply(self, l: f64, r: f64) -> f64 {
+        match self {
+            ArithOp::Sub => l - r,
+            ArithOp::Mul => l * r,
+            ArithOp::Div => l / r,
+            ArithOp::Mod => l % r,
+        }
+    }
+
+    /// Whether the integer fast-path applies to this op. `Div`
+    /// always yields f64 even for integer operands (`1/2 === 0.5`,
+    /// not `0`), so it's excluded; the rest qualify.
+    #[inline]
+    fn allows_i64_fast_path(self) -> bool {
+        !matches!(self, ArithOp::Div)
+    }
+}
+
+/// Whether an Any tag's ToNumber result is "i64-shaped" — i.e.
+/// always an exact integer in i64 range. Null=0, Bool=0/1,
+/// I64=value all qualify; F64 doesn't (may be fractional), Undef
+/// doesn't (ToNumber → NaN), Heap+anything doesn't (Str parse can
+/// produce f64, object → NaN). Used by `any_arith` to decide the
+/// I64-vs-F64 boxing of integer-valued results.
+#[inline]
+fn tag_is_i64_shaped(tag: i64) -> bool {
+    tag == AnySlotTag::Null as i64
+        || tag == AnySlotTag::Bool as i64
+        || tag == AnySlotTag::I64 as i64
+}
+
+/// `-`, `*`, `/`, `%` on two Any-tagged `(tag, value)` pairs per
+/// ES §13.6–§13.9. Both operands `ToNumber`-ed then the arithmetic
+/// happens in IEEE 754. Result is boxed as either I64 (integer
+/// fast-path; see [`ArithOp::allows_i64_fast_path`] +
+/// [`tag_is_i64_shaped`]) or F64.
+///
+/// Out-of-range `op` → NaN-boxed (defensive; IR should never emit
+/// this).
+///
+/// # Safety
+///
+/// If either `tag` is Heap, the corresponding `value` must be
+/// null or a valid `*mut HeapHeader` — propagated through
+/// [`any_to_number`].
+unsafe fn any_arith(op: i64, lt: i64, lv: i64, rt: i64, rv: i64) -> *mut c_void {
+    let arith_op = match ArithOp::from_i64(op) {
+        Some(o) => o,
+        // Defensive — match the C `default: NaN` branch.
+        None => return alloc_number_f64(f64::NAN),
+    };
+    // SAFETY: caller invariant — propagated.
+    let l = unsafe { any_to_number(lt, lv) };
+    let r = unsafe { any_to_number(rt, rv) };
+    let result = arith_op.apply(l, r);
+
+    if arith_op.allows_i64_fast_path()
+        && tag_is_i64_shaped(lt)
+        && tag_is_i64_shaped(rt)
+        && result >= i64::MIN as f64
+        && result <= i64::MAX as f64
+    {
+        let int_result = result as i64;
+        // Round-trip check: only box as I64 if the cast is lossless.
+        if (int_result as f64) == result {
+            return AnyBox::alloc(AnySlotTag::I64, int_result).as_ptr() as *mut c_void;
+        }
+    }
+    alloc_number_f64(result)
+}
+
+/// Box an f64 into a fresh AnyBox tagged F64. Matches the C ABI's
+/// `__torajs_any_box(ANY_F64, bitcast(f64).i64)` pattern. Shared
+/// helper because any_arith has two callsites for it (defensive
+/// NaN return + main F64 path) and any_add will reuse.
+#[inline]
+fn alloc_number_f64(value: f64) -> *mut c_void {
+    AnyBox::alloc(AnySlotTag::F64, value.to_bits() as i64).as_ptr() as *mut c_void
+}
+
+// ============================================================
 // FFI shims — thin wrappers for ssa_lower-emitted IR
 // ============================================================
 
@@ -900,6 +1012,28 @@ pub unsafe extern "C" fn __torajs_any_to_number_inner(tag: i64, value: i64) -> f
 pub unsafe extern "C" fn __torajs_any_compare(op: i64, lt: i64, lv: i64, rt: i64, rv: i64) -> bool {
     // SAFETY: caller invariant — propagated.
     unsafe { any_compare(op, lt, lv, rt, rv) }
+}
+
+/// FFI bridge — packed-pair arithmetic dispatch per ES §13.6–§13.9.
+/// `op` is 0=Sub, 1=Mul, 2=Div, 3=Mod; out-of-range op codes return
+/// a NaN-boxed AnyBox defensively. Used by ssa_lower at every
+/// `-` / `*` / `/` / `%` site where either operand is Any-typed.
+/// Returns a fresh owned AnyBox (refcount = 1); caller must drop.
+///
+/// # Safety
+///
+/// For `lt == AnySlotTag::Heap as i64`, `lv` is null or a valid
+/// `*mut HeapHeader`. Same constraint on `(rt, rv)`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_any_arith(
+    op: i64,
+    lt: i64,
+    lv: i64,
+    rt: i64,
+    rv: i64,
+) -> *mut c_void {
+    // SAFETY: caller invariant — propagated.
+    unsafe { any_arith(op, lt, lv, rt, rv) }
 }
 
 /// FFI bridge — Any === concrete (SSA-emitted `(tag, value)` pair
@@ -1505,5 +1639,165 @@ mod tests {
         assert!(!CompareOp::Ge.apply(Ordering::Less));
         assert!(CompareOp::Ge.apply(Ordering::Equal));
         assert!(CompareOp::Ge.apply(Ordering::Greater));
+    }
+
+    // ---- P2.3-d.3: arithmetic dispatch ----
+
+    /// Unbox a fresh AnyBox returned by any_arith into a typed
+    /// view, then drop the box. Used in every arith test to assert
+    /// both the tag and value the dispatcher chose.
+    unsafe fn unbox_drop(p: *mut c_void) -> AnyValue {
+        let b = unsafe { &*(p as *const AnyBox) };
+        let view = b.read();
+        unsafe { __torajs_any_box_drop(p) };
+        view
+    }
+
+    #[test]
+    fn arith_op_decode_round_trip() {
+        assert_eq!(ArithOp::from_i64(0), Some(ArithOp::Sub));
+        assert_eq!(ArithOp::from_i64(1), Some(ArithOp::Mul));
+        assert_eq!(ArithOp::from_i64(2), Some(ArithOp::Div));
+        assert_eq!(ArithOp::from_i64(3), Some(ArithOp::Mod));
+        assert_eq!(ArithOp::from_i64(4), None);
+        assert_eq!(ArithOp::from_i64(-1), None);
+    }
+
+    #[test]
+    fn arith_op_apply_basic_ops() {
+        // Plain IEEE-754 arithmetic — sanity checks.
+        assert_eq!(ArithOp::Sub.apply(10.0, 3.0), 7.0);
+        assert_eq!(ArithOp::Mul.apply(4.0, 5.0), 20.0);
+        assert_eq!(ArithOp::Div.apply(10.0, 4.0), 2.5);
+        // ES §13.9 % — sign of dividend (matches C fmod).
+        assert_eq!(ArithOp::Mod.apply(10.0, 3.0), 1.0);
+        assert_eq!(ArithOp::Mod.apply(-10.0, 3.0), -1.0);
+    }
+
+    #[test]
+    fn arith_op_apply_ieee_edge_cases() {
+        // Div by zero → ±Infinity per IEEE 754.
+        assert_eq!(ArithOp::Div.apply(1.0, 0.0), f64::INFINITY);
+        assert_eq!(ArithOp::Div.apply(-1.0, 0.0), f64::NEG_INFINITY);
+        // 0/0 → NaN.
+        assert!(ArithOp::Div.apply(0.0, 0.0).is_nan());
+        // Mod by 0 → NaN.
+        assert!(ArithOp::Mod.apply(5.0, 0.0).is_nan());
+        // NaN propagates.
+        assert!(ArithOp::Sub.apply(f64::NAN, 1.0).is_nan());
+        assert!(ArithOp::Mul.apply(2.0, f64::NAN).is_nan());
+    }
+
+    #[test]
+    fn arith_op_allows_i64_fast_path() {
+        assert!(ArithOp::Sub.allows_i64_fast_path());
+        assert!(ArithOp::Mul.allows_i64_fast_path());
+        assert!(ArithOp::Mod.allows_i64_fast_path());
+        // Div explicitly opts OUT (1/2 === 0.5, not 0).
+        assert!(!ArithOp::Div.allows_i64_fast_path());
+    }
+
+    #[test]
+    fn tag_is_i64_shaped_classification() {
+        assert!(tag_is_i64_shaped(AnySlotTag::Null as i64));
+        assert!(tag_is_i64_shaped(AnySlotTag::Bool as i64));
+        assert!(tag_is_i64_shaped(AnySlotTag::I64 as i64));
+        // F64, Undef, Heap → not i64-shaped.
+        assert!(!tag_is_i64_shaped(AnySlotTag::F64 as i64));
+        assert!(!tag_is_i64_shaped(AnySlotTag::Undef as i64));
+        assert!(!tag_is_i64_shaped(AnySlotTag::Heap as i64));
+    }
+
+    #[test]
+    fn any_arith_int_int_returns_i64_tagged() {
+        unsafe {
+            // 10 - 3 = 7 → I64 (both inputs i64-shaped, Sub, integer).
+            let p = any_arith(0, 2, 10, 2, 3);
+            assert!(matches!(unbox_drop(p), AnyValue::I64(7)));
+            // 4 * 5 = 20 → I64.
+            let p = any_arith(1, 2, 4, 2, 5);
+            assert!(matches!(unbox_drop(p), AnyValue::I64(20)));
+            // 10 % 3 = 1 → I64.
+            let p = any_arith(3, 2, 10, 2, 3);
+            assert!(matches!(unbox_drop(p), AnyValue::I64(1)));
+        }
+    }
+
+    #[test]
+    fn any_arith_div_always_returns_f64() {
+        unsafe {
+            // 10 / 4 = 2.5 → F64 (fractional).
+            let p = any_arith(2, 2, 10, 2, 4);
+            assert!(matches!(unbox_drop(p), AnyValue::F64(x) if x == 2.5));
+            // 10 / 5 = 2 → still F64 (Div opts out of integer fast-path).
+            let p = any_arith(2, 2, 10, 2, 5);
+            assert!(matches!(unbox_drop(p), AnyValue::F64(x) if x == 2.0));
+        }
+    }
+
+    #[test]
+    fn any_arith_f64_input_returns_f64() {
+        unsafe {
+            // F64 input forces F64 output even if result is integer.
+            let two_bits = 2.0_f64.to_bits() as i64;
+            let p = any_arith(
+                1, /* Mul */
+                3, /* F64 */
+                two_bits, 2, /* I64 */
+                3,
+            );
+            // 2.0 * 3 = 6.0 → F64 (left side was F64-tagged).
+            assert!(matches!(unbox_drop(p), AnyValue::F64(x) if x == 6.0));
+        }
+    }
+
+    #[test]
+    fn any_arith_bool_null_treated_as_i64_shaped() {
+        unsafe {
+            // true + true (Mul) — both Bool-tagged → I64 fast-path.
+            let p = any_arith(1, 1 /* Bool */, 1, 1 /* Bool */, 1);
+            assert!(matches!(unbox_drop(p), AnyValue::I64(1)));
+            // null - null = 0 → I64.
+            let p = any_arith(0, 0 /* Null */, 0, 0 /* Null */, 0);
+            assert!(matches!(unbox_drop(p), AnyValue::I64(0)));
+        }
+    }
+
+    #[test]
+    fn any_arith_undef_propagates_nan_as_f64() {
+        unsafe {
+            // undefined * 2 → NaN → F64 (NaN never round-trips through i64).
+            let p = any_arith(1, 5 /* Undef */, 0, 2 /* I64 */, 2);
+            assert!(matches!(unbox_drop(p), AnyValue::F64(x) if x.is_nan()));
+        }
+    }
+
+    #[test]
+    fn any_arith_unknown_op_returns_nan_f64() {
+        unsafe {
+            // op=99 — defensive NaN-box.
+            let p = any_arith(99, 2, 1, 2, 2);
+            assert!(matches!(unbox_drop(p), AnyValue::F64(x) if x.is_nan()));
+        }
+    }
+
+    #[test]
+    fn any_arith_integer_fractional_result_uses_f64() {
+        unsafe {
+            // I64(1) % I64 doesn't happen here, but I64-1 + I64-1 should
+            // be I64. Verify that integer result via Mod that lands on an
+            // exact integer DOES use I64.
+            let p = any_arith(3 /* Mod */, 2, 17, 2, 5); // 17 % 5 = 2
+            assert!(matches!(unbox_drop(p), AnyValue::I64(2)));
+        }
+    }
+
+    #[test]
+    fn ffi_any_arith_round_trip() {
+        unsafe {
+            // FFI smoke test — Sub via the public symbol.
+            let p = __torajs_any_arith(0, 2, 10, 2, 3);
+            assert!(matches!(unbox_drop(p), AnyValue::I64(7)));
+        }
     }
 }
