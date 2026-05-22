@@ -2881,6 +2881,22 @@ fn lower_inner(
         &[Type::Any],
         Type::Void,
     );
+    /* P-CONSOLE follow-up — `__torajs_any_to_str(tag, value)` —
+     * route an Any-boxed value (split into tag + value via
+     * `any_unbox_tag` + `any_unbox_value`) into the runtime's
+     * tag-dispatched ToString implementation. Used by
+     * `coerce_to_str` to support `console.log(literal, e)` where
+     * `e` is Type::Any (the default catch-param shape). Returns
+     * a fresh owned Str (rc=1; caller drops). For ANY_HEAP /
+     * Type::Str inputs the helper rc-inc's the existing pointer
+     * and returns it — caller still owns a single ref. */
+    let any_to_str_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_any_to_str",
+        &[Type::I64, Type::I64],
+        Type::Str,
+    );
     /* T-09.d (v0.4.0) — Object.freeze sets FROZEN bit; isFrozen
      * reads it. Field-write codegen consults the bit inline (no
      * runtime call) for the silent-ignore mutation guard. */
@@ -4999,6 +5015,7 @@ fn lower_inner(
         any_unbox_value: any_unbox_value_id,
         any_box_drop: any_box_drop_id,
         print_any: print_any_id,
+        any_to_str: any_to_str_id,
         obj_freeze: obj_freeze_id,
         obj_is_frozen: obj_is_frozen_id,
         obj_check_not_frozen: obj_check_not_frozen_id,
@@ -5849,6 +5866,7 @@ struct Intrinsics {
     any_unbox_value: FuncId,
     any_box_drop: FuncId,
     print_any: FuncId,
+    any_to_str: FuncId,
     obj_freeze: FuncId,
     obj_is_frozen: FuncId,
     obj_check_not_frozen: FuncId,
@@ -8194,6 +8212,38 @@ impl<'a> LowerCtx<'a> {
                 );
                 self.emit_drop_value(Operand::Value(body), Type::Str);
                 Operand::Value(formatted)
+            }
+            Type::Any => {
+                /* Any-boxed value (catch param default / dynobj
+                 * lookup result / etc.): split into tag + raw value
+                 * via the unbox intrinsics, then route through the
+                 * runtime's tag-dispatched ToString implementation.
+                 * Returns a fresh-owned Str (rc=1; caller's
+                 * post-call drop reclaims). Heap inputs are rc-inc'd
+                 * by the runtime so the caller still sees a single
+                 * owned ref. */
+                let tag = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.any_unbox_tag, vec![val.clone()]),
+                    Type::I64,
+                    None,
+                );
+                let raw = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.any_unbox_value, vec![val]),
+                    Type::I64,
+                    None,
+                );
+                let s = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(
+                        self.intrinsics.any_to_str,
+                        vec![Operand::Value(tag), Operand::Value(raw)],
+                    ),
+                    Type::Str,
+                    None,
+                );
+                Operand::Value(s)
             }
             other => {
                 panic!("ssa-lower: console multi-arg coercion of type {other:?} not supported")

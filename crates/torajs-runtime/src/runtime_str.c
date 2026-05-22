@@ -1908,7 +1908,7 @@ double __torajs_str_to_number(const void *p);
  * fresh owned Str (caller takes ownership). For HEAP/Str case
  * returns the existing pointer with rc bumped (caller still owns
  * a single reference). */
-static void *__torajs_any_to_str(int64_t tag, int64_t value) {
+void *__torajs_any_to_str(int64_t tag, int64_t value) {
     switch (tag) {
         case __TORAJS_ANY_NULL: return __torajs_null_to_str();
         /* P1.5 — ToString(undefined) === "undefined" per spec §7.1.17. */
