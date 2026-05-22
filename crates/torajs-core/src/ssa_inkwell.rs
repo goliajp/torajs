@@ -717,6 +717,50 @@ pub fn compile_for_kind(
         }
     }
 
+    /* P-PERF.A1 (2026-05-22) — Internal-linkage pass for user
+     * FnDecls (plus all tora-synthesized internal helpers like
+     * `__closure_N` / `__env_drop_N` / `__cm_<C>__<m>` /
+     * `__forward_<name>`). Pre-P-PERF.A1 those fns were emitted
+     * with default LLVM linkage (External) — which forces LLVM
+     * to assume the symbol may be called from outside the module.
+     * Consequence: no IPSCCP, no per-callsite specialization, no
+     * inlining of single-call helpers. Concrete leakage on the
+     * `reduce(xs, add1)` shape — closure-pipeline-1m's hot loop
+     * is `tail call i64 %f(i64 %arg)` through an opaque fn-ptr
+     * because LLVM can't see `add1` flows in from main.
+     *
+     * With Internal linkage:
+     *  - IPSCCP folds the fn-ptr param to a constant per call site
+     *  - Inliner inlines the reducer body into main
+     *  - The (now-direct) inner call to add1 inlines too
+     *  - LLVM unrolls + vectorizes the loop
+     *
+     * Scope: Executable output only. SharedLib output (torajs-embed
+     * crate's `compile_to_dylib` path) MUST keep user fns External
+     * — the embedding host (C / Rust runtime) dlopens the .dylib
+     * and looks up user-fn symbols by name; Internal linkage hides
+     * them from the dynamic symbol table.
+     *
+     * Skip set within Executable:
+     *  - declarations (extern C runtime helpers — MUST stay External)
+     *  - intrinsics (tora-defined fns called cross-TU by the C runtime
+     *    side; their symbols must be visible at link time)
+     *  - `main` (renamed to platform-specific entry by declare_ssa_fn;
+     *    the OS / wasi-libc resolves it as External by ABI)
+     *  - `__main_argc_argv` (wasi-libc lookup target; same reason).
+     */
+    if matches!(kind, OutputKind::Executable) {
+        for (i, f) in ssa_module.funcs.iter().enumerate() {
+            if f.is_declaration() || intrinsics.contains(&f.name.as_str()) {
+                continue;
+            }
+            if f.name == "main" || f.name == "__main_argc_argv" {
+                continue;
+            }
+            fn_map[i].set_linkage(inkwell::module::Linkage::Internal);
+        }
+    }
+
     // Pass D: verify, optimize, emit, link.
     if let Err(e) = llvm_module.verify() {
         return Err(CompileError::Verify(e.to_string()));
