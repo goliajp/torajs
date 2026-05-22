@@ -1,6 +1,7 @@
 [workspace]
 resolver = "3"
 members = [
+    "crates/torajs-pool",
     "crates/torajs-runtime",
     "crates/torajs-core",
     "crates/torajs-cli",

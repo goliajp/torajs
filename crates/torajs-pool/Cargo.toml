@@ -1,0 +1,25 @@
+[package]
+name = "torajs-pool"
+description = "Bounded fixed-size memory pool — thread-local LIFO free-list for fixed-size struct types. Extracted from the torajs AOT TypeScript runtime where it lifts Promise alloc to a -41% bench median win over plain malloc / free. const-generic capacity + zero-cost `Acquire` / `Release` API."
+keywords = ["pool", "allocator", "memory", "torajs", "freelist"]
+categories = ["memory-management", "data-structures", "no-std"]
+readme = "README.md"
+documentation = "https://docs.rs/torajs-pool"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "pool"
+harness = false
