@@ -82,8 +82,36 @@ void __torajs_microtask_enqueue(__torajs_microtask_fn_t fn, int64_t arg);
 
 #define __TORAJS_PROMISE_SIZE  32
 
+/* P-PERF.A6 (2026-05-22) — bounded free-list pool for Promise
+ * structs. Hot benchmark cases (promise-chain-1k / promise-all-1k /
+ * promise-await-100k / promise-then-100k) allocate + free hundreds
+ * to hundreds-of-thousands of Promises in tight loops. Without a
+ * pool every alloc/free hits libc malloc/free → cache miss + lock
+ * contention even single-threaded.
+ *
+ * Single-threaded, head-only stack (LIFO so we hit hot cache lines
+ * first). Capacity bounded so memory doesn't grow unbounded under
+ * pathological churn — overflow falls back to `free`. The freelist
+ * head + count are static globals (whole tora runtime is single-
+ * threaded today; sync needed when we ship threading per
+ * roadmap).
+ *
+ * Layout reuses the Promise struct's pointer-slot at `callbacks`
+ * (cleared on entry → repurposed as `next` while in the pool →
+ * re-cleared on exit). No extra storage. */
+#define __TORAJS_PROMISE_POOL_CAP  32
+static Promise *promise_pool_head_ = NULL;
+static int promise_pool_count_ = 0;
+
 static Promise *promise_alloc_(uint8_t state, int64_t value, uint8_t is_heap) {
-    Promise *p = (Promise *)malloc(__TORAJS_PROMISE_SIZE);
+    Promise *p;
+    if (promise_pool_head_ != NULL) {
+        p = promise_pool_head_;
+        promise_pool_head_ = (Promise *)p->callbacks;
+        promise_pool_count_--;
+    } else {
+        p = (Promise *)malloc(__TORAJS_PROMISE_SIZE);
+    }
     p->header.refcount = 1;
     p->header.type_tag = __TORAJS_TAG_PROMISE;
     p->header.flags = 0;
@@ -94,6 +122,18 @@ static Promise *promise_alloc_(uint8_t state, int64_t value, uint8_t is_heap) {
     p->value = value;
     p->callbacks = NULL;
     return p;
+}
+
+/* Return a Promise to the pool if there's capacity, else free.
+ * Caller must have already dropped any heap value + callbacks. */
+static void promise_release_(Promise *p) {
+    if (promise_pool_count_ < __TORAJS_PROMISE_POOL_CAP) {
+        p->callbacks = (struct __torajs_promise_cb *)promise_pool_head_;
+        promise_pool_head_ = p;
+        promise_pool_count_++;
+    } else {
+        free(p);
+    }
 }
 
 void *__torajs_promise_alloc_pending(void) {
@@ -1120,5 +1160,6 @@ void __torajs_promise_drop(void *p) {
     {
         __torajs_value_drop_heap((void *)(intptr_t)pp->value);
     }
-    free(pp);
+    /* P-PERF.A6 — return to pool instead of straight free. */
+    promise_release_(pp);
 }
