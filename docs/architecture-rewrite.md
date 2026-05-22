@@ -395,11 +395,11 @@ Mirror mailrs:
 
 ## Phased rollout
 
-| Phase | Work | Duration estimate |
-|---|---|---|
-| **P0** | Land this design doc + apply workspace.package / workspace.lints / workspace.dependencies / release-vanilla profile / workspace PERFORMANCE.md skeleton | 1 commit, <1 day |
-| **P1 — pilot** | Build `torajs-pool` end-to-end: scaffold, port A6 implementation, criterion + perf_gate + BUDGETS.md + README. Plug Promise pool into it via runtime glue. **Full acceptance gate.** | 2–3 days |
-| **P2 — Layer 1** | `torajs-rc`, `torajs-anyvalue`, `torajs-throw`, `torajs-ucd` (foundation) | 1–2 weeks |
+| Phase | Work | Duration estimate | Status |
+|---|---|---|---|
+| **P0** | Land this design doc + apply workspace.package / workspace.lints / workspace.dependencies / release-vanilla profile / workspace PERFORMANCE.md skeleton | 1 commit, <1 day | **DONE** `cf91150` |
+| **P1 — pilot** | Build `torajs-pool` end-to-end: scaffold, port A6 implementation, criterion + perf_gate + BUDGETS.md + README. Plug Promise pool into it via runtime glue. **Full acceptance gate.** | 2–3 days | **DONE** `de39cc1` (standalone crate; runtime_promise.c pool integration is a P5 follow-up) |
+| **P2 — Layer 1** | `torajs-rc`, `torajs-anyvalue`, `torajs-throw`, `torajs-ucd` (foundation) | 1–2 weeks | P2.1 (ucd) **DONE** `cba6a55`; P2.2 (rc) **DONE** `a446c1a` — C `__torajs_rc_inc / dec` deleted, Rust `torajs-rc` linked via libtorajs_rc.a into every `tr build` user binary, 25 tests, 666/0/1 conformance held, gate 4/5 pass (bench cool-machine deferred); P2.3 (anyvalue) NEXT — being audited from runtime_str.c:1663-2088 (~12 fns + dependent equality / arith / compare); P2.4 (throw) queued |
 | **P3 — Layer 2** | `torajs-str`, `torajs-num`, `torajs-bigint` | 2–3 weeks |
 | **P4 — Layer 3** | `torajs-arr`, `torajs-dynobj`, `torajs-collections`, `torajs-cycle` | 2 weeks |
 | **P5 — Layer 4** | `torajs-microtask` | 3–5 days |
