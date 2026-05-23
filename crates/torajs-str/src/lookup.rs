@@ -301,6 +301,24 @@ pub unsafe extern "C" fn __torajs_str_includes(s: *const u8, n: *const u8) -> i6
     unsafe { __torajs_str_includes_from(s, n, 0) }
 }
 
+/// `s.charCodeAt(i)` — byte at index `i` zero-extended to i64.
+/// OOB (i < 0 or i >= len) returns 0 (M6.1 stub: TS spec is NaN
+/// but the v0 SSA layer can't return NaN-as-i64). Port of
+/// `ssa_inkwell::define_str_char_code_at` (P3.1-g.4, 2026-05-23).
+///
+/// # Safety
+///
+/// `s` must be a valid Str heap block.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_char_code_at(s: *const u8, i: i64) -> i64 {
+    let len = unsafe { str_len(s) } as i64;
+    if i < 0 || i >= len {
+        return 0;
+    }
+    let bytes = unsafe { str_bytes(s, len as u64) };
+    bytes[i as usize] as i64
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

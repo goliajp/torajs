@@ -277,9 +277,10 @@ pub fn compile_for_kind(
                 mark_alwaysinline(&ctx, f);
                 f
             }
-            "__torajs_str_concat" => {
-                define_str_concat(&ctx, &llvm_module, str_alloc_pooled, memcpy)
-            }
+            // __torajs_str_concat moved to torajs-str::concat
+            // (P3.1-g.4, 2026-05-23). define_str_concat fn body +
+            // this dispatch arm + intrinsics-array entry deleted;
+            // linker resolves via libtorajs_str.a.
             "__torajs_obj_alloc" => define_obj_alloc(&ctx, &llvm_module, malloc),
             "__torajs_obj_drop" => define_obj_drop(&ctx, &llvm_module, free),
             "__torajs_arr_alloc" => {
@@ -326,14 +327,11 @@ pub fn compile_for_kind(
                 f
             }
             "__torajs_str_slice" => define_str_slice(&ctx, &llvm_module, str_alloc_pooled, memcpy),
-            "__torajs_str_char_code_at" => {
-                let f = define_str_char_code_at(&ctx, &llvm_module);
-                // hot intrinsic — body is bounds check + byte load + zext.
-                // Force-inline so per-iter `s.charCodeAt(i)` collapses to
-                // a single byte load in lex / parse hot loops
-                mark_alwaysinline(&ctx, f);
-                f
-            }
+            // __torajs_str_char_code_at moved to torajs-str::lookup
+            // (P3.1-g.4, 2026-05-23). The Rust impl is bounds-check
+            // + byte load + i64 cast; the alwaysinline + inline-in-
+            // lex/parse-hot-loops goal is now LLVM-LTO's job (fat-LTO
+            // pulls the .a fn body across to the caller's TU).
             // __torajs_str_{starts_with,ends_with,index_of,includes}
             // (no-_from 2-arg form) moved to torajs-str::lookup
             // (P3.1-g.3, 2026-05-23). Each is a thin wrapper that
@@ -543,7 +541,7 @@ pub fn compile_for_kind(
         // longer hunts for an IR body; symbols resolve at link time
         // against libtorajs_str.a.
         "__torajs_str_drop",
-        "__torajs_str_concat",
+        // "__torajs_str_concat" moved to torajs-str::concat (P3.1-g.4)
         "__torajs_obj_alloc",
         "__torajs_obj_drop",
         "__torajs_arr_alloc",
@@ -553,7 +551,7 @@ pub fn compile_for_kind(
         "__torajs_arr_push_unchecked",
         "__torajs_arr_drop",
         "__torajs_str_slice",
-        "__torajs_str_char_code_at",
+        // "__torajs_str_char_code_at" moved to torajs-str::lookup (P3.1-g.4)
         // __torajs_str_{starts_with,ends_with,index_of,includes}
         // (no-_from variants) moved to torajs-str::lookup (P3.1-g.3).
         // The Pass D dispatch loop no longer needs to find IR bodies
@@ -2413,59 +2411,8 @@ fn emit_data_global<'ctx>(
  * one fn — equivalent to the IR shape (str_alloc_pooled + memcpy)
  * collapsed into a single staticlib call. */
 
-/// `__torajs_str_concat(*StrRepr a, *StrRepr b) -> *StrRepr`
-///
-/// Allocates a fresh Str holding `a.bytes ++ b.bytes`. Operands are
-/// read-only; the caller's drops still fire normally on them.
-fn define_str_concat<'ctx>(
-    ctx: &'ctx Context,
-    m: &LlvmModule<'ctx>,
-    str_alloc_pooled: FunctionValue<'ctx>,
-    memcpy: FunctionValue<'ctx>,
-) -> FunctionValue<'ctx> {
-    let builder = ctx.create_builder();
-    let i8_t = ctx.i8_type();
-    let ptr_t = ctx.ptr_type(AddressSpace::default());
-    let fn_t = ptr_t.fn_type(&[ptr_t.into(), ptr_t.into()], false);
-    let f = m.add_function("__torajs_str_concat", fn_t, None);
-    let entry = ctx.append_basic_block(f, "entry");
-    builder.position_at_end(entry);
-
-    let a = f.get_nth_param(0).unwrap().into_pointer_value();
-    let b = f.get_nth_param(1).unwrap().into_pointer_value();
-
-    let a_len = str_len_load(ctx, &builder, a, "a_len");
-    let b_len = str_len_load(ctx, &builder, b, "b_len");
-    let total = builder.build_int_add(a_len, b_len, "total").unwrap();
-
-    let p = emit_str_alloc_header(ctx, &builder, str_alloc_pooled, total);
-    let p_data = str_data_ptr(ctx, &builder, p, "p_data");
-    let a_data = str_data_ptr(ctx, &builder, a, "a_data");
-    builder
-        .build_call(
-            memcpy,
-            &[p_data.into(), a_data.into(), a_len.into()],
-            "_cp_a",
-        )
-        .unwrap();
-    // p_data2 = p_data + a_len
-    let p_data2 = unsafe {
-        builder
-            .build_in_bounds_gep(i8_t, p_data, &[a_len], "p_data2")
-            .unwrap()
-    };
-    let b_data = str_data_ptr(ctx, &builder, b, "b_data");
-    builder
-        .build_call(
-            memcpy,
-            &[p_data2.into(), b_data.into(), b_len.into()],
-            "_cp_b",
-        )
-        .unwrap();
-
-    builder.build_return(Some(&p)).unwrap();
-    f
-}
+/* __torajs_str_concat moved to torajs-str::concat (P3.1-g.4,
+ * 2026-05-23). Rust impl: StrBlock::alloc + 2 copy_from_slice. */
 
 /// M6.1 — `__torajs_str_slice(*StrRepr s, i64 start, i64 end) -> *StrRepr`.
 /// Bounds-clamp start ∈ [0, len], end ∈ [start, len], allocate a fresh
@@ -2568,49 +2515,8 @@ fn define_str_slice<'ctx>(
     f
 }
 
-/// M6.1 — `__torajs_str_char_code_at(*StrRepr s, i64 i) -> i64`. Returns
-/// the byte at index `i` zero-extended to i64. M6.1 stub: returns 0
-/// for out-of-bounds (TS spec is NaN, but we don't have NaN-as-i64).
-fn define_str_char_code_at<'ctx>(ctx: &'ctx Context, m: &LlvmModule<'ctx>) -> FunctionValue<'ctx> {
-    let builder = ctx.create_builder();
-    let i64_t = ctx.i64_type();
-    let i8_t = ctx.i8_type();
-    let ptr_t = ctx.ptr_type(AddressSpace::default());
-    let fn_t = i64_t.fn_type(&[ptr_t.into(), i64_t.into()], false);
-    let f = m.add_function("__torajs_str_char_code_at", fn_t, None);
-    let entry = ctx.append_basic_block(f, "entry");
-    let oob_blk = ctx.append_basic_block(f, "oob");
-    let load_blk = ctx.append_basic_block(f, "load");
-    builder.position_at_end(entry);
-
-    let s = f.get_nth_param(0).unwrap().into_pointer_value();
-    let i = f.get_nth_param(1).unwrap().into_int_value();
-    let len = str_len_load(ctx, &builder, s, "len");
-    let zero = i64_t.const_int(0, false);
-    let i_neg = builder
-        .build_int_compare(IntPredicate::SLT, i, zero, "i_neg")
-        .unwrap();
-    let i_oor = builder
-        .build_int_compare(IntPredicate::SGE, i, len, "i_oor")
-        .unwrap();
-    let oob = builder.build_or(i_neg, i_oor, "oob").unwrap();
-    builder
-        .build_conditional_branch(oob, oob_blk, load_blk)
-        .unwrap();
-    builder.position_at_end(oob_blk);
-    builder.build_return(Some(&zero)).unwrap();
-    builder.position_at_end(load_blk);
-    let s_data = str_data_ptr(ctx, &builder, s, "s_data");
-    let p = unsafe {
-        builder
-            .build_in_bounds_gep(i8_t, s_data, &[i], "p")
-            .unwrap()
-    };
-    let b = builder.build_load(i8_t, p, "b").unwrap().into_int_value();
-    let v = builder.build_int_z_extend(b, i64_t, "v").unwrap();
-    builder.build_return(Some(&v)).unwrap();
-    f
-}
+/* __torajs_str_char_code_at moved to torajs-str::lookup (P3.1-g.4,
+ * 2026-05-23). Rust impl: bounds check + byte load + i64 cast. */
 
 /* __torajs_str_{starts_with,ends_with,index_of,includes} (no-_from
  * 2-arg form) moved to torajs-str::lookup (P3.1-g.3, 2026-05-23). The
