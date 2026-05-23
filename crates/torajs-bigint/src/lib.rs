@@ -49,6 +49,7 @@ pub mod drop;
 pub mod internal;
 pub mod layout;
 pub mod mul;
+pub mod shift;
 pub mod str_bridge;
 pub mod tostring;
 
@@ -59,13 +60,14 @@ pub use bitwise::{
 pub use compare::{__torajs_bigint_cmp, __torajs_bigint_eq};
 pub use construct::{
     __torajs_bigint_clone, __torajs_bigint_from_decimal, __torajs_bigint_from_hex,
-    __torajs_bigint_from_i64, __torajs_bigint_from_str,
+    __torajs_bigint_from_i64, __torajs_bigint_from_number, __torajs_bigint_from_str,
 };
 pub use divmod::{
     __torajs_bigint_div, __torajs_bigint_mod, __torajs_bigint_neg, __torajs_bigint_pow,
 };
 pub use drop::{__torajs_bigint_drop, __torajs_bigint_drop_rc};
 pub use mul::__torajs_bigint_mul;
+pub use shift::{__torajs_bigint_shl, __torajs_bigint_shr};
 pub use tostring::__torajs_bigint_to_string;
 
 // `__torajs_str_alloc_pooled` is provided by `libtorajs_str.a` at

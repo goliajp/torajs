@@ -123,8 +123,9 @@ unsafe fn mag_andnot(a: *const u8, b: *const u8) -> *mut u8 {
 }
 
 /// `|x| + 1` over magnitudes. Used to round-trip the two's-complement
-/// trick (negative_x ↔ mag = |x| - 1).
-unsafe fn mag_inc1(a: *const u8) -> *mut u8 {
+/// trick (negative_x ↔ mag = |x| - 1). pub(crate) — `crate::shift`'s
+/// negative-arithmetic-shift-right floor path reuses it.
+pub(crate) unsafe fn mag_inc1(a: *const u8) -> *mut u8 {
     unsafe {
         let na = read_len(a) as usize;
         let r = alloc_raw((na + 1) as u32);
@@ -142,10 +143,11 @@ unsafe fn mag_inc1(a: *const u8) -> *mut u8 {
     }
 }
 
-/// `|x| - 1` over magnitudes. Pre-condition: `|x| >= 1` (caller is the
-/// `+-` / `--` sign-case dispatcher which always has `read_len > 0`
-/// for negative operands).
-unsafe fn mag_dec1(a: *const u8) -> *mut u8 {
+/// `|x| - 1` over magnitudes. Pre-condition: `|x| >= 1`. Caller is
+/// either the bitwise `+-` / `--` sign-case dispatcher (negative
+/// operand always `len > 0`) or `crate::shift`'s `shr` floor-toward-
+/// negative-infinity path.
+pub(crate) unsafe fn mag_dec1(a: *const u8) -> *mut u8 {
     unsafe {
         let na = read_len(a);
         let r = alloc_raw(na);

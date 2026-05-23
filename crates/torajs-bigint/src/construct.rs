@@ -14,10 +14,15 @@
 use core::ffi::c_void;
 
 use crate::internal::{
-    add_u32_inplace, alloc_raw, mul_u32_inplace, normalize, read_len, words_mut, words_ptr,
+    add_u32_inplace, alloc_raw, free, mul_u32_inplace, normalize, read_len, words_mut, words_ptr,
     write_sign,
 };
 use crate::layout::{STR_HDR_SIZE, STR_LEN_OFF};
+use crate::shift::{mag_shl, mag_shr};
+
+unsafe extern "C" {
+    fn __torajs_throw_range_error(msg: *const u8);
+}
 
 // ============================================================
 // from_decimal — body bytes are ASCII '0'-'9'; non-digit chars
@@ -244,4 +249,79 @@ pub unsafe extern "C" fn __torajs_bigint_clone(a: *const c_void) -> *mut u8 {
     let sign = unsafe { crate::internal::read_sign(a) };
     unsafe { write_sign(r, sign) };
     r
+}
+
+// ============================================================
+// from_number — P3.3-b 推迟到 P3.3-i (依赖 mag_shl / mag_shr,
+// now available). JS spec: reject non-finite + non-integer with
+// RangeError. Conversion uses f64 mantissa-exponent split via Rust's
+// `f64::to_bits` (avoids the libc frexp call that the C version used).
+// ============================================================
+
+/// `BigInt(<number>)` — V3-03. JS spec rejects non-finite + non-
+/// integer Numbers with RangeError.
+///
+/// f64 → BigInt conversion:
+/// - extract IEEE-754 mantissa (52 explicit bits + 1 implicit) and
+///   biased exponent via `to_bits`
+/// - reconstruct unbiased shift = exp - 1075 (mantissa is a 53-bit
+///   integer when normalized; bias 1023 + 52 = 1075)
+/// - shift the 53-bit mantissa left if shift > 0, right if < 0
+///
+/// # Safety
+/// No memory hazards. Returns a fresh `+1`-rc BigInt heap pointer;
+/// caller must eventually drop via `__torajs_bigint_drop_rc`. On
+/// RangeError throw arm, returns NULL (ssa_lower's throw-check
+/// diverts the continuation before the NULL is consumed).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_bigint_from_number(v: f64) -> *mut u8 {
+    unsafe {
+        if !v.is_finite() || v.floor() != v {
+            __torajs_throw_range_error(b"BigInt() expects a finite integer Number\0".as_ptr());
+            return core::ptr::null_mut();
+        }
+        if v == 0.0 {
+            return alloc_raw(0);
+        }
+        let negative = v < 0.0;
+        let absv = if negative { -v } else { v };
+
+        // Mantissa-exponent decomposition via raw bits.
+        // f64 layout: 1 sign | 11 exp | 52 mantissa
+        let bits = absv.to_bits();
+        let raw_exp = ((bits >> 52) & 0x7ff) as i32;
+        let raw_mantissa = bits & 0x000f_ffff_ffff_ffff;
+        // Normal numbers: implicit leading 1 bit → mantissa = (1 << 52) | raw
+        // Subnormals: raw_exp == 0; mantissa = raw (no implicit 1). For
+        // integer-valued absv > 0 a subnormal is impossible (subnormals
+        // are < 2^-1022), but handle it defensively to match the spec.
+        let (m_int, e_unbiased): (u64, i32) = if raw_exp == 0 {
+            (raw_mantissa, -1022)
+        } else {
+            ((1u64 << 52) | raw_mantissa, raw_exp - 1023)
+        };
+        // value = m_int * 2^(e_unbiased - 52); shift = e_unbiased - 52
+        let shift: i32 = e_unbiased - 52;
+
+        let mut r = alloc_raw(1);
+        *words_mut(r) = m_int;
+        normalize(r);
+
+        if shift > 0 {
+            let shifted = mag_shl(r, shift as u64);
+            free(r as *mut c_void);
+            r = shifted;
+        } else if shift < 0 {
+            // Right shift by -shift drops trailing zeros of m_int (the
+            // mantissa already encoded the value's position; the trailing
+            // bits are guaranteed zero for integer-valued Numbers).
+            let shifted = mag_shr(r, (-shift) as u64);
+            free(r as *mut c_void);
+            r = shifted;
+        }
+        if negative && read_len(r) > 0 {
+            write_sign(r, 1);
+        }
+        r
+    }
 }

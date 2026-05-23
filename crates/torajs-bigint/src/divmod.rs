@@ -274,14 +274,12 @@ pub unsafe extern "C" fn __torajs_bigint_pow(base_: *const c_void, exp_: *const 
         let e_bits = bit_count(exp);
         for i in 0..e_bits {
             if bit_at(exp, i) != 0 {
-                let next =
-                    __torajs_bigint_mul(result as *const c_void, cur as *const c_void);
+                let next = __torajs_bigint_mul(result as *const c_void, cur as *const c_void);
                 free(result as *mut c_void);
                 result = next;
             }
             if i + 1 < e_bits {
-                let sq =
-                    __torajs_bigint_mul(cur as *const c_void, cur as *const c_void);
+                let sq = __torajs_bigint_mul(cur as *const c_void, cur as *const c_void);
                 free(cur as *mut c_void);
                 cur = sq;
             }
@@ -290,7 +288,14 @@ pub unsafe extern "C" fn __torajs_bigint_pow(base_: *const c_void, exp_: *const 
         // mul stripped sign during magnitude loop and set product sign
         // by XOR — but we stripped base sign upfront so products are
         // positive throughout. Stamp the spec-correct sign now.
-        write_sign(result, if read_len(result) == 0 { 0 } else { result_sign });
+        write_sign(
+            result,
+            if read_len(result) == 0 {
+                0
+            } else {
+                result_sign
+            },
+        );
         normalize(result);
         result
     }

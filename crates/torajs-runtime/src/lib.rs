@@ -46,11 +46,12 @@ pub const RUNTIME_FETCH_C: &str = include_str!("runtime_fetch.c");
 /// names when target=Wasm32Wasi; native keeps calling raw libc.
 pub const RUNTIME_LIBC_BRIDGE_C: &str = include_str!("runtime_libc_bridge.c");
 
-/// v0.7 T-25 — BigInt self-hosted substrate. Sign-magnitude with
-/// u64-limb little-endian magnitude; schoolbook add/sub/mul/cmp +
-/// decimal-chunk to-string. No libgmp (pillar 2 自研).
-pub const RUNTIME_BIGINT_C: &str = include_str!("runtime_bigint.c");
-
+/// BigInt substrate fully ported to `crates/torajs-bigint/` (P3.3
+/// closed, 2026-05-23). Sign-magnitude / u64-limb / schoolbook +
+/// Karatsuba mul / two's-complement bitwise / shift floor — all in
+/// Rust now. Cross-tier calls resolved at link time against
+/// libtorajs_bigint.a.
+///
 /// v0.7 T-26 (slice A) — WeakRef registry. Hashmap-based
 /// (target → list of observers) gated on a global active count so
 /// non-Weak* programs pay one branch per rc_dec. Cycle collector
@@ -85,7 +86,6 @@ pub const SOURCES: &[(&str, &str)] = &[
     ("runtime_promise.c", RUNTIME_PROMISE_C),
     ("runtime_fetch.c", RUNTIME_FETCH_C),
     ("runtime_libc_bridge.c", RUNTIME_LIBC_BRIDGE_C),
-    ("runtime_bigint.c", RUNTIME_BIGINT_C),
     ("runtime_weakref.c", RUNTIME_WEAKREF_C),
     ("runtime_weakmap.c", RUNTIME_WEAKMAP_C),
     ("runtime_weakset.c", RUNTIME_WEAKSET_C),
