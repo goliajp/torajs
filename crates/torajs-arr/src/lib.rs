@@ -32,7 +32,10 @@
 //! mismatch with no clean fix on stable. `std` staticlibs link cleanly
 //! at `tr build` time.
 
+pub mod alloc;
 pub mod drop;
 pub mod layout;
+pub mod pool;
 
+pub use alloc::{__torajs_arr_alloc_pooled, __torajs_arr_free};
 pub use drop::__torajs_arr_drop;

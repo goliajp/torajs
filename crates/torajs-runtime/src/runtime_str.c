@@ -376,103 +376,13 @@ extern void __torajs_substr_drop(void *v);
  * __torajs_split_block_free_push instead of pushing inline. */
 extern int __torajs_split_block_free_push(void *p);
 
-/* Generic Array LIFO pool — keyed by cap, bounded slot count.
- *
- * Hot in any code path that produces fresh small arrays inside a
- * tight loop (literal `[a, b, c]` allocations in fn-local scopes,
- * working-set scratch arrays, etc.). Earlier benchmarks (rpn-eval-
- * 100k, 16-elem stack literal allocated per call) showed every
- * iter paying a malloc + 24-byte header init; pool turns that into
- * a pointer-pop + cap-match scan.
- *
- * Cap-indexed (not size-class-rounded) so `[1,2,3]` (cap 3) and
- * `[1,2,3,4]` (cap 4) don't share a slot — keeps every block right-
- * sized for its caller. The cap match is O(arr_pool_count_) but
- * tight loops typically see one dominant cap value, so the LIFO
- * head matches on the first compare.
- *
- * Cap > __TORAJS_ARR_POOL_CAP_MAX bypasses the pool and pays a
- * direct malloc/free — the leverage is concentrated in small literal
- * allocs, large arrays' alloc cost is amortized across their use. */
-#define __TORAJS_ARR_POOL_SLOTS    16
-#define __TORAJS_ARR_POOL_CAP_MAX  32
-static uint8_t *arr_pool_blocks_[__TORAJS_ARR_POOL_SLOTS];
-static uint64_t arr_pool_caps_[__TORAJS_ARR_POOL_SLOTS];
-static int arr_pool_count_ = 0;
-
-/* Free path for Array blocks. arr_drop (inkwell IR) calls
- * __torajs_arr_free at refcount=0. Dispatch order:
- *   - SPLIT_BLOCK flag set → __torajs_split_block_free_push (Rust
- *     torajs-str::split::pool; returns 1 if accepted into split pool,
- *     0 if pool full so we fall through to libc free)
- *   - cap ≤ POOL_CAP_MAX, pool not full → arr_pool (small fn-local
- *     literal arrays; recycled by next equal-cap alloc)
- *   - otherwise → libc free
- *
- * Hardcoded `(uint8_t *)p + 16` reads cap (ARR_HDR_CAP_OFF). */
-void __torajs_arr_free(void *p) {
-    if (p == NULL) return;
-    __torajs_heap_header_t *h = (__torajs_heap_header_t *)p;
-    /* Defense-in-depth: keep in sync with str_free / rc_inc / rc_dec. */
-    if (h->flags & __TORAJS_FLAG_STATIC_LITERAL) return;
-    /* T-13.5 — cap shrunk to u32; high 32 bits hold head_offset. Only
-     * read the low 32 here. (For pooled arrays, the head value can
-     * be reset to 0 on next alloc so we don't need to preserve it.) */
-    uint64_t cap = (uint64_t)(*(uint32_t *)((uint8_t *)p + 16));
-    if (h->flags & __TORAJS_FLAG_SPLIT_BLOCK) {
-        if (__torajs_split_block_free_push(p)) return;
-    } else if (cap <= __TORAJS_ARR_POOL_CAP_MAX
-               && arr_pool_count_ < __TORAJS_ARR_POOL_SLOTS
-               && !(h->flags & __TORAJS_FLAG_ARR_ANY)) {
-        /* Array<Any> uses 16-byte slots; the pool is sized for the
-         * regular 8-byte stride so mixing the two corrupts subsequent
-         * pulls. Route Any-arrays straight to libc free.
-         */
-        arr_pool_blocks_[arr_pool_count_] = (uint8_t *)p;
-        arr_pool_caps_[arr_pool_count_] = cap;
-        arr_pool_count_++;
-        return;
-    }
-    free(p);
-}
-
-/* Pool-aware Array alloc. Counterpart to inkwell's old
- * `__torajs_arr_alloc` body — the IR side now collapses to a
- * single tail call here.
- *
- * cap ≤ POOL_CAP_MAX → scan arr_pool LIFO-end-first for a matching
- * cap; hit pops the slot in O(1) (the LIFO head is what tight
- * loops produce/consume). Miss falls through to malloc.
- *
- * Header init: rc=1 / tag=ARR / flags=0 / len=0 / cap as passed.
- * Same field layout the inkwell-emitted version used. */
-void *__torajs_arr_alloc_pooled(uint64_t cap) {
-    uint8_t *p = NULL;
-    if (cap <= __TORAJS_ARR_POOL_CAP_MAX && arr_pool_count_ > 0) {
-        for (int i = arr_pool_count_ - 1; i >= 0; i--) {
-            if (arr_pool_caps_[i] == cap) {
-                p = arr_pool_blocks_[i];
-                int last = --arr_pool_count_;
-                arr_pool_blocks_[i] = arr_pool_blocks_[last];
-                arr_pool_caps_[i] = arr_pool_caps_[last];
-                break;
-            }
-        }
-    }
-    if (p == NULL) {
-        /* 24 = __TORAJS_ARR_HDR_SIZE (defined further down; same
-         * forward-decl trick as split_block_alloc_ uses). */
-        p = (uint8_t *)malloc(24 + (size_t)cap * 8);
-    }
-    __torajs_heap_header_t *h = (__torajs_heap_header_t *)p;
-    h->refcount = 1;
-    h->type_tag = __TORAJS_TAG_ARR;
-    h->flags = 0;
-    *(uint64_t *)(p + 8) = 0;          /* len */
-    *(uint32_t *)(p + 16) = (uint32_t)cap;  /* cap (u32) */
-    *(uint32_t *)(p + 20) = 0;         /* T-13.5 — head_offset (u32) */
-    return p;
-}
+/* arr_pool LIFO state (arr_pool_blocks_/caps_/count_) +
+ * __torajs_arr_free + __torajs_arr_alloc_pooled 全部 moved to
+ * torajs-arr::{pool, alloc} (P4.1-b, 2026-05-23). POOL_SLOTS=16,
+ * POOL_CAP_MAX=32 mirror C 常量. AtomicPtr/AtomicU64/AtomicUsize 在
+ * 单线程 runtime 下用 Ordering::Relaxed compile 出来跟 static mut
+ * 同一指令. SPLIT_BLOCK cross-tier 走 __torajs_split_block_free_push
+ * (torajs-str::split::pool). */
 
 /* ============================================================
  * T-10.b (v0.4.0) — Array<Any> tagged-slot runtime
