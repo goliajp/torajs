@@ -48,6 +48,10 @@ extern void __torajs_panic(const char *msg);
  * error registry, instead of __torajs_panic's process abort. */
 extern void __torajs_throw_range_error(const char *msg);
 
+/* P3.3-c — __torajs_bigint_add / _sub bodies moved to torajs-bigint::arith.
+ * C-side __torajs_bigint_not still calls into add at link time. */
+extern void *__torajs_bigint_add(void *a, void *b);
+
 typedef struct {
     __torajs_heap_header_t header;
     uint32_t sign;     /* 0 = non-negative, 1 = negative */
@@ -222,51 +226,10 @@ static BigIntHeader *bigint_mag_sub(const BigIntHeader *a, const BigIntHeader *b
     return out;
 }
 
-void *__torajs_bigint_add(void *a_, void *b_) {
-    const BigIntHeader *a = (const BigIntHeader *)a_;
-    const BigIntHeader *b = (const BigIntHeader *)b_;
-    BigIntHeader *r;
-    if (a->sign == b->sign) {
-        r = bigint_mag_add(a, b);
-        r->sign = a->sign;
-    } else {
-        int c = bigint_mag_cmp(a, b);
-        if (c == 0) {
-            r = bigint_alloc_raw(0);
-        } else if (c > 0) {
-            r = bigint_mag_sub(a, b);
-            r->sign = a->sign;
-        } else {
-            r = bigint_mag_sub(b, a);
-            r->sign = b->sign;
-        }
-    }
-    bigint_normalize(r);
-    return r;
-}
-
-void *__torajs_bigint_sub(void *a_, void *b_) {
-    const BigIntHeader *a = (const BigIntHeader *)a_;
-    const BigIntHeader *b = (const BigIntHeader *)b_;
-    BigIntHeader *r;
-    if (a->sign != b->sign) {
-        r = bigint_mag_add(a, b);
-        r->sign = a->sign;
-    } else {
-        int c = bigint_mag_cmp(a, b);
-        if (c == 0) {
-            r = bigint_alloc_raw(0);
-        } else if (c > 0) {
-            r = bigint_mag_sub(a, b);
-            r->sign = a->sign;
-        } else {
-            r = bigint_mag_sub(b, a);
-            r->sign = a->sign ? 0 : 1;
-        }
-    }
-    bigint_normalize(r);
-    return r;
-}
+/* __torajs_bigint_add + _sub moved to torajs-bigint::arith (P3.3-c,
+ * 2026-05-23). Sign-aware dispatch into Rust-private mag_cmp /
+ * mag_add / mag_sub helpers (which duplicate the static C helpers
+ * still in use by the remaining C-side fns: mul / cmp / eq / mag_sub_in_place). */
 
 /* ============================================================
  * V3-04 — multiplication. Schoolbook for small operands;
