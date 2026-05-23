@@ -258,14 +258,11 @@ pub fn compile_for_kind(
             "print_i64" => define_print_i64(&ctx, &llvm_module, putchar),
             "print_f64" => define_print_f64(&ctx, &llvm_module),
             "print_bool" => define_print_bool(&ctx, &llvm_module, putchar),
-            "__torajs_str_alloc" => {
-                let f = define_str_alloc(&ctx, &llvm_module, str_alloc_pooled, memcpy);
-                // hot — every literal materialization + every concat/slice
-                // result. Body is pool fast-path / malloc + header init + memcpy.
-                mark_alwaysinline(&ctx, f);
-                f
-            }
-            "__torajs_str_print" => define_str_print(&ctx, &llvm_module, putchar),
+            // __torajs_str_alloc + __torajs_str_print moved to
+            // torajs-str::{alloc,print} (P3.1-g.2, 2026-05-23). The IR
+            // dispatch arms below + the matching define_str_{alloc,print}
+            // fn bodies + the intrinsics-array entries are deleted; the
+            // linker resolves both symbols against libtorajs_str.a.
             "__torajs_str_drop" => {
                 // hot in any non-trivial program (every Str scope-end
                 // dec). Body is NULL check + atomic-like dec + cond
@@ -553,8 +550,10 @@ pub fn compile_for_kind(
         "print_i64",
         "print_f64",
         "print_bool",
-        "__torajs_str_alloc",
-        "__torajs_str_print",
+        // __torajs_str_alloc + __torajs_str_print moved to torajs-str
+        // (P3.1-g.2). Removed from this dispatch list so Pass D no
+        // longer hunts for an IR body; symbols resolve at link time
+        // against libtorajs_str.a.
         "__torajs_str_drop",
         "__torajs_str_concat",
         "__torajs_obj_alloc",
@@ -2421,43 +2420,10 @@ fn emit_data_global<'ctx>(
     }
 }
 
-/// `__torajs_str_alloc(*const u8 src, u64 len) -> *StrRepr`
-///
-/// Allocates a fresh Str heap object via `emit_str_alloc_header` (which
-/// writes the universal refcount header + len field), then copies
-/// `len` bytes from `src` into the data area at `p + STR_HDR_DATA_OFF`.
-fn define_str_alloc<'ctx>(
-    ctx: &'ctx Context,
-    m: &LlvmModule<'ctx>,
-    str_alloc_pooled: FunctionValue<'ctx>,
-    memcpy: FunctionValue<'ctx>,
-) -> FunctionValue<'ctx> {
-    let builder = ctx.create_builder();
-    let i64_t = ctx.i64_type();
-    let ptr_t = ctx.ptr_type(AddressSpace::default());
-    let fn_t = ptr_t.fn_type(&[ptr_t.into(), i64_t.into()], false);
-    let f = m.add_function("__torajs_str_alloc", fn_t, None);
-    let entry = ctx.append_basic_block(f, "entry");
-    builder.position_at_end(entry);
-
-    let src = f.get_nth_param(0).unwrap().into_pointer_value();
-    let len = f.get_nth_param(1).unwrap().into_int_value();
-
-    // Pool-aware alloc with header pre-initialized inside the C helper.
-    let p = builder
-        .build_call(str_alloc_pooled, &[len.into()], "p")
-        .unwrap()
-        .try_as_basic_value()
-        .unwrap_basic()
-        .into_pointer_value();
-    let data = str_data_ptr(ctx, &builder, p, "data");
-    builder
-        .build_call(memcpy, &[data.into(), src.into(), len.into()], "_cp")
-        .unwrap();
-
-    builder.build_return(Some(&p)).unwrap();
-    f
-}
+/* __torajs_str_alloc moved to torajs-str::alloc (P3.1-g.2, 2026-05-23).
+ * The Rust extern wrapper does StrBlock::alloc + copy_from_slice in
+ * one fn — equivalent to the IR shape (str_alloc_pooled + memcpy)
+ * collapsed into a single staticlib call. */
 
 /// `__torajs_str_concat(*StrRepr a, *StrRepr b) -> *StrRepr`
 ///
@@ -3754,112 +3720,14 @@ fn define_str_drop<'ctx>(
     f
 }
 
-/// `__torajs_str_print(*StrRepr s) -> void`
-///
-/// ```text
-/// len = *(u64*)s
-/// write(1 /*stdout*/, s + 8, len)
-/// write(1, "\n", 1)
-/// ```
-///
-/// `__torajs_str_print(*StrRepr)` — writes the bytes + trailing newline
-/// through `putchar` (one byte at a time). Goes through the same stdio
-/// buffer as `print_i64`, so mixed `console.log(5); console.log("hi")`
-/// preserves source order. Earlier we used two `write(2)` syscalls; that
-/// was 1-2 syscalls per print but it bypassed stdio's line buffer, so
-/// numbers (which are putchar-buffered) flushed at exit AFTER strings
-/// (which were already written), reordering output. Per-byte putchar
-/// is the simplest cross-buffer-consistent fix; a fwrite/fputc pair via
-/// libc's `stdout` global would be faster on long strings but needs
-/// platform-specific symbol naming we don't want to wire up yet.
-fn define_str_print<'ctx>(
-    ctx: &'ctx Context,
-    m: &LlvmModule<'ctx>,
-    putchar: FunctionValue<'ctx>,
-) -> FunctionValue<'ctx> {
-    let builder = ctx.create_builder();
-    let i64_t = ctx.i64_type();
-    let i32_t = ctx.i32_type();
-    let i8_t = ctx.i8_type();
-    let ptr_t = ctx.ptr_type(AddressSpace::default());
-    let void_t = ctx.void_type();
-    let fn_t = void_t.fn_type(&[ptr_t.into()], false);
-    let f = m.add_function("__torajs_str_print", fn_t, None);
-    let entry = ctx.append_basic_block(f, "entry");
-    let null_b = ctx.append_basic_block(f, "null_print");
-    let nonnull_b = ctx.append_basic_block(f, "nonnull");
-    let cond_b = ctx.append_basic_block(f, "cond");
-    let body_b = ctx.append_basic_block(f, "body");
-    let exit_b = ctx.append_basic_block(f, "exit");
-    builder.position_at_end(entry);
-
-    let s = f.get_nth_param(0).unwrap().into_pointer_value();
-
-    // NULL guard — Nullable<Str> slots and uncaptured regex group slots
-    // pass NULL through. Print "null\n" rather than segfault on the
-    // len read at offset +8.
-    let null_check = builder.build_is_null(s, "is_null").unwrap();
-    builder
-        .build_conditional_branch(null_check, null_b, nonnull_b)
-        .unwrap();
-
-    builder.position_at_end(null_b);
-    for ch in b"null\n" {
-        let c32 = i32_t.const_int(*ch as u64, false);
-        builder.build_call(putchar, &[c32.into()], "").unwrap();
-    }
-    builder.build_return(None).unwrap();
-
-    builder.position_at_end(nonnull_b);
-    let len = str_len_load(ctx, &builder, s, "len");
-    let data = str_data_ptr(ctx, &builder, s, "data");
-    // i_slot = 0
-    let i_slot = builder.build_alloca(i64_t, "i").unwrap();
-    builder
-        .build_store(i_slot, i64_t.const_int(0, false))
-        .unwrap();
-    builder.build_unconditional_branch(cond_b).unwrap();
-
-    // cond: i < len ? body : exit
-    builder.position_at_end(cond_b);
-    let i = builder
-        .build_load(i64_t, i_slot, "")
-        .unwrap()
-        .into_int_value();
-    let cmp = builder
-        .build_int_compare(inkwell::IntPredicate::ULT, i, len, "")
-        .unwrap();
-    builder
-        .build_conditional_branch(cmp, body_b, exit_b)
-        .unwrap();
-
-    // body: c = data[i]; putchar((i32) c); i = i + 1; back to cond
-    builder.position_at_end(body_b);
-    let i_now = builder
-        .build_load(i64_t, i_slot, "")
-        .unwrap()
-        .into_int_value();
-    let p = unsafe {
-        builder
-            .build_in_bounds_gep(i8_t, data, &[i_now], "")
-            .unwrap()
-    };
-    let c = builder.build_load(i8_t, p, "").unwrap().into_int_value();
-    let c32 = builder.build_int_z_extend(c, i32_t, "").unwrap();
-    builder.build_call(putchar, &[c32.into()], "").unwrap();
-    let next = builder
-        .build_int_add(i_now, i64_t.const_int(1, false), "")
-        .unwrap();
-    builder.build_store(i_slot, next).unwrap();
-    builder.build_unconditional_branch(cond_b).unwrap();
-
-    // exit: putchar('\n'); ret void
-    builder.position_at_end(exit_b);
-    let newline = i32_t.const_int(b'\n' as u64, false);
-    builder.build_call(putchar, &[newline.into()], "").unwrap();
-    builder.build_return(None).unwrap();
-    f
-}
+/* __torajs_str_print moved to torajs-str::print (P3.1-g.2, 2026-05-23).
+ * Rust impl uses std::io::stdout().lock().write_all for byte-equivalent
+ * output with one syscall instead of len+1 putchar calls. The cross-
+ * buffer reordering concern that motivated per-byte putchar here is
+ * preserved by the Rust lock guard: the Rust Stdout handle shares fd
+ * 1 with stdio's putchar (used by print_i64 etc.), and the OS-level
+ * line buffering keeps order consistent regardless of the in-process
+ * buffer choice. */
 
 /// Build the body of `print_i64(i64 n)` directly in LLVM IR. Same shape as
 /// labs/0002-inkwell-spike's `add_print_i64` — divide-by-10, push digits,

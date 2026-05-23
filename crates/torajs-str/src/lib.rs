@@ -87,7 +87,7 @@ pub mod transform;
 // FFI consumers) reach for most often. Keeping this list tight
 // pins the public crate API; full surface is still reachable via
 // the module paths above.
-pub use alloc::{__torajs_str_alloc_pooled, __torajs_str_free, StrBlock};
+pub use alloc::{__torajs_str_alloc, __torajs_str_alloc_pooled, __torajs_str_free, StrBlock};
 pub use eq::{__torajs_str_eq, __torajs_str_eq_cstr};
 pub use layout::{
     STR_DATA_OFF, STR_HDR_SIZE, STR_LEN_OFF, STR_POOL_PAYLOAD, STR_POOL_SLOTS, block_size,
@@ -98,7 +98,7 @@ pub use lookup::{
     __torajs_str_last_index_of, __torajs_str_last_index_of_from, __torajs_str_locale_compare,
     __torajs_str_starts_with_from,
 };
-pub use print::__torajs_str_print_err;
+pub use print::{__torajs_str_print, __torajs_str_print_err};
 pub use split::ops::{
     __torajs_split_iter_drop, __torajs_split_iter_init, __torajs_str_split, SplitIter,
 };

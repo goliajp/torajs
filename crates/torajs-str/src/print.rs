@@ -1,9 +1,24 @@
-//! Str stderr print — `console.error(str)` SSA dispatch target.
+//! Str console print — `console.log(str)` (stdout) and
+//! `console.error(str)` (stderr) SSA dispatch targets.
 //!
-//! Only `__torajs_str_print_err` (the stderr-fd path) lives here.
-//! `__torajs_str_print` (stdout-fd) is still LLVM-IR-emitted by
-//! `ssa_inkwell::define_str_print`; consolidates here in a later
-//! P3.1-g sub-step when its sibling defines port together.
+//! Both `__torajs_str_print` and `__torajs_str_print_err` live
+//! here as of P3.1-g.2 (2026-05-23).
+//!
+//! **Buffer-sharing constraint**: `__torajs_str_print` (stdout)
+//! intentionally uses `extern "C" putchar` per-byte rather than
+//! Rust `std::io::stdout`, because the still-IR-emitted
+//! `print_i64` / `print_f64` / `print_bool` use putchar via the C
+//! stdio buffer. If `__torajs_str_print` bypassed that buffer (as
+//! `std::io::stdout` does), mixed `console.log("a"); console.log(5)`
+//! sequences would reorder on flush. Per-byte putchar is slower
+//! than a single `write(2)` but is the minimal cross-buffer fix
+//! until print_i64 et al. also port to Rust (later P3.1-g sub-step).
+//!
+//! `__torajs_str_print_err` uses `std::io::stderr` because the
+//! stderr-writing sibling fns (`print_i64_err` etc.) all go through
+//! C stdio's stderr, which is line-buffered for terminals and
+//! flushes after each '\n' on POSIX — interleaving risk is low
+//! enough that the bulk-write win pays.
 //!
 //! NULL → `"null\n"` (Nullable<Str> slots + uncaptured regex
 //! groups pass NULL through; printing "null" matches
@@ -34,13 +49,45 @@ pub fn format_print_err(payload: Option<&[u8]>) -> Vec<u8> {
 }
 
 // ============================================================
-// extern "C" wrapper
+// extern "C" wrappers
 // ============================================================
 
+unsafe extern "C" {
+    fn putchar(c: i32) -> i32;
+}
+
+/// `console.log(str)` — write `s`'s payload bytes + newline to
+/// stdout via per-byte `putchar`. NULL → `"null\n"`.
+///
+/// Uses putchar (NOT `std::io::stdout`) so the output shares C
+/// stdio's stdout buffer with `print_i64` / `print_f64` /
+/// `print_bool` — otherwise mixed-type `console.log` sequences
+/// reorder on flush. See module docs for the cross-buffer detail.
+///
+/// # Safety
+///
+/// `s` must be either NULL or a valid Str heap block.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_print(s: *const u8) {
+    if s.is_null() {
+        for &b in b"null\n" {
+            unsafe { putchar(b as i32) };
+        }
+        return;
+    }
+    let len = unsafe { (s.add(STR_LEN_OFF) as *const u64).read() } as usize;
+    if len > 0 {
+        let bytes = unsafe { core::slice::from_raw_parts(s.add(STR_DATA_OFF), len) };
+        for &b in bytes {
+            unsafe { putchar(b as i32) };
+        }
+    }
+    unsafe { putchar(b'\n' as i32) };
+}
+
 /// `console.error(str)` — write `s`'s payload bytes + newline to
-/// stderr. NULL → `"null\n"`. Single lock guard around the write
-/// so concurrent calls don't interleave a single line (the v0
-/// runtime is single-threaded but the lock costs ~nothing).
+/// stderr. NULL → `"null\n"`. Same single-lock pattern as
+/// [`__torajs_str_print`] above, just on stderr.
 ///
 /// # Safety
 ///

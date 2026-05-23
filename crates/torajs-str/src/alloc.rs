@@ -234,6 +234,35 @@ pub unsafe extern "C" fn __torajs_str_alloc_pooled(len: u64) -> *mut u8 {
     StrBlock::alloc(len).into_raw()
 }
 
+/// Str alloc + payload copy in one call. Equivalent to:
+/// `__torajs_str_alloc_pooled(len)` followed by `memcpy(data, src, len)`.
+///
+/// Used by every literal materialization (`"hello"` lowers to
+/// `__torajs_str_alloc(literal_ptr, 5)`) and by call sites that
+/// build a Str from an already-laid-out byte buffer. The pool fast-
+/// path applies via `StrBlock::alloc`. Ported from
+/// `ssa_inkwell::define_str_alloc` (P3.1-g.2, 2026-05-23) — the
+/// IR version emitted a 2-call sequence (`str_alloc_pooled` then
+/// `memcpy`); the Rust path collapses both into one extern fn
+/// while preserving the alloc-noalias whitelist entry.
+///
+/// # Safety
+///
+/// `src` must point at a readable region of at least `len` bytes
+/// (or be NULL when `len == 0`). Returned pointer is a fresh
+/// refcount=1 Str block owned by the caller.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_alloc(src: *const u8, len: i64) -> *mut u8 {
+    let len_u = len as u64;
+    let mut block = StrBlock::alloc(len_u);
+    if len_u > 0 {
+        let dst = unsafe { block.as_bytes_mut(len_u) };
+        let src_slice = unsafe { core::slice::from_raw_parts(src, len_u as usize) };
+        dst.copy_from_slice(src_slice);
+    }
+    block.into_raw()
+}
+
 /// Pool-aware Str free. Mirrors the pre-rewrite C
 /// `__torajs_str_free(uint8_t *p) -> void`. Called by the
 /// LLVM-IR-emitted `__torajs_str_drop` (still in ssa_inkwell;
