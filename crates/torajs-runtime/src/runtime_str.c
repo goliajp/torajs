@@ -641,7 +641,13 @@ static void __torajs_dynobj_resize(void **obj_slot, uint32_t new_cap) {
 extern void *__torajs_any_box(int64_t tag, int64_t value);
 extern int __torajs_dynobj_has(const void *obj, const void *key);
 extern void __torajs_value_drop_heap(void *child);
-void __torajs_dynobj_set(void **obj_slot, void *key, uint64_t tag, uint64_t value);
+/* __torajs_dynobj_set moved to torajs-dynobj::set (P4.2-c, 2026-05-23).
+ * Rust port — same load-factor guard + probe + writable-check + heap-
+ * value drop logic; calls cross-tier extern __torajs_rc_inc /
+ * __torajs_throw_type_error / __torajs_value_drop_heap. C-side
+ * __torajs_dynobj_resize (static) stays — still called by C-side
+ * __torajs_dynobj_define (ports at P4.2-e). */
+extern void __torajs_dynobj_set(void **obj_slot, void *key, uint64_t tag, uint64_t value);
 #define __TORAJS_ANY_BOX_TAG_OFF 8
 #define __TORAJS_ANY_BOX_VAL_OFF 16
 void *__torajs_get_property_descriptor(void *obj_any, void *key) {
@@ -725,53 +731,8 @@ extern void __torajs_throw_type_error(const char *msg);
  * and only updates the ANY_TAG low bits + value. Writable=false →
  * `__torajs_throw_set` with TypeError + return without mutation
  * (caller's ssa_lower-side `emit_throw_check` propagates). */
-void __torajs_dynobj_set(void **obj_slot, void *key, uint64_t tag, uint64_t value) {
-    void *obj = *obj_slot;
-    if (obj == NULL) return;
-    uint32_t cap = *(uint32_t *)((uint8_t *)obj + 12);
-    uint32_t count = *(uint32_t *)((uint8_t *)obj + 8);
-    uint32_t tomb = *(uint32_t *)((uint8_t *)obj + 16);
-    /* Resize before insert if (count + tomb + 1) > cap * 7/8 to keep
-     * load factor under control. */
-    if ((count + tomb + 1) * 8 > cap * 7) {
-        __torajs_dynobj_resize(obj_slot, cap * 2);
-        obj = *obj_slot;
-    }
-    int found;
-    uint32_t idx = __torajs_dynobj_probe(obj, key, &found);
-    __torajs_dynobj_bucket_t *bk = __torajs_dynobj_buckets(obj);
-    if (found) {
-        uint64_t cur_tag = bk[idx].tag;
-        if (!(cur_tag & __TORAJS_BUCKET_FLAG_WRITABLE)) {
-            __torajs_throw_type_error(
-                "TypeError: Cannot assign to read only property");
-            return;
-        }
-        /* Drop old heap value if it was ANY_HEAP. Mask to read just
-         * the ANY_TAG low bits. */
-        if ((cur_tag & __TORAJS_BUCKET_TAG_MASK) == 4 /* ANY_HEAP */) {
-            void *old_val = (void *)(uintptr_t)bk[idx].value;
-            __torajs_value_drop_heap(old_val);
-        }
-        /* Preserve existing flag bits; only swap the value-type tag. */
-        bk[idx].tag = (cur_tag & ~__TORAJS_BUCKET_TAG_MASK)
-            | (tag & __TORAJS_BUCKET_TAG_MASK);
-        bk[idx].value = value;
-    } else {
-        /* Fresh insert. Take ownership of key (rc-bump). Default
-         * flags to all-true (implicit-set / object-literal-init
-         * spec semantics). */
-        if (bk[idx].key_ptr == __TORAJS_DYNOBJ_TOMBSTONE) {
-            *(uint32_t *)((uint8_t *)obj + 16) = tomb - 1;
-        }
-        __torajs_rc_inc(key);
-        bk[idx].key_ptr = key;
-        bk[idx].tag = (tag & __TORAJS_BUCKET_TAG_MASK)
-            | __TORAJS_BUCKET_FLAGS_DEFAULT;
-        bk[idx].value = value;
-        *(uint32_t *)((uint8_t *)obj + 8) = count + 1;
-    }
-}
+/* __torajs_dynobj_set moved to torajs-dynobj::set (P4.2-c, 2026-05-23).
+ * Extern decl + note in the forward-decl block at line ~673. */
 
 /* P3.attribute-flag-tracking — `Object.defineProperty(obj, key,
  * descriptor)` path. Implements spec §10.1.6.3 ValidateAndApply-

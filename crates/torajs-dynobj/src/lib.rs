@@ -43,6 +43,39 @@ pub mod alloc;
 pub mod get;
 pub mod layout;
 pub mod probe;
+pub mod resize;
+pub mod set;
 
 pub use alloc::__torajs_dynobj_alloc;
 pub use get::{__torajs_dynobj_get_flags, __torajs_dynobj_get_tag, __torajs_dynobj_get_value};
+pub use set::__torajs_dynobj_set;
+
+// Cross-tier extern stubs for cargo unit tests — `__torajs_rc_inc`,
+// `__torajs_throw_type_error`, and `__torajs_value_drop_heap` are
+// provided by their respective libtorajs_*.a at `tr build` link time;
+// stubs here let the test binary link cleanly. Same pattern as
+// torajs-arr's `__torajs_throw_range_error` / `__torajs_str_alloc_pooled`
+// test stubs.
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_rc_inc(_p: *mut core::ffi::c_void) {
+    panic!(
+        "torajs-dynobj unit-test stub: __torajs_rc_inc should not be called from cargo test paths"
+    );
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_throw_type_error(_msg: *const u8) {
+    panic!(
+        "torajs-dynobj unit-test stub: __torajs_throw_type_error should not be called from cargo test paths"
+    );
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_value_drop_heap(_child: *mut core::ffi::c_void) {
+    panic!(
+        "torajs-dynobj unit-test stub: __torajs_value_drop_heap should not be called from cargo test paths"
+    );
+}

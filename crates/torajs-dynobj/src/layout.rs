@@ -72,6 +72,18 @@ pub const BUCKET_FLAG_ENUMERABLE: u64 = 1 << 9;
 /// `Bucket::tag`.
 pub const BUCKET_FLAG_CONFIGURABLE: u64 = 1 << 10;
 
+/// All three data-attribute flags set — matches C macro
+/// `__TORAJS_BUCKET_FLAGS_DEFAULT`. Used by implicit-set (`obj.x = v`)
+/// + object-literal init per spec §10.1.5.1 / §10.1.6.2 CreateData-
+/// Property (writable / enumerable / configurable default true).
+pub const BUCKET_FLAGS_DEFAULT: u64 =
+    BUCKET_FLAG_WRITABLE | BUCKET_FLAG_ENUMERABLE | BUCKET_FLAG_CONFIGURABLE;
+
+/// `ANY_HEAP` tag (matches `torajs_rc::AnySlotTag::Heap = 4`). Used by
+/// [`crate::set::__torajs_dynobj_set`] to detect when the prior bucket
+/// value is a heap pointer that owes an rc-dec before overwrite.
+pub const ANY_HEAP: u64 = 4;
+
 // `Str` layout — mirrored from `torajs-str::layout` (separately
 // compiled, shared contract; same dep-avoidance pattern torajs-arr uses
 // for `HeapHeader`). Updates to torajs-str's Str layout require a
