@@ -502,6 +502,15 @@ static void __torajs_dynobj_resize(void **obj_slot, uint32_t new_cap);
  * libtorajs_dynobj.a. */
 extern void *__torajs_dynobj_alloc(void);
 
+/* __torajs_dynobj_get_tag / get_value / get_flags moved to
+ * torajs-dynobj::get (P4.2-b, 2026-05-23). Probe + bucket reads
+ * mirrored 1:1 in Rust internals (torajs-dynobj::probe). C-side
+ * helpers __torajs_dynobj_probe / hash_str / str_eq stay until their
+ * remaining C-side callers (set / define / has / delete) also port. */
+extern uint64_t __torajs_dynobj_get_tag(const void *obj, const void *key);
+extern uint64_t __torajs_dynobj_get_value(const void *obj, const void *key);
+extern uint64_t __torajs_dynobj_get_flags(const void *obj, const void *key);
+
 /* FNV-1a over Str payload. Reads the Str layout directly:
  *   offset 0  : heap header (8)
  *   offset 8  : len (u64)
@@ -607,47 +616,9 @@ static void __torajs_dynobj_resize(void **obj_slot, uint32_t new_cap) {
  * via Any-box from `obj?.field.subfield` chained access). Without
  * this defensive check, dynobj_probe would index into the wrong
  * layout and return garbage tag values silently. */
-uint64_t __torajs_dynobj_get_tag(const void *obj, const void *key) {
-    if (obj == NULL) return 5;
-    const __torajs_heap_header_t *h = (const __torajs_heap_header_t *)obj;
-    if (h->type_tag != __TORAJS_TAG_DYNOBJ) return 5;  /* ANY_UNDEF */
-    int found;
-    uint32_t idx = __torajs_dynobj_probe(obj, key, &found);
-    if (!found) return 5;  /* ANY_UNDEF */
-    /* P3.attribute-flag-tracking — mask out the high-bit attribute
-     * flags; callers expect raw ANY_TAG (0-5) for value unboxing. */
-    return __torajs_dynobj_buckets((void *)(uintptr_t)obj)[idx].tag
-        & __TORAJS_BUCKET_TAG_MASK;
-}
-
-uint64_t __torajs_dynobj_get_value(const void *obj, const void *key) {
-    if (obj == NULL) return 0;
-    const __torajs_heap_header_t *h = (const __torajs_heap_header_t *)obj;
-    if (h->type_tag != __TORAJS_TAG_DYNOBJ) return 0;
-    int found;
-    uint32_t idx = __torajs_dynobj_probe(obj, key, &found);
-    if (!found) return 0;
-    return __torajs_dynobj_buckets((void *)(uintptr_t)obj)[idx].value;
-}
-
-/* P3.getOwnPropertyDescriptor — return the bucket's attribute flags
- * packed as bit 0 = writable, bit 1 = enumerable, bit 2 = configurable.
- * Caller extracts each bit to populate the descriptor object's
- * boolean fields. Returns 0 when key is absent. */
-uint64_t __torajs_dynobj_get_flags(const void *obj, const void *key) {
-    if (obj == NULL) return 0;
-    const __torajs_heap_header_t *h = (const __torajs_heap_header_t *)obj;
-    if (h->type_tag != __TORAJS_TAG_DYNOBJ) return 0;
-    int found;
-    uint32_t idx = __torajs_dynobj_probe(obj, key, &found);
-    if (!found) return 0;
-    uint64_t t = __torajs_dynobj_buckets((void *)(uintptr_t)obj)[idx].tag;
-    uint64_t flags = 0;
-    if (t & __TORAJS_BUCKET_FLAG_WRITABLE)     flags |= 1ULL << 0;
-    if (t & __TORAJS_BUCKET_FLAG_ENUMERABLE)   flags |= 1ULL << 1;
-    if (t & __TORAJS_BUCKET_FLAG_CONFIGURABLE) flags |= 1ULL << 2;
-    return flags;
-}
+/* __torajs_dynobj_get_tag / get_value / get_flags moved to
+ * torajs-dynobj::get (P4.2-b, 2026-05-23). Extern decls + note in
+ * the forward-decl block earlier in this section. */
 
 /* P3.getOwnPropertyDescriptor — full ES spec §19.1.2.10 entry. Takes
  * an Any-box (must wrap a dynobj) + a string key; returns a fresh

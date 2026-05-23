@@ -40,6 +40,9 @@
 //! `std` staticlibs link cleanly at `tr build` time.
 
 pub mod alloc;
+pub mod get;
 pub mod layout;
+pub mod probe;
 
 pub use alloc::__torajs_dynobj_alloc;
+pub use get::{__torajs_dynobj_get_flags, __torajs_dynobj_get_tag, __torajs_dynobj_get_value};

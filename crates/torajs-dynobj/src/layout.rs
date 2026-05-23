@@ -44,3 +44,40 @@ pub const DYNOBJ_CAP_OFF: usize = HEAP_HEADER_SIZE + 4;
 
 /// Offset of the `tomb` u32 within the heap block.
 pub const DYNOBJ_TOMB_OFF: usize = HEAP_HEADER_SIZE + 8;
+
+/// Tombstone sentinel for `Bucket::key_ptr`. NULL = empty, `1` =
+/// tombstone (slot was occupied + deleted; probe must walk past it),
+/// otherwise = owning `*Str` pointer.
+pub const DYNOBJ_TOMBSTONE: *mut core::ffi::c_void = 1usize as *mut core::ffi::c_void;
+
+/// `ANY_UNDEF` tag (matches `torajs_rc::AnySlotTag::Undef = 5`). Returned
+/// by `get_tag` when the key is absent or `obj` is not a dynobj.
+pub const ANY_UNDEF: u64 = 5;
+
+// Bucket-tag layout: low 8 bits = ANY_TAG (0-5); bits 8-10 = spec
+// §6.2.5 PropertyDescriptor data-attribute flags writable / enumerable
+// / configurable. Avoids growing the 24-byte bucket struct.
+
+/// Mask for the low-8 ANY_TAG bits in `Bucket::tag`. Callers reading
+/// the slot tag must mask before tag-dispatch.
+pub const BUCKET_TAG_MASK: u64 = 0xff;
+
+/// Bit position of the `writable` PropertyDescriptor flag inside
+/// `Bucket::tag`.
+pub const BUCKET_FLAG_WRITABLE: u64 = 1 << 8;
+/// Bit position of the `enumerable` PropertyDescriptor flag inside
+/// `Bucket::tag`.
+pub const BUCKET_FLAG_ENUMERABLE: u64 = 1 << 9;
+/// Bit position of the `configurable` PropertyDescriptor flag inside
+/// `Bucket::tag`.
+pub const BUCKET_FLAG_CONFIGURABLE: u64 = 1 << 10;
+
+// `Str` layout — mirrored from `torajs-str::layout` (separately
+// compiled, shared contract; same dep-avoidance pattern torajs-arr uses
+// for `HeapHeader`). Updates to torajs-str's Str layout require a
+// mirroring edit here.
+
+/// Offset of the `len: u64` field inside a Str heap block.
+pub const STR_LEN_OFF: usize = 8;
+/// Offset of the inline UTF-8 byte payload inside a Str heap block.
+pub const STR_DATA_OFF: usize = 16;
