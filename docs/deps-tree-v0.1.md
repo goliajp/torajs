@@ -11,7 +11,11 @@
 
 torajs = **metal / llvm 级别的 infra binary**——是语言级 metal-tier 编译/运行系统 (类比 LLVM / V8 内部 / Rust compiler 自身)，**不是** application-tier runtime (bun/node/deno 是 application 层, torajs core 比它们低一层). Perf 决策从**硬件视角** (cache line / branch / SIMD / register / TLB / prefetch) 出发, 不只是算法换路.
 
-终态约 **55-70 个 crate**，分 **6 族** (A 族 substrate + B 族 compiler + C 族 stdlib + D 族 toolchain + E 族 embed/cloud + **F 族 self-research utilities**)，按**石头 / 水泥** 二分对应**开源 / 闭源**；当前 **A 族 ship 6/15** (P3.1 closed 2026-05-23 = torajs-str 100% Rust)，P3.2 torajs-num hotified, 其他族仍在 monolith 状态。
+终态约 **200-300 个 crate** (v1.0 量级；v1.0 + 完整 bun-parity + TS 生态长期 300-400)，分 **6 族** (A 族 substrate + B 族 compiler + C 族 stdlib + D 族 toolchain + E 族 embed/cloud + **F 族 self-research utilities**)，按**石头 / 水泥** 二分对应**开源 / 闭源**；**石头估 150-230 个**。当前 **A 族 ship 6/15 Layer 拓扑视角** (P3.1 closed 2026-05-23 = torajs-str 100% Rust + P3.2 closed 2026-05-23 = torajs-num 100% Rust)，其他族仍在 monolith 状态。
+
+> **2026-05-23 数量级修正 (takagi 指出 v0.1 strawman 55-70 严重低估)**：
+> PL infra 体量参照系 — wasmtime 80+ workspace crate · swc 150+ · rustc 100+ internal · rome/biome 50+ · tokio ecosystem 80+ · mailrs (application 层都有 100+ 石头) · deno 100+ inner mod。
+> 翻 5-8× 的根因：(1) **PL infra 层级递归**——一个 `torajs-arr` 内部 push/pop/slice/sort/iter 各算法可独立成 `algo-*` 石头 (参 BurntSushi `aho-corasick` / `regex-automata` / `memchr` 拆法); (2) **spec surface 爆炸**——ECMA-262 + Intl (9) + Temporal (11) + Web API + Node API + Bun API 上千 surface item, test262 几万 case 反映这个体量; (3) **algorithm-as-crate** 是 Rust 生态偏好 (`xxhash-rust` / `ahash` / `gxhash` 单独存在); (4) **Web/Node surface** 一个 `web-sys` 就 300+ exported module。 v0.1 各族「~12 crate」是 sketch 不是真实拓扑。 真实分布见下表 §6 族粗粒度估。
 
 Vision 4 项 (有序, see [[project-torajs-vision-priority]]): #1 性能远超 bun/nodejs · #2 test262 + 主流 ts 100% · #3 pure rust · #4 0 deps. **2026-05-23 决断**: metal-level core 强制全自研, 不只 "ask-first per dep" — 详 [§Deps 审计](#deps-审计) 决断段.
 
@@ -34,6 +38,20 @@ Vision 4 项 (有序, see [[project-torajs-vision-priority]]): #1 性能远超 b
 ---
 
 ## L2 — 当前真实拓扑
+
+### 6 族粗粒度估 (v1.0 量级 · 2026-05-23 修正)
+
+| 族 | 真实展开 | 估计 crate 数 | 石头比例 | 石头估 | 备注 |
+|---|---|---|---|---|---|
+| **A** substrate | 当前 6/15 Layer 拓扑视角 ship · 每 Layer 内按算法细拆 3-5× | **50-75** | core mod 高 | **30-50** | A 族 substrate 本身 ABI 锁 tr，但每个 crate 内部 `core` mod 可独立 publish |
+| **B** compiler | parser 内按 grammar / scope / module 拆 · lower 按 stmt-kind / 优化 pass 拆 · codegen 按 backend 拆 | **30-50** | 全水泥 (护城河) | **0** | 默认闭源，未来 takagi 可松开 lexer/parser/ast |
+| **C** stdlib (Web + Node + Bun + TS spec) | fetch/Request/Response/Headers/Streams 整套 · WebCrypto 各 algo · Worker / structuredClone · Intl (9) · Temporal (11) · fs · net · crypto (~50 algo) · http1/2/3 · quic · ws · TextEncoder/Decoder · charset codec (~20) · mime · cookie · ... | **100-150** | 全石头 | **80-120** | 最大池 · 全部 ABI 跟 spec 锁不跟 tr 锁 |
+| **D** toolchain | cli / lsp / repl / fmt / lint / bundle / pkg / test / coverage / profiler / debugger / dap / inspector | **15-20** | 全水泥 | **0** | |
+| **E** embed/cloud | embed · playground-api · test262-runner · 内部工具 | **3-5** | 不 publish | **0** | |
+| **F** self-research utilities | hash family (md5/sha1/sha2/sha3/blake2/blake3/xxhash/siphash/fnv/...) · codec family (hex/base32/58/64/qp/urlencoded/json/yaml/toml/msgpack/cbor/protobuf/bson/...) · 各 cipher · async runtime · net stack · cli / lsp / 各 metal-level utility | **50-80** | 全石头 (metal utility) | **40-60** |
+| **合计** | — | **200-300** | — | **150-230** | v1.0 + bun parity + TS 生态长期 300-400 / 石头 200-280 |
+
+整族 publishable 比例约 **50-75%**（B + D + E 是水泥护城河，A core + C surface + F utility 是石头开源）。
 
 ### 总 DAG (族间)
 
