@@ -55,10 +55,12 @@ pub mod create;
 pub mod eq;
 pub mod hash;
 pub mod layout;
+pub mod mutate;
 pub mod probe;
 pub mod query;
 
 pub use create::__torajs_map_create;
+pub use mutate::__torajs_map_set;
 pub use query::{__torajs_map_get, __torajs_map_has, __torajs_map_size};
 
 // Cross-tier extern stubs for cargo unit tests — the real symbols

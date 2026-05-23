@@ -472,67 +472,9 @@ static void map_drop_borrowed_key(uint8_t tag, uint64_t payload) {
     }
 }
 
-void __torajs_map_set(void *p,
-                      int64_t key_tag, int64_t key_payload,
-                      int64_t value_tag, int64_t value_payload) {
-    if (!p) return;
-    Map *m = (Map *)p;
-    uint8_t kt = (uint8_t)key_tag, vt = (uint8_t)value_tag;
-    uint64_t kp = (uint64_t)key_payload, vp = (uint64_t)value_payload;
-    /* Resize slots first if (used + tombstones) load would exceed
-     * 0.75. We only check slot-side load — entries[] is grown
-     * separately below when it runs out of room. */
-    if ((m->n_entries + m->n_tombstones + 1) * MAP_LOAD_DENOM
-        > m->slots_count * MAP_LOAD_NUMER) {
-        uint32_t new_slots = m->slots_count * 2;
-        uint32_t new_entries = m->entries_cap;
-        if (m->n_entries + 1 > new_entries) new_entries *= 2;
-        map_rehash(m, new_entries, new_slots);
-    }
-    uint32_t hash, slot_idx, entry_idx;
-    int hit = map_lookup_slot(m, kt, kp, &hash, &slot_idx, &entry_idx);
-    if (hit) {
-        /* Overwrite: drop the caller's heap key bump + the old
-         * value ref; install the new value. */
-        MapEntry *e = &m->entries[entry_idx];
-        if (e->value_tag == __TORAJS_ANY_HEAP) {
-            void *old_vp = (void *)(uintptr_t)e->value_payload;
-            if (old_vp != NULL) __torajs_value_drop_heap(old_vp);
-        }
-        if (kt == __TORAJS_ANY_HEAP) {
-            void *new_kp = (void *)(uintptr_t)kp;
-            if (new_kp != NULL) __torajs_value_drop_heap(new_kp);
-        }
-        e->value_tag = vt;
-        e->value_payload = vp;
-        return;
-    }
-    /* Fresh insert. Grow entries[] if needed. */
-    if (m->n_used >= m->entries_cap) {
-        uint32_t new_entries = m->entries_cap * 2;
-        map_rehash(m, new_entries, m->slots_count);
-        /* Re-lookup since slot indices have changed under rehash. */
-        hit = map_lookup_slot(m, kt, kp, &hash, &slot_idx, &entry_idx);
-        (void)hit;
-    }
-    uint32_t new_idx = m->n_used;
-    MapEntry *e = &m->entries[new_idx];
-    e->hash = hash;
-    e->key_tag = kt;
-    e->key_payload = kp;
-    e->value_tag = vt;
-    e->value_payload = vp;
-    m->n_used += 1;
-    m->n_entries += 1;
-    /* Slot placement: always go through robin-hood probing. The
-     * `slot_idx` returned by `map_lookup_slot` for tombstone
-     * reuse is opportunistic — letting map_slot_insert handle the
-     * chain keeps the invariant that displaced cells are
-     * placed via the proper robin-hood swap. Tombstones are
-     * compacted out on the next rehash trigger. */
-    (void)slot_idx;
-    map_slot_insert(m->slots, m->slots_count, hash, new_idx);
-}
+/* __torajs_map_set moved to torajs-collections::mutate (P4.3-c, 2026-05-24).
+ * Same slot-load + entries-cap rehash triggers, same robin-hood probing
+ * placement, same key-rc transfer-vs-release semantics. */
 
 /* __torajs_map_has + __torajs_map_get moved to torajs-collections::query
  * (P4.3-b, 2026-05-23). Same borrow-then-drop key ownership contract

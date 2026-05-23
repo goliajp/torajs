@@ -40,10 +40,6 @@ unsafe extern "C" {
 /// `slots` valid for `cap` writable `MapSlot` cells; `cap` is power
 /// of 2; `hash` is non-zero (per `map_hash_key` contract); `entry_idx`
 /// is a live index into the caller's `entries[]`.
-// Consumed by `map_rehash` (this module) — used cross-fn within this
-// file but not yet by extern boundary fns. P4.3-c (mutate.rs) brings
-// `__torajs_map_set` which uses it directly.
-#[allow(dead_code)]
 pub(crate) unsafe fn map_slot_insert(slots: *mut MapSlot, cap: u32, hash: u32, idx: u32) {
     let mask = cap - 1;
     let mut i = hash & mask;
@@ -73,23 +69,16 @@ pub(crate) unsafe fn map_slot_insert(slots: *mut MapSlot, cap: u32, hash: u32, i
     }
 }
 
-/// Lookup outcome from [`map_lookup_slot`]. `slot_idx` + `hash` are
-/// consumed by the write-path helpers (set / delete) — see P4.3-c
-/// (mutate.rs) and P4.3-f (delete.rs); query.rs uses only `found` +
-/// `entry_idx`. Suppression of dead-code lint reflects this staged
-/// consumption.
+/// Lookup outcome from [`map_lookup_slot`]. `slot_idx` is the
+/// preferred reinsert slot on miss (first tombstone if seen, else
+/// first empty); on hit it's the live key's slot. Currently only
+/// `delete.rs` (P4.3-d) will read `slot_idx` directly to tombstone
+/// it — query / set use `found` + `entry_idx` + `hash`.
 #[allow(dead_code)]
 pub(crate) struct LookupResult {
-    /// Slot index — on hit: the live key's slot. On miss: the
-    /// preferred reinsert slot (first tombstone if seen, else the
-    /// first empty slot reached).
     pub slot_idx: u32,
-    /// Entry index into `entries[]` (SLOT_EMPTY on miss).
     pub entry_idx: u32,
-    /// Hash that was computed for `(tag, payload)` — caller stores
-    /// in the entry on insert.
     pub hash: u32,
-    /// True iff key was found at `slot_idx` / `entry_idx`.
     pub found: bool,
 }
 
@@ -182,9 +171,6 @@ pub(crate) unsafe fn map_lookup_slot(m: *const Map, tag: u8, payload: u64) -> Lo
 /// # Safety
 /// `m` is a live `Map`; `new_entries_cap` ≥ live entry count;
 /// `new_slots_count` is a power of 2 ≥ `MAP_SLOTS_INITIAL`.
-// Consumed by `__torajs_map_set` (P4.3-c, mutate.rs) — the only path
-// that grows / rebalances the table.
-#[allow(dead_code)]
 pub(crate) unsafe fn map_rehash(m: *mut Map, new_entries_cap: u32, new_slots_count: u32) {
     let old_e = unsafe { (*m).entries };
     let old_used = unsafe { (*m).n_used };
@@ -223,11 +209,14 @@ pub(crate) unsafe fn map_rehash(m: *mut Map, new_entries_cap: u32, new_slots_cou
     }
 }
 
-/// Helper: does inserting one more entry need a rehash? Used by set
-/// / define paths. Mirrors `(n_used + 1) * MAP_LOAD_DENOM > slots_count * MAP_LOAD_NUMER`.
-// Consumed by `__torajs_map_set` (P4.3-c, mutate.rs).
-#[allow(dead_code)]
+/// Slot-side load check: does inserting one more entry push us over
+/// the `MAP_LOAD_NUMER / MAP_LOAD_DENOM` (3/4) threshold?
+///
+/// Uses `n_entries + n_tombstones` (live entries + slot-side
+/// tombstones) — both occupy a slot, so both count against load.
+/// Distinct from `n_used` (which counts ENTRY-side tombstones not
+/// slot-side ones; entries[] grow path uses n_used separately).
 #[inline]
-pub(crate) fn needs_rehash(n_used: u32, slots_count: u32) -> bool {
-    (n_used + 1) * MAP_LOAD_DENOM > slots_count * MAP_LOAD_NUMER
+pub(crate) fn slot_load_exceeded(n_entries: u32, n_tombstones: u32, slots_count: u32) -> bool {
+    (n_entries + n_tombstones + 1) * MAP_LOAD_DENOM > slots_count * MAP_LOAD_NUMER
 }
