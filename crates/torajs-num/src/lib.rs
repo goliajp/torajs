@@ -28,6 +28,7 @@
 //! cleanly at `tr build` time (cc + LLVM-LTO tolerates std symbol
 //! overlap between Rust-emitted .a's).
 
+pub mod format;
 pub mod layout;
 pub mod math;
 pub mod parse;
@@ -51,6 +52,10 @@ pub unsafe extern "C" fn __torajs_str_alloc_pooled(_len: u64) -> *mut u8 {
 
 // Re-export — keep this list tight; the extern "C" symbols are
 // resolved at link time by ssa_inkwell-emitted IR regardless.
+pub use format::{
+    __torajs_num_to_exp_f, __torajs_num_to_exp_i, __torajs_num_to_fixed_f, __torajs_num_to_fixed_i,
+    __torajs_num_to_precision_f, __torajs_num_to_precision_i,
+};
 pub use math::{
     __torajs_math_abs, __torajs_math_acos, __torajs_math_acosh, __torajs_math_asin,
     __torajs_math_asinh, __torajs_math_atan, __torajs_math_atan2, __torajs_math_atanh,

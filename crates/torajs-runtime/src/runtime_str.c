@@ -3804,101 +3804,15 @@ void *__torajs_arr_fill(uint8_t *arr, int64_t value, int64_t start, int64_t end)
  * i-version: standard divide-by-radix push-digits with i64::MIN-
  * safe two's-complement abs via i128 widen. */
 
-/* `n.toFixed(digits)` — fixed-point decimal as a fresh String. JS spec
- * accepts 0..100 digits; subset clamps to 0..20. snprintf gives spec-
- * matching round-half-to-even on most libcs (close enough for the
- * common cases). */
-void *__torajs_num_to_fixed_f(double n, int64_t digits) {
-    if (digits < 0) digits = 0;
-    if (digits > 20) digits = 20;
-    /* V3-18 wedge — match JS spec §21.1.3.4: "ties broken by
-     * choosing the larger m", i.e. round half AWAY from zero.
-     * snprintf's default (round-half-to-even on macOS libc)
-     * diverges for .5 cases like 1234.5.toFixed(0). Pre-multiply,
-     * round() (half-away-from-zero per C99 7.12.9.6), divide back,
-     * then format with %.*f for the trailing-zero padding. */
-    if (isfinite(n) && digits < 16) {
-        double scale = 1.0;
-        for (int64_t i = 0; i < digits; i++) scale *= 10.0;
-        n = round(n * scale) / scale;
-    }
-    char buf[64];
-    int written = snprintf(buf, sizeof(buf), "%.*f", (int)digits, n);
-    if (written < 0) written = 0;
-    uint64_t len = (uint64_t)written;
-    uint8_t *p = __torajs_str_alloc_pooled(len);
-    if (len) memcpy(__TORAJS_STR_DATA(p), buf, (size_t)len);
-    return p;
-}
-void *__torajs_num_to_fixed_i(int64_t n, int64_t digits) {
-    return __torajs_num_to_fixed_f((double)n, digits);
-}
-
-/* Strip leading zeros from an exponent in `<...>e<sign><digits>` so
- * `1.23e+03` becomes `1.23e+3`, matching JS spec. Returns the new
- * length. */
-static int js_normalize_exp_(const char *src, int src_len, char *dst) {
-    int dst_i = 0;
-    int i = 0;
-    while (i < src_len) {
-        char c = src[i++];
-        dst[dst_i++] = c;
-        if (c == 'e' && i < src_len) {
-            char sign = src[i];
-            if (sign == '+' || sign == '-') {
-                dst[dst_i++] = sign;
-                i++;
-            }
-            while (i < src_len && src[i] == '0') i++;
-            if (i >= src_len || src[i] < '0' || src[i] > '9') {
-                dst[dst_i++] = '0';
-            }
-        }
-    }
-    return dst_i;
-}
-
-/* `n.toExponential(digits)` — scientific form. snprintf %.*e with the
- * given precision, then strip leading zeros from the exponent. */
-void *__torajs_num_to_exp_f(double n, int64_t digits) {
-    if (digits < 0) digits = 0;
-    if (digits > 100) digits = 100;
-    char buf[128];
-    int written = snprintf(buf, sizeof(buf), "%.*e", (int)digits, n);
-    if (written < 0) written = 0;
-    char fixed[128];
-    int dst_len = js_normalize_exp_(buf, written, fixed);
-    uint64_t len = (uint64_t)dst_len;
-    uint8_t *p = __torajs_str_alloc_pooled(len);
-    if (len) memcpy(__TORAJS_STR_DATA(p), fixed, (size_t)len);
-    return p;
-}
-void *__torajs_num_to_exp_i(int64_t n, int64_t digits) {
-    return __torajs_num_to_exp_f((double)n, digits);
-}
-
-/* `n.toPrecision(digits)` — total significant digits. snprintf %.*g
- * with exponent normalization. digits == 0 falls back to default %g. */
-void *__torajs_num_to_precision_f(double n, int64_t digits) {
-    char buf[128];
-    int written;
-    if (digits <= 0) {
-        written = snprintf(buf, sizeof(buf), "%g", n);
-    } else {
-        if (digits > 100) digits = 100;
-        written = snprintf(buf, sizeof(buf), "%.*g", (int)digits, n);
-    }
-    if (written < 0) written = 0;
-    char fixed[128];
-    int dst_len = js_normalize_exp_(buf, written, fixed);
-    uint64_t len = (uint64_t)dst_len;
-    uint8_t *p = __torajs_str_alloc_pooled(len);
-    if (len) memcpy(__TORAJS_STR_DATA(p), fixed, (size_t)len);
-    return p;
-}
-void *__torajs_num_to_precision_i(int64_t n, int64_t digits) {
-    return __torajs_num_to_precision_f((double)n, digits);
-}
+/* __torajs_num_to_fixed_{i,f} / _to_exp_{i,f} / _to_precision_{i,f}
+ * + the static js_normalize_exp_ helper moved to torajs-num::format
+ * (P3.2-c.3.b, 2026-05-23). Pre-multiply + round-half-away-from-zero
+ * for toFixed digits<16, Rust `{:e}` + exponent normalization for
+ * toExp, manual %g (pre-format %e to pick form by actual exponent
+ * + strip trailing zeros) for toPrecision. Special values
+ * NaN/±Infinity preserve C-subset bit-for-bit ("nan"/"inf"/"-inf"),
+ * spec-correctness ("NaN"/"Infinity") tracked in L3b backlog
+ * alongside Math.round wedge. */
 
 /* `Number.parseInt(s, radix)` — JS-spec parseInt, simplified subset.
  * Skips leading ASCII whitespace, accepts optional sign, then digits in
