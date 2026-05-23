@@ -411,175 +411,28 @@ extern int __torajs_split_block_free_push(void *p);
 /* Slot stride for Array<Any>. */
 #define __TORAJS_ANY_SLOT_BYTES  16
 
-/* slot[i] tag pointer (writable). */
+/* slot[i] tag/val pointers — kept C-side until __torajs_arr_drop_any
+ * (the rc-drop walker) also moves to torajs-arr (future P4.1-e).
+ * P4.1-d's 7 fns now live in torajs-arr::any; only arr_drop_any (the
+ * heap-child walker on rc=0) still pokes slot bytes directly. */
 static inline uint64_t *any_slot_tag_(void *arr, uint64_t i) {
-    return (uint64_t *)((uint8_t *)arr + 24 /* __TORAJS_ARR_HDR_SIZE */
-                        + i * __TORAJS_ANY_SLOT_BYTES);
+    return (uint64_t *)((uint8_t *)arr + 24 + i * __TORAJS_ANY_SLOT_BYTES);
 }
-
-/* slot[i] value pointer (writable). */
 static inline uint64_t *any_slot_val_(void *arr, uint64_t i) {
-    return (uint64_t *)((uint8_t *)arr + 24 /* __TORAJS_ARR_HDR_SIZE */
-                        + i * __TORAJS_ANY_SLOT_BYTES + 8);
+    return (uint64_t *)((uint8_t *)arr + 24 + i * __TORAJS_ANY_SLOT_BYTES + 8);
 }
 
-void *__torajs_arr_alloc_any(uint64_t cap) {
-    /* Allocate header + cap × 16-byte slots. Bypass the pool
-     * (different stride). */
-    uint8_t *p = (uint8_t *)malloc(24 /* __TORAJS_ARR_HDR_SIZE */
-                                   + (size_t)cap * __TORAJS_ANY_SLOT_BYTES);
-    __torajs_heap_header_t *h = (__torajs_heap_header_t *)p;
-    h->refcount = 1;
-    h->type_tag = __TORAJS_TAG_ARR;
-    h->flags = __TORAJS_FLAG_ARR_ANY;
-    *(uint64_t *)(p + 8) = 0;          /* len */
-    *(uint32_t *)(p + 16) = (uint32_t)cap;  /* cap (u32) */
-    *(uint32_t *)(p + 20) = 0;         /* T-13.5 — head_offset (Array<Any>
-                                        * never shifts; stays 0). */
-    return p;
-}
+/* __torajs_arr_alloc_any / _alloc_any_filled / _push_any / _extend_any
+ * / _get_any_tag / _get_any_value / _set_any 全部 moved to
+ * torajs-arr::any (P4.1-d, 2026-05-23). 16-byte tagged slot stride
+ * (vs 8 for Array<T>), FLAG_ARR_ANY 标记 routes free 出 cap-matched
+ * pool (不同 stride). extend_any / set_any 含 rc_inc / value_drop_heap
+ * cross-tier 调用 for ANY_HEAP slot refcount 平衡. any_slot_tag_/val_
+ * helpers 跟着搬到 Rust. ANY_UNDEF=5 / ANY_HEAP=4 mirrored. */
 
-/* P0.10 — `new Array(n)` numeric form per ES spec §23.1.2.1.
- * Allocates an Array<Any> of length n with all slots set to
- * ANY_NULL (tag=0, value=0). Behaves like a sparse array but
- * with explicit null-fill so arr[i] reads return null
- * (matches JS's `undefined` in the typed-as-Any context). */
-void *__torajs_arr_alloc_any_filled(uint64_t n) {
-    uint8_t *p = (uint8_t *)malloc(24 + (size_t)n * __TORAJS_ANY_SLOT_BYTES);
-    __torajs_heap_header_t *h = (__torajs_heap_header_t *)p;
-    h->refcount = 1;
-    h->type_tag = __TORAJS_TAG_ARR;
-    h->flags = __TORAJS_FLAG_ARR_ANY;
-    *(uint64_t *)(p + 8) = n;                /* len = n */
-    *(uint32_t *)(p + 16) = (uint32_t)n;     /* cap = n */
-    *(uint32_t *)(p + 20) = 0;
-    /* Zero the slots — both tag (0=ANY_NULL) and value (0). */
-    if (n > 0) {
-        memset(p + 24, 0, (size_t)n * __TORAJS_ANY_SLOT_BYTES);
-    }
-    return p;
-}
-
-/* Append a tagged slot. Grows by 2× when len == cap (matches
- * `__torajs_arr_push`'s growth strategy). Returns the (possibly
- * realloc'd) array pointer; caller stores it back into the slot,
- * mirroring the `arr_push` contract.
- *
- * For ANY_HEAP slots, the caller is responsible for having
- * incremented the heap value's refcount BEFORE calling — push
- * takes ownership of the pre-bumped reference and will dec it via
- * `arr_drop_any` when the array dies. */
-void *__torajs_arr_push_any(void *arr, uint64_t tag, uint64_t value) {
-    __torajs_heap_header_t *h = (__torajs_heap_header_t *)arr;
-    uint64_t len = *(uint64_t *)((uint8_t *)arr + 8);
-    uint32_t cap = *(uint32_t *)((uint8_t *)arr + 16);
-    if ((uint32_t)len == cap) {
-        uint32_t new_cap = cap == 0 ? 4 : cap * 2;
-        uint8_t *grown = (uint8_t *)realloc(
-            arr,
-            24 /* __TORAJS_ARR_HDR_SIZE */ + (size_t)new_cap * __TORAJS_ANY_SLOT_BYTES);
-        arr = grown;
-        h = (__torajs_heap_header_t *)arr;
-        *(uint32_t *)((uint8_t *)arr + 16) = new_cap;
-        /* head_offset stays 0 for Any-arrays. */
-    }
-    *any_slot_tag_(arr, len) = tag;
-    *any_slot_val_(arr, len) = value;
-    *(uint64_t *)((uint8_t *)arr + 8) = len + 1;
-    /* Suppress unused-h warning when the realloc branch isn't taken. */
-    (void)h;
-    return arr;
-}
-
-/* P5.6 — extend dst with src's tagged slots. Both arrays are
- * Array<Any> layout (16-byte slots = u64 tag + u64 value). Each
- * appended slot's heap value (tag == __TORAJS_ANY_HEAP) gets its
- * refcount bumped so dst shares ownership; src retains its own
- * ownership unchanged. Returns the (possibly-realloc'd) dst ptr.
- * Bumps dst's len by src_len.
- *
- * Mirrors __torajs_arr_extend_unchecked for the regular 8-byte
- * slot path; that one didn't know about tagged slots and would
- * mis-stride a 16-byte source. Self-sizing — reallocs dst when
- * cap < required, doubling per the arr_push_any growth strategy.
- *
- * Caller MUST capture the return value and write it back to
- * whichever slot owns dst (matching arr_push / arr_unshift call
- * sites that thread the new ptr through). */
-void *__torajs_arr_extend_any(uint8_t *dst, const uint8_t *src) {
-    uint64_t dst_len = *(uint64_t *)((uint8_t *)dst + 8);
-    uint64_t src_len = *(const uint64_t *)((const uint8_t *)src + 8);
-    if (src_len == 0) return dst;
-    uint32_t cap = *(uint32_t *)((uint8_t *)dst + 16);
-    uint64_t needed = dst_len + src_len;
-    if (needed > (uint64_t)cap) {
-        uint32_t new_cap = cap == 0 ? 4 : cap;
-        while ((uint64_t)new_cap < needed) new_cap *= 2;
-        dst = (uint8_t *)realloc(
-            dst,
-            24 /* __TORAJS_ARR_HDR_SIZE */ + (size_t)new_cap * __TORAJS_ANY_SLOT_BYTES);
-        *(uint32_t *)((uint8_t *)dst + 16) = new_cap;
-    }
-    for (uint64_t i = 0; i < src_len; i++) {
-        uint64_t tag = *any_slot_tag_((void *)src, i);
-        uint64_t val = *any_slot_val_((void *)src, i);
-        if (tag == __TORAJS_ANY_HEAP && val != 0) {
-            __torajs_rc_inc((void *)(uintptr_t)val);
-        }
-        *any_slot_tag_(dst, dst_len + i) = tag;
-        *any_slot_val_(dst, dst_len + i) = val;
-    }
-    *(uint64_t *)((uint8_t *)dst + 8) = dst_len + src_len;
-    return dst;
-}
-
-/* P1.4 — OOB read of an Array<Any> slot returns undefined per
- * ES spec §10.4.2.1 (sparse arrays return undefined for missing
- * indices). Pre-P1 the caller passed an out-of-range index
- * directly to any_slot_tag_/any_slot_val_ which read past the
- * cap (UB), often returning 0 by luck and getting collapsed to
- * ANY_NULL. Now both helpers do an explicit length check and
- * return ANY_UNDEF=5 / value 0 on miss; the typeof / strict-eq
- * paths then route through the spec-correct ANY_UNDEF behavior. */
-uint64_t __torajs_arr_get_any_tag(const void *arr, uint64_t i) {
-    if (arr == NULL) return 5 /* ANY_UNDEF */;
-    uint64_t len = *(const uint64_t *)((const uint8_t *)arr + 8);
-    if (i >= len) return 5 /* ANY_UNDEF */;
-    return *any_slot_tag_((void *)arr, i);
-}
-
-uint64_t __torajs_arr_get_any_value(const void *arr, uint64_t i) {
-    if (arr == NULL) return 0;
-    uint64_t len = *(const uint64_t *)((const uint8_t *)arr + 8);
-    if (i >= len) return 0;
-    return *any_slot_val_((void *)arr, i);
-}
-
-/* Forward decl — definition lives further down in the file but
- * arr_set_any (immediately below) needs to call it for the heap-
- * value drop on slot overwrite. */
+/* Forward decl — definition lives further down in the file (was used
+ * by __torajs_arr_set_any, now in torajs-arr::any via cross-tier extern). */
 void __torajs_value_drop_heap(void *child);
-
-/* P0.10 — set a tagged slot at index `i`. Mirrors arr_push_any
- * for the indexed-assign path. ssa_lower's box_to_any boxes the
- * RHS into a temp Any-box; we extract its (tag, value) and write
- * into the slot. ANY_HEAP slots: caller must have rc-incremented
- * the heap value before calling; we drop the old slot's heap
- * value (if ANY_HEAP) before overwriting so refcount accounting
- * stays balanced. NULL arr is a no-op. Out-of-bounds i is the
- * caller's responsibility (no bounds check, matching the existing
- * arr_get_any_* helpers). */
-void __torajs_arr_set_any(void *arr, uint64_t i, uint64_t tag, uint64_t value) {
-    if (arr == NULL) return;
-    /* Drop old slot's heap value if it was ANY_HEAP (tag=4). */
-    uint64_t old_tag = *any_slot_tag_(arr, i);
-    if (old_tag == 4 /* ANY_HEAP */) {
-        uint64_t old_val = *any_slot_val_(arr, i);
-        __torajs_value_drop_heap((void *)(uintptr_t)old_val);
-    }
-    *any_slot_tag_(arr, i) = tag;
-    *any_slot_val_(arr, i) = value;
-}
 
 /* P3.1 — Dynamic-property object substrate (HashMap-backed).
  *
