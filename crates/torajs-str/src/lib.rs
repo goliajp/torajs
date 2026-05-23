@@ -102,6 +102,7 @@ pub use substr::{
 };
 pub use to_number::{__torajs_str_to_number, parse_number};
 pub use transform::case::{__torajs_str_to_lower, __torajs_str_to_upper};
+pub use transform::trim::{__torajs_str_trim, __torajs_str_trim_end, __torajs_str_trim_start};
 
 // torajs-rc's `__torajs_rc_dec` calls into a WeakRef hook whenever
 // a block reaches refcount = 0. At `tr build` link time, the

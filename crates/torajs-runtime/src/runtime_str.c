@@ -4522,43 +4522,11 @@ int64_t __torajs_num_is_finite_i(int64_t n) {
 /* Whitespace recognition for `trim*`: ASCII whitespace ' ', '\t', '\n',
  * '\r', '\v', '\f'. JS spec includes more (BOM, NBSP, …) but those are
  * UTF-16 units we don't model in v0. */
-static int is_trim_ws_(uint8_t c) {
-    return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\v' || c == '\f';
-}
-
-void *__torajs_str_trim_start(const uint8_t *s) {
-    uint64_t len = __TORAJS_STR_LEN(s);
-    const uint8_t *s_data = __TORAJS_STR_CDATA(s);
-    uint64_t lo = 0;
-    while (lo < len && is_trim_ws_(s_data[lo])) lo++;
-    uint64_t out = len - lo;
-    uint8_t *p = __torajs_str_alloc_pooled(out);
-    if (out) memcpy(__TORAJS_STR_DATA(p), s_data + lo, (size_t)out);
-    return p;
-}
-
-void *__torajs_str_trim_end(const uint8_t *s) {
-    uint64_t len = __TORAJS_STR_LEN(s);
-    const uint8_t *s_data = __TORAJS_STR_CDATA(s);
-    uint64_t hi = len;
-    while (hi > 0 && is_trim_ws_(s_data[hi - 1])) hi--;
-    uint8_t *p = __torajs_str_alloc_pooled(hi);
-    if (hi) memcpy(__TORAJS_STR_DATA(p), s_data, (size_t)hi);
-    return p;
-}
-
-void *__torajs_str_trim(const uint8_t *s) {
-    uint64_t len = __TORAJS_STR_LEN(s);
-    const uint8_t *s_data = __TORAJS_STR_CDATA(s);
-    uint64_t lo = 0;
-    while (lo < len && is_trim_ws_(s_data[lo])) lo++;
-    uint64_t hi = len;
-    while (hi > lo && is_trim_ws_(s_data[hi - 1])) hi--;
-    uint64_t out = hi - lo;
-    uint8_t *p = __torajs_str_alloc_pooled(out);
-    if (out) memcpy(__TORAJS_STR_DATA(p), s_data + lo, (size_t)out);
-    return p;
-}
+/* __torajs_str_trim / _trim_start / _trim_end + the static is_trim_ws_
+ * predicate moved to torajs-str::transform::trim (P3.1-e.2, 2026-05-23).
+ * ASCII whitespace set preserved bit-for-bit (space/tab/LF/CR/VT/FF).
+ * IR-side intrinsic declarations in ssa_lower + alloc-noalias whitelist
+ * in ssa_inkwell resolve via the libtorajs_str.a staticlib link. */
 
 /* `s.padStart(targetLen, padStr)` — if s.length >= targetLen, return s
  * unchanged-content (still a fresh alloc to keep ownership uniform).

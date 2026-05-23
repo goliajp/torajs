@@ -23,3 +23,4 @@
 //! isolation when its IR-side counterpart consolidates (P3.1-g).
 
 pub mod case;
+pub mod trim;
