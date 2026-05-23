@@ -2118,24 +2118,9 @@ int64_t __torajs_substr_index_of(const uint8_t *v, const uint8_t *n) {
  * INLINE) — its 32-byte struct is a separate malloc and substr_drop
  * will free it. Negative index handling (slice wraps, substring
  * clamps + swaps) matches the corresponding str helpers. */
-/* V3-18 m1.h.37 — `s.charAt(i)` on an OWNED Str. Per JS spec
- * §21.1.3.1: out-of-range i (negative OR >= len) returns "" (not
- * the same as charCodeAt's NaN — charAt's empty-string is a true
- * spec choice). Returns a length-1 Substr view on the receiver
- * for in-range i, or a length-0 Substr (offset clamped to 0) for
- * OOB. Pre-fix tora's charAt lower called substr_create directly
- * which trusted the caller's idx, so charAt(-1) printed garbage
- * bytes via the parent-pointer math. */
-void *__torajs_str_char_at(void *s, int64_t i) {
-    if (s == NULL) {
-        return __torajs_substr_create(s, 0, 0);
-    }
-    uint64_t len = __TORAJS_STR_LEN(s);
-    if (i < 0 || (uint64_t)i >= len) {
-        return __torajs_substr_create(s, 0, 0);
-    }
-    return __torajs_substr_create(s, (uint64_t)i, 1);
-}
+/* __torajs_str_char_at moved to torajs-str::transform::construct
+ * (P3.1-e.4, 2026-05-23). Returns a length-1 Substr view (zero-
+ * copy) for in-range i, length-0 Substr for OOB / NULL parent. */
 
 void *__torajs_substr_slice(const uint8_t *v, int64_t start, int64_t end) {
     uint64_t v_len = __TORAJS_SUBSTR_LEN(v);
@@ -2290,21 +2275,9 @@ double __torajs_math_round(double x) {
     return __torajs_math_floor(x + 0.5);
 }
 
-/* `s.repeat(n)` — fresh String containing `s` concatenated n times.
- * Single malloc + n memcpy's. n<=0 returns the empty string. */
-void *__torajs_str_repeat(const uint8_t *s, int64_t n) {
-    if (n < 0) n = 0;
-    uint64_t s_len = __TORAJS_STR_LEN(s);
-    uint64_t out_len = s_len * (uint64_t)n;
-    uint8_t *p = __torajs_str_alloc_pooled(out_len);
-    if (s_len == 0 || n == 0) return p;
-    const uint8_t *s_data = __TORAJS_STR_CDATA(s);
-    uint8_t *p_data = __TORAJS_STR_DATA(p);
-    for (int64_t i = 0; i < n; i++) {
-        memcpy(p_data + (size_t)i * (size_t)s_len, s_data, (size_t)s_len);
-    }
-    return p;
-}
+/* __torajs_str_repeat moved to torajs-str::transform::construct
+ * (P3.1-e.4, 2026-05-23). n<=0 clamps to 0; wrapping_mul matches
+ * the C subset's silent-overflow contract. */
 
 /* Internal helper — alloc a fresh Arr heap with refcount=1 + type_tag
  * set + len/cap written. Caller fills the slot data at
@@ -3350,14 +3323,9 @@ void *__torajs_arr_join_substr(const uint8_t *arr, const uint8_t *sep) {
     return p;
 }
 
-/* `String.fromCharCode(n)` — single-char string from a code point,
- * truncated to byte (matches v0's byte-Str layout; non-ASCII would
- * need UTF-8 encoding). */
-void *__torajs_str_from_char_code(int64_t n) {
-    uint8_t *p = __torajs_str_alloc_pooled(1);
-    __TORAJS_STR_DATA(p)[0] = (uint8_t)(n & 0xff);
-    return p;
-}
+/* __torajs_str_from_char_code moved to torajs-str::transform::construct
+ * (P3.1-e.4, 2026-05-23). 1-byte Str holding `n & 0xff` — matches
+ * v0 byte-Str layout (no UTF-8 encoding for non-ASCII). */
 
 /* `arr.toReversed()` (ES2023) — non-mutating reverse. Single malloc +
  * reverse-direction byte-by-byte slot copy. Original untouched. */
@@ -3384,26 +3352,9 @@ void *__torajs_arr_with(const uint8_t *arr, int64_t i, int64_t v) {
     return p;
 }
 
-/* `s.substring(start, end)` — slice's pre-ES5 sibling. Diverges from
- * slice on two corners: negative inputs clamp to 0 (slice wraps to
- * len+n), and start > end gets silently swapped. After fixup both
- * indices clamp to [0, len], same as slice. */
-void *__torajs_str_substring(const uint8_t *s, int64_t start, int64_t end) {
-    uint64_t len = __TORAJS_STR_LEN(s);
-    if (start < 0) start = 0;
-    if (end < 0) end = 0;
-    if (start > (int64_t)len) start = (int64_t)len;
-    if (end > (int64_t)len) end = (int64_t)len;
-    if (start > end) {
-        int64_t tmp = start;
-        start = end;
-        end = tmp;
-    }
-    uint64_t new_len = (uint64_t)(end - start);
-    uint8_t *p = __torajs_str_alloc_pooled(new_len);
-    if (new_len) memcpy(__TORAJS_STR_DATA(p), __TORAJS_STR_CDATA(s) + start, (size_t)new_len);
-    return p;
-}
+/* __torajs_str_substring moved to torajs-str::transform::construct
+ * (P3.1-e.4, 2026-05-23). Negative inputs clamp to 0 (no wrap);
+ * start > end is silently swapped before slicing. */
 
 /* T-29.b — `Object.defineProperty(arr, "length", { value: v })` validation
  * per JS spec §9.4.2.4 ArraySetLength. The descriptor value must satisfy
@@ -3454,32 +3405,9 @@ void __torajs_arr_set_length_validate(int64_t tag, int64_t value) {
     }
 }
 
-/* T-49 — `s.substr(start, length)` (annexB legacy). Diverges from
- * slice / substring in two ways per JS spec §B.2.3.1:
- *   - Negative start wraps to `max(size + start, 0)` (slice wraps too;
- *     substring clamps to 0).
- *   - The 2nd arg is a *length*, not an end index — clamps to
- *     [0, size - start]. The caller passes `length = INT64_MAX` for
- *     the 1-arg form so this helper clamps to the remaining bytes.
- */
-void *__torajs_str_substr(const uint8_t *s, int64_t start, int64_t length) {
-    int64_t size = (int64_t)__TORAJS_STR_LEN(s);
-    if (start < 0) start = size + start;
-    if (start < 0) start = 0;
-    if (start > size) start = size;
-    int64_t avail = size - start;
-    if (length > avail) length = avail;
-    if (length < 0) length = 0;
-    uint8_t *p = __torajs_str_alloc_pooled((uint64_t)length);
-    if (length > 0) {
-        memcpy(
-            __TORAJS_STR_DATA(p),
-            __TORAJS_STR_CDATA(s) + start,
-            (size_t)length
-        );
-    }
-    return p;
-}
+/* __torajs_str_substr moved to torajs-str::transform::construct
+ * (P3.1-e.4, 2026-05-23). AnnexB legacy: negative start wraps to
+ * max(size+start, 0); length clamps to remaining bytes. */
 
 /* `Array.from(s)` over a string source — fresh `string[]` with one
  * single-byte string per byte of `s`. Mirrors `s.split("")` in JS but
@@ -3496,19 +3424,9 @@ void *__torajs_arr_from_string(const uint8_t *s) {
     return arr;
 }
 
-/* `s.at(i)` — single-char string at index i, with negative-index wrap.
- * Returns the empty string if i is out of bounds (matches JS spec —
- * returning undefined would need Nullable<string>, not in v0). */
-void *__torajs_str_at(const uint8_t *s, int64_t i) {
-    uint64_t len = __TORAJS_STR_LEN(s);
-    int64_t adj = i < 0 ? (int64_t)len + i : i;
-    if (adj < 0 || adj >= (int64_t)len) {
-        return __torajs_str_alloc_pooled(0);
-    }
-    uint8_t *p = __torajs_str_alloc_pooled(1);
-    __TORAJS_STR_DATA(p)[0] = __TORAJS_STR_CDATA(s)[adj];
-    return p;
-}
+/* __torajs_str_at moved to torajs-str::transform::construct
+ * (P3.1-e.4, 2026-05-23). ES2022 single-char Str; negative i
+ * wraps; OOB returns empty Str. */
 
 /* `s.replace(needle, replacement)` — replace the FIRST occurrence of
  * `needle` in `s` with `replacement`. Returns a fresh string; the
