@@ -2448,26 +2448,10 @@ void __torajs_arr_push_unchecked(void *arr, int64_t val);
  * helpers `torajs_throw_range_error` / `torajs_throw_type_error`
  * are gone — call sites updated to use the public Rust names. */
 
-void __torajs_arr_set_length_validate(int64_t tag, int64_t value) {
-    /* Resolve descriptor.value to a JS Number. tora's typed pack:
-     *   tag 1=Bool · 2=I64 · 3=F64-bits · 4=heap · 5=undef · 0=null/other.
-     * Bool / null map to 0 or 1 (valid lengths); undefined and heap
-     * objects map to NaN (invalid). */
-    double n;
-    switch (tag) {
-        case 0: return;            /* null → ToNumber=0 → valid */
-        case 1: return;            /* Bool 0/1 → valid */
-        case 2: n = (double)value; break;
-        case 3: { union { int64_t i; double d; } u = { .i = value }; n = u.d; break; }
-        default: __torajs_throw_range_error("Invalid array length"); return;
-    }
-    /* Spec §9.4.2.4: throw if ToUint32(v) !== ToNumber(v). Equivalent
-     * check: n must be a non-negative integer in [0, 2^32 - 1]. NaN /
-     * Infinity / fractional / negative / overflow all fail. */
-    if (n != n || n < 0.0 || n > 4294967295.0 || n != (double)(int64_t)n) {
-        __torajs_throw_range_error("Invalid array length");
-    }
-}
+/* __torajs_arr_set_length_validate moved to torajs-arr::grow (P4.1-j,
+ * 2026-05-23). Rust port — same ES §9.4.2.4 round-trip check, same
+ * tag dispatch. Symbol resolves cross-tier at `tr build` link time
+ * via libtorajs_arr.a. */
 
 /* __torajs_str_substr moved to torajs-str::transform::construct
  * (P3.1-e.4, 2026-05-23). AnnexB legacy: negative start wraps to

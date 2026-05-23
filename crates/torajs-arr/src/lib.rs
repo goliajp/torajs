@@ -35,6 +35,7 @@
 pub mod alloc;
 pub mod any;
 pub mod drop;
+pub mod grow;
 pub mod join;
 pub mod layout;
 pub mod ops;
@@ -51,6 +52,7 @@ pub use any::{
     __torajs_arr_set_any,
 };
 pub use drop::{__torajs_arr_drop, __torajs_arr_drop_any};
+pub use grow::__torajs_arr_set_length_validate;
 pub use join::{
     __torajs_arr_join, __torajs_arr_join_bool, __torajs_arr_join_f64, __torajs_arr_join_i64,
     __torajs_arr_join_substr, __torajs_arr_to_reversed, __torajs_arr_with,
@@ -71,5 +73,15 @@ pub use slice::__torajs_arr_slice;
 pub unsafe extern "C" fn __torajs_str_alloc_pooled(_len: u64) -> *mut u8 {
     panic!(
         "torajs-arr unit-test stub: __torajs_str_alloc_pooled should not be called from cargo test paths"
+    );
+}
+
+// Same pattern for torajs-throw — provided by libtorajs_throw.a at
+// `tr build` link time; stubbed for cargo test.
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_throw_range_error(_msg: *const u8) -> ! {
+    panic!(
+        "torajs-arr unit-test stub: __torajs_throw_range_error should not be called from cargo test paths"
     );
 }
