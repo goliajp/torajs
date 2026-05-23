@@ -87,25 +87,12 @@ static void bigint_normalize(BigIntHeader *b) {
     if (b->len == 0) b->sign = 0;
 }
 
-/* Internal — direct free without rc check. Called by
- * value_drop_heap's TAG_BIGINT case after rc_dec returned true
- * (last owner). Don't call from binding-drop sites; use
- * __torajs_bigint_drop_rc instead. */
-void __torajs_bigint_drop(void *p) {
-    if (!p) return;
-    BigIntHeader *b = (BigIntHeader *)p;
-    free(b);
-}
-
-/* Public — rc-aware drop. Decrements the refcount; frees only on
- * last owner. Used by ssa_lower's `emit_drop_value Type::BigInt`
- * for bindings going out of scope. */
-void __torajs_bigint_drop_rc(void *p) {
-    if (!p) return;
-    if (__torajs_rc_dec(p)) {
-        __torajs_bigint_drop(p);
-    }
-}
+/* __torajs_bigint_drop + __torajs_bigint_drop_rc moved to
+ * torajs-bigint::drop (P3.3-a, 2026-05-23). Bit-for-bit equivalent
+ * pure-Rust impl over `*mut c_void` + libc free + cross-tier
+ * `__torajs_rc_dec` extern. NULL-safe both sides. Cross-TU callers
+ * (runtime_str.c value_drop_heap + ssa_lower emit_drop_value) resolve
+ * via libtorajs_bigint.a staticlib link at `tr build`. */
 
 /* ============================================================
  * Decimal / hex string → BigInt.

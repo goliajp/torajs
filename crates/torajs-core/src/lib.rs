@@ -51,6 +51,10 @@ pub const TORAJS_STATICLIBS: &[(&str, &[u8])] = &[
         "libtorajs_num.a",
         include_bytes!(env!("TORAJS_NUM_STATICLIB_PATH")),
     ),
+    (
+        "libtorajs_bigint.a",
+        include_bytes!(env!("TORAJS_BIGINT_STATICLIB_PATH")),
+    ),
 ];
 
 pub mod ast;

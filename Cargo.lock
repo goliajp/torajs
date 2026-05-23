@@ -1843,6 +1843,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "torajs-bigint"
+version = "0.1.0"
+
+[[package]]
 name = "torajs-cli"
 version = "0.1.0"
 dependencies = [
@@ -1864,6 +1868,7 @@ version = "0.1.0"
 dependencies = [
  "inkwell",
  "torajs-anyvalue",
+ "torajs-bigint",
  "torajs-num",
  "torajs-rc",
  "torajs-runtime",

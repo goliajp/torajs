@@ -38,6 +38,7 @@ const STATICLIBS: &[&str] = &[
     "torajs_throw",    // Layer-1: native-error registry + throw helpers
     "torajs_str",      // Layer-2: Str layout + small-Str pool + alloc/free
     "torajs_num",      // Layer-2: Number primitives + Math namespace intrinsics
+    "torajs_bigint",   // Layer-2: BigInt arbitrary-precision integer (P3.3)
 ];
 
 fn main() {
