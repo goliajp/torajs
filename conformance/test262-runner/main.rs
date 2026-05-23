@@ -464,34 +464,16 @@ fn run_case(path: &Path, harness: &str, tr_bin: &Path, slot: usize) -> Outcome {
         };
     }
 
-    // Bun oracle — cache lookup first (deterministic over
-    // (case_bytes, harness_bytes, bun_version); skips ~50-80 ms
-    // spawn on hit). Cache miss → spawn bun + populate cache.
-    let (bun_success, bun_stdout) = match cache::lookup(case_src.as_bytes(), harness.as_bytes()) {
-        Some(c) => (c.success, c.stdout),
-        None => {
-            let out = match Command::new("bun")
-                .args(["run", &tmp_path.to_string_lossy()])
-                .output()
-            {
-                Ok(o) => o,
-                Err(e) => {
-                    let _ = std::fs::remove_file(&tmp_path);
-                    return Outcome::HarnessError {
-                        msg: format!("bun spawn: {e}"),
-                    };
-                }
-            };
-            let success = out.status.success();
-            cache::insert(
-                case_src.as_bytes(),
-                harness.as_bytes(),
-                success,
-                &out.stdout,
-            );
-            (success, out.stdout)
-        }
-    };
+    // Bun oracle (cache lookup + spawn with 15s timeout). Cache
+    // hit → 0 spawn cost. Miss → spawn bun, populate cache.
+    let (bun_success, bun_stdout) =
+        match cache::bun_oracle(case_src.as_bytes(), harness.as_bytes(), &tmp_path) {
+            Ok(v) => v,
+            Err(e) => {
+                let _ = std::fs::remove_file(&tmp_path);
+                return Outcome::HarnessError { msg: e };
+            }
+        };
     if !bun_success {
         let _ = std::fs::remove_file(&tmp_path);
         return Outcome::BunSkip;
@@ -503,9 +485,13 @@ fn run_case(path: &Path, harness: &str, tr_bin: &Path, slot: usize) -> Outcome {
     // infinite loop, not a slow-but-correct compile. We classify hung
     // cases as `Incompatible { kind: "tr-timeout" }` so they don't
     // block the run from finishing.
+    // tr AOT cache enabled (`~/.torajs/cache` is content-keyed by
+    // source + compiler-rev so byte-identical to no-cache outcome;
+    // saves the LLVM compile pipeline on every (case + tr binary)
+    // re-encounter). Caller can `tr cache clean --max-mb N` to cap
+    // disk usage.
     let mut tr_proc = match Command::new(tr_bin)
         .args(["run", &tmp_path.to_string_lossy()])
-        .env("TORAJS_NO_CACHE", "1")
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()

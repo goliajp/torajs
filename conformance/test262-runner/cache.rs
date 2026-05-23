@@ -148,6 +148,62 @@ pub fn insert(case_bytes: &[u8], harness_bytes: &[u8], success: bool, stdout: &[
     let _ = std::fs::write(&path, &buf);
 }
 
+/// Bun oracle path — cache lookup first, spawn bun on miss with a
+/// per-task timeout (defensive vs hang cases; tr side already has its
+/// own 30s timeout — bun was previously unbounded). Returns
+/// `(success, stdout)`. Errors from bun spawn surface as `Err`; bun
+/// timeout returns `Ok((false, ...))` so it classifies as `BunSkip`
+/// (consistent with the way bun's own non-zero exits classify).
+///
+/// Caller responsibility:
+/// - Caller has written `tmp_path` containing harness + transformed
+///   source before calling this fn.
+/// - On cache hit the tmp_path file is still read by tr later, so do
+///   NOT remove it before tr runs.
+pub fn bun_oracle(
+    case_bytes: &[u8],
+    harness_bytes: &[u8],
+    tmp_path: &std::path::Path,
+) -> Result<(bool, Vec<u8>), String> {
+    if let Some(c) = lookup(case_bytes, harness_bytes) {
+        return Ok((c.success, c.stdout));
+    }
+    let mut child = Command::new("bun")
+        .args(["run", &tmp_path.to_string_lossy()])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("bun spawn: {e}"))?;
+    // 15s bun timeout — bun usually 50-80 ms per case; anything over
+    // 15s is almost certainly a hang, not a slow-but-correct run.
+    // Matches feedback_bg_hang_detection — "single hang fixture must
+    // not drag the whole batch down". 30s tr timeout already exists
+    // downstream; 15s here keeps total per-case <= 45s ceiling.
+    let timeout = std::time::Duration::from_secs(15);
+    let started = std::time::Instant::now();
+    let out = loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break child.wait_with_output(),
+            Ok(None) => {
+                if started.elapsed() >= timeout {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    // Treat as BunSkip — same outcome as bun exiting
+                    // non-zero. Don't cache hangs (re-test next run
+                    // in case bun improved or environment changed).
+                    return Ok((false, Vec::new()));
+                }
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            Err(e) => return Err(format!("bun wait: {e}")),
+        }
+    };
+    let out = out.map_err(|e| format!("bun output: {e}"))?;
+    let success = out.status.success();
+    insert(case_bytes, harness_bytes, success, &out.stdout);
+    Ok((success, out.stdout))
+}
+
 /// Stats helper for the run summary. Returns (entry_count,
 /// total_bytes_on_disk). Best-effort; ignores I/O errors.
 pub fn stats() -> (usize, u64) {
