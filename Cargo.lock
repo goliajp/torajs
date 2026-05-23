@@ -1864,6 +1864,7 @@ version = "0.1.0"
 dependencies = [
  "inkwell",
  "torajs-anyvalue",
+ "torajs-num",
  "torajs-rc",
  "torajs-runtime",
  "torajs-str",
@@ -1878,6 +1879,10 @@ dependencies = [
  "torajs-core",
  "torajs-runtime",
 ]
+
+[[package]]
+name = "torajs-num"
+version = "0.1.0"
 
 [[package]]
 name = "torajs-playground-api"

@@ -1,0 +1,28 @@
+[package]
+name = "torajs-num"
+description = "Number primitives + Math namespace intrinsics for the torajs AOT TypeScript runtime. Layer-2 substrate of the architecture rewrite (`docs/architecture-rewrite.md` P3.2). Wraps libm via Rust f64 methods (sqrt / abs / floor / sin / log / pow / ...) and provides ToNumber per ES §7.1.4. no_std-friendly, 0 runtime deps."
+keywords = ["torajs", "number", "math", "f64", "ecmascript"]
+categories = ["mathematics", "no-std"]
+readme = "README.md"
+documentation = "https://docs.rs/torajs-num"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+# Dual emit: `rlib` for cargo workspace builds + unit tests + criterion
+# bench harness; `staticlib` emits libtorajs_num.a so ssa_inkwell can
+# link it into every `tr build` AOT user binary alongside libtorajs_str.a
+# and the other Layer-1+ staticlibs.
+[lib]
+crate-type = ["rlib", "staticlib"]
+
+[dependencies]
+# No deps for the P3.2-a scaffold. Future ToNumber port (P3.2-c) will
+# pull torajs-anyvalue (for AnyBox tag dispatch on any.toNumber) +
+# torajs-throw (for RangeError on invalid numeric conversion edge cases).

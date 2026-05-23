@@ -34,3 +34,7 @@ torajs-throw = { path = "../torajs-throw" }
 # per-op string fns. Pulled in for the dual rlib+staticlib pattern
 # so `lib<crate>.a` exists for build.rs's env-var emit.
 torajs-str = { path = "../torajs-str" }
+# Layer-2 substrate: Number primitives + Math intrinsics. Same dual
+# rlib+staticlib usage so libtorajs_num.a links into every `tr build`
+# user binary.
+torajs-num = { path = "../torajs-num" }

@@ -343,9 +343,9 @@ pub fn compile_for_kind(
             // dispatch arm + the intrinsics-array entries are deleted;
             // the linker resolves all four symbols against
             // libtorajs_str.a.
-            "__torajs_math_sqrt" => {
-                define_math_unary(&ctx, &llvm_module, "__torajs_math_sqrt", "sqrt")
-            }
+            // "__torajs_math_sqrt" moved to torajs-num::math (P3.2-a,
+            // 2026-05-23). f64::sqrt → libm sqrt, identical to what
+            // define_math_unary's IR emitted.
             "__torajs_math_abs" => {
                 define_math_unary(&ctx, &llvm_module, "__torajs_math_abs", "fabs")
             }
@@ -560,7 +560,7 @@ pub fn compile_for_kind(
         // (no-_from variants) moved to torajs-str::lookup (P3.1-g.3).
         // The Pass D dispatch loop no longer needs to find IR bodies
         // for them; resolved via libtorajs_str.a at link.
-        "__torajs_math_sqrt",
+        // "__torajs_math_sqrt" moved to torajs-num::math (P3.2-a)
         "__torajs_math_abs",
         "__torajs_math_floor",
         "__torajs_math_ceil",
