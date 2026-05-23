@@ -13,10 +13,17 @@
 
 use core::ffi::c_void;
 
+/// Offset of the `len` u64 within an array heap block.
+const ARR_HDR_LEN_OFF: usize = 8;
+
 /// Offset of the `cap` u32 within an array heap block. T-13.5 packed
 /// cap (u32) + head_offset (u32) into the 8-byte slot at offset 16
 /// (formerly cap was a u64). Mirrors `ssa_inkwell::ARR_HDR_CAP_OFF`.
 const ARR_HDR_CAP_OFF: usize = 16;
+
+/// Offset of the `head_offset` u32 within an array heap block (T-13.5
+/// deque packed cap + head).
+const ARR_HDR_HEAD_OFF: usize = 20;
 
 /// Offset of the slot array within an array heap block (24 = 8B header
 /// + 8B len + 4B cap + 4B head). Mirrors `ssa_inkwell::ARR_HDR_DATA_OFF`.
@@ -70,6 +77,65 @@ pub unsafe extern "C" fn __torajs_arr_set_length_validate(tag: i64, value: i64) 
             __torajs_throw_range_error(b"Invalid array length\0".as_ptr());
         }
     }
+}
+
+/// Push `val` onto the end of `arr`, growing the backing block if
+/// needed. Returns the (possibly relocated) array pointer; caller
+/// stores it back. Mirrors `__torajs_arr_push_unchecked` semantically
+/// but with the cap-check + compact + grow path.
+///
+/// Algorithm (1:1 port of ssa_inkwell::define_arr_push, 187 LOC IR @
+/// L2647-2829; collapsed via native realloc + ptr::copy + linear
+/// control flow):
+///
+/// ```text
+/// fast path: head + len < cap → store immediately
+/// need-room:
+///   if head > 0: memmove(data, data + head*8, len*8); head = 0  // T-13.5 compact
+///   if len == cap: realloc(new_cap = max(4, cap*2)); update cap
+/// store: data = arr + 24 + head*8 (re-load head); *(data + len*8) = val; len += 1
+/// ```
+///
+/// # Safety
+/// `extern "C"` ABI. `arr` must be a live Array<T> heap block (8-byte
+/// slot stride — Array<Any> uses a 16-byte stride and has its own
+/// push_any path in [`crate::any`]).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_push(arr: *mut u8, val: i64) -> *mut u8 {
+    let len = unsafe { *(arr.add(ARR_HDR_LEN_OFF) as *const u64) } as i64;
+    let cap = unsafe { *(arr.add(ARR_HDR_CAP_OFF) as *const u32) } as i64;
+    let head = unsafe { *(arr.add(ARR_HDR_HEAD_OFF) as *const u32) } as i64;
+    let phys_used = head + len;
+
+    let mut arr = arr;
+    if phys_used >= cap {
+        if head > 0 {
+            unsafe {
+                let raw_data = arr.add(ARR_HDR_DATA_OFF);
+                let src = raw_data.add((head as usize) * 8);
+                core::ptr::copy(src, raw_data, (len as usize) * 8);
+                *(arr.add(ARR_HDR_HEAD_OFF) as *mut u32) = 0;
+            }
+        }
+        if len == cap {
+            let new_cap = if cap == 0 { 4 } else { cap * 2 };
+            let new_total = (new_cap as usize) * 8 + ARR_HDR_DATA_OFF;
+            arr = unsafe { realloc(arr as *mut c_void, new_total) as *mut u8 };
+            unsafe {
+                *(arr.add(ARR_HDR_CAP_OFF) as *mut u32) = new_cap as u32;
+            }
+        }
+    }
+
+    // Re-load head — compact path may have reset it to 0.
+    let head_now = unsafe { *(arr.add(ARR_HDR_HEAD_OFF) as *const u32) } as i64;
+    unsafe {
+        let data = arr.add(ARR_HDR_DATA_OFF + (head_now as usize) * 8);
+        let slot = data.add((len as usize) * 8) as *mut i64;
+        *slot = val;
+        *(arr.add(ARR_HDR_LEN_OFF) as *mut u64) = (len + 1) as u64;
+    }
+    arr
 }
 
 /// Grow an array's backing block to fit at least `new_cap` elements.

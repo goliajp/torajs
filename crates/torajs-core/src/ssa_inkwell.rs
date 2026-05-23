@@ -304,12 +304,11 @@ fn compile_for_kind_impl(
     // Pass A: declare libc decls + the intrinsics whose body the backend owns.
     let putchar = declare_putchar(&ctx, &llvm_module);
     let malloc = declare_malloc(&ctx, &llvm_module, target);
-    // declare_{memcpy,memcmp} only register the LLVM externs; the Rust
-    // FunctionValue bindings are no longer used at this scope after
-    // the str_* IR builders moved to torajs-str (P3.1-g.{2..5}).
-    // memmove stays bound because define_arr_push still consumes it.
+    // declare_{memcpy,memmove,memcmp} only register the LLVM externs;
+    // no Rust binding needed at this scope since all str_*/arr_* IR
+    // builders have moved out (P3.1-g.{2..5}, P4.1-l).
     let _ = declare_memcpy(&ctx, &llvm_module, target);
-    let memmove = declare_memmove(&ctx, &llvm_module, target);
+    let _ = declare_memmove(&ctx, &llvm_module, target);
     let _ = declare_memcmp(&ctx, &llvm_module, target);
 
     // Pass B: emit string-literal globals (LLVM `[N x i8]` private constants).
@@ -346,7 +345,10 @@ fn compile_for_kind_impl(
     // FunctionValue. Backend-owned intrinsics get a body here; everything
     // else gets a declaration that pass D fills in.
     let free = declare_free(&ctx, &llvm_module, target);
-    let realloc = declare_realloc(&ctx, &llvm_module, target);
+    // declare_realloc only registers the LLVM extern; the Rust binding
+    // was the input to define_arr_push / define_arr_reserve, both
+    // moved to torajs-arr (P4.1-{k,l}).
+    let _ = declare_realloc(&ctx, &llvm_module, target);
     // declare_str_free registers the LLVM extern; the Rust binding
     // was the input to define_str_drop, moved to torajs-str (P3.1-g.6).
     let _ = declare_str_free(&ctx, &llvm_module);
@@ -408,7 +410,11 @@ fn compile_for_kind_impl(
                 mark_alwaysinline(&ctx, f);
                 f
             }
-            "__torajs_arr_push" => define_arr_push(&ctx, &llvm_module, realloc, memmove),
+            // __torajs_arr_push moved to torajs-arr::grow (P4.1-l,
+            // 2026-05-23). Rust impl mirrors 1:1: fast path → compact
+            // (head>0) → grow (max(4, cap*2)) → store + len_inc.
+            // Native ptr::copy collapses the memmove call; LTO inlines
+            // the body across libtorajs_arr.a same as the prior IR.
             // __torajs_arr_reserve moved to torajs-arr::grow (P4.1-k,
             // 2026-05-23). Rust impl is realloc + cap-store + return —
             // LTO across libtorajs_arr.a inlines into the caller same
@@ -574,7 +580,7 @@ fn compile_for_kind_impl(
         "__torajs_obj_alloc",
         "__torajs_obj_drop",
         "__torajs_arr_alloc",
-        "__torajs_arr_push",
+        // "__torajs_arr_push" moved to torajs-arr::grow (P4.1-l)
         "__torajs_arr_shift",
         // "__torajs_arr_reserve" moved to torajs-arr::grow (P4.1-k)
         "__torajs_arr_push_unchecked",
@@ -2154,176 +2160,11 @@ fn emit_arr_alloc_header<'ctx>(
     p
 }
 
-/// Get the Arr's logical-data byte pointer (`p + 24 + head*8`).
-/// T-13.5: head_offset folds into the data ptr so existing slot
-/// offset math (`data + i*8`) automatically resolves to the
-/// correct physical slot for shifted arrays. For freshly-allocated
-/// arrays head=0, the head*8 add collapses to 0 at LLVM-opt time
-/// when arr_alloc is visible to the caller.
-fn arr_data_ptr<'ctx>(
-    ctx: &'ctx Context,
-    builder: &inkwell::builder::Builder<'ctx>,
-    arr_ptr: inkwell::values::PointerValue<'ctx>,
-    name: &str,
-) -> inkwell::values::PointerValue<'ctx> {
-    let i64_t = ctx.i64_type();
-    let i8_t = ctx.i8_type();
-    let raw = unsafe {
-        builder
-            .build_in_bounds_gep(
-                i8_t,
-                arr_ptr,
-                &[i64_t.const_int(ARR_HDR_DATA_OFF, false)],
-                &format!("{name}_raw"),
-            )
-            .unwrap()
-    };
-    let head_x8 = arr_head_x8_load(ctx, builder, arr_ptr, name);
-    unsafe {
-        builder
-            .build_in_bounds_gep(i8_t, raw, &[head_x8], name)
-            .unwrap()
-    }
-}
-
-/// Get the Arr's raw-data byte pointer (`p + 24`), bypassing the
-/// head_offset adjustment. Used by paths that need physical-slot
-/// access — currently the in-IR compact memmove. Avoid otherwise.
-fn arr_raw_data_ptr<'ctx>(
-    ctx: &'ctx Context,
-    builder: &inkwell::builder::Builder<'ctx>,
-    arr_ptr: inkwell::values::PointerValue<'ctx>,
-    name: &str,
-) -> inkwell::values::PointerValue<'ctx> {
-    let i64_t = ctx.i64_type();
-    let i8_t = ctx.i8_type();
-    unsafe {
-        builder
-            .build_in_bounds_gep(
-                i8_t,
-                arr_ptr,
-                &[i64_t.const_int(ARR_HDR_DATA_OFF, false)],
-                name,
-            )
-            .unwrap()
-    }
-}
-
-/// Load the Arr's `head_offset * 8` (i64) — the byte offset of
-/// logical[0] within the slot data section. Loads u32 at offset 20,
-/// zext to i64, shl 3.
-fn arr_head_x8_load<'ctx>(
-    ctx: &'ctx Context,
-    builder: &inkwell::builder::Builder<'ctx>,
-    arr_ptr: inkwell::values::PointerValue<'ctx>,
-    name: &str,
-) -> inkwell::values::IntValue<'ctx> {
-    let i64_t = ctx.i64_type();
-    let i32_t = ctx.i32_type();
-    let i8_t = ctx.i8_type();
-    let head_ptr = unsafe {
-        builder
-            .build_in_bounds_gep(
-                i8_t,
-                arr_ptr,
-                &[i64_t.const_int(ARR_HDR_HEAD_OFF, false)],
-                &format!("{name}_hp"),
-            )
-            .unwrap()
-    };
-    let head_i32 = builder
-        .build_load(i32_t, head_ptr, &format!("{name}_h32"))
-        .unwrap()
-        .into_int_value();
-    let head_i64 = builder
-        .build_int_z_extend(head_i32, i64_t, &format!("{name}_h64"))
-        .unwrap();
-    builder
-        .build_left_shift(head_i64, i64_t.const_int(3, false), &format!("{name}_x8"))
-        .unwrap()
-}
-
-/// Load the Arr's `head_offset` field (i64-extended). Cheaper-named
-/// helper for callers that need head as a count, not a byte offset.
-fn arr_head_load<'ctx>(
-    ctx: &'ctx Context,
-    builder: &inkwell::builder::Builder<'ctx>,
-    arr_ptr: inkwell::values::PointerValue<'ctx>,
-    name: &str,
-) -> inkwell::values::IntValue<'ctx> {
-    let i64_t = ctx.i64_type();
-    let i32_t = ctx.i32_type();
-    let i8_t = ctx.i8_type();
-    let head_ptr = unsafe {
-        builder
-            .build_in_bounds_gep(
-                i8_t,
-                arr_ptr,
-                &[i64_t.const_int(ARR_HDR_HEAD_OFF, false)],
-                &format!("{name}_hp"),
-            )
-            .unwrap()
-    };
-    let head_i32 = builder
-        .build_load(i32_t, head_ptr, &format!("{name}_h32"))
-        .unwrap()
-        .into_int_value();
-    builder.build_int_z_extend(head_i32, i64_t, name).unwrap()
-}
-
-/// Load the Arr's `len` field (`*(u64*)(p + ARR_HDR_LEN_OFF)`).
-fn arr_len_load<'ctx>(
-    ctx: &'ctx Context,
-    builder: &inkwell::builder::Builder<'ctx>,
-    arr_ptr: inkwell::values::PointerValue<'ctx>,
-    name: &str,
-) -> inkwell::values::IntValue<'ctx> {
-    let i64_t = ctx.i64_type();
-    let i8_t = ctx.i8_type();
-    let len_ptr = unsafe {
-        builder
-            .build_in_bounds_gep(
-                i8_t,
-                arr_ptr,
-                &[i64_t.const_int(ARR_HDR_LEN_OFF, false)],
-                &format!("{name}_lp"),
-            )
-            .unwrap()
-    };
-    builder
-        .build_load(i64_t, len_ptr, name)
-        .unwrap()
-        .into_int_value()
-}
-
-/// Load the Arr's `cap` field (`*(u32*)(p + ARR_HDR_CAP_OFF)`)
-/// zext to i64. T-13.5: cap shrunk from u64 to u32 to share a
-/// 64-bit slot with `head_offset` at offset 20.
-fn arr_cap_load<'ctx>(
-    ctx: &'ctx Context,
-    builder: &inkwell::builder::Builder<'ctx>,
-    arr_ptr: inkwell::values::PointerValue<'ctx>,
-    name: &str,
-) -> inkwell::values::IntValue<'ctx> {
-    let i64_t = ctx.i64_type();
-    let i32_t = ctx.i32_type();
-    let i8_t = ctx.i8_type();
-    let cap_ptr = unsafe {
-        builder
-            .build_in_bounds_gep(
-                i8_t,
-                arr_ptr,
-                &[i64_t.const_int(ARR_HDR_CAP_OFF, false)],
-                &format!("{name}_cp"),
-            )
-            .unwrap()
-    };
-    let cap_i32 = builder
-        .build_load(i32_t, cap_ptr, &format!("{name}_c32"))
-        .unwrap()
-        .into_int_value();
-    builder.build_int_z_extend(cap_i32, i64_t, name).unwrap()
-}
+/* arr_data_ptr / arr_raw_data_ptr / arr_head_x8_load / arr_head_load /
+ * arr_len_load / arr_cap_load helpers deleted (P4.1-l, 2026-05-23).
+ * Their only callers were the now-Rust-ported define_arr_push +
+ * define_arr_reserve IR builders. The remaining IR consumer
+ * (define_arr_shift) inlines its own loads. */
 
 /// Emit one `[N x i8]` private constant per interned string. Just the raw
 /// bytes — no NUL terminator. The string runtime carries length explicitly
@@ -2623,214 +2464,11 @@ fn define_obj_drop<'ctx>(
  * Trivial single-call wrapper around __torajs_arr_alloc_pooled; LTO
  * inlines across the staticlib boundary. */
 
-/// `__torajs_arr_push(*u8 arr, i64 val) -> *u8`
-///
-/// T-13.5 deque-aware:
-///     len  = *(u64*)(arr + 8)
-///     cap  = *(u32*)(arr + 16)  (zext)
-///     head = *(u32*)(arr + 20)  (zext)
-///     phys_used = head + len
-///     if phys_used == cap:                         // physical end reached
-///       if head > 0:
-///         memmove(data, data + head*8, len*8)      // compact head→0
-///         *(u32*)(arr + 20) = 0
-///       if len == cap:                              // genuinely full
-///         new_cap = cap==0 ? 4 : cap*2
-///         arr = realloc(arr, 24 + new_cap*8)
-///         *(u32*)(arr + 16) = new_cap               // 4-byte store, head intact
-///     store val at logical[len] (= data + (head_after + len)*8)
-///     *(u64*)(arr + 8) = len + 1
-///
-/// `arr_data_ptr` already folds head_offset into the data ptr, so
-/// `data + len*8` resolves to the right physical slot. After compact,
-/// head=0 so the head load at the use site returns 0 (we re-load it).
-fn define_arr_push<'ctx>(
-    ctx: &'ctx Context,
-    m: &LlvmModule<'ctx>,
-    realloc: FunctionValue<'ctx>,
-    memmove: FunctionValue<'ctx>,
-) -> FunctionValue<'ctx> {
-    let builder = ctx.create_builder();
-    let i64_t = ctx.i64_type();
-    let i32_t = ctx.i32_type();
-    let i8_t = ctx.i8_type();
-    let ptr_t = ctx.ptr_type(AddressSpace::default());
-    let fn_t = ptr_t.fn_type(&[ptr_t.into(), i64_t.into()], false);
-    let f = m.add_function("__torajs_arr_push", fn_t, None);
-    let entry = ctx.append_basic_block(f, "entry");
-    let need_room_blk = ctx.append_basic_block(f, "need_room");
-    let compact_blk = ctx.append_basic_block(f, "compact");
-    let after_compact_blk = ctx.append_basic_block(f, "after_compact");
-    let grow_blk = ctx.append_basic_block(f, "grow");
-    let store_blk = ctx.append_basic_block(f, "store");
-    builder.position_at_end(entry);
+/* define_arr_push body moved to torajs-arr::grow (P4.1-l, 2026-05-23).
+ * Pure-Rust port: fast path (head+len<cap) → compact (head>0, ptr::copy)
+ * → grow (max(4, cap*2)) → store + len_inc. Resolved at link time
+ * via libtorajs_arr.a. */
 
-    let arr_in = f.get_nth_param(0).unwrap().into_pointer_value();
-    let val = f.get_nth_param(1).unwrap().into_int_value();
-
-    let len = arr_len_load(ctx, &builder, arr_in, "len");
-    let cap = arr_cap_load(ctx, &builder, arr_in, "cap");
-    let head = arr_head_load(ctx, &builder, arr_in, "head");
-    let phys_used = builder.build_int_add(head, len, "phys_used").unwrap();
-    let need_room = builder
-        .build_int_compare(IntPredicate::UGE, phys_used, cap, "need_room")
-        .unwrap();
-    builder
-        .build_conditional_branch(need_room, need_room_blk, store_blk)
-        .unwrap();
-
-    // need_room_blk: head>0 → compact, else → grow
-    builder.position_at_end(need_room_blk);
-    let head_pos = builder
-        .build_int_compare(
-            IntPredicate::UGT,
-            head,
-            i64_t.const_int(0, false),
-            "head_pos",
-        )
-        .unwrap();
-    builder
-        .build_conditional_branch(head_pos, compact_blk, after_compact_blk)
-        .unwrap();
-
-    // compact_blk: memmove(data, data + head*8, len*8); head=0
-    builder.position_at_end(compact_blk);
-    let raw_data = arr_raw_data_ptr(ctx, &builder, arr_in, "raw_data");
-    let head_x8 = builder
-        .build_int_mul(head, i64_t.const_int(8, false), "head_x8")
-        .unwrap();
-    let src = unsafe {
-        builder
-            .build_in_bounds_gep(i8_t, raw_data, &[head_x8], "src")
-            .unwrap()
-    };
-    let len_bytes = builder
-        .build_int_mul(len, i64_t.const_int(8, false), "len_bytes")
-        .unwrap();
-    builder
-        .build_call(
-            memmove,
-            &[raw_data.into(), src.into(), len_bytes.into()],
-            "_mm",
-        )
-        .unwrap();
-    let head_p = unsafe {
-        builder
-            .build_in_bounds_gep(
-                i8_t,
-                arr_in,
-                &[i64_t.const_int(ARR_HDR_HEAD_OFF, false)],
-                "head_p",
-            )
-            .unwrap()
-    };
-    builder
-        .build_store(head_p, i32_t.const_int(0, false))
-        .unwrap();
-    builder
-        .build_unconditional_branch(after_compact_blk)
-        .unwrap();
-
-    // after_compact_blk: if len == cap, realloc; else go to store
-    builder.position_at_end(after_compact_blk);
-    let full = builder
-        .build_int_compare(IntPredicate::EQ, len, cap, "full")
-        .unwrap();
-    let post_compact_blk = ctx.append_basic_block(f, "post_compact");
-    builder
-        .build_conditional_branch(full, grow_blk, post_compact_blk)
-        .unwrap();
-
-    // post_compact_blk: jump to store with arr_in (no realloc happened)
-    builder.position_at_end(post_compact_blk);
-    builder.build_unconditional_branch(store_blk).unwrap();
-
-    // grow_blk: realloc with new_cap = (cap == 0 ? 4 : cap*2). cap stored as u32.
-    builder.position_at_end(grow_blk);
-    let cap_zero = builder
-        .build_int_compare(IntPredicate::EQ, cap, i64_t.const_int(0, false), "cap_zero")
-        .unwrap();
-    let cap_x2 = builder
-        .build_int_mul(cap, i64_t.const_int(2, false), "cap_x2")
-        .unwrap();
-    let new_cap = builder
-        .build_select(cap_zero, i64_t.const_int(4, false), cap_x2, "new_cap")
-        .unwrap()
-        .into_int_value();
-    let new_cap_bytes = builder
-        .build_int_mul(new_cap, i64_t.const_int(8, false), "new_cap_bytes")
-        .unwrap();
-    let new_total = builder
-        .build_int_add(
-            new_cap_bytes,
-            i64_t.const_int(ARR_HDR_DATA_OFF, false),
-            "new_total",
-        )
-        .unwrap();
-    let arr_grown = builder
-        .build_call(realloc, &[arr_in.into(), new_total.into()], "arr_grown")
-        .unwrap()
-        .try_as_basic_value()
-        .unwrap_basic()
-        .into_pointer_value();
-    // 4-byte store at offset 16 (cap u32) — must NOT overwrite head at offset 20
-    let new_cap_p = unsafe {
-        builder
-            .build_in_bounds_gep(
-                i8_t,
-                arr_grown,
-                &[i64_t.const_int(ARR_HDR_CAP_OFF, false)],
-                "new_cap_p",
-            )
-            .unwrap()
-    };
-    let new_cap_i32 = builder
-        .build_int_truncate(new_cap, i32_t, "new_cap_i32")
-        .unwrap();
-    builder.build_store(new_cap_p, new_cap_i32).unwrap();
-    builder.build_unconditional_branch(store_blk).unwrap();
-
-    // store_blk: phi arr (entry/post_compact → arr_in, grow → arr_grown).
-    // Then write val at logical[len] via head-aware data ptr.
-    builder.position_at_end(store_blk);
-    let phi = builder.build_phi(ptr_t, "arr").unwrap();
-    phi.add_incoming(&[
-        (&arr_in, entry),
-        (&arr_in, post_compact_blk),
-        (&arr_grown, grow_blk),
-    ]);
-    let arr = phi.as_basic_value().into_pointer_value();
-    let data = arr_data_ptr(ctx, &builder, arr, "data");
-    let len_x8 = builder
-        .build_int_mul(len, i64_t.const_int(8, false), "len_x8")
-        .unwrap();
-    let slot = unsafe {
-        builder
-            .build_in_bounds_gep(i8_t, data, &[len_x8], "slot")
-            .unwrap()
-    };
-    builder.build_store(slot, val).unwrap();
-    let len_p1 = builder
-        .build_int_add(len, i64_t.const_int(1, false), "len_p1")
-        .unwrap();
-    let len_p = unsafe {
-        builder
-            .build_in_bounds_gep(
-                i8_t,
-                arr,
-                &[i64_t.const_int(ARR_HDR_LEN_OFF, false)],
-                "len_p",
-            )
-            .unwrap()
-    };
-    builder.build_store(len_p, len_p1).unwrap();
-    builder.build_return(Some(&arr)).unwrap();
-    f
-}
-
-/// M6.2 fast-path. `arr_reserve(arr, new_cap) -> arr*` ensures
-/// `cap >= new_cap`; reallocs once if needed, otherwise no-op. Returns
-/// the (possibly new) ptr — caller stores it back into its slot.
 /* define_arr_reserve body moved to torajs-arr::grow (P4.1-k,
  * 2026-05-23). Pure-Rust port: cap_load + realloc + cap_store +
  * return. LTO inlines across libtorajs_arr.a same as the prior IR. */
