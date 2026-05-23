@@ -84,6 +84,29 @@ pub const BUCKET_FLAGS_DEFAULT: u64 =
 /// value is a heap pointer that owes an rc-dec before overwrite.
 pub const ANY_HEAP: u64 = 4;
 
+// Object.defineProperty descriptor-flags encoding — `flags_byte`
+// passed by ssa_lower to [`crate::define::__torajs_dynobj_define`].
+// Low 3 bits = flag VALUE; bits 3-5 = flag PRESENT in descriptor;
+// bit 6 = value present in descriptor. Matches the C macros
+// `__TORAJS_DEFINE_*` 1:1.
+
+/// Descriptor's `writable` flag value (low bit 0 of `flags_byte`).
+pub const DEFINE_FLAG_WRITABLE: u64 = 1 << 0;
+/// Descriptor's `enumerable` flag value (low bit 1).
+pub const DEFINE_FLAG_ENUMERABLE: u64 = 1 << 1;
+/// Descriptor's `configurable` flag value (low bit 2).
+pub const DEFINE_FLAG_CONFIGURABLE: u64 = 1 << 2;
+/// "Writable flag present in descriptor" sentinel (bit 3). Spec
+/// §10.1.6.3 distinguishes "absent" (leave current alone on redefine,
+/// default false on fresh) from "present-false" (use the value).
+pub const DEFINE_PRESENT_WRITABLE: u64 = 1 << 3;
+/// "Enumerable flag present in descriptor" sentinel (bit 4).
+pub const DEFINE_PRESENT_ENUMERABLE: u64 = 1 << 4;
+/// "Configurable flag present in descriptor" sentinel (bit 5).
+pub const DEFINE_PRESENT_CONFIGURABLE: u64 = 1 << 5;
+/// "Descriptor includes [[Value]] field" sentinel (bit 6).
+pub const DEFINE_PRESENT_VALUE: u64 = 1 << 6;
+
 // `Str` layout — mirrored from `torajs-str::layout` (separately
 // compiled, shared contract; same dep-avoidance pattern torajs-arr uses
 // for `HeapHeader`). Updates to torajs-str's Str layout require a

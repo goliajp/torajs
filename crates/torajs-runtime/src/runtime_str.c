@@ -493,7 +493,6 @@ void __torajs_str_drop(void *s);
 
 /* Forward decls used inside helpers. */
 static __torajs_dynobj_bucket_t *__torajs_dynobj_buckets(void *obj);
-static void __torajs_dynobj_resize(void **obj_slot, uint32_t new_cap);
 
 /* __torajs_dynobj_alloc moved to torajs-dynobj::alloc (P4.2-a,
  * 2026-05-23). Rust port — same calloc + header init shape; in-file
@@ -580,35 +579,10 @@ static uint32_t __torajs_dynobj_probe(
     return tombstone_at >= 0 ? (uint32_t)tombstone_at : 0;
 }
 
-static void __torajs_dynobj_resize(void **obj_slot, uint32_t new_cap) {
-    void *old = *obj_slot;
-    uint32_t old_cap = *(uint32_t *)((uint8_t *)old + 12);
-    __torajs_dynobj_bucket_t *old_bk = __torajs_dynobj_buckets(old);
-    /* Allocate fresh block with new_cap. */
-    size_t bytes = __TORAJS_DYNOBJ_HDR_SIZE
-        + (size_t)new_cap * __TORAJS_DYNOBJ_BUCKET_SIZE;
-    uint8_t *p = (uint8_t *)calloc(1, bytes);
-    __torajs_heap_header_t *h = (__torajs_heap_header_t *)p;
-    *h = *(__torajs_heap_header_t *)old;  /* preserve refcount + tag + flags */
-    *(uint32_t *)(p + 8)  = 0;          /* count rebuilds below */
-    *(uint32_t *)(p + 12) = new_cap;
-    *(uint32_t *)(p + 16) = 0;          /* no tombstones in fresh table */
-    void *new_obj = p;
-    /* Re-insert every live bucket into the new table. Tombstones drop. */
-    uint32_t live = 0;
-    for (uint32_t i = 0; i < old_cap; i++) {
-        void *kp = old_bk[i].key_ptr;
-        if (kp == NULL || kp == __TORAJS_DYNOBJ_TOMBSTONE) continue;
-        int found;
-        uint32_t idx = __torajs_dynobj_probe(new_obj, kp, &found);
-        __torajs_dynobj_bucket_t *new_bk = __torajs_dynobj_buckets(new_obj);
-        new_bk[idx] = old_bk[i];
-        live++;
-    }
-    *(uint32_t *)((uint8_t *)new_obj + 8) = live;
-    *obj_slot = new_obj;
-    free(old);
-}
+/* __torajs_dynobj_resize moved to torajs-dynobj::resize (P4.2-d, 2026-05-23).
+ * Previously a `static` helper called by C-side `set` (P4.2-c) and
+ * `define` (P4.2-d) — both now in Rust and call the Rust resize.
+ * Last C caller deleted with this commit; safe to remove the static body. */
 
 /* Get tag for `key`. Returns ANY_UNDEF=5 when the key isn't present
  * (per ES spec — missing property reads as undefined). Also returns
@@ -734,151 +708,18 @@ extern void __torajs_throw_type_error(const char *msg);
 /* __torajs_dynobj_set moved to torajs-dynobj::set (P4.2-c, 2026-05-23).
  * Extern decl + note in the forward-decl block at line ~673. */
 
-/* P3.attribute-flag-tracking — `Object.defineProperty(obj, key,
- * descriptor)` path. Implements spec §10.1.6.3 ValidateAndApply-
- * PropertyDescriptor data-property subset:
- *
- * - If bucket is fresh (no current property): write the new bucket
- *   with the flags from `flags_byte` (absent flags default to false
- *   per spec §10.1.6.2).
- * - If bucket exists (redefine):
- *   - current.configurable=false: throw if desc tries to upgrade
- *     configurable to true, change enumerable, or upgrade writable
- *     from false→true, or change value while writable=false.
- *   - else: apply the present-flag updates, preserve the rest.
- *
- * `flags_byte` encodes (low byte):
- *   bit 0/1/2 = writable / enumerable / configurable VALUE
- *   bit 3/4/5 = writable / enumerable / configurable PRESENT
- *   bit 6     = value PRESENT in descriptor
- *
- * tag / value: the descriptor's [[Value]] packed as ANY_TAG. Ignored
- * if `value PRESENT` bit is clear.
- *
- * On spec violation: __torajs_throw_set with TypeError and return
- * without mutating bucket. ssa_lower's emit_throw_check propagates. */
-void __torajs_dynobj_define(
+/* __torajs_dynobj_define moved to torajs-dynobj::define (P4.2-d,
+ * 2026-05-23). Spec §10.1.6.3 ValidateAndApplyPropertyDescriptor data-
+ * property subset; throw paths use __torajs_throw_type_error (cross-tier
+ * extern, void-return). Rust resize covers the rebalance path; C-side
+ * `__torajs_dynobj_resize` (static) deleted in the same commit. */
+extern void __torajs_dynobj_define(
     void **obj_slot,
     void *key,
     uint64_t tag,
     uint64_t value,
     uint64_t flags_byte
-) {
-    void *obj = *obj_slot;
-    if (obj == NULL) return;
-    uint32_t cap = *(uint32_t *)((uint8_t *)obj + 12);
-    uint32_t count = *(uint32_t *)((uint8_t *)obj + 8);
-    uint32_t tomb = *(uint32_t *)((uint8_t *)obj + 16);
-    if ((count + tomb + 1) * 8 > cap * 7) {
-        __torajs_dynobj_resize(obj_slot, cap * 2);
-        obj = *obj_slot;
-    }
-    int found;
-    uint32_t idx = __torajs_dynobj_probe(obj, key, &found);
-    __torajs_dynobj_bucket_t *bk = __torajs_dynobj_buckets(obj);
-
-    int has_writable     = (flags_byte & __TORAJS_DEFINE_PRESENT_WRITABLE) != 0;
-    int has_enumerable   = (flags_byte & __TORAJS_DEFINE_PRESENT_ENUMERABLE) != 0;
-    int has_configurable = (flags_byte & __TORAJS_DEFINE_PRESENT_CONFIGURABLE) != 0;
-    int has_value        = (flags_byte & __TORAJS_DEFINE_PRESENT_VALUE) != 0;
-    int desc_writable     = (flags_byte & __TORAJS_DEFINE_FLAG_WRITABLE) != 0;
-    int desc_enumerable   = (flags_byte & __TORAJS_DEFINE_FLAG_ENUMERABLE) != 0;
-    int desc_configurable = (flags_byte & __TORAJS_DEFINE_FLAG_CONFIGURABLE) != 0;
-
-    if (found) {
-        uint64_t cur_tag = bk[idx].tag;
-        int cur_writable     = (cur_tag & __TORAJS_BUCKET_FLAG_WRITABLE) != 0;
-        int cur_enumerable   = (cur_tag & __TORAJS_BUCKET_FLAG_ENUMERABLE) != 0;
-        int cur_configurable = (cur_tag & __TORAJS_BUCKET_FLAG_CONFIGURABLE) != 0;
-        uint64_t cur_value_tag = cur_tag & __TORAJS_BUCKET_TAG_MASK;
-
-        if (!cur_configurable) {
-            /* Spec §10.1.6.3: with current.configurable=false, any
-             * present-flag change that diverges from current throws. */
-            if (has_configurable && desc_configurable && !cur_configurable) {
-                /* Trying to flip false → true. */
-                __torajs_throw_type_error(
-                    "TypeError: Cannot redefine property: configurable was false");
-                return;
-            }
-            if (has_enumerable && desc_enumerable != cur_enumerable) {
-                __torajs_throw_type_error(
-                    "TypeError: Cannot redefine property: enumerable mismatch");
-                return;
-            }
-            if (!cur_writable) {
-                if (has_writable && desc_writable) {
-                    /* Cannot upgrade writable false → true under
-                     * non-configurable. */
-                    __torajs_throw_type_error(
-                        "TypeError: Cannot redefine property: writable was false");
-                    return;
-                }
-                if (has_value) {
-                    /* Spec: with writable=false + non-configurable,
-                     * value changes are rejected unless the new value
-                     * is SameValue with the old. SameValue here is
-                     * approximated by exact (tag,value) match — same
-                     * heuristic used by the BinOp Any===Any arm. */
-                    int same = ((tag & __TORAJS_BUCKET_TAG_MASK) == cur_value_tag)
-                        && (value == bk[idx].value);
-                    if (!same) {
-                        __torajs_throw_type_error(
-                            "TypeError: Cannot redefine property: writable was false, value mismatch");
-                        return;
-                    }
-                }
-            }
-        }
-
-        /* Validation passed — apply the update. Drop old heap value
-         * if we're overwriting an ANY_HEAP slot. */
-        if (has_value
-            && cur_value_tag == 4 /* ANY_HEAP */)
-        {
-            void *old_val = (void *)(uintptr_t)bk[idx].value;
-            __torajs_value_drop_heap(old_val);
-        }
-
-        /* Recompute flag bits: present-flag overrides current; absent
-         * preserves. */
-        uint64_t new_flags = 0;
-        new_flags |= (has_writable ? (desc_writable ? __TORAJS_BUCKET_FLAG_WRITABLE : 0)
-                                   : (cur_writable ? __TORAJS_BUCKET_FLAG_WRITABLE : 0));
-        new_flags |= (has_enumerable ? (desc_enumerable ? __TORAJS_BUCKET_FLAG_ENUMERABLE : 0)
-                                     : (cur_enumerable ? __TORAJS_BUCKET_FLAG_ENUMERABLE : 0));
-        new_flags |= (has_configurable ? (desc_configurable ? __TORAJS_BUCKET_FLAG_CONFIGURABLE : 0)
-                                       : (cur_configurable ? __TORAJS_BUCKET_FLAG_CONFIGURABLE : 0));
-
-        uint64_t new_value_tag = has_value ? (tag & __TORAJS_BUCKET_TAG_MASK) : cur_value_tag;
-        uint64_t new_value     = has_value ? value : bk[idx].value;
-
-        bk[idx].tag = new_value_tag | new_flags;
-        bk[idx].value = new_value;
-    } else {
-        /* Fresh define. Absent flags default to false (spec
-         * §10.1.6.2). */
-        if (bk[idx].key_ptr == __TORAJS_DYNOBJ_TOMBSTONE) {
-            *(uint32_t *)((uint8_t *)obj + 16) = tomb - 1;
-        }
-        __torajs_rc_inc(key);
-        uint64_t new_flags = 0;
-        if (desc_writable)     new_flags |= __TORAJS_BUCKET_FLAG_WRITABLE;
-        if (desc_enumerable)   new_flags |= __TORAJS_BUCKET_FLAG_ENUMERABLE;
-        if (desc_configurable) new_flags |= __TORAJS_BUCKET_FLAG_CONFIGURABLE;
-        bk[idx].key_ptr = key;
-        /* If no .value present, store ANY_UNDEF=5 + 0 (spec default
-         * for new data descriptor's [[Value]]). */
-        if (has_value) {
-            bk[idx].tag = (tag & __TORAJS_BUCKET_TAG_MASK) | new_flags;
-            bk[idx].value = value;
-        } else {
-            bk[idx].tag = 5 /* ANY_UNDEF */ | new_flags;
-            bk[idx].value = 0;
-        }
-        *(uint32_t *)((uint8_t *)obj + 8) = count + 1;
-    }
-}
+);
 
 int __torajs_dynobj_has(const void *obj, const void *key) {
     if (obj == NULL) return 0;
