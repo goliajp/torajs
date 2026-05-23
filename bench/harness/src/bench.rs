@@ -56,6 +56,7 @@ pub fn run_one(
     runner: &Runner,
     work_dir: &Path,
     workspace: &Path,
+    cached_compile_ms: Option<f64>,
 ) -> Result<RunOutcome> {
     let src_path = case.dir.join(&runner.src_filename);
     if !src_path.exists() {
@@ -111,6 +112,16 @@ pub fn run_one(
             .map(|f| vec![("TORAJS_OPT".to_string(), f.clone())])
             .unwrap_or_default();
 
+        // Compile must run at least once per pass to produce the
+        // artifact that the run-side timing executes. The compile_ms
+        // METRIC, however, is deterministic across passes (source +
+        // compiler unchanged within a single bench-harness invocation),
+        // so on passes 2+ we skip hyperfine's repeated compile
+        // measurements and just produce the artifact via one
+        // `exec_capture_status` invocation, reusing the first-pass
+        // compile_ms. Saves (warmup + runs) compile invocations per
+        // (case, runner) per pass — the dominant savings on
+        // `--runs N` runs (hardev bench B4).
         match exec_capture_status(&compile_cmd, &compile_env) {
             Ok(()) => {}
             Err(CompileError::NotYetImplemented(stderr)) => {
@@ -124,17 +135,21 @@ pub fn run_one(
                 return Ok(outcome);
             }
         }
-        match hyperfine_one(
-            &compile_cmd,
-            case.compile_warmup,
-            case.compile_runs,
-            &compile_env,
-        ) {
-            Ok(stats) => outcome.compile_ms = Some(stats.median_ms),
-            Err(e) => {
-                outcome.status = Status::Failed;
-                outcome.error = Some(format!("hyperfine compile: {e:#}"));
-                return Ok(outcome);
+        if let Some(cached) = cached_compile_ms {
+            outcome.compile_ms = Some(cached);
+        } else {
+            match hyperfine_one(
+                &compile_cmd,
+                case.compile_warmup,
+                case.compile_runs,
+                &compile_env,
+            ) {
+                Ok(stats) => outcome.compile_ms = Some(stats.median_ms),
+                Err(e) => {
+                    outcome.status = Status::Failed;
+                    outcome.error = Some(format!("hyperfine compile: {e:#}"));
+                    return Ok(outcome);
+                }
             }
         }
         // Compile produced an artifact at {out}; capture its byte size.

@@ -356,8 +356,18 @@ fn run_cmd(bench_dir: &Path, args: &[String]) -> Result<bool> {
     // "3 full-suite runs" intent), not N back-to-back runs of one
     // cell. One aggregated row per cell → one statistically-sound
     // json, no same-name overwrite, no log-parsing.
+    //
+    // hardev bench B4 — within-invocation compile_ms cache. Compile is
+    // deterministic across passes for the same (case, runner) under
+    // the same compiler + source, so passes 2+ reuse the first pass's
+    // compile_ms (avoiding ~6× redundant compile invocations that the
+    // hyperfine warmup+runs would otherwise do per pass). The compile
+    // step still runs once per pass via `exec_capture_status` to
+    // produce the artifact for the run-side timing — only the timing
+    // hyperfine call is skipped.
     let nr = runners.len();
     let mut acc: Vec<Vec<bench::RunOutcome>> = (0..cases.len() * nr).map(|_| Vec::new()).collect();
+    let mut compile_cache: Vec<Option<f64>> = vec![None; cases.len() * nr];
     for pass in 1..=runs {
         for (ci, c) in cases.iter().enumerate() {
             for (ri, r) in runners.iter().enumerate() {
@@ -366,7 +376,17 @@ fn run_cmd(bench_dir: &Path, args: &[String]) -> Result<bool> {
                 } else {
                     eprintln!("→ {} × {}", c.name, r.name);
                 }
-                acc[ci * nr + ri].push(bench::run_one(c, r, &work_dir, workspace)?);
+                let idx = ci * nr + ri;
+                let cached = compile_cache[idx];
+                let outcome = bench::run_one(c, r, &work_dir, workspace, cached)?;
+                // First successful compile populates the cache so
+                // passes 2+ for this (case, runner) skip the timing.
+                if cached.is_none() {
+                    if let Some(cm) = outcome.compile_ms {
+                        compile_cache[idx] = Some(cm);
+                    }
+                }
+                acc[idx].push(outcome);
             }
         }
     }
