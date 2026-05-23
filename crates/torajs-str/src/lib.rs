@@ -89,7 +89,9 @@ pub mod transform;
 // FFI consumers) reach for most often. Keeping this list tight
 // pins the public crate API; full surface is still reachable via
 // the module paths above.
-pub use alloc::{__torajs_str_alloc, __torajs_str_alloc_pooled, __torajs_str_free, StrBlock};
+pub use alloc::{
+    __torajs_str_alloc, __torajs_str_alloc_pooled, __torajs_str_drop, __torajs_str_free, StrBlock,
+};
 pub use concat::__torajs_str_concat;
 pub use eq::{__torajs_str_eq, __torajs_str_eq_cstr};
 pub use layout::{

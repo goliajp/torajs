@@ -252,7 +252,9 @@ pub fn compile_for_kind(
     // else gets a declaration that pass D fills in.
     let free = declare_free(&ctx, &llvm_module, target);
     let realloc = declare_realloc(&ctx, &llvm_module, target);
-    let str_free = declare_str_free(&ctx, &llvm_module);
+    // declare_str_free registers the LLVM extern; the Rust binding
+    // was the input to define_str_drop, moved to torajs-str (P3.1-g.6).
+    let _ = declare_str_free(&ctx, &llvm_module);
     // declare_str_alloc_pooled only registers the LLVM extern; the
     // Rust binding was the input to str_alloc / str_concat / str_slice
     // IR builders, all moved to torajs-str (P3.1-g.{2,4,5}).
@@ -270,14 +272,13 @@ pub fn compile_for_kind(
             // dispatch arms below + the matching define_str_{alloc,print}
             // fn bodies + the intrinsics-array entries are deleted; the
             // linker resolves both symbols against libtorajs_str.a.
-            "__torajs_str_drop" => {
-                // hot in any non-trivial program (every Str scope-end
-                // dec). Body is NULL check + atomic-like dec + cond
-                // pool-or-free.
-                let f = define_str_drop(&ctx, &llvm_module, str_free);
-                mark_alwaysinline(&ctx, f);
-                f
-            }
+            // __torajs_str_drop moved to torajs-str::alloc (P3.1-g.6,
+            // 2026-05-23). Rust impl: NULL check + STATIC_LITERAL gate
+            // + rc dec + libc::free (pool-bypass preserved bit-for-bit
+            // from the IR shape). fat-LTO inlines the .a body at every
+            // scope-end call site so the alwaysinline goal is preserved.
+            // **This closes P3.1-g and P3.1 entirely** — runtime_str.c
+            // has 0 str fns and ssa_inkwell has 0 define_str_* fns.
             // __torajs_str_concat moved to torajs-str::concat
             // (P3.1-g.4, 2026-05-23). define_str_concat fn body +
             // this dispatch arm + intrinsics-array entry deleted;
@@ -543,7 +544,7 @@ pub fn compile_for_kind(
         // (P3.1-g.2). Removed from this dispatch list so Pass D no
         // longer hunts for an IR body; symbols resolve at link time
         // against libtorajs_str.a.
-        "__torajs_str_drop",
+        // "__torajs_str_drop" moved to torajs-str::alloc (P3.1-g.6)
         // "__torajs_str_concat" moved to torajs-str::concat (P3.1-g.4)
         "__torajs_obj_alloc",
         "__torajs_obj_drop",
@@ -3135,121 +3136,11 @@ fn define_arr_drop<'ctx>(
     f
 }
 
-/// `__torajs_str_drop(*StrRepr s) -> void`
-///
-/// Phase B refcount: decrement the universal heap header's refcount;
-/// free the alloc only when it reaches zero. NULL passes through.
-///
-/// ```text
-/// if (s == NULL) return;
-/// u32 *rc = (u32*)s;          // refcount @ offset 0
-/// *rc -= 1;
-/// if (*rc == 0) free(s);
-/// ```
-fn define_str_drop<'ctx>(
-    ctx: &'ctx Context,
-    m: &LlvmModule<'ctx>,
-    free: FunctionValue<'ctx>,
-) -> FunctionValue<'ctx> {
-    let builder = ctx.create_builder();
-    let i32_t = ctx.i32_type();
-    let ptr_t = ctx.ptr_type(AddressSpace::default());
-    let void_t = ctx.void_type();
-    let fn_t = void_t.fn_type(&[ptr_t.into()], false);
-    let f = m.add_function("__torajs_str_drop", fn_t, None);
-    let entry = ctx.append_basic_block(f, "entry");
-    let static_check_blk = ctx.append_basic_block(f, "static_check");
-    let dec_blk = ctx.append_basic_block(f, "dec");
-    let free_blk = ctx.append_basic_block(f, "free");
-    let ret_blk = ctx.append_basic_block(f, "ret");
-    builder.position_at_end(entry);
-    let arg = f.get_nth_param(0).unwrap().into_pointer_value();
-    let null = ptr_t.const_null();
-    let is_null = builder
-        .build_int_compare(IntPredicate::EQ, arg, null, "is_null")
-        .unwrap();
-    builder
-        .build_conditional_branch(is_null, ret_blk, static_check_blk)
-        .unwrap();
-
-    let i64_t = ctx.i64_type();
-    let i8_t = ctx.i8_type();
-    let i16_t = ctx.i16_type();
-
-    // STATIC_LITERAL flag check — same shape as define_arr_drop's;
-    // see that fn for rationale. Without this the rc-store below
-    // SIGBUS's on .rodata.
-    builder.position_at_end(static_check_blk);
-    let flags_ptr = unsafe {
-        builder
-            .build_in_bounds_gep(
-                i8_t,
-                arg,
-                &[i64_t.const_int(STR_HDR_FLAGS_OFF, false)],
-                "flags_p",
-            )
-            .unwrap()
-    };
-    let flags = builder
-        .build_load(i16_t, flags_ptr, "flags")
-        .unwrap()
-        .into_int_value();
-    let masked = builder
-        .build_and(
-            flags,
-            i16_t.const_int(STATIC_LITERAL_FLAG as u64, false),
-            "masked",
-        )
-        .unwrap();
-    let is_static = builder
-        .build_int_compare(
-            IntPredicate::NE,
-            masked,
-            i16_t.const_int(0, false),
-            "is_static",
-        )
-        .unwrap();
-    builder
-        .build_conditional_branch(is_static, ret_blk, dec_blk)
-        .unwrap();
-
-    builder.position_at_end(dec_blk);
-    // refcount @ STR_HDR_REFCOUNT_OFF (offset 0). Explicit GEP so the
-    // const documents the layout; LLVM mem2reg collapses the zero GEP.
-    let rc_ptr = unsafe {
-        builder
-            .build_in_bounds_gep(
-                i8_t,
-                arg,
-                &[i64_t.const_int(STR_HDR_REFCOUNT_OFF, false)],
-                "rc_ptr",
-            )
-            .unwrap()
-    };
-    let rc_now = builder
-        .build_load(i32_t, rc_ptr, "rc_now")
-        .unwrap()
-        .into_int_value();
-    let rc_dec = builder
-        .build_int_sub(rc_now, i32_t.const_int(1, false), "rc_dec")
-        .unwrap();
-    builder.build_store(rc_ptr, rc_dec).unwrap();
-    let zero = i32_t.const_int(0, false);
-    let is_zero = builder
-        .build_int_compare(IntPredicate::EQ, rc_dec, zero, "is_zero")
-        .unwrap();
-    builder
-        .build_conditional_branch(is_zero, free_blk, ret_blk)
-        .unwrap();
-
-    builder.position_at_end(free_blk);
-    builder.build_call(free, &[arg.into()], "_f").unwrap();
-    builder.build_unconditional_branch(ret_blk).unwrap();
-
-    builder.position_at_end(ret_blk);
-    builder.build_return(None).unwrap();
-    f
-}
+/* __torajs_str_drop moved to torajs-str::alloc (P3.1-g.6, 2026-05-23).
+ * **P3.1-g closed — 0 IR-side str defines remaining**. Rust impl
+ * preserves IR bit-for-bit: NULL check + STATIC_LITERAL gate +
+ * rc-- + libc::free (pool-bypass intentional; pool fed only by
+ * explicit __torajs_str_free callers, not by scope-end drop). */
 
 /* __torajs_str_print moved to torajs-str::print (P3.1-g.2, 2026-05-23).
  * Rust impl uses std::io::stdout().lock().write_all for byte-equivalent

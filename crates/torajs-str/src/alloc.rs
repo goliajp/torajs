@@ -263,12 +263,55 @@ pub unsafe extern "C" fn __torajs_str_alloc(src: *const u8, len: i64) -> *mut u8
     block.into_raw()
 }
 
+/// `__torajs_str_drop(s)` — Str scope-end decrement. The dominant
+/// drop path emitted by ssa_lower for every Str-typed local.
+/// Mirrors pre-rewrite `ssa_inkwell::define_str_drop` bit-for-bit
+/// (P3.1-g.6, 2026-05-23):
+///
+/// ```text
+/// if s == NULL: return
+/// if (s.flags & FLAG_STATIC_LITERAL) != 0: return  // .rodata
+/// s.refcount -= 1
+/// if s.refcount == 0: libc::free(s)               // NOT pool!
+/// ```
+///
+/// **Pool-bypass is intentional**: the IR version called libc free
+/// directly (not pool-aware [`__torajs_str_free`]). Preserved here
+/// to match the previous shipped behavior bit-for-bit. The pool is
+/// only fed by explicit drops from C-side helpers / Rust ops that
+/// call [`__torajs_str_free`] directly (concat result drops,
+/// transform/replace intermediate drops, etc.).
+///
+/// # Safety
+///
+/// `s` must be null or a valid Str heap block with the universal
+/// `{refcount: u32, type_tag: u16, flags: u16}` header at offset 0.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_drop(s: *mut u8) {
+    if s.is_null() {
+        return;
+    }
+    // SAFETY: caller guarantees `s` points at a valid Str block;
+    // header is the universal HeapHeader layout, 8 bytes at offset 0.
+    let header = unsafe { &mut *(s as *mut HeapHeader) };
+    if header.flags & FLAG_STATIC_LITERAL != 0 {
+        return;
+    }
+    header.refcount -= 1;
+    if header.refcount == 0 {
+        // SAFETY: rc reached 0; we own the last reference. libc::free
+        // is the matching deallocator for libc::malloc + pool block
+        // allocations (both reachable via __torajs_str_alloc_pooled).
+        unsafe { free(s as *mut c_void) };
+    }
+}
+
 /// Pool-aware Str free. Mirrors the pre-rewrite C
-/// `__torajs_str_free(uint8_t *p) -> void`. Called by the
-/// LLVM-IR-emitted `__torajs_str_drop` (still in ssa_inkwell;
-/// P3.1-g ports it) when a Str's refcount reaches zero, and by
-/// C-side helpers in `runtime_str.c` that release intermediate
-/// allocations.
+/// `__torajs_str_free(uint8_t *p) -> void`. Called by C-side
+/// helpers and Rust ops that release intermediate allocations
+/// (concat result drops, transform/replace temp drops, etc.) —
+/// NOT by the IR-emitted Str scope-end drop, which routes
+/// through [`__torajs_str_drop`] above to libc free directly.
 ///
 /// Null is a no-op (matches the pre-rewrite C guard). Blocks
 /// carrying [`FLAG_STATIC_LITERAL`] are also a no-op —
