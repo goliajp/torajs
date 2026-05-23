@@ -41,6 +41,7 @@
 //! cleanly at `tr build` time.
 
 pub mod arith;
+pub mod compare;
 pub mod construct;
 pub mod divmod;
 pub mod drop;
@@ -49,6 +50,7 @@ pub mod layout;
 pub mod mul;
 
 pub use arith::{__torajs_bigint_add, __torajs_bigint_sub};
+pub use compare::{__torajs_bigint_cmp, __torajs_bigint_eq};
 pub use construct::{
     __torajs_bigint_clone, __torajs_bigint_from_decimal, __torajs_bigint_from_hex,
     __torajs_bigint_from_i64, __torajs_bigint_from_str,

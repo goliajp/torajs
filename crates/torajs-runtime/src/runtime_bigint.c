@@ -291,21 +291,10 @@ extern void *__torajs_bigint_mul(void *a, void *b);
  * 期 extern. C-side __torajs_bigint_not 仍调 __torajs_bigint_neg, 加
  * extern 声明. */
 
-/* Signed compare → -1 / 0 / 1. */
-int64_t __torajs_bigint_cmp(void *a_, void *b_) {
-    const BigIntHeader *a = (const BigIntHeader *)a_;
-    const BigIntHeader *b = (const BigIntHeader *)b_;
-    if (a->sign != b->sign) {
-        if (a->len == 0 && b->len == 0) return 0;
-        return a->sign ? -1 : 1;
-    }
-    int m = bigint_mag_cmp(a, b);
-    return a->sign ? -m : m;
-}
-
-int64_t __torajs_bigint_eq(void *a_, void *b_) {
-    return __torajs_bigint_cmp(a_, b_) == 0 ? 1 : 0;
-}
+/* __torajs_bigint_cmp + _eq moved to torajs-bigint::compare
+ * (P3.3-f, 2026-05-23). Sign-dispatch + delegate to private mag_cmp
+ * (already pub(crate) in arith.rs since P3.3-d). eq is cmp == 0
+ * shortcut. */
 
 /* ============================================================
  * BigInt → decimal Str. Successive division by 10^19 (largest power
