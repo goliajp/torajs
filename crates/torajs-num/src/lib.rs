@@ -32,6 +32,22 @@ pub mod layout;
 pub mod math;
 pub mod parse;
 pub mod predicates;
+pub mod str_bridge;
+pub mod tostring;
+
+// __torajs_str_alloc_pooled is provided by libtorajs_str.a at
+// `tr build` link time. For cargo unit tests of torajs-num
+// (which don't link torajs-str), provide a panicking stub so the
+// test binary still links — torajs-num's unit tests only exercise
+// pure-Rust cores (Vec<u8>-returning fns), never the extern
+// wrappers that allocate Str.
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_alloc_pooled(_len: u64) -> *mut u8 {
+    panic!(
+        "torajs-num unit-test stub: __torajs_str_alloc_pooled should not be called from cargo test paths"
+    );
+}
 
 // Re-export — keep this list tight; the extern "C" symbols are
 // resolved at link time by ssa_inkwell-emitted IR regardless.
@@ -51,3 +67,4 @@ pub use predicates::{
     __torajs_num_is_integer_i, __torajs_num_is_nan_f, __torajs_num_is_nan_i,
     __torajs_num_is_safe_integer_f, __torajs_num_is_safe_integer_i,
 };
+pub use tostring::{__torajs_num_to_string_radix_f, __torajs_num_to_string_radix_i};
