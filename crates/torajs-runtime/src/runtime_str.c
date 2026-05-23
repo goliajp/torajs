@@ -2615,58 +2615,11 @@ void *__torajs_f64_to_str(double d) {
     return p;
 }
 
-/* V3-18 m1.h.9 — JS spec §7.1.4 ToNumber on String. Trims
- * leading/trailing whitespace per StringNumericLiteral grammar,
- * then parses the remainder. Empty (or whitespace-only) → +0.
- * Non-numeric tail or invalid prefix → NaN.
- *
- * Uses strtod for the bulk of the parse — it handles decimal,
- * hex (0x..), and the standard exponent forms. JS spec edge
- * cases (binary 0b.., octal 0o..) supported via explicit prefix
- * detection. Infinity / NaN literals also recognized.
- *
- * Returns f64; the caller routes through the same path as a
- * normal Number expression. */
-double __torajs_str_to_number(const void *p) {
-    if (p == NULL) return 0.0;
-    uint64_t len = __TORAJS_STR_LEN(p);
-    const uint8_t *bytes = __TORAJS_STR_CDATA(p);
-    /* Trim whitespace per spec §7.1.4 / §7.1.4.1.1
-     * StringWhiteSpace: SP, TAB, VT, FF, NL, CR, NBSP, BOM, ZWNBSP. */
-    uint64_t s = 0, e = len;
-    while (s < e && (bytes[s] == ' ' || bytes[s] == '\t'
-                     || bytes[s] == '\n' || bytes[s] == '\r'
-                     || bytes[s] == 0x0b || bytes[s] == 0x0c)) s++;
-    while (e > s && (bytes[e-1] == ' ' || bytes[e-1] == '\t'
-                     || bytes[e-1] == '\n' || bytes[e-1] == '\r'
-                     || bytes[e-1] == 0x0b || bytes[e-1] == 0x0c)) e--;
-    if (s == e) return 0.0;
-    /* Copy trimmed slice into a NUL-terminated buf for libc. */
-    char tmp[64];
-    char *buf = (e - s + 1 <= sizeof(tmp))
-        ? tmp
-        : (char *)malloc((size_t)(e - s + 1));
-    if (buf == NULL) return 0.0;
-    for (uint64_t i = 0; i < e - s; i++) buf[i] = (char)bytes[s + i];
-    buf[e - s] = '\0';
-    /* Special literals before strtod. */
-    double result;
-    if (strcmp(buf, "Infinity") == 0 || strcmp(buf, "+Infinity") == 0) {
-        result = 1.0 / 0.0;
-    } else if (strcmp(buf, "-Infinity") == 0) {
-        result = -1.0 / 0.0;
-    } else if (strcmp(buf, "NaN") == 0) {
-        result = 0.0 / 0.0;
-    } else {
-        char *endp = NULL;
-        result = strtod(buf, &endp);
-        if (endp == NULL || *endp != '\0') {
-            result = 0.0 / 0.0; /* NaN — non-numeric trailing chars */
-        }
-    }
-    if (buf != tmp) free(buf);
-    return result;
-}
+/* __torajs_str_to_number moved to torajs-str::to_number (P3.1-c,
+ * 2026-05-23). The Rust impl uses f64::from_str (textbook fast-
+ * path, identical accuracy guarantees to libc strtod) and the same
+ * trim / Infinity / NaN literal handling. Forward decl at line
+ * 1794 still pins the prototype other fns in this TU reference. */
 
 /* V3-18 m1.d — JS spec §7.1.17 ToString:
  *   Boolean true  → "true"
@@ -2700,19 +2653,11 @@ void *__torajs_undefined_to_str(void) {
 }
 
 
-/* Returns 1 if strings have equal length and equal bytes, 0 otherwise.
- * `===` / `!==` between Type::Str values dispatches here instead of
- * pointer-compare. Spec ECMA-262 §7.2.16 step 3: "If x and y are
- * Strings ... return true iff length(x) === length(y) and same code
- * units." We don't deal with UTF-16 here — bytes match is enough for
- * the byte-encoded Str layout. */
-int64_t __torajs_str_eq(const uint8_t *a, const uint8_t *b) {
-    uint64_t a_len = __TORAJS_STR_LEN(a);
-    uint64_t b_len = __TORAJS_STR_LEN(b);
-    if (a_len != b_len) return 0;
-    if (a_len == 0) return 1;
-    return memcmp(__TORAJS_STR_CDATA(a), __TORAJS_STR_CDATA(b), (size_t)a_len) == 0 ? 1 : 0;
-}
+/* __torajs_str_eq moved to torajs-str::eq (P3.1-c, 2026-05-23).
+ * Forward decl at line 1729 still pins the prototype for callers
+ * in this TU. The Rust core (`eq::bytes_eq`) is a pure-Rust slice
+ * comparison; the FFI wrapper reads Str layout via STR_LEN_OFF /
+ * STR_DATA_OFF constants that mirror this file's macros. */
 
 /* v0.2 #3 — Object.is(a, b) for Type::Number arguments. ECMA-262
  * §7.2.10 SameValue: behaves like `===` except (i) NaN is the same
@@ -5040,12 +4985,7 @@ int64_t __torajs_json_arr_first(const uint8_t *str, int64_t *pos, int64_t termin
     return 1;
 }
 
-/* Compare a torajs Str value byte-by-byte against a literal C string.
- * Returns 1 on match, 0 otherwise. Used by the object parser to
- * verify a parsed key against an expected field name. */
-int64_t __torajs_str_eq_cstr(const uint8_t *s, const uint8_t *cstr_bytes, int64_t cstr_len) {
-    uint64_t s_len = __TORAJS_STR_LEN(s);
-    if ((int64_t)s_len != cstr_len) return 0;
-    if (cstr_len == 0) return 1;
-    return memcmp(__TORAJS_STR_CDATA(s), cstr_bytes, (size_t)cstr_len) == 0 ? 1 : 0;
-}
+/* __torajs_str_eq_cstr moved to torajs-str::eq (P3.1-c, 2026-05-23).
+ * Used by the object parser to verify a parsed key against an
+ * expected field name. Rust impl shares the same `bytes_eq` core
+ * as __torajs_str_eq above. */

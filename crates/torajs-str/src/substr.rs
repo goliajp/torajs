@@ -384,16 +384,10 @@ mod tests {
     use crate::alloc::StrBlock;
     use std::sync::Mutex;
 
-    // torajs-rc's `__torajs_rc_dec` calls this hook on every block
-    // that reaches refcount=0; runtime_weakref.c provides it at
-    // `tr build` link time, but the cargo-test binary has no such
-    // TU. Stub it here so the dec path resolves. Matches the
-    // identically-named stub in torajs-rc's own tests.
-    #[unsafe(no_mangle)]
-    pub unsafe extern "C" fn __torajs_weakref_target_dying(_target: *mut c_void) {}
-
     // Pool is a process-global static; serialize tests so they
-    // don't observe each other's pushes.
+    // don't observe each other's pushes. The WeakRef-hook stub
+    // that torajs-rc's `__torajs_rc_dec` needs at test-link time
+    // lives in `lib.rs` (shared across all submodules).
     static TEST_LOCK: Mutex<()> = Mutex::new(());
 
     fn fresh_parent(len: u64) -> StrBlock {

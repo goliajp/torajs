@@ -73,15 +73,18 @@
 //! emitted .a's).
 
 pub mod alloc;
+pub mod eq;
 pub mod layout;
 pub mod pool;
 pub mod substr;
+pub mod to_number;
 
 // Re-export the small surface the rest of the workspace (and the
 // FFI consumers) reach for most often. Keeping this list tight
 // pins the public crate API; full surface is still reachable via
 // the module paths above.
 pub use alloc::{__torajs_str_alloc_pooled, __torajs_str_free, StrBlock};
+pub use eq::{__torajs_str_eq, __torajs_str_eq_cstr};
 pub use layout::{
     STR_DATA_OFF, STR_HDR_SIZE, STR_LEN_OFF, STR_POOL_PAYLOAD, STR_POOL_SLOTS, block_size,
     packed_header_init,
@@ -90,3 +93,15 @@ pub use substr::{
     __torajs_substr_create, __torajs_substr_drop, FLAG_SUBSTR_INLINE, SUBSTR_LEN_OFF,
     SUBSTR_OFFSET_OFF, SUBSTR_PARENT_OFF, SUBSTR_SIZE, SubstrBlock,
 };
+pub use to_number::{__torajs_str_to_number, parse_number};
+
+// torajs-rc's `__torajs_rc_dec` calls into a WeakRef hook whenever
+// a block reaches refcount = 0. At `tr build` link time, the
+// runtime_weakref.c TU provides the symbol; in the cargo-test
+// binary there is no such TU. One global stub here covers every
+// submodule's `cargo test` run — defining it per-module collides
+// at link time. Mirrors the per-test stub in `torajs-rc`'s own
+// test module.
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_weakref_target_dying(_target: *mut std::ffi::c_void) {}
