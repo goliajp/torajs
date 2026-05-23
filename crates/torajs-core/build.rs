@@ -61,6 +61,7 @@ const STATICLIBS: &[&str] = &[
     "torajs_bigint",   // Layer-2: BigInt arbitrary-precision integer (P3.3)
     "torajs_arr",      // Layer-3: Array<T> + Array<Any> substrate (P4.1)
     "torajs_dynobj",   // Layer-3: dynamic-property object hashmap (P4.2)
+    "torajs_collections", // Layer-3: Map<K,V> + Set + MapIter (P4.3)
 ];
 
 fn main() {

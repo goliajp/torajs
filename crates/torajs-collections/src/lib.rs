@@ -1,0 +1,57 @@
+//! Strong-ref collections substrate for the torajs AOT TypeScript runtime.
+//!
+//! Layer-3 substrate of the architecture rewrite (`docs/architecture-
+//! rewrite.md` P4.3). Map<K,V> + Set<K> share a single `Map` struct
+//! (Set is an SSA-side distinction — storage shape is identical); both
+//! wear `TAG_MAP = 15` at the heap header level.
+//!
+//! ## Why two arrays
+//!
+//! JavaScript's `Map.prototype[@@iterator]` must yield entries in
+//! **insertion order** (spec §24.1.5.1). A pure in-place hashbucket
+//! layout (like `torajs-dynobj`) loses that order on probe. So the
+//! Map struct holds:
+//!
+//! - `entries[]` — packed `MapEntry`s appended in insertion order;
+//!   source of truth for set / get / has / delete. Live entries have
+//!   `hash >= 1`; deletes mark `hash = 0` (ENTRY_HASH_TOMBSTONE) so
+//!   iter walks can skip them without touching `slots[]`.
+//! - `slots[]` — 64-bit hash-table cells `(hash:hi32, entry_idx:lo32)`,
+//!   robin-hood probed. Pure acceleration index; rebuilt on rehash.
+//!   Entry indices into `entries[]` are stable across reshuffle, so
+//!   iteration ordering survives any number of slot-side swaps.
+//!
+//! ## SameValueZero key equality
+//!
+//! Per ES spec §7.2.10: `NaN === NaN` (all NaN bit patterns collide
+//! into one canonical hash); `+0 === -0` (the IEEE eq predicate
+//! already says so); strings compare byte-by-byte; non-Str heap
+//! objects compare by pointer identity. Implemented in
+//! [`crate::eq::map_keys_equal`] (P4.3-b).
+//!
+//! ## Sub-step matrix (P4.3)
+//!
+//! | Phase    | Adds                                                    |
+//! |----------|---------------------------------------------------------|
+//! | P4.3-a   | scaffold + layout + `__torajs_map_create`               |
+//! | P4.3-b   | `hash` + `eq` internals (FNV-1a + SplitMix + SameValueZero) |
+//! | P4.3-c   | `probe` internals (robin-hood insert + lookup + rehash) |
+//! | P4.3-d   | `__torajs_map_size` / `_has` / `_get`                   |
+//! | P4.3-e   | `__torajs_map_set`                                      |
+//! | P4.3-f   | `__torajs_map_delete` / `_clear`                        |
+//! | P4.3-g   | `__torajs_map_drop` (P4.3 Map closer)                   |
+//! | P4.3-h   | `MapIter` family                                        |
+//! | P4.3-i   | ArrIter port to `torajs-arr::iter` (was misplaced in C  |
+//! |          | runtime_map.c; P4.1 missed it)                          |
+//!
+//! ## Why `std`, not `no_std`
+//!
+//! Same reason as torajs-rc / str / num / bigint / arr / dynobj —
+//! cargo `cargo test` + dual `crate-type = ["rlib", "staticlib"]` +
+//! `no_std` trips a precompiled-core panic-strategy mismatch on
+//! stable. `std` staticlibs link cleanly at `tr build` time.
+
+pub mod create;
+pub mod layout;
+
+pub use create::__torajs_map_create;

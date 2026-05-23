@@ -1,0 +1,27 @@
+[package]
+name = "torajs-collections"
+description = "Strong-ref collections (Map<K,V> + Set<K> + MapIter) substrate for the torajs AOT TypeScript runtime. Robin-hood hash table with separate `slots[]` (compact hash → entry index) + `entries[]` (insertion-ordered for iter contract) arrays — JS Map/Set spec requires insertion-ordered iter so the dual-array shape is mandatory, distinct from dynobj's in-place buckets. SameValueZero key equality (NaN === NaN, +0 === -0). Layer-3 substrate. no_std-friendly. Weak family (WeakMap/Set/Ref) lives in a separate `torajs-weak` crate by design — strong vs weak ref semantics warrant a clean split."
+keywords = ["torajs", "map", "set", "hash-map", "runtime"]
+categories = ["data-structures", "no-std"]
+readme = "README.md"
+documentation = "https://docs.rs/torajs-collections"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+# Dual emit: `rlib` for cargo workspace + unit tests; `staticlib`
+# emits libtorajs_collections.a so ssa_inkwell links it into every
+# `tr build` AOT user binary alongside the other Layer-1+ staticlibs.
+[lib]
+crate-type = ["rlib", "staticlib"]
+
+[dependencies]
+# 0 runtime deps. Cross-crate calls (rc_inc / value_drop_heap /
+# arr_alloc_any / arr_push_any / str_eq) use `extern "C"` symbols
+# resolved at link time, same pattern torajs-bigint / arr / dynobj use.

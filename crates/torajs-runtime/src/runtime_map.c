@@ -408,22 +408,12 @@ static void map_rehash(Map *m, uint32_t new_entries_cap, uint32_t new_slots_coun
  * collections.
  * ============================================================ */
 
-void *__torajs_map_create(void) {
-    Map *m = (Map *)malloc(sizeof(Map));
-    m->header.refcount = 1;
-    m->header.type_tag = __TORAJS_TAG_MAP;
-    m->header.flags = 0;
-    m->n_entries = 0;
-    m->n_used = 0;
-    m->entries_cap = MAP_ENTRIES_INITIAL;
-    m->slots_count = MAP_SLOTS_INITIAL;
-    m->n_tombstones = 0;
-    m->_pad = 0;
-    m->slots = (MapSlot *)malloc(MAP_SLOTS_INITIAL * sizeof(MapSlot));
-    for (uint32_t k = 0; k < MAP_SLOTS_INITIAL; k++) m->slots[k] = SLOT_MAKE(0, SLOT_EMPTY);
-    m->entries = (MapEntry *)calloc(MAP_ENTRIES_INITIAL, sizeof(MapEntry));
-    return m;
-}
+/* __torajs_map_create moved to torajs-collections::create (P4.3-a,
+ * 2026-05-23). Symbol resolves cross-tier at `tr build` link time via
+ * libtorajs_collections.a. No in-file C caller — no extern decl needed.
+ * Successive sub-steps (P4.3-b..-g) port the rest of the Map / Set
+ * surface; P4.3-h does MapIter; P4.3-i lifts ArrIter to torajs-arr
+ * (it was misplaced here when MapIter was added in P6.4). */
 
 /* Drop a single entry's key + value rc-ref if the corresponding tag
  * carries the heap bit. Heap-tagged Any values point at an

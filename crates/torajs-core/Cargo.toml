@@ -50,3 +50,9 @@ torajs-arr = { path = "../torajs-arr" }
 # get/set/define/has/delete/drop in subsequent P4.2 sub-steps) resolves
 # at `tr build`.
 torajs-dynobj = { path = "../torajs-dynobj" }
+# Layer-3: strong-ref collections — Map<K,V> + Set<K> + MapIter (P4.3).
+# Same dual rlib+staticlib pattern; libtorajs_collections.a co-links so
+# __torajs_map_create (and successive map_size/has/get/set/delete/clear/
+# drop/iter in P4.3-b..-i) resolves at `tr build`. Weak family lives in
+# a separate torajs-weak crate (P4.3').
+torajs-collections = { path = "../torajs-collections" }
