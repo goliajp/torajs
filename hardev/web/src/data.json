@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-05-23T02:27:33.606Z",
+  "generatedAt": "2026-05-23T04:49:47.493Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -27,8 +27,8 @@
     "passRateTrAccepted": 92.73
   },
   "torajs": {
-    "commit": "1981610",
-    "commitSubject": "P3.1-e.5: Str replace (replace/replaceAll) → torajs-str::transform::replace — P3.1-e closed",
+    "commit": "22a9019",
+    "commitSubject": "P3.2-c.3.a: Number.toString(radix) → torajs-num::tostring + cross-tier str-bridge",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -561,55 +561,55 @@
   },
   "commits": [
     {
-      "hash": "1981610",
-      "subject": "P3.1-e.5: Str replace (replace/replaceAll) → torajs-str::transform::replace — P3.1-e closed"
+      "hash": "22a9019",
+      "subject": "P3.2-c.3.a: Number.toString(radix) → torajs-num::tostring + cross-tier str-bridge"
     },
     {
-      "hash": "2dcc776",
-      "subject": "P3.1-e.4: Str construct (repeat/charAt/at/fromCharCode/substring/substr) → torajs-str::transform::construct"
+      "hash": "ae44915",
+      "subject": "P3.2-c.2: Number.parseInt + parseFloat → torajs-num::parse — 去除 C 64-byte cap"
     },
     {
-      "hash": "213fa1f",
-      "subject": "P3.1-e.3: Str pad (padStart/padEnd) → torajs-str::transform::pad"
+      "hash": "af8d9ec",
+      "subject": "P3.2-c.1: 8 Number predicates → torajs-num::predicates"
     },
     {
-      "hash": "0f72b42",
-      "subject": "P3.1-e.2: Str trim (trim/trimStart/trimEnd) → torajs-str::transform::trim"
+      "hash": "e9338ea",
+      "subject": "P3.2-b: bulk port 27 Math intrinsics + helpers → torajs-num::math, -165 LOC ssa_inkwell"
     },
     {
-      "hash": "a871bcf",
-      "subject": "P3.1-e.1: Str case-fold (toUpperCase/toLowerCase) → torajs-str::transform::case"
+      "hash": "640539b",
+      "subject": "P3.2-a: torajs-num scaffold + Math.sqrt — pipeline verify"
     },
     {
-      "hash": "78928e9",
-      "subject": "docs: deps-tree v0.1 — lean-in attitude ACK + L3a #1 scope fix"
+      "hash": "def182f",
+      "subject": "P3.1-g.6.fix: __torajs_str_drop route rc==0 → __torajs_str_free, 修 5 regex 回归"
     },
     {
-      "hash": "11292f9",
-      "subject": "docs: deps-tree v0.1 — metal-level framing + 全自研决断 + F 族"
+      "hash": "2ed5e79",
+      "subject": "docs: deps-tree v0.1 — mark P3.1 closed; A 族 ship 6/15; P3.2 hotified"
     },
     {
-      "hash": "45641fb",
-      "subject": "docs: add deps-tree-v0.1 — torajs 全景 + Tier-based dep audit"
+      "hash": "bc61031",
+      "subject": "P3.1-g.6: Str drop → torajs-str::alloc — **P3.1 closed (Str surface 100% Rust)**"
     },
     {
-      "hash": "b51949f",
-      "subject": "hardev: snapshot data.json refresh — P3.1-d closed @ 587407e"
+      "hash": "7fcb902",
+      "subject": "P3.1-g.5: Str slice → torajs-str + dead IR helper cleanup; -158 LOC ssa_inkwell"
     },
     {
-      "hash": "587407e",
-      "subject": "P3.1-d: Str lookup ops → torajs-str::lookup"
+      "hash": "a94d0af",
+      "subject": "P3.1-g.4: Str concat + charCodeAt → torajs-str; IR define_str_{concat,char_code_at} 删除"
     },
     {
-      "hash": "2da841c",
-      "subject": "P3.1-c.fix: torajs-str::to_number recognize hex prefix (0x / 0X)"
+      "hash": "0c3f7f9",
+      "subject": "P3.1-g.3: 4 no-_from str ops → torajs-str::lookup, IR define_str_{prefix_suffix,index_of,includes} 删除"
     },
     {
-      "hash": "78e3ffa",
-      "subject": "P3.1-c: Str eq + to_number → torajs-str::{eq,to_number}"
+      "hash": "ee213b8",
+      "subject": "P3.1-g.2: Str print + alloc → torajs-str (IR define_str_{print,alloc} 删除)"
     }
   ],
-  "headSha": "1981610",
+  "headSha": "22a9019",
   "autorun": {
     "total": 18,
     "baselineTarget": 10,
