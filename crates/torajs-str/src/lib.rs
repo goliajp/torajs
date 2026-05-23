@@ -94,9 +94,10 @@ pub use layout::{
     packed_header_init,
 };
 pub use lookup::{
-    __torajs_str_ends_with_from, __torajs_str_includes_from, __torajs_str_index_of_from,
+    __torajs_str_ends_with, __torajs_str_ends_with_from, __torajs_str_includes,
+    __torajs_str_includes_from, __torajs_str_index_of, __torajs_str_index_of_from,
     __torajs_str_last_index_of, __torajs_str_last_index_of_from, __torajs_str_locale_compare,
-    __torajs_str_starts_with_from,
+    __torajs_str_starts_with, __torajs_str_starts_with_from,
 };
 pub use print::{__torajs_str_print, __torajs_str_print_err};
 pub use split::ops::{

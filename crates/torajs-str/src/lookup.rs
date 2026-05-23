@@ -264,6 +264,43 @@ pub unsafe extern "C" fn __torajs_str_last_index_of(s: *const u8, needle: *const
     }
 }
 
+// ============================================================
+// No-`_from` 2-arg wrappers (P3.1-g.3, 2026-05-23) — port of the
+// formerly IR-emitted `define_str_{prefix_suffix_check,index_of,
+// includes}` builders in ssa_inkwell. Each is a thin call onto
+// the corresponding `_from` core; default `pos` is 0 for the
+// search-from-start family and `s.len()` for `ends_with` (the
+// natural "scan to end" anchor).
+// ============================================================
+
+/// `s.startsWith(needle)` — equivalent to `starts_with_from(s, n, 0)`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_starts_with(s: *const u8, n: *const u8) -> i64 {
+    unsafe { __torajs_str_starts_with_from(s, n, 0) }
+}
+
+/// `s.endsWith(needle)` — equivalent to `ends_with_from(s, n, s.len())`.
+/// The IR builder used `s_len - n_len` as the implicit anchor but
+/// the `_from` core's `end` parameter is the s.len()-style anchor
+/// before clamping, so passing the full `s.len()` is correct.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_ends_with(s: *const u8, n: *const u8) -> i64 {
+    let s_len = unsafe { str_len(s) } as i64;
+    unsafe { __torajs_str_ends_with_from(s, n, s_len) }
+}
+
+/// `s.indexOf(needle)` — equivalent to `index_of_from(s, n, 0)`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_index_of(s: *const u8, n: *const u8) -> i64 {
+    unsafe { __torajs_str_index_of_from(s, n, 0) }
+}
+
+/// `s.includes(needle)` — equivalent to `includes_from(s, n, 0)`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_includes(s: *const u8, n: *const u8) -> i64 {
+    unsafe { __torajs_str_includes_from(s, n, 0) }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

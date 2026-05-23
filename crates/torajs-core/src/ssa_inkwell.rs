@@ -211,7 +211,13 @@ pub fn compile_for_kind(
     let malloc = declare_malloc(&ctx, &llvm_module, target);
     let memcpy = declare_memcpy(&ctx, &llvm_module, target);
     let memmove = declare_memmove(&ctx, &llvm_module, target);
-    let memcmp = declare_memcmp(&ctx, &llvm_module, target);
+    // declare_memcmp only registers the LLVM extern; the Rust
+    // FunctionValue binding is no longer used at this scope after
+    // P3.1-g.3 (the str_{index_of,starts_with,ends_with,includes}
+    // IR builders that consumed it moved to torajs-str). Remaining
+    // call sites (e.g. multi-sep substr/split IR builders) fetch
+    // the fn back from the module by name.
+    let _ = declare_memcmp(&ctx, &llvm_module, target);
 
     // Pass B: emit string-literal globals (LLVM `[N x i8]` private constants).
     // Indexed by StringId so callsites resolve via slice indexing.
@@ -328,31 +334,13 @@ pub fn compile_for_kind(
                 mark_alwaysinline(&ctx, f);
                 f
             }
-            "__torajs_str_starts_with" => define_str_prefix_suffix_check(
-                &ctx,
-                &llvm_module,
-                memcmp,
-                "__torajs_str_starts_with",
-                false,
-            ),
-            "__torajs_str_ends_with" => define_str_prefix_suffix_check(
-                &ctx,
-                &llvm_module,
-                memcmp,
-                "__torajs_str_ends_with",
-                true,
-            ),
-            "__torajs_str_index_of" => define_str_index_of(&ctx, &llvm_module, memcmp),
-            "__torajs_str_includes" => {
-                // index_of must be defined first — it is, since the
-                // pass-A loop iterates ssa_module.funcs in declaration
-                // order and we declare str_index_of before str_includes
-                // in ssa_lower.
-                let index_of = llvm_module
-                    .get_function("__torajs_str_index_of")
-                    .expect("str_index_of must be defined first");
-                define_str_includes(&ctx, &llvm_module, index_of)
-            }
+            // __torajs_str_{starts_with,ends_with,index_of,includes}
+            // (no-_from 2-arg form) moved to torajs-str::lookup
+            // (P3.1-g.3, 2026-05-23). Each is a thin wrapper that
+            // delegates to its `_from` core. The IR builders + this
+            // dispatch arm + the intrinsics-array entries are deleted;
+            // the linker resolves all four symbols against
+            // libtorajs_str.a.
             "__torajs_math_sqrt" => {
                 define_math_unary(&ctx, &llvm_module, "__torajs_math_sqrt", "sqrt")
             }
@@ -566,10 +554,10 @@ pub fn compile_for_kind(
         "__torajs_arr_drop",
         "__torajs_str_slice",
         "__torajs_str_char_code_at",
-        "__torajs_str_starts_with",
-        "__torajs_str_ends_with",
-        "__torajs_str_index_of",
-        "__torajs_str_includes",
+        // __torajs_str_{starts_with,ends_with,index_of,includes}
+        // (no-_from variants) moved to torajs-str::lookup (P3.1-g.3).
+        // The Pass D dispatch loop no longer needs to find IR bodies
+        // for them; resolved via libtorajs_str.a at link.
         "__torajs_math_sqrt",
         "__torajs_math_abs",
         "__torajs_math_floor",
@@ -2624,216 +2612,11 @@ fn define_str_char_code_at<'ctx>(ctx: &'ctx Context, m: &LlvmModule<'ctx>) -> Fu
     f
 }
 
-/// Helper: emits the `s.starts_with(prefix)` / `s.ends_with(suffix)`
-/// shape — an i64 cmp on lens followed by a memcmp at the right offset.
-/// `from_end` true picks the end-aligned offset.
-fn define_str_prefix_suffix_check<'ctx>(
-    ctx: &'ctx Context,
-    m: &LlvmModule<'ctx>,
-    memcmp: FunctionValue<'ctx>,
-    name: &str,
-    from_end: bool,
-) -> FunctionValue<'ctx> {
-    let builder = ctx.create_builder();
-    let i8_t = ctx.i8_type();
-    let bool_t = ctx.bool_type();
-    let ptr_t = ctx.ptr_type(AddressSpace::default());
-    let fn_t = bool_t.fn_type(&[ptr_t.into(), ptr_t.into()], false);
-    let f = m.add_function(name, fn_t, None);
-    let entry = ctx.append_basic_block(f, "entry");
-    let cmp_blk = ctx.append_basic_block(f, "cmp");
-    let too_long = ctx.append_basic_block(f, "too_long");
-    builder.position_at_end(entry);
-
-    let s = f.get_nth_param(0).unwrap().into_pointer_value();
-    let n = f.get_nth_param(1).unwrap().into_pointer_value();
-    let s_len = str_len_load(ctx, &builder, s, "s_len");
-    let n_len = str_len_load(ctx, &builder, n, "n_len");
-    let too = builder
-        .build_int_compare(IntPredicate::SGT, n_len, s_len, "too")
-        .unwrap();
-    builder
-        .build_conditional_branch(too, too_long, cmp_blk)
-        .unwrap();
-    builder.position_at_end(too_long);
-    builder
-        .build_return(Some(&bool_t.const_int(0, false)))
-        .unwrap();
-    builder.position_at_end(cmp_blk);
-    // s_off = from_end ? s_len - n_len : 0 (relative to s_data)
-    let s_data_base = str_data_ptr(ctx, &builder, s, "s_data_base");
-    let s_data = if from_end {
-        let diff = builder.build_int_sub(s_len, n_len, "diff").unwrap();
-        unsafe {
-            builder
-                .build_in_bounds_gep(i8_t, s_data_base, &[diff], "s_data")
-                .unwrap()
-        }
-    } else {
-        s_data_base
-    };
-    let n_data = str_data_ptr(ctx, &builder, n, "n_data");
-    let r = builder
-        .build_call(memcmp, &[s_data.into(), n_data.into(), n_len.into()], "r")
-        .unwrap()
-        .try_as_basic_value()
-        .unwrap_basic()
-        .into_int_value();
-    let eq = builder
-        .build_int_compare(
-            IntPredicate::EQ,
-            r,
-            ctx.i32_type().const_int(0, false),
-            "eq",
-        )
-        .unwrap();
-    builder.build_return(Some(&eq)).unwrap();
-    f
-}
-
-/// M6.1 — `__torajs_str_index_of(*StrRepr s, *StrRepr sub) -> i64`.
-/// Naive byte-scan; returns first match index or -1. Empty `sub`
-/// returns 0 (matches TS).
-fn define_str_index_of<'ctx>(
-    ctx: &'ctx Context,
-    m: &LlvmModule<'ctx>,
-    memcmp: FunctionValue<'ctx>,
-) -> FunctionValue<'ctx> {
-    let builder = ctx.create_builder();
-    let i64_t = ctx.i64_type();
-    let i8_t = ctx.i8_type();
-    let i32_t = ctx.i32_type();
-    let ptr_t = ctx.ptr_type(AddressSpace::default());
-    let fn_t = i64_t.fn_type(&[ptr_t.into(), ptr_t.into()], false);
-    let f = m.add_function("__torajs_str_index_of", fn_t, None);
-    let entry = ctx.append_basic_block(f, "entry");
-    let empty_sub_blk = ctx.append_basic_block(f, "empty_sub");
-    let header_blk = ctx.append_basic_block(f, "header");
-    let body_blk = ctx.append_basic_block(f, "body");
-    let cmp_blk = ctx.append_basic_block(f, "cmp");
-    let found_blk = ctx.append_basic_block(f, "found");
-    let next_blk = ctx.append_basic_block(f, "next");
-    let not_found_blk = ctx.append_basic_block(f, "not_found");
-    builder.position_at_end(entry);
-
-    let s = f.get_nth_param(0).unwrap().into_pointer_value();
-    let sub = f.get_nth_param(1).unwrap().into_pointer_value();
-    let s_len = str_len_load(ctx, &builder, s, "s_len");
-    let sub_len = str_len_load(ctx, &builder, sub, "sub_len");
-    let zero = i64_t.const_int(0, false);
-    let sub_empty = builder
-        .build_int_compare(IntPredicate::EQ, sub_len, zero, "sub_empty")
-        .unwrap();
-    builder
-        .build_conditional_branch(sub_empty, empty_sub_blk, header_blk)
-        .unwrap();
-    builder.position_at_end(empty_sub_blk);
-    builder.build_return(Some(&zero)).unwrap();
-
-    // i_slot = 0; max_i = s_len - sub_len
-    builder.position_at_end(header_blk);
-    let i_slot = builder.build_alloca(i64_t, "i").unwrap();
-    builder.build_store(i_slot, zero).unwrap();
-    let max_i = builder.build_int_sub(s_len, sub_len, "max_i").unwrap();
-    let s_data_base = str_data_ptr(ctx, &builder, s, "s_data_base");
-    let sub_data = str_data_ptr(ctx, &builder, sub, "sub_data");
-    let header_inner = ctx.append_basic_block(f, "header_inner");
-    builder.build_unconditional_branch(header_inner).unwrap();
-    builder.position_at_end(header_inner);
-    let i_now = builder
-        .build_load(i64_t, i_slot, "i_now")
-        .unwrap()
-        .into_int_value();
-    let cont = builder
-        .build_int_compare(IntPredicate::SLE, i_now, max_i, "cont")
-        .unwrap();
-    builder
-        .build_conditional_branch(cont, body_blk, not_found_blk)
-        .unwrap();
-    builder.position_at_end(body_blk);
-    builder.build_unconditional_branch(cmp_blk).unwrap();
-
-    // cmp: memcmp(s_data + i, sub_data, sub_len) == 0 ?
-    builder.position_at_end(cmp_blk);
-    let i_now2 = builder
-        .build_load(i64_t, i_slot, "i_now2")
-        .unwrap()
-        .into_int_value();
-    let s_data = unsafe {
-        builder
-            .build_in_bounds_gep(i8_t, s_data_base, &[i_now2], "s_data")
-            .unwrap()
-    };
-    let r = builder
-        .build_call(
-            memcmp,
-            &[s_data.into(), sub_data.into(), sub_len.into()],
-            "r",
-        )
-        .unwrap()
-        .try_as_basic_value()
-        .unwrap_basic()
-        .into_int_value();
-    let eq = builder
-        .build_int_compare(IntPredicate::EQ, r, i32_t.const_int(0, false), "eq")
-        .unwrap();
-    builder
-        .build_conditional_branch(eq, found_blk, next_blk)
-        .unwrap();
-
-    builder.position_at_end(found_blk);
-    let i_found = builder
-        .build_load(i64_t, i_slot, "i_found")
-        .unwrap()
-        .into_int_value();
-    builder.build_return(Some(&i_found)).unwrap();
-
-    builder.position_at_end(next_blk);
-    let i_then = builder
-        .build_load(i64_t, i_slot, "i_then")
-        .unwrap()
-        .into_int_value();
-    let i_next = builder
-        .build_int_add(i_then, i64_t.const_int(1, false), "i_next")
-        .unwrap();
-    builder.build_store(i_slot, i_next).unwrap();
-    builder.build_unconditional_branch(header_inner).unwrap();
-
-    builder.position_at_end(not_found_blk);
-    let neg_one = i64_t.const_int((-1_i64) as u64, true);
-    builder.build_return(Some(&neg_one)).unwrap();
-    f
-}
-
-/// M6.1 — `__torajs_str_includes(*StrRepr s, *StrRepr sub) -> bool`.
-/// Defers to `__torajs_str_index_of` and tests `>= 0`.
-fn define_str_includes<'ctx>(
-    ctx: &'ctx Context,
-    m: &LlvmModule<'ctx>,
-    index_of: FunctionValue<'ctx>,
-) -> FunctionValue<'ctx> {
-    let builder = ctx.create_builder();
-    let i64_t = ctx.i64_type();
-    let bool_t = ctx.bool_type();
-    let ptr_t = ctx.ptr_type(AddressSpace::default());
-    let fn_t = bool_t.fn_type(&[ptr_t.into(), ptr_t.into()], false);
-    let f = m.add_function("__torajs_str_includes", fn_t, None);
-    let entry = ctx.append_basic_block(f, "entry");
-    builder.position_at_end(entry);
-    let s = f.get_nth_param(0).unwrap();
-    let sub = f.get_nth_param(1).unwrap();
-    let r = builder
-        .build_call(index_of, &[s.into(), sub.into()], "r")
-        .unwrap()
-        .try_as_basic_value()
-        .unwrap_basic()
-        .into_int_value();
-    let cmp = builder
-        .build_int_compare(IntPredicate::SGE, r, i64_t.const_int(0, false), "cmp")
-        .unwrap();
-    builder.build_return(Some(&cmp)).unwrap();
-    f
-}
+/* __torajs_str_{starts_with,ends_with,index_of,includes} (no-_from
+ * 2-arg form) moved to torajs-str::lookup (P3.1-g.3, 2026-05-23). The
+ * 3 IR builders (define_str_prefix_suffix_check + define_str_index_of
+ * + define_str_includes) deleted, total ~210 LOC; Rust wrappers are
+ * thin (1 line each calling the `_from` core). */
 
 /// `print_bool(bool) -> void` — putchar's `"true\n"` or `"false\n"`
 /// per the bool input. M6.1 console.log dispatch routes Type::Bool
