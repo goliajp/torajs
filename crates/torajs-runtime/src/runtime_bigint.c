@@ -352,65 +352,15 @@ extern void *__torajs_bigint_mul(void *a, void *b);
 /* Magnitude bit-level ops — operate on the underlying limb arrays.
  * Result is normalized + sign 0 (caller stamps per the spec rule). */
 
-static BigIntHeader *bigint_mag_and_(const BigIntHeader *a, const BigIntHeader *b) {
-    uint32_t n = a->len < b->len ? a->len : b->len; /* AND truncates to short */
-    BigIntHeader *r = bigint_alloc_raw(n);
-    const uint64_t *aw = bigint_words_c(a);
-    const uint64_t *bw = bigint_words_c(b);
-    uint64_t *rw = bigint_words(r);
-    for (uint32_t i = 0; i < n; i++) rw[i] = aw[i] & bw[i];
-    bigint_normalize(r);
-    return r;
-}
+/* __torajs_bigint_and / _or / _xor / _not + 4 mag helpers (and_/or_/
+ * xor_/andnot_) moved to torajs-bigint::bitwise (P3.3-h, 2026-05-23).
+ * V3-02 two's-complement 12-种 sign-case dispatch preserved 1:1;
+ * not() 用 -a-1n identity 走 cross-tier add/neg extern. shift section
+ * (mag_shl_/shr_ + __torajs_bigint_shl/shr) 仍 C 侧 — P3.3-i 跟
+ * from_number 一起 port. */
 
-static BigIntHeader *bigint_mag_or_(const BigIntHeader *a, const BigIntHeader *b) {
-    uint32_t n = a->len > b->len ? a->len : b->len;
-    BigIntHeader *r = bigint_alloc_raw(n);
-    const uint64_t *aw = bigint_words_c(a);
-    const uint64_t *bw = bigint_words_c(b);
-    uint64_t *rw = bigint_words(r);
-    for (uint32_t i = 0; i < n; i++) {
-        uint64_t av = i < a->len ? aw[i] : 0;
-        uint64_t bv = i < b->len ? bw[i] : 0;
-        rw[i] = av | bv;
-    }
-    bigint_normalize(r);
-    return r;
-}
-
-static BigIntHeader *bigint_mag_xor_(const BigIntHeader *a, const BigIntHeader *b) {
-    uint32_t n = a->len > b->len ? a->len : b->len;
-    BigIntHeader *r = bigint_alloc_raw(n);
-    const uint64_t *aw = bigint_words_c(a);
-    const uint64_t *bw = bigint_words_c(b);
-    uint64_t *rw = bigint_words(r);
-    for (uint32_t i = 0; i < n; i++) {
-        uint64_t av = i < a->len ? aw[i] : 0;
-        uint64_t bv = i < b->len ? bw[i] : 0;
-        rw[i] = av ^ bv;
-    }
-    bigint_normalize(r);
-    return r;
-}
-
-/* a AND_NOT b — i.e. a & ~b. Result has at most a's width since
- * any high bits of `b` only zero out a's (already-zero) high bits. */
-static BigIntHeader *bigint_mag_andnot_(const BigIntHeader *a, const BigIntHeader *b) {
-    BigIntHeader *r = bigint_alloc_raw(a->len);
-    const uint64_t *aw = bigint_words_c(a);
-    const uint64_t *bw = bigint_words_c(b);
-    uint64_t *rw = bigint_words(r);
-    for (uint32_t i = 0; i < a->len; i++) {
-        uint64_t bv = i < b->len ? bw[i] : 0;
-        rw[i] = aw[i] & ~bv;
-    }
-    bigint_normalize(r);
-    return r;
-}
-
-/* Helper: |x| + 1 as a fresh BigInt magnitude (sign = 0). Used to
- * convert the "bits-of-negative" representation back into a
- * sign-magnitude negative value. */
+/* mag_inc1 / mag_dec1 保留 C 端 — __torajs_bigint_shr (P3.3-i 待移)
+ * 在 negative-shift floor 路径用. P3.3-i 一并删除. */
 static BigIntHeader *bigint_mag_inc1(const BigIntHeader *a) {
     BigIntHeader *r = bigint_alloc_raw(a->len + 1);
     const uint64_t *aw = bigint_words_c(a);
@@ -426,9 +376,7 @@ static BigIntHeader *bigint_mag_inc1(const BigIntHeader *a) {
     return r;
 }
 
-/* Helper: |x| - 1 as a fresh BigInt magnitude. Pre: |x| >= 1. */
 static BigIntHeader *bigint_mag_dec1(const BigIntHeader *a) {
-    /* |a| >= 1 → at least one limb non-zero. */
     BigIntHeader *r = bigint_alloc_raw(a->len);
     const uint64_t *aw = bigint_words_c(a);
     uint64_t *rw = bigint_words(r);
@@ -437,102 +385,6 @@ static BigIntHeader *bigint_mag_dec1(const BigIntHeader *a) {
         unsigned __int128 diff = (unsigned __int128)aw[i] - borrow;
         rw[i] = (uint64_t)diff;
         borrow = ((diff >> 64) & 1) ? 1 : 0;
-    }
-    bigint_normalize(r);
-    return r;
-}
-
-/* `~a` ≡ `-a - 1n` — universal identity, no sign dispatch needed. */
-void *__torajs_bigint_not(void *a_) {
-    const BigIntHeader *a = (const BigIntHeader *)a_;
-    /* Build 1n on the fly. */
-    BigIntHeader *one = bigint_alloc_raw(1);
-    bigint_words(one)[0] = 1;
-    /* -(a + 1n) for non-negative a; -(a) - 1 for negative — same
-     * formula expressed via add then neg. */
-    BigIntHeader *plus_one = (BigIntHeader *)__torajs_bigint_add((void *)a, one);
-    free(one);
-    BigIntHeader *r = (BigIntHeader *)__torajs_bigint_neg(plus_one);
-    free(plus_one);
-    return r;
-}
-
-void *__torajs_bigint_and(void *a_, void *b_) {
-    const BigIntHeader *a = (const BigIntHeader *)a_;
-    const BigIntHeader *b = (const BigIntHeader *)b_;
-    BigIntHeader *r;
-    if (!a->sign && !b->sign) {
-        r = bigint_mag_and_(a, b);
-    } else if (a->sign && b->sign) {
-        BigIntHeader *am = bigint_mag_dec1(a);
-        BigIntHeader *bm = bigint_mag_dec1(b);
-        BigIntHeader *or_ = bigint_mag_or_(am, bm);
-        free(am); free(bm);
-        r = bigint_mag_inc1(or_);
-        free(or_);
-        if (r->len > 0) r->sign = 1;
-    } else {
-        /* one positive, one negative: pos AND_NOT (|neg|-1) */
-        const BigIntHeader *p = a->sign ? b : a;
-        const BigIntHeader *n = a->sign ? a : b;
-        BigIntHeader *nm = bigint_mag_dec1(n);
-        r = bigint_mag_andnot_(p, nm);
-        free(nm);
-    }
-    bigint_normalize(r);
-    return r;
-}
-
-void *__torajs_bigint_or(void *a_, void *b_) {
-    const BigIntHeader *a = (const BigIntHeader *)a_;
-    const BigIntHeader *b = (const BigIntHeader *)b_;
-    BigIntHeader *r;
-    if (!a->sign && !b->sign) {
-        r = bigint_mag_or_(a, b);
-    } else if (a->sign && b->sign) {
-        BigIntHeader *am = bigint_mag_dec1(a);
-        BigIntHeader *bm = bigint_mag_dec1(b);
-        BigIntHeader *and_ = bigint_mag_and_(am, bm);
-        free(am); free(bm);
-        r = bigint_mag_inc1(and_);
-        free(and_);
-        if (r->len > 0) r->sign = 1;
-    } else {
-        /* one positive, one negative: result negative, mag = (|neg|-1) AND_NOT pos, then +1 */
-        const BigIntHeader *p = a->sign ? b : a;
-        const BigIntHeader *n = a->sign ? a : b;
-        BigIntHeader *nm = bigint_mag_dec1(n);
-        BigIntHeader *andnot = bigint_mag_andnot_(nm, p);
-        free(nm);
-        r = bigint_mag_inc1(andnot);
-        free(andnot);
-        if (r->len > 0) r->sign = 1;
-    }
-    bigint_normalize(r);
-    return r;
-}
-
-void *__torajs_bigint_xor(void *a_, void *b_) {
-    const BigIntHeader *a = (const BigIntHeader *)a_;
-    const BigIntHeader *b = (const BigIntHeader *)b_;
-    BigIntHeader *r;
-    if (!a->sign && !b->sign) {
-        r = bigint_mag_xor_(a, b);
-    } else if (a->sign && b->sign) {
-        BigIntHeader *am = bigint_mag_dec1(a);
-        BigIntHeader *bm = bigint_mag_dec1(b);
-        r = bigint_mag_xor_(am, bm);
-        free(am); free(bm);
-    } else {
-        /* one positive, one negative: result negative, mag = pos XOR (|neg|-1), then +1 */
-        const BigIntHeader *p = a->sign ? b : a;
-        const BigIntHeader *n = a->sign ? a : b;
-        BigIntHeader *nm = bigint_mag_dec1(n);
-        BigIntHeader *xor_ = bigint_mag_xor_(p, nm);
-        free(nm);
-        r = bigint_mag_inc1(xor_);
-        free(xor_);
-        if (r->len > 0) r->sign = 1;
     }
     bigint_normalize(r);
     return r;
