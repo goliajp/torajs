@@ -4528,64 +4528,11 @@ int64_t __torajs_num_is_finite_i(int64_t n) {
  * IR-side intrinsic declarations in ssa_lower + alloc-noalias whitelist
  * in ssa_inkwell resolve via the libtorajs_str.a staticlib link. */
 
-/* `s.padStart(targetLen, padStr)` — if s.length >= targetLen, return s
- * unchanged-content (still a fresh alloc to keep ownership uniform).
- * Otherwise prepend bytes from padStr, repeating + truncating, so the
- * result has exactly targetLen bytes. JS spec uses code units; we use
- * bytes (good enough for ASCII). padEnd appends instead. */
-void *__torajs_str_pad_start(const uint8_t *s, int64_t target_len, const uint8_t *pad) {
-    uint64_t s_len = __TORAJS_STR_LEN(s);
-    const uint8_t *s_data = __TORAJS_STR_CDATA(s);
-    if (target_len < 0 || (uint64_t)target_len <= s_len) {
-        uint8_t *p = __torajs_str_alloc_pooled(s_len);
-        if (s_len) memcpy(__TORAJS_STR_DATA(p), s_data, (size_t)s_len);
-        return p;
-    }
-    uint64_t pad_len = __TORAJS_STR_LEN(pad);
-    const uint8_t *pad_data = __TORAJS_STR_CDATA(pad);
-    uint64_t out = (uint64_t)target_len;
-    uint8_t *p = __torajs_str_alloc_pooled(out);
-    uint8_t *p_data = __TORAJS_STR_DATA(p);
-    uint64_t need = out - s_len;
-    /* Pad source might be empty → can't fill, return s_len-padded zero
-     * bytes. Match JS behavior: if padStr is empty, the original is
-     * returned. We don't have access to the original ptr here; just
-     * write zero bytes and rely on tests to provide non-empty pad. */
-    if (pad_len == 0) {
-        memset(p_data, ' ', (size_t)need);
-    } else {
-        for (uint64_t i = 0; i < need; i++) {
-            p_data[i] = pad_data[i % pad_len];
-        }
-    }
-    if (s_len) memcpy(p_data + need, s_data, (size_t)s_len);
-    return p;
-}
-
-void *__torajs_str_pad_end(const uint8_t *s, int64_t target_len, const uint8_t *pad) {
-    uint64_t s_len = __TORAJS_STR_LEN(s);
-    const uint8_t *s_data = __TORAJS_STR_CDATA(s);
-    if (target_len < 0 || (uint64_t)target_len <= s_len) {
-        uint8_t *p = __torajs_str_alloc_pooled(s_len);
-        if (s_len) memcpy(__TORAJS_STR_DATA(p), s_data, (size_t)s_len);
-        return p;
-    }
-    uint64_t pad_len = __TORAJS_STR_LEN(pad);
-    const uint8_t *pad_data = __TORAJS_STR_CDATA(pad);
-    uint64_t out = (uint64_t)target_len;
-    uint8_t *p = __torajs_str_alloc_pooled(out);
-    uint8_t *p_data = __TORAJS_STR_DATA(p);
-    if (s_len) memcpy(p_data, s_data, (size_t)s_len);
-    uint64_t fill = out - s_len;
-    if (pad_len == 0) {
-        memset(p_data + s_len, ' ', (size_t)fill);
-    } else {
-        for (uint64_t i = 0; i < fill; i++) {
-            p_data[s_len + i] = pad_data[i % pad_len];
-        }
-    }
-    return p;
-}
+/* __torajs_str_pad_start / _pad_end moved to torajs-str::transform::pad
+ * (P3.1-e.3, 2026-05-23). Byte-length semantics preserved. Empty pad
+ * → space fill (matches C subset). IR-side intrinsic declarations in
+ * ssa_lower + alloc-noalias whitelist in ssa_inkwell resolve via
+ * libtorajs_str.a staticlib link. */
 
 /* M6.3 — JSON.parse runtime helpers. Cursor is `int64_t *pos`,
  * updated in place by every helper so ssa_lower's compile-time
