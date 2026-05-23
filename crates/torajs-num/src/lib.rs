@@ -28,7 +28,9 @@
 //! cleanly at `tr build` time (cc + LLVM-LTO tolerates std symbol
 //! overlap between Rust-emitted .a's).
 
+pub mod layout;
 pub mod math;
+pub mod parse;
 pub mod predicates;
 
 // Re-export — keep this list tight; the extern "C" symbols are
@@ -43,6 +45,7 @@ pub use math::{
     __torajs_math_sinh, __torajs_math_sqrt, __torajs_math_tan, __torajs_math_tanh,
     __torajs_math_trunc,
 };
+pub use parse::{__torajs_num_parse_float, __torajs_num_parse_int};
 pub use predicates::{
     __torajs_num_is_finite_f, __torajs_num_is_finite_i, __torajs_num_is_integer_f,
     __torajs_num_is_integer_i, __torajs_num_is_nan_f, __torajs_num_is_nan_i,

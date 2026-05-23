@@ -4010,62 +4010,11 @@ void *__torajs_num_to_precision_i(int64_t n, int64_t digits) {
  * encoded as the IEEE-754 quiet-NaN bit pattern when no digits are
  * consumed; otherwise the parsed double. radix=0 → autodetect (10
  * default; 16 if "0x"/"0X" prefix). */
-double __torajs_num_parse_int(const uint8_t *s, int64_t radix) {
-    uint64_t len = __TORAJS_STR_LEN(s);
-    const uint8_t *data = __TORAJS_STR_CDATA(s);
-    uint64_t i = 0;
-    while (i < len && (data[i] == ' ' || data[i] == '\t' || data[i] == '\n'
-                       || data[i] == '\r' || data[i] == '\v' || data[i] == '\f')) {
-        i++;
-    }
-    int sign = 1;
-    if (i < len && (data[i] == '+' || data[i] == '-')) {
-        if (data[i] == '-') sign = -1;
-        i++;
-    }
-    int rdx = (int)radix;
-    if (rdx == 0) rdx = 10;
-    /* 0x / 0X auto-radix when caller passed 0 or 16. */
-    if ((radix == 0 || radix == 16) && i + 1 < len
-        && data[i] == '0' && (data[i + 1] == 'x' || data[i + 1] == 'X')) {
-        rdx = 16;
-        i += 2;
-    }
-    if (rdx < 2 || rdx > 36) return (double)NAN;
-    uint64_t digits_start = i;
-    double v = 0.0;
-    while (i < len) {
-        uint8_t c = data[i];
-        int d;
-        if (c >= '0' && c <= '9') d = c - '0';
-        else if (c >= 'a' && c <= 'z') d = c - 'a' + 10;
-        else if (c >= 'A' && c <= 'Z') d = c - 'A' + 10;
-        else break;
-        if (d >= rdx) break;
-        v = v * rdx + d;
-        i++;
-    }
-    if (i == digits_start) return (double)NAN;
-    return sign < 0 ? -v : v;
-}
-
-/* `Number.parseFloat(s)` — strtod over the trimmed prefix. Stops at
- * the first non-numeric byte. Returns NaN if no digits parsed. */
-double __torajs_num_parse_float(const uint8_t *s) {
-    uint64_t len = __TORAJS_STR_LEN(s);
-    const uint8_t *data = __TORAJS_STR_CDATA(s);
-    /* Copy into a NUL-terminated buffer so strtod's bounds work. JS-allowed
-     * input shapes (sign, digits, exponent, +/-Infinity) all fit within
-     * len + 1 bytes; for very long inputs we'd need malloc — out of scope. */
-    char buf[64];
-    uint64_t copy = len < sizeof(buf) - 1 ? len : sizeof(buf) - 1;
-    memcpy(buf, data, (size_t)copy);
-    buf[copy] = 0;
-    char *endp = NULL;
-    double v = strtod(buf, &endp);
-    if (endp == buf) return (double)NAN;
-    return v;
-}
+/* __torajs_num_parse_int + _parse_float moved to torajs-num::parse
+ * (P3.2-c.2, 2026-05-23). Rust impl removes the C version's 64-byte
+ * input cap on parseFloat (scans for longest numeric prefix via
+ * byte slice, no NUL-terminator dance). parseInt preserves the
+ * trim+sign+0x-auto+radix scan bit-for-bit. */
 
 
 /* Number predicates (is_nan/is_finite/is_integer/is_safe_integer × _i/_f =
