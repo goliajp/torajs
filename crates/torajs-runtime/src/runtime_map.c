@@ -460,17 +460,9 @@ void __torajs_map_drop(void *p) {
 
 /* __torajs_map_size moved to torajs-collections::query (P4.3-b, 2026-05-23). */
 
-/* Per-call helper used by every query-path helper: query borrows
- * the caller's rc bump on a heap-tagged key, so we release it
- * before returning. Still in C — used by C-side set / delete /
- * clear paths that haven't ported yet (they keep their own copy
- * of the contract). */
-static void map_drop_borrowed_key(uint8_t tag, uint64_t payload) {
-    if (tag == __TORAJS_ANY_HEAP) {
-        void *kp = (void *)(uintptr_t)payload;
-        if (kp != NULL) __torajs_value_drop_heap(kp);
-    }
-}
+/* `map_drop_borrowed_key` static helper deleted (P4.3-d, 2026-05-24).
+ * Last C consumer was `__torajs_map_delete`; both gone now. Rust port
+ * carries its own per-module copy of the contract. */
 
 /* __torajs_map_set moved to torajs-collections::mutate (P4.3-c, 2026-05-24).
  * Same slot-load + entries-cap rehash triggers, same robin-hood probing
@@ -482,54 +474,10 @@ static void map_drop_borrowed_key(uint8_t tag, uint64_t payload) {
  * C-side set / delete / clear / iter still here — use their own
  * `map_drop_borrowed_key` static helper for the same purpose. */
 
-/* `m.delete(k)` — returns 1 if key was present, 0 otherwise. The
- * entry is converted to an entries[]-side tombstone (hash=0) and
- * the slot becomes SLOT_TOMBSTONE so probe chains step over it. */
-int64_t __torajs_map_delete(void *p, int64_t key_tag, int64_t key_payload) {
-    int64_t r = 0;
-    if (p) {
-        Map *m = (Map *)p;
-        uint32_t hash, slot_idx, entry_idx;
-        int hit = map_lookup_slot(m, (uint8_t)key_tag, (uint64_t)key_payload,
-                                  &hash, &slot_idx, &entry_idx);
-        if (hit) {
-            MapEntry *e = &m->entries[entry_idx];
-            map_entry_drop_refs(e);
-            e->hash = ENTRY_HASH_TOMBSTONE;
-            e->key_tag = 0;
-            e->key_payload = 0;
-            e->value_tag = 0;
-            e->value_payload = 0;
-            m->slots[slot_idx] = SLOT_MAKE(0, SLOT_TOMBSTONE);
-            m->n_entries -= 1;
-            m->n_tombstones += 1;
-            if (m->n_tombstones > m->slots_count / 4) {
-                /* Compact entries[] + reset tombstones. */
-                map_rehash(m, m->entries_cap, m->slots_count);
-            }
-            r = 1;
-        }
-    }
-    map_drop_borrowed_key((uint8_t)key_tag, (uint64_t)key_payload);
-    return r;
-}
-
-/* `m.clear()` — drop all entries; reset the slot table to empty.
- * Reuses the existing slots / entries allocations. */
-void __torajs_map_clear(void *p) {
-    if (!p) return;
-    Map *m = (Map *)p;
-    for (uint32_t i = 0; i < m->n_used; i++) {
-        MapEntry *e = &m->entries[i];
-        if (e->hash == ENTRY_HASH_TOMBSTONE) continue;
-        map_entry_drop_refs(e);
-    }
-    memset(m->entries, 0, (size_t)m->entries_cap * sizeof(MapEntry));
-    for (uint32_t k = 0; k < m->slots_count; k++) m->slots[k] = SLOT_MAKE(0, SLOT_EMPTY);
-    m->n_entries = 0;
-    m->n_used = 0;
-    m->n_tombstones = 0;
-}
+/* __torajs_map_delete + __torajs_map_clear moved to
+ * torajs-collections::delete (P4.3-d, 2026-05-24). Same entry-side
+ * tombstone + slot-side tombstone bookkeeping; delete also triggers
+ * compact-rehash when slot tombstones exceed slots_count/4. */
 
 /* P6.4a — `m.forEach` / `s.forEach` iter step. Walks `entries[]` in
  * insertion order (spec §23.1.4 / §24.2.4). Cursor is an i64 stack

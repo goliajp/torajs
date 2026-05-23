@@ -52,6 +52,7 @@
 //! stable. `std` staticlibs link cleanly at `tr build` time.
 
 pub mod create;
+pub mod delete;
 pub mod eq;
 pub mod hash;
 pub mod layout;
@@ -60,6 +61,7 @@ pub mod probe;
 pub mod query;
 
 pub use create::__torajs_map_create;
+pub use delete::{__torajs_map_clear, __torajs_map_delete};
 pub use mutate::__torajs_map_set;
 pub use query::{__torajs_map_get, __torajs_map_has, __torajs_map_size};
 
