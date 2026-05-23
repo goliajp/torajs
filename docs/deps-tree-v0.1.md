@@ -11,6 +11,20 @@
 
 torajs = **metal / llvm 级别的 infra binary**——是语言级 metal-tier 编译/运行系统 (类比 LLVM / V8 内部 / Rust compiler 自身)，**不是** application-tier runtime (bun/node/deno 是 application 层, torajs core 比它们低一层). Perf 决策从**硬件视角** (cache line / branch / SIMD / register / TLB / prefetch) 出发, 不只是算法换路.
 
+### L1 phase 顺序 (2026-05-23 takagi 明确)
+
+走完整 L1 vision 分 **3 个 phase**，**串行不并行**：
+
+| phase | scope | 当前 |
+|---|---|---|
+| **Phase 1 (now)** | **pure rust 重构** — 把 12 个 `runtime_*.c` (12615 LOC) 全 port 到 Rust sub-crate；必要 deps 暂保持用社区库；substrate-first 不切模式 | P3.3 → P4 → P5 → P6 → P7 (= trigger 5 命中 = C runtime 全删) |
+| **Phase 2** | **0 deps** — F 族 (14 step) 自研替代所有 Tier 1 + Tier 2 社区 dep | 等 Phase 1 收尾 |
+| **Phase 3** | **polish** — A 族 7+ 个 substrate 抽 `core` mod + `tr_abi` mod 拆 + crates.io publish 候选 | 等 Phase 2 收尾 |
+
+**Phase 2/3 不抢 Phase 1 priority**——不切到 polish-first 模式、不暂停 substrate ship 去回填 publish-ready。F 族 hot 化（原 trigger 10）推迟到 trigger 5 命中之后。每 ship 一个 substrate 不强求 polish, 也不抽 `core/tr_abi` mod 拆 — 等 Phase 3 统一回填。
+
+**Why this order**: pure rust 重构是 ABI substrate, 不做完后面的 0 deps / polish 都是 layer on unstable foundation. takagi quote: *"我们先把事做完, 再回头来 0 deps 和 polish"*.
+
 终态约 **200-300 个 crate** (v1.0 量级；v1.0 + 完整 bun-parity + TS 生态长期 300-400)，分 **6 族** (A 族 substrate + B 族 compiler + C 族 stdlib + D 族 toolchain + E 族 embed/cloud + **F 族 self-research utilities**)，按**石头 / 水泥** 二分对应**开源 / 闭源**；**石头估 150-230 个**。当前 **A 族 ship 6/15 Layer 拓扑视角** (P3.1 closed 2026-05-23 = torajs-str 100% Rust + P3.2 closed 2026-05-23 = torajs-num 100% Rust)，其他族仍在 monolith 状态。
 
 > **2026-05-23 数量级修正 (takagi 指出 v0.1 strawman 55-70 严重低估)**：
