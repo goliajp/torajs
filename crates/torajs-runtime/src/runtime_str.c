@@ -1991,31 +1991,9 @@ static uint8_t *arr_alloc_(uint64_t len, uint64_t cap) {
     return p;
 }
 
-/* `arr.slice(start, end)` — fresh array containing the [start, end)
- * range. Both indices are clamped to [0, arr.len]. Single malloc +
- * one memcpy. Element-type-agnostic (8-byte slots). */
-void *__torajs_arr_slice(const uint8_t *arr, int64_t start, int64_t end) {
-    uint64_t len = __TORAJS_ARR_LEN(arr);
-    /* V3-18 m1.h.35 — JS spec §22.1.3.25 negative-index handling:
-     *   relativeStart < 0 → max(len + relativeStart, 0)
-     *   relativeStart >= 0 → min(relativeStart, len)
-     * Same for end. Pre-fix `arr.slice(-2)` clamped to 0 instead
-     * of `len - 2`, returning the whole array instead of the tail. */
-    int64_t ilen = (int64_t)len;
-    int64_t lo = start < 0
-        ? (start + ilen < 0 ? 0 : start + ilen)
-        : (start > ilen ? ilen : start);
-    int64_t hi = end < 0
-        ? (end + ilen < 0 ? 0 : end + ilen)
-        : (end > ilen ? ilen : end);
-    if (hi < lo) hi = lo;
-    uint64_t out_len = (uint64_t)(hi - lo);
-    uint8_t *p = arr_alloc_(out_len, out_len); /* cap = len; no extra slack */
-    if (out_len > 0) {
-        memcpy(__TORAJS_ARR_DATA(p), __TORAJS_ARR_CSLOT(arr, lo), (size_t)out_len * 8);
-    }
-    return p;
-}
+/* __torajs_arr_slice moved to torajs-arr::slice (P4.1-f, 2026-05-23).
+ * ES §22.1.3.25 negative-index clamp + single malloc + memcpy preserved
+ * 1:1. T-13.5 head_offset folded into source pointer. */
 
 /* Format an i64 as a fresh String heap object. Used by `+` when one
  * operand is Number and the other String — JS coerces the number to
