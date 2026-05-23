@@ -29,6 +29,7 @@
 //! overlap between Rust-emitted .a's).
 
 pub mod math;
+pub mod predicates;
 
 // Re-export — keep this list tight; the extern "C" symbols are
 // resolved at link time by ssa_inkwell-emitted IR regardless.
@@ -41,4 +42,9 @@ pub use math::{
     __torajs_math_min, __torajs_math_pow, __torajs_math_round, __torajs_math_sin,
     __torajs_math_sinh, __torajs_math_sqrt, __torajs_math_tan, __torajs_math_tanh,
     __torajs_math_trunc,
+};
+pub use predicates::{
+    __torajs_num_is_finite_f, __torajs_num_is_finite_i, __torajs_num_is_integer_f,
+    __torajs_num_is_integer_i, __torajs_num_is_nan_f, __torajs_num_is_nan_i,
+    __torajs_num_is_safe_integer_f, __torajs_num_is_safe_integer_i,
 };

@@ -4067,50 +4067,9 @@ double __torajs_num_parse_float(const uint8_t *s) {
     return v;
 }
 
-/* `Number.isSafeInteger(n)` — true iff n is an integer-valued number
- * within [-(2^53 - 1), 2^53 - 1]. Safe means a round-trip through f64
- * preserves the value exactly. */
-int64_t __torajs_num_is_safe_integer_f(double n) {
-    if (!isfinite(n)) return 0;
-    if (floor(n) != n) return 0;
-    double max_safe = 9007199254740991.0; /* 2^53 - 1 */
-    return (n >= -max_safe && n <= max_safe) ? 1 : 0;
-}
-int64_t __torajs_num_is_safe_integer_i(int64_t n) {
-    int64_t max_safe = 9007199254740991;
-    return (n >= -max_safe && n <= max_safe) ? 1 : 0;
-}
 
-/* `Number.isInteger(n)` — true iff n is finite and has no fractional
- * part. ECMA-262 §20.1.2.3. */
-int64_t __torajs_num_is_integer_f(double n) {
-    if (!isfinite(n)) return 0;
-    return floor(n) == n ? 1 : 0;
-}
-int64_t __torajs_num_is_integer_i(int64_t n) {
-    (void)n;
-    return 1;
-}
-
-/* `Number.isNaN(n)` — true iff n is NaN. (Distinct from global `isNaN`
- * which coerces non-numbers; the Number.isX form does not coerce.) */
-int64_t __torajs_num_is_nan_f(double n) {
-    return isnan(n) ? 1 : 0;
-}
-int64_t __torajs_num_is_nan_i(int64_t n) {
-    (void)n;
-    return 0;
-}
-
-/* `Number.isFinite(n)` — true iff n is a finite number. */
-int64_t __torajs_num_is_finite_f(double n) {
-    return isfinite(n) ? 1 : 0;
-}
-int64_t __torajs_num_is_finite_i(int64_t n) {
-    (void)n;
-    return 1;
-}
-
+/* Number predicates (is_nan/is_finite/is_integer/is_safe_integer × _i/_f =
+ * 8 fns) moved to torajs-num::predicates (P3.2-c.1, 2026-05-23). */
 /* Whitespace recognition for `trim*`: ASCII whitespace ' ', '\t', '\n',
  * '\r', '\v', '\f'. JS spec includes more (BOM, NBSP, …) but those are
  * UTF-16 units we don't model in v0. */
