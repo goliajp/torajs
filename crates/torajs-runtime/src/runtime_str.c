@@ -3428,112 +3428,11 @@ void *__torajs_arr_from_string(const uint8_t *s) {
  * (P3.1-e.4, 2026-05-23). ES2022 single-char Str; negative i
  * wraps; OOB returns empty Str. */
 
-/* `s.replace(needle, replacement)` — replace the FIRST occurrence of
- * `needle` in `s` with `replacement`. Returns a fresh string; the
- * original is untouched. JS spec accepts a regex needle; we only
- * support string needles in v0. If `needle` doesn't occur, returns a
- * fresh copy of `s` (so the caller can drop both inputs uniformly). */
-void *__torajs_str_replace(const uint8_t *s, const uint8_t *needle, const uint8_t *repl) {
-    uint64_t s_len = __TORAJS_STR_LEN(s);
-    uint64_t n_len = __TORAJS_STR_LEN(needle);
-    uint64_t r_len = __TORAJS_STR_LEN(repl);
-    const uint8_t *s_data = __TORAJS_STR_CDATA(s);
-    const uint8_t *n_data = __TORAJS_STR_CDATA(needle);
-    const uint8_t *r_data = __TORAJS_STR_CDATA(repl);
-    /* Find the first occurrence. memmem isn't portable across BSD/Linux
-     * uniformly — manual search keeps the deps minimal. */
-    int64_t found = -1;
-    if (n_len == 0) {
-        /* Empty needle — JS inserts at index 0. Returns repl + s. */
-        found = 0;
-    } else if (n_len <= s_len) {
-        for (uint64_t i = 0; i + n_len <= s_len; i++) {
-            if (memcmp(s_data + i, n_data, (size_t)n_len) == 0) {
-                found = (int64_t)i;
-                break;
-            }
-        }
-    }
-    if (found < 0) {
-        /* Not found — return a fresh copy of s. */
-        uint8_t *p = __torajs_str_alloc_pooled(s_len);
-        if (s_len) memcpy(__TORAJS_STR_DATA(p), s_data, (size_t)s_len);
-        return p;
-    }
-    uint64_t out_len = s_len - n_len + r_len;
-    uint8_t *p = __torajs_str_alloc_pooled(out_len);
-    uint8_t *p_data = __TORAJS_STR_DATA(p);
-    if (found > 0) memcpy(p_data, s_data, (size_t)found);
-    if (r_len) memcpy(p_data + (size_t)found, r_data, (size_t)r_len);
-    uint64_t tail_off = (uint64_t)found + n_len;
-    uint64_t tail_len = s_len - tail_off;
-    if (tail_len) {
-        memcpy(p_data + (uint64_t)found + r_len, s_data + tail_off, (size_t)tail_len);
-    }
-    return p;
-}
-
-/* `s.replaceAll(needle, replacement)` — every occurrence. Counts hits
- * with non-overlapping search (the standard JS behavior), pre-allocs
- * the exact result size, then does a single fill pass. */
-void *__torajs_str_replace_all(const uint8_t *s, const uint8_t *needle, const uint8_t *repl) {
-    uint64_t s_len = __TORAJS_STR_LEN(s);
-    uint64_t n_len = __TORAJS_STR_LEN(needle);
-    uint64_t r_len = __TORAJS_STR_LEN(repl);
-    const uint8_t *s_data = __TORAJS_STR_CDATA(s);
-    const uint8_t *n_data = __TORAJS_STR_CDATA(needle);
-    const uint8_t *r_data = __TORAJS_STR_CDATA(repl);
-    if (n_len == 0) {
-        /* JS spec: empty needle on replaceAll throws TypeError. We
-         * don't throw at the runtime layer — just return a copy. The
-         * subset shouldn't trigger this path under a typical test. */
-        uint8_t *p = __torajs_str_alloc_pooled(s_len);
-        if (s_len) memcpy(__TORAJS_STR_DATA(p), s_data, (size_t)s_len);
-        return p;
-    }
-    /* Pass 1 — count occurrences. */
-    uint64_t hits = 0;
-    if (n_len <= s_len) {
-        uint64_t i = 0;
-        while (i + n_len <= s_len) {
-            if (memcmp(s_data + i, n_data, (size_t)n_len) == 0) {
-                hits++;
-                i += n_len;  /* non-overlapping */
-            } else {
-                i++;
-            }
-        }
-    }
-    if (hits == 0) {
-        uint8_t *p = __torajs_str_alloc_pooled(s_len);
-        if (s_len) memcpy(__TORAJS_STR_DATA(p), s_data, (size_t)s_len);
-        return p;
-    }
-    /* out_len = s_len - hits*n_len + hits*r_len */
-    uint64_t out_len = s_len + hits * (r_len > n_len ? (r_len - n_len) : 0)
-                              - hits * (r_len < n_len ? (n_len - r_len) : 0);
-    uint8_t *p = __torajs_str_alloc_pooled(out_len);
-    uint8_t *p_data = __TORAJS_STR_DATA(p);
-    /* Pass 2 — copy with substitutions. */
-    uint64_t src_i = 0, dst_i = 0;
-    while (src_i + n_len <= s_len) {
-        if (memcmp(s_data + src_i, n_data, (size_t)n_len) == 0) {
-            if (r_len) memcpy(p_data + dst_i, r_data, (size_t)r_len);
-            dst_i += r_len;
-            src_i += n_len;
-        } else {
-            p_data[dst_i] = s_data[src_i];
-            dst_i++;
-            src_i++;
-        }
-    }
-    while (src_i < s_len) {
-        p_data[dst_i] = s_data[src_i];
-        dst_i++;
-        src_i++;
-    }
-    return p;
-}
+/* __torajs_str_replace / _replace_all moved to torajs-str::transform::replace
+ * (P3.1-e.5, 2026-05-23). String-needle only (v0 subset, regex needle
+ * not implemented). Empty-needle `replace` inserts at 0; empty-needle
+ * `replaceAll` silently copies (spec throws TypeError — pre-existing
+ * subset divergence preserved). Non-overlapping match consumption. */
 
 /* Lookup ops (locale_compare / starts_with_from / ends_with_from /
  * index_of_from / includes_from / last_index_of_from / last_index_of)

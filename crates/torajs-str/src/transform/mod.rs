@@ -25,4 +25,5 @@
 pub mod case;
 pub mod construct;
 pub mod pad;
+pub mod replace;
 pub mod trim;
