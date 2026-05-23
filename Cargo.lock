@@ -1877,12 +1877,17 @@ dependencies = [
  "torajs-anyvalue",
  "torajs-arr",
  "torajs-bigint",
+ "torajs-dynobj",
  "torajs-num",
  "torajs-rc",
  "torajs-runtime",
  "torajs-str",
  "torajs-throw",
 ]
+
+[[package]]
+name = "torajs-dynobj"
+version = "0.1.0"
 
 [[package]]
 name = "torajs-embed"

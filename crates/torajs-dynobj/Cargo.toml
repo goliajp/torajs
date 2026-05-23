@@ -1,0 +1,29 @@
+[package]
+name = "torajs-dynobj"
+description = "Dynamic-property object substrate (open-addressing hashmap) for the torajs AOT TypeScript runtime. Backs `obj.x = v` / `arr.x = v` / `fn.x = v` property bags, with FNV-1a string-keyed buckets carrying ANY-tag/value + PropertyDescriptor attribute flags. Layer-3 — Swift-Dictionary / CPython-dict shape, self-implemented per CLAUDE.md 自研 pillar. no_std-friendly."
+keywords = ["torajs", "dynobj", "hashmap", "property-bag", "runtime"]
+categories = ["data-structures", "no-std"]
+readme = "README.md"
+documentation = "https://docs.rs/torajs-dynobj"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+# Dual emit: `rlib` for cargo workspace + unit tests;
+# `staticlib` emits libtorajs_dynobj.a so ssa_inkwell can link it
+# into every `tr build` AOT user binary alongside the other Layer-1+
+# staticlibs.
+[lib]
+crate-type = ["rlib", "staticlib"]
+
+[dependencies]
+# 0 runtime deps. Cross-crate calls (e.g. into torajs-str for the
+# bucket key comparison + hash) use `extern "C"` symbols resolved at
+# link time, same as torajs-bigint / torajs-arr. libc malloc/calloc
+# is declared directly per the torajs-str pattern.

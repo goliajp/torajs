@@ -45,3 +45,8 @@ torajs-bigint = { path = "../torajs-bigint" }
 # Layer-3: Array<T> + Array<Any> substrate (P4.1). Dual rlib+staticlib;
 # libtorajs_arr.a co-links so __torajs_arr_drop resolves at `tr build`.
 torajs-arr = { path = "../torajs-arr" }
+# Layer-3: dynamic-property object substrate (P4.2). Dual rlib+staticlib;
+# libtorajs_dynobj.a co-links so __torajs_dynobj_alloc (and later
+# get/set/define/has/delete/drop in subsequent P4.2 sub-steps) resolves
+# at `tr build`.
+torajs-dynobj = { path = "../torajs-dynobj" }

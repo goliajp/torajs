@@ -10,6 +10,7 @@ members = [
     "crates/torajs-num",
     "crates/torajs-bigint",
     "crates/torajs-arr",
+    "crates/torajs-dynobj",
     "crates/torajs-runtime",
     "crates/torajs-core",
     "crates/torajs-cli",

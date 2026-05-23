@@ -59,6 +59,10 @@ pub const TORAJS_STATICLIBS: &[(&str, &[u8])] = &[
         "libtorajs_arr.a",
         include_bytes!(env!("TORAJS_ARR_STATICLIB_PATH")),
     ),
+    (
+        "libtorajs_dynobj.a",
+        include_bytes!(env!("TORAJS_DYNOBJ_STATICLIB_PATH")),
+    ),
 ];
 
 /// Compiler-source fingerprint emitted by build.rs (hash of

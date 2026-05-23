@@ -495,6 +495,13 @@ void __torajs_str_drop(void *s);
 static __torajs_dynobj_bucket_t *__torajs_dynobj_buckets(void *obj);
 static void __torajs_dynobj_resize(void **obj_slot, uint32_t new_cap);
 
+/* __torajs_dynobj_alloc moved to torajs-dynobj::alloc (P4.2-a,
+ * 2026-05-23). Rust port — same calloc + header init shape; in-file
+ * callers (__torajs_dynobj_getOwnPropertyDescriptor's `desc = ...alloc()`
+ * + node-creation code) resolve the public symbol at link time via
+ * libtorajs_dynobj.a. */
+extern void *__torajs_dynobj_alloc(void);
+
 /* FNV-1a over Str payload. Reads the Str layout directly:
  *   offset 0  : heap header (8)
  *   offset 8  : len (u64)
@@ -525,21 +532,6 @@ static int __torajs_dynobj_str_eq(const void *a, const void *b) {
 
 static __torajs_dynobj_bucket_t *__torajs_dynobj_buckets(void *obj) {
     return (__torajs_dynobj_bucket_t *)((uint8_t *)obj + __TORAJS_DYNOBJ_HDR_SIZE);
-}
-
-void *__torajs_dynobj_alloc(void) {
-    uint32_t cap = __TORAJS_DYNOBJ_INITIAL_CAP;
-    size_t bytes = __TORAJS_DYNOBJ_HDR_SIZE
-        + (size_t)cap * __TORAJS_DYNOBJ_BUCKET_SIZE;
-    uint8_t *p = (uint8_t *)calloc(1, bytes);  /* zero-init = all empty buckets */
-    __torajs_heap_header_t *h = (__torajs_heap_header_t *)p;
-    h->refcount = 1;
-    h->type_tag = __TORAJS_TAG_DYNOBJ;
-    h->flags = 0;
-    *(uint32_t *)(p + 8)  = 0;     /* count */
-    *(uint32_t *)(p + 12) = cap;
-    *(uint32_t *)(p + 16) = 0;     /* tomb */
-    return p;
 }
 
 /* Probe for `key`. Returns the bucket index where:
