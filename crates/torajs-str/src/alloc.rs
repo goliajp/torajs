@@ -265,22 +265,26 @@ pub unsafe extern "C" fn __torajs_str_alloc(src: *const u8, len: i64) -> *mut u8
 
 /// `__torajs_str_drop(s)` — Str scope-end decrement. The dominant
 /// drop path emitted by ssa_lower for every Str-typed local.
-/// Mirrors pre-rewrite `ssa_inkwell::define_str_drop` bit-for-bit
-/// (P3.1-g.6, 2026-05-23):
+/// Mirrors pre-rewrite `ssa_inkwell::define_str_drop`:
 ///
 /// ```text
 /// if s == NULL: return
 /// if (s.flags & FLAG_STATIC_LITERAL) != 0: return  // .rodata
 /// s.refcount -= 1
-/// if s.refcount == 0: libc::free(s)               // NOT pool!
+/// if s.refcount == 0: __torajs_str_free(s)         // pool-aware!
 /// ```
 ///
-/// **Pool-bypass is intentional**: the IR version called libc free
-/// directly (not pool-aware [`__torajs_str_free`]). Preserved here
-/// to match the previous shipped behavior bit-for-bit. The pool is
-/// only fed by explicit drops from C-side helpers / Rust ops that
-/// call [`__torajs_str_free`] directly (concat result drops,
-/// transform/replace intermediate drops, etc.).
+/// **At rc==0 we route through [`__torajs_str_free`] (pool-aware),
+/// NOT libc free directly**. The IR-emitted `define_str_drop` took
+/// `__torajs_str_free` as its "free" parameter (the parameter name
+/// in the IR builder was just `free` but the bound symbol was
+/// `str_free`); the pool fast-path feeds the small-Str LIFO so
+/// subsequent `__torajs_str_alloc_pooled` calls pop instead of
+/// malloc. An earlier ship of this fn called libc::free directly
+/// and broke 5 regex fixtures — the regex engine's hot path round-
+/// trips Str blocks through the pool; bypassing the pool feed left
+/// holes that next-alloc filled with stale-zeroed memory, manifest
+/// as `"hello"` → `"he\0\0\0\0\0\0\0\0o"` byte corruption.
 ///
 /// # Safety
 ///
@@ -299,10 +303,11 @@ pub unsafe extern "C" fn __torajs_str_drop(s: *mut u8) {
     }
     header.refcount -= 1;
     if header.refcount == 0 {
-        // SAFETY: rc reached 0; we own the last reference. libc::free
-        // is the matching deallocator for libc::malloc + pool block
-        // allocations (both reachable via __torajs_str_alloc_pooled).
-        unsafe { free(s as *mut c_void) };
+        // SAFETY: rc reached 0; we own the last reference.
+        // __torajs_str_free does pool-push for small blocks and
+        // libc::free for the rest. Matches what the IR-emitted
+        // define_str_drop dispatched to (the `str_free` parameter).
+        unsafe { __torajs_str_free(s) };
     }
 }
 
