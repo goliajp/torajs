@@ -1,0 +1,28 @@
+[package]
+name = "torajs-weak"
+description = "Weak-reference family (WeakRef + WeakMap + WeakSet) substrate for the torajs AOT TypeScript runtime. Shared process-global target → observer registry — when a heap target's strong refcount transitions to zero, the registry walks all observers (WeakRef clears its target slot to NULL; WeakMap/Set evicts the entry whose key was that target). Split from torajs-collections by design: weak observation is fundamentally different from strong ownership, and the registry is process-global rather than per-container. Layer-3 substrate."
+keywords = ["torajs", "weakref", "weakmap", "weakset", "runtime"]
+categories = ["data-structures", "no-std"]
+readme = "README.md"
+documentation = "https://docs.rs/torajs-weak"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+# Dual emit: `rlib` for cargo workspace + unit tests; `staticlib`
+# emits libtorajs_weak.a so ssa_inkwell links it into every
+# `tr build` AOT user binary alongside the other Layer-1+ staticlibs.
+[lib]
+crate-type = ["rlib", "staticlib"]
+
+[dependencies]
+# 0 runtime deps. Cross-tier calls (rc_inc + registry register/deregister
+# defined for now in runtime_weakref.c) use `extern "C"` symbols resolved
+# at link time — same pattern as torajs-collections / torajs-bigint /
+# torajs-arr / torajs-dynobj.

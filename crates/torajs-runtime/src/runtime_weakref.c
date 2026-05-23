@@ -1,32 +1,24 @@
 /*
- * runtime_weakref.c — torajs T-26 (v0.7) WeakRef substrate +
- * shared observer registry for WeakMap / WeakSet.
+ * runtime_weakref.c — shared observer registry for the weak-ref
+ * family (WeakRef + WeakMap + WeakSet).
  *
- * `new WeakRef(target)` creates a heap struct that observes
- * `target` without keeping it alive. When `target`'s strong rc
- * transitions to zero (via __torajs_rc_dec or the inlined Obj
- * drop walk_blk hook in ssa_lower), the runtime walks the
- * registry below and dispatches per-observer-kind cleanup:
+ * The owner-side WeakRef ops (`create` / `deref` / `drop`) live in
+ * `crates/torajs-weak/` (P4.3'-a, 2026-05-24). What remains here:
  *
- *   - WeakRef:  clear the WR's `target` ptr to NULL
- *   - WeakMap:  remove the (key,value) entry from the map
- *   - WeakSet:  remove the key from the set
+ *   - the WeakRef struct typedef (used by `target_dying` below to
+ *     clear `wr->target` on the OBSERVER_WEAKREF dispatch path).
+ *     ABI-shared with `torajs_weak::layout::WeakRef`.
+ *   - the process-global target → observer registry
+ *     (`g_buckets[WEAKREF_BUCKETS]`, hash chain + per-target linked
+ *     list of `(kind, owner)` observer nodes).
+ *   - `registry_register` / `registry_deregister` — Rust-side
+ *     `torajs-weak` calls into these via `extern "C"`.
+ *   - `target_dying` — called by `__torajs_rc_dec` / the inlined Obj
+ *     drop walk in `ssa_lower` when any heap target's strong rc
+ *     transitions to zero; broadcasts cleanup across every observer.
  *
- * Heap layout for WeakRef (16 bytes):
- *
- *     [universal_heap_header (8B)] [target ptr (8B)]
- *
- *   - target = NULL  → target was reclaimed; deref returns null
- *   - target != NULL → target still strong-reachable; deref returns
- *                       the pointer with strong rc bumped (the
- *                       caller assumes ownership)
- *
- * The registry was scoped to WeakRef-only in T-26.A; T-26.B
- * generalized it to (kind, owner) tuples so WeakMap and WeakSet
- * piggyback on the same target-dying broadcast without each
- * needing its own scan path. Cycle collector (T-26.C) will swap
- * the per-target cell-list approach for color-bit-keyed liveness
- * driven off the universal heap header's flags field.
+ * P4.3'-b ports the registry itself to Rust; this file disappears at
+ * P4.3'-e along with `runtime_weakmap.c` and `runtime_weakset.c`.
  */
 
 #include <stdint.h>
@@ -38,11 +30,6 @@ typedef struct __attribute__((aligned(8))) {
     uint16_t type_tag;
     uint16_t flags;
 } __torajs_heap_header_t;
-
-#define __TORAJS_TAG_WEAKREF 11
-
-extern void __torajs_rc_inc(void *p);
-extern int  __torajs_rc_dec(void *p);
 
 /* Cleanup hooks defined in runtime_weakmap.c / runtime_weakset.c.
  * Either is allowed to be missing in a given binary (linker would
@@ -197,46 +184,4 @@ void __torajs_weakref_target_dying(void *target) {
         cur = next;
     }
     registry_remove_cell(c, bkt);
-}
-
-/* `new WeakRef(target)` — allocate a fresh +1-rc WeakRef and
- * register it. The target is NOT rc_inc'd; the WeakRef is observed
- * via the registry instead. */
-void *__torajs_weakref_create(void *target) {
-    WeakRef *wr = (WeakRef *)malloc(sizeof(WeakRef));
-    wr->header.refcount = 1;
-    wr->header.type_tag = __TORAJS_TAG_WEAKREF;
-    wr->header.flags = 0;
-    wr->target = target;
-    if (target != NULL) {
-        __torajs_weakref_registry_register(target, OBSERVER_WEAKREF, wr);
-    }
-    return wr;
-}
-
-/* `wr.deref()` — return the target if still alive, NULL otherwise.
- * Bumps the strong rc on success so the caller assumes ownership. */
-void *__torajs_weakref_deref(void *p) {
-    if (!p) return NULL;
-    WeakRef *wr = (WeakRef *)p;
-    void *t = wr->target;
-    if (t != NULL) {
-        __torajs_rc_inc(t);
-    }
-    return t;
-}
-
-/* rc-aware drop. Called from value_drop_heap's TAG_WEAKREF case. */
-void __torajs_weakref_drop(void *p) {
-    if (!p) return;
-    WeakRef *wr = (WeakRef *)p;
-    if (wr->header.flags & 4 /* STATIC_LITERAL */) return;
-    wr->header.refcount -= 1;
-    if (wr->header.refcount == 0) {
-        if (wr->target != NULL) {
-            __torajs_weakref_registry_deregister(
-                wr->target, OBSERVER_WEAKREF, wr);
-        }
-        free(wr);
-    }
 }
