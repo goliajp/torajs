@@ -409,7 +409,10 @@ fn compile_for_kind_impl(
                 f
             }
             "__torajs_arr_push" => define_arr_push(&ctx, &llvm_module, realloc, memmove),
-            "__torajs_arr_reserve" => define_arr_reserve(&ctx, &llvm_module, realloc),
+            // __torajs_arr_reserve moved to torajs-arr::grow (P4.1-k,
+            // 2026-05-23). Rust impl is realloc + cap-store + return —
+            // LTO across libtorajs_arr.a inlines into the caller same
+            // as the prior IR; cap-equal short-circuit preserved.
             // __torajs_arr_push_unchecked moved to torajs-arr::ops
             // (P4.1-c, 2026-05-23). 5-instr fast path now in Rust;
             // LTO across libtorajs_arr.a inlines into the caller
@@ -573,7 +576,7 @@ fn compile_for_kind_impl(
         "__torajs_arr_alloc",
         "__torajs_arr_push",
         "__torajs_arr_shift",
-        "__torajs_arr_reserve",
+        // "__torajs_arr_reserve" moved to torajs-arr::grow (P4.1-k)
         "__torajs_arr_push_unchecked",
         "__torajs_arr_drop",
         // "__torajs_str_slice" moved to torajs-str::slice (P3.1-g.5)
@@ -2828,68 +2831,9 @@ fn define_arr_push<'ctx>(
 /// M6.2 fast-path. `arr_reserve(arr, new_cap) -> arr*` ensures
 /// `cap >= new_cap`; reallocs once if needed, otherwise no-op. Returns
 /// the (possibly new) ptr — caller stores it back into its slot.
-fn define_arr_reserve<'ctx>(
-    ctx: &'ctx Context,
-    m: &LlvmModule<'ctx>,
-    realloc: FunctionValue<'ctx>,
-) -> FunctionValue<'ctx> {
-    let builder = ctx.create_builder();
-    let i64_t = ctx.i64_type();
-    let i32_t = ctx.i32_type();
-    let i8_t = ctx.i8_type();
-    let ptr_t = ctx.ptr_type(AddressSpace::default());
-    let fn_t = ptr_t.fn_type(&[ptr_t.into(), i64_t.into()], false);
-    let f = m.add_function("__torajs_arr_reserve", fn_t, None);
-    let entry = ctx.append_basic_block(f, "entry");
-    let grow_blk = ctx.append_basic_block(f, "grow");
-    let exit_blk = ctx.append_basic_block(f, "exit");
-    builder.position_at_end(entry);
-    let arr_in = f.get_nth_param(0).unwrap().into_pointer_value();
-    let new_cap = f.get_nth_param(1).unwrap().into_int_value();
-    let cap = arr_cap_load(ctx, &builder, arr_in, "cap");
-    let need_grow = builder
-        .build_int_compare(IntPredicate::ULT, cap, new_cap, "need_grow")
-        .unwrap();
-    builder
-        .build_conditional_branch(need_grow, grow_blk, exit_blk)
-        .unwrap();
-    // grow: realloc(p, ARR_HDR_DATA_OFF + new_cap * 8); store new_cap (4-byte u32); pass to exit
-    builder.position_at_end(grow_blk);
-    let new_bytes = builder
-        .build_int_mul(new_cap, i64_t.const_int(8, false), "")
-        .unwrap();
-    let new_total = builder
-        .build_int_add(new_bytes, i64_t.const_int(ARR_HDR_DATA_OFF, false), "")
-        .unwrap();
-    let arr_grown = builder
-        .build_call(realloc, &[arr_in.into(), new_total.into()], "arr_grown")
-        .unwrap()
-        .try_as_basic_value()
-        .unwrap_basic()
-        .into_pointer_value();
-    let new_cap_p = unsafe {
-        builder
-            .build_in_bounds_gep(
-                i8_t,
-                arr_grown,
-                &[i64_t.const_int(ARR_HDR_CAP_OFF, false)],
-                "",
-            )
-            .unwrap()
-    };
-    let new_cap_i32 = builder
-        .build_int_truncate(new_cap, i32_t, "new_cap_i32")
-        .unwrap();
-    builder.build_store(new_cap_p, new_cap_i32).unwrap();
-    builder.build_unconditional_branch(exit_blk).unwrap();
-    // exit: phi arr → return
-    builder.position_at_end(exit_blk);
-    let phi = builder.build_phi(ptr_t, "arr").unwrap();
-    phi.add_incoming(&[(&arr_in, entry), (&arr_grown, grow_blk)]);
-    let arr = phi.as_basic_value().into_pointer_value();
-    builder.build_return(Some(&arr)).unwrap();
-    f
-}
+/* define_arr_reserve body moved to torajs-arr::grow (P4.1-k,
+ * 2026-05-23). Pure-Rust port: cap_load + realloc + cap_store +
+ * return. LTO inlines across libtorajs_arr.a same as the prior IR. */
 
 /* define_arr_push_unchecked body moved to torajs-arr::ops (P4.1-c,
  * 2026-05-23). M6.2 fast-path: 5-instr inline. Rust impl preserves
