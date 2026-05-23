@@ -48,6 +48,8 @@ pub mod drop;
 pub mod internal;
 pub mod layout;
 pub mod mul;
+pub mod str_bridge;
+pub mod tostring;
 
 pub use arith::{__torajs_bigint_add, __torajs_bigint_sub};
 pub use compare::{__torajs_bigint_cmp, __torajs_bigint_eq};
@@ -60,6 +62,19 @@ pub use divmod::{
 };
 pub use drop::{__torajs_bigint_drop, __torajs_bigint_drop_rc};
 pub use mul::__torajs_bigint_mul;
+pub use tostring::__torajs_bigint_to_string;
+
+// `__torajs_str_alloc_pooled` is provided by `libtorajs_str.a` at
+// `tr build` link time. cargo unit tests of torajs-bigint don't link
+// torajs-str's staticlib — provide a panicking stub so the test
+// binary still links. Same pattern as torajs-num.
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_alloc_pooled(_len: u64) -> *mut u8 {
+    panic!(
+        "torajs-bigint unit-test stub: __torajs_str_alloc_pooled should not be called from cargo test paths"
+    );
+}
 
 // `__torajs_rc_dec` is provided by `libtorajs_rc.a` at `tr build`
 // link time. For cargo unit tests of torajs-bigint (which don't

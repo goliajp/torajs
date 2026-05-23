@@ -296,76 +296,10 @@ extern void *__torajs_bigint_mul(void *a, void *b);
  * (already pub(crate) in arith.rs since P3.3-d). eq is cmp == 0
  * shortcut. */
 
-/* ============================================================
- * BigInt → decimal Str. Successive division by 10^19 (largest power
- * of ten that fits in u64) — each chunk emits up to 19 digits.
- * Most-significant chunk first.
- * ============================================================ */
-
-#define DEC_CHUNK 10000000000000000000ULL  /* 1e19 */
-
-/* Divide magnitude in place by chunk (u64). Returns the remainder. */
-static uint64_t bigint_divmod_chunk(BigIntHeader *b, uint64_t chunk) {
-    uint64_t rem = 0;
-    uint64_t *w = bigint_words(b);
-    for (int i = (int)b->len - 1; i >= 0; i--) {
-        unsigned __int128 cur = ((unsigned __int128)rem << 64) | w[i];
-        w[i] = (uint64_t)(cur / chunk);
-        rem = (uint64_t)(cur % chunk);
-    }
-    bigint_normalize(b);
-    return rem;
-}
-
-void *__torajs_bigint_to_string(void *a_) {
-    const BigIntHeader *a = (const BigIntHeader *)a_;
-    if (a->len == 0) {
-        uint8_t *s = __torajs_str_alloc_pooled(1);
-        uint8_t *body = s + __TORAJS_STR_HDR_SIZE;
-        body[0] = '0';
-        return s;
-    }
-    /* Clone magnitude so we can destructively divide. */
-    BigIntHeader *tmp = bigint_alloc_raw(a->len);
-    tmp->sign = 0;
-    memcpy(bigint_words(tmp), bigint_words_c(a), (size_t)a->len * 8);
-    /* Each u64 limb produces up to 20 decimal digits; bound the
-     * output buffer at 21 * len + 1 (sign). */
-    size_t cap = (size_t)a->len * 21 + 2;
-    uint8_t *buf = (uint8_t *)malloc(cap);
-    size_t pos = cap;
-    while (tmp->len > 0) {
-        uint64_t rem = bigint_divmod_chunk(tmp, DEC_CHUNK);
-        /* Emit 19 digits if more chunks remain; otherwise emit only
-         * as many digits as the remainder needs (no leading zeros at
-         * the most significant end). */
-        int digits_this_chunk = (tmp->len > 0) ? 19 : 0;
-        if (digits_this_chunk == 0) {
-            do {
-                pos--;
-                buf[pos] = '0' + (rem % 10);
-                rem /= 10;
-            } while (rem > 0);
-        } else {
-            for (int k = 0; k < 19; k++) {
-                pos--;
-                buf[pos] = '0' + (rem % 10);
-                rem /= 10;
-            }
-        }
-    }
-    free(tmp);
-    if (a->sign) {
-        pos--;
-        buf[pos] = '-';
-    }
-    size_t len = cap - pos;
-    uint8_t *s = __torajs_str_alloc_pooled(len);
-    uint8_t *body = s + __TORAJS_STR_HDR_SIZE;
-    memcpy(body, buf + pos, len);
-    free(buf);
-    return s;
-}
+/* __torajs_bigint_to_string + bigint_divmod_chunk helper moved to
+ * torajs-bigint::tostring (P3.3-g, 2026-05-23). Successive division
+ * by DEC_CHUNK (10^19) emits 19 decimal digits per chunk; final Str
+ * via cross-tier __torajs_str_alloc_pooled extern. */
 
 /* ============================================================
  * V3-02 — bitwise ops with two's-complement semantics over
