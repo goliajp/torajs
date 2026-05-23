@@ -423,40 +423,11 @@ static void map_rehash(Map *m, uint32_t new_entries_cap, uint32_t new_slots_coun
  * surface; P4.3-h does MapIter; P4.3-i lifts ArrIter to torajs-arr
  * (it was misplaced here when MapIter was added in P6.4). */
 
-/* Drop a single entry's key + value rc-ref if the corresponding tag
- * carries the heap bit. Heap-tagged Any values point at an
- * rc-aware heap object whose drop is value_drop_heap (which
- * dispatches per-type via the universal heap header). Primitive-
- * tagged entries (int / f64 / bool / null / undef) are no-ops. */
-static void map_entry_drop_refs(MapEntry *e) {
-    if (e->key_tag == __TORAJS_ANY_HEAP) {
-        void *kp = (void *)(uintptr_t)e->key_payload;
-        if (kp != NULL) __torajs_value_drop_heap(kp);
-    }
-    if (e->value_tag == __TORAJS_ANY_HEAP) {
-        void *vp = (void *)(uintptr_t)e->value_payload;
-        if (vp != NULL) __torajs_value_drop_heap(vp);
-    }
-}
-
-/* rc-aware drop. Called from value_drop_heap's TAG_MAP case (see
- * runtime_str.c). On last owner: walk every live entry, drop both
- * refs, free the entries + slots arrays, free the Map struct. */
-void __torajs_map_drop(void *p) {
-    if (!p) return;
-    Map *m = (Map *)p;
-    if (m->header.flags & 4 /* STATIC_LITERAL */) return;
-    m->header.refcount -= 1;
-    if (m->header.refcount != 0) return;
-    for (uint32_t i = 0; i < m->n_used; i++) {
-        MapEntry *e = &m->entries[i];
-        if (e->hash == ENTRY_HASH_TOMBSTONE) continue;
-        map_entry_drop_refs(e);
-    }
-    free(m->slots);
-    free(m->entries);
-    free(m);
-}
+/* __torajs_map_drop moved to torajs-collections::drop (P4.3-e, 2026-05-24).
+ * Uses cross-tier __torajs_rc_dec instead of direct refcount-- (matches
+ * arr/dynobj drop pattern; STATIC_LITERAL handling folded into rc_dec).
+ * `map_entry_drop_refs` static helper also deleted — last caller gone
+ * (the Rust port inlines the heap-ref drop directly per entry). */
 
 /* __torajs_map_size moved to torajs-collections::query (P4.3-b, 2026-05-23). */
 
