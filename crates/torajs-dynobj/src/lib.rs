@@ -41,7 +41,10 @@
 
 pub mod alloc;
 pub mod define;
+pub mod delete;
+pub mod drop;
 pub mod get;
+pub mod has;
 pub mod layout;
 pub mod probe;
 pub mod resize;
@@ -49,7 +52,10 @@ pub mod set;
 
 pub use alloc::__torajs_dynobj_alloc;
 pub use define::__torajs_dynobj_define;
+pub use delete::__torajs_dynobj_delete;
+pub use drop::__torajs_dynobj_drop;
 pub use get::{__torajs_dynobj_get_flags, __torajs_dynobj_get_tag, __torajs_dynobj_get_value};
+pub use has::__torajs_dynobj_has;
 pub use set::__torajs_dynobj_set;
 
 // Cross-tier extern stubs for cargo unit tests — `__torajs_rc_inc`,
@@ -79,5 +85,21 @@ pub unsafe extern "C" fn __torajs_throw_type_error(_msg: *const u8) {
 pub unsafe extern "C" fn __torajs_value_drop_heap(_child: *mut core::ffi::c_void) {
     panic!(
         "torajs-dynobj unit-test stub: __torajs_value_drop_heap should not be called from cargo test paths"
+    );
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_rc_dec(_p: *mut core::ffi::c_void) -> i32 {
+    panic!(
+        "torajs-dynobj unit-test stub: __torajs_rc_dec should not be called from cargo test paths"
+    );
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_drop(_s: *mut core::ffi::c_void) {
+    panic!(
+        "torajs-dynobj unit-test stub: __torajs_str_drop should not be called from cargo test paths"
     );
 }

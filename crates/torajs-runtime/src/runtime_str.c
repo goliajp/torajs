@@ -427,162 +427,37 @@ void __torajs_value_drop_heap(void *child);
 
 /* P3.1 — Dynamic-property object substrate (HashMap-backed).
  *
- * Layout:
- *   offset 0  : __torajs_heap_header_t (8 bytes; refcount/tag/flags)
- *   offset 8  : count (u32)        — # of live entries
- *   offset 12 : cap   (u32)        — bucket array size (power of 2)
- *   offset 16 : tomb  (u32)        — # of tombstone slots
- *   offset 20 : pad   (u32)
- *   offset 24 : buckets[cap] of __torajs_dynobj_bucket_t (24 bytes each)
+ * The complete impl moved to the `torajs-dynobj` crate over phase
+ * P4.2 (a..e, 2026-05-23). C-side keeps only the cross-tier `extern`
+ * decls for the symbols still referenced from this file
+ * (getOwnPropertyDescriptor's wrapper at ~line 622 and node-lookup
+ * around ~line 940 both call alloc/has/get_*; value_drop_heap dispatch
+ * calls drop). The original layout / macros / typedef / probe / hash /
+ * str_eq / set / define / resize / get / has / delete / drop bodies are
+ * all gone — see git history (`git log -- crates/torajs-runtime/src/runtime_str.c`)
+ * for the pre-port C source.
  *
- * Bucket:
- *   key_ptr : *Str    (NULL = empty; (void*)1 = tombstone; else owning Str ptr)
- *   tag     : u64     (ANY_NULL/UNDEF/BOOL/I64/F64/HEAP per existing scheme)
- *   value   : u64     (per-tag payload — bool/int/f64-bits/heap-ptr-as-u64)
- *
- * Probing: open addressing, linear probe step = 1.
- * Resize: at load factor (count + tomb) > cap * 7/8 — double cap.
- * Hash: FNV-1a over the key's bytes (Str layout: header + len + bytes).
- *
- * Reference: Swift Dictionary / CPython dict's compact open-addressing.
- * Self-implemented (no external lib) per CLAUDE.md "自研" pillar. */
+ * Layout (for reference only; canonical defs live in
+ * `crates/torajs-dynobj/src/layout.rs`):
+ *   offset 0  : heap header (8)
+ *   offset 8  : count (u32) / cap (u32) / tomb (u32) / pad (u32)
+ *   offset 24 : buckets[cap] — 24B each ({ key_ptr:*Str, tag:u64, value:u64 }) */
 
-#define __TORAJS_DYNOBJ_HDR_SIZE   24
-#define __TORAJS_DYNOBJ_BUCKET_SIZE 24
-#define __TORAJS_DYNOBJ_INITIAL_CAP 8  /* must be power of 2 */
-#define __TORAJS_DYNOBJ_TOMBSTONE   ((void *)(uintptr_t)1)
-
-/* P3.attribute-flag-tracking — pack attribute flags into bucket.tag
- * high bits. Low 8 bits stay ANY_TAG (0-5); bits 8-10 carry the spec
- * §6.2.5 PropertyDescriptor data-attribute flags. Avoids bucket
- * struct size growth (would have been 24 → 32 bytes = +33% memory
- * for every dynobj entry). */
-#define __TORAJS_BUCKET_TAG_MASK         0xffULL
-#define __TORAJS_BUCKET_FLAG_WRITABLE     (1ULL << 8)
-#define __TORAJS_BUCKET_FLAG_ENUMERABLE   (1ULL << 9)
-#define __TORAJS_BUCKET_FLAG_CONFIGURABLE (1ULL << 10)
-/* Default flags for implicit set (`obj.x = v`) and object-literal
- * init: spec §10.1.5.1 OrdinarySet → §10.1.6.2 CreateDataProperty →
- * writable / enumerable / configurable all default to true. */
-#define __TORAJS_BUCKET_FLAGS_DEFAULT \
-    (__TORAJS_BUCKET_FLAG_WRITABLE \
-     | __TORAJS_BUCKET_FLAG_ENUMERABLE \
-     | __TORAJS_BUCKET_FLAG_CONFIGURABLE)
-
-/* flags_byte encoding passed by ssa_lower's defineProperty intercept
- * to __torajs_dynobj_define. Low 3 bits = flag value; next 3 bits =
- * "flag present in descriptor". Spec §10.1.6.3 distinguishes "absent"
- * from "present-false": absent → leave current bucket's flag alone on
- * redefine (default-false on fresh insert); present → use the
- * specified value. */
-#define __TORAJS_DEFINE_FLAG_WRITABLE      (1 << 0)
-#define __TORAJS_DEFINE_FLAG_ENUMERABLE    (1 << 1)
-#define __TORAJS_DEFINE_FLAG_CONFIGURABLE  (1 << 2)
-#define __TORAJS_DEFINE_PRESENT_WRITABLE      (1 << 3)
-#define __TORAJS_DEFINE_PRESENT_ENUMERABLE    (1 << 4)
-#define __TORAJS_DEFINE_PRESENT_CONFIGURABLE  (1 << 5)
-#define __TORAJS_DEFINE_PRESENT_VALUE         (1 << 6)
-
-typedef struct {
-    void *key_ptr;   /* owning Str* (rc'd); NULL = empty; TOMBSTONE = deleted */
-    uint64_t tag;    /* low 8 bits = ANY_TAG; bits 8-10 = writable/enumerable/configurable */
-    uint64_t value;
-} __torajs_dynobj_bucket_t;
-
-void __torajs_str_drop(void *s);
-
-/* Forward decls used inside helpers. */
-static __torajs_dynobj_bucket_t *__torajs_dynobj_buckets(void *obj);
-
-/* __torajs_dynobj_alloc moved to torajs-dynobj::alloc (P4.2-a,
- * 2026-05-23). Rust port — same calloc + header init shape; in-file
- * callers (__torajs_dynobj_getOwnPropertyDescriptor's `desc = ...alloc()`
- * + node-creation code) resolve the public symbol at link time via
- * libtorajs_dynobj.a. */
 extern void *__torajs_dynobj_alloc(void);
-
-/* __torajs_dynobj_get_tag / get_value / get_flags moved to
- * torajs-dynobj::get (P4.2-b, 2026-05-23). Probe + bucket reads
- * mirrored 1:1 in Rust internals (torajs-dynobj::probe). C-side
- * helpers __torajs_dynobj_probe / hash_str / str_eq stay until their
- * remaining C-side callers (set / define / has / delete) also port. */
 extern uint64_t __torajs_dynobj_get_tag(const void *obj, const void *key);
 extern uint64_t __torajs_dynobj_get_value(const void *obj, const void *key);
 extern uint64_t __torajs_dynobj_get_flags(const void *obj, const void *key);
-
-/* FNV-1a over Str payload. Reads the Str layout directly:
- *   offset 0  : heap header (8)
- *   offset 8  : len (u64)
- *   offset 16 : utf-8 bytes
- */
-static uint64_t __torajs_dynobj_hash_str(const void *key) {
-    uint64_t h = 0xcbf29ce484222325ULL;
-    uint64_t len = __TORAJS_STR_LEN(key);
-    const uint8_t *data = __TORAJS_STR_CDATA(key);
-    for (uint64_t i = 0; i < len; i++) {
-        h ^= (uint64_t)data[i];
-        h *= 0x100000001b3ULL;
-    }
-    return h;
-}
-
-/* Compare two Str values for equality (length + byte content). Used
- * by the bucket lookup probe — distinct Str pointers with the same
- * content must hit the same slot (per ES spec property-key equality).
- * Pointer-identity short-circuit (intern / interned-literal sites). */
-static int __torajs_dynobj_str_eq(const void *a, const void *b) {
-    if (a == b) return 1;
-    uint64_t la = __TORAJS_STR_LEN(a);
-    uint64_t lb = __TORAJS_STR_LEN(b);
-    if (la != lb) return 0;
-    return memcmp(__TORAJS_STR_CDATA(a), __TORAJS_STR_CDATA(b), (size_t)la) == 0;
-}
-
-static __torajs_dynobj_bucket_t *__torajs_dynobj_buckets(void *obj) {
-    return (__torajs_dynobj_bucket_t *)((uint8_t *)obj + __TORAJS_DYNOBJ_HDR_SIZE);
-}
-
-/* Probe for `key`. Returns the bucket index where:
- *   - the key is found, OR
- *   - an empty bucket (key_ptr == NULL) is reachable for insertion.
- * If the probe finds a tombstone first, remember it and use it for
- * insertion if the key is ultimately not found. Caller distinguishes
- * found vs not-found via `*out_found`. */
-static uint32_t __torajs_dynobj_probe(
-    const void *obj, const void *key, int *out_found
-) {
-    uint32_t cap = *(const uint32_t *)((const uint8_t *)obj + 12);
-    __torajs_dynobj_bucket_t *bk =
-        (__torajs_dynobj_bucket_t *)((uint8_t *)(uintptr_t)obj + __TORAJS_DYNOBJ_HDR_SIZE);
-    uint64_t h = __torajs_dynobj_hash_str(key);
-    uint32_t mask = cap - 1;
-    uint32_t i = (uint32_t)(h & mask);
-    int32_t tombstone_at = -1;
-    for (uint32_t step = 0; step < cap; step++) {
-        uint32_t idx = (i + step) & mask;
-        void *kp = bk[idx].key_ptr;
-        if (kp == NULL) {
-            *out_found = 0;
-            return tombstone_at >= 0 ? (uint32_t)tombstone_at : idx;
-        }
-        if (kp == __TORAJS_DYNOBJ_TOMBSTONE) {
-            if (tombstone_at < 0) tombstone_at = (int32_t)idx;
-            continue;
-        }
-        if (__torajs_dynobj_str_eq(kp, key)) {
-            *out_found = 1;
-            return idx;
-        }
-    }
-    /* Should never reach (resize keeps load factor < 1). */
-    *out_found = 0;
-    return tombstone_at >= 0 ? (uint32_t)tombstone_at : 0;
-}
-
-/* __torajs_dynobj_resize moved to torajs-dynobj::resize (P4.2-d, 2026-05-23).
- * Previously a `static` helper called by C-side `set` (P4.2-c) and
- * `define` (P4.2-d) — both now in Rust and call the Rust resize.
- * Last C caller deleted with this commit; safe to remove the static body. */
+extern void __torajs_dynobj_set(void **obj_slot, void *key, uint64_t tag, uint64_t value);
+extern void __torajs_dynobj_define(
+    void **obj_slot,
+    void *key,
+    uint64_t tag,
+    uint64_t value,
+    uint64_t flags_byte
+);
+extern int __torajs_dynobj_has(const void *obj, const void *key);
+extern int __torajs_dynobj_delete(void *obj, const void *key);
+extern void __torajs_dynobj_drop(void *obj);
 
 /* Get tag for `key`. Returns ANY_UNDEF=5 when the key isn't present
  * (per ES spec — missing property reads as undefined). Also returns
@@ -613,15 +488,7 @@ static uint32_t __torajs_dynobj_probe(
  * file but the explicit forward decls keep us robust to future
  * reorderings. */
 extern void *__torajs_any_box(int64_t tag, int64_t value);
-extern int __torajs_dynobj_has(const void *obj, const void *key);
 extern void __torajs_value_drop_heap(void *child);
-/* __torajs_dynobj_set moved to torajs-dynobj::set (P4.2-c, 2026-05-23).
- * Rust port — same load-factor guard + probe + writable-check + heap-
- * value drop logic; calls cross-tier extern __torajs_rc_inc /
- * __torajs_throw_type_error / __torajs_value_drop_heap. C-side
- * __torajs_dynobj_resize (static) stays — still called by C-side
- * __torajs_dynobj_define (ports at P4.2-e). */
-extern void __torajs_dynobj_set(void **obj_slot, void *key, uint64_t tag, uint64_t value);
 #define __TORAJS_ANY_BOX_TAG_OFF 8
 #define __TORAJS_ANY_BOX_VAL_OFF 16
 void *__torajs_get_property_descriptor(void *obj_any, void *key) {
@@ -693,80 +560,9 @@ extern void __torajs_register_native_error(int64_t slot, void *fnptr);
 extern void __torajs_throw_range_error(const char *msg);
 extern void __torajs_throw_type_error(const char *msg);
 
-/* Set `obj[key] = (tag, value)`. Caller is responsible for rc-bumping
- * heap-typed values BEFORE calling (matches arr_push_any contract).
- * The key is borrowed if it's already present; rc-bumped if it's a
- * fresh insert (so the bucket owns its share).
- *
- * P3.attribute-flag-tracking — implicit set (`obj.x = v` and
- * object-literal init) now honors the writable flag on existing
- * buckets. New buckets default to all-true flags (spec §10.1.6.2
- * CreateDataProperty). Existing-bucket overwrite preserves flag bits
- * and only updates the ANY_TAG low bits + value. Writable=false →
- * `__torajs_throw_set` with TypeError + return without mutation
- * (caller's ssa_lower-side `emit_throw_check` propagates). */
-/* __torajs_dynobj_set moved to torajs-dynobj::set (P4.2-c, 2026-05-23).
- * Extern decl + note in the forward-decl block at line ~673. */
-
-/* __torajs_dynobj_define moved to torajs-dynobj::define (P4.2-d,
- * 2026-05-23). Spec §10.1.6.3 ValidateAndApplyPropertyDescriptor data-
- * property subset; throw paths use __torajs_throw_type_error (cross-tier
- * extern, void-return). Rust resize covers the rebalance path; C-side
- * `__torajs_dynobj_resize` (static) deleted in the same commit. */
-extern void __torajs_dynobj_define(
-    void **obj_slot,
-    void *key,
-    uint64_t tag,
-    uint64_t value,
-    uint64_t flags_byte
-);
-
-int __torajs_dynobj_has(const void *obj, const void *key) {
-    if (obj == NULL) return 0;
-    int found;
-    (void)__torajs_dynobj_probe(obj, key, &found);
-    return found;
-}
-
-int __torajs_dynobj_delete(void *obj, const void *key) {
-    if (obj == NULL) return 0;
-    int found;
-    uint32_t idx = __torajs_dynobj_probe(obj, key, &found);
-    if (!found) return 0;
-    __torajs_dynobj_bucket_t *bk = __torajs_dynobj_buckets(obj);
-    /* Drop key + value (heap if ANY_HEAP). */
-    __torajs_str_drop(bk[idx].key_ptr);
-    if ((bk[idx].tag & __TORAJS_BUCKET_TAG_MASK) == 4 /* ANY_HEAP */) {
-        __torajs_value_drop_heap((void *)(uintptr_t)bk[idx].value);
-    }
-    bk[idx].key_ptr = __TORAJS_DYNOBJ_TOMBSTONE;
-    bk[idx].tag = 0;
-    bk[idx].value = 0;
-    uint32_t count = *(uint32_t *)((uint8_t *)obj + 8);
-    uint32_t tomb = *(uint32_t *)((uint8_t *)obj + 16);
-    *(uint32_t *)((uint8_t *)obj + 8) = count - 1;
-    *(uint32_t *)((uint8_t *)obj + 16) = tomb + 1;
-    return 1;
-}
-
-/* Drop a dynobj. Walks every live bucket, drops the key Str and any
- * ANY_HEAP value, then frees the block. Called via universal value-
- * drop dispatch when the dynobj's refcount hits zero. */
-void __torajs_dynobj_drop(void *obj) {
-    if (obj == NULL) return;
-    if (!__torajs_rc_dec(obj)) return;
-    uint32_t cap = *(uint32_t *)((uint8_t *)obj + 12);
-    __torajs_dynobj_bucket_t *bk = __torajs_dynobj_buckets(obj);
-    for (uint32_t i = 0; i < cap; i++) {
-        void *kp = bk[i].key_ptr;
-        if (kp == NULL || kp == __TORAJS_DYNOBJ_TOMBSTONE) continue;
-        __torajs_str_drop(kp);
-        if ((bk[i].tag & __TORAJS_BUCKET_TAG_MASK) == 4 /* ANY_HEAP */) {
-            __torajs_value_drop_heap((void *)(uintptr_t)bk[i].value);
-        }
-    }
-    free(obj);
-}
+/* __torajs_dynobj_set / define / has / delete / drop all moved to the
+ * `torajs-dynobj` crate (P4.2-c..e, 2026-05-23). Extern decls are
+ * grouped at the top of the dynobj section (~line 446). */
 
 /* Forward decls for the inkwell-emitted *_drop helpers. They live
  * in the AOT binary's IR module; cc -c sees them via the linker
