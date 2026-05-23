@@ -1,13 +1,13 @@
 {
-  "generatedAt": "2026-05-22T22:46:43.087Z",
+  "generatedAt": "2026-05-23T00:28:47.557Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 666,
     "fail": 0,
     "skip": 1,
     "raw": "666/0/1",
-    "source": "/tmp/torajs-conformance-p2-4-b.log",
-    "sourceMtime": "2026-05-22T22:43:47.928Z"
+    "source": "/tmp/torajs-conformance-587407e.log",
+    "sourceMtime": "2026-05-23T00:27:11.361Z"
   },
   "test262": {
     "ranAt": "2026-05-22T00:58:43Z",
@@ -28,8 +28,8 @@
     "passRateTrAccepted": 92.73
   },
   "torajs": {
-    "commit": "6bec2b8",
-    "commitSubject": "P2.4-b: throw-slot machinery LLVM-IR → Rust — P2 Layer 1 fully closed",
+    "commit": "587407e",
+    "commitSubject": "P3.1-d: Str lookup ops → torajs-str::lookup",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -37,8 +37,8 @@
       "fail": 0,
       "skip": 1,
       "raw": "666/0/1",
-      "source": "/tmp/torajs-conformance-p2-4-b.log",
-      "sourceMtime": "2026-05-22T22:43:47.928Z"
+      "source": "/tmp/torajs-conformance-587407e.log",
+      "sourceMtime": "2026-05-23T00:27:11.361Z"
     }
   },
   "roadmap": [
@@ -563,6 +563,30 @@
   },
   "commits": [
     {
+      "hash": "587407e",
+      "subject": "P3.1-d: Str lookup ops → torajs-str::lookup"
+    },
+    {
+      "hash": "2da841c",
+      "subject": "P3.1-c.fix: torajs-str::to_number recognize hex prefix (0x / 0X)"
+    },
+    {
+      "hash": "78e3ffa",
+      "subject": "P3.1-c: Str eq + to_number → torajs-str::{eq,to_number}"
+    },
+    {
+      "hash": "da78ef7",
+      "subject": "P3.1-b: Substr layout + Substr pool + drop machinery → torajs-str::substr"
+    },
+    {
+      "hash": "d256d50",
+      "subject": "P3.1-a: torajs-str scaffold + Str layout + small-Str pool + alloc/free — Layer-2 first sub-step"
+    },
+    {
+      "hash": "f911be3",
+      "subject": "hardev: snapshot data.json refresh — P2 Layer 1 closed @ 6bec2b8"
+    },
+    {
       "hash": "6bec2b8",
       "subject": "P2.4-b: throw-slot machinery LLVM-IR → Rust — P2 Layer 1 fully closed"
     },
@@ -585,51 +609,38 @@
     {
       "hash": "a8807ed",
       "subject": "P2.3-d.1: any_to_number ToNumber moves to Rust + Layer-1 link-wiring fix"
-    },
-    {
-      "hash": "5a071a8",
-      "subject": "docs: update architecture-rewrite tracker with P2.3-a / P2.3-b / P2.3-c done markers + P2.3-d NEXT"
-    },
-    {
-      "hash": "a1b5a11",
-      "subject": "P2.3-c: any_to_str ToString coercion moves to Rust"
-    },
-    {
-      "hash": "b04d98c",
-      "subject": "P2.3-b: any-value strict equality moves to Rust · payload_eq + any_any_strict_eq + any_strict_eq"
-    },
-    {
-      "hash": "cc9f819",
-      "subject": "P2.3-a: torajs-anyvalue Layer-1 substrate · Rust AnyBox replaces C any_box family"
-    },
-    {
-      "hash": "9422120",
-      "subject": "docs: P2.2 (torajs-rc) marker in architecture-rewrite tracker + add Status column"
-    },
-    {
-      "hash": "a446c1a",
-      "subject": "P2.2: torajs-rc Layer-1 substrate · Rust refcount + heap-header replaces runtime_str.c"
     }
   ],
-  "headSha": "6bec2b8",
+  "headSha": "587407e",
   "autorun": {
-    "total": 16,
+    "total": 17,
     "baselineTarget": 10,
-    "bySelf": 16,
+    "bySelf": 17,
     "byManual": 0,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1779453608-45e2",
-      "at": "2026-05-22T12:40:08Z",
-      "ts": 1779453608,
+      "rotationId": "r-1779490014-4e6f",
+      "at": "2026-05-22T22:46:54Z",
+      "ts": 1779490014,
       "trigger": "self",
-      "prevHead": "5a071a8",
-      "handoffSha": "sha256:685d0e10d4a51cba4de33ed3584601fbf8022ac37688badbee201efe2eeb159c",
-      "handoffAgeSec": 6,
+      "prevHead": "f911be3",
+      "handoffSha": "sha256:4f28b309ff790ff0807b91674fb78945397eb5bc61016a6239aaf310a205c990",
+      "handoffAgeSec": 25,
       "conformanceBefore": "666/0/1",
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1779490014-4e6f",
+        "at": "2026-05-22T22:46:54Z",
+        "ts": 1779490014,
+        "trigger": "self",
+        "prevHead": "f911be3",
+        "handoffSha": "sha256:4f28b309ff790ff0807b91674fb78945397eb5bc61016a6239aaf310a205c990",
+        "handoffAgeSec": 25,
+        "conformanceBefore": "666/0/1",
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1779453608-45e2",
         "at": "2026-05-22T12:40:08Z",
@@ -727,17 +738,6 @@
         "handoffSha": "sha256:c36e8cfabb573b88382d8e713619b191c5347fd0a22d4d1e9a2d6b156ad0f416",
         "handoffAgeSec": 5,
         "conformanceBefore": "644/0/1",
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1779272399-171b",
-        "at": "2026-05-20T10:19:59Z",
-        "ts": 1779272399,
-        "trigger": "self",
-        "prevHead": "6b3f602",
-        "handoffSha": "sha256:526b8e8b814f9c86bc94b03bad6de763b5b0325a37aabc51400f1287e55f4b23",
-        "handoffAgeSec": 5,
-        "conformanceBefore": "640/0/1",
         "commitsInSession": null
       }
     ],
