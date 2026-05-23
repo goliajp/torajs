@@ -72,6 +72,37 @@ pub fn init() {
     let _ = std::fs::create_dir_all(cache_dir());
 }
 
+/// One-shot init that also logs cache stats (or no-op when
+/// `--no-cache` flagged). Caller passes the `--no-cache` setting; on
+/// startup the runner sees current cache footprint at a glance and
+/// `cache::set_enabled` is wired so misses still happen if the flag
+/// is set. Replaces the inline init+stats+println block in main.rs.
+pub fn init_and_report(no_cache: bool) {
+    set_enabled(!no_cache);
+    init();
+    if !no_cache {
+        let (n, b) = stats();
+        eprintln!(
+            "→ bun oracle cache: {n} entries / {} KB on disk at {}",
+            b / 1024,
+            cache_dir().display(),
+        );
+    }
+}
+
+/// Prune the tr AOT cache to under `max_mb` MB before the run
+/// starts. tr maintains LRU by `atime`; 5 GiB cap matches the
+/// conformance runner's `tr cache clean --max-mb 5120` policy (53k
+/// test262 cases at ~280 KB each = ~15 GB uncapped — caps to ~18k
+/// cached binaries, ~33% hit rate steady-state). Out-of-band of the
+/// worker pool. Best-effort; tr's own status code is ignored
+/// (failures usually mean cache dir missing — first-run case).
+pub fn prune_tr_cache(tr_bin: &std::path::Path, max_mb: u32) {
+    let _ = std::process::Command::new(tr_bin)
+        .args(["cache", "clean", "--max-mb", &max_mb.to_string()])
+        .status();
+}
+
 fn detect_bun_version() -> String {
     match Command::new("bun").arg("--version").output() {
         Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).trim().to_string(),

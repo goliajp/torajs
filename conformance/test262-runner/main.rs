@@ -595,19 +595,7 @@ fn run_case(path: &Path, harness: &str, tr_bin: &Path, slot: usize) -> Outcome {
 fn main() {
     let args = parse_args();
 
-    // Bun oracle cache init (--no-cache disables; otherwise enabled).
-    // bun --version detected once; cache dir ensured. Per-case lookups
-    // happen inside run_case.
-    cache::set_enabled(!args.no_cache);
-    cache::init();
-    let (cache_n0, cache_b0) = cache::stats();
-    if !args.no_cache {
-        eprintln!(
-            "→ bun oracle cache: {cache_n0} entries / {} KB on disk at {}",
-            cache_b0 / 1024,
-            cache::cache_dir().display(),
-        );
-    }
+    cache::init_and_report(args.no_cache);
 
     let root = Path::new(TEST262_ROOT);
     if !root.is_dir() {
@@ -639,6 +627,11 @@ fn main() {
         );
         std::process::exit(2);
     }
+    // Cap ~/.torajs/cache at 5 GiB (matches conformance gate
+    // policy). Without this, 53k test262 cases × ~280 KB each could
+    // grow the cache to ~15 GB per full run, ballooning across
+    // weeks.
+    cache::prune_tr_cache(&tr_bin, 5120);
 
     let test_dir = root.join("test");
     let cases = collect_cases(&test_dir, args.filter.as_deref());
