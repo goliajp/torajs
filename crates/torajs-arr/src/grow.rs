@@ -12,10 +12,14 @@
 //! | P4.1-m | `__torajs_arr_shift` (T-13.5 deque head_offset fold)        |
 
 unsafe extern "C" {
-    /// Cross-tier — provided by torajs-throw. We don't depend on the
-    /// crate (substrate-tier policy) — symbol resolves at `tr build`
-    /// link time via `libtorajs_throw.a`.
-    fn __torajs_throw_range_error(msg: *const u8) -> !;
+    /// Cross-tier — provided by torajs-throw at `tr build` link time
+    /// via `libtorajs_throw.a`.
+    ///
+    /// **Returns normally** — does NOT longjmp / panic. Internally
+    /// records the pending throw via TLS (`__torajs_throw_set`). The
+    /// caller's SSA-emitted `emit_throw_check` after our `return` is
+    /// what actually propagates to user-side `try/catch`.
+    fn __torajs_throw_range_error(msg: *const u8);
 }
 
 /// `arr.length = v` validator (ES §9.4.2.4: throw RangeError if `v`
@@ -26,26 +30,28 @@ unsafe extern "C" {
 /// - tag 1 = Bool 0/1 → valid (early return)
 /// - tag 2 = I64 → interpret raw int as length candidate
 /// - tag 3 = F64-bits → reinterpret raw bits as f64
-/// - other = heap / undefined → throw immediately
+/// - other = heap / undefined → record RangeError + return
 ///
 /// Range check: `n` must be a non-negative integer in `[0, 2^32 - 1]`.
 /// NaN, Infinity, fractional, negative, and overflow all fail.
 ///
-/// # Safety
-/// `extern "C"` ABI. Diverges (panics via throw_range_error) on invalid
-/// input; caller must not assume return.
+/// After every `__torajs_throw_range_error` call we `return` so the
+/// caller's `emit_throw_check` sees the pending throw immediately (the
+/// throw is non-local via TLS, not via stack unwind — see fn-level
+/// extern doc).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_set_length_validate(tag: i64, value: i64) {
     let n: f64 = match tag {
-        0 => return,
-        1 => return,
+        0 | 1 => return,
         2 => value as f64,
         3 => f64::from_bits(value as u64),
-        _ => unsafe {
-            __torajs_throw_range_error(b"Invalid array length\0".as_ptr());
-        },
+        _ => {
+            unsafe {
+                __torajs_throw_range_error(b"Invalid array length\0".as_ptr());
+            }
+            return;
+        }
     };
-    // n.is_nan() || n < 0.0 || n > 2^32-1 || n is not an integer
     if n.is_nan() || n < 0.0 || n > 4_294_967_295.0 || n != (n as i64) as f64 {
         unsafe {
             __torajs_throw_range_error(b"Invalid array length\0".as_ptr());
