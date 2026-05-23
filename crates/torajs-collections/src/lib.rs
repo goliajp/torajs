@@ -56,6 +56,7 @@ pub mod delete;
 pub mod drop;
 pub mod eq;
 pub mod hash;
+pub mod iter;
 pub mod layout;
 pub mod mutate;
 pub mod probe;
@@ -64,6 +65,11 @@ pub mod query;
 pub use create::__torajs_map_create;
 pub use delete::{__torajs_map_clear, __torajs_map_delete};
 pub use drop::__torajs_map_drop;
+pub use iter::{
+    __torajs_map_iter_create_entries, __torajs_map_iter_create_keys,
+    __torajs_map_iter_create_set_entries, __torajs_map_iter_create_values, __torajs_map_iter_drop,
+    __torajs_map_iter_next, __torajs_map_iter_step,
+};
 pub use mutate::__torajs_map_set;
 pub use query::{__torajs_map_get, __torajs_map_has, __torajs_map_size};
 
@@ -101,5 +107,25 @@ pub unsafe extern "C" fn __torajs_value_drop_heap(_p: *mut core::ffi::c_void) {
 pub unsafe extern "C" fn __torajs_rc_dec(_p: *mut core::ffi::c_void) -> i32 {
     panic!(
         "torajs-collections unit-test stub: __torajs_rc_dec should not be called from cargo test paths"
+    );
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_alloc_any(_cap: u64) -> *mut core::ffi::c_void {
+    panic!(
+        "torajs-collections unit-test stub: __torajs_arr_alloc_any should not be called from cargo test paths"
+    );
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_push_any(
+    _arr: *mut core::ffi::c_void,
+    _tag: u64,
+    _value: u64,
+) -> *mut core::ffi::c_void {
+    panic!(
+        "torajs-collections unit-test stub: __torajs_arr_push_any should not be called from cargo test paths"
     );
 }
