@@ -35,11 +35,13 @@
 pub mod alloc;
 pub mod any;
 pub mod drop;
+pub mod join;
 pub mod layout;
 pub mod ops;
 pub mod pool;
 pub mod print;
 pub mod slice;
+pub mod str_bridge;
 
 pub use alloc::{__torajs_arr_alloc, __torajs_arr_alloc_pooled, __torajs_arr_free};
 pub use any::{
@@ -48,9 +50,25 @@ pub use any::{
     __torajs_arr_set_any,
 };
 pub use drop::{__torajs_arr_drop, __torajs_arr_drop_any};
+pub use join::{
+    __torajs_arr_join, __torajs_arr_join_bool, __torajs_arr_join_f64, __torajs_arr_join_i64,
+    __torajs_arr_join_substr, __torajs_arr_to_reversed, __torajs_arr_with,
+};
 pub use ops::{__torajs_arr_extend_unchecked, __torajs_arr_push_unchecked};
 pub use print::{
     __torajs_arr_print_bool, __torajs_arr_print_f64, __torajs_arr_print_i64,
     __torajs_arr_print_str, __torajs_arr_print_substr,
 };
 pub use slice::__torajs_arr_slice;
+
+// `__torajs_str_alloc_pooled` is provided by `libtorajs_str.a` at
+// `tr build` link time. cargo unit tests don't link torajs-str's
+// staticlib — provide a panicking stub so the test binary still links.
+// Same pattern as torajs-num / torajs-bigint.
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_alloc_pooled(_len: u64) -> *mut u8 {
+    panic!(
+        "torajs-arr unit-test stub: __torajs_str_alloc_pooled should not be called from cargo test paths"
+    );
+}
