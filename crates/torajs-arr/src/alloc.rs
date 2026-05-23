@@ -85,6 +85,20 @@ pub unsafe extern "C" fn __torajs_arr_alloc_pooled(cap: u64) -> *mut u8 {
     p
 }
 
+/// `__torajs_arr_alloc(cap)` — top-level Array alloc entry.
+///
+/// Body used to be an inkwell IR builder (`define_arr_alloc`) that
+/// tail-called `arr_alloc_pooled`; collapsed at LTO. Now a direct
+/// Rust wrapper preserves the same shape — single delegate call,
+/// `#[inline]` to encourage the linker to fold it into the caller.
+///
+/// # Safety
+/// Same contract as [`__torajs_arr_alloc_pooled`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_alloc(cap: u64) -> *mut u8 {
+    unsafe { __torajs_arr_alloc_pooled(cap) }
+}
+
 /// Pool-aware free. Called by [`crate::drop::__torajs_arr_drop`] on
 /// the last-owner path.
 ///

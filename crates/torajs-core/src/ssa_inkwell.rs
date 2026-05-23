@@ -361,7 +361,12 @@ fn compile_for_kind_impl(
     // no current IR-builder references it, but the declaration is
     // cheap insurance + future-proof.
     let _ = declare_arr_free(&ctx, &llvm_module);
-    let arr_alloc_pooled = declare_arr_alloc_pooled(&ctx, &llvm_module);
+    // __torajs_arr_alloc_pooled declaration kept for any IR-builder
+    // call site that emits `call __torajs_arr_alloc_pooled`. Since
+    // define_arr_alloc moved to Rust (P4.1-c), no internal IR-builder
+    // currently references it; the body still lives in
+    // libtorajs_arr.a and ssa_lower emits direct extern calls.
+    let _ = declare_arr_alloc_pooled(&ctx, &llvm_module);
     let mut fn_map: Vec<FunctionValue> = Vec::with_capacity(ssa_module.funcs.len());
     for f in &ssa_module.funcs {
         let llvm_fn = match f.name.as_str() {
@@ -386,14 +391,10 @@ fn compile_for_kind_impl(
             // linker resolves via libtorajs_str.a.
             "__torajs_obj_alloc" => define_obj_alloc(&ctx, &llvm_module, malloc),
             "__torajs_obj_drop" => define_obj_drop(&ctx, &llvm_module, free),
-            "__torajs_arr_alloc" => {
-                // hot — every Array literal materialization. Body is
-                // a single tail call into the pool-aware C runtime
-                // helper; alwaysinline so the call collapses at LTO.
-                let f = define_arr_alloc(&ctx, &llvm_module, arr_alloc_pooled);
-                mark_alwaysinline(&ctx, f);
-                f
-            }
+            // __torajs_arr_alloc moved to torajs-arr::alloc (P4.1-c,
+            // 2026-05-23). Trivial single-call wrapper around
+            // __torajs_arr_alloc_pooled; LTO inlines across the
+            // staticlib boundary same as the prior alwaysinline IR.
             "__torajs_split_iter_next" => {
                 // P-iter Plan C — body emitted directly in IR (mirror
                 // of runtime_str.c's removed C body) so LLVM can
@@ -409,13 +410,11 @@ fn compile_for_kind_impl(
             }
             "__torajs_arr_push" => define_arr_push(&ctx, &llvm_module, realloc, memmove),
             "__torajs_arr_reserve" => define_arr_reserve(&ctx, &llvm_module, realloc),
-            "__torajs_arr_push_unchecked" => {
-                let f = define_arr_push_unchecked(&ctx, &llvm_module);
-                // hot intrinsic, body is ~5 instructions; force-inline so
-                // map / filter / spread loops don't pay a fn-call per push
-                mark_alwaysinline(&ctx, f);
-                f
-            }
+            // __torajs_arr_push_unchecked moved to torajs-arr::ops
+            // (P4.1-c, 2026-05-23). 5-instr fast path now in Rust;
+            // LTO across libtorajs_arr.a inlines into the caller
+            // same as the prior alwaysinline IR. (define_arr_push
+            // with cap-check + grow path stays IR-side until P4.1-d.)
             "__torajs_arr_shift" => {
                 /* T-13.5 deque shift, body has its own alwaysinline marker
                  * inside define_arr_shift since it's small AND in a tight
@@ -2617,36 +2616,9 @@ fn define_obj_drop<'ctx>(
     f
 }
 
-/// `__torajs_arr_alloc(u64 initial_cap) -> *u8`
-///
-/// Body is a single tail call into `__torajs_arr_alloc_pooled`
-/// (runtime_str.c). The C-side helper owns the pool fast-path and
-/// the malloc + header init slow-path; LTO inlines it back into the
-/// caller so this stays the same shape as the str_alloc / str_drop
-/// pattern.
-fn define_arr_alloc<'ctx>(
-    ctx: &'ctx Context,
-    m: &LlvmModule<'ctx>,
-    arr_alloc_pooled: FunctionValue<'ctx>,
-) -> FunctionValue<'ctx> {
-    let builder = ctx.create_builder();
-    let i64_t = ctx.i64_type();
-    let ptr_t = ctx.ptr_type(AddressSpace::default());
-    let fn_t = ptr_t.fn_type(&[i64_t.into()], false);
-    let f = m.add_function("__torajs_arr_alloc", fn_t, None);
-    let entry = ctx.append_basic_block(f, "entry");
-    builder.position_at_end(entry);
-
-    let cap = f.get_nth_param(0).unwrap().into_int_value();
-    let p = builder
-        .build_call(arr_alloc_pooled, &[cap.into()], "arr_p")
-        .unwrap()
-        .try_as_basic_value()
-        .unwrap_basic()
-        .into_pointer_value();
-    builder.build_return(Some(&p)).unwrap();
-    f
-}
+/* define_arr_alloc body moved to torajs-arr::alloc (P4.1-c, 2026-05-23).
+ * Trivial single-call wrapper around __torajs_arr_alloc_pooled; LTO
+ * inlines across the staticlib boundary. */
 
 /// `__torajs_arr_push(*u8 arr, i64 val) -> *u8`
 ///
@@ -2919,52 +2891,9 @@ fn define_arr_reserve<'ctx>(
     f
 }
 
-/// M6.2 fast-path. `arr_push_unchecked(arr, val)` — appends val
-/// assuming cap >= len + 1. UB otherwise. Used after a one-shot
-/// `arr_reserve` so the per-push capacity check is gone.
-fn define_arr_push_unchecked<'ctx>(
-    ctx: &'ctx Context,
-    m: &LlvmModule<'ctx>,
-) -> FunctionValue<'ctx> {
-    let builder = ctx.create_builder();
-    let i64_t = ctx.i64_type();
-    let i8_t = ctx.i8_type();
-    let ptr_t = ctx.ptr_type(AddressSpace::default());
-    let void_t = ctx.void_type();
-    let fn_t = void_t.fn_type(&[ptr_t.into(), i64_t.into()], false);
-    let f = m.add_function("__torajs_arr_push_unchecked", fn_t, None);
-    let entry = ctx.append_basic_block(f, "entry");
-    builder.position_at_end(entry);
-    let arr = f.get_nth_param(0).unwrap().into_pointer_value();
-    let val = f.get_nth_param(1).unwrap().into_int_value();
-    let len = arr_len_load(ctx, &builder, arr, "len");
-    let data = arr_data_ptr(ctx, &builder, arr, "data");
-    let len_x8 = builder
-        .build_int_mul(len, i64_t.const_int(8, false), "")
-        .unwrap();
-    let slot = unsafe {
-        builder
-            .build_in_bounds_gep(i8_t, data, &[len_x8], "slot")
-            .unwrap()
-    };
-    builder.build_store(slot, val).unwrap();
-    let len_p1 = builder
-        .build_int_add(len, i64_t.const_int(1, false), "")
-        .unwrap();
-    let len_p = unsafe {
-        builder
-            .build_in_bounds_gep(
-                i8_t,
-                arr,
-                &[i64_t.const_int(ARR_HDR_LEN_OFF, false)],
-                "len_p",
-            )
-            .unwrap()
-    };
-    builder.build_store(len_p, len_p1).unwrap();
-    builder.build_return(None).unwrap();
-    f
-}
+/* define_arr_push_unchecked body moved to torajs-arr::ops (P4.1-c,
+ * 2026-05-23). M6.2 fast-path: 5-instr inline. Rust impl preserves
+ * T-13.5 head_offset folding via `data_ptr` helper. */
 
 /// `__torajs_arr_shift(*u8 arr) -> i64`
 ///

@@ -2123,22 +2123,9 @@ void *__torajs_substr_substring(const uint8_t *v, int64_t start, int64_t end) {
 #define __TORAJS_ARR_DATA_RAW_SLOT(p, n) \
     (__TORAJS_ARR_DATA(p) + (uint64_t)(n) * 8)
 
-/* Append every element of `src` to `dst` via a single memcpy. Caller
- * MUST have pre-sized dst's cap to fit (typical: array literal with
- * spreads pre-computes total length and allocs once). Bumps dst's
- * len. Both arrays are the same 8-byte-slot layout — element type
- * doesn't matter at this layer. */
-void __torajs_arr_extend_unchecked(uint8_t *dst, const uint8_t *src) {
-    uint64_t dst_len = __TORAJS_ARR_LEN(dst);
-    uint64_t src_len = __TORAJS_ARR_LEN(src);
-    if (src_len == 0) return;
-    /* Both source and dst can have head_offset > 0 — the head-aware
-     * SLOT/CSLOT macros handle the offset transparently. (T-13.5.) */
-    memcpy(__TORAJS_ARR_SLOT(dst, dst_len),
-           __TORAJS_ARR_CSLOT(src, 0),
-           (size_t)src_len * 8);
-    __TORAJS_ARR_LEN(dst) = dst_len + src_len;
-}
+/* __torajs_arr_extend_unchecked moved to torajs-arr::ops (P4.1-c,
+ * 2026-05-23). Pure-Rust memcpy + len bump; T-13.5 head_offset folded
+ * into source/dest slot pointers. */
 
 /* `Math.sign(x)` — JS spec: +1 / -1 / preserve-zero. NaN handling
  * elided (subset doesn't expose NaN). libc has no `sign`, so this

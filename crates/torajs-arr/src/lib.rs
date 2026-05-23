@@ -35,7 +35,9 @@
 pub mod alloc;
 pub mod drop;
 pub mod layout;
+pub mod ops;
 pub mod pool;
 
-pub use alloc::{__torajs_arr_alloc_pooled, __torajs_arr_free};
+pub use alloc::{__torajs_arr_alloc, __torajs_arr_alloc_pooled, __torajs_arr_free};
 pub use drop::__torajs_arr_drop;
+pub use ops::{__torajs_arr_extend_unchecked, __torajs_arr_push_unchecked};
