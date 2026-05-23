@@ -209,14 +209,12 @@ pub fn compile_for_kind(
     // Pass A: declare libc decls + the intrinsics whose body the backend owns.
     let putchar = declare_putchar(&ctx, &llvm_module);
     let malloc = declare_malloc(&ctx, &llvm_module, target);
-    let memcpy = declare_memcpy(&ctx, &llvm_module, target);
+    // declare_{memcpy,memcmp} only register the LLVM externs; the Rust
+    // FunctionValue bindings are no longer used at this scope after
+    // the str_* IR builders moved to torajs-str (P3.1-g.{2..5}).
+    // memmove stays bound because define_arr_push still consumes it.
+    let _ = declare_memcpy(&ctx, &llvm_module, target);
     let memmove = declare_memmove(&ctx, &llvm_module, target);
-    // declare_memcmp only registers the LLVM extern; the Rust
-    // FunctionValue binding is no longer used at this scope after
-    // P3.1-g.3 (the str_{index_of,starts_with,ends_with,includes}
-    // IR builders that consumed it moved to torajs-str). Remaining
-    // call sites (e.g. multi-sep substr/split IR builders) fetch
-    // the fn back from the module by name.
     let _ = declare_memcmp(&ctx, &llvm_module, target);
 
     // Pass B: emit string-literal globals (LLVM `[N x i8]` private constants).
@@ -255,7 +253,10 @@ pub fn compile_for_kind(
     let free = declare_free(&ctx, &llvm_module, target);
     let realloc = declare_realloc(&ctx, &llvm_module, target);
     let str_free = declare_str_free(&ctx, &llvm_module);
-    let str_alloc_pooled = declare_str_alloc_pooled(&ctx, &llvm_module);
+    // declare_str_alloc_pooled only registers the LLVM extern; the
+    // Rust binding was the input to str_alloc / str_concat / str_slice
+    // IR builders, all moved to torajs-str (P3.1-g.{2,4,5}).
+    let _ = declare_str_alloc_pooled(&ctx, &llvm_module);
     let arr_free = declare_arr_free(&ctx, &llvm_module);
     let arr_alloc_pooled = declare_arr_alloc_pooled(&ctx, &llvm_module);
     let mut fn_map: Vec<FunctionValue> = Vec::with_capacity(ssa_module.funcs.len());
@@ -326,7 +327,9 @@ pub fn compile_for_kind(
                 mark_alwaysinline(&ctx, f);
                 f
             }
-            "__torajs_str_slice" => define_str_slice(&ctx, &llvm_module, str_alloc_pooled, memcpy),
+            // __torajs_str_slice moved to torajs-str::slice (P3.1-g.5,
+            // 2026-05-23). Negative-wrap + clamp + alloc + memcpy in
+            // Rust core (slice_range fn); IR builder body deleted.
             // __torajs_str_char_code_at moved to torajs-str::lookup
             // (P3.1-g.4, 2026-05-23). The Rust impl is bounds-check
             // + byte load + i64 cast; the alwaysinline + inline-in-
@@ -550,7 +553,7 @@ pub fn compile_for_kind(
         "__torajs_arr_reserve",
         "__torajs_arr_push_unchecked",
         "__torajs_arr_drop",
-        "__torajs_str_slice",
+        // "__torajs_str_slice" moved to torajs-str::slice (P3.1-g.5)
         // "__torajs_str_char_code_at" moved to torajs-str::lookup (P3.1-g.4)
         // __torajs_str_{starts_with,ends_with,index_of,includes}
         // (no-_from variants) moved to torajs-str::lookup (P3.1-g.3).
@@ -1693,30 +1696,8 @@ const STR_HDR_LEN_OFF: u64 = 8;
 const STR_HDR_DATA_OFF: u64 = 16;
 const STR_HDR_TAG_STR: u64 = 0;
 
-/// Emit the inkwell IR sequence that materializes a fresh Str heap
-/// object: malloc(16 + len), init refcount=1 / type_tag=STR / flags=0 /
-/// len, return the pointer (data area uninitialized — caller fills the
-/// `len` bytes at `p + STR_HDR_DATA_OFF`).
-///
-/// Single-source-of-truth for every str-producing inkwell function so
-/// the header init never drifts between sites.
-fn emit_str_alloc_header<'ctx>(
-    _ctx: &'ctx Context,
-    builder: &inkwell::builder::Builder<'ctx>,
-    str_alloc_pooled: FunctionValue<'ctx>,
-    len: inkwell::values::IntValue<'ctx>,
-) -> inkwell::values::PointerValue<'ctx> {
-    // Header init + pool fast-path lives in __torajs_str_alloc_pooled
-    // (runtime_str.c). LTO inlines it into the caller, so this stays
-    // a single call from the IR's perspective but expands to the
-    // pool-pop fast path / malloc + 2-store header init.
-    builder
-        .build_call(str_alloc_pooled, &[len.into()], "str_p")
-        .unwrap()
-        .try_as_basic_value()
-        .unwrap_basic()
-        .into_pointer_value()
-}
+/* emit_str_alloc_header helper deleted with str_alloc + concat +
+ * slice IR builders (P3.1-g.{2..5}). */
 
 #[allow(dead_code)]
 fn emit_str_alloc_header_unused_legacy<'ctx>(
@@ -1785,52 +1766,10 @@ fn emit_str_alloc_header_unused_legacy<'ctx>(
     p
 }
 
-/// Get the Str's data byte pointer (`p + STR_HDR_DATA_OFF`). Used by
-/// every site that reads or writes string bytes after the header.
-fn str_data_ptr<'ctx>(
-    ctx: &'ctx Context,
-    builder: &inkwell::builder::Builder<'ctx>,
-    str_ptr: inkwell::values::PointerValue<'ctx>,
-    name: &str,
-) -> inkwell::values::PointerValue<'ctx> {
-    let i64_t = ctx.i64_type();
-    let i8_t = ctx.i8_type();
-    unsafe {
-        builder
-            .build_in_bounds_gep(
-                i8_t,
-                str_ptr,
-                &[i64_t.const_int(STR_HDR_DATA_OFF, false)],
-                name,
-            )
-            .unwrap()
-    }
-}
-
-/// Load the Str's `len` field (`*(u64*)(p + STR_HDR_LEN_OFF)`).
-fn str_len_load<'ctx>(
-    ctx: &'ctx Context,
-    builder: &inkwell::builder::Builder<'ctx>,
-    str_ptr: inkwell::values::PointerValue<'ctx>,
-    name: &str,
-) -> inkwell::values::IntValue<'ctx> {
-    let i64_t = ctx.i64_type();
-    let i8_t = ctx.i8_type();
-    let len_ptr = unsafe {
-        builder
-            .build_in_bounds_gep(
-                i8_t,
-                str_ptr,
-                &[i64_t.const_int(STR_HDR_LEN_OFF, false)],
-                &format!("{name}_lp"),
-            )
-            .unwrap()
-    };
-    builder
-        .build_load(i64_t, len_ptr, name)
-        .unwrap()
-        .into_int_value()
-}
+/* str_data_ptr / str_len_load helpers deleted with the IR builders
+ * that consumed them (P3.1-g.{2..5}). All str access on the IR
+ * side now goes through torajs-str fns directly (the IR no longer
+ * needs to emit per-byte access patterns). */
 
 /// Mark a function as `alwaysinline` — LLVM forces inlining at every
 /// call site regardless of cost model. Used for hot, small intrinsics
@@ -2414,106 +2353,9 @@ fn emit_data_global<'ctx>(
 /* __torajs_str_concat moved to torajs-str::concat (P3.1-g.4,
  * 2026-05-23). Rust impl: StrBlock::alloc + 2 copy_from_slice. */
 
-/// M6.1 — `__torajs_str_slice(*StrRepr s, i64 start, i64 end) -> *StrRepr`.
-/// Bounds-clamp start ∈ [0, len], end ∈ [start, len], allocate a fresh
-/// StrRepr holding `data[start..end]`. Inputs are read-only.
-fn define_str_slice<'ctx>(
-    ctx: &'ctx Context,
-    m: &LlvmModule<'ctx>,
-    str_alloc_pooled: FunctionValue<'ctx>,
-    memcpy: FunctionValue<'ctx>,
-) -> FunctionValue<'ctx> {
-    let builder = ctx.create_builder();
-    let i64_t = ctx.i64_type();
-    let i8_t = ctx.i8_type();
-    let ptr_t = ctx.ptr_type(AddressSpace::default());
-    let fn_t = ptr_t.fn_type(&[ptr_t.into(), i64_t.into(), i64_t.into()], false);
-    let f = m.add_function("__torajs_str_slice", fn_t, None);
-    let entry = ctx.append_basic_block(f, "entry");
-    builder.position_at_end(entry);
-
-    let s = f.get_nth_param(0).unwrap().into_pointer_value();
-    let start = f.get_nth_param(1).unwrap().into_int_value();
-    let end = f.get_nth_param(2).unwrap().into_int_value();
-    let zero = i64_t.const_int(0, false);
-
-    let len = str_len_load(ctx, &builder, s, "len");
-    // V3-18 m1.h.36 — JS spec §21.1.3.21 negative-index handling:
-    //   if start < 0 → start = max(len + start, 0)
-    //   else         → start = min(start, len)
-    // Same for end. Pre-fix str_slice clamped negative to 0,
-    // so `"hello".slice(-2)` returned the whole string.
-    let start_neg = builder
-        .build_int_compare(IntPredicate::SLT, start, zero, "start_neg")
-        .unwrap();
-    let start_plus_len = builder.build_int_add(start, len, "start_plus_len").unwrap();
-    let start_pl_neg = builder
-        .build_int_compare(IntPredicate::SLT, start_plus_len, zero, "spl_neg")
-        .unwrap();
-    let start_norm_neg = builder
-        .build_select(start_pl_neg, zero, start_plus_len, "start_norm_neg")
-        .unwrap()
-        .into_int_value();
-    let start_after_lo = builder
-        .build_select(start_neg, start_norm_neg, start, "start_lo")
-        .unwrap()
-        .into_int_value();
-    let start_over = builder
-        .build_int_compare(IntPredicate::SGT, start_after_lo, len, "start_over")
-        .unwrap();
-    let start_c = builder
-        .build_select(start_over, len, start_after_lo, "start_c")
-        .unwrap()
-        .into_int_value();
-    let end_neg = builder
-        .build_int_compare(IntPredicate::SLT, end, zero, "end_neg")
-        .unwrap();
-    let end_plus_len = builder.build_int_add(end, len, "end_plus_len").unwrap();
-    let end_pl_neg = builder
-        .build_int_compare(IntPredicate::SLT, end_plus_len, zero, "epl_neg")
-        .unwrap();
-    let end_norm_neg = builder
-        .build_select(end_pl_neg, zero, end_plus_len, "end_norm_neg")
-        .unwrap()
-        .into_int_value();
-    let end_after_neg = builder
-        .build_select(end_neg, end_norm_neg, end, "end_after_neg")
-        .unwrap()
-        .into_int_value();
-    let end_under = builder
-        .build_int_compare(IntPredicate::SLT, end_after_neg, start_c, "end_under")
-        .unwrap();
-    let end_after_lo = builder
-        .build_select(end_under, start_c, end_after_neg, "end_lo")
-        .unwrap()
-        .into_int_value();
-    let end_over = builder
-        .build_int_compare(IntPredicate::SGT, end_after_lo, len, "end_over")
-        .unwrap();
-    let end_c = builder
-        .build_select(end_over, len, end_after_lo, "end_c")
-        .unwrap()
-        .into_int_value();
-
-    let new_len = builder.build_int_sub(end_c, start_c, "new_len").unwrap();
-    let p = emit_str_alloc_header(ctx, &builder, str_alloc_pooled, new_len);
-    let p_data = str_data_ptr(ctx, &builder, p, "p_data");
-    let s_data_base = str_data_ptr(ctx, &builder, s, "s_data_base");
-    let s_data = unsafe {
-        builder
-            .build_in_bounds_gep(i8_t, s_data_base, &[start_c], "s_data")
-            .unwrap()
-    };
-    builder
-        .build_call(
-            memcpy,
-            &[p_data.into(), s_data.into(), new_len.into()],
-            "_cp",
-        )
-        .unwrap();
-    builder.build_return(Some(&p)).unwrap();
-    f
-}
+/* __torajs_str_slice moved to torajs-str::slice (P3.1-g.5,
+ * 2026-05-23). Rust impl: slice_range core (neg-wrap + clamp +
+ * no-swap empty) + StrBlock::alloc + copy_from_slice. */
 
 /* __torajs_str_char_code_at moved to torajs-str::lookup (P3.1-g.4,
  * 2026-05-23). Rust impl: bounds check + byte load + i64 cast. */
