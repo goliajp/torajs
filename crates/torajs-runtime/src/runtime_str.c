@@ -370,10 +370,11 @@ extern void __torajs_substr_drop(void *v);
  * tiny-N (rare to see > a handful of distinct cap values in a
  * single tight loop). */
 #define __TORAJS_FLAG_SPLIT_BLOCK 2u
-#define __TORAJS_SPLIT_POOL_SLOTS 16
-static uint8_t *split_pool_blocks_[__TORAJS_SPLIT_POOL_SLOTS];
-static uint64_t split_pool_caps_[__TORAJS_SPLIT_POOL_SLOTS];
-static int split_pool_count_ = 0;
+/* Split-block pool state + split_block_alloc_ moved to
+ * torajs-str::split::pool (P3.1-f, 2026-05-23). __torajs_arr_free's
+ * SPLIT_BLOCK branch now calls the Rust extern
+ * __torajs_split_block_free_push instead of pushing inline. */
+extern int __torajs_split_block_free_push(void *p);
 
 /* Generic Array LIFO pool — keyed by cap, bounded slot count.
  *
@@ -399,32 +400,13 @@ static uint8_t *arr_pool_blocks_[__TORAJS_ARR_POOL_SLOTS];
 static uint64_t arr_pool_caps_[__TORAJS_ARR_POOL_SLOTS];
 static int arr_pool_count_ = 0;
 
-/* Hardcoded constants — Arr layout macros are declared further down
- * in this file but the split pool needs them now. Keep in sync with
- * `__TORAJS_ARR_HDR_SIZE` (24) + `__TORAJS_ARR_CAP_OFF` (16). */
-static inline uint8_t *split_block_alloc_(uint64_t out_count) {
-    for (int i = 0; i < split_pool_count_; i++) {
-        if (split_pool_caps_[i] == out_count) {
-            uint8_t *p = split_pool_blocks_[i];
-            int last = --split_pool_count_;
-            split_pool_blocks_[i] = split_pool_blocks_[last];
-            split_pool_caps_[i] = split_pool_caps_[last];
-            return p;
-        }
-    }
-    uint64_t slots_size = out_count * 8;
-    uint64_t substrs_size = out_count * __TORAJS_SUBSTR_SIZE;
-    uint64_t total = 24 + slots_size + substrs_size;
-    return (uint8_t *)malloc(total);
-}
-
 /* Free path for Array blocks. arr_drop (inkwell IR) calls
  * __torajs_arr_free at refcount=0. Dispatch order:
- *   - SPLIT_BLOCK flag set → split_pool (split.c built block,
- *     contains inline substr structs; size class includes the
- *     substr area)
- *   - cap ≤ POOL_CAP_MAX, pool not full → arr_pool (small
- *     fn-local literal arrays; recycled by next equal-cap alloc)
+ *   - SPLIT_BLOCK flag set → __torajs_split_block_free_push (Rust
+ *     torajs-str::split::pool; returns 1 if accepted into split pool,
+ *     0 if pool full so we fall through to libc free)
+ *   - cap ≤ POOL_CAP_MAX, pool not full → arr_pool (small fn-local
+ *     literal arrays; recycled by next equal-cap alloc)
  *   - otherwise → libc free
  *
  * Hardcoded `(uint8_t *)p + 16` reads cap (ARR_HDR_CAP_OFF). */
@@ -438,12 +420,7 @@ void __torajs_arr_free(void *p) {
      * be reset to 0 on next alloc so we don't need to preserve it.) */
     uint64_t cap = (uint64_t)(*(uint32_t *)((uint8_t *)p + 16));
     if (h->flags & __TORAJS_FLAG_SPLIT_BLOCK) {
-        if (split_pool_count_ < __TORAJS_SPLIT_POOL_SLOTS) {
-            split_pool_blocks_[split_pool_count_] = (uint8_t *)p;
-            split_pool_caps_[split_pool_count_] = cap;
-            split_pool_count_++;
-            return;
-        }
+        if (__torajs_split_block_free_push(p)) return;
     } else if (cap <= __TORAJS_ARR_POOL_CAP_MAX
                && arr_pool_count_ < __TORAJS_ARR_POOL_SLOTS
                && !(h->flags & __TORAJS_FLAG_ARR_ANY)) {
@@ -2918,210 +2895,19 @@ void *__torajs_symbol_to_primitive(void) {
  * potential realloc). */
 void __torajs_arr_push_unchecked(void *arr, int64_t val);
 
-/* Phase Substr.B — split returns Array<Substr> (view-substrings).
- *
- * Each output substring is a 32-byte view holding (parent_ptr, offset,
- * len), referencing slices of the source `s`. Zero byte memcpy across
- * the entire split — the per-iter allocation cost shrinks from
- * `N substring malloc + N memcpy` to `N view malloc` (no memcpy).
- *
- * For the empty-separator MVP we still return a single materialized
- * OWNED Str (mismatched element type vs the substring path; the
- * downstream array handler tolerates Str inside an Array<Substr> as
- * long as drop dispatches via Substr — but we don't currently emit
- * mixed-type slots, so just create a view of the whole source instead).
- */
-/* Allocate the str_split output as a single block:
- *
- *   [arr_hdr:24][N*8 ptr slots][N*32 inline substr structs]
- *
- * Each slot[i] holds the address of the inline substr struct at
- * substrs_base + i*32. Each substr is marked INLINE in its flags so
- * substr_drop only dec's parent (no per-substr free). Final arr_drop
- * reclaims the entire block in one free(). Cuts the malloc count of
- * a split from N+1 (one arr alloc + N substr allocs) to exactly 1. */
-static inline void __torajs_split_init_inline(
-    uint8_t *substr_slot,
-    void **arr_ptr_slot,
-    const uint8_t *parent,
-    uint64_t offset,
-    uint64_t len
-) {
-    __torajs_heap_header_t *h = (__torajs_heap_header_t *)substr_slot;
-    h->refcount = 1;
-    h->type_tag = __TORAJS_TAG_STR;
-    h->flags = __TORAJS_FLAG_SUBSTR_INLINE;
-    __TORAJS_SUBSTR_LEN(substr_slot) = len;
-    *(const uint8_t **)(substr_slot + __TORAJS_SUBSTR_PARENT_OFF) = parent;
-    *(uint64_t *)(substr_slot + __TORAJS_SUBSTR_OFFSET_OFF) = offset;
-    __torajs_rc_inc((void *)parent);
-    *arr_ptr_slot = substr_slot;
-}
+/* __torajs_str_split + __torajs_split_init_inline moved to
+ * torajs-str::split::ops (P3.1-f, 2026-05-23). Single-block layout
+ * [arr_hdr:24][N*8 ptr slots][N*32 inline substr] preserved bit-
+ * for-bit. Pool fast-path delegated to torajs-str::split::pool;
+ * IR-side intrinsic declaration in ssa_lower and alloc-noalias
+ * whitelist in ssa_inkwell unchanged. */
 
-void *__torajs_str_split(const uint8_t *s, const uint8_t *sep) {
-    uint64_t s_len = __TORAJS_STR_LEN(s);
-    uint64_t sep_len = __TORAJS_STR_LEN(sep);
-    const uint8_t *s_data = __TORAJS_STR_CDATA(s);
-    const uint8_t *sep_data = __TORAJS_STR_CDATA(sep);
-
-    /* Pass 1 — count occurrences (out_count = matches + 1). Empty
-     * separator splits per-char (TS spec: `"ab".split("") === ["a","b"]`),
-     * yielding s_len single-byte substrings. */
-    uint64_t matches = 0;
-    uint64_t out_count;
-    if (sep_len == 0) {
-        out_count = s_len;
-    } else if (sep_len == 1) {
-        /* Hot path: byte scan. Most splits are " ", ",", "\n" etc. */
-        uint8_t b = sep_data[0];
-        for (uint64_t k = 0; k < s_len; k++) {
-            if (s_data[k] == b) matches++;
-        }
-        out_count = matches + 1;
-    } else if (sep_len <= s_len) {
-        uint64_t i = 0;
-        while (i + sep_len <= s_len) {
-            if (memcmp(s_data + i, sep_data, (size_t)sep_len) == 0) {
-                matches++;
-                i += sep_len;
-            } else {
-                i++;
-            }
-        }
-        out_count = matches + 1;
-    } else {
-        out_count = 1;
-    }
-
-    /* Single-block alloc — pool-aware. SPLIT flag tagged so
-     * __torajs_arr_free routes free path to the split pool. */
-    uint64_t slots_size = out_count * 8;
-    uint8_t *arr = split_block_alloc_(out_count);
-    __torajs_heap_header_t *ah = (__torajs_heap_header_t *)arr;
-    ah->refcount = 1;
-    ah->type_tag = __TORAJS_TAG_ARR;
-    ah->flags = __TORAJS_FLAG_SPLIT_BLOCK;
-    __TORAJS_ARR_LEN(arr) = out_count;
-    __TORAJS_ARR_CAP(arr) = (uint32_t)out_count;
-    __TORAJS_ARR_HEAD(arr) = 0;  /* T-13.5 — split block builds fresh */
-    uint8_t *substrs_base = arr + __TORAJS_ARR_HDR_SIZE + slots_size;
-    void **slots = (void **)(arr + __TORAJS_ARR_HDR_SIZE);
-
-    if (sep_len == 0) {
-        for (uint64_t k = 0; k < s_len; k++) {
-            __torajs_split_init_inline(
-                substrs_base + k * __TORAJS_SUBSTR_SIZE,
-                &slots[k],
-                s, k, 1
-            );
-        }
-        return arr;
-    }
-
-    /* Pass 2 — fill substrs + slots inline. */
-    uint64_t ix = 0;
-    uint64_t start = 0;
-    if (sep_len == 1) {
-        uint8_t b = sep_data[0];
-        for (uint64_t k = 0; k < s_len; k++) {
-            if (s_data[k] == b) {
-                __torajs_split_init_inline(
-                    substrs_base + ix * __TORAJS_SUBSTR_SIZE,
-                    &slots[ix],
-                    s, start, k - start
-                );
-                ix++;
-                start = k + 1;
-            }
-        }
-    } else {
-        uint64_t i = 0;
-        while (i + sep_len <= s_len) {
-            if (memcmp(s_data + i, sep_data, (size_t)sep_len) == 0) {
-                __torajs_split_init_inline(
-                    substrs_base + ix * __TORAJS_SUBSTR_SIZE,
-                    &slots[ix],
-                    s, start, i - start
-                );
-                ix++;
-                i += sep_len;
-                start = i;
-            } else {
-                i += 1;
-            }
-        }
-    }
-    __torajs_split_init_inline(
-        substrs_base + ix * __TORAJS_SUBSTR_SIZE,
-        &slots[ix],
-        s, start, s_len - start
-    );
-    return arr;
-}
-
-/* ============================================================
- * SplitIter — zero-alloc iterator counterpart of __torajs_str_split.
- *
- * State lives in a 48-byte struct that the caller stack-allocates.
- * Each `next()` call writes the next yielded substring into a
- * 32-byte caller-provided slot and returns 1, or 0 once all tokens
- * (including the trailing one) have been yielded. Used by the
- * `for-of expr.split(s)` lowering and the SSA-level
- * `for-i + .length` rewrite pass — both consume substrings
- * sequentially, so eager Array<Substr> materialization is pure
- * overhead.
- *
- * Lifetime:
- *   - init() bumps parent's refcount once. drop() decrements once.
- *     The iter holds the only iter-side share; per-yield substrs
- *     are borrows that share parent's lifetime.
- *   - sep is borrowed (no rc bump). Caller must keep sep alive
- *     for the iter's lifetime. The current SSA lowering only
- *     emits the iter form when sep is a STATIC_LITERAL (.rodata
- *     global with infinite refcount), so this is naturally
- *     satisfied.
- *   - The yielded out_substr carries STATIC_LITERAL flag so any
- *     stray rc_inc / rc_dec / substr_drop on it no-ops. Bytes
- *     stay valid as long as parent is alive (handled by iter's
- *     parent rc).
- * ============================================================ */
-
-typedef struct {
-    const uint8_t *parent;       /* *Str — owns one iter-side ref */
-    uint64_t parent_len;         /* cached __TORAJS_STR_LEN(parent) */
-    const uint8_t *sep_data;     /* *Str CDATA — borrowed */
-    uint64_t sep_len;
-    uint64_t pos;                /* current scan position into parent */
-    uint8_t exhausted;           /* 1 once trailing token has been yielded */
-    uint8_t pad[7];              /* total 48B, 8-byte aligned */
-} __torajs_split_iter_t;
-
-void __torajs_split_iter_init(
-    __torajs_split_iter_t *iter,
-    const uint8_t *parent,
-    const uint8_t *sep
-) {
-    iter->parent = parent;
-    iter->parent_len = __TORAJS_STR_LEN(parent);
-    iter->sep_data = __TORAJS_STR_CDATA(sep);
-    iter->sep_len = __TORAJS_STR_LEN(sep);
-    iter->pos = 0;
-    iter->exhausted = 0;
-    __torajs_rc_inc((void *)parent);
-}
-
-void __torajs_split_iter_drop(__torajs_split_iter_t *iter) {
-    if (__torajs_rc_dec((void *)iter->parent)) {
-        __torajs_str_free((uint8_t *)iter->parent);
-    }
-}
-
-/* `__torajs_split_iter_next` body is now defined directly in inkwell
- * IR (ssa_inkwell.rs `define_split_iter_next`) so LLVM can inline
- * the byte scan + emit_substr into the caller's loop. The IR
- * version is logically identical to what was here; if the inkwell
- * side ever needs to fall back to a C call, restore this body and
- * change the dispatch in pass C. */
+/* SplitIter (struct + init + drop) moved to torajs-str::split::ops
+ * (P3.1-f, 2026-05-23). 48-byte layout preserved bit-for-bit so
+ * the IR-emitted __torajs_split_iter_next (ssa_inkwell::
+ * define_split_iter_next) keeps resolving fields by hardcoded
+ * offset. _next body still lives in IR; consolidates to Rust in
+ * P3.1-g. */
 
 void *__torajs_arr_join(const uint8_t *arr, const uint8_t *sep) {
     uint64_t len = __TORAJS_ARR_LEN(arr);

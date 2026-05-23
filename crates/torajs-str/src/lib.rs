@@ -77,6 +77,7 @@ pub mod eq;
 pub mod layout;
 pub mod lookup;
 pub mod pool;
+pub mod split;
 pub mod substr;
 pub mod to_number;
 pub mod transform;
@@ -96,6 +97,10 @@ pub use lookup::{
     __torajs_str_last_index_of, __torajs_str_last_index_of_from, __torajs_str_locale_compare,
     __torajs_str_starts_with_from,
 };
+pub use split::ops::{
+    __torajs_split_iter_drop, __torajs_split_iter_init, __torajs_str_split, SplitIter,
+};
+pub use split::pool::__torajs_split_block_free_push;
 pub use substr::{
     __torajs_substr_create, __torajs_substr_drop, FLAG_SUBSTR_INLINE, SUBSTR_LEN_OFF,
     SUBSTR_OFFSET_OFF, SUBSTR_PARENT_OFF, SUBSTR_SIZE, SubstrBlock,
