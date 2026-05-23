@@ -30,6 +30,15 @@
 
 pub mod math;
 
-// Re-export the small surface the rest of the workspace (and the
-// FFI consumers) reach for most often.
-pub use math::__torajs_math_sqrt;
+// Re-export — keep this list tight; the extern "C" symbols are
+// resolved at link time by ssa_inkwell-emitted IR regardless.
+pub use math::{
+    __torajs_math_abs, __torajs_math_acos, __torajs_math_acosh, __torajs_math_asin,
+    __torajs_math_asinh, __torajs_math_atan, __torajs_math_atan2, __torajs_math_atanh,
+    __torajs_math_cbrt, __torajs_math_ceil, __torajs_math_cos, __torajs_math_cosh,
+    __torajs_math_exp, __torajs_math_expm1, __torajs_math_floor, __torajs_math_log,
+    __torajs_math_log1p, __torajs_math_log2, __torajs_math_log10, __torajs_math_max,
+    __torajs_math_min, __torajs_math_pow, __torajs_math_round, __torajs_math_sin,
+    __torajs_math_sinh, __torajs_math_sqrt, __torajs_math_tan, __torajs_math_tanh,
+    __torajs_math_trunc,
+};

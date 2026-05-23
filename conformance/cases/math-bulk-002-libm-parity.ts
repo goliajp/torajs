@@ -1,0 +1,32 @@
+// P3.2-b — verify all bulk-ported Math intrinsics via libm bun-parity.
+console.log(Math.abs(-7.5));
+console.log(Math.floor(3.7));
+console.log(Math.ceil(3.2));
+console.log(Math.round(2.5));
+console.log(Math.round(-2.5));  // spec: -2 (toward +∞), NOT -3 (libc round)
+console.log(Math.trunc(3.7));
+console.log(Math.trunc(-3.7));
+console.log(Math.cbrt(27));
+console.log(Math.exp(0));
+console.log(Math.expm1(0));
+console.log(Math.log(1));
+console.log(Math.log2(8));
+console.log(Math.log10(1000));
+console.log(Math.log1p(0));
+console.log(Math.sin(0));
+console.log(Math.cos(0));
+console.log(Math.tan(0));
+console.log(Math.asin(0));
+console.log(Math.acos(0));
+console.log(Math.atan(0));
+console.log(Math.sinh(0));
+console.log(Math.cosh(0));
+console.log(Math.tanh(0));
+console.log(Math.asinh(0));
+console.log(Math.acosh(1));
+console.log(Math.atanh(0));
+console.log(Math.pow(2, 10));
+console.log(Math.min(3, 5));
+console.log(Math.max(3, 5));
+console.log(Math.atan2(0, 1));
+console.log(Math.sqrt(16));

@@ -346,91 +346,14 @@ pub fn compile_for_kind(
             // "__torajs_math_sqrt" moved to torajs-num::math (P3.2-a,
             // 2026-05-23). f64::sqrt → libm sqrt, identical to what
             // define_math_unary's IR emitted.
-            "__torajs_math_abs" => {
-                define_math_unary(&ctx, &llvm_module, "__torajs_math_abs", "fabs")
-            }
-            "__torajs_math_floor" => {
-                define_math_unary(&ctx, &llvm_module, "__torajs_math_floor", "floor")
-            }
-            "__torajs_math_ceil" => {
-                define_math_unary(&ctx, &llvm_module, "__torajs_math_ceil", "ceil")
-            }
-            "__torajs_math_log" => {
-                define_math_unary(&ctx, &llvm_module, "__torajs_math_log", "log")
-            }
-            "__torajs_math_exp" => {
-                define_math_unary(&ctx, &llvm_module, "__torajs_math_exp", "exp")
-            }
-            "__torajs_math_pow" => {
-                define_math_binary(&ctx, &llvm_module, "__torajs_math_pow", "pow")
-            }
-            "__torajs_math_min" => {
-                define_math_binary(&ctx, &llvm_module, "__torajs_math_min", "fmin")
-            }
-            "__torajs_math_max" => {
-                define_math_binary(&ctx, &llvm_module, "__torajs_math_max", "fmax")
-            }
-            // Note: `__torajs_math_round` is defined in runtime_str.c
-            // (via `floor(x + 0.5)`) NOT via libc `round` — JS spec
-            // rounds half-values toward +∞ (round(-2.5) === -2) but
-            // libc rounds away from zero (round(-2.5) === -3).
-            "__torajs_math_trunc" => {
-                define_math_unary(&ctx, &llvm_module, "__torajs_math_trunc", "trunc")
-            }
-            "__torajs_math_sin" => {
-                define_math_unary(&ctx, &llvm_module, "__torajs_math_sin", "sin")
-            }
-            "__torajs_math_cos" => {
-                define_math_unary(&ctx, &llvm_module, "__torajs_math_cos", "cos")
-            }
-            "__torajs_math_tan" => {
-                define_math_unary(&ctx, &llvm_module, "__torajs_math_tan", "tan")
-            }
-            "__torajs_math_asin" => {
-                define_math_unary(&ctx, &llvm_module, "__torajs_math_asin", "asin")
-            }
-            "__torajs_math_acos" => {
-                define_math_unary(&ctx, &llvm_module, "__torajs_math_acos", "acos")
-            }
-            "__torajs_math_atan" => {
-                define_math_unary(&ctx, &llvm_module, "__torajs_math_atan", "atan")
-            }
-            "__torajs_math_atan2" => {
-                define_math_binary(&ctx, &llvm_module, "__torajs_math_atan2", "atan2")
-            }
-            "__torajs_math_log2" => {
-                define_math_unary(&ctx, &llvm_module, "__torajs_math_log2", "log2")
-            }
-            "__torajs_math_log10" => {
-                define_math_unary(&ctx, &llvm_module, "__torajs_math_log10", "log10")
-            }
-            "__torajs_math_cbrt" => {
-                define_math_unary(&ctx, &llvm_module, "__torajs_math_cbrt", "cbrt")
-            }
-            "__torajs_math_sinh" => {
-                define_math_unary(&ctx, &llvm_module, "__torajs_math_sinh", "sinh")
-            }
-            "__torajs_math_cosh" => {
-                define_math_unary(&ctx, &llvm_module, "__torajs_math_cosh", "cosh")
-            }
-            "__torajs_math_tanh" => {
-                define_math_unary(&ctx, &llvm_module, "__torajs_math_tanh", "tanh")
-            }
-            "__torajs_math_asinh" => {
-                define_math_unary(&ctx, &llvm_module, "__torajs_math_asinh", "asinh")
-            }
-            "__torajs_math_acosh" => {
-                define_math_unary(&ctx, &llvm_module, "__torajs_math_acosh", "acosh")
-            }
-            "__torajs_math_atanh" => {
-                define_math_unary(&ctx, &llvm_module, "__torajs_math_atanh", "atanh")
-            }
-            "__torajs_math_expm1" => {
-                define_math_unary(&ctx, &llvm_module, "__torajs_math_expm1", "expm1")
-            }
-            "__torajs_math_log1p" => {
-                define_math_unary(&ctx, &llvm_module, "__torajs_math_log1p", "log1p")
-            }
+            // **All remaining Math intrinsics moved to torajs-num::math
+            // (P3.2-b, 2026-05-23)**. f64 method delegates to libm at
+            // the same symbols (sqrt/fabs/floor/.../atan2). The 27 IR
+            // dispatch arms + define_math_unary + define_math_binary
+            // helpers + 28 intrinsics-array entries deleted. Notable:
+            // __torajs_math_round preserves JS spec (floor(x+0.5))
+            // not libc round semantics; runtime_str.c C version also
+            // deleted in this commit.
             // P2.4-b — throw-slot machinery now provided by the
             // Rust `torajs-throw` crate (statics + extern "C" fns
             // baked into libtorajs_throw.a). Fall through to
@@ -561,34 +484,7 @@ pub fn compile_for_kind(
         // The Pass D dispatch loop no longer needs to find IR bodies
         // for them; resolved via libtorajs_str.a at link.
         // "__torajs_math_sqrt" moved to torajs-num::math (P3.2-a)
-        "__torajs_math_abs",
-        "__torajs_math_floor",
-        "__torajs_math_ceil",
-        "__torajs_math_log",
-        "__torajs_math_exp",
-        "__torajs_math_pow",
-        "__torajs_math_min",
-        "__torajs_math_max",
-        "__torajs_math_round",
-        "__torajs_math_trunc",
-        "__torajs_math_sin",
-        "__torajs_math_cos",
-        "__torajs_math_tan",
-        "__torajs_math_asin",
-        "__torajs_math_acos",
-        "__torajs_math_atan",
-        "__torajs_math_atan2",
-        "__torajs_math_log2",
-        "__torajs_math_log10",
-        "__torajs_math_cbrt",
-        "__torajs_math_sinh",
-        "__torajs_math_cosh",
-        "__torajs_math_tanh",
-        "__torajs_math_asinh",
-        "__torajs_math_acosh",
-        "__torajs_math_atanh",
-        "__torajs_math_expm1",
-        "__torajs_math_log1p",
+        // ** All Math intrinsics moved to torajs-num::math (P3.2-{a,b}) **
         "__torajs_throw_set",
         "__torajs_throw_check",
         "__torajs_throw_take",
@@ -2437,72 +2333,11 @@ fn define_print_f64<'ctx>(ctx: &'ctx Context, m: &LlvmModule<'ctx>) -> FunctionV
     f
 }
 
-/// One-arg f64→f64 wrapper around a libc math function. Used to expose
-/// `Math.sqrt`, `Math.abs`, `Math.floor`, `Math.ceil` etc. — all share
-/// the same shape:
-///     fn __torajs_math_<op>(x: f64) -> f64 {
-///         <libc_name>(x)
-///     }
-/// Constructed in three lines of LLVM IR. Saves us writing a separate
-/// `define_*` for each method and centralizes the dispatch.
-fn define_math_unary<'ctx>(
-    ctx: &'ctx Context,
-    m: &LlvmModule<'ctx>,
-    fn_name: &str,
-    libc_name: &str,
-) -> FunctionValue<'ctx> {
-    let f64_t = ctx.f64_type();
-    // Re-declare libc fn (idempotent — LLVM dedupes by name).
-    let libc_t = f64_t.fn_type(&[f64_t.into()], false);
-    let libc_fn = m
-        .get_function(libc_name)
-        .unwrap_or_else(|| m.add_function(libc_name, libc_t, None));
-
-    let fn_t = f64_t.fn_type(&[f64_t.into()], false);
-    let f = m.add_function(fn_name, fn_t, None);
-    let entry = ctx.append_basic_block(f, "entry");
-    let builder = ctx.create_builder();
-    builder.position_at_end(entry);
-    let arg = f.get_nth_param(0).unwrap().into_float_value();
-    let r = builder
-        .build_call(libc_fn, &[arg.into()], "r")
-        .unwrap()
-        .try_as_basic_value()
-        .unwrap_basic()
-        .into_float_value();
-    builder.build_return(Some(&r)).unwrap();
-    f
-}
-
-/// Two-arg f64×f64→f64 wrapper. `Math.pow`, `Math.min`, `Math.max`.
-fn define_math_binary<'ctx>(
-    ctx: &'ctx Context,
-    m: &LlvmModule<'ctx>,
-    fn_name: &str,
-    libc_name: &str,
-) -> FunctionValue<'ctx> {
-    let f64_t = ctx.f64_type();
-    let libc_t = f64_t.fn_type(&[f64_t.into(), f64_t.into()], false);
-    let libc_fn = m
-        .get_function(libc_name)
-        .unwrap_or_else(|| m.add_function(libc_name, libc_t, None));
-
-    let fn_t = f64_t.fn_type(&[f64_t.into(), f64_t.into()], false);
-    let f = m.add_function(fn_name, fn_t, None);
-    let entry = ctx.append_basic_block(f, "entry");
-    let builder = ctx.create_builder();
-    builder.position_at_end(entry);
-    let a = f.get_nth_param(0).unwrap().into_float_value();
-    let b = f.get_nth_param(1).unwrap().into_float_value();
-    let r = builder
-        .build_call(libc_fn, &[a.into(), b.into()], "r")
-        .unwrap()
-        .try_as_basic_value()
-        .unwrap_basic()
-        .into_float_value();
-    builder.build_return(Some(&r)).unwrap();
-    f
-}
+/* define_math_unary + define_math_binary helpers deleted (P3.2-b,
+ * 2026-05-23). All 27 Math intrinsics moved to torajs-num::math
+ * (P3.2-{a,b}); both helpers had no callers left. Rust f64 methods
+ * delegate to the same libm symbols (sqrt/fabs/floor/.../atan2) the
+ * IR builders emitted. */
 
 // P2.4-b (2026-05-23 architecture-rewrite) — M4 exception state
 // (active/tag/value globals + throw_set/check/take/take_tag

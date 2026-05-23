@@ -2245,12 +2245,9 @@ double __torajs_math_sign(double x) {
  *   round(2.4)  === 2
  * The simple `floor(x + 0.5)` form matches JS spec; we route here
  * instead of libc round because libc rounds away from zero. */
-double __torajs_math_floor(double);  /* fwd-decl from inkwell side */
-double __torajs_math_round(double x) {
-    /* floor is defined in the inkwell-emitted module; libc fallback
-     * works too because the linker resolves either way. */
-    return __torajs_math_floor(x + 0.5);
-}
+/* __torajs_math_round moved to torajs-num::math (P3.2-b, 2026-05-23).
+ * JS spec semantics preserved bit-for-bit: (x + 0.5).floor() — NOT
+ * libc round which uses away-from-zero on negative halves. */
 
 /* __torajs_str_repeat moved to torajs-str::transform::construct
  * (P3.1-e.4, 2026-05-23). n<=0 clamps to 0; wrapping_mul matches
