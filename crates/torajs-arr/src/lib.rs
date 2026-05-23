@@ -93,25 +93,29 @@ pub unsafe extern "C" fn __torajs_throw_range_error(_msg: *const u8) {
     );
 }
 
-// Iter externs (P4.3-g): rc_inc / rc_dec / value_drop_heap come from
-// torajs-rc / runtime_str.c at `tr build` link time; cargo test gets
-// panicking stubs. Same pattern.
-#[cfg(test)]
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_rc_inc(_p: *mut core::ffi::c_void) {
-    panic!("torajs-arr unit-test stub: __torajs_rc_inc should not be called from cargo test paths");
-}
-
-#[cfg(test)]
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_rc_dec(_p: *mut core::ffi::c_void) -> i32 {
-    panic!("torajs-arr unit-test stub: __torajs_rc_dec should not be called from cargo test paths");
-}
-
+// Iter externs (P4.3-g): `__torajs_rc_inc` / `__torajs_rc_dec` come
+// from the `torajs-rc` rlib dep — NO test stub for them here, because
+// stubbing alongside the real definition triggers the LTO=fat
+// release-mode "Linking globals named '__torajs_rc_dec': symbol
+// multiply defined!" failure (same applies to rc_inc). Pattern
+// matches torajs-collections (which has no torajs-rc dep and so does
+// stub them). `__torajs_value_drop_heap` is defined in runtime_str.c
+// at `tr build` time but has no rlib provider, so it needs a stub.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_value_drop_heap(_p: *mut core::ffi::c_void) {
     panic!(
         "torajs-arr unit-test stub: __torajs_value_drop_heap should not be called from cargo test paths"
+    );
+}
+
+// `__torajs_split_block_free_push` (called from `__torajs_arr_free`
+// in alloc.rs) is defined in runtime_str.c at `tr build` link time;
+// no rlib provider, so a stub is required for cargo test linking.
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_split_block_free_push(_p: *mut u8) -> i32 {
+    panic!(
+        "torajs-arr unit-test stub: __torajs_split_block_free_push should not be called from cargo test paths"
     );
 }
