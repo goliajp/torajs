@@ -27,12 +27,17 @@
 //!   --report-bugs N — list the first N bug-classified failures with
 //!                     their stderr first line (default 20).
 
+mod args;
+mod cache;
+
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
+
+use crate::args::parse_args;
 
 const TEST262_ROOT: &str = "vendor/test262";
 /// Typed harness path (relative to repo root). Replaces test262's
@@ -41,8 +46,6 @@ const TEST262_ROOT: &str = "vendor/test262";
 /// typed harness exposes top-level generic fns (`__t262_*`) that the
 /// source-rewrite layer points every `assert.X(...)` call site at.
 const TORAJS_HARNESS: &str = "conformance/test262-harness.ts";
-const DEFAULT_WORKERS: usize = 8;
-const DEFAULT_REPORT_BUGS: usize = 20;
 
 #[derive(Debug, Clone)]
 enum Outcome {
@@ -51,57 +54,6 @@ enum Outcome {
     Incompatible { kind: String, msg: String },
     BunSkip,
     HarnessError { msg: String },
-}
-
-struct Args {
-    limit: Option<usize>,
-    filter: Option<String>,
-    workers: usize,
-    report_bugs: usize,
-    json_out: Option<String>,
-}
-
-fn parse_args() -> Args {
-    let mut limit: Option<usize> = None;
-    let mut filter: Option<String> = None;
-    let mut workers = DEFAULT_WORKERS;
-    let mut report_bugs = DEFAULT_REPORT_BUGS;
-    let mut json_out: Option<String> = None;
-    let mut iter = std::env::args().skip(1);
-    while let Some(a) = iter.next() {
-        match a.as_str() {
-            "--limit" => limit = iter.next().and_then(|v| v.parse().ok()),
-            "--filter" => filter = iter.next(),
-            "--workers" => {
-                if let Some(v) = iter.next().and_then(|v| v.parse().ok()) {
-                    workers = v;
-                }
-            }
-            "--report-bugs" => {
-                if let Some(v) = iter.next().and_then(|v| v.parse().ok()) {
-                    report_bugs = v;
-                }
-            }
-            "--json" => json_out = iter.next(),
-            "-h" | "--help" => {
-                eprintln!(
-                    "torajs-test262 — run tc39/test262 against tr\n\nflags:\n  --limit N       only first N cases\n  --filter STR    cases whose path contains STR\n  --workers N     concurrency (default {DEFAULT_WORKERS})\n  --report-bugs N list first N bug failures (default {DEFAULT_REPORT_BUGS})\n  --json PATH     also write machine-readable summary to PATH"
-                );
-                std::process::exit(0);
-            }
-            other => {
-                eprintln!("error: unknown arg `{other}`");
-                std::process::exit(2);
-            }
-        }
-    }
-    Args {
-        limit,
-        filter,
-        workers,
-        report_bugs,
-        json_out,
-    }
 }
 
 /// Minimal hand-rolled JSON object writer (test262-runner is zero-dep).
@@ -512,19 +464,35 @@ fn run_case(path: &Path, harness: &str, tr_bin: &Path, slot: usize) -> Outcome {
         };
     }
 
-    let bun = Command::new("bun")
-        .args(["run", &tmp_path.to_string_lossy()])
-        .output();
-    let bun_out = match bun {
-        Ok(o) => o,
-        Err(e) => {
-            let _ = std::fs::remove_file(&tmp_path);
-            return Outcome::HarnessError {
-                msg: format!("bun spawn: {e}"),
+    // Bun oracle — cache lookup first (deterministic over
+    // (case_bytes, harness_bytes, bun_version); skips ~50-80 ms
+    // spawn on hit). Cache miss → spawn bun + populate cache.
+    let (bun_success, bun_stdout) = match cache::lookup(case_src.as_bytes(), harness.as_bytes()) {
+        Some(c) => (c.success, c.stdout),
+        None => {
+            let out = match Command::new("bun")
+                .args(["run", &tmp_path.to_string_lossy()])
+                .output()
+            {
+                Ok(o) => o,
+                Err(e) => {
+                    let _ = std::fs::remove_file(&tmp_path);
+                    return Outcome::HarnessError {
+                        msg: format!("bun spawn: {e}"),
+                    };
+                }
             };
+            let success = out.status.success();
+            cache::insert(
+                case_src.as_bytes(),
+                harness.as_bytes(),
+                success,
+                &out.stdout,
+            );
+            (success, out.stdout)
         }
     };
-    if !bun_out.status.success() {
+    if !bun_success {
         let _ = std::fs::remove_file(&tmp_path);
         return Outcome::BunSkip;
     }
@@ -587,7 +555,7 @@ fn run_case(path: &Path, harness: &str, tr_bin: &Path, slot: usize) -> Outcome {
         }
     };
 
-    if tr_out.status.success() && tr_out.stdout == bun_out.stdout {
+    if tr_out.status.success() && tr_out.stdout == bun_stdout {
         return Outcome::Pass;
     }
 
@@ -640,6 +608,21 @@ fn run_case(path: &Path, harness: &str, tr_bin: &Path, slot: usize) -> Outcome {
 
 fn main() {
     let args = parse_args();
+
+    // Bun oracle cache init (--no-cache disables; otherwise enabled).
+    // bun --version detected once; cache dir ensured. Per-case lookups
+    // happen inside run_case.
+    cache::set_enabled(!args.no_cache);
+    cache::init();
+    let (cache_n0, cache_b0) = cache::stats();
+    if !args.no_cache {
+        eprintln!(
+            "→ bun oracle cache: {cache_n0} entries / {} KB on disk at {}",
+            cache_b0 / 1024,
+            cache::cache_dir().display(),
+        );
+    }
+
     let root = Path::new(TEST262_ROOT);
     if !root.is_dir() {
         eprintln!(
