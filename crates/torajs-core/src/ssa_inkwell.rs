@@ -876,7 +876,37 @@ pub fn compile_for_kind(
         };
     // -flto lets the linker inline cross-TU calls between the
     // LLVM-emitted object and the C runtime.
-    for (idx, (filename, _)) in torajs_runtime::SOURCES.iter().enumerate() {
+    //
+    // CACHE: each runtime .c file produces a deterministic .o given
+    // (source bytes, cc args). 12 files × ~50-100 ms cc invocation
+    // each = 0.6-1.2 s wasted per `tr run` before the runtime-obj
+    // cache landed. Cache key hashes (source bytes + cc_cmd +
+    // cc_target_args + cc_opt_arg + flto/g flags). Hit: copy
+    // cached .o → o_paths[idx]. Miss: cc -c, copy to cache, copy
+    // to o_paths[idx]. Atomic via temp-then-rename.
+    //
+    // Cache lives in the same `~/.torajs/cache/` dir as fixture
+    // binaries with prefix `runtime-` so the existing LRU prune
+    // covers them. Same TORAJS_NO_CACHE / TORAJS_CACHE_DIR env
+    // overrides apply.
+    let runtime_cache_dir = runtime_cache_dir_for(target, opt);
+    for (idx, (filename, src)) in torajs_runtime::SOURCES.iter().enumerate() {
+        if let Some(cache_dir) = runtime_cache_dir.as_ref() {
+            let key = runtime_obj_cache_key(
+                filename,
+                src.as_bytes(),
+                cc_cmd,
+                &cc_target_args,
+                cc_opt_arg,
+                target,
+            );
+            let cache_path = cache_dir.join(format!("runtime-{key}.o"));
+            if cache_path.is_file()
+                && std::fs::copy(&cache_path, &o_paths[idx]).is_ok()
+            {
+                continue;
+            }
+        }
         let mut cmd = Command::new(cc_cmd);
         cmd.args(["-c"]).arg(cc_opt_arg);
         for ta in &cc_target_args {
@@ -901,6 +931,30 @@ pub fn compile_for_kind(
             return Err(CompileError::Link(format!(
                 "cc -c {filename} exited {status}"
             )));
+        }
+        // Cache the freshly-produced .o for future runs.
+        if let Some(cache_dir) = runtime_cache_dir.as_ref() {
+            let key = runtime_obj_cache_key(
+                filename,
+                src.as_bytes(),
+                cc_cmd,
+                &cc_target_args,
+                cc_opt_arg,
+                target,
+            );
+            let cache_path = cache_dir.join(format!("runtime-{key}.o"));
+            let _ = std::fs::create_dir_all(cache_dir);
+            // Atomic: write to tmp + rename. Multiple workers racing
+            // on the same key will all produce identical bytes; the
+            // last rename wins, harmless.
+            let tmp = cache_dir.join(format!(
+                "runtime-{key}.o.tmp-{}-{}",
+                std::process::id(),
+                rand_suffix()
+            ));
+            if std::fs::copy(&o_paths[idx], &tmp).is_ok() {
+                let _ = std::fs::rename(&tmp, &cache_path);
+            }
         }
     }
 
@@ -3844,4 +3898,60 @@ fn rand_suffix() -> String {
         .map(|d| d.subsec_nanos())
         .unwrap_or(0);
     format!("{nanos:x}")
+}
+
+/// Locate `~/.torajs/cache` (or `$TORAJS_CACHE_DIR`) for the runtime
+/// .o cache. Returns `None` when `TORAJS_NO_CACHE` is set (matches
+/// the binary cache opt-out) or when neither env var nor `$HOME`
+/// resolves. Target / opt-level differ in cache key not directory.
+fn runtime_cache_dir_for(_target: CompileTarget, _opt: &str) -> Option<PathBuf> {
+    if std::env::var_os("TORAJS_NO_CACHE").is_some() {
+        return None;
+    }
+    if let Some(d) = std::env::var_os("TORAJS_CACHE_DIR") {
+        return Some(PathBuf::from(d));
+    }
+    std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".torajs/cache"))
+}
+
+/// Cache key for one runtime `.c` file's compiled `.o` output.
+/// Includes everything that influences the produced bytes:
+/// - source content (every byte; substrate ship = source change)
+/// - cc command + target args (host vs wasm differs)
+/// - opt flag (`-O3` native, `-O2` wasm)
+/// - target enum (native vs wasm — encoded for paranoia, redundant
+///   with cc_target_args but cheap)
+/// - flto/g flags (native-only, added later in the compile fn)
+///
+/// Same FxHash-via-DefaultHasher shape as `run_cache_key`: false
+/// misses are harmless (recompile), false hits are impossible
+/// because all relevant inputs are hashed.
+fn runtime_obj_cache_key(
+    filename: &str,
+    source: &[u8],
+    cc_cmd: &str,
+    cc_target_args: &[String],
+    cc_opt_arg: &str,
+    target: CompileTarget,
+) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    filename.hash(&mut h);
+    source.hash(&mut h);
+    cc_cmd.hash(&mut h);
+    for a in cc_target_args {
+        a.hash(&mut h);
+    }
+    cc_opt_arg.hash(&mut h);
+    // CompileTarget doesn't derive Hash; encode as discriminant.
+    match target {
+        CompileTarget::Native => 0u8.hash(&mut h),
+        CompileTarget::Wasm32Wasi => 1u8.hash(&mut h),
+    }
+    // Native always passes `-flto -g`; wasm doesn't. Encode that.
+    let extra_flags = matches!(target, CompileTarget::Native);
+    extra_flags.hash(&mut h);
+    // Cache version tag — bump if cc invocation shape changes.
+    "runtime-obj-v1".hash(&mut h);
+    format!("{:016x}", h.finish())
 }
