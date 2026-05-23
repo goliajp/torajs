@@ -42,3 +42,6 @@ torajs-num = { path = "../torajs-num" }
 # dual rlib+staticlib usage; libtorajs_bigint.a co-links so
 # __torajs_bigint_drop / drop_rc / etc resolve at `tr build`.
 torajs-bigint = { path = "../torajs-bigint" }
+# Layer-3: Array<T> + Array<Any> substrate (P4.1). Dual rlib+staticlib;
+# libtorajs_arr.a co-links so __torajs_arr_drop resolves at `tr build`.
+torajs-arr = { path = "../torajs-arr" }

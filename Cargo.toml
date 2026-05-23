@@ -9,6 +9,7 @@ members = [
     "crates/torajs-str",
     "crates/torajs-num",
     "crates/torajs-bigint",
+    "crates/torajs-arr",
     "crates/torajs-runtime",
     "crates/torajs-core",
     "crates/torajs-cli",

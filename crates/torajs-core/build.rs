@@ -59,6 +59,7 @@ const STATICLIBS: &[&str] = &[
     "torajs_str",      // Layer-2: Str layout + small-Str pool + alloc/free
     "torajs_num",      // Layer-2: Number primitives + Math namespace intrinsics
     "torajs_bigint",   // Layer-2: BigInt arbitrary-precision integer (P3.3)
+    "torajs_arr",      // Layer-3: Array<T> + Array<Any> substrate (P4.1)
 ];
 
 fn main() {

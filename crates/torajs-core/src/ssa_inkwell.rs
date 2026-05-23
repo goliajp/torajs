@@ -354,7 +354,13 @@ fn compile_for_kind_impl(
     // Rust binding was the input to str_alloc / str_concat / str_slice
     // IR builders, all moved to torajs-str (P3.1-g.{2,4,5}).
     let _ = declare_str_alloc_pooled(&ctx, &llvm_module);
-    let arr_free = declare_arr_free(&ctx, &llvm_module);
+    // __torajs_arr_free body lives in runtime_str.c; declared here so
+    // any IR-builder code that emits `call __torajs_arr_free` finds
+    // the symbol. define_arr_drop used to consume it directly, but
+    // that body moved to torajs-arr::drop (P4.1-a) — `_unused` since
+    // no current IR-builder references it, but the declaration is
+    // cheap insurance + future-proof.
+    let _ = declare_arr_free(&ctx, &llvm_module);
     let arr_alloc_pooled = declare_arr_alloc_pooled(&ctx, &llvm_module);
     let mut fn_map: Vec<FunctionValue> = Vec::with_capacity(ssa_module.funcs.len());
     for f in &ssa_module.funcs {
@@ -416,13 +422,12 @@ fn compile_for_kind_impl(
                  * loop (fifo-queue pattern). */
                 define_arr_shift(&ctx, &llvm_module)
             }
-            "__torajs_arr_drop" => {
-                let f = define_arr_drop(&ctx, &llvm_module, arr_free);
-                // every Array scope-end + every refcounted-elem-walk
-                // bottom hits this; body is NULL check + dec + cond free
-                mark_alwaysinline(&ctx, f);
-                f
-            }
+            // __torajs_arr_drop moved to torajs-arr::drop (P4.1-a,
+            // 2026-05-23). Pure-Rust port mirrors define_arr_drop's
+            // semantics: NULL + FLAG_STATIC_LITERAL gate + rc_dec +
+            // last-owner → arrprops_drop_entry + arr_free. Resolved at
+            // link time via libtorajs_arr.a; IR builder + always-inline
+            // mark deleted.
             // __torajs_str_slice moved to torajs-str::slice (P3.1-g.5,
             // 2026-05-23). Negative-wrap + clamp + alloc + memcpy in
             // Rust core (slice_range fn); IR builder body deleted.
@@ -1790,7 +1795,6 @@ fn declare_memcmp<'ctx>(
 /// the offsets used by every Str-producing inkwell IR site, kept in
 /// lock-step with `__TORAJS_STR_HDR_SIZE` and the macros defined in
 /// `runtime_str.c`. If you change one, change the other.
-const STR_HDR_REFCOUNT_OFF: u64 = 0;
 const STR_HDR_TYPE_TAG_OFF: u64 = 4;
 const STR_HDR_FLAGS_OFF: u64 = 6;
 const STR_HDR_LEN_OFF: u64 = 8;
@@ -3055,125 +3059,10 @@ fn define_arr_shift<'ctx>(ctx: &'ctx Context, m: &LlvmModule<'ctx>) -> FunctionV
     f
 }
 
-/// `__torajs_arr_drop(*u8 arr) -> void`
-///
-/// Phase 2A refcount: dec the universal heap header; free only at zero.
-/// NULL passes through. Caller is responsible for walking refcounted
-/// element types FIRST (`emit_drop_value Type::Arr` does this in
-/// ssa_lower).
-fn define_arr_drop<'ctx>(
-    ctx: &'ctx Context,
-    m: &LlvmModule<'ctx>,
-    free: FunctionValue<'ctx>,
-) -> FunctionValue<'ctx> {
-    let builder = ctx.create_builder();
-    let i32_t = ctx.i32_type();
-    let i64_t = ctx.i64_type();
-    let i8_t = ctx.i8_type();
-    let ptr_t = ctx.ptr_type(AddressSpace::default());
-    let void_t = ctx.void_type();
-    let fn_t = void_t.fn_type(&[ptr_t.into()], false);
-    // T-29 — declare arrprops_drop_entry so we can call it from the
-    // free path. Returns void; takes the array ptr. No-op for arrays
-    // that never had `arr.x = v` written.
-    let arrprops_drop_entry = m
-        .get_function("__torajs_arrprops_drop_entry")
-        .unwrap_or_else(|| m.add_function("__torajs_arrprops_drop_entry", fn_t, None));
-    let f = m.add_function("__torajs_arr_drop", fn_t, None);
-    let entry = ctx.append_basic_block(f, "entry");
-    let static_check_blk = ctx.append_basic_block(f, "static_check");
-    let dec_blk = ctx.append_basic_block(f, "dec");
-    let free_blk = ctx.append_basic_block(f, "free");
-    let ret_blk = ctx.append_basic_block(f, "ret");
-    builder.position_at_end(entry);
-    let arg = f.get_nth_param(0).unwrap().into_pointer_value();
-    let null = ptr_t.const_null();
-    let is_null = builder
-        .build_int_compare(IntPredicate::EQ, arg, null, "is_null")
-        .unwrap();
-    builder
-        .build_conditional_branch(is_null, ret_blk, static_check_blk)
-        .unwrap();
-
-    // STATIC_LITERAL flag check — `.rodata` Str-shaped globals must
-    // never have rc decremented (the store would page-fault) or be
-    // freed. Cheap u16 load + bit test, branch to ret on match.
-    builder.position_at_end(static_check_blk);
-    let i16_t = ctx.i16_type();
-    let flags_ptr = unsafe {
-        builder
-            .build_in_bounds_gep(
-                i8_t,
-                arg,
-                &[i64_t.const_int(STR_HDR_FLAGS_OFF, false)],
-                "flags_p",
-            )
-            .unwrap()
-    };
-    let flags = builder
-        .build_load(i16_t, flags_ptr, "flags")
-        .unwrap()
-        .into_int_value();
-    let masked = builder
-        .build_and(
-            flags,
-            i16_t.const_int(STATIC_LITERAL_FLAG as u64, false),
-            "masked",
-        )
-        .unwrap();
-    let is_static = builder
-        .build_int_compare(
-            IntPredicate::NE,
-            masked,
-            i16_t.const_int(0, false),
-            "is_static",
-        )
-        .unwrap();
-    builder
-        .build_conditional_branch(is_static, ret_blk, dec_blk)
-        .unwrap();
-
-    builder.position_at_end(dec_blk);
-    let rc_ptr = unsafe {
-        builder
-            .build_in_bounds_gep(
-                i8_t,
-                arg,
-                &[i64_t.const_int(STR_HDR_REFCOUNT_OFF, false)],
-                "rc_ptr",
-            )
-            .unwrap()
-    };
-    let rc_now = builder
-        .build_load(i32_t, rc_ptr, "rc_now")
-        .unwrap()
-        .into_int_value();
-    let rc_dec = builder
-        .build_int_sub(rc_now, i32_t.const_int(1, false), "rc_dec")
-        .unwrap();
-    builder.build_store(rc_ptr, rc_dec).unwrap();
-    let zero = i32_t.const_int(0, false);
-    let is_zero = builder
-        .build_int_compare(IntPredicate::EQ, rc_dec, zero, "is_zero")
-        .unwrap();
-    builder
-        .build_conditional_branch(is_zero, free_blk, ret_blk)
-        .unwrap();
-
-    builder.position_at_end(free_blk);
-    // T-29 — drop side-table props entry (no-op for arrays without
-    // props). Called BEFORE free so the entry can read arr_ptr to
-    // identify its bucket.
-    builder
-        .build_call(arrprops_drop_entry, &[arg.into()], "_apd")
-        .unwrap();
-    builder.build_call(free, &[arg.into()], "_f").unwrap();
-    builder.build_unconditional_branch(ret_blk).unwrap();
-
-    builder.position_at_end(ret_blk);
-    builder.build_return(None).unwrap();
-    f
-}
+/* define_arr_drop body moved to torajs-arr::drop (P4.1-a, 2026-05-23).
+ * Pure-Rust port mirrors IR shape 1:1: NULL + FLAG_STATIC_LITERAL gate
+ * + rc_dec + last-owner → arrprops_drop_entry + arr_free. Resolved at
+ * link time via libtorajs_arr.a. */
 
 /* __torajs_str_drop moved to torajs-str::alloc (P3.1-g.6, 2026-05-23).
  * **P3.1-g closed — 0 IR-side str defines remaining**. Rust impl

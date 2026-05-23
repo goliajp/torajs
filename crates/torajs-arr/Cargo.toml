@@ -1,0 +1,29 @@
+[package]
+name = "torajs-arr"
+description = "Heap-allocated dynamic Array<T> + Array<Any> substrate for the torajs AOT TypeScript runtime. Layer-3 — push / pop / iter / slice / concat / join / sort and friends, over a refcounted pool-aware backing block. no_std-friendly."
+keywords = ["torajs", "array", "vec", "runtime"]
+categories = ["data-structures", "no-std"]
+readme = "README.md"
+documentation = "https://docs.rs/torajs-arr"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+# Dual emit: `rlib` for cargo workspace + unit tests;
+# `staticlib` emits libtorajs_arr.a so ssa_inkwell can link it into
+# every `tr build` AOT user binary alongside the other Layer-1+
+# staticlibs.
+[lib]
+crate-type = ["rlib", "staticlib"]
+
+[dependencies]
+# Layer-1 dep: HeapHeader struct + FLAG_STATIC_LITERAL constant +
+# __torajs_rc_dec. P4.x torajs-arr is Layer-3 architecturally but
+# only uses Layer-1 types here — same dep pattern as torajs-str.
+torajs-rc = { path = "../torajs-rc" }
