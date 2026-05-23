@@ -3324,18 +3324,10 @@ void __torajs_print_f64_err(double d) {
 void __torajs_print_bool_err(int64_t b) {
     fputs(b ? "true\n" : "false\n", stderr);
 }
-void __torajs_str_print_err(const uint8_t *s) {
-    /* NULL guard — Nullable<Str> slots and uncaptured regex group slots
-     * pass NULL through here. Print "null" to match console.log(null)
-     * semantics rather than segfaulting on the len read. */
-    if (s == NULL) {
-        fputs("null\n", stderr);
-        return;
-    }
-    uint64_t len = __TORAJS_STR_LEN(s);
-    if (len) fwrite(__TORAJS_STR_CDATA(s), 1, (size_t)len, stderr);
-    fputc('\n', stderr);
-}
+/* __torajs_str_print_err moved to torajs-str::print (P3.1-g.1,
+ * 2026-05-23). NULL → "null\n" preserved. Uses Rust std::io::stderr
+ * with a single lock guard around the write to keep complete lines
+ * atomic. After this commit C-side has 0 Str-surface fns. */
 
 /* ============================================================
  * v0.3 #1 — fs module helpers. Synchronous file I/O surfaces:
