@@ -1,13 +1,12 @@
 {
-  "generatedAt": "2026-05-23T00:28:47.557Z",
+  "generatedAt": "2026-05-23T02:27:33.606Z",
   "hardevVersion": "0.1.14",
   "conformance": {
-    "pass": 666,
+    "pass": 660,
     "fail": 0,
     "skip": 1,
-    "raw": "666/0/1",
-    "source": "/tmp/torajs-conformance-587407e.log",
-    "sourceMtime": "2026-05-23T00:27:11.361Z"
+    "raw": "660/0/1",
+    "source": "hardev/metrics.md"
   },
   "test262": {
     "ranAt": "2026-05-22T00:58:43Z",
@@ -28,17 +27,16 @@
     "passRateTrAccepted": 92.73
   },
   "torajs": {
-    "commit": "587407e",
-    "commitSubject": "P3.1-d: Str lookup ops → torajs-str::lookup",
+    "commit": "1981610",
+    "commitSubject": "P3.1-e.5: Str replace (replace/replaceAll) → torajs-str::transform::replace — P3.1-e closed",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
-      "pass": 666,
+      "pass": 660,
       "fail": 0,
       "skip": 1,
-      "raw": "666/0/1",
-      "source": "/tmp/torajs-conformance-587407e.log",
-      "sourceMtime": "2026-05-23T00:27:11.361Z"
+      "raw": "660/0/1",
+      "source": "hardev/metrics.md"
     }
   },
   "roadmap": [
@@ -563,6 +561,42 @@
   },
   "commits": [
     {
+      "hash": "1981610",
+      "subject": "P3.1-e.5: Str replace (replace/replaceAll) → torajs-str::transform::replace — P3.1-e closed"
+    },
+    {
+      "hash": "2dcc776",
+      "subject": "P3.1-e.4: Str construct (repeat/charAt/at/fromCharCode/substring/substr) → torajs-str::transform::construct"
+    },
+    {
+      "hash": "213fa1f",
+      "subject": "P3.1-e.3: Str pad (padStart/padEnd) → torajs-str::transform::pad"
+    },
+    {
+      "hash": "0f72b42",
+      "subject": "P3.1-e.2: Str trim (trim/trimStart/trimEnd) → torajs-str::transform::trim"
+    },
+    {
+      "hash": "a871bcf",
+      "subject": "P3.1-e.1: Str case-fold (toUpperCase/toLowerCase) → torajs-str::transform::case"
+    },
+    {
+      "hash": "78928e9",
+      "subject": "docs: deps-tree v0.1 — lean-in attitude ACK + L3a #1 scope fix"
+    },
+    {
+      "hash": "11292f9",
+      "subject": "docs: deps-tree v0.1 — metal-level framing + 全自研决断 + F 族"
+    },
+    {
+      "hash": "45641fb",
+      "subject": "docs: add deps-tree-v0.1 — torajs 全景 + Tier-based dep audit"
+    },
+    {
+      "hash": "b51949f",
+      "subject": "hardev: snapshot data.json refresh — P3.1-d closed @ 587407e"
+    },
+    {
       "hash": "587407e",
       "subject": "P3.1-d: Str lookup ops → torajs-str::lookup"
     },
@@ -573,63 +607,38 @@
     {
       "hash": "78e3ffa",
       "subject": "P3.1-c: Str eq + to_number → torajs-str::{eq,to_number}"
-    },
-    {
-      "hash": "da78ef7",
-      "subject": "P3.1-b: Substr layout + Substr pool + drop machinery → torajs-str::substr"
-    },
-    {
-      "hash": "d256d50",
-      "subject": "P3.1-a: torajs-str scaffold + Str layout + small-Str pool + alloc/free — Layer-2 first sub-step"
-    },
-    {
-      "hash": "f911be3",
-      "subject": "hardev: snapshot data.json refresh — P2 Layer 1 closed @ 6bec2b8"
-    },
-    {
-      "hash": "6bec2b8",
-      "subject": "P2.4-b: throw-slot machinery LLVM-IR → Rust — P2 Layer 1 fully closed"
-    },
-    {
-      "hash": "0342901",
-      "subject": "P2.4-a: torajs-throw scaffold — native-error registry + throw_range/type_error to Rust"
-    },
-    {
-      "hash": "90d4757",
-      "subject": "P2.3-d.4: any_add `+` dispatch moves to Rust — P2.3 any-value family 100% Rust"
-    },
-    {
-      "hash": "8eb66e2",
-      "subject": "P2.3-d.3: any_arith dispatch (Sub/Mul/Div/Mod) moves to Rust"
-    },
-    {
-      "hash": "598913d",
-      "subject": "P2.3-d.2: any_compare relational ordering moves to Rust + embed-via-env fix"
-    },
-    {
-      "hash": "a8807ed",
-      "subject": "P2.3-d.1: any_to_number ToNumber moves to Rust + Layer-1 link-wiring fix"
     }
   ],
-  "headSha": "587407e",
+  "headSha": "1981610",
   "autorun": {
-    "total": 17,
+    "total": 18,
     "baselineTarget": 10,
-    "bySelf": 17,
+    "bySelf": 18,
     "byManual": 0,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1779490014-4e6f",
-      "at": "2026-05-22T22:46:54Z",
-      "ts": 1779490014,
+      "rotationId": "r-1779496287-4309",
+      "at": "2026-05-23T00:31:27Z",
+      "ts": 1779496287,
       "trigger": "self",
-      "prevHead": "f911be3",
-      "handoffSha": "sha256:4f28b309ff790ff0807b91674fb78945397eb5bc61016a6239aaf310a205c990",
-      "handoffAgeSec": 25,
+      "prevHead": "b51949f",
+      "handoffSha": "sha256:637f9cfd115136c04b0a926827ef9584c1923e794d202233f8ec32807d709f55",
+      "handoffAgeSec": 5,
       "conformanceBefore": "666/0/1",
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1779496287-4309",
+        "at": "2026-05-23T00:31:27Z",
+        "ts": 1779496287,
+        "trigger": "self",
+        "prevHead": "b51949f",
+        "handoffSha": "sha256:637f9cfd115136c04b0a926827ef9584c1923e794d202233f8ec32807d709f55",
+        "handoffAgeSec": 5,
+        "conformanceBefore": "666/0/1",
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1779490014-4e6f",
         "at": "2026-05-22T22:46:54Z",
@@ -727,17 +736,6 @@
         "handoffSha": "sha256:d69990632bff4a61c7affeeee9b0fbbb2669183176fb2c74ba02828dff8cf956",
         "handoffAgeSec": 4,
         "conformanceBefore": "646/0/1",
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1779279071-6982",
-        "at": "2026-05-20T12:11:11Z",
-        "ts": 1779279071,
-        "trigger": "self",
-        "prevHead": "00e54fc",
-        "handoffSha": "sha256:c36e8cfabb573b88382d8e713619b191c5347fd0a22d4d1e9a2d6b156ad0f416",
-        "handoffAgeSec": 5,
-        "conformanceBefore": "644/0/1",
         "commitsInSession": null
       }
     ],
