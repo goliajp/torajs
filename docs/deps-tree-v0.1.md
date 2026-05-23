@@ -11,7 +11,7 @@
 
 torajs = **metal / llvm 级别的 infra binary**——是语言级 metal-tier 编译/运行系统 (类比 LLVM / V8 内部 / Rust compiler 自身)，**不是** application-tier runtime (bun/node/deno 是 application 层, torajs core 比它们低一层). Perf 决策从**硬件视角** (cache line / branch / SIMD / register / TLB / prefetch) 出发, 不只是算法换路.
 
-终态约 **55-70 个 crate**，分 **6 族** (A 族 substrate + B 族 compiler + C 族 stdlib + D 族 toolchain + E 族 embed/cloud + **F 族 self-research utilities**)，按**石头 / 水泥** 二分对应**开源 / 闭源**；当前 A 族 ship 5/15 (+1 in progress)，其他族仍在 monolith 状态。
+终态约 **55-70 个 crate**，分 **6 族** (A 族 substrate + B 族 compiler + C 族 stdlib + D 族 toolchain + E 族 embed/cloud + **F 族 self-research utilities**)，按**石头 / 水泥** 二分对应**开源 / 闭源**；当前 **A 族 ship 6/15** (P3.1 closed 2026-05-23 = torajs-str 100% Rust)，P3.2 torajs-num hotified, 其他族仍在 monolith 状态。
 
 Vision 4 项 (有序, see [[project-torajs-vision-priority]]): #1 性能远超 bun/nodejs · #2 test262 + 主流 ts 100% · #3 pure rust · #4 0 deps. **2026-05-23 决断**: metal-level core 强制全自研, 不只 "ask-first per dep" — 详 [§Deps 审计](#deps-审计) 决断段.
 
@@ -97,7 +97,7 @@ Vision 4 项 (有序, see [[project-torajs-vision-priority]]): #1 性能远超 b
             ⇢   emit-call (codegen 在 IR 里生成 extern "C" 调用)
 ```
 
-### A 族 — Runtime substrate (15 crate · ship 5/15 + 1 in progress)
+### A 族 — Runtime substrate (15 crate · **ship 6/15** + P3.2 next)
 
 **权威定义在 [`architecture-rewrite.md`](architecture-rewrite.md)**。本节只列 status + 当前度量 + commit hash + deps，不重复 scope 描述。
 
@@ -125,13 +125,14 @@ Vision 4 项 (有序, see [[project-torajs-vision-priority]]): #1 性能远超 b
 
 | crate | status | commit | LOC | deps |
 |---|---|---|---|---|
-| `torajs-str` | 🟡 P3.1-{a..d} done (4/7) | `587407e` | ~2000 (8 mod) | `torajs-pool` · `torajs-rc` |
-| `torajs-num` | ⏳ P3.2 queued | — | — | `torajs-anyvalue` · `torajs-throw` |
+| `torajs-str` | ✅ **P3.1 closed** | `bc61031` | ~3500 (14 mod) | `torajs-pool` · `torajs-rc` |
+| `torajs-num` | 🟡 P3.2 hotified (trigger 1 hit) | — | — | `torajs-anyvalue` · `torajs-throw` |
 | `torajs-bigint` | ⏳ P3.3 queued | — | — | `torajs-rc` · `torajs-throw` |
 
-torajs-str 现有子模块 (in P3.1-{a..d}): layout / pool / alloc / substr / eq / to_number / lookup。
-待 sub-step (P3.1-{e,f,g}): transform / split / print + IR-side 收口。
-runtime_str.c LOC: baseline 5165 → 当前 4891 (−274) → 目标 0。
+torajs-str 现有子模块 (P3.1 closed): layout / pool / alloc / substr / eq / to_number / lookup / transform/{case,pad,trim,construct,replace} / split/{mod,pool,ops} / print / concat / slice.
+**P3.1 全 7 sub-step ship 完** (a/b/c/d/e/f/g; g 又拆 g.1-g.6 分次 port IR-side defines).
+runtime_str.c LOC: baseline 5165 → P3.1-d 后 4891 → **P3.1 closed 4379** (−786 Str-only fn 已全删; 剩余为 Layer-3+ arr/dynobj/json/Number).
+ssa_inkwell.rs LOC: P3.1 进入前 4722 → **P3.1 closed 4012** (−710 跨 g.2..g.6 删 11 个 define_str_* fn + helper).
 
 #### Layer 3 — containers
 
