@@ -52,7 +52,9 @@ pub use any::{
     __torajs_arr_set_any,
 };
 pub use drop::{__torajs_arr_drop, __torajs_arr_drop_any};
-pub use grow::{__torajs_arr_push, __torajs_arr_reserve, __torajs_arr_set_length_validate};
+pub use grow::{
+    __torajs_arr_push, __torajs_arr_reserve, __torajs_arr_set_length_validate, __torajs_arr_shift,
+};
 pub use join::{
     __torajs_arr_join, __torajs_arr_join_bool, __torajs_arr_join_f64, __torajs_arr_join_i64,
     __torajs_arr_join_substr, __torajs_arr_to_reversed, __torajs_arr_with,

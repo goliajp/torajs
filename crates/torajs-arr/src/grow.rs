@@ -138,6 +138,46 @@ pub unsafe extern "C" fn __torajs_arr_push(arr: *mut u8, val: i64) -> *mut u8 {
     arr
 }
 
+/// T-13.5 O(1) deque shift: pop and return `arr[0]`.
+///
+/// Algorithm (1:1 port of ssa_inkwell::define_arr_shift, ~70 LOC IR @
+/// L2841-2920; was originally alwaysinline IR specifically so LLVM
+/// inlined the body into the caller's fifo-queue hot loop):
+///
+/// ```text
+/// head  = *(u32*)(arr + 20)
+/// v     = *(i64*)(arr + 24 + head*8)   // logical[0]
+/// *(u32*)(arr + 20) = head + 1         // bump head_offset
+/// *(u64*)(arr +  8) -= 1               // dec len
+/// return v
+/// ```
+///
+/// **Perf note**: porting from inkwell IR to Rust extern "C" gives up
+/// the `alwaysinline` cross-tier inlining (Rust's `#[inline(always)]`
+/// conflicts with `#[unsafe(no_mangle)]`). The fifo-queue benchmark
+/// will now show a `bl __torajs_arr_shift` cross-tier call where the
+/// IR version inlined the 4 memory ops. Cross-tier LTO across
+/// libtorajs_arr.a should still inline when fat-LTO is enabled at
+/// `tr build` time; thin-LTO will leave the call.
+///
+/// # Safety
+/// `extern "C"` ABI. `arr` must be a non-empty Array<T> heap block
+/// (8-byte slot stride). Caller's SSA-level shift dispatch guarantees
+/// len > 0.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_shift(arr: *mut u8) -> i64 {
+    unsafe {
+        let head_p = arr.add(ARR_HDR_HEAD_OFF) as *mut u32;
+        let head = *head_p as usize;
+        let slot = arr.add(ARR_HDR_DATA_OFF + head * 8) as *const i64;
+        let v = *slot;
+        *head_p = (head + 1) as u32;
+        let len_p = arr.add(ARR_HDR_LEN_OFF) as *mut u64;
+        *len_p -= 1;
+        v
+    }
+}
+
 /// Grow an array's backing block to fit at least `new_cap` elements.
 /// Cap-equal short-circuits to no-op (returns input pointer unchanged).
 ///
