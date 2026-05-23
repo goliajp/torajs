@@ -75,6 +75,7 @@
 pub mod alloc;
 pub mod eq;
 pub mod layout;
+pub mod lookup;
 pub mod pool;
 pub mod substr;
 pub mod to_number;
@@ -88,6 +89,11 @@ pub use eq::{__torajs_str_eq, __torajs_str_eq_cstr};
 pub use layout::{
     STR_DATA_OFF, STR_HDR_SIZE, STR_LEN_OFF, STR_POOL_PAYLOAD, STR_POOL_SLOTS, block_size,
     packed_header_init,
+};
+pub use lookup::{
+    __torajs_str_ends_with_from, __torajs_str_includes_from, __torajs_str_index_of_from,
+    __torajs_str_last_index_of, __torajs_str_last_index_of_from, __torajs_str_locale_compare,
+    __torajs_str_starts_with_from,
 };
 pub use substr::{
     __torajs_substr_create, __torajs_substr_drop, FLAG_SUBSTR_INLINE, SUBSTR_LEN_OFF,

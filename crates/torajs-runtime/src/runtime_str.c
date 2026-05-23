@@ -3617,119 +3617,19 @@ void *__torajs_str_replace_all(const uint8_t *s, const uint8_t *needle, const ui
     return p;
 }
 
-/* `s.localeCompare(other)` — ASCII-only memcmp. JS spec returns a
- * locale-sensitive result; v0 just compares byte-wise (fine for the
- * ASCII-typical subset). Returns -1, 0, or 1. */
-int64_t __torajs_str_locale_compare(const uint8_t *a, const uint8_t *b) {
-    uint64_t a_len = __TORAJS_STR_LEN(a);
-    uint64_t b_len = __TORAJS_STR_LEN(b);
-    uint64_t min = a_len < b_len ? a_len : b_len;
-    int r = min ? memcmp(__TORAJS_STR_CDATA(a), __TORAJS_STR_CDATA(b), (size_t)min) : 0;
-    if (r < 0) return -1;
-    if (r > 0) return 1;
-    if (a_len < b_len) return -1;
-    if (a_len > b_len) return 1;
-    return 0;
-}
-
-/* V3-18 m1.h.51 — `s.startsWith(needle, position)`.
- * Per JS spec §21.1.3.20: search starting at clamp(position, 0, len).
- * Returns 1 if needle matches there, 0 otherwise. */
-int64_t __torajs_str_starts_with_from(const uint8_t *s, const uint8_t *sub, int64_t pos) {
-    uint64_t s_len = __TORAJS_STR_LEN(s);
-    uint64_t n_len = __TORAJS_STR_LEN(sub);
-    int64_t start = pos < 0 ? 0 : pos;
-    if ((uint64_t)start > s_len) start = (int64_t)s_len;
-    if (n_len == 0) return 1;
-    if ((uint64_t)start + n_len > s_len) return 0;
-    return memcmp(__TORAJS_STR_CDATA(s) + (uint64_t)start,
-                  __TORAJS_STR_CDATA(sub), (size_t)n_len) == 0 ? 1 : 0;
-}
-
-/* V3-18 m1.h.51 — `s.endsWith(needle, endPosition)`.
- * Per JS spec §21.1.3.6: treat the prefix s.slice(0, endPosition)
- * and check whether it ends with needle. endPosition defaults to len;
- * clamps to [0, len]. */
-int64_t __torajs_str_ends_with_from(const uint8_t *s, const uint8_t *sub, int64_t end) {
-    uint64_t s_len = __TORAJS_STR_LEN(s);
-    uint64_t n_len = __TORAJS_STR_LEN(sub);
-    int64_t e = end < 0 ? 0 : end;
-    if ((uint64_t)e > s_len) e = (int64_t)s_len;
-    if (n_len == 0) return 1;
-    if ((uint64_t)e < n_len) return 0;
-    int64_t off = e - (int64_t)n_len;
-    return memcmp(__TORAJS_STR_CDATA(s) + (uint64_t)off,
-                  __TORAJS_STR_CDATA(sub), (size_t)n_len) == 0 ? 1 : 0;
-}
-
-/* V3-18 m1.h.50 — `s.indexOf(needle, fromIndex)` runtime helper.
- * Per JS spec §21.1.3.7: clamp fromIndex to [0, len]; search from
- * there. Negative fromIndex clamps to 0. Returns first match index
- * or -1. Mirror of the inkwell IR `__torajs_str_index_of` but with
- * a starting offset. Used when arr.indexOf is called with the
- * 2-arg form. */
-int64_t __torajs_str_index_of_from(const uint8_t *s, const uint8_t *sub, int64_t from) {
-    uint64_t s_len = __TORAJS_STR_LEN(s);
-    uint64_t n_len = __TORAJS_STR_LEN(sub);
-    int64_t start = from < 0 ? 0 : from;
-    if ((uint64_t)start > s_len) start = (int64_t)s_len;
-    if (n_len == 0) return start;
-    if (n_len > s_len) return -1;
-    const uint8_t *s_data = __TORAJS_STR_CDATA(s);
-    const uint8_t *n_data = __TORAJS_STR_CDATA(sub);
-    int64_t end = (int64_t)(s_len - n_len);
-    for (int64_t i = start; i <= end; i++) {
-        if (memcmp(s_data + (uint64_t)i, n_data, (size_t)n_len) == 0) {
-            return i;
-        }
-    }
-    return -1;
-}
-
-/* V3-18 m1.h.51 — `s.includes(needle, fromIndex)`. Same shape as
- * indexOf-from but returns bool. */
-int64_t __torajs_str_includes_from(const uint8_t *s, const uint8_t *sub, int64_t from) {
-    return __torajs_str_index_of_from(s, sub, from) >= 0 ? 1 : 0;
-}
-
-/* V3-18 m1.h.50 — `s.lastIndexOf(needle, fromIndex)` runtime helper.
- * Reverse scan; clamps fromIndex to [0, len]; default = len. */
-int64_t __torajs_str_last_index_of_from(const uint8_t *s, const uint8_t *sub, int64_t from) {
-    uint64_t s_len = __TORAJS_STR_LEN(s);
-    uint64_t n_len = __TORAJS_STR_LEN(sub);
-    if (n_len == 0) {
-        int64_t end = (int64_t)s_len;
-        return from > end ? end : (from < 0 ? 0 : from);
-    }
-    if (n_len > s_len) return -1;
-    int64_t max_i = (int64_t)(s_len - n_len);
-    int64_t start = from > max_i ? max_i : from;
-    if (start < 0) return -1;
-    const uint8_t *s_data = __TORAJS_STR_CDATA(s);
-    const uint8_t *n_data = __TORAJS_STR_CDATA(sub);
-    for (int64_t i = start; i >= 0; i--) {
-        if (memcmp(s_data + (uint64_t)i, n_data, (size_t)n_len) == 0) {
-            return i;
-        }
-    }
-    return -1;
-}
-
-/* `s.lastIndexOf(needle)` — reverse memcmp scan, -1 on miss. */
-int64_t __torajs_str_last_index_of(const uint8_t *s, const uint8_t *needle) {
-    uint64_t s_len = __TORAJS_STR_LEN(s);
-    uint64_t n_len = __TORAJS_STR_LEN(needle);
-    if (n_len == 0) return (int64_t)s_len;
-    if (n_len > s_len) return -1;
-    const uint8_t *s_data = __TORAJS_STR_CDATA(s);
-    const uint8_t *n_data = __TORAJS_STR_CDATA(needle);
-    for (int64_t i = (int64_t)(s_len - n_len); i >= 0; i--) {
-        if (memcmp(s_data + (uint64_t)i, n_data, (size_t)n_len) == 0) {
-            return i;
-        }
-    }
-    return -1;
-}
+/* Lookup ops (locale_compare / starts_with_from / ends_with_from /
+ * index_of_from / includes_from / last_index_of_from / last_index_of)
+ * moved to torajs-str::lookup (P3.1-d, 2026-05-23). Pure-Rust cores
+ * mirror the byte-for-byte memcmp scans; the IR-side variants without
+ * `_from` suffix (starts_with / ends_with / index_of / includes) remain
+ * LLVM-IR-emitted in ssa_inkwell until P3.1-g consolidation. */
+extern int64_t __torajs_str_locale_compare(const uint8_t *a, const uint8_t *b);
+extern int64_t __torajs_str_starts_with_from(const uint8_t *s, const uint8_t *sub, int64_t pos);
+extern int64_t __torajs_str_ends_with_from(const uint8_t *s, const uint8_t *sub, int64_t end);
+extern int64_t __torajs_str_index_of_from(const uint8_t *s, const uint8_t *sub, int64_t from);
+extern int64_t __torajs_str_includes_from(const uint8_t *s, const uint8_t *sub, int64_t from);
+extern int64_t __torajs_str_last_index_of_from(const uint8_t *s, const uint8_t *sub, int64_t from);
+extern int64_t __torajs_str_last_index_of(const uint8_t *s, const uint8_t *needle);
 
 /* `JSON.stringify` — string-escape helper for the recursive ssa-lower
  * generator. Wraps `s` in `"..."` and replaces JSON-illegal control
