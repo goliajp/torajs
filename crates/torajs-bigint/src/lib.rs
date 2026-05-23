@@ -45,6 +45,7 @@ pub mod construct;
 pub mod drop;
 pub mod internal;
 pub mod layout;
+pub mod mul;
 
 pub use arith::{__torajs_bigint_add, __torajs_bigint_sub};
 pub use construct::{
@@ -52,6 +53,7 @@ pub use construct::{
     __torajs_bigint_from_i64, __torajs_bigint_from_str,
 };
 pub use drop::{__torajs_bigint_drop, __torajs_bigint_drop_rc};
+pub use mul::__torajs_bigint_mul;
 
 // `__torajs_rc_dec` is provided by `libtorajs_rc.a` at `tr build`
 // link time. For cargo unit tests of torajs-bigint (which don't

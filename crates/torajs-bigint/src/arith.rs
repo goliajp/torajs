@@ -24,7 +24,7 @@ use crate::internal::{
 // ============================================================
 
 /// Compare magnitudes only. Returns -1 / 0 / 1.
-unsafe fn mag_cmp(a: *const u8, b: *const u8) -> i32 {
+pub(crate) unsafe fn mag_cmp(a: *const u8, b: *const u8) -> i32 {
     unsafe {
         let na = read_len(a) as usize;
         let nb = read_len(b) as usize;
@@ -48,7 +48,7 @@ unsafe fn mag_cmp(a: *const u8, b: *const u8) -> i32 {
 
 /// Magnitude addition. Returns fresh `+1`-rc BigInt with sign=0.
 /// Caller is responsible for setting the final sign.
-unsafe fn mag_add(a: *const u8, b: *const u8) -> *mut u8 {
+pub(crate) unsafe fn mag_add(a: *const u8, b: *const u8) -> *mut u8 {
     unsafe {
         let na = read_len(a) as usize;
         let nb = read_len(b) as usize;
@@ -73,7 +73,7 @@ unsafe fn mag_add(a: *const u8, b: *const u8) -> *mut u8 {
 
 /// Magnitude subtraction. Caller MUST ensure `|a| ≥ |b|`.
 /// Returns fresh `+1`-rc BigInt with sign=0.
-unsafe fn mag_sub(a: *const u8, b: *const u8) -> *mut u8 {
+pub(crate) unsafe fn mag_sub(a: *const u8, b: *const u8) -> *mut u8 {
     unsafe {
         let na = read_len(a) as usize;
         let nb = read_len(b) as usize;
