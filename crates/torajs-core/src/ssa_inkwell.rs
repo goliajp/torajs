@@ -161,6 +161,101 @@ pub fn compile_for_kind(
     target: CompileTarget,
     kind: OutputKind,
 ) -> Result<(), CompileError> {
+    compile_for_kind_with_cache(
+        ssa_module,
+        out_path,
+        opt,
+        source_path,
+        ast,
+        target,
+        kind,
+        None,
+    )
+}
+
+/// B-1 phase 2 — variant of `compile_for_kind` that takes an
+/// optional path to a cached per-fixture `.o` file.
+///
+/// Fast path (cache hit): copy cached `.o` → temp, skip the LLVM
+/// pipeline entirely (parse/check/lower happened upstream in the
+/// caller; the cached .o is byte-identical to what LLVM would emit
+/// for the same source against the same compiler-rev). Read the
+/// `.uses_fetch` sidecar to decide whether to add `-lcurl`. Jump
+/// straight to runtime cc + final link.
+///
+/// Slow path (cache miss, or cache None): runs the full LLVM compile
+/// as before. On miss with a cache slot provided, also copies the
+/// freshly produced `.o` + uses_fetch sidecar into the cache slot
+/// (atomically) for future hits.
+///
+/// `fixture_o_cache` key contract: caller MUST ensure the same source
+/// + opt + compiler_rev produces the same cache path (see
+/// `TORAJS_COMPILER_REV` in build.rs). Mismatch = silent stale .o.
+pub fn compile_for_kind_with_cache(
+    ssa_module: &Module,
+    out_path: &Path,
+    opt: &str,
+    source_path: Option<&Path>,
+    ast: Option<&crate::ast::Ast>,
+    target: CompileTarget,
+    kind: OutputKind,
+    fixture_o_cache: Option<&Path>,
+) -> Result<(), CompileError> {
+    // Fast path: cached fixture .o exists → skip the entire LLVM
+    // pipeline, jump straight to link.
+    if let Some(cache_p) = fixture_o_cache
+        && cache_p.is_file()
+    {
+        let _guard = COMPILE_LOCK
+            .lock()
+            .expect("ssa_inkwell COMPILE_LOCK poisoned by a prior panicking compile");
+        let pid = std::process::id();
+        let obj_path: PathBuf =
+            std::env::temp_dir().join(format!("torajs-llvm-{}-{}.o", pid, rand_suffix()));
+        std::fs::copy(cache_p, &obj_path)
+            .map_err(|e| CompileError::Link(format!("copy cached fixture .o: {e}")))?;
+        let uses_fetch = read_uses_fetch_sidecar(cache_p);
+        let result = link_object_to_binary(
+            &obj_path,
+            out_path,
+            opt,
+            source_path,
+            target,
+            kind,
+            uses_fetch,
+        );
+        let _ = std::fs::remove_file(&obj_path);
+        return result;
+    }
+
+    // Slow path: full LLVM compile.
+    let result = compile_for_kind_impl(
+        ssa_module,
+        out_path,
+        opt,
+        source_path,
+        ast,
+        target,
+        kind,
+        fixture_o_cache,
+    );
+    result
+}
+
+/// Hold the original 880-line compile body. Sections 1-3 emit LLVM
+/// → .o, then call into `link_object_to_binary`. Cache-write happens
+/// post-emit when `fixture_o_cache` is Some.
+#[allow(clippy::too_many_arguments)]
+fn compile_for_kind_impl(
+    ssa_module: &Module,
+    out_path: &Path,
+    opt: &str,
+    source_path: Option<&Path>,
+    ast: Option<&crate::ast::Ast>,
+    target: CompileTarget,
+    kind: OutputKind,
+    fixture_o_cache: Option<&Path>,
+) -> Result<(), CompileError> {
     // Serialize all LLVM codegen — see COMPILE_LOCK doc above. Poisoning
     // can only happen if a previous compile panicked mid-codegen, which
     // would itself be a bug worth surfacing; expect rather than recover.
@@ -800,6 +895,63 @@ pub fn compile_for_kind(
         let _ = std::fs::copy(&obj_path, "/tmp/torajs-debug.o");
     }
 
+    // Compute uses_fetch from the SSA module BEFORE we hand off to
+    // link_object_to_binary (which doesn't see the SSA). Used both
+    // for the link step decision and for the optional cache sidecar.
+    let uses_fetch = module_uses_fetch(ssa_module);
+
+    // B-1 phase 2 — cache write: copy the freshly produced .o + write
+    // a uses_fetch sidecar so future hits can rebuild the link command
+    // without scanning the SSA. Atomic (tmp + rename) so concurrent
+    // workers don't see half-written files. Same-content races are
+    // benign (last writer wins; bytes are deterministic).
+    if let Some(cache_p) = fixture_o_cache {
+        if let Some(parent) = cache_p.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let tmp = cache_p.with_extension(format!("tmp-{}-{}.o", std::process::id(), rand_suffix()));
+        if std::fs::copy(&obj_path, &tmp).is_ok() {
+            let _ = std::fs::rename(&tmp, cache_p);
+            write_uses_fetch_sidecar(cache_p, uses_fetch);
+        }
+    }
+
+    // Hand off to the link stage. obj_path will be cleaned up by the
+    // link function (it removes the .o it was given). uses_fetch is
+    // passed explicitly so the link path doesn't need ssa_module.
+    let result = link_object_to_binary(
+        &obj_path,
+        out_path,
+        opt,
+        source_path,
+        target,
+        kind,
+        uses_fetch,
+    );
+    return result;
+}
+
+/// Sections 4-8 of the compile pipeline, extracted (B-1 phase 2)
+/// so the cache fast-path can reach it without re-running LLVM.
+///
+/// - cleans up `obj_path` on success (matches the original compile
+///   semantics — `.o` is a temp not a deliverable)
+/// - takes `uses_fetch` explicitly instead of `ssa_module`; the cache
+///   hit path reads it from a sidecar, the cache miss path computes
+///   it once and passes it in
+///
+/// Mirrors the behavior of the inlined runtime-cc + final-link block
+/// the impl fn used to contain inline.
+fn link_object_to_binary(
+    obj_path: &Path,
+    out_path: &Path,
+    opt: &str,
+    source_path: Option<&Path>,
+    target: CompileTarget,
+    kind: OutputKind,
+    uses_fetch: bool,
+) -> Result<(), CompileError> {
+    let _ = opt; // opt is captured by cc_opt_arg derivation below; silence unused
     // M6.1+ — torajs's C runtime. Pieces that are clearer in C than
     // via the inkwell IR-builder API (string split, array join,
     // anything future where IR builder verbosity outweighs the
@@ -901,9 +1053,7 @@ pub fn compile_for_kind(
                 target,
             );
             let cache_path = cache_dir.join(format!("runtime-{key}.o"));
-            if cache_path.is_file()
-                && std::fs::copy(&cache_path, &o_paths[idx]).is_ok()
-            {
+            if cache_path.is_file() && std::fs::copy(&cache_path, &o_paths[idx]).is_ok() {
                 continue;
             }
         }
@@ -997,7 +1147,7 @@ pub fn compile_for_kind(
              * call site). Keep this conditional sharp — adding
              * libcurl for a feature the program doesn't use is
              * dead weight. */
-            if module_uses_fetch(ssa_module) {
+            if uses_fetch {
                 link_cmd.arg("-lcurl");
             }
             // V3-16 — shared-lib output: cc's `-shared` flag asks
@@ -3898,6 +4048,28 @@ fn rand_suffix() -> String {
         .map(|d| d.subsec_nanos())
         .unwrap_or(0);
     format!("{nanos:x}")
+}
+
+/// Per-fixture .o cache sidecar — records `uses_fetch` so the
+/// fast (cache-hit) link path knows whether to add `-lcurl` without
+/// needing the original SSA module. Sidecar is just an empty file
+/// next to the .o, named `<key>.uses_fetch` — presence = true,
+/// absence = false. Write is best-effort (cache miss on read just
+/// falls back to false, which only matters for fetch-using fixtures).
+fn write_uses_fetch_sidecar(o_path: &Path, uses_fetch: bool) {
+    let sidecar = o_path.with_extension("uses_fetch");
+    if uses_fetch {
+        let _ = std::fs::write(&sidecar, b"");
+    } else {
+        let _ = std::fs::remove_file(&sidecar);
+    }
+}
+
+/// Read the `uses_fetch` sidecar for `o_path`. Missing sidecar =
+/// false (most fixtures don't use fetch; -lcurl is only needed when
+/// the fixture actually calls into runtime_fetch.c).
+fn read_uses_fetch_sidecar(o_path: &Path) -> bool {
+    o_path.with_extension("uses_fetch").is_file()
 }
 
 /// Locate `~/.torajs/cache` (or `$TORAJS_CACHE_DIR`) for the runtime

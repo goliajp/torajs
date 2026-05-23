@@ -120,9 +120,7 @@ fn print_usage() {
     println!(
         "    lint <file> [--deny] surface 5 lint warnings (unused-let, dead-code-after-return, unreachable-catch, shadowed-let, unused-import); --deny exits non-zero on any warning"
     );
-    println!(
-        "    cache size           print ~/.torajs/cache size"
-    );
+    println!("    cache size           print ~/.torajs/cache size");
     println!(
         "    cache clean [--max-mb N]  LRU-prune ~/.torajs/cache to under N MB (default 2048)"
     );
@@ -617,12 +615,33 @@ fn run_jit(file_arg: Option<&String>) -> ExitCode {
             rand_suffix()
         )),
     };
-    if let Err(e) = ssa_inkwell::compile(
+    // B-1 phase 2 — per-fixture .o cache. Cache key hashes inputs that
+    // affect the LLVM .o output (source + imports + opt + compiler-rev)
+    // but NOT the staticlib content (different from binary cache key —
+    // .o is link-stage-input, staticlibs are link-stage-output deps).
+    // Substrate ship invalidates binary cache (mtime), keeps .o cache
+    // warm → relink is fast.
+    let fixture_o_cache_path: Option<std::path::PathBuf> = if !cache_disabled {
+        let key = fixture_o_cache_key(&src, &import_closure);
+        let cache_dir = std::env::var("TORAJS_CACHE_DIR")
+            .ok()
+            .map(std::path::PathBuf::from)
+            .or_else(|| {
+                std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".torajs/cache"))
+            });
+        cache_dir.map(|d| d.join(format!("fixture-{key}.o")))
+    } else {
+        None
+    };
+    if let Err(e) = ssa_inkwell::compile_for_kind_with_cache(
         &ssa_module,
         &target_path,
         "O3",
         Some(std::path::Path::new(path)),
         Some(&ast),
+        ssa_inkwell::CompileTarget::Native,
+        ssa_inkwell::OutputKind::Executable,
+        fixture_o_cache_path.as_deref(),
     ) {
         eprintln!("compile error: {e}");
         return ExitCode::from(1);
@@ -812,6 +831,42 @@ fn dir_size_bytes(p: &std::path::Path) -> u64 {
         }
     }
     sum
+}
+
+/// Hash key for the per-fixture .o cache (B-1 phase 2). Includes
+/// only inputs that affect the LLVM .o output:
+/// - main source bytes
+/// - import-closure file bytes
+/// - opt level (hardcoded "O3" for `tr run`)
+/// - `TORAJS_COMPILER_REV` — build.rs fingerprint of the compiler
+///   `.rs` files (ssa_lower / ssa_inkwell / check / parser / lexer /
+///   ast / modules / ssa). Substrate ships don't touch these → cache
+///   stays warm across substrate ships, even though tr binary mtime
+///   does change.
+///
+/// Notably absent: tr binary mtime, staticlib content. Both can
+/// change without affecting .o bytes; including them would cause
+/// false invalidations and defeat the entire point of this cache.
+fn fixture_o_cache_key(src: &str, import_closure: &[(PathBuf, Vec<u8>)]) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    src.hash(&mut h);
+    let mut sorted: Vec<&(PathBuf, Vec<u8>)> = import_closure.iter().collect();
+    sorted.sort_by(|a, b| a.0.cmp(&b.0));
+    for (path, bytes) in &sorted {
+        path.hash(&mut h);
+        bytes.hash(&mut h);
+    }
+    "O3".hash(&mut h);
+    // Compiler fingerprint from build.rs. Set in
+    // crates/torajs-core/build.rs — but build.rs lives in torajs-core,
+    // not torajs-cli, so we have to access it via torajs_core's env
+    // export route. The build.rs sets `cargo:rustc-env=TORAJS_COMPILER_REV=...`
+    // which means env! resolves it ONLY inside torajs-core itself.
+    // To reach it from cli, expose via a `pub const` in torajs-core::lib.
+    h.write(torajs_core::TORAJS_COMPILER_REV.as_bytes());
+    "fixture-o-v1".hash(&mut h);
+    format!("{:016x}", h.finish())
 }
 
 /// Hash key for the run-cache. Includes the main source + every

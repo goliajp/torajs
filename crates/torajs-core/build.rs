@@ -26,6 +26,26 @@
 use std::env;
 use std::path::PathBuf;
 
+/// Compiler-source `.rs` files that, when modified, change the LLVM IR /
+/// `.o` bytes a `tr` invocation produces from a fixed `.ts` source.
+/// Cache keys derived from this list must invalidate whenever any of
+/// these change (per-fixture .o cache, post-substrate-ship gate scenario).
+///
+/// IMPORTANT: kept narrow on purpose — only ssa/lower/inkwell/check/parser/
+/// lexer/ast/modules/linter affect codegen output. Adding e.g. formatter.rs
+/// here would invalidate the cache on cosmetic source-formatting changes
+/// (no effect on emitted .o), wasting cache hits.
+const COMPILER_SOURCE_FILES: &[&str] = &[
+    "src/ssa_inkwell.rs",
+    "src/ssa_lower.rs",
+    "src/ssa.rs",
+    "src/check.rs",
+    "src/parser.rs",
+    "src/lexer.rs",
+    "src/ast.rs",
+    "src/modules.rs",
+];
+
 /// Enumerate every Layer-1+ Rust sub-crate that contributes
 /// `__torajs_*` symbols to the final `tr build` user binary. New
 /// sub-crates added during the architecture rewrite go in this
@@ -78,4 +98,33 @@ fn main() {
     // handful of printlns, so unconditional rerun is essentially
     // free.
     println!("cargo:rerun-if-changed=NULL_FORCE_RERUN");
+
+    // Compute a compiler-source fingerprint for the per-fixture .o
+    // cache key (B-1 phase 2). Hash every `.rs` file that affects
+    // codegen output; emit as `TORAJS_COMPILER_REV` so ssa_inkwell
+    // can put it in the cache key. Substrate ships don't change
+    // these files → cache stays warm across substrate ships, even
+    // though `tr` binary mtime does change. Compiler-logic ships
+    // (touching ssa_lower / ssa_inkwell / check / etc.) flip the
+    // hash and invalidate the cache — correct semantics.
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    for rel in COMPILER_SOURCE_FILES {
+        // Each file's path AND bytes go in. Path catches reorders;
+        // bytes catch content edits.
+        rel.hash(&mut h);
+        match std::fs::read(rel) {
+            Ok(bytes) => bytes.hash(&mut h),
+            Err(e) => {
+                // Fail the build — silently downgrading to "no compiler
+                // hash" would let cache silently serve stale entries
+                // across compiler-logic ships.
+                panic!("build.rs: cannot read compiler source `{rel}`: {e}");
+            }
+        }
+        // Tell cargo to rerun build.rs when any compiler source changes.
+        // Without this, cargo's fingerprint logic might skip rebuilds.
+        println!("cargo:rerun-if-changed={rel}");
+    }
+    println!("cargo:rustc-env=TORAJS_COMPILER_REV={:016x}", h.finish());
 }

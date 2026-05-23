@@ -57,6 +57,16 @@ pub const TORAJS_STATICLIBS: &[(&str, &[u8])] = &[
     ),
 ];
 
+/// Compiler-source fingerprint emitted by build.rs (hash of
+/// `src/ssa_inkwell.rs` / `src/ssa_lower.rs` / `src/check.rs` /
+/// `src/parser.rs` / `src/lexer.rs` / `src/ast.rs` / `src/modules.rs` /
+/// `src/ssa.rs`). Used by the per-fixture `.o` cache (B-1 phase 2):
+/// substrate ships don't touch these `.rs` files → fingerprint stable
+/// across ships → `.o` cache stays warm even though tr binary mtime
+/// changes. Compiler-logic ships (touching any file above) flip the
+/// fingerprint and invalidate the cache — correct semantics.
+pub const TORAJS_COMPILER_REV: &str = env!("TORAJS_COMPILER_REV");
+
 pub mod ast;
 pub mod check;
 pub mod formatter;
