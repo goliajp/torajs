@@ -98,171 +98,13 @@ static void bigint_normalize(BigIntHeader *b) {
  * Decimal / hex string → BigInt.
  * ============================================================ */
 
-/* Multiply b's magnitude by `mul` (a u32) in place; carry overflows
- * into a new high limb if needed. Used by decimal/hex digit-shift. */
-static void bigint_mul_u32_inplace(BigIntHeader **bp, uint32_t mul) {
-    BigIntHeader *b = *bp;
-    uint64_t *w = bigint_words(b);
-    uint64_t carry = 0;
-    for (uint32_t i = 0; i < b->len; i++) {
-        unsigned __int128 prod = (unsigned __int128)w[i] * mul + carry;
-        w[i] = (uint64_t)prod;
-        carry = (uint64_t)(prod >> 64);
-    }
-    if (carry) {
-        BigIntHeader *nb = bigint_alloc_raw(b->len + 1);
-        nb->sign = b->sign;
-        memcpy(bigint_words(nb), w, (size_t)b->len * 8);
-        bigint_words(nb)[b->len] = carry;
-        free(b);
-        *bp = nb;
-    }
-}
-
-static void bigint_add_u32_inplace(BigIntHeader **bp, uint32_t add) {
-    BigIntHeader *b = *bp;
-    uint64_t *w = bigint_words(b);
-    uint64_t carry = add;
-    for (uint32_t i = 0; i < b->len && carry; i++) {
-        unsigned __int128 sum = (unsigned __int128)w[i] + carry;
-        w[i] = (uint64_t)sum;
-        carry = (uint64_t)(sum >> 64);
-    }
-    if (carry) {
-        BigIntHeader *nb = bigint_alloc_raw(b->len + 1);
-        nb->sign = b->sign;
-        memcpy(bigint_words(nb), w, (size_t)b->len * 8);
-        bigint_words(nb)[b->len] = carry;
-        free(b);
-        *bp = nb;
-    }
-}
-
-/* Parse a decimal-digits Str into a fresh BigInt. Caller is the
- * SSA-lowered BigInt literal, which passes the literal-body Str
- * pointer (rodata-baked, STATIC_LITERAL flag set) plus the digit
- * count. Walking from offset 16 (past the universal heap header
- * + len field) gives us the raw bytes without an intermediate
- * pointer-arithmetic cast in SSA. */
-void *__torajs_bigint_from_decimal(void *s, uint64_t n) {
-    BigIntHeader *b = bigint_alloc_raw(0);
-    if (!s) {
-        bigint_normalize(b);
-        return b;
-    }
-    const uint8_t *bytes = (const uint8_t *)s + __TORAJS_STR_HDR_SIZE;
-    for (uint64_t i = 0; i < n; i++) {
-        uint8_t c = bytes[i];
-        if (c < '0' || c > '9') continue; /* tolerant — lexer should reject */
-        bigint_mul_u32_inplace(&b, 10);
-        bigint_add_u32_inplace(&b, (uint32_t)(c - '0'));
-    }
-    bigint_normalize(b);
-    return b;
-}
-
-void *__torajs_bigint_from_hex(void *s, uint64_t n) {
-    BigIntHeader *b = bigint_alloc_raw(0);
-    if (!s) {
-        bigint_normalize(b);
-        return b;
-    }
-    const uint8_t *bytes = (const uint8_t *)s + __TORAJS_STR_HDR_SIZE;
-    for (uint64_t i = 0; i < n; i++) {
-        uint8_t c = bytes[i];
-        uint32_t d;
-        if (c >= '0' && c <= '9') d = c - '0';
-        else if (c >= 'a' && c <= 'f') d = 10 + (c - 'a');
-        else if (c >= 'A' && c <= 'F') d = 10 + (c - 'A');
-        else continue;
-        bigint_mul_u32_inplace(&b, 16);
-        bigint_add_u32_inplace(&b, d);
-    }
-    bigint_normalize(b);
-    return b;
-}
-
-/* `BigInt(<runtime string value>)` — reads the str's len from
- * offset 8. Auto-detects the radix from the body's prefix:
- *   "0x" / "0X"  → hex
- *   "0o" / "0O"  → octal (V3-03 — added alongside callable form)
- *   "0b" / "0B"  → binary
- *   leading `-`  → magnitude parsed without sign, sign flipped
- *                  at the end
- *   anything else → decimal
- *
- * On parse errors (empty body, illegal char) the runtime currently
- * returns 0n rather than throwing SyntaxError; matching bun's
- * exact error path is a follow-up alongside the test262 push. */
-void *__torajs_bigint_from_str(void *s) {
-    if (!s) return __torajs_bigint_from_decimal(NULL, 0);
-    uint64_t len = *(const uint64_t *)((const uint8_t *)s + 8);
-    const uint8_t *bytes = (const uint8_t *)s + __TORAJS_STR_HDR_SIZE;
-    /* Strip a leading sign so radix prefixes that follow ("- 0x...")
-     * are still recognized. */
-    int negative = 0;
-    uint64_t off = 0;
-    if (len > 0 && bytes[0] == '-') { negative = 1; off = 1; }
-    else if (len > 0 && bytes[0] == '+') { off = 1; }
-    if (len - off >= 2 && bytes[off] == '0' &&
-        (bytes[off + 1] == 'x' || bytes[off + 1] == 'X'))
-    {
-        BigIntHeader *r = bigint_alloc_raw(0);
-        for (uint64_t i = off + 2; i < len; i++) {
-            uint8_t c = bytes[i];
-            uint32_t d;
-            if (c >= '0' && c <= '9') d = c - '0';
-            else if (c >= 'a' && c <= 'f') d = 10 + (c - 'a');
-            else if (c >= 'A' && c <= 'F') d = 10 + (c - 'A');
-            else continue;
-            bigint_mul_u32_inplace(&r, 16);
-            bigint_add_u32_inplace(&r, d);
-        }
-        bigint_normalize(r);
-        if (negative && r->len > 0) r->sign = 1;
-        return r;
-    }
-    if (len - off >= 2 && bytes[off] == '0' &&
-        (bytes[off + 1] == 'o' || bytes[off + 1] == 'O'))
-    {
-        BigIntHeader *r = bigint_alloc_raw(0);
-        for (uint64_t i = off + 2; i < len; i++) {
-            uint8_t c = bytes[i];
-            if (c < '0' || c > '7') continue;
-            bigint_mul_u32_inplace(&r, 8);
-            bigint_add_u32_inplace(&r, (uint32_t)(c - '0'));
-        }
-        bigint_normalize(r);
-        if (negative && r->len > 0) r->sign = 1;
-        return r;
-    }
-    if (len - off >= 2 && bytes[off] == '0' &&
-        (bytes[off + 1] == 'b' || bytes[off + 1] == 'B'))
-    {
-        BigIntHeader *r = bigint_alloc_raw(0);
-        for (uint64_t i = off + 2; i < len; i++) {
-            uint8_t c = bytes[i];
-            if (c != '0' && c != '1') continue;
-            bigint_mul_u32_inplace(&r, 2);
-            bigint_add_u32_inplace(&r, (uint32_t)(c - '0'));
-        }
-        bigint_normalize(r);
-        if (negative && r->len > 0) r->sign = 1;
-        return r;
-    }
-    /* Decimal — also strip embedded whitespace + tolerate the same
-     * lenient form the literal lexer produces (digits only). */
-    BigIntHeader *r = bigint_alloc_raw(0);
-    for (uint64_t i = off; i < len; i++) {
-        uint8_t c = bytes[i];
-        if (c < '0' || c > '9') continue;
-        bigint_mul_u32_inplace(&r, 10);
-        bigint_add_u32_inplace(&r, (uint32_t)(c - '0'));
-    }
-    bigint_normalize(r);
-    if (negative && r->len > 0) r->sign = 1;
-    return r;
-}
+/* __torajs_bigint_from_decimal / _from_hex / _from_str + the static
+ * bigint_mul_u32_inplace / bigint_add_u32_inplace helpers moved to
+ * torajs-bigint::{construct, internal} (P3.3-b, 2026-05-23). Pure-Rust
+ * impl over raw `*mut u8` BigInt heap blocks; layout invariant
+ * preserved (16-byte aligned header + sign u32 + len u32 + inline
+ * u64 limbs). Cross-tier alloc/free ownership: Rust internal alloc
+ * via libc malloc; release via __torajs_bigint_drop_rc. */
 
 /* Forward decls — bigint_mag_shl_/shr_ live later in this TU
  * (with the other bitwise helpers); we need them here for the
@@ -321,33 +163,10 @@ void *__torajs_bigint_from_number(double v) {
     return r;
 }
 
-/* `BigInt(<bigint>)` — clone. The caller's input lifetime is
- * unchanged (no rc transfer); we make a fresh +1-rc copy so the
- * result has independent ownership. */
-void *__torajs_bigint_clone(void *a_) {
-    const BigIntHeader *a = (const BigIntHeader *)a_;
-    BigIntHeader *r = bigint_alloc_raw(a->len);
-    if (a->len > 0) memcpy(bigint_words(r), bigint_words_c(a), (size_t)a->len * 8);
-    r->sign = a->sign;
-    return r;
-}
-
-/* From an i64 scalar. Sign-extracted; magnitude up to 64 bits → 1 limb. */
-void *__torajs_bigint_from_i64(int64_t v) {
-    if (v == 0) {
-        BigIntHeader *b = bigint_alloc_raw(0);
-        return b;
-    }
-    BigIntHeader *b = bigint_alloc_raw(1);
-    if (v < 0) {
-        b->sign = 1;
-        /* INT64_MIN's magnitude doesn't fit in i64 — handle via unsigned. */
-        bigint_words(b)[0] = (uint64_t)(-(v + 1)) + 1;
-    } else {
-        bigint_words(b)[0] = (uint64_t)v;
-    }
-    return b;
-}
+/* __torajs_bigint_clone + _from_i64 moved to torajs-bigint::construct
+ * (P3.3-b, 2026-05-23). clone = fresh +1-rc copy via internal alloc_raw +
+ * limb memcpy; from_i64 = 1-limb alloc with sign extraction + INT64_MIN
+ * unsigned-promotion edge handled. */
 
 /* ============================================================
  * Magnitude comparison + addition + subtraction.

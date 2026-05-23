@@ -40,9 +40,15 @@
 //! mismatch that has no clean fix on stable. `std` staticlibs link
 //! cleanly at `tr build` time.
 
+pub mod construct;
 pub mod drop;
+pub mod internal;
 pub mod layout;
 
+pub use construct::{
+    __torajs_bigint_clone, __torajs_bigint_from_decimal, __torajs_bigint_from_hex,
+    __torajs_bigint_from_i64, __torajs_bigint_from_str,
+};
 pub use drop::{__torajs_bigint_drop, __torajs_bigint_drop_rc};
 
 // `__torajs_rc_dec` is provided by `libtorajs_rc.a` at `tr build`

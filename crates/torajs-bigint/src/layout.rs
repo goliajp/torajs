@@ -38,3 +38,16 @@ pub const WORDS_OFF: usize = HEAP_HEADER_SIZE + 8;
 /// The `type_tag` value for BigInt heap values (matches
 /// `runtime_bigint.c`'s `__TORAJS_TAG_BIGINT`).
 pub const TAG_BIGINT: u16 = 10;
+
+/// Mirror of `torajs-str::layout::STR_HDR_SIZE` (= 16). Used by
+/// construct fns that receive a Str pointer (`__torajs_bigint_from_decimal`
+/// / `_from_hex` / `_from_str`) — body bytes start at `s + STR_HDR_SIZE`,
+/// `len` at `s + STR_LEN_OFF` (offset 8). Duplicated as constant here
+/// (not Cargo-dep'd from torajs-str) per the same-layer cross-tier
+/// extern pattern: Layer-2 siblings forbid mutual deps; cross-tier
+/// data layouts replicate constants on each side.
+pub const STR_HDR_SIZE: usize = 16;
+
+/// Mirror of `torajs-str::layout::STR_LEN_OFF` (= 8). Offset of the
+/// Str's `len` u64 within its heap block.
+pub const STR_LEN_OFF: usize = 8;
