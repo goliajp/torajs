@@ -36,6 +36,7 @@ pub mod alloc;
 pub mod any;
 pub mod drop;
 pub mod grow;
+pub mod iter;
 pub mod join;
 pub mod layout;
 pub mod ops;
@@ -54,6 +55,10 @@ pub use any::{
 pub use drop::{__torajs_arr_drop, __torajs_arr_drop_any};
 pub use grow::{
     __torajs_arr_push, __torajs_arr_reserve, __torajs_arr_set_length_validate, __torajs_arr_shift,
+};
+pub use iter::{
+    __torajs_arr_iter_create_entries, __torajs_arr_iter_create_keys,
+    __torajs_arr_iter_create_values, __torajs_arr_iter_drop, __torajs_arr_iter_step,
 };
 pub use join::{
     __torajs_arr_join, __torajs_arr_join_bool, __torajs_arr_join_f64, __torajs_arr_join_i64,
@@ -85,5 +90,28 @@ pub unsafe extern "C" fn __torajs_str_alloc_pooled(_len: u64) -> *mut u8 {
 pub unsafe extern "C" fn __torajs_throw_range_error(_msg: *const u8) {
     panic!(
         "torajs-arr unit-test stub: __torajs_throw_range_error should not be called from cargo test paths"
+    );
+}
+
+// Iter externs (P4.3-g): rc_inc / rc_dec / value_drop_heap come from
+// torajs-rc / runtime_str.c at `tr build` link time; cargo test gets
+// panicking stubs. Same pattern.
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_rc_inc(_p: *mut core::ffi::c_void) {
+    panic!("torajs-arr unit-test stub: __torajs_rc_inc should not be called from cargo test paths");
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_rc_dec(_p: *mut core::ffi::c_void) -> i32 {
+    panic!("torajs-arr unit-test stub: __torajs_rc_dec should not be called from cargo test paths");
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_value_drop_heap(_p: *mut core::ffi::c_void) {
+    panic!(
+        "torajs-arr unit-test stub: __torajs_value_drop_heap should not be called from cargo test paths"
     );
 }
