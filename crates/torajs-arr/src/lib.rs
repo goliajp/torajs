@@ -45,5 +45,5 @@ pub use any::{
     __torajs_arr_get_any_tag, __torajs_arr_get_any_value, __torajs_arr_push_any,
     __torajs_arr_set_any,
 };
-pub use drop::__torajs_arr_drop;
+pub use drop::{__torajs_arr_drop, __torajs_arr_drop_any};
 pub use ops::{__torajs_arr_extend_unchecked, __torajs_arr_push_unchecked};

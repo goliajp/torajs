@@ -408,19 +408,10 @@ extern int __torajs_split_block_free_push(void *p);
  * ready for the inkwell decls.
  * ============================================================ */
 
-/* Slot stride for Array<Any>. */
-#define __TORAJS_ANY_SLOT_BYTES  16
-
-/* slot[i] tag/val pointers — kept C-side until __torajs_arr_drop_any
- * (the rc-drop walker) also moves to torajs-arr (future P4.1-e).
- * P4.1-d's 7 fns now live in torajs-arr::any; only arr_drop_any (the
- * heap-child walker on rc=0) still pokes slot bytes directly. */
-static inline uint64_t *any_slot_tag_(void *arr, uint64_t i) {
-    return (uint64_t *)((uint8_t *)arr + 24 + i * __TORAJS_ANY_SLOT_BYTES);
-}
-static inline uint64_t *any_slot_val_(void *arr, uint64_t i) {
-    return (uint64_t *)((uint8_t *)arr + 24 + i * __TORAJS_ANY_SLOT_BYTES + 8);
-}
+/* any_slot_tag_/val_ helpers + __TORAJS_ANY_SLOT_BYTES macro deleted
+ * (P4.1-e, 2026-05-23). Last C user was __torajs_arr_drop_any which
+ * now lives in torajs-arr::drop. ANY_SLOT_BYTES=16 const mirror is
+ * in torajs-arr/src/drop.rs + any.rs as `ANY_SLOT_BYTES`. */
 
 /* __torajs_arr_alloc_any / _alloc_any_filled / _push_any / _extend_any
  * / _get_any_tag / _get_any_value / _set_any 全部 moved to
@@ -1116,32 +1107,13 @@ void __torajs_value_drop_heap(void *child) {
     }
 }
 
-/* Drop an Array<Any>. rc-aware: dec, return early if shared.
- * On last-owner (rc hit 0), walks every slot — for ANY_HEAP slots
- * routes through `__torajs_value_drop_heap` so the child's per-type
- * free runs. Then frees the outer block. Mirrors regular arr_drop's
- * rc-awareness so emit_drop_value Type::Arr(Any) can call this once
- * per scope-exit without manual rc bookkeeping. */
-void __torajs_arrprops_drop_entry(void *arr_ptr); /* fwd decl */
-
-void __torajs_arr_drop_any(void *arr) {
-    if (arr == NULL) return;
-    __torajs_heap_header_t *h = (__torajs_heap_header_t *)arr;
-    if (h->flags & __TORAJS_FLAG_STATIC_LITERAL) return;
-    if (!__torajs_rc_dec(arr)) return; /* shared, keep alive */
-    uint64_t len = *(uint64_t *)((uint8_t *)arr + 8);
-    for (uint64_t i = 0; i < len; i++) {
-        uint64_t tag = *any_slot_tag_(arr, i);
-        if (tag == __TORAJS_ANY_HEAP) {
-            void *child = (void *)(uintptr_t)*any_slot_val_(arr, i);
-            __torajs_value_drop_heap(child);
-        }
-    }
-    /* T-29 — drop side-table props entry (no-op for arrays without
-     * `arr.x = v` written). */
-    __torajs_arrprops_drop_entry(arr);
-    free(arr);
-}
+/* __torajs_arr_drop_any moved to torajs-arr::drop (P4.1-e, 2026-05-23).
+ * Rust impl mirrors C 1:1: NULL/STATIC_LITERAL/rc_dec gates +
+ * per-slot heap-child walker (ANY_HEAP tag → value_drop_heap) +
+ * arrprops_drop_entry + libc free. Bypasses pool (16-byte stride). */
+void __torajs_arrprops_drop_entry(void *arr_ptr); /* fwd decl — still
+                                                    used by other
+                                                    C-side code */
 
 /* T-27.b — Function-as-Object side table for top-level FnDecls.
  *
