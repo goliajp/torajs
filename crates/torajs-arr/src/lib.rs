@@ -38,6 +38,7 @@ pub mod drop;
 pub mod layout;
 pub mod ops;
 pub mod pool;
+pub mod print;
 pub mod slice;
 
 pub use alloc::{__torajs_arr_alloc, __torajs_arr_alloc_pooled, __torajs_arr_free};
@@ -48,4 +49,8 @@ pub use any::{
 };
 pub use drop::{__torajs_arr_drop, __torajs_arr_drop_any};
 pub use ops::{__torajs_arr_extend_unchecked, __torajs_arr_push_unchecked};
+pub use print::{
+    __torajs_arr_print_bool, __torajs_arr_print_f64, __torajs_arr_print_i64,
+    __torajs_arr_print_str, __torajs_arr_print_substr,
+};
 pub use slice::__torajs_arr_slice;

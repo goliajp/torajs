@@ -2019,96 +2019,10 @@ void *__torajs_i64_to_str(int64_t n) {
  * variant called when the receiver is statically Array<I64>. */
 #define __TORAJS_ARR_DATA_OFF 24
 
-void __torajs_arr_print_i64(void *arr) {
-    if (arr == NULL) {
-        fputs("undefined\n", stdout);
-        return;
-    }
-    uint64_t len = *(uint64_t *)((uint8_t *)arr + 8);
-    if (len == 0) {
-        fputs("[]\n", stdout);
-        return;
-    }
-    fputs("[ ", stdout);
-    uint32_t head = *(uint32_t *)((uint8_t *)arr + 20);
-    for (uint64_t i = 0; i < len; i++) {
-        if (i > 0) fputs(", ", stdout);
-        int64_t v = *(int64_t *)((uint8_t *)arr + __TORAJS_ARR_DATA_OFF + ((uint64_t)head + i) * 8);
-        printf("%lld", (long long)v);
-    }
-    fputs(" ]\n", stdout);
-}
-
-void __torajs_arr_print_f64(void *arr) {
-    if (arr == NULL) {
-        fputs("undefined\n", stdout);
-        return;
-    }
-    uint64_t len = *(uint64_t *)((uint8_t *)arr + 8);
-    if (len == 0) {
-        fputs("[]\n", stdout);
-        return;
-    }
-    fputs("[ ", stdout);
-    uint32_t head = *(uint32_t *)((uint8_t *)arr + 20);
-    for (uint64_t i = 0; i < len; i++) {
-        if (i > 0) fputs(", ", stdout);
-        double v = *(double *)((uint8_t *)arr + __TORAJS_ARR_DATA_OFF + ((uint64_t)head + i) * 8);
-        if (v != v) { fputs("NaN", stdout); }
-        else if (v == 1.0/0.0) { fputs("Infinity", stdout); }
-        else if (v == -1.0/0.0) { fputs("-Infinity", stdout); }
-        else printf("%g", v);
-    }
-    fputs(" ]\n", stdout);
-}
-
-void __torajs_arr_print_bool(void *arr) {
-    if (arr == NULL) {
-        fputs("undefined\n", stdout);
-        return;
-    }
-    uint64_t len = *(uint64_t *)((uint8_t *)arr + 8);
-    if (len == 0) {
-        fputs("[]\n", stdout);
-        return;
-    }
-    fputs("[ ", stdout);
-    uint32_t head = *(uint32_t *)((uint8_t *)arr + 20);
-    for (uint64_t i = 0; i < len; i++) {
-        if (i > 0) fputs(", ", stdout);
-        int64_t v = *(int64_t *)((uint8_t *)arr + __TORAJS_ARR_DATA_OFF + ((uint64_t)head + i) * 8);
-        fputs(v ? "true" : "false", stdout);
-    }
-    fputs(" ]\n", stdout);
-}
-
-void __torajs_arr_print_str(void *arr) {
-    if (arr == NULL) {
-        fputs("undefined\n", stdout);
-        return;
-    }
-    uint64_t len = *(uint64_t *)((uint8_t *)arr + 8);
-    if (len == 0) {
-        fputs("[]\n", stdout);
-        return;
-    }
-    fputs("[ ", stdout);
-    uint32_t head = *(uint32_t *)((uint8_t *)arr + 20);
-    for (uint64_t i = 0; i < len; i++) {
-        if (i > 0) fputs(", ", stdout);
-        void *s = *(void **)((uint8_t *)arr + __TORAJS_ARR_DATA_OFF + ((uint64_t)head + i) * 8);
-        if (s == NULL) {
-            fputs("\"\"", stdout);
-            continue;
-        }
-        uint64_t slen = *(uint64_t *)((uint8_t *)s + 8);
-        const uint8_t *sdata = (const uint8_t *)s + 16;
-        fputc('"', stdout);
-        fwrite(sdata, 1, (size_t)slen, stdout);
-        fputc('"', stdout);
-    }
-    fputs(" ]\n", stdout);
-}
+/* __torajs_arr_print_{i64,f64,bool,str} moved to torajs-arr::print
+ * (P4.1-g, 2026-05-23). Same per-element shape, same byte-equal output
+ * via cross-tier putchar + snprintf. NaN/Infinity/-Infinity 特殊 case
+ * for f64 preserved. */
 
 /* V3-18 m1.h.34 — single-Substr printer (console.log(substr) path).
  * Substr layout is { hdr@0, len@8, parent@16, offset@24 } — different
@@ -2128,39 +2042,9 @@ void __torajs_substr_print(void *v) {
     fputc('\n', stdout);
 }
 
-/* V3-18 m1.h.28 — arr-of-Substr printer. Each slot points at a
- * Substr header whose layout is { hdr@0, len@8, parent@16, offset@24 }
- * — different from Str's inline-data-at-16. Without this dispatch
- * `console.log("a-b-c".split("-"))` printed garbage bytes from
- * the parent pointer interpreted as data. */
-void __torajs_arr_print_substr(void *arr) {
-    if (arr == NULL) {
-        fputs("undefined\n", stdout);
-        return;
-    }
-    uint64_t len = *(uint64_t *)((uint8_t *)arr + 8);
-    if (len == 0) {
-        fputs("[]\n", stdout);
-        return;
-    }
-    fputs("[ ", stdout);
-    uint32_t head = *(uint32_t *)((uint8_t *)arr + 20);
-    for (uint64_t i = 0; i < len; i++) {
-        if (i > 0) fputs(", ", stdout);
-        void *v = *(void **)((uint8_t *)arr + __TORAJS_ARR_DATA_OFF + ((uint64_t)head + i) * 8);
-        if (v == NULL) {
-            fputs("\"\"", stdout);
-            continue;
-        }
-        uint64_t slen = __TORAJS_SUBSTR_LEN(v);
-        uint8_t *parent = __TORAJS_SUBSTR_PARENT(v);
-        uint64_t offset = __TORAJS_SUBSTR_OFFSET(v);
-        fputc('"', stdout);
-        fwrite(parent + __TORAJS_STR_HDR_SIZE + offset, 1, (size_t)slen, stdout);
-        fputc('"', stdout);
-    }
-    fputs(" ]\n", stdout);
-}
+/* __torajs_arr_print_substr moved to torajs-arr::print (P4.1-g,
+ * 2026-05-23). Substr layout-aware: reads parent + offset + len from
+ * each slot's Substr header, writes "<bytes>" with quotes. */
 
 /* V3-18 m1.h.9 — console.log of a f64 must format NaN as "NaN"
  * (capitalized) and Infinity / -Infinity per spec, matching the
