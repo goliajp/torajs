@@ -81,6 +81,7 @@ fn main() -> ExitCode {
             ssa::demo_fib40().print();
             ExitCode::SUCCESS
         }
+        Some("cache") => run_cache_subcmd(&args[1..]),
         Some(other) => {
             eprintln!("error: unknown command `{other}`");
             print_usage();
@@ -118,6 +119,12 @@ fn print_usage() {
     );
     println!(
         "    lint <file> [--deny] surface 5 lint warnings (unused-let, dead-code-after-return, unreachable-catch, shadowed-let, unused-import); --deny exits non-zero on any warning"
+    );
+    println!(
+        "    cache size           print ~/.torajs/cache size"
+    );
+    println!(
+        "    cache clean [--max-mb N]  LRU-prune ~/.torajs/cache to under N MB (default 2048)"
     );
     println!();
     println!("    --version, -V        print version");
@@ -591,6 +598,12 @@ fn run_jit(file_arg: Option<&String>) -> ExitCode {
     };
 
     // Compile target: cache slot if we have one, else a tmp file.
+    // (No inline prune here — measured to add ~10 ms per cache miss
+    // ×685 fixtures = 7 s of overhead during a conformance gate, and
+    // creates parallel-worker races when multiple cache-miss paths
+    // walk the same dir simultaneously. Prune is now a separate
+    // `tr cache clean` subcommand that the conformance runner kicks
+    // once at gate start.)
     let target_path = match cache_path.as_ref() {
         Some(p) => {
             if let Some(parent) = p.parent() {
@@ -619,6 +632,186 @@ fn run_jit(file_arg: Option<&String>) -> ExitCode {
         let _ = std::fs::remove_file(&target_path);
     }
     rc
+}
+
+/// LRU prune for the run cache. Keeps the directory size at ~2 GB
+/// by deleting oldest entries (by modify time) until under the cap.
+/// Runs only on cache-miss + before-compile (when the upcoming LLVM
+/// pass dwarfs the prune cost). Each cache entry is a single
+/// executable plus an optional `.dSYM/` debug-info bundle on macOS;
+/// both get cleaned together.
+///
+/// Cap can be overridden via `TORAJS_CACHE_MAX_MB` (e.g. for CI
+/// boxes with tighter disk).
+fn prune_run_cache(cache_dir: &std::path::Path) {
+    const DEFAULT_CAP_MB: u64 = 2 * 1024; // 2 GB
+    let cap_bytes = std::env::var("TORAJS_CACHE_MAX_MB")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(DEFAULT_CAP_MB)
+        * 1024
+        * 1024;
+
+    // Collect (mtime, path, size) for every direct child. We don't
+    // recurse into .dSYM internals — they're paired with their
+    // sibling binary by stem matching at delete time.
+    let mut entries: Vec<(std::time::SystemTime, PathBuf, u64)> = Vec::new();
+    let read = match std::fs::read_dir(cache_dir) {
+        Ok(r) => r,
+        Err(_) => return,
+    };
+    let mut total: u64 = 0;
+    for ent in read.flatten() {
+        let path = ent.path();
+        let meta = match ent.metadata() {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
+        let size = if meta.is_dir() {
+            dir_size_bytes(&path)
+        } else {
+            meta.len()
+        };
+        total += size;
+        let mtime = meta.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+        entries.push((mtime, path, size));
+    }
+    if total <= cap_bytes {
+        return;
+    }
+    // Sort oldest-first; delete until under cap.
+    entries.sort_by_key(|(m, _, _)| *m);
+    let mut freed: u64 = 0;
+    let need_free = total - cap_bytes;
+    for (_, path, size) in entries {
+        if freed >= need_free {
+            break;
+        }
+        if path.is_file() {
+            let _ = std::fs::remove_file(&path);
+            // Pair-delete the matching .dSYM bundle if present.
+            let dsym = path.with_extension("dSYM");
+            if dsym.exists() {
+                let _ = std::fs::remove_dir_all(&dsym);
+            }
+        } else if path.is_dir() {
+            let _ = std::fs::remove_dir_all(&path);
+        }
+        freed += size;
+    }
+}
+
+/// `tr cache clean [--max-mb N]` — prune `~/.torajs/cache` to under
+/// the given cap (default 2048 MB). LRU eviction by mtime ascending.
+/// Pairs deleted with their `.dSYM/` bundles. Reports bytes freed.
+///
+/// Idempotent + safe to call concurrently with `tr run` invocations
+/// (worst case: a concurrent run hits a freshly evicted cache slot
+/// and recompiles — same outcome as a cold cache).
+fn run_cache_subcmd(args: &[String]) -> ExitCode {
+    let sub = args.first().map(String::as_str);
+    match sub {
+        Some("clean") => {
+            let mut cap_mb: u64 = 2048;
+            let mut i = 1;
+            while i < args.len() {
+                if args[i] == "--max-mb" {
+                    if let Some(v) = args.get(i + 1).and_then(|s| s.parse::<u64>().ok()) {
+                        cap_mb = v;
+                        i += 2;
+                        continue;
+                    }
+                    eprintln!("error: --max-mb expects a positive integer");
+                    return ExitCode::from(2);
+                }
+                i += 1;
+            }
+            let cache_dir = match std::env::var_os("TORAJS_CACHE_DIR")
+                .map(std::path::PathBuf::from)
+                .or_else(|| {
+                    std::env::var_os("HOME")
+                        .map(|h| std::path::PathBuf::from(h).join(".torajs/cache"))
+                }) {
+                Some(d) => d,
+                None => {
+                    eprintln!("error: no $HOME and no $TORAJS_CACHE_DIR set");
+                    return ExitCode::from(1);
+                }
+            };
+            if !cache_dir.is_dir() {
+                println!("cache dir does not exist: {}", cache_dir.display());
+                return ExitCode::SUCCESS;
+            }
+            let before_bytes = dir_size_bytes(&cache_dir);
+            // Temporarily override env to push the cap down to cap_mb
+            // for the duration of this call; existing prune_run_cache
+            // reads TORAJS_CACHE_MAX_MB.
+            // SAFETY: single-threaded subcommand entry point.
+            unsafe {
+                std::env::set_var("TORAJS_CACHE_MAX_MB", cap_mb.to_string());
+            }
+            prune_run_cache(&cache_dir);
+            let after_bytes = dir_size_bytes(&cache_dir);
+            let freed = before_bytes.saturating_sub(after_bytes);
+            println!(
+                "cache: {} → {} ({:+} MB)",
+                fmt_mb(before_bytes),
+                fmt_mb(after_bytes),
+                -(freed as i64 / 1024 / 1024)
+            );
+            ExitCode::SUCCESS
+        }
+        Some("size") | None => {
+            let cache_dir = std::env::var_os("TORAJS_CACHE_DIR")
+                .map(std::path::PathBuf::from)
+                .or_else(|| {
+                    std::env::var_os("HOME")
+                        .map(|h| std::path::PathBuf::from(h).join(".torajs/cache"))
+                });
+            if let Some(d) = cache_dir
+                && d.is_dir()
+            {
+                println!("{}: {}", d.display(), fmt_mb(dir_size_bytes(&d)));
+            } else {
+                println!("cache dir does not exist");
+            }
+            ExitCode::SUCCESS
+        }
+        Some(other) => {
+            eprintln!("error: unknown `tr cache` subcommand `{other}`");
+            eprintln!("usage: tr cache [size | clean [--max-mb N]]");
+            ExitCode::from(2)
+        }
+    }
+}
+
+fn fmt_mb(bytes: u64) -> String {
+    let mb = bytes as f64 / 1024.0 / 1024.0;
+    if mb >= 1024.0 {
+        format!("{:.1} GB", mb / 1024.0)
+    } else {
+        format!("{:.0} MB", mb)
+    }
+}
+
+fn dir_size_bytes(p: &std::path::Path) -> u64 {
+    let mut sum: u64 = 0;
+    let read = match std::fs::read_dir(p) {
+        Ok(r) => r,
+        Err(_) => return 0,
+    };
+    for ent in read.flatten() {
+        let meta = match ent.metadata() {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
+        if meta.is_dir() {
+            sum += dir_size_bytes(&ent.path());
+        } else {
+            sum += meta.len();
+        }
+    }
+    sum
 }
 
 /// Hash key for the run-cache. Includes the main source + every
@@ -651,7 +844,16 @@ fn run_cache_key(src: &str, import_closure: &[(PathBuf, Vec<u8>)]) -> String {
      * at "0.1.0" through 0.x dev so it doesn't differentiate; the
      * binary mtime does. Reading from the live binary path (not a
      * build-time stamp) avoids forcing a relink on every cargo run
-     * — the cache key recomputes per-execution anyway. */
+     * — the cache key recomputes per-execution anyway.
+     *
+     * NOTE: this MUST stay in the cache key during substrate-port
+     * phases. A cached binary linked against the OLD runtime keeps
+     * working correctly (it has its own embedded code copy), but
+     * running it does NOT exercise the NEW Rust port — masking any
+     * regression the port might have introduced. The conformance
+     * gate's value depends on actually compiling + running the new
+     * code path on every ship. Tracked in conformance perf backlog;
+     * see runner --no-aot flag for a less aggressive perf knob. */
     if let Ok(exe) = std::env::current_exe()
         && let Ok(meta) = std::fs::metadata(&exe)
         && let Ok(mtime) = meta.modified()

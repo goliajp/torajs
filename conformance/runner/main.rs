@@ -33,6 +33,11 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
+/// Default worker count. 8 measured as the sweet spot on 10-perf-core
+/// + 4-efficiency-core M-series — going wider (e.g. 14) reproducibly
+/// SLOWS the gate because concurrent LLVM compile + cc link processes
+/// contend on the limited high-perf cores. Override with `--workers N`
+/// when running on a chip with different core layout.
 const DEFAULT_WORKERS: usize = 8;
 
 // Hard ceiling per child process invocation. Any single `bun run`,
@@ -61,6 +66,7 @@ enum Outcome {
 
 fn main() {
     let workers = parse_workers();
+    let no_aot = parse_no_aot();
 
     let repo_root = match std::env::current_dir() {
         Ok(p) => p,
@@ -88,11 +94,21 @@ fn main() {
     // target-dir guessing, no extra deps.
     let tr_bin = build_tr_once(&manifest, &repo_root);
 
+    // Cap `~/.torajs/cache` once at gate start so it doesn't balloon
+    // across many conformance runs (measured 34 GB pre-cap). Cap is
+    // generous enough (5 GB) to fit ~3 ships' worth of fixture cache
+    // entries before eviction. Runs out-of-band of the worker pool so
+    // it doesn't add per-case overhead.
+    let _ = Command::new(&tr_bin)
+        .args(["cache", "clean", "--max-mb", "5120"])
+        .status();
+
     println!(
-        "running {} conformance cases — {} workers, tr = {}\n",
+        "running {} conformance cases — {} workers, tr = {}{}\n",
         cases.len(),
         workers,
-        tr_bin.display()
+        tr_bin.display(),
+        if no_aot { " (--no-aot: JIT only)" } else { "" }
     );
 
     // Per-case result slots, filled by workers, replayed in order.
@@ -120,7 +136,7 @@ fn main() {
                     if idx >= cases.len() {
                         break;
                     }
-                    let outcome = run_case(&cases[idx], tr_bin, slot);
+                    let outcome = run_case(&cases[idx], tr_bin, slot, no_aot);
                     *results[idx].lock().unwrap() = Some(outcome);
                     let n = progress.fetch_add(1, Ordering::Relaxed) + 1;
                     if n.is_multiple_of(50) || n == total {
@@ -191,6 +207,18 @@ fn parse_workers() -> usize {
         }
     }
     DEFAULT_WORKERS
+}
+
+/// `--no-aot` flag — skip Step 3 (`tr build` + AOT binary execution).
+/// Cuts ~95% of per-case wall time (`tr build` alone is ~1s; bun /
+/// `tr run` are ~10ms each, so skipping AOT collapses the whole run
+/// from ~3.7 min to ~15s on the dev machine). Trade-off: link path +
+/// dSYM emit are not exercised — JIT and AOT share the LLVM IR
+/// pipeline 99% of the way, so this catches semantic regressions but
+/// not link-time bugs. Pair with periodic full-AOT runs (e.g. phase
+/// closure) to cover the gap.
+fn parse_no_aot() -> bool {
+    std::env::args().any(|a| a == "--no-aot")
 }
 
 /// Build `tr` once and return the exact binary path cargo produced.
@@ -324,9 +352,11 @@ fn collect_cases(dir: &Path) -> Vec<Case> {
     out
 }
 
-fn run_case(c: &Case, tr_bin: &Path, slot: usize) -> Outcome {
+fn run_case(c: &Case, tr_bin: &Path, slot: usize, no_aot: bool) -> Outcome {
     // Step 1: oracle output. Either an explicit .expected file or
-    // whatever bun produces.
+    // whatever bun produces. Bun output is content-hash-cached on
+    // disk so repeated runs against the same fixture content skip
+    // the bun spawn entirely.
     let oracle = match &c.expected_override {
         Some(p) => match std::fs::read_to_string(p) {
             Ok(s) => s,
@@ -336,8 +366,8 @@ fn run_case(c: &Case, tr_bin: &Path, slot: usize) -> Outcome {
                 };
             }
         },
-        None => match exec("bun", &["run", c.src.to_str().unwrap()]) {
-            Ok((s, _)) => s,
+        None => match get_or_fill_bun_oracle(&c.src) {
+            Ok(s) => s,
             Err(e) => {
                 return Outcome::Skip {
                     reason: format!("bun: {e}"),
@@ -361,8 +391,12 @@ fn run_case(c: &Case, tr_bin: &Path, slot: usize) -> Outcome {
         };
     }
 
-    // Step 3: torajs AOT. Output path is worker/pid-unique so
-    // concurrent cases never collide on the binary or its .dSYM.
+    // Step 3 + 4: torajs AOT. Skipped when `--no-aot` is set (fast
+    // gate, ~95% wall-time saving; pair with periodic full runs at
+    // phase closure to catch link/dSYM-path regressions).
+    if no_aot {
+        return Outcome::Pass;
+    }
     let pid = std::process::id();
     let aot_bin = std::env::temp_dir().join(format!("torajs-conf-{}-s{slot}-p{pid}", c.name));
     let aot_dsym = aot_bin.with_extension("dSYM");
@@ -405,6 +439,48 @@ fn exec(cmd: &str, args: &[&str]) -> Result<(String, String), String> {
     exec_with_timeout(cmd, args, PER_EXEC_TIMEOUT)
 }
 
+/// Return bun's stdout for `src`. On cache hit (content-hash match)
+/// reads the cached bytes directly; on miss runs `bun run` once and
+/// writes the result into `conformance/.oracle-cache/<hash>.out`.
+///
+/// Why this helps: each `bun run` is ~10-20 ms wall time even for
+/// trivial fixtures; 685 cases × 15 ms ≈ 10 s of cumulative bun
+/// startup that is pure dead-weight once the oracle output for a
+/// given source byte-sequence is known. Cache key is the FxHash-ish
+/// content hash, same shape as `tr run`'s own cache key — false
+/// misses are harmless (re-runs bun) but content-equal sources are
+/// always served from disk.
+fn get_or_fill_bun_oracle(src: &Path) -> Result<String, String> {
+    let bytes = std::fs::read(src).map_err(|e| format!("read {}: {e}", src.display()))?;
+    let hash = content_hash(&bytes);
+    let cache_dir = repo_root_oracle_cache_dir();
+    let cache_path = cache_dir.join(format!("{hash}.out"));
+    if let Ok(s) = std::fs::read_to_string(&cache_path) {
+        return Ok(s);
+    }
+    let (out, _) = exec("bun", &["run", src.to_str().unwrap()])?;
+    let _ = std::fs::create_dir_all(&cache_dir);
+    let _ = std::fs::write(&cache_path, &out);
+    Ok(out)
+}
+
+fn content_hash(bytes: &[u8]) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    bytes.hash(&mut h);
+    // Cache version tag — bump if oracle semantics change (e.g.
+    // bun version pinned + acknowledged). Plain literal here so a
+    // stale cache from a different convention doesn't poison runs.
+    "oracle-v1".hash(&mut h);
+    format!("{:016x}", h.finish())
+}
+
+fn repo_root_oracle_cache_dir() -> PathBuf {
+    std::env::current_dir()
+        .map(|p| p.join("conformance/.oracle-cache"))
+        .unwrap_or_else(|_| PathBuf::from("conformance/.oracle-cache"))
+}
+
 fn exec_with_timeout(
     cmd: &str,
     args: &[&str],
@@ -436,6 +512,12 @@ fn exec_with_timeout(
     });
 
     let start = Instant::now();
+    // Exponential backoff polling: most fixtures finish in <50 ms so
+    // a flat 20 ms sleep wastes ~15 ms per case on short ops. Start
+    // at 1 ms (catches fast cases nearly idle-free), double up to a
+    // 20 ms cap (avoids burning CPU on slow ops). Saves ~20 s of
+    // per-run polling overhead at the gate scale.
+    let mut backoff_us: u64 = 500; // 0.5 ms initial
     let status = loop {
         match child.try_wait() {
             Ok(Some(s)) => break s,
@@ -443,8 +525,6 @@ fn exec_with_timeout(
                 if start.elapsed() >= timeout {
                     let _ = child.kill();
                     let _ = child.wait();
-                    // Reader threads will return once the killed
-                    // child's pipe ends are closed by the kernel.
                     let _ = stdout_thread.join();
                     let _ = stderr_thread.join();
                     return Err(format!(
@@ -452,7 +532,8 @@ fn exec_with_timeout(
                         timeout.as_secs_f64()
                     ));
                 }
-                std::thread::sleep(Duration::from_millis(20));
+                std::thread::sleep(Duration::from_micros(backoff_us));
+                backoff_us = (backoff_us * 2).min(20_000);
             }
             Err(e) => return Err(format!("wait {cmd}: {e}")),
         }
