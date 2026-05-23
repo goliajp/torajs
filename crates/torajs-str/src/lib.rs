@@ -79,6 +79,7 @@ pub mod lookup;
 pub mod pool;
 pub mod substr;
 pub mod to_number;
+pub mod transform;
 
 // Re-export the small surface the rest of the workspace (and the
 // FFI consumers) reach for most often. Keeping this list tight
@@ -100,6 +101,7 @@ pub use substr::{
     SUBSTR_OFFSET_OFF, SUBSTR_PARENT_OFF, SUBSTR_SIZE, SubstrBlock,
 };
 pub use to_number::{__torajs_str_to_number, parse_number};
+pub use transform::case::{__torajs_str_to_lower, __torajs_str_to_upper};
 
 // torajs-rc's `__torajs_rc_dec` calls into a WeakRef hook whenever
 // a block reaches refcount = 0. At `tr build` link time, the

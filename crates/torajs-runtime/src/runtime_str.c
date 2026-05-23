@@ -4197,34 +4197,12 @@ void *__torajs_arr_fill(uint8_t *arr, int64_t value, int64_t start, int64_t end)
     return arr;
 }
 
-/* `s.toUpperCase()` / `s.toLowerCase()` — ASCII-only fold (matches the
- * subset's byte-level Str layout). Non-ASCII bytes pass through
- * unchanged. Single malloc, single pass. */
-void *__torajs_str_to_upper(const uint8_t *s) {
-    uint64_t len = __TORAJS_STR_LEN(s);
-    const uint8_t *s_data = __TORAJS_STR_CDATA(s);
-    uint8_t *p = __torajs_str_alloc_pooled(len);
-    uint8_t *p_data = __TORAJS_STR_DATA(p);
-    for (uint64_t i = 0; i < len; i++) {
-        uint8_t c = s_data[i];
-        if (c >= 'a' && c <= 'z') c = (uint8_t)(c - 32);
-        p_data[i] = c;
-    }
-    return p;
-}
-
-void *__torajs_str_to_lower(const uint8_t *s) {
-    uint64_t len = __TORAJS_STR_LEN(s);
-    const uint8_t *s_data = __TORAJS_STR_CDATA(s);
-    uint8_t *p = __torajs_str_alloc_pooled(len);
-    uint8_t *p_data = __TORAJS_STR_DATA(p);
-    for (uint64_t i = 0; i < len; i++) {
-        uint8_t c = s_data[i];
-        if (c >= 'A' && c <= 'Z') c = (uint8_t)(c + 32);
-        p_data[i] = c;
-    }
-    return p;
-}
+/* __torajs_str_to_upper / __torajs_str_to_lower moved to
+ * torajs-str::transform::case (P3.1-e.1, 2026-05-23). ASCII-only
+ * fold preserved bit-for-bit; non-ASCII bytes pass through. IR-side
+ * intrinsic declarations in ssa_lower (and the alloc-noalias
+ * whitelist in ssa_inkwell::is_alloc_intrinsic) resolve to the
+ * Rust extern "C" wrappers in the libtorajs_str.a staticlib link. */
 
 #include <math.h>
 
