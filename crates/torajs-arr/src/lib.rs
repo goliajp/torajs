@@ -40,6 +40,7 @@ pub mod layout;
 pub mod ops;
 pub mod pool;
 pub mod print;
+pub mod props;
 pub mod slice;
 pub mod str_bridge;
 
