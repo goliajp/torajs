@@ -110,7 +110,13 @@ pub struct HeapHeader {
 }
 
 /// `MapEntry` — 40 bytes packed with explicit alignment-padding bytes
-/// matching the C-side `MapEntry` struct exactly.
+/// matching the C-side `MapEntry` struct exactly. The `_pad / _kpad /
+/// _vpad` fields are ABI alignment-fillers (referenced only by the
+/// struct layout, never by name); `hash` is written by mutate.rs +
+/// rehash and read by probe (some currently `#[allow(dead_code)]`
+/// pending P4.3-c..-f consumer ports). Whole-struct allow keeps the
+/// layout in one declaration without per-field clutter.
+#[allow(dead_code)]
 #[repr(C)]
 pub struct MapEntry {
     pub hash: u32,

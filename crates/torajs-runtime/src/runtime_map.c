@@ -86,7 +86,15 @@ typedef struct __attribute__((aligned(8))) {
 
 #define __TORAJS_TAG_STR     0
 
-#define __TORAJS_STR_HDR_SIZE 24
+/* Latent-bug fix (P4.3-b, 2026-05-23): __TORAJS_STR_HDR_SIZE was 24
+ * here while the canonical Str layout (runtime_str.c + torajs-str)
+ * is 16. C-side map_hash_key was reading 8 bytes past the actual
+ * string payload — self-consistent (both `set` and `has` read the
+ * same garbage) so bun-parity passed historically by luck of
+ * identical garbage. Now Rust-side has/get reads the correct offset
+ * 16; aligning C makes both tiers hash identically against the real
+ * string bytes. */
+#define __TORAJS_STR_HDR_SIZE 16
 #define __TORAJS_STR_LEN(p)   (*(const uint64_t *)((const uint8_t *)(p) + 8))
 #define __TORAJS_STR_CDATA(p) ((const uint8_t *)(p) + __TORAJS_STR_HDR_SIZE)
 
@@ -450,15 +458,13 @@ void __torajs_map_drop(void *p) {
     free(m);
 }
 
-int64_t __torajs_map_size(void *p) {
-    if (!p) return 0;
-    Map *m = (Map *)p;
-    return (int64_t)m->n_entries;
-}
+/* __torajs_map_size moved to torajs-collections::query (P4.3-b, 2026-05-23). */
 
 /* Per-call helper used by every query-path helper: query borrows
  * the caller's rc bump on a heap-tagged key, so we release it
- * before returning. */
+ * before returning. Still in C — used by C-side set / delete /
+ * clear paths that haven't ported yet (they keep their own copy
+ * of the contract). */
 static void map_drop_borrowed_key(uint8_t tag, uint64_t payload) {
     if (tag == __TORAJS_ANY_HEAP) {
         void *kp = (void *)(uintptr_t)payload;
@@ -528,49 +534,11 @@ void __torajs_map_set(void *p,
     map_slot_insert(m->slots, m->slots_count, hash, new_idx);
 }
 
-/* Returns 1 / 0 (boolean-shaped) per `m.has(k)` spec §23.1.3.7. */
-int64_t __torajs_map_has(void *p, int64_t key_tag, int64_t key_payload) {
-    int64_t r = 0;
-    if (p) {
-        Map *m = (Map *)p;
-        uint32_t hash, slot_idx, entry_idx;
-        r = map_lookup_slot(m, (uint8_t)key_tag, (uint64_t)key_payload,
-                            &hash, &slot_idx, &entry_idx) ? 1 : 0;
-    }
-    map_drop_borrowed_key((uint8_t)key_tag, (uint64_t)key_payload);
-    return r;
-}
-
-/* `m.get(k)` — fills out_tag / out_payload with the stored value
- * (rc_inc'd when heap) or with ANY_UNDEF / 0 when absent. The
- * caller owns the returned ref. */
-void __torajs_map_get(void *p, int64_t key_tag, int64_t key_payload,
-                      int64_t *out_tag, int64_t *out_payload) {
-    if (!p) {
-        *out_tag = __TORAJS_ANY_UNDEF;
-        *out_payload = 0;
-        map_drop_borrowed_key((uint8_t)key_tag, (uint64_t)key_payload);
-        return;
-    }
-    Map *m = (Map *)p;
-    uint32_t hash, slot_idx, entry_idx;
-    int hit = map_lookup_slot(m, (uint8_t)key_tag, (uint64_t)key_payload,
-                              &hash, &slot_idx, &entry_idx);
-    if (!hit) {
-        *out_tag = __TORAJS_ANY_UNDEF;
-        *out_payload = 0;
-        map_drop_borrowed_key((uint8_t)key_tag, (uint64_t)key_payload);
-        return;
-    }
-    MapEntry *e = &m->entries[entry_idx];
-    *out_tag = (int64_t)e->value_tag;
-    *out_payload = (int64_t)e->value_payload;
-    if (e->value_tag == __TORAJS_ANY_HEAP) {
-        void *vp = (void *)(uintptr_t)e->value_payload;
-        if (vp != NULL) __torajs_rc_inc(vp);
-    }
-    map_drop_borrowed_key((uint8_t)key_tag, (uint64_t)key_payload);
-}
+/* __torajs_map_has + __torajs_map_get moved to torajs-collections::query
+ * (P4.3-b, 2026-05-23). Same borrow-then-drop key ownership contract
+ * preserved; get rc-bumps the returned heap value before fill-out.
+ * C-side set / delete / clear / iter still here — use their own
+ * `map_drop_borrowed_key` static helper for the same purpose. */
 
 /* `m.delete(k)` — returns 1 if key was present, 0 otherwise. The
  * entry is converted to an entries[]-side tombstone (hash=0) and

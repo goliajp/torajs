@@ -52,6 +52,40 @@
 //! stable. `std` staticlibs link cleanly at `tr build` time.
 
 pub mod create;
+pub mod eq;
+pub mod hash;
 pub mod layout;
+pub mod probe;
+pub mod query;
 
 pub use create::__torajs_map_create;
+pub use query::{__torajs_map_get, __torajs_map_has, __torajs_map_size};
+
+// Cross-tier extern stubs for cargo unit tests — the real symbols
+// (__torajs_str_eq / __torajs_rc_inc / __torajs_value_drop_heap) are
+// provided by their respective lib*.a at `tr build` link time; the
+// test binary doesn't link those, so panicking stubs keep cargo test
+// linking clean. Same pattern as torajs-arr / torajs-dynobj test stubs.
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_eq(_a: *const u8, _b: *const u8) -> i64 {
+    panic!(
+        "torajs-collections unit-test stub: __torajs_str_eq should not be called from cargo test paths"
+    );
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_rc_inc(_p: *mut core::ffi::c_void) {
+    panic!(
+        "torajs-collections unit-test stub: __torajs_rc_inc should not be called from cargo test paths"
+    );
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_value_drop_heap(_p: *mut core::ffi::c_void) {
+    panic!(
+        "torajs-collections unit-test stub: __torajs_value_drop_heap should not be called from cargo test paths"
+    );
+}
