@@ -1,5 +1,6 @@
-//! Any-tag inspection — `typeof box` + `console.log(box)` —
-//! port of `runtime_str.c` L1040-1157.
+//! Any-tag inspection — `typeof box` + `console.log(box)` +
+//! `ToBoolean(box)` — port of `runtime_str.c` L795-833 +
+//! L1040-1157.
 //!
 //! Two extern fns that read an [`AnyBox`]'s discriminant and route:
 //!
@@ -153,5 +154,56 @@ pub unsafe extern "C" fn __torajs_print_any(box_ptr: *const c_void) {
             }
         }
         None => write_line(b"[unknown-any-tag]\n"),
+    }
+}
+
+const STR_LEN_OFF: usize = 8;
+
+/// `ToBoolean(box)` per ES §7.1.2 — JS truthiness coercion. Routes
+/// on the AnyBox slot tag:
+///
+/// | tag                | result                                |
+/// |--------------------|---------------------------------------|
+/// | `Null` / `Undef`   | `false`                               |
+/// | `Bool` / `I64`     | `value != 0`                          |
+/// | `F64`              | `value != 0.0 AND not NaN`            |
+/// | `Heap` / `Str`     | `length > 0`                          |
+/// | `Heap` / other     | `true` (objects are always truthy)    |
+/// | NULL box           | `false`                               |
+///
+/// # Safety
+/// `box_ptr` must be NULL or a valid `*const AnyBox` (live).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_any_to_bool(box_ptr: *const c_void) -> bool {
+    if box_ptr.is_null() {
+        return false;
+    }
+    let any = unsafe { &*(box_ptr as *const AnyBox) };
+    match any.slot_tag() {
+        Some(AnySlotTag::Null) | Some(AnySlotTag::Undef) => false,
+        Some(AnySlotTag::Bool) | Some(AnySlotTag::I64) => any.value != 0,
+        Some(AnySlotTag::F64) => {
+            // NaN-safe: `d == d` is the canonical ordered-not-NaN test
+            // (NaN compares unequal to itself).
+            let d = f64::from_bits(any.value as u64);
+            d == d && d != 0.0
+        }
+        Some(AnySlotTag::Heap) => {
+            let child = any.value as *const c_void;
+            if child.is_null() {
+                return false;
+            }
+            // SAFETY: live heap ptr.
+            let tag = unsafe { heap_type_tag(child) };
+            if tag == Tag::Str as u16 {
+                // Read Str's len@+8; truthy iff non-empty.
+                let len = unsafe { (child.cast::<u8>().add(STR_LEN_OFF) as *const u64).read() };
+                len > 0
+            } else {
+                // Obj / Arr / Closure / Symbol / etc. — all truthy.
+                true
+            }
+        }
+        None => false,
     }
 }

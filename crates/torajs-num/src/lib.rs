@@ -65,9 +65,9 @@ pub use math::{
     __torajs_math_cosh, __torajs_math_exp, __torajs_math_expm1, __torajs_math_floor,
     __torajs_math_fround, __torajs_math_imul, __torajs_math_log, __torajs_math_log1p,
     __torajs_math_log2, __torajs_math_log10, __torajs_math_max, __torajs_math_min,
-    __torajs_math_pow, __torajs_math_random, __torajs_math_round, __torajs_math_sin,
-    __torajs_math_sinh, __torajs_math_sqrt, __torajs_math_tan, __torajs_math_tanh,
-    __torajs_math_trunc,
+    __torajs_math_pow, __torajs_math_random, __torajs_math_round, __torajs_math_sign,
+    __torajs_math_sin, __torajs_math_sinh, __torajs_math_sqrt, __torajs_math_tan,
+    __torajs_math_tanh, __torajs_math_trunc,
 };
 pub use parse::{__torajs_num_parse_float, __torajs_num_parse_int};
 pub use predicates::{

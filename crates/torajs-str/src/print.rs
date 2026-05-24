@@ -27,6 +27,7 @@
 use std::io::Write;
 
 use crate::layout::{STR_DATA_OFF, STR_LEN_OFF};
+use crate::substr::{SUBSTR_LEN_OFF, SUBSTR_OFFSET_OFF, SUBSTR_PARENT_OFF};
 
 // ============================================================
 // Pure-Rust core
@@ -78,6 +79,38 @@ pub unsafe extern "C" fn __torajs_str_print(s: *const u8) {
     let len = unsafe { (s.add(STR_LEN_OFF) as *const u64).read() } as usize;
     if len > 0 {
         let bytes = unsafe { core::slice::from_raw_parts(s.add(STR_DATA_OFF), len) };
+        for &b in bytes {
+            unsafe { putchar(b as i32) };
+        }
+    }
+    unsafe { putchar(b'\n' as i32) };
+}
+
+/// `console.log(substr)` — write a Substr's view (parent bytes +
+/// offset slice) + newline to stdout via per-byte `putchar`. Substr
+/// layout `{ hdr@0, len@8, parent@16, offset@24 }` is read directly
+/// (no materialize). NULL → `"null\n"`.
+///
+/// Same buffer-sharing concern as [`__torajs_str_print`]: this is
+/// the console.log path for Substr-typed receivers, so it must use
+/// the same stdio buffer as print_i64 / print_bool / str_print.
+///
+/// # Safety
+///
+/// `v` must be NULL or a valid Substr heap block.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_substr_print(v: *const u8) {
+    if v.is_null() {
+        for &b in b"null\n" {
+            unsafe { putchar(b as i32) };
+        }
+        return;
+    }
+    let len = unsafe { (v.add(SUBSTR_LEN_OFF) as *const u64).read() } as usize;
+    let parent = unsafe { (v.add(SUBSTR_PARENT_OFF) as *const *const u8).read() };
+    let offset = unsafe { (v.add(SUBSTR_OFFSET_OFF) as *const u64).read() } as usize;
+    if len > 0 {
+        let bytes = unsafe { core::slice::from_raw_parts(parent.add(STR_DATA_OFF + offset), len) };
         for &b in bytes {
             unsafe { putchar(b as i32) };
         }

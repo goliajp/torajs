@@ -188,6 +188,23 @@ pub unsafe extern "C" fn __torajs_math_atan2(y: f64, x: f64) -> f64 {
     y.atan2(x)
 }
 
+/// `Math.sign(x)` — JS spec: `+1` / `-1` / preserve-zero. libc has
+/// no `sign`; spec preserves `-0` / `+0` (not just returning 0) so
+/// the C runtime had its own implementation. Rust `f64::signum`
+/// returns `1.0` for `+0.0` and `-1.0` for `-0.0` (wrong); we
+/// preserve the JS spec form: zero (any sign) returns itself.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_math_sign(x: f64) -> f64 {
+    if x > 0.0 {
+        1.0
+    } else if x < 0.0 {
+        -1.0
+    } else {
+        // x is +0 / -0 / NaN; preserve x. NaN flows through too.
+        x
+    }
+}
+
 // ============================================================
 // PRNG + bit/precision intrinsics
 // ============================================================

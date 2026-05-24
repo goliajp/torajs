@@ -792,40 +792,9 @@ extern void *__torajs_any_to_str(int64_t tag, int64_t value);
  *   ANY_HEAP / other      → true (objects are always truthy)
  *   NULL box              → false
  */
-bool __torajs_any_to_bool(const void *box) {
-    if (box == NULL) return false;
-    int64_t tag = *(const int64_t *)((const uint8_t *)box + __TORAJS_ANY_BOX_TAG_OFF);
-    int64_t value = *(const int64_t *)((const uint8_t *)box + __TORAJS_ANY_BOX_VAL_OFF);
-    switch (tag) {
-        case __TORAJS_ANY_NULL: return false;
-        /* P1.5 — ToBoolean(undefined) === false per spec §7.1.2 step 1.
-         * Same answer as null but distinct origin (preserved by tag). */
-        case __TORAJS_ANY_UNDEF: return false;
-        case __TORAJS_ANY_BOOL: return value != 0;
-        case __TORAJS_ANY_I64:  return value != 0;
-        case __TORAJS_ANY_F64: {
-            union { int64_t i; double d; } u = { .i = value };
-            /* IEEE: NaN compares unequal to itself, +0 / -0 both
-             * compare equal to 0.0 — so `d != 0.0` correctly maps
-             * NaN → false (not satisfying "not equal" with itself
-             * when also testing isnan...) actually `d != 0.0`
-             * returns true for NaN. Use the canonical "ordered
-             * not-equal" idiom instead: u.d == u.d (false for NaN)
-             * AND u.d != 0.0. */
-            return (u.d == u.d) && (u.d != 0.0);
-        }
-        case __TORAJS_ANY_HEAP: {
-            void *child = (void *)(uintptr_t)value;
-            if (child == NULL) return false;
-            const __torajs_heap_header_t *h = (const __torajs_heap_header_t *)child;
-            if (h->type_tag == __TORAJS_TAG_STR) {
-                return __TORAJS_STR_LEN(child) > 0;
-            }
-            return true;
-        }
-        default: return false;
-    }
-}
+/* __torajs_any_to_bool moved to torajs-anyvalue::inspect (P7.h,
+ * 2026-05-24). NaN-safe "d == d && d != 0.0" check + heap Str
+ * length>0 truthiness preserved bit-for-bit. */
 
 /* P0.2 — `typeof <Any>` runtime dispatch per JS spec §13.5.3.
  * Reads the box's tag (and for ANY_HEAP, the inner heap header's
@@ -937,14 +906,9 @@ extern void __torajs_str_print(const uint8_t *);
  * 2026-05-23). Pure-Rust memcpy + len bump; T-13.5 head_offset folded
  * into source/dest slot pointers. */
 
-/* `Math.sign(x)` — JS spec: +1 / -1 / preserve-zero. NaN handling
- * elided (subset doesn't expose NaN). libc has no `sign`, so this
- * lives here rather than in the inkwell-side `define_math_unary`. */
-double __torajs_math_sign(double x) {
-    if (x > 0.0) return 1.0;
-    if (x < 0.0) return -1.0;
-    return x;  /* preserves -0.0 / +0.0 per JS spec */
-}
+/* __torajs_math_sign moved to torajs-num::math (P7.h, 2026-05-24).
+ * JS spec preserves -0/+0/NaN (libc f64::signum doesn't); the Rust
+ * port keeps the spec form. */
 
 /* `Math.round(x)` — JS rounds half-values toward +∞:
  *   round(2.5)  === 3   (libc agrees)
@@ -997,19 +961,9 @@ static uint8_t *arr_alloc_(uint64_t len, uint64_t cap) {
  * Substr layout is { hdr@0, len@8, parent@16, offset@24 } — different
  * from Str's inline-data-at-16 — so the existing str_print can't be
  * shared. NULL → "null\n" matching str_print's null-guard shape. */
-void __torajs_substr_print(void *v) {
-    if (v == NULL) {
-        fputs("null\n", stdout);
-        return;
-    }
-    uint64_t len = __TORAJS_SUBSTR_LEN(v);
-    uint8_t *parent = __TORAJS_SUBSTR_PARENT(v);
-    uint64_t offset = __TORAJS_SUBSTR_OFFSET(v);
-    if (len > 0) {
-        fwrite(parent + __TORAJS_STR_HDR_SIZE + offset, 1, (size_t)len, stdout);
-    }
-    fputc('\n', stdout);
-}
+/* __torajs_substr_print moved to torajs-str::print (P7.h,
+ * 2026-05-24). Per-byte putchar (matches str_print) for shared
+ * stdio buffer with print_i64 / print_bool. */
 
 /* __torajs_arr_print_substr moved to torajs-arr::print (P4.1-g,
  * 2026-05-23). Substr layout-aware: reads parent + offset + len from
@@ -1057,49 +1011,11 @@ int64_t __torajs_object_is_f64(double a, double b) {
  * extensible by tr's design — so silently skipping the bit set
  * matches both the spec and prevents the crash. test262
  * 15.2.3.9-1-3 / 15.2.3.9-1-4 / 15.2.3.9-2-d-1 cover this. */
-void *__torajs_obj_freeze(void *p) {
-    if (p == NULL) return NULL;
-    __torajs_heap_header_t *h = (__torajs_heap_header_t *)p;
-    if (h->flags & __TORAJS_FLAG_STATIC_LITERAL) return p;
-    h->flags |= __TORAJS_FLAG_FROZEN;
-    return p;
-}
-
-/* `Object.isFrozen(obj)` — reads the FROZEN bit. Returns 0 / 1
- * (matches the `_Bool` ABI tr's Bool intrinsics use). Static
- * literals are conceptually frozen (immutable rodata), so report
- * `true` for them — matches what test262 expects for primitives. */
-_Bool __torajs_obj_is_frozen(const void *p) {
-    if (p == NULL) return 0;
-    const __torajs_heap_header_t *h = (const __torajs_heap_header_t *)p;
-    if (h->flags & __TORAJS_FLAG_STATIC_LITERAL) return 1;
-    return (h->flags & __TORAJS_FLAG_FROZEN) != 0;
-}
-
-/* Mutation guard called by ssa_lower at every Member-target Assign
- * site (`obj.field = value`). If the FROZEN bit is set, panics with
- * a TypeError-shaped message — matching bun's strict-mode behavior
- * (TypeScript files run in strict mode in bun, throwing
- * "Attempted to assign to readonly property"). NULL passes through
- * (defensive — assigning to a Nullable target hits the null-deref
- * panic elsewhere). */
-void __torajs_obj_check_not_frozen(const void *p) {
-    if (p == NULL) return;
-    const __torajs_heap_header_t *h = (const __torajs_heap_header_t *)p;
-    if (h->flags & __TORAJS_FLAG_FROZEN) {
-        /* P7.4-frozen — real catchable TypeError instead of process
-         * abort (spec §10.1.5 OrdinarySet: strict assignment to a
-         * non-writable property throws). Mirrors a-2's dynobj
-         * writable=false path. torajs_throw_type_error RETURNS (only
-         * arms the throw slot) — bail now; ssa_lower emits an
-         * emit_throw_check(None) right after this call which diverts
-         * to the user's try/catch (or propagates) BEFORE the field
-         * store, so the illegal mutation never happens. Prefix
-         * stripped: .message is the bare text, .name is "TypeError". */
-        __torajs_throw_type_error("Attempted to assign to readonly property");
-        return;
-    }
-}
+/* __torajs_obj_freeze / _obj_is_frozen / _obj_check_not_frozen
+ * moved to torajs-rc::freeze (P7.h, 2026-05-24). Universal heap-
+ * header FROZEN bit ops; STATIC_LITERAL guard preserved. Mutation
+ * guard arms a TypeError via __torajs_throw_type_error (still in
+ * torajs-throw) — same throw-and-return shape as before. */
 
 
 /* `__torajs_arr_push_unchecked` is inkwell-defined and exported as a
