@@ -83,6 +83,7 @@ pub mod slice;
 pub mod split;
 pub mod substr;
 pub mod substr_methods;
+pub mod symbol;
 pub mod to_number;
 pub mod transform;
 
