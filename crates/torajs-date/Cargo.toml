@@ -1,0 +1,29 @@
+[package]
+name = "torajs-date"
+description = "Date class substrate for the torajs AOT TypeScript runtime. Date heap object (16 B: header + i64 ms-since-epoch) + ctor variants (now / from ms / from components / from ISO string) + UTC + local-time getters + setTime / set_year / get_year (annexB) + toISOString + toGMTString. Howard Hinnant civil-from-days / days-from-civil for proleptic Gregorian; libc localtime_r / mktime for timezone-aware accessors. Layer-3 substrate (P6.4)."
+keywords = ["torajs", "date", "time", "iso8601", "runtime"]
+categories = ["date-and-time", "no-std"]
+readme = "README.md"
+documentation = "https://docs.rs/torajs-date"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+# Dual emit: `rlib` for cargo workspace + unit tests; `staticlib`
+# emits libtorajs_date.a so ssa_inkwell links it into every
+# `tr build` AOT user binary alongside the other Layer-1+ staticlibs.
+[lib]
+crate-type = ["rlib", "staticlib"]
+
+[dependencies]
+# 0 Cargo deps. libc localtime_r / mktime are OS-level system fns
+# (declared inline via `extern "C"`). std::time::SystemTime drives
+# the wall-clock side. Cross-tier (rc_dec, str_alloc_pooled)
+# resolves at `tr build` link time against libtorajs_rc.a + str
+# runtime — same pattern as torajs-promise / torajs-fetch.

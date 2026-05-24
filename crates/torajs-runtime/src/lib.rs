@@ -30,8 +30,13 @@ pub const RUNTIME_STR_C: &str = include_str!("runtime_str.c");
  * captures lives there too and calls back into torajs-dynobj /
  * torajs-arr at link time. */
 
-/// v0.2 #2 — Date class implementation.
-pub const RUNTIME_DATE_C: &str = include_str!("runtime_date.c");
+/* runtime_date.c deleted entirely at P6.4 (2026-05-24). The Date
+ * class (heap layout + ctors + getters + setters + toISOString +
+ * toGMTString + ISO 8601 parser + Howard-Hinnant civil-from-days
+ * arithmetic) now lives in pure-Rust `torajs-date`
+ * (libtorajs_date.a). Cross-tier rc_dec / str_alloc_pooled
+ * resolve at `tr build` link time; localtime_r / mktime are
+ * declared inline as libc FFI. */
 
 /* runtime_promise.c deleted entirely at P6.1 (2026-05-24). The
  * Promise surface (alloc + pool + drop + resolve/reject +
@@ -101,7 +106,6 @@ pub const RUNTIME_LIBC_BRIDGE_C: &str = include_str!("runtime_libc_bridge.c");
 /// the compiler should write into the per-build temp directory.
 pub const SOURCES: &[(&str, &str)] = &[
     ("runtime_str.c", RUNTIME_STR_C),
-    ("runtime_date.c", RUNTIME_DATE_C),
     ("runtime_libc_bridge.c", RUNTIME_LIBC_BRIDGE_C),
     ("runtime_capture_box.c", RUNTIME_CAPTURE_BOX_C),
 ];
