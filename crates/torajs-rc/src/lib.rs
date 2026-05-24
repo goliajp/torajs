@@ -108,6 +108,16 @@ use std::ptr::NonNull;
 
 pub mod freeze;
 
+// __torajs_value_drop_heap (the universal heap-typed drop dispatch)
+// lives in its own torajs-value-drop sub-crate, NOT in torajs-rc.
+// Rationale: torajs-rc is in many Cargo dep trees (torajs-arr,
+// torajs-anyvalue, etc.) whose own cargo tests stub the symbol
+// locally; an rlib-resident dispatch would LTO-collide with those
+// stubs ("Linking globals named '__torajs_value_drop_heap': symbol
+// multiply defined!"). Keeping the dispatch in a sibling crate
+// nobody adds as a Cargo dep ensures the rlib graph stays clean
+// while libtorajs_value_drop.a still co-links at `tr build` time.
+
 // ============================================================
 // Universal heap-object header
 // ============================================================

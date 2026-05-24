@@ -1,0 +1,22 @@
+[package]
+name = "torajs-value-drop"
+description = "Universal heap-typed drop dispatch for the torajs AOT TypeScript runtime — `__torajs_value_drop_heap(child)` routes on the universal heap header's type_tag to the matching per-type _drop helper. Layer-1 substrate (P7.i-drop); replaces the dispatch in runtime_str.c. Lives in its own crate so downstream rlib graphs stay clean — see torajs-rc/lib.rs for why this can't share torajs-rc's rlib."
+keywords = ["torajs", "drop", "dispatch", "runtime", "ffi"]
+categories = ["data-structures", "no-std"]
+readme = "README.md"
+documentation = "https://docs.rs/torajs-value-drop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+crate-type = ["rlib", "staticlib"]
+
+[dependencies]
+torajs-rc = { path = "../torajs-rc" }

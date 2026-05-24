@@ -17,9 +17,10 @@ use criterion::{Criterion, criterion_group, criterion_main};
 use torajs_anyvalue::{AnyBox, payload_rc_inc};
 use torajs_rc::{AnySlotTag, HeapHeader, Tag};
 
-// Bench binary needs the runtime extern "C" symbols torajs-anyvalue
+// Bench binary needs runtime extern "C" symbols torajs-anyvalue
 // and torajs-rc declare. In the shipped binary they come from
-// runtime_weakref.c and runtime_str.c; here they no-op.
+// runtime_weakref.c and torajs-rc's libtorajs_rc.a; here they
+// no-op (bench binaries DCE the rlib's dispatch fn).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_weakref_target_dying(_target: *mut c_void) {}
 #[unsafe(no_mangle)]

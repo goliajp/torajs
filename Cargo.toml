@@ -24,6 +24,7 @@ members = [
     "crates/torajs-meta",
     "crates/torajs-process",
     "crates/torajs-panic",
+    "crates/torajs-value-drop",
     "crates/torajs-runtime",
     "crates/torajs-core",
     "crates/torajs-cli",

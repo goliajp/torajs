@@ -95,3 +95,9 @@ torajs-process = { path = "../torajs-process" }
 # the panic symbol resolves at `tr build`. Same dep-order rationale
 # as torajs-process.
 torajs-panic = { path = "../torajs-panic" }
+# Layer-1: universal heap-typed drop dispatch — `__torajs_value_drop_heap`
+# routes on type_tag to the matching per-type _drop helper. Kept in
+# its own crate (not torajs-rc) so downstream rlib graphs stay
+# collision-free against #[cfg(test)] stubs in torajs-arr / -anyvalue
+# / -collections / etc. (see torajs-value-drop/Cargo.toml description).
+torajs-value-drop = { path = "../torajs-value-drop" }

@@ -106,8 +106,16 @@ pub unsafe extern "C" fn __torajs_throw_range_error(_msg: *const u8) {
 // release-mode "Linking globals named '__torajs_rc_dec': symbol
 // multiply defined!" failure (same applies to rc_inc). Pattern
 // matches torajs-collections (which has no torajs-rc dep and so does
-// stub them). `__torajs_value_drop_heap` is defined in runtime_str.c
-// at `tr build` time but has no rlib provider, so it needs a stub.
+// stub them).
+//
+// `__torajs_value_drop_heap` lives in `torajs_rc::drop_dispatch`
+// at production link time (libtorajs_rc.a in the tr build). The
+// stub below is needed for the cargo test binary — without it the
+// linker errors with `Undefined symbols` because torajs-arr's lib
+// declares `extern "C" { __torajs_value_drop_heap }` for the
+// any-slot drop path, and torajs-rc's rlib doesn't unconditionally
+// expose the symbol (no Rust call site referencing it triggers
+// DCE in the rlib path).
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_value_drop_heap(_p: *mut core::ffi::c_void) {

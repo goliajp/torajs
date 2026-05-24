@@ -1180,10 +1180,15 @@ mod tests {
 
     // Test binary needs both extern "C" symbols torajs-anyvalue
     // declares: torajs-rc's __torajs_weakref_target_dying (from
-    // rc_dec's hit-zero hook) AND runtime_str.c's
-    // __torajs_value_drop_heap (from AnyBox::drop_owned). In the
-    // shipped binary both are resolved by the C runtime; in tests
-    // we no-op them.
+    // rc_dec's hit-zero hook) AND `__torajs_value_drop_heap`
+    // (called from AnyBox::drop_owned for Heap-tagged children).
+    //
+    // The real `__torajs_value_drop_heap` lives in
+    // `torajs_rc::drop_dispatch` (P7.i-drop, 2026-05-24); the
+    // shipped binary resolves through libtorajs_rc.a. cargo test
+    // for this crate links torajs-rc's rlib but Rust DCE strips
+    // the dispatch fn since no Rust call site references it — the
+    // local stub satisfies the linker.
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn __torajs_weakref_target_dying(_target: *mut c_void) {}
     #[unsafe(no_mangle)]

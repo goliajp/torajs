@@ -449,92 +449,12 @@ void __torajs_arr_drop(void *a);
  * acquire C linkage — for now those tags fall back to `free()`
  * which is leak-safe (frees the outer block; misses inner
  * refcounted fields). T-10.e tightens the dispatch. */
-#ifndef __wasi__
-extern void __torajs_response_drop(void *p);
-#endif
-extern void __torajs_bigint_drop(void *p);
-extern void __torajs_weakref_drop(void *p);
-extern void __torajs_weakmap_drop(void *p);
-extern void __torajs_weakset_drop(void *p);
-extern void __torajs_map_drop(void *p);
-extern void __torajs_map_iter_drop(void *p);
-extern void __torajs_arr_iter_drop(void *p);
-
-void __torajs_value_drop_heap(void *child) {
-    if (child == NULL) return;
-    __torajs_heap_header_t *h = (__torajs_heap_header_t *)child;
-    switch (h->type_tag) {
-        case __TORAJS_TAG_STR:  __torajs_str_drop(child); break;
-        case __TORAJS_TAG_ARR:  __torajs_arr_drop(child); break;
-#ifndef __wasi__
-        case __TORAJS_TAG_RESPONSE: __torajs_response_drop(child); break;
-#endif
-        case __TORAJS_TAG_BIGINT: {
-            /* T-25 — BigInt has no inner refs; rc-dec + the
-             * type's drop handle (which just `free`s). */
-            if (__torajs_rc_dec(child)) __torajs_bigint_drop(child);
-            break;
-        }
-        case __TORAJS_TAG_WEAKREF: {
-            /* T-26 — WeakRef holds no strong ref to target;
-             * weakref_drop dec's its rc + unregisters from the
-             * registry on last owner. */
-            __torajs_weakref_drop(child);
-            break;
-        }
-        case __TORAJS_TAG_WEAKMAP: {
-            /* T-26.B — WeakMap drop walks every entry, drops
-             * each value's strong ref + deregisters the key
-             * from the shared registry. */
-            __torajs_weakmap_drop(child);
-            break;
-        }
-        case __TORAJS_TAG_WEAKSET: {
-            __torajs_weakset_drop(child);
-            break;
-        }
-        case __TORAJS_TAG_MAP: {
-            /* P6.1 / P6.2 — Map and Set both wear TAG_MAP at the
-             * heap-header level (Type::Set is a SSA-side
-             * distinction; storage is the same). map_drop walks
-             * live entries, drops each (key, value) heap ref, and
-             * frees the entries array + Map struct. */
-            __torajs_map_drop(child);
-            break;
-        }
-        case __TORAJS_TAG_MAP_ITER: {
-            /* P6.4b — MapIter holds a strong ref to the source
-             * Map; map_iter_drop releases it + frees the iter. */
-            __torajs_map_iter_drop(child);
-            break;
-        }
-        case __TORAJS_TAG_ARR_ITER: {
-            /* P6.4c-C3 — ArrIter parallel to MapIter for
-             * Array<Any> source. */
-            __torajs_arr_iter_drop(child);
-            break;
-        }
-        case __TORAJS_TAG_DYNOBJ: {
-            /* P3.1 — dynobj walks every live bucket, drops key Str
-             * + ANY_HEAP value, then frees. */
-            __torajs_dynobj_drop(child);
-            break;
-        }
-        default:                /* Obj / Substr / Closure / RegExp /
-                                 * Date / ANY_BOX — fallback rc_dec +
-                                 * free; may leak inner refs.
-                                 *
-                                 * V3-10.b: array element walks for
-                                 * Type::Obj go through emit_drop_value
-                                 * → inline drop → obj_drop (which
-                                 * cycle-unbuffers), so cycle-routed
-                                 * class instances are scrubbed without
-                                 * needing the hook here. Non-Obj heap
-                                 * children handled by their own _drop. */
-            if (__torajs_rc_dec(child)) free(child);
-            break;
-    }
-}
+/* __torajs_value_drop_heap moved to torajs-rc::drop_dispatch
+ * (P7.i-drop, 2026-05-24). Universal heap-typed drop dispatch
+ * keyed on type_tag; routes to per-type _drop externs (str / arr /
+ * response (wasi-gated) / bigint / weak* / map* / arr_iter / dynobj)
+ * or rc_dec+free fallback (Obj / Substr / Closure / RegExp / Date /
+ * AnyBox). Behavior preserved bit-for-bit. */
 
 /* __torajs_arr_drop_any moved to torajs-arr::drop (P4.1-e, 2026-05-23).
  * Rust impl mirrors C 1:1: NULL/STATIC_LITERAL/rc_dec gates +

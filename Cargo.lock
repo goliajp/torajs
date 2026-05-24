@@ -1898,6 +1898,7 @@ dependencies = [
  "torajs-runtime",
  "torajs-str",
  "torajs-throw",
+ "torajs-value-drop",
  "torajs-weak",
 ]
 
@@ -2015,6 +2016,13 @@ name = "torajs-ucd"
 version = "0.1.0"
 dependencies = [
  "criterion",
+]
+
+[[package]]
+name = "torajs-value-drop"
+version = "0.1.0"
+dependencies = [
+ "torajs-rc",
 ]
 
 [[package]]
