@@ -1126,86 +1126,8 @@ extern int64_t __torajs_str_last_index_of(const uint8_t *s, const uint8_t *needl
 #include <unistd.h>
 #include <sys/stat.h>
 
-void __torajs_process_exit(int64_t code) {
-    exit((int)code);
-}
-
-void *__torajs_process_cwd(void) {
-    char buf[4096];
-    if (getcwd(buf, sizeof(buf)) == NULL) {
-        uint8_t *empty = __torajs_str_alloc_pooled(0);
-        return empty;
-    }
-    uint64_t len = strlen(buf);
-    uint8_t *out = __torajs_str_alloc_pooled(len);
-    memcpy(out + __TORAJS_STR_HDR_SIZE, buf, (size_t)len);
-    return out;
-}
-
-/* `process.env.NAME` lookup — calls libc getenv on the NUL-copy of
- * the name. Returns a freshly-allocated Str of the env value, or
- * NULL pointer if the var isn't set (caller's slot is Nullable<Str>;
- * tr's `undefined` maps to NULL via the undefined→null bridge so
- * `process.env.X === undefined` round-trips correctly). */
-void *__torajs_process_getenv(const void *name_str) {
-    /* Inline NUL-copy: tora Str isn't NUL-terminated; libc getenv
-     * needs a C string. path_copy_to_buf used to live here too but
-     * moved to torajs-fs at P7.d. */
-    char name[256];
-    const uint8_t *p = __TORAJS_STR_CDATA(name_str);
-    uint64_t nlen = __TORAJS_STR_LEN(name_str);
-    if (nlen >= sizeof(name)) nlen = sizeof(name) - 1;
-    memcpy(name, p, (size_t)nlen);
-    name[nlen] = '\0';
-    const char *v = getenv(name);
-    if (!v) return NULL;
-    uint64_t len = strlen(v);
-    uint8_t *out = __torajs_str_alloc_pooled(len);
-    memcpy(out + __TORAJS_STR_HDR_SIZE, v, (size_t)len);
-    return out;
-}
-
-/* v0.3 #3.c — argv plumbing.
- * `__torajs_argv_init` is called once at the start of LLVM-emitted
- * `main(argc, argv)` (declare_ssa_fn widens the signature; the
- * FnLower main-entry hook emits the call). The captured argc/argv
- * stay valid for the program's lifetime — they live on the kernel-
- * provided stack frame, which outlives any user code. */
-static int g_argc = 0;
-static char **g_argv = NULL;
-
-void __torajs_argv_init(int32_t argc, char **argv) {
-    g_argc = (int)argc;
-    g_argv = argv;
-}
-
-void *__torajs_process_argv(void) {
-    void *out = __torajs_arr_alloc((uint64_t)g_argc);
-    for (int i = 0; i < g_argc; i++) {
-        const char *s = g_argv[i];
-        uint64_t len = strlen(s);
-        uint8_t *str_v = __torajs_str_alloc_pooled(len);
-        memcpy(str_v + __TORAJS_STR_HDR_SIZE, s, (size_t)len);
-        out = __torajs_arr_push(out, (int64_t)(intptr_t)str_v);
-    }
-    return out;
-}
-
-void *__torajs_process_platform(void) {
-#if defined(__APPLE__)
-    static const char p[] = "darwin";
-#elif defined(__linux__)
-    static const char p[] = "linux";
-#elif defined(_WIN32)
-    static const char p[] = "win32";
-#else
-    static const char p[] = "unknown";
-#endif
-    uint64_t len = sizeof(p) - 1;
-    uint8_t *out = __torajs_str_alloc_pooled(len);
-    memcpy(out + __TORAJS_STR_HDR_SIZE, p, (size_t)len);
-    return out;
-}
+/* __torajs_process_exit / _cwd / _getenv / _platform + argv_init /
+ * process_argv moved to torajs-process (P7.h-proc, 2026-05-24). */
 
 /* T-03 (v0.3.0) — synchronous stdio.
  *
@@ -1228,27 +1150,9 @@ void *__torajs_process_platform(void) {
  * success, false on backpressure / error). tr panics on short write
  * — typed-throw substrate for graceful failure lands with v0.3
  * #1.b — so the only return that reaches user code is `true`. */
-_Bool __torajs_process_stdout_write(const void *s) {
-    const uint8_t *d = __TORAJS_STR_CDATA(s);
-    uint64_t dlen = __TORAJS_STR_LEN(s);
-    size_t put = fwrite(d, 1, (size_t)dlen, stdout);
-    fflush(stdout);
-    if (put != (size_t)dlen) {
-        __torajs_panic("not yet supported: process.stdout.write short write");
-    }
-    return 1;
-}
-
-_Bool __torajs_process_stderr_write(const void *s) {
-    const uint8_t *d = __TORAJS_STR_CDATA(s);
-    uint64_t dlen = __TORAJS_STR_LEN(s);
-    size_t put = fwrite(d, 1, (size_t)dlen, stderr);
-    fflush(stderr);
-    if (put != (size_t)dlen) {
-        __torajs_panic("not yet supported: process.stderr.write short write");
-    }
-    return 1;
-}
+/* __torajs_process_stdout_write / _stderr_write moved to
+ * torajs-process (P7.h-proc, 2026-05-24). stdout via libc printf
+ * for shared stdio buffer; stderr via write(2) (unbuffered). */
 
 /* `process.stdin.read()` — bun's API is the Node.js Readable stream
  * shape: returns Buffer-or-null asynchronously, never a blocking

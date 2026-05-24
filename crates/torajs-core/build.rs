@@ -72,6 +72,7 @@ const STATICLIBS: &[&str] = &[
     "torajs_capture_box", // Layer-1: refcounted 16B capture box for escape-captured let slots (P6.5)
     "torajs_fs", // Layer-3: synchronous filesystem substrate (readFileSync / writeFileSync / mkdirSync / ...) (P7.d)
     "torajs_meta", // Layer-3: runtime metadata + reflection — fnprops side table + class/proto registries + getPropertyDescriptor / getPrototypeOf (P7.g)
+    "torajs_process", // Layer-3: process surface — exit / cwd / env / argv / platform / stdout.write / stderr.write (P7.h-proc)
 ];
 
 fn main() {

@@ -1,0 +1,26 @@
+[package]
+name = "torajs-process"
+description = "Process surface for the torajs AOT TypeScript runtime — process.exit / cwd / env / argv / platform / stdout.write / stderr.write. Layer-3 substrate (P7.h-proc); replaces the process_* family in runtime_str.c."
+keywords = ["torajs", "process", "runtime", "ffi"]
+categories = ["os", "no-std"]
+readme = "README.md"
+documentation = "https://docs.rs/torajs-process"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+crate-type = ["rlib", "staticlib"]
+
+[dependencies]
+# 0 Cargo deps — libc exit / getcwd / getenv / printf / write are
+# OS-level system symbols (not Cargo deps). Cross-tier extern calls
+# (str_alloc_pooled, arr_alloc, arr_push, panic) resolve at
+# `tr build` link time against the matching sibling staticlibs +
+# runtime_str.c.

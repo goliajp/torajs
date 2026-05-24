@@ -1891,6 +1891,7 @@ dependencies = [
  "torajs-meta",
  "torajs-microtask",
  "torajs-num",
+ "torajs-process",
  "torajs-promise",
  "torajs-rc",
  "torajs-runtime",
@@ -1965,6 +1966,10 @@ version = "0.1.0"
 dependencies = [
  "criterion",
 ]
+
+[[package]]
+name = "torajs-process"
+version = "0.1.0"
 
 [[package]]
 name = "torajs-promise"

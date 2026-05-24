@@ -84,3 +84,8 @@ torajs-promise = { path = "../torajs-promise" }
 # fnprops_set/get + proto_register/get + class_register/get +
 # get_property_descriptor / get_proto_of_any resolve at `tr build`.
 torajs-meta = { path = "../torajs-meta" }
+# Layer-3: process surface — exit / cwd / env / argv / platform /
+# stdout.write / stderr.write (P7.h-proc). Dual rlib+staticlib;
+# libtorajs_process.a co-links so process_* fns resolve at
+# `tr build`. Same dep-order rationale as torajs-meta.
+torajs-process = { path = "../torajs-process" }
