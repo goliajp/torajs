@@ -25,7 +25,11 @@
 //!   frees the tree (replaces C's manual `node_free`).
 
 pub mod charclass;
+pub mod compiler;
+pub mod flags;
 pub mod node;
 pub mod parser;
+pub mod program;
+pub mod resolve;
 pub mod ucd;
 pub mod utf8;

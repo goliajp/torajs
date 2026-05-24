@@ -484,19 +484,13 @@ mod tests {
     }
 
     #[test]
-    fn is_word_byte_matches_ascii_word_chars() {
-        for c in b'a'..=b'z' {
-            assert!(is_word_byte(c));
-        }
-        for c in b'A'..=b'Z' {
-            assert!(is_word_byte(c));
-        }
-        for c in b'0'..=b'9' {
+    fn is_word_byte_covers_ascii_word_chars() {
+        for c in (b'a'..=b'z').chain(b'A'..=b'Z').chain(b'0'..=b'9') {
             assert!(is_word_byte(c));
         }
         assert!(is_word_byte(b'_'));
-        assert!(!is_word_byte(b' '));
-        assert!(!is_word_byte(b'-'));
-        assert!(!is_word_byte(0x80));
+        for c in [b' ', b'-', 0x80] {
+            assert!(!is_word_byte(c));
+        }
     }
 }
