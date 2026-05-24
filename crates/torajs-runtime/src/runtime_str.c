@@ -1654,187 +1654,12 @@ extern int64_t __torajs_str_last_index_of(const uint8_t *s, const uint8_t *needl
  * .error primitive — they all live in Rust sub-crates.
  */
 
-/* ============================================================
- * v0.3 #1 — fs module helpers. Synchronous file I/O surfaces:
- *   readFileSync(path) → string of file contents
- *   writeFileSync(path, data) → void (truncates)
- *   existsSync(path) → boolean
- *
- * Path is a NUL-terminated copy on the stack so we can pass it
- * straight to libc; tr's Str isn't NUL-terminated by default.
- * Files are read in one shot via fseek/ftell/fread; writes go
- * through a single fwrite. v0.3.b will add streaming readers /
- * appendFileSync / readdirSync / statSync; for now this trio
- * unlocks the most common CLI idioms (read input, write output,
- * existence check). Errors (file not found, permission denied,
- * etc.) currently abort with stderr — typed throw integration
- * comes in v0.3.b.
- * ============================================================ */
-
-static void path_copy_to_buf(const void *path_str, char *buf, size_t bufsz) {
-    const uint8_t *p = __TORAJS_STR_CDATA(path_str);
-    uint64_t plen = __TORAJS_STR_LEN(path_str);
-    if (plen >= bufsz) plen = bufsz - 1;
-    memcpy(buf, p, (size_t)plen);
-    buf[plen] = '\0';
-}
-
-void *__torajs_fs_read_file_sync(const void *path_str) {
-    char path[4096];
-    path_copy_to_buf(path_str, path, sizeof(path));
-    FILE *f = fopen(path, "rb");
-    if (!f) {
-        char msg[4200];
-        snprintf(msg, sizeof(msg), "not yet supported: fs.readFileSync open failed: %s", path);
-        __torajs_panic(msg);
-    }
-    if (fseek(f, 0, SEEK_END) != 0) {
-        fclose(f);
-        __torajs_panic("not yet supported: fs.readFileSync seek failed");
-    }
-    long sz = ftell(f);
-    if (sz < 0) {
-        fclose(f);
-        __torajs_panic("not yet supported: fs.readFileSync ftell failed");
-    }
-    rewind(f);
-    uint8_t *out = __torajs_str_alloc_pooled((uint64_t)sz);
-    size_t got = fread(out + __TORAJS_STR_HDR_SIZE, 1, (size_t)sz, f);
-    fclose(f);
-    if (got != (size_t)sz) {
-        __torajs_panic("not yet supported: fs.readFileSync short read");
-    }
-    return out;
-}
-
-void __torajs_fs_write_file_sync(const void *path_str, const void *data_str) {
-    char path[4096];
-    path_copy_to_buf(path_str, path, sizeof(path));
-    FILE *f = fopen(path, "wb");
-    if (!f) {
-        char msg[4200];
-        snprintf(msg, sizeof(msg), "not yet supported: fs.writeFileSync open failed: %s", path);
-        __torajs_panic(msg);
-    }
-    const uint8_t *d = __TORAJS_STR_CDATA(data_str);
-    uint64_t dlen = __TORAJS_STR_LEN(data_str);
-    size_t put = fwrite(d, 1, (size_t)dlen, f);
-    fclose(f);
-    if (put != (size_t)dlen) {
-        __torajs_panic("not yet supported: fs.writeFileSync short write");
-    }
-}
-
-_Bool __torajs_fs_exists_sync(const void *path_str) {
-    char path[4096];
-    path_copy_to_buf(path_str, path, sizeof(path));
-    FILE *f = fopen(path, "rb");
-    if (!f) return 0;
-    fclose(f);
-    return 1;
-}
-
-void __torajs_fs_append_file_sync(const void *path_str, const void *data_str) {
-    char path[4096];
-    path_copy_to_buf(path_str, path, sizeof(path));
-    FILE *f = fopen(path, "ab");
-    if (!f) {
-        char msg[4200];
-        snprintf(msg, sizeof(msg), "not yet supported: fs.appendFileSync open failed: %s", path);
-        __torajs_panic(msg);
-    }
-    const uint8_t *d = __TORAJS_STR_CDATA(data_str);
-    uint64_t dlen = __TORAJS_STR_LEN(data_str);
-    size_t put = fwrite(d, 1, (size_t)dlen, f);
-    fclose(f);
-    if (put != (size_t)dlen) {
-        __torajs_panic("not yet supported: fs.appendFileSync short write");
-    }
-}
-
-/* ============================================================
- * v0.3 #3 — process surface (minimum). Synchronous shape:
- *   process.exit(code)  → calls libc exit (no return)
- *   process.cwd()       → string of getcwd()
- *   process.platform    → static "darwin" / "linux" / etc.
- *
- * argv / env are deferred to v0.3.b (need to thread main()'s argc/argv
- * into the user program — extra plumbing through ssa_lower's main entry).
- * ============================================================ */
-
+/* fs_* family + path_copy_to_buf helper moved to torajs-fs (P7.d,
+ * 2026-05-24). Covers readFileSync / writeFileSync / appendFileSync /
+ * existsSync / unlinkSync / mkdirSync / statSync.size / readdirSync.
+ * process.* fns remain here until P7.e. */
 #include <unistd.h>
 #include <sys/stat.h>
-
-void __torajs_fs_unlink_sync(const void *path_str) {
-    char path[4096];
-    path_copy_to_buf(path_str, path, sizeof(path));
-    if (unlink(path) != 0) {
-        char msg[4200];
-        snprintf(msg, sizeof(msg), "not yet supported: fs.unlinkSync failed: %s", path);
-        __torajs_panic(msg);
-    }
-}
-
-void __torajs_fs_mkdir_sync(const void *path_str) {
-    char path[4096];
-    path_copy_to_buf(path_str, path, sizeof(path));
-    if (mkdir(path, 0755) != 0) {
-        /* JS spec throws on existing dir unless `recursive: true` —
-         * we mirror by aborting (typed-throw is Phase 2.0c). */
-        char msg[4200];
-        snprintf(msg, sizeof(msg), "not yet supported: fs.mkdirSync failed: %s", path);
-        __torajs_panic(msg);
-    }
-}
-
-/* T-18.c (v0.5.0) — fs size probe used by `Bun.file(p).size` and
- * future `fs.statSync(p).size`. Returns the file's byte size or
- * -1 on error (missing / unreadable / not a regular file). Doesn't
- * panic — the bun-spec `size` getter is synchronous AND error-free
- * (returns 0 for missing files in bun; tr returns -1 to make
- * "missing" distinguishable). Spec-strict 0-on-missing lands when
- * we wire a typed fs.exists check at the call site. */
-int64_t __torajs_fs_size_sync(const void *path_str) {
-    char path[4096];
-    path_copy_to_buf(path_str, path, sizeof(path));
-    struct stat st;
-    if (stat(path, &st) != 0) return -1;
-    if (!S_ISREG(st.st_mode)) return -1;
-    return (int64_t)st.st_size;
-}
-
-/* T-18.b (v0.5.0) — fs.readdirSync(path) returns Array<string> with
- * one entry per directory child (excluding `.` and `..`, matching
- * bun / node spec). Caller owns the result Array; each Str element
- * has rc=1. Order matches the OS's readdir() ordering (typically
- * inode-order on ext4 / btrfs, deterministic on test setups). */
-#include <dirent.h>
-void *__torajs_fs_readdir_sync(const void *path_str) {
-    char path[4096];
-    path_copy_to_buf(path_str, path, sizeof(path));
-    DIR *d = opendir(path);
-    if (!d) {
-        char msg[4200];
-        snprintf(msg, sizeof(msg), "not yet supported: fs.readdirSync open failed: %s", path);
-        __torajs_panic(msg);
-    }
-    void *arr = __torajs_arr_alloc(0);
-    struct dirent *ent;
-    while ((ent = readdir(d)) != NULL) {
-        const char *name = ent->d_name;
-        if (name[0] == '.' && (name[1] == '\0'
-            || (name[1] == '.' && name[2] == '\0')))
-        {
-            continue; /* skip "." and ".." per spec */
-        }
-        uint64_t nlen = strlen(name);
-        uint8_t *s = __torajs_str_alloc_pooled(nlen);
-        if (nlen) memcpy(s + __TORAJS_STR_HDR_SIZE, name, (size_t)nlen);
-        arr = __torajs_arr_push(arr, (int64_t)(intptr_t)s);
-    }
-    closedir(d);
-    return arr;
-}
 
 void __torajs_process_exit(int64_t code) {
     exit((int)code);
@@ -1858,8 +1683,15 @@ void *__torajs_process_cwd(void) {
  * tr's `undefined` maps to NULL via the undefined→null bridge so
  * `process.env.X === undefined` round-trips correctly). */
 void *__torajs_process_getenv(const void *name_str) {
+    /* Inline NUL-copy: tora Str isn't NUL-terminated; libc getenv
+     * needs a C string. path_copy_to_buf used to live here too but
+     * moved to torajs-fs at P7.d. */
     char name[256];
-    path_copy_to_buf(name_str, name, sizeof(name));
+    const uint8_t *p = __TORAJS_STR_CDATA(name_str);
+    uint64_t nlen = __TORAJS_STR_LEN(name_str);
+    if (nlen >= sizeof(name)) nlen = sizeof(name) - 1;
+    memcpy(name, p, (size_t)nlen);
+    name[nlen] = '\0';
     const char *v = getenv(name);
     if (!v) return NULL;
     uint64_t len = strlen(v);

@@ -20,6 +20,7 @@ members = [
     "crates/torajs-fetch",
     "crates/torajs-date",
     "crates/torajs-capture-box",
+    "crates/torajs-fs",
     "crates/torajs-runtime",
     "crates/torajs-core",
     "crates/torajs-cli",

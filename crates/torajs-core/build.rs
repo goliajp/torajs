@@ -70,6 +70,7 @@ const STATICLIBS: &[&str] = &[
     "torajs_fetch", // Layer-3: sync HTTP fetch (libcurl-easy wrapper) — Response heap + drop (P6.3)
     "torajs_date", // Layer-3: Date class — heap layout + ctors / getters / setters / ISO format (P6.4)
     "torajs_capture_box", // Layer-1: refcounted 16B capture box for escape-captured let slots (P6.5)
+    "torajs_fs", // Layer-3: synchronous filesystem substrate (readFileSync / writeFileSync / mkdirSync / ...) (P7.d)
 ];
 
 fn main() {

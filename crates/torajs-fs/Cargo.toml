@@ -1,0 +1,29 @@
+[package]
+name = "torajs-fs"
+description = "Synchronous filesystem substrate for the torajs AOT TypeScript runtime — readFileSync / writeFileSync / appendFileSync / existsSync / mkdirSync / unlinkSync / statSync.size / readdirSync. Path bytes flow through tora Str; bodies return as Str. Layer-3 substrate (P7.d); replaces runtime_str.c's fs_* family."
+keywords = ["torajs", "filesystem", "fs", "runtime", "ffi"]
+categories = ["filesystem", "no-std"]
+readme = "README.md"
+documentation = "https://docs.rs/torajs-fs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+# Dual emit: `rlib` for cargo workspace + unit tests; `staticlib`
+# emits libtorajs_fs.a so ssa_inkwell links it into every
+# `tr build` AOT user binary alongside the other Layer-1+ staticlibs.
+[lib]
+crate-type = ["rlib", "staticlib"]
+
+[dependencies]
+# 0 Cargo deps — std::fs covers every entrypoint (cross-platform,
+# already in the dep tree via `std`). Cross-tier extern calls
+# (str_alloc_pooled, arr_alloc, arr_push, panic) resolve at
+# `tr build` link time against libtorajs_str.a + libtorajs_arr.a +
+# runtime_str.c — same pattern as the other Layer-3 sub-crates.
