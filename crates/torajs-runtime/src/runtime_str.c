@@ -924,21 +924,9 @@ extern void __torajs_str_print(const uint8_t *);
  * (P3.1-e.4, 2026-05-23). n<=0 clamps to 0; wrapping_mul matches
  * the C subset's silent-overflow contract. */
 
-/* Internal helper — alloc a fresh Arr heap with refcount=1 + type_tag
- * set + len/cap written. Caller fills the slot data at
- * __TORAJS_ARR_DATA(p). Single-source-of-truth for every Arr alloc
- * in this file. */
-static uint8_t *arr_alloc_(uint64_t len, uint64_t cap) {
-    uint8_t *p = (uint8_t *)malloc(__TORAJS_ARR_HDR_SIZE + (size_t)cap * 8);
-    __torajs_heap_header_t *h = (__torajs_heap_header_t *)p;
-    h->refcount = 1;
-    h->type_tag = __TORAJS_TAG_ARR;
-    h->flags = 0;
-    __TORAJS_ARR_LEN(p) = len;
-    __TORAJS_ARR_CAP(p) = (uint32_t)cap;
-    __TORAJS_ARR_HEAD(p) = 0;  /* T-13.5 — fresh alloc starts head=0 */
-    return p;
-}
+/* The arr_alloc_(len, cap) helper moved to torajs-arr::transform
+ * (P7.h-arr, 2026-05-24) — every former caller in this file
+ * (arr_flat / arr_concat / arr_unshift) ported alongside it. */
 
 /* __torajs_arr_slice moved to torajs-arr::slice (P4.1-f, 2026-05-23).
  * ES §22.1.3.25 negative-index clamp + single malloc + memcpy preserved
@@ -1269,162 +1257,13 @@ _Bool __torajs_process_stderr_write(const void *s) {
  * T-03 sketch synchronously drained to EOF and returned a Str — that
  * diverged from bun and was dropped to preserve tr-accepted parity. */
 
-/* `a.flat()` — single-level array flattening. Outer array holds inner
- * array pointers (8 bytes each); we sum their lengths in pass 1, then
- * memcpy each into the result in pass 2. Element-type-agnostic.
- * v0 supports depth=1 only (no recursive flatten).
- */
-void *__torajs_arr_flat(const uint8_t *outer) {
-    uint64_t outer_len = __TORAJS_ARR_LEN(outer);
-    uint64_t total = 0;
-    for (uint64_t i = 0; i < outer_len; i++) {
-        const uint8_t *inner = *(const uint8_t *const *)__TORAJS_ARR_CSLOT(outer, i);
-        total += __TORAJS_ARR_LEN(inner);
-    }
-    uint8_t *p = arr_alloc_(total, total);
-    uint8_t *p_data = __TORAJS_ARR_DATA(p);  /* fresh, head=0 */
-    uint64_t cursor = 0;
-    for (uint64_t i = 0; i < outer_len; i++) {
-        const uint8_t *inner = *(const uint8_t *const *)__TORAJS_ARR_CSLOT(outer, i);
-        uint64_t inner_len = __TORAJS_ARR_LEN(inner);
-        if (inner_len) {
-            memcpy(p_data + cursor,
-                   __TORAJS_ARR_CSLOT(inner, 0),
-                   (size_t)inner_len * 8);
-            cursor += inner_len * 8;
-        }
-    }
-    return p;
-}
-
-/* `a.concat(b)` — fresh array containing all of a's elements then all
- * of b's. Element-type-agnostic (8-byte slots). Single malloc + two
- * memcpys. Subset is two-arg only; JS allows `[...].concat(b, c, d)`
- * (multi-arg) but this v0 only handles the binary form. */
-void *__torajs_arr_concat(const uint8_t *a, const uint8_t *b) {
-    uint64_t a_len = __TORAJS_ARR_LEN(a);
-    uint64_t b_len = __TORAJS_ARR_LEN(b);
-    uint64_t total = a_len + b_len;
-    uint8_t *p = arr_alloc_(total, total);
-    uint8_t *p_data = __TORAJS_ARR_DATA(p);  /* fresh alloc, head=0 */
-    if (a_len) memcpy(p_data, __TORAJS_ARR_CSLOT(a, 0), (size_t)a_len * 8);
-    if (b_len) memcpy(p_data + (size_t)a_len * 8, __TORAJS_ARR_CSLOT(b, 0), (size_t)b_len * 8);
-    return p;
-}
-
-/* `arr.reverse()` — in-place reverse over the i64-slot array. Returns
- * the same array pointer for chaining. Element-type-agnostic. */
-void *__torajs_arr_reverse(uint8_t *arr) {
-    uint64_t len = __TORAJS_ARR_LEN(arr);
-    if (len < 2) return arr;
-    uint64_t lo = 0, hi = len - 1;
-    while (lo < hi) {
-        uint64_t *a_slot = (uint64_t *)__TORAJS_ARR_SLOT(arr, lo);
-        uint64_t *b_slot = (uint64_t *)__TORAJS_ARR_SLOT(arr, hi);
-        uint64_t tmp = *a_slot;
-        *a_slot = *b_slot;
-        *b_slot = tmp;
-        lo++; hi--;
-    }
-    return arr;
-}
-
-/* T-13.5 (v0.4.0) — `arr.shift()` is O(1): bump head_offset and
- * decrement len. No memmove. The vacated front slot stays allocated
- * until either compact (push hits cap-with-head>0) or the array's
- * drop releases the whole block.
- *
- * v0.6+1 perf checkpoint — body PROMOTED to inkwell IR (see
- * `define_arr_shift` in ssa_inkwell.rs). The C version is gone:
- * the C-side `__attribute__((always_inline))` doesn't survive the
- * native-object link boundary (inkwell emits .o not bitcode), so
- * `bl __torajs_arr_shift` stayed external in the linked binary
- * even with -flto. Defining the body directly in inkwell + the
- * IR-level `alwaysinline` attribute fixes that — LLVM splices the
- * 4-op body in before the .o ever forms.
- *
- * Symbol stays exported via inkwell so any (theoretical) cross-TU
- * caller still resolves. */
-
-/* T-13.5 — `arr.unshift(v)` — insert `v` at slot[0]. Now O(1) when
- * head_offset > 0 (just decrement head, write into the freed
- * front slot). Falls back to compact-or-realloc-then-memmove when
- * head == 0 (true grow path). Returns the (possibly realloc'd)
- * array pointer, mirroring push's contract. */
-void *__torajs_arr_unshift(uint8_t *arr, int64_t v) {
-    uint32_t head = __TORAJS_ARR_HEAD(arr);
-    if (head > 0) {
-        /* Fast path: reclaim a freed front slot. */
-        head -= 1;
-        __TORAJS_ARR_HEAD(arr) = head;
-        *(int64_t *)__TORAJS_ARR_DATA_RAW_SLOT(arr, head) = v;
-        __TORAJS_ARR_LEN(arr) = __TORAJS_ARR_LEN(arr) + 1;
-        return arr;
-    }
-    uint64_t len = __TORAJS_ARR_LEN(arr);
-    uint64_t cap = __TORAJS_ARR_CAP(arr);
-    if (len >= cap) {
-        /* Realloc — double cap (or 1 if 0). Live range moves to
-         * physical slot 1; head stays 0 (caller's logical slot 0
-         * is the new value at physical 0). */
-        uint64_t new_cap = cap == 0 ? 1 : cap * 2;
-        uint8_t *p = arr_alloc_(0, new_cap);
-        if (len > 0) {
-            memcpy(__TORAJS_ARR_DATA_RAW_SLOT(p, 1),
-                   __TORAJS_ARR_DATA(arr),
-                   (size_t)len * 8);
-        }
-        *(int64_t *)__TORAJS_ARR_DATA_RAW_SLOT(p, 0) = v;
-        __TORAJS_ARR_LEN(p) = len + 1;
-        free(arr);
-        return p;
-    }
-    /* In-place: head==0 + cap room — memmove right and prepend. */
-    if (len > 0) {
-        memmove(__TORAJS_ARR_DATA_RAW_SLOT(arr, 1),
-                __TORAJS_ARR_DATA(arr),
-                (size_t)len * 8);
-    }
-    *(int64_t *)__TORAJS_ARR_DATA_RAW_SLOT(arr, 0) = v;
-    __TORAJS_ARR_LEN(arr) = len + 1;
-    return arr;
-}
-
-/* `arr.copyWithin(target, start, end)` — in-place memmove of
- * the [start, end) slice to position `target`. All indices clamped to
- * [0, len]. memmove handles overlap. Returns same pointer. */
-void *__torajs_arr_copy_within(uint8_t *arr, int64_t target, int64_t start, int64_t end) {
-    uint64_t len = __TORAJS_ARR_LEN(arr);
-    int64_t lo = start < 0 ? 0 : (start > (int64_t)len ? (int64_t)len : start);
-    int64_t hi = end < 0 ? 0 : (end > (int64_t)len ? (int64_t)len : end);
-    int64_t to = target < 0 ? 0 : (target > (int64_t)len ? (int64_t)len : target);
-    if (hi <= lo) return arr;
-    int64_t count = hi - lo;
-    if (to + count > (int64_t)len) {
-        count = (int64_t)len - to;
-        if (count <= 0) return arr;
-    }
-    memmove(__TORAJS_ARR_SLOT(arr, to),
-            __TORAJS_ARR_SLOT(arr, lo),
-            (size_t)count * 8);
-    return arr;
-}
-
-/* `arr.fill(value, start, end)` — write `value` into [start, end).
- * Both indices clamped to [0, len]. Element-type-agnostic — the value
- * is passed as i64 and stored verbatim in each slot; the caller's
- * SSA layer is responsible for converting types. Returns the same
- * pointer for chaining. */
-void *__torajs_arr_fill(uint8_t *arr, int64_t value, int64_t start, int64_t end) {
-    uint64_t len = __TORAJS_ARR_LEN(arr);
-    int64_t lo = start < 0 ? 0 : (start > (int64_t)len ? (int64_t)len : start);
-    int64_t hi = end < 0 ? 0 : (end > (int64_t)len ? (int64_t)len : end);
-    if (hi < lo) return arr;
-    for (int64_t i = lo; i < hi; i++) {
-        *(int64_t *)__TORAJS_ARR_SLOT(arr, i) = value;
-    }
-    return arr;
-}
+/* __torajs_arr_flat / _arr_concat / _arr_reverse / _arr_unshift /
+ * _arr_copy_within / _arr_fill all moved to torajs-arr::transform
+ * (P7.h-arr, 2026-05-24). T-13.5 deque-aware: head_offset folded
+ * into per-slot pointer math; unshift O(1)-on-head>0 path preserved
+ * along with the grow/memmove fallback. T-13.5 `arr.shift()` (O(1))
+ * stays inkwell-IR-emitted via define_arr_shift (the alwaysinline
+ * attribute doesn't survive cc/.o linking; LLVM IR inline does). */
 
 /* __torajs_str_to_upper / __torajs_str_to_lower moved to
  * torajs-str::transform::case (P3.1-e.1, 2026-05-23). ASCII-only

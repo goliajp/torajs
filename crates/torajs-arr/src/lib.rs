@@ -46,6 +46,7 @@ pub mod print;
 pub mod props;
 pub mod slice;
 pub mod str_bridge;
+pub mod transform;
 
 pub use alloc::{__torajs_arr_alloc, __torajs_arr_alloc_pooled, __torajs_arr_free};
 pub use any::{
@@ -72,6 +73,10 @@ pub use print::{
     __torajs_arr_print_str, __torajs_arr_print_substr,
 };
 pub use slice::__torajs_arr_slice;
+pub use transform::{
+    __torajs_arr_concat, __torajs_arr_copy_within, __torajs_arr_fill, __torajs_arr_flat,
+    __torajs_arr_reverse, __torajs_arr_unshift,
+};
 
 // `__torajs_str_alloc_pooled` is provided by `libtorajs_str.a` at
 // `tr build` link time. cargo unit tests don't link torajs-str's
