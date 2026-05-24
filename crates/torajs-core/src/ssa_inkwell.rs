@@ -17,10 +17,13 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
+mod arr_helpers;
 mod attrs;
 mod declares;
+mod globals;
 mod link;
 
+use arr_helpers::{arr_cap_load, arr_data_ptr, arr_head_load, arr_len_load, arr_raw_data_ptr};
 use attrs::{
     is_alloc_intrinsic, mark_alwaysinline, mark_memory_none, mark_noalias_ret, module_uses_fetch,
     ssa_fn_is_pure,
@@ -30,6 +33,7 @@ use declares::{
     declare_memcpy, declare_memmove, declare_putchar, declare_realloc, declare_str_alloc_pooled,
     declare_str_free, libc_name,
 };
+use globals::{STATIC_LITERAL_FLAG, emit_data_global, emit_static_str_global, emit_string_global};
 use link::{link_object_to_binary, rand_suffix, read_uses_fetch_sidecar, write_uses_fetch_sidecar};
 
 use inkwell::AddressSpace;
@@ -1380,14 +1384,14 @@ fn define_split_iter_next<'ctx>(
 /// physical-slot offset of logical[0]. `arr.shift()` is now O(1)
 /// (head++/len--); push compacts when phys_used == cap and head>0.
 /// Mirrors `__TORAJS_ARR_HDR_SIZE` and friends in `runtime_str.c`.
-const ARR_HDR_LEN_OFF: u64 = 8;
-const ARR_HDR_CAP_OFF: u64 = 16;
+pub(super) const ARR_HDR_LEN_OFF: u64 = 8;
+pub(super) const ARR_HDR_CAP_OFF: u64 = 16;
 /// T-13.5 deque head_offset (u32) — packed in the high 4 B of the
 /// 8-B slot at offset 16. Logical[0] sits at `data + head*8`.
 /// Restored 2026-05-24 (B1b) so `define_arr_push` can compact + grow
 /// in IR with cross-TU-bypass alwaysinline linkage.
-const ARR_HDR_HEAD_OFF: u64 = 20;
-const ARR_HDR_DATA_OFF: u64 = 24;
+pub(super) const ARR_HDR_HEAD_OFF: u64 = 20;
+pub(super) const ARR_HDR_DATA_OFF: u64 = 24;
 /* ARR_HDR_TAG_ARR removed with emit_arr_alloc_header (dead since
  * P4.1-c ported arr_alloc to Rust). Tag lives in
  * crates/torajs-arr/src/layout.rs now. */
@@ -1402,174 +1406,6 @@ const ARR_HDR_DATA_OFF: u64 = 24;
  * `__torajs_arr_push` stays — it's the cross-staticlib path for
  * fs/process/promise/regex Rust callers that can't see this module's
  * Internal-linkage define. */
-
-/// Get the Arr's logical-data byte pointer: `arr + 24 + head*8`. Used
-/// by callers that index by logical-slot (push fast-path, push grow-
-/// path store).
-fn arr_data_ptr<'ctx>(
-    ctx: &'ctx Context,
-    builder: &inkwell::builder::Builder<'ctx>,
-    arr_ptr: inkwell::values::PointerValue<'ctx>,
-    name: &str,
-) -> inkwell::values::PointerValue<'ctx> {
-    let i64_t = ctx.i64_type();
-    let i8_t = ctx.i8_type();
-    let raw = unsafe {
-        builder
-            .build_in_bounds_gep(
-                i8_t,
-                arr_ptr,
-                &[i64_t.const_int(ARR_HDR_DATA_OFF, false)],
-                &format!("{name}_raw"),
-            )
-            .unwrap()
-    };
-    let head_x8 = arr_head_x8_load(ctx, builder, arr_ptr, name);
-    unsafe {
-        builder
-            .build_in_bounds_gep(i8_t, raw, &[head_x8], name)
-            .unwrap()
-    }
-}
-
-/// Get the Arr's raw-data byte pointer (`p + 24`), bypassing the
-/// head_offset adjustment. Used by paths that need physical-slot
-/// access — currently the in-IR compact memmove. Avoid otherwise.
-fn arr_raw_data_ptr<'ctx>(
-    ctx: &'ctx Context,
-    builder: &inkwell::builder::Builder<'ctx>,
-    arr_ptr: inkwell::values::PointerValue<'ctx>,
-    name: &str,
-) -> inkwell::values::PointerValue<'ctx> {
-    let i64_t = ctx.i64_type();
-    let i8_t = ctx.i8_type();
-    unsafe {
-        builder
-            .build_in_bounds_gep(
-                i8_t,
-                arr_ptr,
-                &[i64_t.const_int(ARR_HDR_DATA_OFF, false)],
-                name,
-            )
-            .unwrap()
-    }
-}
-
-/// Load the Arr's `head_offset * 8` (i64) — the byte offset of
-/// logical[0] within the slot data section. Loads u32 at offset 20,
-/// zext to i64, shl 3.
-fn arr_head_x8_load<'ctx>(
-    ctx: &'ctx Context,
-    builder: &inkwell::builder::Builder<'ctx>,
-    arr_ptr: inkwell::values::PointerValue<'ctx>,
-    name: &str,
-) -> inkwell::values::IntValue<'ctx> {
-    let i64_t = ctx.i64_type();
-    let i32_t = ctx.i32_type();
-    let i8_t = ctx.i8_type();
-    let head_ptr = unsafe {
-        builder
-            .build_in_bounds_gep(
-                i8_t,
-                arr_ptr,
-                &[i64_t.const_int(ARR_HDR_HEAD_OFF, false)],
-                &format!("{name}_hp"),
-            )
-            .unwrap()
-    };
-    let head_i32 = builder
-        .build_load(i32_t, head_ptr, &format!("{name}_h32"))
-        .unwrap()
-        .into_int_value();
-    let head_i64 = builder
-        .build_int_z_extend(head_i32, i64_t, &format!("{name}_h64"))
-        .unwrap();
-    builder
-        .build_left_shift(head_i64, i64_t.const_int(3, false), &format!("{name}_x8"))
-        .unwrap()
-}
-
-/// Load the Arr's `head_offset` field (i64-extended). Cheaper-named
-/// helper for callers that need head as a count, not a byte offset.
-fn arr_head_load<'ctx>(
-    ctx: &'ctx Context,
-    builder: &inkwell::builder::Builder<'ctx>,
-    arr_ptr: inkwell::values::PointerValue<'ctx>,
-    name: &str,
-) -> inkwell::values::IntValue<'ctx> {
-    let i64_t = ctx.i64_type();
-    let i32_t = ctx.i32_type();
-    let i8_t = ctx.i8_type();
-    let head_ptr = unsafe {
-        builder
-            .build_in_bounds_gep(
-                i8_t,
-                arr_ptr,
-                &[i64_t.const_int(ARR_HDR_HEAD_OFF, false)],
-                &format!("{name}_hp"),
-            )
-            .unwrap()
-    };
-    let head_i32 = builder
-        .build_load(i32_t, head_ptr, &format!("{name}_h32"))
-        .unwrap()
-        .into_int_value();
-    builder.build_int_z_extend(head_i32, i64_t, name).unwrap()
-}
-
-/// Load the Arr's `len` field (`*(u64*)(p + ARR_HDR_LEN_OFF)`).
-fn arr_len_load<'ctx>(
-    ctx: &'ctx Context,
-    builder: &inkwell::builder::Builder<'ctx>,
-    arr_ptr: inkwell::values::PointerValue<'ctx>,
-    name: &str,
-) -> inkwell::values::IntValue<'ctx> {
-    let i64_t = ctx.i64_type();
-    let i8_t = ctx.i8_type();
-    let len_ptr = unsafe {
-        builder
-            .build_in_bounds_gep(
-                i8_t,
-                arr_ptr,
-                &[i64_t.const_int(ARR_HDR_LEN_OFF, false)],
-                &format!("{name}_lp"),
-            )
-            .unwrap()
-    };
-    builder
-        .build_load(i64_t, len_ptr, name)
-        .unwrap()
-        .into_int_value()
-}
-
-/// Load the Arr's `cap` field (`*(u32*)(p + ARR_HDR_CAP_OFF)`)
-/// zext to i64. T-13.5: cap shrunk from u64 to u32 to share a
-/// 64-bit slot with `head_offset` at offset 20.
-fn arr_cap_load<'ctx>(
-    ctx: &'ctx Context,
-    builder: &inkwell::builder::Builder<'ctx>,
-    arr_ptr: inkwell::values::PointerValue<'ctx>,
-    name: &str,
-) -> inkwell::values::IntValue<'ctx> {
-    let i64_t = ctx.i64_type();
-    let i32_t = ctx.i32_type();
-    let i8_t = ctx.i8_type();
-    let cap_ptr = unsafe {
-        builder
-            .build_in_bounds_gep(
-                i8_t,
-                arr_ptr,
-                &[i64_t.const_int(ARR_HDR_CAP_OFF, false)],
-                &format!("{name}_cp"),
-            )
-            .unwrap()
-    };
-    let cap_i32 = builder
-        .build_load(i32_t, cap_ptr, &format!("{name}_c32"))
-        .unwrap()
-        .into_int_value();
-    builder.build_int_z_extend(cap_i32, i64_t, name).unwrap()
-}
 
 /// Build the body of `__torajs_arr_push(arr*, val) -> arr*`. 187-LOC
 /// IR restored from commit 6b90dae5 (B1b 2026-05-24). Emitted with
@@ -1775,133 +1611,6 @@ fn define_arr_push<'ctx>(
     builder.build_store(len_p, len_p1).unwrap();
     builder.build_return(Some(&arr)).unwrap();
     f
-}
-
-/// Emit one `[N x i8]` private constant per interned string. Just the raw
-/// bytes — no NUL terminator. The string runtime carries length explicitly
-/// in the heap StrRepr's first 8 bytes.
-fn emit_string_global<'ctx>(
-    ctx: &'ctx Context,
-    m: &LlvmModule<'ctx>,
-    idx: usize,
-    bytes: &[u8],
-) -> inkwell::values::GlobalValue<'ctx> {
-    let i8_t = ctx.i8_type();
-    let arr_t = i8_t.array_type(bytes.len() as u32);
-    let arr = ctx.const_string(bytes, false);
-    let g = m.add_global(arr_t, None, &format!(".str{idx}"));
-    g.set_initializer(&arr);
-    g.set_constant(true);
-    g.set_linkage(inkwell::module::Linkage::Private);
-    g.set_unnamed_addr(true);
-    g
-}
-
-/// `[hdr:8 (rc=1, tag=STR, flags=STATIC_LITERAL)] [len:8] [bytes:N]` —
-/// drop-in Str object that lives in `.rodata`. rc_inc / rc_dec /
-/// str_free / arr_free all short-circuit via the STATIC flag in the
-/// header so the global is never written to (safe to mark constant).
-///
-/// Serves `intern_string_literal` callsites — every literal in a hot
-/// loop now resolves to the same global ptr instead of paying a
-/// per-iter str_alloc + memcpy + str_drop. Memory cost: one extra
-/// 16-byte header per unique literal, paid once at link time.
-fn emit_static_str_global<'ctx>(
-    ctx: &'ctx Context,
-    m: &LlvmModule<'ctx>,
-    idx: usize,
-    bytes: &[u8],
-) -> inkwell::values::GlobalValue<'ctx> {
-    let i8_t = ctx.i8_type();
-    let i64_t = ctx.i64_type();
-    let len = bytes.len() as u64;
-
-    // Universal heap header packed into a single u64:
-    //   refcount (u32) @ [0..32]   = 1 (irrelevant — rc_inc/dec no-op)
-    //   type_tag (u16) @ [32..48]  = TAG_STR (= 0)
-    //   flags    (u16) @ [48..64]  = STATIC_LITERAL (= 4)
-    let header_u64: u64 = 1u64 | ((STATIC_LITERAL_FLAG as u64) << 48);
-    let hdr = i64_t.const_int(header_u64, false);
-    let len_v = i64_t.const_int(len, false);
-    let bytes_arr = ctx.const_string(bytes, false);
-
-    // Anonymous struct so the layout exactly matches `[u64, u64, [N x i8]]`
-    // — the runtime reads the header at offset 0 and the bytes at offset 16.
-    let body = ctx.const_struct(
-        &[hdr.into(), len_v.into(), bytes_arr.into()],
-        true, // packed — prevent LLVM from inserting padding between fields
-    );
-    let body_t = ctx.struct_type(
-        &[
-            i64_t.into(),
-            i64_t.into(),
-            i8_t.array_type(len as u32).into(),
-        ],
-        true,
-    );
-    let g = m.add_global(body_t, None, &format!(".sstr{idx}"));
-    g.set_initializer(&body);
-    g.set_constant(true);
-    g.set_linkage(inkwell::module::Linkage::Private);
-    g.set_unnamed_addr(true);
-    g
-}
-
-/// Mirror of `__TORAJS_FLAG_STATIC_LITERAL` in runtime_str.c. Encoded
-/// here so the header u64 above can be built without a runtime lookup.
-const STATIC_LITERAL_FLAG: u16 = 4;
-
-/// Phase K.3 — emit one LLVM module-level data global per
-/// `s::DataGlobal`. Zero-initialized; the SSA `main` fn lowers the
-/// user's init expression and stores into the slot before any other
-/// code runs. K.3 only registers primitive Copy types — string /
-/// array / object globals are out of scope until a follow-up wires
-/// up exit-time drop hooks.
-fn emit_data_global<'ctx>(
-    ctx: &'ctx Context,
-    m: &LlvmModule<'ctx>,
-    g: &s::DataGlobal,
-) -> inkwell::values::GlobalValue<'ctx> {
-    match g.ty {
-        Type::I64 => {
-            let t = ctx.i64_type();
-            let glob = m.add_global(t, None, &g.name);
-            glob.set_initializer(&t.const_int(0, false));
-            glob
-        }
-        Type::I32 => {
-            let t = ctx.i32_type();
-            let glob = m.add_global(t, None, &g.name);
-            glob.set_initializer(&t.const_int(0, false));
-            glob
-        }
-        Type::F64 => {
-            let t = ctx.f64_type();
-            let glob = m.add_global(t, None, &g.name);
-            glob.set_initializer(&t.const_float(0.0));
-            glob
-        }
-        Type::Bool => {
-            let t = ctx.bool_type();
-            let glob = m.add_global(t, None, &g.name);
-            glob.set_initializer(&t.const_int(0, false));
-            glob
-        }
-        // K.4 / K.6 — refcount-typed globals (Str / Arr / Obj). All
-        // are ptr-shaped at SSA layer; the slot holds a heap pointer
-        // and ssa_lower emits the per-type drop at fall-through
-        // `main` exit via `emit_drop_value` (which walks array
-        // elements / object fields recursively when refcounted).
-        Type::Str | Type::Arr(_) | Type::Obj(_) => {
-            let t = ctx.ptr_type(AddressSpace::default());
-            let glob = m.add_global(t, None, &g.name);
-            glob.set_initializer(&t.const_null());
-            glob
-        }
-        other => panic!(
-            "emit_data_global: unsupported global type {other:?} (K.6 supports primitive Copy + Str / Arr / Obj; Closure / FnSig are deferred)"
-        ),
-    }
 }
 
 /* __torajs_str_alloc moved to torajs-str::alloc (P3.1-g.2, 2026-05-23).
