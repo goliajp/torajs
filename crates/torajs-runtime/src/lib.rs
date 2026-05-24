@@ -25,11 +25,21 @@ pub const RUNTIME_REGEX_C: &str = include_str!("runtime_regex.c");
 /// v0.2 #2 — Date class implementation.
 pub const RUNTIME_DATE_C: &str = include_str!("runtime_date.c");
 
-/// v0.5 T-15 — Promise heap layout + microtask queue + executor.
-/// T-15.a ships only the heap layout; subsequent sub-steps wire the
-/// microtask queue (T-15.c), .then chaining (T-15.d), and main-exit
-/// auto-drain (T-15.e).
-pub const RUNTIME_PROMISE_C: &str = include_str!("runtime_promise.c");
+/* runtime_promise.c deleted entirely at P6.1 (2026-05-24). The
+ * Promise surface (alloc + pool + drop + resolve/reject +
+ * .then/.catch/.finally + .all/.allSettled/.race/.any +
+ * queueMicrotask) now lives in pure-Rust `torajs-promise`
+ * (libtorajs_promise.a). The orthogonal capture-box helpers (3 fns,
+ * ~40 LOC) carved out to runtime_capture_box.c — they serve
+ * codegen's escape-captured-let promotion, not Promise, and stay
+ * C-side until a future cleanup phase folds them into a refcount
+ * sub-crate. */
+
+/// v0.5 T-15.g.5 — capture-box ARC for Copy escape-captured lets.
+/// Carved out of runtime_promise.c at P6.1 (2026-05-24) — 3 fns
+/// (alloc/inc/drop) handling refcount on the 16B heap box used by
+/// closures sharing a captured `let` slot. Orthogonal to Promise.
+pub const RUNTIME_CAPTURE_BOX_C: &str = include_str!("runtime_capture_box.c");
 
 /// v0.6 T-21 — `fetch(url)` HTTP client (sync MVP via libcurl).
 /// Native target only; wasm32-wasi gates the whole TU on
@@ -83,7 +93,7 @@ pub const SOURCES: &[(&str, &str)] = &[
     ("runtime_str.c", RUNTIME_STR_C),
     ("runtime_regex.c", RUNTIME_REGEX_C),
     ("runtime_date.c", RUNTIME_DATE_C),
-    ("runtime_promise.c", RUNTIME_PROMISE_C),
     ("runtime_fetch.c", RUNTIME_FETCH_C),
     ("runtime_libc_bridge.c", RUNTIME_LIBC_BRIDGE_C),
+    ("runtime_capture_box.c", RUNTIME_CAPTURE_BOX_C),
 ];

@@ -70,6 +70,11 @@ torajs-weak = { path = "../torajs-weak" }
 torajs-cycle = { path = "../torajs-cycle" }
 # Layer-3: microtask queue (P5). Dual rlib+staticlib; libtorajs_microtask.a
 # co-links so __torajs_microtask_enqueue/run_until_idle/pending_count
-# resolve at `tr build` (called from runtime_promise.c + future P6.1
-# Rust port). Same dep-order rationale as torajs-cycle.
+# resolve at `tr build` (called from torajs-promise + ssa_lower-emitted
+# microtask dispatchers). Same dep-order rationale as torajs-cycle.
 torajs-microtask = { path = "../torajs-microtask" }
+# Layer-3: Promise<T> surface (P6.1). Dual rlib+staticlib; libtorajs_promise.a
+# co-links so the full Promise API (alloc / pool / drop / resolve / reject /
+# .then / .catch / .finally / .all / .allSettled / .race / .any /
+# queueMicrotask) resolves at `tr build`. Same dep-order rationale.
+torajs-promise = { path = "../torajs-promise" }

@@ -1,0 +1,28 @@
+[package]
+name = "torajs-promise"
+description = "Promise<T> substrate for the torajs AOT TypeScript runtime. Heap layout (32B header + state + value + callbacks) + bounded free-list pool + 5 alloc variants + drop. Resolve/reject + callback chain + drain to microtask queue. .then/.catch/.finally (simple + closure variants) + Promise.all/allSettled/race/any sync combinators + queueMicrotask globals + thenable absorption. Layer-3 substrate. Pairs with torajs-microtask (queue) — Promise queues work onto that crate's enqueue API."
+keywords = ["torajs", "promise", "async", "event-loop", "runtime"]
+categories = ["concurrency", "no-std"]
+readme = "README.md"
+documentation = "https://docs.rs/torajs-promise"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+# Dual emit: `rlib` for cargo workspace + unit tests; `staticlib`
+# emits libtorajs_promise.a so ssa_inkwell links it into every
+# `tr build` AOT user binary alongside the other Layer-1+ staticlibs.
+[lib]
+crate-type = ["rlib", "staticlib"]
+
+[dependencies]
+# 0 runtime deps. Cross-tier calls (rc_inc/rc_dec + value_drop_heap
+# + arr_alloc/push + str_alloc_pooled + throw_set + microtask_enqueue)
+# use `extern "C"` symbols resolved at link time — same pattern
+# torajs-cycle / torajs-weak / torajs-collections use.

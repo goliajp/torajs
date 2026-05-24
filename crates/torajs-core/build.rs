@@ -64,7 +64,8 @@ const STATICLIBS: &[&str] = &[
     "torajs_collections", // Layer-3: Map<K,V> + Set + MapIter (P4.3)
     "torajs_weak",        // Layer-3: WeakRef + WeakMap + WeakSet substrate (P4.3')
     "torajs_cycle",       // Layer-3: Bacon-Rajan trial-deletion cycle collector (P4.4)
-    "torajs_microtask",   // Layer-3: microtask queue (P5; Promise upper P6.1 still C)
+    "torajs_microtask",   // Layer-3: microtask queue (P5)
+    "torajs_promise", // Layer-3: Promise surface — alloc/pool/drop/state/then/combinator/queueMicrotask (P6.1)
 ];
 
 fn main() {

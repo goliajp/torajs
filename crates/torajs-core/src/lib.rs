@@ -79,6 +79,10 @@ pub const TORAJS_STATICLIBS: &[(&str, &[u8])] = &[
         "libtorajs_microtask.a",
         include_bytes!(env!("TORAJS_MICROTASK_STATICLIB_PATH")),
     ),
+    (
+        "libtorajs_promise.a",
+        include_bytes!(env!("TORAJS_PROMISE_STATICLIB_PATH")),
+    ),
 ];
 
 /// Compiler-source fingerprint emitted by build.rs (hash of

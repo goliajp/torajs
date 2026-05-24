@@ -1886,6 +1886,7 @@ dependencies = [
  "torajs-dynobj",
  "torajs-microtask",
  "torajs-num",
+ "torajs-promise",
  "torajs-rc",
  "torajs-runtime",
  "torajs-str",
@@ -1943,6 +1944,10 @@ version = "0.1.0"
 dependencies = [
  "criterion",
 ]
+
+[[package]]
+name = "torajs-promise"
+version = "0.1.0"
 
 [[package]]
 name = "torajs-rc"
