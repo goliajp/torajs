@@ -63,6 +63,7 @@ const STATICLIBS: &[&str] = &[
     "torajs_dynobj",      // Layer-3: dynamic-property object hashmap (P4.2)
     "torajs_collections", // Layer-3: Map<K,V> + Set + MapIter (P4.3)
     "torajs_weak",        // Layer-3: WeakRef + WeakMap + WeakSet substrate (P4.3')
+    "torajs_cycle",       // Layer-3: Bacon-Rajan trial-deletion cycle collector (P4.4)
 ];
 
 fn main() {

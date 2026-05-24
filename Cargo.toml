@@ -13,6 +13,7 @@ members = [
     "crates/torajs-dynobj",
     "crates/torajs-collections",
     "crates/torajs-weak",
+    "crates/torajs-cycle",
     "crates/torajs-runtime",
     "crates/torajs-core",
     "crates/torajs-cli",

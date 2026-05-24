@@ -1882,13 +1882,19 @@ dependencies = [
  "torajs-arr",
  "torajs-bigint",
  "torajs-collections",
+ "torajs-cycle",
  "torajs-dynobj",
  "torajs-num",
  "torajs-rc",
  "torajs-runtime",
  "torajs-str",
  "torajs-throw",
+ "torajs-weak",
 ]
+
+[[package]]
+name = "torajs-cycle"
+version = "0.1.0"
 
 [[package]]
 name = "torajs-dynobj"

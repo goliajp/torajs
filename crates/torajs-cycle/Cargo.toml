@@ -1,0 +1,28 @@
+[package]
+name = "torajs-cycle"
+description = "Bacon & Rajan trial-deletion cycle collector for the torajs AOT TypeScript runtime. Three-color (BLACK/GRAY/PURPLE/WHITE) recursive mark-scan-collect over a global buffer of cyclic-shape candidates pushed by rc_dec / Obj-walk_blk drop hooks. Walks class instances via ssa_inkwell-emitted `__torajs_class_layouts` table + arrays via in-place slot iteration. Manual `gc()` trigger + threshold-driven auto-collect + main-exit drain. Layer-3 substrate."
+keywords = ["torajs", "gc", "garbage-collection", "cycle-collector", "runtime"]
+categories = ["memory-management", "no-std"]
+readme = "README.md"
+documentation = "https://docs.rs/torajs-cycle"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+# Dual emit: `rlib` for cargo workspace + unit tests; `staticlib`
+# emits libtorajs_cycle.a so ssa_inkwell links it into every
+# `tr build` AOT user binary alongside the other Layer-1+ staticlibs.
+[lib]
+crate-type = ["rlib", "staticlib"]
+
+[dependencies]
+# 0 runtime deps. Cross-tier calls (value_drop_heap + ssa_inkwell-
+# emitted __torajs_class_layouts table) use `extern "C"` symbols
+# resolved at link time — same pattern as torajs-weak / torajs-arr /
+# torajs-collections.

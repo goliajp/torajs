@@ -62,9 +62,13 @@ pub const RUNTIME_LIBC_BRIDGE_C: &str = include_str!("runtime_libc_bridge.c");
  * The entire `weak` family lives in pure-Rust `torajs-weak`
  * (libtorajs_weak.a) — 0 C runtime files remain for it. */
 
-/// v0.7 T-26 (slice C) — Bacon-Rajan trial-deletion cycle
-/// collector for class instances. Manual `gc()` trigger.
-pub const RUNTIME_CYCLE_C: &str = include_str!("runtime_cycle.c");
+/* runtime_cycle.c deleted entirely at P4.4 (2026-05-24). The full
+ * Bacon-Rajan trial-deletion cycle collector (mark/scan/collect
+ * phases + buffer + buffer/unbuffer hooks + main-exit drain) now
+ * lives in pure-Rust `torajs-cycle` (libtorajs_cycle.a).
+ * `__torajs_class_layouts` / `__torajs_n_class_layouts` are still
+ * emitted by ssa_inkwell at codegen — torajs-cycle reads them via
+ * `extern "C"` at link time. */
 
 /* runtime_map.c deleted entirely at P4.3-g (2026-05-24). The full
  * Map/Set surface + MapIter + ArrIter now lives in pure-Rust crates:
@@ -82,5 +86,4 @@ pub const SOURCES: &[(&str, &str)] = &[
     ("runtime_promise.c", RUNTIME_PROMISE_C),
     ("runtime_fetch.c", RUNTIME_FETCH_C),
     ("runtime_libc_bridge.c", RUNTIME_LIBC_BRIDGE_C),
-    ("runtime_cycle.c", RUNTIME_CYCLE_C),
 ];

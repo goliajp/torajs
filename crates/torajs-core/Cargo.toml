@@ -56,3 +56,15 @@ torajs-dynobj = { path = "../torajs-dynobj" }
 # drop/iter in P4.3-b..-i) resolves at `tr build`. Weak family lives in
 # a separate torajs-weak crate (P4.3').
 torajs-collections = { path = "../torajs-collections" }
+# Layer-3: weak-ref family — WeakRef + WeakMap + WeakSet + shared
+# observer registry (P4.3'). Dual rlib+staticlib; libtorajs_weak.a
+# co-links so registry register/deregister + target_dying + the three
+# owner-side surfaces resolve at `tr build`. Explicit dep here forces
+# cargo's build order so torajs-core's `include_bytes!` reads a fresh
+# libtorajs_weak.a.
+torajs-weak = { path = "../torajs-weak" }
+# Layer-3: Bacon-Rajan trial-deletion cycle collector (P4.4). Dual
+# rlib+staticlib; libtorajs_cycle.a co-links so cycle_buffer /
+# cycle_unbuffer / cycle_collect / cycle_at_exit_drain resolve at
+# `tr build`. Same dep-order rationale as torajs-weak.
+torajs-cycle = { path = "../torajs-cycle" }
