@@ -87,6 +87,10 @@ pub const TORAJS_STATICLIBS: &[(&str, &[u8])] = &[
         "libtorajs_regex.a",
         include_bytes!(env!("TORAJS_REGEX_STATICLIB_PATH")),
     ),
+    (
+        "libtorajs_fetch.a",
+        include_bytes!(env!("TORAJS_FETCH_STATICLIB_PATH")),
+    ),
 ];
 
 /// Compiler-source fingerprint emitted by build.rs (hash of

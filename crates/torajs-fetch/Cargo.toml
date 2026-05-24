@@ -1,0 +1,32 @@
+[package]
+name = "torajs-fetch"
+description = "Synchronous HTTP fetch substrate for the torajs AOT TypeScript runtime — minimal libcurl-easy wrapper exposing __torajs_fetch_sync + __torajs_response_drop. Wraps a single GET into a tora Response heap object (status i64 + body Str). Layer-3 substrate (P6.3); paired with torajs-promise at codegen (fetch(url) lowers to promise_alloc_fulfilled_heap(__torajs_fetch_sync(url)))."
+keywords = ["torajs", "fetch", "http", "curl", "runtime"]
+categories = ["network-programming", "no-std"]
+readme = "README.md"
+documentation = "https://docs.rs/torajs-fetch"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+# Dual emit: `rlib` for cargo workspace + unit tests; `staticlib`
+# emits libtorajs_fetch.a so ssa_inkwell links it into every
+# `tr build` AOT user binary alongside the other Layer-1+ staticlibs.
+[lib]
+crate-type = ["rlib", "staticlib"]
+
+[dependencies]
+# 0 Cargo deps — libcurl is an OS-level system library (same as
+# libc; not a Cargo dep). Bindings declared inline via
+# `extern "C" { #[link(name = "curl")] ... }` — matches what C
+# already does (runtime_fetch.c just `#include <curl/curl.h>`).
+# Cross-tier extern calls (str_alloc_pooled, rc_dec,
+# value_drop_heap) resolved at `tr build` link time against
+# libtorajs_str.a + libtorajs_rc.a + runtime_str.c — same pattern
+# as the other Layer-3 sub-crates.

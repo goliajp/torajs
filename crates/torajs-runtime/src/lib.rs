@@ -49,11 +49,13 @@ pub const RUNTIME_DATE_C: &str = include_str!("runtime_date.c");
 /// closures sharing a captured `let` slot. Orthogonal to Promise.
 pub const RUNTIME_CAPTURE_BOX_C: &str = include_str!("runtime_capture_box.c");
 
-/// v0.6 T-21 — `fetch(url)` HTTP client (sync MVP via libcurl).
-/// Native target only; wasm32-wasi gates the whole TU on
-/// `#ifndef __wasi__` and routes through the browser's fetch
-/// API instead (T-21.b).
-pub const RUNTIME_FETCH_C: &str = include_str!("runtime_fetch.c");
+/* runtime_fetch.c deleted entirely at P6.3 (2026-05-24). The sync
+ * `fetch(url)` MVP (libcurl-easy wrapper + Response heap object +
+ * response_drop) now lives in pure-Rust `torajs-fetch`
+ * (libtorajs_fetch.a). Native target links against the system
+ * libcurl via `#[link(name = "curl")]`; wasm32-wasi degrades to
+ * the same empty-body Response shape (T-21.b will route through
+ * the browser fetch API). */
 
 /// v0.6 T-20.b — wasm32-wasi libc ABI bridge. The whole TU is
 /// gated on `#ifdef __wasi__` so the native object is empty;
@@ -100,7 +102,6 @@ pub const RUNTIME_LIBC_BRIDGE_C: &str = include_str!("runtime_libc_bridge.c");
 pub const SOURCES: &[(&str, &str)] = &[
     ("runtime_str.c", RUNTIME_STR_C),
     ("runtime_date.c", RUNTIME_DATE_C),
-    ("runtime_fetch.c", RUNTIME_FETCH_C),
     ("runtime_libc_bridge.c", RUNTIME_LIBC_BRIDGE_C),
     ("runtime_capture_box.c", RUNTIME_CAPTURE_BOX_C),
 ];

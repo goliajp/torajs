@@ -67,6 +67,7 @@ const STATICLIBS: &[&str] = &[
     "torajs_microtask",   // Layer-3: microtask queue (P5)
     "torajs_promise", // Layer-3: Promise surface — alloc/pool/drop/state/then/combinator/queueMicrotask (P6.1)
     "torajs_regex", // Layer-3: ECMAScript regex — parser / Thompson NFA / Pike VM + extern API (P6.2)
+    "torajs_fetch", // Layer-3: sync HTTP fetch (libcurl-easy wrapper) — Response heap + drop (P6.3)
 ];
 
 fn main() {
