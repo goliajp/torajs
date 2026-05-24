@@ -36,6 +36,14 @@
 //! if idx >= len { abort_with(b"OOB"); }
 //! ```
 
+// `#![no_std]` was tried but tripped the same issue documented in
+// torajs-rc/lib.rs: cargo test --workspace --release insists on
+// building the staticlib variant under unwind-panics regardless of
+// the profile setting, which conflicts with no_std + precompiled
+// core. Keep std; the panic infra isn't pulled because this crate
+// uses `unsafe extern "C"` for write(2) + abort() and never calls
+// any Rust panic site itself.
+
 use core::ffi::c_void;
 
 const STDERR_FILENO: i32 = 2;

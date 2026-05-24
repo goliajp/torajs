@@ -1831,6 +1831,9 @@ dependencies = [
 [[package]]
 name = "torajs-abort"
 version = "0.1.0"
+dependencies = [
+ "criterion",
+]
 
 [[package]]
 name = "torajs-anyvalue"
@@ -1872,6 +1875,9 @@ dependencies = [
 [[package]]
 name = "torajs-codec-hex"
 version = "0.1.0"
+dependencies = [
+ "criterion",
+]
 
 [[package]]
 name = "torajs-collections"

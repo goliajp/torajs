@@ -21,3 +21,10 @@ crate-type = ["rlib", "staticlib"]
 [dependencies]
 # 0 Cargo deps — libc write(2) + abort() declared inline via
 # `unsafe extern "C"`. Vision #4 (0 Cargo deps) preserved.
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "abort"
+harness = false
