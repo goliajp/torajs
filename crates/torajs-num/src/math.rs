@@ -173,11 +173,23 @@ pub unsafe extern "C" fn __torajs_math_pow(x: f64, y: f64) -> f64 {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_math_min(x: f64, y: f64) -> f64 {
+    // ES §20.2.2.25: if any arg is NaN, the result is NaN. Rust's
+    // `f64::min` is non-NaN-propagating (matches libm fmin), so
+    // we have to short-circuit ourselves before delegating.
+    if x.is_nan() || y.is_nan() {
+        return f64::NAN;
+    }
     x.min(y)
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_math_max(x: f64, y: f64) -> f64 {
+    // ES §20.2.2.24: if any arg is NaN, the result is NaN. Rust's
+    // `f64::max` is non-NaN-propagating (matches libm fmax), so
+    // short-circuit before delegating.
+    if x.is_nan() || y.is_nan() {
+        return f64::NAN;
+    }
     x.max(y)
 }
 

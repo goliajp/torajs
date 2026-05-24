@@ -26,3 +26,10 @@ crate-type = ["rlib", "staticlib"]
 # at link time (e.g. __torajs_rc_dec from libtorajs_rc.a). libc free
 # is declared directly as `unsafe extern "C" { fn free }` per the
 # torajs-str pattern.
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "bigint"
+harness = false

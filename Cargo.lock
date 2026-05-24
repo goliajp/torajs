@@ -1855,6 +1855,9 @@ dependencies = [
 [[package]]
 name = "torajs-bigint"
 version = "0.1.0"
+dependencies = [
+ "criterion",
+]
 
 [[package]]
 name = "torajs-capture-box"
@@ -1959,6 +1962,9 @@ version = "0.1.0"
 [[package]]
 name = "torajs-num"
 version = "0.1.0"
+dependencies = [
+ "criterion",
+]
 
 [[package]]
 name = "torajs-panic"

@@ -26,3 +26,10 @@ crate-type = ["rlib", "staticlib"]
 # No deps for the P3.2-a scaffold. Future ToNumber port (P3.2-c) will
 # pull torajs-anyvalue (for AnyBox tag dispatch on any.toNumber) +
 # torajs-throw (for RangeError on invalid numeric conversion edge cases).
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "num"
+harness = false
