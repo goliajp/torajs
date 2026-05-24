@@ -19,6 +19,7 @@ members = [
     "crates/torajs-regex",
     "crates/torajs-fetch",
     "crates/torajs-date",
+    "crates/torajs-capture-box",
     "crates/torajs-runtime",
     "crates/torajs-core",
     "crates/torajs-cli",

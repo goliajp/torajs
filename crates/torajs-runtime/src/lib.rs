@@ -48,11 +48,12 @@ pub const RUNTIME_STR_C: &str = include_str!("runtime_str.c");
  * C-side until a future cleanup phase folds them into a refcount
  * sub-crate. */
 
-/// v0.5 T-15.g.5 — capture-box ARC for Copy escape-captured lets.
-/// Carved out of runtime_promise.c at P6.1 (2026-05-24) — 3 fns
-/// (alloc/inc/drop) handling refcount on the 16B heap box used by
-/// closures sharing a captured `let` slot. Orthogonal to Promise.
-pub const RUNTIME_CAPTURE_BOX_C: &str = include_str!("runtime_capture_box.c");
+/* runtime_capture_box.c deleted entirely at P6.5 (2026-05-24).
+ * The 16-byte refcounted capture-box (3 fns: alloc / inc / drop)
+ * for escape-captured Copy-typed `let` slots now lives in pure-
+ * Rust `torajs-capture-box` (libtorajs_capture_box.a). Standalone
+ * because its layout (rc u64 at +0, value i64 at +8) is distinct
+ * from torajs-rc's universal heap header. */
 
 /* runtime_fetch.c deleted entirely at P6.3 (2026-05-24). The sync
  * `fetch(url)` MVP (libcurl-easy wrapper + Response heap object +
@@ -107,5 +108,4 @@ pub const RUNTIME_LIBC_BRIDGE_C: &str = include_str!("runtime_libc_bridge.c");
 pub const SOURCES: &[(&str, &str)] = &[
     ("runtime_str.c", RUNTIME_STR_C),
     ("runtime_libc_bridge.c", RUNTIME_LIBC_BRIDGE_C),
-    ("runtime_capture_box.c", RUNTIME_CAPTURE_BOX_C),
 ];

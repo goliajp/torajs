@@ -1854,6 +1854,10 @@ name = "torajs-bigint"
 version = "0.1.0"
 
 [[package]]
+name = "torajs-capture-box"
+version = "0.1.0"
+
+[[package]]
 name = "torajs-cli"
 version = "0.1.0"
 dependencies = [

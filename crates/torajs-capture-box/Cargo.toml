@@ -1,0 +1,28 @@
+[package]
+name = "torajs-capture-box"
+description = "Refcounted 16-byte capture box for the torajs AOT TypeScript runtime — storage for escape-captured Copy-typed `let` slots promoted to the heap. Layout: rc u64 at +0, i64 value at +8 (the SSA-lower-threaded pointer points at +8 so Load/Store sites stay unchanged). Three extern fns: alloc / inc / drop. Carved out of runtime_promise.c at P6.1 (then runtime_capture_box.c); now standalone Rust at P6.5."
+keywords = ["torajs", "refcount", "closure", "runtime"]
+categories = ["no-std", "memory-management"]
+readme = "README.md"
+documentation = "https://docs.rs/torajs-capture-box"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+# Dual emit: `rlib` for cargo workspace + unit tests; `staticlib`
+# emits libtorajs_capture_box.a so ssa_inkwell links it into every
+# `tr build` AOT user binary.
+[lib]
+crate-type = ["rlib", "staticlib"]
+
+[dependencies]
+# 0 deps. Pure libc malloc/free via std::alloc; no cross-tier
+# externs (capture box is fully self-contained — distinct layout
+# from torajs-rc's universal heap header, which is why it can't
+# share that crate's drop dispatch).
