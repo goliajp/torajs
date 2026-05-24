@@ -22,8 +22,9 @@ workspace = true
 crate-type = ["rlib", "staticlib"]
 
 [dependencies]
-# 0 Cargo deps — std::sync::Mutex + std::collections::HashMap cover
-# the side-table need. Cross-tier extern calls (dynobj_*, any_box,
-# rc_inc, value_drop_heap, str_alloc_pooled, str_drop) resolve at
+# Polish A3a — panic-free abort helper for mutex.lock().expect.
+torajs-abort = { path = "../torajs-abort" }
+# Cross-tier extern calls (dynobj_*, any_box, rc_inc,
+# value_drop_heap, str_alloc_pooled, str_drop) resolve at
 # `tr build` link time against the matching sibling staticlibs +
-# runtime_str.c.
+# runtime_str.c (no other Cargo dep needed).

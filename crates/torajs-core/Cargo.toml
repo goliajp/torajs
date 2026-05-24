@@ -101,3 +101,8 @@ torajs-panic = { path = "../torajs-panic" }
 # collision-free against #[cfg(test)] stubs in torajs-arr / -anyvalue
 # / -collections / etc. (see torajs-value-drop/Cargo.toml description).
 torajs-value-drop = { path = "../torajs-value-drop" }
+# Layer-0: panic-free abort helper — used by every Layer-1+
+# staticlib in place of expect/panic/assert (polish A3a). Dual
+# rlib+staticlib; libtorajs_abort.a co-links so __torajs_abort_with
+# resolves at `tr build`. Same dep-order rationale as torajs-panic.
+torajs-abort = { path = "../torajs-abort" }

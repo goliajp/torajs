@@ -27,3 +27,5 @@ crate-type = ["rlib", "staticlib"]
 # __torajs_rc_dec. P4.x torajs-arr is Layer-3 architecturally but
 # only uses Layer-1 types here — same dep pattern as torajs-str.
 torajs-rc = { path = "../torajs-rc" }
+# Polish A3a — panic-free abort for OOM in Array alloc.
+torajs-abort = { path = "../torajs-abort" }

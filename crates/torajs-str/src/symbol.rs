@@ -93,7 +93,12 @@ pub unsafe extern "C" fn __torajs_symbol_alloc(desc: *mut c_void) -> *mut c_void
 }
 
 fn symbol_layout() -> std::alloc::Layout {
-    std::alloc::Layout::from_size_align(SYMBOL_SIZE, 8).unwrap()
+    // SAFETY: SYMBOL_SIZE = 16 and align = 8 are compile-time constants
+    // satisfying Layout's invariants (align is a non-zero power of two;
+    // size is rounded up to a multiple of align). Using the unchecked
+    // ctor avoids pulling Rust's Layout::Err formatting path into the
+    // user binary (polish A3).
+    unsafe { std::alloc::Layout::from_size_align_unchecked(SYMBOL_SIZE, 8) }
 }
 
 /// # Safety
@@ -229,7 +234,9 @@ pub unsafe extern "C" fn __torajs_symbol_for(key: *mut c_void) -> *mut c_void {
             __torajs_panic(b"TypeError: Symbol.for requires a string key\0".as_ptr());
         }
     }
-    let mut reg = SYMBOL_REG.lock().unwrap();
+    let mut reg = SYMBOL_REG
+        .lock()
+        .unwrap_or_else(|_| torajs_abort::abort_with(b"torajs-str SYMBOL_REG mutex poisoned"));
     // Linear scan — same shape as C port.
     for &sym_usize in reg.iter() {
         let sym = sym_usize as *mut c_void;
@@ -261,7 +268,9 @@ pub unsafe extern "C" fn __torajs_symbol_key_for(sym: *mut c_void) -> *mut c_voi
     if sym.is_null() {
         return core::ptr::null_mut();
     }
-    let reg = SYMBOL_REG.lock().unwrap();
+    let reg = SYMBOL_REG
+        .lock()
+        .unwrap_or_else(|_| torajs_abort::abort_with(b"torajs-str SYMBOL_REG mutex poisoned"));
     for &reg_sym in reg.iter() {
         if reg_sym == sym as usize {
             let desc = unsafe { symbol_desc(sym) };

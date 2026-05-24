@@ -27,3 +27,7 @@ crate-type = ["rlib", "staticlib"]
 # FLAG_STATIC_LITERAL bit that the free path consults to bypass
 # .rodata Str blocks. Pulled in as a normal rlib dep.
 torajs-rc = { path = "../torajs-rc" }
+# Polish A3a — panic-free abort helper. Replaces .expect()/.unwrap()
+# on Layout::from_size_align / NonNull::new / Mutex::lock so the
+# user binary doesn't pull Rust std panic infra.
+torajs-abort = { path = "../torajs-abort" }

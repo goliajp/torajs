@@ -96,7 +96,7 @@ impl StrBlock {
         // `.expect`). Block size is computed by `block_size`
         // matching the C `str_block_size_` exactly.
         let raw = unsafe { malloc(block_size(len)) } as *mut u8;
-        let nn = NonNull::new(raw).expect("OOM in Str alloc");
+        let nn = NonNull::new(raw).unwrap_or_else(|| torajs_abort::abort_with(b"OOM in Str alloc"));
         Self::init_header_and_len(nn, len);
         Self(nn)
     }

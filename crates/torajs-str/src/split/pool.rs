@@ -105,7 +105,7 @@ pub fn alloc(out_count: u64) -> NonNull<u8> {
     }
     // Pool miss — fresh allocation.
     let raw = unsafe { malloc(block_size(out_count)) } as *mut u8;
-    NonNull::new(raw).expect("OOM in split block alloc")
+    NonNull::new(raw).unwrap_or_else(|| torajs_abort::abort_with(b"OOM in split block alloc"))
 }
 
 /// Push a freed split block onto the LIFO. Returns `true` if

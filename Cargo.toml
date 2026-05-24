@@ -25,6 +25,7 @@ members = [
     "crates/torajs-process",
     "crates/torajs-panic",
     "crates/torajs-value-drop",
+    "crates/torajs-abort",
     "crates/torajs-runtime",
     "crates/torajs-core",
     "crates/torajs-cli",
@@ -76,6 +77,12 @@ opt-level = 3
 lto = "fat"
 codegen-units = 1
 strip = true
+# polish B1c (2026-05-24) — `RUSTFLAGS=-Cembed-bitcode=yes` set
+# via .cargo/config.toml so every staticlib's .o sections carry
+# LLVM bitcode alongside native code. cc -flto at `tr build` link
+# can then inline arr_push / rc_inc / etc. into user code's hot
+# loops (10M `bl __torajs_arr_push` calls in array-sum-1m
+# pre-polish became zero after LTO inlines the fast path).
 # panic = "abort" is required for the no_std staticlibs in
 # crates/torajs-rc + crates/torajs-anyvalue + crates/torajs-throw
 # (unwinding panics aren't supported without std) AND

@@ -24,6 +24,9 @@ crate-type = ["rlib", "staticlib"]
 [dependencies]
 # Layer-0 / Layer-1 substrate: HeapHeader + Tag enum + rc_inc/dec.
 torajs-rc = { path = "../torajs-rc" }
+# Polish A3a — panic-free abort helper for the NonNull::new(malloc)
+# OOM path; avoids pulling Rust's panic machinery into user binaries.
+torajs-abort = { path = "../torajs-abort" }
 
 [dev-dependencies]
 criterion = { workspace = true }

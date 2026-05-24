@@ -1835,10 +1835,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "torajs-abort"
+version = "0.1.0"
+
+[[package]]
 name = "torajs-anyvalue"
 version = "0.1.0"
 dependencies = [
  "criterion",
+ "torajs-abort",
  "torajs-rc",
 ]
 
@@ -1846,6 +1851,7 @@ dependencies = [
 name = "torajs-arr"
 version = "0.1.0"
 dependencies = [
+ "torajs-abort",
  "torajs-rc",
 ]
 
@@ -1882,6 +1888,7 @@ name = "torajs-core"
 version = "0.1.0"
 dependencies = [
  "inkwell",
+ "torajs-abort",
  "torajs-anyvalue",
  "torajs-arr",
  "torajs-bigint",
@@ -1934,6 +1941,9 @@ version = "0.1.0"
 [[package]]
 name = "torajs-meta"
 version = "0.1.0"
+dependencies = [
+ "torajs-abort",
+]
 
 [[package]]
 name = "torajs-microtask"
@@ -2000,6 +2010,7 @@ version = "0.1.0"
 name = "torajs-str"
 version = "0.1.0"
 dependencies = [
+ "torajs-abort",
  "torajs-rc",
 ]
 

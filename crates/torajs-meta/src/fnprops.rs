@@ -43,7 +43,9 @@ const ANY_UNDEF_TAG: u64 = 5;
 
 #[inline]
 fn intern(fn_ptr: *mut c_void) -> *mut c_void {
-    let mut t = table().lock().expect("torajs-meta fnprops mutex poisoned");
+    let mut t = table()
+        .lock()
+        .unwrap_or_else(|_| torajs_abort::abort_with(b"torajs-meta fnprops mutex poisoned"));
     let key = fn_ptr as usize;
     if let Some(&p) = t.get(&key) {
         return p as *mut c_void;
@@ -55,7 +57,9 @@ fn intern(fn_ptr: *mut c_void) -> *mut c_void {
 
 #[inline]
 fn lookup(fn_ptr: *mut c_void) -> *mut c_void {
-    let t = table().lock().expect("torajs-meta fnprops mutex poisoned");
+    let t = table()
+        .lock()
+        .unwrap_or_else(|_| torajs_abort::abort_with(b"torajs-meta fnprops mutex poisoned"));
     t.get(&(fn_ptr as usize))
         .copied()
         .map(|v| v as *mut c_void)
@@ -76,7 +80,9 @@ pub unsafe extern "C" fn __torajs_fnprops_set(
     // need to write the new pointer back into the table.
     unsafe { __torajs_dynobj_set(&mut dynobj, key as *const u8, tag as u64, value as u64) };
     // Write back the (possibly-reallocated) dynobj pointer.
-    let mut t = table().lock().expect("torajs-meta fnprops mutex poisoned");
+    let mut t = table()
+        .lock()
+        .unwrap_or_else(|_| torajs_abort::abort_with(b"torajs-meta fnprops mutex poisoned"));
     t.insert(fn_ptr as usize, dynobj as usize);
 }
 

@@ -121,7 +121,10 @@ unsafe fn str_to_cstring(str_ptr: *const c_void) -> Vec<u8> {
 
 /// Layout of the Response heap block (24 bytes, alignment of u64).
 pub(crate) fn response_layout() -> std::alloc::Layout {
-    std::alloc::Layout::from_size_align(RESPONSE_SIZE, 8).unwrap()
+    // SAFETY: compile-time-const size (24) + align (8) satisfy Layout
+    // invariants. Unchecked ctor avoids pulling Rust's Layout::Err
+    // formatting path into the user binary (polish A3).
+    unsafe { std::alloc::Layout::from_size_align_unchecked(RESPONSE_SIZE, 8) }
 }
 
 /// Initialize a freshly-allocated Response block at `block` with

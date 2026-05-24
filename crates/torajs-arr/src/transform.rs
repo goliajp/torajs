@@ -75,7 +75,9 @@ unsafe fn data_ptr_raw(arr: *const u8, i: usize) -> *mut u8 {
 unsafe fn arr_alloc_with(len: u64, cap: u64) -> *mut u8 {
     let block_size = ARR_SLOTS_OFF + (cap as usize) * 8;
     let p = unsafe { malloc(block_size) } as *mut u8;
-    assert!(!p.is_null(), "OOM in Array alloc");
+    if p.is_null() {
+        torajs_abort::abort_with(b"OOM in Array alloc");
+    }
     // Universal heap header: refcount u32 + type_tag u16 + flags u16.
     unsafe {
         (p as *mut u32).write(1);

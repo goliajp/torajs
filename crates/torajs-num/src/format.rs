@@ -168,7 +168,9 @@ pub fn to_precision_f(n: f64, digits: i64) -> Vec<u8> {
     // and parsing the suffix — avoids f64::log10 precision wobble
     // around exact powers of 10.
     let e_form = format!("{:.*e}", mantissa_digits, n);
-    let e_pos = e_form.find('e').expect("Rust {:e} always emits an 'e'");
+    // Rust {:.N e} always emits an 'e'; use unsafe-unchecked to keep
+    // the panic path out of the user binary (polish A3).
+    let e_pos = unsafe { e_form.find('e').unwrap_unchecked() };
     let exp_str = &e_form[e_pos + 1..];
     let x: i64 = exp_str.parse().unwrap_or(0);
 

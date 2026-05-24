@@ -123,7 +123,7 @@ impl SubstrBlock {
                 // is non-null in non-OOM regimes; OOM aborts via
                 // `.expect`.
                 let p = unsafe { malloc(SUBSTR_SIZE) } as *mut u8;
-                NonNull::new(p).expect("OOM in Substr alloc")
+                NonNull::new(p).unwrap_or_else(|| torajs_abort::abort_with(b"OOM in Substr alloc"))
             }
         };
 

@@ -147,7 +147,8 @@ impl AnyBox {
         // returns 16-byte-aligned (or better) blocks, so the
         // 8-alignment requirement of `AnyBox` is satisfied.
         let raw = unsafe { malloc(ANY_BOX_SIZE) as *mut AnyBox };
-        let ptr = NonNull::new(raw).expect("AnyBox alloc OOM");
+        let ptr =
+            NonNull::new(raw).unwrap_or_else(|| torajs_abort::abort_with(b"AnyBox alloc OOM"));
         // SAFETY: just-allocated, exclusive ownership, layout
         // matches AnyBox.
         unsafe {
@@ -738,8 +739,10 @@ unsafe fn any_compare(op: i64, lt: i64, lv: i64, rt: i64, rv: i64) -> bool {
             return false;
         }
         // partial_cmp is total for non-NaN f64 (we just excluded
-        // NaN above); unwrap is provably-safe here.
-        l.partial_cmp(&r).expect("non-NaN f64 comparison is total")
+        // NaN above); use unsafe-unchecked to avoid the Result path
+        // pulling Rust's panic machinery into the user binary
+        // (polish A3).
+        unsafe { l.partial_cmp(&r).unwrap_unchecked() }
     };
     op.apply(cmp)
 }

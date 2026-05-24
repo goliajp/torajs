@@ -119,6 +119,10 @@ pub const TORAJS_STATICLIBS: &[(&str, &[u8])] = &[
         "libtorajs_value_drop.a",
         include_bytes!(env!("TORAJS_VALUE_DROP_STATICLIB_PATH")),
     ),
+    (
+        "libtorajs_abort.a",
+        include_bytes!(env!("TORAJS_ABORT_STATICLIB_PATH")),
+    ),
 ];
 
 /// Compiler-source fingerprint emitted by build.rs (hash of

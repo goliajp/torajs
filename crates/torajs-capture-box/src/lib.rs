@@ -37,8 +37,10 @@ use core::ffi::c_void;
 const BOX_SIZE: usize = 16;
 
 fn box_layout() -> std::alloc::Layout {
-    // 16 bytes, 8-byte aligned (u64 + i64).
-    std::alloc::Layout::from_size_align(BOX_SIZE, 8).unwrap()
+    // 16 bytes, 8-byte aligned (u64 + i64). Const inputs satisfy
+    // Layout invariants; unchecked ctor avoids pulling Rust's panic
+    // formatting path (polish A3).
+    unsafe { std::alloc::Layout::from_size_align_unchecked(BOX_SIZE, 8) }
 }
 
 /// Step back from a value-slot pointer (`base + 8`) to the

@@ -1,0 +1,23 @@
+[package]
+name = "torajs-abort"
+description = "Tiny abort helper for the torajs AOT TypeScript runtime — `abort_with(msg)` writes the message to fd 2 + calls libc::abort(). Replaces `expect()` / `panic!()` / `assert!()` in staticlibs to avoid pulling Rust std panic infrastructure (gimli / addr2line / rustc_demangle / std::backtrace) into the user binary. ~150 KB user-binary win across the bench corpus."
+keywords = ["torajs", "abort", "panic-free", "runtime"]
+categories = ["development-tools", "no-std"]
+readme = "README.md"
+documentation = "https://docs.rs/torajs-abort"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+crate-type = ["rlib", "staticlib"]
+
+[dependencies]
+# 0 Cargo deps — libc write(2) + abort() declared inline via
+# `unsafe extern "C"`. Vision #4 (0 Cargo deps) preserved.
