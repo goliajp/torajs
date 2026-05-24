@@ -133,7 +133,7 @@ unsafe extern "C" fn then_closure_dispatch(arg: i64) {
         }
         let value = (*src).value;
         // Load fn_addr from env+8, call cb(env, value).
-        let fn_ptr = *((*a).env as *mut u8).add(8) as *mut c_void;
+        let fn_ptr = *(((*a).env as *mut u8).add(8) as *const *mut c_void);
         let cb: ThenClosureFn = core::mem::transmute(fn_ptr);
         let result = cb((*a).env, value);
         __torajs_promise_resolve((*a).result, result);
@@ -228,7 +228,7 @@ unsafe extern "C" fn catch_closure_dispatch(arg: i64) {
     unsafe {
         let src = as_promise((*a).source);
         if (*src).state == STATE_REJECTED {
-            let fn_ptr = *((*a).env as *mut u8).add(8) as *mut c_void;
+            let fn_ptr = *(((*a).env as *mut u8).add(8) as *const *mut c_void);
             let cb: ThenClosureFn = core::mem::transmute(fn_ptr);
             let result = cb((*a).env, (*src).value);
             __torajs_promise_resolve((*a).result, result);
@@ -326,7 +326,7 @@ unsafe extern "C" fn finally_closure_dispatch(arg: i64) {
     let a = arg as *mut FinallyClosureArg;
     unsafe {
         let src = as_promise((*a).source);
-        let fn_ptr = *((*a).env as *mut u8).add(8) as *mut c_void;
+        let fn_ptr = *(((*a).env as *mut u8).add(8) as *const *mut c_void);
         let cb: FinallyClosureFn = core::mem::transmute(fn_ptr);
         cb((*a).env);
         if (*src).state == STATE_FULFILLED {
