@@ -27,3 +27,10 @@ crate-type = ["rlib", "staticlib"]
 # (str_alloc_pooled, arr_alloc, arr_push, panic) resolve at
 # `tr build` link time against libtorajs_str.a + libtorajs_arr.a +
 # runtime_str.c — same pattern as the other Layer-3 sub-crates.
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "fs"
+harness = false

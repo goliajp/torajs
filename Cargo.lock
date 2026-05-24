@@ -1950,11 +1950,15 @@ dependencies = [
 [[package]]
 name = "torajs-fs"
 version = "0.1.0"
+dependencies = [
+ "criterion",
+]
 
 [[package]]
 name = "torajs-meta"
 version = "0.1.0"
 dependencies = [
+ "criterion",
  "torajs-abort",
 ]
 
@@ -2005,6 +2009,9 @@ dependencies = [
 [[package]]
 name = "torajs-process"
 version = "0.1.0"
+dependencies = [
+ "criterion",
+]
 
 [[package]]
 name = "torajs-promise"

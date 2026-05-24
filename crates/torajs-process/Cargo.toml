@@ -24,3 +24,10 @@ crate-type = ["rlib", "staticlib"]
 # (str_alloc_pooled, arr_alloc, arr_push, panic) resolve at
 # `tr build` link time against the matching sibling staticlibs +
 # runtime_str.c.
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "process"
+harness = false

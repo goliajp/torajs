@@ -28,3 +28,10 @@ torajs-abort = { path = "../torajs-abort" }
 # value_drop_heap, str_alloc_pooled, str_drop) resolve at
 # `tr build` link time against the matching sibling staticlibs +
 # runtime_str.c (no other Cargo dep needed).
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "meta"
+harness = false
