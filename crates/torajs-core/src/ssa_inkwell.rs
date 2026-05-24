@@ -1178,6 +1178,24 @@ fn link_object_to_binary(
                 #[cfg(target_os = "macos")]
                 link_cmd.arg("-Wl,-undefined,dynamic_lookup");
             }
+            // Polish A2 (2026-05-24) — strip cross-archive dead code.
+            // Pre-polish each user binary embedded all 24 libtorajs_*.a
+            // via the LTO link, but no_mangle symbols are treated as
+            // ABI-export by LTO and not DCE'd even when unreferenced.
+            // ld's post-LTO -dead_strip walks the symbol graph from
+            // _main (the user binary's entry) and removes anything
+            // unreachable. On a fib40-only program this collapses
+            // from ~445 KB → ~50 KB (the libtorajs_str / arr / promise
+            // / etc. surfaces fib40 never calls).
+            //
+            // ExecutableBinary only — dylib output needs every symbol
+            // available for the host process to bind at load time.
+            if matches!(kind, OutputKind::Executable) {
+                #[cfg(target_os = "macos")]
+                link_cmd.arg("-Wl,-dead_strip");
+                #[cfg(target_os = "linux")]
+                link_cmd.arg("-Wl,--gc-sections");
+            }
             link_cmd.arg("-o").arg(out_path);
         }
         CompileTarget::Wasm32Wasi => {
@@ -1229,6 +1247,22 @@ fn link_object_to_binary(
             .arg(out_path)
             .stderr(std::process::Stdio::null())
             .status();
+        // Polish A2 — strip in-binary debug info now that the .dSYM
+        // bundle owns it. The -g flag at link time embedded DWARF
+        // into __LINKEDIT (~140 KB on fib40); after dsymutil the
+        // bundle has it for backtrace symbolication and the in-
+        // binary copy is dead weight. `strip -S` keeps regular
+        // symbols (so backtrace can still print fn names without
+        // the .dSYM) but drops debug sections. ExecutableBinary
+        // only — dylib output keeps debug so consumers can debug
+        // through the dlopen.
+        if matches!(kind, OutputKind::Executable) {
+            let _ = Command::new("strip")
+                .arg("-S")
+                .arg(out_path)
+                .stderr(std::process::Stdio::null())
+                .status();
+        }
     }
     let _ = std::fs::remove_file(&obj_path);
     for p in &c_paths {
