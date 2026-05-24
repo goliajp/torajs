@@ -31,6 +31,7 @@
 pub mod format;
 pub mod layout;
 pub mod math;
+pub mod object_is;
 pub mod parse;
 pub mod predicates;
 pub mod print_err;
@@ -69,6 +70,7 @@ pub use math::{
     __torajs_math_sin, __torajs_math_sinh, __torajs_math_sqrt, __torajs_math_tan,
     __torajs_math_tanh, __torajs_math_trunc,
 };
+pub use object_is::__torajs_object_is_f64;
 pub use parse::{__torajs_num_parse_float, __torajs_num_parse_int};
 pub use predicates::{
     __torajs_num_is_finite_f, __torajs_num_is_finite_i, __torajs_num_is_integer_f,
