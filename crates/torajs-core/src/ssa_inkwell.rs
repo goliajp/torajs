@@ -411,6 +411,16 @@ fn compile_for_kind_impl(
                 mark_alwaysinline(&ctx, f);
                 f
             }
+            "__torajs_arr_shift" => {
+                // B4-shift (2026-05-25): restored 4-memory-op IR
+                // for the fifo-queue hot path. Same Internal +
+                // alwaysinline mechanics as arr_push.
+                let f = define_arr_shift(&ctx, &llvm_module);
+                f.as_global_value()
+                    .set_linkage(inkwell::module::Linkage::Internal);
+                mark_alwaysinline(&ctx, f);
+                f
+            }
             "__torajs_split_iter_next" => {
                 // P-iter Plan C — body emitted directly in IR (mirror
                 // of runtime_str.c's removed C body) so LLVM can
@@ -2907,11 +2917,109 @@ fn define_obj_drop<'ctx>(
  * 2026-05-23). M6.2 fast-path: 5-instr inline. Rust impl preserves
  * T-13.5 head_offset folding via `data_ptr` helper. */
 
-/* define_arr_shift body moved to torajs-arr::grow (P4.1-m, 2026-05-23).
- * T-13.5 O(1) deque shift: 4 memory ops (load slot + bump head u32
- * + dec len u64). Resolved at link time via libtorajs_arr.a. The
- * alwaysinline perf for fifo-queue's hot loop now depends on fat-LTO
- * (thin-LTO leaves the bl __torajs_arr_shift in the linked binary). */
+/// B4-shift (2026-05-25, follow-on to B1b): restored from commit
+/// 6b90dae5's pre-P4.1-m IR builder. Same rationale as B1b: P4.1-m
+/// moved this to torajs-arr/grow.rs's extern "C" Rust impl, which
+/// can't be inlined into the caller's fifo-queue hot loop (`q.shift()`
+/// inside a `for` over 100k iters). The Rust comment at grow.rs:155
+/// admits "fat-LTO at `tr build` time can still inline" — but in
+/// practice fat-LTO doesn't recover the 4-memory-op alwaysinline
+/// behavior because the extern "C" function still has prologue/
+/// epilogue cost vs a pure 4-instruction inline.
+///
+/// Linkage = Internal + alwaysinline so user-code's `call
+/// __torajs_arr_shift` folds the 4 ops in directly. The
+/// torajs-arr/grow.rs extern stays for any cross-staticlib caller
+/// (none in current tree, but kept as link-time fallback).
+///
+/// Algorithm (4 memory ops, branchless):
+/// ```text
+///   head = *(u32*)(arr + 20)
+///   v    = *(i64*)(arr + 24 + head*8)   // logical[0]
+///   *(u32*)(arr + 20) = head + 1        // bump head_offset
+///   *(u64*)(arr + 8)  -= 1              // dec len
+///   return v
+/// ```
+fn define_arr_shift<'ctx>(ctx: &'ctx Context, m: &LlvmModule<'ctx>) -> FunctionValue<'ctx> {
+    let builder = ctx.create_builder();
+    let i64_t = ctx.i64_type();
+    let i32_t = ctx.i32_type();
+    let i8_t = ctx.i8_type();
+    let ptr_t = ctx.ptr_type(AddressSpace::default());
+    let fn_t = i64_t.fn_type(&[ptr_t.into()], false);
+    let f = m.add_function("__torajs_arr_shift", fn_t, None);
+    let entry = ctx.append_basic_block(f, "entry");
+    builder.position_at_end(entry);
+    let arr = f.get_nth_param(0).unwrap().into_pointer_value();
+
+    // Load value at logical[0] = data + head*8 (data starts at +24).
+    let head_p = unsafe {
+        builder
+            .build_in_bounds_gep(
+                i8_t,
+                arr,
+                &[i64_t.const_int(ARR_HDR_HEAD_OFF, false)],
+                "head_p",
+            )
+            .unwrap()
+    };
+    let head32 = builder
+        .build_load(i32_t, head_p, "head32")
+        .unwrap()
+        .into_int_value();
+    let head64 = builder.build_int_z_extend(head32, i64_t, "head64").unwrap();
+    let head_x8 = builder
+        .build_int_mul(head64, i64_t.const_int(8, false), "head_x8")
+        .unwrap();
+    let data = unsafe {
+        builder
+            .build_in_bounds_gep(
+                i8_t,
+                arr,
+                &[i64_t.const_int(ARR_HDR_DATA_OFF, false)],
+                "data",
+            )
+            .unwrap()
+    };
+    let slot = unsafe {
+        builder
+            .build_in_bounds_gep(i8_t, data, &[head_x8], "slot")
+            .unwrap()
+    };
+    let v = builder
+        .build_load(i64_t, slot, "v")
+        .unwrap()
+        .into_int_value();
+
+    // head_offset += 1 (u32)
+    let head_inc = builder
+        .build_int_add(head32, i32_t.const_int(1, false), "head_inc")
+        .unwrap();
+    builder.build_store(head_p, head_inc).unwrap();
+
+    // len -= 1 (u64)
+    let len_p = unsafe {
+        builder
+            .build_in_bounds_gep(
+                i8_t,
+                arr,
+                &[i64_t.const_int(ARR_HDR_LEN_OFF, false)],
+                "len_p",
+            )
+            .unwrap()
+    };
+    let len = builder
+        .build_load(i64_t, len_p, "len")
+        .unwrap()
+        .into_int_value();
+    let len_dec = builder
+        .build_int_sub(len, i64_t.const_int(1, false), "len_dec")
+        .unwrap();
+    builder.build_store(len_p, len_dec).unwrap();
+
+    builder.build_return(Some(&v)).unwrap();
+    f
+}
 
 /* define_arr_drop body moved to torajs-arr::drop (P4.1-a, 2026-05-23).
  * Pure-Rust port mirrors IR shape 1:1: NULL + FLAG_STATIC_LITERAL gate
