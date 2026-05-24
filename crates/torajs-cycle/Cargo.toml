@@ -26,3 +26,10 @@ crate-type = ["rlib", "staticlib"]
 # emitted __torajs_class_layouts table) use `extern "C"` symbols
 # resolved at link time — same pattern as torajs-weak / torajs-arr /
 # torajs-collections.
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "cycle"
+harness = false

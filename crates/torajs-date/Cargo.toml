@@ -27,3 +27,10 @@ crate-type = ["rlib", "staticlib"]
 # the wall-clock side. Cross-tier (rc_dec, str_alloc_pooled)
 # resolves at `tr build` link time against libtorajs_rc.a + str
 # runtime — same pattern as torajs-promise / torajs-fetch.
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "date"
+harness = false

@@ -1922,10 +1922,16 @@ dependencies = [
 [[package]]
 name = "torajs-cycle"
 version = "0.1.0"
+dependencies = [
+ "criterion",
+]
 
 [[package]]
 name = "torajs-date"
 version = "0.1.0"
+dependencies = [
+ "criterion",
+]
 
 [[package]]
 name = "torajs-dynobj"
