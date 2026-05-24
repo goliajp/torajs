@@ -7,6 +7,7 @@
 //! Run with `cargo test -p torajs-microtask --test perf_gate --release`.
 
 use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use torajs_microtask::{
@@ -15,6 +16,17 @@ use torajs_microtask::{
 };
 
 static COUNT: AtomicI64 = AtomicI64::new(0);
+
+// torajs-microtask uses a process-global thread-local queue; cargo
+// test runs cases in parallel by default. Serialize via a static
+// Mutex so the two perf cases don't race on the shared queue.
+static SERIAL: Mutex<()> = Mutex::new(());
+
+fn lock_serial() -> MutexGuard<'static, ()> {
+    SERIAL
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 unsafe extern "C" fn task_noop(_arg: i64) {
     COUNT.fetch_add(1, Ordering::Relaxed);
@@ -38,6 +50,7 @@ fn time_median<F: FnMut()>(mut op: F, samples: usize) -> Duration {
 
 #[test]
 fn enqueue_drain_burst_8_10k_under_budget() {
+    let _guard = lock_serial();
     // BUDGETS.md target: 10k cycles × (8 enqueues + drain) ≤ 5 ms.
     // CI budget: 25 ms (5× headroom).
     let f: MicrotaskFn = task_noop;
@@ -63,6 +76,7 @@ fn enqueue_drain_burst_8_10k_under_budget() {
 
 #[test]
 fn enqueue_drain_burst_64_1k_under_budget() {
+    let _guard = lock_serial();
     // BUDGETS.md target: 1k cycles × (64 enqueues + drain) ≤ 2 ms.
     // CI budget: 10 ms.
     let f: MicrotaskFn = task_noop;
