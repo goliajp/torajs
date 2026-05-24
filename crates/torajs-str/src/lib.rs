@@ -75,6 +75,7 @@
 pub mod alloc;
 pub mod concat;
 pub mod eq;
+pub mod json;
 pub mod layout;
 pub mod lookup;
 pub mod pool;
@@ -96,6 +97,7 @@ pub use alloc::{
 };
 pub use concat::__torajs_str_concat;
 pub use eq::{__torajs_str_eq, __torajs_str_eq_cstr};
+pub use json::__torajs_json_quote_str;
 pub use layout::{
     STR_DATA_OFF, STR_HDR_SIZE, STR_LEN_OFF, STR_POOL_PAYLOAD, STR_POOL_SLOTS, block_size,
     packed_header_init,

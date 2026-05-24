@@ -1646,100 +1646,13 @@ extern int64_t __torajs_str_includes_from(const uint8_t *s, const uint8_t *sub, 
 extern int64_t __torajs_str_last_index_of_from(const uint8_t *s, const uint8_t *sub, int64_t from);
 extern int64_t __torajs_str_last_index_of(const uint8_t *s, const uint8_t *needle);
 
-/* `JSON.stringify` — string-escape helper for the recursive ssa-lower
- * generator. Wraps `s` in `"..."` and replaces JSON-illegal control
- * chars and quote / backslash bytes. Single pass; pre-computes output
- * length for a single malloc. */
-void *__torajs_json_quote_str(const uint8_t *s) {
-    uint64_t len = __TORAJS_STR_LEN(s);
-    const uint8_t *s_data = __TORAJS_STR_CDATA(s);
-    uint64_t out = 2; /* surrounding quotes */
-    for (uint64_t i = 0; i < len; i++) {
-        uint8_t c = s_data[i];
-        if (c == '"' || c == '\\' || c == '\n' || c == '\r'
-            || c == '\t' || c == '\b' || c == '\f') {
-            out += 2;
-        } else if (c < 0x20) {
-            out += 6; /* \uXXXX */
-        } else {
-            out += 1;
-        }
-    }
-    uint8_t *p = __torajs_str_alloc_pooled(out);
-    uint8_t *p_data = __TORAJS_STR_DATA(p);
-    p_data[0] = '"';
-    uint64_t cur = 1;
-    for (uint64_t i = 0; i < len; i++) {
-        uint8_t c = s_data[i];
-        switch (c) {
-            case '"':  p_data[cur++] = '\\'; p_data[cur++] = '"';  break;
-            case '\\': p_data[cur++] = '\\'; p_data[cur++] = '\\'; break;
-            case '\n': p_data[cur++] = '\\'; p_data[cur++] = 'n';  break;
-            case '\r': p_data[cur++] = '\\'; p_data[cur++] = 'r';  break;
-            case '\t': p_data[cur++] = '\\'; p_data[cur++] = 't';  break;
-            case '\b': p_data[cur++] = '\\'; p_data[cur++] = 'b';  break;
-            case '\f': p_data[cur++] = '\\'; p_data[cur++] = 'f';  break;
-            default:
-                if (c < 0x20) {
-                    static const char hex[] = "0123456789abcdef";
-                    p_data[cur++] = '\\'; p_data[cur++] = 'u';
-                    p_data[cur++] = '0'; p_data[cur++] = '0';
-                    p_data[cur++] = hex[(c >> 4) & 0xf];
-                    p_data[cur++] = hex[c & 0xf];
-                } else {
-                    p_data[cur++] = c;
-                }
-        }
-    }
-    p_data[cur] = '"';
-    return p;
-}
-
-/* `Math.random()` — uniform [0, 1). libc rand()/RAND_MAX scaled. Not
- * cryptographically secure; matches the JS spec's "implementation-
- * defined" wording for the simple use case. */
-double __torajs_math_random(void) {
-    return (double)rand() / ((double)RAND_MAX + 1.0);
-}
-
-/* `Math.imul(a, b)` — 32-bit signed integer multiplication, low 32
- * bits, sign-extended. Same shape as JS spec.
+/* __torajs_json_quote_str moved to torajs-str::json (P7.c, 2026-05-24).
+ * __torajs_math_random / imul / clz32 / fround moved to torajs-num::math.
+ * __torajs_print_i64_err / f64_err / bool_err moved to torajs-num::print_err.
+ * __torajs_str_print_err lives in torajs-str::print (P3.1-g.1, 2026-05-23).
+ * After P7.c, the runtime_str.c TU no longer owns JSON-quote or any console
+ * .error primitive — they all live in Rust sub-crates.
  */
-int64_t __torajs_math_imul(int64_t a, int64_t b) {
-    int32_t result = (int32_t)((uint32_t)((int32_t)a) * (uint32_t)((int32_t)b));
-    return (int64_t)result;
-}
-
-/* `Math.clz32(x)` — count leading zeros of x's 32-bit unsigned
- * representation. Returns 32 if x is zero. */
-int64_t __torajs_math_clz32(int64_t x) {
-    uint32_t v = (uint32_t)((int32_t)x);
-    if (v == 0) return 32;
-    return (int64_t)__builtin_clz(v);
-}
-
-/* `Math.fround(x)` — round x to the nearest f32 then back to f64. */
-double __torajs_math_fround(double x) {
-    return (double)(float)x;
-}
-
-/* console.error / console.warn — stderr-routed primitives matching
- * console.log's three-way SSA dispatch. Same shape as the print_*
- * intrinsics but write to fd 2.
- */
-void __torajs_print_i64_err(int64_t n) {
-    fprintf(stderr, "%lld\n", (long long)n);
-}
-void __torajs_print_f64_err(double d) {
-    fprintf(stderr, "%g\n", d);
-}
-void __torajs_print_bool_err(int64_t b) {
-    fputs(b ? "true\n" : "false\n", stderr);
-}
-/* __torajs_str_print_err moved to torajs-str::print (P3.1-g.1,
- * 2026-05-23). NULL → "null\n" preserved. Uses Rust std::io::stderr
- * with a single lock guard around the write to keep complete lines
- * atomic. After this commit C-side has 0 Str-surface fns. */
 
 /* ============================================================
  * v0.3 #1 — fs module helpers. Synchronous file I/O surfaces:

@@ -33,6 +33,7 @@ pub mod layout;
 pub mod math;
 pub mod parse;
 pub mod predicates;
+pub mod print_err;
 pub mod str_bridge;
 pub mod tostring;
 
@@ -59,10 +60,11 @@ pub use format::{
 pub use math::{
     __torajs_math_abs, __torajs_math_acos, __torajs_math_acosh, __torajs_math_asin,
     __torajs_math_asinh, __torajs_math_atan, __torajs_math_atan2, __torajs_math_atanh,
-    __torajs_math_cbrt, __torajs_math_ceil, __torajs_math_cos, __torajs_math_cosh,
-    __torajs_math_exp, __torajs_math_expm1, __torajs_math_floor, __torajs_math_log,
-    __torajs_math_log1p, __torajs_math_log2, __torajs_math_log10, __torajs_math_max,
-    __torajs_math_min, __torajs_math_pow, __torajs_math_round, __torajs_math_sin,
+    __torajs_math_cbrt, __torajs_math_ceil, __torajs_math_clz32, __torajs_math_cos,
+    __torajs_math_cosh, __torajs_math_exp, __torajs_math_expm1, __torajs_math_floor,
+    __torajs_math_fround, __torajs_math_imul, __torajs_math_log, __torajs_math_log1p,
+    __torajs_math_log2, __torajs_math_log10, __torajs_math_max, __torajs_math_min,
+    __torajs_math_pow, __torajs_math_random, __torajs_math_round, __torajs_math_sin,
     __torajs_math_sinh, __torajs_math_sqrt, __torajs_math_tan, __torajs_math_tanh,
     __torajs_math_trunc,
 };
@@ -72,4 +74,5 @@ pub use predicates::{
     __torajs_num_is_integer_i, __torajs_num_is_nan_f, __torajs_num_is_nan_i,
     __torajs_num_is_safe_integer_f, __torajs_num_is_safe_integer_i,
 };
+pub use print_err::{__torajs_print_bool_err, __torajs_print_f64_err, __torajs_print_i64_err};
 pub use tostring::{__torajs_num_to_string_radix_f, __torajs_num_to_string_radix_i};
