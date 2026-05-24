@@ -26,5 +26,6 @@
 
 pub mod charclass;
 pub mod node;
+pub mod parser;
 pub mod ucd;
 pub mod utf8;
