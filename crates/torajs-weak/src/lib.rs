@@ -55,6 +55,7 @@ pub mod drop;
 pub mod layout;
 pub mod registry;
 pub mod weakmap;
+pub mod weakset;
 
 pub use create::__torajs_weakref_create;
 pub use deref::__torajs_weakref_deref;
@@ -66,6 +67,10 @@ pub use registry::{
 pub use weakmap::{
     __torajs_weakmap_create, __torajs_weakmap_delete, __torajs_weakmap_drop, __torajs_weakmap_get,
     __torajs_weakmap_has, __torajs_weakmap_invalidate_key, __torajs_weakmap_set,
+};
+pub use weakset::{
+    __torajs_weakset_add, __torajs_weakset_create, __torajs_weakset_delete, __torajs_weakset_drop,
+    __torajs_weakset_has, __torajs_weakset_invalidate_key,
 };
 
 // Cross-tier extern stubs for cargo unit tests — the real symbols
@@ -85,22 +90,9 @@ pub unsafe extern "C" fn __torajs_rc_inc(_p: *mut core::ffi::c_void) {
     );
 }
 
-// `__torajs_weakmap_invalidate_key` is now provided by `weakmap`
-// module (P4.3'-c) — no stub needed.
-
-// `__torajs_weakset_invalidate_key` still lives in
-// `runtime_weakset.c` — stub for cargo test linking. Will be removed
-// when P4.3'-d ports the WeakSet body.
-#[cfg(test)]
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_weakset_invalidate_key(
-    _owner: *mut core::ffi::c_void,
-    _dying_key: *mut core::ffi::c_void,
-) {
-    panic!(
-        "torajs-weak unit-test stub: __torajs_weakset_invalidate_key should not be called from cargo test paths"
-    );
-}
+// `__torajs_weakmap_invalidate_key` + `__torajs_weakset_invalidate_key`
+// are now provided by `weakmap` / `weakset` modules (P4.3'-c / -d) —
+// no stubs needed.
 
 // `__torajs_value_drop_heap` comes from `runtime_str.c` at `tr build`
 // link time — stubbed for cargo test (used by weakmap::set/delete/

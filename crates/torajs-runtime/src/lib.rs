@@ -52,21 +52,15 @@ pub const RUNTIME_LIBC_BRIDGE_C: &str = include_str!("runtime_libc_bridge.c");
 /// Rust now. Cross-tier calls resolved at link time against
 /// libtorajs_bigint.a.
 ///
-/* runtime_weakref.c deleted entirely at P4.3'-b (2026-05-24). The
- * WeakRef owner-side ops (P4.3'-a) + the shared observer registry
- * + the dying-target broadcast are now all in pure-Rust
- * `torajs-weak` (libtorajs_weak.a). WeakSet C-side invalidate hook
- * (runtime_weakset.c) still calls the Rust registry's register /
- * deregister via extern "C" link-time resolution.
- *
- * runtime_weakmap.c deleted at P4.3'-c (2026-05-24). The WeakMap
- * surface (create/set/get/has/delete/invalidate_key/drop) is now in
- * pure-Rust `torajs-weak::weakmap`. runtime_weakset.c stays C until
- * P4.3'-d. */
-
-/// v0.7 T-26 (slice B) — WeakSet. Same shape as WeakMap minus
-/// the value side.
-pub const RUNTIME_WEAKSET_C: &str = include_str!("runtime_weakset.c");
+/* Weak family (runtime_weakref.c + runtime_weakmap.c +
+ * runtime_weakset.c) deleted entirely across P4.3'-a..P4.3'-d
+ * (2026-05-24):
+ *   - P4.3'-a: WeakRef owner-side ops (create/deref/drop) → Rust
+ *   - P4.3'-b: shared observer registry → Rust; runtime_weakref.c nuked
+ *   - P4.3'-c: WeakMap surface → Rust; runtime_weakmap.c nuked
+ *   - P4.3'-d: WeakSet surface → Rust; runtime_weakset.c nuked
+ * The entire `weak` family lives in pure-Rust `torajs-weak`
+ * (libtorajs_weak.a) — 0 C runtime files remain for it. */
 
 /// v0.7 T-26 (slice C) — Bacon-Rajan trial-deletion cycle
 /// collector for class instances. Manual `gc()` trigger.
@@ -88,6 +82,5 @@ pub const SOURCES: &[(&str, &str)] = &[
     ("runtime_promise.c", RUNTIME_PROMISE_C),
     ("runtime_fetch.c", RUNTIME_FETCH_C),
     ("runtime_libc_bridge.c", RUNTIME_LIBC_BRIDGE_C),
-    ("runtime_weakset.c", RUNTIME_WEAKSET_C),
     ("runtime_cycle.c", RUNTIME_CYCLE_C),
 ];
