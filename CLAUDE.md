@@ -2,9 +2,27 @@
 
 Closed-source internal language project. Goal: a TypeScript runtime that runs the same TS programs `bun` does, with the same TS semantics, differentiated on **AOT to native binary + small artifact + fast startup**. Reference baseline is `bun` — anything bun runs, tr must eventually run; "not implemented" is always a roadmap phase, never an out-of-scope decision. Foreign idioms (Rust ownership / borrow checking / RAII, etc.) are not imported into the language surface unless takagi explicitly authorizes them. Two execution modes: **AOT to native binary** (`tr build`) and **JIT-style compile-and-run** (`tr run`), the Go shape. Implementation language is Rust. Public site: https://torajs.com
 
-## Communication (HARD RULE)
+## Communication (HARD RULE — 永久，无任何例外)
 
-**始终使用中文（简体中文）与 takagi 沟通。** 所有面向用户的回复、状态更新、解释、提问都必须是中文。仅以下场景使用英文：代码、变量名、git commit 消息、CLI 输出原文、PR / issue 正文（若仓库语言为英文）。混用其他语言（韩文、日文、法文等）严格禁止。这条规则强化 `.claude/rules/common/language.md`，违反视为重大错误。
+**开发中永远保持中文（简体中文）与 takagi 沟通。** 包括但不限于：
+- 所有面向用户的回复 / 状态更新 / 解释 / 提问 / brief / 报告
+- 任何 session / phase / commit 阶段的描述
+- 错误诊断、性能分析、技术决策的表达
+
+**整段英文叙述视为重大错误**——即使内容正确。"用英文听起来更专业"不是借口。
+
+**可以保留原文（视为专有名词，不当作英文）的场景**：
+- 代码、变量名、函数名、类型名、文件路径
+- git commit message（commit msg 历史上英文为主，保持惯例）
+- CLI 命令 / shell 输出原文 / 命令名（`cargo build` / `bun run` 等）
+- 技术术语（LLVM IR / SSA / runtime / staticlib / bench / polish / phase / Mutex / LTO 等）
+- PR / issue 正文（若仓库语言为英文）
+
+**夹杂边界**：完整中文句子里嵌入英文术语 ✓；整段英文 + 仅标题中文 ✗。中文连接词必须存在（"是"/"用"/"做"/"的"），不能写 "step 1 (描述): execute X" 这样的伪中文。
+
+**混用其它语言（韩文 / 日文 / 法文等）严格禁止**。
+
+这条规则强化 `.claude/rules/common/language.md`，违反视为重大错误，也是 autorun rotation 的 drift 触发条件之一。任何时候发现自己开始整段英文表达，立刻停下重写。
 
 ## Working Mode (HARD RULE) — 顺序执行计划，不开候选清单
 
