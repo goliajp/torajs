@@ -167,7 +167,7 @@ async fn run(State(state): State<AppState>, Json(req): Json<RunReq>) -> Response
             .into_response();
     }
 
-    let hash = hex::encode(Sha256::digest(req.source.as_bytes()));
+    let hash = torajs_codec_hex::encode(Sha256::digest(req.source.as_bytes()));
     let cache_path = state.cache_dir.join(format!("{hash}.wasm"));
 
     let (wasm_path, cached, compile_ms) = if cache_path.exists() {

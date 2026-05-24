@@ -26,6 +26,7 @@ members = [
     "crates/torajs-panic",
     "crates/torajs-value-drop",
     "crates/torajs-abort",
+    "crates/torajs-codec-hex",
     "crates/torajs-runtime",
     "crates/torajs-core",
     "crates/torajs-cli",
