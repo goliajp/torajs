@@ -421,6 +421,17 @@ fn compile_for_kind_impl(
                 mark_alwaysinline(&ctx, f);
                 f
             }
+            "__torajs_arr_push_unchecked" => {
+                // B4-push-unchecked (2026-05-25): restored 5-instr
+                // M6.2 fast-path IR for array-literal materializers.
+                // Every `[1, 2, ...]` literal element call gets the
+                // bl + ret removed.
+                let f = define_arr_push_unchecked(&ctx, &llvm_module);
+                f.as_global_value()
+                    .set_linkage(inkwell::module::Linkage::Internal);
+                mark_alwaysinline(&ctx, f);
+                f
+            }
             "__torajs_split_iter_next" => {
                 // P-iter Plan C — body emitted directly in IR (mirror
                 // of runtime_str.c's removed C body) so LLVM can
@@ -3018,6 +3029,62 @@ fn define_arr_shift<'ctx>(ctx: &'ctx Context, m: &LlvmModule<'ctx>) -> FunctionV
     builder.build_store(len_p, len_dec).unwrap();
 
     builder.build_return(Some(&v)).unwrap();
+    f
+}
+
+/// B4-push-unchecked (2026-05-25, follow-on to B1b / B4-shift):
+/// restored 5-instr M6.2 fast-path from commit a390337^ (pre-P4.1-c).
+/// Used by array-literal materializers — `[1, 2, 3, ...]` compiles to
+/// `arr = arr_alloc(N); arr_push_unchecked(arr, 1); arr_push_unchecked(arr, 2); ...`
+/// where the caller has already guaranteed `cap >= N` so the per-push
+/// cap check is gone. The 5 ops are: load len, gep data+head*8,
+/// gep slot=data+len*8, store val, store len+1.
+///
+/// At extern-C in torajs-arr/ops.rs, every array-literal element
+/// becomes a `bl __torajs_arr_push_unchecked + ret`. With Internal +
+/// alwaysinline back, LLVM folds the body in-place; for a `[1..1000]`
+/// literal that's 1000× call overhead removed.
+fn define_arr_push_unchecked<'ctx>(
+    ctx: &'ctx Context,
+    m: &LlvmModule<'ctx>,
+) -> FunctionValue<'ctx> {
+    let builder = ctx.create_builder();
+    let i64_t = ctx.i64_type();
+    let i8_t = ctx.i8_type();
+    let ptr_t = ctx.ptr_type(AddressSpace::default());
+    let void_t = ctx.void_type();
+    let fn_t = void_t.fn_type(&[ptr_t.into(), i64_t.into()], false);
+    let f = m.add_function("__torajs_arr_push_unchecked", fn_t, None);
+    let entry = ctx.append_basic_block(f, "entry");
+    builder.position_at_end(entry);
+    let arr = f.get_nth_param(0).unwrap().into_pointer_value();
+    let val = f.get_nth_param(1).unwrap().into_int_value();
+    let len = arr_len_load(ctx, &builder, arr, "len");
+    let data = arr_data_ptr(ctx, &builder, arr, "data");
+    let len_x8 = builder
+        .build_int_mul(len, i64_t.const_int(8, false), "len_x8")
+        .unwrap();
+    let slot = unsafe {
+        builder
+            .build_in_bounds_gep(i8_t, data, &[len_x8], "slot")
+            .unwrap()
+    };
+    builder.build_store(slot, val).unwrap();
+    let len_p1 = builder
+        .build_int_add(len, i64_t.const_int(1, false), "len_p1")
+        .unwrap();
+    let len_p = unsafe {
+        builder
+            .build_in_bounds_gep(
+                i8_t,
+                arr,
+                &[i64_t.const_int(ARR_HDR_LEN_OFF, false)],
+                "len_p",
+            )
+            .unwrap()
+    };
+    builder.build_store(len_p, len_p1).unwrap();
+    builder.build_return(None).unwrap();
     f
 }
 
