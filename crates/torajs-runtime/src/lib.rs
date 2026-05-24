@@ -19,8 +19,16 @@
 /// + the small-Str and Array LIFO pools + libc panic backtrace.
 pub const RUNTIME_STR_C: &str = include_str!("runtime_str.c");
 
-/// v0.2 #1 — regex matching engine.
-pub const RUNTIME_REGEX_C: &str = include_str!("runtime_regex.c");
+/* runtime_regex.c deleted entirely at P6.2-e (2026-05-24). The
+ * full ECMAScript regex engine (parser / Thompson NFA compiler /
+ * Pike VM matcher + extern API: compile / drop / get_source /
+ * test / find / get/set_last_index / str_match_regex /
+ * regex_exec / str_match_all_regex / str_replace_regex /
+ * str_replace_all_regex / str_replace_regex_fn /
+ * str_replace_all_regex_fn / str_split_regex) now lives in pure-
+ * Rust `torajs-regex` (libtorajs_regex.a). attach_groups for named
+ * captures lives there too and calls back into torajs-dynobj /
+ * torajs-arr at link time. */
 
 /// v0.2 #2 — Date class implementation.
 pub const RUNTIME_DATE_C: &str = include_str!("runtime_date.c");
@@ -91,7 +99,6 @@ pub const RUNTIME_LIBC_BRIDGE_C: &str = include_str!("runtime_libc_bridge.c");
 /// the compiler should write into the per-build temp directory.
 pub const SOURCES: &[(&str, &str)] = &[
     ("runtime_str.c", RUNTIME_STR_C),
-    ("runtime_regex.c", RUNTIME_REGEX_C),
     ("runtime_date.c", RUNTIME_DATE_C),
     ("runtime_fetch.c", RUNTIME_FETCH_C),
     ("runtime_libc_bridge.c", RUNTIME_LIBC_BRIDGE_C),

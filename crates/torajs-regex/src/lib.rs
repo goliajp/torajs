@@ -30,7 +30,86 @@ pub mod flags;
 pub mod node;
 pub mod parser;
 pub mod program;
+pub mod regex;
 pub mod resolve;
 pub mod ucd;
 pub mod utf8;
 pub mod vm;
+
+// Cross-tier extern "C" stubs for cargo unit tests — real symbols
+// live in sibling staticlibs (torajs-rc, torajs-str, torajs-arr,
+// torajs-dynobj, torajs-throw) at `tr build` link time. cargo test
+// for torajs-regex doesn't link those, so panicking stubs keep the
+// test binary linking clean. Same pattern as torajs-promise /
+// torajs-cycle / torajs-weak / torajs-collections test stubs.
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_rc_dec(_p: *mut core::ffi::c_void) -> i32 {
+    panic!("torajs-regex test stub: __torajs_rc_dec should not be called from cargo test");
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_alloc_pooled(_len: u64) -> *mut u8 {
+    panic!(
+        "torajs-regex test stub: __torajs_str_alloc_pooled should not be called from cargo test"
+    );
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_drop(_s: *mut core::ffi::c_void) {
+    panic!("torajs-regex test stub: __torajs_str_drop should not be called from cargo test");
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_alloc(_cap: u64) -> *mut core::ffi::c_void {
+    panic!("torajs-regex test stub: __torajs_arr_alloc should not be called from cargo test");
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_push(
+    _arr: *mut core::ffi::c_void,
+    _val: i64,
+) -> *mut core::ffi::c_void {
+    panic!("torajs-regex test stub: __torajs_arr_push should not be called from cargo test");
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_dynobj_alloc() -> *mut core::ffi::c_void {
+    panic!("torajs-regex test stub: __torajs_dynobj_alloc should not be called from cargo test");
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_dynobj_set(
+    _obj_slot: *mut *mut core::ffi::c_void,
+    _key: *mut core::ffi::c_void,
+    _tag: u64,
+    _value: u64,
+) {
+    panic!("torajs-regex test stub: __torajs_dynobj_set should not be called from cargo test");
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arrprops_set(
+    _arr_ptr: *mut core::ffi::c_void,
+    _key: *mut core::ffi::c_void,
+    _tag: i64,
+    _value: i64,
+) {
+    panic!("torajs-regex test stub: __torajs_arrprops_set should not be called from cargo test");
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_throw_type_error(_msg: *const u8) {
+    panic!(
+        "torajs-regex test stub: __torajs_throw_type_error should not be called from cargo test"
+    );
+}
