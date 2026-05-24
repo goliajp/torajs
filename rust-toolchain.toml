@@ -1,0 +1,14 @@
+# polish A4 (2026-05-24) — nightly required for -Z build-std and
+# `panic = "immediate-abort"` (Rust 1.97+ feature). Pinned to a
+# specific nightly date so all developers + CI use the identical
+# toolchain (no "works on my machine" surprises).
+#
+# To regenerate after a Rust release: bump `channel` to a tagged
+# nightly date that supports immediate-abort (1.97-nightly or
+# later). `rustup toolchain install nightly-YYYY-MM-DD --component
+# rust-src` is the cheapest CI prerequisite.
+
+[toolchain]
+channel = "nightly-2026-05-19"
+components = ["rust-src", "rustfmt", "clippy"]
+profile = "minimal"

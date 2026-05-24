@@ -77,18 +77,11 @@ opt-level = 3
 lto = "fat"
 codegen-units = 1
 strip = true
-# polish B1c (2026-05-24) — `RUSTFLAGS=-Cembed-bitcode=yes` set
-# via .cargo/config.toml so every staticlib's .o sections carry
-# LLVM bitcode alongside native code. cc -flto at `tr build` link
-# can then inline arr_push / rc_inc / etc. into user code's hot
-# loops (10M `bl __torajs_arr_push` calls in array-sum-1m
-# pre-polish became zero after LTO inlines the fast path).
-# panic = "abort" is required for the no_std staticlibs in
-# crates/torajs-rc + crates/torajs-anyvalue + crates/torajs-throw
-# (unwinding panics aren't supported without std) AND
-# independently good for vision #1 perf — removes the per-fn
-# unwind tables and a tier of LLVM codegen complexity, shrinking
-# the AOT user-binary by ~10% across the bench corpus.
+# polish A4 (2026-05-24) — `panic = "abort"` is the manifest-stable
+# value; the actual `immediate-abort` strategy is opted into via
+# RUSTFLAGS+CARGO_UNSTABLE_BUILD_STD env vars in the production
+# release script. Keeping the manifest stable lets `cargo test` /
+# `cargo build` (no env vars) keep working without nightly.
 panic = "abort"
 
 # panic = "abort" on dev for symmetry with release — `cargo test`

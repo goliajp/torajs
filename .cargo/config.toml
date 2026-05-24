@@ -14,3 +14,19 @@
 # this value takes effect (an env var would otherwise override it).
 [build]
 target-dir = "/Users/doracawl/workspace/goliajp/torajs/target"
+
+# polish A4 (2026-05-24) — `cargo build --release` (and tr-cli
+# release builds in particular) get `-Z build-std` + `panic =
+# "immediate-abort"` via env vars, NOT via this config file.
+# Putting build-std here would force-rebuild std on every
+# `cargo test` too, which breaks the test harness's catch_unwind
+# (cargo test needs panic=unwind in panic_unwind, immediate-abort
+# refuses). Env-var gating keeps the size win isolated to release
+# builds. See `scripts/release-build.sh` (TODO) or use:
+#
+#   CARGO_UNSTABLE_BUILD_STD=core,alloc,std,panic_abort \
+#   CARGO_UNSTABLE_UNSTABLE_OPTIONS=true \
+#   cargo build --release --target aarch64-apple-darwin
+#
+# The `--target` arg is required to trigger build-std (without it
+# cargo uses host-precompiled std).

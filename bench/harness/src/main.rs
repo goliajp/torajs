@@ -422,14 +422,32 @@ fn run_cmd(bench_dir: &Path, args: &[String]) -> Result<bool> {
 /// stale or missing binary (first hard rule: bench must measure the
 /// real ship artifact, full coverage/correctness).
 fn ensure_release_tr(workspace: &Path) -> Result<()> {
-    eprintln!(
-        "→ hardev B0: cargo build --release -p torajs-cli (ensure target/release/tr is current)"
-    );
-    let status = std::process::Command::new("cargo")
-        .args(["build", "--release", "-p", "torajs-cli"])
-        .current_dir(workspace)
-        .status()
-        .context("spawning `cargo build --release -p torajs-cli`")?;
+    // polish A4 — invoke scripts/release-build.sh if present so the
+    // benchmarked tr is the polish-A4 build (nightly + build-std +
+    // panic=immediate-abort, -90% user binary size). Falls back to
+    // vanilla `cargo build --release` when the script is absent
+    // (older checkouts / non-mac targets / no nightly toolchain).
+    let release_script = workspace.join("scripts/release-build.sh");
+    let status = if release_script.is_file() {
+        eprintln!(
+            "→ hardev B0: scripts/release-build.sh (polish-A4 release tr — accurate user-binary size)"
+        );
+        std::process::Command::new(&release_script)
+            .arg("-p")
+            .arg("torajs-cli")
+            .current_dir(workspace)
+            .status()
+            .context("spawning scripts/release-build.sh")?
+    } else {
+        eprintln!(
+            "→ hardev B0: cargo build --release -p torajs-cli (vanilla release; no polish-A4 win)"
+        );
+        std::process::Command::new("cargo")
+            .args(["build", "--release", "-p", "torajs-cli"])
+            .current_dir(workspace)
+            .status()
+            .context("spawning `cargo build --release -p torajs-cli`")?
+    };
     if !status.success() {
         anyhow::bail!(
             "release build of torajs-cli failed — refusing to benchmark a stale/missing target/release/tr"
