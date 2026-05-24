@@ -1943,6 +1943,9 @@ dependencies = [
 [[package]]
 name = "torajs-fetch"
 version = "0.1.0"
+dependencies = [
+ "criterion",
+]
 
 [[package]]
 name = "torajs-fs"
@@ -1958,6 +1961,9 @@ dependencies = [
 [[package]]
 name = "torajs-microtask"
 version = "0.1.0"
+dependencies = [
+ "criterion",
+]
 
 [[package]]
 name = "torajs-num"

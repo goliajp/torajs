@@ -25,3 +25,10 @@ crate-type = ["rlib", "staticlib"]
 # 0 runtime deps. Runtime_promise.c calls into this crate's
 # `__torajs_microtask_enqueue` via `extern "C"` at link time
 # (same pattern torajs-weak / torajs-cycle / torajs-collections use).
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "microtask"
+harness = false

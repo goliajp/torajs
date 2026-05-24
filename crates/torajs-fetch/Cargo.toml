@@ -30,3 +30,10 @@ crate-type = ["rlib", "staticlib"]
 # value_drop_heap) resolved at `tr build` link time against
 # libtorajs_str.a + libtorajs_rc.a + runtime_str.c — same pattern
 # as the other Layer-3 sub-crates.
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "fetch"
+harness = false
