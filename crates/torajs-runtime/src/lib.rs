@@ -14,10 +14,11 @@
 //! deduplication; for now we keep the compile-on-emit shape that
 //! `tr build` already had.
 
-/// String / Array / Object / Number / JSON helpers + universal heap
-/// header + ARC intrinsics (`__torajs_rc_inc` / `__torajs_rc_dec`)
-/// + the small-Str and Array LIFO pools + libc panic backtrace.
-pub const RUNTIME_STR_C: &str = include_str!("runtime_str.c");
+/* runtime_str.c deleted entirely at A.1 (2026-05-25). The file
+ * had been reduced to a 40-line comment-only stub at P7.i-closer
+ * (21a0feb) FINAL NUKE — all business code had already moved to
+ * Rust sub-crates. Stub kept temporarily as a "Phase 1 closed"
+ * marker; deleted here now that the marker is in commit history. */
 
 /* runtime_regex.c deleted entirely at P6.2-e (2026-05-24). The
  * full ECMAScript regex engine (parser / Thompson NFA compiler /
@@ -105,7 +106,4 @@ pub const RUNTIME_LIBC_BRIDGE_C: &str = include_str!("runtime_libc_bridge.c");
 /// All C runtime translation units in (filename, contents) form, in
 /// the order they should be written + cc'd. Filename is the basename
 /// the compiler should write into the per-build temp directory.
-pub const SOURCES: &[(&str, &str)] = &[
-    ("runtime_str.c", RUNTIME_STR_C),
-    ("runtime_libc_bridge.c", RUNTIME_LIBC_BRIDGE_C),
-];
+pub const SOURCES: &[(&str, &str)] = &[("runtime_libc_bridge.c", RUNTIME_LIBC_BRIDGE_C)];
