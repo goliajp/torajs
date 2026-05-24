@@ -53,18 +53,25 @@ pub mod create;
 pub mod deref;
 pub mod drop;
 pub mod layout;
+pub mod registry;
 
 pub use create::__torajs_weakref_create;
 pub use deref::__torajs_weakref_deref;
 pub use drop::__torajs_weakref_drop;
+pub use registry::{
+    __torajs_weakref_registry_deregister, __torajs_weakref_registry_register,
+    __torajs_weakref_target_dying,
+};
 
 // Cross-tier extern stubs for cargo unit tests — the real symbols
-// (__torajs_rc_inc / __torajs_weakref_registry_register /
-// __torajs_weakref_registry_deregister) are provided by their
-// respective lib*.a / runtime_weakref.c.o at `tr build` link time;
-// the test binary doesn't link those, so panicking stubs keep cargo
-// test linking clean. Same pattern as torajs-arr / torajs-collections
-// test stubs.
+// for rc + invalidate_key live in libs / C files that the test binary
+// doesn't link. registry register/deregister/target_dying are NOW
+// provided by this crate (P4.3'-b) so they no longer need stubs.
+//
+// `__torajs_weakmap_invalidate_key` / `__torajs_weakset_invalidate_key`
+// come from `runtime_weakmap.c` / `runtime_weakset.c` at `tr build`
+// link time — stubbed here. Will be removed when P4.3'-c / P4.3'-d
+// port those into this crate.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_rc_inc(_p: *mut core::ffi::c_void) {
@@ -75,24 +82,22 @@ pub unsafe extern "C" fn __torajs_rc_inc(_p: *mut core::ffi::c_void) {
 
 #[cfg(test)]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_weakref_registry_register(
-    _target: *mut core::ffi::c_void,
-    _kind: u32,
+pub unsafe extern "C" fn __torajs_weakmap_invalidate_key(
     _owner: *mut core::ffi::c_void,
+    _dying_key: *mut core::ffi::c_void,
 ) {
     panic!(
-        "torajs-weak unit-test stub: __torajs_weakref_registry_register should not be called from cargo test paths"
+        "torajs-weak unit-test stub: __torajs_weakmap_invalidate_key should not be called from cargo test paths"
     );
 }
 
 #[cfg(test)]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_weakref_registry_deregister(
-    _target: *mut core::ffi::c_void,
-    _kind: u32,
+pub unsafe extern "C" fn __torajs_weakset_invalidate_key(
     _owner: *mut core::ffi::c_void,
+    _dying_key: *mut core::ffi::c_void,
 ) {
     panic!(
-        "torajs-weak unit-test stub: __torajs_weakref_registry_deregister should not be called from cargo test paths"
+        "torajs-weak unit-test stub: __torajs_weakset_invalidate_key should not be called from cargo test paths"
     );
 }

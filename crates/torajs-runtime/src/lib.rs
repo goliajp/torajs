@@ -52,11 +52,13 @@ pub const RUNTIME_LIBC_BRIDGE_C: &str = include_str!("runtime_libc_bridge.c");
 /// Rust now. Cross-tier calls resolved at link time against
 /// libtorajs_bigint.a.
 ///
-/// v0.7 T-26 (slice A) — WeakRef registry. Hashmap-based
-/// (target → list of observers) gated on a global active count so
-/// non-Weak* programs pay one branch per rc_dec. Cycle collector
-/// builds on the same registry in T-26.C.
-pub const RUNTIME_WEAKREF_C: &str = include_str!("runtime_weakref.c");
+/* runtime_weakref.c deleted entirely at P4.3'-b (2026-05-24). The
+ * WeakRef owner-side ops (P4.3'-a) + the shared observer registry
+ * + the dying-target broadcast are now all in pure-Rust
+ * `torajs-weak` (libtorajs_weak.a). WeakMap / WeakSet C-side
+ * invalidate hooks (runtime_weakmap.c / runtime_weakset.c) still
+ * call the Rust registry's `__torajs_weakref_registry_register` /
+ * `_deregister` via extern "C" link-time resolution. */
 
 /// v0.7 T-26 (slice B) — WeakMap. Internal bucket table keyed by
 /// pointer identity; entries observed via the shared weakref
@@ -87,7 +89,6 @@ pub const SOURCES: &[(&str, &str)] = &[
     ("runtime_promise.c", RUNTIME_PROMISE_C),
     ("runtime_fetch.c", RUNTIME_FETCH_C),
     ("runtime_libc_bridge.c", RUNTIME_LIBC_BRIDGE_C),
-    ("runtime_weakref.c", RUNTIME_WEAKREF_C),
     ("runtime_weakmap.c", RUNTIME_WEAKMAP_C),
     ("runtime_weakset.c", RUNTIME_WEAKSET_C),
     ("runtime_cycle.c", RUNTIME_CYCLE_C),
