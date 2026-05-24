@@ -25,3 +25,10 @@ crate-type = ["rlib", "staticlib"]
 # 0 runtime deps. Cross-crate calls (rc_inc / value_drop_heap /
 # arr_alloc_any / arr_push_any / str_eq) use `extern "C"` symbols
 # resolved at link time, same pattern torajs-bigint / arr / dynobj use.
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "collections"
+harness = false

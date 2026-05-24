@@ -1848,6 +1848,7 @@ dependencies = [
 name = "torajs-arr"
 version = "0.1.0"
 dependencies = [
+ "criterion",
  "torajs-abort",
  "torajs-rc",
 ]
@@ -1888,6 +1889,9 @@ dependencies = [
 [[package]]
 name = "torajs-collections"
 version = "0.1.0"
+dependencies = [
+ "criterion",
+]
 
 [[package]]
 name = "torajs-conformance"
@@ -1936,6 +1940,9 @@ dependencies = [
 [[package]]
 name = "torajs-dynobj"
 version = "0.1.0"
+dependencies = [
+ "criterion",
+]
 
 [[package]]
 name = "torajs-embed"
@@ -2022,6 +2029,9 @@ dependencies = [
 [[package]]
 name = "torajs-promise"
 version = "0.1.0"
+dependencies = [
+ "criterion",
+]
 
 [[package]]
 name = "torajs-rc"
@@ -2033,6 +2043,9 @@ dependencies = [
 [[package]]
 name = "torajs-regex"
 version = "0.1.0"
+dependencies = [
+ "criterion",
+]
 
 [[package]]
 name = "torajs-runtime"
@@ -2076,6 +2089,9 @@ dependencies = [
 [[package]]
 name = "torajs-weak"
 version = "0.1.0"
+dependencies = [
+ "criterion",
+]
 
 [[package]]
 name = "tower"

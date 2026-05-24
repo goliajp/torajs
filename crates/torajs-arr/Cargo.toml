@@ -29,3 +29,10 @@ crate-type = ["rlib", "staticlib"]
 torajs-rc = { path = "../torajs-rc" }
 # Polish A3a — panic-free abort for OOM in Array alloc.
 torajs-abort = { path = "../torajs-abort" }
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "arr"
+harness = false

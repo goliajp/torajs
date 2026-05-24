@@ -26,3 +26,10 @@ crate-type = ["rlib", "staticlib"]
 # arr_alloc/push, dynobj_alloc/set, throw_type_error) will resolve at
 # `tr build` link time via `extern "C"` symbols — same pattern
 # torajs-promise / torajs-cycle / torajs-weak / torajs-collections use.
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "regex"
+harness = false

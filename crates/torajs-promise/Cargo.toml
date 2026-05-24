@@ -26,3 +26,10 @@ crate-type = ["rlib", "staticlib"]
 # + arr_alloc/push + str_alloc_pooled + throw_set + microtask_enqueue)
 # use `extern "C"` symbols resolved at link time — same pattern
 # torajs-cycle / torajs-weak / torajs-collections use.
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "promise"
+harness = false

@@ -27,3 +27,10 @@ crate-type = ["rlib", "staticlib"]
 # bucket key comparison + hash) use `extern "C"` symbols resolved at
 # link time, same as torajs-bigint / torajs-arr. libc malloc/calloc
 # is declared directly per the torajs-str pattern.
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "dynobj"
+harness = false

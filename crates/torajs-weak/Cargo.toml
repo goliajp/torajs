@@ -26,3 +26,10 @@ crate-type = ["rlib", "staticlib"]
 # defined for now in runtime_weakref.c) use `extern "C"` symbols resolved
 # at link time — same pattern as torajs-collections / torajs-bigint /
 # torajs-arr / torajs-dynobj.
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "weak"
+harness = false
