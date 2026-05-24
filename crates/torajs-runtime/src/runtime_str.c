@@ -1037,51 +1037,9 @@ bool __torajs_any_to_bool(const void *box) {
  * Strings are allocated via str_alloc_pooled so the result is a
  * regular owned Str the caller's drop walk handles.
  */
-void *__torajs_any_typeof(const void *box) {
-    const char *s = "object";
-    size_t len = 6;
-    if (box == NULL) {
-        /* Bare null pointer (uninit / explicit cast) — treat as
-         * "object" per spec (typeof null === "object"). */
-    } else {
-        int64_t tag = *(const int64_t *)((const uint8_t *)box + __TORAJS_ANY_BOX_TAG_OFF);
-        switch (tag) {
-            case __TORAJS_ANY_NULL: s = "object"; len = 6; break;
-            /* P1.5 — typeof undefined === "undefined" per ES spec
-             * §13.5.3 / §6.1.1.1. The ANY_UNDEF tag is the
-             * substrate that lets us distinguish from ANY_NULL
-             * (which keeps "object" per spec). */
-            case __TORAJS_ANY_UNDEF: s = "undefined"; len = 9; break;
-            case __TORAJS_ANY_BOOL: s = "boolean"; len = 7; break;
-            case __TORAJS_ANY_I64:
-            case __TORAJS_ANY_F64: s = "number"; len = 6; break;
-            case __TORAJS_ANY_HEAP: {
-                void *child = (void *)(uintptr_t)*(int64_t *)
-                    ((const uint8_t *)box + __TORAJS_ANY_BOX_VAL_OFF);
-                if (child == NULL) {
-                    s = "object"; len = 6;
-                } else {
-                    const __torajs_heap_header_t *h =
-                        (const __torajs_heap_header_t *)child;
-                    switch (h->type_tag) {
-                        case __TORAJS_TAG_STR: s = "string"; len = 6; break;
-                        case __TORAJS_TAG_CLOSURE: s = "function"; len = 8; break;
-                        case __TORAJS_TAG_SYMBOL: s = "symbol"; len = 6; break;
-                        case __TORAJS_TAG_BIGINT: s = "bigint"; len = 6; break;
-                        /* OBJ / ARR / REGEX / DATE / RESPONSE / WEAKREF /
-                         * WEAKMAP / WEAKSET / ANY_BOX (nested) → "object" */
-                        default: s = "object"; len = 6; break;
-                    }
-                }
-                break;
-            }
-            default: s = "object"; len = 6; break;
-        }
-    }
-    uint8_t *p = __torajs_str_alloc_pooled((uint64_t)len);
-    memcpy((uint8_t *)p + __TORAJS_STR_HDR_SIZE, s, len);
-    return p;
-}
+/* __torajs_any_typeof moved to torajs-anyvalue::inspect (P7.f,
+ * 2026-05-24). Same big-switch over ANY_BOX_TAG with heap-tag
+ * recursion for "string"/"function"/"symbol"/"bigint". */
 
 /* P2.3-a — `__torajs_any_box_drop` is now provided by the Rust
  * `torajs-anyvalue` crate. The Rust version is byte-equivalent
@@ -1114,47 +1072,10 @@ extern void print_f64(double);
 extern void print_bool(_Bool);
 extern void __torajs_str_print(const uint8_t *);
 
-void __torajs_print_any(const void *box) {
-    if (box == NULL) {
-        fputs("null\n", stdout);
-        return;
-    }
-    int64_t tag = *(const int64_t *)((const uint8_t *)box + __TORAJS_ANY_BOX_TAG_OFF);
-    int64_t v = *(const int64_t *)((const uint8_t *)box + __TORAJS_ANY_BOX_VAL_OFF);
-    switch (tag) {
-        case __TORAJS_ANY_NULL: fputs("null\n", stdout); break;
-        /* P1.5 — console.log(undefined) → "undefined". Bun output. */
-        case __TORAJS_ANY_UNDEF: fputs("undefined\n", stdout); break;
-        case __TORAJS_ANY_BOOL: print_bool((_Bool)(v != 0)); break;
-        case __TORAJS_ANY_I64:  print_i64(v); break;
-        case __TORAJS_ANY_F64: {
-            double d;
-            memcpy(&d, &v, sizeof(double));
-            print_f64(d);
-            break;
-        }
-        case __TORAJS_ANY_HEAP: {
-            void *child = (void *)(uintptr_t)v;
-            if (child == NULL) {
-                fputs("null\n", stdout);
-                break;
-            }
-            __torajs_heap_header_t *h = (__torajs_heap_header_t *)child;
-            if (h->type_tag == __TORAJS_TAG_STR) {
-                __torajs_str_print((const uint8_t *)child);
-            } else {
-                /* Obj / Arr / Closure / RegExp / Date pretty-print
-                 * lands with T-10.e. For now print a placeholder so
-                 * the user sees something rather than silent / crash. */
-                fputs("[object]\n", stdout);
-            }
-            break;
-        }
-        default:
-            fputs("[unknown-any-tag]\n", stdout);
-            break;
-    }
-}
+/* __torajs_print_any moved to torajs-anyvalue::inspect (P7.f,
+ * 2026-05-24). Dispatches to IR-emitted print_i64 / print_f64 /
+ * print_bool + __torajs_str_print via cross-tier externs;
+ * ANY_HEAP recurses through universal type_tag for Str. */
 
 /* __torajs_substr_create + __torajs_substr_drop moved to the
  * `torajs-str::substr` Rust module (P3.1-b, 2026-05-23). Forward
