@@ -20,6 +20,17 @@ use core::ffi::c_void;
 /// `runtime_str.c::value_drop_heap` dispatch case).
 pub const TAG_WEAKREF: u16 = 11;
 
+/// `type_tag` value for WeakMap heap blocks (matches the
+/// `runtime_str.c::value_drop_heap` dispatch case `__TORAJS_TAG_WEAKMAP
+/// = 12`). Distinct from TAG_WEAKREF; dispatch routes to
+/// `__torajs_weakmap_drop`.
+pub const TAG_WEAKMAP: u16 = 12;
+
+/// `type_tag` value for WeakSet heap blocks (matches
+/// `__TORAJS_TAG_WEAKSET = 13`). Distinct shape from WeakMap (no
+/// value side), but value_drop_heap dispatch is symmetrical.
+pub const TAG_WEAKSET: u16 = 13;
+
 /// `STATIC_LITERAL` flag bit (mirrors `torajs_rc::FLAG_STATIC_LITERAL`).
 /// Set on heap blocks promoted to data-segment lifetime — drop must
 /// be a no-op when this bit is set. WeakRef literals don't exist
