@@ -1888,6 +1888,7 @@ dependencies = [
  "torajs-collections",
  "torajs-cycle",
  "torajs-dynobj",
+ "torajs-meta",
  "torajs-microtask",
  "torajs-num",
  "torajs-promise",
@@ -1925,6 +1926,10 @@ version = "0.1.0"
 
 [[package]]
 name = "torajs-fs"
+version = "0.1.0"
+
+[[package]]
+name = "torajs-meta"
 version = "0.1.0"
 
 [[package]]

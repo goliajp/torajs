@@ -487,66 +487,13 @@ extern void __torajs_dynobj_drop(void *obj);
  * 1520-1600); the dynobj_has helper sits above dynobj_set in this
  * file but the explicit forward decls keep us robust to future
  * reorderings. */
+/* __torajs_get_property_descriptor moved to torajs-meta::reflect
+ * (P7.g, 2026-05-24). Same dynobj read + fresh-descriptor alloc
+ * shape; ANY_HEAP value rc-incremented for descriptor ownership. */
 extern void *__torajs_any_box(int64_t tag, int64_t value);
 extern void __torajs_value_drop_heap(void *child);
 #define __TORAJS_ANY_BOX_TAG_OFF 8
 #define __TORAJS_ANY_BOX_VAL_OFF 16
-void *__torajs_get_property_descriptor(void *obj_any, void *key) {
-    if (obj_any == NULL || key == NULL) {
-        return __torajs_any_box(__TORAJS_ANY_UNDEF, 0);
-    }
-    int64_t obj_tag = *(int64_t *)((uint8_t *)obj_any + __TORAJS_ANY_BOX_TAG_OFF);
-    if (obj_tag != __TORAJS_ANY_HEAP) {
-        return __torajs_any_box(__TORAJS_ANY_UNDEF, 0);
-    }
-    void *dynobj = (void *)(uintptr_t)
-        *(int64_t *)((uint8_t *)obj_any + __TORAJS_ANY_BOX_VAL_OFF);
-    if (dynobj == NULL) {
-        return __torajs_any_box(__TORAJS_ANY_UNDEF, 0);
-    }
-    __torajs_heap_header_t *h = (__torajs_heap_header_t *)dynobj;
-    if (h->type_tag != __TORAJS_TAG_DYNOBJ) {
-        return __torajs_any_box(__TORAJS_ANY_UNDEF, 0);
-    }
-    if (!__torajs_dynobj_has(dynobj, key)) {
-        return __torajs_any_box(__TORAJS_ANY_UNDEF, 0);
-    }
-
-    uint64_t v_tag = __torajs_dynobj_get_tag(dynobj, key);
-    uint64_t v_val = __torajs_dynobj_get_value(dynobj, key);
-    uint64_t flags = __torajs_dynobj_get_flags(dynobj, key);
-
-    void *desc = __torajs_dynobj_alloc();
-
-    /* Define the 4 descriptor fields. ANY_HEAP value needs an rc bump
-     * so the new dynobj owns its share independently of the source. */
-    static const char *const k_names[4] = {
-        "value", "writable", "enumerable", "configurable",
-    };
-    static const uint64_t k_lens[4] = { 5, 8, 10, 12 };
-    uint64_t k_tags[4]  = { v_tag, __TORAJS_ANY_BOOL, __TORAJS_ANY_BOOL, __TORAJS_ANY_BOOL };
-    uint64_t k_vals[4]  = {
-        v_val,
-        (flags >> 0) & 1,
-        (flags >> 1) & 1,
-        (flags >> 2) & 1,
-    };
-    if (v_tag == __TORAJS_ANY_HEAP) {
-        __torajs_rc_inc((void *)(uintptr_t)v_val);
-    }
-    for (int i = 0; i < 4; i++) {
-        uint8_t *k = __torajs_str_alloc_pooled(k_lens[i]);
-        memcpy(__TORAJS_STR_DATA(k), k_names[i], (size_t)k_lens[i]);
-        __torajs_dynobj_set(&desc, k, k_tags[i], k_vals[i]);
-        __torajs_str_drop(k);
-    }
-
-    void *result = __torajs_any_box(__TORAJS_ANY_HEAP, (int64_t)(uintptr_t)desc);
-    /* any_box rc_inc'd desc (refcount now 2: our local + the box).
-     * Drop our local so the box becomes the sole owner. */
-    __torajs_value_drop_heap(desc);
-    return result;
-}
 
 /* Forward decl — __torajs_throw_set is still LLVM-IR-emitted by
  * ssa_inkwell (moves to Rust in P2.4-b). */
@@ -694,62 +641,11 @@ void __torajs_arrprops_drop_entry(void *arr_ptr); /* fwd decl — impl
  * (CLOSURE_PROPS_OFF) — see fn_props_set / fn_props_get in
  * ssa_lower.rs. Side-table is only for FnSig. */
 
-typedef struct __torajs_fnprops_node {
-    void *fn_ptr;
-    void *dynobj;
-    struct __torajs_fnprops_node *next;
-} __torajs_fnprops_node_t;
-
-#define __TORAJS_FNPROPS_BUCKETS 256
-static __torajs_fnprops_node_t *__torajs_fnprops_table[__TORAJS_FNPROPS_BUCKETS] = {0};
-
-static uint32_t __torajs_fnprops_hash(void *p) {
-    uintptr_t x = (uintptr_t)p;
-    x = (x ^ (x >> 33)) * 0xff51afd7ed558ccdULL;
-    x = (x ^ (x >> 33)) * 0xc4ceb9fe1a85ec53ULL;
-    x = x ^ (x >> 33);
-    return (uint32_t)(x % __TORAJS_FNPROPS_BUCKETS);
-}
-
-static __torajs_fnprops_node_t *__torajs_fnprops_find(void *fn_ptr) {
-    uint32_t h = __torajs_fnprops_hash(fn_ptr);
-    __torajs_fnprops_node_t *n = __torajs_fnprops_table[h];
-    while (n) {
-        if (n->fn_ptr == fn_ptr) return n;
-        n = n->next;
-    }
-    return NULL;
-}
-
-static __torajs_fnprops_node_t *__torajs_fnprops_intern(void *fn_ptr) {
-    __torajs_fnprops_node_t *n = __torajs_fnprops_find(fn_ptr);
-    if (n) return n;
-    uint32_t h = __torajs_fnprops_hash(fn_ptr);
-    n = (__torajs_fnprops_node_t *)malloc(sizeof(__torajs_fnprops_node_t));
-    n->fn_ptr = fn_ptr;
-    n->dynobj = NULL;
-    n->next = __torajs_fnprops_table[h];
-    __torajs_fnprops_table[h] = n;
-    return n;
-}
-
-void __torajs_fnprops_set(void *fn_ptr, void *key, int64_t tag, int64_t value) {
-    __torajs_fnprops_node_t *n = __torajs_fnprops_intern(fn_ptr);
-    if (n->dynobj == NULL) n->dynobj = __torajs_dynobj_alloc();
-    __torajs_dynobj_set(&n->dynobj, key, (uint64_t)tag, (uint64_t)value);
-}
-
-uint64_t __torajs_fnprops_get_tag(void *fn_ptr, const void *key) {
-    __torajs_fnprops_node_t *n = __torajs_fnprops_find(fn_ptr);
-    if (n == NULL || n->dynobj == NULL) return 5;  /* ANY_UNDEF */
-    return __torajs_dynobj_get_tag(n->dynobj, key);
-}
-
-uint64_t __torajs_fnprops_get_value(void *fn_ptr, const void *key) {
-    __torajs_fnprops_node_t *n = __torajs_fnprops_find(fn_ptr);
-    if (n == NULL || n->dynobj == NULL) return 0;
-    return __torajs_dynobj_get_value(n->dynobj, key);
-}
+/* __torajs_fnprops_set / _get_tag / _get_value (+ 3 static helpers
+ * find / intern / hash + the per-bucket linked list) moved to
+ * torajs-meta::fnprops (P7.g, 2026-05-24). Rust version uses
+ * std::sync::Mutex<HashMap> instead of the per-bucket linked list —
+ * O(1) amortized lookup with no behavior change. */
 
 /* T-29 — Array-as-Object side table for `arr.x = v` / `arr.x` reads.
  *
@@ -803,111 +699,14 @@ extern int64_t __torajs_any_unbox_tag(const void *box);
 extern int64_t __torajs_any_unbox_value(const void *box);
 extern void __torajs_any_payload_rc_inc(int64_t tag, int64_t val);
 
-/* P4.2 Phase B+C — class prototype side table. Maps class runtime tag
- * (the same tag stored at OBJ_CLASS_TAG_OFF on instance allocation;
- * tag 0 = "no class") to the Any-box wrapping the class's
- * `__proto_<C>` dynobj. Populated once at module init via
- * `__torajs_proto_register` (emitted by synthesize_class_globals after
- * the per-class `__class_<C>` LetDecl); read by `__torajs_proto_get`
- * at `Object.getPrototypeOf(instance)` call sites. Static 256-entry
- * array is enough for the foreseeable class count; growing it
- * requires no protocol change.
+/* P4.2 Phase B+C — class/proto registry + get_proto_of_any moved to
+ * torajs-meta (P7.g, 2026-05-24). proto_register / class_register /
+ * proto_get / class_get (+ the 256-entry static tables) live in
+ * torajs-meta::classmeta; __torajs_get_proto_of_any in ::reflect.
+ * proto_get / class_get rc_inc the returned box for caller ownership.
  *
- * The table holds borrowed pointers to long-lived Any-boxes (the
- * `__proto_<C>` LetDecl's lifetime spans the program) — no rc bumps
- * here. `proto_get` returns the same pointer the let binding holds,
- * preserving identity across all readback sites. */
-#define __TORAJS_MAX_CLASSES 256
-static void *__torajs_protos_by_tag[__TORAJS_MAX_CLASSES];
-/* P4.5 — parallel side table for `new.target`. `__class_<C>` Any-boxes
- * are registered here at module init. The synthesized `__new_<C>`
- * factory passes its own class object (looked up via class_get) into
- * the ctor as the hidden `__new_target` param. Static array keyed by
- * the same runtime class tag the obj_alloc site stamps onto each
- * instance. */
-static void *__torajs_classes_by_tag[__TORAJS_MAX_CLASSES];
-
-void __torajs_proto_register(int64_t tag, void *proto_anybox) {
-    if (tag < 0 || tag >= __TORAJS_MAX_CLASSES) return;
-    __torajs_protos_by_tag[tag] = proto_anybox;
-}
-
-void __torajs_class_register(int64_t tag, void *class_anybox) {
-    if (tag < 0 || tag >= __TORAJS_MAX_CLASSES) return;
-    __torajs_classes_by_tag[tag] = class_anybox;
-}
-
-/* Mirrors `proto_get` ownership contract: always returns an OWNED
- * Any-box (rc 1+). Registered class box gets rc_inc'd; absent/OOR
- * tag → fresh ANY_UNDEF box (spec §13.3.10 — `new.target` outside
- * a `new` call is undefined). */
-void *__torajs_class_get(int64_t tag) {
-    if (tag < 0 || tag >= __TORAJS_MAX_CLASSES) {
-        return __torajs_any_box(__TORAJS_ANY_UNDEF, 0);
-    }
-    void *p = __torajs_classes_by_tag[tag];
-    if (p == NULL) return __torajs_any_box(__TORAJS_ANY_UNDEF, 0);
-    __torajs_rc_inc(p);
-    return p;
-}
-
-/* Always returns an OWNED Any-box (rc 1). Callers don't rc_inc — the
- * box is theirs to drop. For the registered-class case, bumps the
- * stored `__proto_<C>` box's refcount; for the null/missing case,
- * allocates a fresh ANY_NULL box. Keeps caller refcount accounting
- * uniform across both paths. */
-void *__torajs_proto_get(int64_t tag) {
-    if (tag < 0 || tag >= __TORAJS_MAX_CLASSES) {
-        return __torajs_any_box(__TORAJS_ANY_NULL, 0);
-    }
-    void *p = __torajs_protos_by_tag[tag];
-    if (p == NULL) return __torajs_any_box(__TORAJS_ANY_NULL, 0);
-    __torajs_rc_inc(p);
-    return p;
-}
-
-/* P4.2 Phase B+C — `Object.getPrototypeOf(<any>)` on a dynobj-backed
- * Any value. Reads the `__proto__` field from the wrapped dynobj
- * and returns it as a fresh Any-box. Returns ANY_NULL when the box
- * doesn't wrap a dynobj, when the dynobj has no `__proto__` field
- * (root prototype), or for null / undefined / primitive Any tags
- * (spec §19.1.2.13 ToObject step throws for null/undefined, but
- * tora's subset returns NULL — pre-P7 Error type hierarchy lands).
- *
- * Identity preserved: the returned box wraps the SAME dynobj ptr
- * the parent prototype was stored at, so `Object.getPrototypeOf
- * (C.prototype) === B.prototype` holds by `any_payload_eq`'s ptr
- * compare on the underlying heap value. */
-void *__torajs_get_proto_of_any(const void *box) {
-    if (box == NULL) return __torajs_any_box(__TORAJS_ANY_NULL, 0);
-    int64_t tag = *(const int64_t *)
-        ((const uint8_t *)box + __TORAJS_ANY_BOX_TAG_OFF);
-    if (tag != __TORAJS_ANY_HEAP) {
-        return __torajs_any_box(__TORAJS_ANY_NULL, 0);
-    }
-    void *dynobj = (void *)(uintptr_t)*(const int64_t *)
-        ((const uint8_t *)box + __TORAJS_ANY_BOX_VAL_OFF);
-    if (dynobj == NULL) return __torajs_any_box(__TORAJS_ANY_NULL, 0);
-    __torajs_heap_header_t *h = (__torajs_heap_header_t *)dynobj;
-    if (h->type_tag != __TORAJS_TAG_DYNOBJ) {
-        return __torajs_any_box(__TORAJS_ANY_NULL, 0);
-    }
-
-    /* Build a transient "__proto__" key str (9 bytes). */
-    static const char k_name[] = "__proto__";
-    uint8_t *k = __torajs_str_alloc_pooled(9);
-    memcpy(__TORAJS_STR_DATA(k), k_name, 9);
-
-    if (!__torajs_dynobj_has(dynobj, k)) {
-        __torajs_str_drop(k);
-        return __torajs_any_box(__TORAJS_ANY_NULL, 0);
-    }
-    int64_t v_tag = (int64_t)__torajs_dynobj_get_tag(dynobj, k);
-    int64_t v_val = (int64_t)__torajs_dynobj_get_value(dynobj, k);
-    __torajs_str_drop(k);
-
-    return __torajs_any_box(v_tag, v_val);
-}
+ * P4.5 — parallel `__class_<C>` side table for `new.target` lives
+ * alongside in the same module. */
 
 int64_t __torajs_str_eq(const uint8_t *a, const uint8_t *b);
 

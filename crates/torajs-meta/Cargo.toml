@@ -1,0 +1,29 @@
+[package]
+name = "torajs-meta"
+description = "Runtime metadata + reflection substrate for the torajs AOT TypeScript runtime — fnprops side table (function-instance property bag), class / prototype registries keyed by class runtime tag, and Object.getPropertyDescriptor / getPrototypeOf reflection ops. Layer-3 substrate (P7.g); replaces the fnprops + proto/class + reflect families in runtime_str.c."
+keywords = ["torajs", "metadata", "reflection", "runtime", "ffi"]
+categories = ["data-structures", "no-std"]
+readme = "README.md"
+documentation = "https://docs.rs/torajs-meta"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+# Dual emit: `rlib` for cargo workspace + unit tests; `staticlib`
+# emits libtorajs_meta.a so ssa_inkwell links it into every
+# `tr build` AOT user binary alongside the other Layer-1+ staticlibs.
+[lib]
+crate-type = ["rlib", "staticlib"]
+
+[dependencies]
+# 0 Cargo deps — std::sync::Mutex + std::collections::HashMap cover
+# the side-table need. Cross-tier extern calls (dynobj_*, any_box,
+# rc_inc, value_drop_heap, str_alloc_pooled, str_drop) resolve at
+# `tr build` link time against the matching sibling staticlibs +
+# runtime_str.c.

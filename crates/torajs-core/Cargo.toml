@@ -78,3 +78,9 @@ torajs-microtask = { path = "../torajs-microtask" }
 # .then / .catch / .finally / .all / .allSettled / .race / .any /
 # queueMicrotask) resolves at `tr build`. Same dep-order rationale.
 torajs-promise = { path = "../torajs-promise" }
+# Layer-3: runtime metadata + reflection — fnprops side table +
+# class/proto registries + getPropertyDescriptor / getPrototypeOf
+# (P7.g). Dual rlib+staticlib; libtorajs_meta.a co-links so
+# fnprops_set/get + proto_register/get + class_register/get +
+# get_property_descriptor / get_proto_of_any resolve at `tr build`.
+torajs-meta = { path = "../torajs-meta" }
