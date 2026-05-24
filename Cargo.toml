@@ -16,6 +16,7 @@ members = [
     "crates/torajs-cycle",
     "crates/torajs-microtask",
     "crates/torajs-promise",
+    "crates/torajs-regex",
     "crates/torajs-runtime",
     "crates/torajs-core",
     "crates/torajs-cli",

@@ -1,0 +1,28 @@
+[package]
+name = "torajs-regex"
+description = "ECMAScript-flavored regex substrate for the torajs AOT TypeScript runtime. Parser (recursive-descent), Thompson-NFA compiler, Pike-VM matcher, lookahead/lookbehind/backref, named captures, u-flag (UTF-8 + curated UCD Letter/Number tables), replace/split/exec/matchAll surface. Layer-3 substrate; ships in substeps (P6.2-a kernel through P6.2-f closer)."
+keywords = ["torajs", "regex", "regexp", "nfa", "runtime"]
+categories = ["text-processing", "no-std"]
+readme = "README.md"
+documentation = "https://docs.rs/torajs-regex"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+# Dual emit: `rlib` for cargo workspace + unit tests; `staticlib`
+# emits libtorajs_regex.a so ssa_inkwell links it into every
+# `tr build` AOT user binary alongside the other Layer-1+ staticlibs.
+[lib]
+crate-type = ["rlib", "staticlib"]
+
+[dependencies]
+# 0 runtime deps. Cross-tier calls (rc_dec, str_alloc_pooled,
+# arr_alloc/push, dynobj_alloc/set, throw_type_error) will resolve at
+# `tr build` link time via `extern "C"` symbols — same pattern
+# torajs-promise / torajs-cycle / torajs-weak / torajs-collections use.
