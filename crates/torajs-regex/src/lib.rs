@@ -33,3 +33,4 @@ pub mod program;
 pub mod resolve;
 pub mod ucd;
 pub mod utf8;
+pub mod vm;
