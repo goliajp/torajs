@@ -1,17 +1,30 @@
 [package]
 name = "torajs-codec-hex"
-version = "0.1.0"
-edition = "2024"
+description = "Tiny hex encode/decode codec — drop-in replacement for the `hex 0.4` community crate, byte-identical output. Lean surface: lower-case `encode(&[u8]) -> String` + tolerant `decode(&str) -> Result<Vec<u8>, FromHexError>`. 0 Cargo deps."
+keywords = ["hex", "codec", "encode", "decode", "torajs"]
+categories = ["encoding", "no-std::no-alloc", "parser-implementations"]
+readme = "README.md"
+documentation = "https://docs.rs/torajs-codec-hex"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
 
 # F.1 (2026-05-25) — torajs Phase 2 F 族 first crate.
 # Replaces the `hex 0.4` community dep with a metal-level minimal
 # encode/decode implementation. 0 dependencies; aligns with vision
 # priority #4 "0 deps" and the deps-tree v0.1 F 族 spec.
-#
-# Surface kept small intentionally — only encode/decode lower-case
-# variants that the torajs workspace actually uses. Upper-case +
-# streaming variants can be added when a caller needs them.
 
 [dependencies]
 
 [dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "codec_hex"
+harness = false
