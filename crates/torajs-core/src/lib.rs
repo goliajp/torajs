@@ -111,6 +111,10 @@ pub const TORAJS_STATICLIBS: &[(&str, &[u8])] = &[
         "libtorajs_process.a",
         include_bytes!(env!("TORAJS_PROCESS_STATICLIB_PATH")),
     ),
+    (
+        "libtorajs_panic.a",
+        include_bytes!(env!("TORAJS_PANIC_STATICLIB_PATH")),
+    ),
 ];
 
 /// Compiler-source fingerprint emitted by build.rs (hash of

@@ -1891,6 +1891,7 @@ dependencies = [
  "torajs-meta",
  "torajs-microtask",
  "torajs-num",
+ "torajs-panic",
  "torajs-process",
  "torajs-promise",
  "torajs-rc",
@@ -1939,6 +1940,10 @@ version = "0.1.0"
 
 [[package]]
 name = "torajs-num"
+version = "0.1.0"
+
+[[package]]
+name = "torajs-panic"
 version = "0.1.0"
 
 [[package]]

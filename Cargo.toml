@@ -23,6 +23,7 @@ members = [
     "crates/torajs-fs",
     "crates/torajs-meta",
     "crates/torajs-process",
+    "crates/torajs-panic",
     "crates/torajs-runtime",
     "crates/torajs-core",
     "crates/torajs-cli",

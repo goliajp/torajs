@@ -89,3 +89,9 @@ torajs-meta = { path = "../torajs-meta" }
 # libtorajs_process.a co-links so process_* fns resolve at
 # `tr build`. Same dep-order rationale as torajs-meta.
 torajs-process = { path = "../torajs-process" }
+# Layer-1: central fatal-error helper — `__torajs_panic(msg)` prints
+# stderr + symbolicated backtrace (macOS atos / Linux raw PC) + exit
+# (P7.i-panic). Dual rlib+staticlib; libtorajs_panic.a co-links so
+# the panic symbol resolves at `tr build`. Same dep-order rationale
+# as torajs-process.
+torajs-panic = { path = "../torajs-panic" }

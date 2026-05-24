@@ -42,89 +42,10 @@
 #include <mach-o/dyld.h>
 #endif
 
-/* v0.3 #4 D-4 — central panic helper used by every C-side runtime
- * fatal-error path. Prints the message + a libc-backtrace of raw PC
- * addresses; on macOS, shells out to `atos` per frame to resolve to
- * `<binary>:<line>:<col>` using the .dSYM bundle next to the binary
- * (created by `dsymutil` in the link pipeline). On linux, prints raw
- * PCs that the user can resolve with `addr2line -e binary <pc>`.
- *
- * Marked noreturn so callers don't need to `exit(1)` after — keeps
- * fputs+exit pairs from drifting out of sync at refactor time. */
-static char self_path_buf_[4096];
-static const char *torajs_self_path_(void) {
-    if (self_path_buf_[0] != '\0') return self_path_buf_;
-#ifdef __APPLE__
-    uint32_t sz = sizeof(self_path_buf_);
-    if (_NSGetExecutablePath(self_path_buf_, &sz) == 0) {
-        return self_path_buf_;
-    }
-#else
-    ssize_t n = readlink("/proc/self/exe", self_path_buf_, sizeof(self_path_buf_) - 1);
-    if (n > 0) {
-        self_path_buf_[n] = '\0';
-        return self_path_buf_;
-    }
-#endif
-    self_path_buf_[0] = '?';
-    self_path_buf_[1] = '\0';
-    return self_path_buf_;
-}
-
-__attribute__((noreturn))
-void __torajs_panic(const char *msg) {
-    fputs(msg, stderr);
-    fputc('\n', stderr);
-#ifdef __wasi__
-    /* T-20 — wasm32-wasip1 has no backtrace facility; just exit. */
-    exit(1);
-#else
-    /* "not yet supported:" prefix is the test262 / conformance
-     * runner's signal that this is an intentional substrate-
-     * boundary rejection, not a true crash. Emitting a backtrace
-     * here would shift the case from `incompatible` to `bug` in
-     * the test262 classifier. Skip backtrace for these. */
-    int suppress_bt = (strncmp(msg, "not yet supported:", 18) == 0);
-    void *frames[32];
-    int n = suppress_bt ? 0 : backtrace(frames, 32);
-    if (n > 1) {
-        const char *path = torajs_self_path_();
-        fputs("backtrace:\n", stderr);
-#ifdef __APPLE__
-        /* atos -o <binary> -arch arm64 -l <slide> <pc1> <pc2> ... —
-         * macOS ASLR slides the image at load time; atos needs the
-         * slide via `-l` to translate runtime PCs back to static
-         * addresses in the binary's __TEXT. _dyld_get_image_vmaddr_slide(0)
-         * returns the slide of the main executable. One fork+exec per
-         * panic, prints `fn (in binary) (file:line)` per line. */
-        /* atos resolves cleanly when given STATIC addresses (PC -
-         * runtime_slide). The `-l <slide>` flag in atos seems to
-         * misbehave on recent macOS for arm64 dSYM-based input —
-         * subtracting slide ourselves works reliably. */
-        intptr_t slide = _dyld_get_image_vmaddr_slide(0);
-        char cmd[8192];
-        int off = snprintf(
-            cmd, sizeof(cmd),
-            "atos -o '%s' -arch arm64",
-            path
-        );
-        for (int i = 1; i < n && off < (int)sizeof(cmd) - 32; i++) {
-            uintptr_t static_pc = (uintptr_t)frames[i] - (uintptr_t)slide;
-            off += snprintf(cmd + off, sizeof(cmd) - off, " 0x%lx", (unsigned long)static_pc);
-        }
-        snprintf(cmd + off, sizeof(cmd) - off, " 1>&2");
-        int _ = system(cmd);
-        (void)_;
-#else
-        /* linux: raw PCs; user can `addr2line -e binary <pc>` */
-        for (int i = 1; i < n; i++) {
-            fprintf(stderr, "  %p (in %s)\n", frames[i], path);
-        }
-#endif
-    }
-    exit(1);
-#endif /* !__wasi__ */
-}
+/* __torajs_panic moved to torajs-panic (P7.i-panic, 2026-05-24).
+ * Same behavior: stderr msg + "not yet supported:" backtrace
+ * suppression + macOS atos shellout + Linux raw PCs + exit(1).
+ * WASI degrades to fputs+exit. */
 
 
 /* defined by the inkwell-emitted LLVM IR in the AOT binary */

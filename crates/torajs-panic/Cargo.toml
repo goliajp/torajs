@@ -1,0 +1,25 @@
+[package]
+name = "torajs-panic"
+description = "Fatal-error helper for the torajs AOT TypeScript runtime — `__torajs_panic(msg)` prints the message to stderr, optionally emits a symbolicated backtrace (macOS atos / Linux raw PC), then exits. Layer-1 substrate (P7.i-panic); replaces the C `__torajs_panic` in runtime_str.c."
+keywords = ["torajs", "panic", "backtrace", "runtime", "ffi"]
+categories = ["development-tools", "no-std"]
+readme = "README.md"
+documentation = "https://docs.rs/torajs-panic"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+crate-type = ["rlib", "staticlib"]
+
+[dependencies]
+# 0 Cargo deps — libc backtrace / fputs / exit / _NSGetExecutablePath
+# (macOS) / readlink (linux) are OS-level system symbols. We invoke
+# `atos` via libc system() the same way the C version does; a future
+# polish step may replace it with a Rust-native frame decoder.
