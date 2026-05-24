@@ -2028,6 +2028,9 @@ version = "0.1.0"
 [[package]]
 name = "torajs-throw"
 version = "0.1.0"
+dependencies = [
+ "criterion",
+]
 
 [[package]]
 name = "torajs-ucd"

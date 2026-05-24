@@ -20,3 +20,10 @@ workspace = true
 # user binary alongside libtorajs_rc.a / libtorajs_anyvalue.a.
 [lib]
 crate-type = ["rlib", "staticlib"]
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "throw"
+harness = false
