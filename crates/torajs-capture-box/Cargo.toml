@@ -26,3 +26,10 @@ crate-type = ["rlib", "staticlib"]
 # externs (capture box is fully self-contained — distinct layout
 # from torajs-rc's universal heap header, which is why it can't
 # share that crate's drop dispatch).
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "capture_box"
+harness = false
