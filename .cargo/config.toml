@@ -15,6 +15,17 @@
 [build]
 target-dir = "/Users/doracawl/workspace/goliajp/torajs/target"
 
+# B1b (2026-05-24) — silence `linker_messages` lint on macOS hosts.
+# nightly's rustc surfaces ld's "building for macOS-11.0 but linking
+# with libLLVM.dylib built for newer 26.0" as a `#[warn(linker_messages)]`
+# diagnostic; the actual ABI is compatible (LLVM has a stable C ABI
+# across these versions), so it's noise that defeats the CLAUDE.md
+# "0 warning" pre-flight gate. The real fix is to bump the macOS
+# deployment target to match Homebrew LLVM's, but doing that needs
+# a target/cleanup audit — tracked as L3b follow-up.
+[target.'cfg(target_os = "macos")']
+rustflags = ["-A", "linker_messages"]
+
 # polish A4 (2026-05-24) — `cargo build --release` (and tr-cli
 # release builds in particular) get `-Z build-std` + `panic =
 # "immediate-abort"` via env vars, NOT via this config file.

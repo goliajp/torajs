@@ -304,11 +304,10 @@ fn compile_for_kind_impl(
     // Pass A: declare libc decls + the intrinsics whose body the backend owns.
     let putchar = declare_putchar(&ctx, &llvm_module);
     let malloc = declare_malloc(&ctx, &llvm_module, target);
-    // declare_{memcpy,memmove,memcmp} only register the LLVM externs;
-    // no Rust binding needed at this scope since all str_*/arr_* IR
-    // builders have moved out (P3.1-g.{2..5}, P4.1-l).
+    // memmove binding retained — B1b restored define_arr_push (2026-05-24)
+    // which calls memmove for the head-offset compact path.
     let _ = declare_memcpy(&ctx, &llvm_module, target);
-    let _ = declare_memmove(&ctx, &llvm_module, target);
+    let memmove = declare_memmove(&ctx, &llvm_module, target);
     let _ = declare_memcmp(&ctx, &llvm_module, target);
 
     // Pass B: emit string-literal globals (LLVM `[N x i8]` private constants).
@@ -345,10 +344,10 @@ fn compile_for_kind_impl(
     // FunctionValue. Backend-owned intrinsics get a body here; everything
     // else gets a declaration that pass D fills in.
     let free = declare_free(&ctx, &llvm_module, target);
-    // declare_realloc only registers the LLVM extern; the Rust binding
-    // was the input to define_arr_push / define_arr_reserve, both
-    // moved to torajs-arr (P4.1-{k,l}).
-    let _ = declare_realloc(&ctx, &llvm_module, target);
+    // realloc binding retained — B1b restored define_arr_push (2026-05-24)
+    // which calls realloc for the grow path. define_arr_reserve still
+    // lives in torajs-arr/grow.rs (Rust extern) since it's not hot.
+    let realloc = declare_realloc(&ctx, &llvm_module, target);
     // declare_str_free registers the LLVM extern; the Rust binding
     // was the input to define_str_drop, moved to torajs-str (P3.1-g.6).
     let _ = declare_str_free(&ctx, &llvm_module);
@@ -397,6 +396,21 @@ fn compile_for_kind_impl(
             // 2026-05-23). Trivial single-call wrapper around
             // __torajs_arr_alloc_pooled; LTO inlines across the
             // staticlib boundary same as the prior alwaysinline IR.
+            "__torajs_arr_push" => {
+                // B1b (2026-05-24, "扎实/不简化便宜"): restored 187-LOC
+                // IR builder so user-code's push hot loops fold the
+                // algorithm into the caller. Linkage = Internal so the
+                // same-named external symbol in torajs-arr/grow.rs is
+                // free to serve fs/process/promise/regex Rust callers
+                // through libtorajs_arr.a without a link clash. The
+                // alwaysinline attr makes LLVM splice the body in even
+                // at low opt levels.
+                let f = define_arr_push(&ctx, &llvm_module, realloc, memmove);
+                f.as_global_value()
+                    .set_linkage(inkwell::module::Linkage::Internal);
+                mark_alwaysinline(&ctx, f);
+                f
+            }
             "__torajs_split_iter_next" => {
                 // P-iter Plan C — body emitted directly in IR (mirror
                 // of runtime_str.c's removed C body) so LLVM can
@@ -2099,8 +2113,11 @@ fn is_alloc_intrinsic(name: &str) -> bool {
 /// Mirrors `__TORAJS_ARR_HDR_SIZE` and friends in `runtime_str.c`.
 const ARR_HDR_LEN_OFF: u64 = 8;
 const ARR_HDR_CAP_OFF: u64 = 16;
-/* ARR_HDR_HEAD_OFF = 20 — only used by IR builders that have moved
- * to torajs-arr (P4.1-{l,m}); offset still owned by the layout. */
+/// T-13.5 deque head_offset (u32) — packed in the high 4 B of the
+/// 8-B slot at offset 16. Logical[0] sits at `data + head*8`.
+/// Restored 2026-05-24 (B1b) so `define_arr_push` can compact + grow
+/// in IR with cross-TU-bypass alwaysinline linkage.
+const ARR_HDR_HEAD_OFF: u64 = 20;
 const ARR_HDR_DATA_OFF: u64 = 24;
 const ARR_HDR_TAG_ARR: u64 = 2;
 
@@ -2194,11 +2211,390 @@ fn emit_arr_alloc_header<'ctx>(
     p
 }
 
-/* arr_data_ptr / arr_raw_data_ptr / arr_head_x8_load / arr_head_load /
- * arr_len_load / arr_cap_load helpers deleted (P4.1-l, 2026-05-23).
- * Their only callers were the now-Rust-ported define_arr_push +
- * define_arr_reserve IR builders. The remaining IR consumer
- * (define_arr_shift) inlines its own loads. */
+/* B1b (2026-05-24, takagi: "我们不要总是考虑成本去选简化、便宜的路径，
+ * 我们要扎实！"): the 6 arr_*_ptr/load helpers + define_arr_push body
+ * restored from P4.1-l predecessor (commit 6b90dae5) so user-code's
+ * SSA-emitted `call __torajs_arr_push` can be inlined into hot
+ * push-loops (array-sum-1m baseline 16 ms in rust; P4.1-l staticlib
+ * port regressed to 21.5 ms because cross-TU `bl __torajs_arr_push +
+ * ret` defeats LLVM's loop-fold). torajs-arr/grow.rs's external
+ * `__torajs_arr_push` stays — it's the cross-staticlib path for
+ * fs/process/promise/regex Rust callers that can't see this module's
+ * Internal-linkage define. */
+
+/// Get the Arr's logical-data byte pointer: `arr + 24 + head*8`. Used
+/// by callers that index by logical-slot (push fast-path, push grow-
+/// path store).
+fn arr_data_ptr<'ctx>(
+    ctx: &'ctx Context,
+    builder: &inkwell::builder::Builder<'ctx>,
+    arr_ptr: inkwell::values::PointerValue<'ctx>,
+    name: &str,
+) -> inkwell::values::PointerValue<'ctx> {
+    let i64_t = ctx.i64_type();
+    let i8_t = ctx.i8_type();
+    let raw = unsafe {
+        builder
+            .build_in_bounds_gep(
+                i8_t,
+                arr_ptr,
+                &[i64_t.const_int(ARR_HDR_DATA_OFF, false)],
+                &format!("{name}_raw"),
+            )
+            .unwrap()
+    };
+    let head_x8 = arr_head_x8_load(ctx, builder, arr_ptr, name);
+    unsafe {
+        builder
+            .build_in_bounds_gep(i8_t, raw, &[head_x8], name)
+            .unwrap()
+    }
+}
+
+/// Get the Arr's raw-data byte pointer (`p + 24`), bypassing the
+/// head_offset adjustment. Used by paths that need physical-slot
+/// access — currently the in-IR compact memmove. Avoid otherwise.
+fn arr_raw_data_ptr<'ctx>(
+    ctx: &'ctx Context,
+    builder: &inkwell::builder::Builder<'ctx>,
+    arr_ptr: inkwell::values::PointerValue<'ctx>,
+    name: &str,
+) -> inkwell::values::PointerValue<'ctx> {
+    let i64_t = ctx.i64_type();
+    let i8_t = ctx.i8_type();
+    unsafe {
+        builder
+            .build_in_bounds_gep(
+                i8_t,
+                arr_ptr,
+                &[i64_t.const_int(ARR_HDR_DATA_OFF, false)],
+                name,
+            )
+            .unwrap()
+    }
+}
+
+/// Load the Arr's `head_offset * 8` (i64) — the byte offset of
+/// logical[0] within the slot data section. Loads u32 at offset 20,
+/// zext to i64, shl 3.
+fn arr_head_x8_load<'ctx>(
+    ctx: &'ctx Context,
+    builder: &inkwell::builder::Builder<'ctx>,
+    arr_ptr: inkwell::values::PointerValue<'ctx>,
+    name: &str,
+) -> inkwell::values::IntValue<'ctx> {
+    let i64_t = ctx.i64_type();
+    let i32_t = ctx.i32_type();
+    let i8_t = ctx.i8_type();
+    let head_ptr = unsafe {
+        builder
+            .build_in_bounds_gep(
+                i8_t,
+                arr_ptr,
+                &[i64_t.const_int(ARR_HDR_HEAD_OFF, false)],
+                &format!("{name}_hp"),
+            )
+            .unwrap()
+    };
+    let head_i32 = builder
+        .build_load(i32_t, head_ptr, &format!("{name}_h32"))
+        .unwrap()
+        .into_int_value();
+    let head_i64 = builder
+        .build_int_z_extend(head_i32, i64_t, &format!("{name}_h64"))
+        .unwrap();
+    builder
+        .build_left_shift(head_i64, i64_t.const_int(3, false), &format!("{name}_x8"))
+        .unwrap()
+}
+
+/// Load the Arr's `head_offset` field (i64-extended). Cheaper-named
+/// helper for callers that need head as a count, not a byte offset.
+fn arr_head_load<'ctx>(
+    ctx: &'ctx Context,
+    builder: &inkwell::builder::Builder<'ctx>,
+    arr_ptr: inkwell::values::PointerValue<'ctx>,
+    name: &str,
+) -> inkwell::values::IntValue<'ctx> {
+    let i64_t = ctx.i64_type();
+    let i32_t = ctx.i32_type();
+    let i8_t = ctx.i8_type();
+    let head_ptr = unsafe {
+        builder
+            .build_in_bounds_gep(
+                i8_t,
+                arr_ptr,
+                &[i64_t.const_int(ARR_HDR_HEAD_OFF, false)],
+                &format!("{name}_hp"),
+            )
+            .unwrap()
+    };
+    let head_i32 = builder
+        .build_load(i32_t, head_ptr, &format!("{name}_h32"))
+        .unwrap()
+        .into_int_value();
+    builder.build_int_z_extend(head_i32, i64_t, name).unwrap()
+}
+
+/// Load the Arr's `len` field (`*(u64*)(p + ARR_HDR_LEN_OFF)`).
+fn arr_len_load<'ctx>(
+    ctx: &'ctx Context,
+    builder: &inkwell::builder::Builder<'ctx>,
+    arr_ptr: inkwell::values::PointerValue<'ctx>,
+    name: &str,
+) -> inkwell::values::IntValue<'ctx> {
+    let i64_t = ctx.i64_type();
+    let i8_t = ctx.i8_type();
+    let len_ptr = unsafe {
+        builder
+            .build_in_bounds_gep(
+                i8_t,
+                arr_ptr,
+                &[i64_t.const_int(ARR_HDR_LEN_OFF, false)],
+                &format!("{name}_lp"),
+            )
+            .unwrap()
+    };
+    builder
+        .build_load(i64_t, len_ptr, name)
+        .unwrap()
+        .into_int_value()
+}
+
+/// Load the Arr's `cap` field (`*(u32*)(p + ARR_HDR_CAP_OFF)`)
+/// zext to i64. T-13.5: cap shrunk from u64 to u32 to share a
+/// 64-bit slot with `head_offset` at offset 20.
+fn arr_cap_load<'ctx>(
+    ctx: &'ctx Context,
+    builder: &inkwell::builder::Builder<'ctx>,
+    arr_ptr: inkwell::values::PointerValue<'ctx>,
+    name: &str,
+) -> inkwell::values::IntValue<'ctx> {
+    let i64_t = ctx.i64_type();
+    let i32_t = ctx.i32_type();
+    let i8_t = ctx.i8_type();
+    let cap_ptr = unsafe {
+        builder
+            .build_in_bounds_gep(
+                i8_t,
+                arr_ptr,
+                &[i64_t.const_int(ARR_HDR_CAP_OFF, false)],
+                &format!("{name}_cp"),
+            )
+            .unwrap()
+    };
+    let cap_i32 = builder
+        .build_load(i32_t, cap_ptr, &format!("{name}_c32"))
+        .unwrap()
+        .into_int_value();
+    builder.build_int_z_extend(cap_i32, i64_t, name).unwrap()
+}
+
+/// Build the body of `__torajs_arr_push(arr*, val) -> arr*`. 187-LOC
+/// IR restored from commit 6b90dae5 (B1b 2026-05-24). Emitted with
+/// Internal linkage + alwaysinline so user-code's push-hot-loops
+/// fold the algorithm into the caller — recovers the array-sum-1m
+/// 16 ms target lost when P4.1-l moved this to torajs-arr/grow.rs's
+/// extern "C" Rust impl (cross-TU `bl ... + ret` regressed by +35%).
+///
+/// Algorithm:
+/// ```text
+/// entry:       phys_used = head + len; need_room = phys_used >= cap
+///              branch need_room ? need_room_blk : store_blk
+/// need_room:   branch head>0 ? compact_blk : after_compact_blk
+/// compact:     memmove(raw_data, raw_data + head*8, len*8); head = 0
+///              fall-through to after_compact
+/// after_compact: full = (len == cap); branch full ? grow_blk : post_compact
+/// post_compact: jump store
+/// grow:        new_cap = cap == 0 ? 4 : cap*2; arr = realloc(arr, ...)
+///              store new_cap_u32 at +16; jump store
+/// store:       arr = phi(entry/post_compact: arr_in, grow: arr_grown)
+///              data = arr + 24 + head*8 (re-load head since compact reset it)
+///              *(data + len*8) = val; *(arr + 8) = len + 1; ret arr
+/// ```
+fn define_arr_push<'ctx>(
+    ctx: &'ctx Context,
+    m: &LlvmModule<'ctx>,
+    realloc: FunctionValue<'ctx>,
+    memmove: FunctionValue<'ctx>,
+) -> FunctionValue<'ctx> {
+    let builder = ctx.create_builder();
+    let i64_t = ctx.i64_type();
+    let i32_t = ctx.i32_type();
+    let i8_t = ctx.i8_type();
+    let ptr_t = ctx.ptr_type(AddressSpace::default());
+    let fn_t = ptr_t.fn_type(&[ptr_t.into(), i64_t.into()], false);
+    let f = m.add_function("__torajs_arr_push", fn_t, None);
+    let entry = ctx.append_basic_block(f, "entry");
+    let need_room_blk = ctx.append_basic_block(f, "need_room");
+    let compact_blk = ctx.append_basic_block(f, "compact");
+    let after_compact_blk = ctx.append_basic_block(f, "after_compact");
+    let grow_blk = ctx.append_basic_block(f, "grow");
+    let store_blk = ctx.append_basic_block(f, "store");
+    builder.position_at_end(entry);
+
+    let arr_in = f.get_nth_param(0).unwrap().into_pointer_value();
+    let val = f.get_nth_param(1).unwrap().into_int_value();
+
+    let len = arr_len_load(ctx, &builder, arr_in, "len");
+    let cap = arr_cap_load(ctx, &builder, arr_in, "cap");
+    let head = arr_head_load(ctx, &builder, arr_in, "head");
+    let phys_used = builder.build_int_add(head, len, "phys_used").unwrap();
+    let need_room = builder
+        .build_int_compare(IntPredicate::UGE, phys_used, cap, "need_room")
+        .unwrap();
+    builder
+        .build_conditional_branch(need_room, need_room_blk, store_blk)
+        .unwrap();
+
+    // need_room_blk: head>0 → compact, else → grow
+    builder.position_at_end(need_room_blk);
+    let head_pos = builder
+        .build_int_compare(
+            IntPredicate::UGT,
+            head,
+            i64_t.const_int(0, false),
+            "head_pos",
+        )
+        .unwrap();
+    builder
+        .build_conditional_branch(head_pos, compact_blk, after_compact_blk)
+        .unwrap();
+
+    // compact_blk: memmove(data, data + head*8, len*8); head=0
+    builder.position_at_end(compact_blk);
+    let raw_data = arr_raw_data_ptr(ctx, &builder, arr_in, "raw_data");
+    let head_x8 = builder
+        .build_int_mul(head, i64_t.const_int(8, false), "head_x8")
+        .unwrap();
+    let src = unsafe {
+        builder
+            .build_in_bounds_gep(i8_t, raw_data, &[head_x8], "src")
+            .unwrap()
+    };
+    let len_bytes = builder
+        .build_int_mul(len, i64_t.const_int(8, false), "len_bytes")
+        .unwrap();
+    builder
+        .build_call(
+            memmove,
+            &[raw_data.into(), src.into(), len_bytes.into()],
+            "_mm",
+        )
+        .unwrap();
+    let head_p = unsafe {
+        builder
+            .build_in_bounds_gep(
+                i8_t,
+                arr_in,
+                &[i64_t.const_int(ARR_HDR_HEAD_OFF, false)],
+                "head_p",
+            )
+            .unwrap()
+    };
+    builder
+        .build_store(head_p, i32_t.const_int(0, false))
+        .unwrap();
+    builder
+        .build_unconditional_branch(after_compact_blk)
+        .unwrap();
+
+    // after_compact_blk: if len == cap, realloc; else go to store
+    builder.position_at_end(after_compact_blk);
+    let full = builder
+        .build_int_compare(IntPredicate::EQ, len, cap, "full")
+        .unwrap();
+    let post_compact_blk = ctx.append_basic_block(f, "post_compact");
+    builder
+        .build_conditional_branch(full, grow_blk, post_compact_blk)
+        .unwrap();
+
+    // post_compact_blk: jump to store with arr_in (no realloc happened)
+    builder.position_at_end(post_compact_blk);
+    builder.build_unconditional_branch(store_blk).unwrap();
+
+    // grow_blk: realloc with new_cap = (cap == 0 ? 4 : cap*2). cap stored as u32.
+    builder.position_at_end(grow_blk);
+    let cap_zero = builder
+        .build_int_compare(IntPredicate::EQ, cap, i64_t.const_int(0, false), "cap_zero")
+        .unwrap();
+    let cap_x2 = builder
+        .build_int_mul(cap, i64_t.const_int(2, false), "cap_x2")
+        .unwrap();
+    let new_cap = builder
+        .build_select(cap_zero, i64_t.const_int(4, false), cap_x2, "new_cap")
+        .unwrap()
+        .into_int_value();
+    let new_cap_bytes = builder
+        .build_int_mul(new_cap, i64_t.const_int(8, false), "new_cap_bytes")
+        .unwrap();
+    let new_total = builder
+        .build_int_add(
+            new_cap_bytes,
+            i64_t.const_int(ARR_HDR_DATA_OFF, false),
+            "new_total",
+        )
+        .unwrap();
+    let arr_grown = builder
+        .build_call(realloc, &[arr_in.into(), new_total.into()], "arr_grown")
+        .unwrap()
+        .try_as_basic_value()
+        .unwrap_basic()
+        .into_pointer_value();
+    // 4-byte store at offset 16 (cap u32) — must NOT overwrite head at offset 20
+    let new_cap_p = unsafe {
+        builder
+            .build_in_bounds_gep(
+                i8_t,
+                arr_grown,
+                &[i64_t.const_int(ARR_HDR_CAP_OFF, false)],
+                "new_cap_p",
+            )
+            .unwrap()
+    };
+    let new_cap_i32 = builder
+        .build_int_truncate(new_cap, i32_t, "new_cap_i32")
+        .unwrap();
+    builder.build_store(new_cap_p, new_cap_i32).unwrap();
+    builder.build_unconditional_branch(store_blk).unwrap();
+
+    // store_blk: phi arr (entry/post_compact → arr_in, grow → arr_grown).
+    // Then write val at logical[len] via head-aware data ptr.
+    builder.position_at_end(store_blk);
+    let phi = builder.build_phi(ptr_t, "arr").unwrap();
+    phi.add_incoming(&[
+        (&arr_in, entry),
+        (&arr_in, post_compact_blk),
+        (&arr_grown, grow_blk),
+    ]);
+    let arr = phi.as_basic_value().into_pointer_value();
+    let data = arr_data_ptr(ctx, &builder, arr, "data");
+    let len_x8 = builder
+        .build_int_mul(len, i64_t.const_int(8, false), "len_x8")
+        .unwrap();
+    let slot = unsafe {
+        builder
+            .build_in_bounds_gep(i8_t, data, &[len_x8], "slot")
+            .unwrap()
+    };
+    builder.build_store(slot, val).unwrap();
+    let len_p1 = builder
+        .build_int_add(len, i64_t.const_int(1, false), "len_p1")
+        .unwrap();
+    let len_p = unsafe {
+        builder
+            .build_in_bounds_gep(
+                i8_t,
+                arr,
+                &[i64_t.const_int(ARR_HDR_LEN_OFF, false)],
+                "len_p",
+            )
+            .unwrap()
+    };
+    builder.build_store(len_p, len_p1).unwrap();
+    builder.build_return(Some(&arr)).unwrap();
+    f
+}
 
 /// Emit one `[N x i8]` private constant per interned string. Just the raw
 /// bytes — no NUL terminator. The string runtime carries length explicitly

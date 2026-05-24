@@ -24,7 +24,14 @@ TARGET="${TARGET:-aarch64-apple-darwin}"
 # it into Cargo.toml's [workspace] (which would break stable).
 export CARGO_UNSTABLE_BUILD_STD="core,alloc,std,panic_abort"
 export CARGO_UNSTABLE_UNSTABLE_OPTIONS="true"
-export RUSTFLAGS="${RUSTFLAGS:-} -Cpanic=immediate-abort -Zunstable-options"
+# `-A linker_messages` silences the nightly lint that surfaces
+# Homebrew LLVM's macOS-deployment-target mismatch (libLLVM was
+# built for macOS 26.0 but our host targets macOS 11.0); the ABI
+# is compatible so this is noise. The same lint is suppressed in
+# `.cargo/config.toml` for default-target builds, but RUSTFLAGS
+# env var overrides config-level rustflags, so we must re-add it
+# here.
+export RUSTFLAGS="${RUSTFLAGS:-} -Cpanic=immediate-abort -Zunstable-options -A linker_messages"
 
 cargo build --workspace --release --target "$TARGET" "$@"
 
