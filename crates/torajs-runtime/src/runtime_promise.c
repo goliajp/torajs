@@ -74,11 +74,15 @@ void __torajs_promise_drop(void *p);  /* fwd decl — body further down */
 #define __TORAJS_PROMISE_ARR_LEN_OFF   8
 #define __TORAJS_PROMISE_ARR_HEAD_OFF  20
 
-/* Forward decls so the T-15.d .then helpers (defined before the
- * microtask queue body further down the file) can reference the
- * queue's enqueue fn. */
+/* Microtask queue lives in torajs-microtask (libtorajs_microtask.a)
+ * since P5 (2026-05-24); these three externs resolve at `tr build`
+ * link time. The typedef matches the queue's signature and is
+ * referenced by the promise callback record (`invoke` field) +
+ * the .then helper sigs further down. */
 typedef void (*__torajs_microtask_fn_t)(int64_t arg);
-void __torajs_microtask_enqueue(__torajs_microtask_fn_t fn, int64_t arg);
+extern void __torajs_microtask_enqueue(__torajs_microtask_fn_t fn, int64_t arg);
+extern void __torajs_microtask_run_until_idle(void);
+extern size_t __torajs_microtask_pending_count(void);
 
 #define __TORAJS_PROMISE_SIZE  32
 
@@ -332,108 +336,10 @@ void __torajs_promise_attach_then(
     pp->callbacks = node;
 }
 
-/* ============================================================
- * T-15.c — microtask queue + drain.
- *
- * Single-thread (multi-thread post-v1.0). Backing store is a
- * grow-by-doubling array of {fn, arg} task records. Tasks are
- * popped FIFO via a head cursor that bumps on each drain step;
- * compaction happens when head reaches half-capacity. Worst-case
- * memory is O(N peak queue depth) with O(1) amortized push and
- * O(1) pop.
- *
- * The fn signature is `void (*)(int64_t arg)` — a single i64 slot
- * carries either a primitive value or a heap pointer cast through
- * `(int64_t)(intptr_t)`. Codegen for `await` (T-16) and `.then`
- * (T-15.d) both pack `{Promise *, callback closure}` into the arg
- * slot via a small heap struct.
- *
- * `__torajs_microtask_run_until_idle` drains the queue to empty,
- * including tasks enqueued during drain. It returns when no more
- * microtasks are pending. Auto-called from main exit by T-15.e.
- * ============================================================ */
-
-typedef struct {
-    __torajs_microtask_fn_t fn;
-    int64_t arg;
-} __torajs_microtask_t;
-
-/* Single global queue. v0.5 is single-thread; multi-thread support
- * (one queue per worker) ships post-v1.0 with the thread-pool work. */
-static __torajs_microtask_t *mt_queue_ = NULL;
-static size_t mt_head_ = 0;
-static size_t mt_len_ = 0;
-static size_t mt_cap_ = 0;
-
-static void mt_grow_(void) {
-    size_t new_cap = mt_cap_ == 0 ? 32 : mt_cap_ * 2;
-    __torajs_microtask_t *nq = (__torajs_microtask_t *)realloc(
-        mt_queue_,
-        new_cap * sizeof(__torajs_microtask_t)
-    );
-    mt_queue_ = nq;
-    mt_cap_ = new_cap;
-}
-
-static void mt_compact_(void) {
-    /* Treat fully-consumed (head >= len) as the queue being logically
-     * empty — reset both to 0 so the next enqueue writes at index 0
-     * inside the existing buffer. The pre-fix branch returned without
-     * touching head/len, which left mt_len_ == mt_cap_; the caller's
-     * enqueue path then unconditionally wrote at mt_queue_[mt_len_]
-     * which is past the buffer, producing SIGBUS at chain length 33+
-     * (head reaches mt_cap exactly when the next .then attaches).
-     * The reset also covers the head==0 fast-skip — a no-op compact
-     * with live==0 simplifies to "queue empty, restart at front". */
-    if (mt_head_ >= mt_len_) {
-        mt_head_ = 0;
-        mt_len_ = 0;
-        return;
-    }
-    if (mt_head_ == 0) return;
-    size_t live = mt_len_ - mt_head_;
-    memmove(mt_queue_, mt_queue_ + mt_head_, live * sizeof(__torajs_microtask_t));
-    mt_len_ = live;
-    mt_head_ = 0;
-}
-
-void __torajs_microtask_enqueue(__torajs_microtask_fn_t fn, int64_t arg) {
-    if (fn == NULL) return;
-    if (mt_len_ == mt_cap_) {
-        if (mt_head_ > mt_cap_ / 2) {
-            mt_compact_();
-        } else {
-            mt_grow_();
-        }
-    }
-    mt_queue_[mt_len_].fn = fn;
-    mt_queue_[mt_len_].arg = arg;
-    mt_len_++;
-}
-
-void __torajs_microtask_run_until_idle(void) {
-    /* Pop one task, run it, repeat. New tasks enqueued during the
-     * callback land at the tail and get processed in this same
-     * drain — matching JS spec's microtask semantics (drain to
-     * empty before yielding to the event loop / before exit). */
-    while (mt_head_ < mt_len_) {
-        __torajs_microtask_t t = mt_queue_[mt_head_];
-        mt_head_++;
-        t.fn(t.arg);
-        if (mt_head_ > 64 && mt_head_ > mt_cap_ / 2) {
-            mt_compact_();
-        }
-    }
-    /* Reset head to 0 once drained so the next drain starts from
-     * the front of the buffer. mt_len_ is already 0 here when no
-     * new tasks were enqueued during drain. */
-    mt_head_ = 0;
-    mt_len_ = 0;
-}
-
-size_t __torajs_microtask_pending_count(void) {
-    return mt_len_ - mt_head_;
-}
+/* T-15.c microtask queue moved to torajs-microtask (libtorajs_
+ * microtask.a) at P5 (2026-05-24) — see the extern decls near the
+ * top of this file. Promise's resolve/reject + drain_callbacks
+ * call into the queue via those externs at link time. */
 
 /* ============================================================
  * T-15.g.3 — Promise.then(cb) for the i64→i64 MVP.

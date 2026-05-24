@@ -1884,6 +1884,7 @@ dependencies = [
  "torajs-collections",
  "torajs-cycle",
  "torajs-dynobj",
+ "torajs-microtask",
  "torajs-num",
  "torajs-rc",
  "torajs-runtime",
@@ -1908,6 +1909,10 @@ dependencies = [
  "torajs-core",
  "torajs-runtime",
 ]
+
+[[package]]
+name = "torajs-microtask"
+version = "0.1.0"
 
 [[package]]
 name = "torajs-num"

@@ -1,0 +1,27 @@
+[package]
+name = "torajs-microtask"
+description = "Microtask queue substrate for the torajs AOT TypeScript runtime. FIFO {fn,arg} queue with head-cursor pop + grow-by-doubling backing array + compaction. Single global queue (single-thread runtime; multi-thread post-v1.0 with one queue per worker). Drains to empty including tasks enqueued during the drain — matches JS spec's microtask semantics. Auto-called from main exit. Layer-3 substrate."
+keywords = ["torajs", "microtask", "promise", "event-loop", "runtime"]
+categories = ["concurrency", "no-std"]
+readme = "README.md"
+documentation = "https://docs.rs/torajs-microtask"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+# Dual emit: `rlib` for cargo workspace + unit tests; `staticlib`
+# emits libtorajs_microtask.a so ssa_inkwell links it into every
+# `tr build` AOT user binary alongside the other Layer-1+ staticlibs.
+[lib]
+crate-type = ["rlib", "staticlib"]
+
+[dependencies]
+# 0 runtime deps. Runtime_promise.c calls into this crate's
+# `__torajs_microtask_enqueue` via `extern "C"` at link time
+# (same pattern torajs-weak / torajs-cycle / torajs-collections use).

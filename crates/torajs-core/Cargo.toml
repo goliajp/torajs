@@ -68,3 +68,8 @@ torajs-weak = { path = "../torajs-weak" }
 # cycle_unbuffer / cycle_collect / cycle_at_exit_drain resolve at
 # `tr build`. Same dep-order rationale as torajs-weak.
 torajs-cycle = { path = "../torajs-cycle" }
+# Layer-3: microtask queue (P5). Dual rlib+staticlib; libtorajs_microtask.a
+# co-links so __torajs_microtask_enqueue/run_until_idle/pending_count
+# resolve at `tr build` (called from runtime_promise.c + future P6.1
+# Rust port). Same dep-order rationale as torajs-cycle.
+torajs-microtask = { path = "../torajs-microtask" }
