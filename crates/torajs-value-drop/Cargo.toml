@@ -20,3 +20,10 @@ crate-type = ["rlib", "staticlib"]
 
 [dependencies]
 torajs-rc = { path = "../torajs-rc" }
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "value_drop"
+harness = false

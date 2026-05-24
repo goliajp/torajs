@@ -2043,6 +2043,7 @@ dependencies = [
 name = "torajs-value-drop"
 version = "0.1.0"
 dependencies = [
+ "criterion",
  "torajs-rc",
 ]
 
