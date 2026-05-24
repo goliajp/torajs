@@ -2023,6 +2023,7 @@ version = "0.1.0"
 name = "torajs-str"
 version = "0.1.0"
 dependencies = [
+ "criterion",
  "torajs-abort",
  "torajs-rc",
 ]

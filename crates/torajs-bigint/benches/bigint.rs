@@ -43,7 +43,10 @@ fn bench_add_small(c: &mut Criterion) {
         b_.iter(|| {
             for _ in 0..10_000 {
                 let sum = unsafe {
-                    __torajs_bigint_add(black_box(a) as *const c_void, black_box(b) as *const c_void)
+                    __torajs_bigint_add(
+                        black_box(a) as *const c_void,
+                        black_box(b) as *const c_void,
+                    )
                 };
                 unsafe { __torajs_bigint_drop(sum as *mut c_void) };
             }
@@ -62,7 +65,10 @@ fn bench_mul_multi_limb(c: &mut Criterion) {
         b_.iter(|| {
             for _ in 0..1_000 {
                 let prod = unsafe {
-                    __torajs_bigint_mul(black_box(a) as *const c_void, black_box(b) as *const c_void)
+                    __torajs_bigint_mul(
+                        black_box(a) as *const c_void,
+                        black_box(b) as *const c_void,
+                    )
                 };
                 unsafe { __torajs_bigint_drop(prod as *mut c_void) };
             }

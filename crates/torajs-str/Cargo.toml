@@ -31,3 +31,10 @@ torajs-rc = { path = "../torajs-rc" }
 # on Layout::from_size_align / NonNull::new / Mutex::lock so the
 # user binary doesn't pull Rust std panic infra.
 torajs-abort = { path = "../torajs-abort" }
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "str"
+harness = false
