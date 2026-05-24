@@ -1260,28 +1260,12 @@ static uint8_t *arr_alloc_(uint64_t len, uint64_t cap) {
  * ES §22.1.3.25 negative-index clamp + single malloc + memcpy preserved
  * 1:1. T-13.5 head_offset folded into source pointer. */
 
-/* Format an i64 as a fresh String heap object. Used by `+` when one
- * operand is Number and the other String — JS coerces the number to
- * its decimal string form. snprintf gives enough buffer for any i64
- * (max 20 digits + sign + null = 22 bytes). */
-void *__torajs_i64_to_str(int64_t n) {
-    char buf[24];
-    int written = snprintf(buf, sizeof(buf), "%lld", (long long)n);
-    if (written < 0) written = 0;
-    uint64_t len = (uint64_t)written;
-    uint8_t *p = __torajs_str_alloc_pooled(len);
-    if (len) memcpy(__TORAJS_STR_DATA(p), buf, (size_t)len);
-    return p;
-}
-
-/* Same shape for f64. Uses %g for short round-trip-friendly output —
- * matches JS's String(n) for the integer-valued cases we exercise.
- * (Full IEEE-754 round-trip requires more care; we'll punt on that
- * until a test demands it.) */
-/* V3-18 m1.h.12 — `console.log(arr)` pretty-print. Bun shape:
- * `[ 1, 2, 3 ]` (note spaces). Empty: `[]`. Per-element format
- * lives in a per-type helper below; this is the I64 element
- * variant called when the receiver is statically Array<I64>. */
+/* __torajs_i64_to_str / __torajs_f64_to_str / __torajs_bool_to_str /
+ * __torajs_print_f64_js (+ torajs_f64_shortest helper) moved to
+ * torajs-num::to_str (P7.e, 2026-05-24). __torajs_null_to_str /
+ * __torajs_undefined_to_str moved to torajs-str::literals (same
+ * commit). All preserve the libc snprintf("%.0f") / snprintf("%.*g")
+ * + strtod round-trip path bit-for-bit. */
 #define __TORAJS_ARR_DATA_OFF 24
 
 /* __torajs_arr_print_{i64,f64,bool,str} moved to torajs-arr::print
@@ -1311,142 +1295,10 @@ void __torajs_substr_print(void *v) {
  * 2026-05-23). Substr layout-aware: reads parent + offset + len from
  * each slot's Substr header, writes "<bytes>" with quotes. */
 
-/* V3-18 m1.h.9 — console.log of a f64 must format NaN as "NaN"
- * (capitalized) and Infinity / -Infinity per spec, matching the
- * String(d) shape. Replaces the IR-emitted printf("%g\n") path. */
-/* Format `d` per ECMA-262 §6.1.6.1.13 / §22.1.3.6:
- *
- *   - If d is an integer-valued double in (-1e21, 1e21): print as
- *     decimal with no fractional part (e.g. 10 → "10", 2500 →
- *     "2500"), never exponential notation. printf("%g") with low
- *     precision gives "1e+01" / "2.5e+03" which JS spec forbids
- *     for the in-range integer case.
- *   - Otherwise: shortest decimal that roundtrips. Try-precisions
- *     loop over `%.*g` from 1 → 17. Slow vs. Ryu/Grisu but only
- *     the print path hits it; output is byte-equal to v8/JSC for
- *     every f64 value. (Future perf: drop in Ryu.)
- *
- * Returns the number of bytes written (excluding NUL), or -1 on
- * overflow. buf must be at least 32 bytes. */
-static int torajs_f64_shortest(double d, char *buf, size_t cap) {
-    /* Integer-valued in spec's plain-decimal range: §6.1.6.1.13
-     * step 5: when 0 < n ≤ 21 (and k ≤ n) print as decimal. The
-     * abs-bound 1e21 is the spec's threshold for switching to
-     * exponential. */
-    double abs_d = d < 0 ? -d : d;
-    /* Integer-valued check via floor — safe across the full f64 range
-     * (the (long long) cast is UB past i64::MAX, e.g. for 9.99e18). */
-    if (d == floor(d) && abs_d < 1e21) {
-        /* %.0f gives the plain integer form (no exponent) for any
-         * integer-valued double in spec range, including big ones
-         * like 9.99e18 → "9989999999999999488" (the actual f64
-         * representation, matching v8/JSC). ±0 sign handling is the
-         * caller's responsibility — console.log(-0) shows "-0",
-         * String(-0) returns "0" (ECMA-262 §22.1.3.6). */
-        return snprintf(buf, cap, "%.0f", d);
-    }
-    for (int prec = 1; prec <= 17; prec++) {
-        int written = snprintf(buf, cap, "%.*g", prec, d);
-        if (written < 0 || (size_t)written >= cap) return -1;
-        double parsed = strtod(buf, NULL);
-        if (parsed == d) return written;
-    }
-    return snprintf(buf, cap, "%.17g", d);
-}
-
-void __torajs_print_f64_js(double d) {
-    if (d != d) {
-        fputs("NaN\n", stdout);
-        return;
-    }
-    if (d == 1.0 / 0.0) {
-        fputs("Infinity\n", stdout);
-        return;
-    }
-    if (d == -1.0 / 0.0) {
-        fputs("-Infinity\n", stdout);
-        return;
-    }
-    char buf[32];
-    int n = torajs_f64_shortest(d, buf, sizeof(buf));
-    if (n < 0) n = 0;
-    fwrite(buf, 1, (size_t)n, stdout);
-    fputc('\n', stdout);
-}
-
-void *__torajs_f64_to_str(double d) {
-    /* V3-18 m1.h.9 — JS spec §22.1.3.6 String(NaN) returns "NaN"
-     * (capitalized); strtod / printf use the lowercase "nan" by
-     * default. Same for "Infinity" / "-Infinity". Special-case
-     * before snprintf. */
-    if (d != d) {
-        uint8_t *p = __torajs_str_alloc_pooled(3);
-        memcpy(__TORAJS_STR_DATA(p), "NaN", 3);
-        return p;
-    }
-    if (d == 1.0 / 0.0) {
-        uint8_t *p = __torajs_str_alloc_pooled(8);
-        memcpy(__TORAJS_STR_DATA(p), "Infinity", 8);
-        return p;
-    }
-    if (d == -1.0 / 0.0) {
-        uint8_t *p = __torajs_str_alloc_pooled(9);
-        memcpy(__TORAJS_STR_DATA(p), "-Infinity", 9);
-        return p;
-    }
-    char buf[32];
-    int written = torajs_f64_shortest(d, buf, sizeof(buf));
-    if (written < 0) written = 0;
-    /* §22.1.3.6: String(-0) returns "0" (no sign). console.log(-0)
-     * keeps the sign via node's util.inspect — that path hits
-     * __torajs_print_f64_js, not here. */
-    int off = 0;
-    if (d == 0.0 && written >= 1 && buf[0] == '-') {
-        off = 1;
-        written -= 1;
-    }
-    uint64_t len = (uint64_t)written;
-    uint8_t *p = __torajs_str_alloc_pooled(len);
-    if (len) memcpy(__TORAJS_STR_DATA(p), buf + off, (size_t)len);
-    return p;
-}
-
-/* __torajs_str_to_number moved to torajs-str::to_number (P3.1-c,
- * 2026-05-23). The Rust impl uses f64::from_str (textbook fast-
- * path, identical accuracy guarantees to libc strtod) and the same
- * trim / Infinity / NaN literal handling. Forward decl at line
- * 1794 still pins the prototype other fns in this TU reference. */
-
-/* V3-18 m1.d — JS spec §7.1.17 ToString:
- *   Boolean true  → "true"
- *   Boolean false → "false"
- *   null          → "null"
- *   undefined     → "undefined" (deferred until undefined ships)
- * Returns a fresh heap Str — caller drops normally. */
-void *__torajs_bool_to_str(int b) {
-    const char *s = b ? "true" : "false";
-    uint64_t len = b ? 4 : 5;
-    uint8_t *p = __torajs_str_alloc_pooled(len);
-    memcpy(__TORAJS_STR_DATA(p), s, (size_t)len);
-    return p;
-}
-
-void *__torajs_null_to_str(void) {
-    const char *s = "null";
-    uint8_t *p = __torajs_str_alloc_pooled(4);
-    memcpy(__TORAJS_STR_DATA(p), s, 4);
-    return p;
-}
-
-/* P1.5 — `String(undefined)` / `${undefined}` produce "undefined"
- * per ES spec §6.1.1. Mirror of __torajs_null_to_str for the
- * ANY_UNDEF tag dispatched in __torajs_any_to_str. */
-void *__torajs_undefined_to_str(void) {
-    const char *s = "undefined";
-    uint8_t *p = __torajs_str_alloc_pooled(9);
-    memcpy(__TORAJS_STR_DATA(p), s, 9);
-    return p;
-}
+/* JS-spec f64 console formatter (__torajs_print_f64_js) + f64_to_str
+ * + bool/null/undefined → Str helpers + str_to_number all moved to
+ * Rust sub-crates (torajs-num::to_str + torajs-str::literals +
+ * torajs-str::to_number). See the move comment above _i64_to_str. */
 
 
 /* __torajs_str_eq moved to torajs-str::eq (P3.1-c, 2026-05-23).
@@ -1607,20 +1459,9 @@ void __torajs_arr_push_unchecked(void *arr, int64_t val);
  * (P3.1-e.4, 2026-05-23). AnnexB legacy: negative start wraps to
  * max(size+start, 0); length clamps to remaining bytes. */
 
-/* `Array.from(s)` over a string source — fresh `string[]` with one
- * single-byte string per byte of `s`. Mirrors `s.split("")` in JS but
- * scoped to tr's byte-Str layout (no UTF-16 / surrogate handling). */
-void *__torajs_arr_from_string(const uint8_t *s) {
-    uint64_t s_len = __TORAJS_STR_LEN(s);
-    const uint8_t *s_data = __TORAJS_STR_CDATA(s);
-    void *arr = __torajs_arr_alloc(s_len);
-    for (uint64_t i = 0; i < s_len; i++) {
-        uint8_t *p = __torajs_str_alloc_pooled(1);
-        __TORAJS_STR_DATA(p)[0] = s_data[i];
-        arr = __torajs_arr_push(arr, (int64_t)(intptr_t)p);
-    }
-    return arr;
-}
+/* __torajs_arr_from_string moved to torajs-arr::from_string
+ * (P7.e, 2026-05-24). Pre-sizes the array cap to `s.len` so per-
+ * element push is O(1). */
 
 /* __torajs_str_at moved to torajs-str::transform::construct
  * (P3.1-e.4, 2026-05-23). ES2022 single-char Str; negative i

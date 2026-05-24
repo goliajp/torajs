@@ -35,6 +35,7 @@
 pub mod alloc;
 pub mod any;
 pub mod drop;
+pub mod from_string;
 pub mod grow;
 pub mod iter;
 pub mod join;
@@ -53,6 +54,7 @@ pub use any::{
     __torajs_arr_set_any,
 };
 pub use drop::{__torajs_arr_drop, __torajs_arr_drop_any};
+pub use from_string::__torajs_arr_from_string;
 pub use grow::{
     __torajs_arr_push, __torajs_arr_reserve, __torajs_arr_set_length_validate, __torajs_arr_shift,
 };
