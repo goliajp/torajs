@@ -1,0 +1,22 @@
+[package]
+name = "torajs-mmalloc"
+description = "mmap-backed allocator for torajs metal-level user binary (replaces libc malloc/free/realloc)"
+keywords = ["torajs", "allocator", "no-libc", "mmap", "metal"]
+categories = ["memory-management", "no-std"]
+readme = "README.md"
+documentation = "https://docs.rs/torajs-mmalloc"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[dependencies]
+torajs-syscall = { path = "../torajs-syscall" }
+
+[lib]
+crate-type = ["lib", "staticlib"]
+
+[lints]
+workspace = true

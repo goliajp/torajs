@@ -2,6 +2,7 @@
 resolver = "3"
 members = [
     "crates/torajs-syscall",
+    "crates/torajs-mmalloc",
     "crates/torajs-pool",
     "crates/torajs-ucd",
     "crates/torajs-rc",

@@ -1983,6 +1983,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "torajs-mmalloc"
+version = "0.1.0"
+dependencies = [
+ "torajs-syscall",
+]
+
+[[package]]
 name = "torajs-num"
 version = "0.1.0"
 dependencies = [
