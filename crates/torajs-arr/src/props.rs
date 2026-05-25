@@ -47,10 +47,7 @@ static TABLE: [AtomicPtr<Node>; ARRPROPS_BUCKETS] =
     [const { AtomicPtr::new(core::ptr::null_mut()) }; ARRPROPS_BUCKETS];
 
 unsafe extern "C" {
-    /// torajs-mmalloc libc-compat — v0.7-A2 step 6b cutover.
-    #[link_name = "__torajs_libc_malloc"]
     fn malloc(n: usize) -> *mut c_void;
-    #[link_name = "__torajs_libc_free"]
     fn free(p: *mut c_void);
 
     /// Cross-tier — runtime_str.c's dynamic-property object alloc.

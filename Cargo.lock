@@ -1851,7 +1851,6 @@ version = "0.1.0"
 dependencies = [
  "criterion",
  "torajs-abort",
- "torajs-mmalloc",
  "torajs-rc",
 ]
 

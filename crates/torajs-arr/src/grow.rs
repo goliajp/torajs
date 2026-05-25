@@ -39,8 +39,6 @@ unsafe extern "C" {
     /// what actually propagates to user-side `try/catch`.
     fn __torajs_throw_range_error(msg: *const u8);
 
-    /// torajs-mmalloc libc-compat realloc — v0.7-A2 step 6b cutover.
-    #[link_name = "__torajs_libc_realloc"]
     fn realloc(p: *mut c_void, n: usize) -> *mut c_void;
 }
 
