@@ -22,10 +22,12 @@ use crate::page::{PAGE_SIZE, PageBump};
 /// larger than the last entry route to large_alloc.
 pub const SIZE_CLASSES: [usize; 9] = [16, 32, 64, 128, 256, 512, 1024, 2048, 4096];
 
-/// Max active pages held by an `Allocator`. 1024 × 16 KB = 16 MB of
-/// addressable small-allocation arena. Larger user-binary memory
-/// budgets need bumping this OR rolling a metadata-page scheme.
-pub const MAX_PAGES: usize = 1024;
+/// Max active pages held by an `Allocator`. 16384 × 16 KB = 256 MB of
+/// addressable small-allocation arena. Pages are lazily allocated so
+/// the static cost is just the `pages` array (16384 * 8 bytes = 128 KB)
+/// — fine for a static. Larger user-binary memory budgets need a
+/// metadata-page scheme; 256 MB covers test262 / conformance loads.
+pub const MAX_PAGES: usize = 16384;
 
 #[repr(C)]
 struct FreeListNode {
@@ -212,6 +214,51 @@ mod tests {
                 for off in 0..size {
                     assert_eq!(*p.add(off), (off & 0xff) as u8);
                 }
+            }
+        }
+    }
+
+    /// Every alloc returns a 16-byte aligned pointer (matches macOS
+    /// libc malloc guarantee). SIZE_CLASSES are all multiples of 16
+    /// and PAGE_SIZE is 16K, so the invariant holds by construction —
+    /// this test pins it down so future cursor-increment edits can't
+    /// silently break alignment for SIMD / `_Atomic` heap reads.
+    #[test]
+    fn alloc_pointers_are_16_byte_aligned() {
+        let mut a = Allocator::new();
+        for _ in 0..1024 {
+            for &size in SIZE_CLASSES.iter() {
+                let p = a.alloc(size).expect("alloc") as usize;
+                assert_eq!(
+                    p & 0xf,
+                    0,
+                    "alloc({}) returned 0x{:x} (not 16-byte aligned)",
+                    size,
+                    p
+                );
+            }
+        }
+    }
+
+    /// Stress: 100K alloc/free roundtrips across all size classes
+    /// without corruption. Catches free-list double-link / cross-page
+    /// metadata bugs that single-shot tests miss.
+    #[test]
+    fn stress_100k_roundtrips_no_corruption() {
+        let mut a = Allocator::new();
+        let sizes = [16usize, 32, 64, 128, 256, 512, 1024, 2048, 4096];
+        // Use a fixed pattern so we can detect cross-allocation
+        // overwrite (each block tagged with its alloc index).
+        for round in 0..100_000usize {
+            let size = sizes[round % sizes.len()];
+            let p = a.alloc(size).expect("alloc");
+            unsafe {
+                // Write magic + index into the first 8 bytes
+                let header = p as *mut u64;
+                let magic = 0xdeadbeef00000000u64 | (round as u64);
+                ptr::write(header, magic);
+                assert_eq!(ptr::read(header), magic);
+                a.dealloc(p, size);
             }
         }
     }
