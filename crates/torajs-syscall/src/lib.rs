@@ -38,3 +38,11 @@
 //! layer (including an exit-via-syscall panic_handler) is in place.
 //! Step 1 scaffold builds under std to keep the cargo dep tree
 //! simple until then.
+
+pub mod sysno;
+
+#[cfg(all(target_arch = "aarch64", target_os = "macos"))]
+pub mod arch_aarch64_macos;
+
+#[cfg(all(target_arch = "aarch64", target_os = "macos"))]
+pub use arch_aarch64_macos::{syscall0, syscall1, syscall3, syscall6};
