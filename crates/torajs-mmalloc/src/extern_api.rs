@@ -157,6 +157,25 @@ pub unsafe extern "C" fn __torajs_libc_free(ptr: *mut c_void) {
     unsafe { __torajs_free(raw as *mut c_void, total) };
 }
 
+/// libc-compat calloc. Equivalent to `__torajs_libc_malloc(n*sz)`
+/// followed by a `memset(p, 0, n*sz)` over the user-visible region.
+/// Recycled free-list blocks are dirty from prior use, so the zero
+/// write is unconditional — not a "fresh-from-mmap" shortcut.
+///
+/// Returns NULL on `n*sz` overflow or OOM.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_libc_calloc(nmemb: usize, size: usize) -> *mut c_void {
+    let Some(total) = nmemb.checked_mul(size) else {
+        return core::ptr::null_mut();
+    };
+    let p = unsafe { __torajs_libc_malloc(total) };
+    if p.is_null() {
+        return core::ptr::null_mut();
+    }
+    unsafe { core::ptr::write_bytes(p as *mut u8, 0, total) };
+    p
+}
+
 /// libc-compat realloc. Reads old size from header, calls inner
 /// `__torajs_realloc`, returns new user-visible pointer.
 #[unsafe(no_mangle)]
@@ -295,6 +314,45 @@ mod tests {
                 assert_eq!(*((p as *const u8).add(i)), (i & 0xff) as u8);
             }
             __torajs_libc_free(p);
+        }
+    }
+
+    #[test]
+    fn libc_compat_calloc_zeros_memory() {
+        let p = unsafe { __torajs_libc_calloc(8, 16) };
+        assert!(!p.is_null());
+        unsafe {
+            for i in 0..128 {
+                assert_eq!(*((p as *const u8).add(i)), 0, "calloc byte {} not zero", i);
+            }
+            __torajs_libc_free(p);
+        }
+    }
+
+    #[test]
+    fn libc_compat_calloc_overflow_returns_null() {
+        let p = unsafe { __torajs_libc_calloc(usize::MAX, 2) };
+        assert!(p.is_null(), "overflow must return NULL");
+    }
+
+    #[test]
+    fn libc_compat_calloc_recycled_block_still_zero() {
+        // Force the second calloc to come off the free-list (size = 16
+        // matches SIZE_CLASSES[0]). First alloc → write nonzero →
+        // free → calloc must still see zero.
+        let p1 = unsafe { __torajs_libc_malloc(16) };
+        unsafe {
+            for i in 0..16 {
+                *((p1 as *mut u8).add(i)) = 0xff;
+            }
+            __torajs_libc_free(p1);
+        }
+        let p2 = unsafe { __torajs_libc_calloc(1, 16) };
+        unsafe {
+            for i in 0..16 {
+                assert_eq!(*((p2 as *const u8).add(i)), 0, "recycled byte {} not zero", i);
+            }
+            __torajs_libc_free(p2);
         }
     }
 
