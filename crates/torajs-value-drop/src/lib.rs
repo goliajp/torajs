@@ -43,7 +43,16 @@ use core::ffi::c_void;
 
 use torajs_rc::{__torajs_rc_dec, Tag};
 
+// v0.7-A2 step 6b — force-link mmalloc for the `__torajs_libc_free`
+// extern below.
+extern crate torajs_mmalloc as _;
+
 unsafe extern "C" {
+    /// torajs-mmalloc libc-compat free — v0.7-A2 step 6b finale.
+    /// Fallback free for Closure / RegExp / Date / Obj heap (when
+    /// the type-specific _drop arm isn't in the match above). Every
+    /// such heap's allocator must already be mmalloc by this cut.
+    #[link_name = "__torajs_libc_free"]
     fn free(p: *mut c_void);
 
     fn __torajs_str_drop(p: *mut c_void);

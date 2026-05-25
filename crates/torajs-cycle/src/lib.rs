@@ -56,6 +56,9 @@
 //! - Manual `gc()` trigger + threshold-driven auto-collect +
 //!   main-exit drain. Single-threaded; non-concurrent.
 
+// v0.7-A2 step 6b — force-link mmalloc.
+extern crate torajs_mmalloc as _;
+
 pub mod arr;
 pub mod buffer;
 pub mod collect;

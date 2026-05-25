@@ -1932,6 +1932,7 @@ name = "torajs-cycle"
 version = "0.1.0"
 dependencies = [
  "criterion",
+ "torajs-mmalloc",
 ]
 
 [[package]]
@@ -2102,6 +2103,7 @@ name = "torajs-value-drop"
 version = "0.1.0"
 dependencies = [
  "criterion",
+ "torajs-mmalloc",
  "torajs-rc",
 ]
 

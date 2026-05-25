@@ -36,6 +36,12 @@ use crate::layout::{
 };
 
 unsafe extern "C" {
+    /// torajs-mmalloc libc-compat free — v0.7-A2 step 6b finale. This
+    /// free releases cross-crate heap (Arr / Map / Obj / DynObj — any
+    /// cyclic-shape heap caught by the trial-deletion walk). Every
+    /// allocating crate must already be on mmalloc before this cut
+    /// fires; otherwise the free routes to the wrong allocator.
+    #[link_name = "__torajs_libc_free"]
     fn free(p: *mut c_void);
 
     /// Universal-drop dispatcher in runtime_str.c — type-tag-keyed
