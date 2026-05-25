@@ -14,7 +14,7 @@
 // reach `ssa_lower` first and panic on `let`/`while`/etc; step 4 fixes that.
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Mutex;
 
 mod arr_builders;
@@ -27,6 +27,7 @@ mod globals;
 mod link;
 mod lower;
 mod lower_inst;
+mod pipeline;
 mod split_iter;
 mod types;
 
@@ -48,18 +49,12 @@ use declares::{
     declare_str_free,
 };
 use globals::{emit_data_global, emit_static_str_global, emit_string_global};
-use link::{link_object_to_binary, rand_suffix, write_uses_fetch_sidecar};
 use split_iter::define_split_iter_next;
 use types::declare_ssa_fn;
 
 use inkwell::AddressSpace;
-use inkwell::OptimizationLevel;
 use inkwell::context::Context;
 use inkwell::debug_info::{AsDIScope, DIFlagsConstants};
-use inkwell::passes::PassBuilderOptions;
-use inkwell::targets::{
-    CodeModel, FileType, InitializationConfig, RelocMode, Target, TargetMachine,
-};
 use inkwell::values::FunctionValue;
 
 use crate::ssa::{InstKind, Module};
@@ -735,213 +730,22 @@ pub(super) fn compile_for_kind_impl(
         }
     }
 
-    // Pass D: verify, optimize, emit, link.
-    if let Err(e) = llvm_module.verify() {
-        return Err(CompileError::Verify(e.to_string()));
-    }
-
-    let (triple, cpu, features) = match target {
-        CompileTarget::Native => {
-            Target::initialize_aarch64(&InitializationConfig::default());
-            (
-                TargetMachine::get_default_triple(),
-                TargetMachine::get_host_cpu_name().to_string(),
-                TargetMachine::get_host_cpu_features().to_string(),
-            )
-        }
-        CompileTarget::Wasm32Wasi => {
-            // T-20 (v0.6.0) — initialize the WebAssembly backend in
-            // LLVM 22. wasm32-wasip1 is the canonical target triple
-            // (LLVM 22 deprecated the older "wasm32-wasi" spelling).
-            // No cpu / feature tuning — the default subset works on
-            // every wasm engine.
-            Target::initialize_webassembly(&InitializationConfig::default());
-            (
-                inkwell::targets::TargetTriple::create("wasm32-wasip1"),
-                String::new(),
-                String::new(),
-            )
-        }
-    };
-    let target_obj = Target::from_triple(&triple).map_err(|e| CompileError::Emit(e.to_string()))?;
-    /* Codegen optimization level. NOT bumped to Aggressive: empirically
-     * measured a net -1.5% geomean regression at OptLevel::Aggressive
-     * (2026-05-22 / P-PERF.A2 attempt: gcd1m / generic-id / mandelbrot
-     * +1–6% but async-fn-call +14%, promise-all +11%, startup +4.7%
-     * regressed past noise. Net-negative on Promise/closure allocation
-     * patterns — Aggressive's register-pressure/peephole changes hurt
-     * the alloc-heavy paths more than they help the pure-numeric ones).
-     * Keep Less; the IR pipeline runs at `default<O3>` (per `opt`
-     * above) which is where the bulk of optimization lives. */
-    /* Reloc mode stays at PIC. A P-PERF.A5 attempt switched native
-     * Executable to Static (2026-05-22, reverted same day): hoped
-     * to elide GOT indirection on cross-TU calls, but the bench
-     * cycle ran on a thermal-loaded machine and showed correlated
-     * tora-and-bun regression of 5–15 % across most cases (high
-     * shared noise; couldn't isolate the Static-vs-PIC signal
-     * cleanly). geomean vs bun-aot 4.155 → 4.145, vs node-v8 20.86
-     * → 19.99 — both within noise and not a clear improvement
-     * direction. Keeping PIC until a quiescent-machine rerun can
-     * give a cleaner measurement, or until PGO arrives and re-
-     * justifies the reloc question. Archived bench evidence at
-     * bench/results/2026-05-22-mini-3bf6002.json. */
-    let machine = target_obj
-        .create_target_machine(
-            &triple,
-            &cpu,
-            &features,
-            OptimizationLevel::Less,
-            RelocMode::PIC,
-            CodeModel::Default,
-        )
-        .ok_or_else(|| CompileError::Emit("create_target_machine returned None".into()))?;
-    // Pin the module's triple + datalayout for non-native targets so
-    // the WebAssembly verifier sees a matching ABI. Native target
-    // intentionally skips this — LLVM's implicit host detection picks
-    // the right datalayout AND keeps a faster optimization path that
-    // an explicit `set_data_layout` (even with the same string)
-    // disables. Measured: explicitly setting on native costs ~17% on
-    // the bench geomean (T-20.a regression that only surfaced at the
-    // v0.6.0 perf gate). wasm always needs the explicit set or the
-    // verifier rejects mismatched host-vs-target datalayout.
-    if matches!(target, CompileTarget::Wasm32Wasi) {
-        llvm_module.set_triple(&triple);
-        llvm_module.set_data_layout(&machine.get_target_data().get_data_layout());
-    }
-
-    let pipeline = format!("default<{opt}>");
-    llvm_module
-        .run_passes(&pipeline, &machine, PassBuilderOptions::create())
-        .map_err(|e| CompileError::Pass(format!("{pipeline}: {}", e.to_string())))?;
-
-    let obj_path: PathBuf = std::env::temp_dir().join(format!(
-        "torajs-llvm-{}-{}.o",
-        std::process::id(),
-        rand_suffix()
-    ));
-    machine
-        .write_to_file(&llvm_module, FileType::Object, &obj_path)
-        .map_err(|e| CompileError::Emit(e.to_string()))?;
-    /* T-20.b debug — when env var set, also dump LLVM IR + .o
-     * copy for postmortem of wasm signature errors. */
-    if std::env::var("TR_DEBUG_KEEP").is_ok() {
-        let _ = std::fs::write(
-            "/tmp/torajs-debug.ll",
-            llvm_module.print_to_string().to_string(),
-        );
-        let _ = std::fs::copy(&obj_path, "/tmp/torajs-debug.o");
-    }
-
     // Compute uses_fetch from the SSA module BEFORE we hand off to
-    // link_object_to_binary (which doesn't see the SSA). Used both
+    // pipeline::emit_and_link (which doesn't see the SSA). Used both
     // for the link step decision and for the optional cache sidecar.
     let uses_fetch = module_uses_fetch(ssa_module);
 
-    // B-1 phase 2 — cache write: copy the freshly produced .o + write
-    // a uses_fetch sidecar so future hits can rebuild the link command
-    // without scanning the SSA. Atomic (tmp + rename) so concurrent
-    // workers don't see half-written files. Same-content races are
-    // benign (last writer wins; bytes are deterministic).
-    if let Some(cache_p) = fixture_o_cache {
-        if let Some(parent) = cache_p.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        let tmp = cache_p.with_extension(format!("tmp-{}-{}.o", std::process::id(), rand_suffix()));
-        if std::fs::copy(&obj_path, &tmp).is_ok() {
-            let _ = std::fs::rename(&tmp, cache_p);
-            write_uses_fetch_sidecar(cache_p, uses_fetch);
-        }
-    }
-
-    // Hand off to the link stage. obj_path will be cleaned up by the
-    // link function (it removes the .o it was given). uses_fetch is
-    // passed explicitly so the link path doesn't need ssa_module.
-    let result = link_object_to_binary(
-        &obj_path,
-        out_path,
+    pipeline::emit_and_link(
+        &llvm_module,
         opt,
         source_path,
         target,
         kind,
+        out_path,
+        fixture_o_cache,
         uses_fetch,
-    );
-    return result;
+    )
 }
-
-/// `__torajs_arr_alloc_pooled(uint64_t cap) -> void*` — pool-aware
-/// Array alloc. For cap ≤ POOL_CAP_MAX, scans the cap-indexed LIFO
-/// for a matching block; falls through to malloc + header init on
-/// miss. Defined in runtime_str.c. Inkwell's arr_alloc IR fn
-/// delegates here so fn-local literal allocs (`let xs = [a, b, c]`
-/// inside a tight loop) reuse the same block per iter instead of
-/// mallocing.
-/* STR_HDR_* offsets + STR_HDR_TAG_STR moved out with the IR
- * builders that consumed them (P3.1-g.{2..5} ported Str fns to
- * torajs-str; this file no longer emits per-byte Str access).
- * Layout invariants now live in `crates/torajs-str/src/layout.rs`. */
-
-/* __torajs_str_alloc moved to torajs-str::alloc (P3.1-g.2, 2026-05-23).
- * The Rust extern wrapper does StrBlock::alloc + copy_from_slice in
- * one fn — equivalent to the IR shape (str_alloc_pooled + memcpy)
- * collapsed into a single staticlib call. */
-
-/* __torajs_str_concat moved to torajs-str::concat (P3.1-g.4,
- * 2026-05-23). Rust impl: StrBlock::alloc + 2 copy_from_slice. */
-
-/* __torajs_str_slice moved to torajs-str::slice (P3.1-g.5,
- * 2026-05-23). Rust impl: slice_range core (neg-wrap + clamp +
- * no-swap empty) + StrBlock::alloc + copy_from_slice. */
-
-/* __torajs_str_char_code_at moved to torajs-str::lookup (P3.1-g.4,
- * 2026-05-23). Rust impl: bounds check + byte load + i64 cast. */
-
-/* __torajs_str_{starts_with,ends_with,index_of,includes} (no-_from
- * 2-arg form) moved to torajs-str::lookup (P3.1-g.3, 2026-05-23). The
- * 3 IR builders (define_str_prefix_suffix_check + define_str_index_of
- * + define_str_includes) deleted, total ~210 LOC; Rust wrappers are
- * thin (1 line each calling the `_from` core). */
-
-/* define_math_unary + define_math_binary helpers deleted (P3.2-b,
- * 2026-05-23). All 27 Math intrinsics moved to torajs-num::math
- * (P3.2-{a,b}); both helpers had no callers left. Rust f64 methods
- * delegate to the same libm symbols (sqrt/fabs/floor/.../atan2) the
- * IR builders emitted. */
-
-// P2.4-b (2026-05-23 architecture-rewrite) — M4 exception state
-// (active/tag/value globals + throw_set/check/take/take_tag
-// helpers) moved out of LLVM-IR emit and into the Rust
-// `torajs-throw` crate. The four extern symbols + the (no-longer-
-// visible) statics are baked into libtorajs_throw.a and linked
-// into every `tr build` user binary alongside libtorajs_rc.a /
-// libtorajs_anyvalue.a. ssa_lower-emitted code now resolves them
-// via the regular external-fn declaration path (the
-// `declare_ssa_fn` fall-through in the `compile()` match further
-// up). The old `ensure_throw_globals` + four `define_throw_*`
-// IR-builders are deleted in this commit.
-
-/* define_arr_alloc body moved to torajs-arr::alloc (P4.1-c, 2026-05-23).
- * Trivial single-call wrapper around __torajs_arr_alloc_pooled; LTO
- * inlines across the staticlib boundary. */
-
-/* define_arr_drop body moved to torajs-arr::drop (P4.1-a, 2026-05-23).
- * Pure-Rust port mirrors IR shape 1:1: NULL + FLAG_STATIC_LITERAL gate
- * + rc_dec + last-owner → arrprops_drop_entry + arr_free. Resolved at
- * link time via libtorajs_arr.a. */
-
-/* __torajs_str_drop moved to torajs-str::alloc (P3.1-g.6, 2026-05-23).
- * **P3.1-g closed — 0 IR-side str defines remaining**. Rust impl
- * preserves IR bit-for-bit: NULL check + STATIC_LITERAL gate +
- * rc-- + libc::free (pool-bypass intentional; pool fed only by
- * explicit __torajs_str_free callers, not by scope-end drop). */
-
-/* __torajs_str_print moved to torajs-str::print (P3.1-g.2, 2026-05-23).
- * Rust impl uses std::io::stdout().lock().write_all for byte-equivalent
- * output with one syscall instead of len+1 putchar calls. The cross-
- * buffer reordering concern that motivated per-byte putchar here is
- * preserved by the Rust lock guard: the Rust Stdout handle shares fd
- * 1 with stdio's putchar (used by print_i64 etc.), and the OS-level
- * line buffering keeps order consistent regardless of the in-process
- * buffer choice. */
 
 pub(super) fn ctx_f64<'ctx>(ctx: &'ctx Context) -> inkwell::types::FloatType<'ctx> {
     ctx.f64_type()
