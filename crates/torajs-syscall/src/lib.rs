@@ -46,3 +46,6 @@ pub mod arch_aarch64_macos;
 
 #[cfg(all(target_arch = "aarch64", target_os = "macos"))]
 pub use arch_aarch64_macos::{syscall0, syscall1, syscall3, syscall6};
+
+pub mod safe;
+pub use safe::{Errno, exit, getpid, mmap_anon_rw, munmap, read, write};

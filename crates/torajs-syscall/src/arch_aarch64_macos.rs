@@ -4,16 +4,15 @@
 //! - syscall number → `x16` (NOT `x8` like Linux aarch64)
 //! - args → `x0..x5` (up to 6 args)
 //! - trap instruction → `svc #0x80`
-//! - return value → `x0`. On error, `x0` carries `-errno` (the
-//!   Linux convention); the BSD layer in macOS userspace usually
-//!   re-encodes this through the `cerror` slot, but at the raw
-//!   syscall level we see the negative errno directly.
+//! - return value → `x0` (result on success, positive `errno` on
+//!   error). **Error is indicated by the carry flag (`C` in NZCV)
+//!   being SET** — NOT by `x0 < 0` like Linux. A positive `x0`
+//!   could legitimately be either a result or an errno depending
+//!   on the carry bit.
 //!
-//! Carry flag (`C` from PSR) is the canonical error indicator on
-//! macOS — but inspecting NZCV from inline asm needs a `mrs`
-//! follow-up read. The simpler convention (treat `x0 < 0` as
-//! `-errno`) works for every syscall we use; the safe wrappers
-//! decode this.
+//! The trampoline re-encodes the carry-set case as a negative
+//! return (`neg x0, x0` post-svc) so the safe-wrapper layer can
+//! decode using the canonical Linux convention (`raw < 0 → -errno`).
 
 use core::arch::asm;
 
@@ -28,19 +27,17 @@ use core::arch::asm;
 /// is UB at the kernel level; calling `SYS_READ` with a buf
 /// pointer outside the current process's address space is UB; etc.
 #[inline]
-pub unsafe fn syscall6(
-    sysno: u32,
-    a0: i64,
-    a1: i64,
-    a2: i64,
-    a3: i64,
-    a4: i64,
-    a5: i64,
-) -> i64 {
+pub unsafe fn syscall6(sysno: u32, a0: i64, a1: i64, a2: i64, a3: i64, a4: i64, a5: i64) -> i64 {
     let ret: i64;
     unsafe {
         asm!(
             "svc #0x80",
+            // If carry set (= error), negate x0 so caller sees
+            // Linux-style `-errno`. b.cc = "branch if carry clear"
+            // (success path); skips the neg.
+            "b.cc 1f",
+            "neg x0, x0",
+            "1:",
             in("x16") sysno as i64,
             inlateout("x0") a0 => ret,
             in("x1") a1,
@@ -91,7 +88,12 @@ mod tests {
                 MSG.len() as i64,
             )
         };
-        assert_eq!(n, MSG.len() as i64, "write returned {n}, expected {}", MSG.len());
+        assert_eq!(
+            n,
+            MSG.len() as i64,
+            "write returned {n}, expected {}",
+            MSG.len()
+        );
     }
 
     /// `getpid` is a 0-arg syscall that always succeeds with a
