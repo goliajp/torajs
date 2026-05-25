@@ -350,7 +350,12 @@ mod tests {
         let p2 = unsafe { __torajs_libc_calloc(1, 16) };
         unsafe {
             for i in 0..16 {
-                assert_eq!(*((p2 as *const u8).add(i)), 0, "recycled byte {} not zero", i);
+                assert_eq!(
+                    *((p2 as *const u8).add(i)),
+                    0,
+                    "recycled byte {} not zero",
+                    i
+                );
             }
             __torajs_libc_free(p2);
         }
