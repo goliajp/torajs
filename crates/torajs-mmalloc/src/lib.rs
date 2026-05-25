@@ -41,6 +41,7 @@ pub mod large;
 pub mod page;
 pub mod size_class;
 pub mod span;
+pub mod tlab;
 
 pub use size_class::Allocator;
 pub use span::Span;
