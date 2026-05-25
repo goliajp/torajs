@@ -17,6 +17,8 @@ use core::ffi::c_void;
 use crate::layout::{ARR_LEN_OFF, ARR_SLOTS_OFF, TAG_ARR};
 
 unsafe extern "C" {
+    /// torajs-mmalloc libc-compat malloc — v0.7-A2 step 6b cutover.
+    #[link_name = "__torajs_libc_malloc"]
     fn malloc(n: usize) -> *mut c_void;
 }
 

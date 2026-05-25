@@ -25,7 +25,10 @@ use crate::layout::{ARR_CAP_OFF, ARR_LEN_OFF, ARR_SLOTS_OFF, TAG_ARR};
 const ARR_HEAD_OFF: usize = ARR_CAP_OFF + 4;
 
 unsafe extern "C" {
+    /// torajs-mmalloc libc-compat — v0.7-A2 step 6b cutover.
+    #[link_name = "__torajs_libc_malloc"]
     fn malloc(size: usize) -> *mut c_void;
+    #[link_name = "__torajs_libc_free"]
     fn free(p: *mut c_void);
 }
 

@@ -54,7 +54,10 @@ const ARR_CAP_LOW32_OFF: usize = 16;
 const ARR_HEAD_OFF: usize = 20;
 
 unsafe extern "C" {
+    /// torajs-mmalloc libc-compat — v0.7-A2 step 6b cutover.
+    #[link_name = "__torajs_libc_malloc"]
     fn malloc(n: usize) -> *mut c_void;
+    #[link_name = "__torajs_libc_realloc"]
     fn realloc(p: *mut c_void, n: usize) -> *mut c_void;
 
     /// Cross-tier — torajs-rc. Increments refcount; NULL pass-through.

@@ -29,6 +29,8 @@ crate-type = ["rlib", "staticlib"]
 torajs-rc = { path = "../torajs-rc" }
 # Polish A3a — panic-free abort for OOM in Array alloc.
 torajs-abort = { path = "../torajs-abort" }
+# v0.7-A2 step 6b — force-link mmalloc for `__torajs_libc_*` externs.
+torajs-mmalloc = { path = "../torajs-mmalloc" }
 
 [dev-dependencies]
 criterion = { workspace = true }

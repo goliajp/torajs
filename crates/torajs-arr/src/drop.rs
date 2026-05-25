@@ -52,9 +52,11 @@ unsafe extern "C" {
     /// child value before freeing the outer block.
     fn __torajs_value_drop_heap(p: *mut c_void);
 
-    /// Cross-tier — libc free. Used by `arr_drop_any` directly (it
-    /// allocates with `malloc`/`realloc` and bypasses the pool since
-    /// Any-arrays' 16-byte stride doesn't match).
+    /// torajs-mmalloc libc-compat free — v0.7-A2 step 6b cutover.
+    /// Used by `arr_drop_any` directly (it allocates with
+    /// `malloc`/`realloc` and bypasses the pool since Any-arrays'
+    /// 16-byte stride doesn't match).
+    #[link_name = "__torajs_libc_free"]
     fn free(p: *mut c_void);
 }
 
