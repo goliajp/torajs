@@ -36,3 +36,6 @@
 //! tracking) sit a thin shim on top.
 
 pub mod page;
+pub mod size_class;
+
+pub use size_class::Allocator;
