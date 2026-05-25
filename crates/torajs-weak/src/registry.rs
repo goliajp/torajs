@@ -90,7 +90,10 @@ static G_BUCKETS: [AtomicPtr<TargetCell>; WEAKREF_BUCKETS] =
 static G_ACTIVE: AtomicU64 = AtomicU64::new(0);
 
 unsafe extern "C" {
+    /// torajs-mmalloc libc-compat — v0.7-A2 step 6b cutover.
+    #[link_name = "__torajs_libc_malloc"]
     fn malloc(n: usize) -> *mut c_void;
+    #[link_name = "__torajs_libc_free"]
     fn free(p: *mut c_void);
 
     /// Defined in `runtime_weakmap.c`. Called from `target_dying`

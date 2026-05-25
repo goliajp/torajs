@@ -21,6 +21,8 @@ use core::ffi::c_void;
 use crate::layout::{FLAG_STATIC_LITERAL, OBSERVER_WEAKREF, WeakRef};
 
 unsafe extern "C" {
+    /// torajs-mmalloc libc-compat free — v0.7-A2 step 6b cutover.
+    #[link_name = "__torajs_libc_free"]
     fn free(p: *mut c_void);
 
     /// Defined in `runtime_weakref.c`. Removes the matching

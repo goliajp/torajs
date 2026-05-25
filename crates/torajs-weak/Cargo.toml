@@ -22,10 +22,8 @@ workspace = true
 crate-type = ["rlib", "staticlib"]
 
 [dependencies]
-# 0 runtime deps. Cross-tier calls (rc_inc + registry register/deregister
-# defined for now in runtime_weakref.c) use `extern "C"` symbols resolved
-# at link time — same pattern as torajs-collections / torajs-bigint /
-# torajs-arr / torajs-dynobj.
+# v0.7-A2 step 6b — force-link mmalloc for `__torajs_libc_*` externs.
+torajs-mmalloc = { path = "../torajs-mmalloc" }
 
 [dev-dependencies]
 criterion = { workspace = true }

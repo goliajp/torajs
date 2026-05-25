@@ -13,6 +13,8 @@ use core::ffi::c_void;
 use crate::layout::{HeapHeader, OBSERVER_WEAKREF, TAG_WEAKREF, WeakRef};
 
 unsafe extern "C" {
+    /// torajs-mmalloc libc-compat malloc — v0.7-A2 step 6b cutover.
+    #[link_name = "__torajs_libc_malloc"]
     fn malloc(n: usize) -> *mut c_void;
 
     /// Defined in `runtime_weakref.c`. Adds an ObserverNode keyed by
