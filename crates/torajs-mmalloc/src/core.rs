@@ -29,10 +29,11 @@
 
 use core::sync::atomic::{AtomicBool, Ordering};
 
+use crate::central::CentralQueue;
 use crate::large::{large_alloc, large_free};
 use crate::size_class::{Allocator, PER_CLASS_CAP, SIZE_CLASSES};
 use crate::span::SPAN_LEN;
-use crate::tlab::TlabCache;
+use crate::tlab::{TLAB_CACHE_DEPTH, TlabCache};
 
 // ============================================================
 // SpanRegistry — ptr→span O(log n) lookup
@@ -168,6 +169,16 @@ static mut CORE_REGISTRY: SpanRegistry = SpanRegistry::new();
 /// per-CPU thread_local with lock-free cross-thread queue.
 static mut CORE_TLAB: TlabCache = TlabCache::new();
 
+/// Process-wide central queue (Phase 2c item 10). Lock-free MPMC
+/// stack per size class; acts as the TLAB overflow buffer + cross-
+/// thread free landing zone. Single-thread runtime today: TLAB
+/// overflow → Central.push (lock-free, faster than Allocator.dealloc's
+/// O(n_spans) scan); alloc TLAB.miss → drain Central back to TLAB
+/// before falling through to Allocator.alloc. Multi-thread future:
+/// foreign-thread free → Central.push automatically routes to
+/// owning thread's next refill cycle.
+static CORE_CENTRAL: CentralQueue = CentralQueue::new();
+
 #[inline]
 fn lock() {
     while CORE_LOCK
@@ -218,7 +229,29 @@ pub fn alloc_sized(size: usize) -> *mut u8 {
         unlock();
         return p;
     }
-    // TLAB miss — fall through to central Allocator.
+    // TLAB miss — first try Central (overflow buffer + cross-thread
+    // free landing zone). Drain up to TLAB_CACHE_DEPTH slots from
+    // Central into TLAB to amortize the per-slot CAS cost.
+    let mut drained = 0usize;
+    while drained < TLAB_CACHE_DEPTH {
+        match CORE_CENTRAL.pop(class_idx) {
+            Some(p) => {
+                let pushed = unsafe { (*&raw mut CORE_TLAB).push(class_idx, p) };
+                if !pushed {
+                    // TLAB filled during drain — push back and exit.
+                    unsafe { CORE_CENTRAL.push(class_idx, p) };
+                    break;
+                }
+                drained += 1;
+            }
+            None => break,
+        }
+    }
+    if let Some(p) = unsafe { (*&raw mut CORE_TLAB).pop(class_idx) } {
+        unlock();
+        return p;
+    }
+    // Both TLAB + Central empty — fall through to central Allocator.
     // Detect span-grow via mapped_bytes delta — if it changed,
     // a new span was added; register its (base, class_idx) so
     // future Layer 0 free(ptr) can dispatch.
@@ -267,11 +300,12 @@ pub unsafe fn free_sized(ptr: *mut u8, size: usize) {
         unlock();
         return;
     }
-    // TLAB full for this class — dispatch to central span freelist.
-    unsafe {
-        (*&raw mut CORE_ALLOC).dealloc(ptr, size);
-    }
     unlock();
+    // TLAB full — push to Central (lock-free, faster than walking
+    // Allocator's same-class span freelist which is O(n_spans)).
+    // The next alloc_sized miss on this class will drain Central
+    // back into TLAB amortized.
+    unsafe { CORE_CENTRAL.push(class_idx, ptr) };
 }
 
 // ============================================================
