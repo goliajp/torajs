@@ -27,8 +27,10 @@ use crate::layout::{ARR_LEN_OFF, ARR_SLOTS_OFF, TAG_ARR};
 use crate::pool::{POOL_CAP_MAX, POOL_SLOTS, pop_cap_match, push};
 
 unsafe extern "C" {
-    /// libc malloc — declared directly per the torajs-str pattern.
+    /// torajs-mmalloc libc-compat — v0.7-A2 step 6b cutover.
+    #[link_name = "__torajs_libc_malloc"]
     fn malloc(n: usize) -> *mut c_void;
+    #[link_name = "__torajs_libc_free"]
     fn free(p: *mut c_void);
 
     /// Cross-tier — torajs-str's split-block pool. Returns 1 if the
