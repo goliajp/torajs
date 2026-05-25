@@ -14,10 +14,9 @@
 use std::ffi::c_void;
 use std::ptr::NonNull;
 
-use crate::{
-    AnyBox, AnySlotTag, any_add, any_arith, any_compare, any_to_number, any_to_str, payload_eq,
-    payload_rc_inc,
-};
+use crate::arith::{any_add, any_arith};
+use crate::compare::any_compare;
+use crate::{AnyBox, AnySlotTag, any_to_number, any_to_str, payload_eq, payload_rc_inc};
 
 /// FFI bridge to [`AnyBox::alloc`]. `tag` accepts the same `i64`
 /// range as [`AnySlotTag`] discriminants; out-of-range tags fall
