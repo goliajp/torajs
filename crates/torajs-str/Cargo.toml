@@ -31,6 +31,10 @@ torajs-rc = { path = "../torajs-rc" }
 # on Layout::from_size_align / NonNull::new / Mutex::lock so the
 # user binary doesn't pull Rust std panic infra.
 torajs-abort = { path = "../torajs-abort" }
+# v0.7-A2 step 6b — force-link mmalloc so the `#[link_name=
+# "__torajs_libc_*"]` externs in alloc.rs + substr.rs resolve at
+# user-binary link time.
+torajs-mmalloc = { path = "../torajs-mmalloc" }
 
 [dev-dependencies]
 criterion = { workspace = true }

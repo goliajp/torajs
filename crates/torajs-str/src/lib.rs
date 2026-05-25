@@ -72,6 +72,11 @@
 //! (cc + LLVM-LTO tolerates std symbol overlap between Rust-
 //! emitted .a's).
 
+// v0.7-A2 step 6b — force-link mmalloc so this crate's
+// `#[link_name="__torajs_libc_*"]` externs (alloc.rs + substr.rs)
+// resolve to the mmalloc shim at link time.
+extern crate torajs_mmalloc as _;
+
 pub mod alloc;
 pub mod concat;
 pub mod eq;

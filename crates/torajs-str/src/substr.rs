@@ -55,7 +55,10 @@ use std::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
 use torajs_rc::{__torajs_rc_dec, __torajs_rc_inc, HeapHeader, Tag};
 
 unsafe extern "C" {
+    /// torajs-mmalloc libc-compat malloc — v0.7-A2 step 6b cutover.
+    #[link_name = "__torajs_libc_malloc"]
     fn malloc(size: usize) -> *mut c_void;
+    #[link_name = "__torajs_libc_free"]
     fn free(ptr: *mut c_void);
 }
 

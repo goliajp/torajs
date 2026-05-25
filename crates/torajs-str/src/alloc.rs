@@ -38,7 +38,10 @@ use crate::layout::{STR_DATA_OFF, STR_LEN_OFF, STR_POOL_PAYLOAD, block_size, pac
 use crate::pool;
 
 unsafe extern "C" {
+    /// torajs-mmalloc libc-compat malloc — v0.7-A2 step 6b cutover.
+    #[link_name = "__torajs_libc_malloc"]
     fn malloc(size: usize) -> *mut c_void;
+    #[link_name = "__torajs_libc_free"]
     fn free(ptr: *mut c_void);
 }
 
