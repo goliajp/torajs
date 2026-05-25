@@ -1,66 +1,51 @@
 //! `extern "C"` API exposed to torajs sub-crate IR call sites.
 //!
-//! Sub-crates currently declare `extern { fn malloc(usize) -> *mut u8 }`
-//! which links against `libSystem.dylib`. v0.7-A2 step 6 will
-//! search/replace those calls to use the symbols below — at link
-//! time the binary will pull libtorajs_mmalloc.a instead of libc.
+//! Phase 2a item 5 — extern_api is now a **thin shell** over the
+//! Layer 1 `core::alloc_sized` / `core::free_sized` fast path.
+//! The internal `Allocator` + `LOCK` statics that lived here have
+//! been deleted; all allocator state lives in `core` (single
+//! source of truth for the Phase 2b TLAB / Phase 2c per-CPU
+//! upgrades that follow).
 //!
-//! Global allocator instance is `static mut` behind a spin-lock'd
-//! `AtomicBool`. The user binary is single-threaded today (JS
-//! spec); the spin-lock catches accidental re-entrancy + test-time
-//! `cargo test` parallelism.
+//! Two layers exposed:
+//!
+//! - **Layer 1 (size-known)**: `__torajs_malloc(size)` /
+//!   `__torajs_free(ptr, size)` / `__torajs_realloc(ptr, old, new)`
+//!   — direct route to `core::alloc_sized` / `core::free_sized`.
+//!   These are the IR-codegen and Phase-2e migration target symbols.
+//!
+//! - **Layer 2 (libc-compat, SHIM_HEADER-tracked)**:
+//!   `__torajs_libc_malloc` / `__torajs_libc_free` /
+//!   `__torajs_libc_calloc` / `__torajs_libc_realloc` — same
+//!   API shape as libc malloc/free; ptr returned is offset past
+//!   a 16-byte SHIM_HEADER that holds the alloc size for the
+//!   size-less free contract. Retained for sub-crate callers
+//!   whose Rust extern decls are `fn malloc(usize) -> *mut u8 /
+//!   fn free(*mut u8)` (libc shape). Phase 2e sub-crate migration
+//!   to Layer 1 sized API will retire these symbols; Phase 2f
+//!   deletes them.
+//!
+//! Pure-function helpers `__torajs_libc_memcpy` / `memmove` /
+//! `memcmp` + historical `__torajs_*` aliases hold no allocator
+//! state and stay inline here.
 
 use core::ffi::c_void;
-use core::sync::atomic::{AtomicBool, Ordering};
 
-use crate::large::{large_alloc, large_free};
-use crate::size_class::Allocator;
+// =============================================================
+// Layer 1 — size-known fast path (route to core)
+// =============================================================
 
-static LOCK: AtomicBool = AtomicBool::new(false);
-static mut ALLOC: Allocator = Allocator::new();
-
-#[inline]
-fn lock() {
-    while LOCK
-        .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
-        .is_err()
-    {
-        core::hint::spin_loop();
-    }
-}
-
-#[inline]
-fn unlock() {
-    LOCK.store(false, Ordering::Release);
-}
-
-/// torajs malloc — pure-syscall replacement for libc `malloc`.
-/// Returns NULL on OOM. `size == 0` returns a non-null dummy
-/// pointer (matches glibc behavior; some sub-crate code paths
-/// rely on never getting NULL for non-error sizes).
+/// torajs malloc — caller knows size; routes to `core::alloc_sized`.
+/// Returns NULL on OOM. `size == 0` returns a non-null sentinel
+/// (matches glibc behavior; sub-crate code paths rely on never
+/// getting NULL for non-error sizes).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_malloc(size: usize) -> *mut c_void {
-    if size == 0 {
-        return &raw const LOCK as *mut c_void; // unique non-null sentinel
-    }
-    if size > 4096 {
-        return large_alloc(size)
-            .map(|p| p as *mut c_void)
-            .unwrap_or(core::ptr::null_mut());
-    }
-    lock();
-    // SAFETY: lock held; ALLOC is a static the only mutates here.
-    let p = unsafe { (*&raw mut ALLOC).alloc(size) }
-        .map(|p| p as *mut c_void)
-        .unwrap_or(core::ptr::null_mut());
-    unlock();
-    p
+    crate::core::alloc_sized(size) as *mut c_void
 }
 
-/// torajs free — sized variant. Caller MUST pass the same `size`
-/// originally given to `__torajs_malloc`. (libc-compat shim that
-/// auto-tracks sizes lives in a follow-up sub-step for the
-/// adapter layer.)
+/// torajs free — caller provides original size. Routes to
+/// `core::free_sized`; no SpanRegistry lookup cost.
 ///
 /// # Safety
 ///
@@ -68,23 +53,13 @@ pub unsafe extern "C" fn __torajs_malloc(size: usize) -> *mut c_void {
 /// and not already freed.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_free(ptr: *mut c_void, size: usize) {
-    if ptr.is_null() || size == 0 {
-        return;
-    }
-    if size > 4096 {
-        let _ = unsafe { large_free(ptr as *mut u8, size) };
-        return;
-    }
-    lock();
-    // SAFETY: lock held.
-    unsafe { (*&raw mut ALLOC).dealloc(ptr as *mut u8, size) };
-    unlock();
+    unsafe { crate::core::free_sized(ptr as *mut u8, size) };
 }
 
-/// torajs realloc — `(ptr, old_size, new_size)`. Allocates a fresh
-/// block, copies `min(old_size, new_size)` bytes, frees the old
-/// block. Returns NULL on OOM (old block is NOT freed in that case,
-/// matching glibc).
+/// torajs realloc — `(ptr, old_size, new_size)`. Allocates a
+/// fresh block via core, copies `min(old, new)` bytes, frees the
+/// old block. Returns NULL on OOM (old block is NOT freed in that
+/// case, matching glibc).
 ///
 /// # Safety
 ///
@@ -114,24 +89,26 @@ pub unsafe extern "C" fn __torajs_realloc(
     new_ptr
 }
 
-// ============================================================
-// libc-compat shim — auto-size tracking
+// =============================================================
+// Layer 2 — libc-compat shim with SHIM_HEADER
+// =============================================================
 //
-// Sub-crate code calls `extern { fn malloc/free/realloc }` with
-// the libc shape (no size on free). To migrate without rewriting
-// every call site, sub-crates re-declare those externs with
-// `#[link_name = "__torajs_libc_malloc"]` etc. — same Rust call
-// shape, different link-time symbol → routed to these shims.
+// Sub-crate code declares `extern { fn malloc(usize) -> *mut c_void }`
+// (libc shape, no size on free). Sub-crates rewire via
+// `#[link_name = "__torajs_libc_malloc"]` etc.; the shim below
+// auto-tracks size via a 16-byte prepended SHIM_HEADER so that
+// `free(ptr)` can recover the original size.
 //
-// Shim prepends an 8-byte size header so `free(ptr)` can recover
-// the original size. Costs 8 bytes per alloc; can be replaced by
-// direct __torajs_free(ptr, size) call sites later.
-// ============================================================
+// Phase 2e migrates sub-crate alloc/free call sites to use Layer 1
+// sized API (eliminating SHIM_HEADER per-alloc overhead). Phase 2f
+// deletes this Layer 2 entirely once zero internal callers remain
+// (only true external C consumers retain libc shape).
 
-const SHIM_HEADER: usize = 16; // 8 bytes for size + 8 bytes for alignment padding
+const SHIM_HEADER: usize = 16;
 
-/// libc-compat malloc. Allocates `size + SHIM_HEADER` bytes, writes
-/// the size into the first 8 bytes, returns ptr offset by `SHIM_HEADER`.
+/// libc-compat malloc. Allocates `size + SHIM_HEADER` bytes,
+/// writes the size into the first 8 bytes, returns ptr offset by
+/// `SHIM_HEADER`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_libc_malloc(size: usize) -> *mut c_void {
     let total = size + SHIM_HEADER;
@@ -139,9 +116,7 @@ pub unsafe extern "C" fn __torajs_libc_malloc(size: usize) -> *mut c_void {
     if raw.is_null() {
         return core::ptr::null_mut();
     }
-    // Write size at offset 0
     unsafe { core::ptr::write(raw as *mut usize, total) };
-    // Return user-visible ptr (offset past header)
     unsafe { (raw as *mut u8).add(SHIM_HEADER) as *mut c_void }
 }
 
@@ -158,9 +133,10 @@ pub unsafe extern "C" fn __torajs_libc_free(ptr: *mut c_void) {
 }
 
 /// libc-compat calloc. Equivalent to `__torajs_libc_malloc(n*sz)`
-/// followed by a `memset(p, 0, n*sz)` over the user-visible region.
-/// Recycled free-list blocks are dirty from prior use, so the zero
-/// write is unconditional — not a "fresh-from-mmap" shortcut.
+/// followed by a `memset(p, 0, n*sz)` over the user-visible
+/// region. Recycled free-list blocks are dirty from prior use, so
+/// the zero write is unconditional — not a "fresh-from-mmap"
+/// shortcut.
 ///
 /// Returns NULL on `n*sz` overflow or OOM.
 #[unsafe(no_mangle)]
@@ -198,10 +174,15 @@ pub unsafe extern "C" fn __torajs_libc_realloc(ptr: *mut c_void, new_size: usize
     unsafe { (new_raw as *mut u8).add(SHIM_HEADER) as *mut c_void }
 }
 
-/// libc-compatible memcpy. NOT overlap-safe — use `__torajs_libc_memmove`
-/// for overlapping ranges. Exported under two names: `__torajs_memcpy`
-/// (historical) + `__torajs_libc_memcpy` (post-v0.7-A2 step 6b — the
-/// IR codegen + sub-crate externs both target this name now).
+// =============================================================
+// Pure-function helpers — no allocator state
+// =============================================================
+
+/// libc-compatible memcpy. NOT overlap-safe — use
+/// `__torajs_libc_memmove` for overlapping ranges. Exported under
+/// two names: `__torajs_memcpy` (historical) +
+/// `__torajs_libc_memcpy` (post-v0.7-A2 step 6b — IR codegen +
+/// sub-crate externs both target this name now).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_libc_memcpy(
     dst: *mut c_void,
