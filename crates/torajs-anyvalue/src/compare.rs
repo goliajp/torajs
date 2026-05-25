@@ -17,7 +17,8 @@ use std::cmp::Ordering;
 
 use torajs_rc::{HeapHeader, Tag};
 
-use crate::{AnySlotTag, STR_HDR_SIZE, any_to_number};
+use crate::coerce::any_to_number;
+use crate::{AnySlotTag, STR_HDR_SIZE};
 
 /// Byte offset of the `u64 len` field inside the Str heap layout
 /// `[header:8][len:8][bytes:N]`. Used by [`any_compare`] for the

@@ -21,8 +21,9 @@ use std::ffi::c_void;
 
 use torajs_rc::AnySlotTag;
 
+use crate::coerce::{any_to_number, any_to_str};
 use crate::compare::is_heap_str;
-use crate::{__torajs_str_concat, __torajs_str_drop, AnyBox, any_to_number, any_to_str};
+use crate::{__torajs_str_concat, __torajs_str_drop, AnyBox};
 
 /// Op code for `-`, `*`, `/`, `%` per ssa_lower's emission. Mirror
 /// of the C `__torajs_any_arith` switch on the `op` argument:
