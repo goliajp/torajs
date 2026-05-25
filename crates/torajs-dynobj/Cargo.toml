@@ -23,10 +23,8 @@ workspace = true
 crate-type = ["rlib", "staticlib"]
 
 [dependencies]
-# 0 runtime deps. Cross-crate calls (e.g. into torajs-str for the
-# bucket key comparison + hash) use `extern "C"` symbols resolved at
-# link time, same as torajs-bigint / torajs-arr. libc malloc/calloc
-# is declared directly per the torajs-str pattern.
+# v0.7-A2 step 6b — force-link mmalloc for `__torajs_libc_calloc/free`.
+torajs-mmalloc = { path = "../torajs-mmalloc" }
 
 [dev-dependencies]
 criterion = { workspace = true }

@@ -20,6 +20,8 @@ unsafe extern "C" {
 
     fn __torajs_str_drop(s: *mut c_void);
     fn __torajs_value_drop_heap(child: *mut c_void);
+    /// torajs-mmalloc libc-compat free — v0.7-A2 step 6b cutover.
+    #[link_name = "__torajs_libc_free"]
     fn free(p: *mut c_void);
 }
 

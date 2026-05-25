@@ -1893,6 +1893,7 @@ name = "torajs-collections"
 version = "0.1.0"
 dependencies = [
  "criterion",
+ "torajs-mmalloc",
 ]
 
 [[package]]
@@ -1944,6 +1945,7 @@ name = "torajs-dynobj"
 version = "0.1.0"
 dependencies = [
  "criterion",
+ "torajs-mmalloc",
 ]
 
 [[package]]
@@ -2041,6 +2043,7 @@ name = "torajs-promise"
 version = "0.1.0"
 dependencies = [
  "criterion",
+ "torajs-mmalloc",
 ]
 
 [[package]]
@@ -2106,6 +2109,7 @@ name = "torajs-weak"
 version = "0.1.0"
 dependencies = [
  "criterion",
+ "torajs-mmalloc",
 ]
 
 [[package]]

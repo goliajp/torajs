@@ -16,8 +16,10 @@ use crate::layout::{
 };
 
 unsafe extern "C" {
-    /// libc calloc — zero-init alloc, ensures every bucket's `key_ptr`
-    /// starts as NULL (empty) which the probe contract requires.
+    /// torajs-mmalloc libc-compat calloc — zero-init alloc; v0.7-A2
+    /// step 6b cutover. Ensures every bucket's `key_ptr` starts as
+    /// NULL (empty) which the probe contract requires.
+    #[link_name = "__torajs_libc_calloc"]
     fn calloc(nmemb: usize, size: usize) -> *mut c_void;
 }
 
@@ -77,8 +79,10 @@ mod tests {
                 assert_eq!(*(bucket.add(16) as *const u64), 0);
             }
 
-            // Hand back to libc (no drop helper ported yet).
+            // Hand back to mmalloc (v0.7-A2 step 6b cutover; test-only
+            // path — production drop helper lives in drop.rs).
             unsafe extern "C" {
+                #[link_name = "__torajs_libc_free"]
                 fn free(p: *mut c_void);
             }
             free(p as *mut c_void);
