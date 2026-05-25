@@ -16,10 +16,10 @@
 use core::ffi::c_void;
 
 unsafe extern "C" {
-    /// libc `free` — declared directly per the torajs-str pattern
-    /// (avoids `libc` crate dep). Pairs with `runtime_bigint.c`'s
-    /// historical `malloc` allocations (which this module is
-    /// progressively replacing during the P3.3 port).
+    /// torajs-mmalloc libc-compat free. v0.7-A2 step 6b cutover:
+    /// resolves to mmalloc's `__torajs_libc_free` shim. Pairs with
+    /// `internal::malloc` (also redirected).
+    #[link_name = "__torajs_libc_free"]
     fn free(p: *mut c_void);
 
     /// Cross-tier rc decrement — resolves against `libtorajs_rc.a`

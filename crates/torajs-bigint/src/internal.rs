@@ -16,10 +16,15 @@ use core::ffi::c_void;
 use crate::layout::{LEN_OFF, SIGN_OFF, TAG_BIGINT, WORDS_OFF};
 
 unsafe extern "C" {
-    /// libc malloc — declared directly per the torajs-str pattern.
+    /// torajs-mmalloc libc-compat malloc. v0.7-A2 step 6b cutover:
+    /// link symbol redirected from libc `malloc` to mmalloc's
+    /// libc-compat shim (`__torajs_libc_malloc`) so user binaries
+    /// pull libtorajs_mmalloc.a instead of libSystem.dylib.
+    #[link_name = "__torajs_libc_malloc"]
     pub(crate) fn malloc(n: usize) -> *mut c_void;
 
-    /// libc free — same.
+    /// torajs-mmalloc libc-compat free. See note on `malloc` above.
+    #[link_name = "__torajs_libc_free"]
     pub(crate) fn free(p: *mut c_void);
 }
 

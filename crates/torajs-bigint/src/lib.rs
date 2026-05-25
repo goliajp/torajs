@@ -40,6 +40,11 @@
 //! mismatch that has no clean fix on stable. `std` staticlibs link
 //! cleanly at `tr build` time.
 
+// Force-link torajs-mmalloc so the `__torajs_libc_*` symbols
+// referenced by `internal::malloc` / `drop::free` resolve at
+// rlib + staticlib link time. v0.7-A2 step 6b cutover.
+extern crate torajs_mmalloc as _;
+
 pub mod arith;
 pub mod bitwise;
 pub mod compare;
