@@ -1,0 +1,23 @@
+[package]
+name = "torajs-syscall"
+description = "0-dep raw syscall stubs for torajs metal-level user binary"
+keywords = ["torajs", "syscall", "no-libc", "metal"]
+categories = ["no-std", "external-ffi-bindings"]
+readme = "README.md"
+documentation = "https://docs.rs/torajs-syscall"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[lib]
+crate-type = ["lib", "staticlib"]
+
+[lints]
+workspace = true
+
+[[bench]]
+name = "syscall"
+harness = false
