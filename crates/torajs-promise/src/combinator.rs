@@ -25,6 +25,8 @@ use crate::pool::{
 };
 
 unsafe extern "C" {
+    /// torajs-mmalloc libc-compat — v0.7-A2 step 6b cutover.
+    #[link_name = "__torajs_libc_malloc"]
     fn malloc(n: usize) -> *mut c_void;
 
     fn __torajs_rc_inc(p: *mut c_void);
@@ -39,7 +41,8 @@ unsafe extern "C" {
     /// the literal into the body region.
     fn __torajs_str_alloc_pooled(len: u64) -> *mut u8;
 
-    /// libc — used by allsettled's status-string body copy.
+    /// torajs-mmalloc memcpy — v0.7-A2 step 6b cutover.
+    #[link_name = "__torajs_memcpy"]
     fn memcpy(dst: *mut c_void, src: *const c_void, n: usize) -> *mut c_void;
 }
 

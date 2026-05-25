@@ -54,7 +54,10 @@ static POOL_HEAD: AtomicPtr<Promise> = AtomicPtr::new(ptr::null_mut());
 static POOL_COUNT: AtomicI32 = AtomicI32::new(0);
 
 unsafe extern "C" {
+    /// torajs-mmalloc libc-compat — v0.7-A2 step 6b cutover.
+    #[link_name = "__torajs_libc_malloc"]
     fn malloc(n: usize) -> *mut c_void;
+    #[link_name = "__torajs_libc_free"]
     fn free(p: *mut c_void);
 
     /// Provided by torajs-rc (libtorajs_rc.a) at `tr build` link.

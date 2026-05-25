@@ -29,6 +29,9 @@
 //! - [`micro`] — queueMicrotask globals (closure + named-fn
 //!   variants). Both pack cb through the queue's i64 arg slot.
 
+// v0.7-A2 step 6b — force-link mmalloc.
+extern crate torajs_mmalloc as _;
+
 pub mod combinator;
 pub mod layout;
 pub mod micro;
