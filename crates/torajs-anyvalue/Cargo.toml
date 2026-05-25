@@ -27,6 +27,9 @@ torajs-rc = { path = "../torajs-rc" }
 # Polish A3a — panic-free abort helper for the NonNull::new(malloc)
 # OOM path; avoids pulling Rust's panic machinery into user binaries.
 torajs-abort = { path = "../torajs-abort" }
+# v0.7-A2 step 6b — force-link mmalloc so this crate's `#[link_name=
+# "__torajs_libc_*"]` externs resolve at user-binary link time.
+torajs-mmalloc = { path = "../torajs-mmalloc" }
 
 [dev-dependencies]
 criterion = { workspace = true }

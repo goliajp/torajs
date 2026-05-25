@@ -85,6 +85,11 @@ use std::ptr::NonNull;
 
 use torajs_rc::{__torajs_rc_dec, __torajs_rc_inc, AnySlotTag, HeapHeader, Tag};
 
+// v0.7-A2 step 6b — force-link mmalloc so the `#[link_name=
+// "__torajs_libc_*"]` externs in the malloc/free block below resolve
+// to the mmalloc shim at link time.
+extern crate torajs_mmalloc as _;
+
 // Direct libc malloc / free instead of `std::alloc::{alloc,
 // dealloc}`. Three reasons:
 //  1. The C-side runtime (runtime_*.c) uses libc malloc/free;
@@ -98,7 +103,12 @@ use torajs_rc::{__torajs_rc_dec, __torajs_rc_inc, AnySlotTag, HeapHeader, Tag};
 //     declaration, not a crates.io dep — matches vision #4
 //     (0 deps).
 unsafe extern "C" {
+    /// torajs-mmalloc libc-compat malloc — v0.7-A2 step 6b cutover.
+    /// Resolved to `__torajs_libc_malloc` (mmalloc shim) at user-binary
+    /// link time, replacing libSystem.dylib malloc.
+    #[link_name = "__torajs_libc_malloc"]
     fn malloc(size: usize) -> *mut c_void;
+    #[link_name = "__torajs_libc_free"]
     fn free(ptr: *mut c_void);
 }
 
