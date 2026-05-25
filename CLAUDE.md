@@ -183,6 +183,22 @@ rm -rf target/debug                   # autorun 走 release/iter，debug 仅 IDE
 - `target/` > 100 GB → audit；先 stop 任何 autorun，再考虑搬外置盘
 - 任何 `df` 显示内置盘 < 50 GB free → P0 立刻处理（先 stop autorun + 报告 takagi）
 
+**安全 sweep 工具（推荐每次 session 末跑 + commit 前跑）**：
+
+```bash
+# 预览
+bash hardev/cleanup/sweep-stale-rlibs.sh
+
+# 真删
+bash hardev/cleanup/sweep-stale-rlibs.sh --force
+```
+
+逻辑：用 `cargo build --message-format json` 拿 active rlib hash 集合，删 `deps/` 内**非 active hash** 的 .rlib/.rmeta/.dylib/.a/.d。**不动** `.fingerprint/` 目录（cargo 的 cache 索引）。
+
+可验证安全：sweep 前后 `cargo build --workspace --release` 时间差应该 ≈ 0（baseline ~32s 来自 build.rs NULL_FORCE_RERUN 设计，不是 sweep 引入）。已确认 318 stale files / 1.3 GB 回收 + 0 时间增量。
+
+**别再用 `cargo sweep --time N`** —— 它清 fingerprint dir 触发冷 rebuild（2026-05-25 实际事故：cargo sweep 删 cli fingerprint → conformance gate 当时正跑 → "cargo build tr failed: cannot write invoked.timestamp" → 整套 gate 被打断）。
+
 **禁止反模式**：
 
 - ❌ `cargo clean` —— 全删 target，autorun 推不了 1 小时
