@@ -1982,6 +1982,7 @@ name = "torajs-microtask"
 version = "0.1.0"
 dependencies = [
  "criterion",
+ "torajs-mmalloc",
 ]
 
 [[package]]

@@ -22,9 +22,9 @@ workspace = true
 crate-type = ["rlib", "staticlib"]
 
 [dependencies]
-# 0 runtime deps. Runtime_promise.c calls into this crate's
-# `__torajs_microtask_enqueue` via `extern "C"` at link time
-# (same pattern torajs-weak / torajs-cycle / torajs-collections use).
+# v0.7-A2 step 6b — force-link mmalloc for the `__torajs_libc_realloc`
+# extern in lib.rs (mt_queue grow path).
+torajs-mmalloc = { path = "../torajs-mmalloc" }
 
 [dev-dependencies]
 criterion = { workspace = true }

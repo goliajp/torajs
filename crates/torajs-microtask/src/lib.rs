@@ -65,8 +65,15 @@ static MT_LEN: AtomicUsize = AtomicUsize::new(0);
 static MT_CAP: AtomicUsize = AtomicUsize::new(0);
 
 unsafe extern "C" {
+    /// torajs-mmalloc libc-compat realloc — v0.7-A2 step 6b cutover.
+    /// First call (cur=NULL) becomes malloc; subsequent calls recover
+    /// old size from mmalloc's prepended SHIM_HEADER.
+    #[link_name = "__torajs_libc_realloc"]
     fn realloc(p: *mut c_void, n: usize) -> *mut c_void;
 }
+
+// v0.7-A2 step 6b — force-link mmalloc.
+extern crate torajs_mmalloc as _;
 
 /// Grow the backing array (double capacity, starting at 32).
 /// Single-threaded — no concurrent grow possible.
