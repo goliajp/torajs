@@ -198,10 +198,12 @@ pub unsafe extern "C" fn __torajs_libc_realloc(ptr: *mut c_void, new_size: usize
     unsafe { (new_raw as *mut u8).add(SHIM_HEADER) as *mut c_void }
 }
 
-/// libc-compatible memcpy. NOT overlap-safe — use `__torajs_memmove`
-/// for overlapping ranges.
+/// libc-compatible memcpy. NOT overlap-safe — use `__torajs_libc_memmove`
+/// for overlapping ranges. Exported under two names: `__torajs_memcpy`
+/// (historical) + `__torajs_libc_memcpy` (post-v0.7-A2 step 6b — the
+/// IR codegen + sub-crate externs both target this name now).
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_memcpy(
+pub unsafe extern "C" fn __torajs_libc_memcpy(
     dst: *mut c_void,
     src: *const c_void,
     n: usize,
@@ -212,9 +214,20 @@ pub unsafe extern "C" fn __torajs_memcpy(
     dst
 }
 
+/// Historical alias — kept so existing call sites (some sub-crates,
+/// older fixture-cache .o files) still resolve.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_memcpy(
+    dst: *mut c_void,
+    src: *const c_void,
+    n: usize,
+) -> *mut c_void {
+    unsafe { __torajs_libc_memcpy(dst, src, n) }
+}
+
 /// libc-compatible memmove — overlap-safe.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_memmove(
+pub unsafe extern "C" fn __torajs_libc_memmove(
     dst: *mut c_void,
     src: *const c_void,
     n: usize,
@@ -225,9 +238,18 @@ pub unsafe extern "C" fn __torajs_memmove(
     dst
 }
 
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_memmove(
+    dst: *mut c_void,
+    src: *const c_void,
+    n: usize,
+) -> *mut c_void {
+    unsafe { __torajs_libc_memmove(dst, src, n) }
+}
+
 /// libc-compatible memcmp.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_memcmp(a: *const c_void, b: *const c_void, n: usize) -> i32 {
+pub unsafe extern "C" fn __torajs_libc_memcmp(a: *const c_void, b: *const c_void, n: usize) -> i32 {
     let a = unsafe { core::slice::from_raw_parts(a as *const u8, n) };
     let b = unsafe { core::slice::from_raw_parts(b as *const u8, n) };
     match a.cmp(b) {
@@ -235,6 +257,11 @@ pub unsafe extern "C" fn __torajs_memcmp(a: *const c_void, b: *const c_void, n: 
         core::cmp::Ordering::Equal => 0,
         core::cmp::Ordering::Greater => 1,
     }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_memcmp(a: *const c_void, b: *const c_void, n: usize) -> i32 {
+    unsafe { __torajs_libc_memcmp(a, b, n) }
 }
 
 #[cfg(test)]
