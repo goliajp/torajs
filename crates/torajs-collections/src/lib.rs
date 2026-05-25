@@ -51,6 +51,9 @@
 //! `no_std` trips a precompiled-core panic-strategy mismatch on
 //! stable. `std` staticlibs link cleanly at `tr build` time.
 
+// v0.7-A2 step 6b — force-link mmalloc.
+extern crate torajs_mmalloc as _;
+
 pub mod create;
 pub mod delete;
 pub mod drop;

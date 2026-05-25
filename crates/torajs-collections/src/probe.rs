@@ -27,8 +27,12 @@ use crate::layout::{
 };
 
 unsafe extern "C" {
+    /// torajs-mmalloc libc-compat alloc/free — v0.7-A2 step 6b cutover.
+    #[link_name = "__torajs_libc_malloc"]
     fn malloc(n: usize) -> *mut c_void;
+    #[link_name = "__torajs_libc_calloc"]
     fn calloc(nmemb: usize, size: usize) -> *mut c_void;
+    #[link_name = "__torajs_libc_free"]
     fn free(p: *mut c_void);
 }
 

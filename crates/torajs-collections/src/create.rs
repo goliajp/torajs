@@ -15,7 +15,10 @@ use crate::layout::{
 };
 
 unsafe extern "C" {
+    /// torajs-mmalloc libc-compat malloc/calloc — v0.7-A2 step 6b cutover.
+    #[link_name = "__torajs_libc_malloc"]
     fn malloc(n: usize) -> *mut c_void;
+    #[link_name = "__torajs_libc_calloc"]
     fn calloc(nmemb: usize, size: usize) -> *mut c_void;
 }
 
@@ -91,8 +94,10 @@ mod tests {
                 assert_eq!(slot_hash(s), 0);
             }
 
-            // Hand the arrays + struct back to libc (no drop helper ported yet).
+            // Hand the arrays + struct back to mmalloc (test-only path —
+            // production drop is map_drop in drop.rs).
             unsafe extern "C" {
+                #[link_name = "__torajs_libc_free"]
                 fn free(p: *mut c_void);
             }
             free((*p).slots as *mut c_void);
