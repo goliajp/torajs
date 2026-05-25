@@ -32,6 +32,14 @@
 /// the link wiring to pick it up.
 pub const TORAJS_STATICLIBS: &[(&str, &[u8])] = &[
     (
+        "libtorajs_syscall.a",
+        include_bytes!(env!("TORAJS_SYSCALL_STATICLIB_PATH")),
+    ),
+    (
+        "libtorajs_mmalloc.a",
+        include_bytes!(env!("TORAJS_MMALLOC_STATICLIB_PATH")),
+    ),
+    (
         "libtorajs_rc.a",
         include_bytes!(env!("TORAJS_RC_STATICLIB_PATH")),
     ),

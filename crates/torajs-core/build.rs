@@ -53,6 +53,8 @@ const COMPILER_SOURCE_FILES: &[&str] = &[
 /// `TORAJS_STATICLIBS` array using `env!("TORAJS_<NAME>_STATICLIB
 /// _PATH")`.
 const STATICLIBS: &[&str] = &[
+    "torajs_syscall",     // Layer-0: aarch64/x86_64 raw syscall trampoline (v0.7-A1)
+    "torajs_mmalloc",     // Layer-0: mmap-backed allocator + libc-compat shim (v0.7-A2)
     "torajs_rc",          // Layer-1: refcount + heap-header
     "torajs_anyvalue",    // Layer-1: AnyBox (boxed Type::Any)
     "torajs_throw",       // Layer-1: native-error registry + throw helpers
