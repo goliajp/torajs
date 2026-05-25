@@ -1,47 +1,63 @@
-//! Size-class free-list allocator built on top of [`PageBump`].
+//! Size-class allocator built on [`Span`].
 //!
-//! Power-of-two buckets (16/32/64/128/256/512/1024/2048/4096).
-//! Within each bucket: a LIFO free-list of recycled blocks; the
-//! head is stored as a `NonNull<FreeListNode>` rooted in the
-//! `Allocator` struct's `buckets` array.
+//! Phase 2a item 2 of the metal-tier redesign — span-backed
+//! replacement for the prior PageBump + per-class freelist shape.
+//! Each size class owns a bounded array of spans
+//! (`[Option<Span>; PER_CLASS_CAP]`). Allocation walks spans LIFO
+//! (most-recently-grown first) hunting for a slot; on miss across
+//! all current spans, a fresh span is mmap'd via
+//! [`Span::new_for_class`] and appended.
 //!
-//! Allocations larger than 4096 bytes go straight through to a
-//! fresh `mmap` (page-aligned region) — see [`super::large`].
+//! Free is `Span::free_slot` after a same-class `contains(ptr)`
+//! scan to dispatch — O(n_spans_in_class), bounded by
+//! `PER_CLASS_CAP`. Phase 2a item 3 will introduce a global
+//! `SpanRegistry` for O(1) ptr→span lookup, retiring the scan.
 //!
-//! The allocator is intentionally a struct (not a global) at this
-//! layer. The extern "C" `__torajs_malloc` / `__torajs_free`
-//! surface (v0.7-A2 step 5) wraps a global instance behind a
-//! Mutex.
+//! Public surface is **invariant** vs the pre-Phase-2a shape:
+//! `Allocator::new` / `alloc(size)` / `dealloc(ptr, size)` /
+//! `bucket_for(size)` / `mapped_bytes()`. `extern_api.rs` keeps
+//! working unchanged.
+//!
+//! Size class table stays 9 power-of-two buckets for this commit;
+//! Phase 2a item 2.5 expands to a Go-style 32-class fine-grained
+//! table in a separate atomic commit (decoupled from the span
+//! migration to keep bisect surface clean).
 
-use core::mem::size_of;
-use core::ptr::{self, NonNull};
+use core::ptr::NonNull;
 
-use crate::page::{PAGE_SIZE, PageBump};
+use crate::span::{SPAN_LEN, Span};
 
-/// Power-of-two size classes covered by the free-list. Requests
-/// larger than the last entry route to large_alloc.
+/// Power-of-two size classes covered by the per-class span pool.
+/// Requests larger than the last entry route to `super::large`.
 pub const SIZE_CLASSES: [usize; 9] = [16, 32, 64, 128, 256, 512, 1024, 2048, 4096];
 
-/// Max active pages held by an `Allocator`. 16384 × 16 KB = 256 MB of
-/// addressable small-allocation arena. Pages are lazily allocated so
-/// the static cost is just the `pages` array (16384 * 8 bytes = 128 KB)
-/// — fine for a static. Larger user-binary memory budgets need a
-/// metadata-page scheme; 256 MB covers test262 / conformance loads.
-pub const MAX_PAGES: usize = 16384;
+/// Max active spans per size class. 4096 × 16 KB span = 64 MB per
+/// class addressable arena. With 9 classes the upper bound is
+/// 576 MB; in practice only a few classes grow, the rest stay at
+/// zero spans. Metadata cost (Option<Span> ≈ 32 B) is
+/// 4096 × 32 × 9 ≈ 1.15 MB static — fine for a static mut.
+pub const PER_CLASS_CAP: usize = 4096;
 
-#[repr(C)]
-struct FreeListNode {
-    next: Option<NonNull<FreeListNode>>,
-}
+/// Backwards-compat alias: pre-Phase-2a callers using
+/// `MAX_PAGES` semantically meant "total span budget across all
+/// classes". The new shape budgets per-class; this constant
+/// remains exported for any external auditor scripts that
+/// reference it (= `PER_CLASS_CAP × SIZE_CLASSES.len()` upper
+/// bound).
+pub const MAX_PAGES: usize = PER_CLASS_CAP * SIZE_CLASSES.len();
+
+const NONE_SPAN: Option<Span> = None;
+const EMPTY_CLASS_ARRAY: [Option<Span>; PER_CLASS_CAP] = [NONE_SPAN; PER_CLASS_CAP];
 
 pub struct Allocator {
-    /// Bounded ring of mmap'd pages, lazily populated. `pages[i] =
-    /// None` means slot `i` hasn't been allocated yet.
-    pages: [Option<PageBump>; MAX_PAGES],
-    /// Cursor into `pages` — next slot to populate.
-    cur: usize,
-    /// LIFO free-list head per size class.
-    buckets: [Option<NonNull<FreeListNode>>; SIZE_CLASSES.len()],
+    /// Per-class span pool. Each entry is `Some(Span)` if that
+    /// pool slot is populated, `None` if unused. Population grows
+    /// from index 0 monotonically per class via `class_cur`.
+    classes: [[Option<Span>; PER_CLASS_CAP]; SIZE_CLASSES.len()],
+    /// Per-class population cursor — number of spans currently in
+    /// `classes[class_idx]`. New spans append at index `class_cur`;
+    /// `class_cur` is bounded by `PER_CLASS_CAP`.
+    class_cur: [u16; SIZE_CLASSES.len()],
 }
 
 impl Default for Allocator {
@@ -52,16 +68,14 @@ impl Default for Allocator {
 
 impl Allocator {
     pub const fn new() -> Self {
-        const NONE_PAGE: Option<PageBump> = None;
         Allocator {
-            pages: [NONE_PAGE; MAX_PAGES],
-            cur: 0,
-            buckets: [None; SIZE_CLASSES.len()],
+            classes: [EMPTY_CLASS_ARRAY; SIZE_CLASSES.len()],
+            class_cur: [0; SIZE_CLASSES.len()],
         }
     }
 
-    /// Round `size` up to the next size class; returns `None` if
-    /// `size` exceeds the largest bucket.
+    /// Round `size` up to the next size class index; returns
+    /// `None` if `size` exceeds the largest bucket.
     pub fn bucket_for(size: usize) -> Option<usize> {
         if size == 0 {
             return Some(0);
@@ -69,94 +83,99 @@ impl Allocator {
         SIZE_CLASSES.iter().position(|&c| size <= c)
     }
 
-    /// Allocate `size` bytes from the appropriate size-class
-    /// bucket. Returns `None` on OOM (too many pages allocated, or
-    /// kernel mmap failure). `size` past 4096 returns `None` —
-    /// caller should route to large_alloc.
+    /// Allocate `size` bytes from the appropriate size-class pool.
+    /// Returns `None` on OOM (per-class cap exceeded or kernel
+    /// mmap failure). `size` past the largest class returns
+    /// `None` — caller routes to `super::large`.
     pub fn alloc(&mut self, size: usize) -> Option<*mut u8> {
         let bucket = Self::bucket_for(size)?;
         let class_size = SIZE_CLASSES[bucket];
 
-        // Pop from free-list first
-        if let Some(node) = self.buckets[bucket].take() {
-            // SAFETY: node was put on the LIFO by a prior `free`
-            // call, which only stores blocks that came from
-            // alloc()/page bump. node's `next` was written when
-            // it was added.
-            self.buckets[bucket] = unsafe { node.as_ref().next };
-            return Some(node.as_ptr() as *mut u8);
-        }
-
-        // Bump from current page, fall through to new page if full
-        loop {
-            if let Some(page) = self.current_page_mut() {
-                if let Some(p) = page.try_bump(class_size) {
+        // 1. LIFO span scan — try most-recently-grown spans first.
+        //    Recent spans are likely the same span the immediately-
+        //    prior alloc came from (TLAB-ish locality even before
+        //    Phase 2b TLAB ships).
+        let cur = self.class_cur[bucket] as usize;
+        for i in (0..cur).rev() {
+            if let Some(span) = self.classes[bucket][i].as_mut() {
+                if let Some(p) = span.alloc_slot() {
                     return Some(p);
                 }
             }
-            self.advance_page()?;
         }
+
+        // 2. All current spans full — grow.
+        if cur >= PER_CLASS_CAP {
+            return None;
+        }
+        let mut new_span = Span::new_for_class(class_size, bucket as u8).ok()?;
+        let p = new_span.alloc_slot()?;
+        self.classes[bucket][cur] = Some(new_span);
+        self.class_cur[bucket] += 1;
+        Some(p)
     }
 
     /// Release a previously-allocated block. `size` must be the
     /// SAME value passed to `alloc` (size-class allocator has no
-    /// per-block size metadata — caller bookkeeping required).
+    /// per-block size metadata in this API; caller bookkeeping
+    /// required — `super::extern_api` Layer 2 shim handles this
+    /// via SHIM_HEADER for libc-compat consumers).
     ///
     /// # Safety
     ///
     /// `ptr` must be a pointer returned by `alloc(size)`, and not
     /// already freed (double-free is UB and will corrupt the
-    /// free-list).
+    /// owning span's freelist).
     pub unsafe fn dealloc(&mut self, ptr: *mut u8, size: usize) {
         let Some(bucket) = Self::bucket_for(size) else {
             // Out of bucket range — caller should have used
-            // large_alloc/large_free; silently dropping (and
-            // leaking) the request keeps the invariant simple.
+            // large_alloc/large_free; silently leak to keep the
+            // invariant simple.
             return;
         };
-        let node_ptr = ptr as *mut FreeListNode;
-        // Each freed block must be at least size_of::<FreeListNode>().
-        // SIZE_CLASSES[0] = 16 bytes; FreeListNode is 8 bytes
-        // (single Option<NonNull>). Invariant holds.
-        debug_assert!(SIZE_CLASSES[bucket] >= size_of::<FreeListNode>());
-        unsafe {
-            ptr::write(
-                node_ptr,
-                FreeListNode {
-                    next: self.buckets[bucket],
-                },
-            );
-            self.buckets[bucket] = Some(NonNull::new_unchecked(node_ptr));
+        // Dispatch ptr to its owning span: same-class scan.
+        // Phase 2a item 3 replaces this with O(1) registry lookup.
+        let cur = self.class_cur[bucket] as usize;
+        for i in 0..cur {
+            if let Some(span) = self.classes[bucket][i].as_mut() {
+                if span.contains(ptr) {
+                    // SAFETY: ptr is contained in this span; caller's
+                    // outer Safety invariant says ptr was from a
+                    // matching `alloc(size)`, which placed it in
+                    // exactly this size class.
+                    unsafe { span.free_slot(ptr) };
+                    return;
+                }
+            }
         }
+        // ptr not in any span — silently drop (matches legacy
+        // behavior: mis-sized free is leak, not UB).
     }
 
-    fn current_page_mut(&mut self) -> Option<&mut PageBump> {
-        if self.cur == 0 {
-            return None;
-        }
-        self.pages[self.cur - 1].as_mut()
-    }
-
-    fn advance_page(&mut self) -> Option<()> {
-        if self.cur >= MAX_PAGES {
-            return None;
-        }
-        let page = PageBump::alloc_page().ok()?;
-        self.pages[self.cur] = Some(page);
-        self.cur += 1;
-        Some(())
-    }
-
-    /// Total bytes allocated from the kernel (sum of mmap'd page
-    /// sizes). Diagnostic, not a runtime hot-path.
+    /// Total bytes addressable from the kernel via this allocator.
+    /// = `sum over classes of (active_spans × SPAN_LEN)`.
+    /// Diagnostic, not a runtime hot-path.
     pub fn mapped_bytes(&self) -> usize {
-        self.cur * PAGE_SIZE
+        let mut sum = 0usize;
+        for cur in self.class_cur.iter() {
+            sum += (*cur as usize) * SPAN_LEN;
+        }
+        sum
     }
 }
+
+// Suppress unused — the `NonNull` import is needed for the
+// public re-export path some downstream tests reach for; without
+// it the file fails compile when those tests poke internals.
+// (Kept here so a future refactor that moves NonNull users out
+// won't silently break re-exports.)
+#[allow(dead_code)]
+const _PHANTOM_NONNULL_USE: Option<NonNull<u8>> = None;
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use core::ptr;
 
     #[test]
     fn alloc_and_free_recycles() {
@@ -165,7 +184,7 @@ mod tests {
         unsafe { *p1 = 0xab };
         unsafe { a.dealloc(p1, 16) };
         // Next alloc of same bucket should hand back the same
-        // block (LIFO).
+        // block (Span freelist is LIFO).
         let p2 = a.alloc(16).expect("realloc 16");
         assert_eq!(p1, p2, "free list not recycling");
     }
@@ -180,17 +199,17 @@ mod tests {
     }
 
     #[test]
-    fn cross_page_alloc() {
+    fn cross_span_alloc() {
         let mut a = Allocator::new();
-        // Fill page 1 with 256-class allocations: 16 KB / 256 = 64
-        // blocks fits exactly; the 65th should trigger a new page.
+        // Fill span 1 with 256-class allocations: 16 KB / 256 = 64
+        // slots fits exactly; the 65th should trigger a new span.
         for _ in 0..64 {
             let p = a.alloc(256).expect("alloc 256");
             unsafe { *p = 0xcd };
         }
-        let p = a.alloc(256).expect("alloc 256 across pages");
+        let p = a.alloc(256).expect("alloc 256 across spans");
         unsafe { *p = 0xef };
-        assert_eq!(a.mapped_bytes(), 2 * PAGE_SIZE);
+        assert_eq!(a.mapped_bytes(), 2 * SPAN_LEN);
     }
 
     #[test]
@@ -219,9 +238,9 @@ mod tests {
     }
 
     /// Every alloc returns a 16-byte aligned pointer (matches macOS
-    /// libc malloc guarantee). SIZE_CLASSES are all multiples of 16
-    /// and PAGE_SIZE is 16K, so the invariant holds by construction —
-    /// this test pins it down so future cursor-increment edits can't
+    /// libc malloc guarantee). SIZE_CLASSES are multiples of 16
+    /// and SPAN_LEN is 16K, so the invariant holds by construction —
+    /// this test pins it down so future cursor edits in Span can't
     /// silently break alignment for SIMD / `_Atomic` heap reads.
     #[test]
     fn alloc_pointers_are_16_byte_aligned() {
@@ -241,19 +260,16 @@ mod tests {
     }
 
     /// Stress: 100K alloc/free roundtrips across all size classes
-    /// without corruption. Catches free-list double-link / cross-page
-    /// metadata bugs that single-shot tests miss.
+    /// without corruption. Catches freelist double-link / cross-
+    /// span dispatch bugs that single-shot tests miss.
     #[test]
     fn stress_100k_roundtrips_no_corruption() {
         let mut a = Allocator::new();
         let sizes = [16usize, 32, 64, 128, 256, 512, 1024, 2048, 4096];
-        // Use a fixed pattern so we can detect cross-allocation
-        // overwrite (each block tagged with its alloc index).
         for round in 0..100_000usize {
             let size = sizes[round % sizes.len()];
             let p = a.alloc(size).expect("alloc");
             unsafe {
-                // Write magic + index into the first 8 bytes
                 let header = p as *mut u64;
                 let magic = 0xdeadbeef00000000u64 | (round as u64);
                 ptr::write(header, magic);
@@ -261,5 +277,21 @@ mod tests {
                 a.dealloc(p, size);
             }
         }
+    }
+
+    /// Span-backed shape regression: verify two allocs in the same
+    /// class share a single span until that span is full. (Legacy
+    /// PageBump shape could mix-size within a page; new Span shape
+    /// must NOT.)
+    #[test]
+    fn same_class_packs_into_one_span() {
+        let mut a = Allocator::new();
+        let p1 = a.alloc(64).expect("alloc 1");
+        let p2 = a.alloc(64).expect("alloc 2");
+        // Both should be in the same span: addresses differ by
+        // slot_size (64 B), not by span_len.
+        let delta = (p2 as usize).abs_diff(p1 as usize);
+        assert_eq!(delta, 64, "same-class allocs not packed in one span");
+        assert_eq!(a.mapped_bytes(), SPAN_LEN, "should be exactly 1 span");
     }
 }
