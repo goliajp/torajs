@@ -10,7 +10,7 @@
 //!
 //! Extracted from `formatter.rs` (2026-05-25, god-file decomp batch 18).
 
-use crate::ast::{ClassMethod, Expr, Param, StaticInit, Stmt, Visibility};
+use crate::ast::{ClassMethod, Expr, Param, Stmt, Visibility};
 
 use super::Formatter;
 
@@ -307,51 +307,19 @@ impl<'a> Formatter<'a> {
                 return_type,
                 body,
                 is_generator,
-            } => {
-                self.write_indent();
-                self.write("function");
-                if *is_generator {
-                    self.write("*");
-                }
-                self.write(" ");
-                self.write(name);
-                self.fmt_type_params(type_params);
-                self.fmt_params(params);
-                if let Some(ret) = return_type {
-                    self.write(": ");
-                    self.write(ret);
-                }
-                self.write(" {");
-                self.newline();
-                self.indent += 1;
-                for s in body {
-                    self.fmt_stmt(s);
-                    self.newline();
-                }
-                self.indent -= 1;
-                self.write_indent();
-                self.write("}");
-            }
+            } => self.fmt_fn_decl(
+                name,
+                type_params,
+                params,
+                return_type.as_deref(),
+                body,
+                *is_generator,
+            ),
             Stmt::TypeDecl {
                 name,
                 type_params,
                 fields,
-            } => {
-                self.write_indent();
-                self.write("type ");
-                self.write(name);
-                self.fmt_type_params(type_params);
-                self.write(" = { ");
-                for (i, (fn_, fty)) in fields.iter().enumerate() {
-                    if i > 0 {
-                        self.write(", ");
-                    }
-                    self.write(fn_);
-                    self.write(": ");
-                    self.write(fty);
-                }
-                self.write(" }");
-            }
+            } => self.fmt_type_decl(name, type_params, fields),
             Stmt::ClassDecl {
                 name,
                 type_params,
@@ -362,172 +330,28 @@ impl<'a> Formatter<'a> {
                 ctor,
                 methods,
                 static_methods,
-            } => {
-                self.write_indent();
-                if *is_abstract {
-                    self.write("abstract ");
-                }
-                self.write("class ");
-                self.write(name);
-                self.fmt_type_params(type_params);
-                if let Some(p) = parent {
-                    self.write(" extends ");
-                    self.write(p);
-                }
-                self.write(" {");
-                self.newline();
-                self.indent += 1;
-                for (fn_, ann) in fields {
-                    self.write_indent();
-                    self.write(fn_);
-                    self.write(": ");
-                    self.write(ann);
-                    self.newline();
-                }
-                for si in static_init {
-                    self.write_indent();
-                    match si {
-                        StaticInit::Field(sf) => {
-                            self.write("static ");
-                            self.write(&sf.name);
-                            self.write(": ");
-                            self.write(&sf.type_ann);
-                            self.write(" = ");
-                            self.fmt_expr(sf.init);
-                            self.newline();
-                        }
-                        StaticInit::Block(stmts) => {
-                            self.write("static {");
-                            self.newline();
-                            self.indent += 1;
-                            for s in stmts {
-                                self.fmt_stmt(s);
-                            }
-                            self.indent -= 1;
-                            self.write_indent();
-                            self.write("}");
-                            self.newline();
-                        }
-                    }
-                }
-                if let Some(ctor) = ctor {
-                    if !fields.is_empty() || !static_init.is_empty() {
-                        self.newline();
-                    }
-                    self.write_indent();
-                    self.write("constructor");
-                    self.fmt_params(&ctor.params);
-                    self.write(" {");
-                    self.newline();
-                    self.indent += 1;
-                    for s in &ctor.body {
-                        self.fmt_stmt(s);
-                        self.newline();
-                    }
-                    self.indent -= 1;
-                    self.write_indent();
-                    self.write("}");
-                    self.newline();
-                }
-                for m in methods {
-                    self.newline();
-                    self.fmt_class_method(m, false);
-                    self.newline();
-                }
-                for m in static_methods {
-                    self.newline();
-                    self.fmt_class_method(m, true);
-                    self.newline();
-                }
-                self.indent -= 1;
-                self.write_indent();
-                self.write("}");
-            }
+            } => self.fmt_class_decl(
+                name,
+                type_params,
+                parent.as_deref(),
+                *is_abstract,
+                fields,
+                static_init,
+                ctor.as_ref(),
+                methods,
+                static_methods,
+            ),
             Stmt::ImportDecl {
                 default,
                 namespace,
                 named,
                 source,
-            } => {
-                self.write_indent();
-                self.write("import ");
-                let mut wrote_clause = false;
-                if let Some(d) = default {
-                    self.write(d);
-                    wrote_clause = true;
-                }
-                if let Some(ns) = namespace {
-                    if wrote_clause {
-                        self.write(", ");
-                    }
-                    self.write("* as ");
-                    self.write(ns);
-                    wrote_clause = true;
-                }
-                if !named.is_empty() {
-                    if wrote_clause {
-                        self.write(", ");
-                    }
-                    self.write("{ ");
-                    for (i, (n, alias)) in named.iter().enumerate() {
-                        if i > 0 {
-                            self.write(", ");
-                        }
-                        self.write(n);
-                        if let Some(a) = alias {
-                            self.write(" as ");
-                            self.write(a);
-                        }
-                    }
-                    self.write(" }");
-                    wrote_clause = true;
-                }
-                if wrote_clause {
-                    self.write(" from ");
-                }
-                self.write("'");
-                self.write(source);
-                self.write("'");
-            }
+            } => self.fmt_import_decl(default.as_deref(), namespace.as_deref(), named, source),
             Stmt::ExportDecl {
                 inner,
                 named,
                 default_expr,
-            } => {
-                self.write_indent();
-                self.write("export ");
-                if let Some(eid) = default_expr {
-                    self.write("default ");
-                    self.fmt_expr(*eid);
-                    return;
-                }
-                if !named.is_empty() {
-                    self.write("{ ");
-                    for (i, (n, alias)) in named.iter().enumerate() {
-                        if i > 0 {
-                            self.write(", ");
-                        }
-                        self.write(n);
-                        if let Some(a) = alias {
-                            self.write(" as ");
-                            self.write(a);
-                        }
-                    }
-                    self.write(" }");
-                    return;
-                }
-                if let Some(s) = inner {
-                    // Inner stmt already emits its own indent — strip
-                    // by re-emitting starting from after the `export `
-                    // keyword. Easiest: temporarily clear indent for
-                    // the recursive call (the inner won't see the
-                    // outer indent bump).
-                    let saved = self.indent;
-                    self.indent = 0;
-                    self.fmt_stmt(s);
-                    self.indent = saved;
-                }
-            }
+            } => self.fmt_export_decl(inner.as_deref(), named, *default_expr),
         }
     }
 

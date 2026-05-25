@@ -33,6 +33,7 @@
 
 mod fmt_expr;
 mod fmt_stmt;
+mod fmt_stmt_decls;
 
 use crate::ast::{Ast, Stmt};
 use crate::lexer;
