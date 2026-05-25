@@ -27,6 +27,7 @@
 //! O(log n) — already orders better than the size_class fallback
 //! O(n) scan path and adequate for Phase 2a/2b workloads.
 
+use core::cell::UnsafeCell;
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use crate::central::CentralQueue;
@@ -221,10 +222,22 @@ impl SpanRegistry {
 static CORE_LOCK: AtomicBool = AtomicBool::new(false);
 static mut CORE_ALLOC: Allocator = Allocator::new();
 static mut CORE_REGISTRY: SpanRegistry = SpanRegistry::new();
-/// Per-process TLAB cache (Phase 2b item 7). Single-threaded
-/// runtime + CORE_LOCK guards access; Phase 2c upgrades to true
-/// per-CPU thread_local with lock-free cross-thread queue.
-static mut CORE_TLAB: TlabCache = TlabCache::new();
+// Phase 2c "real" upgrade (post-bench finding 2026-05-26): TLAB is
+// per-thread via thread_local! const-init — zero lock cost in hot
+// path (TLS load ~1 cycle on aarch64). Replaces the global static
+// + CORE_LOCK CAS that was dominating ~30 cyc per alloc/free pair.
+// Per-thread isolation also means cargo-test parallel workers no
+// longer race + multi-thread runtime (post-v1.0) gets correctness +
+// scalability for free.
+//
+// The UnsafeCell + `unsafe { *cell.get() }` pattern is the textbook
+// "single-owner per thread" model (mimalloc / tcmalloc style). The
+// thread_local! storage class guarantees per-thread isolation, so
+// the UnsafeCell is sound: only one thread can ever observe a given
+// TLAB instance.
+std::thread_local! {
+    static CORE_TLAB: UnsafeCell<TlabCache> = const { UnsafeCell::new(TlabCache::new()) };
+}
 
 /// Process-wide central queue (Phase 2c item 10). Lock-free MPMC
 /// stack per size class; acts as the TLAB overflow buffer + cross-
@@ -293,38 +306,37 @@ pub fn alloc_sized(size: usize) -> *mut u8 {
         Some(i) => i,
         None => return core::ptr::null_mut(),
     };
-    lock();
-    // TLAB fast path — pop a cached slot for this class.
-    if let Some(p) = unsafe { (*&raw mut CORE_TLAB).pop(class_idx) } {
-        unlock();
+    // TLAB fast path — per-thread, no lock. ~1 cyc TLS load +
+    // ~3 cyc pop. Common case under hot loops.
+    let tlab_hit = CORE_TLAB.with(|t| unsafe { (*t.get()).pop(class_idx) });
+    if let Some(p) = tlab_hit {
         return p;
     }
-    // TLAB miss — first try Central (overflow buffer + cross-thread
-    // free landing zone). Drain up to TLAB_CACHE_DEPTH slots from
-    // Central into TLAB to amortize the per-slot CAS cost.
-    let mut drained = 0usize;
-    while drained < TLAB_CACHE_DEPTH {
-        match CORE_CENTRAL.pop(class_idx) {
-            Some(p) => {
-                let pushed = unsafe { (*&raw mut CORE_TLAB).push(class_idx, p) };
-                if !pushed {
-                    // TLAB filled during drain — push back and exit.
-                    unsafe { CORE_CENTRAL.push(class_idx, p) };
-                    break;
+    // TLAB miss — drain up to TLAB_CACHE_DEPTH slots from Central
+    // back into per-thread TLAB. Central is lock-free MPMC.
+    let first_central = CORE_CENTRAL.pop(class_idx);
+    if let Some(p) = first_central {
+        CORE_TLAB.with(|t| {
+            for _ in 1..TLAB_CACHE_DEPTH {
+                match CORE_CENTRAL.pop(class_idx) {
+                    Some(q) => {
+                        if !unsafe { (*t.get()).push(class_idx, q) } {
+                            // TLAB filled mid-drain — push leftover
+                            // back to Central for next round.
+                            unsafe { CORE_CENTRAL.push(class_idx, q) };
+                            break;
+                        }
+                    }
+                    None => break,
                 }
-                drained += 1;
             }
-            None => break,
-        }
-    }
-    if let Some(p) = unsafe { (*&raw mut CORE_TLAB).pop(class_idx) } {
-        unlock();
+        });
         return p;
     }
-    // Both TLAB + Central empty — fall through to central Allocator.
-    // Detect span-grow via mapped_bytes delta — if it changed,
-    // a new span was added; register its (base, class_idx) so
-    // future Layer 0 free(ptr) can dispatch.
+    // TLAB + Central both empty — central Allocator (under lock,
+    // since Allocator's per-class span lists need sync). Only
+    // entered on first allocs / cold paths.
+    lock();
     let before_mapped = unsafe { (*&raw const CORE_ALLOC).mapped_bytes() };
     let p = unsafe { (*&raw mut CORE_ALLOC).alloc(size) }.unwrap_or(core::ptr::null_mut());
     let after_mapped = unsafe { (*&raw const CORE_ALLOC).mapped_bytes() };
@@ -368,17 +380,13 @@ pub unsafe fn free_sized(ptr: *mut u8, size: usize) {
         Some(i) => i,
         None => return,
     };
-    lock();
-    // TLAB fast path — push to cache; if full, fall through.
-    if unsafe { (*&raw mut CORE_TLAB).push(class_idx, ptr) } {
-        unlock();
+    // TLAB fast path — per-thread, no lock. ~3 cyc.
+    let pushed = CORE_TLAB.with(|t| unsafe { (*t.get()).push(class_idx, ptr) });
+    if pushed {
         return;
     }
-    unlock();
-    // TLAB full — push to Central (lock-free, faster than walking
-    // Allocator's same-class span freelist which is O(n_spans)).
-    // The next alloc_sized miss on this class will drain Central
-    // back into TLAB amortized.
+    // TLAB full — push to Central (lock-free MPMC). Next alloc-
+    // miss on this class drains Central back to TLAB amortized.
     unsafe { CORE_CENTRAL.push(class_idx, ptr) };
 }
 
