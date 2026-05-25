@@ -14,7 +14,23 @@
 
 use inkwell::context::Context;
 
-use super::{ARR_HDR_CAP_OFF, ARR_HDR_DATA_OFF, ARR_HDR_HEAD_OFF, ARR_HDR_LEN_OFF};
+/// Phase 2A refcount: every Arr heap object begins with the same
+/// 8-byte universal heap header `__torajs_heap_header_t` (refcount@0,
+/// type_tag@4, flags@6), followed by `len@8` (u64), `cap@16` (u32),
+/// `head@20` (u32), and `slots@24`. T-13.5 Array deque: cap was
+/// shrunk from u64 to u32 to free 4 bytes for `head_offset`, the
+/// physical-slot offset of logical[0]. `arr.shift()` is now O(1)
+/// (head++/len--); push compacts when phys_used == cap and head>0.
+/// Mirrors `__TORAJS_ARR_HDR_SIZE` and friends in the historical
+/// `runtime_str.c` (now lives in `crates/torajs-arr/src/layout.rs`).
+pub(super) const ARR_HDR_LEN_OFF: u64 = 8;
+pub(super) const ARR_HDR_CAP_OFF: u64 = 16;
+/// T-13.5 deque head_offset (u32) — packed in the high 4 B of the
+/// 8-B slot at offset 16. Logical[0] sits at `data + head*8`.
+/// Restored 2026-05-24 (B1b) so `define_arr_push` can compact + grow
+/// in IR with cross-TU-bypass alwaysinline linkage.
+pub(super) const ARR_HDR_HEAD_OFF: u64 = 20;
+pub(super) const ARR_HDR_DATA_OFF: u64 = 24;
 
 /// Get the Arr's logical-data byte pointer: `arr + 24 + head*8`. Used
 /// by callers that index by logical-slot (push fast-path, push grow-
