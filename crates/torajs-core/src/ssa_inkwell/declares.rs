@@ -17,25 +17,23 @@ use inkwell::values::FunctionValue;
 
 use super::CompileTarget;
 
-/// T-20.b (v0.6.0) — pick the libc fn name based on target. On
-/// native, IR calls libc directly with `i64` size args (matches
-/// the platform's 64-bit size_t). On wasm32-wasi, libc has 32-bit
-/// size_t and wasm makes function-type identity part of the type
-/// system; routing through the `__torajs_libc_*` bridge in
-/// `runtime_libc_bridge.c` keeps the IR-side i64 ABI uniform
-/// while the C bridge does the (size_t)i64 truncation.
-pub(super) fn libc_name(native: &'static str, target: CompileTarget) -> &'static str {
-    match target {
-        CompileTarget::Native => native,
-        CompileTarget::Wasm32Wasi => match native {
-            "malloc" => "__torajs_libc_malloc",
-            "realloc" => "__torajs_libc_realloc",
-            "memcpy" => "__torajs_libc_memcpy",
-            "memmove" => "__torajs_libc_memmove",
-            "memcmp" => "__torajs_libc_memcmp",
-            "free" => "__torajs_libc_free",
-            _ => panic!("libc_name: no wasm bridge for `{native}`"),
-        },
+/// Pick the mmalloc / libc-bridge fn name for IR-emitted alloc/copy
+/// calls. v0.7-A2 step 6b: Native now also routes through
+/// `__torajs_libc_*` — these symbols resolve to torajs-mmalloc's
+/// libc-compat shim (libtorajs_mmalloc.a), so user-binary IR alloc
+/// + sub-crate Rust extern alloc share a single allocator instance
+/// instead of splitting libc vs mmalloc and tripping the SHIM_HEADER
+/// invariant. Wasm32-wasi already used the same bridge for the
+/// i64↔size_t glue; native joins it under the same names.
+pub(super) fn libc_name(native: &'static str, _target: CompileTarget) -> &'static str {
+    match native {
+        "malloc" => "__torajs_libc_malloc",
+        "realloc" => "__torajs_libc_realloc",
+        "memcpy" => "__torajs_libc_memcpy",
+        "memmove" => "__torajs_libc_memmove",
+        "memcmp" => "__torajs_libc_memcmp",
+        "free" => "__torajs_libc_free",
+        _ => panic!("libc_name: no torajs-mmalloc shim for `{native}`"),
     }
 }
 
