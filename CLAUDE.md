@@ -145,6 +145,51 @@ find /private/tmp -maxdepth 1 -name '*.ts' -delete 2>/dev/null
 
 不要把"我没看到问题"当成"没问题"——硬盘填满是渐进的，发现就晚了。
 
+### Target 目录每日 audit（v0.7-A2 step 6b 期间引入，2026-05-25 takagi 要求）
+
+cargo target dir 是最大头（autorun 高频 rebuild 会让 release/deps 增长到 60+ GB，iter 20+ GB）。**incremental cache 是建过的 cost，不能盲删**——删了下次 build cold rebuild 5-15 min；尤其 conformance 跑期间 `.fingerprint` 被清会触发 "cargo build tr failed: cannot write invoked.timestamp" → 整套 conformance 跑被打断。
+
+**每次 session 结束前必跑 + 推到 100 GB 立刻 audit**：
+
+```bash
+# 1. 总 size + 各 profile 占比
+du -sh target target/release target/iter target/release/deps 2>/dev/null
+
+# 2. 安全删（不影响开发）
+rm -rf target/aarch64-apple-darwin    # 跨架构（我们只 aarch64-darwin 一种 host）
+rm -rf target/debug                   # autorun 走 release/iter，debug 仅 IDE 用
+
+# 3. 不安全的（看似可删但会炸 autorun）— 不要碰：
+#   - target/release/deps/         (release incremental cache)
+#   - target/iter/.fingerprint/    (conformance gate run 前一秒还在用)
+#   - target/iter/deps/            (iter incremental cache)
+#   - target/release/libtorajs_*.a (ssa_inkwell 烘焙到 tr binary)
+#   - target/release/tr            (autorun 推进时频繁 re-link)
+
+# 4. cargo sweep 慎用：默认按 mtime 判断，autorun 高频 rebuild 时所有 fingerprint
+#    都新，sweep 清不出量；偶尔 stale 项目里 fingerprint 又会清掉 conformance
+#    依赖的 cli/embed fingerprint。**只在确认无 autorun + 无 conformance/bench
+#    正在跑时用**。
+
+# 5. 真要回收大量空间：迁移到外置盘
+#   见 /Users/doracawl/.claude-shared/global/cargo-target-dir.md
+#   (wrapper + ~/.cargo/config.toml 全局 target-dir 改 /Volumes/...)
+```
+
+**信号判定**：
+
+- `target/` < 50 GB → 健康
+- `target/` 50-100 GB → 可接受，session 末跑 rm 跨架构/debug 看回收
+- `target/` > 100 GB → audit；先 stop 任何 autorun，再考虑搬外置盘
+- 任何 `df` 显示内置盘 < 50 GB free → P0 立刻处理（先 stop autorun + 报告 takagi）
+
+**禁止反模式**：
+
+- ❌ `cargo clean` —— 全删 target，autorun 推不了 1 小时
+- ❌ `rm -rf target/` —— 同上
+- ❌ 「占盘大 → cargo sweep -t 1」—— 会清掉当前 autorun 依赖的 fingerprint
+- ❌ 删 `libtorajs_*.a` —— ssa_inkwell `include_bytes!()` 烘焙路径，删了 tr build 找不到
+
 ## Autorun rotation protocol (HARD RULE)
 
 长时间 autorun 推进会出现 drift（中文规则破裂、4-layer 越层、silent-wrong 风险升高）。`hardev/autorun/` pillar 治理这件事。本节是**模型侧协议**——必须严格遵守，因为它跟 `hardev/autorun/trigger.sh` + `rotations.jsonl` + 未来的 P1 watcher 是配套的闭环，违反 = 协议失效 = takagi 又得手动管 session 切换。
