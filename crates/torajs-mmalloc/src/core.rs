@@ -32,6 +32,7 @@ use core::sync::atomic::{AtomicBool, Ordering};
 use crate::large::{large_alloc, large_free};
 use crate::size_class::{Allocator, PER_CLASS_CAP, SIZE_CLASSES};
 use crate::span::SPAN_LEN;
+use crate::tlab::TlabCache;
 
 // ============================================================
 // SpanRegistry — ptr→span O(log n) lookup
@@ -162,6 +163,10 @@ impl SpanRegistry {
 static CORE_LOCK: AtomicBool = AtomicBool::new(false);
 static mut CORE_ALLOC: Allocator = Allocator::new();
 static mut CORE_REGISTRY: SpanRegistry = SpanRegistry::new();
+/// Per-process TLAB cache (Phase 2b item 7). Single-threaded
+/// runtime + CORE_LOCK guards access; Phase 2c upgrades to true
+/// per-CPU thread_local with lock-free cross-thread queue.
+static mut CORE_TLAB: TlabCache = TlabCache::new();
 
 #[inline]
 fn lock() {
@@ -191,6 +196,11 @@ fn zero_sentinel() -> *mut u8 {
 
 /// Layer 1 alloc — caller knows size. Hot path; `free_sized`
 /// skips registry. Returns NULL on OOM, sentinel on `size == 0`.
+///
+/// TLAB fast path (Phase 2b item 7): if a slot of the right size
+/// class is cached in CORE_TLAB, return it directly (~3 cycles
+/// inside the locked section). Miss falls through to
+/// `CORE_ALLOC.alloc` (size_class span freelist).
 pub fn alloc_sized(size: usize) -> *mut u8 {
     if size == 0 {
         return zero_sentinel();
@@ -198,7 +208,17 @@ pub fn alloc_sized(size: usize) -> *mut u8 {
     if size > SIZE_CLASSES[SIZE_CLASSES.len() - 1] {
         return large_alloc(size).unwrap_or(core::ptr::null_mut());
     }
+    let class_idx = match Allocator::bucket_for(size) {
+        Some(i) => i,
+        None => return core::ptr::null_mut(),
+    };
     lock();
+    // TLAB fast path — pop a cached slot for this class.
+    if let Some(p) = unsafe { (*&raw mut CORE_TLAB).pop(class_idx) } {
+        unlock();
+        return p;
+    }
+    // TLAB miss — fall through to central Allocator.
     // Detect span-grow via mapped_bytes delta — if it changed,
     // a new span was added; register its (base, class_idx) so
     // future Layer 0 free(ptr) can dispatch.
@@ -208,9 +228,8 @@ pub fn alloc_sized(size: usize) -> *mut u8 {
     if !p.is_null() && after_mapped > before_mapped {
         // Span base = ptr rounded down to SPAN_LEN boundary.
         let span_base = (p as usize) & !(SPAN_LEN - 1);
-        let class_idx = Allocator::bucket_for(size).unwrap_or(0) as u8;
         unsafe {
-            (*&raw mut CORE_REGISTRY).insert(span_base, class_idx);
+            (*&raw mut CORE_REGISTRY).insert(span_base, class_idx as u8);
         }
     }
     unlock();
@@ -219,6 +238,12 @@ pub fn alloc_sized(size: usize) -> *mut u8 {
 
 /// Layer 1 free — caller provides original size. Skips registry
 /// lookup entirely (fastest path).
+///
+/// TLAB fast path (Phase 2b item 7): push the freed slot into
+/// CORE_TLAB so the next `alloc_sized` of the same size can hand
+/// it back without touching the central span freelist (~3 cycles
+/// inside the locked section). If the TLAB is full for this
+/// class, fall through to central `Allocator.dealloc`.
 ///
 /// # Safety
 ///
@@ -232,7 +257,17 @@ pub unsafe fn free_sized(ptr: *mut u8, size: usize) {
         let _ = unsafe { large_free(ptr, size) };
         return;
     }
+    let class_idx = match Allocator::bucket_for(size) {
+        Some(i) => i,
+        None => return,
+    };
     lock();
+    // TLAB fast path — push to cache; if full, fall through.
+    if unsafe { (*&raw mut CORE_TLAB).push(class_idx, ptr) } {
+        unlock();
+        return;
+    }
+    // TLAB full for this class — dispatch to central span freelist.
     unsafe {
         (*&raw mut CORE_ALLOC).dealloc(ptr, size);
     }
