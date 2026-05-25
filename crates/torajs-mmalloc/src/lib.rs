@@ -39,5 +39,7 @@ pub mod extern_api;
 pub mod large;
 pub mod page;
 pub mod size_class;
+pub mod span;
 
 pub use size_class::Allocator;
+pub use span::Span;
