@@ -114,6 +114,71 @@ pub unsafe extern "C" fn __torajs_realloc(
     new_ptr
 }
 
+// ============================================================
+// libc-compat shim — auto-size tracking
+//
+// Sub-crate code calls `extern { fn malloc/free/realloc }` with
+// the libc shape (no size on free). To migrate without rewriting
+// every call site, sub-crates re-declare those externs with
+// `#[link_name = "__torajs_libc_malloc"]` etc. — same Rust call
+// shape, different link-time symbol → routed to these shims.
+//
+// Shim prepends an 8-byte size header so `free(ptr)` can recover
+// the original size. Costs 8 bytes per alloc; can be replaced by
+// direct __torajs_free(ptr, size) call sites later.
+// ============================================================
+
+const SHIM_HEADER: usize = 16; // 8 bytes for size + 8 bytes for alignment padding
+
+/// libc-compat malloc. Allocates `size + SHIM_HEADER` bytes, writes
+/// the size into the first 8 bytes, returns ptr offset by `SHIM_HEADER`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_libc_malloc(size: usize) -> *mut c_void {
+    let total = size + SHIM_HEADER;
+    let raw = unsafe { __torajs_malloc(total) };
+    if raw.is_null() {
+        return core::ptr::null_mut();
+    }
+    // Write size at offset 0
+    unsafe { core::ptr::write(raw as *mut usize, total) };
+    // Return user-visible ptr (offset past header)
+    unsafe { (raw as *mut u8).add(SHIM_HEADER) as *mut c_void }
+}
+
+/// libc-compat free. Reads size from prepended header, calls
+/// `__torajs_free` with recovered size.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_libc_free(ptr: *mut c_void) {
+    if ptr.is_null() {
+        return;
+    }
+    let raw = unsafe { (ptr as *mut u8).sub(SHIM_HEADER) };
+    let total = unsafe { core::ptr::read(raw as *const usize) };
+    unsafe { __torajs_free(raw as *mut c_void, total) };
+}
+
+/// libc-compat realloc. Reads old size from header, calls inner
+/// `__torajs_realloc`, returns new user-visible pointer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_libc_realloc(ptr: *mut c_void, new_size: usize) -> *mut c_void {
+    if ptr.is_null() {
+        return unsafe { __torajs_libc_malloc(new_size) };
+    }
+    if new_size == 0 {
+        unsafe { __torajs_libc_free(ptr) };
+        return core::ptr::null_mut();
+    }
+    let raw = unsafe { (ptr as *mut u8).sub(SHIM_HEADER) };
+    let old_total = unsafe { core::ptr::read(raw as *const usize) };
+    let new_total = new_size + SHIM_HEADER;
+    let new_raw = unsafe { __torajs_realloc(raw as *mut c_void, old_total, new_total) };
+    if new_raw.is_null() {
+        return core::ptr::null_mut();
+    }
+    unsafe { core::ptr::write(new_raw as *mut usize, new_total) };
+    unsafe { (new_raw as *mut u8).add(SHIM_HEADER) as *mut c_void }
+}
+
 /// libc-compatible memcpy. NOT overlap-safe — use `__torajs_memmove`
 /// for overlapping ranges.
 #[unsafe(no_mangle)]
@@ -216,6 +281,38 @@ mod tests {
             );
         }
         assert_eq!(buf, [0, 1, 0, 1, 2, 3, 6, 7]);
+    }
+
+    #[test]
+    fn libc_compat_malloc_free_roundtrip() {
+        let p = unsafe { __torajs_libc_malloc(100) };
+        assert!(!p.is_null());
+        unsafe {
+            for i in 0..100 {
+                core::ptr::write((p as *mut u8).add(i), (i & 0xff) as u8);
+            }
+            for i in 0..100 {
+                assert_eq!(*((p as *const u8).add(i)), (i & 0xff) as u8);
+            }
+            __torajs_libc_free(p);
+        }
+    }
+
+    #[test]
+    fn libc_compat_realloc_preserves_content() {
+        let p = unsafe { __torajs_libc_malloc(8) };
+        unsafe {
+            for i in 0..8 {
+                core::ptr::write((p as *mut u8).add(i), (i + 10) as u8);
+            }
+        }
+        let q = unsafe { __torajs_libc_realloc(p, 24) };
+        unsafe {
+            for i in 0..8 {
+                assert_eq!(*((q as *const u8).add(i)), (i + 10) as u8);
+            }
+            __torajs_libc_free(q);
+        }
     }
 
     #[test]
