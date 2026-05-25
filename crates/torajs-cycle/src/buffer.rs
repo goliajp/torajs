@@ -41,6 +41,10 @@ static G_BUFFER_LEN: AtomicU32 = AtomicU32::new(0);
 static G_BUFFER_CAP: AtomicU32 = AtomicU32::new(0);
 
 unsafe extern "C" {
+    /// torajs-mmalloc libc-compat realloc — v0.7-A2 step 6b cutover.
+    /// Closed-loop within cycle (this is cycle's own root buffer; the
+    /// cross-crate `free` in collect.rs is the separate finale path).
+    #[link_name = "__torajs_libc_realloc"]
     fn realloc(p: *mut c_void, n: usize) -> *mut c_void;
 }
 

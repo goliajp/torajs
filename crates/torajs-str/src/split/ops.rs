@@ -389,6 +389,7 @@ mod tests {
     }
 
     unsafe extern "C" {
+        #[link_name = "__torajs_libc_free"]
         fn free(ptr: *mut c_void);
     }
 

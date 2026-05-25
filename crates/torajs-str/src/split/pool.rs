@@ -64,6 +64,8 @@ pub fn block_size(cap: u64) -> usize {
 // ============================================================
 
 unsafe extern "C" {
+    /// torajs-mmalloc libc-compat — v0.7-A2 step 6b cutover.
+    #[link_name = "__torajs_libc_malloc"]
     fn malloc(size: usize) -> *mut c_void;
 }
 
@@ -158,9 +160,9 @@ pub unsafe extern "C" fn __torajs_split_block_free_push(p: *mut u8) -> i32 {
 mod tests {
     use super::*;
 
-    // `free` for cleanup. Same extern decl as alloc.rs uses for the
-    // Str pool — libc symbol, no crate dep.
+    // `free` for cleanup. Routed to mmalloc shim (v0.7-A2 step 6b).
     unsafe extern "C" {
+        #[link_name = "__torajs_libc_free"]
         fn free(ptr: *mut c_void);
     }
 
