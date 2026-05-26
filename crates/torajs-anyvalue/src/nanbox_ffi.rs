@@ -362,7 +362,7 @@ fn decode_to_tag_value(v: AnyValue) -> (i64, i64) {
 /// Heap payloads have their refcount bumped so the caller of the
 /// shim gets an owning ref distinct from the soon-to-be-dropped
 /// box's ref.
-fn box_to_immediate(box_ptr: *mut c_void) -> AnyValue {
+pub(crate) fn box_to_immediate(box_ptr: *mut c_void) -> AnyValue {
     if box_ptr.is_null() {
         return VALUE_NULL;
     }

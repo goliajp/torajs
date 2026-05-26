@@ -2,6 +2,13 @@
 //! `__torajs_anyv_box_*` + `__torajs_anyv_unbox_tag` +
 //! `__torajs_anyv_unbox_value` (Step 7b / 7d).
 //!
+//! Also home of the **pair-arg bridge shims** that 7d-A's
+//! ssa_lower atomic switch swaps to from the legacy
+//! `*AnyBox`-returning `any_arith` / `any_add` /
+//! `any_strict_eq` declares — these take the `(tag, value)`
+//! pairs ssa_lower already produces (post-`unbox_tag/value`)
+//! and return an immediate AnyValue (no AnyBox alloc).
+//!
 //! Split out of [`crate::nanbox_ffi`] to keep that file under
 //! the 500-line hard limit. The encode/unbox shims are the
 //! migration entry points ssa_lower calls into; the rest
@@ -9,13 +16,18 @@
 //! compare/arith/add) stays in `nanbox_ffi.rs`.
 
 use std::ffi::c_void;
+use std::ptr::NonNull;
 
 use torajs_rc::AnySlotTag;
 
+use crate::AnyBox;
+use crate::arith::{any_add, any_arith};
 use crate::nanbox::{
-    AnyValue, VALUE_NULL, VALUE_UNDEFINED, as_bool, as_double, as_int32, box_bool, box_double,
-    box_int32, box_void_ptr, is_bool, is_cell, is_double, is_int32, is_null, is_undefined,
+    AnyValue, VALUE_FALSE, VALUE_NULL, VALUE_TRUE, VALUE_UNDEFINED, as_bool, as_double, as_int32,
+    box_bool, box_double, box_int32, box_void_ptr, is_bool, is_cell, is_double, is_int32, is_null,
+    is_undefined,
 };
+use crate::nanbox_ffi::{__torajs_anyv_strict_eq, box_to_immediate};
 
 // ============================================================
 // Encode shims — let ssa_lower emit one-line calls instead of
@@ -165,10 +177,109 @@ pub extern "C" fn __torajs_anyv_unbox_value(v: AnyValue) -> i64 {
     }
 }
 
+// ============================================================
+// Pair-arg bridge shims — 7d-A migration entry points. The
+// existing inner `any_arith` / `any_add` impls in
+// [`crate::arith`] still alloc + return an `*AnyBox`; these
+// shims take ssa_lower's already-decoded `(tag, value)` pairs,
+// call the inner, immediate-encode the result, and drop the
+// transitional box. 7e-7f rewrites the inner impls to skip
+// the alloc entirely; these wrappers then go away.
+// ============================================================
+
+/// Pair-arg arithmetic: takes the legacy `(op, lt, lv, rt, rv)`
+/// shape ssa_lower produces via `any_unbox_tag` +
+/// `any_unbox_value`, returns a fresh [`AnyValue`] (no AnyBox
+/// alloc visible to the caller).
+///
+/// # Safety
+///
+/// `lt` / `rt` ∈ `AnySlotTag`. If tag == Heap, value is 0 or a
+/// valid `*mut HeapHeader`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_arith_pair(
+    op: i64,
+    lt: i64,
+    lv: i64,
+    rt: i64,
+    rv: i64,
+) -> AnyValue {
+    // SAFETY: caller invariant on tag/value pairs.
+    let box_ptr = unsafe { any_arith(op, lt, lv, rt, rv) };
+    let result = box_to_immediate(box_ptr);
+    if let Some(p) = NonNull::new(box_ptr as *mut AnyBox) {
+        // SAFETY: any_arith returns an owned (rc=1) AnyBox.
+        unsafe { AnyBox::drop_owned(p) };
+    }
+    result
+}
+
+/// Pair-arg `+`: legacy `(lt, lv, rt, rv)` shape →
+/// [`AnyValue`] (no AnyBox alloc visible to the caller).
+///
+/// # Safety
+///
+/// Same as [`__torajs_anyv_arith_pair`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_add_pair(lt: i64, lv: i64, rt: i64, rv: i64) -> AnyValue {
+    // SAFETY: caller invariant on tag/value pairs.
+    let box_ptr = unsafe { any_add(lt, lv, rt, rv) };
+    let result = box_to_immediate(box_ptr);
+    if let Some(p) = NonNull::new(box_ptr as *mut AnyBox) {
+        // SAFETY: any_add returns an owned (rc=1) AnyBox.
+        unsafe { AnyBox::drop_owned(p) };
+    }
+    result
+}
+
+/// Immediate-vs-pair strict equality. ssa_lower's array-includes
+/// + class-tag dispatch paths produce one `AnyValue` immediate
+/// (the heap-stored element) and one statically-decoded
+/// `(tag, value)` pair (the literal needle). Reconstructs the
+/// needle as an immediate and delegates to
+/// [`__torajs_anyv_strict_eq`].
+///
+/// # Safety
+///
+/// `l` is a valid AnyValue bit pattern. `rt` ∈ `AnySlotTag`;
+/// `rv` matches the SSA-layer packing.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_strict_eq_imm_pair(l: AnyValue, rt: i64, rv: i64) -> bool {
+    let r = match rt {
+        0 => VALUE_NULL,
+        1 => {
+            if rv != 0 {
+                VALUE_TRUE
+            } else {
+                VALUE_FALSE
+            }
+        }
+        2 => {
+            if let Ok(n32) = i32::try_from(rv) {
+                box_int32(n32)
+            } else {
+                box_double(rv as f64)
+            }
+        }
+        3 => box_double(f64::from_bits(rv as u64)),
+        4 => {
+            if rv == 0 {
+                VALUE_NULL
+            } else {
+                rv as u64
+            }
+        }
+        5 => VALUE_UNDEFINED,
+        _ => VALUE_NULL,
+    };
+    // SAFETY: anyv_strict_eq's contract — cell-case operands valid.
+    unsafe { __torajs_anyv_strict_eq(l, r) }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::nanbox::{VALUE_FALSE, VALUE_TRUE, box_double, box_int32};
+    use crate::nanbox::{box_double, box_int32};
 
     #[test]
     fn anyv_box_helpers_match_constants() {
