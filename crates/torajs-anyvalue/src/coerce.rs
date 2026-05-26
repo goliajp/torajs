@@ -10,8 +10,9 @@
 //!   wraps as `__torajs_any_to_number_inner` (and box-aware
 //!   `__torajs_any_to_number`).
 //!
-//! Plus `AnyValue::to_number()` — idiomatic-Rust mirror for the
-//! already-materialized AnyValue view.
+//! Plus `AnyView::to_number()` — idiomatic-Rust mirror for the
+//! already-materialized AnyView view (renamed from `AnyValue` in
+//! Step 7b — `AnyValue` is now the NaN-box u64 immediate type).
 //!
 //! Extracted from `lib.rs` (2026-05-25, anyvalue god-file decomp
 //! batch 14).
@@ -22,7 +23,7 @@ use torajs_rc::{__torajs_rc_inc, AnySlotTag, HeapHeader, Tag};
 
 use crate::{
     __torajs_bool_to_str, __torajs_f64_to_str, __torajs_i64_to_str, __torajs_null_to_str,
-    __torajs_str_alloc_pooled, __torajs_str_to_number, __torajs_undefined_to_str, AnyValue,
+    __torajs_str_alloc_pooled, __torajs_str_to_number, __torajs_undefined_to_str, AnyView,
     STR_HDR_SIZE,
 };
 
@@ -154,27 +155,27 @@ pub(crate) unsafe fn any_to_number(tag: i64, value: i64) -> f64 {
     f64::NAN
 }
 
-impl AnyValue {
+impl AnyView {
     /// `ToNumber` per ES §7.1.4 — idiomatic-Rust mirror of
-    /// [`any_to_number`] for already-materialized `AnyValue`s.
+    /// [`any_to_number`] for already-materialized `AnyView`s.
     /// Same per-tag rules; the `Heap` case delegates to the C
     /// `__torajs_str_to_number` for `Tag::Str` and returns `NaN`
     /// for every other heap type.
     pub fn to_number(self) -> f64 {
         match self {
-            AnyValue::Null => 0.0,
-            AnyValue::Undef => f64::NAN,
-            AnyValue::Bool(b) => {
+            AnyView::Null => 0.0,
+            AnyView::Undef => f64::NAN,
+            AnyView::Bool(b) => {
                 if b {
                     1.0
                 } else {
                     0.0
                 }
             }
-            AnyValue::I64(n) => n as f64,
-            AnyValue::F64(n) => n,
-            AnyValue::Heap(None) => 0.0,
-            AnyValue::Heap(Some(p)) => {
+            AnyView::I64(n) => n as f64,
+            AnyView::F64(n) => n,
+            AnyView::Heap(None) => 0.0,
+            AnyView::Heap(Some(p)) => {
                 // SAFETY: NonNull invariant — points to a live
                 // HeapHeader.
                 let h = unsafe { p.as_ref() };
@@ -185,7 +186,7 @@ impl AnyValue {
                     f64::NAN
                 }
             }
-            AnyValue::Unknown => f64::NAN,
+            AnyView::Unknown => f64::NAN,
         }
     }
 }
