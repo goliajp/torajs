@@ -54,12 +54,13 @@ use std::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
 
 use torajs_rc::{__torajs_rc_dec, __torajs_rc_inc, HeapHeader, Tag};
 
+// Step 4 (v0.7-A2 Phase 2e sweep): Layer 1 sized API.
 unsafe extern "C" {
     /// torajs-mmalloc libc-compat malloc — v0.7-A2 step 6b cutover.
-    #[link_name = "__torajs_libc_malloc"]
+    #[link_name = "__torajs_malloc"]
     fn malloc(size: usize) -> *mut c_void;
-    #[link_name = "__torajs_libc_free"]
-    fn free(ptr: *mut c_void);
+    #[link_name = "__torajs_free"]
+    fn free(ptr: *mut c_void, size: usize);
 }
 
 // ============================================================
@@ -200,10 +201,11 @@ impl SubstrBlock {
         if unsafe { __torajs_rc_dec(self.0.as_ptr() as *mut c_void) } == 1 {
             drop_parent(parent);
             if !pool_push(self.0) {
-                // Pool full → fall through to libc free.
-                // SAFETY: block was libc-allocated (or pool-popped
-                // from such); free is the matching deallocator.
-                unsafe { free(self.0.as_ptr() as *mut c_void) };
+                // Pool full → fall through to Layer 1 sized free.
+                // SAFETY: every Substr block is exactly SUBSTR_SIZE
+                // bytes (alloc allocates via __torajs_malloc with
+                // that constant — see Self::alloc).
+                unsafe { free(self.0.as_ptr() as *mut c_void, SUBSTR_SIZE) };
             }
         }
     }
@@ -501,7 +503,7 @@ mod tests {
         // would do this in production). The HeapHeader::refcount
         // still says 1 (we never dec'd it), so dec_ref it once first
         // to keep semantics tidy then free directly.
-        unsafe { free(view_ptr.as_ptr() as *mut c_void) };
+        unsafe { free(view_ptr.as_ptr() as *mut c_void, SUBSTR_SIZE) };
         parent_block.free_pool_aware();
     }
 

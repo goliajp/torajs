@@ -381,16 +381,20 @@ mod tests {
     /// same allocation so no separate frees). Also dec the parent
     /// rc once per inline substr to balance init's rc_inc.
     unsafe fn free_split_block(block: *mut u8, parent: *mut u8) {
-        let len = unsafe { (block.add(ARR_LEN_OFF) as *const u64).read() } as usize;
-        for _ in 0..len {
+        let len = unsafe { (block.add(ARR_LEN_OFF) as *const u64).read() } as u64;
+        for _ in 0..len as usize {
             unsafe { torajs_rc::__torajs_rc_dec(parent as *mut c_void) };
         }
-        unsafe { free(block as *mut c_void) };
+        // Layer 1 sized free: split-block size is `block_size(len)` —
+        // 24 (Arr header) + 40 * len bytes (8 ptr slot + 32 inline
+        // substr per element). See `crate::split::pool::block_size`.
+        unsafe { free(block as *mut c_void, crate::split::pool::block_size(len)) };
     }
 
+    // Step 4 (v0.7-A2 Phase 2e sweep): Layer 1 sized free.
     unsafe extern "C" {
-        #[link_name = "__torajs_libc_free"]
-        fn free(ptr: *mut c_void);
+        #[link_name = "__torajs_free"]
+        fn free(ptr: *mut c_void, size: usize);
     }
 
     #[test]

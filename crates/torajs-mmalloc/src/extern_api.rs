@@ -56,6 +56,21 @@ pub unsafe extern "C" fn __torajs_free(ptr: *mut c_void, size: usize) {
     unsafe { crate::core::free_sized(ptr as *mut u8, size) };
 }
 
+/// torajs calloc — zero-initialized alloc. Routes to
+/// `__torajs_malloc(size) + ptr::write_bytes(0)`. Caller passes
+/// total byte count (no `nmemb * size` overflow check needed at
+/// this layer; sub-crates compute the product). Returns NULL on
+/// OOM.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_calloc(size: usize) -> *mut c_void {
+    let p = unsafe { __torajs_malloc(size) };
+    if p.is_null() {
+        return core::ptr::null_mut();
+    }
+    unsafe { core::ptr::write_bytes(p as *mut u8, 0, size) };
+    p
+}
+
 /// torajs realloc — `(ptr, old_size, new_size)`. Allocates a
 /// fresh block via core, copies `min(old, new)` bytes, frees the
 /// old block. Returns NULL on OOM (old block is NOT freed in that

@@ -38,11 +38,13 @@ use crate::layout::{STR_DATA_OFF, STR_LEN_OFF, STR_POOL_PAYLOAD, block_size, pac
 use crate::pool;
 
 unsafe extern "C" {
-    /// torajs-mmalloc libc-compat malloc — v0.7-A2 step 6b cutover.
-    #[link_name = "__torajs_libc_malloc"]
+    /// torajs-mmalloc Layer 1 alloc — Step 4 (v0.7-A2 Phase 2e sweep).
+    /// Returns raw chunk pointer (no SHIM offset). Caller passes size
+    /// on free too — derived from `block_size(len)`.
+    #[link_name = "__torajs_malloc"]
     fn malloc(size: usize) -> *mut c_void;
-    #[link_name = "__torajs_libc_free"]
-    fn free(ptr: *mut c_void);
+    #[link_name = "__torajs_free"]
+    fn free(ptr: *mut c_void, size: usize);
 }
 
 // ============================================================
@@ -130,11 +132,11 @@ impl StrBlock {
         if len <= STR_POOL_PAYLOAD && pool::push(self.0) {
             return;
         }
-        // SAFETY: block was libc-allocated by `Self::alloc` (or
-        // by a C-side `malloc(str_block_size_(...))` in the
-        // pre-rewrite path — same allocator). `free` is the
-        // matching libc deallocator.
-        unsafe { free(self.0.as_ptr() as *mut c_void) };
+        // SAFETY: block was `malloc(block_size(len))`-allocated by
+        // `Self::alloc` (or a future caller follows the same shape).
+        // Layer 1 `free` takes the same size we alloc'd with —
+        // derived deterministically from `len`.
+        unsafe { free(self.0.as_ptr() as *mut c_void, block_size(len)) };
     }
 
     /// Length of the Str payload in bytes. Reads the u64 at
@@ -449,7 +451,7 @@ mod tests {
 
         // Drain the (still-alive) block manually since
         // free_pool_aware deliberately skipped real free.
-        unsafe { free(ptr.as_ptr() as *mut c_void) };
+        unsafe { free(ptr.as_ptr() as *mut c_void, block_size(4)) };
     }
 
     #[test]

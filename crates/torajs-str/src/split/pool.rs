@@ -63,9 +63,9 @@ pub fn block_size(cap: u64) -> usize {
 // Pool API
 // ============================================================
 
+// Step 4 (v0.7-A2 Phase 2e sweep): Layer 1 sized alloc.
 unsafe extern "C" {
-    /// torajs-mmalloc libc-compat — v0.7-A2 step 6b cutover.
-    #[link_name = "__torajs_libc_malloc"]
+    #[link_name = "__torajs_malloc"]
     fn malloc(size: usize) -> *mut c_void;
 }
 
@@ -160,10 +160,10 @@ pub unsafe extern "C" fn __torajs_split_block_free_push(p: *mut u8) -> i32 {
 mod tests {
     use super::*;
 
-    // `free` for cleanup. Routed to mmalloc shim (v0.7-A2 step 6b).
+    // `free` for cleanup. Layer 1 sized API (Step 4).
     unsafe extern "C" {
-        #[link_name = "__torajs_libc_free"]
-        fn free(ptr: *mut c_void);
+        #[link_name = "__torajs_free"]
+        fn free(ptr: *mut c_void, size: usize);
     }
 
     fn drain_pool() {
@@ -204,7 +204,7 @@ mod tests {
         assert!(push(nn4, 4));
         let popped5 = alloc(5);
         assert_ne!(popped5.as_ptr(), raw4);
-        unsafe { free(popped5.as_ptr() as *mut c_void) };
+        unsafe { free(popped5.as_ptr() as *mut c_void, block_size(5)) };
         assert_eq!(alloc(4).as_ptr(), raw4);
 
         // 3. fill pool to capacity → next push returns false.
@@ -219,16 +219,16 @@ mod tests {
         // Drain back.
         for _ in 0..POOL_SLOTS {
             let p = alloc(2);
-            unsafe { free(p.as_ptr() as *mut c_void) };
+            unsafe { free(p.as_ptr() as *mut c_void, block_size(2)) };
         }
-        unsafe { free(extra as *mut c_void) };
+        unsafe { free(extra as *mut c_void, block_size(2)) };
 
         // 4. FFI free_push reads cap from ARR_CAP_OFF.
         let raw3 = unsafe { malloc(block_size(3)) } as *mut u8;
         unsafe { (raw3.add(ARR_CAP_OFF) as *mut u32).write(3) };
         assert_eq!(unsafe { __torajs_split_block_free_push(raw3) }, 1);
         assert_eq!(alloc(3).as_ptr(), raw3);
-        unsafe { free(raw3 as *mut c_void) };
+        unsafe { free(raw3 as *mut c_void, block_size(3)) };
 
         // 5. FFI free_push null is no-op success.
         let count_before = COUNT.load(Ordering::Relaxed);
@@ -239,6 +239,6 @@ mod tests {
         assert_eq!(COUNT.load(Ordering::Relaxed), count_before);
 
         // 6. Clean original cap-4 block (still owned by the test).
-        unsafe { free(raw4 as *mut c_void) };
+        unsafe { free(raw4 as *mut c_void, block_size(4)) };
     }
 }
