@@ -237,8 +237,13 @@ static mut CORE_REGISTRY: SpanRegistry = SpanRegistry::new();
 // UnsafeCell provides interior mutability without unsafe-static
 // requirement; per-thread isolation guarantees no concurrent
 // observer, so the UnsafeCell is sound.
+//
+// `#[unsafe(no_mangle)] pub` (Phase 2e item 13): exposes the stable
+// symbol name `__torajs_core_tlab` to ssa_inkwell IR-emit for inline
+// TLAB.pop / push sequence at user-binary alloc/free sites.
+#[unsafe(no_mangle)]
 #[thread_local]
-static CORE_TLAB: UnsafeCell<TlabCache> = UnsafeCell::new(TlabCache::new());
+pub static __torajs_core_tlab: UnsafeCell<TlabCache> = UnsafeCell::new(TlabCache::new());
 
 /// Process-wide central queue (Phase 2c item 10). Lock-free MPMC
 /// stack per size class; acts as the TLAB overflow buffer + cross-
@@ -280,7 +285,7 @@ fn zero_sentinel() -> *mut u8 {
 /// skips registry. Returns NULL on OOM, sentinel on `size == 0`.
 ///
 /// TLAB fast path (Phase 2b item 7): if a slot of the right size
-/// class is cached in CORE_TLAB, return it directly (~3 cycles
+/// class is cached in __torajs_core_tlab, return it directly (~3 cycles
 /// inside the locked section). Miss falls through to
 /// `CORE_ALLOC.alloc` (size_class span freelist).
 ///
@@ -314,7 +319,7 @@ pub fn alloc_sized(size: usize) -> *mut u8 {
     };
     // TLAB fast path — raw #[thread_local], ~1-2 cyc TLS register
     // load + ~3 cyc pop. Common case under hot loops.
-    let tlab = CORE_TLAB.get();
+    let tlab = __torajs_core_tlab.get();
     if let Some(p) = unsafe { (*tlab).pop(class_idx) } {
         return p;
     }
@@ -359,7 +364,7 @@ pub fn alloc_sized(size: usize) -> *mut u8 {
 /// lookup entirely (fastest path).
 ///
 /// TLAB fast path (Phase 2b item 7): push the freed slot into
-/// CORE_TLAB so the next `alloc_sized` of the same size can hand
+/// __torajs_core_tlab so the next `alloc_sized` of the same size can hand
 /// it back without touching the central span freelist (~3 cycles
 /// inside the locked section). If the TLAB is full for this
 /// class, fall through to central `Allocator.dealloc`.
@@ -387,7 +392,7 @@ pub unsafe fn free_sized(ptr: *mut u8, size: usize) {
     };
     // TLAB fast path — raw #[thread_local], ~1-2 cyc TLS load +
     // ~3 cyc push.
-    let tlab = CORE_TLAB.get();
+    let tlab = __torajs_core_tlab.get();
     if unsafe { (*tlab).push(class_idx, ptr) } {
         return;
     }
