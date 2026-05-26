@@ -16,6 +16,13 @@ use core::ffi::c_void;
 
 unsafe extern "C" {
     fn __torajs_any_box(tag: i64, value: i64) -> *mut c_void;
+    /// Step 7d-A — NaN-box `AnyValue` decoders from torajs-anyvalue.
+    /// Used instead of direct AnyBox struct reads so this crate stays
+    /// decoupled from the AnyBox memory layout (the legacy struct is
+    /// gone after the atomic switch; values are NaN-box immediates
+    /// passed through the `*c_void` slot for ABI compat).
+    fn __torajs_anyv_unbox_tag(v: u64) -> i64;
+    fn __torajs_anyv_unbox_value(v: u64) -> i64;
     fn __torajs_rc_inc(p: *mut c_void);
     fn __torajs_value_drop_heap(child: *mut c_void);
     fn __torajs_str_alloc_pooled(len: u64) -> *mut u8;
@@ -36,28 +43,28 @@ const ANY_BOOL: i64 = 1;
 const ANY_UNDEF: i64 = 5;
 const ANY_HEAP: i64 = 4;
 
-const ANY_BOX_VAL_OFF: usize = 16;
-
-// HeapHeader: refcount u32 @+0, type_tag u16 @+4, flags u16 @+6.
-// Step 5b+ packs the 4-bit AnySlotTag into `flags` bits 8..11; this
-// crate mirrors the bit positions from torajs-rc rather than taking
-// a Cargo dep (deps tree stays narrow — see Cargo.toml comment).
-const ANY_BOX_FLAGS_OFF: usize = 6;
-const ANY_TAG_SHIFT: u16 = 8;
-const ANY_TAG_MASK: u16 = 0b1111 << ANY_TAG_SHIFT;
-
 // Tag::DynObj from torajs-rc — universal heap header at offset 0.
 const TAG_DYNOBJ: u16 = 14;
 
+/// Step 7d-A — decode an `AnyValue` (passed via the legacy
+/// `*const c_void` slot for ssa_lower IR compat) back to its
+/// `AnySlotTag` discriminant. Delegates to the NaN-box decoder.
 #[inline]
 unsafe fn any_box_tag(box_ptr: *const c_void) -> i64 {
-    let flags = unsafe { (box_ptr.cast::<u8>().add(ANY_BOX_FLAGS_OFF) as *const u16).read() };
-    ((flags & ANY_TAG_MASK) >> ANY_TAG_SHIFT) as i64
+    // SAFETY: caller invariant — box_ptr carries an AnyValue bit
+    // pattern (well-formed per ssa_lower's box_to_any emit).
+    unsafe { __torajs_anyv_unbox_tag(box_ptr as u64) }
 }
 
+/// Step 7d-A — decode an `AnyValue`'s raw value field. For
+/// `Heap`-tagged values the result is the contained pointer as
+/// `i64`; primitives decode per the [`__torajs_anyv_unbox_value`]
+/// contract (`Bool` → 0/1, `Int32` → sign-extended, `F64` → IEEE
+/// 754 bits).
 #[inline]
 unsafe fn any_box_value(box_ptr: *const c_void) -> i64 {
-    unsafe { (box_ptr.cast::<u8>().add(ANY_BOX_VAL_OFF) as *const i64).read() }
+    // SAFETY: caller invariant — same as `any_box_tag`.
+    unsafe { __torajs_anyv_unbox_value(box_ptr as u64) }
 }
 
 #[inline]

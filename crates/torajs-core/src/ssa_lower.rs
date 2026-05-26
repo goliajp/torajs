@@ -13435,6 +13435,52 @@ impl<'a> LowerCtx<'a> {
         )
     }
 
+    /// Step 7d-A — `dynobj_set` / `dynobj_define` may resize +
+    /// relocate the underlying heap block (`*obj_slot` updated).
+    /// The variable's AnyValue still holds the OLD ptr; if the
+    /// receiver was a named Ident, reload the post-resize ptr and
+    /// store it back as a fresh NaN-box `AnyValue`. NaN-box Cell
+    /// encoding is `ptr as u64` (identical bits — the PtrToInt +
+    /// IntToPtr cast is a no-op at LLVM IR; LTO collapses them
+    /// into the same SSA value). Non-Ident receivers (e.g.
+    /// `arr[i].x = v`) don't have a hoisted slot; the resize-time
+    /// dangling is a follow-up patch (no current conformance
+    /// fixture exercises it under the 7/8 load factor +
+    /// `INITIAL_CAP=8`).
+    fn emit_any_dynobj_writeback(&mut self, obj_ident: &Option<String>, dynobj_slot: ValueId) {
+        let Some(name) = obj_ident else {
+            return;
+        };
+        let Some(info) = self.locals.get(name).copied() else {
+            return;
+        };
+        if !matches!(info.ty, Type::Any) {
+            return;
+        }
+        let new_dynobj = self.f.append_inst(
+            self.cur_block,
+            InstKind::Load(Type::Ptr, Operand::Value(dynobj_slot), 0),
+            Type::Ptr,
+            None,
+        );
+        let new_dynobj_as_i64 = self.f.append_inst(
+            self.cur_block,
+            InstKind::PtrToInt(Operand::Value(new_dynobj)),
+            Type::I64,
+            None,
+        );
+        let new_any = self.f.append_inst(
+            self.cur_block,
+            InstKind::IntToPtr(Operand::Value(new_dynobj_as_i64)),
+            Type::Any,
+            None,
+        );
+        self.f.append_void(
+            self.cur_block,
+            InstKind::Store(Operand::Value(new_any), Operand::Value(info.slot), 0),
+        );
+    }
+
     /// array pointer as Operand::Value.
     fn lower_array_any_literal(&mut self, ids: &[ExprId]) -> Operand {
         // P5.6 — spreads inside Array<Any> literals walk through
@@ -14122,6 +14168,19 @@ impl<'a> LowerCtx<'a> {
                         // offset, drop the old field value if non-Copy,
                         // and store the new value. Field offset is
                         // `idx*8` per the P2.4 layout.
+                        //
+                        // Step 7d-A — capture the LHS variable name (if
+                        // `obj` is a plain Ident) so the Type::Any
+                        // dynobj-set / dynobj_define paths below can
+                        // write the post-resize ptr back to the
+                        // variable's storage as a fresh NaN-box
+                        // `AnyValue`.
+                        let obj_ident: Option<String> =
+                            if let Expr::Ident(n) = self.ast.get_expr(obj) {
+                                Some(n.clone())
+                            } else {
+                                None
+                            };
                         let obj_val = self.lower_expr(obj);
                         let obj_ty = self.operand_ty(&obj_val);
                         // P3.2 — Member assign on Type::Any routes
@@ -14250,24 +14309,7 @@ impl<'a> LowerCtx<'a> {
                             // P3.attribute-flag-tracking — implicit
                             // assign now throws on writable=false.
                             self.emit_throw_check(None);
-                            // P3.2 — dynobj_set may resize; reload the
-                            // (possibly new) ptr from the slot and
-                            // write it back into the Any-box's value
-                            // field so subsequent reads see the live
-                            // dynobj. Without this, the box keeps a
-                            // dangling old-cap ptr after grow, and
-                            // every read from a key inserted post-
-                            // resize returns undefined.
-                            let new_dynobj = self.f.append_inst(
-                                self.cur_block,
-                                InstKind::Load(Type::Ptr, Operand::Value(slot), 0),
-                                Type::Ptr,
-                                None,
-                            );
-                            self.f.append_void(
-                                self.cur_block,
-                                InstKind::Store(Operand::Value(new_dynobj), obj_val.clone(), 16),
-                            );
+                            self.emit_any_dynobj_writeback(&obj_ident, slot);
                             return Operand::ConstI64(0);
                         }
                         // T-27 — Function-as-Object: `f.x = v` writes
@@ -16483,6 +16525,16 @@ impl<'a> LowerCtx<'a> {
                         self.ast.get_expr(args[1]),
                         Expr::String(s) if s == "length"
                     );
+                    // Step 7d-A — capture the receiver's Ident name (if any) so
+                    // the dynobj-define Any path below can writeback the
+                    // post-resize ptr to the variable's storage as a fresh
+                    // NaN-box `AnyValue`.
+                    let receiver_ident: Option<String> =
+                        if let Expr::Ident(n) = self.ast.get_expr(args[0]) {
+                            Some(n.clone())
+                        } else {
+                            None
+                        };
                     let obj_op = self.lower_expr(args[0]);
                     let obj_ty = self.operand_ty(&obj_op);
 
@@ -16628,16 +16680,7 @@ impl<'a> LowerCtx<'a> {
                     // violations (configurable / writable-mismatch);
                     // propagate via __torajs_throw_check.
                     self.emit_throw_check(None);
-                    let new_dynobj = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Load(Type::Ptr, Operand::Value(slot), 0),
-                        Type::Ptr,
-                        None,
-                    );
-                    self.f.append_void(
-                        self.cur_block,
-                        InstKind::Store(Operand::Value(new_dynobj), obj_op, 16),
-                    );
+                    self.emit_any_dynobj_writeback(&receiver_ident, slot);
                     return Operand::ConstI64(0);
                 }
                 // P3.getOwnPropertyDescriptor — `Object.getOwnPropertyDescriptor(obj, key)`.

@@ -462,11 +462,40 @@ impl HeapHeader {
 /// header. Single-threaded contract — no concurrent mutation.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_rc_inc(p: *mut c_void) {
+    // Step 7d-A — `p` may carry a NaN-box `AnyValue` bit-pattern
+    // (the boxed heap ptrs share canonical 48-bit user-VA + low
+    // bits zero, which `nan_box_is_cell_like` accepts; everything
+    // else — Int32 / f64 / Null / Undef / Bool — has a top tag bit
+    // set and skips here). This keeps the legacy "real heap ptr"
+    // contract intact (real ptrs always pass `is_cell_like`)
+    // while making the helper safe for ssa_lower call sites that
+    // can't statically distinguish cells from immediates after the
+    // Type::Any switch.
+    if !nan_box_is_cell_like(p) {
+        return;
+    }
     if let Some(mut header) = NonNull::new(p as *mut HeapHeader) {
         // SAFETY: `p` was non-null per the NonNull match arm;
         // caller invariant says it points to a live header.
         unsafe { header.as_mut() }.inc_ref();
     }
+}
+
+/// True when `p`'s bit pattern looks like a real heap pointer
+/// (top 16 bits zero, low 1 bit zero — every torajs heap object
+/// is 8-aligned, so the bottom two bits are always zero, and the
+/// aarch64 user-VA is 48 bits wide). NaN-box non-cell encodings
+/// always set either the top tag bits (TAG_TYPE_NUMBER for Int32
+/// / f64) or the low TAG_BIT_TYPE_OTHER bit (0x02 — Null / Undef
+/// / Bool sentinels), so this check cleanly distinguishes the
+/// two without depending on torajs-anyvalue. Mirrors the
+/// `is_cell` predicate in `torajs-anyvalue::nanbox`.
+#[inline]
+fn nan_box_is_cell_like(p: *mut c_void) -> bool {
+    const TAG_TYPE_NUMBER: u64 = 0xFFFE_0000_0000_0000;
+    const TAG_BIT_TYPE_OTHER: u64 = 0x02;
+    let v = p as u64;
+    v != 0 && (v & TAG_TYPE_NUMBER) == 0 && (v & TAG_BIT_TYPE_OTHER) == 0
 }
 
 /// FFI bridge to [`HeapHeader::dec_ref`]. Null-safe. Returns
@@ -479,6 +508,12 @@ pub unsafe extern "C" fn __torajs_rc_inc(p: *mut c_void) {
 /// Same as [`__torajs_rc_inc`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_rc_dec(p: *mut c_void) -> i32 {
+    // Step 7d-A — same NaN-box gate as `__torajs_rc_inc`: non-cell
+    // bit-patterns are immediate primitives with no heap header,
+    // skip without dereferencing.
+    if !nan_box_is_cell_like(p) {
+        return 0;
+    }
     let Some(mut header) = NonNull::new(p as *mut HeapHeader) else {
         return 0;
     };

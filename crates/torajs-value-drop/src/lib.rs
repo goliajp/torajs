@@ -84,6 +84,16 @@ pub unsafe extern "C" fn __torajs_value_drop_heap(child: *mut c_void) {
     if child.is_null() {
         return;
     }
+    // Step 7d-A — same NaN-box gate as `__torajs_rc_inc`/`_dec`:
+    // when an `Array<Any>` slot or dynobj value carries a NaN-box
+    // immediate (Int32 / f64 / Null / Undef / Bool sentinels stored
+    // under ANY_HEAP because ssa_lower can't statically distinguish
+    // post-7d-A), bypass — there's no heap header to dereference.
+    // Real heap pointers always pass `is_cell_like` (top 16 bits
+    // zero + low TAG_BIT_TYPE_OTHER bit clear).
+    if !nan_box_is_cell_like(child) {
+        return;
+    }
     // type_tag lives at offset +4 in the universal header (after the
     // u32 refcount).
     let tag = unsafe { (child.cast::<u8>().add(4) as *const u16).read() };
@@ -116,4 +126,16 @@ pub unsafe extern "C" fn __torajs_value_drop_heap(child: *mut c_void) {
             }
         },
     }
+}
+
+/// True when `child`'s bit pattern looks like a real heap pointer
+/// (top 16 bits zero, low TAG_BIT_TYPE_OTHER bit clear, non-zero).
+/// Mirrors `is_cell` in `torajs-anyvalue::nanbox` and the gate in
+/// `torajs-rc`'s `__torajs_rc_inc` (Step 7d-A).
+#[inline]
+fn nan_box_is_cell_like(p: *mut c_void) -> bool {
+    const TAG_TYPE_NUMBER: u64 = 0xFFFE_0000_0000_0000;
+    const TAG_BIT_TYPE_OTHER: u64 = 0x02;
+    let v = p as u64;
+    v != 0 && (v & TAG_TYPE_NUMBER) == 0 && (v & TAG_BIT_TYPE_OTHER) == 0
 }

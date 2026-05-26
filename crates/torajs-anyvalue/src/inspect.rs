@@ -25,12 +25,12 @@
 
 use core::ffi::c_void;
 
-use crate::AnyBox;
 use crate::nanbox::{
     AnyValue, as_bool, as_double, as_int32, as_void_ptr, is_bool, is_cell, is_double, is_int32,
     is_null, is_undefined,
 };
-use torajs_rc::{AnySlotTag, HeapHeader, Tag};
+use crate::nanbox_ffi::__torajs_anyv_to_bool;
+use torajs_rc::{HeapHeader, Tag};
 
 const STR_HDR_SIZE: usize = 16;
 
@@ -64,152 +64,49 @@ unsafe fn heap_type_tag(child: *const c_void) -> u16 {
     unsafe { (*(child as *const HeapHeader)).type_tag }
 }
 
-/// `typeof box` per ES §13.5.3 — returns a fresh Str. NULL box
-/// (uninit / explicit cast) treats as `"object"` per spec
-/// (`typeof null === "object"`).
+/// `typeof box` per ES §13.5.3 — returns a fresh Str. Step 7d-A
+/// delegate: forwards to [`__torajs_anyv_typeof`], the NaN-box
+/// `AnyValue` entry point. `box_ptr` carries the `AnyValue`
+/// bit-pattern (or zero for an uninitialized slot, which decodes
+/// as `"object"` per `typeof null === "object"`).
 ///
 /// # Safety
-/// `box_ptr` must be NULL or a valid `*const AnyBox` (live).
+/// `box_ptr` carries an `AnyValue` bit-pattern.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_any_typeof(box_ptr: *const c_void) -> *mut u8 {
-    if box_ptr.is_null() {
-        return alloc_literal(b"object");
-    }
-    let any = unsafe { &*(box_ptr as *const AnyBox) };
-    let kind: &[u8] = match any.slot_tag() {
-        Some(AnySlotTag::Null) => b"object",
-        Some(AnySlotTag::Undef) => b"undefined",
-        Some(AnySlotTag::Bool) => b"boolean",
-        Some(AnySlotTag::I64) | Some(AnySlotTag::F64) => b"number",
-        Some(AnySlotTag::Heap) => {
-            let child = any.value as *const c_void;
-            if child.is_null() {
-                b"object"
-            } else {
-                // SAFETY: ANY_HEAP value is a refcounted heap ptr; we
-                // only read the universal type_tag at offset +4 in the
-                // header.
-                let tag = unsafe { heap_type_tag(child) };
-                if tag == Tag::Str as u16 {
-                    b"string"
-                } else if tag == Tag::Closure as u16 {
-                    b"function"
-                } else if tag == Tag::Symbol as u16 {
-                    b"symbol"
-                } else if tag == Tag::BigInt as u16 {
-                    b"bigint"
-                } else {
-                    // OBJ / ARR / REGEX / DATE / RESPONSE / WEAK* /
-                    // ANY_BOX (nested) / DYNOBJ / MAP* / ARR_ITER →
-                    // "object"
-                    b"object"
-                }
-            }
-        }
-        None => b"object",
-    };
-    alloc_literal(kind)
+    // SAFETY: caller invariant — propagated.
+    unsafe { __torajs_anyv_typeof(box_ptr as AnyValue) }
 }
 
-/// `console.log(box)` dispatch — single-arg form. Routes to the
-/// matching primitive printer based on the slot tag; ANY_HEAP
-/// recurses through the heap value's universal `type_tag` for
-/// `Str` (the only pretty-printable heap type today).
+/// `console.log(box)` dispatch — single-arg form. Step 7d-A
+/// delegate: forwards to [`__torajs_print_anyv`], the NaN-box
+/// entry point. `box_ptr` carries the `AnyValue` bit-pattern.
 ///
 /// Trailing newline matches every other `print_*` helper; multi-
-/// arg console.log goes through the space-joiner upstream and
+/// arg `console.log` goes through the space-joiner upstream and
 /// calls this for each arg in turn.
 ///
 /// # Safety
-/// `box_ptr` must be NULL or a valid `*const AnyBox` (live).
+/// `box_ptr` carries an `AnyValue` bit-pattern.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_print_any(box_ptr: *const c_void) {
-    if box_ptr.is_null() {
-        write_line(b"null\n");
-        return;
-    }
-    let any = unsafe { &*(box_ptr as *const AnyBox) };
-    match any.slot_tag() {
-        Some(AnySlotTag::Null) => write_line(b"null\n"),
-        Some(AnySlotTag::Undef) => write_line(b"undefined\n"),
-        Some(AnySlotTag::Bool) => unsafe { print_bool(any.value != 0) },
-        Some(AnySlotTag::I64) => unsafe { print_i64(any.value) },
-        Some(AnySlotTag::F64) => {
-            // i64 → f64 bitcast.
-            let d = f64::from_bits(any.value as u64);
-            unsafe { print_f64(d) };
-        }
-        Some(AnySlotTag::Heap) => {
-            let child = any.value as *const c_void;
-            if child.is_null() {
-                write_line(b"null\n");
-                return;
-            }
-            // SAFETY: live heap ptr; reading type_tag is the same
-            // pattern as `__torajs_any_typeof`.
-            let tag = unsafe { heap_type_tag(child) };
-            if tag == Tag::Str as u16 {
-                unsafe { __torajs_str_print(child as *const u8) };
-            } else {
-                // Obj / Arr / Closure / RegExp / Date pretty-print
-                // is a later wedge. For now print a placeholder so
-                // the user sees something rather than silent / crash.
-                write_line(b"[object]\n");
-            }
-        }
-        None => write_line(b"[unknown-any-tag]\n"),
-    }
+    // SAFETY: caller invariant — propagated.
+    unsafe { __torajs_print_anyv(box_ptr as AnyValue) };
 }
 
-const STR_LEN_OFF: usize = 8;
-
-/// `ToBoolean(box)` per ES §7.1.2 — JS truthiness coercion. Routes
-/// on the AnyBox slot tag:
-///
-/// | tag                | result                                |
-/// |--------------------|---------------------------------------|
-/// | `Null` / `Undef`   | `false`                               |
-/// | `Bool` / `I64`     | `value != 0`                          |
-/// | `F64`              | `value != 0.0 AND not NaN`            |
-/// | `Heap` / `Str`     | `length > 0`                          |
-/// | `Heap` / other     | `true` (objects are always truthy)    |
-/// | NULL box           | `false`                               |
+/// `ToBoolean(box)` per ES §7.1.2 — JS truthiness coercion. Step
+/// 7d-A delegate: forwards to [`__torajs_anyv_to_bool`], the
+/// NaN-box entry point. The full dispatch table (`Null`/`Undef` →
+/// `false`, `Bool`/`I64` → `value != 0`, `F64` → ordered-non-zero,
+/// `Heap`/`Str` → `length > 0`, other heap → `true`) lives in
+/// [`__torajs_anyv_to_bool`].
 ///
 /// # Safety
-/// `box_ptr` must be NULL or a valid `*const AnyBox` (live).
+/// `box_ptr` carries an `AnyValue` bit-pattern.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_any_to_bool(box_ptr: *const c_void) -> bool {
-    if box_ptr.is_null() {
-        return false;
-    }
-    let any = unsafe { &*(box_ptr as *const AnyBox) };
-    match any.slot_tag() {
-        Some(AnySlotTag::Null) | Some(AnySlotTag::Undef) => false,
-        Some(AnySlotTag::Bool) | Some(AnySlotTag::I64) => any.value != 0,
-        Some(AnySlotTag::F64) => {
-            // NaN-safe: `d == d` is the canonical ordered-not-NaN test
-            // (NaN compares unequal to itself).
-            let d = f64::from_bits(any.value as u64);
-            d == d && d != 0.0
-        }
-        Some(AnySlotTag::Heap) => {
-            let child = any.value as *const c_void;
-            if child.is_null() {
-                return false;
-            }
-            // SAFETY: live heap ptr.
-            let tag = unsafe { heap_type_tag(child) };
-            if tag == Tag::Str as u16 {
-                // Read Str's len@+8; truthy iff non-empty.
-                let len = unsafe { (child.cast::<u8>().add(STR_LEN_OFF) as *const u64).read() };
-                len > 0
-            } else {
-                // Obj / Arr / Closure / Symbol / etc. — all truthy.
-                true
-            }
-        }
-        None => false,
-    }
+    // SAFETY: caller invariant — propagated.
+    unsafe { __torajs_anyv_to_bool(box_ptr as AnyValue) }
 }
 
 /// `typeof v` per ES §13.5.3 — NaN-box [`AnyValue`] entry point
