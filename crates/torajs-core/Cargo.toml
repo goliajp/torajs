@@ -18,6 +18,11 @@ path = "src/lib.rs"
 inkwell = { version = "0.9", features = ["llvm22-1-prefer-dynamic"] }
 
 torajs-runtime = { path = "../torajs-runtime" }
+# v0.7-A2 metal-tier allocator. Needed at build time of torajs-core
+# so ssa_inkwell can read TLAB layout constants (TLAB_DEPTH_OFFSET,
+# TLAB_SLOT_STRIDE, etc.) for Phase 2e IR-emit inline TLAB.pop /
+# push sequences at user-binary alloc/free call sites.
+torajs-mmalloc = { path = "../torajs-mmalloc" }
 # Layer-1 substrate: rc_inc / rc_dec / HeapHeader. Pulled in for both
 # (a) the rlib (so torajs-core can call rc_inc directly from Rust if
 # needed later) and (b) the staticlib that build.rs copies into

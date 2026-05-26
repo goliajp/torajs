@@ -116,6 +116,11 @@ pub(super) fn define_obj_alloc<'ctx>(
     let ptr_t = ctx.ptr_type(AddressSpace::default());
     let fn_t = ptr_t.fn_type(&[i64_t.into()], false);
     let f = m.add_function("__torajs_obj_alloc", fn_t, None);
+    // Phase 2e item 13a: alwaysinline so LLVM inlines wrapper body
+    // at every user-binary call site. Eliminates the extra function
+    // call layer — user code now `bl __torajs_libc_malloc` directly
+    // instead of `bl __torajs_obj_alloc → bl __torajs_libc_malloc`.
+    super::attrs::mark_alwaysinline(ctx, f);
     let entry = ctx.append_basic_block(f, "entry");
     builder.position_at_end(entry);
     let size = f.get_nth_param(0).unwrap();
@@ -148,6 +153,8 @@ pub(super) fn define_obj_drop<'ctx>(
     let void_t = ctx.void_type();
     let fn_t = void_t.fn_type(&[ptr_t.into()], false);
     let f = m.add_function("__torajs_obj_drop", fn_t, None);
+    // Phase 2e item 13a: alwaysinline — eliminate wrapper layer.
+    super::attrs::mark_alwaysinline(ctx, f);
     let entry = ctx.append_basic_block(f, "entry");
     builder.position_at_end(entry);
     let arg = f.get_nth_param(0).unwrap().into_pointer_value();
