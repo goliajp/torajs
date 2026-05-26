@@ -2821,7 +2821,7 @@ fn lower_inner(
     let proto_register_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
-        "__torajs_proto_register",
+        "__torajs_anyv_proto_register",
         &[Type::I64, Type::Any],
         Type::Void,
     );
@@ -2841,28 +2841,28 @@ fn lower_inner(
     let proto_get_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
-        "__torajs_proto_get",
+        "__torajs_anyv_proto_get",
         &[Type::I64],
         Type::Any,
     );
     let class_register_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
-        "__torajs_class_register",
+        "__torajs_anyv_class_register",
         &[Type::I64, Type::Any],
         Type::Void,
     );
     let class_get_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
-        "__torajs_class_get",
+        "__torajs_anyv_class_get",
         &[Type::I64],
         Type::Any,
     );
     let get_proto_of_any_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
-        "__torajs_get_proto_of_any",
+        "__torajs_anyv_get_proto_of_any",
         &[Type::Any],
         Type::Any,
     );
