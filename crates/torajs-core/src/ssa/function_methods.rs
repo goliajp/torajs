@@ -241,6 +241,10 @@ impl Function {
                 write!(w, "inttoptr ")?;
                 self.write_operand(w, op)?;
             }
+            InstKind::PtrToInt(op) => {
+                write!(w, "ptrtoint ")?;
+                self.write_operand(w, op)?;
+            }
             InstKind::TruncI64ToBool(op) => {
                 write!(w, "trunc_i64_to_bool ")?;
                 self.write_operand(w, op)?;

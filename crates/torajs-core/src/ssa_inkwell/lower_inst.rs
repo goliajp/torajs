@@ -218,6 +218,17 @@ impl<'a, 'ctx> FnLower<'a, 'ctx> {
                 let r = self.builder.build_int_to_ptr(v, ptr_ty, "").unwrap();
                 Some(BasicValueEnum::PointerValue(r))
             }
+            InstKind::PtrToInt(op) => {
+                // Step 7d — ptr → i64. Inverse of IntToPtr. NaN-box
+                // AnyValue bridge: ssa_lower's Type::Any operand is
+                // ptr-shaped at the LLVM level, but bits are an
+                // immediate u64. PtrToInt exposes those bits for the
+                // `__torajs_anyv_*` shim that takes i64.
+                let p = self.operand(op).into_pointer_value();
+                let i64_ty = self.ctx.i64_type();
+                let r = self.builder.build_ptr_to_int(p, i64_ty, "").unwrap();
+                Some(BasicValueEnum::IntValue(r))
+            }
             InstKind::TruncI64ToBool(op) => {
                 // T-15.g.6.c — i64 → i1 narrow. Symmetric reverse
                 // of ZExtBoolToI64. Pack/unpack across the Promise's
