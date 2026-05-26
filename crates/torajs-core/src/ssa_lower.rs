@@ -13414,6 +13414,27 @@ impl<'a> LowerCtx<'a> {
         Operand::Value(v)
     }
 
+    /// Inverse of `box_to_any` for heap-payload reads — decode an
+    /// AnyBox-encoded `Type::Any` operand back to its boxed-payload
+    /// pointer. Emits the `any_unbox_value` shim call (returning the
+    /// i64 value field) plus an IntToPtr cast, so callers stay
+    /// decoupled from the AnyBox struct layout (Step 7d's NaN-box
+    /// switch only has to swap the shim impl).
+    fn any_unbox_value_as_ptr(&mut self, obj: Operand) -> ValueId {
+        let raw = self.f.append_inst(
+            self.cur_block,
+            InstKind::Call(self.intrinsics.any_unbox_value, vec![obj]),
+            Type::I64,
+            None,
+        );
+        self.f.append_inst(
+            self.cur_block,
+            InstKind::IntToPtr(Operand::Value(raw)),
+            Type::Ptr,
+            None,
+        )
+    }
+
     /// array pointer as Operand::Value.
     fn lower_array_any_literal(&mut self, ids: &[ExprId]) -> Operand {
         // P5.6 — spreads inside Array<Any> literals walk through
@@ -14165,12 +14186,7 @@ impl<'a> LowerCtx<'a> {
                                             vec![Operand::Value(tag_v), Operand::Value(val_v)],
                                         ),
                                     );
-                                    let dynobj = self.f.append_inst(
-                                        self.cur_block,
-                                        InstKind::Load(Type::Ptr, obj_val.clone(), 16),
-                                        Type::Ptr,
-                                        None,
-                                    );
+                                    let dynobj = self.any_unbox_value_as_ptr(obj_val.clone());
                                     let key_str = self.intern_string_literal(&field);
                                     let slot = self.alloca(Type::Ptr, Some("__dynobj_slot"));
                                     self.f.append_void(
@@ -14212,12 +14228,7 @@ impl<'a> LowerCtx<'a> {
                                     "ssa-lower: dynobj assign unsupported value type {v_ty:?}"
                                 ),
                             };
-                            let dynobj = self.f.append_inst(
-                                self.cur_block,
-                                InstKind::Load(Type::Ptr, obj_val.clone(), 16),
-                                Type::Ptr,
-                                None,
-                            );
+                            let dynobj = self.any_unbox_value_as_ptr(obj_val.clone());
                             let key_str = self.intern_string_literal(&field);
                             let slot = self.alloca(Type::Ptr, Some("__dynobj_slot"));
                             self.f.append_void(
@@ -14968,16 +14979,13 @@ impl<'a> LowerCtx<'a> {
                         return Operand::Value(r);
                     }
                     if matches!(obj_ty, Type::Any) {
-                        // Any-box → dynobj at value@16. Coerce key to
-                        // Str (callers typically pass a String literal
-                        // or numeric → string). For the supported
-                        // shape the key arrives as Type::Str already.
-                        let dynobj = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Load(Type::Ptr, obj_op, 16),
-                            Type::Ptr,
-                            None,
-                        );
+                        // Any-box → dynobj: decode the boxed heap
+                        // payload back to a ptr via the layout-
+                        // independent shim. Coerce key to Str (callers
+                        // typically pass a String literal or numeric
+                        // → string). For the supported shape the key
+                        // arrives as Type::Str already.
+                        let dynobj = self.any_unbox_value_as_ptr(obj_op);
                         let r = self.f.append_inst(
                             self.cur_block,
                             InstKind::Call(
@@ -16597,12 +16605,7 @@ impl<'a> LowerCtx<'a> {
                         // still pass concrete I64 zeros for ABI.
                         (0, Operand::ConstI64(0))
                     };
-                    let dynobj = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Load(Type::Ptr, obj_op.clone(), 16),
-                        Type::Ptr,
-                        None,
-                    );
+                    let dynobj = self.any_unbox_value_as_ptr(obj_op.clone());
                     let slot = self.alloca(Type::Ptr, Some("__dynobj_slot"));
                     self.f.append_void(
                         self.cur_block,
@@ -24412,16 +24415,12 @@ impl<'a> LowerCtx<'a> {
                 }
                 // P3.2 — Member read on Type::Any routes through
                 // dynobj substrate. obj_val is an Any-box; extract
-                // the dynobj ptr from offset 24 (when tag == ANY_HEAP),
-                // call dynobj_get_tag/value with the field name as
-                // Str, box the result back to Any.
+                // the dynobj ptr from the boxed value (via the
+                // any_unbox_value shim), then dispatch through
+                // dynobj_get_tag/value with the field name as Str,
+                // boxing the result back to Any.
                 if matches!(obj_ty, Type::Any) {
-                    let dynobj = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Load(Type::Ptr, obj_val.clone(), 16),
-                        Type::Ptr,
-                        None,
-                    );
+                    let dynobj = self.any_unbox_value_as_ptr(obj_val.clone());
                     let key_str = self.intern_string_literal(name);
                     let tag = self.f.append_inst(
                         self.cur_block,
