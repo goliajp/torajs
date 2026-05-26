@@ -1,10 +1,20 @@
 //! Black-box tests for the microtask queue. The queue is process-
-//! global so we reset between tests by draining + asserting empty.
+//! global so tests serialize via `TEST_LOCK` — cargo test's default
+//! parallel runner would otherwise race two tests' enqueue/drain
+//! against the shared queue (saw `pending_count == 2 != 3` flakes
+//! on `enqueue_and_drain_runs_each_task` when run with the default
+//! test-threads = num_cpus).
 
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicI64, Ordering};
 use torajs_microtask::{
     __torajs_microtask_enqueue, __torajs_microtask_pending_count, __torajs_microtask_run_until_idle,
 };
+
+/// Serializes every test that touches the process-global microtask
+/// queue. Acquire at the top of each `#[test]` body before any
+/// enqueue / drain call.
+static TEST_LOCK: Mutex<()> = Mutex::new(());
 
 static MARKER: AtomicI64 = AtomicI64::new(0);
 
@@ -25,6 +35,7 @@ fn drain_clean() {
 
 #[test]
 fn enqueue_and_drain_runs_each_task() {
+    let _g = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     MARKER.store(0, Ordering::Relaxed);
     drain_clean();
     unsafe {
@@ -48,6 +59,7 @@ unsafe extern "C" fn record_order(arg: i64) {
 
 #[test]
 fn fifo_order_preserved() {
+    let _g = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     ORDER.store(0, Ordering::Relaxed);
     drain_clean();
     unsafe {
@@ -63,6 +75,7 @@ fn fifo_order_preserved() {
 
 #[test]
 fn drain_idempotent_when_empty() {
+    let _g = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     drain_clean();
     unsafe { __torajs_microtask_run_until_idle() };
     unsafe { __torajs_microtask_run_until_idle() };
@@ -82,6 +95,7 @@ unsafe extern "C" fn reenter_enqueue(arg: i64) {
 
 #[test]
 fn reentrant_enqueue_during_drain_extends_pass() {
+    let _g = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     REENTRY_COUNT.store(0, Ordering::Relaxed);
     drain_clean();
     unsafe {
@@ -99,6 +113,7 @@ fn reentrant_enqueue_during_drain_extends_pass() {
 
 #[test]
 fn null_fn_is_silently_skipped() {
+    let _g = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     drain_clean();
     // None fn-ptr — spec is "no-op". Verify no panic on drain.
     unsafe {

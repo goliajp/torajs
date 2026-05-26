@@ -29,6 +29,7 @@ mod link;
 mod lower;
 mod lower_fns;
 mod lower_inst;
+mod obj_builders;
 mod pipeline;
 mod split_iter;
 mod types;
@@ -37,15 +38,14 @@ pub use entry::{compile, compile_for, compile_for_kind, compile_for_kind_with_ca
 
 use arr_builders::{define_arr_push, define_arr_push_unchecked, define_arr_shift};
 use attrs::{is_alloc_intrinsic, mark_alwaysinline, mark_noalias_ret, module_uses_fetch};
-use builders::{
-    define_obj_alloc, define_obj_drop, define_print_bool, define_print_f64, define_print_i64,
-};
+use builders::{define_print_bool, define_print_f64, define_print_i64};
 use declares::{
     declare_arr_alloc_pooled, declare_arr_free, declare_free, declare_malloc, declare_memcmp,
     declare_memcpy, declare_memmove, declare_putchar, declare_realloc, declare_str_alloc_pooled,
     declare_str_free,
 };
 use globals::{emit_data_global, emit_static_str_global, emit_string_global};
+use obj_builders::{define_obj_alloc, define_obj_drop_sized};
 use split_iter::define_split_iter_next;
 use types::declare_ssa_fn;
 
@@ -271,7 +271,7 @@ pub(super) fn compile_for_kind_impl(
             // this dispatch arm + intrinsics-array entry deleted;
             // linker resolves via libtorajs_str.a.
             "__torajs_obj_alloc" => define_obj_alloc(&ctx, &llvm_module, malloc),
-            "__torajs_obj_drop" => define_obj_drop(&ctx, &llvm_module, free),
+            "__torajs_obj_drop_sized" => define_obj_drop_sized(&ctx, &llvm_module, free),
             // __torajs_arr_alloc moved to torajs-arr::alloc (P4.1-c,
             // 2026-05-23). Trivial single-call wrapper around
             // __torajs_arr_alloc_pooled; LTO inlines across the

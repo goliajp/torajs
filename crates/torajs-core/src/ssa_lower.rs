@@ -1606,11 +1606,16 @@ fn lower_inner(
         &[Type::I64],
         Type::Ptr,
     );
-    let obj_drop_id = declare_intrinsic(
+    // Phase 2e item 14 (Step 2 of perf/mem/size extremes plan):
+    // sized drop ABI. Callsite always knows the alloc size (env block
+    // `CLOSURE_CAP_BASE_OFF + N_caps*8`, typed Obj `OBJ_HEADER_SIZE +
+    // N_fields*8`), so passing it inline lets the IR-emit body bucket
+    // the TLAB.push without a SpanRegistry lookup or SHIM_HEADER read.
+    let obj_drop_sized_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
-        "__torajs_obj_drop",
-        &[Type::Ptr],
+        "__torajs_obj_drop_sized",
+        &[Type::Ptr, Type::I64],
         Type::Void,
     );
     /* V3-05 — runtime tag-dispatched drop. Used by emit_drop_value's
@@ -4813,9 +4818,18 @@ fn lower_inner(
         let mut f = ssa::Function::new("__env_drop_trivial", Type::Void);
         let env_pid = f.add_param(Type::Ptr, "env");
         let entry = f.add_block();
+        // Trivial env wrapper: no captures, env block size = closure
+        // header only (`fn_addr@8 + drop_fn@16 + props@24 + cap_base@32`
+        // = 32 bytes = `CLOSURE_CAP_BASE_OFF`).
         f.append_void(
             entry,
-            InstKind::Call(obj_drop_id, vec![Operand::Value(env_pid)]),
+            InstKind::Call(
+                obj_drop_sized_id,
+                vec![
+                    Operand::Value(env_pid),
+                    Operand::ConstI64(CLOSURE_CAP_BASE_OFF as i64),
+                ],
+            ),
         );
         f.set_term(entry, Terminator::Ret(None));
         module.funcs.push(f);
@@ -4845,7 +4859,7 @@ fn lower_inner(
         capture_box_alloc: capture_box_alloc_id,
         capture_box_inc: capture_box_inc_id,
         capture_box_drop: capture_box_drop_id,
-        obj_drop: obj_drop_id,
+        obj_drop_sized: obj_drop_sized_id,
         value_drop_heap: value_drop_heap_id,
         cycle_unbuffer: cycle_unbuffer_id,
         arr_alloc: arr_alloc_id,
@@ -5647,8 +5661,16 @@ fn synthesize_env_drop(
         let _ = struct_layouts;
         let _ = drop_sig;
     }
-    // Free the env block itself.
-    f.append_void(entry, InstKind::Call(intrinsics.obj_drop, vec![env_op]));
+    // Free the env block itself. Size = closure header
+    // (`CLOSURE_CAP_BASE_OFF` = 32) + N_captures * 8.
+    let env_block_size = CLOSURE_CAP_BASE_OFF + (cap_meta.len() as u64) * 8;
+    f.append_void(
+        entry,
+        InstKind::Call(
+            intrinsics.obj_drop_sized,
+            vec![env_op, Operand::ConstI64(env_block_size as i64)],
+        ),
+    );
     f.set_term(entry, Terminator::Ret(None));
     f
 }
@@ -5681,7 +5703,7 @@ struct Intrinsics {
     capture_box_alloc: FuncId,
     capture_box_inc: FuncId,
     capture_box_drop: FuncId,
-    obj_drop: FuncId,
+    obj_drop_sized: FuncId,
     value_drop_heap: FuncId,
     cycle_unbuffer: FuncId,
     arr_alloc: FuncId,
@@ -9899,9 +9921,16 @@ impl<'a> LowerCtx<'a> {
                         InstKind::Call(self.intrinsics.cycle_unbuffer, vec![val]),
                     );
                 }
+                // Sized drop: typed Obj block = header + N typed fields.
+                // Matches the alloc-side `total_size = OBJ_HEADER_SIZE +
+                // layout.len()*8` (see e.g. ssa_lower.rs:8855).
+                let obj_block_size = OBJ_HEADER_SIZE + (layout.len() as u64) * 8;
                 self.f.append_void(
                     self.cur_block,
-                    InstKind::Call(self.intrinsics.obj_drop, vec![val]),
+                    InstKind::Call(
+                        self.intrinsics.obj_drop_sized,
+                        vec![val, Operand::ConstI64(obj_block_size as i64)],
+                    ),
                 );
                 self.f.set_term(self.cur_block, Terminator::Br(after));
                 self.cur_block = after;
@@ -28077,7 +28106,7 @@ impl<'a> LowerCtx<'a> {
             || fid == i.str_drop
             || fid == i.str_concat
             || fid == i.obj_alloc
-            || fid == i.obj_drop
+            || fid == i.obj_drop_sized
             || fid == i.arr_alloc
             || fid == i.arr_push
             || fid == i.arr_shift

@@ -40,7 +40,7 @@ pub(super) fn lower_user_fns<'ctx>(
         "print_f64",
         "print_bool",
         "__torajs_obj_alloc",
-        "__torajs_obj_drop",
+        "__torajs_obj_drop_sized",
         "__torajs_arr_alloc",
         "__torajs_arr_push_unchecked",
         "__torajs_arr_drop",
