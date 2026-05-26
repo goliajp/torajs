@@ -86,8 +86,8 @@ mod tests {
                 #[link_name = "__torajs_free"]
                 fn free(p: *mut c_void, size: usize);
             }
-            let bytes = DYNOBJ_HDR_SIZE
-                + (DYNOBJ_INITIAL_CAP as usize) * crate::layout::DYNOBJ_BUCKET_SIZE;
+            let bytes =
+                DYNOBJ_HDR_SIZE + (DYNOBJ_INITIAL_CAP as usize) * crate::layout::DYNOBJ_BUCKET_SIZE;
             free(p as *mut c_void, bytes);
         }
     }

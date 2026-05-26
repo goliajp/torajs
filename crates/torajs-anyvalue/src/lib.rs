@@ -153,19 +153,19 @@ impl AnyBox {
     /// must eventually call [`AnyBox::drop_owned`] (or, from C,
     /// the [`__torajs_any_box_drop`] FFI shim) to free it.
     pub fn alloc(tag: AnySlotTag, value: i64) -> NonNull<AnyBox> {
-        // SAFETY: libc `malloc(24)` returns either null on OOM or
-        // a 24-byte block aligned for at least pointer alignment.
-        // 24 % 8 == 0 and libc malloc on every supported platform
-        // returns 16-byte-aligned (or better) blocks, so the
-        // 8-alignment requirement of `AnyBox` is satisfied.
+        // SAFETY: `malloc(24)` returns null on OOM or a 24-byte
+        // 8-aligned block (`__torajs_malloc` returns ≥16-aligned).
         let raw = unsafe { malloc(ANY_BOX_SIZE) as *mut AnyBox };
         let ptr =
             NonNull::new(raw).unwrap_or_else(|| torajs_abort::abort_with(b"AnyBox alloc OOM"));
-        // SAFETY: just-allocated, exclusive ownership, layout
-        // matches AnyBox.
+        // SAFETY: just-allocated, exclusive ownership, layout matches.
+        // Step 5b dual-write: tag goes into BOTH `tag` field (IR-emit
+        // compat path, dropped in Step 5d) AND header.flags bits 8..11.
         unsafe {
+            let mut header = HeapHeader::new(Tag::AnyBox);
+            header.set_any_tag(tag as u16);
             ptr.as_ptr().write(AnyBox {
-                header: HeapHeader::new(Tag::AnyBox),
+                header,
                 tag: tag as i64,
                 value,
             });
@@ -176,15 +176,13 @@ impl AnyBox {
         ptr
     }
 
-    /// Read the [`AnySlotTag`].
-    ///
-    /// Returns `None` if `self.tag` doesn't match any known
-    /// discriminant — defensive against IR-side bugs that pass a
-    /// bad tag (in practice `ssa_lower` only emits valid tags, but
-    /// the runtime invariant should be checkable).
+    /// Read the [`AnySlotTag`] from `header.flags` bits 8..11
+    /// (Step 5b — Rust source of truth; the `tag: i64` field stays
+    /// for IR-emit compat until Step 5c flips it). Returns `None`
+    /// on a header not initialized via `AnyBox::alloc`.
     #[inline]
     pub fn slot_tag(&self) -> Option<AnySlotTag> {
-        match self.tag {
+        match self.header.any_tag_bits() as u64 {
             0 => Some(AnySlotTag::Null),
             1 => Some(AnySlotTag::Bool),
             2 => Some(AnySlotTag::I64),
@@ -234,11 +232,11 @@ impl AnyBox {
             // Shared; another owner is still alive.
             return;
         }
-        // rc transitioned to zero — walk heap child (if any) and
-        // free the box.
-        let tag = b.tag;
+        // rc transitioned to zero — walk heap child + free.
+        // Step 5b: read tag from header bits (Rust source of truth).
+        let tag_bits = b.header.any_tag_bits();
         let value = b.value;
-        if tag == AnySlotTag::Heap as i64 {
+        if tag_bits == AnySlotTag::Heap as u16 {
             // SAFETY: cross-language call to the C-side per-type
             // drop dispatcher (still in runtime_str.c pre-P3). The
             // child pointer was rc_inc'd at alloc; value_drop_heap
