@@ -32,8 +32,8 @@ use crate::coerce::{any_to_number, any_to_str};
 use crate::compare::any_compare;
 use crate::nanbox::{
     AnyValue, VALUE_FALSE, VALUE_NULL, VALUE_TRUE, VALUE_UNDEFINED, as_bool, as_double, as_int32,
-    as_pointer, as_void_ptr, box_bool, box_double, box_int32, box_pointer, box_void_ptr, is_bool,
-    is_cell, is_double, is_int32, is_null, is_undefined,
+    as_pointer, as_void_ptr, box_double, box_int32, box_pointer, is_bool, is_cell, is_double,
+    is_int32, is_null, is_undefined,
 };
 use crate::{AnyBox, AnyView};
 
@@ -45,58 +45,6 @@ use crate::{AnyBox, AnyView};
 unsafe extern "C" {
     fn __torajs_str_eq(a: *const u8, b: *const u8) -> i64;
     fn __torajs_value_drop_heap(child: *mut c_void);
-}
-
-// ============================================================
-// Encode shims — let ssa_lower emit one-line calls instead of
-// hand-rolling the bit-twiddle in IR. Cheap (every fn is one or
-// two integer ops) but they make the migration in 7c-7f a pure
-// callsite swap.
-// ============================================================
-
-/// Encode a 32-bit signed integer as an [`AnyValue`].
-#[unsafe(no_mangle)]
-pub extern "C" fn __torajs_anyv_box_i32(x: i32) -> AnyValue {
-    box_int32(x)
-}
-
-/// Encode an `f64` as an [`AnyValue`].
-#[unsafe(no_mangle)]
-pub extern "C" fn __torajs_anyv_box_f64(x: f64) -> AnyValue {
-    box_double(x)
-}
-
-/// Encode a `bool` (passed as `i32` per C ABI) as an [`AnyValue`].
-#[unsafe(no_mangle)]
-pub extern "C" fn __torajs_anyv_box_bool(b: i32) -> AnyValue {
-    box_bool(b != 0)
-}
-
-/// Encode a heap pointer as an [`AnyValue`]. Caller transfers
-/// ownership of the rc — no `rc_inc` is performed here.
-///
-/// # Safety
-///
-/// `p` is null or a valid `*mut HeapHeader` whose top 16 bits are
-/// zero (aarch64 user-VA, 48 bits).
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_anyv_box_pointer(p: *mut c_void) -> AnyValue {
-    if p.is_null() {
-        return VALUE_NULL;
-    }
-    box_void_ptr(p)
-}
-
-/// Return the `null` sentinel.
-#[unsafe(no_mangle)]
-pub extern "C" fn __torajs_anyv_null() -> AnyValue {
-    VALUE_NULL
-}
-
-/// Return the `undefined` sentinel.
-#[unsafe(no_mangle)]
-pub extern "C" fn __torajs_anyv_undefined() -> AnyValue {
-    VALUE_UNDEFINED
 }
 
 // ============================================================
@@ -457,6 +405,7 @@ mod tests {
     use super::*;
     use crate::AnySlotTag;
     use crate::nanbox::{box_double, box_int32};
+    use crate::nanbox_encode::{__torajs_anyv_null, __torajs_anyv_undefined};
 
     // Stubs for the C symbols declared in `crate::tests` (top-of-
     // lib.rs `#[cfg(test)] mod tests`) — `__torajs_value_drop_heap`,
@@ -525,25 +474,6 @@ mod tests {
             assert!(__torajs_anyv_strict_eq(box_int32(1), box_double(1.0)));
             assert!(__torajs_anyv_strict_eq(box_double(2.0), box_int32(2)));
             assert!(!__torajs_anyv_strict_eq(box_int32(1), box_double(1.5)));
-        }
-    }
-
-    #[test]
-    fn anyv_box_helpers_match_constants() {
-        assert_eq!(__torajs_anyv_box_i32(0), box_int32(0));
-        assert_eq!(__torajs_anyv_box_i32(-1), box_int32(-1));
-        assert_eq!(__torajs_anyv_box_f64(3.14), box_double(3.14));
-        assert_eq!(__torajs_anyv_box_bool(0), VALUE_FALSE);
-        assert_eq!(__torajs_anyv_box_bool(1), VALUE_TRUE);
-        assert_eq!(__torajs_anyv_box_bool(-1), VALUE_TRUE);
-        assert_eq!(__torajs_anyv_null(), VALUE_NULL);
-        assert_eq!(__torajs_anyv_undefined(), VALUE_UNDEFINED);
-    }
-
-    #[test]
-    fn anyv_box_pointer_null_yields_null_sentinel() {
-        unsafe {
-            assert_eq!(__torajs_anyv_box_pointer(std::ptr::null_mut()), VALUE_NULL);
         }
     }
 

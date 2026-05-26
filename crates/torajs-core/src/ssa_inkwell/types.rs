@@ -69,7 +69,9 @@ pub(super) fn build_fn_type<'ctx>(
         params.iter().map(|&t| basic_meta_type(ctx, t)).collect();
     match ret {
         Type::Void => ctx.void_type().fn_type(&param_metas, false),
-        Type::I64 => ctx.i64_type().fn_type(&param_metas, false),
+        // Step 7d — Type::Any is a 64-bit NaN-box immediate (AnyValue),
+        // not a heap pointer. Lowers to i64 alongside I64.
+        Type::I64 | Type::Any => ctx.i64_type().fn_type(&param_metas, false),
         Type::I32 => ctx.i32_type().fn_type(&param_metas, false),
         Type::F64 => ctx.f64_type().fn_type(&param_metas, false),
         Type::Bool => ctx.bool_type().fn_type(&param_metas, false),
@@ -82,7 +84,6 @@ pub(super) fn build_fn_type<'ctx>(
         | Type::Closure(_)
         | Type::RegExp
         | Type::Date
-        | Type::Any
         | Type::Symbol
         | Type::Promise
         | Type::BigInt
@@ -100,7 +101,8 @@ pub(super) fn build_fn_type<'ctx>(
 
 pub(super) fn basic_meta_type<'ctx>(ctx: &'ctx Context, t: Type) -> BasicMetadataTypeEnum<'ctx> {
     match t {
-        Type::I64 => ctx.i64_type().into(),
+        // Step 7d — Type::Any is a 64-bit NaN-box immediate (AnyValue).
+        Type::I64 | Type::Any => ctx.i64_type().into(),
         Type::I32 => ctx.i32_type().into(),
         Type::F64 => ctx.f64_type().into(),
         Type::Bool => ctx.bool_type().into(),
@@ -116,7 +118,6 @@ pub(super) fn basic_meta_type<'ctx>(ctx: &'ctx Context, t: Type) -> BasicMetadat
         | Type::Closure(_)
         | Type::RegExp
         | Type::Date
-        | Type::Any
         | Type::Symbol
         | Type::Promise
         | Type::BigInt
@@ -135,7 +136,8 @@ pub(super) fn basic_meta_type<'ctx>(ctx: &'ctx Context, t: Type) -> BasicMetadat
 /// stack slot or load width. Void is intentionally not representable here.
 pub(super) fn basic_type<'ctx>(ctx: &'ctx Context, t: Type) -> BasicTypeEnum<'ctx> {
     match t {
-        Type::I64 => ctx.i64_type().into(),
+        // Step 7d — Type::Any slot holds a 64-bit NaN-box immediate.
+        Type::I64 | Type::Any => ctx.i64_type().into(),
         Type::I32 => ctx.i32_type().into(),
         Type::F64 => ctx.f64_type().into(),
         Type::Bool => ctx.bool_type().into(),
@@ -148,7 +150,6 @@ pub(super) fn basic_type<'ctx>(ctx: &'ctx Context, t: Type) -> BasicTypeEnum<'ct
         | Type::Closure(_)
         | Type::RegExp
         | Type::Date
-        | Type::Any
         | Type::Symbol
         | Type::Promise
         | Type::BigInt

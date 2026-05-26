@@ -122,6 +122,9 @@ pub mod inspect;
 pub mod nanbox;
 pub use nanbox::*;
 
+mod nanbox_encode;
+pub use nanbox_encode::*;
+
 mod nanbox_ffi;
 pub use nanbox_ffi::*;
 

@@ -26,6 +26,10 @@
 use core::ffi::c_void;
 
 use crate::AnyBox;
+use crate::nanbox::{
+    AnyValue, as_bool, as_double, as_int32, as_void_ptr, is_bool, is_cell, is_double, is_int32,
+    is_null, is_undefined,
+};
 use torajs_rc::{AnySlotTag, HeapHeader, Tag};
 
 const STR_HDR_SIZE: usize = 16;
@@ -206,4 +210,102 @@ pub unsafe extern "C" fn __torajs_any_to_bool(box_ptr: *const c_void) -> bool {
         }
         None => false,
     }
+}
+
+/// `typeof v` per ES §13.5.3 — NaN-box [`AnyValue`] entry point
+/// (Step 7d). Returns a fresh Str. Mirrors [`__torajs_any_typeof`]
+/// but dispatches on the immediate NaN-box predicates instead of
+/// reading an AnyBox struct.
+///
+/// # Safety
+///
+/// Cell case: encoded pointer must point to a valid heap object
+/// (only the `HeapHeader::type_tag` at +4 is read).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_typeof(v: AnyValue) -> *mut u8 {
+    if is_null(v) {
+        return alloc_literal(b"object");
+    }
+    if is_undefined(v) {
+        return alloc_literal(b"undefined");
+    }
+    if is_bool(v) {
+        return alloc_literal(b"boolean");
+    }
+    if is_int32(v) || is_double(v) {
+        return alloc_literal(b"number");
+    }
+    if is_cell(v) {
+        let child = as_void_ptr(v) as *const c_void;
+        // SAFETY: cell pointer is non-null per is_cell guarantee +
+        // caller invariant says it points to a live heap object.
+        let tag = unsafe { heap_type_tag(child) };
+        let kind: &[u8] = if tag == Tag::Str as u16 {
+            b"string"
+        } else if tag == Tag::Closure as u16 {
+            b"function"
+        } else if tag == Tag::Symbol as u16 {
+            b"symbol"
+        } else if tag == Tag::BigInt as u16 {
+            b"bigint"
+        } else {
+            // OBJ / ARR / REGEX / DATE / WEAK* / DYNOBJ / MAP* /
+            // ARR_ITER → "object"
+            b"object"
+        };
+        return alloc_literal(kind);
+    }
+    // Defensive — uninitialized slot (v == 0) reads as "object"
+    // (matches `typeof null` per spec).
+    alloc_literal(b"object")
+}
+
+/// `console.log(v)` single-arg dispatch — NaN-box [`AnyValue`]
+/// entry point (Step 7d). Mirrors [`__torajs_print_any`] but
+/// dispatches on the immediate NaN-box predicates.
+///
+/// # Safety
+///
+/// Cell case: encoded pointer must point to a valid heap object.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_print_anyv(v: AnyValue) {
+    if is_null(v) {
+        write_line(b"null\n");
+        return;
+    }
+    if is_undefined(v) {
+        write_line(b"undefined\n");
+        return;
+    }
+    if is_bool(v) {
+        // SAFETY: extern fn callable from this no_std-ish module.
+        unsafe { print_bool(as_bool(v)) };
+        return;
+    }
+    if is_int32(v) {
+        let n = as_int32(v) as i64;
+        // SAFETY: as above.
+        unsafe { print_i64(n) };
+        return;
+    }
+    if is_double(v) {
+        let d = as_double(v);
+        // SAFETY: as above.
+        unsafe { print_f64(d) };
+        return;
+    }
+    if is_cell(v) {
+        let child = as_void_ptr(v) as *const c_void;
+        // SAFETY: live heap ptr per caller invariant.
+        let tag = unsafe { heap_type_tag(child) };
+        if tag == Tag::Str as u16 {
+            // SAFETY: Tag::Str header layout — print walker reads
+            // len@+8 and bytes@+16.
+            unsafe { __torajs_str_print(child as *const u8) };
+        } else {
+            write_line(b"[object]\n");
+        }
+        return;
+    }
+    write_line(b"[unknown-any-tag]\n");
 }
