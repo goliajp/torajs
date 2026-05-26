@@ -85,31 +85,28 @@ use std::ptr::NonNull;
 
 use torajs_rc::{__torajs_rc_dec, __torajs_rc_inc, AnySlotTag, HeapHeader, Tag};
 
-// v0.7-A2 step 6b — force-link mmalloc so the `#[link_name=
-// "__torajs_libc_*"]` externs in the malloc/free block below resolve
-// to the mmalloc shim at link time.
+// v0.7-A2 step 6b / Step 4 (perf/mem/size extremes) — force-link
+// mmalloc so the `#[link_name = "__torajs_*"]` externs below resolve
+// to the mmalloc Layer 1 sized API at link time.
 extern crate torajs_mmalloc as _;
 
-// Direct libc malloc / free instead of `std::alloc::{alloc,
-// dealloc}`. Three reasons:
-//  1. The C-side runtime (runtime_*.c) uses libc malloc/free;
-//     reusing the same allocator means the same pool serves
-//     both languages — no cross-allocator UB.
-//  2. The pre-rewrite C `__torajs_any_box` already used
-//     `malloc(24)`; matching it byte-for-byte keeps the ABI
-//     contract simple + preserves any pre-rewrite tooling that
-//     scans malloc backtraces.
-//  3. `extern "C" { fn malloc / free }` is a system primitive
-//     declaration, not a crates.io dep — matches vision #4
-//     (0 deps).
+// Layer 1 (size-known) mmalloc API direct: caller passes size on
+// both alloc and free, skipping the 16-byte SHIM_HEADER overhead
+// that Layer 2 (`__torajs_libc_*`) required for libc-shape API
+// compat. Saves 16 B / AnyBox + 1 store + 1 read; bumps AnyBox
+// chunk class from 48 B (16 SHIM + 24 AnyBox + 8 pad) down to
+// the 24 B class — **50% mem reduction per AnyBox** on heap-Any
+// workloads (Array<Any>, Object.freeze boxes, dynobj buckets).
 unsafe extern "C" {
-    /// torajs-mmalloc libc-compat malloc — v0.7-A2 step 6b cutover.
-    /// Resolved to `__torajs_libc_malloc` (mmalloc shim) at user-binary
-    /// link time, replacing libSystem.dylib malloc.
-    #[link_name = "__torajs_libc_malloc"]
+    /// torajs-mmalloc Layer 1 alloc (size-known). Returns raw chunk
+    /// pointer (no SHIM offset). Routes to `core::alloc_sized` via
+    /// the extern wrapper in `torajs-mmalloc::extern_api`.
+    #[link_name = "__torajs_malloc"]
     fn malloc(size: usize) -> *mut c_void;
-    #[link_name = "__torajs_libc_free"]
-    fn free(ptr: *mut c_void);
+    /// torajs-mmalloc Layer 1 free (size-known). Caller provides the
+    /// original alloc size; no SHIM_HEADER read.
+    #[link_name = "__torajs_free"]
+    fn free(ptr: *mut c_void, size: usize);
 }
 
 mod arith;
@@ -248,10 +245,11 @@ impl AnyBox {
             // does the matching rc_dec + per-type teardown.
             unsafe { __torajs_value_drop_heap(value as *mut c_void) };
         }
-        // SAFETY: ptr was libc-malloc'd in `AnyBox::alloc` and rc
-        // is now zero, so we exclusively own the bytes; `free`
-        // is the matching deallocator.
-        unsafe { free(ptr.as_ptr() as *mut c_void) };
+        // SAFETY: ptr was `malloc(ANY_BOX_SIZE)`-allocated in
+        // `AnyBox::alloc` and rc is now zero, so we exclusively
+        // own the bytes; Layer 1 `free` takes the same size we
+        // alloc'd with.
+        unsafe { free(ptr.as_ptr() as *mut c_void, ANY_BOX_SIZE) };
     }
 }
 
