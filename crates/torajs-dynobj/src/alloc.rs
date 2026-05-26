@@ -19,8 +19,8 @@ unsafe extern "C" {
     /// torajs-mmalloc libc-compat calloc — zero-init alloc; v0.7-A2
     /// step 6b cutover. Ensures every bucket's `key_ptr` starts as
     /// NULL (empty) which the probe contract requires.
-    #[link_name = "__torajs_libc_calloc"]
-    fn calloc(nmemb: usize, size: usize) -> *mut c_void;
+    #[link_name = "__torajs_calloc"]
+    fn calloc(size: usize) -> *mut c_void;
 }
 
 /// `__torajs_dynobj_alloc()` — allocate a fresh empty dynobj.
@@ -37,7 +37,7 @@ unsafe extern "C" {
 pub unsafe extern "C" fn __torajs_dynobj_alloc() -> *mut c_void {
     let cap = DYNOBJ_INITIAL_CAP;
     let bytes = DYNOBJ_HDR_SIZE + (cap as usize) * crate::layout::DYNOBJ_BUCKET_SIZE;
-    let p = unsafe { calloc(1, bytes) } as *mut u8;
+    let p = unsafe { calloc(bytes) } as *mut u8;
     unsafe {
         // Header init: rc=1, tag=DynObj, flags=0.
         *(p as *mut u32) = 1;
@@ -82,8 +82,8 @@ mod tests {
             // Hand back to mmalloc (v0.7-A2 step 6b cutover; test-only
             // path — production drop helper lives in drop.rs).
             unsafe extern "C" {
-                #[link_name = "__torajs_libc_free"]
-                fn free(p: *mut c_void);
+                #[link_name = "__torajs_free"]
+                fn free(p: *mut c_void, size: usize);
             }
             free(p as *mut c_void);
         }

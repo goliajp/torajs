@@ -55,10 +55,10 @@ static POOL_COUNT: AtomicI32 = AtomicI32::new(0);
 
 unsafe extern "C" {
     /// torajs-mmalloc libc-compat — v0.7-A2 step 6b cutover.
-    #[link_name = "__torajs_libc_malloc"]
+    #[link_name = "__torajs_malloc"]
     fn malloc(n: usize) -> *mut c_void;
-    #[link_name = "__torajs_libc_free"]
-    fn free(p: *mut c_void);
+    #[link_name = "__torajs_free"]
+    fn free(p: *mut c_void, size: usize);
 
     /// Provided by torajs-rc (libtorajs_rc.a) at `tr build` link.
     /// Returns 0 if rc stays positive, 1 on transition to zero.
@@ -108,7 +108,9 @@ unsafe fn promise_release_(p: *mut Promise) {
         POOL_HEAD.store(p, Ordering::Relaxed);
         POOL_COUNT.fetch_add(1, Ordering::Relaxed);
     } else {
-        unsafe { free(p as *mut c_void) };
+        // Layer 1 sized free: Promise struct is PROMISE_SIZE (32 B)
+        // — see promise/layout.rs (Step 4d).
+        unsafe { free(p as *mut c_void, crate::layout::PROMISE_SIZE) };
     }
 }
 
@@ -202,7 +204,7 @@ pub unsafe extern "C" fn __torajs_promise_drop(p: *mut c_void) {
         let mut node = (*pp).callbacks;
         while !node.is_null() {
             let next = (*node).next;
-            free(node as *mut c_void);
+            free(node as *mut c_void, core::mem::size_of::<PromiseCb>());
             node = next;
         }
         (*pp).callbacks = ptr::null_mut();

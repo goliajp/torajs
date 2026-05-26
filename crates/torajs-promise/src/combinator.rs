@@ -26,7 +26,7 @@ use crate::pool::{
 
 unsafe extern "C" {
     /// torajs-mmalloc libc-compat — v0.7-A2 step 6b cutover.
-    #[link_name = "__torajs_libc_malloc"]
+    #[link_name = "__torajs_malloc"]
     fn malloc(n: usize) -> *mut c_void;
 
     fn __torajs_rc_inc(p: *mut c_void);

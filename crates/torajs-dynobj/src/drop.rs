@@ -10,7 +10,9 @@
 
 use core::ffi::c_void;
 
-use crate::layout::{ANY_HEAP, BUCKET_TAG_MASK, DYNOBJ_TOMBSTONE};
+use crate::layout::{
+    ANY_HEAP, BUCKET_TAG_MASK, DYNOBJ_BUCKET_SIZE, DYNOBJ_HDR_SIZE, DYNOBJ_TOMBSTONE,
+};
 use crate::probe::{buckets, cap};
 
 unsafe extern "C" {
@@ -21,8 +23,8 @@ unsafe extern "C" {
     fn __torajs_str_drop(s: *mut c_void);
     fn __torajs_value_drop_heap(child: *mut c_void);
     /// torajs-mmalloc libc-compat free — v0.7-A2 step 6b cutover.
-    #[link_name = "__torajs_libc_free"]
-    fn free(p: *mut c_void);
+    #[link_name = "__torajs_free"]
+    fn free(p: *mut c_void, size: usize);
 }
 
 /// `__torajs_dynobj_drop(obj)` — universal heap-value drop.
@@ -57,7 +59,10 @@ pub unsafe extern "C" fn __torajs_dynobj_drop(obj: *mut c_void) {
             }
         }
     }
+    // Layer 1 sized free: obj block = DYNOBJ_HDR_SIZE + cap *
+    // DYNOBJ_BUCKET_SIZE; cap is in scope from line 42.
+    let total = DYNOBJ_HDR_SIZE + (cap as usize) * DYNOBJ_BUCKET_SIZE;
     unsafe {
-        free(obj);
+        free(obj, total);
     }
 }

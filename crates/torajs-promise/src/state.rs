@@ -26,10 +26,10 @@ use crate::layout::{
 
 unsafe extern "C" {
     /// torajs-mmalloc libc-compat — v0.7-A2 step 6b cutover.
-    #[link_name = "__torajs_libc_malloc"]
+    #[link_name = "__torajs_malloc"]
     fn malloc(n: usize) -> *mut c_void;
-    #[link_name = "__torajs_libc_free"]
-    fn free(p: *mut c_void);
+    #[link_name = "__torajs_free"]
+    fn free(p: *mut c_void, size: usize);
 
     /// Microtask queue (libtorajs_microtask.a). Pushed by
     /// `drain_callbacks` for each cb node when a Promise settles;
@@ -52,7 +52,7 @@ pub(crate) unsafe fn drain_callbacks(pp: *mut Promise) {
         unsafe {
             __torajs_microtask_enqueue((*node).invoke, (*node).arg);
             let next = (*node).next;
-            free(node as *mut c_void);
+            free(node as *mut c_void, core::mem::size_of::<PromiseCb>());
             node = next;
         }
     }

@@ -68,8 +68,8 @@ unsafe extern "C" {
     /// torajs-mmalloc libc-compat realloc — v0.7-A2 step 6b cutover.
     /// First call (cur=NULL) becomes malloc; subsequent calls recover
     /// old size from mmalloc's prepended SHIM_HEADER.
-    #[link_name = "__torajs_libc_realloc"]
-    fn realloc(p: *mut c_void, n: usize) -> *mut c_void;
+    #[link_name = "__torajs_realloc"]
+    fn realloc(p: *mut c_void, old_size: usize, new_size: usize) -> *mut c_void;
 }
 
 // v0.7-A2 step 6b — force-link mmalloc.
@@ -81,12 +81,9 @@ fn mt_grow() {
     let cap = MT_CAP.load(Ordering::Relaxed);
     let new_cap = if cap == 0 { 32 } else { cap * 2 };
     let cur = MT_QUEUE.load(Ordering::Relaxed);
-    let new_buf = unsafe {
-        realloc(
-            cur as *mut c_void,
-            new_cap * core::mem::size_of::<Microtask>(),
-        )
-    } as *mut Microtask;
+    let elem = core::mem::size_of::<Microtask>();
+    let new_buf =
+        unsafe { realloc(cur as *mut c_void, cap * elem, new_cap * elem) } as *mut Microtask;
     MT_QUEUE.store(new_buf, Ordering::Relaxed);
     MT_CAP.store(new_cap, Ordering::Relaxed);
 }

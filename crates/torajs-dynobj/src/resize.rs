@@ -22,10 +22,10 @@ use crate::probe::{Bucket, buckets, cap, probe};
 
 unsafe extern "C" {
     /// torajs-mmalloc libc-compat calloc/free — v0.7-A2 step 6b cutover.
-    #[link_name = "__torajs_libc_calloc"]
-    fn calloc(nmemb: usize, size: usize) -> *mut c_void;
-    #[link_name = "__torajs_libc_free"]
-    fn free(p: *mut c_void);
+    #[link_name = "__torajs_calloc"]
+    fn calloc(size: usize) -> *mut c_void;
+    #[link_name = "__torajs_free"]
+    fn free(p: *mut c_void, size: usize);
 }
 
 /// Grow `*obj_slot` to a fresh block of `new_cap` buckets, rehashing
@@ -42,7 +42,7 @@ pub(crate) unsafe fn resize(obj_slot: *mut *mut c_void, new_cap: u32) {
     let old_bk = unsafe { buckets(old) };
     // Fresh block: header(24) + new_cap * 24.
     let bytes = DYNOBJ_HDR_SIZE + (new_cap as usize) * DYNOBJ_BUCKET_SIZE;
-    let p = unsafe { calloc(1, bytes) } as *mut u8;
+    let p = unsafe { calloc(bytes) } as *mut u8;
     unsafe {
         // Header verbatim (refcount + type_tag + flags) — same 8 bytes.
         core::ptr::copy_nonoverlapping(old as *const u8, p, 8);
@@ -74,6 +74,9 @@ pub(crate) unsafe fn resize(obj_slot: *mut *mut c_void, new_cap: u32) {
     unsafe {
         *(p.add(8) as *mut u32) = live;
         *obj_slot = new_obj;
-        free(old);
+        // Layer 1 sized free: old block = DYNOBJ_HDR_SIZE + old_cap *
+        // DYNOBJ_BUCKET_SIZE (Step 4d).
+        let old_bytes = DYNOBJ_HDR_SIZE + (old_cap as usize) * DYNOBJ_BUCKET_SIZE;
+        free(old, old_bytes);
     }
 }

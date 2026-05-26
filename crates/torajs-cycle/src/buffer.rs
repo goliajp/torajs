@@ -44,8 +44,8 @@ unsafe extern "C" {
     /// torajs-mmalloc libc-compat realloc — v0.7-A2 step 6b cutover.
     /// Closed-loop within cycle (this is cycle's own root buffer; the
     /// cross-crate `free` in collect.rs is the separate finale path).
-    #[link_name = "__torajs_libc_realloc"]
-    fn realloc(p: *mut c_void, n: usize) -> *mut c_void;
+    #[link_name = "__torajs_realloc"]
+    fn realloc(p: *mut c_void, old_size: usize, new_size: usize) -> *mut c_void;
 }
 
 /// Append `p` to the buffer, reallocating + doubling capacity when
@@ -57,10 +57,12 @@ fn buffer_push(p: *mut c_void) {
     if len == cap {
         let new_cap = if cap == 0 { 64 } else { cap * 2 };
         let cur = G_BUFFER.load(Ordering::Relaxed);
+        let elem = core::mem::size_of::<*mut c_void>();
         let new_buf = unsafe {
             realloc(
                 cur as *mut c_void,
-                (new_cap as usize) * core::mem::size_of::<*mut c_void>(),
+                (cap as usize) * elem,
+                (new_cap as usize) * elem,
             )
         } as *mut *mut c_void;
         G_BUFFER.store(new_buf, Ordering::Relaxed);
