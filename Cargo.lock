@@ -1915,6 +1915,7 @@ dependencies = [
  "torajs-dynobj",
  "torajs-meta",
  "torajs-microtask",
+ "torajs-mmalloc",
  "torajs-num",
  "torajs-panic",
  "torajs-process",
