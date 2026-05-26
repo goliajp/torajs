@@ -26,10 +26,10 @@ const ARR_HEAD_OFF: usize = ARR_CAP_OFF + 4;
 
 unsafe extern "C" {
     /// torajs-mmalloc libc-compat — v0.7-A2 step 6b cutover.
-    #[link_name = "__torajs_malloc"]
+    #[link_name = "__torajs_libc_malloc"]
     fn malloc(size: usize) -> *mut c_void;
-    #[link_name = "__torajs_free"]
-    fn free(p: *mut c_void, size: usize);
+    #[link_name = "__torajs_libc_free"]
+    fn free(p: *mut c_void);
 }
 
 #[inline]
@@ -218,11 +218,7 @@ pub unsafe extern "C" fn __torajs_arr_unshift(arr: *mut u8, v: i64) -> *mut u8 {
         unsafe {
             (data_ptr_raw(p, 0) as *mut i64).write(v);
             set_arr_len(p, (len + 1) as u64);
-            // Layer 1 sized free: regular Array<T> = ARR_SLOTS_OFF
-            // + cap * 8 bytes (the formula used at alloc time in
-            // arr_alloc_with). Step 4c.
-            let old_total = (cap as usize) * 8 + ARR_SLOTS_OFF;
-            free(arr as *mut c_void, old_total);
+            free(arr as *mut c_void);
         }
         return p;
     }

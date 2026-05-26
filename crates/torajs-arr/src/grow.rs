@@ -40,8 +40,8 @@ unsafe extern "C" {
     fn __torajs_throw_range_error(msg: *const u8);
 
     /// torajs-mmalloc libc-compat realloc — v0.7-A2 step 6b cutover.
-    #[link_name = "__torajs_realloc"]
-    fn realloc(p: *mut c_void, old_size: usize, new_size: usize) -> *mut c_void;
+    #[link_name = "__torajs_libc_realloc"]
+    fn realloc(p: *mut c_void, n: usize) -> *mut c_void;
 }
 
 /// `arr.length = v` validator (ES §9.4.2.4: throw RangeError if `v`
@@ -121,9 +121,8 @@ pub unsafe extern "C" fn __torajs_arr_push(arr: *mut u8, val: i64) -> *mut u8 {
         }
         if len == cap {
             let new_cap = if cap == 0 { 4 } else { cap * 2 };
-            let old_total = (cap as usize) * 8 + ARR_HDR_DATA_OFF;
             let new_total = (new_cap as usize) * 8 + ARR_HDR_DATA_OFF;
-            arr = unsafe { realloc(arr as *mut c_void, old_total, new_total) as *mut u8 };
+            arr = unsafe { realloc(arr as *mut c_void, new_total) as *mut u8 };
             unsafe {
                 *(arr.add(ARR_HDR_CAP_OFF) as *mut u32) = new_cap as u32;
             }
@@ -209,9 +208,8 @@ pub unsafe extern "C" fn __torajs_arr_reserve(arr: *mut u8, new_cap: i64) -> *mu
     if cap >= new_cap {
         return arr;
     }
-    let old_total = (cap as usize) * 8 + ARR_HDR_DATA_OFF;
     let new_total = (new_cap as usize) * 8 + ARR_HDR_DATA_OFF;
-    let arr_grown = unsafe { realloc(arr as *mut c_void, old_total, new_total) as *mut u8 };
+    let arr_grown = unsafe { realloc(arr as *mut c_void, new_total) as *mut u8 };
     unsafe {
         *(arr_grown.add(ARR_HDR_CAP_OFF) as *mut u32) = new_cap as u32;
     }

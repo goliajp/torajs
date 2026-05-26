@@ -28,10 +28,10 @@ use crate::pool::{POOL_CAP_MAX, POOL_SLOTS, pop_cap_match, push};
 
 unsafe extern "C" {
     /// torajs-mmalloc libc-compat — v0.7-A2 step 6b cutover.
-    #[link_name = "__torajs_malloc"]
+    #[link_name = "__torajs_libc_malloc"]
     fn malloc(n: usize) -> *mut c_void;
-    #[link_name = "__torajs_free"]
-    fn free(p: *mut c_void, size: usize);
+    #[link_name = "__torajs_libc_free"]
+    fn free(p: *mut c_void);
 
     /// Cross-tier — torajs-str's split-block pool. Returns 1 if the
     /// block was accepted into the split pool (caller does NOT free),
@@ -117,19 +117,17 @@ pub unsafe extern "C" fn __torajs_arr_free(p: *mut c_void) {
     if header.flags & FLAG_STATIC_LITERAL != 0 {
         return;
     }
-    // Read cap up-front so the eventual `free` knows the block size
-    // for Layer 1 sized API (Step 4c). All three shapes (SPLIT_BLOCK,
-    // Array<Any>, regular Array<T>) carry cap at ARR_CAP_LOW32_OFF.
-    let cap = unsafe { *((p as *const u8).add(ARR_CAP_LOW32_OFF) as *const u32) } as u64;
     // SPLIT_BLOCK takes priority — cross-tier to torajs-str's split pool.
     if header.flags & FLAG_SPLIT_BLOCK != 0 {
         if unsafe { __torajs_split_block_free_push(p as *mut u8) } != 0 {
             return;
         }
-        // Pool full → fall through to Layer 1 free below.
+        // Pool full → fall through to libc free.
     } else {
-        // Pool only accepts regular Array<T> — Array<Any>'s 16-byte
-        // slots wouldn't match the pool's 8-byte stride assumption.
+        // Read cap (low 32 bits at offset 16). Pool only accepts
+        // regular Array<T> — Array<Any>'s 16-byte slots wouldn't
+        // match the pool's 8-byte stride assumption.
+        let cap = unsafe { *((p as *const u8).add(ARR_CAP_LOW32_OFF) as *const u32) } as u64;
         let count = crate::pool::current_count();
         if cap <= POOL_CAP_MAX
             && count < POOL_SLOTS
@@ -139,17 +137,5 @@ pub unsafe extern "C" fn __torajs_arr_free(p: *mut c_void) {
             return;
         }
     }
-    // Layer 1 sized free: total bytes depends on the block shape.
-    // SPLIT_BLOCK = `24 (arr header) + 40 * cap` (8 ptr slot + 32
-    // inline substr per element — mirrors crate::str::split::pool
-    // block_size); Array<Any> = `ARR_SLOTS_OFF + 16 * cap`; regular
-    // Array<T> = `ARR_SLOTS_OFF + 8 * cap`.
-    let total: usize = if (header.flags & FLAG_SPLIT_BLOCK) != 0 {
-        24 + (cap as usize) * 40
-    } else if (header.flags & FLAG_ARR_ANY) != 0 {
-        ARR_SLOTS_OFF + (cap as usize) * 16
-    } else {
-        ARR_SLOTS_OFF + (cap as usize) * 8
-    };
-    unsafe { free(p, total) };
+    unsafe { free(p) };
 }
