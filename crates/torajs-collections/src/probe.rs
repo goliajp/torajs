@@ -34,6 +34,10 @@ unsafe extern "C" {
     fn calloc(nmemb: usize, size: usize) -> *mut c_void;
     #[link_name = "__torajs_libc_free"]
     fn free(p: *mut c_void);
+    /// torajs-anyvalue — NaN-box AnyValue tag / value decoders for
+    /// reading entry key_anyv (Step 7e-C).
+    fn __torajs_anyv_unbox_tag(v: u64) -> i64;
+    fn __torajs_anyv_unbox_value(v: u64) -> i64;
 }
 
 /// Insert `(hash, entry_idx)` into a freshly-prepared `slots[cap]`
@@ -121,8 +125,9 @@ pub(crate) unsafe fn map_lookup_slot(m: *const Map, tag: u8, payload: u64) -> Lo
             }
         } else if slot_hash(s) == hash {
             let e = unsafe { (*m).entries.add(s_idx as usize) };
-            let eq =
-                unsafe { crate::eq::map_keys_equal((*e).key_tag, (*e).key_payload, tag, payload) };
+            let e_key_tag = unsafe { __torajs_anyv_unbox_tag((*e).key_anyv) } as u8;
+            let e_key_payload = unsafe { __torajs_anyv_unbox_value((*e).key_anyv) } as u64;
+            let eq = unsafe { crate::eq::map_keys_equal(e_key_tag, e_key_payload, tag, payload) };
             if eq {
                 return LookupResult {
                     slot_idx: i,

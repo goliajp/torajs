@@ -46,6 +46,9 @@ unsafe extern "C" {
     /// Cross-tier — push an Any-tagged value into an Array<Any>; may
     /// reallocate; returns the (possibly relocated) array head.
     fn __torajs_arr_push_any(arr: *mut c_void, tag: u64, value: u64) -> *mut c_void;
+    /// torajs-anyvalue — NaN-box AnyValue decoders (Step 7e-C).
+    fn __torajs_anyv_unbox_tag(v: u64) -> i64;
+    fn __torajs_anyv_unbox_value(v: u64) -> i64;
 }
 
 /// `type_tag` for MapIter heap blocks (matches `torajs_rc::Tag::MapIter`
@@ -102,10 +105,12 @@ pub unsafe extern "C" fn __torajs_map_iter_next(
             continue;
         }
         unsafe {
-            *out_k_tag = (*e).key_tag as i64;
-            *out_k_payload = (*e).key_payload as i64;
-            *out_v_tag = (*e).value_tag as i64;
-            *out_v_payload = (*e).value_payload as i64;
+            let k_anyv = (*e).key_anyv;
+            let v_anyv = (*e).value_anyv;
+            *out_k_tag = __torajs_anyv_unbox_tag(k_anyv);
+            *out_k_payload = __torajs_anyv_unbox_value(k_anyv);
+            *out_v_tag = __torajs_anyv_unbox_tag(v_anyv);
+            *out_v_payload = __torajs_anyv_unbox_value(v_anyv);
             *cursor = i as i64;
         }
         return 1;
@@ -235,25 +240,25 @@ pub unsafe extern "C" fn __torajs_map_iter_step(
             continue;
         }
         let (tag, payload) = unsafe {
+            let k_anyv = (*e).key_anyv;
+            let v_anyv = (*e).value_anyv;
+            let kt = __torajs_anyv_unbox_tag(k_anyv) as u8;
+            let kp = __torajs_anyv_unbox_value(k_anyv) as u64;
             match (*it).kind {
-                k if k == MAP_ITER_KEYS => ((*e).key_tag as i64, (*e).key_payload as i64),
-                k if k == MAP_ITER_VALUES => ((*e).value_tag as i64, (*e).value_payload as i64),
+                k if k == MAP_ITER_KEYS => (kt as i64, kp as i64),
+                k if k == MAP_ITER_VALUES => {
+                    let vt = __torajs_anyv_unbox_tag(v_anyv);
+                    let vp = __torajs_anyv_unbox_value(v_anyv);
+                    (vt, vp)
+                }
                 k if k == MAP_ITER_ENTRIES => {
-                    let arr = make_pair_arr(
-                        (*e).key_tag,
-                        (*e).key_payload,
-                        (*e).value_tag,
-                        (*e).value_payload,
-                    );
+                    let vt = __torajs_anyv_unbox_tag(v_anyv) as u8;
+                    let vp = __torajs_anyv_unbox_value(v_anyv) as u64;
+                    let arr = make_pair_arr(kt, kp, vt, vp);
                     (ANY_HEAP as i64, arr as i64)
                 }
                 k if k == MAP_ITER_SET_ENTRIES => {
-                    let arr = make_pair_arr(
-                        (*e).key_tag,
-                        (*e).key_payload,
-                        (*e).key_tag,
-                        (*e).key_payload,
-                    );
+                    let arr = make_pair_arr(kt, kp, kt, kp);
                     (ANY_HEAP as i64, arr as i64)
                 }
                 _ => (ANY_UNDEF as i64, 0),

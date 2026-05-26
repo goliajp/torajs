@@ -26,15 +26,16 @@
 //!     entry_idx: SLOT_EMPTY (0xFFFFFFFF) / SLOT_TOMBSTONE (0xFFFFFFFE)
 //!                or a valid index into entries[].
 //!
-//! MapEntry (40 bytes, packed):
-//!   offset 0  : hash         (u32) — 0 = entry-side tombstone, else live
-//!   offset 4  : _pad         (u32)
-//!   offset 8  : key_tag      (u8)  — ANY_NULL/UNDEF/BOOL/I64/F64/HEAP
-//!   offset 9  : _kpad        (7B)
-//!   offset 16 : key_payload  (u64) — per-tag payload
-//!   offset 24 : value_tag    (u8)
-//!   offset 25 : _vpad        (7B)
-//!   offset 32 : value_payload(u64)
+//! MapEntry (24 bytes, Step 7e-C shrink from 40):
+//!   offset 0  : hash       (u32) — 0 = entry-side tombstone, else live
+//!   offset 4  : _pad       (u32)
+//!   offset 8  : key_anyv   (u64) — NaN-box AnyValue (key_tag + key_payload)
+//!   offset 16 : value_anyv (u64) — NaN-box AnyValue (value_tag + value_payload)
+//!
+//! Decode via `__torajs_anyv_unbox_tag` / `_unbox_value` from
+//! torajs-anyvalue; encode via `_box_from_pair`. Halves entries[] cache
+//! footprint (3 entries/cache-line instead of ≤2; 40% memory saved per
+//! entry).
 //! ```
 
 use core::ffi::c_void;
@@ -109,24 +110,21 @@ pub struct HeapHeader {
     pub flags: u16,
 }
 
-/// `MapEntry` — 40 bytes packed with explicit alignment-padding bytes
-/// matching the C-side `MapEntry` struct exactly. The `_pad / _kpad /
-/// _vpad` fields are ABI alignment-fillers (referenced only by the
-/// struct layout, never by name); `hash` is written by mutate.rs +
-/// rehash and read by probe (some currently `#[allow(dead_code)]`
-/// pending P4.3-c..-f consumer ports). Whole-struct allow keeps the
-/// layout in one declaration without per-field clutter.
+/// `MapEntry` — 24 bytes (Step 7e-C: was 40 bytes pre-NaN-box).
+/// `hash` is the cached entry-side hash (`0` = entry-side tombstone,
+/// else live; the hash routine `| 1`s the low bit to guarantee >= 1).
+/// `key_anyv` / `value_anyv` carry the slot's `(tag, payload)` pair as
+/// a single NaN-box AnyValue immediate (encode via
+/// `__torajs_anyv_box_from_pair`, decode via `_unbox_tag` / `_unbox_value`).
+/// The `_pad` field is an ABI alignment filler (only referenced by the
+/// struct layout, never by name).
 #[allow(dead_code)]
 #[repr(C)]
 pub struct MapEntry {
     pub hash: u32,
     pub _pad: u32,
-    pub key_tag: u8,
-    pub _kpad: [u8; 7],
-    pub key_payload: u64,
-    pub value_tag: u8,
-    pub _vpad: [u8; 7],
-    pub value_payload: u64,
+    pub key_anyv: u64,
+    pub value_anyv: u64,
 }
 
 /// `Map` struct — fits the C-side `Map` shape 1:1.
@@ -162,16 +160,15 @@ mod tests {
     #[test]
     fn struct_layouts_match_c() {
         assert_eq!(core::mem::size_of::<HeapHeader>(), 8);
-        assert_eq!(core::mem::size_of::<MapEntry>(), 40);
+        // MapEntry: hash(4) + _pad(4) + key_anyv(8) + value_anyv(8) = 24.
+        assert_eq!(core::mem::size_of::<MapEntry>(), 24);
         // Map: hdr(8) + 6×u32(24) + 2×ptr(16) = 48; align 8.
         assert_eq!(core::mem::size_of::<Map>(), 48);
         assert_eq!(core::mem::align_of::<Map>(), 8);
 
         assert_eq!(core::mem::offset_of!(MapEntry, hash), 0);
-        assert_eq!(core::mem::offset_of!(MapEntry, key_tag), 8);
-        assert_eq!(core::mem::offset_of!(MapEntry, key_payload), 16);
-        assert_eq!(core::mem::offset_of!(MapEntry, value_tag), 24);
-        assert_eq!(core::mem::offset_of!(MapEntry, value_payload), 32);
+        assert_eq!(core::mem::offset_of!(MapEntry, key_anyv), 8);
+        assert_eq!(core::mem::offset_of!(MapEntry, value_anyv), 16);
 
         assert_eq!(core::mem::offset_of!(Map, header), 0);
         assert_eq!(core::mem::offset_of!(Map, n_entries), 8);

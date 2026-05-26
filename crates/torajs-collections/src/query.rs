@@ -26,6 +26,9 @@ use crate::probe::map_lookup_slot;
 unsafe extern "C" {
     fn __torajs_rc_inc(p: *mut c_void);
     fn __torajs_value_drop_heap(p: *mut c_void);
+    /// torajs-anyvalue — NaN-box AnyValue decoders.
+    fn __torajs_anyv_unbox_tag(v: u64) -> i64;
+    fn __torajs_anyv_unbox_value(v: u64) -> i64;
 }
 
 /// Release caller's heap-key rc bump after a borrow-only lookup.
@@ -99,8 +102,9 @@ pub unsafe extern "C" fn __torajs_map_get(
             (ANY_UNDEF as i64, 0i64)
         } else {
             let e = unsafe { (*m).entries.add(lr.entry_idx as usize) };
-            let vt = unsafe { (*e).value_tag } as i64;
-            let vp = unsafe { (*e).value_payload } as i64;
+            let v_anyv = unsafe { (*e).value_anyv };
+            let vt = unsafe { __torajs_anyv_unbox_tag(v_anyv) };
+            let vp = unsafe { __torajs_anyv_unbox_value(v_anyv) };
             // Caller takes ownership of the returned heap ref.
             if vt as u8 == ANY_HEAP {
                 let vp_ptr = vp as *mut c_void;

@@ -22,6 +22,9 @@ unsafe extern "C" {
     /// torajs-mmalloc libc-compat free — v0.7-A2 step 6b cutover.
     #[link_name = "__torajs_libc_free"]
     fn free(p: *mut c_void);
+    /// torajs-anyvalue — NaN-box AnyValue decoders.
+    fn __torajs_anyv_unbox_tag(v: u64) -> i64;
+    fn __torajs_anyv_unbox_value(v: u64) -> i64;
 }
 
 /// `__torajs_map_drop(m)` — refcount-aware drop. Returns immediately
@@ -48,14 +51,16 @@ pub unsafe extern "C" fn __torajs_map_drop(p: *mut c_void) {
             if (*e).hash == ENTRY_HASH_TOMBSTONE {
                 continue;
             }
-            if (*e).key_tag == ANY_HEAP {
-                let kp = (*e).key_payload as *mut c_void;
+            let k_anyv = (*e).key_anyv;
+            if __torajs_anyv_unbox_tag(k_anyv) as u8 == ANY_HEAP {
+                let kp = __torajs_anyv_unbox_value(k_anyv) as *mut c_void;
                 if !kp.is_null() {
                     __torajs_value_drop_heap(kp);
                 }
             }
-            if (*e).value_tag == ANY_HEAP {
-                let vp = (*e).value_payload as *mut c_void;
+            let v_anyv = (*e).value_anyv;
+            if __torajs_anyv_unbox_tag(v_anyv) as u8 == ANY_HEAP {
+                let vp = __torajs_anyv_unbox_value(v_anyv) as *mut c_void;
                 if !vp.is_null() {
                     __torajs_value_drop_heap(vp);
                 }

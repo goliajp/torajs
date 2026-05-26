@@ -31,6 +31,9 @@ use crate::probe::{map_lookup_slot, map_rehash};
 
 unsafe extern "C" {
     fn __torajs_value_drop_heap(p: *mut c_void);
+    /// torajs-anyvalue — NaN-box AnyValue decoders.
+    fn __torajs_anyv_unbox_tag(v: u64) -> i64;
+    fn __torajs_anyv_unbox_value(v: u64) -> i64;
 }
 
 /// Release a bucket's owning heap-tagged key + value refs (does
@@ -39,14 +42,16 @@ unsafe extern "C" {
 #[inline]
 unsafe fn drop_entry_refs(e: *mut MapEntry) {
     unsafe {
-        if (*e).key_tag == ANY_HEAP {
-            let kp = (*e).key_payload as *mut c_void;
+        let k_anyv = (*e).key_anyv;
+        if __torajs_anyv_unbox_tag(k_anyv) as u8 == ANY_HEAP {
+            let kp = __torajs_anyv_unbox_value(k_anyv) as *mut c_void;
             if !kp.is_null() {
                 __torajs_value_drop_heap(kp);
             }
         }
-        if (*e).value_tag == ANY_HEAP {
-            let vp = (*e).value_payload as *mut c_void;
+        let v_anyv = (*e).value_anyv;
+        if __torajs_anyv_unbox_tag(v_anyv) as u8 == ANY_HEAP {
+            let vp = __torajs_anyv_unbox_value(v_anyv) as *mut c_void;
             if !vp.is_null() {
                 __torajs_value_drop_heap(vp);
             }
@@ -87,10 +92,8 @@ pub unsafe extern "C" fn __torajs_map_delete(
                 let e = (*m).entries.add(lr.entry_idx as usize);
                 drop_entry_refs(e);
                 (*e).hash = ENTRY_HASH_TOMBSTONE;
-                (*e).key_tag = 0;
-                (*e).key_payload = 0;
-                (*e).value_tag = 0;
-                (*e).value_payload = 0;
+                (*e).key_anyv = 0;
+                (*e).value_anyv = 0;
                 *(*m).slots.add(lr.slot_idx as usize) = slot_make(0, SLOT_TOMBSTONE);
                 (*m).n_entries -= 1;
                 (*m).n_tombstones += 1;

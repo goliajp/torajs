@@ -21,6 +21,10 @@ use crate::probe::{map_lookup_slot, map_rehash, map_slot_insert, slot_load_excee
 
 unsafe extern "C" {
     fn __torajs_value_drop_heap(p: *mut c_void);
+    /// torajs-anyvalue — NaN-box AnyValue pair encoder / tag decoder.
+    fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
+    fn __torajs_anyv_unbox_tag(v: u64) -> i64;
+    fn __torajs_anyv_unbox_value(v: u64) -> i64;
 }
 
 /// `__torajs_map_set(m, key_tag, key_payload, value_tag, value_payload)`.
@@ -66,8 +70,9 @@ pub unsafe extern "C" fn __torajs_map_set(
         // borrowed heap key bump (bucket already owns the key).
         unsafe {
             let e = (*m).entries.add(lr.entry_idx as usize);
-            if (*e).value_tag == ANY_HEAP {
-                let old_vp = (*e).value_payload as *mut c_void;
+            let cur_value_tag = __torajs_anyv_unbox_tag((*e).value_anyv) as u8;
+            if cur_value_tag == ANY_HEAP {
+                let old_vp = __torajs_anyv_unbox_value((*e).value_anyv) as *mut c_void;
                 if !old_vp.is_null() {
                     __torajs_value_drop_heap(old_vp);
                 }
@@ -78,8 +83,7 @@ pub unsafe extern "C" fn __torajs_map_set(
                     __torajs_value_drop_heap(new_kp);
                 }
             }
-            (*e).value_tag = vt;
-            (*e).value_payload = vp;
+            (*e).value_anyv = __torajs_anyv_box_from_pair(vt as i64, vp as i64);
         }
         return;
     }
@@ -100,10 +104,8 @@ pub unsafe extern "C" fn __torajs_map_set(
     unsafe {
         let e = (*m).entries.add(new_idx as usize) as *mut MapEntry;
         (*e).hash = hash;
-        (*e).key_tag = kt;
-        (*e).key_payload = kp;
-        (*e).value_tag = vt;
-        (*e).value_payload = vp;
+        (*e).key_anyv = __torajs_anyv_box_from_pair(kt as i64, kp as i64);
+        (*e).value_anyv = __torajs_anyv_box_from_pair(vt as i64, vp as i64);
         (*m).n_used += 1;
         (*m).n_entries += 1;
         // Always route the slot placement through robin-hood probing —
