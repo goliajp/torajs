@@ -21,8 +21,9 @@
 
 use inkwell::AddressSpace;
 use inkwell::IntPredicate;
+use inkwell::ThreadLocalMode;
 use inkwell::context::Context;
-use inkwell::module::Module as LlvmModule;
+use inkwell::module::{Linkage, Module as LlvmModule};
 use inkwell::values::FunctionValue;
 
 /// `print_bool(bool) -> void` — putchar's `"true\n"` or `"false\n"`
@@ -111,19 +112,142 @@ pub(super) fn define_obj_alloc<'ctx>(
     m: &LlvmModule<'ctx>,
     malloc: FunctionValue<'ctx>,
 ) -> FunctionValue<'ctx> {
+    use torajs_mmalloc::size_class::SIZE_CLASSES;
+    use torajs_mmalloc::tlab::{
+        TLAB_CLASS_SLOTS_STRIDE, TLAB_DEPTH_OFFSET, TLAB_SLOT_STRIDE, TLAB_TOTAL_SIZE,
+    };
+
     let builder = ctx.create_builder();
+    let i8_t = ctx.i8_type();
+    let i32_t = ctx.i32_type();
     let i64_t = ctx.i64_type();
     let ptr_t = ctx.ptr_type(AddressSpace::default());
     let fn_t = ptr_t.fn_type(&[i64_t.into()], false);
     let f = m.add_function("__torajs_obj_alloc", fn_t, None);
-    // Phase 2e item 13a: alwaysinline so LLVM inlines wrapper body
-    // at every user-binary call site. Eliminates the extra function
-    // call layer — user code now `bl __torajs_libc_malloc` directly
-    // instead of `bl __torajs_obj_alloc → bl __torajs_libc_malloc`.
+    // Phase 2e item 13b: emit inline TLAB.pop fast path; alwaysinline
+    // pushes the body to every user-binary alloc site. Hot loop alloc
+    // becomes ~5-10 cyc inline TLS-aware sequence (parity with libc
+    // nano allocator's thread-cache pop).
     super::attrs::mark_alwaysinline(ctx, f);
+
+    // Declare or reuse extern thread_local @__torajs_core_tlab.
+    // Body lives in libtorajs_mmalloc.a (TPIDR_EL0 register backed).
+    let tlab_arr_t = i8_t.array_type(TLAB_TOTAL_SIZE as u32);
+    let tlab_global = match m.get_global("__torajs_core_tlab") {
+        Some(g) => g,
+        None => {
+            let g = m.add_global(tlab_arr_t, None, "__torajs_core_tlab");
+            g.set_thread_local_mode(Some(ThreadLocalMode::GeneralDynamicTLSModel));
+            g.set_linkage(Linkage::External);
+            g
+        }
+    };
+
     let entry = ctx.append_basic_block(f, "entry");
+    let small_blk = ctx.append_basic_block(f, "small");
+    let pop_blk = ctx.append_basic_block(f, "pop");
+    let fallback_blk = ctx.append_basic_block(f, "fallback");
+
     builder.position_at_end(entry);
-    let size = f.get_nth_param(0).unwrap();
+    let size = f.get_nth_param(0).unwrap().into_int_value();
+
+    // Branch: size > biggest class → fallback (large alloc).
+    let max_class = i64_t.const_int(SIZE_CLASSES[SIZE_CLASSES.len() - 1] as u64, false);
+    let too_big = builder
+        .build_int_compare(IntPredicate::UGT, size, max_class, "too_big")
+        .unwrap();
+    builder
+        .build_conditional_branch(too_big, fallback_blk, small_blk)
+        .unwrap();
+
+    builder.position_at_end(small_blk);
+    // class_idx via reverse-iterated select chain — final value is
+    // smallest matching class. Sentinel u32::MAX if nothing matches
+    // (shouldn't happen since too_big guarded above, but safe).
+    let mut class_idx_val: inkwell::values::IntValue = i32_t.const_int(u32::MAX as u64, false);
+    for (i, &sz) in SIZE_CLASSES.iter().enumerate().rev() {
+        let cmp = builder
+            .build_int_compare(
+                IntPredicate::ULE,
+                size,
+                i64_t.const_int(sz as u64, false),
+                "le",
+            )
+            .unwrap();
+        let sel = builder
+            .build_select(cmp, i32_t.const_int(i as u64, false), class_idx_val, "ci")
+            .unwrap();
+        class_idx_val = sel.into_int_value();
+    }
+    let class_idx = class_idx_val;
+    let class_idx_i64 = builder
+        .build_int_z_extend(class_idx, i64_t, "class_idx_64")
+        .unwrap();
+
+    // tlab_ptr = thread_local addr of @__torajs_core_tlab
+    let tlab_ptr = tlab_global.as_pointer_value();
+    // depth_ptr = tlab_ptr + TLAB_DEPTH_OFFSET + class_idx
+    let depth_off = builder
+        .build_int_add(
+            i64_t.const_int(TLAB_DEPTH_OFFSET as u64, false),
+            class_idx_i64,
+            "depth_off",
+        )
+        .unwrap();
+    let depth_ptr = unsafe {
+        builder
+            .build_in_bounds_gep(i8_t, tlab_ptr, &[depth_off], "depth_ptr")
+            .unwrap()
+    };
+    let depth = builder
+        .build_load(i8_t, depth_ptr, "depth")
+        .unwrap()
+        .into_int_value();
+    let is_empty = builder
+        .build_int_compare(IntPredicate::EQ, depth, i8_t.const_zero(), "empty")
+        .unwrap();
+    builder
+        .build_conditional_branch(is_empty, fallback_blk, pop_blk)
+        .unwrap();
+
+    // pop hot path: new_depth = depth - 1; store; load slot[new_depth]; return
+    builder.position_at_end(pop_blk);
+    let new_depth = builder
+        .build_int_sub(depth, i8_t.const_int(1, false), "new_depth")
+        .unwrap();
+    builder.build_store(depth_ptr, new_depth).unwrap();
+    // slot offset: TLAB_SLOTS_OFFSET (0) + class_idx*TLAB_CLASS_SLOTS_STRIDE
+    //              + new_depth*TLAB_SLOT_STRIDE
+    let class_off = builder
+        .build_int_mul(
+            class_idx_i64,
+            i64_t.const_int(TLAB_CLASS_SLOTS_STRIDE as u64, false),
+            "class_off",
+        )
+        .unwrap();
+    let new_depth_i64 = builder
+        .build_int_z_extend(new_depth, i64_t, "new_depth_64")
+        .unwrap();
+    let slot_off_in_class = builder
+        .build_int_mul(
+            new_depth_i64,
+            i64_t.const_int(TLAB_SLOT_STRIDE as u64, false),
+            "slot_off",
+        )
+        .unwrap();
+    let total_off = builder
+        .build_int_add(class_off, slot_off_in_class, "total_off")
+        .unwrap();
+    let slot_ptr = unsafe {
+        builder
+            .build_in_bounds_gep(i8_t, tlab_ptr, &[total_off], "slot_ptr")
+            .unwrap()
+    };
+    let slot_val = builder.build_load(ptr_t, slot_ptr, "slot_val").unwrap();
+    builder.build_return(Some(&slot_val)).unwrap();
+
+    // Fallback (TLAB miss or too-big) → call __torajs_libc_malloc(size).
+    builder.position_at_end(fallback_blk);
     let p = builder
         .build_call(malloc, &[size.into()], "p")
         .unwrap()
@@ -131,6 +255,7 @@ pub(super) fn define_obj_alloc<'ctx>(
         .unwrap_basic()
         .into_pointer_value();
     builder.build_return(Some(&p)).unwrap();
+
     f
 }
 
