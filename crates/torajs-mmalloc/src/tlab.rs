@@ -46,13 +46,49 @@ pub const TLAB_CACHE_DEPTH: usize = 16;
 /// Per-thread cache of recently-freed slots, indexed by size
 /// class. Total static cost: `SIZE_CLASSES.len() * TLAB_CACHE_DEPTH
 /// * sizeof(*mut u8)` ≈ 1.2 KB.
+///
+/// `#[repr(C)]` (Phase 2e item 13 prerequisite): layout is
+/// IR-codegen-visible. `ssa_inkwell` emits inline TLAB.pop / push
+/// IR at user-binary alloc/free sites using the offset constants
+/// below — eliminates extern "C" call overhead, parity with libc
+/// nano-allocator inline thread-cache.
+#[repr(C)]
 pub struct TlabCache {
     /// `slots[class][0..depth[class]]` hold cached pointers; rest
     /// is uninitialized (depth gates iteration).
+    /// Layout offset = 0 (first field).
     slots: [[*mut u8; TLAB_CACHE_DEPTH]; SIZE_CLASSES.len()],
     /// Per-class occupied count.
+    /// Layout offset = `TLAB_CACHE_DEPTH * SIZE_CLASSES.len() * 8`.
     depth: [u8; SIZE_CLASSES.len()],
 }
+
+// ============================================================
+// IR-codegen layout constants — exposed for ssa_inkwell inline emit
+// ============================================================
+
+/// Byte offset of `slots` field within `TlabCache`. Equal to 0
+/// (first field of #[repr(C)] struct).
+pub const TLAB_SLOTS_OFFSET: usize = 0;
+
+/// Byte offset of `depth` field within `TlabCache`. Equal to size
+/// of the `slots` field = TLAB_CACHE_DEPTH * SIZE_CLASSES.len() *
+/// sizeof::<*mut u8>() (8 bytes per ptr on 64-bit targets).
+pub const TLAB_DEPTH_OFFSET: usize =
+    TLAB_CACHE_DEPTH * SIZE_CLASSES.len() * core::mem::size_of::<*mut u8>();
+
+/// Total size of `TlabCache` struct in bytes (rounded up to
+/// alignment by Rust layout rules). Sanity-checked by
+/// `ir_layout_constants_match_actual_struct` test; ssa_inkwell
+/// uses this for alloca / GEP calculations.
+pub const TLAB_TOTAL_SIZE: usize = core::mem::size_of::<TlabCache>();
+
+/// Per-slot stride (= bytes per cached pointer). 8 on 64-bit.
+pub const TLAB_SLOT_STRIDE: usize = core::mem::size_of::<*mut u8>();
+
+/// Per-class slots stride (= bytes per `slots[class]` row).
+/// = `TLAB_CACHE_DEPTH * TLAB_SLOT_STRIDE`.
+pub const TLAB_CLASS_SLOTS_STRIDE: usize = TLAB_CACHE_DEPTH * TLAB_SLOT_STRIDE;
 
 impl Default for TlabCache {
     fn default() -> Self {
@@ -209,5 +245,36 @@ mod tests {
         let mut count = 0;
         t.drain(0, |_| count += 1);
         assert_eq!(count, 0);
+    }
+
+    /// Pin TlabCache layout for Phase 2e ssa_inkwell IR-emit. If
+    /// these constants drift from actual struct layout, IR-emitted
+    /// TLAB.pop / push reads/writes wrong fields → memory corruption.
+    /// Test catches drift at `cargo test` time before any user binary
+    /// is built with the stale offsets baked in.
+    #[test]
+    fn ir_layout_constants_match_actual_struct() {
+        let t = TlabCache::new();
+        let base = &t as *const _ as usize;
+        let slots_addr = &t.slots as *const _ as usize;
+        let depth_addr = &t.depth as *const _ as usize;
+        assert_eq!(
+            slots_addr - base,
+            TLAB_SLOTS_OFFSET,
+            "TLAB_SLOTS_OFFSET drift"
+        );
+        assert_eq!(
+            depth_addr - base,
+            TLAB_DEPTH_OFFSET,
+            "TLAB_DEPTH_OFFSET drift"
+        );
+        assert_eq!(
+            core::mem::size_of::<TlabCache>(),
+            TLAB_TOTAL_SIZE,
+            "TLAB_TOTAL_SIZE drift"
+        );
+        // Sanity: depth offset should equal slots field size.
+        let expected_depth_off = SIZE_CLASSES.len() * TLAB_CACHE_DEPTH * 8;
+        assert_eq!(TLAB_DEPTH_OFFSET, expected_depth_off);
     }
 }
