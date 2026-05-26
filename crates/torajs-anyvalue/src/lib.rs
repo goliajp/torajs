@@ -10,20 +10,19 @@
 //!
 //! ## What `AnyBox` is
 //!
-//! A 16-byte heap struct that holds *any* TypeScript value of type
+//! A 24-byte heap struct that holds *any* TypeScript value of type
 //! `Type::Any`: every callsite of an Any-typed slot, every
 //! `Array<Any>` element, every dynamic-property bag value goes
 //! through one. The struct stores:
 //!
 //! ```text
-//! offset 0..7 : header  = HeapHeader { rc:u32, type_tag:u16, flags:u16 }
-//!                          flags bits 8..11 hold the 4-bit AnySlotTag
-//! offset 8..15: value   = i64; inline value or `*mut HeapHeader` cast
+//! offset 0..7  : header   = HeapHeader { rc:u32, tag=ANY_BOX, flags }
+//! offset 8..15 : tag      = i64 one of AnySlotTag::{Null,Bool,I64,F64,Heap,Undef}
+//! offset 16..23: value    = i64; inline value or `*mut HeapHeader` cast
 //! ```
 //!
-//! 16 bytes 8-aligned — single cache-line write on the alloc path
-//! (post-Step-5d shrink, was 24 B with a dedicated `tag: i64` field
-//! at offset 8). The `value: i64` is interpreted per the AnySlotTag:
+//! 24 bytes 8-aligned — fits in two cache-line writes for the alloc
+//! path. The `value: i64` is interpreted per `tag`:
 //!
 //! | tag             | value meaning                                  |
 //! |-----------------|------------------------------------------------|
@@ -94,11 +93,10 @@ extern crate torajs_mmalloc as _;
 // Layer 1 (size-known) mmalloc API direct: caller passes size on
 // both alloc and free, skipping the 16-byte SHIM_HEADER overhead
 // that Layer 2 (`__torajs_libc_*`) required for libc-shape API
-// compat. Combined with Step 5d's tag-into-header packing, AnyBox
-// chunk class drops 48 B (Layer 2) → 24 B (Step 4a, Layer 1 sized)
-// → 16 B (Step 5d, tag absorbed into header.flags): **67% mem
-// reduction per AnyBox** on heap-Any workloads (Array<Any>,
-// Object.freeze boxes, dynobj buckets).
+// compat. Saves 16 B / AnyBox + 1 store + 1 read; bumps AnyBox
+// chunk class from 48 B (16 SHIM + 24 AnyBox + 8 pad) down to
+// the 24 B class — **50% mem reduction per AnyBox** on heap-Any
+// workloads (Array<Any>, Object.freeze boxes, dynobj buckets).
 unsafe extern "C" {
     /// torajs-mmalloc Layer 1 alloc (size-known). Returns raw chunk
     /// pointer (no SHIM offset). Routes to `core::alloc_sized` via
@@ -123,27 +121,28 @@ pub mod inspect;
 // AnyBox heap struct
 // ============================================================
 
-/// 16-byte AnyBox heap value. ABI-locked layout — `#[repr(C,
+/// 24-byte AnyBox heap value. ABI-locked layout — `#[repr(C,
 /// align(8))]` so the const-offset reads ssa_lower emits at every
-/// dynobj / Array<Any> / Any-slot site are byte-stable.
-///
-/// Step 5d shrank from 24 → 16 B by packing the 4-bit AnySlotTag
-/// discriminant into `header.flags` bits 8..11 (see torajs-rc
-/// `any_tag.rs`); the previously-separate `tag: i64` field is gone.
+/// dynobj / Array<Any> / Any-slot site stay byte-identical to the
+/// pre-rewrite C struct.
 #[repr(C, align(8))]
 pub struct AnyBox {
     /// Universal heap-object header. `type_tag` is always
-    /// [`Tag::AnyBox`]; `refcount` is owned by `inc_ref`/`dec_ref`;
-    /// `flags` bits 8..11 carry the boxed payload's `AnySlotTag`.
+    /// [`Tag::AnyBox`]; `refcount` is owned by `inc_ref`/`dec_ref`
+    /// just like every other heap value.
     pub header: HeapHeader,
-    /// Inline payload. Interpretation depends on the `AnySlotTag`
-    /// packed into `header.flags`; see crate docs.
+    /// Discriminant for the boxed payload. Value space is
+    /// [`AnySlotTag`]; stored as `i64` because IR emits boxes via
+    /// `(i64 tag, i64 value)` pairs.
+    pub tag: i64,
+    /// Inline payload. Interpretation depends on `tag`; see crate
+    /// docs.
     pub value: i64,
 }
 
-/// Size in bytes of the [`AnyBox`] heap block. 16 = 8 (header) +
-/// 8 (value). 8-aligned via `#[repr(C, align(8))]`.
-const ANY_BOX_SIZE: usize = 16;
+/// Size in bytes of the [`AnyBox`] heap block. 24 = 8 (header) +
+/// 8 (tag) + 8 (value). 8-aligned via `#[repr(C, align(8))]`.
+const ANY_BOX_SIZE: usize = 24;
 
 impl AnyBox {
     /// Allocate a new owned `AnyBox` with refcount 1 and the given
@@ -154,18 +153,22 @@ impl AnyBox {
     /// must eventually call [`AnyBox::drop_owned`] (or, from C,
     /// the [`__torajs_any_box_drop`] FFI shim) to free it.
     pub fn alloc(tag: AnySlotTag, value: i64) -> NonNull<AnyBox> {
-        // SAFETY: `malloc(16)` returns null on OOM or a 16-byte
+        // SAFETY: `malloc(24)` returns null on OOM or a 24-byte
         // 8-aligned block (`__torajs_malloc` returns ≥16-aligned).
         let raw = unsafe { malloc(ANY_BOX_SIZE) as *mut AnyBox };
         let ptr =
             NonNull::new(raw).unwrap_or_else(|| torajs_abort::abort_with(b"AnyBox alloc OOM"));
         // SAFETY: just-allocated, exclusive ownership, layout matches.
-        // Tag packs into header.flags bits 8..11 (Step 5d — no
-        // separate field).
+        // Step 5b dual-write: tag goes into BOTH `tag` field (IR-emit
+        // compat path, dropped in Step 5d) AND header.flags bits 8..11.
         unsafe {
             let mut header = HeapHeader::new(Tag::AnyBox);
             header.set_any_tag(tag as u16);
-            ptr.as_ptr().write(AnyBox { header, value });
+            ptr.as_ptr().write(AnyBox {
+                header,
+                tag: tag as i64,
+                value,
+            });
             if matches!(tag, AnySlotTag::Heap) {
                 __torajs_rc_inc(value as *mut c_void);
             }
@@ -173,9 +176,10 @@ impl AnyBox {
         ptr
     }
 
-    /// Read the [`AnySlotTag`] from `header.flags` bits 8..11.
-    /// Returns `None` on a header not initialized via
-    /// `AnyBox::alloc`.
+    /// Read the [`AnySlotTag`] from `header.flags` bits 8..11
+    /// (Step 5b — Rust source of truth; the `tag: i64` field stays
+    /// for IR-emit compat until Step 5c flips it). Returns `None`
+    /// on a header not initialized via `AnyBox::alloc`.
     #[inline]
     pub fn slot_tag(&self) -> Option<AnySlotTag> {
         match self.header.any_tag_bits() as u64 {
@@ -229,6 +233,7 @@ impl AnyBox {
             return;
         }
         // rc transitioned to zero — walk heap child + free.
+        // Step 5b: read tag from header bits (Rust source of truth).
         let tag_bits = b.header.any_tag_bits();
         let value = b.value;
         if tag_bits == AnySlotTag::Heap as u16 {
@@ -479,13 +484,14 @@ mod tests {
 
     #[test]
     fn anybox_layout_matches_c_definition() {
-        // 16 bytes total post Step 5d: header @0, value @8 (tag
-        // packed into header.flags bits 8..11). Drift here would
-        // break const-offset arithmetic at every Any-slot site.
-        assert_eq!(size_of::<AnyBox>(), 16);
+        // C side: 24 bytes total, header @0, tag @8, value @16.
+        // Drift here would break the const-offset arithmetic ssa_
+        // lower emits at every dynobj / Array<Any> read/write.
+        assert_eq!(size_of::<AnyBox>(), 24);
         assert_eq!(align_of::<AnyBox>(), 8);
         assert_eq!(offset_of!(AnyBox, header), 0);
-        assert_eq!(offset_of!(AnyBox, value), 8);
+        assert_eq!(offset_of!(AnyBox, tag), 8);
+        assert_eq!(offset_of!(AnyBox, value), 16);
     }
 
     #[test]
@@ -493,7 +499,7 @@ mod tests {
         let p = AnyBox::alloc(AnySlotTag::Null, 0);
         // SAFETY: just-allocated, exclusive.
         unsafe {
-            assert_eq!(p.as_ref().header.any_tag_bits(), AnySlotTag::Null as u16);
+            assert_eq!(p.as_ref().tag, 0);
             assert_eq!(p.as_ref().value, 0);
             assert_eq!(p.as_ref().header.refcount, 1);
             AnyBox::drop_owned(p);
