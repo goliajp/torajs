@@ -81,11 +81,14 @@ mod tests {
 
             // Hand back to mmalloc (v0.7-A2 step 6b cutover; test-only
             // path — production drop helper lives in drop.rs).
+            // Layer 1 sized API: caller passes original alloc size.
             unsafe extern "C" {
                 #[link_name = "__torajs_free"]
                 fn free(p: *mut c_void, size: usize);
             }
-            free(p as *mut c_void);
+            let bytes = DYNOBJ_HDR_SIZE
+                + (DYNOBJ_INITIAL_CAP as usize) * crate::layout::DYNOBJ_BUCKET_SIZE;
+            free(p as *mut c_void, bytes);
         }
     }
 }
