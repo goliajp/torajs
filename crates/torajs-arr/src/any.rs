@@ -1,12 +1,19 @@
-//! `Array<Any>` substrate — tagged 16-byte slots.
+//! `Array<Any>` substrate — tagged 8-byte slots (NaN-box AnyValue).
 //!
 //! Port of `runtime_str.c` lines 414-582 (P4.1-d, 2026-05-23).
+//! Step 7e-A (2026-05-27) — slot stride shrunk from 16 → 8 bytes:
+//! the (tag, value) pair pack into a single NaN-box `AnyValue` u64
+//! per slot. Tag is inferred from the AnyValue's bit pattern via
+//! the `__torajs_anyv_unbox_tag` predicate cascade; the legacy FFI
+//! signature (still `tag, value` pair on push / set / get_tag /
+//! get_value) is preserved — the pack / unpack happens inside this
+//! module so ssa_lower's IR is unchanged.
 //!
 //! Layout: same 24-byte header (refcount/type_tag/flags + len + cap),
-//! but slot stride is 16 bytes (vs 8 for `Array<T>`):
+//! slot stride 8 bytes (one `AnyValue` per slot):
 //!
 //! ```text
-//! [hdr 24][slot0: tag u64 + value u64][slot1: ...]
+//! [hdr 24][slot0: AnyValue u64][slot1: AnyValue u64][...]
 //! ```
 //!
 //! `flags` carries `FLAG_ARR_ANY` so:
@@ -40,14 +47,12 @@ use torajs_rc::FLAG_ARR_ANY;
 
 use crate::layout::{ARR_LEN_OFF, ARR_SLOTS_OFF, TAG_ARR};
 
-/// Tag value for ANY_HEAP — slot's `value` is a refcounted heap ptr.
-const ANY_HEAP: u64 = 4;
-
 /// Tag value for ANY_UNDEF — returned by OOB get to match JS spec.
 const ANY_UNDEF: u64 = 5;
 
-/// 16 bytes — Array<Any> slot stride.
-const ANY_SLOT_BYTES: usize = 16;
+/// 8 bytes — Array<Any> slot stride (Step 7e-A: NaN-box `AnyValue`
+/// per slot; tag + value packed into one u64).
+const ANY_SLOT_BYTES: usize = 8;
 
 /// Cap slot offset (matches torajs-arr::alloc's `ARR_CAP_LOW32_OFF`).
 const ARR_CAP_LOW32_OFF: usize = 16;
@@ -60,23 +65,24 @@ unsafe extern "C" {
     #[link_name = "__torajs_libc_realloc"]
     fn realloc(p: *mut c_void, n: usize) -> *mut c_void;
 
-    /// Cross-tier — torajs-rc. Increments refcount; NULL pass-through.
+    /// Cross-tier — torajs-rc. Increments refcount; NULL pass-through
+    /// (post-7d-A: also no-ops for non-cell NaN-box bit patterns).
     fn __torajs_rc_inc(p: *mut c_void);
 
-    /// Cross-tier — runtime_str.c's universal heap value dropper.
-    /// Used by set_any to release the previous slot when overwriting
-    /// an ANY_HEAP entry.
+    /// Cross-tier — universal heap-value dropper. Step 7d-A made it
+    /// NaN-box-safe (skips immediates), so passing an `AnyValue`
+    /// straight through is correct.
     fn __torajs_value_drop_heap(p: *mut c_void);
+
+    /// Cross-tier — torajs-anyvalue NaN-box pack/unpack.
+    fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
+    fn __torajs_anyv_unbox_tag(v: u64) -> i64;
+    fn __torajs_anyv_unbox_value(v: u64) -> i64;
 }
 
 #[inline]
-unsafe fn slot_tag_ptr(arr: *mut u8, i: u64) -> *mut u64 {
+unsafe fn slot_anyvalue_ptr(arr: *mut u8, i: u64) -> *mut u64 {
     unsafe { arr.add(ARR_SLOTS_OFF + (i as usize) * ANY_SLOT_BYTES) as *mut u64 }
-}
-
-#[inline]
-unsafe fn slot_val_ptr(arr: *mut u8, i: u64) -> *mut u64 {
-    unsafe { arr.add(ARR_SLOTS_OFF + (i as usize) * ANY_SLOT_BYTES + 8) as *mut u64 }
 }
 
 #[inline]
@@ -125,8 +131,8 @@ pub unsafe extern "C" fn __torajs_arr_alloc_any_filled(n: u64) -> *mut u8 {
 ///
 /// # Safety
 /// `arr` must be a valid Array<Any> heap pointer (FLAG_ARR_ANY set,
-/// 16-byte slot stride). For ANY_HEAP slots the caller MUST have
-/// pre-rc-incremented the heap value; push takes ownership.
+/// 8-byte AnyValue slot stride). For ANY_HEAP slots the caller MUST
+/// have pre-rc-incremented the heap value; push takes ownership.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_push_any(arr: *mut c_void, tag: u64, value: u64) -> *mut u8 {
     let mut arr = arr as *mut u8;
@@ -139,15 +145,15 @@ pub unsafe extern "C" fn __torajs_arr_push_any(arr: *mut c_void, tag: u64, value
             arr = realloc(arr as *mut c_void, total) as *mut u8;
             *(arr.add(ARR_CAP_LOW32_OFF) as *mut u32) = new_cap;
         }
-        *slot_tag_ptr(arr, len) = tag;
-        *slot_val_ptr(arr, len) = value;
+        let av = __torajs_anyv_box_from_pair(tag as i64, value as i64);
+        *slot_anyvalue_ptr(arr, len) = av;
         *(arr.add(ARR_LEN_OFF) as *mut u64) = len + 1;
         arr
     }
 }
 
 /// Extend `dst` with `src`'s tagged slots. Both are Array<Any>
-/// (16-byte slots). Each appended slot's ANY_HEAP value gets its
+/// (8-byte AnyValue slots). Each appended cell-tagged slot gets its
 /// refcount bumped so dst shares ownership; src retains its own.
 /// Reallocs dst when cap is insufficient (2× growth).
 ///
@@ -175,17 +181,14 @@ pub unsafe extern "C" fn __torajs_arr_extend_any(dst: *mut u8, src: *const u8) -
             *(dst.add(ARR_CAP_LOW32_OFF) as *mut u32) = new_cap;
         }
         for i in 0..src_len {
-            // src is technically *const u8 but slot_tag_ptr / slot_val_ptr
-            // share the same offset math; cast via *mut is safe as long
-            // as we only read.
+            // src is technically *const u8; cast via *mut for the
+            // shared slot accessor (read-only is fine).
             let src_mut = src as *mut u8;
-            let tag = *slot_tag_ptr(src_mut, i);
-            let val = *slot_val_ptr(src_mut, i);
-            if tag == ANY_HEAP && val != 0 {
-                __torajs_rc_inc(val as *mut c_void);
-            }
-            *slot_tag_ptr(dst, dst_len + i) = tag;
-            *slot_val_ptr(dst, dst_len + i) = val;
+            let av = *slot_anyvalue_ptr(src_mut, i);
+            // rc_inc is NaN-box-safe — no-op for non-cell immediates,
+            // bumps the wrapped heap pointer's refcount for cells.
+            __torajs_rc_inc(av as *mut c_void);
+            *slot_anyvalue_ptr(dst, dst_len + i) = av;
         }
         *(dst.add(ARR_LEN_OFF) as *mut u64) = dst_len + src_len;
         dst
@@ -201,12 +204,13 @@ pub unsafe extern "C" fn __torajs_arr_get_any_tag(arr: *const c_void, i: u64) ->
         return ANY_UNDEF;
     }
     unsafe {
-        let arr = arr as *const u8;
-        let len = *(arr.add(ARR_LEN_OFF) as *const u64);
+        let arr_u8 = arr as *const u8;
+        let len = *(arr_u8.add(ARR_LEN_OFF) as *const u64);
         if i >= len {
             return ANY_UNDEF;
         }
-        *slot_tag_ptr(arr as *mut u8, i)
+        let av = *slot_anyvalue_ptr(arr_u8 as *mut u8, i);
+        __torajs_anyv_unbox_tag(av) as u64
     }
 }
 
@@ -219,19 +223,21 @@ pub unsafe extern "C" fn __torajs_arr_get_any_value(arr: *const c_void, i: u64) 
         return 0;
     }
     unsafe {
-        let arr = arr as *const u8;
-        let len = *(arr.add(ARR_LEN_OFF) as *const u64);
+        let arr_u8 = arr as *const u8;
+        let len = *(arr_u8.add(ARR_LEN_OFF) as *const u64);
         if i >= len {
             return 0;
         }
-        *slot_val_ptr(arr as *mut u8, i)
+        let av = *slot_anyvalue_ptr(arr_u8 as *mut u8, i);
+        __torajs_anyv_unbox_value(av) as u64
     }
 }
 
 /// Indexed write — `arr[i] = (tag, value)`. NULL arr is a no-op. OOB
 /// `i` is the caller's responsibility (no bounds check, matching the
-/// arr_get_any_* helpers). If the slot previously held an ANY_HEAP
-/// value, drop it first to keep refcount accounting balanced.
+/// arr_get_any_* helpers). If the slot previously held a heap-cell
+/// AnyValue, drop it first to keep refcount accounting balanced
+/// (`value_drop_heap` is NaN-box-safe — primitives no-op).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_set_any(arr: *mut c_void, i: u64, tag: u64, value: u64) {
     if arr.is_null() {
@@ -239,12 +245,8 @@ pub unsafe extern "C" fn __torajs_arr_set_any(arr: *mut c_void, i: u64, tag: u64
     }
     let arr = arr as *mut u8;
     unsafe {
-        let old_tag = *slot_tag_ptr(arr, i);
-        if old_tag == ANY_HEAP {
-            let old_val = *slot_val_ptr(arr, i);
-            __torajs_value_drop_heap(old_val as *mut c_void);
-        }
-        *slot_tag_ptr(arr, i) = tag;
-        *slot_val_ptr(arr, i) = value;
+        let old_av = *slot_anyvalue_ptr(arr, i);
+        __torajs_value_drop_heap(old_av as *mut c_void);
+        *slot_anyvalue_ptr(arr, i) = __torajs_anyv_box_from_pair(tag as i64, value as i64);
     }
 }

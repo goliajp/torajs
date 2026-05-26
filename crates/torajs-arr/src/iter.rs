@@ -42,8 +42,8 @@ const ANY_I64: u8 = 2;
 const ANY_HEAP: u8 = 4;
 const ANY_UNDEF: u8 = 5;
 
-/// Array<Any> per-slot stride.
-const ANY_SLOT_BYTES: usize = 16;
+/// Array<Any> per-slot stride (Step 7e-A: NaN-box AnyValue per slot).
+const ANY_SLOT_BYTES: usize = 8;
 
 /// ArrIter heap block — 32 bytes, ABI-shared with the C-side
 /// definition we just deleted.
@@ -70,6 +70,11 @@ unsafe extern "C" {
     /// with the rest of the iter externs.
     fn __torajs_arr_alloc_any(cap: u64) -> *mut c_void;
     fn __torajs_arr_push_any(arr: *mut c_void, tag: u64, value: u64) -> *mut c_void;
+    /// Step 7e-A NaN-box decoders — read the per-slot AnyValue
+    /// back into the legacy (tag, value) pair shape this fn was
+    /// originally designed against.
+    fn __torajs_anyv_unbox_tag(v: u64) -> i64;
+    fn __torajs_anyv_unbox_value(v: u64) -> i64;
 }
 
 /// Internal: alloc + init a fresh ArrIter struct. rc_inc the source
@@ -165,10 +170,11 @@ pub unsafe extern "C" fn __torajs_arr_iter_step(
         }
         return 0;
     }
-    let slot_base =
-        unsafe { (arr as *const u8).add(ARR_SLOTS_OFF + (i as usize) * ANY_SLOT_BYTES) };
-    let slot_tag = unsafe { *(slot_base as *const u64) };
-    let slot_val = unsafe { *(slot_base.add(8) as *const u64) };
+    let slot_av = unsafe {
+        *((arr as *const u8).add(ARR_SLOTS_OFF + (i as usize) * ANY_SLOT_BYTES) as *const u64)
+    };
+    let slot_tag = unsafe { __torajs_anyv_unbox_tag(slot_av) } as u64;
+    let slot_val = unsafe { __torajs_anyv_unbox_value(slot_av) } as u64;
     unsafe { (*it).cursor = (i + 1) as i64 };
 
     let (tag, payload) = match unsafe { (*it).kind } {

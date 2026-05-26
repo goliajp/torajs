@@ -10428,18 +10428,26 @@ impl<'a> LowerCtx<'a> {
                             Type::Ptr,
                             None,
                         );
-                        // Inner is Array<Any> with 16-byte slots. Read
-                        // value slot (slot index 1): tag at offset
-                        // 24+1*16=40, value at 48.
+                        // Inner is Array<Any> with 8-byte NaN-box
+                        // AnyValue slots (Step 7e-A). Read slot 1
+                        // (the value) via the shims so the
+                        // tag-from-bits dispatch handles primitives
+                        // and cells uniformly.
                         let val_tag = self.f.append_inst(
                             self.cur_block,
-                            InstKind::Load(Type::I64, Operand::Value(inner_ptr), 40),
+                            InstKind::Call(
+                                self.intrinsics.arr_get_any_tag,
+                                vec![Operand::Value(inner_ptr), Operand::ConstI64(1)],
+                            ),
                             Type::I64,
                             None,
                         );
                         let val_raw = self.f.append_inst(
                             self.cur_block,
-                            InstKind::Load(Type::I64, Operand::Value(inner_ptr), 48),
+                            InstKind::Call(
+                                self.intrinsics.arr_get_any_value,
+                                vec![Operand::Value(inner_ptr), Operand::ConstI64(1)],
+                            ),
                             Type::I64,
                             None,
                         );
@@ -14562,18 +14570,26 @@ impl<'a> LowerCtx<'a> {
                                 }
                                 Type::Any => {
                                     // Already boxed — extract tag/value
-                                    // from the Any-box. Read tag from
-                                    // offset 16, value from offset 24
-                                    // (matches the box_to_any layout).
+                                    // from the AnyValue via the NaN-box
+                                    // decoders (Step 7e-A; the legacy
+                                    // direct-offset Load 16/24 read of
+                                    // an AnyBox struct doesn't survive
+                                    // the 7d-A immediate switch).
                                     let tag_v = self.f.append_inst(
                                         self.cur_block,
-                                        InstKind::Load(Type::I64, v_raw.clone(), 16),
+                                        InstKind::Call(
+                                            self.intrinsics.any_unbox_tag,
+                                            vec![v_raw.clone()],
+                                        ),
                                         Type::I64,
                                         None,
                                     );
                                     let val_v = self.f.append_inst(
                                         self.cur_block,
-                                        InstKind::Load(Type::I64, v_raw.clone(), 24),
+                                        InstKind::Call(
+                                            self.intrinsics.any_unbox_value,
+                                            vec![v_raw.clone()],
+                                        ),
                                         Type::I64,
                                         None,
                                     );
@@ -18572,15 +18588,26 @@ impl<'a> LowerCtx<'a> {
                                     }
                                 }
                                 Type::Any => {
+                                    // Step 7e-A — decode the AnyValue
+                                    // pair via the NaN-box shims; the
+                                    // pre-7d-A direct-offset Load
+                                    // 16/24 reads of an AnyBox struct
+                                    // are gone.
                                     let tag_v = self.f.append_inst(
                                         self.cur_block,
-                                        InstKind::Load(Type::I64, v_raw.clone(), 16),
+                                        InstKind::Call(
+                                            self.intrinsics.any_unbox_tag,
+                                            vec![v_raw.clone()],
+                                        ),
                                         Type::I64,
                                         None,
                                     );
                                     let val_v = self.f.append_inst(
                                         self.cur_block,
-                                        InstKind::Load(Type::I64, v_raw.clone(), 24),
+                                        InstKind::Call(
+                                            self.intrinsics.any_unbox_value,
+                                            vec![v_raw.clone()],
+                                        ),
                                         Type::I64,
                                         None,
                                     );
