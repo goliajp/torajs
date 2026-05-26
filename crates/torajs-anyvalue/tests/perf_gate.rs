@@ -70,6 +70,8 @@ fn ffi_alloc_drop_pair_under_budget() {
 #[test]
 fn anybox_layout_size_invariant() {
     use std::mem::{align_of, size_of};
-    assert_eq!(size_of::<AnyBox>(), 24);
+    // Step 5d shrank AnyBox 24 -> 16 B by packing AnySlotTag into
+    // header.flags bits 8..11.
+    assert_eq!(size_of::<AnyBox>(), 16);
     assert_eq!(align_of::<AnyBox>(), 8);
 }
