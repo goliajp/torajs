@@ -283,6 +283,11 @@ fn zero_sentinel() -> *mut u8 {
 /// class is cached in CORE_TLAB, return it directly (~3 cycles
 /// inside the locked section). Miss falls through to
 /// `CORE_ALLOC.alloc` (size_class span freelist).
+///
+/// `#[inline(always)]` (Phase 2e item 13a): lets fat LTO + cc -flto
+/// inline the hot path into user-binary IR, eliminating extern "C"
+/// call overhead per alloc.
+#[inline(always)]
 pub fn alloc_sized(size: usize) -> *mut u8 {
     if size == 0 {
         return zero_sentinel();
@@ -363,6 +368,7 @@ pub fn alloc_sized(size: usize) -> *mut u8 {
 ///
 /// `ptr` must be a pointer returned by `alloc` / `alloc_sized`
 /// with the matching `size`, not already freed.
+#[inline(always)]
 pub unsafe fn free_sized(ptr: *mut u8, size: usize) {
     if ptr.is_null() || ptr == zero_sentinel() || size == 0 {
         return;

@@ -72,7 +72,7 @@ impl TlabCache {
     /// TLAB has no slots cached for this class — caller falls
     /// back to the central `Allocator`. ~3 cycles when hit
     /// (single load + single subtract + single load).
-    #[inline]
+    #[inline(always)]
     pub fn pop(&mut self, class_idx: usize) -> Option<*mut u8> {
         let d = self.depth[class_idx];
         if d == 0 {
@@ -87,7 +87,7 @@ impl TlabCache {
     /// `false` if the cache is full — caller must dispatch the
     /// slot back to the central `Allocator`. ~3 cycles when not
     /// full (single load + compare + single store + single store).
-    #[inline]
+    #[inline(always)]
     pub fn push(&mut self, class_idx: usize, ptr: *mut u8) -> bool {
         let d = self.depth[class_idx] as usize;
         if d >= TLAB_CACHE_DEPTH {
@@ -116,7 +116,7 @@ impl TlabCache {
     }
 
     /// True iff every class has zero cached slots.
-    #[inline]
+    #[inline(always)]
     pub fn is_empty(&self) -> bool {
         self.depth.iter().all(|&d| d == 0)
     }
