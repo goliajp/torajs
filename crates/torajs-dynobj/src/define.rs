@@ -27,15 +27,18 @@ use crate::layout::{
     ANY_HEAP, ANY_UNDEF, BUCKET_FLAG_CONFIGURABLE, BUCKET_FLAG_ENUMERABLE, BUCKET_FLAG_WRITABLE,
     BUCKET_TAG_MASK, DEFINE_FLAG_CONFIGURABLE, DEFINE_FLAG_ENUMERABLE, DEFINE_FLAG_WRITABLE,
     DEFINE_PRESENT_CONFIGURABLE, DEFINE_PRESENT_ENUMERABLE, DEFINE_PRESENT_VALUE,
-    DEFINE_PRESENT_WRITABLE, DYNOBJ_TOMBSTONE,
+    DEFINE_PRESENT_WRITABLE, DYNOBJ_KEY_TOMBSTONE,
 };
-use crate::probe::{buckets, probe};
+use crate::probe::{bucket_flags, bucket_make_key_tagged, buckets, probe};
 use crate::resize::resize;
 
 unsafe extern "C" {
     fn __torajs_rc_inc(p: *mut c_void);
     fn __torajs_throw_type_error(msg: *const u8);
     fn __torajs_value_drop_heap(child: *mut c_void);
+    fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
+    fn __torajs_anyv_unbox_tag(v: u64) -> i64;
+    fn __torajs_anyv_unbox_value(v: u64) -> i64;
 }
 
 /// `__torajs_dynobj_define(obj_slot, key, tag, value, flags_byte)`.
@@ -79,11 +82,13 @@ pub unsafe extern "C" fn __torajs_dynobj_define(
     let desc_configurable = flags_byte & DEFINE_FLAG_CONFIGURABLE != 0;
 
     if pr.found {
-        let cur_tag = unsafe { (*bk.add(pr.idx as usize)).tag };
-        let cur_writable = cur_tag & BUCKET_FLAG_WRITABLE != 0;
-        let cur_enumerable = cur_tag & BUCKET_FLAG_ENUMERABLE != 0;
-        let cur_configurable = cur_tag & BUCKET_FLAG_CONFIGURABLE != 0;
-        let cur_value_tag = cur_tag & BUCKET_TAG_MASK;
+        let cur_kp_tagged = unsafe { (*bk.add(pr.idx as usize)).key_ptr_tagged };
+        let cur_value_anyv = unsafe { (*bk.add(pr.idx as usize)).value_anyv };
+        let cur_flags = bucket_flags(cur_kp_tagged);
+        let cur_writable = cur_flags & BUCKET_FLAG_WRITABLE != 0;
+        let cur_enumerable = cur_flags & BUCKET_FLAG_ENUMERABLE != 0;
+        let cur_configurable = cur_flags & BUCKET_FLAG_CONFIGURABLE != 0;
+        let cur_value_tag = unsafe { __torajs_anyv_unbox_tag(cur_value_anyv) } as u64;
 
         if !cur_configurable {
             // Spec §10.1.6.3 — non-configurable bucket; reject diverging
@@ -118,8 +123,10 @@ pub unsafe extern "C" fn __torajs_dynobj_define(
                 }
                 if has_value {
                     // SameValue approximated by exact (tag, value) match.
-                    let same = (tag & BUCKET_TAG_MASK) == cur_value_tag
-                        && value == unsafe { (*bk.add(pr.idx as usize)).value };
+                    let cur_unboxed_value =
+                        unsafe { __torajs_anyv_unbox_value(cur_value_anyv) } as u64;
+                    let same =
+                        (tag & BUCKET_TAG_MASK) == cur_value_tag && value == cur_unboxed_value;
                     if !same {
                         unsafe {
                             __torajs_throw_type_error(
@@ -135,9 +142,8 @@ pub unsafe extern "C" fn __torajs_dynobj_define(
         // Validation passed — apply. Drop the old heap value first if
         // the new descriptor brings a fresh [[Value]] over an ANY_HEAP slot.
         if has_value && cur_value_tag == ANY_HEAP {
-            let old_val = unsafe { (*bk.add(pr.idx as usize)).value as *mut c_void };
             unsafe {
-                __torajs_value_drop_heap(old_val);
+                __torajs_value_drop_heap(cur_value_anyv as *mut c_void);
             }
         }
 
@@ -185,16 +191,21 @@ pub unsafe extern "C" fn __torajs_dynobj_define(
         let new_value = if has_value {
             value
         } else {
-            unsafe { (*bk.add(pr.idx as usize)).value }
+            unsafe { __torajs_anyv_unbox_value(cur_value_anyv) as u64 }
         };
 
+        // Preserve the existing key pointer (re-pack with new flags);
+        // rebox the (tag, value) pair into a fresh NaN-box AnyValue.
+        let cur_key_ptr = (cur_kp_tagged & crate::layout::BUCKET_KEY_PTR_MASK) as *mut c_void;
         unsafe {
-            (*bk.add(pr.idx as usize)).tag = new_value_tag | new_flags;
-            (*bk.add(pr.idx as usize)).value = new_value;
+            (*bk.add(pr.idx as usize)).key_ptr_tagged =
+                bucket_make_key_tagged(cur_key_ptr, new_flags);
+            (*bk.add(pr.idx as usize)).value_anyv =
+                __torajs_anyv_box_from_pair(new_value_tag as i64, new_value as i64);
         }
     } else {
         // Fresh define. Absent flags default to false (spec §10.1.6.2).
-        if unsafe { (*bk.add(pr.idx as usize)).key_ptr } == DYNOBJ_TOMBSTONE {
+        if unsafe { (*bk.add(pr.idx as usize)).key_ptr_tagged } == DYNOBJ_KEY_TOMBSTONE {
             unsafe {
                 *((obj as *mut u8).add(16) as *mut u32) = tomb - 1;
             }
@@ -212,16 +223,16 @@ pub unsafe extern "C" fn __torajs_dynobj_define(
         if desc_configurable {
             new_flags |= BUCKET_FLAG_CONFIGURABLE;
         }
+        let (init_tag, init_value) = if has_value {
+            (tag & BUCKET_TAG_MASK, value)
+        } else {
+            // No .value present — default [[Value]] to undefined.
+            (ANY_UNDEF, 0)
+        };
         unsafe {
-            (*bk.add(pr.idx as usize)).key_ptr = key;
-            if has_value {
-                (*bk.add(pr.idx as usize)).tag = (tag & BUCKET_TAG_MASK) | new_flags;
-                (*bk.add(pr.idx as usize)).value = value;
-            } else {
-                // No .value present — default [[Value]] to undefined.
-                (*bk.add(pr.idx as usize)).tag = ANY_UNDEF | new_flags;
-                (*bk.add(pr.idx as usize)).value = 0;
-            }
+            (*bk.add(pr.idx as usize)).key_ptr_tagged = bucket_make_key_tagged(key, new_flags);
+            (*bk.add(pr.idx as usize)).value_anyv =
+                __torajs_anyv_box_from_pair(init_tag as i64, init_value as i64);
             *((obj as *mut u8).add(8) as *mut u32) = count + 1;
         }
     }

@@ -17,8 +17,8 @@
 
 use core::ffi::c_void;
 
-use crate::layout::{DYNOBJ_BUCKET_SIZE, DYNOBJ_HDR_SIZE};
-use crate::probe::{Bucket, buckets, cap, probe};
+use crate::layout::{DYNOBJ_BUCKET_SIZE, DYNOBJ_HDR_SIZE, DYNOBJ_KEY_EMPTY, DYNOBJ_KEY_TOMBSTONE};
+use crate::probe::{Bucket, bucket_key_ptr, buckets, cap, probe};
 
 unsafe extern "C" {
     /// torajs-mmalloc libc-compat calloc/free — v0.7-A2 step 6b cutover.
@@ -55,18 +55,19 @@ pub(crate) unsafe fn resize(obj_slot: *mut *mut c_void, new_cap: u32) {
     let new_bk = unsafe { buckets(new_obj) };
     let mut live: u32 = 0;
     for i in 0..old_cap as usize {
-        let kp = unsafe { (*old_bk.add(i)).key_ptr };
-        if kp.is_null() || kp == crate::layout::DYNOBJ_TOMBSTONE {
+        let kp_tagged = unsafe { (*old_bk.add(i)).key_ptr_tagged };
+        if kp_tagged == DYNOBJ_KEY_EMPTY || kp_tagged == DYNOBJ_KEY_TOMBSTONE {
             continue;
         }
-        let pr = unsafe { probe(new_obj, kp as *const c_void) };
+        let pr = unsafe { probe(new_obj, bucket_key_ptr(kp_tagged) as *const c_void) };
         // SAFETY: live entries in the source are guaranteed unique,
         // so probe lands on an empty slot (found=false, idx=fresh).
+        // Bucket is `#[repr(C)]` with 2 × u64; bitwise copy preserves
+        // both the tagged key (ptr | flags) and the NaN-box value.
         unsafe {
             *new_bk.add(pr.idx as usize) = Bucket {
-                key_ptr: (*old_bk.add(i)).key_ptr,
-                tag: (*old_bk.add(i)).tag,
-                value: (*old_bk.add(i)).value,
+                key_ptr_tagged: kp_tagged,
+                value_anyv: (*old_bk.add(i)).value_anyv,
             };
         }
         live += 1;

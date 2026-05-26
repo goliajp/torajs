@@ -14,9 +14,9 @@
 use core::ffi::c_void;
 
 use crate::layout::{
-    ANY_HEAP, BUCKET_FLAG_WRITABLE, BUCKET_FLAGS_DEFAULT, BUCKET_TAG_MASK, DYNOBJ_TOMBSTONE,
+    ANY_HEAP, BUCKET_FLAG_WRITABLE, BUCKET_FLAGS_DEFAULT, BUCKET_TAG_MASK, DYNOBJ_KEY_TOMBSTONE,
 };
-use crate::probe::{buckets, probe};
+use crate::probe::{bucket_flags, bucket_make_key_tagged, buckets, probe};
 use crate::resize::resize;
 
 unsafe extern "C" {
@@ -29,10 +29,17 @@ unsafe extern "C" {
     /// `return;` after invoking (per `feedback_throw_extern_returns_void`).
     fn __torajs_throw_type_error(msg: *const u8);
 
-    /// Cross-tier — heap-value drop dispatch (still in runtime_str.c
-    /// for now). Drops the old bucket value when overwriting an
-    /// ANY_HEAP slot.
+    /// Cross-tier — heap-value drop dispatch (NaN-box-safe; immediate
+    /// AnyValues are filtered by the 7d-A cell gate). Drops the old
+    /// bucket value when overwriting.
     fn __torajs_value_drop_heap(child: *mut c_void);
+
+    /// torajs-anyvalue — NaN-box AnyValue pair encoder. Takes (tag,
+    /// value) as i64 + returns the packed u64 immediate.
+    fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
+
+    /// torajs-anyvalue — NaN-box AnyValue tag decoder.
+    fn __torajs_anyv_unbox_tag(v: u64) -> i64;
 }
 
 /// `__torajs_dynobj_set(obj_slot, key, tag, value)` — implicit-set entry.
@@ -68,8 +75,9 @@ pub unsafe extern "C" fn __torajs_dynobj_set(
     let pr = unsafe { probe(obj, key as *const c_void) };
     let bk = unsafe { buckets(obj) };
     if pr.found {
-        let cur_tag = unsafe { (*bk.add(pr.idx as usize)).tag };
-        if cur_tag & BUCKET_FLAG_WRITABLE == 0 {
+        let cur_kp_tagged = unsafe { (*bk.add(pr.idx as usize)).key_ptr_tagged };
+        let cur_flags = bucket_flags(cur_kp_tagged);
+        if cur_flags & BUCKET_FLAG_WRITABLE == 0 {
             unsafe {
                 __torajs_throw_type_error(
                     c"TypeError: Cannot assign to read only property".as_ptr() as *const u8,
@@ -77,30 +85,36 @@ pub unsafe extern "C" fn __torajs_dynobj_set(
             }
             return;
         }
+        let cur_value_anyv = unsafe { (*bk.add(pr.idx as usize)).value_anyv };
+        let cur_tag = unsafe { __torajs_anyv_unbox_tag(cur_value_anyv) } as u64;
         // Drop the old heap value if the current slot was ANY_HEAP.
-        if cur_tag & BUCKET_TAG_MASK == ANY_HEAP {
-            let old_val = unsafe { (*bk.add(pr.idx as usize)).value as *mut c_void };
+        // (The NaN-box cell gate in __torajs_value_drop_heap would
+        // also short-circuit immediates, but checking tag first keeps
+        // the hot path one extern call lighter on the common case.)
+        if cur_tag == ANY_HEAP {
             unsafe {
-                __torajs_value_drop_heap(old_val);
+                __torajs_value_drop_heap(cur_value_anyv as *mut c_void);
             }
         }
-        // Preserve existing flag bits; only swap the value-type tag.
+        // Preserve existing flag bits in key_ptr_tagged; rebox the
+        // (tag, value) pair into a fresh NaN-box AnyValue.
         unsafe {
-            (*bk.add(pr.idx as usize)).tag = (cur_tag & !BUCKET_TAG_MASK) | (tag & BUCKET_TAG_MASK);
-            (*bk.add(pr.idx as usize)).value = value;
+            (*bk.add(pr.idx as usize)).value_anyv =
+                __torajs_anyv_box_from_pair((tag & BUCKET_TAG_MASK) as i64, value as i64);
         }
     } else {
         // Fresh insert path. Reusing a tombstone slot decrements `tomb`.
-        if unsafe { (*bk.add(pr.idx as usize)).key_ptr } == DYNOBJ_TOMBSTONE {
+        if unsafe { (*bk.add(pr.idx as usize)).key_ptr_tagged } == DYNOBJ_KEY_TOMBSTONE {
             unsafe {
                 *((obj as *mut u8).add(16) as *mut u32) = tomb - 1;
             }
         }
         unsafe {
             __torajs_rc_inc(key);
-            (*bk.add(pr.idx as usize)).key_ptr = key;
-            (*bk.add(pr.idx as usize)).tag = (tag & BUCKET_TAG_MASK) | BUCKET_FLAGS_DEFAULT;
-            (*bk.add(pr.idx as usize)).value = value;
+            (*bk.add(pr.idx as usize)).key_ptr_tagged =
+                bucket_make_key_tagged(key, BUCKET_FLAGS_DEFAULT);
+            (*bk.add(pr.idx as usize)).value_anyv =
+                __torajs_anyv_box_from_pair((tag & BUCKET_TAG_MASK) as i64, value as i64);
             *((obj as *mut u8).add(8) as *mut u32) = count + 1;
         }
     }

@@ -13,10 +13,16 @@
 use core::ffi::c_void;
 
 use crate::layout::{
-    ANY_UNDEF, BUCKET_FLAG_CONFIGURABLE, BUCKET_FLAG_ENUMERABLE, BUCKET_FLAG_WRITABLE,
-    BUCKET_TAG_MASK, TAG_DYNOBJ,
+    ANY_UNDEF, BUCKET_FLAG_CONFIGURABLE, BUCKET_FLAG_ENUMERABLE, BUCKET_FLAG_WRITABLE, TAG_DYNOBJ,
 };
-use crate::probe::{buckets, probe};
+use crate::probe::{bucket_flags, buckets, probe};
+
+unsafe extern "C" {
+    /// torajs-anyvalue — NaN-box AnyValue tag decoder.
+    fn __torajs_anyv_unbox_tag(v: u64) -> i64;
+    /// torajs-anyvalue — NaN-box AnyValue value decoder.
+    fn __torajs_anyv_unbox_value(v: u64) -> i64;
+}
 
 /// Read the `type_tag: u16` at offset 4 of the heap header.
 ///
@@ -47,12 +53,13 @@ pub unsafe extern "C" fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const
         return ANY_UNDEF;
     }
     let bk = unsafe { buckets(obj) };
-    unsafe { (*bk.add(p.idx as usize)).tag & BUCKET_TAG_MASK }
+    let v = unsafe { (*bk.add(p.idx as usize)).value_anyv };
+    unsafe { __torajs_anyv_unbox_tag(v) as u64 }
 }
 
 /// `__torajs_dynobj_get_value(obj, key)` — return the slot's
-/// per-tag payload (`Bucket::value`). Returns 0 when `obj` is NULL,
-/// not a DynObj, or the key is absent.
+/// per-tag payload (decoded from the NaN-box `value_anyv`). Returns
+/// 0 when `obj` is NULL, not a DynObj, or the key is absent.
 ///
 /// # Safety
 /// Same contract as [`__torajs_dynobj_get_tag`].
@@ -69,7 +76,8 @@ pub unsafe extern "C" fn __torajs_dynobj_get_value(obj: *const c_void, key: *con
         return 0;
     }
     let bk = unsafe { buckets(obj) };
-    unsafe { (*bk.add(p.idx as usize)).value }
+    let v = unsafe { (*bk.add(p.idx as usize)).value_anyv };
+    unsafe { __torajs_anyv_unbox_value(v) as u64 }
 }
 
 /// `__torajs_dynobj_get_flags(obj, key)` — return the slot's
@@ -95,15 +103,18 @@ pub unsafe extern "C" fn __torajs_dynobj_get_flags(obj: *const c_void, key: *con
         return 0;
     }
     let bk = unsafe { buckets(obj) };
-    let t = unsafe { (*bk.add(p.idx as usize)).tag };
+    let kp_tagged = unsafe { (*bk.add(p.idx as usize)).key_ptr_tagged };
+    let f = bucket_flags(kp_tagged);
+    // The output ABI for get_flags is bit 0/1/2 = W/E/C, matching the
+    // internal bucket flag-bit layout exactly — return verbatim.
     let mut flags: u64 = 0;
-    if t & BUCKET_FLAG_WRITABLE != 0 {
+    if f & BUCKET_FLAG_WRITABLE != 0 {
         flags |= 1 << 0;
     }
-    if t & BUCKET_FLAG_ENUMERABLE != 0 {
+    if f & BUCKET_FLAG_ENUMERABLE != 0 {
         flags |= 1 << 1;
     }
-    if t & BUCKET_FLAG_CONFIGURABLE != 0 {
+    if f & BUCKET_FLAG_CONFIGURABLE != 0 {
         flags |= 1 << 2;
     }
     flags

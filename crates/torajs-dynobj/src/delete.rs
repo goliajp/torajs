@@ -7,15 +7,16 @@
 
 use core::ffi::c_void;
 
-use crate::layout::{ANY_HEAP, BUCKET_TAG_MASK, DYNOBJ_TOMBSTONE};
-use crate::probe::{buckets, probe};
+use crate::layout::DYNOBJ_KEY_TOMBSTONE;
+use crate::probe::{bucket_key_ptr, buckets, probe};
 
 unsafe extern "C" {
     /// Cross-tier — torajs-str's Str drop (releases the bucket's
     /// owning key share).
     fn __torajs_str_drop(s: *mut c_void);
 
-    /// Cross-tier — universal heap-value drop (still in runtime_str.c).
+    /// Cross-tier — universal heap-value drop (NaN-box-safe; the 7d-A
+    /// cell gate filters immediate AnyValues so this is unconditional).
     fn __torajs_value_drop_heap(child: *mut c_void);
 }
 
@@ -38,14 +39,13 @@ pub unsafe extern "C" fn __torajs_dynobj_delete(obj: *mut c_void, key: *const c_
     let bk = unsafe { buckets(obj) };
     unsafe {
         let bucket = &mut *bk.add(pr.idx as usize);
-        // Drop the owning key Str + any ANY_HEAP value.
-        __torajs_str_drop(bucket.key_ptr);
-        if bucket.tag & BUCKET_TAG_MASK == ANY_HEAP {
-            __torajs_value_drop_heap(bucket.value as *mut c_void);
-        }
-        bucket.key_ptr = DYNOBJ_TOMBSTONE;
-        bucket.tag = 0;
-        bucket.value = 0;
+        // Drop the owning key Str + any heap-pointer value. The NaN-
+        // box cell gate inside __torajs_value_drop_heap filters out
+        // immediate AnyValues so we can call it unconditionally.
+        __torajs_str_drop(bucket_key_ptr(bucket.key_ptr_tagged));
+        __torajs_value_drop_heap(bucket.value_anyv as *mut c_void);
+        bucket.key_ptr_tagged = DYNOBJ_KEY_TOMBSTONE;
+        bucket.value_anyv = 0;
     }
     // count-- / tomb++.
     unsafe {

@@ -26,9 +26,10 @@ unsafe extern "C" {
 /// `__torajs_dynobj_alloc()` — allocate a fresh empty dynobj.
 ///
 /// Block size: `DYNOBJ_HDR_SIZE + DYNOBJ_INITIAL_CAP * DYNOBJ_BUCKET_SIZE`
-/// = 24 + 8 × 24 = 216 bytes. Header is initialized to `refcount = 1`,
-/// `type_tag = TAG_DYNOBJ`, `flags = 0`. `count = 0`, `cap = 8`,
-/// `tomb = 0`. Returns a fresh `+1`-rc heap pointer.
+/// = 24 + 8 × 16 = 152 bytes (Step 7e-B bucket shrink). Header is
+/// initialized to `refcount = 1`, `type_tag = TAG_DYNOBJ`, `flags = 0`.
+/// `count = 0`, `cap = 8`, `tomb = 0`. Returns a fresh `+1`-rc heap
+/// pointer.
 ///
 /// # Safety
 /// Returned pointer is owned by the caller; release via
@@ -71,12 +72,12 @@ mod tests {
             assert_eq!(*(p.add(DYNOBJ_CAP_OFF) as *const u32), 8, "cap");
             assert_eq!(*(p.add(DYNOBJ_TOMB_OFF) as *const u32), 0, "tomb");
 
-            // Buckets zero-init contract: probe relies on NULL key_ptr.
+            // Buckets zero-init contract: probe relies on
+            // key_ptr_tagged == DYNOBJ_KEY_EMPTY (0).
             for i in 0..DYNOBJ_INITIAL_CAP as usize {
                 let bucket = p.add(DYNOBJ_HDR_SIZE + i * crate::layout::DYNOBJ_BUCKET_SIZE);
-                assert_eq!(*(bucket as *const *mut c_void), core::ptr::null_mut());
-                assert_eq!(*(bucket.add(8) as *const u64), 0);
-                assert_eq!(*(bucket.add(16) as *const u64), 0);
+                assert_eq!(*(bucket as *const u64), 0, "key_ptr_tagged");
+                assert_eq!(*(bucket.add(8) as *const u64), 0, "value_anyv");
             }
 
             // Hand back to mmalloc (v0.7-A2 step 6b cutover; test-only

@@ -1,13 +1,12 @@
 //! Open-addressing probe + key hash / equality.
 //!
-//! Pure-Rust internals shared by [`crate::get`] (P4.2-b) and the
-//! upcoming set / define / has / delete / drop ports (P4.2-d..-f).
+//! Pure-Rust internals shared by [`crate::get`] / [`crate::set`] /
+//! [`crate::define`] / [`crate::has`] / [`crate::delete`] / [`crate::drop`].
 //!
-//! `Bucket` mirrors `runtime_str.c::__torajs_dynobj_bucket_t`:
+//! `Bucket` is 16 bytes (Step 7e-B):
 //! ```text
-//! key_ptr: *Str   — NULL = empty, DYNOBJ_TOMBSTONE = deleted, else owning ptr
-//! tag    : u64    — low 8 = ANY_TAG; bits 8-10 = writable/enumerable/configurable
-//! value  : u64    — per-tag payload (bool / i64 / f64-bits / heap-ptr-as-u64)
+//! key_ptr_tagged: u64  — 0 = empty, 1 = tombstone, else (ptr<<0 | flags<<0..2)
+//! value_anyv    : u64  — NaN-box AnyValue (tag + value packed)
 //! ```
 //!
 //! Probe contract: linear step = 1; mask = `cap - 1` (cap is power of 2);
@@ -16,15 +15,39 @@
 
 use core::ffi::c_void;
 
-use crate::layout::{DYNOBJ_HDR_SIZE, DYNOBJ_TOMBSTONE, STR_DATA_OFF, STR_LEN_OFF};
+use crate::layout::{
+    BUCKET_FLAGS_MASK, BUCKET_KEY_PTR_MASK, DYNOBJ_HDR_SIZE, DYNOBJ_KEY_EMPTY,
+    DYNOBJ_KEY_TOMBSTONE, STR_DATA_OFF, STR_LEN_OFF,
+};
 
-/// In-block bucket — 24 bytes, `#[repr(C)]` matches the C-side
-/// `__torajs_dynobj_bucket_t` 1:1.
+/// In-block bucket — 16 bytes, `#[repr(C)]`. `key_ptr_tagged` encodes
+/// the Str pointer (bits 3+) plus the W/E/C PropertyDescriptor flags
+/// (bits 0/1/2); `value_anyv` is a NaN-box AnyValue carrying the slot's
+/// (tag, value) pair.
 #[repr(C)]
 pub(crate) struct Bucket {
-    pub(crate) key_ptr: *mut c_void,
-    pub(crate) tag: u64,
-    pub(crate) value: u64,
+    pub(crate) key_ptr_tagged: u64,
+    pub(crate) value_anyv: u64,
+}
+
+/// Decode the real Str pointer from a `key_ptr_tagged` word.
+#[inline]
+pub(crate) fn bucket_key_ptr(tagged: u64) -> *mut c_void {
+    (tagged & BUCKET_KEY_PTR_MASK) as *mut c_void
+}
+
+/// Extract the W/E/C flag bits from a `key_ptr_tagged` word.
+#[inline]
+pub(crate) fn bucket_flags(tagged: u64) -> u64 {
+    tagged & BUCKET_FLAGS_MASK
+}
+
+/// Re-pack a `(ptr, flags)` pair into a fresh `key_ptr_tagged` word.
+/// `flags` is masked to its low 3 bits; `ptr` must be 8-aligned (every
+/// Str heap allocation from torajs-str satisfies this).
+#[inline]
+pub(crate) fn bucket_make_key_tagged(ptr: *mut c_void, flags: u64) -> u64 {
+    (ptr as u64) | (flags & BUCKET_FLAGS_MASK)
 }
 
 /// Read the dynobj's `cap: u32` at offset 12.
@@ -37,7 +60,7 @@ pub(crate) unsafe fn cap(obj: *const c_void) -> u32 {
 }
 
 /// Pointer to the start of the bucket array. Stride is
-/// `size_of::<Bucket>() = 24` (asserted by tests).
+/// `size_of::<Bucket>() = 16` (asserted by tests).
 ///
 /// # Safety
 /// `obj` must point at a live dynobj heap block.
@@ -129,20 +152,20 @@ pub(crate) unsafe fn probe(obj: *const c_void, key: *const c_void) -> Probe {
     let mut tombstone_at: Option<u32> = None;
     for step in 0..cap {
         let idx = (start + step) & mask;
-        let kp = unsafe { (*bk.add(idx as usize)).key_ptr };
-        if kp.is_null() {
+        let kp_tagged = unsafe { (*bk.add(idx as usize)).key_ptr_tagged };
+        if kp_tagged == DYNOBJ_KEY_EMPTY {
             return Probe {
                 idx: tombstone_at.unwrap_or(idx),
                 found: false,
             };
         }
-        if kp == DYNOBJ_TOMBSTONE {
+        if kp_tagged == DYNOBJ_KEY_TOMBSTONE {
             if tombstone_at.is_none() {
                 tombstone_at = Some(idx);
             }
             continue;
         }
-        if unsafe { str_eq(kp as *const c_void, key) } {
+        if unsafe { str_eq(bucket_key_ptr(kp_tagged) as *const c_void, key) } {
             return Probe { idx, found: true };
         }
     }
@@ -159,11 +182,29 @@ mod tests {
 
     #[test]
     fn bucket_layout_matches_c() {
-        assert_eq!(core::mem::size_of::<Bucket>(), 24);
+        assert_eq!(core::mem::size_of::<Bucket>(), 16);
         assert_eq!(core::mem::align_of::<Bucket>(), 8);
-        assert_eq!(core::mem::offset_of!(Bucket, key_ptr), 0);
-        assert_eq!(core::mem::offset_of!(Bucket, tag), 8);
-        assert_eq!(core::mem::offset_of!(Bucket, value), 16);
+        assert_eq!(core::mem::offset_of!(Bucket, key_ptr_tagged), 0);
+        assert_eq!(core::mem::offset_of!(Bucket, value_anyv), 8);
+    }
+
+    /// `bucket_key_ptr` / `bucket_flags` round-trip — pack then
+    /// decompose recovers both halves. Plus the sentinel disjoint-
+    /// ness (empty=0, tombstone=1 ≠ any 8-aligned ptr + flags).
+    #[test]
+    fn key_ptr_flag_pack_round_trip() {
+        let fake_ptr = 0x1234_5678_0000_0040u64 as *mut c_void;
+        let flags = 0b101u64; // W + C, not E
+        let tagged = bucket_make_key_tagged(fake_ptr, flags);
+        assert_eq!(tagged, 0x1234_5678_0000_0045u64);
+        assert_eq!(bucket_key_ptr(tagged), fake_ptr);
+        assert_eq!(bucket_flags(tagged), flags);
+
+        // Sentinels stay disjoint from real packed ptrs (low 3 bits
+        // = 0/1 only meets ptr=0).
+        assert_eq!(DYNOBJ_KEY_EMPTY, 0);
+        assert_eq!(DYNOBJ_KEY_TOMBSTONE, 1);
+        assert_ne!(bucket_make_key_tagged(fake_ptr, BUCKET_FLAGS_MASK), 1);
     }
 
     /// FNV-1a known-answer: hash of empty string = offset basis.

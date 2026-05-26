@@ -13,8 +13,31 @@
 //!  12    |  4B  | cap   (u32) — bucket array size (power of 2)
 //!  16    |  4B  | tomb  (u32) — # of tombstone slots
 //!  20    |  4B  | pad
-//!  24    | 24×n | buckets[cap] — `{ key_ptr, tag, value }` (24B each)
+//!  24    | 16×n | buckets[cap] — `{ key_ptr_tagged, value_anyv }` (16B each)
 //! ```
+//!
+//! ## Bucket key-ptr low-bit flag tagging (Step 7e-B)
+//!
+//! `key_ptr_tagged: u64` packs the Str pointer (8-aligned ⇒ low 3 bits
+//! free) with the spec §6.2.5 PropertyDescriptor `writable` /
+//! `enumerable` / `configurable` flags in bits 0/1/2. The high 61 bits
+//! hold the real Str pointer (mask `!0x7`). This is the JSC / V8
+//! hidden-class style for compact descriptor storage; same pedigree as
+//! Swift Class isa + V8 Maps.
+//!
+//! Sentinels (key_ptr_tagged values):
+//! * `0` — empty (calloc default; flag bits naturally zero).
+//! * `1` — tombstone (probe walks past). Disjoint from empty (`!= 0`)
+//!   and from live (`ptr & !0x7 != 0` since real Str heap addrs ≥ 16).
+//! * `else` — live: real ptr in `& !0x7`, flags in `& 0x7`.
+//!
+//! ## Bucket value field
+//!
+//! `value_anyv: u64` is a NaN-box [`torajs_anyvalue::AnyValue`] encoding
+//! the slot's `(tag, value)` pair as a single 64-bit immediate. Cells
+//! (heap pointers) are stored verbatim; immediates (int32 / double /
+//! bool / null / undef) are NaN-encoded per the AnyValue ABI. Decode
+//! via `__torajs_anyv_unbox_tag` / `_unbox_value` externs.
 
 /// Universal heap header size (`{ refcount: u32, type_tag: u16, flags: u16 }`).
 pub const HEAP_HEADER_SIZE: usize = 8;
@@ -23,9 +46,10 @@ pub const HEAP_HEADER_SIZE: usize = 8;
 /// `__TORAJS_DYNOBJ_HDR_SIZE`). Header + count/cap/tomb/pad = 24.
 pub const DYNOBJ_HDR_SIZE: usize = 24;
 
-/// Per-bucket size (matches C macro `__TORAJS_DYNOBJ_BUCKET_SIZE`):
-/// `key_ptr: *Str` (8) + `tag: u64` (8) + `value: u64` (8).
-pub const DYNOBJ_BUCKET_SIZE: usize = 24;
+/// Per-bucket size (Step 7e-B: 24 → 16). `key_ptr_tagged: u64` (8) +
+/// `value_anyv: u64` (8). Halves the cache footprint per bucket, lets
+/// 4 buckets fit per 64-byte cache line (vs 2 pre-7e-B).
+pub const DYNOBJ_BUCKET_SIZE: usize = 16;
 
 /// Initial bucket count on alloc (matches C macro
 /// `__TORAJS_DYNOBJ_INITIAL_CAP`). Must be a power of 2 — the linear-
@@ -45,37 +69,50 @@ pub const DYNOBJ_CAP_OFF: usize = HEAP_HEADER_SIZE + 4;
 /// Offset of the `tomb` u32 within the heap block.
 pub const DYNOBJ_TOMB_OFF: usize = HEAP_HEADER_SIZE + 8;
 
-/// Tombstone sentinel for `Bucket::key_ptr`. NULL = empty, `1` =
-/// tombstone (slot was occupied + deleted; probe must walk past it),
-/// otherwise = owning `*Str` pointer.
-pub const DYNOBJ_TOMBSTONE: *mut core::ffi::c_void = 1usize as *mut core::ffi::c_void;
+/// Empty sentinel for `Bucket::key_ptr_tagged`. `0` matches calloc's
+/// default so a fresh dynobj block has every bucket marked empty.
+pub const DYNOBJ_KEY_EMPTY: u64 = 0;
+
+/// Tombstone sentinel for `Bucket::key_ptr_tagged`. `1` is disjoint
+/// from both empty (`== 0`) and live (`ptr & !0x7 != 0` since real Str
+/// heap addrs are 8-aligned and well above zero).
+pub const DYNOBJ_KEY_TOMBSTONE: u64 = 1;
+
+/// Mask isolating the real Str pointer in a `key_ptr_tagged` word
+/// (clears the low-3 flag bits).
+pub const BUCKET_KEY_PTR_MASK: u64 = !0x7u64;
+
+/// Mask isolating the three PropertyDescriptor flag bits in a
+/// `key_ptr_tagged` word.
+pub const BUCKET_FLAGS_MASK: u64 = 0x7;
 
 /// `ANY_UNDEF` tag (matches `torajs_rc::AnySlotTag::Undef = 5`). Returned
 /// by `get_tag` when the key is absent or `obj` is not a dynobj.
 pub const ANY_UNDEF: u64 = 5;
 
-// Bucket-tag layout: low 8 bits = ANY_TAG (0-5); bits 8-10 = spec
-// §6.2.5 PropertyDescriptor data-attribute flags writable / enumerable
-// / configurable. Avoids growing the 24-byte bucket struct.
+// Bucket flag layout (Step 7e-B): the three PropertyDescriptor data-
+// attribute flags occupy bits 0/1/2 of `Bucket::key_ptr_tagged`. The
+// per-slot ANY_TAG (0-5) now lives inside the NaN-box `value_anyv`
+// — decode via `__torajs_anyv_unbox_tag`. `BUCKET_TAG_MASK` is kept
+// only as the input-side mask callers apply to the `tag: u64` FFI
+// parameter before packing into `value_anyv`.
 
-/// Mask for the low-8 ANY_TAG bits in `Bucket::tag`. Callers reading
-/// the slot tag must mask before tag-dispatch.
+/// Mask for the low-8 ANY_TAG bits of the FFI `tag: u64` parameter
+/// passed into [`crate::set::__torajs_dynobj_set`] /
+/// [`crate::define::__torajs_dynobj_define`]. Callers may pass dirty
+/// high bits; mask before forwarding into the NaN-box pair encoder.
 pub const BUCKET_TAG_MASK: u64 = 0xff;
 
-/// Bit position of the `writable` PropertyDescriptor flag inside
-/// `Bucket::tag`.
-pub const BUCKET_FLAG_WRITABLE: u64 = 1 << 8;
-/// Bit position of the `enumerable` PropertyDescriptor flag inside
-/// `Bucket::tag`.
-pub const BUCKET_FLAG_ENUMERABLE: u64 = 1 << 9;
-/// Bit position of the `configurable` PropertyDescriptor flag inside
-/// `Bucket::tag`.
-pub const BUCKET_FLAG_CONFIGURABLE: u64 = 1 << 10;
+/// `writable` PropertyDescriptor flag — bit 0 of `key_ptr_tagged`.
+pub const BUCKET_FLAG_WRITABLE: u64 = 1 << 0;
+/// `enumerable` PropertyDescriptor flag — bit 1 of `key_ptr_tagged`.
+pub const BUCKET_FLAG_ENUMERABLE: u64 = 1 << 1;
+/// `configurable` PropertyDescriptor flag — bit 2 of `key_ptr_tagged`.
+pub const BUCKET_FLAG_CONFIGURABLE: u64 = 1 << 2;
 
-/// All three data-attribute flags set — matches C macro
-/// `__TORAJS_BUCKET_FLAGS_DEFAULT`. Used by implicit-set (`obj.x = v`)
-/// + object-literal init per spec §10.1.5.1 / §10.1.6.2 CreateData-
-/// Property (writable / enumerable / configurable default true).
+/// All three data-attribute flags set. Used by implicit-set
+/// (`obj.x = v`) + object-literal init per spec §10.1.5.1 / §10.1.6.2
+/// CreateDataProperty (writable / enumerable / configurable default true).
 pub const BUCKET_FLAGS_DEFAULT: u64 =
     BUCKET_FLAG_WRITABLE | BUCKET_FLAG_ENUMERABLE | BUCKET_FLAG_CONFIGURABLE;
 

@@ -10,10 +10,8 @@
 
 use core::ffi::c_void;
 
-use crate::layout::{
-    ANY_HEAP, BUCKET_TAG_MASK, DYNOBJ_BUCKET_SIZE, DYNOBJ_HDR_SIZE, DYNOBJ_TOMBSTONE,
-};
-use crate::probe::{buckets, cap};
+use crate::layout::{DYNOBJ_BUCKET_SIZE, DYNOBJ_HDR_SIZE, DYNOBJ_KEY_EMPTY, DYNOBJ_KEY_TOMBSTONE};
+use crate::probe::{bucket_key_ptr, buckets, cap};
 
 unsafe extern "C" {
     /// Cross-tier — torajs-rc's refcount dec. Returns 1 iff the
@@ -21,6 +19,8 @@ unsafe extern "C" {
     fn __torajs_rc_dec(p: *mut c_void) -> i32;
 
     fn __torajs_str_drop(s: *mut c_void);
+    /// Cross-tier — universal heap-value drop (NaN-box-safe; the 7d-A
+    /// cell gate filters immediate AnyValues so this is unconditional).
     fn __torajs_value_drop_heap(child: *mut c_void);
     /// torajs-mmalloc libc-compat free — v0.7-A2 step 6b cutover.
     #[link_name = "__torajs_free"]
@@ -44,19 +44,13 @@ pub unsafe extern "C" fn __torajs_dynobj_drop(obj: *mut c_void) {
     let cap = unsafe { cap(obj) };
     let bk = unsafe { buckets(obj) };
     for i in 0..cap as usize {
-        let kp = unsafe { (*bk.add(i)).key_ptr };
-        if kp.is_null() || kp == DYNOBJ_TOMBSTONE {
+        let kp_tagged = unsafe { (*bk.add(i)).key_ptr_tagged };
+        if kp_tagged == DYNOBJ_KEY_EMPTY || kp_tagged == DYNOBJ_KEY_TOMBSTONE {
             continue;
         }
         unsafe {
-            __torajs_str_drop(kp);
-        }
-        let tag = unsafe { (*bk.add(i)).tag };
-        if tag & BUCKET_TAG_MASK == ANY_HEAP {
-            let val = unsafe { (*bk.add(i)).value } as *mut c_void;
-            unsafe {
-                __torajs_value_drop_heap(val);
-            }
+            __torajs_str_drop(bucket_key_ptr(kp_tagged));
+            __torajs_value_drop_heap((*bk.add(i)).value_anyv as *mut c_void);
         }
     }
     // Layer 1 sized free: obj block = DYNOBJ_HDR_SIZE + cap *
