@@ -22,12 +22,15 @@ use torajs_rc::AnySlotTag;
 
 use crate::AnyBox;
 use crate::arith::{any_add, any_arith};
+use crate::coerce::any_to_str;
+use crate::compare::any_compare;
 use crate::nanbox::{
     AnyValue, VALUE_FALSE, VALUE_NULL, VALUE_TRUE, VALUE_UNDEFINED, as_bool, as_double, as_int32,
     box_bool, box_double, box_int32, box_void_ptr, is_bool, is_cell, is_double, is_int32, is_null,
     is_undefined,
 };
 use crate::nanbox_ffi::{__torajs_anyv_strict_eq, box_to_immediate};
+use crate::payload_rc_inc;
 
 // ============================================================
 // Encode shims — let ssa_lower emit one-line calls instead of
@@ -274,6 +277,62 @@ pub unsafe extern "C" fn __torajs_anyv_strict_eq_imm_pair(l: AnyValue, rt: i64, 
     };
     // SAFETY: anyv_strict_eq's contract — cell-case operands valid.
     unsafe { __torajs_anyv_strict_eq(l, r) }
+}
+
+/// Pair-arg relational compare per ES §7.2.13. Takes ssa_lower's
+/// already-decoded `(op, lt, lv, rt, rv)` shape; routes through
+/// the internal `any_compare` impl. Step 7f-A gap fill — sister
+/// of the legacy `__torajs_any_compare` ffi shim with the same
+/// signature, just under the canonical `_anyv_` namespace so
+/// ssa_lower can bind here directly in 7f-B.
+///
+/// # Safety
+///
+/// `lt` / `rt` ∈ `AnySlotTag`. If tag == Heap, value is 0 or a
+/// valid `*mut HeapHeader`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_compare_pair(
+    op: i64,
+    lt: i64,
+    lv: i64,
+    rt: i64,
+    rv: i64,
+) -> bool {
+    // SAFETY: caller invariant on tag/value pairs.
+    unsafe { any_compare(op, lt, lv, rt, rv) }
+}
+
+/// Pair-arg heap-payload refcount bump. ssa_lower emits this at
+/// every site that materializes an Any from a known `(tag, value)`
+/// without going through `__torajs_anyv_box_from_pair` (because
+/// the box won't be observable — e.g. the value is about to be
+/// stashed into a typed storage that owns its own ref). Step 7f-A
+/// gap fill — sister of `__torajs_any_payload_rc_inc`.
+///
+/// # Safety
+///
+/// If `tag == AnySlotTag::Heap as i64`, `value` must be null or
+/// a valid `*mut HeapHeader`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_payload_rc_inc_pair(tag: i64, value: i64) {
+    payload_rc_inc(tag, value);
+}
+
+/// Pair-arg ToString. Returns a freshly-owned Str pointer
+/// (refcount=1) the caller must drop. Used by ssa_lower at every
+/// implicit ToString site (template literals, `+` mixing string
+/// and non-string operands, `console.log(any)`). Step 7f-A gap
+/// fill — sister of `__torajs_any_to_str` with the same `(tag,
+/// value) -> *mut c_void` signature.
+///
+/// # Safety
+///
+/// For `tag == Heap`, `value` is null or a valid `*mut
+/// HeapHeader` pointing to a live heap object.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_to_str_pair(tag: i64, value: i64) -> *mut c_void {
+    // SAFETY: caller invariant on (tag, value) pair.
+    unsafe { any_to_str(tag, value) }
 }
 
 #[cfg(test)]
