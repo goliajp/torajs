@@ -48,10 +48,10 @@ static TABLE: [AtomicPtr<Node>; ARRPROPS_BUCKETS] =
 
 unsafe extern "C" {
     /// torajs-mmalloc libc-compat — v0.7-A2 step 6b cutover.
-    #[link_name = "__torajs_libc_malloc"]
+    #[link_name = "__torajs_malloc"]
     fn malloc(n: usize) -> *mut c_void;
-    #[link_name = "__torajs_libc_free"]
-    fn free(p: *mut c_void);
+    #[link_name = "__torajs_free"]
+    fn free(p: *mut c_void, size: usize);
 
     /// Cross-tier — runtime_str.c's dynamic-property object alloc.
     /// (Pure C for now; ports to torajs-dynobj in P4.2.)
@@ -197,7 +197,9 @@ pub unsafe extern "C" fn __torajs_arrprops_drop_entry(arr_ptr: *mut c_void) {
                 if !(*n).dynobj.is_null() {
                     __torajs_value_drop_heap((*n).dynobj);
                 }
-                free(n as *mut c_void);
+                // Layer 1 sized free: Node is a fixed #[repr(C)]
+                // struct (Step 4c).
+                free(n as *mut c_void, core::mem::size_of::<Node>());
                 return;
             }
             // Advance: prev now tracks `&n.next`, which is a regular

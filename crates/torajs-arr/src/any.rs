@@ -55,10 +55,10 @@ const ARR_HEAD_OFF: usize = 20;
 
 unsafe extern "C" {
     /// torajs-mmalloc libc-compat — v0.7-A2 step 6b cutover.
-    #[link_name = "__torajs_libc_malloc"]
+    #[link_name = "__torajs_malloc"]
     fn malloc(n: usize) -> *mut c_void;
-    #[link_name = "__torajs_libc_realloc"]
-    fn realloc(p: *mut c_void, n: usize) -> *mut c_void;
+    #[link_name = "__torajs_realloc"]
+    fn realloc(p: *mut c_void, old_size: usize, new_size: usize) -> *mut c_void;
 
     /// Cross-tier — torajs-rc. Increments refcount; NULL pass-through.
     fn __torajs_rc_inc(p: *mut c_void);
@@ -135,8 +135,9 @@ pub unsafe extern "C" fn __torajs_arr_push_any(arr: *mut c_void, tag: u64, value
         let cap = *(arr.add(ARR_CAP_LOW32_OFF) as *const u32);
         if (len as u32) == cap {
             let new_cap: u32 = if cap == 0 { 4 } else { cap * 2 };
-            let total = ARR_SLOTS_OFF + (new_cap as usize) * ANY_SLOT_BYTES;
-            arr = realloc(arr as *mut c_void, total) as *mut u8;
+            let old_total = ARR_SLOTS_OFF + (cap as usize) * ANY_SLOT_BYTES;
+            let new_total = ARR_SLOTS_OFF + (new_cap as usize) * ANY_SLOT_BYTES;
+            arr = realloc(arr as *mut c_void, old_total, new_total) as *mut u8;
             *(arr.add(ARR_CAP_LOW32_OFF) as *mut u32) = new_cap;
         }
         *slot_tag_ptr(arr, len) = tag;
@@ -170,8 +171,9 @@ pub unsafe extern "C" fn __torajs_arr_extend_any(dst: *mut u8, src: *const u8) -
             while (new_cap as u64) < needed {
                 new_cap *= 2;
             }
-            let total = ARR_SLOTS_OFF + (new_cap as usize) * ANY_SLOT_BYTES;
-            dst = realloc(dst as *mut c_void, total) as *mut u8;
+            let old_total = ARR_SLOTS_OFF + (cap as usize) * ANY_SLOT_BYTES;
+            let new_total = ARR_SLOTS_OFF + (new_cap as usize) * ANY_SLOT_BYTES;
+            dst = realloc(dst as *mut c_void, old_total, new_total) as *mut u8;
             *(dst.add(ARR_CAP_LOW32_OFF) as *mut u32) = new_cap;
         }
         for i in 0..src_len {

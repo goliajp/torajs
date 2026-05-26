@@ -34,7 +34,7 @@ const SUBSTR_OFFSET_OFF: usize = 24;
 
 unsafe extern "C" {
     /// torajs-mmalloc libc-compat malloc — v0.7-A2 step 6b cutover.
-    #[link_name = "__torajs_libc_malloc"]
+    #[link_name = "__torajs_malloc"]
     fn malloc(n: usize) -> *mut c_void;
     // snprintf / strtod stay on libc until v0.7-A4 (torajs-fmt:
     // itoa/dtoa/format) ports them. Out of scope for step 6b.

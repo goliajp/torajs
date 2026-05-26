@@ -22,7 +22,7 @@ use core::ffi::c_void;
 
 use torajs_rc::{FLAG_STATIC_LITERAL, HeapHeader};
 
-use crate::layout::{ARR_LEN_OFF, ARR_SLOTS_OFF};
+use crate::layout::{ARR_CAP_OFF, ARR_LEN_OFF, ARR_SLOTS_OFF};
 
 /// 16-byte slot stride for Array<Any> — mirror of C macro
 /// `__TORAJS_ANY_SLOT_BYTES` (the last C-side user, kept around
@@ -56,8 +56,8 @@ unsafe extern "C" {
     /// Used by `arr_drop_any` directly (it allocates with
     /// `malloc`/`realloc` and bypasses the pool since Any-arrays'
     /// 16-byte stride doesn't match).
-    #[link_name = "__torajs_libc_free"]
-    fn free(p: *mut c_void);
+    #[link_name = "__torajs_free"]
+    fn free(p: *mut c_void, size: usize);
 }
 
 /// rc-aware drop. NULL-safe + `FLAG_STATIC_LITERAL`-safe.
@@ -118,6 +118,7 @@ pub unsafe extern "C" fn __torajs_arr_drop_any(arr: *mut c_void) {
     unsafe {
         let arr_u8 = arr as *mut u8;
         let len = *(arr_u8.add(ARR_LEN_OFF) as *const u64);
+        let cap = *(arr_u8.add(ARR_CAP_OFF) as *const u32) as usize;
         let slots = arr_u8.add(ARR_SLOTS_OFF);
         for i in 0..len {
             let off = (i as usize) * ANY_SLOT_BYTES;
@@ -128,7 +129,10 @@ pub unsafe extern "C" fn __torajs_arr_drop_any(arr: *mut c_void) {
             }
         }
         __torajs_arrprops_drop_entry(arr);
-        free(arr);
+        // Layer 1 sized free: Array<Any> block = ARR_SLOTS_OFF +
+        // cap * ANY_SLOT_BYTES (Step 4c).
+        let total = ARR_SLOTS_OFF + cap * ANY_SLOT_BYTES;
+        free(arr, total);
     }
 }
 

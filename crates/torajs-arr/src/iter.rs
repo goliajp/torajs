@@ -58,10 +58,10 @@ struct ArrIter {
 
 unsafe extern "C" {
     /// torajs-mmalloc libc-compat — v0.7-A2 step 6b cutover.
-    #[link_name = "__torajs_libc_malloc"]
+    #[link_name = "__torajs_malloc"]
     fn malloc(n: usize) -> *mut c_void;
-    #[link_name = "__torajs_libc_free"]
-    fn free(p: *mut c_void);
+    #[link_name = "__torajs_free"]
+    fn free(p: *mut c_void, size: usize);
     fn __torajs_rc_inc(p: *mut c_void);
     fn __torajs_rc_dec(p: *mut c_void) -> i32;
     fn __torajs_value_drop_heap(p: *mut c_void);
@@ -221,6 +221,8 @@ pub unsafe extern "C" fn __torajs_arr_iter_drop(iter_p: *mut c_void) {
         if !arr.is_null() {
             __torajs_value_drop_heap(arr);
         }
-        free(iter_p);
+        // Layer 1 sized free: ArrIter is a fixed-size #[repr(C)]
+        // struct (Step 4c).
+        free(iter_p, core::mem::size_of::<ArrIter>());
     }
 }
