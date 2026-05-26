@@ -222,22 +222,23 @@ impl SpanRegistry {
 static CORE_LOCK: AtomicBool = AtomicBool::new(false);
 static mut CORE_ALLOC: Allocator = Allocator::new();
 static mut CORE_REGISTRY: SpanRegistry = SpanRegistry::new();
-// Phase 2c "real" upgrade (post-bench finding 2026-05-26): TLAB is
-// per-thread via thread_local! const-init — zero lock cost in hot
-// path (TLS load ~1 cycle on aarch64). Replaces the global static
-// + CORE_LOCK CAS that was dominating ~30 cyc per alloc/free pair.
-// Per-thread isolation also means cargo-test parallel workers no
-// longer race + multi-thread runtime (post-v1.0) gets correctness +
-// scalability for free.
+// Phase 2c upgrade (post-bench finding 2026-05-26, takagi ceiling-
+// first rule 2026-05-26): TLAB lives in raw `#[thread_local]` storage
+// — TPIDR_EL0 register direct load (~1-2 cyc on aarch64) instead of
+// std::thread_local! .with() ABI (~10 cyc).
 //
-// The UnsafeCell + `unsafe { *cell.get() }` pattern is the textbook
-// "single-owner per thread" model (mimalloc / tcmalloc style). The
-// thread_local! storage class guarantees per-thread isolation, so
-// the UnsafeCell is sound: only one thread can ever observe a given
-// TLAB instance.
-std::thread_local! {
-    static CORE_TLAB: UnsafeCell<TlabCache> = const { UnsafeCell::new(TlabCache::new()) };
-}
+// Same architectural pattern mimalloc / tcmalloc / Go runtime mcache
+// use in C: raw __thread storage class. Rust `#[thread_local]` is
+// the nightly intrinsic that lowers to the same LLVM TLS model.
+// stable std::thread_local! sacrifices ~5-8 cyc per access for the
+// closure-based safety wrapper — not acceptable on the metal-tier
+// fast path.
+//
+// UnsafeCell provides interior mutability without unsafe-static
+// requirement; per-thread isolation guarantees no concurrent
+// observer, so the UnsafeCell is sound.
+#[thread_local]
+static CORE_TLAB: UnsafeCell<TlabCache> = UnsafeCell::new(TlabCache::new());
 
 /// Process-wide central queue (Phase 2c item 10). Lock-free MPMC
 /// stack per size class; acts as the TLAB overflow buffer + cross-
@@ -306,31 +307,29 @@ pub fn alloc_sized(size: usize) -> *mut u8 {
         Some(i) => i,
         None => return core::ptr::null_mut(),
     };
-    // TLAB fast path — per-thread, no lock. ~1 cyc TLS load +
-    // ~3 cyc pop. Common case under hot loops.
-    let tlab_hit = CORE_TLAB.with(|t| unsafe { (*t.get()).pop(class_idx) });
-    if let Some(p) = tlab_hit {
+    // TLAB fast path — raw #[thread_local], ~1-2 cyc TLS register
+    // load + ~3 cyc pop. Common case under hot loops.
+    let tlab = CORE_TLAB.get();
+    if let Some(p) = unsafe { (*tlab).pop(class_idx) } {
         return p;
     }
     // TLAB miss — drain up to TLAB_CACHE_DEPTH slots from Central
     // back into per-thread TLAB. Central is lock-free MPMC.
     let first_central = CORE_CENTRAL.pop(class_idx);
     if let Some(p) = first_central {
-        CORE_TLAB.with(|t| {
-            for _ in 1..TLAB_CACHE_DEPTH {
-                match CORE_CENTRAL.pop(class_idx) {
-                    Some(q) => {
-                        if !unsafe { (*t.get()).push(class_idx, q) } {
-                            // TLAB filled mid-drain — push leftover
-                            // back to Central for next round.
-                            unsafe { CORE_CENTRAL.push(class_idx, q) };
-                            break;
-                        }
+        for _ in 1..TLAB_CACHE_DEPTH {
+            match CORE_CENTRAL.pop(class_idx) {
+                Some(q) => {
+                    if !unsafe { (*tlab).push(class_idx, q) } {
+                        // TLAB filled mid-drain — push leftover
+                        // back to Central for next round.
+                        unsafe { CORE_CENTRAL.push(class_idx, q) };
+                        break;
                     }
-                    None => break,
                 }
+                None => break,
             }
-        });
+        }
         return p;
     }
     // TLAB + Central both empty — central Allocator (under lock,
@@ -380,9 +379,10 @@ pub unsafe fn free_sized(ptr: *mut u8, size: usize) {
         Some(i) => i,
         None => return,
     };
-    // TLAB fast path — per-thread, no lock. ~3 cyc.
-    let pushed = CORE_TLAB.with(|t| unsafe { (*t.get()).push(class_idx, ptr) });
-    if pushed {
+    // TLAB fast path — raw #[thread_local], ~1-2 cyc TLS load +
+    // ~3 cyc push.
+    let tlab = CORE_TLAB.get();
+    if unsafe { (*tlab).push(class_idx, ptr) } {
         return;
     }
     // TLAB full — push to Central (lock-free MPMC). Next alloc-

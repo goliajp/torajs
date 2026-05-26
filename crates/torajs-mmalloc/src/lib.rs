@@ -35,6 +35,8 @@
 //! Sub-crates that need C-malloc-compatible behavior (auto-size-
 //! tracking) sit a thin shim on top.
 
+#![feature(thread_local)]
+
 pub mod central;
 pub mod core;
 pub mod extern_api;
