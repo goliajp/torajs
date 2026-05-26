@@ -2740,73 +2740,81 @@ fn lower_inner(
      * are field reads; `any_box_drop` is the rc-aware free that also
      * decs heap-typed children; `print_any` is console.log Any
      * dispatch. */
+    // Step 7f-B — declarations point at the canonical
+    // `__torajs_anyv_*` NaN-box AnyValue family (sister of the
+    // legacy `__torajs_any_*` shims). The `Type::Any` parameters
+    // are the immediate `AnyValue` (u64) bit-pattern at the LLVM
+    // ABI level; legacy `Type::Ptr` declarations carried the same
+    // bits but typed as a pointer. ABI-equivalent — same 64-bit
+    // slot — so callers passing `Type::Any` SSA values land in
+    // the right register.
     let any_typeof_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
-        "__torajs_any_typeof",
-        &[Type::Ptr],
+        "__torajs_anyv_typeof",
+        &[Type::Any],
         Type::Str,
     );
     let any_to_bool_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
-        "__torajs_any_to_bool",
-        &[Type::Ptr],
+        "__torajs_anyv_to_bool",
+        &[Type::Any],
         Type::Bool,
     );
     let any_to_number_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
-        "__torajs_any_to_number",
-        &[Type::Ptr],
+        "__torajs_anyv_to_number",
+        &[Type::Any],
         Type::F64,
     );
     let any_add_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
-        "__torajs_any_add",
+        "__torajs_anyv_add_pair",
         &[Type::I64, Type::I64, Type::I64, Type::I64],
         Type::Any,
     );
     let any_arith_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
-        "__torajs_any_arith",
+        "__torajs_anyv_arith_pair",
         &[Type::I64, Type::I64, Type::I64, Type::I64, Type::I64],
         Type::Any,
     );
     let any_compare_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
-        "__torajs_any_compare",
+        "__torajs_anyv_compare_pair",
         &[Type::I64, Type::I64, Type::I64, Type::I64, Type::I64],
         Type::Bool,
     );
     let any_strict_eq_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
-        "__torajs_any_strict_eq",
-        &[Type::Ptr, Type::I64, Type::I64],
+        "__torajs_anyv_strict_eq_imm_pair",
+        &[Type::Any, Type::I64, Type::I64],
         Type::Bool,
     );
     let any_any_strict_eq_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
-        "__torajs_any_any_strict_eq",
-        &[Type::Ptr, Type::Ptr],
+        "__torajs_anyv_strict_eq",
+        &[Type::Any, Type::Any],
         Type::Bool,
     );
     let any_box_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
-        "__torajs_any_box",
+        "__torajs_anyv_box_from_pair",
         &[Type::I64, Type::I64],
         Type::Any,
     );
     let any_payload_rc_inc_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
-        "__torajs_any_payload_rc_inc",
+        "__torajs_anyv_payload_rc_inc_pair",
         &[Type::I64, Type::I64],
         Type::Void,
     );
@@ -2861,28 +2869,28 @@ fn lower_inner(
     let any_unbox_tag_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
-        "__torajs_any_unbox_tag",
+        "__torajs_anyv_unbox_tag",
         &[Type::Any],
         Type::I64,
     );
     let any_unbox_value_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
-        "__torajs_any_unbox_value",
+        "__torajs_anyv_unbox_value",
         &[Type::Any],
         Type::I64,
     );
     let any_box_drop_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
-        "__torajs_any_box_drop",
+        "__torajs_anyv_rc_dec",
         &[Type::Any],
         Type::Void,
     );
     let print_any_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
-        "__torajs_print_any",
+        "__torajs_print_anyv",
         &[Type::Any],
         Type::Void,
     );
@@ -2898,7 +2906,7 @@ fn lower_inner(
     let any_to_str_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
-        "__torajs_any_to_str",
+        "__torajs_anyv_to_str_pair",
         &[Type::I64, Type::I64],
         Type::Str,
     );
