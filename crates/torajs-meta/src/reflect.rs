@@ -36,15 +36,23 @@ const ANY_BOOL: i64 = 1;
 const ANY_UNDEF: i64 = 5;
 const ANY_HEAP: i64 = 4;
 
-const ANY_BOX_TAG_OFF: usize = 8;
 const ANY_BOX_VAL_OFF: usize = 16;
+
+// HeapHeader: refcount u32 @+0, type_tag u16 @+4, flags u16 @+6.
+// Step 5b+ packs the 4-bit AnySlotTag into `flags` bits 8..11; this
+// crate mirrors the bit positions from torajs-rc rather than taking
+// a Cargo dep (deps tree stays narrow — see Cargo.toml comment).
+const ANY_BOX_FLAGS_OFF: usize = 6;
+const ANY_TAG_SHIFT: u16 = 8;
+const ANY_TAG_MASK: u16 = 0b1111 << ANY_TAG_SHIFT;
 
 // Tag::DynObj from torajs-rc — universal heap header at offset 0.
 const TAG_DYNOBJ: u16 = 14;
 
 #[inline]
 unsafe fn any_box_tag(box_ptr: *const c_void) -> i64 {
-    unsafe { (box_ptr.cast::<u8>().add(ANY_BOX_TAG_OFF) as *const i64).read() }
+    let flags = unsafe { (box_ptr.cast::<u8>().add(ANY_BOX_FLAGS_OFF) as *const u16).read() };
+    ((flags & ANY_TAG_MASK) >> ANY_TAG_SHIFT) as i64
 }
 
 #[inline]

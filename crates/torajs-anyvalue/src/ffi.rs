@@ -44,6 +44,10 @@ pub unsafe extern "C" fn __torajs_any_box(tag: i64, value: i64) -> *mut c_void {
 
 /// FFI bridge — read the boxed payload's tag.
 ///
+/// Step 5c reads from `header.flags` bits 8..11 (set by alloc's
+/// dual-write since Step 5b); the dedicated `tag: i64` field stays
+/// allocated until Step 5d's struct shrink.
+///
 /// # Safety
 ///
 /// `box_ptr` must be a valid `*const AnyBox` (i.e. previously
@@ -51,7 +55,7 @@ pub unsafe extern "C" fn __torajs_any_box(tag: i64, value: i64) -> *mut c_void {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_any_unbox_tag(box_ptr: *const c_void) -> i64 {
     // SAFETY: caller invariant.
-    unsafe { (*(box_ptr as *const AnyBox)).tag }
+    unsafe { (*(box_ptr as *const AnyBox)).header.any_tag_bits() as i64 }
 }
 
 /// FFI bridge — read the boxed payload's raw value.
@@ -106,10 +110,12 @@ pub unsafe extern "C" fn __torajs_any_any_strict_eq(l: *const c_void, r: *const 
             // SAFETY: both ptrs non-null per the match arm.
             let lb = unsafe { &*(l as *const AnyBox) };
             let rb = unsafe { &*(r as *const AnyBox) };
-            if lb.tag != rb.tag {
+            // Step 5c: read tag from header bits (Step 5b dual-write).
+            let lt = lb.header.any_tag_bits() as i64;
+            if lt != rb.header.any_tag_bits() as i64 {
                 return false;
             }
-            payload_eq(lb.tag, lb.value, rb.value)
+            payload_eq(lt, lb.value, rb.value)
         }
     }
 }
@@ -148,9 +154,10 @@ pub unsafe extern "C" fn __torajs_any_to_number(box_ptr: *const c_void) -> f64 {
     }
     // SAFETY: non-null per the early return.
     let b = unsafe { &*(box_ptr as *const AnyBox) };
+    // Step 5c: read tag from header bits.
     // SAFETY: well-formed AnyBox — if tag is Heap then value is
     // either null or a valid *mut HeapHeader.
-    unsafe { any_to_number(b.tag, b.value) }
+    unsafe { any_to_number(b.header.any_tag_bits() as i64, b.value) }
 }
 
 /// FFI bridge — packed-pair ToNumber. Currently used by the
@@ -246,8 +253,10 @@ pub unsafe extern "C" fn __torajs_any_strict_eq(
     }
     // SAFETY: non-null per the early return.
     let b = unsafe { &*(box_ptr as *const AnyBox) };
-    if b.tag != rhs_tag {
+    // Step 5c: read tag from header bits.
+    let lt = b.header.any_tag_bits() as i64;
+    if lt != rhs_tag {
         return false;
     }
-    payload_eq(b.tag, b.value, rhs_value)
+    payload_eq(lt, b.value, rhs_value)
 }
