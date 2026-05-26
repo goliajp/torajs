@@ -11881,20 +11881,25 @@ impl<'a> LowerCtx<'a> {
                             (Operand::ConstI64(1), Operand::Value(zext))
                         }
                         Type::Any => {
-                            // Already boxed — extract tag/value from the
-                            // box at +8/+16. Throw forwards the inner
-                            // (tag, value) so the wrapping any-box becomes
+                            // Already boxed — extract tag/value via the
+                            // any_unbox_tag/_value shims (Step 7c — was
+                            // inline `Load i64 v, 8/16` direct-offset).
+                            // Calling through the shim decouples ssa_lower
+                            // from the AnyBox struct layout so Step 7d-7f
+                            // can shrink / immediate-ize without breaking
+                            // the IR-emit. Throw forwards the inner (tag,
+                            // value) so the wrapping any-box becomes
                             // unowned and will be released by the source
                             // binding's drop. Catch reconstructs as needed.
                             let tag_v = self.f.append_inst(
                                 self.cur_block,
-                                InstKind::Load(Type::I64, v.clone(), 8),
+                                InstKind::Call(self.intrinsics.any_unbox_tag, vec![v.clone()]),
                                 Type::I64,
                                 None,
                             );
                             let val_v = self.f.append_inst(
                                 self.cur_block,
-                                InstKind::Load(Type::I64, v.clone(), 16),
+                                InstKind::Call(self.intrinsics.any_unbox_value, vec![v.clone()]),
                                 Type::I64,
                                 None,
                             );
@@ -12976,19 +12981,20 @@ impl<'a> LowerCtx<'a> {
                 // tag=ANY_HEAP. Reads then return the wrapper ptr
                 // instead of the underlying heap object, breaking
                 // identity (`{p: inner}.p === inner`) and recursive
-                // field access (`outer.p.x`). Forward (tag, val) at
-                // +8/+16 instead; bucket owns the +1 on val via
-                // any_payload_rc_inc when tag == HEAP.
+                // field access (`outer.p.x`). Forward (tag, val) via
+                // any_unbox_tag/_value shims (Step 7c — was inline
+                // `Load i64 +8/+16` direct-offset); bucket owns the
+                // +1 on val via any_payload_rc_inc when tag == HEAP.
                 Type::Any => {
                     let tag_v = self.f.append_inst(
                         self.cur_block,
-                        InstKind::Load(Type::I64, v_raw.clone(), 8),
+                        InstKind::Call(self.intrinsics.any_unbox_tag, vec![v_raw.clone()]),
                         Type::I64,
                         None,
                     );
                     let val_v = self.f.append_inst(
                         self.cur_block,
-                        InstKind::Load(Type::I64, v_raw.clone(), 16),
+                        InstKind::Call(self.intrinsics.any_unbox_value, vec![v_raw.clone()]),
                         Type::I64,
                         None,
                     );
@@ -13134,16 +13140,18 @@ impl<'a> LowerCtx<'a> {
             // is_refcounted catch-all (Type::Any is itself
             // refcounted; would otherwise grab the any-box wrapper
             // ptr and tag=ANY_HEAP, dropping the real tag/value).
+            // Step 7c: read via any_unbox_tag/_value shims (was
+            // inline `Load i64 +8/+16` direct-offset).
             Type::Any => {
                 let tag_v = self.f.append_inst(
                     self.cur_block,
-                    InstKind::Load(Type::I64, val.clone(), 8),
+                    InstKind::Call(self.intrinsics.any_unbox_tag, vec![val.clone()]),
                     Type::I64,
                     None,
                 );
                 let val_v = self.f.append_inst(
                     self.cur_block,
-                    InstKind::Load(Type::I64, val, 16),
+                    InstKind::Call(self.intrinsics.any_unbox_value, vec![val]),
                     Type::I64,
                     None,
                 );
@@ -14129,16 +14137,24 @@ impl<'a> LowerCtx<'a> {
                                 // P4.0 — Type::Any must be unboxed BEFORE
                                 // the is_refcounted catch-all (see matching
                                 // arm-order fix in lower_dynobj_init).
+                                // Step 7c: shim Call instead of inline +8/+16
+                                // direct-offset Load (layout-decoupling).
                                 Type::Any => {
                                     let tag_v = self.f.append_inst(
                                         self.cur_block,
-                                        InstKind::Load(Type::I64, v_raw.clone(), 8),
+                                        InstKind::Call(
+                                            self.intrinsics.any_unbox_tag,
+                                            vec![v_raw.clone()],
+                                        ),
                                         Type::I64,
                                         None,
                                     );
                                     let val_v = self.f.append_inst(
                                         self.cur_block,
-                                        InstKind::Load(Type::I64, v_raw.clone(), 16),
+                                        InstKind::Call(
+                                            self.intrinsics.any_unbox_value,
+                                            vec![v_raw.clone()],
+                                        ),
                                         Type::I64,
                                         None,
                                     );
@@ -14685,18 +14701,19 @@ impl<'a> LowerCtx<'a> {
                 // any_arith helper. `-x` ≡ `0 - x` so we call any_arith
                 // with op=Sub (0), LHS=ConstI64(0)+ANY_I64 tag, RHS=
                 // unboxed-from-x. Result is fresh Any-box.
+                // Step 7c: read tag/value via shim (was inline +8/+16).
                 if matches!(op, crate::ast::UnaryOp::Neg | crate::ast::UnaryOp::Plus)
                     && matches!(self.operand_ty(&v), Type::Any)
                 {
                     let r_tag = self.f.append_inst(
                         self.cur_block,
-                        InstKind::Load(Type::I64, v.clone(), 8),
+                        InstKind::Call(self.intrinsics.any_unbox_tag, vec![v.clone()]),
                         Type::I64,
                         None,
                     );
                     let r_value = self.f.append_inst(
                         self.cur_block,
-                        InstKind::Load(Type::I64, v, 16),
+                        InstKind::Call(self.intrinsics.any_unbox_value, vec![v]),
                         Type::I64,
                         None,
                     );
@@ -25762,10 +25779,12 @@ impl<'a> LowerCtx<'a> {
                 // Read the box's tag (offset 16); if ANY_NULL=0 or
                 // ANY_UNDEF=5, use rhs; otherwise unbox lhs to rhs's
                 // SSA type and use it. The result is rhs's type.
+                // Step 7c: shim Call (was inline `Load i64 +8`
+                // direct-offset for tag read).
                 if matches!(lhs_ty, Type::Any) {
                     let tag = self.f.append_inst(
                         self.cur_block,
-                        InstKind::Load(Type::I64, lhs_op.clone(), 8),
+                        InstKind::Call(self.intrinsics.any_unbox_tag, vec![lhs_op.clone()]),
                         Type::I64,
                         None,
                     );
@@ -25839,9 +25858,10 @@ impl<'a> LowerCtx<'a> {
                         );
                         lhs_op.clone()
                     } else {
+                        // Step 7c: shim Call (was inline +16 direct-offset).
                         let val = self.f.append_inst(
                             self.cur_block,
-                            InstKind::Load(Type::I64, lhs_op.clone(), 16),
+                            InstKind::Call(self.intrinsics.any_unbox_value, vec![lhs_op.clone()]),
                             Type::I64,
                             None,
                         );
@@ -26785,16 +26805,19 @@ impl<'a> LowerCtx<'a> {
             if matches!(a_ty, Type::Any) || matches!(b_ty, Type::Any) {
                 let pack = |this: &mut Self, op_v: Operand, op_ty: Type| -> (Operand, Operand) {
                     if matches!(op_ty, Type::Any) {
-                        // Any-typed operand: load tag + value from box.
+                        // Any-typed operand: read tag + value via shim.
+                        // Step 7c: shim Call (was inline +8/+16 direct-offset
+                        // Load — see ssa_lower.rs head of file for the
+                        // layout-decoupling rationale).
                         let tag = this.f.append_inst(
                             this.cur_block,
-                            InstKind::Load(Type::I64, op_v.clone(), 8),
+                            InstKind::Call(this.intrinsics.any_unbox_tag, vec![op_v.clone()]),
                             Type::I64,
                             None,
                         );
                         let value = this.f.append_inst(
                             this.cur_block,
-                            InstKind::Load(Type::I64, op_v, 16),
+                            InstKind::Call(this.intrinsics.any_unbox_value, vec![op_v]),
                             Type::I64,
                             None,
                         );
