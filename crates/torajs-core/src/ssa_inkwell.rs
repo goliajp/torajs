@@ -18,6 +18,7 @@ use std::path::Path;
 use std::sync::Mutex;
 
 mod arr_builders;
+mod arr_builders_non_deque;
 mod arr_helpers;
 mod attrs;
 mod builders;
@@ -38,6 +39,7 @@ mod types;
 pub use entry::{compile, compile_for, compile_for_kind, compile_for_kind_with_cache};
 
 use arr_builders::{define_arr_push, define_arr_push_unchecked, define_arr_shift};
+use arr_builders_non_deque::define_arr_push_non_deque;
 use attrs::{is_alloc_intrinsic, mark_alwaysinline, mark_noalias_ret, module_uses_fetch};
 use builders::{define_print_bool, define_print_f64, define_print_i64};
 use declares::{
@@ -293,18 +295,16 @@ pub(super) fn compile_for_kind_impl(
                 f
             }
             "__torajs_arr_push_non_deque" => {
-                // 12-b-1 stub (2026-05-28): calls into define_arr_push body
-                // with a fresh symbol name for NOP wiring. Internal linkage
-                // is safe because no external symbol clash — torajs-arr/grow.rs
-                // does not export __torajs_arr_push_non_deque. 12-b-2 replaces
-                // this with define_arr_push_non_deque (3-BB body, no head load,
-                // combined GEP); 12-b-3 flips 4 safe emit sites in ssa_lower
-                // to dispatch here.
-                let f = define_arr_push(
+                // 12-b-2 (2026-05-28): now uses the dedicated 3-BB body.
+                // Internal linkage is safe — torajs-arr/grow.rs does not
+                // export __torajs_arr_push_non_deque, so no link clash.
+                // alwaysinline keeps the body folded into user-code's push
+                // hot loops the same way arr_push is folded. 12-b-3 (next)
+                // flips 4 safe emit sites in ssa_lower to dispatch here.
+                let f = define_arr_push_non_deque(
                     &ctx,
                     &llvm_module,
                     realloc,
-                    memmove,
                     "__torajs_arr_push_non_deque",
                 );
                 f.as_global_value()
