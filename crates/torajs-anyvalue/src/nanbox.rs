@@ -83,7 +83,34 @@ pub const VALUE_NULL: AnyValue = TAG_BIT_TYPE_OTHER;
 pub const VALUE_UNDEFINED: AnyValue = TAG_BIT_TYPE_OTHER | TAG_BIT_UNDEFINED;
 
 /// Top-16-bit mask isolating the encoding region.
-const TOP_16_MASK: u64 = 0xFFFF_0000_0000_0000;
+pub const TOP_16_MASK: u64 = 0xFFFF_0000_0000_0000;
+
+// ============================================================
+// ShortStr (Step 8 — Small-String Optimization)
+//
+// Layout (Step 8a design doc, `docs/v0.7-Phase3-Step8-sso.md`):
+//
+//   bits 63..48: top16 = 0x0001       (marker, claims unused
+//                                      top16 = 0x0001 region —
+//                                      single safe marker; see
+//                                      doc "Bit-space audit")
+//   bits 47..40: len   = 0..5         (8-bit len, future-proof)
+//   bits 39..0 : bytes = 5 × 8 bit    (little-endian payload)
+//
+// Capacity 5 bytes. Covers "true"/"false"/"null"/"NaN", 1-5
+// digit decimal Number.toString, single ASCII char, JSON
+// tokens / delimiters. Does NOT cover "undefined" (9 byte) /
+// "[object]" (8 byte) / multibyte UTF-8 ≥ 6 byte.
+// ============================================================
+
+/// Marker for ShortStr-encoded `AnyValue`: `top16 == 0x0001`.
+/// Forced single-marker by NaN-box bit budget — see
+/// `docs/v0.7-Phase3-Step8-sso.md` "Bit-space audit".
+pub const SHORT_STR_TAG: u64 = 0x0001_0000_0000_0000;
+
+/// Maximum inline byte payload for ShortStr. Driven by the 48-bit
+/// low payload split: 8-bit len + 40-bit (5 × 8) bytes.
+pub const SHORT_STR_CAP: usize = 5;
 
 // ============================================================
 // Decode primitives — 1-cmp fast paths
@@ -105,11 +132,77 @@ pub const fn is_double(v: AnyValue) -> bool {
 }
 
 /// `true` iff `v` encodes a heap pointer. Excludes `0` (reserved /
-/// unused) and excludes sentinels (Null / Undefined / Bool, which
-/// all have `TAG_BIT_TYPE_OTHER` set).
+/// unused), excludes sentinels (Null / Undefined / Bool — all
+/// carry `TAG_BIT_TYPE_OTHER`), AND excludes ShortStr (top16 =
+/// 0x0001 — Step 8 SSO).
+///
+/// **Step 8 tighten:** the strict `(v & TOP_16_MASK) == 0` check
+/// replaces the pre-Step-8 weak `(v & TAG_TYPE_NUMBER) == 0`. The
+/// weak check let `top16 == 0x0001` through (since
+/// `0x0001 & 0xFFFE == 0`); combined with a ShortStr payload that
+/// happens to clear bit 1 (e.g. `"a"` = `0x61`), the weak check
+/// would misclassify ShortStr as a cell pointer. The tighten is a
+/// no-op refactor when no ShortStr values exist (top16 = 0x0001
+/// never occurs pre-8b) and the strict predicate cleanly
+/// distinguishes ShortStr from cell once 8c starts producing
+/// ShortStr values.
 #[inline]
 pub const fn is_cell(v: AnyValue) -> bool {
-    (v & TAG_TYPE_NUMBER) == 0 && (v & TAG_BIT_TYPE_OTHER) == 0 && v != 0
+    (v & TOP_16_MASK) == 0 && (v & TAG_BIT_TYPE_OTHER) == 0 && v != 0
+}
+
+/// `true` iff `v` encodes a ShortStr (Step 8 SSO). Single-cmp
+/// predicate via `top16 == 0x0001` check. Mutually exclusive
+/// with `is_int32` / `is_double` / `is_cell` / sentinels.
+#[inline]
+pub const fn is_short_str(v: AnyValue) -> bool {
+    (v & TOP_16_MASK) == SHORT_STR_TAG
+}
+
+/// Length (in bytes, 0..[`SHORT_STR_CAP`]) of a ShortStr-encoded
+/// value. Reads bits 47..40 of `v`.
+///
+/// Caller asserts [`is_short_str`]. Returns 0..255 byte; values >
+/// `SHORT_STR_CAP` indicate a malformed encoding (defensive — 8c
+/// producer paths enforce the bound at construction).
+#[inline]
+pub const fn short_str_len(v: AnyValue) -> u8 {
+    ((v >> 40) & 0xFF) as u8
+}
+
+/// Decode the 5-byte payload of a ShortStr. Bytes are little-
+/// endian: byte 0 lives in low 8 bits of `v`. Unused trailing
+/// bytes (when `len < SHORT_STR_CAP`) read as 0.
+///
+/// Caller asserts [`is_short_str`].
+#[inline]
+pub const fn short_str_bytes(v: AnyValue) -> [u8; SHORT_STR_CAP] {
+    let payload = v & 0x0000_00FF_FFFF_FFFF;
+    [
+        (payload) as u8,
+        (payload >> 8) as u8,
+        (payload >> 16) as u8,
+        (payload >> 24) as u8,
+        (payload >> 32) as u8,
+    ]
+}
+
+/// Try to encode a byte slice as a ShortStr `AnyValue`. Returns
+/// `None` when `bytes.len() > SHORT_STR_CAP` — the caller falls
+/// back to Heap+Str alloc in that case.
+///
+/// Bytes are stored little-endian: `bytes[0]` → low 8 bits, etc.
+/// 0-length is a valid ShortStr (`""`).
+#[inline]
+pub fn try_box_short_str(bytes: &[u8]) -> Option<AnyValue> {
+    if bytes.len() > SHORT_STR_CAP {
+        return None;
+    }
+    let mut payload: u64 = 0;
+    for (i, &b) in bytes.iter().enumerate() {
+        payload |= (b as u64) << (i * 8);
+    }
+    Some(SHORT_STR_TAG | ((bytes.len() as u64) << 40) | payload)
 }
 
 /// `true` iff `v == VALUE_NULL`.
@@ -140,7 +233,9 @@ pub const fn is_false(v: AnyValue) -> bool {
     v == VALUE_FALSE
 }
 
-/// `true` for any value that's NOT a heap pointer (primitives only).
+/// `true` for any value that's NOT a heap pointer. After Step 8
+/// SSO, this includes ShortStr-encoded values (which carry their
+/// bytes inline — no heap allocation).
 #[inline]
 pub const fn is_primitive(v: AnyValue) -> bool {
     !is_cell(v)
@@ -406,7 +501,7 @@ mod tests {
     #[test]
     fn predicates_are_mutually_exclusive() {
         // Every encoding fits exactly one of: int32, double,
-        // cell, null, undefined, bool.
+        // cell, null, undefined, bool, short_str (Step 8).
         let samples: &[AnyValue] = &[
             VALUE_NULL,
             VALUE_UNDEFINED,
@@ -421,6 +516,11 @@ mod tests {
             box_double(3.14),
             box_double(f64::NAN),
             box_double(f64::INFINITY),
+            // Step 8 ShortStr coverage
+            try_box_short_str(b"").unwrap(),
+            try_box_short_str(b"a").unwrap(),
+            try_box_short_str(b"abcde").unwrap(),
+            try_box_short_str(b"true").unwrap(),
         ];
         for &v in samples {
             let flags = [
@@ -430,6 +530,7 @@ mod tests {
                 is_null(v),
                 is_undefined(v),
                 is_bool(v),
+                is_short_str(v),
             ];
             let count = flags.iter().filter(|&&b| b).count();
             assert_eq!(
@@ -443,5 +544,117 @@ mod tests {
     fn box_bool_helper_returns_sentinels() {
         assert_eq!(box_bool(true), VALUE_TRUE);
         assert_eq!(box_bool(false), VALUE_FALSE);
+    }
+
+    // ----- ShortStr (Step 8 SSO) -----
+
+    #[test]
+    fn short_str_empty_round_trip() {
+        let v = try_box_short_str(b"").unwrap();
+        assert!(is_short_str(v));
+        assert!(!is_cell(v));
+        assert!(!is_int32(v));
+        assert!(!is_double(v));
+        assert!(!is_null(v));
+        assert!(!is_undefined(v));
+        assert!(!is_bool(v));
+        assert!(is_primitive(v));
+        assert_eq!(short_str_len(v), 0);
+        assert_eq!(short_str_bytes(v), [0, 0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn short_str_one_byte_ascii_round_trip() {
+        let v = try_box_short_str(b"a").unwrap();
+        assert!(is_short_str(v));
+        assert!(!is_cell(v), "'a' (0x61, bit-1 clear) must NOT be cell");
+        assert_eq!(short_str_len(v), 1);
+        assert_eq!(short_str_bytes(v)[0], b'a');
+        assert_eq!(short_str_bytes(v)[1..], [0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn short_str_max_capacity_round_trip() {
+        // "abcde" — exact 5-byte fit
+        let v = try_box_short_str(b"abcde").unwrap();
+        assert!(is_short_str(v));
+        assert_eq!(short_str_len(v), 5);
+        assert_eq!(short_str_bytes(v), *b"abcde");
+    }
+
+    #[test]
+    fn short_str_too_long_returns_none() {
+        // "abcdef" — 6 byte, exceeds SHORT_STR_CAP
+        assert!(try_box_short_str(b"abcdef").is_none());
+        assert!(try_box_short_str(b"undefined").is_none());
+        assert!(try_box_short_str(b"[object]").is_none());
+    }
+
+    #[test]
+    fn short_str_bit1_clear_payload_not_misclassified_as_cell() {
+        // Regression for the is_cell tightening rationale: ShortStr
+        // values whose byte 0 has bit 1 = 0 (e.g. 'a' = 0x61,
+        // ' ' = 0x20, '0' = 0x30) must NOT pass the cell predicate.
+        // Pre-tighten weak check would have let them through.
+        for &b in &[b'a', b' ', b'0', b'8', b'@', b'`'] {
+            let v = try_box_short_str(&[b]).unwrap();
+            assert!(!is_cell(v), "byte {b:#x} ShortStr leaked as cell");
+            assert!(is_short_str(v));
+        }
+    }
+
+    #[test]
+    fn short_str_bit1_set_payload_also_classified_correctly() {
+        // Bytes with bit 1 = 1 (e.g. 'b' = 0x62, '"' = 0x22) — also
+        // must be ShortStr, not cell. The bit-1 check only matters
+        // for top16=0 (sentinels vs cell); top16=0x0001 makes the
+        // TOP_16_MASK check fail before bit-1 is read.
+        for &b in &[b'b', b'"', b'2', b'F', b'B'] {
+            let v = try_box_short_str(&[b]).unwrap();
+            assert!(!is_cell(v));
+            assert!(is_short_str(v));
+        }
+    }
+
+    #[test]
+    fn short_str_distinct_from_aarch64_user_va() {
+        // Real cell pointers on aarch64 are 48-bit user-VA, 8-
+        // aligned. top16 == 0x0000. ShortStr top16 == 0x0001.
+        // Constructing a maximum-aligned 48-bit pointer-like value
+        // and verifying ShortStr's tag-bit distinguishes them.
+        let fake_cell: AnyValue = 0x0000_FFFF_FFFF_FFF8; // 48-bit max, 8-aligned
+        assert!(is_cell(fake_cell));
+        assert!(!is_short_str(fake_cell));
+
+        let v = try_box_short_str(b"abcde").unwrap();
+        assert!(is_short_str(v));
+        assert!(!is_cell(v));
+        assert_ne!(v & TOP_16_MASK, fake_cell & TOP_16_MASK);
+    }
+
+    #[test]
+    fn short_str_byte_order_is_little_endian() {
+        // Encoding "ABC" should put 'A' (0x41) in the low byte of
+        // the payload, 'B' (0x42) at +8, 'C' (0x43) at +16.
+        let v = try_box_short_str(b"ABC").unwrap();
+        let payload = v & 0x0000_00FF_FFFF_FFFF;
+        assert_eq!(payload & 0xFF, 0x41);
+        assert_eq!((payload >> 8) & 0xFF, 0x42);
+        assert_eq!((payload >> 16) & 0xFF, 0x43);
+    }
+
+    #[test]
+    fn short_str_sentinel_values_not_misclassified() {
+        // null / undefined / true / false sentinels all live at
+        // top16 == 0x0000 with specific low-bit patterns. ShortStr
+        // top16 == 0x0001 — no overlap. Verify each.
+        for sentinel in [VALUE_NULL, VALUE_UNDEFINED, VALUE_TRUE, VALUE_FALSE] {
+            assert!(!is_short_str(sentinel));
+        }
+        // ShortStr values do NOT pass any sentinel predicate.
+        let v = try_box_short_str(b"x").unwrap();
+        assert!(!is_null(v));
+        assert!(!is_undefined(v));
+        assert!(!is_bool(v));
     }
 }
