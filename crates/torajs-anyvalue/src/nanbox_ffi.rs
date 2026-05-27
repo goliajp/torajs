@@ -77,8 +77,8 @@ pub unsafe extern "C" fn __torajs_anyv_rc_inc(v: AnyValue) {
 /// `__torajs_value_drop_heap` (the C-side per-type drop walker)
 /// to free the heap object.
 ///
-/// This is the immediate-mode replacement for the deleted
-/// `__torajs_any_box_drop` shim.
+/// This is the immediate-mode replacement for the legacy
+/// box-drop shim deleted in Step 7f-D-1.
 ///
 /// # Safety
 ///

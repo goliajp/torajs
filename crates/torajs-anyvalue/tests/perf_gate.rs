@@ -6,7 +6,7 @@
 use std::ffi::c_void;
 use std::time::{Duration, Instant};
 
-use torajs_anyvalue::{__torajs_any_box, __torajs_any_box_drop, AnyBox};
+use torajs_anyvalue::AnyBox;
 use torajs_rc::AnySlotTag;
 
 #[unsafe(no_mangle)]
@@ -44,26 +44,6 @@ fn method_alloc_drop_pair_under_budget() {
     assert!(
         median < budget,
         "alloc_drop_pair regressed: median {median:?} >= budget {budget:?}"
-    );
-}
-
-#[test]
-fn ffi_alloc_drop_pair_under_budget() {
-    // Same budget; FFI shim should have negligible overhead under
-    // fat LTO.
-    let median = time_median(
-        || unsafe {
-            for i in 0..ITERS {
-                let p = __torajs_any_box(2 /* I64 */, i as i64);
-                __torajs_any_box_drop(p);
-            }
-        },
-        11,
-    );
-    let budget = Duration::from_millis(50);
-    assert!(
-        median < budget,
-        "ffi_alloc_drop_pair regressed: median {median:?} >= budget {budget:?}"
     );
 }
 

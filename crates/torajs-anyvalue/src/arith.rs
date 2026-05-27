@@ -2,8 +2,9 @@
 //! Any-tagged operands (JS spec §13.6–§13.9 + §13.15.3
 //! ApplyStringOrNumericBinaryOperator).
 //!
-//! Two entry points, both `pub(crate)` so the FFI shims in `ffi.rs`
-//! can wrap them as `__torajs_any_arith` + `__torajs_any_add`:
+//! Two entry points, both `pub(crate)` so the NaN-box pair shims
+//! in [`nanbox_encode`](crate::nanbox_encode) can wrap them as
+//! `__torajs_anyv_arith_pair` + `__torajs_anyv_add_pair`:
 //!
 //! - [`any_arith`] — the four arithmetic ops. Both operands go
 //!   through `ToNumber`, then IEEE 754 math. Integer fast-path when
@@ -26,7 +27,7 @@ use crate::compare::is_heap_str;
 use crate::{__torajs_str_concat, __torajs_str_drop, AnyBox};
 
 /// Op code for `-`, `*`, `/`, `%` per ssa_lower's emission. Mirror
-/// of the C `__torajs_any_arith` switch on the `op` argument:
+/// of the C-side arith switch on the `op` argument:
 /// 0=Sub, 1=Mul, 2=Div, 3=Mod.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ArithOp {
@@ -124,10 +125,11 @@ pub(crate) unsafe fn any_arith(op: i64, lt: i64, lv: i64, rt: i64, rv: i64) -> *
     alloc_number_f64(result)
 }
 
-/// Box an f64 into a fresh AnyBox tagged F64. Matches the C ABI's
-/// `__torajs_any_box(ANY_F64, bitcast(f64).i64)` pattern. Shared
-/// helper because any_arith has two callsites for it (defensive
-/// NaN return + main F64 path) and any_add reuses it.
+/// Box an f64 into a fresh AnyBox tagged F64. Matches the original
+/// C-ABI box-F64 pattern (`AnyBox::alloc(AnySlotTag::F64,
+/// bitcast(f64).i64)`). Shared helper because any_arith has two
+/// callsites for it (defensive NaN return + main F64 path) and
+/// any_add reuses it.
 #[inline]
 fn alloc_number_f64(value: f64) -> *mut c_void {
     AnyBox::alloc(AnySlotTag::F64, value.to_bits() as i64).as_ptr() as *mut c_void

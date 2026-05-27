@@ -1,18 +1,19 @@
-//! Any-tag inspection — `typeof box` + `console.log(box)` +
-//! `ToBoolean(box)` — port of `runtime_str.c` L795-833 +
-//! L1040-1157.
+//! Any-tag inspection — `typeof v` + `console.log(v)` +
+//! `ToBoolean(v)` on NaN-box [`AnyValue`] — port of
+//! `runtime_str.c` L795-833 + L1040-1157.
 //!
-//! Two extern fns that read an [`AnyBox`]'s discriminant and route:
+//! Two extern fns that read an [`AnyValue`]'s NaN-box discriminant
+//! and route:
 //!
-//! - [`__torajs_any_typeof`] — returns a fresh Str holding the ES
-//!   `typeof` result for the box (`"object"` / `"undefined"` /
+//! - [`__torajs_anyv_typeof`] — returns a fresh Str holding the ES
+//!   `typeof` result for the value (`"object"` / `"undefined"` /
 //!   `"boolean"` / `"number"` / `"string"` / `"function"` /
 //!   `"symbol"` / `"bigint"`).
 //!
-//! - [`__torajs_print_any`] — `console.log(box)` dispatch. Routes to
+//! - [`__torajs_print_anyv`] — `console.log(v)` dispatch. Routes to
 //!   the IR-emitted `print_i64` / `print_f64` / `print_bool` and
-//!   `__torajs_str_print` based on the slot tag. ANY_HEAP recurses
-//!   through the heap value's universal `type_tag`; only `Str` gets
+//!   `__torajs_str_print` based on the NaN-box predicate. Cell case
+//!   reads the heap header's universal `type_tag`; only `Str` gets
 //!   pretty-printed today, everything else falls back to
 //!   `"[object]\n"` (heap-typed pretty-print is a later wedge).
 //!
@@ -29,7 +30,6 @@ use crate::nanbox::{
     AnyValue, as_bool, as_double, as_int32, as_void_ptr, is_bool, is_cell, is_double, is_int32,
     is_null, is_undefined,
 };
-use crate::nanbox_ffi::__torajs_anyv_to_bool;
 use torajs_rc::{HeapHeader, Tag};
 
 const STR_HDR_SIZE: usize = 16;
@@ -64,55 +64,9 @@ unsafe fn heap_type_tag(child: *const c_void) -> u16 {
     unsafe { (*(child as *const HeapHeader)).type_tag }
 }
 
-/// `typeof box` per ES §13.5.3 — returns a fresh Str. Step 7d-A
-/// delegate: forwards to [`__torajs_anyv_typeof`], the NaN-box
-/// `AnyValue` entry point. `box_ptr` carries the `AnyValue`
-/// bit-pattern (or zero for an uninitialized slot, which decodes
-/// as `"object"` per `typeof null === "object"`).
-///
-/// # Safety
-/// `box_ptr` carries an `AnyValue` bit-pattern.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_any_typeof(box_ptr: *const c_void) -> *mut u8 {
-    // SAFETY: caller invariant — propagated.
-    unsafe { __torajs_anyv_typeof(box_ptr as AnyValue) }
-}
-
-/// `console.log(box)` dispatch — single-arg form. Step 7d-A
-/// delegate: forwards to [`__torajs_print_anyv`], the NaN-box
-/// entry point. `box_ptr` carries the `AnyValue` bit-pattern.
-///
-/// Trailing newline matches every other `print_*` helper; multi-
-/// arg `console.log` goes through the space-joiner upstream and
-/// calls this for each arg in turn.
-///
-/// # Safety
-/// `box_ptr` carries an `AnyValue` bit-pattern.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_print_any(box_ptr: *const c_void) {
-    // SAFETY: caller invariant — propagated.
-    unsafe { __torajs_print_anyv(box_ptr as AnyValue) };
-}
-
-/// `ToBoolean(box)` per ES §7.1.2 — JS truthiness coercion. Step
-/// 7d-A delegate: forwards to [`__torajs_anyv_to_bool`], the
-/// NaN-box entry point. The full dispatch table (`Null`/`Undef` →
-/// `false`, `Bool`/`I64` → `value != 0`, `F64` → ordered-non-zero,
-/// `Heap`/`Str` → `length > 0`, other heap → `true`) lives in
-/// [`__torajs_anyv_to_bool`].
-///
-/// # Safety
-/// `box_ptr` carries an `AnyValue` bit-pattern.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_any_to_bool(box_ptr: *const c_void) -> bool {
-    // SAFETY: caller invariant — propagated.
-    unsafe { __torajs_anyv_to_bool(box_ptr as AnyValue) }
-}
-
-/// `typeof v` per ES §13.5.3 — NaN-box [`AnyValue`] entry point
-/// (Step 7d). Returns a fresh Str. Mirrors [`__torajs_any_typeof`]
-/// but dispatches on the immediate NaN-box predicates instead of
-/// reading an AnyBox struct.
+/// `typeof v` per ES §13.5.3 — NaN-box [`AnyValue`] entry point.
+/// Returns a fresh Str. Dispatches on the immediate NaN-box
+/// predicates (no heap struct read).
 ///
 /// # Safety
 ///
@@ -158,8 +112,7 @@ pub unsafe extern "C" fn __torajs_anyv_typeof(v: AnyValue) -> *mut u8 {
 }
 
 /// `console.log(v)` single-arg dispatch — NaN-box [`AnyValue`]
-/// entry point (Step 7d). Mirrors [`__torajs_print_any`] but
-/// dispatches on the immediate NaN-box predicates.
+/// entry point. Dispatches on the immediate NaN-box predicates.
 ///
 /// # Safety
 ///

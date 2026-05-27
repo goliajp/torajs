@@ -1,14 +1,15 @@
 //! `ToString` (ES §7.1.17) and `ToNumber` (ES §7.1.4) coercions for
 //! Any-tagged operands.
 //!
-//! Two `pub(crate)` entry points wrapped by ffi.rs:
+//! Two `pub(crate)` entry points wrapped by
+//! [`nanbox_encode`](crate::nanbox_encode) under the NaN-box
+//! AnyValue ABI:
 //!
 //! - [`any_to_str`] — tag-dispatch ToString. Returns a freshly-owned
-//!   `*mut Str` the caller drops. ffi.rs wraps as
-//!   `__torajs_any_to_str`.
-//! - [`any_to_number`] — tag-dispatch ToNumber. Returns `f64`. ffi.rs
-//!   wraps as `__torajs_any_to_number_inner` (and box-aware
-//!   `__torajs_any_to_number`).
+//!   `*mut Str` the caller drops. Wrapped as
+//!   `__torajs_anyv_to_str` / `__torajs_anyv_to_str_pair`.
+//! - [`any_to_number`] — tag-dispatch ToNumber. Returns `f64`.
+//!   Wrapped as `__torajs_anyv_to_number`.
 //!
 //! Plus `AnyView::to_number()` — idiomatic-Rust mirror for the
 //! already-materialized AnyView view (renamed from `AnyValue` in

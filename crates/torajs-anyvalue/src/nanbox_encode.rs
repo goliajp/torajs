@@ -281,10 +281,9 @@ pub unsafe extern "C" fn __torajs_anyv_strict_eq_imm_pair(l: AnyValue, rt: i64, 
 
 /// Pair-arg relational compare per ES §7.2.13. Takes ssa_lower's
 /// already-decoded `(op, lt, lv, rt, rv)` shape; routes through
-/// the internal `any_compare` impl. Step 7f-A gap fill — sister
-/// of the legacy `__torajs_any_compare` ffi shim with the same
-/// signature, just under the canonical `_anyv_` namespace so
-/// ssa_lower can bind here directly in 7f-B.
+/// the internal `any_compare` impl. Step 7f-A gap fill — the
+/// canonical `_anyv_` compare entry point ssa_lower binds against
+/// (7f-B/C rebinds), under the NaN-box AnyValue ABI.
 ///
 /// # Safety
 ///
@@ -307,7 +306,7 @@ pub unsafe extern "C" fn __torajs_anyv_compare_pair(
 /// without going through `__torajs_anyv_box_from_pair` (because
 /// the box won't be observable — e.g. the value is about to be
 /// stashed into a typed storage that owns its own ref). Step 7f-A
-/// gap fill — sister of `__torajs_any_payload_rc_inc`.
+/// gap fill — NaN-box pair-arg payload rc-inc entry point.
 ///
 /// # Safety
 ///
@@ -322,8 +321,8 @@ pub unsafe extern "C" fn __torajs_anyv_payload_rc_inc_pair(tag: i64, value: i64)
 /// (refcount=1) the caller must drop. Used by ssa_lower at every
 /// implicit ToString site (template literals, `+` mixing string
 /// and non-string operands, `console.log(any)`). Step 7f-A gap
-/// fill — sister of `__torajs_any_to_str` with the same `(tag,
-/// value) -> *mut c_void` signature.
+/// fill — NaN-box pair-arg ToString entry point with the
+/// `(tag, value) -> *mut c_void` signature.
 ///
 /// # Safety
 ///

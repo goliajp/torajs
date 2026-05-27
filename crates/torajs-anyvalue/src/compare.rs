@@ -10,8 +10,9 @@
 //! Extracted from `lib.rs` (2026-05-25, anyvalue god-file decomp
 //! batch 12).
 //!
-//! The `pub(crate)` `any_compare` symbol is the entry point ffi.rs
-//! wraps as `__torajs_any_compare`.
+//! The `pub(crate)` `any_compare` symbol is the entry point
+//! [`nanbox_encode`](crate::nanbox_encode) wraps as
+//! `__torajs_anyv_compare_pair` (NaN-box pair entry point).
 
 use std::cmp::Ordering;
 
@@ -26,8 +27,8 @@ use crate::{AnySlotTag, STR_HDR_SIZE};
 pub(crate) const STR_LEN_OFF: usize = 8;
 
 /// Op code for ordering compare per ssa_lower's emission.
-/// Mirror of the C `__torajs_any_compare` switch on the `op`
-/// argument: 0=Lt, 1=Le, 2=Gt, 3=Ge.
+/// Mirror of the C-side compare switch on the `op` argument:
+/// 0=Lt, 1=Le, 2=Gt, 3=Ge.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CompareOp {
     Lt,

@@ -9,16 +9,16 @@
 //!   non-Closure functions (FnSig form). Closure-form fns use the
 //!   in-layout `CLOSURE_PROPS_OFF` path.
 //! - [`classmeta`] — class-tag-keyed fixed-256 arrays for the
-//!   `__proto_<C>` and `__class_<C>` Any-boxes. Lifetime-of-process
-//!   references; no rc bump on register (caller's let binding
-//!   keeps the box alive).
+//!   `__proto_<C>` and `__class_<C>` AnyValue immediates.
+//!   Lifetime-of-process references; no rc bump on register
+//!   (caller's let binding keeps the box alive).
 //! - [`reflect`] — `Object.getPrototypeOf(any)` and
 //!   `Object.getOwnPropertyDescriptor(obj, key)` reflection helpers.
 //!
 //! Cross-tier extern symbols resolved at `tr build` link time:
 //! - `__torajs_dynobj_alloc / set / has / get_tag / get_value /
 //!   get_flags` — `torajs-dynobj`
-//! - `__torajs_any_box` — `torajs-anyvalue`
+//! - `__torajs_anyv_*` family — `torajs-anyvalue`
 //! - `__torajs_rc_inc` — `torajs-rc`
 //! - `__torajs_str_alloc_pooled / str_drop` — `torajs-str`
 //! - `__torajs_value_drop_heap` — `runtime_str.c` (will move in P7.i)
@@ -28,10 +28,11 @@ pub mod fnprops;
 pub mod reflect;
 
 pub use classmeta::{
-    __torajs_class_get, __torajs_class_register, __torajs_proto_get, __torajs_proto_register,
+    __torajs_anyv_class_get, __torajs_anyv_class_register, __torajs_anyv_proto_get,
+    __torajs_anyv_proto_register,
 };
 pub use fnprops::{__torajs_fnprops_get_tag, __torajs_fnprops_get_value, __torajs_fnprops_set};
-pub use reflect::{__torajs_get_property_descriptor, __torajs_get_proto_of_any};
+pub use reflect::{__torajs_anyv_get_property_descriptor, __torajs_anyv_get_proto_of_any};
 
 // ============================================================
 // cargo-test stubs — cross-tier symbols
@@ -54,12 +55,6 @@ pub unsafe extern "C" fn __torajs_str_alloc_pooled(_len: u64) -> *mut u8 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_drop(_s: *mut u8) {
     panic!("torajs-meta test stub: __torajs_str_drop should not be called from cargo test");
-}
-
-#[cfg(test)]
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_any_box(_tag: i64, _value: i64) -> *mut core::ffi::c_void {
-    panic!("torajs-meta test stub: __torajs_any_box should not be called from cargo test");
 }
 
 #[cfg(test)]

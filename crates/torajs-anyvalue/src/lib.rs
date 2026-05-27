@@ -1,12 +1,13 @@
 //! Boxed `Type::Any` value primitives for the torajs AOT TypeScript
 //! runtime.
 //!
-//! Layer-1 substrate built on [`torajs-rc`]. Replaces the C-side
-//! `__torajs_any_box` / `__torajs_any_unbox_tag` /
-//! `__torajs_any_unbox_value` / `__torajs_any_payload_rc_inc` /
-//! `__torajs_any_box_drop` definitions in
-//! `crates/torajs-runtime/src/runtime_str.c` (`P2.3-a` of the
-//! architecture rewrite, see `docs/architecture-rewrite.md`).
+//! Layer-1 substrate built on [`torajs-rc`]. Originally replaced the
+//! C-side `Any` ABI defined in `crates/torajs-runtime/src/runtime_str.c`
+//! (`P2.3-a` of the architecture rewrite). Step 7 NaN-box AnyValue
+//! cutover (see `docs/v0.7-Phase3-nanbox.md`) replaced the heap
+//! `AnyBox` ABI with a u64 immediate carrying a NaN-box payload —
+//! the FFI surface ssa_lower binds against is now the
+//! `__torajs_anyv_*` family in [`nanbox_ffi`] / [`nanbox_encode`].
 //!
 //! ## What `AnyBox` is
 //!
@@ -55,12 +56,12 @@
 //!   drop dispatch in the C-side `value_drop_heap`, which P3 will
 //!   replace with a Rust registry), then `dealloc`s the 24-byte
 //!   block. Static-literal flag bypass preserved.
-//! - **FFI shims** at the bottom (`__torajs_any_box`,
-//!   `__torajs_any_unbox_tag`, `__torajs_any_unbox_value`,
-//!   `__torajs_any_payload_rc_inc`, `__torajs_any_box_drop`) are
-//!   thin extern-"C" wrappers that ssa_lower IR can call. Each is
-//!   a few lines: null-check / pointer-to-reference / delegate to
-//!   the inner method. No real logic lives in them.
+//! - **FFI shims** ssa_lower binds against live in [`nanbox_encode`]
+//!   / [`nanbox_ffi`] as the `__torajs_anyv_*` family — they accept
+//!   and return NaN-box `AnyValue` immediates. AnyBox is now a
+//!   transitional alloc target for the arithmetic dispatch
+//!   (`any_arith` / `any_add` still alloc on the heap before the
+//!   FFI shim NaN-box-immediate-converts the result for ssa_lower).
 //!
 //! ## Why `Heap`-tagged children need `value_drop_heap`
 //!
@@ -114,8 +115,6 @@ unsafe extern "C" {
 mod arith;
 mod coerce;
 mod compare;
-mod ffi;
-pub use ffi::*;
 
 pub mod inspect;
 
@@ -161,8 +160,7 @@ impl AnyBox {
     /// pointer so the box becomes an owner of it.
     ///
     /// Returns `NonNull<AnyBox>` — caller owns the allocation and
-    /// must eventually call [`AnyBox::drop_owned`] (or, from C,
-    /// the [`__torajs_any_box_drop`] FFI shim) to free it.
+    /// must eventually call [`AnyBox::drop_owned`] to free it.
     pub fn alloc(tag: AnySlotTag, value: i64) -> NonNull<AnyBox> {
         // SAFETY: `malloc(24)` returns null on OOM or a 24-byte
         // 8-aligned block (`__torajs_malloc` returns ≥16-aligned).
@@ -334,7 +332,7 @@ unsafe extern "C" {
     fn __torajs_value_drop_heap(child: *mut c_void);
     fn __torajs_str_eq(a: *const u8, b: *const u8) -> i64;
     // P2.3-c — Str-formatting helpers used by `AnyView::to_str` /
-    // `__torajs_any_to_str`. Each returns a freshly-owned Str
+    // `__torajs_anyv_to_str`. Each returns a freshly-owned Str
     // (refcount=1) the caller must drop. The implementations stay
     // in runtime_str.c through the Layer-2 (`torajs-str`) rewrite.
     pub(crate) fn __torajs_null_to_str() -> *mut c_void;
@@ -524,21 +522,6 @@ mod tests {
     }
 
     #[test]
-    fn alloc_bool_then_unbox() {
-        // Step 7d-A — switched from `AnyBox::alloc` + `as_ptr` to
-        // the FFI surface that ssa_lower binds against. After the
-        // atomic switch the legacy `__torajs_any_*` shims interpret
-        // their `*c_void` argument as a NaN-box bit-pattern, not a
-        // pointer to an `AnyBox` heap struct.
-        unsafe {
-            let p = __torajs_any_box(AnySlotTag::Bool as i64, 1);
-            assert_eq!(__torajs_any_unbox_tag(p), AnySlotTag::Bool as i64);
-            assert_eq!(__torajs_any_unbox_value(p), 1);
-            __torajs_any_box_drop(p);
-        }
-    }
-
-    #[test]
     fn alloc_i64_then_read() {
         let p = AnyBox::alloc(AnySlotTag::I64, 42);
         unsafe {
@@ -583,29 +566,13 @@ mod tests {
 
     #[test]
     fn alloc_undef_round_trips() {
-        // Step 7d-A — exercises the FFI path the way ssa_lower does.
-        unsafe {
-            let p = __torajs_any_box(AnySlotTag::Undef as i64, 0);
-            assert_eq!(__torajs_any_unbox_tag(p), AnySlotTag::Undef as i64);
-            __torajs_any_box_drop(p);
-        }
-        // In-memory `AnyView::Undef` still flows through `AnyBox::read`
-        // for the inner code paths that allocate on the heap (any_arith
-        // / any_add intermediates) — kept as a separate read-side check.
+        // In-memory `AnyView::Undef` flows through `AnyBox::read` for
+        // the inner code paths that allocate on the heap (any_arith /
+        // any_add intermediates).
         let p = AnyBox::alloc(AnySlotTag::Undef, 0);
         unsafe {
             assert!(matches!(p.as_ref().read(), AnyView::Undef));
             AnyBox::drop_owned(p);
-        }
-    }
-
-    #[test]
-    fn ffi_box_unbox_tag_value_round_trip() {
-        unsafe {
-            let p = __torajs_any_box(2 /* I64 */, 12345);
-            assert_eq!(__torajs_any_unbox_tag(p), 2);
-            assert_eq!(__torajs_any_unbox_value(p), 12345);
-            __torajs_any_box_drop(p);
         }
     }
 
@@ -644,24 +611,6 @@ mod tests {
             // Manually clear flag + drop for the test to not leak.
             (*p.as_ptr()).header.flags &= !torajs_rc::FLAG_STATIC_LITERAL;
             AnyBox::drop_owned(p);
-        }
-    }
-
-    #[test]
-    fn ffi_drop_null_is_safe() {
-        unsafe {
-            __torajs_any_box_drop(std::ptr::null_mut());
-        }
-    }
-
-    #[test]
-    fn ffi_box_unknown_tag_falls_back_to_null() {
-        // Defensive: IR shouldn't emit invalid tags but the FFI
-        // shim treats them as Null.
-        unsafe {
-            let p = __torajs_any_box(99, 0);
-            assert_eq!(__torajs_any_unbox_tag(p), 0);
-            __torajs_any_box_drop(p);
         }
     }
 
@@ -726,31 +675,6 @@ mod tests {
         assert!(AnyView::Heap(p).strict_eq(AnyView::Heap(p)));
     }
 
-    #[test]
-    fn ffi_any_any_strict_eq_round_trip() {
-        unsafe {
-            // Both null → true.
-            assert!(__torajs_any_any_strict_eq(
-                core::ptr::null(),
-                core::ptr::null()
-            ));
-            // Same-tag same-value box pair → true.
-            let p1 = __torajs_any_box(2 /* I64 */, 42);
-            let p2 = __torajs_any_box(2, 42);
-            assert!(__torajs_any_any_strict_eq(p1, p2));
-            // Same-tag different-value → false.
-            let p3 = __torajs_any_box(2, 43);
-            assert!(!__torajs_any_any_strict_eq(p1, p3));
-            // Different tag → false.
-            let p4 = __torajs_any_box(1 /* Bool */, 1);
-            assert!(!__torajs_any_any_strict_eq(p1, p4));
-            __torajs_any_box_drop(p1);
-            __torajs_any_box_drop(p2);
-            __torajs_any_box_drop(p3);
-            __torajs_any_box_drop(p4);
-        }
-    }
-
     // ---- P2.3-d.1: ToNumber coercion ----
 
     #[test]
@@ -792,97 +716,6 @@ mod tests {
         let mut h = HeapHeader::new(Tag::Obj);
         let p = NonNull::new(&mut h as *mut HeapHeader);
         assert!(AnyView::Heap(p).to_number().is_nan());
-    }
-
-    #[test]
-    fn ffi_any_to_number_round_trip_inline() {
-        unsafe {
-            // Null box → 0.0.
-            let p_null = __torajs_any_box(0, 0);
-            assert_eq!(__torajs_any_to_number(p_null), 0.0);
-            __torajs_any_box_drop(p_null);
-
-            // Undef box → NaN.
-            let p_undef = __torajs_any_box(5, 0);
-            assert!(__torajs_any_to_number(p_undef).is_nan());
-            __torajs_any_box_drop(p_undef);
-
-            // Bool(true) → 1.0; Bool(false) → 0.0.
-            let p_t = __torajs_any_box(1, 1);
-            let p_f = __torajs_any_box(1, 0);
-            assert_eq!(__torajs_any_to_number(p_t), 1.0);
-            assert_eq!(__torajs_any_to_number(p_f), 0.0);
-            __torajs_any_box_drop(p_t);
-            __torajs_any_box_drop(p_f);
-
-            // I64(123) → 123.0.
-            let p_i = __torajs_any_box(2, 123);
-            assert_eq!(__torajs_any_to_number(p_i), 123.0);
-            __torajs_any_box_drop(p_i);
-
-            // F64(2.5) → 2.5.
-            let bits = 2.5_f64.to_bits() as i64;
-            let p_f64 = __torajs_any_box(3, bits);
-            assert_eq!(__torajs_any_to_number(p_f64), 2.5);
-            __torajs_any_box_drop(p_f64);
-
-            // Null `Any` (well-formed) → 0.0. Post-7d-A the shim
-            // expects a NaN-box `AnyValue` in the `*c_void` slot
-            // rather than a raw null pointer; construct the
-            // canonical null via `__torajs_any_box(ANY_NULL, 0)`.
-            let p_null2 = __torajs_any_box(0, 0);
-            assert_eq!(__torajs_any_to_number(p_null2), 0.0);
-            __torajs_any_box_drop(p_null2);
-        }
-    }
-
-    #[test]
-    fn ffi_any_to_number_inner_packed_pair() {
-        unsafe {
-            // Each tag variant via the packed-pair entry point.
-            assert_eq!(__torajs_any_to_number_inner(0 /* Null */, 0), 0.0);
-            assert!(__torajs_any_to_number_inner(5 /* Undef */, 0).is_nan());
-            assert_eq!(__torajs_any_to_number_inner(1 /* Bool */, 1), 1.0);
-            assert_eq!(__torajs_any_to_number_inner(1 /* Bool */, 0), 0.0);
-            assert_eq!(__torajs_any_to_number_inner(2 /* I64  */, 99), 99.0);
-            let bits = (-3.5_f64).to_bits() as i64;
-            assert_eq!(__torajs_any_to_number_inner(3 /* F64  */, bits), -3.5);
-            // Heap-null → 0.0 (defensive C-ABI parity).
-            assert_eq!(__torajs_any_to_number_inner(4 /* Heap */, 0), 0.0);
-            // Unknown tag → NaN.
-            assert!(__torajs_any_to_number_inner(99, 0).is_nan());
-        }
-    }
-
-    #[test]
-    fn ffi_any_to_number_inner_heap_str_delegates() {
-        // Heap-tagged Str via the inner shim → test stub returns 42.0.
-        let mut s = HeapHeader::new(Tag::Str);
-        unsafe {
-            let p = &mut s as *mut HeapHeader as i64;
-            assert_eq!(__torajs_any_to_number_inner(4, p), 42.0);
-        }
-    }
-
-    #[test]
-    fn ffi_any_strict_eq_box_vs_concrete() {
-        unsafe {
-            // Null box vs Null tag → true. Post-7d-A the shim expects
-            // a NaN-box `AnyValue` in the `*c_void` slot rather than
-            // a raw null pointer; construct the canonical null via
-            // `__torajs_any_box(ANY_NULL, 0)`.
-            let p_null = __torajs_any_box(0, 0);
-            assert!(__torajs_any_strict_eq(p_null, 0, 0));
-            // Null box vs Undef tag → false.
-            assert!(!__torajs_any_strict_eq(p_null, 5, 0));
-            __torajs_any_box_drop(p_null);
-            // I64 box vs same I64 → true.
-            let p = __torajs_any_box(2, 42);
-            assert!(__torajs_any_strict_eq(p, 2, 42));
-            assert!(!__torajs_any_strict_eq(p, 2, 43));
-            assert!(!__torajs_any_strict_eq(p, 3 /* F64 */, 42));
-            __torajs_any_box_drop(p);
-        }
     }
 
     // ---- P2.3-d.2: relational compare ----
@@ -1021,20 +854,6 @@ mod tests {
     }
 
     #[test]
-    fn ffi_any_compare_round_trip() {
-        unsafe {
-            // Quick round-trip via the FFI shim — exact same args
-            // ssa_lower emits.
-            assert!(__torajs_any_compare(0, 2, 1, 2, 2));
-            assert!(!__torajs_any_compare(2, 2, 1, 2, 2));
-            // Heap-Str pair via the FFI entry point.
-            let (_a, pa) = make_str_blob(b"abc");
-            let (_b, pb) = make_str_blob(b"abd");
-            assert!(__torajs_any_compare(0, 4, pa as i64, 4, pb as i64));
-        }
-    }
-
-    #[test]
     fn compare_op_decode_round_trip() {
         assert_eq!(CompareOp::from_i64(0), Some(CompareOp::Lt));
         assert_eq!(CompareOp::from_i64(1), Some(CompareOp::Le));
@@ -1074,36 +893,6 @@ mod tests {
         // shim that would re-interpret `p` as a NaN-box bit-pattern.
         let nn = NonNull::new(p as *mut AnyBox).expect("non-null AnyBox");
         unsafe { AnyBox::drop_owned(nn) };
-        view
-    }
-
-    /// Same as [`unbox_drop`] but for the *outer* FFI return
-    /// (NaN-box bit-pattern carried through the legacy `*mut
-    /// c_void` slot). Used by `ffi_any_arith_round_trip` /
-    /// `ffi_any_add_round_trip` to verify the post-7d-A contract:
-    /// `__torajs_any_arith` / `_any_add` now return an `AnyValue`
-    /// immediate, not a heap-allocated `AnyBox` pointer.
-    unsafe fn unbox_drop_ffi(p: *mut c_void) -> AnyView {
-        // SAFETY: caller invariant — `p` carries a well-formed
-        // `AnyValue` bit-pattern.
-        let tag = unsafe { __torajs_any_unbox_tag(p) };
-        let value = unsafe { __torajs_any_unbox_value(p) };
-        let view = if tag == AnySlotTag::Null as i64 {
-            AnyView::Null
-        } else if tag == AnySlotTag::Undef as i64 {
-            AnyView::Undef
-        } else if tag == AnySlotTag::Bool as i64 {
-            AnyView::Bool(value != 0)
-        } else if tag == AnySlotTag::I64 as i64 {
-            AnyView::I64(value)
-        } else if tag == AnySlotTag::F64 as i64 {
-            AnyView::F64(f64::from_bits(value as u64))
-        } else if tag == AnySlotTag::Heap as i64 {
-            AnyView::Heap(NonNull::new(value as *mut HeapHeader))
-        } else {
-            AnyView::Unknown
-        };
-        unsafe { __torajs_any_box_drop(p) };
         view
     }
 
@@ -1246,18 +1035,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn ffi_any_arith_round_trip() {
-        unsafe {
-            // FFI smoke test — Sub via the public symbol. Post-7d-A
-            // the shim returns a NaN-box `AnyValue` (carried through
-            // the legacy `*mut c_void` slot), so decode via the FFI
-            // helper rather than reading an `AnyBox` struct.
-            let p = __torajs_any_arith(0, 2, 10, 2, 3);
-            assert!(matches!(unbox_drop_ffi(p), AnyView::I64(7)));
-        }
-    }
-
     // ---- P2.3-d.4: addition (`+`) dispatch ----
 
     #[test]
@@ -1317,17 +1094,6 @@ mod tests {
             // undefined + 1 → NaN (Undef toNumber = NaN; any +NaN = NaN).
             let p = any_add(5 /* Undef */, 0, 2 /* I64 */, 1);
             assert!(matches!(unbox_drop(p), AnyView::F64(x) if x.is_nan()));
-        }
-    }
-
-    #[test]
-    fn ffi_any_add_round_trip() {
-        unsafe {
-            // FFI smoke test — `+` via the public symbol. Post-7d-A
-            // the shim returns a NaN-box `AnyValue`; decode via the
-            // FFI helper.
-            let p = __torajs_any_add(2, 7, 2, 5);
-            assert!(matches!(unbox_drop_ffi(p), AnyView::I64(12)));
         }
     }
 
