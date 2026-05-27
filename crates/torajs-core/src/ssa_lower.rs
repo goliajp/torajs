@@ -2664,8 +2664,8 @@ fn lower_inner(
     let get_property_descriptor_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
-        "__torajs_get_property_descriptor",
-        &[Type::Ptr, Type::Ptr],
+        "__torajs_anyv_get_property_descriptor",
+        &[Type::Any, Type::Ptr],
         Type::Any,
     );
     let dynobj_has_id = declare_intrinsic(
