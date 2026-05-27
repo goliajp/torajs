@@ -46,6 +46,72 @@ between cd7c05e and e741596 due to time-of-day + concurrent
 conformance gate. torajs slowed less than bun-aot (37% vs 50%),
 which widens the relative ratio.
 
+### v0.7 Phase 3 — Step 8 Str SSO (closed 2026-05-27 at `89ed977`)
+
+NaN-box ShortStr inline encoding for byte-len ≤ 5 strings — `""`,
+`"a"`, `"true"`, `"null"`, single-char `charAt` returns,
+small-Number `.toString` results, JSON delimiters, ASCII tokens.
+Eliminates heap-alloc + 8-byte header + 8-byte len + per-use
+rc_inc/rc_dec for the dominant short-Str profile. 8b shipped 8
+nanbox_ffi shim arms + materialize helper (`1086def`..`1225ed3`);
+8c-1 broadened `box_double` NaN canonicalization + downstream
+consumer arms (`5bb3d0e`); 8c-3 wired the runtime producer fast
+path in `arith.rs::any_add` string-concat (`813aefb`); 8d the
+compile-time producer fast path in
+`ssa_lower::box_to_any_from_expr` —
+`IntToPtr(ConstI64(short_u64))` typed Any direct, skipping the
+runtime `__torajs_anyv_box_from_pair(4, str_ptr)` call (`89ed977`).
+See `docs/v0.7-Phase3-Step8-sso.md` for the full ledger.
+
+Two 3-pass medians at HEAD `89ed977`, same-day same-machine. The
+existing bench-tr case set is closure / promise / iteration-bound;
+**no case exercises short-string-in-Any** (`charAt`, single-char
+concat into Any[], small-Number `.toString` boxed into Any). Step 8
+SSO is therefore invisible to bench-tr; the honest signal is
+"unchanged within run-to-run noise + zero conformance regression".
+
+| Reference | e741596 (Step 7 close) | 89ed977 (run 1) | 89ed977 (run 2) | Δ vs baseline |
+|---|---:|---:|---:|---:|
+| **torajs vs bun-aot (12-case shared subset)** | 5.110× | 4.829× | 5.098× | **−5.5% / −0.2%** (within 3-pass noise band) |
+| **torajs vs bun-aot (full 26 cases, run 1 only)** | 4.169× | 3.825× | n/a (`--no-save`) | **−8.3%** (same noise origin) |
+| **torajs vs rust (full 26)** | 1.436× | 1.413× | n/a | **−1.6%** (within noise) |
+| **Binary (sum 26 cases)** | 8975.0 KB | 9000.7 KB | n/a | **+0.29%** (no regression) |
+| **Conformance** | 685 / 0 / 1 | **687 / 0 / 1** | n/a | held + 2 new fixtures (short-str-001 / -002) |
+
+System-state context: every 8d torajs case runs **20–50% faster
+absolute** than the e741596 baseline — today's machine is lighter
+than the Step-7-close moment (which had a concurrent conformance
+gate per its own context note). bun-aot benefits asymmetrically
+more from idle thermal headroom on this hardware, which narrows
+the *relative* ratio without any torajs-side slowdown. The 0.2%
+between baseline and run-2 (same 12-case subset) is the honest
+"Step 8 contributes no regression and no measurable bench-tr gain".
+
+Why bench-tr can't confirm the SSO win: the 8d design doc filed
+this explicitly — "concat-heavy / short-literal-heavy fixtures
+expected to win more" (`docs/v0.7-Phase3-Step8-sso.md` §
+Implementation plan, 8d row). bench-tr's hot paths use typed Str
+operations (no Any boxing for short literals), so 8d's removal of
+the per-literal `any_box(4, str_ptr)` call is unreachable from
+these cases. SSO validation awaits string-heavy micro-bench fixtures
+(parser-driven, JSON-tokenizing, charAt-loop) — filed for follow-on.
+
+Substrate completeness gate (the real Step 8 acceptance, per
+roadmap v5 substrate-completeness model — pass rate is diagnostic
+only):
+
+- ✅ `is_short_str` / `short_str_len` / `short_str_bytes` /
+  `try_box_short_str` (8b)
+- ✅ 8 `__torajs_anyv_*` shim arms + `materialize_short_str` (8b-A/B/C)
+- ✅ `box_double` NaN canon over full collision matrix +
+  consumer arms in `inspect` / `nanbox_encode` (8c-1)
+- ✅ `arith.rs::any_add` `try_concat_short` runtime producer (8c-3)
+- ✅ `ssa_lower::box_to_any_from_expr` compile-time producer (8d)
+- ⏸️ 8c-2 deferred (meta::reflect + `.length` on Type::Any —
+  pre-existing tora dynobj limitation, not ShortStr-specific;
+  filed as separate Any-property-dispatch follow-on)
+- ⏸️ Map.set key-hash short-path (8d-deferred, perf-polish only)
+
 ### Per-case bench medians at HEAD `8f754ca` (post P-PERF.A6, 5-pass median, M-series Mac)
 
 | Case | torajs ms | bun-aot ms | bun-jsc ms | node-v8 ms | tora vs bun-best |
