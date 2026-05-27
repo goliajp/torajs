@@ -58,10 +58,15 @@ const VALUE_TRUE_IMM: u64 = 0x07;
 const TAG_TYPE_NUMBER: u64 = 0xFFFE_0000_0000_0000;
 const TAG_BIT_TYPE_OTHER: u64 = 0x02;
 const DOUBLE_ENCODE_OFFSET: u64 = 0x0007_0000_0000_0000;
+/// Step 8b-B — top-16-bit mask for strict cell detection. ShortStr
+/// claims `top16 == 0x0001`; weak `& TAG_TYPE_NUMBER == 0` would
+/// misclassify ShortStr as cell when its low byte happened to
+/// clear bit 1 (e.g. `'a'` = 0x61).
+const TOP_16_MASK: u64 = 0xFFFF_0000_0000_0000;
 
 #[inline]
 const fn is_cell_imm(v: u64) -> bool {
-    (v & TAG_TYPE_NUMBER) == 0 && (v & TAG_BIT_TYPE_OTHER) == 0 && v != 0
+    (v & TOP_16_MASK) == 0 && (v & TAG_BIT_TYPE_OTHER) == 0 && v != 0
 }
 
 #[inline]

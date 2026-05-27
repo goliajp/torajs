@@ -492,10 +492,15 @@ pub unsafe extern "C" fn __torajs_rc_inc(p: *mut c_void) {
 /// `is_cell` predicate in `torajs-anyvalue::nanbox`.
 #[inline]
 fn nan_box_is_cell_like(p: *mut c_void) -> bool {
-    const TAG_TYPE_NUMBER: u64 = 0xFFFE_0000_0000_0000;
+    // Step 8b-B: tighten weak `(v & TAG_TYPE_NUMBER) == 0` to strict
+    // `(v & TOP_16_MASK) == 0` so ShortStr (top16 = 0x0001) values
+    // are correctly classified as non-cell. Mirrors the same tighten
+    // in `torajs-anyvalue::nanbox::is_cell` (8b-A). No-op refactor
+    // pre-8b-C — no ShortStr values exist yet.
+    const TOP_16_MASK: u64 = 0xFFFF_0000_0000_0000;
     const TAG_BIT_TYPE_OTHER: u64 = 0x02;
     let v = p as u64;
-    v != 0 && (v & TAG_TYPE_NUMBER) == 0 && (v & TAG_BIT_TYPE_OTHER) == 0
+    v != 0 && (v & TOP_16_MASK) == 0 && (v & TAG_BIT_TYPE_OTHER) == 0
 }
 
 /// FFI bridge to [`HeapHeader::dec_ref`]. Null-safe. Returns

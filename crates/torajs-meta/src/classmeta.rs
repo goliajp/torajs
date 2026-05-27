@@ -34,12 +34,15 @@ const MAX_CLASSES: usize = 256;
 // re-declared here to keep deps tree narrow.
 const VALUE_NULL_IMM: u64 = 0x02;
 const VALUE_UNDEFINED_IMM: u64 = 0x0A;
-const TAG_TYPE_NUMBER: u64 = 0xFFFE_0000_0000_0000;
 const TAG_BIT_TYPE_OTHER: u64 = 0x02;
+/// Step 8b-B — top-16-bit mask for strict cell detection (mirrors
+/// `torajs-anyvalue::nanbox::TOP_16_MASK`). ShortStr (top16 =
+/// 0x0001) must NOT pass is_cell_imm.
+const TOP_16_MASK: u64 = 0xFFFF_0000_0000_0000;
 
 #[inline]
 const fn is_cell_imm(v: u64) -> bool {
-    (v & TAG_TYPE_NUMBER) == 0 && (v & TAG_BIT_TYPE_OTHER) == 0 && v != 0
+    (v & TOP_16_MASK) == 0 && (v & TAG_BIT_TYPE_OTHER) == 0 && v != 0
 }
 
 #[inline]
