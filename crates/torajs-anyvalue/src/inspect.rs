@@ -28,7 +28,7 @@ use core::ffi::c_void;
 
 use crate::nanbox::{
     AnyValue, as_bool, as_double, as_int32, as_void_ptr, is_bool, is_cell, is_double, is_int32,
-    is_null, is_undefined,
+    is_null, is_short_str, is_undefined, short_str_bytes, short_str_len,
 };
 use torajs_rc::{HeapHeader, Tag};
 
@@ -86,6 +86,13 @@ pub unsafe extern "C" fn __torajs_anyv_typeof(v: AnyValue) -> *mut u8 {
     if is_int32(v) || is_double(v) {
         return alloc_literal(b"number");
     }
+    // Step 8c — ShortStr is a string at the JS surface even though
+    // its bits live inline in the AnyValue immediate; report
+    // `typeof` as `"string"` BEFORE the cell-pointer branch (which
+    // would mis-dispatch to `"object"` via the fall-through arm).
+    if is_short_str(v) {
+        return alloc_literal(b"string");
+    }
     if is_cell(v) {
         let child = as_void_ptr(v) as *const c_void;
         // SAFETY: cell pointer is non-null per is_cell guarantee +
@@ -142,6 +149,22 @@ pub unsafe extern "C" fn __torajs_print_anyv(v: AnyValue) {
         let d = as_double(v);
         // SAFETY: as above.
         unsafe { print_f64(d) };
+        return;
+    }
+    // Step 8c — ShortStr inline-print path. No heap alloc: read the
+    // 8-bit length + 5-byte payload off the immediate and dump
+    // bytes through `putchar`. Mirrors how `__torajs_str_print`
+    // emits Heap+Str bytes, but skips the materialize round-trip
+    // entirely (Heap+Str path goes through __torajs_str_print
+    // below).
+    if is_short_str(v) {
+        let len = short_str_len(v) as usize;
+        let bytes = short_str_bytes(v);
+        for &b in &bytes[..len] {
+            // SAFETY: putchar is libc, safe for any i32 byte value.
+            unsafe { putchar(b as i32) };
+        }
+        unsafe { putchar(b'\n' as i32) };
         return;
     }
     if is_cell(v) {

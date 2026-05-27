@@ -291,9 +291,37 @@ pub const fn box_int32(x: i32) -> AnyValue {
 }
 
 /// Encode an `f64` via the offset trick.
+///
+/// Step 8c — NaN-payload collision guard. Real f64 bits in
+/// `[0, 0xFFF8_..)` encode cleanly into `[0x0007_.., 0xFFFE_..)`,
+/// where [`is_double`] is true. But certain NaN payloads (negative
+/// NaN with `raw_top16 ∈ [0xFFF7_.., 0xFFFF_..]`) wrap their
+/// encoded form into non-double bit ranges:
+///
+/// | Raw top16 | Encoded top16 | Mis-classification              |
+/// |-----------|---------------|----------------------------------|
+/// | 0xFFF7    | 0xFFFE        | int32 tag — `is_int32 == true`   |
+/// | 0xFFF9    | 0x0000        | cell range (or reserved 0)       |
+/// | 0xFFFA    | 0x0001        | ShortStr tag                     |
+/// | 0xFFFB    | 0x0002        | VALUE_NULL / sentinel range      |
+/// | 0xFFFC-FE | 0x0003-0005   | sentinel space                   |
+/// | 0xFFFF    | 0x0006        | VALUE_FALSE                      |
+///
+/// User code can construct such NaN payloads via Float64Array
+/// bit-level views (V8 / JSC / SpiderMonkey all canonicalize at
+/// the equivalent boundary). The fix: any encoded value for which
+/// [`is_double`] is false must be the result of NaN-collision —
+/// re-emit it as the canonical `f64::NAN` bit pattern, which
+/// encodes safely (top16 = 0x7FFF, [`is_double`] true). Single
+/// `!is_double` predicate covers all collision regions in one
+/// branch the optimizer collapses to a single mask + cmov.
 #[inline]
 pub fn box_double(x: f64) -> AnyValue {
-    f64::to_bits(x).wrapping_add(DOUBLE_ENCODE_OFFSET)
+    let encoded = f64::to_bits(x).wrapping_add(DOUBLE_ENCODE_OFFSET);
+    if !is_double(encoded) {
+        return f64::to_bits(f64::NAN).wrapping_add(DOUBLE_ENCODE_OFFSET);
+    }
+    encoded
 }
 
 /// Encode a heap pointer. The aarch64 user-VA is 48 bits, so the
@@ -496,6 +524,101 @@ mod tests {
         // wraps within u64 — verify it's still classified as a
         // double via the predicate, not an i32.
         assert!(!is_int32(v_s));
+    }
+
+    #[test]
+    fn box_double_canonicalizes_short_str_collision_nan() {
+        // Step 8c — ShortStr collision case (handoff Risk #2). A
+        // NaN with payload bits `0xFFFA_0000_0000_0000` would, after
+        // + DOUBLE_ENCODE_OFFSET and u64 wrap, encode to
+        // `0x0001_0000_0000_0000` — identical to `SHORT_STR_TAG`.
+        // Without canonicalization, `is_short_str` would fire on
+        // what should be an f64 NaN.
+        let collision_bits = 0xFFFA_0000_0000_0000u64;
+        let collision_f = f64::from_bits(collision_bits);
+        assert!(collision_f.is_nan(), "construction must be a NaN");
+        let v = box_double(collision_f);
+        assert!(
+            is_double(v),
+            "collision NaN must encode as double, got {v:#x}"
+        );
+        assert!(
+            !is_short_str(v),
+            "collision NaN must not encode as ShortStr"
+        );
+        assert!(as_double(v).is_nan(), "decoded value must still be NaN");
+    }
+
+    #[test]
+    fn box_double_canonicalizes_entire_negative_nan_collision_range() {
+        // Negative-NaN payloads cover **multiple** collision
+        // regions, not just ShortStr (see [`box_double`] doc
+        // table). Verify each region canonicalizes and the
+        // decoded value is still a NaN — silent mis-classification
+        // as int32 / cell / sentinel / ShortStr is the bug class
+        // we're killing.
+        for (raw, expected_collision) in [
+            (0xFFF7_0000_0000_0000u64, "int32 tag"),
+            (0xFFF7_FFFF_FFFF_FFFFu64, "int32 tag (high)"),
+            (0xFFF9_0000_0000_0001u64, "cell range (low)"),
+            (0xFFF9_DEAD_BEEF_F00Du64, "cell range (mid)"),
+            (0xFFFA_0500_0000_0000u64, "ShortStr len=5 shape"),
+            (0xFFFA_FFFF_FFFF_FFFFu64, "ShortStr (high)"),
+            (0xFFFB_0000_0000_0000u64, "VALUE_NULL sentinel"),
+            (0xFFFC_0000_0000_0000u64, "sentinel range"),
+            (0xFFFD_0000_0000_0000u64, "sentinel range"),
+            (0xFFFE_0000_0000_0000u64, "sentinel range"),
+            (0xFFFF_0000_0000_0006u64, "VALUE_FALSE shape"),
+        ] {
+            let f = f64::from_bits(raw);
+            assert!(
+                f.is_nan(),
+                "raw={raw:#x} ({expected_collision}) must be NaN"
+            );
+            let v = box_double(f);
+            assert!(
+                is_double(v),
+                "raw={raw:#x} ({expected_collision}) encoded={v:#x} must classify as double"
+            );
+            assert!(
+                !is_short_str(v) && !is_int32(v) && !is_cell(v) && !is_null(v) && !is_bool(v),
+                "raw={raw:#x} ({expected_collision}) encoded={v:#x} mis-classified"
+            );
+            assert!(
+                as_double(v).is_nan(),
+                "raw={raw:#x} ({expected_collision}) decoded must remain NaN"
+            );
+        }
+    }
+
+    #[test]
+    fn box_double_finite_and_canonical_nan_round_trip_unchanged() {
+        // Real finite f64 values + canonical quiet NaN encode
+        // cleanly without canonicalization; the round-trip must
+        // preserve bits exactly. Regression guard against the
+        // canonicalization branch over-firing.
+        for raw in [
+            0x0000_0000_0000_0000u64, // +0.0
+            0x8000_0000_0000_0000u64, // -0.0
+            0x3FF0_0000_0000_0000u64, // 1.0
+            0xBFF0_0000_0000_0000u64, // -1.0
+            0x4000_0000_0000_0000u64, // 2.0
+            0x7FF0_0000_0000_0000u64, // +Infinity
+            0xFFF0_0000_0000_0000u64, // -Infinity
+            0x7FF8_0000_0000_0000u64, // canonical quiet NaN
+        ] {
+            let f = f64::from_bits(raw);
+            let v = box_double(f);
+            assert!(is_double(v), "raw={raw:#x} encoded={v:#x}");
+            assert!(!is_short_str(v) && !is_int32(v) && !is_cell(v));
+            // Round-trip preserves bits for all non-collision
+            // cases (including canonical NaN).
+            assert_eq!(
+                as_double(v).to_bits(),
+                raw,
+                "round-trip must preserve bits for raw={raw:#x}"
+            );
+        }
     }
 
     #[test]

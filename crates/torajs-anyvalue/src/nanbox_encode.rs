@@ -25,9 +25,10 @@ use crate::compare::any_compare;
 use crate::nanbox::{
     AnyValue, VALUE_FALSE, VALUE_NULL, VALUE_TRUE, VALUE_UNDEFINED, as_bool, as_double, as_int32,
     box_bool, box_double, box_int32, box_void_ptr, is_bool, is_cell, is_double, is_int32, is_null,
-    is_undefined,
+    is_short_str, is_undefined,
 };
 use crate::nanbox_ffi::__torajs_anyv_strict_eq;
+use crate::nanbox_ffi_materialize::materialize_short_str;
 use crate::payload_rc_inc;
 
 // ============================================================
@@ -145,7 +146,16 @@ pub extern "C" fn __torajs_anyv_unbox_tag(v: AnyValue) -> i64 {
         AnySlotTag::Undef as i64
     } else if is_bool(v) {
         AnySlotTag::Bool as i64
-    } else if is_cell(v) {
+    } else if is_short_str(v) || is_cell(v) {
+        // Step 8c — ShortStr legacy-pair coercion. ssa_lower's
+        // pair-shaped consumers (`any_to_str` / `box_from_pair` /
+        // `any_payload_rc_inc` / etc.) only know `Heap` + ptr;
+        // ShortStr inline-encoded strings get materialized to a
+        // Heap+Str pointer inside `__torajs_anyv_unbox_value` and
+        // here the tag reports `Heap` so the downstream pair-
+        // dispatch hits the Str arm. Future polish (8d/8e) routes
+        // ssa_lower's Any pair sites through Any-shaped helpers so
+        // the materialize cost goes away.
         AnySlotTag::Heap as i64
     } else {
         // Defensive — `v == 0` (uninitialized slot) treated as Null.
@@ -171,6 +181,17 @@ pub extern "C" fn __torajs_anyv_unbox_value(v: AnyValue) -> i64 {
         0
     } else if is_bool(v) {
         if as_bool(v) { 1 } else { 0 }
+    } else if is_short_str(v) {
+        // Step 8c — ShortStr materialize for legacy pair API. The
+        // companion `__torajs_anyv_unbox_tag` already reported
+        // `Heap` for this `v`; here we have to hand the caller a
+        // valid `*mut Str` pointer (refcount=1, owned). Materialize
+        // bytes through the same `__torajs_str_alloc` path the
+        // 8b-C shim helpers use; caller's existing pair-drop path
+        // (`any_payload_drop` / `consume_any`) reclaims the rc.
+        // SAFETY: is_short_str asserted; materialize produces a
+        // freshly-owned Heap+Str.
+        unsafe { materialize_short_str(v) as i64 }
     } else if is_cell(v) {
         v as i64
     } else {
