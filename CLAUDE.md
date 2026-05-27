@@ -206,6 +206,30 @@ bash hardev/cleanup/sweep-stale-rlibs.sh --force
 - ❌ 「占盘大 → cargo sweep -t 1」—— 会清掉当前 autorun 依赖的 fingerprint
 - ❌ 删 `libtorajs_*.a` —— ssa_inkwell `include_bytes!()` 烘焙路径，删了 tr build 找不到
 
+## 禁用 /loop（HARD RULE — 2026-05-27 takagi 定）
+
+**`/loop` skill 在 torajs 项目内禁止使用**——无论 user 主动触发还是 agent 自己想 invoke。
+
+Why：autorun 推进的正统机制是 `## Autorun rotation protocol`（下面这节）+ `hardev/autorun/trigger.sh` + handoff save/resume 配套闭环。`/loop` 的 self-paced wakeup + ScheduleWakeup fallback 与 rotation protocol **职责重叠**：
+
+- rotation protocol 已经 cover "session 推进到一定阈值就切" + "切完 fresh head 继续" 的完整循环
+- `/loop` 的 wakeup 会在 rotation trigger 命中前自顾自 fire，跟 rotation 时机错位
+- conformance gate / background task 已经会自动 notify 唤醒 agent，**不需要额外 self-pacing wakeup**
+- 实际 2026-05-27 8b 系列 ship 期间出现过 stale `/loop` args（user 误粘贴老 input）+ schedule wakeup 跟 conformance gate notify 抢 cache window，纯增 overhead
+
+何为"使用"：
+
+- ❌ agent 主动 invoke `/loop` skill（via Skill tool 或 ScheduleWakeup 配套）
+- ❌ agent 主动调 ScheduleWakeup tool 当 autorun 推进机制（rotation protocol 不通过 wakeup 推进）
+- ❌ user 在 torajs 项目内打 `/loop ...` 时执行 skill —— **应该直接拒绝并指向 rotation protocol**
+
+例外（极少数允许调 ScheduleWakeup）：
+
+- ✅ 等外部 CI / 远程作业 / 必须 poll 的真正异步事件（harness 不能直接 notify 的）—— 但仍优先选 background Bash + notification
+- ✅ takagi 显式指示"现在用 ScheduleWakeup"
+
+正确做法：等 background task 的自动 notification（Bash run_in_background / Monitor），或者满足 rotation trigger 就走 rotation sequence。**不要把"继续 autorun"翻译成"schedule a wakeup"**——continue autorun = 当前 hot 继续推 / 等 gate 通知 / 命中 rotation trigger 就 rotation，三选一。
+
 ## Autorun rotation protocol (HARD RULE)
 
 长时间 autorun 推进会出现 drift（中文规则破裂、4-layer 越层、silent-wrong 风险升高）。`hardev/autorun/` pillar 治理这件事。本节是**模型侧协议**——必须严格遵守，因为它跟 `hardev/autorun/trigger.sh` + `rotations.jsonl` + 未来的 P1 watcher 是配套的闭环，违反 = 协议失效 = takagi 又得手动管 session 切换。
