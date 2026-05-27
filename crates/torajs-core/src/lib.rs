@@ -161,3 +161,5 @@ pub mod ssa_lower;
 pub mod ssa_lower_body_returns_closure;
 pub mod ssa_lower_closure_captures;
 pub mod ssa_lower_deque_escape;
+pub mod ssa_lower_obj_escape;
+pub mod ssa_lower_push_loop_detect;

@@ -35,6 +35,8 @@ use crate::ssa::{
 use crate::ssa_lower_body_returns_closure::body_returns_closure;
 use crate::ssa_lower_closure_captures::collect_closure_captures_in_stmt;
 use crate::ssa_lower_deque_escape::collect_deque_arr_names_in_stmt;
+use crate::ssa_lower_obj_escape::collect_escape_obj_let_names_in_stmt;
+use crate::ssa_lower_push_loop_detect::detect_push_loop_arrays;
 
 /// Phase 2B refcount: every heap-allocated Obj reserves a 24-byte
 /// header:
@@ -6233,6 +6235,9 @@ fn synthesize_main(
             is_main_fn: true,
             drop_inline_stack: std::collections::HashSet::new(),
             deque_arrs: std::collections::HashSet::new(),
+            escape_obj_lets: std::collections::HashSet::new(),
+            stack_alloced_locals: std::collections::HashSet::new(),
+            let_stack_alloc_hint: None,
         };
         // T-15.g.5 fix: prime escape_captured_lets BEFORE lowering any
         // top-level let-decl. Without this, top-level `let x = 10` in
@@ -6248,6 +6253,10 @@ fn synthesize_main(
         // 11-A1 — prime deque-unsafe Array binding set.
         for s in stmts {
             collect_deque_arr_names_in_stmt(ctx.ast, s, &mut ctx.deque_arrs);
+        }
+        // 11-A2-a — prime escape-bound Obj-typed binding set.
+        for s in stmts {
+            collect_escape_obj_let_names_in_stmt(ctx.ast, s, &mut ctx.escape_obj_lets);
         }
         for s in stmts {
             ctx.lower_top_stmt(s);
@@ -6979,6 +6988,9 @@ fn lower_fn(
         is_main_fn: false,
         drop_inline_stack: std::collections::HashSet::new(),
         deque_arrs: std::collections::HashSet::new(),
+        escape_obj_lets: std::collections::HashSet::new(),
+        stack_alloced_locals: std::collections::HashSet::new(),
+        let_stack_alloc_hint: None,
     };
 
     // Closure-capture analysis: any `let` (or param) whose name is
@@ -6995,6 +7007,10 @@ fn lower_fn(
     // 11-A1 — prime deque-unsafe Array binding set.
     for s in body {
         collect_deque_arr_names_in_stmt(ctx.ast, s, &mut ctx.deque_arrs);
+    }
+    // 11-A2-a — prime escape-bound Obj-typed binding set.
+    for s in body {
+        collect_escape_obj_let_names_in_stmt(ctx.ast, s, &mut ctx.escape_obj_lets);
     }
 
     // Materialize each param as an alloca-backed local. mem2reg at -O1+
@@ -7197,84 +7213,6 @@ fn lower_fn(
     (f, new_strings)
 }
 
-/// v0.6+1 perf checkpoint — detect the canonical "fill loop":
-///
-///   for (let i = 0; i < N; i = i + 1) {
-///     xs.push(_)            // OR a Stmt::Block of pure xs.push(_) calls
-///   }
-///
-/// Returns `Some((bound_eid, [xs_name, ...]))` if every required
-/// shape matches and the body contains only push calls (no other
-/// side-effecting stmts). The caller emits one `arr_reserve` per
-/// detected array and registers the names so per-iter pushes go
-/// through `arr_push_unchecked`.
-///
-/// Conservative on the false-positive side — anything that doesn't
-/// fit the exact pattern returns None and the regular cap-checked
-/// push path runs. False negatives stay safe (just slower).
-fn detect_push_loop_arrays(
-    ast: &Ast,
-    init: Option<&Stmt>,
-    cond: Option<ExprId>,
-    step: Option<ExprId>,
-    body: &Stmt,
-) -> Option<(ExprId, Vec<String>)> {
-    /* init: `let i = 0` (literal 0; const 0 is enough — anything
-     * else means the loop isn't a simple 0..N walk). */
-    let i_name = match init? {
-        Stmt::LetDecl {
-            name,
-            init: init_eid,
-            ..
-        } => match ast.get_expr(*init_eid) {
-            Expr::Number(n) if *n == 0.0 => name.clone(),
-            _ => return None,
-        },
-        _ => return None,
-    };
-    /* cond: `i < bound`. Capture bound expression. */
-    let bound_eid = match ast.get_expr(cond?) {
-        Expr::BinOp {
-            op: crate::ast::BinOp::Lt,
-            left,
-            right,
-        } => match ast.get_expr(*left) {
-            Expr::Ident(n) if n == &i_name => *right,
-            _ => return None,
-        },
-        _ => return None,
-    };
-    /* step: `i = i + 1` shape (parser desugars i++ / i+=1 to this). */
-    let step_eid = step?;
-    match ast.get_expr(step_eid) {
-        Expr::Assign { target, value } => {
-            let target_is_i = matches!(ast.get_expr(*target), Expr::Ident(n) if n == &i_name);
-            let value_is_i_plus_1 = matches!(
-                ast.get_expr(*value),
-                Expr::BinOp { op: crate::ast::BinOp::Add, left, right }
-                    if matches!(ast.get_expr(*left), Expr::Ident(n) if n == &i_name)
-                        && matches!(ast.get_expr(*right), Expr::Number(v) if *v == 1.0)
-            );
-            if !(target_is_i && value_is_i_plus_1) {
-                return None;
-            }
-        }
-        _ => return None,
-    }
-    /* body: must be Stmt::Expr(push) or Stmt::Block / Multi of
-     * push-only stmts (no conditionals, no other method calls).
-     * Single-array OR multi-array both work — we collect every
-     * `xs.push(_)` target name. */
-    let mut names: Vec<String> = Vec::new();
-    if !collect_push_targets_only(ast, body, &mut names) {
-        return None;
-    }
-    if names.is_empty() {
-        return None;
-    }
-    Some((bound_eid, names))
-}
-
 /// v0.6+1 perf checkpoint — per-array hoisted state for the push-loop
 /// pre-reserve fast-push. See `LowerCtx::push_unchecked_for`.
 #[derive(Clone, Copy)]
@@ -7292,37 +7230,6 @@ struct PreReserveState {
     /// back to the array's len field at loop exit. mem2reg promotes
     /// this to a phi-register at -O1+.
     len_slot: ValueId,
-}
-
-/// Walk `s` and collect ident names of arrays that are the receiver
-/// of a `xs.push(_)` call. Returns `false` if any non-push stmt is
-/// found (caller bails). Allows nested Blocks / Multi's so user-
-/// formatted bodies parse cleanly.
-fn collect_push_targets_only(ast: &Ast, s: &Stmt, out: &mut Vec<String>) -> bool {
-    match s {
-        Stmt::Expr(eid) => match ast.get_expr(*eid) {
-            Expr::Call { callee, args } if args.len() == 1 => {
-                let Expr::Member { obj, name } = ast.get_expr(*callee) else {
-                    return false;
-                };
-                if name != "push" {
-                    return false;
-                }
-                let Expr::Ident(xs_name) = ast.get_expr(*obj) else {
-                    return false;
-                };
-                if !out.iter().any(|n| n == xs_name) {
-                    out.push(xs_name.clone());
-                }
-                true
-            }
-            _ => false,
-        },
-        Stmt::Block(stmts) | Stmt::Multi(stmts) => {
-            stmts.iter().all(|s| collect_push_targets_only(ast, s, out))
-        }
-        _ => false,
-    }
 }
 
 struct LowerCtx<'a> {
@@ -7569,6 +7476,31 @@ struct LowerCtx<'a> {
     /// at fn entry; queried by `arr_expr_is_non_deque` at every
     /// Index emit site to pick the fast-path offset.
     deque_arrs: std::collections::HashSet<String>,
+    /// 11-A2-a — fn-local escape-bound Obj-typed binding names.
+    /// Populated by `ssa_lower_obj_escape::collect_escape_obj_let_
+    /// names_in_stmt` at fn entry. Queried at the typed-Obj
+    /// `LetDecl` alloc emit site: a binding whose init is
+    /// `ObjectLit { ... }` and whose name `∉ escape_obj_lets` swaps
+    /// `Call(__torajs_obj_alloc)` for `AllocaBytes(size)` and is
+    /// recorded in `stack_alloced_locals` so end-of-scope drop
+    /// emission skips its rc-dec branch + drop_sized call.
+    escape_obj_lets: std::collections::HashSet<String>,
+    /// 11-A2-a — set of binding names whose backing storage was
+    /// allocated on the stack (`AllocaBytes`) instead of the heap.
+    /// `emit_drops_for_owned_locals` and sibling drop emitters skip
+    /// any local whose name is in this set: no rc-dec branch, no
+    /// `__torajs_obj_drop_sized` call. Stack reclaim is automatic
+    /// at fn return.
+    stack_alloced_locals: std::collections::HashSet<String>,
+    /// 11-A2-a — short-lived hint set by the `LetDecl` arm before
+    /// lowering an `ObjectLit` init, when (a) the binding is in
+    /// the safe set (`name ∉ escape_obj_lets`) and (b) the init
+    /// is syntactically a direct `ObjectLit`. Read once by the
+    /// `ObjectLit` arm at its alloc site via `.take()`. If consumed
+    /// and the runtime layout contains no refcounted field, the
+    /// alloc swaps `Call(obj_alloc)` for `AllocaBytes(size)` and
+    /// the name is inserted into `stack_alloced_locals`.
+    let_stack_alloc_hint: Option<String>,
 }
 
 impl<'a> LowerCtx<'a> {
@@ -9900,11 +9832,15 @@ impl<'a> LowerCtx<'a> {
     fn emit_drops_for_owned_locals(&mut self) {
         // Snapshot to avoid borrowing self.locals while we emit instructions
         // (which need &mut self.f). Cheap: bench cases have <10 locals each.
+        // 11-A2-a — skip stack-alloced locals: their backing storage is
+        // reclaimed by fn return; no rc-dec / obj_drop_sized needed.
         let to_drop: Vec<(ValueId, Type)> = self
             .locals
-            .values()
-            .filter(|info| !info.moved && !info.ty.is_copy())
-            .map(|info| (info.slot, info.ty))
+            .iter()
+            .filter(|(name, info)| {
+                !info.moved && !info.ty.is_copy() && !self.stack_alloced_locals.contains(*name)
+            })
+            .map(|(_, info)| (info.slot, info.ty))
             .collect();
         for (slot, ty) in to_drop {
             let val = self.f.append_inst(
@@ -9994,7 +9930,10 @@ impl<'a> LowerCtx<'a> {
                             Some(i) => *i,
                             None => continue,
                         };
-                        if info.moved || info.ty.is_copy() {
+                        if info.moved
+                            || info.ty.is_copy()
+                            || self.stack_alloced_locals.contains(name)
+                        {
                             continue;
                         }
                         let val = self.f.append_inst(
@@ -10451,6 +10390,21 @@ impl<'a> LowerCtx<'a> {
                         .unwrap_or(false),
                     _ => false,
                 };
+                // 11-A2-a — signal to the `ObjectLit` arm that this
+                // binding is safe to stack-alloc when (a) the init is
+                // a syntactic `ObjectLit` (so the alloc lands in that
+                // arm) and (b) the binding name is not in the per-fn
+                // escape set. The `ObjectLit` arm consumes the hint
+                // via `.take()` and decides at alloc time based on
+                // runtime layout (any refcounted field forces back to
+                // heap, since end-of-scope drop emission skips stack
+                // locals and would otherwise leak child rc-bumped
+                // values).
+                let stack_alloc_hinted = matches!(self.ast.get_expr(*init), Expr::ObjectLit { .. })
+                    && !self.escape_obj_lets.contains(name);
+                if stack_alloc_hinted {
+                    self.let_stack_alloc_hint = Some(name.clone());
+                }
                 // M1.2 — empty array literal `[]` has no elements to
                 // infer the element type from. Use the let's annotation
                 // to pick the right ArrId and emit `arr_alloc(0)` directly.
@@ -10514,6 +10468,11 @@ impl<'a> LowerCtx<'a> {
                 } else {
                     self.lower_expr(*init)
                 };
+                // 11-A2-a — defensive clear of the hint. The `ObjectLit`
+                // arm consumes via `.take()` on the fast-path; non-
+                // ObjectLit init paths shouldn't leave a stale hint for
+                // the next LetDecl. Idempotent when the hint wasn't set.
+                self.let_stack_alloc_hint = None;
                 // Skip consume for alias-init: the source binding stays
                 // the owner (cross-scope case) or there's no Ident source
                 // to mark moved (Member / Index / literal init).
@@ -11065,7 +11024,10 @@ impl<'a> LowerCtx<'a> {
                             Some(i) => *i,
                             None => continue,
                         };
-                        if info.moved || info.ty.is_copy() {
+                        if info.moved
+                            || info.ty.is_copy()
+                            || self.stack_alloced_locals.contains(name)
+                        {
                             continue;
                         }
                         let val = self.f.append_inst(
@@ -11523,7 +11485,7 @@ impl<'a> LowerCtx<'a> {
                         Some(i) => *i,
                         None => continue,
                     };
-                    if info.moved || info.ty.is_copy() {
+                    if info.moved || info.ty.is_copy() || self.stack_alloced_locals.contains(name) {
                         continue;
                     }
                     let val = self.f.append_inst(
@@ -11960,7 +11922,10 @@ impl<'a> LowerCtx<'a> {
                                 Some(i) => *i,
                                 None => continue,
                             };
-                            if info.moved || info.ty.is_copy() {
+                            if info.moved
+                                || info.ty.is_copy()
+                                || self.stack_alloced_locals.contains(name)
+                            {
                                 continue;
                             }
                             let val = self.f.append_inst(
@@ -23493,17 +23458,41 @@ impl<'a> LowerCtx<'a> {
                 // this struct id was registered as a declared class;
                 // plain `type` aliases stay tagged 0.
                 let size = field_tys.len() as i64 * 8 + OBJ_HEADER_SIZE as i64;
-                let alloc_fid = self.intrinsics.obj_alloc;
-                let obj_ptr = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::Call(alloc_fid, vec![Operand::ConstI64(size)]),
-                    Type::Obj(sid),
-                    None,
-                );
+                // 11-A2-a — if `LetDecl` set a stack-alloc hint AND no
+                // field is refcounted, swap heap `obj_alloc` for stack
+                // `AllocaBytes`. Refcounted fields force back to heap
+                // because end-of-scope drop emission skips stack locals;
+                // a stack-alloc obj with refcounted children would leak
+                // the children's rc.
+                let stack_alloc_name = self
+                    .let_stack_alloc_hint
+                    .take()
+                    .filter(|_| !field_tys.iter().any(|(_, ty)| ty.is_refcounted()));
+                let obj_ptr = if let Some(let_name) = stack_alloc_name {
+                    let p = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::AllocaBytes(size as u64),
+                        Type::Obj(sid),
+                        None,
+                    );
+                    self.stack_alloced_locals.insert(let_name);
+                    p
+                } else {
+                    let alloc_fid = self.intrinsics.obj_alloc;
+                    self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(alloc_fid, vec![Operand::ConstI64(size)]),
+                        Type::Obj(sid),
+                        None,
+                    )
+                };
                 // Phase 2B refcount: init universal heap header (refcount=1,
                 // type_tag=OBJ, flags=0). obj_alloc stays a plain malloc so
                 // it can be reused by box / closure-env paths that don't
-                // want a refcount header.
+                // want a refcount header. For stack-alloced objs (11-A2-a)
+                // these header stores remain in source IR; LLVM `-O3` DSE
+                // sweeps them when the alloca's address doesn't escape and
+                // the offsets are never read.
                 self.emit_obj_header_init(Operand::Value(obj_ptr));
                 /* Recover the class name from the enclosing factory
                  * `__new_<C>` (every class instance is constructed
@@ -28410,7 +28399,7 @@ impl<'a> LowerCtx<'a> {
                     Some(i) => *i,
                     None => continue,
                 };
-                if info.moved || info.ty.is_copy() {
+                if info.moved || info.ty.is_copy() || self.stack_alloced_locals.contains(name) {
                     continue;
                 }
                 let val = self.f.append_inst(
@@ -28674,7 +28663,7 @@ impl<'a> LowerCtx<'a> {
                     Some(i) => *i,
                     None => continue,
                 };
-                if info.moved || info.ty.is_copy() {
+                if info.moved || info.ty.is_copy() || self.stack_alloced_locals.contains(name) {
                     continue;
                 }
                 let val = self.f.append_inst(
