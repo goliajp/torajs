@@ -27,6 +27,7 @@ use std::collections::HashMap;
 
 use crate::ast::{self, Ast, BinOp as AstBinOp, Expr, ExprId, Param, Stmt, UnaryOp as AstUnaryOp};
 use crate::check::{self as check_mod, GenericCallSites, type_to_ann};
+use crate::short_str_encode::encode_short_str_literal;
 use crate::ssa::{
     self, BinOp as SsaBinOp, BlockId, FPred, FuncId, IPred, InstKind, Module, Operand, Terminator,
     Type, ValueId,
@@ -13094,6 +13095,27 @@ impl<'a> LowerCtx<'a> {
                     self.intrinsics.any_box,
                     vec![Operand::ConstI64(5), Operand::ConstI64(0)],
                 ),
+                Type::Any,
+                None,
+            );
+            return Operand::Value(v);
+        }
+        // Step 8d — IR-side const ShortStr emit for compile-time short
+        // string literals. When boxing a Type::Str whose source expression
+        // is a string literal of ≤ SHORT_STR_CAP bytes, bypass the runtime
+        // `any_box(4, str_ptr)` call: encode the bytes directly into a
+        // NaN-box ShortStr u64 at compile time, then emit
+        // IntToPtr(ConstI64(short_u64)) typed as Any. The dead StaticStrRef
+        // inst left behind is dropped by LLVM DCE (no side effects);
+        // STATIC_LITERAL strings carry a no-op rc_dec path so any leftover
+        // scope-end drop is also a no-op at runtime.
+        if matches!(val_ty, Type::Str)
+            && let Expr::String(s) = self.ast.get_expr(eid)
+            && let Some(short_u64) = encode_short_str_literal(s.as_bytes())
+        {
+            let v = self.f.append_inst(
+                self.cur_block,
+                InstKind::IntToPtr(Operand::ConstI64(short_u64 as i64)),
                 Type::Any,
                 None,
             );

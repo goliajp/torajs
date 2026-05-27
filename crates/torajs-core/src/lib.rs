@@ -150,6 +150,7 @@ pub mod lexer;
 pub mod linter;
 pub mod modules;
 pub mod parser;
+pub mod short_str_encode;
 pub mod ssa;
 pub mod ssa_inkwell;
 pub mod ssa_lower;
