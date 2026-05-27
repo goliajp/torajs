@@ -30,6 +30,7 @@ mod lower;
 mod lower_fns;
 mod lower_inst;
 mod obj_builders;
+mod panic_runtime_link;
 mod pipeline;
 mod split_iter;
 mod types;

@@ -58,7 +58,7 @@ export CARGO_UNSTABLE_UNSTABLE_OPTIONS="true"
 # IMPORTANT — `-Cpanic=immediate-abort` deliberately omitted (see
 # the A4.1 header above). DO NOT re-add without a B2-follow-up
 # benchmark proving the perf cost has been recovered.
-export RUSTFLAGS="${RUSTFLAGS:-} -Zunstable-options -A linker_messages"
+export RUSTFLAGS="${RUSTFLAGS:-} -Zunstable-options -A linker_messages --cfg=torajs_panic_runtime_active"
 
 cargo build --workspace --release --target "$TARGET" "$@"
 

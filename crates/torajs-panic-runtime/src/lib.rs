@@ -1,0 +1,194 @@
+//! Custom panic infrastructure for torajs AOT user binaries.
+//!
+//! Layer-0 substrate (v0.7 Step 9b, 2026-05-27) — replaces std's
+//! default `rust_begin_unwind` + `rust_panic` + `__rust_start_panic`
+//! + `__rust_alloc_error_handler` with minimal banner+abort impls.
+//! Strips ~250 KiB of `backtrace_rs` / `gimli` / `rustc_demangle` /
+//! `std::path` / `std::io::error` / `std::thread::Thread` /
+//! `std::panicking::*hook` from every user binary.
+//!
+//! ## Dual-mode crate
+//!
+//! This crate has **two** compile modes, gated by the
+//! `torajs_panic_runtime_active` cfg flag (set by
+//! `scripts/release-build.sh` via `RUSTFLAGS=--cfg=...`):
+//!
+//! - **Active mode** (release-build.sh, polish-A4.1) — `#![no_std]` +
+//!   `#![panic_runtime]` + `#[panic_handler]` + `#[alloc_error_handler]`
+//!   + `rustc_std_internal_symbol` overrides. Produces a staticlib
+//!   that, when `-Wl,-force_load`'ed first, wins every panic-routing
+//!   symbol in the binary and dead-strips std's panic tree.
+//!
+//! - **Inactive mode** (plain `cargo build` / `cargo test`) — empty
+//!   placeholder fn so the staticlib still emits (torajs-core's
+//!   `build.rs` requires `.a` to exist). Plain cargo test needs
+//!   `panic = "unwind"` for `catch_unwind`, which conflicts with
+//!   `#![panic_runtime]`; inactive mode side-steps that.
+//!
+//! Why a dual-mode crate instead of a separate "torajs-panic-runtime-
+//! impl" crate behind a feature flag: torajs-core's `build.rs` /
+//! `lib.rs` enumerates Layer-1+ staticlib paths at compile time via
+//! `include_bytes!(env!("..."))`. Splitting into two crates would
+//! require conditional `STATICLIBS` plumbing — a much bigger surface
+//! change for the same outcome. cfg-gating preserves the single-crate
+//! shape.
+//!
+//! ## How the active-mode override works
+//!
+//! Decision flow on `panic!()` / `[i]` OOB / `Option::unwrap_none`:
+//!
+//! 1. user/std code → `core::panicking::*` lang_item dispatch.
+//! 2. lang_item dispatch → `rust_begin_unwind` (the `#[panic_handler]`
+//!    symbol) **and** `rust_panic` (the `std::panicking::rust_panic`
+//!    internal lang_item, mangled via `__rustc` virtual crate).
+//! 3. std's default impls walk PanicInfo, format the message, capture
+//!    backtrace via `std::sys::backtrace::*`, demangle frames via
+//!    `rustc_demangle`, print via `std::panicking::default_hook`,
+//!    then call `__rust_start_panic` to dispatch the runtime.
+//!
+//! Our override provides **all four** entries (`rust_begin_unwind`
+//! via `#[panic_handler]`; `rust_panic` + `rust_panic_with_hook` via
+//! `#[rustc_std_internal_symbol]` / `#[unsafe(no_mangle)]`;
+//! `__rust_start_panic` via `#![panic_runtime]` auto-attribute;
+//! `__rust_alloc_error_handler` via `#[alloc_error_handler]`). All
+//! short-circuit to a fixed banner + libc abort.
+//!
+//! ## Wire-up
+//!
+//! `crates/torajs-core/build.rs` enumerates this crate in `STATICLIBS`,
+//! `crates/torajs-core/src/lib.rs` embeds the `.a` bytes via
+//! `include_bytes!`, and `crates/torajs-core/src/ssa_inkwell/link.rs`
+//! drops the bytes to a temp `.a` per `tr build` and force-loads it
+//! before every other staticlib via `-Wl,-force_load,<path>`. Helper
+//! logic in `ssa_inkwell/panic_runtime_link.rs`.
+
+#![cfg_attr(torajs_panic_runtime_active, no_std)]
+#![cfg_attr(
+    torajs_panic_runtime_active,
+    feature(alloc_error_handler, panic_runtime, rustc_attrs, std_internals,)
+)]
+#![cfg_attr(torajs_panic_runtime_active, panic_runtime)]
+#![cfg_attr(torajs_panic_runtime_active, allow(internal_features))]
+
+// ===========================================================================
+// Active mode — `cfg(torajs_panic_runtime_active)`
+// ===========================================================================
+
+#[cfg(torajs_panic_runtime_active)]
+mod active {
+    use core::alloc::Layout;
+    use core::any::Any;
+    use core::ffi::c_void;
+    use core::panic::PanicInfo;
+    use core::panic::PanicPayload;
+
+    const STDERR_FILENO: i32 = 2;
+
+    unsafe extern "C" {
+        fn write(fd: i32, buf: *const c_void, n: usize) -> isize;
+        fn abort() -> !;
+    }
+
+    /// `#[cold]` + `#[inline(never)]` — critical to preserving the
+    /// hot-path codegen of LTO'd user binaries. Without these, LLVM
+    /// under `lto = "fat"` sees our 32-byte `rust_begin_unwind` and
+    /// inlines panic call sites away, which alters the cold-call /
+    /// unreachable modeling at every `panic!()` / `[i]` OOB site —
+    /// regressing the bench geomean by ~+15% (closure-pipeline-1m
+    /// +40%, array-sum-1m +48%, etc. observed during 9b ship). The
+    /// fix is `torajs-abort`'s pattern (see `crates/torajs-abort/src/
+    /// lib.rs:70-72`): force the unhappy path out-of-line so LLVM
+    /// leaves a single `bl <override>` at each call site and inlines
+    /// the success path tightly.
+    #[cold]
+    #[inline(never)]
+    unsafe fn write_banner_and_abort() -> ! {
+        let msg = b"torajs panic\n";
+        unsafe {
+            write(STDERR_FILENO, msg.as_ptr() as *const c_void, msg.len());
+            abort()
+        }
+    }
+
+    /// `#[panic_handler]` for this `#![no_std]` crate. Also generates the
+    /// `rust_begin_unwind` symbol that `core::panicking::*` calls into.
+    #[cold]
+    #[inline(never)]
+    #[panic_handler]
+    fn torajs_panic_handler(_info: &PanicInfo<'_>) -> ! {
+        unsafe { write_banner_and_abort() }
+    }
+
+    /// Replacement for panic_abort's `__rust_start_panic`.
+    ///
+    /// # Safety
+    /// Matches `core::panicking::__rust_start_panic` signature.
+    #[cold]
+    #[inline(never)]
+    #[allow(improper_ctypes_definitions)]
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __rust_start_panic(_payload: &mut dyn Any) -> u32 {
+        unsafe { write_banner_and_abort() }
+    }
+
+    /// `rust_eh_personality` — no-op under `panic = "abort"`.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn rust_eh_personality() {}
+
+    /// Replacement for `std::panicking::rust_panic`. Without this
+    /// override, `core::panicking::panic` dispatches to std's impl
+    /// which pulls `panic_with_hook` + backtrace tree.
+    #[cold]
+    #[inline(never)]
+    #[rustc_std_internal_symbol]
+    fn rust_panic(_payload: &mut dyn PanicPayload) -> ! {
+        unsafe { write_banner_and_abort() }
+    }
+
+    /// Replacement for `std::panicking::rust_panic_with_hook`. Some
+    /// std code paths (alloc::rust_oom in particular) reference this
+    /// entry directly; providing our own keeps the dead-strip closure
+    /// tight.
+    #[cold]
+    #[inline(never)]
+    #[unsafe(no_mangle)]
+    pub fn rust_panic_with_hook(
+        _payload: &mut dyn PanicPayload,
+        _message: Option<&core::fmt::Arguments<'_>>,
+        _location: &core::panic::Location<'_>,
+        _can_unwind: bool,
+        _force_no_backtrace: bool,
+    ) -> ! {
+        unsafe { write_banner_and_abort() }
+    }
+
+    /// `#[alloc_error_handler]` — replaces
+    /// `std::alloc::default_alloc_error_hook` (which pulls
+    /// `std::sys::backtrace` + `gimli` to print frames before
+    /// aborting). Generates `__rust_alloc_error_handler` lang item.
+    #[cold]
+    #[inline(never)]
+    #[alloc_error_handler]
+    fn torajs_alloc_error_handler(_layout: Layout) -> ! {
+        unsafe { write_banner_and_abort() }
+    }
+}
+
+// ===========================================================================
+// Inactive mode — plain `cargo build` / `cargo test`
+// ===========================================================================
+//
+// Empty placeholder so the staticlib emits a non-zero-byte `.a`. The
+// build.rs / include_bytes! pipeline in torajs-core still requires the
+// archive to exist; an empty staticlib (just the placeholder fn) is
+// valid.
+
+#[cfg(not(torajs_panic_runtime_active))]
+mod inactive {
+    /// Placeholder so the staticlib has at least one symbol. Never
+    /// referenced; dead-strippable. Required because cargo emits a
+    /// "no symbols" warning on an empty staticlib that would flunk
+    /// the workspace's `warnings = "deny"` lint config.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn __torajs_panic_runtime_placeholder() {}
+}

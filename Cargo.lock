@@ -2009,6 +2009,10 @@ name = "torajs-panic"
 version = "0.1.0"
 
 [[package]]
+name = "torajs-panic-runtime"
+version = "0.1.0"
+
+[[package]]
 name = "torajs-playground-api"
 version = "0.1.0"
 dependencies = [

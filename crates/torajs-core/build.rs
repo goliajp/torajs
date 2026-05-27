@@ -53,20 +53,20 @@ const COMPILER_SOURCE_FILES: &[&str] = &[
 /// `TORAJS_STATICLIBS` array using `env!("TORAJS_<NAME>_STATICLIB
 /// _PATH")`.
 const STATICLIBS: &[&str] = &[
-    "torajs_syscall",     // Layer-0: aarch64/x86_64 raw syscall trampoline (v0.7-A1)
-    "torajs_mmalloc",     // Layer-0: mmap-backed allocator + libc-compat shim (v0.7-A2)
-    "torajs_rc",          // Layer-1: refcount + heap-header
-    "torajs_anyvalue",    // Layer-1: AnyBox (boxed Type::Any)
-    "torajs_throw",       // Layer-1: native-error registry + throw helpers
-    "torajs_str",         // Layer-2: Str layout + small-Str pool + alloc/free
-    "torajs_num",         // Layer-2: Number primitives + Math namespace intrinsics
-    "torajs_bigint",      // Layer-2: BigInt arbitrary-precision integer (P3.3)
-    "torajs_arr",         // Layer-3: Array<T> + Array<Any> substrate (P4.1)
-    "torajs_dynobj",      // Layer-3: dynamic-property object hashmap (P4.2)
-    "torajs_collections", // Layer-3: Map<K,V> + Set + MapIter (P4.3)
-    "torajs_weak",        // Layer-3: WeakRef + WeakMap + WeakSet substrate (P4.3')
-    "torajs_cycle",       // Layer-3: Bacon-Rajan trial-deletion cycle collector (P4.4)
-    "torajs_microtask",   // Layer-3: microtask queue (P5)
+    "torajs_syscall",       // Layer-0: aarch64/x86_64 raw syscall trampoline (v0.7-A1)
+    "torajs_mmalloc",       // Layer-0: mmap-backed allocator + libc-compat shim (v0.7-A2)
+    "torajs_rc",            // Layer-1: refcount + heap-header
+    "torajs_anyvalue",      // Layer-1: AnyBox (boxed Type::Any)
+    "torajs_throw",         // Layer-1: native-error registry + throw helpers
+    "torajs_str",           // Layer-2: Str layout + small-Str pool + alloc/free
+    "torajs_num",           // Layer-2: Number primitives + Math namespace intrinsics
+    "torajs_bigint",        // Layer-2: BigInt arbitrary-precision integer (P3.3)
+    "torajs_arr",           // Layer-3: Array<T> + Array<Any> substrate (P4.1)
+    "torajs_dynobj",        // Layer-3: dynamic-property object hashmap (P4.2)
+    "torajs_collections",   // Layer-3: Map<K,V> + Set + MapIter (P4.3)
+    "torajs_weak",          // Layer-3: WeakRef + WeakMap + WeakSet substrate (P4.3')
+    "torajs_cycle",         // Layer-3: Bacon-Rajan trial-deletion cycle collector (P4.4)
+    "torajs_microtask",     // Layer-3: microtask queue (P5)
     "torajs_promise", // Layer-3: Promise surface — alloc/pool/drop/state/then/combinator/queueMicrotask (P6.1)
     "torajs_regex", // Layer-3: ECMAScript regex — parser / Thompson NFA / Pike VM + extern API (P6.2)
     "torajs_fetch", // Layer-3: sync HTTP fetch (libcurl-easy wrapper) — Response heap + drop (P6.3)
@@ -76,6 +76,7 @@ const STATICLIBS: &[&str] = &[
     "torajs_meta", // Layer-3: runtime metadata + reflection — fnprops side table + class/proto registries + getPropertyDescriptor / getPrototypeOf (P7.g)
     "torajs_process", // Layer-3: process surface — exit / cwd / env / argv / platform / stdout.write / stderr.write (P7.h-proc)
     "torajs_panic", // Layer-1: central fatal-error helper — stderr msg + symbolicated backtrace + exit (P7.i-panic)
+    "torajs_panic_runtime", // Layer-0: custom #![panic_runtime] + #[panic_handler] replacing std default — strips ~150 KiB backtrace/demangle/path/io/Thread tree from user binaries (v0.7 Step 9b)
     "torajs_value_drop", // Layer-1: universal heap-typed drop dispatch — type_tag → per-type _drop (P7.i-drop)
     "torajs_abort", // Layer-0: panic-free abort helper — write(2)+abort(); replaces Rust panic infra (polish A3a)
 ];

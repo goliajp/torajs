@@ -1,0 +1,21 @@
+[package]
+name = "torajs-panic-runtime"
+description = "Custom `#![panic_runtime]` + `#[panic_handler]` for torajs AOT TypeScript runtime — writes a fixed banner to fd 2 then libc::abort(). Replaces std's default panic_abort runtime + std::panicking's `rust_begin_unwind`, stripping the backtrace_rs / rustc_demangle / std::path / std::io::error / std::thread::Thread tree (~150 KiB per user binary). Layer-0 substrate (v0.7 Step 9b)."
+keywords = ["torajs", "panic-runtime", "panic-handler", "no-std", "runtime"]
+categories = ["development-tools", "no-std"]
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+crate-type = ["rlib", "staticlib"]
+
+[dependencies]
+# 0 Cargo deps — libc write(2) + abort() declared inline via
+# `unsafe extern "C"`. Vision #4 (0 Cargo deps) preserved.

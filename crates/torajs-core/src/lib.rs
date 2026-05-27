@@ -124,6 +124,10 @@ pub const TORAJS_STATICLIBS: &[(&str, &[u8])] = &[
         include_bytes!(env!("TORAJS_PANIC_STATICLIB_PATH")),
     ),
     (
+        "libtorajs_panic_runtime.a",
+        include_bytes!(env!("TORAJS_PANIC_RUNTIME_STATICLIB_PATH")),
+    ),
+    (
         "libtorajs_value_drop.a",
         include_bytes!(env!("TORAJS_VALUE_DROP_STATICLIB_PATH")),
     ),

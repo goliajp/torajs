@@ -16,6 +16,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use super::panic_runtime_link;
 use super::{CompileError, CompileTarget, OutputKind};
 
 pub(super) fn link_object_to_binary(
@@ -202,12 +203,27 @@ pub(super) fn link_object_to_binary(
                 link_cmd.arg(op);
             }
             // P2.2+ — Layer-1+ Rust staticlibs: each supplies its
-            // own `__torajs_*` symbols (torajs-rc → rc_inc/dec;
-            // torajs-anyvalue → any_box/unbox/drop/payload_rc_inc).
-            // Order doesn't matter for cc -flto archive consumption;
-            // the linker pulls in whichever members are referenced
-            // by `*.o` symbols above.
+            // own `__torajs_*` symbols. v0.7 Step 9b force-loads
+            // `libtorajs_panic_runtime.a` first so our panic-handler /
+            // panic-runtime / alloc-error-handler overrides win symbol
+            // resolution against the sibling staticlibs' bundled
+            // `libstd.rlib`. See `panic_runtime_link.rs` for why.
+            let panic_runtime_path =
+                panic_runtime_link::pick_panic_runtime_archive(&rust_staticlib_paths);
+            if let Some(ref p) = panic_runtime_path {
+                #[cfg(target_os = "macos")]
+                link_cmd.arg(format!("-Wl,-force_load,{}", p.display()));
+                #[cfg(not(target_os = "macos"))]
+                {
+                    link_cmd.arg("-Wl,--whole-archive");
+                    link_cmd.arg(p);
+                    link_cmd.arg("-Wl,--no-whole-archive");
+                }
+            }
             for p in &rust_staticlib_paths {
+                if Some(p) == panic_runtime_path.as_ref() {
+                    continue; // already force-loaded above
+                }
                 link_cmd.arg(p);
             }
             /* T-21 (v0.6.0) — runtime_fetch.c uses libcurl for the
@@ -290,9 +306,15 @@ pub(super) fn link_object_to_binary(
                 .arg(out_path);
         }
     }
-    let status = link_cmd
-        .status()
+    // Capture ld stderr so `panic_runtime_link::forward_filtered_stderr`
+    // can strip the intentional duplicate-symbol warnings before
+    // forwarding the rest to our process stderr (see that module).
+    let output = link_cmd
+        .stderr(std::process::Stdio::piped())
+        .output()
         .map_err(|e| CompileError::Link(format!("spawning {link_cmd_name}: {e}")))?;
+    panic_runtime_link::forward_filtered_stderr(&String::from_utf8_lossy(&output.stderr));
+    let status = output.status;
     // v0.3 #4 D-2 — macOS: consolidate DWARF from per-TU .o files
     // into a `.dSYM` bundle alongside the binary. atos / lldb find
     // it automatically by name. Without this, the .o files we're
