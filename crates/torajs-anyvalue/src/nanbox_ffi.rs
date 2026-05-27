@@ -27,7 +27,10 @@ use crate::coerce::{any_to_number, any_to_str};
 use crate::compare::any_compare;
 use crate::nanbox::{
     AnyValue, as_bool, as_double, as_int32, as_pointer, as_void_ptr, is_bool, is_cell, is_double,
-    is_int32, is_null, is_undefined,
+    is_int32, is_null, is_short_str, is_undefined, short_str_len,
+};
+use crate::nanbox_ffi_materialize::{
+    drop_materialized_str, materialize_if_short, materialize_short_str,
 };
 
 // ============================================================
@@ -38,6 +41,9 @@ use crate::nanbox::{
 unsafe extern "C" {
     fn __torajs_str_eq(a: *const u8, b: *const u8) -> i64;
     fn __torajs_value_drop_heap(child: *mut c_void);
+    /// Heap+Str → number parse. Used by ShortStr ToNumber after
+    /// materialize.
+    fn __torajs_str_to_number(p: *const c_void) -> f64;
 }
 
 // ============================================================
@@ -56,6 +62,10 @@ unsafe extern "C" {
 /// `*mut HeapHeader`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_rc_inc(v: AnyValue) {
+    // Step 8b-C: ShortStr is a primitive immediate — no heap, no rc.
+    if is_short_str(v) {
+        return;
+    }
     if is_cell(v) {
         // SAFETY: is_cell guarantees the pointer is non-zero and
         // 8-aligned; the caller invariant says it points to a
@@ -79,6 +89,10 @@ pub unsafe extern "C" fn __torajs_anyv_rc_inc(v: AnyValue) {
 /// heap object that the caller owns a reference to.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_rc_dec(v: AnyValue) {
+    // Step 8b-C: ShortStr is a primitive immediate — no heap, no rc.
+    if is_short_str(v) {
+        return;
+    }
     if is_cell(v) {
         // SAFETY: as above.
         let dec = unsafe { __torajs_rc_dec(as_void_ptr(v)) };
@@ -118,6 +132,26 @@ pub unsafe extern "C" fn __torajs_anyv_to_number(v: AnyValue) -> f64 {
     if is_bool(v) {
         return if as_bool(v) { 1.0 } else { 0.0 };
     }
+    // Step 8b-C: ShortStr → materialize to Heap+Str + parse via
+    // __torajs_str_to_number. Future polish (8d/8e): inline byte
+    // parsing avoids the alloc (most short numerics: "0", "1",
+    // "true", etc.) but for now match the existing Heap+Str path
+    // behavior exactly.
+    if is_short_str(v) {
+        // SAFETY: ShortStr ≤ 5 byte payload; materialize gives a
+        // fresh Heap+Str with refcount=1. str_to_number reads the
+        // Str layout. We then drop the temporary Str.
+        let s = unsafe { materialize_short_str(v) };
+        let n = unsafe { __torajs_str_to_number(s as *const c_void) };
+        // SAFETY: s is the freshly-materialized Str we own; rc=1.
+        unsafe {
+            let dec = __torajs_rc_dec(s as *mut c_void);
+            if dec != 0 {
+                __torajs_value_drop_heap(s as *mut c_void);
+            }
+        }
+        return n;
+    }
     if is_cell(v) {
         // SAFETY: cell pointer is non-null + valid HeapHeader.
         return unsafe { any_to_number(AnySlotTag::Heap as i64, v as i64) };
@@ -149,6 +183,14 @@ pub unsafe extern "C" fn __torajs_anyv_to_str(v: AnyValue) -> *mut c_void {
     if is_bool(v) {
         return unsafe { any_to_str(AnySlotTag::Bool as i64, if as_bool(v) { 1 } else { 0 }) };
     }
+    // Step 8b-C: ShortStr → materialize. ToString contract returns
+    // a freshly-owned Str pointer the caller drops; materializing
+    // gives exactly that. Future polish (8d/8e): if the caller can
+    // accept an AnyValue result instead of *mut c_void, return v
+    // directly without alloc.
+    if is_short_str(v) {
+        return unsafe { materialize_short_str(v) as *mut c_void };
+    }
     if is_cell(v) {
         return unsafe { any_to_str(AnySlotTag::Heap as i64, v as i64) };
     }
@@ -177,6 +219,12 @@ pub unsafe extern "C" fn __torajs_anyv_to_bool(v: AnyValue) -> bool {
     }
     if is_bool(v) {
         return as_bool(v);
+    }
+    // Step 8b-C: ShortStr "" is falsy per ES; non-empty truthy.
+    // Cheaper than the Heap+Str path — no heap deref, just read
+    // 8 bits of the immediate.
+    if is_short_str(v) {
+        return short_str_len(v) != 0;
     }
     if is_cell(v) {
         let ptr = as_pointer(v);
@@ -250,6 +298,54 @@ pub unsafe extern "C" fn __torajs_anyv_strict_eq(l: AnyValue, r: AnyValue) -> bo
         // covered by `l == r` early-exit above.
         return false;
     }
+    // Step 8b-C: cross-type ShortStr × Heap+Str byte-compare via
+    // materialize. Same-ShortStr × Same-ShortStr already covered by
+    // the identity fast path (`l == r`). Different-ShortStr × Diff-
+    // ShortStr falls through to `false` per the cell-pair-required
+    // branch — correct: distinct ShortStr bits = distinct bytes.
+    // ShortStr × non-Str-Heap returns false (string !== object). All
+    // non-string primitive cross-types (ShortStr vs i32 / f64 / bool
+    // / null / undef) also fall through to `false` — correct per ES.
+    if is_short_str(l) && is_cell(r) {
+        let rp = as_pointer(r);
+        // SAFETY: r is a cell — non-null per is_cell.
+        let rh = unsafe { &*rp };
+        if matches!(rh.tag(), Tag::Str) {
+            // SAFETY: materialize widens l to a fresh refcount=1 Str.
+            let ls = unsafe { materialize_short_str(l) };
+            // SAFETY: ls is Heap+Str layout, r is Heap+Str layout.
+            let eq = unsafe { __torajs_str_eq(ls, rp as *const u8) != 0 };
+            // SAFETY: drop the temporary.
+            unsafe {
+                let dec = __torajs_rc_dec(ls as *mut c_void);
+                if dec != 0 {
+                    __torajs_value_drop_heap(ls as *mut c_void);
+                }
+            }
+            return eq;
+        }
+        return false;
+    }
+    if is_cell(l) && is_short_str(r) {
+        let lp = as_pointer(l);
+        // SAFETY: l is a cell — non-null per is_cell.
+        let lh = unsafe { &*lp };
+        if matches!(lh.tag(), Tag::Str) {
+            // SAFETY: materialize widens r to a fresh refcount=1 Str.
+            let rs = unsafe { materialize_short_str(r) };
+            // SAFETY: both Heap+Str layout.
+            let eq = unsafe { __torajs_str_eq(lp as *const u8, rs) != 0 };
+            // SAFETY: drop the temporary.
+            unsafe {
+                let dec = __torajs_rc_dec(rs as *mut c_void);
+                if dec != 0 {
+                    __torajs_value_drop_heap(rs as *mut c_void);
+                }
+            }
+            return eq;
+        }
+        return false;
+    }
     false
 }
 
@@ -271,12 +367,26 @@ pub unsafe extern "C" fn __torajs_anyv_strict_eq(l: AnyValue, r: AnyValue) -> bo
 /// Cell-case operands must point to valid heap objects.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_compare(op: i64, l: AnyValue, r: AnyValue) -> bool {
-    let (lt, lv) = decode_to_tag_value(l);
-    let (rt, rv) = decode_to_tag_value(r);
+    // Step 8b-C: ShortStr operands materialize to Heap+Str before
+    // entering the legacy `(tag, value)` decoder path. Temporaries
+    // are dropped after the inner helper returns.
+    // SAFETY: materialize_if_short upholds the Heap+Str invariant.
+    let (l_eff, l_tmp) = unsafe { materialize_if_short(l) };
+    let (r_eff, r_tmp) = unsafe { materialize_if_short(r) };
+    let (lt, lv) = decode_to_tag_value(l_eff);
+    let (rt, rv) = decode_to_tag_value(r_eff);
     // SAFETY: decode_to_tag_value preserves the cell-pointer
     // validity; any_compare is documented to handle the
     // `(Heap, valid_ptr)` case.
-    unsafe { any_compare(op, lt, lv, rt, rv) }
+    let result = unsafe { any_compare(op, lt, lv, rt, rv) };
+    // SAFETY: drop the materialized temporaries (if any).
+    if let Some(p) = l_tmp {
+        unsafe { drop_materialized_str(p) };
+    }
+    if let Some(p) = r_tmp {
+        unsafe { drop_materialized_str(p) };
+    }
+    result
 }
 
 /// Arithmetic dispatch (`-`, `*`, `/`, `%`) per ES §13.6-§13.9.
@@ -287,10 +397,23 @@ pub unsafe extern "C" fn __torajs_anyv_compare(op: i64, l: AnyValue, r: AnyValue
 /// Cell-case operands must point to valid heap objects.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_arith(op: i64, l: AnyValue, r: AnyValue) -> AnyValue {
-    let (lt, lv) = decode_to_tag_value(l);
-    let (rt, rv) = decode_to_tag_value(r);
+    // Step 8b-C: materialize ShortStr operands. Arithmetic on
+    // strings coerces to numbers per ES so any_arith's ToNumber
+    // path will parse the bytes.
+    // SAFETY: as compare.
+    let (l_eff, l_tmp) = unsafe { materialize_if_short(l) };
+    let (r_eff, r_tmp) = unsafe { materialize_if_short(r) };
+    let (lt, lv) = decode_to_tag_value(l_eff);
+    let (rt, rv) = decode_to_tag_value(r_eff);
     // SAFETY: as above.
-    unsafe { any_arith(op, lt, lv, rt, rv) }
+    let result = unsafe { any_arith(op, lt, lv, rt, rv) };
+    if let Some(p) = l_tmp {
+        unsafe { drop_materialized_str(p) };
+    }
+    if let Some(p) = r_tmp {
+        unsafe { drop_materialized_str(p) };
+    }
+    result
 }
 
 /// `+` per ES §13.15.3 — numeric addition or string concat.
@@ -301,10 +424,23 @@ pub unsafe extern "C" fn __torajs_anyv_arith(op: i64, l: AnyValue, r: AnyValue) 
 /// Cell-case operands must point to valid heap objects.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_add(l: AnyValue, r: AnyValue) -> AnyValue {
-    let (lt, lv) = decode_to_tag_value(l);
-    let (rt, rv) = decode_to_tag_value(r);
+    // Step 8b-C: materialize ShortStr operands. `+` is dual-mode
+    // (numeric add or string concat); both modes need the operand
+    // as a Heap+Str pointer when the string branch fires.
+    // SAFETY: as compare.
+    let (l_eff, l_tmp) = unsafe { materialize_if_short(l) };
+    let (r_eff, r_tmp) = unsafe { materialize_if_short(r) };
+    let (lt, lv) = decode_to_tag_value(l_eff);
+    let (rt, rv) = decode_to_tag_value(r_eff);
     // SAFETY: as above.
-    unsafe { any_add(lt, lv, rt, rv) }
+    let result = unsafe { any_add(lt, lv, rt, rv) };
+    if let Some(p) = l_tmp {
+        unsafe { drop_materialized_str(p) };
+    }
+    if let Some(p) = r_tmp {
+        unsafe { drop_materialized_str(p) };
+    }
+    result
 }
 
 // ============================================================
@@ -315,6 +451,15 @@ pub unsafe extern "C" fn __torajs_anyv_add(l: AnyValue, r: AnyValue) -> AnyValue
 /// pair shape that the un-rewritten inner helpers consume.
 /// Heap-pointer values pass through with `tag = Heap` so the
 /// helper's `Heap` branch is reached.
+///
+/// Step 8b-C ShortStr handling: callers that pipe through
+/// [`any_compare`] / [`any_arith`] / [`any_add`] must materialize
+/// ShortStr operands first (via
+/// [`materialize_if_short`](crate::nanbox_ffi_materialize::materialize_if_short));
+/// the inner helpers expect `(Heap, *mut HeapHeader)` pairs, not
+/// inline ShortStr bits. This function itself routes ShortStr to
+/// the defensive `(Null, 0)` fallback — UB if it ever fires
+/// without materialize first.
 fn decode_to_tag_value(v: AnyValue) -> (i64, i64) {
     if is_int32(v) {
         (AnySlotTag::I64 as i64, as_int32(v) as i64)
@@ -453,5 +598,144 @@ mod tests {
         let (t, v) = decode_to_tag_value(VALUE_TRUE);
         assert_eq!(t, AnySlotTag::Bool as i64);
         assert_eq!(v, 1);
+    }
+
+    // ----- ShortStr (Step 8b-C) -----
+    //
+    // These tests cover the primitive-side dispatch only (no heap
+    // materialization). Cross-type ShortStr × Heap+Str behavior is
+    // verified by the conformance gate (685/0/1) — that path needs
+    // the full Str alloc/free runtime, which is integration-test
+    // territory.
+
+    use crate::nanbox::{is_short_str, short_str_len, try_box_short_str};
+
+    #[test]
+    fn anyv_rc_inc_dec_short_str_is_noop() {
+        // ShortStr is primitive immediate — no heap, no rc tracking.
+        // Verify rc_inc / rc_dec do not panic / dereference anything.
+        unsafe {
+            let v = try_box_short_str(b"abc").unwrap();
+            __torajs_anyv_rc_inc(v);
+            __torajs_anyv_rc_dec(v);
+            // 5-byte boundary
+            let v_max = try_box_short_str(b"abcde").unwrap();
+            __torajs_anyv_rc_inc(v_max);
+            __torajs_anyv_rc_dec(v_max);
+            // Empty ShortStr
+            let v_empty = try_box_short_str(b"").unwrap();
+            __torajs_anyv_rc_inc(v_empty);
+            __torajs_anyv_rc_dec(v_empty);
+        }
+    }
+
+    #[test]
+    fn anyv_to_bool_short_str() {
+        unsafe {
+            // Empty ShortStr is falsy per ES
+            let v_empty = try_box_short_str(b"").unwrap();
+            assert!(!__torajs_anyv_to_bool(v_empty));
+
+            // Non-empty ShortStr is truthy
+            let v_a = try_box_short_str(b"a").unwrap();
+            assert!(__torajs_anyv_to_bool(v_a));
+            let v_max = try_box_short_str(b"abcde").unwrap();
+            assert!(__torajs_anyv_to_bool(v_max));
+            // Even "0" is truthy (string, not number 0)
+            let v_zero = try_box_short_str(b"0").unwrap();
+            assert!(__torajs_anyv_to_bool(v_zero));
+        }
+    }
+
+    #[test]
+    fn anyv_strict_eq_short_str_identity() {
+        unsafe {
+            // Same bytes encode to identical u64 → identity fast
+            // path catches.
+            let a = try_box_short_str(b"abc").unwrap();
+            let b = try_box_short_str(b"abc").unwrap();
+            assert_eq!(a, b, "same bytes must encode identically");
+            assert!(__torajs_anyv_strict_eq(a, b));
+            // Same-empty
+            let e1 = try_box_short_str(b"").unwrap();
+            let e2 = try_box_short_str(b"").unwrap();
+            assert!(__torajs_anyv_strict_eq(e1, e2));
+        }
+    }
+
+    #[test]
+    fn anyv_strict_eq_short_str_different_bytes_false() {
+        unsafe {
+            let a = try_box_short_str(b"abc").unwrap();
+            let b = try_box_short_str(b"abd").unwrap();
+            assert_ne!(a, b);
+            assert!(!__torajs_anyv_strict_eq(a, b));
+            // Different lengths, same prefix
+            let c = try_box_short_str(b"ab").unwrap();
+            let d = try_box_short_str(b"abc").unwrap();
+            assert!(!__torajs_anyv_strict_eq(c, d));
+        }
+    }
+
+    #[test]
+    fn anyv_strict_eq_short_str_vs_non_string_primitive_false() {
+        // ShortStr vs Int32 / f64 / Null / Undef / Bool: all false
+        // per ES strict-eq semantics ("a" !== 0 etc.)
+        unsafe {
+            let s = try_box_short_str(b"abc").unwrap();
+            assert!(!__torajs_anyv_strict_eq(s, box_int32(0)));
+            assert!(!__torajs_anyv_strict_eq(s, box_int32(42)));
+            assert!(!__torajs_anyv_strict_eq(s, box_double(3.14)));
+            assert!(!__torajs_anyv_strict_eq(s, VALUE_NULL));
+            assert!(!__torajs_anyv_strict_eq(s, VALUE_UNDEFINED));
+            assert!(!__torajs_anyv_strict_eq(s, VALUE_TRUE));
+            assert!(!__torajs_anyv_strict_eq(s, VALUE_FALSE));
+            // And symmetric direction
+            assert!(!__torajs_anyv_strict_eq(box_int32(0), s));
+            assert!(!__torajs_anyv_strict_eq(VALUE_NULL, s));
+        }
+    }
+
+    #[test]
+    fn short_str_predicate_disjoint_from_decode_to_tag_value_arms() {
+        // ShortStr falls through decode_to_tag_value's predicate
+        // chain to the `else { Null }` arm — this is documented as
+        // UB if called without materialize_if_short. Verify it
+        // doesn't accidentally match an earlier arm.
+        let v = try_box_short_str(b"abc").unwrap();
+        assert!(is_short_str(v));
+        let (t, _) = decode_to_tag_value(v);
+        // The post-condition is documented: ShortStr without
+        // materialize routes to the defensive Null. This isn't a
+        // bug — callers (compare/arith/add) materialize first.
+        assert_eq!(t, AnySlotTag::Null as i64);
+    }
+
+    #[test]
+    fn materialize_if_short_passes_through_non_shortstr() {
+        // Non-ShortStr inputs return (v, None) — no temporaries.
+        let inputs = [
+            VALUE_NULL,
+            VALUE_UNDEFINED,
+            VALUE_TRUE,
+            VALUE_FALSE,
+            box_int32(42),
+            box_double(3.14),
+        ];
+        for v in inputs {
+            // SAFETY: pure inspection — no materialize fires.
+            let (out, tmp) = unsafe { materialize_if_short(v) };
+            assert_eq!(out, v);
+            assert!(tmp.is_none(), "non-ShortStr must not materialize");
+        }
+    }
+
+    #[test]
+    fn short_str_len_extracted_correctly_through_shim() {
+        // Sanity: shim-side short_str_len matches nanbox-side.
+        for bytes in [&b""[..], b"a", b"ab", b"abc", b"abcd", b"abcde"] {
+            let v = try_box_short_str(bytes).unwrap();
+            assert_eq!(short_str_len(v) as usize, bytes.len());
+        }
     }
 }

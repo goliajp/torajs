@@ -98,6 +98,10 @@ pub mod nanbox;
 pub use nanbox::*;
 
 mod nanbox_encode;
+
+// Step 8b-C — ShortStr materialize helpers carved out of
+// nanbox_ffi.rs to keep that file's prod LOC ≤ 500 hard limit.
+mod nanbox_ffi_materialize;
 pub use nanbox_encode::*;
 
 mod nanbox_ffi;
@@ -330,6 +334,15 @@ mod tests {
     }
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn __torajs_str_alloc_pooled(_len: u64) -> *mut u8 {
+        core::ptr::null_mut()
+    }
+    /// Step 8b-C — stub for `materialize_short_str` calls in shim
+    /// tests. Returns null; ShortStr unit tests never feed the
+    /// returned pointer into rc_dec / value_drop / str_eq, so a
+    /// null return is acceptable (the materialize path is only
+    /// exercised by integration / conformance tests).
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_str_alloc(_src: *const u8, _len: i64) -> *mut u8 {
         core::ptr::null_mut()
     }
     #[unsafe(no_mangle)]
