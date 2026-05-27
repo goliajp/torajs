@@ -25,6 +25,27 @@ claim or this file in the same merge.
 | **test262 in-scope pass rate** | **12.20%** (3455 / 28314) at HEAD `081b25f`, ranAt 2026-05-22. Up from 11.81% (3344) at 2026-05-19. | `cargo run --release -p torajs-test262 -- --json hardev/test262-latest.json` |
 | **AOT binary size (popcount case)** | ~36 KB stripped | `du -h target/release/<case>-aot` after `tr build` |
 
+### v0.7 Phase 3 — NaN-box AnyValue cutover (Step 7, closed 2026-05-27 at `e741596`)
+
+3-pass median (`--runs 3`) using the same-day same-machine baseline
+`cd7c05e` (Step 5d-revert) for apples-to-apples comparison. Numbers
+are different scale from the P-PERF round above because both runs
+share contended-machine state, not the P-PERF quiet-machine 5-pass
+protocol — the **Δ within the same machine state** is the honest
+signal. See `docs/v0.7-Phase3-nanbox.md` for the 16-commit ledger.
+
+| Reference | cd7c05e (pre-Step-7) | e741596 (post Step 7) | Δ |
+|---|---:|---:|---:|
+| **torajs vs bun-aot** | 3.816× | **4.169×** | **+9.2%** (passes 4.10× A2 gate) |
+| **torajs vs rust** | 1.379× | **1.436×** | **+4.1%** |
+| **Binary (sum 26 cases)** | 8972.2 KB | 8975.0 KB | **+0.03%** (no regression) |
+| **Conformance** | 685/0/1 | 685/0/1 | held every commit |
+
+System-state context: all 4 runtimes show ~37-50% absolute slowdown
+between cd7c05e and e741596 due to time-of-day + concurrent
+conformance gate. torajs slowed less than bun-aot (37% vs 50%),
+which widens the relative ratio.
+
 ### Per-case bench medians at HEAD `8f754ca` (post P-PERF.A6, 5-pass median, M-series Mac)
 
 | Case | torajs ms | bun-aot ms | bun-jsc ms | node-v8 ms | tora vs bun-best |
