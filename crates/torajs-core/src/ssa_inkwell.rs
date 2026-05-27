@@ -286,7 +286,27 @@ pub(super) fn compile_for_kind_impl(
                 // through libtorajs_arr.a without a link clash. The
                 // alwaysinline attr makes LLVM splice the body in even
                 // at low opt levels.
-                let f = define_arr_push(&ctx, &llvm_module, realloc, memmove);
+                let f = define_arr_push(&ctx, &llvm_module, realloc, memmove, "__torajs_arr_push");
+                f.as_global_value()
+                    .set_linkage(inkwell::module::Linkage::Internal);
+                mark_alwaysinline(&ctx, f);
+                f
+            }
+            "__torajs_arr_push_non_deque" => {
+                // 12-b-1 stub (2026-05-28): calls into define_arr_push body
+                // with a fresh symbol name for NOP wiring. Internal linkage
+                // is safe because no external symbol clash — torajs-arr/grow.rs
+                // does not export __torajs_arr_push_non_deque. 12-b-2 replaces
+                // this with define_arr_push_non_deque (3-BB body, no head load,
+                // combined GEP); 12-b-3 flips 4 safe emit sites in ssa_lower
+                // to dispatch here.
+                let f = define_arr_push(
+                    &ctx,
+                    &llvm_module,
+                    realloc,
+                    memmove,
+                    "__torajs_arr_push_non_deque",
+                );
                 f.as_global_value()
                     .set_linkage(inkwell::module::Linkage::Internal);
                 mark_alwaysinline(&ctx, f);

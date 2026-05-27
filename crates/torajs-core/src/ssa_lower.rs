@@ -1698,6 +1698,14 @@ fn lower_inner(
         &[Type::Ptr, Type::I64],
         Type::Ptr,
     );
+    // 12-b non-deque Array push fast-path. Body in ssa_inkwell.
+    let arr_push_non_deque_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_arr_push_non_deque",
+        &[Type::Ptr, Type::I64],
+        Type::Ptr,
+    );
     // `arr.shift()` — pull and return slot[0], memmove rest left.
     // Returns i64; SSA caller bitcasts to the receiver's element type.
     let arr_shift_id = declare_intrinsic(
@@ -4878,6 +4886,7 @@ fn lower_inner(
         cycle_unbuffer: cycle_unbuffer_id,
         arr_alloc: arr_alloc_id,
         arr_push: arr_push_id,
+        arr_push_non_deque: arr_push_non_deque_id,
         arr_shift: arr_shift_id,
         arr_unshift: arr_unshift_id,
         arr_drop: arr_drop_id,
@@ -5722,6 +5731,7 @@ struct Intrinsics {
     cycle_unbuffer: FuncId,
     arr_alloc: FuncId,
     arr_push: FuncId,
+    arr_push_non_deque: FuncId,
     arr_shift: FuncId,
     arr_unshift: FuncId,
     arr_drop: FuncId,

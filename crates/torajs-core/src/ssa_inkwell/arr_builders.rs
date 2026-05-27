@@ -31,12 +31,18 @@ use super::arr_helpers::{
     arr_data_ptr, arr_head_load, arr_len_load, arr_raw_data_ptr,
 };
 
-/// Build the body of `__torajs_arr_push(arr*, val) -> arr*`. 187-LOC
-/// IR restored from commit 6b90dae5 (B1b 2026-05-24). Emitted with
-/// Internal linkage + alwaysinline so user-code's push-hot-loops
-/// fold the algorithm into the caller — recovers the array-sum-1m
-/// 16 ms target lost when P4.1-l moved this to torajs-arr/grow.rs's
-/// extern "C" Rust impl (cross-TU `bl ... + ret` regressed by +35%).
+/// Build the body of `__torajs_arr_push(arr*, val) -> arr*` (or any
+/// caller-named alias — see `fn_name`). 187-LOC IR restored from commit
+/// 6b90dae5 (B1b 2026-05-24). Emitted with Internal linkage + alwaysinline
+/// so user-code's push-hot-loops fold the algorithm into the caller —
+/// recovers the array-sum-1m 16 ms target lost when P4.1-l moved this to
+/// torajs-arr/grow.rs's extern "C" Rust impl (cross-TU `bl ... + ret`
+/// regressed by +35%).
+///
+/// `fn_name` controls the LLVM IR symbol name. 12-b-1 (2026-05-28) factored
+/// out the previously hardcoded `"__torajs_arr_push"` so the 12-b stub arm
+/// can reuse the same body under `"__torajs_arr_push_non_deque"` until 12-b-2
+/// replaces it with the 3-BB non-deque body.
 ///
 /// Algorithm:
 /// ```text
@@ -58,6 +64,7 @@ pub(super) fn define_arr_push<'ctx>(
     m: &LlvmModule<'ctx>,
     realloc: FunctionValue<'ctx>,
     memmove: FunctionValue<'ctx>,
+    fn_name: &str,
 ) -> FunctionValue<'ctx> {
     let builder = ctx.create_builder();
     let i64_t = ctx.i64_type();
@@ -65,7 +72,7 @@ pub(super) fn define_arr_push<'ctx>(
     let i8_t = ctx.i8_type();
     let ptr_t = ctx.ptr_type(AddressSpace::default());
     let fn_t = ptr_t.fn_type(&[ptr_t.into(), i64_t.into()], false);
-    let f = m.add_function("__torajs_arr_push", fn_t, None);
+    let f = m.add_function(fn_name, fn_t, None);
     let entry = ctx.append_basic_block(f, "entry");
     let need_room_blk = ctx.append_basic_block(f, "need_room");
     let compact_blk = ctx.append_basic_block(f, "compact");
@@ -398,4 +405,78 @@ pub(super) fn define_arr_push_unchecked<'ctx>(
     builder.build_store(len_p, len_p1).unwrap();
     builder.build_return(None).unwrap();
     f
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use inkwell::context::Context;
+
+    /// Declare bare-bones realloc/memmove so `define_arr_push` has
+    /// callable extern targets. Module-scoped; not exercised by IR
+    /// printer beyond verifying define_arr_push completes.
+    fn declare_realloc_memmove<'ctx>(
+        ctx: &'ctx Context,
+        m: &LlvmModule<'ctx>,
+    ) -> (FunctionValue<'ctx>, FunctionValue<'ctx>) {
+        let i64_t = ctx.i64_type();
+        let ptr_t = ctx.ptr_type(AddressSpace::default());
+        let realloc_t = ptr_t.fn_type(&[ptr_t.into(), i64_t.into()], false);
+        let memmove_t = ptr_t.fn_type(&[ptr_t.into(), ptr_t.into(), i64_t.into()], false);
+        let realloc = m.add_function("realloc", realloc_t, None);
+        let memmove = m.add_function("memmove", memmove_t, None);
+        (realloc, memmove)
+    }
+
+    /// 12-b-1 stub wiring acceptance: `define_arr_push` accepts a
+    /// caller-supplied fn name. The 12-b dispatch arm reuses the
+    /// arr_push body under `__torajs_arr_push_non_deque` until
+    /// 12-b-2 replaces it with the 3-BB non-deque body.
+    ///
+    /// Lock-in:
+    /// - emitted function carries the requested name verbatim
+    /// - Internal linkage applied externally (mimicking the
+    ///   dispatch arm) sticks and prints as `define internal`
+    /// - the printed IR contains the new symbol name (no
+    ///   accidental shadowing back to `__torajs_arr_push`)
+    #[test]
+    fn arr_push_non_deque_stub_defines_with_internal_linkage() {
+        let ctx = Context::create();
+        let m = ctx.create_module("arr_push_non_deque_stub_test");
+        let (realloc, memmove) = declare_realloc_memmove(&ctx, &m);
+
+        let f = define_arr_push(&ctx, &m, realloc, memmove, "__torajs_arr_push_non_deque");
+        f.as_global_value()
+            .set_linkage(inkwell::module::Linkage::Internal);
+
+        assert_eq!(
+            f.get_name().to_str().unwrap(),
+            "__torajs_arr_push_non_deque",
+            "fn_name parameter must propagate to the LLVM symbol name"
+        );
+        assert_eq!(
+            f.as_global_value().get_linkage(),
+            inkwell::module::Linkage::Internal,
+            "stub arm sets Internal linkage; staticlib link-clash safety"
+        );
+
+        let ir = m.print_to_string().to_string();
+        assert!(
+            ir.contains("define internal ptr @__torajs_arr_push_non_deque("),
+            "IR must declare the new symbol with Internal linkage; got:\n{ir}"
+        );
+    }
+
+    /// Regression guard for the 12-b-1 refactor: the existing
+    /// `__torajs_arr_push` symbol must still emit when the legacy
+    /// name is passed. Catches accidental rename of the primary arm.
+    #[test]
+    fn arr_push_legacy_name_still_emits() {
+        let ctx = Context::create();
+        let m = ctx.create_module("arr_push_legacy_name_test");
+        let (realloc, memmove) = declare_realloc_memmove(&ctx, &m);
+
+        let f = define_arr_push(&ctx, &m, realloc, memmove, "__torajs_arr_push");
+        assert_eq!(f.get_name().to_str().unwrap(), "__torajs_arr_push");
+    }
 }
