@@ -24,7 +24,8 @@ use torajs_rc::AnySlotTag;
 
 use crate::coerce::{any_to_number, any_to_str};
 use crate::compare::is_heap_str;
-use crate::{__torajs_str_concat, __torajs_str_drop, AnyBox};
+use crate::nanbox::{AnyValue, box_double, box_int32, box_void_ptr};
+use crate::{__torajs_str_concat, __torajs_str_drop};
 
 /// Op code for `-`, `*`, `/`, `%` per ssa_lower's emission. Mirror
 /// of the C-side arith switch on the `op` argument:
@@ -99,11 +100,11 @@ pub(crate) fn tag_is_i64_shaped(tag: i64) -> bool {
 /// If either `tag` is Heap, the corresponding `value` must be
 /// null or a valid `*mut HeapHeader` — propagated through
 /// [`any_to_number`].
-pub(crate) unsafe fn any_arith(op: i64, lt: i64, lv: i64, rt: i64, rv: i64) -> *mut c_void {
+pub(crate) unsafe fn any_arith(op: i64, lt: i64, lv: i64, rt: i64, rv: i64) -> AnyValue {
     let arith_op = match ArithOp::from_i64(op) {
         Some(o) => o,
         // Defensive — match the C `default: NaN` branch.
-        None => return alloc_number_f64(f64::NAN),
+        None => return box_double(f64::NAN),
     };
     // SAFETY: caller invariant — propagated.
     let l = unsafe { any_to_number(lt, lv) };
@@ -119,27 +120,24 @@ pub(crate) unsafe fn any_arith(op: i64, lt: i64, lv: i64, rt: i64, rv: i64) -> *
         let int_result = result as i64;
         // Round-trip check: only box as I64 if the cast is lossless.
         if (int_result as f64) == result {
-            return alloc_number_i64(int_result);
+            return box_i64(int_result);
         }
     }
-    alloc_number_f64(result)
+    box_double(result)
 }
 
-/// Box an f64 into a fresh AnyBox tagged F64. Matches the original
-/// C-ABI box-F64 pattern (`AnyBox::alloc(AnySlotTag::F64,
-/// bitcast(f64).i64)`). Shared helper because any_arith has two
-/// callsites for it (defensive NaN return + main F64 path) and
-/// any_add reuses it.
+/// NaN-box an i64 — values that fit in i32 become Int32 immediates;
+/// values outside that range promote to f64 (lossless within
+/// ±2^53; precision loss beyond matches JS semantics). Mirror of
+/// `__torajs_anyv_box_i64` kept inline so the arithmetic dispatch
+/// stays self-contained.
 #[inline]
-fn alloc_number_f64(value: f64) -> *mut c_void {
-    AnyBox::alloc(AnySlotTag::F64, value.to_bits() as i64).as_ptr() as *mut c_void
-}
-
-/// Box an i64 into a fresh AnyBox tagged I64. Shared by every
-/// integer-fast-path callsite (any_arith + any_add).
-#[inline]
-fn alloc_number_i64(value: i64) -> *mut c_void {
-    AnyBox::alloc(AnySlotTag::I64, value).as_ptr() as *mut c_void
+fn box_i64(value: i64) -> AnyValue {
+    if let Ok(n32) = i32::try_from(value) {
+        box_int32(n32)
+    } else {
+        box_double(value as f64)
+    }
 }
 
 /// `+` on two Any-tagged `(tag, value)` pairs per ES §13.15.3.
@@ -149,7 +147,8 @@ fn alloc_number_i64(value: i64) -> *mut c_void {
 /// boxed — I64 when both inputs are i64-shaped (Null/Bool/I64) AND
 /// the sum round-trips through i64 losslessly, else F64.
 ///
-/// Returns a fresh owned AnyBox (refcount = 1); caller drops.
+/// Returns a fresh owned [`AnyValue`] immediate (caller owns the
+/// rc for cell payloads).
 ///
 /// # Safety
 ///
@@ -157,7 +156,7 @@ fn alloc_number_i64(value: i64) -> *mut c_void {
 /// or a valid `*mut HeapHeader` — propagated through both the
 /// Str-path (where C-side `__torajs_str_concat` reads the Str
 /// layout) and the numeric path (via [`any_to_number`]).
-pub(crate) unsafe fn any_add(lt: i64, lv: i64, rt: i64, rv: i64) -> *mut c_void {
+pub(crate) unsafe fn any_add(lt: i64, lv: i64, rt: i64, rv: i64) -> AnyValue {
     // SAFETY: caller invariant — propagated.
     let l_is_str = unsafe { is_heap_str(lt, lv) };
     let r_is_str = unsafe { is_heap_str(rt, rv) };
@@ -181,7 +180,10 @@ pub(crate) unsafe fn any_add(lt: i64, lv: i64, rt: i64, rv: i64) -> *mut c_void 
             __torajs_str_drop(l_str);
             __torajs_str_drop(r_str);
         }
-        return AnyBox::alloc(AnySlotTag::Heap, concat as i64).as_ptr() as *mut c_void;
+        // concat is a freshly-owned heap pointer (rc=1);
+        // box_void_ptr stores it in the AnyValue cell slot.
+        // Caller owns the rc.
+        return box_void_ptr(concat as *mut c_void);
     }
 
     // Numeric path. ToNumber reuses the per-tag dispatch from
@@ -200,8 +202,8 @@ pub(crate) unsafe fn any_add(lt: i64, lv: i64, rt: i64, rv: i64) -> *mut c_void 
     {
         let int_sum = sum as i64;
         if (int_sum as f64) == sum {
-            return alloc_number_i64(int_sum);
+            return box_i64(int_sum);
         }
     }
-    alloc_number_f64(sum)
+    box_double(sum)
 }

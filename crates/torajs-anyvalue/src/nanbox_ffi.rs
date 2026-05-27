@@ -1,41 +1,34 @@
-//! NaN-box FFI shims — new `__torajs_anyv_*` ABI for the
-//! immediate `AnyValue` type (Step 7b).
-//!
-//! Parallel ABI to the existing `__torajs_any_*` boxed shims in
-//! [`crate::ffi`]. ssa_lower / ssa_inkwell callsites continue to
-//! emit boxed calls during 7b; the migration to these new shims
-//! happens in commits 7c-7f (per
+//! NaN-box FFI shims — `__torajs_anyv_*` ABI for the immediate
+//! `AnyValue` type (Step 7 cutover, see
 //! [`docs/v0.7-Phase3-nanbox.md`](../../docs/v0.7-Phase3-nanbox.md)).
 //!
-//! Implementation strategy at 7b:
+//! The canonical FFI surface ssa_lower binds against. Pre-Step-7
+//! `__torajs_any_*` boxed shims were deleted in 7f-D-1; the inner
+//! `any_arith` / `any_add` impls were rewritten to return
+//! `AnyValue` directly in 7f-D-2 (no transitional AnyBox alloc).
+//!
+//! Implementation:
 //!
 //! - **Primitive paths** (Int32 / f64 / Bool / Null / Undefined)
 //!   run logic directly on the immediate — zero allocation.
 //! - **Cell path** decodes the pointer + dispatches to the
-//!   existing tag-table inner helpers (`any_to_number`,
-//!   `any_to_str`, `any_compare`, `any_arith`, `any_add`) by
-//!   synthesizing a `(Heap, ptr)` pair. The inner helpers stay in
-//!   their tag-table shape during 7b; 7c-7e rewrite them against
-//!   the AnyValue immediate.
-//! - **Boxed-result helpers** (`any_arith` / `any_add` return
-//!   `*AnyBox`) are unboxed to immediate via
-//!   [`box_to_immediate`] then dropped. This burns one AnyBox
-//!   alloc per call — eliminated by 7c-7e's helper rewrite.
+//!   inner helpers (`any_to_number`, `any_to_str`, `any_compare`,
+//!   `any_arith`, `any_add`) by synthesizing a `(Heap, ptr)`
+//!   pair; the inner helpers retain the tag-table shape for the
+//!   compare / coerce paths that don't benefit from immediate
+//!   decoding (Str byte compare, ToString allocations).
 
 use std::ffi::c_void;
-use std::ptr::NonNull;
 
-use torajs_rc::{__torajs_rc_dec, __torajs_rc_inc, AnySlotTag, HeapHeader, Tag};
+use torajs_rc::{__torajs_rc_dec, __torajs_rc_inc, AnySlotTag, Tag};
 
 use crate::arith::{any_add, any_arith};
 use crate::coerce::{any_to_number, any_to_str};
 use crate::compare::any_compare;
 use crate::nanbox::{
-    AnyValue, VALUE_FALSE, VALUE_NULL, VALUE_TRUE, VALUE_UNDEFINED, as_bool, as_double, as_int32,
-    as_pointer, as_void_ptr, box_double, box_int32, box_pointer, is_bool, is_cell, is_double,
+    AnyValue, as_bool, as_double, as_int32, as_pointer, as_void_ptr, is_bool, is_cell, is_double,
     is_int32, is_null, is_undefined,
 };
-use crate::{AnyBox, AnyView};
 
 // ============================================================
 // External C symbols re-declared here so the shims don't depend
@@ -297,16 +290,7 @@ pub unsafe extern "C" fn __torajs_anyv_arith(op: i64, l: AnyValue, r: AnyValue) 
     let (lt, lv) = decode_to_tag_value(l);
     let (rt, rv) = decode_to_tag_value(r);
     // SAFETY: as above.
-    let box_ptr = unsafe { any_arith(op, lt, lv, rt, rv) };
-    let result = box_to_immediate(box_ptr);
-    // Drop the transitional AnyBox — its content is now in the
-    // immediate result. 7c-7e eliminates this round-trip.
-    if let Some(p) = NonNull::new(box_ptr as *mut AnyBox) {
-        // SAFETY: any_arith returned an owned (refcount = 1)
-        // AnyBox; we exclusively own it.
-        unsafe { AnyBox::drop_owned(p) };
-    }
-    result
+    unsafe { any_arith(op, lt, lv, rt, rv) }
 }
 
 /// `+` per ES §13.15.3 — numeric addition or string concat.
@@ -320,13 +304,7 @@ pub unsafe extern "C" fn __torajs_anyv_add(l: AnyValue, r: AnyValue) -> AnyValue
     let (lt, lv) = decode_to_tag_value(l);
     let (rt, rv) = decode_to_tag_value(r);
     // SAFETY: as above.
-    let box_ptr = unsafe { any_add(lt, lv, rt, rv) };
-    let result = box_to_immediate(box_ptr);
-    if let Some(p) = NonNull::new(box_ptr as *mut AnyBox) {
-        // SAFETY: same ownership invariant as any_arith.
-        unsafe { AnyBox::drop_owned(p) };
-    }
-    result
+    unsafe { any_add(lt, lv, rt, rv) }
 }
 
 // ============================================================
@@ -355,45 +333,6 @@ fn decode_to_tag_value(v: AnyValue) -> (i64, i64) {
     }
 }
 
-/// Convert a boxed AnyBox result (returned by `any_arith` /
-/// `any_add`) into an immediate [`AnyValue`]. The caller is
-/// expected to drop the box after this read.
-///
-/// Heap payloads have their refcount bumped so the caller of the
-/// shim gets an owning ref distinct from the soon-to-be-dropped
-/// box's ref.
-pub(crate) fn box_to_immediate(box_ptr: *mut c_void) -> AnyValue {
-    if box_ptr.is_null() {
-        return VALUE_NULL;
-    }
-    // SAFETY: caller invariant — non-null box pointer.
-    let b = unsafe { &*(box_ptr as *const AnyBox) };
-    match b.read() {
-        AnyView::Null => VALUE_NULL,
-        AnyView::Undef => VALUE_UNDEFINED,
-        AnyView::Bool(true) => VALUE_TRUE,
-        AnyView::Bool(false) => VALUE_FALSE,
-        AnyView::I64(n) => {
-            if let Ok(n32) = i32::try_from(n) {
-                box_int32(n32)
-            } else {
-                box_double(n as f64)
-            }
-        }
-        AnyView::F64(f) => box_double(f),
-        AnyView::Heap(None) => VALUE_NULL,
-        AnyView::Heap(Some(p)) => {
-            // The box owns one ref to the heap payload and is
-            // about to be dropped — bump rc to keep the payload
-            // alive for the caller.
-            // SAFETY: payload is non-null + valid HeapHeader.
-            unsafe { __torajs_rc_inc(p.as_ptr() as *mut c_void) };
-            box_pointer(p.as_ptr() as *mut HeapHeader)
-        }
-        AnyView::Unknown => VALUE_NULL,
-    }
-}
-
 // ============================================================
 // Tests — small coverage of the new shim ABI. Heavy decode/
 // encode round-trips live in nanbox.rs; this module focuses on
@@ -404,7 +343,9 @@ pub(crate) fn box_to_immediate(box_ptr: *mut c_void) -> AnyValue {
 mod tests {
     use super::*;
     use crate::AnySlotTag;
-    use crate::nanbox::{box_double, box_int32};
+    use crate::nanbox::{
+        VALUE_FALSE, VALUE_NULL, VALUE_TRUE, VALUE_UNDEFINED, box_double, box_int32,
+    };
     use crate::nanbox_encode::{__torajs_anyv_null, __torajs_anyv_undefined};
 
     // Stubs for the C symbols declared in `crate::tests` (top-of-
@@ -512,11 +453,5 @@ mod tests {
         let (t, v) = decode_to_tag_value(VALUE_TRUE);
         assert_eq!(t, AnySlotTag::Bool as i64);
         assert_eq!(v, 1);
-    }
-
-    #[test]
-    fn box_to_immediate_null_ptr() {
-        let v = box_to_immediate(std::ptr::null_mut());
-        assert_eq!(v, VALUE_NULL);
     }
 }

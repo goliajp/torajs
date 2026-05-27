@@ -7,7 +7,7 @@
 //! universal heap header's `type_tag` and routes to the per-type
 //! `__torajs_*_drop` extern. Used by:
 //!
-//! - `__torajs_any_box_drop` when the box wraps `Heap`-tagged child
+//! - `__torajs_anyv_rc_dec` when an AnyValue cell hits rc 0
 //! - `__torajs_arr_drop_any` when an Array<Any> slot is ANY_HEAP
 //! - dynobj entry drop (key Str + value child)
 //!
@@ -31,7 +31,7 @@
 //! | `DynObj`        | `__torajs_dynobj_drop`          | torajs-dynobj     |
 //! | (other)         | `__torajs_rc_dec` + libc `free` | torajs-rc + libc  |
 //!
-//! Fallback (Obj / Substr / Closure / RegExp / Date / AnyBox): rc-dec;
+//! Fallback (Obj / Substr / Closure / RegExp / Date): rc-dec;
 //! `free` on rc==0. May leak inner refs for types with nested heap
 //! children — V3-10.b tightens this through the per-type drop hooks
 //! at the call site (array element walks, dynobj entry walks, etc.).
@@ -116,7 +116,7 @@ pub unsafe extern "C" fn __torajs_value_drop_heap(child: *mut c_void) {
         t if t == Tag::ArrIter as u16 => unsafe { __torajs_arr_iter_drop(child) },
         t if t == Tag::DynObj as u16 => unsafe { __torajs_dynobj_drop(child) },
         _ => unsafe {
-            // Obj / Substr / Closure / RegExp / Date / AnyBox fallback —
+            // Obj / Substr / Closure / RegExp / Date fallback —
             // rc-dec; on hit-zero free the outer block. May leak inner
             // refs for nested-heap types; V3-10.b call-site walks
             // handle that (per-type drop hooks fire from array element /

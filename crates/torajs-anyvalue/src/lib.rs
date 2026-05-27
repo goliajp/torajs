@@ -86,31 +86,7 @@
 use std::ffi::c_void;
 use std::ptr::NonNull;
 
-use torajs_rc::{__torajs_rc_dec, __torajs_rc_inc, AnySlotTag, HeapHeader, Tag};
-
-// v0.7-A2 step 6b / Step 4 (perf/mem/size extremes) — force-link
-// mmalloc so the `#[link_name = "__torajs_*"]` externs below resolve
-// to the mmalloc Layer 1 sized API at link time.
-extern crate torajs_mmalloc as _;
-
-// Layer 1 (size-known) mmalloc API direct: caller passes size on
-// both alloc and free, skipping the 16-byte SHIM_HEADER overhead
-// that Layer 2 (`__torajs_libc_*`) required for libc-shape API
-// compat. Saves 16 B / AnyBox + 1 store + 1 read; bumps AnyBox
-// chunk class from 48 B (16 SHIM + 24 AnyBox + 8 pad) down to
-// the 24 B class — **50% mem reduction per AnyBox** on heap-Any
-// workloads (Array<Any>, Object.freeze boxes, dynobj buckets).
-unsafe extern "C" {
-    /// torajs-mmalloc Layer 1 alloc (size-known). Returns raw chunk
-    /// pointer (no SHIM offset). Routes to `core::alloc_sized` via
-    /// the extern wrapper in `torajs-mmalloc::extern_api`.
-    #[link_name = "__torajs_malloc"]
-    fn malloc(size: usize) -> *mut c_void;
-    /// torajs-mmalloc Layer 1 free (size-known). Caller provides the
-    /// original alloc size; no SHIM_HEADER read.
-    #[link_name = "__torajs_free"]
-    fn free(ptr: *mut c_void, size: usize);
-}
+use torajs_rc::{__torajs_rc_inc, AnySlotTag, HeapHeader, Tag};
 
 mod arith;
 mod coerce;
@@ -128,140 +104,7 @@ mod nanbox_ffi;
 pub use nanbox_ffi::*;
 
 // ============================================================
-// AnyBox heap struct
-// ============================================================
-
-/// 24-byte AnyBox heap value. ABI-locked layout — `#[repr(C,
-/// align(8))]` so the const-offset reads ssa_lower emits at every
-/// dynobj / Array<Any> / Any-slot site stay byte-identical to the
-/// pre-rewrite C struct.
-#[repr(C, align(8))]
-pub struct AnyBox {
-    /// Universal heap-object header. `type_tag` is always
-    /// [`Tag::AnyBox`]; `refcount` is owned by `inc_ref`/`dec_ref`
-    /// just like every other heap value.
-    pub header: HeapHeader,
-    /// Discriminant for the boxed payload. Value space is
-    /// [`AnySlotTag`]; stored as `i64` because IR emits boxes via
-    /// `(i64 tag, i64 value)` pairs.
-    pub tag: i64,
-    /// Inline payload. Interpretation depends on `tag`; see crate
-    /// docs.
-    pub value: i64,
-}
-
-/// Size in bytes of the [`AnyBox`] heap block. 24 = 8 (header) +
-/// 8 (tag) + 8 (value). 8-aligned via `#[repr(C, align(8))]`.
-const ANY_BOX_SIZE: usize = 24;
-
-impl AnyBox {
-    /// Allocate a new owned `AnyBox` with refcount 1 and the given
-    /// payload. For [`AnySlotTag::Heap`], `rc_inc`s the child
-    /// pointer so the box becomes an owner of it.
-    ///
-    /// Returns `NonNull<AnyBox>` — caller owns the allocation and
-    /// must eventually call [`AnyBox::drop_owned`] to free it.
-    pub fn alloc(tag: AnySlotTag, value: i64) -> NonNull<AnyBox> {
-        // SAFETY: `malloc(24)` returns null on OOM or a 24-byte
-        // 8-aligned block (`__torajs_malloc` returns ≥16-aligned).
-        let raw = unsafe { malloc(ANY_BOX_SIZE) as *mut AnyBox };
-        let ptr =
-            NonNull::new(raw).unwrap_or_else(|| torajs_abort::abort_with(b"AnyBox alloc OOM"));
-        // SAFETY: just-allocated, exclusive ownership, layout matches.
-        // Step 5b dual-write: tag goes into BOTH `tag` field (IR-emit
-        // compat path, dropped in Step 5d) AND header.flags bits 8..11.
-        unsafe {
-            let mut header = HeapHeader::new(Tag::AnyBox);
-            header.set_any_tag(tag as u16);
-            ptr.as_ptr().write(AnyBox {
-                header,
-                tag: tag as i64,
-                value,
-            });
-            if matches!(tag, AnySlotTag::Heap) {
-                __torajs_rc_inc(value as *mut c_void);
-            }
-        }
-        ptr
-    }
-
-    /// Read the [`AnySlotTag`] from `header.flags` bits 8..11
-    /// (Step 5b — Rust source of truth; the `tag: i64` field stays
-    /// for IR-emit compat until Step 5c flips it). Returns `None`
-    /// on a header not initialized via `AnyBox::alloc`.
-    #[inline]
-    pub fn slot_tag(&self) -> Option<AnySlotTag> {
-        match self.header.any_tag_bits() as u64 {
-            0 => Some(AnySlotTag::Null),
-            1 => Some(AnySlotTag::Bool),
-            2 => Some(AnySlotTag::I64),
-            3 => Some(AnySlotTag::F64),
-            4 => Some(AnySlotTag::Heap),
-            5 => Some(AnySlotTag::Undef),
-            _ => None,
-        }
-    }
-
-    /// Materialize the box's contents as an [`AnyView`]. Read-
-    /// only; the box itself stays the source of truth.
-    #[inline]
-    pub fn read(&self) -> AnyView {
-        match self.slot_tag() {
-            Some(AnySlotTag::Null) => AnyView::Null,
-            Some(AnySlotTag::Undef) => AnyView::Undef,
-            Some(AnySlotTag::Bool) => AnyView::Bool(self.value != 0),
-            Some(AnySlotTag::I64) => AnyView::I64(self.value),
-            Some(AnySlotTag::F64) => AnyView::F64(f64::from_bits(self.value as u64)),
-            Some(AnySlotTag::Heap) => AnyView::Heap(NonNull::new(self.value as *mut HeapHeader)),
-            None => AnyView::Unknown,
-        }
-    }
-
-    /// Drop an owned `AnyBox`. Decrements the box's refcount; if
-    /// the count transitions to zero, walks the heap payload (if
-    /// any) and `dealloc`s the 24-byte block.
-    ///
-    /// The static-literal flag bypass is honored — boxes flagged
-    /// as immortal literals neither dec nor free.
-    ///
-    /// # Safety
-    ///
-    /// `ptr` must have been returned by [`AnyBox::alloc`] (so the
-    /// layout matches `ANY_BOX_LAYOUT`) AND the caller must hold
-    /// exclusive ownership of the underlying allocation when the
-    /// refcount hits zero. The standard `rc_dec` contract.
-    pub unsafe fn drop_owned(ptr: NonNull<AnyBox>) {
-        let b = unsafe { ptr.as_ref() };
-        if b.header.is_static_literal() {
-            return;
-        }
-        // SAFETY: ptr is owned exclusively per the safety contract.
-        let dec = unsafe { __torajs_rc_dec(ptr.as_ptr() as *mut c_void) };
-        if dec == 0 {
-            // Shared; another owner is still alive.
-            return;
-        }
-        // rc transitioned to zero — walk heap child + free.
-        // Step 5b: read tag from header bits (Rust source of truth).
-        let tag_bits = b.header.any_tag_bits();
-        let value = b.value;
-        if tag_bits == AnySlotTag::Heap as u16 {
-            // SAFETY: cross-language call to the C-side per-type
-            // drop dispatcher (still in runtime_str.c pre-P3). The
-            // child pointer was rc_inc'd at alloc; value_drop_heap
-            // does the matching rc_dec + per-type teardown.
-            unsafe { __torajs_value_drop_heap(value as *mut c_void) };
-        }
-        // SAFETY: ptr was `malloc(ANY_BOX_SIZE)`-allocated in
-        // `AnyBox::alloc` and rc is now zero, so we exclusively
-        // own the bytes; Layer 1 `free` takes the same size we
-        // alloc'd with.
-        unsafe { free(ptr.as_ptr() as *mut c_void, ANY_BOX_SIZE) };
-    }
-}
-
-// ============================================================
-// AnyView — materialized view of an AnyBox payload
+// AnyView — materialized view of an AnyValue payload
 // ============================================================
 
 /// Materialized view of the value an [`AnyBox`] holds. Read-only;
@@ -317,13 +160,12 @@ pub fn payload_rc_inc(tag: i64, value: i64) {
 
 // ============================================================
 // External C-side helpers
-//   - `__torajs_value_drop_heap` — per-type drop dispatcher, used
-//     by `AnyBox::drop_owned` to walk a Heap-tagged child. Still
-//     lives in runtime_str.c; the cross-language call collapses
-//     to Rust-to-Rust in the later phase that ports the dispatch
-//     to Rust.
+//   - `__torajs_value_drop_heap` — per-type drop dispatcher
+//     (universal, dispatch table in `torajs-value-drop`). Called
+//     by [`nanbox_ffi::__torajs_anyv_rc_dec`] when a cell-tagged
+//     AnyValue hits rc 0.
 //   - `__torajs_str_eq` — Str byte-equality fast path. Used by
-//     [`AnyView::strict_eq`] / `__torajs_any_payload_eq` when
+//     [`AnyView::strict_eq`] / `__torajs_anyv_strict_eq` when
 //     both heap pointers are Tag::Str. Stays in C until the
 //     `torajs-str` rewrite (Layer-2 sub-phase).
 // ============================================================
@@ -421,18 +263,18 @@ mod tests {
     use crate::arith::{ArithOp, any_add, any_arith, tag_is_i64_shaped};
     use crate::compare::{CompareOp, STR_LEN_OFF, any_compare};
     use std::cmp::Ordering;
-    use std::mem::{align_of, offset_of, size_of};
 
     // Test binary needs both extern "C" symbols torajs-anyvalue
     // declares: torajs-rc's __torajs_weakref_target_dying (from
     // rc_dec's hit-zero hook) AND `__torajs_value_drop_heap`
-    // (called from AnyBox::drop_owned for Heap-tagged children).
+    // (called from `nanbox_ffi::__torajs_anyv_rc_dec` for
+    // cell-tagged children).
     //
     // The real `__torajs_value_drop_heap` lives in
-    // `torajs_rc::drop_dispatch` (P7.i-drop, 2026-05-24); the
-    // shipped binary resolves through libtorajs_rc.a. cargo test
-    // for this crate links torajs-rc's rlib but Rust DCE strips
-    // the dispatch fn since no Rust call site references it — the
+    // `torajs-value-drop` (P7.i-drop, 2026-05-24); the shipped
+    // binary resolves through `libtorajs_value_drop.a`. cargo
+    // test for this crate links rlibs but Rust DCE strips the
+    // dispatch fn since no Rust call site references it — the
     // local stub satisfies the linker.
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn __torajs_weakref_target_dying(_target: *mut c_void) {}
@@ -498,85 +340,6 @@ mod tests {
     pub unsafe extern "C" fn __torajs_str_drop(_s: *mut c_void) {}
 
     #[test]
-    fn anybox_layout_matches_c_definition() {
-        // C side: 24 bytes total, header @0, tag @8, value @16.
-        // Drift here would break the const-offset arithmetic ssa_
-        // lower emits at every dynobj / Array<Any> read/write.
-        assert_eq!(size_of::<AnyBox>(), 24);
-        assert_eq!(align_of::<AnyBox>(), 8);
-        assert_eq!(offset_of!(AnyBox, header), 0);
-        assert_eq!(offset_of!(AnyBox, tag), 8);
-        assert_eq!(offset_of!(AnyBox, value), 16);
-    }
-
-    #[test]
-    fn alloc_inline_null_then_drop() {
-        let p = AnyBox::alloc(AnySlotTag::Null, 0);
-        // SAFETY: just-allocated, exclusive.
-        unsafe {
-            assert_eq!(p.as_ref().tag, 0);
-            assert_eq!(p.as_ref().value, 0);
-            assert_eq!(p.as_ref().header.refcount, 1);
-            AnyBox::drop_owned(p);
-        }
-    }
-
-    #[test]
-    fn alloc_i64_then_read() {
-        let p = AnyBox::alloc(AnySlotTag::I64, 42);
-        unsafe {
-            assert!(matches!(p.as_ref().read(), AnyView::I64(42)));
-            AnyBox::drop_owned(p);
-        }
-    }
-
-    #[test]
-    fn alloc_f64_round_trips_through_bitcast() {
-        let n: f64 = 3.14159;
-        let p = AnyBox::alloc(AnySlotTag::F64, n.to_bits() as i64);
-        unsafe {
-            match p.as_ref().read() {
-                AnyView::F64(x) => assert_eq!(x.to_bits(), n.to_bits()),
-                _ => panic!("expected F64"),
-            }
-            AnyBox::drop_owned(p);
-        }
-    }
-
-    #[test]
-    fn alloc_heap_increments_child_rc() {
-        let mut child = HeapHeader::new(Tag::Str);
-        let child_ptr = &mut child as *mut HeapHeader;
-        let initial_rc = child.refcount;
-
-        let p = AnyBox::alloc(AnySlotTag::Heap, child_ptr as i64);
-        // Heap-tagged alloc rc_inc's the child.
-        assert_eq!(child.refcount, initial_rc + 1);
-
-        // Drop the box (with our stubbed value_drop_heap, no-op).
-        unsafe { AnyBox::drop_owned(p) };
-        // Note: our test stub for `__torajs_value_drop_heap` is
-        // a no-op so it doesn't actually rc_dec the child. The
-        // production runtime resolves the real C symbol which
-        // does the rc_dec. The assertion below verifies the
-        // *box*'s drop ran (child rc was not double-touched
-        // here).
-        assert_eq!(child.refcount, initial_rc + 1);
-    }
-
-    #[test]
-    fn alloc_undef_round_trips() {
-        // In-memory `AnyView::Undef` flows through `AnyBox::read` for
-        // the inner code paths that allocate on the heap (any_arith /
-        // any_add intermediates).
-        let p = AnyBox::alloc(AnySlotTag::Undef, 0);
-        unsafe {
-            assert!(matches!(p.as_ref().read(), AnyView::Undef));
-            AnyBox::drop_owned(p);
-        }
-    }
-
-    #[test]
     fn payload_rc_inc_no_op_on_inline_tags() {
         // Just verifying no panic; no observable state for inline tags.
         payload_rc_inc(0, 0);
@@ -592,26 +355,6 @@ mod tests {
         let initial = child.refcount;
         payload_rc_inc(4 /* Heap */, &mut child as *mut _ as i64);
         assert_eq!(child.refcount, initial + 1);
-    }
-
-    #[test]
-    fn drop_owned_static_literal_is_no_op() {
-        // Build a box with the STATIC_LITERAL flag pre-set; drop
-        // should bail before rc_dec runs.
-        let p = AnyBox::alloc(AnySlotTag::I64, 99);
-        unsafe {
-            (*p.as_ptr()).header.flags |= torajs_rc::FLAG_STATIC_LITERAL;
-            // Save count snapshot.
-            let count_before = (*p.as_ptr()).header.refcount;
-            AnyBox::drop_owned(p);
-            // refcount untouched; allocation NOT freed (we leak
-            // it intentionally — STATIC_LITERAL boxes are program-
-            // lifetime).
-            assert_eq!((*p.as_ptr()).header.refcount, count_before);
-            // Manually clear flag + drop for the test to not leak.
-            (*p.as_ptr()).header.flags &= !torajs_rc::FLAG_STATIC_LITERAL;
-            AnyBox::drop_owned(p);
-        }
     }
 
     // ---- P2.3-b: strict equality ----
@@ -881,19 +624,32 @@ mod tests {
 
     // ---- P2.3-d.3: arithmetic dispatch ----
 
-    /// Unbox a fresh AnyBox returned by the *inner* `any_arith` /
-    /// `any_add` (which still allocate `AnyBox` on the heap; Step
-    /// 7d-A only switched the *outer* `__torajs_any_*` FFI shims to
-    /// NaN-box-immediate semantics). Reads the struct fields
-    /// directly, then drops the box via [`AnyBox::drop_owned`].
-    unsafe fn unbox_drop(p: *mut c_void) -> AnyView {
-        let b = unsafe { &*(p as *const AnyBox) };
-        let view = b.read();
-        // Drop via the in-memory API — bypasses the post-7d-A FFI
-        // shim that would re-interpret `p` as a NaN-box bit-pattern.
-        let nn = NonNull::new(p as *mut AnyBox).expect("non-null AnyBox");
-        unsafe { AnyBox::drop_owned(nn) };
-        view
+    /// Decode an [`AnyValue`] immediate returned by the inner
+    /// `any_arith` / `any_add` into an [`AnyView`] for `matches!`
+    /// assertions. AnyValue is `Copy` so no drop is needed for
+    /// primitives; cell-tagged values would need
+    /// [`__torajs_anyv_rc_dec`] but the arithmetic dispatch only
+    /// returns numeric primitives in the test cases here.
+    fn unbox_drop(v: AnyValue) -> AnyView {
+        use crate::nanbox::{
+            as_bool, as_double, as_int32, as_pointer, is_bool, is_cell, is_double, is_int32,
+            is_null, is_undefined,
+        };
+        if is_null(v) {
+            AnyView::Null
+        } else if is_undefined(v) {
+            AnyView::Undef
+        } else if is_bool(v) {
+            AnyView::Bool(as_bool(v))
+        } else if is_int32(v) {
+            AnyView::I64(as_int32(v) as i64)
+        } else if is_double(v) {
+            AnyView::F64(as_double(v))
+        } else if is_cell(v) {
+            AnyView::Heap(NonNull::new(as_pointer(v)))
+        } else {
+            AnyView::Unknown
+        }
     }
 
     #[test]

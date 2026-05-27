@@ -160,9 +160,6 @@ pub const COLOR_SHIFT: u16 = 3;
 /// Mask covering both color bits.
 pub const COLOR_MASK: u16 = 0b11 << COLOR_SHIFT;
 
-mod any_tag;
-pub use any_tag::{ANY_TAG_MASK, ANY_TAG_SHIFT};
-
 // ============================================================
 // Cycle-collector color
 // ============================================================
@@ -218,8 +215,11 @@ pub enum Tag {
     RegExp = 4,
     /// `Date` — `{ ms_since_epoch }`.
     Date = 5,
-    /// Boxed `Type::Any` value.
-    AnyBox = 6,
+    /// **Reserved (was `AnyBox`).** The boxed `Type::Any` heap
+    /// struct was removed in v0.7 Step 7 NaN-box AnyValue cutover;
+    /// the discriminant `6` is kept reserved so later variants
+    /// don't shift in the wire ABI.
+    Reserved6 = 6,
     /// `Symbol` — `{ desc_str_ptr }`.
     Symbol = 7,
     /// `Promise<T>` — own drop path (not via value_drop_heap).
@@ -567,7 +567,7 @@ mod tests {
         assert_eq!(Tag::Closure as u16, 3);
         assert_eq!(Tag::RegExp as u16, 4);
         assert_eq!(Tag::Date as u16, 5);
-        assert_eq!(Tag::AnyBox as u16, 6);
+        assert_eq!(Tag::Reserved6 as u16, 6);
         assert_eq!(Tag::Symbol as u16, 7);
         assert_eq!(Tag::Promise as u16, 8);
         assert_eq!(Tag::Response as u16, 9);
@@ -606,17 +606,6 @@ mod tests {
         assert_eq!(Color::Gray as u16, 0b01000); // bit 3
         assert_eq!(Color::Purple as u16, 0b10000); // bit 4
         assert_eq!(Color::White as u16, 0b11000); // bits 3+4
-
-        // v0.7 Phase-3 Step 5 — ANY_TAG field at bits 8..11
-        assert_eq!(ANY_TAG_SHIFT, 8);
-        assert_eq!(ANY_TAG_MASK, 0b1111_0000_0000); // bits 8-11
-        // Disjoint from every existing flag/color bit
-        assert_eq!(ANY_TAG_MASK & FLAG_SPLIT_BLOCK, 0);
-        assert_eq!(ANY_TAG_MASK & FLAG_STATIC_LITERAL, 0);
-        assert_eq!(ANY_TAG_MASK & FLAG_ARR_ANY, 0);
-        assert_eq!(ANY_TAG_MASK & FLAG_FROZEN, 0);
-        assert_eq!(ANY_TAG_MASK & FLAG_BUFFERED, 0);
-        assert_eq!(ANY_TAG_MASK & COLOR_MASK, 0);
     }
 
     // ---- Methods ----
@@ -723,48 +712,6 @@ mod tests {
         assert!(h.is_buffered());
         assert!(h.is_arr_any());
         assert!(h.is_split_block());
-    }
-
-    #[test]
-    fn any_tag_round_trips_through_set() {
-        let mut h = HeapHeader::new(Tag::AnyBox);
-        assert_eq!(h.any_tag_bits(), 0); // default (Null)
-        for tag in [
-            AnySlotTag::Null,
-            AnySlotTag::Bool,
-            AnySlotTag::I64,
-            AnySlotTag::F64,
-            AnySlotTag::Heap,
-            AnySlotTag::Undef,
-        ] {
-            h.set_any_tag(tag as u16);
-            assert_eq!(h.any_tag_bits(), tag as u16);
-        }
-    }
-
-    #[test]
-    fn set_any_tag_preserves_other_flags() {
-        let mut h = HeapHeader::new(Tag::AnyBox);
-        h.flags |= FLAG_STATIC_LITERAL | FLAG_FROZEN | FLAG_BUFFERED;
-        h.set_color(Color::Purple);
-        h.set_any_tag(AnySlotTag::Heap as u16);
-        assert_eq!(h.any_tag_bits(), AnySlotTag::Heap as u16);
-        // Every disjoint flag survives
-        assert!(h.is_static_literal());
-        assert!(h.is_frozen());
-        assert!(h.is_buffered());
-        assert_eq!(h.color(), Color::Purple);
-    }
-
-    #[test]
-    fn set_any_tag_masks_oversized_input() {
-        // 4-bit field — values > 0xF must be silently masked, not
-        // bleed into neighbouring bits (12+).
-        let mut h = HeapHeader::new(Tag::AnyBox);
-        h.set_any_tag(0xFFFF);
-        assert_eq!(h.any_tag_bits(), 0xF);
-        // Bits 12..15 untouched
-        assert_eq!(h.flags & 0xF000, 0);
     }
 
     #[test]

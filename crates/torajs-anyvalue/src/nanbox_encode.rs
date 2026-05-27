@@ -16,11 +16,9 @@
 //! compare/arith/add) stays in `nanbox_ffi.rs`.
 
 use std::ffi::c_void;
-use std::ptr::NonNull;
 
 use torajs_rc::AnySlotTag;
 
-use crate::AnyBox;
 use crate::arith::{any_add, any_arith};
 use crate::coerce::any_to_str;
 use crate::compare::any_compare;
@@ -29,7 +27,7 @@ use crate::nanbox::{
     box_bool, box_double, box_int32, box_void_ptr, is_bool, is_cell, is_double, is_int32, is_null,
     is_undefined,
 };
-use crate::nanbox_ffi::{__torajs_anyv_strict_eq, box_to_immediate};
+use crate::nanbox_ffi::__torajs_anyv_strict_eq;
 use crate::payload_rc_inc;
 
 // ============================================================
@@ -181,19 +179,15 @@ pub extern "C" fn __torajs_anyv_unbox_value(v: AnyValue) -> i64 {
 }
 
 // ============================================================
-// Pair-arg bridge shims — 7d-A migration entry points. The
-// existing inner `any_arith` / `any_add` impls in
-// [`crate::arith`] still alloc + return an `*AnyBox`; these
-// shims take ssa_lower's already-decoded `(tag, value)` pairs,
-// call the inner, immediate-encode the result, and drop the
-// transitional box. 7e-7f rewrites the inner impls to skip
-// the alloc entirely; these wrappers then go away.
+// Pair-arg shims — ssa_lower's `(tag, value)`-pair entry points.
+// The inner `any_arith` / `any_add` impls in [`crate::arith`]
+// return AnyValue immediates directly (Step 7f-D-2 rewrite); the
+// pair shims are now one-line delegates.
 // ============================================================
 
 /// Pair-arg arithmetic: takes the legacy `(op, lt, lv, rt, rv)`
 /// shape ssa_lower produces via `any_unbox_tag` +
-/// `any_unbox_value`, returns a fresh [`AnyValue`] (no AnyBox
-/// alloc visible to the caller).
+/// `any_unbox_value`, returns a fresh [`AnyValue`].
 ///
 /// # Safety
 ///
@@ -208,17 +202,11 @@ pub unsafe extern "C" fn __torajs_anyv_arith_pair(
     rv: i64,
 ) -> AnyValue {
     // SAFETY: caller invariant on tag/value pairs.
-    let box_ptr = unsafe { any_arith(op, lt, lv, rt, rv) };
-    let result = box_to_immediate(box_ptr);
-    if let Some(p) = NonNull::new(box_ptr as *mut AnyBox) {
-        // SAFETY: any_arith returns an owned (rc=1) AnyBox.
-        unsafe { AnyBox::drop_owned(p) };
-    }
-    result
+    unsafe { any_arith(op, lt, lv, rt, rv) }
 }
 
 /// Pair-arg `+`: legacy `(lt, lv, rt, rv)` shape →
-/// [`AnyValue`] (no AnyBox alloc visible to the caller).
+/// [`AnyValue`].
 ///
 /// # Safety
 ///
@@ -226,13 +214,7 @@ pub unsafe extern "C" fn __torajs_anyv_arith_pair(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_add_pair(lt: i64, lv: i64, rt: i64, rv: i64) -> AnyValue {
     // SAFETY: caller invariant on tag/value pairs.
-    let box_ptr = unsafe { any_add(lt, lv, rt, rv) };
-    let result = box_to_immediate(box_ptr);
-    if let Some(p) = NonNull::new(box_ptr as *mut AnyBox) {
-        // SAFETY: any_add returns an owned (rc=1) AnyBox.
-        unsafe { AnyBox::drop_owned(p) };
-    }
-    result
+    unsafe { any_add(lt, lv, rt, rv) }
 }
 
 /// Immediate-vs-pair strict equality. ssa_lower's array-includes
