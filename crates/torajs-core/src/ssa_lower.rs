@@ -32,6 +32,9 @@ use crate::ssa::{
     self, BinOp as SsaBinOp, BlockId, FPred, FuncId, IPred, InstKind, Module, Operand, Terminator,
     Type, ValueId,
 };
+use crate::ssa_lower_body_returns_closure::body_returns_closure;
+use crate::ssa_lower_closure_captures::collect_closure_captures_in_stmt;
+use crate::ssa_lower_deque_escape::collect_deque_arr_names_in_stmt;
 
 /// Phase 2B refcount: every heap-allocated Obj reserves a 24-byte
 /// header:
@@ -6229,6 +6232,7 @@ fn synthesize_main(
             globals,
             is_main_fn: true,
             drop_inline_stack: std::collections::HashSet::new(),
+            deque_arrs: std::collections::HashSet::new(),
         };
         // T-15.g.5 fix: prime escape_captured_lets BEFORE lowering any
         // top-level let-decl. Without this, top-level `let x = 10` in
@@ -6240,6 +6244,10 @@ fn synthesize_main(
         // for user fn bodies; synthesize_main was missing it.
         for s in stmts {
             collect_closure_captures_in_stmt(ctx.ast, s, &mut ctx.escape_captured_lets);
+        }
+        // 11-A1 — prime deque-unsafe Array binding set.
+        for s in stmts {
+            collect_deque_arr_names_in_stmt(ctx.ast, s, &mut ctx.deque_arrs);
         }
         for s in stmts {
             ctx.lower_top_stmt(s);
@@ -6272,129 +6280,6 @@ fn synthesize_main(
         }
     }
     (f, new_strings)
-}
-
-/// Walk a fn body and return true if any `Stmt::Return` directly returns
-/// an `Expr::Closure` value. Used to upgrade a declared `(y) => R` return
-/// type from `Type::FnSig(sig)` to `Type::Closure(sig)` when the body
-/// actually constructs a capturing arrow — without this upgrade the
-/// caller's slot is FnSig but the runtime value is a Closure env pointer,
-/// and dispatching via the FnSig path interprets the env pointer as a
-/// raw fn address → SIGBUS. Detected pattern is the direct-return case;
-/// returning a closure stored in a local is not yet handled.
-fn body_returns_closure(ast: &Ast, body: &[Stmt]) -> bool {
-    // Pre-walk to collect names of locals bound to a Closure expression
-    // (`let f = capturingArrowFn`). Then the return walker treats
-    // `return f` as equivalent to `return Expr::Closure{...}`. This
-    // matches the common pattern of factory fns that build a closure
-    // into a local before returning it.
-    let mut closure_locals: std::collections::HashSet<String> = std::collections::HashSet::new();
-    collect_closure_locals(ast, body, &mut closure_locals);
-    body.iter()
-        .any(|s| stmt_returns_closure(ast, s, &closure_locals))
-}
-
-fn collect_closure_locals(ast: &Ast, body: &[Stmt], out: &mut std::collections::HashSet<String>) {
-    for s in body {
-        match s {
-            Stmt::LetDecl { name, init, .. } => {
-                if matches!(ast.get_expr(*init), Expr::Closure { .. }) {
-                    out.insert(name.clone());
-                }
-            }
-            Stmt::If {
-                then_branch,
-                else_branch,
-                ..
-            } => {
-                collect_closure_locals(ast, std::slice::from_ref(then_branch), out);
-                if let Some(eb) = else_branch {
-                    collect_closure_locals(ast, std::slice::from_ref(eb), out);
-                }
-            }
-            Stmt::While { body, .. } | Stmt::For { body, .. } => {
-                collect_closure_locals(ast, std::slice::from_ref(body), out);
-            }
-            Stmt::DoWhile { body, .. } => {
-                collect_closure_locals(ast, std::slice::from_ref(body), out);
-            }
-            Stmt::Block(stmts) | Stmt::Multi(stmts) => {
-                collect_closure_locals(ast, stmts, out);
-            }
-            Stmt::Try {
-                body,
-                catch_body,
-                finally_body,
-                ..
-            } => {
-                collect_closure_locals(ast, body, out);
-                collect_closure_locals(ast, catch_body, out);
-                if let Some(fb) = finally_body {
-                    collect_closure_locals(ast, fb, out);
-                }
-            }
-            Stmt::Switch { cases, default, .. } => {
-                for c in cases {
-                    collect_closure_locals(ast, &c.body, out);
-                }
-                if let Some(db) = default {
-                    collect_closure_locals(ast, db, out);
-                }
-            }
-            _ => {}
-        }
-    }
-}
-
-fn stmt_returns_closure(
-    ast: &Ast,
-    s: &Stmt,
-    closure_locals: &std::collections::HashSet<String>,
-) -> bool {
-    match s {
-        Stmt::Return(Some(eid)) => match ast.get_expr(*eid) {
-            Expr::Closure { .. } => true,
-            Expr::Ident(name) => closure_locals.contains(name),
-            _ => false,
-        },
-        Stmt::If {
-            then_branch,
-            else_branch,
-            ..
-        } => {
-            stmt_returns_closure(ast, then_branch, closure_locals)
-                || else_branch
-                    .as_ref()
-                    .map(|e| stmt_returns_closure(ast, e, closure_locals))
-                    .unwrap_or(false)
-        }
-        Stmt::While { body, .. } | Stmt::For { body, .. } => {
-            stmt_returns_closure(ast, body, closure_locals)
-        }
-        Stmt::Block(stmts) | Stmt::Multi(stmts) => stmts
-            .iter()
-            .any(|s| stmt_returns_closure(ast, s, closure_locals)),
-        Stmt::Try {
-            body,
-            catch_body,
-            finally_body,
-            ..
-        } => {
-            body.iter()
-                .any(|s| stmt_returns_closure(ast, s, closure_locals))
-                || catch_body
-                    .iter()
-                    .any(|s| stmt_returns_closure(ast, s, closure_locals))
-                || finally_body
-                    .as_ref()
-                    .map(|fb| {
-                        fb.iter()
-                            .any(|s| stmt_returns_closure(ast, s, closure_locals))
-                    })
-                    .unwrap_or(false)
-        }
-        _ => false,
-    }
 }
 
 /// If the parsed return type is `Type::FnSig(sig)` and the function's
@@ -6988,177 +6873,6 @@ fn intern_fn_sig(fn_sigs: &mut Vec<(Vec<Type>, Type)>, params: Vec<Type>, ret: T
     id
 }
 
-/// Walk `s` (and any nested stmts / exprs) collecting every name
-/// that appears in some `Expr::Closure { captures }` list. Used by
-/// `lower_fn`'s escape-capture pre-pass so the let-decl path can
-/// heap-allocate slots that an escaping closure will hold pointers to.
-fn collect_closure_captures_in_stmt(
-    ast: &Ast,
-    s: &Stmt,
-    out: &mut std::collections::HashSet<String>,
-) {
-    match s {
-        Stmt::Expr(eid) | Stmt::Throw(eid) | Stmt::Yield(eid) => {
-            collect_closure_captures_in_expr(ast, *eid, out)
-        }
-        Stmt::YieldInto { value, .. } => collect_closure_captures_in_expr(ast, *value, out),
-        Stmt::Return(Some(eid)) => collect_closure_captures_in_expr(ast, *eid, out),
-        Stmt::Return(None) => {}
-        Stmt::LetDecl { init, .. } => collect_closure_captures_in_expr(ast, *init, out),
-        Stmt::If {
-            cond,
-            then_branch,
-            else_branch,
-        } => {
-            collect_closure_captures_in_expr(ast, *cond, out);
-            collect_closure_captures_in_stmt(ast, then_branch, out);
-            if let Some(eb) = else_branch {
-                collect_closure_captures_in_stmt(ast, eb, out);
-            }
-        }
-        Stmt::While { cond, body } => {
-            collect_closure_captures_in_expr(ast, *cond, out);
-            collect_closure_captures_in_stmt(ast, body, out);
-        }
-        Stmt::DoWhile { body, cond } => {
-            collect_closure_captures_in_stmt(ast, body, out);
-            collect_closure_captures_in_expr(ast, *cond, out);
-        }
-        Stmt::For {
-            init,
-            cond,
-            step,
-            body,
-        } => {
-            if let Some(i) = init {
-                collect_closure_captures_in_stmt(ast, i, out);
-            }
-            if let Some(c) = cond {
-                collect_closure_captures_in_expr(ast, *c, out);
-            }
-            if let Some(st) = step {
-                collect_closure_captures_in_expr(ast, *st, out);
-            }
-            collect_closure_captures_in_stmt(ast, body, out);
-        }
-        Stmt::Block(stmts) | Stmt::Multi(stmts) => {
-            for s in stmts {
-                collect_closure_captures_in_stmt(ast, s, out);
-            }
-        }
-        Stmt::Switch {
-            scrutinee,
-            cases,
-            default,
-        } => {
-            collect_closure_captures_in_expr(ast, *scrutinee, out);
-            for c in cases {
-                collect_closure_captures_in_expr(ast, c.value, out);
-                for s in &c.body {
-                    collect_closure_captures_in_stmt(ast, s, out);
-                }
-            }
-            if let Some(d) = default {
-                for s in d {
-                    collect_closure_captures_in_stmt(ast, s, out);
-                }
-            }
-        }
-        Stmt::Try {
-            body,
-            catch_body,
-            finally_body,
-            ..
-        } => {
-            for s in body {
-                collect_closure_captures_in_stmt(ast, s, out);
-            }
-            for s in catch_body {
-                collect_closure_captures_in_stmt(ast, s, out);
-            }
-            if let Some(fb) = finally_body {
-                for s in fb {
-                    collect_closure_captures_in_stmt(ast, s, out);
-                }
-            }
-        }
-        _ => {}
-    }
-}
-
-fn collect_closure_captures_in_expr(
-    ast: &Ast,
-    eid: ExprId,
-    out: &mut std::collections::HashSet<String>,
-) {
-    match ast.get_expr(eid) {
-        Expr::Closure { captures, .. } => {
-            for c in captures {
-                out.insert(c.clone());
-            }
-        }
-        Expr::BinOp { left, right, .. } => {
-            collect_closure_captures_in_expr(ast, *left, out);
-            collect_closure_captures_in_expr(ast, *right, out);
-        }
-        Expr::Unary { expr, .. }
-        | Expr::TypeOf { expr }
-        | Expr::Spread { expr }
-        | Expr::InstanceOf { expr, .. } => {
-            collect_closure_captures_in_expr(ast, *expr, out);
-        }
-        Expr::Member { obj, .. } | Expr::OptChain { obj, .. } => {
-            collect_closure_captures_in_expr(ast, *obj, out);
-        }
-        Expr::Call { callee, args } => {
-            collect_closure_captures_in_expr(ast, *callee, out);
-            for a in args {
-                collect_closure_captures_in_expr(ast, *a, out);
-            }
-        }
-        Expr::Assign { target, value } => {
-            collect_closure_captures_in_expr(ast, *target, out);
-            collect_closure_captures_in_expr(ast, *value, out);
-        }
-        Expr::Index { obj, index } => {
-            collect_closure_captures_in_expr(ast, *obj, out);
-            collect_closure_captures_in_expr(ast, *index, out);
-        }
-        Expr::Array(els) => {
-            for e in els {
-                collect_closure_captures_in_expr(ast, *e, out);
-            }
-        }
-        Expr::ObjectLit { fields } => {
-            for (_, e) in fields {
-                collect_closure_captures_in_expr(ast, *e, out);
-            }
-        }
-        Expr::Ternary {
-            cond,
-            then_branch,
-            else_branch,
-        } => {
-            collect_closure_captures_in_expr(ast, *cond, out);
-            collect_closure_captures_in_expr(ast, *then_branch, out);
-            collect_closure_captures_in_expr(ast, *else_branch, out);
-        }
-        Expr::Nullish { lhs, rhs } => {
-            collect_closure_captures_in_expr(ast, *lhs, out);
-            collect_closure_captures_in_expr(ast, *rhs, out);
-        }
-        Expr::New { args, .. } | Expr::Super { args } => {
-            for e in args {
-                collect_closure_captures_in_expr(ast, *e, out);
-            }
-        }
-        Expr::PostIncr { target, .. } => {
-            collect_closure_captures_in_expr(ast, *target, out);
-        }
-        _ => {}
-    }
-}
-
 #[allow(clippy::too_many_arguments)]
 fn lower_fn(
     name: &str,
@@ -7264,6 +6978,7 @@ fn lower_fn(
         globals,
         is_main_fn: false,
         drop_inline_stack: std::collections::HashSet::new(),
+        deque_arrs: std::collections::HashSet::new(),
     };
 
     // Closure-capture analysis: any `let` (or param) whose name is
@@ -7276,6 +6991,10 @@ fn lower_fn(
     // negligible compared to the env block they already allocate.
     for s in body {
         collect_closure_captures_in_stmt(ctx.ast, s, &mut ctx.escape_captured_lets);
+    }
+    // 11-A1 — prime deque-unsafe Array binding set.
+    for s in body {
+        collect_deque_arr_names_in_stmt(ctx.ast, s, &mut ctx.deque_arrs);
     }
 
     // Materialize each param as an alloca-backed local. mem2reg at -O1+
@@ -7845,6 +7564,11 @@ struct LowerCtx<'a> {
     /// Note: today value_drop_heap's default branch leaks Obj inner
     /// refs — proper class-layout-driven child drop lands in V3-09.
     drop_inline_stack: std::collections::HashSet<u32>,
+    /// 11-A1 — fn-local deque-unsafe Array binding names. Populated
+    /// by `ssa_lower_deque_escape::collect_deque_arr_names_in_stmt`
+    /// at fn entry; queried by `arr_expr_is_non_deque` at every
+    /// Index emit site to pick the fast-path offset.
+    deque_arrs: std::collections::HashSet<String>,
 }
 
 impl<'a> LowerCtx<'a> {
@@ -8554,6 +8278,7 @@ impl<'a> LowerCtx<'a> {
                     Operand::Value(arr_ptr),
                     Operand::Value(i_now),
                     3,
+                    false,
                 );
                 let elem = self.f.append_inst(
                     self.cur_block,
@@ -9435,12 +9160,37 @@ impl<'a> LowerCtx<'a> {
     /// `stride_log2` is 3 for regular Array<T> (8-byte slots) and 4
     /// for Array<Any> (16-byte tagged slots); head is always counted
     /// in 8-byte units (matching the C-side macro contract).
+    ///
+    /// 11-A1: `is_non_deque = true` ⇒ skip head load + lshr + shl +
+    /// extra add chain (5 → 2 arith ops). Caller proves safety via
+    /// `arr_expr_is_non_deque` against `LowerCtx::deque_arrs`.
     fn emit_arr_slot_byte_offset(
         &mut self,
         arr: Operand,
         idx: Operand,
         stride_log2: i64,
+        is_non_deque: bool,
     ) -> Operand {
+        if is_non_deque {
+            // 11-A1 fast-path: head ≡ 0 by escape analysis.
+            let scaled = self.f.append_inst(
+                self.cur_block,
+                InstKind::BinOp(SsaBinOp::Shl, idx, Operand::ConstI64(stride_log2)),
+                Type::I64,
+                None,
+            );
+            let off = self.f.append_inst(
+                self.cur_block,
+                InstKind::BinOp(
+                    SsaBinOp::Add,
+                    Operand::Value(scaled),
+                    Operand::ConstI64(ARR_DATA_OFF as i64),
+                ),
+                Type::I64,
+                None,
+            );
+            return Operand::Value(off);
+        }
         let head_x8 = self.emit_arr_head_x8(arr);
         let head_scaled = if stride_log2 == 3 {
             head_x8
@@ -9478,6 +9228,17 @@ impl<'a> LowerCtx<'a> {
             None,
         );
         Operand::Value(off)
+    }
+
+    /// 11-A1 — peek an array-receiving expr's binding name; returns
+    /// true only for Ident receivers whose name is NOT in
+    /// `deque_arrs` (conservative `false` for any non-Ident shape).
+    fn arr_expr_is_non_deque(&self, eid: ExprId) -> bool {
+        if let Expr::Ident(name) = self.ast.get_expr(eid) {
+            !self.deque_arrs.contains(name)
+        } else {
+            false
+        }
     }
 
     /// Walk slots [start, end) and call `emit_drop_value` on each
@@ -9721,7 +9482,7 @@ impl<'a> LowerCtx<'a> {
         // T-13.5: src may be shifted (head>0) — use head-aware offset.
         // dst is freshly allocated above so head=0; reuse the raw
         // physical offset (i*8 + ARR_DATA_OFF) for the store.
-        let src_off = self.emit_arr_slot_byte_offset(src.clone(), Operand::Value(i_now), 3);
+        let src_off = self.emit_arr_slot_byte_offset(src.clone(), Operand::Value(i_now), 3, false);
         let scaled = self.f.append_inst(
             self.cur_block,
             InstKind::BinOp(SsaBinOp::Shl, Operand::Value(i_now), Operand::ConstI64(3)),
@@ -14540,9 +14301,9 @@ impl<'a> LowerCtx<'a> {
                         v
                     }
                     Expr::Index { obj, index } => {
-                        // M1.4 — `arr[i] = value`. Compute `addr = arr +
-                        // 16 + idx*8`, drop old elem if non-Copy, store
-                        // new value via StoreDyn.
+                        // M1.4 — `arr[i] = value`. 11-A1: peek receiver
+                        // before consuming `obj` for head-elision flag.
+                        let is_non_deque = self.arr_expr_is_non_deque(obj);
                         let arr_val = self.lower_expr(obj);
                         let arr_ty = self.operand_ty(&arr_val);
                         let elem_ty = match arr_ty {
@@ -14651,7 +14412,12 @@ impl<'a> LowerCtx<'a> {
                             return v_raw;
                         }
                         // T-13.5: head-aware byte offset for indexed assign.
-                        let offset = self.emit_arr_slot_byte_offset(arr_val.clone(), idx_val, 3);
+                        let offset = self.emit_arr_slot_byte_offset(
+                            arr_val.clone(),
+                            idx_val,
+                            3,
+                            is_non_deque,
+                        );
                         let v = self.lower_expr(*value);
                         self.consume_if_ident(*value);
                         // Drop old elem if non-Copy. M1.2 MVP only ships
@@ -18408,6 +18174,7 @@ impl<'a> LowerCtx<'a> {
                             Operand::Value(cur_arr),
                             Operand::Value(new_len),
                             3,
+                            false,
                         );
                         let elem = self.f.append_inst(
                             self.cur_block,
@@ -21071,6 +20838,7 @@ impl<'a> LowerCtx<'a> {
                             Operand::Value(arr_ptr),
                             Operand::Value(i_now2),
                             3,
+                            false,
                         );
                         let cur = self.f.append_inst(
                             self.cur_block,
@@ -21127,6 +20895,7 @@ impl<'a> LowerCtx<'a> {
                             Operand::Value(arr_ptr),
                             Operand::Value(j_minus_1),
                             3,
+                            false,
                         );
                         let prev = self.f.append_inst(
                             self.cur_block,
@@ -21228,6 +20997,7 @@ impl<'a> LowerCtx<'a> {
                             Operand::Value(arr_ptr),
                             Operand::Value(j_now),
                             3,
+                            false,
                         );
                         // off_jm1 was computed in inner_check; recompute
                         // here since this is a different block.
@@ -21235,6 +21005,7 @@ impl<'a> LowerCtx<'a> {
                             Operand::Value(arr_ptr),
                             Operand::Value(j_minus_1),
                             3,
+                            false,
                         );
                         let prev2 = self.f.append_inst(
                             self.cur_block,
@@ -21267,6 +21038,7 @@ impl<'a> LowerCtx<'a> {
                             Operand::Value(arr_ptr),
                             Operand::Value(j_final),
                             3,
+                            false,
                         );
                         self.f.append_void(
                             self.cur_block,
@@ -21451,8 +21223,12 @@ impl<'a> LowerCtx<'a> {
                             None,
                         );
                         // T-13.5 deque: head-aware offset for arr.at(i).
-                        let off =
-                            self.emit_arr_slot_byte_offset(recv_op.clone(), Operand::Value(adj), 3);
+                        let off = self.emit_arr_slot_byte_offset(
+                            recv_op.clone(),
+                            Operand::Value(adj),
+                            3,
+                            false,
+                        );
                         let v = self.f.append_inst(
                             self.cur_block,
                             InstKind::LoadDyn(elem_ty, recv_op, off),
@@ -21801,6 +21577,7 @@ impl<'a> LowerCtx<'a> {
                             recv_op.clone(),
                             Operand::Value(i_now),
                             3,
+                            false,
                         );
                         let old = self.f.append_inst(
                             self.cur_block,
@@ -22216,6 +21993,7 @@ impl<'a> LowerCtx<'a> {
                                 recv_op.clone(),
                                 Operand::Value(i_cur),
                                 3,
+                                false,
                             );
                             self.f.append_inst(
                                 self.cur_block,
@@ -22515,6 +22293,7 @@ impl<'a> LowerCtx<'a> {
                         Operand::Value(src_arr),
                         Operand::Value(i_now2),
                         3,
+                        false,
                     );
                     let elem = self.f.append_inst(
                         self.cur_block,
@@ -22705,6 +22484,7 @@ impl<'a> LowerCtx<'a> {
                         Operand::Value(src_arr),
                         Operand::Value(i_now),
                         3,
+                        false,
                     );
                     let elem = self.f.append_inst(
                         self.cur_block,
@@ -22762,6 +22542,7 @@ impl<'a> LowerCtx<'a> {
                         Operand::Value(inner_arr),
                         Operand::Value(j_now),
                         3,
+                        false,
                     );
                     let inner_elem = self.f.append_inst(
                         self.cur_block,
@@ -23067,6 +22848,7 @@ impl<'a> LowerCtx<'a> {
                         Operand::Value(src_arr),
                         Operand::Value(i_now2),
                         3,
+                        false,
                     );
                     let elem = self.f.append_inst(
                         self.cur_block,
@@ -25099,7 +24881,8 @@ impl<'a> LowerCtx<'a> {
                 // M1.2 — `xs[i]` for Type::Arr. Bounds checking deferred
                 // to a later sub-step (currently unchecked — UB on OOB,
                 // matches what bun does in its hot paths after JIT).
-                // Compute byte offset = 16 + index * 8, then LoadDyn.
+                // 11-A1: peek receiver before consuming `obj`.
+                let is_non_deque = self.arr_expr_is_non_deque(*obj);
                 let arr_val = self.lower_expr(*obj);
                 let arr_ty = self.operand_ty(&arr_val);
                 // String indexing: `s[i]` returns a single-char view.
@@ -25187,33 +24970,13 @@ impl<'a> LowerCtx<'a> {
                     );
                     return Operand::Value(box_v);
                 }
-                // T-13.5 deque: offset = 24 + (idx + head) * 8 = idx*8 + 24 + head*8
-                let head_x8 = self.emit_arr_head_x8(arr_val.clone());
-                let scaled = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::BinOp(SsaBinOp::Shl, idx_val, Operand::ConstI64(3)),
-                    Type::I64,
-                    None,
-                );
-                let offset_no_head = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::BinOp(
-                        SsaBinOp::Add,
-                        Operand::Value(scaled),
-                        Operand::ConstI64(ARR_DATA_OFF as i64),
-                    ),
-                    Type::I64,
-                    None,
-                );
-                let offset = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::BinOp(SsaBinOp::Add, Operand::Value(offset_no_head), head_x8),
-                    Type::I64,
-                    None,
-                );
+                // T-13.5 deque: offset = 24 + (idx + head) * 8. 11-A1
+                // routes through helper so non-deque names take fast-path.
+                let offset =
+                    self.emit_arr_slot_byte_offset(arr_val.clone(), idx_val, 3, is_non_deque);
                 let v = self.f.append_inst(
                     self.cur_block,
-                    InstKind::LoadDyn(elem_ty, arr_val, Operand::Value(offset)),
+                    InstKind::LoadDyn(elem_ty, arr_val, offset),
                     elem_ty,
                     None,
                 );
@@ -26293,6 +26056,8 @@ impl<'a> LowerCtx<'a> {
                         Operand::Value(old)
                     }
                     Expr::Index { obj, index } => {
+                        // 11-A1: peek receiver before consuming `obj`.
+                        let is_non_deque = self.arr_expr_is_non_deque(obj);
                         let arr_val = self.lower_expr(obj);
                         let arr_ty = self.operand_ty(&arr_val);
                         let elem_ty = match arr_ty {
@@ -26302,7 +26067,12 @@ impl<'a> LowerCtx<'a> {
                         let idx_val = self.lower_expr(index);
                         // T-13.5: head-aware offset, computed once for
                         // both load (old) and store (new).
-                        let offset = self.emit_arr_slot_byte_offset(arr_val.clone(), idx_val, 3);
+                        let offset = self.emit_arr_slot_byte_offset(
+                            arr_val.clone(),
+                            idx_val,
+                            3,
+                            is_non_deque,
+                        );
                         let old = self.f.append_inst(
                             self.cur_block,
                             InstKind::LoadDyn(elem_ty, arr_val.clone(), offset.clone()),
