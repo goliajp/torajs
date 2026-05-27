@@ -22,9 +22,12 @@ use std::ffi::c_void;
 
 use torajs_rc::AnySlotTag;
 
+use crate::STR_HDR_SIZE;
 use crate::coerce::{any_to_number, any_to_str};
-use crate::compare::is_heap_str;
-use crate::nanbox::{AnyValue, box_double, box_int32, box_void_ptr};
+use crate::compare::{STR_LEN_OFF, is_heap_str};
+use crate::nanbox::{
+    AnyValue, SHORT_STR_CAP, box_double, box_int32, box_void_ptr, try_box_short_str,
+};
 use crate::{__torajs_str_concat, __torajs_str_drop};
 
 /// Op code for `-`, `*`, `/`, `%` per ssa_lower's emission. Mirror
@@ -170,6 +173,22 @@ pub(crate) unsafe fn any_add(lt: i64, lv: i64, rt: i64, rv: i64) -> AnyValue {
         // contract; result is a freshly-owned Str (refcount=1).
         let l_str = unsafe { any_to_str(lt, lv) };
         let r_str = unsafe { any_to_str(rt, rv) };
+        // Step 8c — ShortStr fast-path. When the concat result fits
+        // in `≤ SHORT_STR_CAP` bytes, emit the ShortStr immediate
+        // directly: skips the heap allocation of the str_concat
+        // result + the eventual box_void_ptr round-trip into a
+        // Heap+Str cell. l_str / r_str are still dropped (they
+        // were freshly owned from any_to_str).
+        // SAFETY: both l_str / r_str are valid Str heap blocks
+        // from any_to_str.
+        if let Some(short) = unsafe { try_concat_short(l_str, r_str) } {
+            // SAFETY: both Strs were rc=1 from any_to_str.
+            unsafe {
+                __torajs_str_drop(l_str);
+                __torajs_str_drop(r_str);
+            }
+            return short;
+        }
         // SAFETY: both pointers are freshly-owned Strs whose layout
         // begins with HeapHeader. __torajs_str_concat reads the
         // layout, allocates a new Str, returns ownership to us.
@@ -206,4 +225,150 @@ pub(crate) unsafe fn any_add(lt: i64, lv: i64, rt: i64, rv: i64) -> AnyValue {
         }
     }
     box_double(sum)
+}
+
+/// Step 8c — try the ShortStr fast-path for the `any_add` string-
+/// concat branch. When the combined bytes of `l_str` and `r_str`
+/// fit in `≤ SHORT_STR_CAP` (= 5) bytes, build an inline ShortStr
+/// [`AnyValue`] without going through [`__torajs_str_concat`] —
+/// skipping one heap allocation (the concat buffer) plus the
+/// eventual `box_void_ptr` round-trip into a Heap+Str cell.
+///
+/// Returns `None` when the combined length exceeds the ShortStr
+/// capacity; the caller falls back to the heap-allocating
+/// `str_concat` path. Substr-layout inputs (Tag::Str with
+/// `FLAG_SUBSTR_INLINE`) carry the same `[header:8][len:8]…`
+/// header prefix but their bytes live behind an offset+parent
+/// indirection rather than at `STR_HDR_SIZE`; this fast-path does
+/// not currently special-case them — they fall through to
+/// `str_concat`, matching the existing pre-8c behavior.
+///
+/// # Safety
+///
+/// Both `l_str` / `r_str` must be valid Str heap blocks per the
+/// `__torajs_str_concat` contract (the same precondition the
+/// caller already required for the heap-concat path). Ownership
+/// stays with the caller — this fn neither bumps nor drops
+/// refcounts; it only reads bytes off the live blocks.
+#[inline]
+unsafe fn try_concat_short(l_str: *mut c_void, r_str: *mut c_void) -> Option<AnyValue> {
+    let l_ptr = l_str as *const u8;
+    let r_ptr = r_str as *const u8;
+    // SAFETY: Str layout invariant — `len: u64` at byte offset
+    // STR_LEN_OFF (= 8). Heap is 8-aligned so the u64 read is
+    // properly aligned.
+    let l_len = unsafe { (l_ptr.add(STR_LEN_OFF) as *const u64).read() } as usize;
+    let r_len = unsafe { (r_ptr.add(STR_LEN_OFF) as *const u64).read() } as usize;
+    let total = l_len + r_len;
+    if total > SHORT_STR_CAP {
+        return None;
+    }
+    let mut bytes = [0u8; SHORT_STR_CAP];
+    // SAFETY: payload bytes start at offset STR_HDR_SIZE and span
+    // exactly `len` bytes (live Str invariant). Destination is the
+    // stack-resident SHORT_STR_CAP-byte buffer; `total ≤
+    // SHORT_STR_CAP` was proven above so destination offsets stay
+    // in-bounds.
+    unsafe {
+        if l_len > 0 {
+            core::ptr::copy_nonoverlapping(l_ptr.add(STR_HDR_SIZE), bytes.as_mut_ptr(), l_len);
+        }
+        if r_len > 0 {
+            core::ptr::copy_nonoverlapping(
+                r_ptr.add(STR_HDR_SIZE),
+                bytes.as_mut_ptr().add(l_len),
+                r_len,
+            );
+        }
+    }
+    try_box_short_str(&bytes[..total])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::nanbox::{is_short_str, short_str_bytes, short_str_len};
+
+    /// Build a fake `[header:8][len:8][bytes:N]` Str block on the
+    /// heap (Vec<u8>) for unit-testing the layout-aware
+    /// `try_concat_short`. Header is zeroed (refcount/type_tag/
+    /// flags fields aren't read by the fast-path; only `len` at
+    /// offset STR_LEN_OFF and bytes at STR_HDR_SIZE are touched).
+    fn make_fake_str(payload: &[u8]) -> Vec<u8> {
+        let mut buf = vec![0u8; STR_HDR_SIZE + payload.len()];
+        let len_bytes = (payload.len() as u64).to_le_bytes();
+        buf[STR_LEN_OFF..STR_LEN_OFF + 8].copy_from_slice(&len_bytes);
+        buf[STR_HDR_SIZE..].copy_from_slice(payload);
+        buf
+    }
+
+    #[test]
+    fn try_concat_short_empty_plus_empty() {
+        let l = make_fake_str(b"");
+        let r = make_fake_str(b"");
+        let v = unsafe { try_concat_short(l.as_ptr() as *mut c_void, r.as_ptr() as *mut c_void) }
+            .expect("empty + empty fits");
+        assert!(is_short_str(v));
+        assert_eq!(short_str_len(v), 0);
+    }
+
+    #[test]
+    fn try_concat_short_single_char_each() {
+        let l = make_fake_str(b"a");
+        let r = make_fake_str(b"b");
+        let v = unsafe { try_concat_short(l.as_ptr() as *mut c_void, r.as_ptr() as *mut c_void) }
+            .expect("a + b fits");
+        assert!(is_short_str(v));
+        assert_eq!(short_str_len(v), 2);
+        assert_eq!(&short_str_bytes(v)[..2], b"ab");
+    }
+
+    #[test]
+    fn try_concat_short_total_exactly_5() {
+        let l = make_fake_str(b"abc");
+        let r = make_fake_str(b"de");
+        let v = unsafe { try_concat_short(l.as_ptr() as *mut c_void, r.as_ptr() as *mut c_void) }
+            .expect("3 + 2 = 5 = SHORT_STR_CAP fits exactly");
+        assert!(is_short_str(v));
+        assert_eq!(short_str_len(v), 5);
+        assert_eq!(short_str_bytes(v), *b"abcde");
+    }
+
+    #[test]
+    fn try_concat_short_total_6_returns_none() {
+        let l = make_fake_str(b"abc");
+        let r = make_fake_str(b"def");
+        let v = unsafe { try_concat_short(l.as_ptr() as *mut c_void, r.as_ptr() as *mut c_void) };
+        assert!(v.is_none(), "6 byte total overflows ShortStr cap");
+    }
+
+    #[test]
+    fn try_concat_short_one_side_empty_passes_other_through() {
+        // Left empty.
+        let l = make_fake_str(b"");
+        let r = make_fake_str(b"hi");
+        let v = unsafe { try_concat_short(l.as_ptr() as *mut c_void, r.as_ptr() as *mut c_void) }
+            .expect("0 + 2 fits");
+        assert!(is_short_str(v));
+        assert_eq!(&short_str_bytes(v)[..2], b"hi");
+
+        // Right empty.
+        let l = make_fake_str(b"ok");
+        let r = make_fake_str(b"");
+        let v = unsafe { try_concat_short(l.as_ptr() as *mut c_void, r.as_ptr() as *mut c_void) }
+            .expect("2 + 0 fits");
+        assert!(is_short_str(v));
+        assert_eq!(&short_str_bytes(v)[..2], b"ok");
+    }
+
+    #[test]
+    fn try_concat_short_byte_order_left_then_right() {
+        // Regression: ensure l's bytes precede r's bytes (not
+        // swapped).
+        let l = make_fake_str(b"X");
+        let r = make_fake_str(b"YZ");
+        let v = unsafe { try_concat_short(l.as_ptr() as *mut c_void, r.as_ptr() as *mut c_void) }
+            .expect("3 byte total fits");
+        assert_eq!(&short_str_bytes(v)[..3], b"XYZ");
+    }
 }
