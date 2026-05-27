@@ -35,11 +35,7 @@ pub(super) fn mark_alwaysinline<'ctx>(ctx: &'ctx Context, f: FunctionValue<'ctx>
 /// inaccessiblemem: readwrite)` = 15, `memory(none)` = 0. The encoding
 /// is locked in by `cfg(test)` tests below — bumping LLVM versions
 /// must re-validate against them.
-pub(super) fn mark_memory_effect<'ctx>(
-    ctx: &'ctx Context,
-    f: FunctionValue<'ctx>,
-    encoded: u32,
-) {
+pub(super) fn mark_memory_effect<'ctx>(ctx: &'ctx Context, f: FunctionValue<'ctx>, encoded: u32) {
     let kind = Attribute::get_named_enum_kind_id("memory");
     let attr = ctx.create_enum_attribute(kind, encoded as u64);
     f.add_attribute(AttributeLoc::Function, attr);
