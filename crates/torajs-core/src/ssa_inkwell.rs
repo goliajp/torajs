@@ -41,9 +41,9 @@ use arr_builders::{define_arr_push, define_arr_push_unchecked, define_arr_shift}
 use attrs::{is_alloc_intrinsic, mark_alwaysinline, mark_noalias_ret, module_uses_fetch};
 use builders::{define_print_bool, define_print_f64, define_print_i64};
 use declares::{
-    declare_arr_alloc_pooled, declare_arr_free, declare_free, declare_malloc, declare_memcmp,
-    declare_memcpy, declare_memmove, declare_putchar, declare_realloc, declare_str_alloc_pooled,
-    declare_str_free,
+    apply_arr_alloc_extern_attrs, declare_arr_alloc_pooled, declare_arr_free, declare_free,
+    declare_malloc, declare_memcmp, declare_memcpy, declare_memmove, declare_putchar,
+    declare_realloc, declare_str_alloc_pooled, declare_str_free,
 };
 use globals::{emit_data_global, emit_static_str_global, emit_string_global};
 use obj_builders::{define_obj_alloc, define_obj_drop_sized};
@@ -394,6 +394,22 @@ pub(super) fn compile_for_kind_impl(
         // which can return the same input ptr on the no-grow path).
         if is_alloc_intrinsic(&f.name) {
             mark_noalias_ret(&ctx, llvm_fn);
+        }
+        // Step 12-a-1: narrow-apply the canonical extern attribute
+        // bundle (nounwind + willreturn + mustprogress + memory(
+        // argmem | inaccessiblemem: readwrite)) to `__torajs_arr_alloc`.
+        // ssa_lower emits direct extern references to this symbol
+        // (resolved from libtorajs_arr.a at link time), so it bypasses
+        // the `declares.rs` route that already attaches these
+        // attributes to `__torajs_arr_alloc_pooled` and the libc
+        // family. Without this, LICM can't hoist `@i / @sum / @j`
+        // loop-invariant loads across push-grow allocator calls in
+        // array-sum-1m-shape hot paths. The whitelist is deliberately
+        // narrow — the wider `is_alloc_intrinsic` set covers fns
+        // (fs/process/regex/date) whose memory profile reaches Other
+        // locations or non-narrowable globals.
+        if matches!(f.name.as_str(), "__torajs_arr_alloc") {
+            apply_arr_alloc_extern_attrs(&ctx, llvm_fn);
         }
         fn_map.push(llvm_fn);
     }

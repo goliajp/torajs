@@ -22,6 +22,29 @@ pub(super) fn mark_alwaysinline<'ctx>(ctx: &'ctx Context, f: FunctionValue<'ctx>
     f.add_attribute(AttributeLoc::Function, attr);
 }
 
+/// Tag a function with LLVM's `memory(...)` attribute carrying an
+/// explicit encoded bitmask. LLVM 16+ packs three location/ModRef
+/// pairs into a single u64:
+///
+///   bits 0-1   ArgMem          (0 = none, 1 = read, 2 = write, 3 = readwrite)
+///   bits 2-3   InaccessibleMem (same layout)
+///   bits 4-5   Other           (same layout)
+///
+/// So e.g. `memory(argmem: readwrite)` = 3, `memory(argmem: read)` = 1,
+/// `memory(inaccessiblemem: readwrite)` = 12, `memory(argmem: readwrite,
+/// inaccessiblemem: readwrite)` = 15, `memory(none)` = 0. The encoding
+/// is locked in by `cfg(test)` tests below — bumping LLVM versions
+/// must re-validate against them.
+pub(super) fn mark_memory_effect<'ctx>(
+    ctx: &'ctx Context,
+    f: FunctionValue<'ctx>,
+    encoded: u32,
+) {
+    let kind = Attribute::get_named_enum_kind_id("memory");
+    let attr = ctx.create_enum_attribute(kind, encoded as u64);
+    f.add_attribute(AttributeLoc::Function, attr);
+}
+
 /// T-24-prep (v0.6+1) — mark a function as `memory(none)` so LLVM's
 /// LICM / GVN can hoist invariant loads through call sites. Applied
 /// to user FnDecls whose SSA body is provably pure: no Store /
@@ -37,11 +60,85 @@ pub(super) fn mark_alwaysinline<'ctx>(ctx: &'ctx Context, f: FunctionValue<'ctx>
 /// strict-none variant first, expand to read-only later if a
 /// bench case proves the gap.
 pub(super) fn mark_memory_none<'ctx>(ctx: &'ctx Context, f: FunctionValue<'ctx>) {
-    /* LLVM 22's memory effect attribute encodes (location, mod-ref)
-     * pairs into a u64. memory(none) is the all-zero bitmask. */
-    let kind = Attribute::get_named_enum_kind_id("memory");
+    mark_memory_effect(ctx, f, 0);
+}
+
+/// `nounwind` — function never raises an exception (in our case
+/// never `longjmp`s out via `__torajs_throw_*`). All libc fns we
+/// call (malloc/free/memcpy/...) are nounwind by spec; same for
+/// the torajs pool-aware free / alloc family. Lets LLVM elide
+/// invoke-vs-call landing-pad bookkeeping and treat calls as
+/// pure control-flow edges.
+pub(super) fn mark_nounwind<'ctx>(ctx: &'ctx Context, f: FunctionValue<'ctx>) {
+    let kind = Attribute::get_named_enum_kind_id("nounwind");
     let attr = ctx.create_enum_attribute(kind, 0);
     f.add_attribute(AttributeLoc::Function, attr);
+}
+
+/// `willreturn` — function is guaranteed to return to its caller
+/// (no infinite loops, no `abort`, no `longjmp`). Combined with
+/// `mustprogress`, this lets LLVM remove provably dead calls and
+/// hoist invariant loads through call sites in loops whose only
+/// "interesting" exit is the call returning.
+pub(super) fn mark_willreturn<'ctx>(ctx: &'ctx Context, f: FunctionValue<'ctx>) {
+    let kind = Attribute::get_named_enum_kind_id("willreturn");
+    let attr = ctx.create_enum_attribute(kind, 0);
+    f.add_attribute(AttributeLoc::Function, attr);
+}
+
+/// `mustprogress` — function (or one of its descendants) is
+/// required to make observable forward progress in finite time.
+/// Required for LICM hoisting in loops where dropping the call
+/// would otherwise change termination behavior; pairs with
+/// `willreturn` for the strongest guarantee.
+pub(super) fn mark_mustprogress<'ctx>(ctx: &'ctx Context, f: FunctionValue<'ctx>) {
+    let kind = Attribute::get_named_enum_kind_id("mustprogress");
+    let attr = ctx.create_enum_attribute(kind, 0);
+    f.add_attribute(AttributeLoc::Function, attr);
+}
+
+/// `nofree` — function never frees memory reachable via pointer
+/// arguments or globals. Applies cleanly to `memcmp` (pure read)
+/// but NOT to `free` / `realloc` / pool-aware allocators (which
+/// by design release blocks back to libc / the per-cap pool).
+pub(super) fn mark_nofree<'ctx>(ctx: &'ctx Context, f: FunctionValue<'ctx>) {
+    let kind = Attribute::get_named_enum_kind_id("nofree");
+    let attr = ctx.create_enum_attribute(kind, 0);
+    f.add_attribute(AttributeLoc::Function, attr);
+}
+
+// `allocsize(N)` single-arg form is deferred to a Step 12-a-1
+// follow-up. Inkwell 0.9 + llvm-sys-22.1 only expose the raw
+// `LLVMCreateEnumAttribute(kind, value: u64)` ABI, and every
+// encoding via that path round-trips as the two-arg form
+// `allocsize(X, Y)` — which is semantically wrong for malloc-
+// shape allocators (LLVM would interpret it as size*count from
+// two args). Doing this correctly needs the dedicated
+// `LLVMCreateAllocSizeAttribute(ctx, ElemSize, NumElems)` C
+// API, which llvm-sys-22.1 doesn't bind yet — adding it is a
+// narrow llvm-sys patch / FFI extern, separate from this batch.
+// The other LICM-blocking attributes (memory / nounwind /
+// willreturn / mustprogress / nofree) cover the bulk of
+// array-sum-1m's hoist gap on their own.
+
+/// One-shot helper that applies the canonical "well-behaved extern
+/// call" attribute bundle: `nounwind` + `willreturn` +
+/// `mustprogress` + `memory(<encoded>)`. Every libc /
+/// pool-aware-alloc / pool-aware-free declaration in `declares.rs`
+/// is well-behaved in this sense — they always return, never
+/// unwind across the FFI boundary, and (with the right `memory(...)`
+/// mask) only touch the memory locations LLVM is told about. The
+/// `nofree` attribute is applied separately by the few sites that
+/// genuinely never call `free` on their args (notably `memcmp`).
+pub(super) fn mark_extern_canonical<'ctx>(
+    ctx: &'ctx Context,
+    f: FunctionValue<'ctx>,
+    memory_encoded: u32,
+) {
+    mark_nounwind(ctx, f);
+    mark_willreturn(ctx, f);
+    mark_mustprogress(ctx, f);
+    mark_memory_effect(ctx, f, memory_encoded);
 }
 
 /// T-21 link-time gate. Walk every fn's instructions; return true
@@ -181,4 +278,144 @@ pub(super) fn is_alloc_intrinsic(name: &str) -> bool {
         | "__torajs_process_getenv"
         | "__torajs_fs_read_file_sync"
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use inkwell::AddressSpace;
+    use inkwell::context::Context;
+
+    /// Build a tiny module with one extern declaration, run the
+    /// given closure to apply attributes to that fn, then return
+    /// the IR text. Used to validate that each `mark_*` helper
+    /// emits the expected LLVM IR syntax under LLVM 22.
+    fn ir_with_apply(apply: impl FnOnce(&Context, FunctionValue<'_>)) -> String {
+        let ctx = Context::create();
+        let m = ctx.create_module("attr_emit_test");
+        let void_t = ctx.void_type();
+        let ptr_t = ctx.ptr_type(AddressSpace::default());
+        let i64_t = ctx.i64_type();
+        let fn_t = void_t.fn_type(&[ptr_t.into(), ptr_t.into(), i64_t.into()], false);
+        let f = m.add_function("dummy", fn_t, None);
+        apply(&ctx, f);
+        m.print_to_string().to_string()
+    }
+
+    /// `memory(none)` = all locations NoModRef, encoded value 0.
+    /// Same call path as `mark_memory_none` — locks in the invariant
+    /// that value 0 prints `memory(none)`.
+    #[test]
+    fn memory_encoding_none_zero() {
+        let ir = ir_with_apply(|c, f| mark_memory_effect(c, f, 0));
+        assert!(
+            ir.contains("memory(none)"),
+            "expected `memory(none)` in IR for encoded=0, got:\n{ir}"
+        );
+    }
+
+    /// ArgMem bits 0-1 = ModRef (3); others NoModRef. Expect
+    /// `memory(argmem: readwrite)` — used by memcpy/memmove
+    /// declarations in Step 12-a-1.
+    #[test]
+    fn memory_encoding_argmem_readwrite() {
+        let ir = ir_with_apply(|c, f| mark_memory_effect(c, f, 3));
+        assert!(
+            ir.contains("memory(argmem: readwrite)"),
+            "expected `memory(argmem: readwrite)` in IR for encoded=3, got:\n{ir}"
+        );
+    }
+
+    /// ArgMem bits 0-1 = Ref (1); others NoModRef. Expect
+    /// `memory(argmem: read)` — used by memcmp declaration.
+    #[test]
+    fn memory_encoding_argmem_read() {
+        let ir = ir_with_apply(|c, f| mark_memory_effect(c, f, 1));
+        assert!(
+            ir.contains("memory(argmem: read)"),
+            "expected `memory(argmem: read)` in IR for encoded=1, got:\n{ir}"
+        );
+    }
+
+    /// InaccessibleMem bits 2-3 = ModRef (3 << 2 = 12); others
+    /// NoModRef. Expect `memory(inaccessiblemem: readwrite)` —
+    /// used by malloc declaration (touches allocator state but no
+    /// caller-visible memory).
+    #[test]
+    fn memory_encoding_inaccessible_readwrite() {
+        let ir = ir_with_apply(|c, f| mark_memory_effect(c, f, 12));
+        assert!(
+            ir.contains("memory(inaccessiblemem: readwrite)"),
+            "expected `memory(inaccessiblemem: readwrite)` in IR for encoded=12, got:\n{ir}"
+        );
+    }
+
+    /// ArgMem (3) | InaccessibleMem (3 << 2 = 12) = 15; Other still
+    /// NoModRef. Expect `memory(argmem: readwrite, inaccessiblemem:
+    /// readwrite)`. Used by realloc/free/arr_alloc declarations —
+    /// the bulk of Step 12-a-1's attribute set.
+    #[test]
+    fn memory_encoding_argmem_and_inaccessible() {
+        let ir = ir_with_apply(|c, f| mark_memory_effect(c, f, 15));
+        // LLVM may print the locations in either order; accept both.
+        let canonical = ir.contains("memory(argmem: readwrite, inaccessiblemem: readwrite)");
+        let reversed = ir.contains("memory(inaccessiblemem: readwrite, argmem: readwrite)");
+        assert!(
+            canonical || reversed,
+            "expected `memory(argmem: readwrite, inaccessiblemem: readwrite)` (either order) for encoded=15, got:\n{ir}"
+        );
+    }
+
+    #[test]
+    fn nounwind_helper_emits_attribute() {
+        let ir = ir_with_apply(|c, f| mark_nounwind(c, f));
+        assert!(
+            ir.contains("nounwind"),
+            "expected `nounwind` in IR, got:\n{ir}"
+        );
+    }
+
+    #[test]
+    fn willreturn_helper_emits_attribute() {
+        let ir = ir_with_apply(|c, f| mark_willreturn(c, f));
+        assert!(
+            ir.contains("willreturn"),
+            "expected `willreturn` in IR, got:\n{ir}"
+        );
+    }
+
+    #[test]
+    fn mustprogress_helper_emits_attribute() {
+        let ir = ir_with_apply(|c, f| mark_mustprogress(c, f));
+        assert!(
+            ir.contains("mustprogress"),
+            "expected `mustprogress` in IR, got:\n{ir}"
+        );
+    }
+
+    #[test]
+    fn nofree_helper_emits_attribute() {
+        let ir = ir_with_apply(|c, f| mark_nofree(c, f));
+        assert!(ir.contains("nofree"), "expected `nofree` in IR, got:\n{ir}");
+    }
+
+    /// `mark_extern_canonical` is the bundle every libc / pooled-
+    /// alloc / pooled-free declaration in `declares.rs` calls.
+    /// Verify all four pieces (nounwind, willreturn, mustprogress,
+    /// memory(<encoded>)) land on the same fn under LLVM 22.
+    #[test]
+    fn extern_canonical_bundle_argmem_readwrite() {
+        let ir = ir_with_apply(|c, f| mark_extern_canonical(c, f, 3));
+        for needle in [
+            "nounwind",
+            "willreturn",
+            "mustprogress",
+            "memory(argmem: readwrite)",
+        ] {
+            assert!(
+                ir.contains(needle),
+                "expected `{needle}` in IR after mark_extern_canonical(encoded=3), got:\n{ir}"
+            );
+        }
+    }
 }
