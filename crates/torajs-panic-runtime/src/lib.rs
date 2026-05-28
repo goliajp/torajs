@@ -172,6 +172,112 @@ mod active {
     fn torajs_alloc_error_handler(_layout: Layout) -> ! {
         unsafe { write_banner_and_abort() }
     }
+
+    // ===========================================================
+    // v0.7-A5 step 16-d — `#[global_allocator]` single-marker site
+    // ===========================================================
+    //
+    // Why panic-runtime: this staticlib is `-Wl,-force_load`-first
+    // per `ssa_inkwell/link.rs`, so the `__rust_alloc_*` shim
+    // emitted by `#[global_allocator]` resolves before any sibling
+    // staticlib's fallback shim (libtorajs_mmalloc, etc.). Single
+    // marker site eliminates the duplicate-symbol class.
+    //
+    // Why route through `__torajs_libc_malloc / _free / _realloc`
+    // (libtorajs_mmalloc-exported `extern "C"`): keeps the
+    // allocator state in mmalloc (single source of truth) while
+    // satisfying panic-runtime's 0 Cargo deps invariant — the
+    // binding is link-level, not Cargo-level.
+    //
+    // Alignment contract: `__torajs_libc_malloc` guarantees
+    // 16-byte alignment via the SHIM_HEADER path; for
+    // `Layout::align()` > 16 we over-allocate and store the
+    // original base in a one-`usize` pre-header (mirrors the
+    // alignment math in `torajs_mmalloc::global_alloc`).
+
+    use core::alloc::GlobalAlloc;
+    use core::mem::size_of;
+
+    const ALLOC_HEADER: usize = size_of::<usize>();
+    const NATIVE_ALIGN: usize = 16;
+
+    unsafe extern "C" {
+        fn __torajs_libc_malloc(size: usize) -> *mut c_void;
+        fn __torajs_libc_free(ptr: *mut c_void);
+        fn __torajs_libc_realloc(ptr: *mut c_void, new_size: usize) -> *mut c_void;
+    }
+
+    /// Zero-sized marker type for the staticlib's
+    /// `#[global_allocator]`. All state lives in mmalloc's
+    /// `CORE_*` statics; this is a stateless trampoline.
+    pub struct TorajsAllocator;
+
+    unsafe impl GlobalAlloc for TorajsAllocator {
+        unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+            let size = layout.size();
+            let align = layout.align();
+            if align <= NATIVE_ALIGN {
+                return unsafe { __torajs_libc_malloc(size) as *mut u8 };
+            }
+            let Some(total) = size
+                .checked_add(align - 1)
+                .and_then(|n| n.checked_add(ALLOC_HEADER))
+            else {
+                return core::ptr::null_mut();
+            };
+            let raw = unsafe { __torajs_libc_malloc(total) } as *mut u8;
+            if raw.is_null() {
+                return raw;
+            }
+            let after_hdr = (raw as usize) + ALLOC_HEADER;
+            let aligned = (after_hdr + align - 1) & !(align - 1);
+            unsafe {
+                core::ptr::write((aligned - ALLOC_HEADER) as *mut usize, raw as usize);
+            }
+            aligned as *mut u8
+        }
+
+        unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+            let align = layout.align();
+            if align <= NATIVE_ALIGN {
+                unsafe { __torajs_libc_free(ptr as *mut c_void) };
+                return;
+            }
+            let raw = unsafe { core::ptr::read((ptr as usize - ALLOC_HEADER) as *const usize) }
+                as *mut c_void;
+            unsafe { __torajs_libc_free(raw) };
+        }
+
+        unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
+            let p = unsafe { self.alloc(layout) };
+            if !p.is_null() {
+                unsafe { core::ptr::write_bytes(p, 0, layout.size()) };
+            }
+            p
+        }
+
+        unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+            let align = layout.align();
+            if align <= NATIVE_ALIGN {
+                return unsafe { __torajs_libc_realloc(ptr as *mut c_void, new_size) as *mut u8 };
+            }
+            let new_layout = match Layout::from_size_align(new_size, align) {
+                Ok(l) => l,
+                Err(_) => return core::ptr::null_mut(),
+            };
+            let new_ptr = unsafe { self.alloc(new_layout) };
+            if new_ptr.is_null() {
+                return new_ptr;
+            }
+            let copy_len = core::cmp::min(layout.size(), new_size);
+            unsafe { core::ptr::copy_nonoverlapping(ptr, new_ptr, copy_len) };
+            unsafe { self.dealloc(ptr, layout) };
+            new_ptr
+        }
+    }
+
+    #[global_allocator]
+    static GLOBAL: TorajsAllocator = TorajsAllocator;
 }
 
 // ===========================================================================

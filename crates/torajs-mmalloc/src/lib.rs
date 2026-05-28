@@ -40,11 +40,13 @@
 pub mod central;
 pub mod core;
 pub mod extern_api;
+pub mod global_alloc;
 pub mod large;
 pub mod page;
 pub mod size_class;
 pub mod span;
 pub mod tlab;
 
+pub use global_alloc::TorajsAllocator;
 pub use size_class::Allocator;
 pub use span::Span;
