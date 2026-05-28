@@ -18,7 +18,7 @@
 //!
 //! ## Buffer-sharing constraint
 //!
-//! Uses extern `putchar` per-byte (NOT `std::io::stdout`) to share the C
+//! Uses `torajs_io::__torajs_io_putc_stdout` per-byte (v0.7-A3 Step 14-b cutover from libc `putchar`) to share the
 //! stdio stdout buffer with still-IR-emitted `print_i64` / `print_f64`
 //! / `print_bool` (scalar variants). Same rationale + constraint as
 //! `torajs-str::print::__torajs_str_print`.
@@ -46,7 +46,7 @@ const SUBSTR_PARENT_OFF: usize = 16;
 const SUBSTR_OFFSET_OFF: usize = 24;
 
 unsafe extern "C" {
-    fn putchar(c: i32) -> i32;
+    fn __torajs_io_putc_stdout(c: i32) -> i32;
     // Variadic — Rust requires `...` (c_variadic feature) for full
     // signature; we restrict to the two arities we actually call
     // (one for i64, one for f64, one for the format-only path).
@@ -60,7 +60,7 @@ unsafe extern "C" {
 #[inline]
 unsafe fn put_byte(b: u8) {
     unsafe {
-        putchar(b as i32);
+        __torajs_io_putc_stdout(b as i32);
     }
 }
 
@@ -115,7 +115,7 @@ unsafe fn slot_addr(arr: *const u8, head: u32, i: u64) -> *const u8 {
     unsafe { arr.add(ARR_SLOTS_OFF + (head as usize + i as usize) * 8) }
 }
 
-/// snprintf-format `v` into a stack buffer + emit bytes via putchar.
+/// snprintf-format `v` into a stack buffer + emit bytes via `__torajs_io_putc_stdout`.
 /// Cap at 64 bytes (any IEEE-754 f64 / i64 print fits comfortably).
 unsafe fn put_snprintf_i64(v: i64) {
     let mut buf = [0u8; 64];

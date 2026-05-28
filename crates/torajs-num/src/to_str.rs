@@ -28,11 +28,13 @@ use crate::str_bridge::alloc_str;
 unsafe extern "C" {
     fn snprintf(buf: *mut c_char, n: usize, fmt: *const u8, ...) -> i32;
     fn strtod(s: *const c_char, endp: *mut *mut c_char) -> f64;
-    // Per-byte stdout writer — shared C stdio buffer with the rest
-    // of the print family (print_i64 / print_bool / str_print).
-    // Direct fwrite would diverge buffering (see
-    // torajs-str::print module docs).
-    fn putchar(c: i32) -> i32;
+    // Per-byte stdout writer — v0.7-A3 Step 14-b cutover from libc
+    // putchar to torajs-io's 0-libc buffered writer. Shared
+    // process-global line buffer with __torajs_str_print /
+    // __torajs_substr_print / arr_print / inspect / IR-emitted
+    // print_i64 / print_bool / print_f64 (all routed through the
+    // same symbol after 14-c).
+    fn __torajs_io_putc_stdout(c: i32) -> i32;
 }
 
 /// f64 → shortest decimal byte representation per JS spec. Writes
@@ -135,26 +137,27 @@ pub unsafe extern "C" fn __torajs_bool_to_str(b: i32) -> *mut u8 {
 }
 
 /// `console.log(d)` for f64 — writes JS-spec shortest-roundtrip
-/// representation + newline directly to stdout via libc `fwrite` /
-/// `putchar` (shared buffer with `print_i64` / `print_bool` /
-/// `str_print`). NaN / ±Infinity special-cased.
+/// representation + newline directly to stdout via
+/// `__torajs_io_putc_stdout` (shared 0-libc buffered writer with
+/// `print_i64` / `print_bool` / `str_print` and IR-emitted print
+/// family). NaN / ±Infinity special-cased.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_print_f64_js(d: f64) {
     if d.is_nan() {
         for &b in b"NaN\n" {
-            unsafe { putchar(b as i32) };
+            unsafe { __torajs_io_putc_stdout(b as i32) };
         }
         return;
     }
     if d == f64::INFINITY {
         for &b in b"Infinity\n" {
-            unsafe { putchar(b as i32) };
+            unsafe { __torajs_io_putc_stdout(b as i32) };
         }
         return;
     }
     if d == f64::NEG_INFINITY {
         for &b in b"-Infinity\n" {
-            unsafe { putchar(b as i32) };
+            unsafe { __torajs_io_putc_stdout(b as i32) };
         }
         return;
     }
@@ -163,8 +166,8 @@ pub unsafe extern "C" fn __torajs_print_f64_js(d: f64) {
     let n = if n < 0 { 0 } else { n as usize };
     if n > 0 {
         for &b in &buf[..n] {
-            unsafe { putchar(b as i32) };
+            unsafe { __torajs_io_putc_stdout(b as i32) };
         }
     }
-    unsafe { putchar(b'\n' as i32) };
+    unsafe { __torajs_io_putc_stdout(b'\n' as i32) };
 }

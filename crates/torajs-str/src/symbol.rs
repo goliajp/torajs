@@ -43,12 +43,13 @@ unsafe extern "C" {
     fn __torajs_str_drop(s: *mut c_void);
     fn __torajs_str_eq(a: *const u8, b: *const u8) -> i64;
     fn __torajs_panic(msg: *const u8) -> !;
-    // libc — for symbol_print to match the C runtime's libc-stdout
-    // buffering (Rust's stdout().lock() bypasses libc's FILE *stdout
-    // buffer, causing reordering vs other prints). printf uses
-    // implicit stdout — no need to import the platform-specific
-    // `stdout` symbol (macOS = `__stdoutp`, Linux = `stdout`).
-    fn printf(fmt: *const u8, ...) -> i32;
+    // v0.7-A3 Step 14-b — 0-libc buffered stdout writer. Replaces
+    // the prior libc `printf` for symbol_print. Shared process-
+    // global line buffer with str_print / substr_print / arr_print
+    // / inspect / IR-emitted print_i64/_f64/_bool — no cross-buffer
+    // reordering risk.
+    fn __torajs_io_write_stdout(buf: *const u8, len: u64);
+    fn __torajs_io_putc_stdout(c: i32) -> i32;
 }
 
 #[repr(C)]
@@ -194,25 +195,24 @@ pub unsafe extern "C" fn __torajs_symbol_description(p: *const c_void) -> *mut c
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_symbol_print(p: *const c_void) {
     if p.is_null() {
-        unsafe { printf(b"undefined\n\0".as_ptr()) };
+        unsafe { __torajs_io_write_stdout(b"undefined\n".as_ptr(), 10) };
         return;
     }
     let desc = unsafe { symbol_desc(p) };
-    unsafe { printf(b"Symbol(\0".as_ptr()) };
+    unsafe { __torajs_io_write_stdout(b"Symbol(".as_ptr(), 7) };
     if !desc.is_null() {
-        let len = unsafe { *((desc as *const u8).add(STR_LEN_OFF) as *const u64) } as i32;
+        let len = unsafe { *((desc as *const u8).add(STR_LEN_OFF) as *const u64) };
         if len > 0 {
-            // %.*s — pointer + length pair (binary-safe for NUL bytes).
             unsafe {
-                printf(
-                    b"%.*s\0".as_ptr(),
-                    len,
-                    (desc as *const u8).add(STR_HDR_SIZE),
-                );
+                __torajs_io_write_stdout((desc as *const u8).add(STR_HDR_SIZE), len);
             }
         }
     }
-    unsafe { printf(b")\n\0".as_ptr()) };
+    // `)\n` — close paren + newline triggers buffer flush.
+    unsafe {
+        __torajs_io_putc_stdout(b')' as i32);
+        __torajs_io_putc_stdout(b'\n' as i32);
+    }
 }
 
 // ---- Symbol.for / Symbol.keyFor registry ----

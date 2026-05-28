@@ -23,6 +23,16 @@ torajs-runtime = { path = "../torajs-runtime" }
 # TLAB_SLOT_STRIDE, etc.) for Phase 2e IR-emit inline TLAB.pop /
 # push sequences at user-binary alloc/free call sites.
 torajs-mmalloc = { path = "../torajs-mmalloc" }
+# Layer-0: 0-libc buffered stdout writer (v0.7-A3 Step 14-a).
+# Dual rlib+staticlib; libtorajs_io.a co-links so
+# __torajs_io_putc_stdout / write_stdout / flush resolve at
+# `tr build`. Pulled in as a torajs-core build-time dep so
+# build.rs's STATICLIBS path emit + lib.rs's include_bytes! find
+# the freshly compiled archive. After 14-b/c cutover, every
+# print path in the runtime + IR-emitted print_i64/print_bool/
+# print_f64 routes through this crate (eliminates libc putchar
+# from otool -L output).
+torajs-io = { path = "../torajs-io" }
 # Layer-1 substrate: rc_inc / rc_dec / HeapHeader. Pulled in for both
 # (a) the rlib (so torajs-core can call rc_inc directly from Rust if
 # needed later) and (b) the staticlib that build.rs copies into

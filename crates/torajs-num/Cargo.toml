@@ -23,9 +23,11 @@ workspace = true
 crate-type = ["rlib", "staticlib"]
 
 [dependencies]
-# No deps for the P3.2-a scaffold. Future ToNumber port (P3.2-c) will
-# pull torajs-anyvalue (for AnyBox tag dispatch on any.toNumber) +
-# torajs-throw (for RangeError on invalid numeric conversion edge cases).
+# v0.7-A3 Step 14-b — 0-libc buffered stdout for print_i64/f64 Rust path.
+torajs-io = { path = "../torajs-io" }
+# Future ToNumber port (P3.2-c) will pull torajs-anyvalue (for AnyBox
+# tag dispatch on any.toNumber) + torajs-throw (for RangeError on
+# invalid numeric conversion edge cases).
 
 [dev-dependencies]
 criterion = { workspace = true }

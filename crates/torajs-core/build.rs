@@ -37,13 +37,52 @@ use std::path::PathBuf;
 /// (no effect on emitted .o), wasting cache hits.
 const COMPILER_SOURCE_FILES: &[&str] = &[
     "src/ssa_inkwell.rs",
+    // ssa_inkwell sub-modules — every .rs file under src/ssa_inkwell/
+    // contributes to codegen output (extern declares, attribute
+    // application, IR builders for print/alloc/array families).
+    // Without these in the fingerprint, a substrate ship that
+    // changes an IR symbol name (e.g. v0.7-A3 Step 14-b/c cutover
+    // from libc `putchar` to `__torajs_io_putc_stdout` in
+    // `declares.rs`) leaves the per-fixture `.o` cache stale:
+    // cached objects still reference the old symbol while the
+    // current staticlib provides only the new symbol, producing
+    // mixed-buffer ordering bugs at link time.
+    "src/ssa_inkwell/arr_builders.rs",
+    "src/ssa_inkwell/arr_builders_non_deque.rs",
+    "src/ssa_inkwell/arr_helpers.rs",
+    "src/ssa_inkwell/attrs.rs",
+    "src/ssa_inkwell/builders.rs",
+    "src/ssa_inkwell/class_globals.rs",
+    "src/ssa_inkwell/declares.rs",
+    "src/ssa_inkwell/entry.rs",
+    "src/ssa_inkwell/globals.rs",
+    "src/ssa_inkwell/link.rs",
+    "src/ssa_inkwell/lower.rs",
+    "src/ssa_inkwell/lower_fns.rs",
+    "src/ssa_inkwell/lower_inst.rs",
+    "src/ssa_inkwell/obj_builders.rs",
+    "src/ssa_inkwell/panic_runtime_link.rs",
+    "src/ssa_inkwell/pipeline.rs",
+    "src/ssa_inkwell/split_iter.rs",
+    "src/ssa_inkwell/types.rs",
     "src/ssa_lower.rs",
+    "src/ssa_lower_substr_trim_into.rs",
+    "src/ssa_lower_while_push_fast.rs",
+    "src/ssa_lower_push_loop_detect.rs",
+    "src/ssa_lower_body_returns_closure.rs",
+    "src/ssa_lower_closure_captures.rs",
+    "src/ssa_lower_deque_escape.rs",
+    "src/ssa_lower_obj_escape.rs",
     "src/ssa.rs",
     "src/check.rs",
     "src/parser.rs",
     "src/lexer.rs",
     "src/ast.rs",
     "src/modules.rs",
+    // lib.rs's TORAJS_STATICLIBS list controls which sub-crate
+    // staticlibs the user binary links. Adding / removing entries
+    // changes linkage; must invalidate cache.
+    "src/lib.rs",
 ];
 
 /// Enumerate every Layer-1+ Rust sub-crate that contributes
@@ -54,6 +93,7 @@ const COMPILER_SOURCE_FILES: &[&str] = &[
 /// _PATH")`.
 const STATICLIBS: &[&str] = &[
     "torajs_syscall",       // Layer-0: aarch64/x86_64 raw syscall trampoline (v0.7-A1)
+    "torajs_io",            // Layer-0: 0-libc buffered stdout writer (v0.7-A3 Step 14-a)
     "torajs_mmalloc",       // Layer-0: mmap-backed allocator + libc-compat shim (v0.7-A2)
     "torajs_rc",            // Layer-1: refcount + heap-header
     "torajs_anyvalue",      // Layer-1: AnyBox (boxed Type::Any)

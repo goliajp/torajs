@@ -40,7 +40,7 @@ unsafe extern "C" {
     fn print_i64(n: i64);
     fn print_f64(d: f64);
     fn print_bool(b: bool);
-    fn putchar(c: i32) -> i32;
+    fn __torajs_io_putc_stdout(c: i32) -> i32;
 }
 
 #[inline]
@@ -55,7 +55,7 @@ fn alloc_literal(s: &[u8]) -> *mut u8 {
 #[inline]
 fn write_line(s: &[u8]) {
     for &b in s {
-        unsafe { putchar(b as i32) };
+        unsafe { __torajs_io_putc_stdout(b as i32) };
     }
 }
 
@@ -161,10 +161,10 @@ pub unsafe extern "C" fn __torajs_print_anyv(v: AnyValue) {
         let len = short_str_len(v) as usize;
         let bytes = short_str_bytes(v);
         for &b in &bytes[..len] {
-            // SAFETY: putchar is libc, safe for any i32 byte value.
-            unsafe { putchar(b as i32) };
+            // SAFETY: __torajs_io_putc_stdout takes any i32 byte value.
+            unsafe { __torajs_io_putc_stdout(b as i32) };
         }
-        unsafe { putchar(b'\n' as i32) };
+        unsafe { __torajs_io_putc_stdout(b'\n' as i32) };
         return;
     }
     if is_cell(v) {

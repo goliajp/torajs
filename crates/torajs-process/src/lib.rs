@@ -38,13 +38,14 @@ unsafe extern "C" {
     fn getcwd(buf: *mut c_char, size: usize) -> *mut c_char;
     fn getenv(name: *const c_char) -> *const c_char;
     fn strlen(s: *const c_char) -> usize;
-    fn printf(fmt: *const u8, ...) -> i32;
     fn write(fd: i32, buf: *const c_void, n: usize) -> isize;
-    // fflush(NULL) flushes every open output stream — used before
-    // stderr.write to drain the libc stdio stdout buffer so direct
-    // write(2)-to-fd-2 doesn't reorder ahead of buffered console.log
-    // output when the user redirects 2>&1.
-    fn fflush(stream: *mut c_void) -> i32;
+    // v0.7-A3 Step 14-b — 0-libc buffered stdout writer. Replaces
+    // libc `printf` + `fflush(NULL)` on the process.stdout.write
+    // path. __torajs_io_flush drains torajs-io's process-global
+    // line buffer before write(2)-direct stderr so combined
+    // `2>&1` redirection still preserves caller-order interleaving.
+    fn __torajs_io_write_stdout(buf: *const u8, len: u64);
+    fn __torajs_io_flush();
 }
 
 #[cfg(not(test))]
@@ -188,21 +189,16 @@ pub unsafe extern "C" fn __torajs_process_argv() -> *mut u8 {
     out
 }
 
-/// `process.stdout.write(s)` → bool. Via libc printf (shared stdio
-/// buffer). fflush(stdout) via fflush(NULL) so the user sees the
-/// write before the next syscall (matches pre-port C behavior).
-/// Panics on short write (typed-throw deferred).
+/// `process.stdout.write(s)` → bool. Via torajs-io's 0-libc
+/// buffered writer (shared process-global line buffer with the
+/// print family). Caller sees the write before the next syscall
+/// via the explicit flush at the end.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_process_stdout_write(s: *const u8) -> bool {
-    let dlen = unsafe { str_len(s) } as i32;
+    let dlen = unsafe { str_len(s) };
     let d = unsafe { str_data(s) };
-    let written = unsafe { printf(b"%.*s\0".as_ptr(), dlen, d) };
-    if written < 0 || written != dlen {
-        unsafe {
-            __torajs_panic(b"not yet supported: process.stdout.write short write\0".as_ptr())
-        };
-    }
-    unsafe { fflush(core::ptr::null_mut()) };
+    unsafe { __torajs_io_write_stdout(d, dlen) };
+    unsafe { __torajs_io_flush() };
     true
 }
 
@@ -214,9 +210,10 @@ pub unsafe extern "C" fn __torajs_process_stdout_write(s: *const u8) -> bool {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_process_stderr_write(s: *const u8) -> bool {
     // Drain buffered stdout writes first — write(2)-direct skips
-    // libc stdio so without this flush a redirected `2>&1` would
-    // see stderr lines printed before still-buffered stdout lines.
-    unsafe { fflush(core::ptr::null_mut()) };
+    // torajs-io's buffer so without this flush a redirected `2>&1`
+    // would see stderr lines printed before still-buffered stdout
+    // lines.
+    unsafe { __torajs_io_flush() };
     let dlen = unsafe { str_len(s) } as usize;
     if dlen == 0 {
         return true;

@@ -30,6 +30,8 @@ torajs-abort = { path = "../torajs-abort" }
 # v0.7-A2 step 6b — force-link mmalloc so this crate's `#[link_name=
 # "__torajs_libc_*"]` externs resolve at user-binary link time.
 torajs-mmalloc = { path = "../torajs-mmalloc" }
+# v0.7-A3 Step 14-b — 0-libc buffered stdout for Any inspect printing.
+torajs-io = { path = "../torajs-io" }
 
 [dev-dependencies]
 criterion = { workspace = true }

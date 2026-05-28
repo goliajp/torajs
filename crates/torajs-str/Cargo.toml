@@ -35,6 +35,10 @@ torajs-abort = { path = "../torajs-abort" }
 # "__torajs_libc_*"]` externs in alloc.rs + substr.rs resolve at
 # user-binary link time.
 torajs-mmalloc = { path = "../torajs-mmalloc" }
+# v0.7-A3 Step 14-b — replace libc putchar with our own
+# 0-libc buffered stdout writer. Eliminates libc dep on the
+# hot console.log(string) / console.log(substr) path.
+torajs-io = { path = "../torajs-io" }
 
 [dev-dependencies]
 criterion = { workspace = true }

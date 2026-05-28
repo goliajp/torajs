@@ -5,14 +5,13 @@
 //! here as of P3.1-g.2 (2026-05-23).
 //!
 //! **Buffer-sharing constraint**: `__torajs_str_print` (stdout)
-//! intentionally uses `extern "C" putchar` per-byte rather than
-//! Rust `std::io::stdout`, because the still-IR-emitted
-//! `print_i64` / `print_f64` / `print_bool` use putchar via the C
-//! stdio buffer. If `__torajs_str_print` bypassed that buffer (as
-//! `std::io::stdout` does), mixed `console.log("a"); console.log(5)`
-//! sequences would reorder on flush. Per-byte putchar is slower
-//! than a single `write(2)` but is the minimal cross-buffer fix
-//! until print_i64 et al. also port to Rust (later P3.1-g sub-step).
+//! uses `torajs_io::__torajs_io_putc_stdout` per-byte (v0.7-A3
+//! Step 14-b cutover from libc `putchar`). The IR-emitted
+//! `print_i64` / `print_f64` / `print_bool` in `ssa_inkwell/
+//! builders.rs` also route through the same symbol (Step 14-c
+//! cutover), so all stdout writers share torajs-io's process-
+//! global line buffer. No cross-buffer reordering risk: every
+//! console.log call ends with '\n' which triggers a flush.
 //!
 //! `__torajs_str_print_err` uses `std::io::stderr` because the
 //! stderr-writing sibling fns (`print_i64_err` etc.) all go through
@@ -54,7 +53,7 @@ pub fn format_print_err(payload: Option<&[u8]>) -> Vec<u8> {
 // ============================================================
 
 unsafe extern "C" {
-    fn putchar(c: i32) -> i32;
+    fn __torajs_io_putc_stdout(c: i32) -> i32;
 }
 
 /// `console.log(str)` — write `s`'s payload bytes + newline to
@@ -72,7 +71,7 @@ unsafe extern "C" {
 pub unsafe extern "C" fn __torajs_str_print(s: *const u8) {
     if s.is_null() {
         for &b in b"null\n" {
-            unsafe { putchar(b as i32) };
+            unsafe { __torajs_io_putc_stdout(b as i32) };
         }
         return;
     }
@@ -80,10 +79,10 @@ pub unsafe extern "C" fn __torajs_str_print(s: *const u8) {
     if len > 0 {
         let bytes = unsafe { core::slice::from_raw_parts(s.add(STR_DATA_OFF), len) };
         for &b in bytes {
-            unsafe { putchar(b as i32) };
+            unsafe { __torajs_io_putc_stdout(b as i32) };
         }
     }
-    unsafe { putchar(b'\n' as i32) };
+    unsafe { __torajs_io_putc_stdout(b'\n' as i32) };
 }
 
 /// `console.log(substr)` — write a Substr's view (parent bytes +
@@ -102,7 +101,7 @@ pub unsafe extern "C" fn __torajs_str_print(s: *const u8) {
 pub unsafe extern "C" fn __torajs_substr_print(v: *const u8) {
     if v.is_null() {
         for &b in b"null\n" {
-            unsafe { putchar(b as i32) };
+            unsafe { __torajs_io_putc_stdout(b as i32) };
         }
         return;
     }
@@ -112,10 +111,10 @@ pub unsafe extern "C" fn __torajs_substr_print(v: *const u8) {
     if len > 0 {
         let bytes = unsafe { core::slice::from_raw_parts(parent.add(STR_DATA_OFF + offset), len) };
         for &b in bytes {
-            unsafe { putchar(b as i32) };
+            unsafe { __torajs_io_putc_stdout(b as i32) };
         }
     }
-    unsafe { putchar(b'\n' as i32) };
+    unsafe { __torajs_io_putc_stdout(b'\n' as i32) };
 }
 
 /// `console.error(str)` — write `s`'s payload bytes + newline to

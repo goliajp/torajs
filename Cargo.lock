@@ -1841,6 +1841,7 @@ version = "0.1.0"
 dependencies = [
  "criterion",
  "torajs-abort",
+ "torajs-io",
  "torajs-mmalloc",
  "torajs-rc",
 ]
@@ -1851,6 +1852,7 @@ version = "0.1.0"
 dependencies = [
  "criterion",
  "torajs-abort",
+ "torajs-io",
  "torajs-mmalloc",
  "torajs-rc",
 ]
@@ -1913,6 +1915,7 @@ dependencies = [
  "torajs-collections",
  "torajs-cycle",
  "torajs-dynobj",
+ "torajs-io",
  "torajs-meta",
  "torajs-microtask",
  "torajs-mmalloc",
@@ -2009,6 +2012,7 @@ name = "torajs-num"
 version = "0.1.0"
 dependencies = [
  "criterion",
+ "torajs-io",
 ]
 
 [[package]]
@@ -2050,6 +2054,7 @@ name = "torajs-process"
 version = "0.1.0"
 dependencies = [
  "criterion",
+ "torajs-io",
 ]
 
 [[package]]
@@ -2084,6 +2089,7 @@ version = "0.1.0"
 dependencies = [
  "criterion",
  "torajs-abort",
+ "torajs-io",
  "torajs-mmalloc",
  "torajs-rc",
 ]

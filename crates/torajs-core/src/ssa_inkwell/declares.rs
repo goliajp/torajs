@@ -61,13 +61,19 @@ pub(super) fn libc_name(native: &'static str, _target: CompileTarget) -> &'stati
     }
 }
 
+/// Step 14-b/c cutover: returns an LLVM extern declare for
+/// `__torajs_io_putc_stdout` (the 0-libc buffered stdout writer
+/// from `crates/torajs-io`) under the same `FunctionValue<'ctx>`
+/// API the existing IR-emitted `define_print_*` builders consume.
+/// The fn name is kept as `declare_putchar` for call-site
+/// stability — the symbol name is the only thing that changed.
 pub(super) fn declare_putchar<'ctx>(
     ctx: &'ctx Context,
     m: &LlvmModule<'ctx>,
 ) -> FunctionValue<'ctx> {
     let i32_t = ctx.i32_type();
     let fn_t = i32_t.fn_type(&[i32_t.into()], false);
-    m.add_function("putchar", fn_t, None)
+    m.add_function("__torajs_io_putc_stdout", fn_t, None)
 }
 
 pub(super) fn declare_malloc<'ctx>(
