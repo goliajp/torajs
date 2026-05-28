@@ -44,7 +44,9 @@
 mod memcmp;
 mod memcpy;
 mod memmove;
+mod strlen;
 
 pub use memcmp::memcmp;
 pub use memcpy::memcpy;
 pub use memmove::memmove;
+pub use strlen::strlen;
