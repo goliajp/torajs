@@ -1,0 +1,20 @@
+[package]
+name = "torajs-mutex"
+description = "0-libc Mutex<T> backed by macOS __ulock_* / Linux futex syscalls — std::sync::Mutex drop-in replacement for torajs user binary. v0.7-A5 16-b — eliminates pthread_mutex_* undefined symbols from the user binary's libSystem.B.dylib import table."
+keywords = ["torajs", "mutex", "futex", "ulock", "no-libc"]
+categories = ["concurrency", "no-std"]
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[lib]
+crate-type = ["lib", "staticlib"]
+
+[lints]
+workspace = true
+
+[dependencies]
+torajs-syscall = { path = "../torajs-syscall" }

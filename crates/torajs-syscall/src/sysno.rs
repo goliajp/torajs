@@ -43,6 +43,33 @@ pub const SYS_LSEEK: u32 = 199;
 /// `kill(pid_t pid, int sig) -> int` — used for abort() routing.
 pub const SYS_KILL: u32 = 37;
 
+/// `__ulock_wait(uint32_t op, void *addr, uint64_t value, uint32_t timeout_us)
+/// -> int` — XNU userland sync primitive. Park the calling thread
+/// until `*(u32 *)addr != value`. `timeout_us == 0` means no timeout.
+/// Used by macOS pthread_mutex / os_unfair_lock internally; calling
+/// it directly skips the libc wrapper. v0.7-A5 16-b backs
+/// `torajs-mutex::Mutex` lock contended path on macOS.
+pub const SYS_ULOCK_WAIT: u32 = 515;
+
+/// `__ulock_wake(uint32_t op, void *addr, uint64_t wake_value) -> int`
+/// — wake threads parked on the same `addr`. `wake_value` is opaque
+/// for `UL_COMPARE_AND_WAIT`. Returns the wake count on success.
+pub const SYS_ULOCK_WAKE: u32 = 516;
+
+/// `__ulock_wait` / `__ulock_wake` operation flag. Wait if `*addr`
+/// (read as a 32-bit unsigned integer) equals the `value` arg.
+/// Cross-referenced against XNU `bsd/sys/ulock.h` —
+/// `UL_COMPARE_AND_WAIT = 1`. Adequate for futex-style mutex
+/// implementations; the os_unfair_lock-backed `UL_UNFAIR_LOCK = 2`
+/// flavor is XNU-specific and would not map cleanly to Linux futex
+/// for the v0.7 cross-platform target.
+pub const UL_COMPARE_AND_WAIT: u32 = 1;
+
+/// `ulock_wake` flag — also wake all parked threads on this addr
+/// (not just one). Used during unlock-to-final-state transitions
+/// to drain the waiter queue.
+pub const ULF_WAKE_ALL: u32 = 0x00000100;
+
 /// File-descriptor table sentinels — match libc / POSIX.
 pub const STDIN_FD: i32 = 0;
 pub const STDOUT_FD: i32 = 1;
