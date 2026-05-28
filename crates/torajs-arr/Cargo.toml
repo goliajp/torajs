@@ -33,6 +33,9 @@ torajs-abort = { path = "../torajs-abort" }
 torajs-mmalloc = { path = "../torajs-mmalloc" }
 # v0.7-A3 Step 14-b — 0-libc buffered stdout for arr_print* family.
 torajs-io = { path = "../torajs-io" }
+# v0.7-A4 Step 15-d/e — 0-libc f64 ↔ string conversion for
+# arr_print* + arr_join* f64 element formatting.
+torajs-fmt = { path = "../torajs-fmt" }
 
 [dev-dependencies]
 criterion = { workspace = true }

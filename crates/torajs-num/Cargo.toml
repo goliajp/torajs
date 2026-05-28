@@ -25,6 +25,9 @@ crate-type = ["rlib", "staticlib"]
 [dependencies]
 # v0.7-A3 Step 14-b — 0-libc buffered stdout for print_i64/f64 Rust path.
 torajs-io = { path = "../torajs-io" }
+# v0.7-A4 Step 15-d/e — 0-libc f64 ↔ string conversion (replaces
+# libc snprintf %.*g try-precisions + strtod round-trip).
+torajs-fmt = { path = "../torajs-fmt" }
 # Future ToNumber port (P3.2-c) will pull torajs-anyvalue (for AnyBox
 # tag dispatch on any.toNumber) + torajs-throw (for RangeError on
 # invalid numeric conversion edge cases).

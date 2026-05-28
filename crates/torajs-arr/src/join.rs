@@ -36,10 +36,11 @@ unsafe extern "C" {
     /// torajs-mmalloc libc-compat malloc — v0.7-A2 step 6b cutover.
     #[link_name = "__torajs_libc_malloc"]
     fn malloc(n: usize) -> *mut c_void;
-    // snprintf / strtod stay on libc until v0.7-A4 (torajs-fmt:
-    // itoa/dtoa/format) ports them. Out of scope for step 6b.
-    fn snprintf(buf: *mut u8, size: usize, fmt: *const u8, ...) -> i32;
-    fn strtod(s: *const u8, endptr: *mut *mut u8) -> f64;
+    // v0.7-A4 Step 15-d: 0-libc f64 → shortest decimal + i64 →
+    // decimal via torajs-fmt. Replaces libc snprintf %.*g loop +
+    // snprintf "%lld" for the i64-join path.
+    fn __torajs_fmt_dtoa(d: f64, out_buf: *mut u8, out_cap: usize) -> i32;
+    fn __torajs_fmt_itoa(n: i64, out_buf: *mut u8, out_cap: usize) -> i32;
 }
 
 // ============================================================
@@ -74,30 +75,14 @@ unsafe fn str_data(s: *const u8) -> *const u8 {
     unsafe { s.add(STR_DATA_OFF) }
 }
 
-/// f64 → shortest spec-correct decimal. Port of C `torajs_f64_shortest`.
-/// Integer-valued + |d| < 1e21 → `%.0f` (plain integer no exponent).
-/// Else loop precision 1..=17, smallest that roundtrips via strtod.
-/// Falls back to `%.17g` at precision 18 (shouldn't be reached for
-/// finite values). Writes to `buf`, returns byte count (excluding NUL),
-/// or -1 on overflow.
+/// f64 → shortest spec-correct decimal. v0.7-A4 Step 15-d:
+/// delegates to torajs-fmt's `__torajs_fmt_dtoa` (0-libc;
+/// core::fmt Grisu3 + JS-spec post-process). Same shortest-
+/// roundtrip + ES §6.1.6.1.13 shape as the prior libc-based
+/// implementation, but in a single call instead of try-
+/// precisions loop.
 unsafe fn f64_shortest(d: f64, buf: *mut u8, cap: usize) -> i32 {
-    unsafe {
-        let abs_d = d.abs();
-        if d == d.floor() && abs_d < 1e21 {
-            return snprintf(buf, cap, b"%.0f\0".as_ptr(), d);
-        }
-        for prec in 1..=17 {
-            let written = snprintf(buf, cap, b"%.*g\0".as_ptr(), prec as i32, d);
-            if written < 0 || written as usize >= cap {
-                return -1;
-            }
-            let parsed = strtod(buf as *const u8, core::ptr::null_mut());
-            if parsed == d {
-                return written;
-            }
-        }
-        snprintf(buf, cap, b"%.17g\0".as_ptr(), d)
-    }
+    unsafe { __torajs_fmt_dtoa(d, buf, cap) }
 }
 
 /// Internal alloc for `Array<T>` (matches C's `arr_alloc_`).
@@ -183,12 +168,7 @@ pub unsafe extern "C" fn __torajs_arr_join_i64(arr: *const u8, sep: *const u8) -
         let mut total: u64 = 0;
         for i in 0..len {
             let e = *(slot_addr(arr, i) as *const i64);
-            let n = snprintf(
-                buf.as_mut_ptr(),
-                24,
-                b"%lld\0".as_ptr(),
-                e as core::ffi::c_longlong,
-            );
+            let n = __torajs_fmt_itoa(e, buf.as_mut_ptr(), 24);
             total += n.max(0) as u64;
         }
         total += sep_len * (len - 1);
@@ -205,12 +185,7 @@ pub unsafe extern "C" fn __torajs_arr_join_i64(arr: *const u8, sep: *const u8) -
                 cursor += sep_len;
             }
             let e = *(slot_addr(arr, i) as *const i64);
-            let n = snprintf(
-                buf.as_mut_ptr(),
-                24,
-                b"%lld\0".as_ptr(),
-                e as core::ffi::c_longlong,
-            );
+            let n = __torajs_fmt_itoa(e, buf.as_mut_ptr(), 24);
             let n = n.max(0) as usize;
             core::ptr::copy_nonoverlapping(buf.as_ptr(), p_data.add(cursor as usize), n);
             cursor += n as u64;

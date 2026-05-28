@@ -37,6 +37,8 @@
 
 pub mod atod;
 pub mod dtoa;
+pub mod itoa;
 
 pub use atod::__torajs_fmt_atod;
 pub use dtoa::__torajs_fmt_dtoa;
+pub use itoa::__torajs_fmt_itoa;

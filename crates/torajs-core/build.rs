@@ -94,6 +94,7 @@ const COMPILER_SOURCE_FILES: &[&str] = &[
 const STATICLIBS: &[&str] = &[
     "torajs_syscall",       // Layer-0: aarch64/x86_64 raw syscall trampoline (v0.7-A1)
     "torajs_io",            // Layer-0: 0-libc buffered stdout writer (v0.7-A3 Step 14-a)
+    "torajs_fmt",           // Layer-0: 0-libc f64 ↔ string conversion (v0.7-A4 Step 15-a/b/c)
     "torajs_mmalloc",       // Layer-0: mmap-backed allocator + libc-compat shim (v0.7-A2)
     "torajs_rc",            // Layer-1: refcount + heap-header
     "torajs_anyvalue",      // Layer-1: AnyBox (boxed Type::Any)

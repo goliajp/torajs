@@ -3,7 +3,9 @@
 use super::{json_skip_ws, json_throw, str_payload};
 
 unsafe extern "C" {
-    fn strtod(s: *const i8, endp: *mut *mut i8) -> f64;
+    // v0.7-A4 Step 15-e: 0-libc string → f64 parser. Replaces
+    // libc strtod for the JSON numeric token path.
+    fn __torajs_fmt_atod(s: *const u8, len: usize, endp: *mut usize) -> f64;
 }
 
 /// Parse a JSON number literal — supports `-` sign, fraction `.`,
@@ -47,20 +49,11 @@ pub unsafe extern "C" fn __torajs_json_parse_float(str_ptr: *const u8, pos: *mut
         json_throw("JSON.parse: expected number digits", start as i64);
         return 0.0;
     }
-    // Copy span into a 64-byte stack NUL-buffer for strtod.
-    let mut buf = [0i8; 64];
-    let mut span_len = end - start;
-    if span_len >= buf.len() {
-        span_len = buf.len() - 1;
-    }
-    unsafe {
-        core::ptr::copy_nonoverlapping(
-            data.as_ptr().add(start),
-            buf.as_mut_ptr() as *mut u8,
-            span_len,
-        );
-        buf[span_len] = 0;
-    }
+    // v0.7-A4 Step 15-e: parse via torajs-fmt's __torajs_fmt_atod
+    // (0-libc; Rust core::str::FromStr's Eisel-Lemire core).
+    // Direct pointer + length — no NUL-buffer copy needed.
+    let span_len = end - start;
     *p = end as i64;
-    unsafe { strtod(buf.as_ptr(), core::ptr::null_mut()) }
+    let mut endp_ignored: usize = 0;
+    unsafe { __torajs_fmt_atod(data.as_ptr().add(start), span_len, &mut endp_ignored) }
 }

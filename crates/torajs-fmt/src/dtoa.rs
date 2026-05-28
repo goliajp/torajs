@@ -95,9 +95,15 @@ fn format_f64_into(d: f64, buf: &mut [u8]) -> usize {
     if d.is_nan() {
         return write_literal(buf, b"NaN");
     }
-    // Step 2: ±0 per step 2 — emit "0" (JS Display doesn't show
-    // the sign of zero).
+    // Step 2: ±0. `console.log(-0)` (Display path) preserves the
+    // sign per JS spec ToString-as-Display — emit "-0" for
+    // negative zero, "0" for positive. Caller `__torajs_f64_to_str`
+    // (the String() coercion path per §22.1.3.6) post-strips the
+    // leading "-" when needed.
     if d == 0.0 {
+        if d.is_sign_negative() {
+            return write_literal(buf, b"-0");
+        }
         return write_literal(buf, b"0");
     }
     // Step 3: ±Infinity per step 4. Sign handled separately.
@@ -205,7 +211,9 @@ mod tests {
 
     #[test]
     fn negative_zero() {
-        check(-0.0, "0");
+        // dtoa preserves the sign — `__torajs_f64_to_str` strips
+        // for String() coercion, but `console.log(-0)` shows "-0".
+        check(-0.0, "-0");
     }
 
     #[test]

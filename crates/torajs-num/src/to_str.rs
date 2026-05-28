@@ -21,62 +21,33 @@
 //!   sign (so `print_f64_js` does NOT strip the leading `-`; only
 //!   `__torajs_f64_to_str` does).
 
-use core::ffi::c_char;
-
 use crate::str_bridge::alloc_str;
 
 unsafe extern "C" {
-    fn snprintf(buf: *mut c_char, n: usize, fmt: *const u8, ...) -> i32;
-    fn strtod(s: *const c_char, endp: *mut *mut c_char) -> f64;
-    // Per-byte stdout writer — v0.7-A3 Step 14-b cutover from libc
-    // putchar to torajs-io's 0-libc buffered writer. Shared
-    // process-global line buffer with __torajs_str_print /
-    // __torajs_substr_print / arr_print / inspect / IR-emitted
-    // print_i64 / print_bool / print_f64 (all routed through the
-    // same symbol after 14-c).
+    // v0.7-A3 Step 14-b: per-byte stdout writer through torajs-io's
+    // 0-libc buffered writer. Shared process-global line buffer with
+    // __torajs_str_print / __torajs_substr_print / arr_print /
+    // inspect / IR-emitted print_i64 / print_bool / print_f64.
     fn __torajs_io_putc_stdout(c: i32) -> i32;
+    // v0.7-A4 Step 15-d: 0-libc shortest-roundtrip f64 → decimal
+    // string. Replaces the libc `snprintf` %.*g try-precisions loop
+    // + `strtod` round-trip verifier with a single call (Rust
+    // core::fmt's Grisu3 produces shortest-roundtrip in one pass,
+    // post-processed by torajs-fmt to JS spec §6.1.6.1.13 shape).
+    fn __torajs_fmt_dtoa(d: f64, out_buf: *mut u8, out_cap: usize) -> i32;
 }
 
 /// f64 → shortest decimal byte representation per JS spec. Writes
-/// into `buf` (≥ 32 bytes) and returns the number of bytes written
-/// (excluding any NUL). On overflow returns -1.
+/// into `buf` (≥ 32 bytes) and returns the number of bytes written.
+/// On overflow / invalid input returns -1.
 ///
-/// Integer-valued doubles in `(-1e21, 1e21)` go through `%.0f` (no
-/// exponential notation, per §6.1.6.1.13 step 5). Otherwise try
-/// precisions 1..=17 of `%.*g` until one round-trips via `strtod`.
-/// Slow vs Ryu/Grisu (up to 17 snprintf calls) but only the print
-/// path hits it; output is byte-equal to v8/JSC for every f64.
+/// v0.7-A4 Step 15-d: delegated to `__torajs_fmt_dtoa` in
+/// torajs-fmt (0-libc; core::fmt's Grisu3 + JS-spec post-process).
+/// Replaces the prior libc `snprintf` %.*g try-precisions loop
+/// + `strtod` round-trip verifier with a single shortest-by-
+/// construction call.
 pub fn f64_shortest(d: f64, buf: &mut [u8]) -> i32 {
-    let cap = buf.len();
-    // Integer-valued + in spec's plain-decimal range
-    let abs_d = if d < 0.0 { -d } else { d };
-    if d == d.floor() && abs_d < 1e21 {
-        return unsafe { snprintf(buf.as_mut_ptr() as *mut c_char, cap, b"%.0f\0".as_ptr(), d) };
-    }
-    // Otherwise: try-precisions loop. Stop at the first %.*g that
-    // round-trips back to the same f64 via strtod.
-    for prec in 1i32..=17 {
-        let written = unsafe {
-            snprintf(
-                buf.as_mut_ptr() as *mut c_char,
-                cap,
-                b"%.*g\0".as_ptr(),
-                prec,
-                d,
-            )
-        };
-        if written < 0 || written as usize >= cap {
-            return -1;
-        }
-        let parsed = unsafe { strtod(buf.as_ptr() as *const c_char, core::ptr::null_mut()) };
-        if parsed == d {
-            return written;
-        }
-    }
-    // Fall-through: 17 didn't round-trip — should not happen for any
-    // finite f64. Re-emit at %.17g to match the C runtime's last-
-    // resort path.
-    unsafe { snprintf(buf.as_mut_ptr() as *mut c_char, cap, b"%.17g\0".as_ptr(), d) }
+    unsafe { __torajs_fmt_dtoa(d, buf.as_mut_ptr(), buf.len()) }
 }
 
 // ============================================================
@@ -84,19 +55,45 @@ pub fn f64_shortest(d: f64, buf: &mut [u8]) -> i32 {
 // ============================================================
 
 /// `String(n)` for i64 — fresh Str of the decimal representation.
+///
+/// v0.7-A4 Step 15-d: replaced libc `snprintf("%lld", n)` with
+/// Rust's `core::fmt::Write` into a stack buffer. i64's decimal
+/// representation is at most 20 bytes (`-9223372036854775808` +
+/// NUL) so a 24-byte buffer covers every case.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_i64_to_str(n: i64) -> *mut u8 {
+    use core::fmt::Write;
     let mut buf = [0u8; 24];
-    let written = unsafe {
-        snprintf(
-            buf.as_mut_ptr() as *mut c_char,
-            buf.len(),
-            b"%lld\0".as_ptr(),
-            n as core::ffi::c_longlong,
-        )
+    let mut writer = I64Writer {
+        buf: &mut buf,
+        pos: 0,
     };
-    let len = if written < 0 { 0 } else { written as usize };
+    let _ = write!(writer, "{}", n);
+    let len = writer.pos;
     alloc_str(&buf[..len])
+}
+
+struct I64Writer<'a> {
+    buf: &'a mut [u8],
+    pos: usize,
+}
+
+impl<'a> core::fmt::Write for I64Writer<'a> {
+    fn write_str(&mut self, s: &str) -> core::fmt::Result {
+        let bytes = s.as_bytes();
+        let n = bytes.len();
+        let remaining = self.buf.len().saturating_sub(self.pos);
+        let copy_len = n.min(remaining);
+        if copy_len > 0 {
+            self.buf[self.pos..self.pos + copy_len].copy_from_slice(&bytes[..copy_len]);
+            self.pos += copy_len;
+        }
+        if copy_len < n {
+            Err(core::fmt::Error)
+        } else {
+            Ok(())
+        }
+    }
 }
 
 /// `String(d)` for f64. NaN / ±Infinity → spec strings. `-0` →

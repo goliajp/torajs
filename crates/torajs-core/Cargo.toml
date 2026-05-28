@@ -33,6 +33,11 @@ torajs-mmalloc = { path = "../torajs-mmalloc" }
 # print_f64 routes through this crate (eliminates libc putchar
 # from otool -L output).
 torajs-io = { path = "../torajs-io" }
+# Layer-0: 0-libc f64 ↔ string conversion (v0.7-A4 Step 15-a-c).
+# After Step 15-d/e cutover, libtorajs_fmt.a's __torajs_fmt_dtoa
+# / __torajs_fmt_atod replace libc snprintf / strtod in
+# torajs-num + torajs-arr + torajs-str's print/json paths.
+torajs-fmt = { path = "../torajs-fmt" }
 # Layer-1 substrate: rc_inc / rc_dec / HeapHeader. Pulled in for both
 # (a) the rlib (so torajs-core can call rc_inc directly from Rust if
 # needed later) and (b) the staticlib that build.rs copies into

@@ -47,10 +47,11 @@ const SUBSTR_OFFSET_OFF: usize = 24;
 
 unsafe extern "C" {
     fn __torajs_io_putc_stdout(c: i32) -> i32;
-    // Variadic — Rust requires `...` (c_variadic feature) for full
-    // signature; we restrict to the two arities we actually call
-    // (one for i64, one for f64, one for the format-only path).
-    fn snprintf(buf: *mut u8, size: usize, fmt: *const u8, ...) -> i32;
+    // v0.7-A4 Step 15-d: 0-libc i64 + f64 → decimal via
+    // torajs-fmt. Replaces libc snprintf "%lld" / "%g" for the
+    // arr_print_* element format paths.
+    fn __torajs_fmt_itoa(n: i64, out_buf: *mut u8, out_cap: usize) -> i32;
+    fn __torajs_fmt_dtoa(d: f64, out_buf: *mut u8, out_cap: usize) -> i32;
 }
 
 // ============================================================
@@ -115,27 +116,25 @@ unsafe fn slot_addr(arr: *const u8, head: u32, i: u64) -> *const u8 {
     unsafe { arr.add(ARR_SLOTS_OFF + (head as usize + i as usize) * 8) }
 }
 
-/// snprintf-format `v` into a stack buffer + emit bytes via `__torajs_io_putc_stdout`.
-/// Cap at 64 bytes (any IEEE-754 f64 / i64 print fits comfortably).
+/// v0.7-A4 Step 15-d: format `v` via `__torajs_fmt_itoa`
+/// (0-libc) into a stack buffer + emit bytes via
+/// `__torajs_io_putc_stdout`. Replaces libc snprintf("%lld").
 unsafe fn put_snprintf_i64(v: i64) {
     let mut buf = [0u8; 64];
-    let n = unsafe {
-        snprintf(
-            buf.as_mut_ptr(),
-            64,
-            b"%lld\0".as_ptr(),
-            v as core::ffi::c_longlong,
-        )
-    };
+    let n = unsafe { __torajs_fmt_itoa(v, buf.as_mut_ptr(), 64) };
     if n > 0 {
         let n = (n as usize).min(63);
         unsafe { put_bytes(&buf[..n]) };
     }
 }
 
+/// v0.7-A4 Step 15-d: format `v` via `__torajs_fmt_dtoa`
+/// (0-libc; shortest-roundtrip JS-spec shape). Replaces libc
+/// snprintf("%g") which truncated to 6 significant digits — the
+/// new path matches v8/JSC shortest-roundtrip exactly.
 unsafe fn put_snprintf_f64_g(v: f64) {
     let mut buf = [0u8; 64];
-    let n = unsafe { snprintf(buf.as_mut_ptr(), 64, b"%g\0".as_ptr(), v) };
+    let n = unsafe { __torajs_fmt_dtoa(v, buf.as_mut_ptr(), 64) };
     if n > 0 {
         let n = (n as usize).min(63);
         unsafe { put_bytes(&buf[..n]) };

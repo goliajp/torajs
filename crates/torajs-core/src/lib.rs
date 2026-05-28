@@ -40,6 +40,10 @@ pub const TORAJS_STATICLIBS: &[(&str, &[u8])] = &[
         include_bytes!(env!("TORAJS_IO_STATICLIB_PATH")),
     ),
     (
+        "libtorajs_fmt.a",
+        include_bytes!(env!("TORAJS_FMT_STATICLIB_PATH")),
+    ),
+    (
         "libtorajs_mmalloc.a",
         include_bytes!(env!("TORAJS_MMALLOC_STATICLIB_PATH")),
     ),
