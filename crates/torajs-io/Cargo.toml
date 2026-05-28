@@ -1,0 +1,20 @@
+[package]
+name = "torajs-io"
+description = "0-libc buffered stdout/stderr write — replaces putchar/printf via torajs-syscall"
+keywords = ["torajs", "io", "no-libc", "metal"]
+categories = ["no-std", "external-ffi-bindings"]
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[lib]
+crate-type = ["lib", "staticlib"]
+
+[lints]
+workspace = true
+
+[dependencies]
+torajs-syscall = { path = "../torajs-syscall" }

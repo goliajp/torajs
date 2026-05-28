@@ -1975,6 +1975,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "torajs-io"
+version = "0.1.0"
+dependencies = [
+ "torajs-syscall",
+]
+
+[[package]]
 name = "torajs-meta"
 version = "0.1.0"
 dependencies = [
