@@ -17,8 +17,13 @@
 
 use core::ffi::c_void;
 
+use torajs_rc::__torajs_rc_inc;
+
 use crate::layout::{STR_HDR_SIZE, STR_LEN_OFF};
-use crate::substr::{__torajs_substr_create, SUBSTR_LEN_OFF, SUBSTR_OFFSET_OFF, SUBSTR_PARENT_OFF};
+use crate::substr::{
+    __torajs_substr_create, FLAG_SUBSTR_INLINE, SUBSTR_LEN_OFF, SUBSTR_OFFSET_OFF,
+    SUBSTR_PARENT_OFF,
+};
 
 #[cfg(not(test))]
 unsafe extern "C" {
@@ -369,6 +374,59 @@ pub unsafe extern "C" fn __torajs_substr_trim(v: *const u8) -> *mut c_void {
         hi -= 1;
     }
     unsafe { __torajs_substr_create(parent as *mut c_void, v_off + lo, hi - lo) }
+}
+
+/// Stack-write variant of [`__torajs_substr_trim`] — writes the
+/// trimmed view into a caller-provided 32-byte buffer instead of
+/// heap-allocating a fresh `SubstrBlock`.
+///
+/// The written buffer carries [`FLAG_SUBSTR_INLINE`] so that a
+/// subsequent `__torajs_substr_drop(out_buf)` follows the INLINE
+/// branch (dec parent rc only, no pool push, no free). Parent rc
+/// is bumped here to balance that dec — full drop-in semantic
+/// replacement of the heap path while skipping the
+/// `pool_pop`/`pool_push` roundtrip.
+///
+/// # Safety
+///
+/// `v` must be a live `*const Substr` (32-byte aligned, valid
+/// header + parent + offset + len). `out_buf` must be a writable
+/// 32-byte aligned region (typically a caller `alloca [32 x i8]`).
+/// Caller MUST eventually invoke `__torajs_substr_drop(out_buf)`
+/// — the INLINE branch will dec parent rc symmetrically with the
+/// `rc_inc` performed here.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_substr_trim_into(v: *const u8, out_buf: *mut u8) {
+    let v_len = unsafe { substr_len(v) };
+    let v_off = unsafe { substr_offset(v) };
+    let parent = unsafe { substr_parent(v) };
+    let base = unsafe { (parent as *const u8).add(STR_HDR_SIZE + v_off as usize) };
+    let slice = unsafe { core::slice::from_raw_parts(base, v_len as usize) };
+    let mut lo = 0u64;
+    while lo < v_len && substr_is_ws(slice[lo as usize]) {
+        lo += 1;
+    }
+    let mut hi = v_len;
+    while hi > lo && substr_is_ws(slice[(hi - 1) as usize]) {
+        hi -= 1;
+    }
+    // Header u64: refcount=0 @0..4, type_tag=Tag::Str=0 @4..6,
+    // flags=FLAG_SUBSTR_INLINE @6..8. Pack as u64 little-endian:
+    // (FLAG_SUBSTR_INLINE as u64) << 48 places the u16 flags field
+    // at the high 16 bits of the u64 header word — matches
+    // `HeapHeader { refcount: u32, type_tag: u16, flags: u16 }`
+    // layout on a little-endian target.
+    let header_u64 = (FLAG_SUBSTR_INLINE as u64) << 48;
+    unsafe {
+        (out_buf as *mut u64).write(header_u64);
+        (out_buf.add(SUBSTR_LEN_OFF) as *mut u64).write(hi - lo);
+        (out_buf.add(SUBSTR_PARENT_OFF) as *mut *mut c_void).write(parent as *mut c_void);
+        (out_buf.add(SUBSTR_OFFSET_OFF) as *mut u64).write(v_off + lo);
+    }
+    // INLINE-flagged views still own one parent ref — symmetric
+    // with `drop_pool_aware`'s INLINE branch which calls
+    // `drop_parent` (= `__torajs_rc_dec(parent)`).
+    unsafe { __torajs_rc_inc(parent as *mut c_void) };
 }
 
 /// `substr.trimStart()`.

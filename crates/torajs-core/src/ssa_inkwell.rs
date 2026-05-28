@@ -431,6 +431,15 @@ pub(super) fn compile_for_kind_impl(
         if matches!(f.name.as_str(), "__torajs_arr_alloc") {
             apply_arr_alloc_extern_attrs(&ctx, llvm_fn);
         }
+        // Step 13-a: stack-write trim variant. Memory profile mirrors
+        // arr_alloc — touches argmem (caller's out_buf, receiver v's
+        // fields) + inaccessiblemem (parent's heap header via rc_inc,
+        // and parent bytes via base+offset reads). nounwind +
+        // willreturn + mustprogress let LICM hoist invariant loads
+        // across the call in tight `for (...) trim().length` loops.
+        if matches!(f.name.as_str(), "__torajs_substr_trim_into") {
+            apply_arr_alloc_extern_attrs(&ctx, llvm_fn);
+        }
         fn_map.push(llvm_fn);
     }
 

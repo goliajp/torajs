@@ -3829,27 +3829,8 @@ fn lower_inner(
         &[Type::Ptr, Type::I64, Type::I64],
         Type::Substr,
     );
-    let substr_trim_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_substr_trim",
-        &[Type::Ptr],
-        Type::Substr,
-    );
-    let substr_trim_start_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_substr_trim_start",
-        &[Type::Ptr],
-        Type::Substr,
-    );
-    let substr_trim_end_id = declare_intrinsic(
-        &mut module,
-        &mut fn_table,
-        "__torajs_substr_trim_end",
-        &[Type::Ptr],
-        Type::Substr,
-    );
+    let (substr_trim_id, substr_trim_start_id, substr_trim_end_id, substr_trim_into_id) =
+        crate::ssa_lower_substr_trim_into::declare_all(&mut module, &mut fn_table);
     // View-aware concat — one alloc + two memcpys, no intermediate
     // materialize. Variants for each Substr-on-side combination.
     let substr_concat_substr_str_id = declare_intrinsic(
@@ -4947,6 +4928,7 @@ fn lower_inner(
         substr_slice: substr_slice_id,
         substr_substring: substr_substring_id,
         substr_trim: substr_trim_id,
+        substr_trim_into: substr_trim_into_id,
         substr_trim_start: substr_trim_start_id,
         substr_trim_end: substr_trim_end_id,
         substr_concat_substr_str: substr_concat_substr_str_id,
@@ -5793,6 +5775,7 @@ pub(crate) struct Intrinsics {
     substr_slice: FuncId,
     substr_substring: FuncId,
     substr_trim: FuncId,
+    pub(crate) substr_trim_into: FuncId,
     substr_trim_start: FuncId,
     substr_trim_end: FuncId,
     substr_concat_substr_str: FuncId,
@@ -6139,7 +6122,7 @@ pub(crate) struct LocalInfo {
     pub(crate) scope_depth: usize,
 }
 
-fn declare_intrinsic(
+pub(crate) fn declare_intrinsic(
     module: &mut Module,
     fn_table: &mut HashMap<String, FuncId>,
     name: &str,
@@ -20096,6 +20079,16 @@ impl<'a> LowerCtx<'a> {
                         return Operand::Value(v);
                     }
                     if recv_ty == Type::Substr {
+                        // Step 13-a: stack-write trim fast-path (sibling).
+                        if let Some(v) = crate::ssa_lower_substr_trim_into::try_emit(
+                            self,
+                            &method,
+                            args.len(),
+                            recv_op,
+                            recv_ty,
+                        ) {
+                            return v;
+                        }
                         // View-aware fast paths — read bytes from
                         // parent + offset directly, no per-call malloc.
                         let view_aware = match method.as_str() {
@@ -28027,6 +28020,7 @@ impl<'a> LowerCtx<'a> {
             || fid == i.substr_slice
             || fid == i.substr_substring
             || fid == i.substr_trim
+            || fid == i.substr_trim_into
             || fid == i.substr_trim_start
             || fid == i.substr_trim_end
             || fid == i.substr_concat_substr_str
