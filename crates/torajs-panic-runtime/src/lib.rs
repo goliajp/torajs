@@ -84,9 +84,15 @@ mod active {
 
     const STDERR_FILENO: i32 = 2;
 
+    // v0.7-A5 Step 16-c-1 — route the panic banner's write/abort
+    // through torajs-syscall's `__torajs_syscall_*` C-ABI exports
+    // instead of libc `write`/`abort`. Link-level binding (libtorajs_
+    // syscall.a is STATICLIBS[0], present in every user binary) —
+    // preserves this crate's 0 Cargo deps. Drops the last libc
+    // `_write` + `_abort` undef refs from user binaries.
     unsafe extern "C" {
-        fn write(fd: i32, buf: *const c_void, n: usize) -> isize;
-        fn abort() -> !;
+        fn __torajs_syscall_write(fd: i32, buf: *const u8, n: usize) -> isize;
+        fn __torajs_syscall_abort() -> !;
     }
 
     /// `#[cold]` + `#[inline(never)]` — critical to preserving the
@@ -105,8 +111,8 @@ mod active {
     unsafe fn write_banner_and_abort() -> ! {
         let msg = b"torajs panic\n";
         unsafe {
-            write(STDERR_FILENO, msg.as_ptr() as *const c_void, msg.len());
-            abort()
+            __torajs_syscall_write(STDERR_FILENO, msg.as_ptr(), msg.len());
+            __torajs_syscall_abort()
         }
     }
 

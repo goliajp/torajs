@@ -44,13 +44,16 @@
 // uses `unsafe extern "C"` for write(2) + abort() and never calls
 // any Rust panic site itself.
 
-use core::ffi::c_void;
-
 const STDERR_FILENO: i32 = 2;
 
+// v0.7-A5 Step 16-c-1 — route write/abort through torajs-syscall's
+// `__torajs_syscall_*` C-ABI exports instead of libc `write`/`abort`.
+// Link-level binding (libtorajs_syscall.a is STATICLIBS[0], present in
+// every user binary) — preserves this crate's 0 Cargo deps. Drops the
+// last libc `_write` + `_abort` undef refs from user binaries.
 unsafe extern "C" {
-    fn write(fd: i32, buf: *const c_void, n: usize) -> isize;
-    fn abort() -> !;
+    fn __torajs_syscall_write(fd: i32, buf: *const u8, n: usize) -> isize;
+    fn __torajs_syscall_abort() -> !;
 }
 
 /// Write `msg` + `\n` to stderr (fd 2) via libc `write(2)`, then
@@ -72,10 +75,10 @@ unsafe extern "C" {
 pub unsafe extern "C" fn __torajs_abort_with(msg: *const u8, len: usize) -> ! {
     unsafe {
         if len > 0 {
-            write(STDERR_FILENO, msg as *const c_void, len);
+            __torajs_syscall_write(STDERR_FILENO, msg, len);
         }
-        write(STDERR_FILENO, b"\n".as_ptr() as *const c_void, 1);
-        abort()
+        __torajs_syscall_write(STDERR_FILENO, b"\n".as_ptr(), 1);
+        __torajs_syscall_abort()
     }
 }
 

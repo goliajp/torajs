@@ -26,6 +26,29 @@ unsafe extern "C" {
     fn close(fd: c_int) -> c_int;
     fn dup2(oldfd: c_int, newfd: c_int) -> c_int;
     fn read(fd: c_int, buf: *mut u8, n: usize) -> isize;
+    fn write(fd: c_int, buf: *const u8, n: usize) -> isize;
+    fn abort() -> !;
+}
+
+// v0.7-A5 Step 16-c-1 — `__torajs_abort_with` now binds torajs-syscall's
+// `__torajs_syscall_*` exports, resolved from libtorajs_syscall.a in real
+// user binaries (the same link-level pattern 16-d used for
+// `__torajs_libc_malloc`). This isolated integration-test binary does NOT
+// link torajs-syscall (torajs-abort stays 0 Cargo deps), so provide
+// test-only stubs that forward to libc. They reproduce the exact control
+// flow the assertions below check — banner bytes to stderr, then SIGABRT
+// death (libc `abort` raises SIGABRT, identical to the production
+// `__torajs_syscall_abort`'s `kill(getpid(), SIGABRT)`). This is a link
+// shim for the unit boundary (the abort crate's logic is what's under
+// test, not the syscall crate's implementation), not a behavioral mock.
+#[unsafe(no_mangle)]
+unsafe extern "C" fn __torajs_syscall_write(fd: i32, buf: *const u8, n: usize) -> isize {
+    unsafe { write(fd as c_int, buf, n) }
+}
+
+#[unsafe(no_mangle)]
+extern "C" fn __torajs_syscall_abort() -> ! {
+    unsafe { abort() }
 }
 
 const STDERR_FILENO: c_int = 2;

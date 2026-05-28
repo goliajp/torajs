@@ -43,6 +43,13 @@ pub const SYS_LSEEK: u32 = 199;
 /// `kill(pid_t pid, int sig) -> int` — used for abort() routing.
 pub const SYS_KILL: u32 = 37;
 
+/// Signal numbers (`<sys/signal.h>`, stable BSD/macOS values).
+/// `SIGABRT` is delivered by `__torajs_syscall_abort` for orthodox
+/// `abort(3)` semantics; `SIGKILL` is the uncatchable escalation if a
+/// SIGABRT handler ever swallows the signal and control returns.
+pub const SIGABRT: i32 = 6;
+pub const SIGKILL: i32 = 9;
+
 /// `__ulock_wait(uint32_t op, void *addr, uint64_t value, uint32_t timeout_us)
 /// -> int` — XNU userland sync primitive. Park the calling thread
 /// until `*(u32 *)addr != value`. `timeout_us == 0` means no timeout.
