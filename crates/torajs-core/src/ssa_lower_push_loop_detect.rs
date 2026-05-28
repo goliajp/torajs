@@ -118,3 +118,402 @@ fn collect_push_targets_only(ast: &Ast, s: &Stmt, out: &mut Vec<String>) -> bool
         _ => false,
     }
 }
+
+/// 12-c-1 — while-shape variant of [`detect_push_loop_arrays`]. Recognises
+///
+/// ```ignore
+///   let i: number = 0;            // immediately-preceding stmt; caller passes counter_name
+///   while (i < N) {
+///     xs.push(_);                 // any number of xs.push(_) stmts, single- or multi-array
+///     // ...
+///     i = i + 1;                  // MUST be the last stmt; parser desugars i++ / i+=1 here
+///   }
+/// ```
+///
+/// The caller (`Stmt::Block` / `Stmt::Multi` iteration in `ssa_lower`) is
+/// responsible for proving `counter_name` is statically 0 at while entry by
+/// matching the immediately-preceding stmt's shape via
+/// [`let_counter_zero_name`]. Anything else means the loop isn't a simple
+/// 0..N walk and the regular cap-checked push path runs unchanged.
+///
+/// Returns `Some((bound_eid, [xs_name, ...]))` when the shape matches.
+/// False negatives stay safe; false positives are guarded against by the
+/// caller-side init check + this fn's strict body-shape check.
+pub(crate) fn detect_push_loop_arrays_while(
+    ast: &Ast,
+    counter_name: &str,
+    cond: ExprId,
+    body: &Stmt,
+) -> Option<(ExprId, Vec<String>)> {
+    /* cond: `counter < bound`. Capture bound expression. */
+    let bound_eid = match ast.get_expr(cond) {
+        Expr::BinOp {
+            op: crate::ast::BinOp::Lt,
+            left,
+            right,
+        } => match ast.get_expr(*left) {
+            Expr::Ident(n) if n == counter_name => *right,
+            _ => return None,
+        },
+        _ => return None,
+    };
+    /* body: must be Block/Multi where the LAST stmt is the canonical
+     * `counter = counter + 1` step and every earlier stmt is a pure
+     * xs.push(_) (single- or multi-array; nested Block/Multi allowed
+     * via collect_push_targets_only's recursion). */
+    let stmts: &[Stmt] = match body {
+        Stmt::Block(s) | Stmt::Multi(s) => s.as_slice(),
+        _ => return None,
+    };
+    let (last, init_stmts) = stmts.split_last()?;
+    if !is_counter_step_stmt(ast, last, counter_name) {
+        return None;
+    }
+    let mut names: Vec<String> = Vec::new();
+    for s in init_stmts {
+        if !collect_push_targets_only(ast, s, &mut names) {
+            return None;
+        }
+    }
+    if names.is_empty() {
+        return None;
+    }
+    Some((bound_eid, names))
+}
+
+/// 12-c-1 — returns Some(counter_name) when `s` is `let counter = 0`
+/// (literal `0` init; type-annotation optional). Proves the counter is
+/// statically 0 at the immediately-following while entry — caller
+/// threads this through [`detect_push_loop_arrays_while`].
+pub(crate) fn let_counter_zero_name(ast: &Ast, s: Option<&Stmt>) -> Option<String> {
+    let Stmt::LetDecl {
+        name,
+        init: init_eid,
+        ..
+    } = s?
+    else {
+        return None;
+    };
+    match ast.get_expr(*init_eid) {
+        Expr::Number(n) if *n == 0.0 => Some(name.clone()),
+        _ => None,
+    }
+}
+
+fn is_counter_step_stmt(ast: &Ast, s: &Stmt, counter_name: &str) -> bool {
+    let Stmt::Expr(eid) = s else {
+        return false;
+    };
+    let Expr::Assign { target, value } = ast.get_expr(*eid) else {
+        return false;
+    };
+    let target_is_counter = matches!(ast.get_expr(*target), Expr::Ident(n) if n == counter_name);
+    let value_is_counter_plus_1 = matches!(
+        ast.get_expr(*value),
+        Expr::BinOp { op: crate::ast::BinOp::Add, left, right }
+            if matches!(ast.get_expr(*left), Expr::Ident(n) if n == counter_name)
+                && matches!(ast.get_expr(*right), Expr::Number(v) if *v == 1.0)
+    );
+    target_is_counter && value_is_counter_plus_1
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ast::{BinOp as AstBinOp, Expr, Stmt};
+
+    /* Helpers — construct the AST fragments by hand. We bypass the
+     * parser so the tests stay sensitive to the detector's exact
+     * shape contract; any future parser desugar that breaks the
+     * canonical shape will be caught by the call-site, not here. */
+
+    fn mk_ident(ast: &mut Ast, name: &str) -> ExprId {
+        ast.add_expr(Expr::Ident(name.to_string()))
+    }
+    fn mk_number(ast: &mut Ast, n: f64) -> ExprId {
+        ast.add_expr(Expr::Number(n))
+    }
+    fn mk_lt(ast: &mut Ast, left: ExprId, right: ExprId) -> ExprId {
+        ast.add_expr(Expr::BinOp {
+            op: AstBinOp::Lt,
+            left,
+            right,
+        })
+    }
+    fn mk_add(ast: &mut Ast, left: ExprId, right: ExprId) -> ExprId {
+        ast.add_expr(Expr::BinOp {
+            op: AstBinOp::Add,
+            left,
+            right,
+        })
+    }
+    fn mk_assign(ast: &mut Ast, target: ExprId, value: ExprId) -> ExprId {
+        ast.add_expr(Expr::Assign { target, value })
+    }
+    fn mk_push_call(ast: &mut Ast, receiver: &str, arg: ExprId) -> ExprId {
+        let obj = mk_ident(ast, receiver);
+        let callee = ast.add_expr(Expr::Member {
+            obj,
+            name: "push".to_string(),
+        });
+        ast.add_expr(Expr::Call {
+            callee,
+            args: vec![arg],
+        })
+    }
+
+    fn mk_let_zero(ast: &mut Ast, name: &str) -> Stmt {
+        let init = mk_number(ast, 0.0);
+        Stmt::LetDecl {
+            mutable: true,
+            name: name.to_string(),
+            type_ann: Some("number".to_string()),
+            init,
+            is_var: false,
+        }
+    }
+
+    fn mk_step(ast: &mut Ast, counter: &str) -> Stmt {
+        let t = mk_ident(ast, counter);
+        let l = mk_ident(ast, counter);
+        let r = mk_number(ast, 1.0);
+        let plus = mk_add(ast, l, r);
+        let assign = mk_assign(ast, t, plus);
+        Stmt::Expr(assign)
+    }
+
+    fn mk_push_stmt(ast: &mut Ast, receiver: &str, arg_name: &str) -> Stmt {
+        let arg = mk_ident(ast, arg_name);
+        let call = mk_push_call(ast, receiver, arg);
+        Stmt::Expr(call)
+    }
+
+    #[test]
+    fn let_counter_zero_name_matches_literal_zero_init() {
+        let mut ast = Ast::default();
+        let s = mk_let_zero(&mut ast, "i");
+        assert_eq!(let_counter_zero_name(&ast, Some(&s)), Some("i".to_string()));
+    }
+
+    #[test]
+    fn let_counter_zero_name_rejects_nonzero_init() {
+        let mut ast = Ast::default();
+        let init = mk_number(&mut ast, 5.0);
+        let s = Stmt::LetDecl {
+            mutable: true,
+            name: "i".to_string(),
+            type_ann: Some("number".to_string()),
+            init,
+            is_var: false,
+        };
+        assert_eq!(let_counter_zero_name(&ast, Some(&s)), None);
+    }
+
+    #[test]
+    fn let_counter_zero_name_rejects_non_letdecl() {
+        let mut ast = Ast::default();
+        let arg = mk_number(&mut ast, 0.0);
+        let s = Stmt::Expr(arg);
+        assert_eq!(let_counter_zero_name(&ast, Some(&s)), None);
+    }
+
+    #[test]
+    fn let_counter_zero_name_rejects_none() {
+        let ast = Ast::default();
+        assert_eq!(let_counter_zero_name(&ast, None), None);
+    }
+
+    #[test]
+    fn detect_while_matches_canonical_array_sum_shape() {
+        /* let xs: number[] = []; let i: number = 0;
+         * while (i < 10000000) { xs.push(i); i = i + 1; }
+         * — array-sum-1m bench shape. */
+        let mut ast = Ast::default();
+        let i_ref = mk_ident(&mut ast, "i");
+        let bound = mk_number(&mut ast, 10_000_000.0);
+        let cond = mk_lt(&mut ast, i_ref, bound);
+        let push = mk_push_stmt(&mut ast, "xs", "i");
+        let step = mk_step(&mut ast, "i");
+        let body = Stmt::Block(vec![push, step]);
+
+        let result = detect_push_loop_arrays_while(&ast, "i", cond, &body);
+        assert!(result.is_some(), "canonical shape must match");
+        let (got_bound, names) = result.unwrap();
+        assert_eq!(got_bound, bound);
+        assert_eq!(names, vec!["xs".to_string()]);
+    }
+
+    #[test]
+    fn detect_while_multi_array_push() {
+        /* while (i < N) { xs.push(i); ys.push(i); i = i + 1; } */
+        let mut ast = Ast::default();
+        let i_ref = mk_ident(&mut ast, "i");
+        let bound = mk_number(&mut ast, 100.0);
+        let cond = mk_lt(&mut ast, i_ref, bound);
+        let push_xs = mk_push_stmt(&mut ast, "xs", "i");
+        let push_ys = mk_push_stmt(&mut ast, "ys", "i");
+        let step = mk_step(&mut ast, "i");
+        let body = Stmt::Block(vec![push_xs, push_ys, step]);
+
+        let result = detect_push_loop_arrays_while(&ast, "i", cond, &body);
+        let (_, names) = result.expect("multi-array shape must match");
+        assert_eq!(names, vec!["xs".to_string(), "ys".to_string()]);
+    }
+
+    #[test]
+    fn detect_while_rejects_missing_step() {
+        /* while (i < N) { xs.push(i); }  ← no step; would loop forever
+         * in real code, but the parser still produces this AST. */
+        let mut ast = Ast::default();
+        let i_ref = mk_ident(&mut ast, "i");
+        let bound = mk_number(&mut ast, 10.0);
+        let cond = mk_lt(&mut ast, i_ref, bound);
+        let push = mk_push_stmt(&mut ast, "xs", "i");
+        let body = Stmt::Block(vec![push]);
+
+        assert!(detect_push_loop_arrays_while(&ast, "i", cond, &body).is_none());
+    }
+
+    #[test]
+    fn detect_while_rejects_step_not_last() {
+        /* while (i < N) { i = i + 1; xs.push(i); } */
+        let mut ast = Ast::default();
+        let i_ref = mk_ident(&mut ast, "i");
+        let bound = mk_number(&mut ast, 10.0);
+        let cond = mk_lt(&mut ast, i_ref, bound);
+        let step = mk_step(&mut ast, "i");
+        let push = mk_push_stmt(&mut ast, "xs", "i");
+        let body = Stmt::Block(vec![step, push]);
+
+        /* When the supposed step is first, it gets routed through
+         * collect_push_targets_only as a non-push stmt and rejected;
+         * the actual last stmt is a push, which fails is_counter_step. */
+        assert!(detect_push_loop_arrays_while(&ast, "i", cond, &body).is_none());
+    }
+
+    #[test]
+    fn detect_while_rejects_wrong_counter_in_cond() {
+        /* while (j < N) { xs.push(i); i = i + 1; }  ← cond uses j, not i */
+        let mut ast = Ast::default();
+        let j_ref = mk_ident(&mut ast, "j");
+        let bound = mk_number(&mut ast, 10.0);
+        let cond = mk_lt(&mut ast, j_ref, bound);
+        let push = mk_push_stmt(&mut ast, "xs", "i");
+        let step = mk_step(&mut ast, "i");
+        let body = Stmt::Block(vec![push, step]);
+
+        assert!(detect_push_loop_arrays_while(&ast, "i", cond, &body).is_none());
+    }
+
+    #[test]
+    fn detect_while_rejects_wrong_op_in_cond() {
+        /* while (i <= N) { ... }  ← Le not Lt */
+        let mut ast = Ast::default();
+        let i_ref = mk_ident(&mut ast, "i");
+        let bound = mk_number(&mut ast, 10.0);
+        let cond = ast.add_expr(Expr::BinOp {
+            op: AstBinOp::Le,
+            left: i_ref,
+            right: bound,
+        });
+        let push = mk_push_stmt(&mut ast, "xs", "i");
+        let step = mk_step(&mut ast, "i");
+        let body = Stmt::Block(vec![push, step]);
+
+        assert!(detect_push_loop_arrays_while(&ast, "i", cond, &body).is_none());
+    }
+
+    #[test]
+    fn detect_while_rejects_step_increment_not_one() {
+        /* while (i < N) { xs.push(i); i = i + 2; }  ← step+2 */
+        let mut ast = Ast::default();
+        let i_ref = mk_ident(&mut ast, "i");
+        let bound = mk_number(&mut ast, 10.0);
+        let cond = mk_lt(&mut ast, i_ref, bound);
+        let push = mk_push_stmt(&mut ast, "xs", "i");
+        let t = mk_ident(&mut ast, "i");
+        let l = mk_ident(&mut ast, "i");
+        let two = mk_number(&mut ast, 2.0);
+        let plus = mk_add(&mut ast, l, two);
+        let assign = mk_assign(&mut ast, t, plus);
+        let bad_step = Stmt::Expr(assign);
+        let body = Stmt::Block(vec![push, bad_step]);
+
+        assert!(detect_push_loop_arrays_while(&ast, "i", cond, &body).is_none());
+    }
+
+    #[test]
+    fn detect_while_rejects_non_push_body_stmt() {
+        /* while (i < N) { console.log(i); i = i + 1; }  ← non-push */
+        let mut ast = Ast::default();
+        let i_ref = mk_ident(&mut ast, "i");
+        let bound = mk_number(&mut ast, 10.0);
+        let cond = mk_lt(&mut ast, i_ref, bound);
+        let console = mk_ident(&mut ast, "console");
+        let log_callee = ast.add_expr(Expr::Member {
+            obj: console,
+            name: "log".to_string(),
+        });
+        let arg_i = mk_ident(&mut ast, "i");
+        let log_call = ast.add_expr(Expr::Call {
+            callee: log_callee,
+            args: vec![arg_i],
+        });
+        let log_stmt = Stmt::Expr(log_call);
+        let step = mk_step(&mut ast, "i");
+        let body = Stmt::Block(vec![log_stmt, step]);
+
+        assert!(detect_push_loop_arrays_while(&ast, "i", cond, &body).is_none());
+    }
+
+    #[test]
+    fn detect_while_rejects_non_block_body() {
+        /* while (i < N) i = i + 1;  ← single-stmt while body without block */
+        let mut ast = Ast::default();
+        let i_ref = mk_ident(&mut ast, "i");
+        let bound = mk_number(&mut ast, 10.0);
+        let cond = mk_lt(&mut ast, i_ref, bound);
+        let body = mk_step(&mut ast, "i");
+
+        assert!(detect_push_loop_arrays_while(&ast, "i", cond, &body).is_none());
+    }
+
+    #[test]
+    fn detect_while_rejects_push_with_extra_args() {
+        /* while (i < N) { xs.push(i, j); i = i + 1; }  ← .push takes 1 arg */
+        let mut ast = Ast::default();
+        let i_ref = mk_ident(&mut ast, "i");
+        let bound = mk_number(&mut ast, 10.0);
+        let cond = mk_lt(&mut ast, i_ref, bound);
+        let xs = mk_ident(&mut ast, "xs");
+        let callee = ast.add_expr(Expr::Member {
+            obj: xs,
+            name: "push".to_string(),
+        });
+        let a1 = mk_ident(&mut ast, "i");
+        let a2 = mk_ident(&mut ast, "j");
+        let call = ast.add_expr(Expr::Call {
+            callee,
+            args: vec![a1, a2],
+        });
+        let push2 = Stmt::Expr(call);
+        let step = mk_step(&mut ast, "i");
+        let body = Stmt::Block(vec![push2, step]);
+
+        assert!(detect_push_loop_arrays_while(&ast, "i", cond, &body).is_none());
+    }
+
+    #[test]
+    fn detect_while_accepts_multi_body() {
+        /* Body wrapped in Stmt::Multi (synthetic, post-desugar shape). */
+        let mut ast = Ast::default();
+        let i_ref = mk_ident(&mut ast, "i");
+        let bound = mk_number(&mut ast, 10.0);
+        let cond = mk_lt(&mut ast, i_ref, bound);
+        let push = mk_push_stmt(&mut ast, "xs", "i");
+        let step = mk_step(&mut ast, "i");
+        let body = Stmt::Multi(vec![push, step]);
+
+        assert!(detect_push_loop_arrays_while(&ast, "i", cond, &body).is_some());
+    }
+}

@@ -36,7 +36,8 @@ use crate::ssa_lower_body_returns_closure::body_returns_closure;
 use crate::ssa_lower_closure_captures::collect_closure_captures_in_stmt;
 use crate::ssa_lower_deque_escape::collect_deque_arr_names_in_stmt;
 use crate::ssa_lower_obj_escape::collect_escape_obj_let_names_in_stmt;
-use crate::ssa_lower_push_loop_detect::detect_push_loop_arrays;
+use crate::ssa_lower_push_loop_detect::{detect_push_loop_arrays, let_counter_zero_name};
+use crate::ssa_lower_while_push_fast::lower_while_inner;
 
 /// Phase 2B refcount: every heap-allocated Obj reserves a 24-byte
 /// header:
@@ -66,9 +67,9 @@ const OBJ_VTABLE_OFF: u64 = 16;
 /// walk, inc walk, pop) must add `head*8` to the byte offset; sites that
 /// operate on freshly-allocated arrays (literal init, freshly-built dst
 /// in concat/slice/spread) can skip the head load since head=0 there.
-const ARR_LEN_OFF: u64 = 8;
+pub(crate) const ARR_LEN_OFF: u64 = 8;
 const ARR_HEAD_OFF: u64 = 20;
-const ARR_DATA_OFF: u64 = 24;
+pub(crate) const ARR_DATA_OFF: u64 = 24;
 
 /// Phase 2C refcount: Closure env layout:
 ///
@@ -5703,7 +5704,7 @@ fn synthesize_env_drop(
 /// adding a new intrinsic later (e.g. `__torajs_str_concat` for P2.2.c)
 /// only touches one type signature.
 #[derive(Debug, Clone, Copy)]
-struct Intrinsics {
+pub(crate) struct Intrinsics {
     /// Per-call-site trivial closure-wrapper drop. (FuncId, SigId).
     /// Used by the Return arm when wrapping a top-level FnAddr into
     /// a Closure-typed value to satisfy a fn signature returning
@@ -5735,7 +5736,7 @@ struct Intrinsics {
     arr_shift: FuncId,
     arr_unshift: FuncId,
     arr_drop: FuncId,
-    arr_reserve: FuncId,
+    pub(crate) arr_reserve: FuncId,
     arr_push_unchecked: FuncId,
     arr_extend_unchecked: FuncId,
     arr_slice: FuncId,
@@ -6122,20 +6123,20 @@ struct Intrinsics {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct LocalInfo {
+pub(crate) struct LocalInfo {
     /// Pointer to the alloca slot — Type::Ptr.
-    slot: ValueId,
+    pub(crate) slot: ValueId,
     /// Type of the slot's *contents* (what Load returns).
-    ty: Type,
+    pub(crate) ty: Type,
     /// True after the binding's value has been consumed. Drop emission at
     /// fn-end skips moved locals.
-    moved: bool,
+    pub(crate) moved: bool,
     /// Lexical scope depth this binding was declared at. 0 = fn-root,
     /// each enclosing `Block` increments. Used by M1.3 to (a) drop
     /// inner-block locals at the closing `}` and (b) prevent cross-
     /// scope `let n = s` from transferring ownership (would dangle the
     /// outer-scope reference); see LetDecl in lower_stmt for the rule.
-    scope_depth: usize,
+    pub(crate) scope_depth: usize,
 }
 
 fn declare_intrinsic(
@@ -6268,8 +6269,12 @@ fn synthesize_main(
         for s in stmts {
             collect_escape_obj_let_names_in_stmt(ctx.ast, s, &mut ctx.escape_obj_lets);
         }
+        let mut prev: Option<&Stmt> = None;
         for s in stmts {
-            ctx.lower_top_stmt(s);
+            if !ctx.try_lower_while_fast(prev, s) {
+                ctx.lower_top_stmt(s);
+            }
+            prev = Some(*s);
         }
         if ctx.cur_open() {
             ctx.emit_drops_for_owned_locals();
@@ -7206,8 +7211,12 @@ fn lower_fn(
         }
     }
 
+    let mut prev: Option<&Stmt> = None;
     for s in body {
-        ctx.lower_stmt(s);
+        if !ctx.try_lower_while_fast(prev, s) {
+            ctx.lower_stmt(s);
+        }
+        prev = Some(s);
     }
     // Function fall-through (no explicit return). Emit drops + an implicit
     // void/zero return — applies to any block still open at body end.
@@ -7226,25 +7235,25 @@ fn lower_fn(
 /// v0.6+1 perf checkpoint — per-array hoisted state for the push-loop
 /// pre-reserve fast-push. See `LowerCtx::push_unchecked_for`.
 #[derive(Clone, Copy)]
-struct PreReserveState {
+pub(crate) struct PreReserveState {
     /// The array's heap pointer at loop entry (= `arr_reserve`'s
     /// return). Used as the StoreDyn base + post-loop len-writeback
     /// target.
-    arr_ptr: ValueId,
+    pub(crate) arr_ptr: ValueId,
     /// Pre-computed `head_x8 + 24` — the byte offset from `arr_ptr`
     /// to slot[0]. Loop-invariant since the pattern detector
     /// excludes any body that could shift/unshift the array.
-    head_off: ValueId,
+    pub(crate) head_off: ValueId,
     /// Local alloca'd i64 holding the running length. Initialized
     /// to the array's len at loop entry; bumped per push; written
     /// back to the array's len field at loop exit. mem2reg promotes
     /// this to a phi-register at -O1+.
-    len_slot: ValueId,
+    pub(crate) len_slot: ValueId,
 }
 
-struct LowerCtx<'a> {
-    f: &'a mut ssa::Function,
-    ast: &'a Ast,
+pub(crate) struct LowerCtx<'a> {
+    pub(crate) f: &'a mut ssa::Function,
+    pub(crate) ast: &'a Ast,
     fn_table: &'a HashMap<String, FuncId>,
     /// FuncId → return type, populated in pass 1 of `lower`. Lets call-site
     /// lowering pick the right SSA result type even when the callee hasn't
@@ -7257,7 +7266,7 @@ struct LowerCtx<'a> {
     /// Resolved FuncIds for the runtime intrinsics. Read at every site that
     /// emits a runtime call — string-literal lowering needs `str_alloc`,
     /// `console.log` needs `print_i64` / `str_print`, etc.
-    intrinsics: Intrinsics,
+    pub(crate) intrinsics: Intrinsics,
     /// User-declared type aliases (`type Point = { ... }` → Type::Obj).
     /// Threaded through so `parse_type("Point", ...)` resolves at let-decl
     /// + function-signature sites.
@@ -7343,7 +7352,7 @@ struct LowerCtx<'a> {
     /// drops fire in deterministic order — using IndexMap-equivalent
     /// behavior would be cleaner but a plain HashMap is fine for the
     /// number of locals our cases have.
-    locals: HashMap<String, LocalInfo>,
+    pub(crate) locals: HashMap<String, LocalInfo>,
     /// Stack of names declared in each enclosing lexical scope, with the
     /// fn-root scope as `scope_stack[0]`. M1.3 — at `}` close we pop the
     /// top frame and emit drops for owners declared at that depth, then
@@ -7381,8 +7390,8 @@ struct LowerCtx<'a> {
     /// continue_target. For while-loops, continue_target = loop header
     /// (re-evaluates cond). For for-loops, continue_target = step block
     /// (so the step still runs on continue, then back to header).
-    loop_stack: Vec<(BlockId, BlockId)>,
-    cur_block: BlockId,
+    pub(crate) loop_stack: Vec<(BlockId, BlockId)>,
+    pub(crate) cur_block: BlockId,
     /// New string literals encountered during this lowering pass (currently
     /// only main collects them). Caller appends these to the module's
     /// strings table; StringId offsets are pre-assigned via string_id_base.
@@ -7440,7 +7449,7 @@ struct LowerCtx<'a> {
     /// distinct arrays in lockstep still benefits — each gets its
     /// own state entry. Conservative: only fires when the for-loop's
     /// full body shape matches the detector.
-    push_unchecked_for: std::collections::HashMap<String, PreReserveState>,
+    pub(crate) push_unchecked_for: std::collections::HashMap<String, PreReserveState>,
     /// P1.5/P1.8 — per-binop scratch flags carrying which side (if any)
     /// is a frontend Type::Undefined source. Set by lower_binop_with_ids
     /// before dispatching to the inner impl, restored after. The Eq/Neq
@@ -7517,11 +7526,24 @@ impl<'a> LowerCtx<'a> {
     /// True iff the current block hasn't been terminated yet (still has the
     /// default `Unreachable` placeholder). Used after lowering a sub-statement
     /// to decide whether we still need to emit a fall-through Br.
-    fn cur_open(&self) -> bool {
+    pub(crate) fn cur_open(&self) -> bool {
         matches!(
             self.f.blocks[self.cur_block.0 as usize].term,
             Terminator::Unreachable
         )
+    }
+
+    /// 12-c-1 — route `while` through [`lower_while_inner`] with the
+    /// let-zero counter derived from `prev`. Returns `true` iff `s`
+    /// was a While; caller lowers non-Whiles normally. See the module
+    /// doc on [`crate::ssa_lower_while_push_fast`].
+    pub(crate) fn try_lower_while_fast(&mut self, prev: Option<&Stmt>, s: &Stmt) -> bool {
+        let Stmt::While { cond, body } = s else {
+            return false;
+        };
+        let counter = let_counter_zero_name(self.ast, prev);
+        lower_while_inner(self, *cond, body, counter.as_deref());
+        true
     }
 
     /// Top-level statement lowering inside the synthesized `main` function.
@@ -8724,7 +8746,7 @@ impl<'a> LowerCtx<'a> {
     /// Allocate a stack slot of `ty` in the current block. Returns the
     /// alloca's pointer ValueId. Used for `let`-decl locals + parameter
     /// home-slots (see lower_fn).
-    fn alloca(&mut self, ty: Type, name: Option<&str>) -> ValueId {
+    pub(crate) fn alloca(&mut self, ty: Type, name: Option<&str>) -> ValueId {
         self.f
             .append_inst(self.cur_block, InstKind::Alloca(ty), Type::Ptr, name)
     }
@@ -9067,7 +9089,7 @@ impl<'a> LowerCtx<'a> {
     /// u64 at offset 16 (low 32 = cap, high 32 = head, little-endian),
     /// extracts head via `LShr 32`, then `Shl 3` to scale to bytes.
     /// LICM hoists this out of any element-walk loop.
-    fn emit_arr_head_x8(&mut self, arr: Operand) -> Operand {
+    pub(crate) fn emit_arr_head_x8(&mut self, arr: Operand) -> Operand {
         let packed = self.f.append_inst(
             self.cur_block,
             InstKind::Load(Type::I64, arr, 16),
@@ -9895,7 +9917,7 @@ impl<'a> LowerCtx<'a> {
         }
     }
 
-    fn lower_stmt(&mut self, s: &Stmt) {
+    pub(crate) fn lower_stmt(&mut self, s: &Stmt) {
         match s {
             Stmt::Multi(stmts) => {
                 // Compiler-generated sequence — share surrounding scope.
@@ -9904,11 +9926,15 @@ impl<'a> LowerCtx<'a> {
                 // parse-time desugars (destructuring, possibly others)
                 // that need to emit multiple lets without burying them
                 // in a child block.
+                let mut prev: Option<&Stmt> = None;
                 for s in stmts {
-                    self.lower_stmt(s);
+                    if !self.try_lower_while_fast(prev, s) {
+                        self.lower_stmt(s);
+                    }
                     if !self.cur_open() {
                         break;
                     }
+                    prev = Some(s);
                 }
             }
             Stmt::Block(stmts) => {
@@ -9923,12 +9949,16 @@ impl<'a> LowerCtx<'a> {
                 self.scope_stack.push(Vec::new());
                 self.shadow_stack.push(Vec::new());
                 let mut early_exit = false;
+                let mut prev: Option<&Stmt> = None;
                 for s in stmts {
-                    self.lower_stmt(s);
+                    if !self.try_lower_while_fast(prev, s) {
+                        self.lower_stmt(s);
+                    }
                     if !self.cur_open() {
                         early_exit = true;
                         break;
                     }
+                    prev = Some(s);
                 }
                 let frame = self.scope_stack.pop().expect("scope frame");
                 let shadows = self.shadow_stack.pop().expect("shadow frame");
@@ -10618,37 +10648,7 @@ impl<'a> LowerCtx<'a> {
                 top.push(name.clone());
             }
             Stmt::While { cond, body } => {
-                let header = self.f.add_block();
-                let body_blk = self.f.add_block();
-                let after = self.f.add_block();
-
-                self.f.set_term(self.cur_block, Terminator::Br(header));
-
-                self.cur_block = header;
-                let c = self.lower_expr(*cond);
-                let c = self.coerce_to_bool(c);
-                self.f.set_term(
-                    self.cur_block,
-                    Terminator::CondBr {
-                        cond: c,
-                        then_blk: body_blk,
-                        else_blk: after,
-                    },
-                );
-
-                // M1.7 — `break` jumps to `after`, `continue` jumps to
-                // `header` (which re-evaluates cond). Push the loop ctx
-                // before lowering body so nested break/continue resolve
-                // correctly.
-                self.loop_stack.push((header, after));
-                self.cur_block = body_blk;
-                self.lower_stmt(body);
-                if self.cur_open() {
-                    self.f.set_term(self.cur_block, Terminator::Br(header));
-                }
-                self.loop_stack.pop();
-
-                self.cur_block = after;
+                lower_while_inner(self, *cond, body, None);
             }
             Stmt::ForOfSplitIter {
                 var_name,
@@ -13381,7 +13381,7 @@ impl<'a> LowerCtx<'a> {
     /// Recursive `self.lower_expr(...)` calls re-enter this wrapper
     /// so nested exprs get their own tighter origin scoped to the
     /// inner subtree (RAII-style save/restore on the prev value).
-    fn lower_expr(&mut self, eid: ExprId) -> Operand {
+    pub(crate) fn lower_expr(&mut self, eid: ExprId) -> Operand {
         let prev = self.f.current_origin;
         self.f.current_origin = Some(eid);
         let result = self.lower_expr_inner(eid);
@@ -27529,7 +27529,7 @@ impl<'a> LowerCtx<'a> {
     ///   F64       → 0/-0/NaN = false, else true
     ///   String / Substr → empty = false, else true
     ///   Object / Array / Closure / etc → always true (non-null heap)
-    fn coerce_to_bool(&mut self, op: Operand) -> Operand {
+    pub(crate) fn coerce_to_bool(&mut self, op: Operand) -> Operand {
         let ty = self.operand_ty(&op);
         match ty {
             Type::Bool => op,
