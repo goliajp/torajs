@@ -1,0 +1,20 @@
+[package]
+name = "torajs-mem"
+description = "0-libc memcpy/memmove/memcmp linker-symbols for tr-built user binaries. Replaces libc/compiler_builtins fallback for the LLVM-emitted memory intrinsics."
+keywords = ["torajs", "memcpy", "memmove", "memcmp", "no-libc"]
+categories = ["no-std", "memory-management"]
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[lib]
+crate-type = ["lib", "staticlib"]
+
+[lints]
+workspace = true
+
+[dependencies]
+# 0 runtime deps — pure-core byte-loop implementations.

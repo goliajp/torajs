@@ -1918,6 +1918,7 @@ dependencies = [
  "torajs-dynobj",
  "torajs-fmt",
  "torajs-io",
+ "torajs-mem",
  "torajs-meta",
  "torajs-microtask",
  "torajs-mmalloc",
@@ -1989,6 +1990,10 @@ version = "0.1.0"
 dependencies = [
  "torajs-syscall",
 ]
+
+[[package]]
+name = "torajs-mem"
+version = "0.1.0"
 
 [[package]]
 name = "torajs-meta"

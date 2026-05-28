@@ -38,6 +38,12 @@ torajs-io = { path = "../torajs-io" }
 # / __torajs_fmt_atod replace libc snprintf / strtod in
 # torajs-num + torajs-arr + torajs-str's print/json paths.
 torajs-fmt = { path = "../torajs-fmt" }
+# Layer-0: 0-libc memcpy/memmove/memcmp linker-symbol shims
+# (v0.7-A5 Step 16-a). libtorajs_mem.a defines the three
+# extern "C" symbols so the user binary can (with appropriate
+# linker flag tuning in 16-e) resolve LLVM-emitted memory
+# intrinsics against our impls instead of libSystem.dylib.
+torajs-mem = { path = "../torajs-mem" }
 # Layer-1 substrate: rc_inc / rc_dec / HeapHeader. Pulled in for both
 # (a) the rlib (so torajs-core can call rc_inc directly from Rust if
 # needed later) and (b) the staticlib that build.rs copies into

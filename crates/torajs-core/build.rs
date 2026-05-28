@@ -95,19 +95,20 @@ const STATICLIBS: &[&str] = &[
     "torajs_syscall",       // Layer-0: aarch64/x86_64 raw syscall trampoline (v0.7-A1)
     "torajs_io",            // Layer-0: 0-libc buffered stdout writer (v0.7-A3 Step 14-a)
     "torajs_fmt",           // Layer-0: 0-libc f64 ↔ string conversion (v0.7-A4 Step 15-a/b/c)
-    "torajs_mmalloc",       // Layer-0: mmap-backed allocator + libc-compat shim (v0.7-A2)
-    "torajs_rc",            // Layer-1: refcount + heap-header
-    "torajs_anyvalue",      // Layer-1: AnyBox (boxed Type::Any)
-    "torajs_throw",         // Layer-1: native-error registry + throw helpers
-    "torajs_str",           // Layer-2: Str layout + small-Str pool + alloc/free
-    "torajs_num",           // Layer-2: Number primitives + Math namespace intrinsics
-    "torajs_bigint",        // Layer-2: BigInt arbitrary-precision integer (P3.3)
-    "torajs_arr",           // Layer-3: Array<T> + Array<Any> substrate (P4.1)
-    "torajs_dynobj",        // Layer-3: dynamic-property object hashmap (P4.2)
-    "torajs_collections",   // Layer-3: Map<K,V> + Set + MapIter (P4.3)
-    "torajs_weak",          // Layer-3: WeakRef + WeakMap + WeakSet substrate (P4.3')
-    "torajs_cycle",         // Layer-3: Bacon-Rajan trial-deletion cycle collector (P4.4)
-    "torajs_microtask",     // Layer-3: microtask queue (P5)
+    "torajs_mem", // Layer-0: 0-libc memcpy/memmove/memcmp linker shims (v0.7-A5 Step 16-a)
+    "torajs_mmalloc", // Layer-0: mmap-backed allocator + libc-compat shim (v0.7-A2)
+    "torajs_rc",  // Layer-1: refcount + heap-header
+    "torajs_anyvalue", // Layer-1: AnyBox (boxed Type::Any)
+    "torajs_throw", // Layer-1: native-error registry + throw helpers
+    "torajs_str", // Layer-2: Str layout + small-Str pool + alloc/free
+    "torajs_num", // Layer-2: Number primitives + Math namespace intrinsics
+    "torajs_bigint", // Layer-2: BigInt arbitrary-precision integer (P3.3)
+    "torajs_arr", // Layer-3: Array<T> + Array<Any> substrate (P4.1)
+    "torajs_dynobj", // Layer-3: dynamic-property object hashmap (P4.2)
+    "torajs_collections", // Layer-3: Map<K,V> + Set + MapIter (P4.3)
+    "torajs_weak", // Layer-3: WeakRef + WeakMap + WeakSet substrate (P4.3')
+    "torajs_cycle", // Layer-3: Bacon-Rajan trial-deletion cycle collector (P4.4)
+    "torajs_microtask", // Layer-3: microtask queue (P5)
     "torajs_promise", // Layer-3: Promise surface — alloc/pool/drop/state/then/combinator/queueMicrotask (P6.1)
     "torajs_regex", // Layer-3: ECMAScript regex — parser / Thompson NFA / Pike VM + extern API (P6.2)
     "torajs_fetch", // Layer-3: sync HTTP fetch (libcurl-easy wrapper) — Response heap + drop (P6.3)

@@ -4,6 +4,7 @@ members = [
     "crates/torajs-syscall",
     "crates/torajs-io",
     "crates/torajs-fmt",
+    "crates/torajs-mem",
     "crates/torajs-mmalloc",
     "crates/torajs-pool",
     "crates/torajs-ucd",
