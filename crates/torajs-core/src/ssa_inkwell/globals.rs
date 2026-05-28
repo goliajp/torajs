@@ -104,29 +104,50 @@ pub(super) fn emit_data_global<'ctx>(
     m: &LlvmModule<'ctx>,
     g: &s::DataGlobal,
 ) -> inkwell::values::GlobalValue<'ctx> {
+    /* 12-c-2 — primitive Copy data globals (I64 / I32 / F64 / Bool) get
+     * `internal` linkage so LLVM's GlobalsAA + DSE can see no other
+     * translation unit references them and promote
+     * load-add-store-of-self loops to phi registers. Without `internal`,
+     * `@i` stays as `external local_unnamed_addr global` and LLVM
+     * conservatively keeps the per-iter `load @i / add 1 / store @i`
+     * sequence (a 3-instr-per-iter memory dance) even when the phi
+     * value is already available. Counter loops like array-sum-1m's
+     * `while (i < N) { xs.push(i); i = i + 1; }` benefit directly.
+     *
+     * Refcount globals (Str / Arr / Obj at the bottom of this match)
+     * stay External until a follow-up audits the exit-time drop hook
+     * + the GlobalsAA interaction with rc_inc/rc_dec callsites.
+     *
+     * Safe because: torajs's `tr build` emits ONE LLVM module per
+     * binary; the runtime staticlibs (libtorajs_*.a) don't reference
+     * user-defined globals by name. */
     match g.ty {
         Type::I64 => {
             let t = ctx.i64_type();
             let glob = m.add_global(t, None, &g.name);
             glob.set_initializer(&t.const_int(0, false));
+            glob.set_linkage(inkwell::module::Linkage::Internal);
             glob
         }
         Type::I32 => {
             let t = ctx.i32_type();
             let glob = m.add_global(t, None, &g.name);
             glob.set_initializer(&t.const_int(0, false));
+            glob.set_linkage(inkwell::module::Linkage::Internal);
             glob
         }
         Type::F64 => {
             let t = ctx.f64_type();
             let glob = m.add_global(t, None, &g.name);
             glob.set_initializer(&t.const_float(0.0));
+            glob.set_linkage(inkwell::module::Linkage::Internal);
             glob
         }
         Type::Bool => {
             let t = ctx.bool_type();
             let glob = m.add_global(t, None, &g.name);
             glob.set_initializer(&t.const_int(0, false));
+            glob.set_linkage(inkwell::module::Linkage::Internal);
             glob
         }
         // K.4 / K.6 — refcount-typed globals (Str / Arr / Obj). All
