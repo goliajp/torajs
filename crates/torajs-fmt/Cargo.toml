@@ -1,0 +1,24 @@
+[package]
+name = "torajs-fmt"
+description = "0-libc f64 ↔ string conversion — Ryū dtoa + Eisel-Lemire atod for torajs user binaries. Replaces libc snprintf + strtod."
+keywords = ["torajs", "dtoa", "atod", "ryu", "eisel-lemire"]
+categories = ["no-std", "mathematics"]
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[lib]
+crate-type = ["lib", "staticlib"]
+
+[lints]
+workspace = true
+
+[dependencies]
+# 0 runtime deps — pure-core algorithm crate. Public extern
+# entry points called from torajs-num / torajs-arr / torajs-str
+# via #[link]; no Cargo dep relationship needed for the user
+# binary, but downstream test binaries pull torajs-fmt as a path
+# dep via their own Cargo.toml (added in 15-d / 15-e).
