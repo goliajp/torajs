@@ -24,6 +24,9 @@ crate-type = ["rlib", "staticlib"]
 [dependencies]
 # Polish A3a — panic-free abort helper for mutex.lock().expect.
 torajs-abort = { path = "../torajs-abort" }
+# v0.7-A5 Step 16-b — 0-libc Mutex<T>; replaces std::sync::Mutex
+# inside FNPROPS OnceLock to drop pthread_mutex_* from the user binary.
+torajs-mutex = { path = "../torajs-mutex" }
 # Cross-tier extern calls (dynobj_*, any_box, rc_inc,
 # value_drop_heap, str_alloc_pooled, str_drop) resolve at
 # `tr build` link time against the matching sibling staticlibs +

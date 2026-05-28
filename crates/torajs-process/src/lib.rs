@@ -27,7 +27,7 @@
 //! is preserved without an explicit `fflush`.
 
 use core::ffi::{c_char, c_void};
-use std::sync::Mutex;
+use torajs_mutex::Mutex;
 
 const STR_HDR_SIZE: usize = 16;
 const STR_LEN_OFF: usize = 8;
@@ -164,9 +164,7 @@ static ARGV_STATE: Mutex<(i32, usize)> = Mutex::new((0, 0));
 /// `argv` must outlive the process (kernel-supplied stack frame).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_argv_init(argc: i32, argv: *mut *mut c_char) {
-    let mut state = ARGV_STATE
-        .lock()
-        .expect("torajs-process argv mutex poisoned");
+    let mut state = ARGV_STATE.lock();
     *state = (argc, argv as usize);
 }
 
@@ -174,9 +172,7 @@ pub unsafe extern "C" fn __torajs_argv_init(argc: i32, argv: *mut *mut c_char) {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_process_argv() -> *mut u8 {
     let (argc, argv_addr) = {
-        let state = ARGV_STATE
-            .lock()
-            .expect("torajs-process argv mutex poisoned");
+        let state = ARGV_STATE.lock();
         (state.0, state.1)
     };
     let argv = argv_addr as *mut *mut c_char;

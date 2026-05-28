@@ -19,8 +19,8 @@
 //! ```
 
 use core::ffi::c_void;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
+use torajs_mutex::Mutex;
 
 use crate::layout::{STR_HDR_SIZE, STR_LEN_OFF};
 
@@ -234,9 +234,7 @@ pub unsafe extern "C" fn __torajs_symbol_for(key: *mut c_void) -> *mut c_void {
             __torajs_panic(b"TypeError: Symbol.for requires a string key\0".as_ptr());
         }
     }
-    let mut reg = SYMBOL_REG
-        .lock()
-        .unwrap_or_else(|_| torajs_abort::abort_with(b"torajs-str SYMBOL_REG mutex poisoned"));
+    let mut reg = SYMBOL_REG.lock();
     // Linear scan — same shape as C port.
     for &sym_usize in reg.iter() {
         let sym = sym_usize as *mut c_void;
@@ -268,9 +266,7 @@ pub unsafe extern "C" fn __torajs_symbol_key_for(sym: *mut c_void) -> *mut c_voi
     if sym.is_null() {
         return core::ptr::null_mut();
     }
-    let reg = SYMBOL_REG
-        .lock()
-        .unwrap_or_else(|_| torajs_abort::abort_with(b"torajs-str SYMBOL_REG mutex poisoned"));
+    let reg = SYMBOL_REG.lock();
     for &reg_sym in reg.iter() {
         if reg_sym == sym as usize {
             let desc = unsafe { symbol_desc(sym) };

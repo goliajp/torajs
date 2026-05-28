@@ -2001,6 +2001,7 @@ version = "0.1.0"
 dependencies = [
  "criterion",
  "torajs-abort",
+ "torajs-mutex",
 ]
 
 [[package]]
@@ -2074,6 +2075,7 @@ version = "0.1.0"
 dependencies = [
  "criterion",
  "torajs-io",
+ "torajs-mutex",
 ]
 
 [[package]]
@@ -2111,6 +2113,7 @@ dependencies = [
  "torajs-fmt",
  "torajs-io",
  "torajs-mmalloc",
+ "torajs-mutex",
  "torajs-rc",
 ]
 

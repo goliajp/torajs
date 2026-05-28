@@ -42,6 +42,9 @@ torajs-io = { path = "../torajs-io" }
 # v0.7-A4 Step 15-e — 0-libc string → f64 conversion for
 # json_parse numeric tokens (replaces libc strtod).
 torajs-fmt = { path = "../torajs-fmt" }
+# v0.7-A5 Step 16-b — 0-libc Mutex<T>; replaces std::sync::Mutex
+# for SYMBOL_REG to drop pthread_mutex_* from the user binary.
+torajs-mutex = { path = "../torajs-mutex" }
 
 [dev-dependencies]
 criterion = { workspace = true }
