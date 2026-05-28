@@ -1,0 +1,32 @@
+{
+  "started_at": "2026-05-28T01:37:55Z",
+  "host": "mini.local",
+  "git_sha": "94344c3c1c685c24daa459d6df9a7671f24369cb",
+  "runs": 5,
+  "rows": [
+    {
+      "case": "array-sum-1m",
+      "runtime": "rust",
+      "runtime_version": "rustc 1.97.0-nightly (9eb3be26b 2026-05-18)",
+      "status": "ok",
+      "compile_ms": 291.185958,
+      "run_ms": 15.401584,
+      "run_stddev_ms": 0.3703759999999985,
+      "artifact_bytes": 466864,
+      "stdout_match": true,
+      "error": null
+    },
+    {
+      "case": "array-sum-1m",
+      "runtime": "torajs",
+      "runtime_version": "tr 0.1.0",
+      "status": "ok",
+      "compile_ms": 517.893833,
+      "run_ms": 22.337625,
+      "run_stddev_ms": 0.29495899999999864,
+      "artifact_bytes": 99392,
+      "stdout_match": true,
+      "error": null
+    }
+  ]
+}
