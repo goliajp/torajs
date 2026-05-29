@@ -75,14 +75,31 @@ warnings = "deny"
 all = { level = "deny", priority = -1 }
 
 # Phase B: tr binary itself runs at max-opt — affects compile_ms only.
-# LTO=fat collapses inkwell + tr crates into a single codegen unit so
-# Rust call sites into LLVM bridge can be cross-crate inlined. Demo
-# binary perf (the output of `tr build`) is unaffected by this — that's
-# determined by tr's pass to LLVM (`--opt O3` by default; see
-# main.rs:179).
+# LTO tunes the `tr` COMPILER binary, NOT the user binary `tr build`
+# emits. Measured 2026-05-29 (fat vs false, identical fixtures):
+#   - user binary is byte-for-byte identical either way (ackermann
+#     72856 B / prime_count 72832 B / array-map-1m 73600 B in BOTH),
+#     run_ms unchanged. `tr build` output is set by tr's own LLVM pass
+#     (`--opt O3`, main.rs:179) + the link-time `-flto` in
+#     ssa_inkwell/link.rs — never by this profile. (The staticlibs baked
+#     in via include_bytes! are standalone object archives, not bitcode.)
+#   - the `tr` binary itself: fat = thin = 162.9 MB, false = 51 MB
+#     (-69%). fat-LTO was *assumed* to speed up `tr build` via the
+#     inkwell↔tr cross-crate inlining — measured the OPPOSITE: a
+#     1500-fn fixture compiled in min 12.68s / median 15.88s at false
+#     vs 22.79s / 23.74s at fat (false is 30-45% FASTER, and lower
+#     variance). fat-LTO is a net negative on this 162 MB compiler: 3x
+#     the code to page in per `tr build` invocation + over-inlined giant
+#     hot fns (lower_expr_inner) thrashing icache. The hottest build
+#     (conformance gate) already runs iter/lto=false anyway; and tr
+#     build is compile_ms, not run_ms (design pillar #1).
+# Net: dropping LTO cuts the tr artifact 69% AND speeds up tr build, at
+# zero cost to user-binary perf or size (byte-identical). `thin` is
+# strictly worse — same 162.9 MB as fat, no win. So we omit the `lto`
+# line entirely: cargo's release-profile default is already lto=false,
+# so "no line" == "lto = false" with less noise.
 [profile.release]
 opt-level = 3
-lto = "fat"
 codegen-units = 1
 strip = true
 # polish A4 (2026-05-24) — `panic = "abort"` is the manifest-stable
