@@ -1,12 +1,31 @@
-# polish A4 (2026-05-24) — nightly required for -Z build-std and
-# `panic = "immediate-abort"` (Rust 1.97+ feature). Pinned to a
-# specific nightly date so all developers + CI use the identical
-# toolchain (no "works on my machine" surprises).
+# nightly required (audited 2026-05-29). Two production-AOT-path deps,
+# both in scripts/release-build.sh:
+#   1. `-Z build-std` — rebuild core/alloc/std/panic_abort (0-libc +
+#      artifact-size). cargo-unstable; tracking rust-lang/wg-cargo-std-aware.
+#   2. self-hosted panic runtime (crates/torajs-panic-runtime/src/lib.rs:65-71,
+#      active mode): `#![panic_runtime]` + feature(std_internals,
+#      alloc_error_handler, rustc_attrs) + #[rustc_std_internal_symbol].
+#      panic_runtime/std_internals/rustc_attrs are compiler-INTERNAL —
+#      rust-lang does not stabilize them for user code, so the path back
+#      to stable is NOT "wait for them to graduate" (see check below).
 #
-# To regenerate after a Rust release: bump `channel` to a tagged
-# nightly date that supports immediate-abort (1.97-nightly or
-# later). `rustup toolchain install nightly-YYYY-MM-DD --component
-# rust-src` is the cheapest CI prerequisite.
+# NOTE: `-Cpanic=immediate-abort` is NOT a reason — it was dropped in
+# A4.1 (+19% perf regression; release-build.sh forbids re-adding it).
+# The language/edition layer is already stable-compatible: zero
+# unconditional #![feature], edition 2024 + &raw mut + #[global_allocator].
+#
+# Pinned to a specific nightly date so all developers + CI use the
+# identical toolchain. To bump: `rustup toolchain install
+# nightly-YYYY-MM-DD --component rust-src`, update `channel` below, run
+# `cargo build --workspace` + `bash scripts/release-build.sh` + the
+# conformance gate, commit as a standalone change. Do NOT switch to a
+# rolling `nightly` channel — the deeply-unstable features above drift
+# between nightlies and would turn `rustup update` into a random build
+# break (and pollute the autorun conformance signal).
+#
+# To check whether the latest stable can finally drop nightly, run the
+# local skill `.claude/skills/check-rust-version/check.sh` (ground-truth
+# probes; not committed).
 
 [toolchain]
 channel = "nightly-2026-05-19"
