@@ -26,6 +26,7 @@ pub mod civil;
 pub mod getters;
 pub mod parse;
 pub mod tm;
+pub mod tz;
 
 use core::ffi::c_void;
 
