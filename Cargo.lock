@@ -2033,6 +2033,7 @@ dependencies = [
  "criterion",
  "torajs-fmt",
  "torajs-io",
+ "torajs-syscall",
 ]
 
 [[package]]

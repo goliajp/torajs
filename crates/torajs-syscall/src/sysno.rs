@@ -43,6 +43,12 @@ pub const SYS_LSEEK: u32 = 199;
 /// `kill(pid_t pid, int sig) -> int` — used for abort() routing.
 pub const SYS_KILL: u32 = 37;
 
+/// `getentropy(void *buf, size_t len) -> int` — kernel CSPRNG fill,
+/// `len <= 256`. Used to seed `Math.random` with crypto-quality
+/// entropy instead of `SystemTime::now()` (which pulls libc
+/// `clock_gettime` / `__error` / `strerror_r` into the user binary).
+pub const SYS_GETENTROPY: u32 = 500;
+
 /// Signal numbers (`<sys/signal.h>`, stable BSD/macOS values).
 /// `SIGABRT` is delivered by `__torajs_syscall_abort` for orthodox
 /// `abort(3)` semantics; `SIGKILL` is the uncatchable escalation if a

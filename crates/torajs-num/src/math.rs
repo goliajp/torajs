@@ -227,9 +227,9 @@ pub unsafe extern "C" fn __torajs_math_sign(x: f64) -> f64 {
 /// poor distribution (low-bit periodicity) and pulls in a libc
 /// rand symbol dep we don't want under the in-house pillar.
 ///
-/// State is `(0, 0)` until first use, then lazily seeded from
-/// `SystemTime::now()` via splitmix64. Step 16-c-2: a plain
-/// `static mut` (not `thread_local!`) — the latter pulls in
+/// State is `(0, 0)` until first use, then lazily seeded from the
+/// kernel CSPRNG via `getentropy(2)` (Step 16-c-3). Step 16-c-2: a
+/// plain `static mut` (not `thread_local!`) — the latter pulls in
 /// `__tlv_bootstrap` on macOS. Single-threaded JS execution model
 /// means no contention; multi-thread re-derivation tracked in the
 /// v0.8 backlog (same note as the mmalloc TLAB).
@@ -243,24 +243,35 @@ fn splitmix64(mut x: u64) -> u64 {
 }
 
 fn seed_rng_state() -> (u64, u64) {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos() as u64)
-        .unwrap_or(0xdead_beef_cafe_babe);
-    let s0 = splitmix64(nanos.wrapping_add(0x9e3779b97f4a7c15));
-    let s1 = splitmix64(s0.wrapping_add(0x9e3779b97f4a7c15));
-    // xorshift requires non-zero state — splitmix64 of any non-zero
-    // seed is non-zero, but be defensive.
+    // Step 16-c-3: crypto-quality seed from the kernel CSPRNG via a
+    // single getentropy(2) svc — the entropy source V8 / SpiderMonkey
+    // use. Replaces `SystemTime::now()`, which dragged libc
+    // `clock_gettime` / `__error` / `strerror_r` / `memset` / `bzero`
+    // into every Math.random user binary. JS leaves the seed
+    // "implementation-defined" so any non-degenerate seed is conformant.
+    let mut bytes = [0u8; 16];
+    let (s0, s1) = if unsafe { torajs_syscall::getentropy(&mut bytes) }.is_ok() {
+        (
+            u64::from_le_bytes(bytes[0..8].try_into().unwrap()),
+            u64::from_le_bytes(bytes[8..16].try_into().unwrap()),
+        )
+    } else {
+        // getentropy can't fail for a 16-byte request on a healthy
+        // kernel; if it ever does, splitmix a fixed constant so the
+        // generator still yields a non-degenerate stream.
+        let s0 = splitmix64(0xdead_beef_cafe_babe);
+        (s0, splitmix64(s0.wrapping_add(0x9e3779b97f4a7c15)))
+    };
+    // xorshift requires non-zero state.
     if s0 == 0 && s1 == 0 { (1, 0) } else { (s0, s1) }
 }
 
 /// `Math.random()` — uniform [0, 1) f64.
 ///
 /// xorshift128+ → high 53 bits → multiply by 2^-53. Matches the
-/// V8 / SpiderMonkey conversion path bit-for-bit, modulo the
-/// per-process seed (we use system time + splitmix64; they use
-/// /dev/urandom + crypto-quality seed).
+/// V8 / SpiderMonkey conversion path bit-for-bit, including the
+/// per-process seed source: a `getentropy(2)` draw from the kernel
+/// CSPRNG (Step 16-c-3) — the same crypto-quality entropy they use.
 ///
 /// JS spec wording is "implementation-defined" so the seed choice
 /// is conformant; only the [0, 1) range is mandatory.

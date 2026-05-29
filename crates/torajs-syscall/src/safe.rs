@@ -106,6 +106,25 @@ pub unsafe fn munmap(addr: *mut u8, len: usize) -> Result<(), Errno> {
     decode(raw).map(|_| ())
 }
 
+/// `getentropy(buf) -> Ok(()) | Err(errno)` — fill `buf` with
+/// `buf.len()` cryptographically-secure random bytes from the kernel
+/// CSPRNG. The kernel caps a single request at 256 bytes; larger
+/// requests fail with `EIO`.
+///
+/// This is the metal-level seed source for `Math.random` — it
+/// replaces `SystemTime::now()` (which drags libc `clock_gettime` /
+/// `__error` / `strerror_r` / `memset` into the user binary) with a
+/// single `svc` and gives crypto-quality entropy (the seed quality
+/// V8 / SpiderMonkey use), not wall-clock time.
+///
+/// # Safety
+///
+/// `buf` must point to at least `buf.len()` writable bytes.
+pub unsafe fn getentropy(buf: &mut [u8]) -> Result<(), Errno> {
+    let raw = unsafe { syscall3(SYS_GETENTROPY, buf.as_mut_ptr() as i64, buf.len() as i64, 0) };
+    decode(raw).map(|_| ())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -143,5 +162,28 @@ mod tests {
         let err = unsafe { write(bad_fd, b"x") }.expect_err("expected EBADF");
         // EBADF on macOS = 9
         assert_eq!(err.0, 9, "got errno {}", err.0);
+    }
+
+    #[test]
+    fn getentropy_fills_distinct_bytes() {
+        let mut a = [0u8; 16];
+        let mut b = [0u8; 16];
+        unsafe { getentropy(&mut a) }.expect("getentropy a");
+        unsafe { getentropy(&mut b) }.expect("getentropy b");
+        // not all-zero (kernel filled it) and two draws differ
+        // (collision over 128 bits is astronomically unlikely)
+        assert_ne!(a, [0u8; 16], "buffer left all-zero");
+        assert_ne!(a, b, "two entropy draws were identical");
+    }
+
+    #[test]
+    fn getentropy_over_256_fails() {
+        // kernel caps a single request at 256 bytes; a 257-byte ask
+        // returns an error. The exact errno is kernel-specific (macOS
+        // returns EINVAL=22, the man page documents EIO) so we only
+        // assert it failed with a real (non-zero) errno, not the value.
+        let mut too_big = [0u8; 257];
+        let err = unsafe { getentropy(&mut too_big) }.expect_err("expected error for >256");
+        assert_ne!(err.0, 0, "errno should be non-zero on failure");
     }
 }
