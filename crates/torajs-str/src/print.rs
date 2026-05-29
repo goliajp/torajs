@@ -13,17 +13,17 @@
 //! global line buffer. No cross-buffer reordering risk: every
 //! console.log call ends with '\n' which triggers a flush.
 //!
-//! `__torajs_str_print_err` uses `std::io::stderr` because the
-//! stderr-writing sibling fns (`print_i64_err` etc.) all go through
-//! C stdio's stderr, which is line-buffered for terminals and
-//! flushes after each '\n' on POSIX — interleaving risk is low
-//! enough that the bulk-write win pays.
+//! `__torajs_str_print_err` (console.error) composes the payload +
+//! newline into one buffer and emits it with a single `write(2)`
+//! syscall via [`crate::write_stderr`] (v0.7-A5 Step 16-e no_std
+//! cutover from `std::io::stderr`). One write keeps the line atomic;
+//! the runtime is single-threaded so no cross-writer interleave.
 //!
 //! NULL → `"null\n"` (Nullable<Str> slots + uncaptured regex
 //! groups pass NULL through; printing "null" matches
 //! `console.error(null)` semantics).
 
-use std::io::Write;
+use alloc::vec::Vec;
 
 use crate::layout::{STR_DATA_OFF, STR_LEN_OFF};
 use crate::substr::{SUBSTR_LEN_OFF, SUBSTR_OFFSET_OFF, SUBSTR_PARENT_OFF};
@@ -126,18 +126,13 @@ pub unsafe extern "C" fn __torajs_substr_print(v: *const u8) {
 /// `s` must be either NULL or a valid Str heap block.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_print_err(s: *const u8) {
-    let stderr = std::io::stderr();
-    let mut lock = stderr.lock();
-    if s.is_null() {
-        let _ = lock.write_all(b"null\n");
-        return;
-    }
-    let len = unsafe { (s.add(STR_LEN_OFF) as *const u64).read() } as usize;
-    if len > 0 {
-        let bytes = unsafe { core::slice::from_raw_parts(s.add(STR_DATA_OFF), len) };
-        let _ = lock.write_all(bytes);
-    }
-    let _ = lock.write_all(b"\n");
+    let payload = if s.is_null() {
+        None
+    } else {
+        let len = unsafe { (s.add(STR_LEN_OFF) as *const u64).read() } as usize;
+        Some(unsafe { core::slice::from_raw_parts(s.add(STR_DATA_OFF), len) })
+    };
+    crate::write_stderr(&format_print_err(payload));
 }
 
 #[cfg(test)]

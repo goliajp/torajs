@@ -10,7 +10,7 @@
 //! tag space. Keeps them within reach for callers that go through
 //! the str-only path (template literals, string concat).
 
-use crate::alloc::StrBlock;
+use crate::block::StrBlock;
 
 /// `String(null)` → fresh "null" Str.
 #[unsafe(no_mangle)]

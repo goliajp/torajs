@@ -26,7 +26,7 @@
 //! later spec-tightening task (matches the pre-port C behavior
 //! bit-for-bit).
 
-use crate::alloc::StrBlock;
+use crate::block::StrBlock;
 use crate::layout::{STR_DATA_OFF, STR_LEN_OFF};
 
 const HEX: &[u8; 16] = b"0123456789abcdef";
@@ -125,6 +125,7 @@ pub unsafe extern "C" fn __torajs_json_quote_str(s: *const u8) -> *mut u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::vec;
 
     #[test]
     fn empty_payload_quotes() {

@@ -12,9 +12,9 @@
 //! fill — the leverage is in single-cap tight loops, not in
 //! workloads that produce 17 different cap values.
 
+use core::ffi::c_void;
 use core::ptr::{self, NonNull};
-use std::ffi::c_void;
-use std::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
 
 use crate::substr::SUBSTR_SIZE;
 
@@ -159,6 +159,7 @@ pub unsafe extern "C" fn __torajs_split_block_free_push(p: *mut u8) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::vec::Vec;
 
     // `free` for cleanup. Layer 1 sized API (Step 4).
     unsafe extern "C" {

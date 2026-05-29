@@ -1,7 +1,7 @@
 //! Substr layout + Substr pool + `__torajs_substr_create` /
 //! `__torajs_substr_drop` extern "C" wrappers.
 //!
-//! Substr is the **view type** counterpart to [`crate::alloc::StrBlock`].
+//! Substr is the **view type** counterpart to [`crate::block::StrBlock`].
 //! It borrows bytes from an owned parent `Str` instead of carrying its
 //! own payload — same shape as Swift's `String` / `Substring` or Rust's
 //! `String` / `&str`. Keeping the view type physically separate from
@@ -48,9 +48,9 @@
 //! dec own refcount; on reach-zero, dec parent and pool-push or
 //! libc-free self.
 
+use core::ffi::c_void;
 use core::ptr::{self, NonNull};
-use std::ffi::c_void;
-use std::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
 
 use torajs_rc::{__torajs_rc_dec, __torajs_rc_inc, HeapHeader, Tag};
 
@@ -294,7 +294,7 @@ fn drop_parent(parent: *mut c_void) {
     if unsafe { __torajs_rc_dec(parent) } == 1 {
         // SAFETY: parent was a Str-typed heap block; __torajs_str_free
         // is the matching pool-aware deallocator.
-        unsafe { crate::alloc::__torajs_str_free(parent as *mut u8) };
+        unsafe { crate::block::__torajs_str_free(parent as *mut u8) };
     }
 }
 
@@ -386,7 +386,7 @@ pub unsafe extern "C" fn __torajs_substr_drop(v: *mut c_void) {
 mod tests {
     use super::*;
 
-    use crate::alloc::StrBlock;
+    use crate::block::StrBlock;
     use std::sync::Mutex;
 
     // Pool is a process-global static; serialize tests so they

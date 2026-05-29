@@ -2,7 +2,7 @@
 //! write) so the result Str fits in one allocation.
 
 use super::{json_skip_ws, json_throw, str_payload};
-use crate::alloc::StrBlock;
+use crate::block::StrBlock;
 
 unsafe extern "C" {
     fn __torajs_str_alloc_pooled(len: u64) -> *mut u8;

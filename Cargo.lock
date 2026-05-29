@@ -2117,6 +2117,7 @@ dependencies = [
  "torajs-mmalloc",
  "torajs-mutex",
  "torajs-rc",
+ "torajs-syscall",
 ]
 
 [[package]]

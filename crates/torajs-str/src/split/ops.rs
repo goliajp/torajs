@@ -12,8 +12,8 @@
 //! free dispatch + the Substr drop chain in ways that any layout
 //! drift would break silently.
 
+use core::ffi::c_void;
 use core::ptr::NonNull;
-use std::ffi::c_void;
 
 use torajs_rc::{__torajs_rc_inc, FLAG_SPLIT_BLOCK, HeapHeader, Tag};
 
@@ -340,7 +340,8 @@ pub unsafe extern "C" fn __torajs_split_iter_drop(iter: *mut SplitIter) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::alloc::{__torajs_str_free, StrBlock};
+    use crate::block::{__torajs_str_free, StrBlock};
+    use alloc::{vec, vec::Vec};
 
     // ARR layout consts (mirror C runtime_str.c — cross-layer until
     // torajs-arr crate lands). Only the offsets the test path reads

@@ -32,7 +32,7 @@
 //! Per the project's pure-Rust + 自研 pillars (`docs/design-
 //! principles.md`), the API is Rust-first:
 //!
-//! - [`alloc::StrBlock`] is a `NonNull<u8>` newtype with safe
+//! - [`block::StrBlock`] is a `NonNull<u8>` newtype with safe
 //!   accessor methods (`len()` / `as_bytes()` / `as_bytes_mut()` /
 //!   `header()` / `header_mut()`). The whole concept "owned Str
 //!   block" lives in the type, not in implicit pointer math
@@ -42,8 +42,8 @@
 //!   in `AtomicPtr` / `AtomicUsize` for Rust's safety story; the
 //!   runtime is single-threaded today so `Ordering::Relaxed`
 //!   compiles to identical asm vs raw `static mut`.
-//! - The `extern "C"` wrappers ([`alloc::__torajs_str_alloc_pooled`]
-//!   / [`alloc::__torajs_str_free`]) are thin (≤ 10 lines each) —
+//! - The `extern "C"` wrappers ([`block::__torajs_str_alloc_pooled`]
+//!   / [`block::__torajs_str_free`]) are thin (≤ 10 lines each) —
 //!   null check + transmute + delegate to the idiomatic core.
 //!
 //! ## ABI invariants (must not change)
@@ -61,23 +61,58 @@
 //!   freed by `__torajs_str_free` and re-popped by
 //!   `__torajs_str_alloc_pooled` round-trips bit-identical.
 //!
-//! ## Why `std`, not `no_std`
+//! ## no_std (v0.7-A5, Step 16-e)
 //!
-//! Same reason as [`torajs-rc`] / [`torajs-anyvalue`] / [`torajs-
-//! throw`]: cargo's `cargo test` + dual `crate-type = ["rlib",
-//! "staticlib"]` + `no_std` combination triggers a precompiled-
-//! core panic-strategy mismatch (the test runner forces unwind
-//! panics, precompiled core demands abort) that has no clean fix
-//! on stable. `std` staticlibs link cleanly at `tr build` time
-//! (cc + LLVM-LTO tolerates std symbol overlap between Rust-
-//! emitted .a's).
+//! The crate is `#![no_std]` + `extern crate alloc`. Allocations
+//! route through the active user binary's `#[global_allocator]`
+//! (torajs-mmalloc, 16-d); panics / alloc-errors land on torajs-
+//! panic-runtime's active-mode handlers. The lone stderr writer
+//! (`__torajs_str_print_err`, console.error) now goes through
+//! [`write_stderr`] — a raw `write(2)` syscall via torajs-syscall —
+//! instead of `std::io::stderr`, so a `tr build` binary that reaches
+//! str through the heavier match/replace cross-tier path carries no
+//! libc stdio dependency (`nm -u` clean).
+//!
+//! The historical "must stay std" note (shared with [`torajs-rc`] /
+//! [`torajs-anyvalue`] / [`torajs-throw`]) cited a precompiled-core
+//! panic-strategy mismatch under `cargo test` + dual `crate-type =
+//! ["rlib", "staticlib"]` + `no_std`. The 16-e regex port proved the
+//! escape: `#[cfg(test)] extern crate std` pulls the libtest harness
+//! + std allocator/panic_handler for unit tests, while the staticlib
+//! build defines no `#[panic_handler]` of its own and inherits the
+//! active panic-runtime's. Both rustc objections dissolve.
+
+#![no_std]
+
+extern crate alloc;
+
+// cargo unit tests pull the libtest harness + std allocator /
+// panic_handler; the staticlib build stays pure no_std (see the
+// "no_std" module-doc section above).
+#[cfg(test)]
+extern crate std;
 
 // v0.7-A2 step 6b — force-link mmalloc so this crate's
-// `#[link_name="__torajs_libc_*"]` externs (alloc.rs + substr.rs)
+// `#[link_name="__torajs_libc_*"]` externs (block.rs + substr.rs)
 // resolve to the mmalloc shim at link time.
 extern crate torajs_mmalloc as _;
 
-pub mod alloc;
+/// Write `bytes` to stderr (fd 2) via a raw `write(2)` syscall — the
+/// no_std replacement for `std::io::stderr` on the `console.error`
+/// path. Best-effort: a short write or `EINTR` is ignored (the
+/// console.error path has no error channel to surface it on).
+pub(crate) fn write_stderr(bytes: &[u8]) {
+    unsafe {
+        torajs_syscall::syscall3(
+            torajs_syscall::sysno::SYS_WRITE,
+            2,
+            bytes.as_ptr() as i64,
+            bytes.len() as i64,
+        );
+    }
+}
+
+pub mod block;
 pub mod concat;
 pub mod eq;
 pub mod json;
@@ -99,7 +134,7 @@ pub mod transform;
 // FFI consumers) reach for most often. Keeping this list tight
 // pins the public crate API; full surface is still reachable via
 // the module paths above.
-pub use alloc::{
+pub use block::{
     __torajs_str_alloc, __torajs_str_alloc_pooled, __torajs_str_drop, __torajs_str_free, StrBlock,
 };
 pub use concat::__torajs_str_concat;
@@ -150,4 +185,4 @@ pub use transform::trim::{__torajs_str_trim, __torajs_str_trim_end, __torajs_str
 // test module.
 #[cfg(test)]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_weakref_target_dying(_target: *mut std::ffi::c_void) {}
+pub unsafe extern "C" fn __torajs_weakref_target_dying(_target: *mut core::ffi::c_void) {}

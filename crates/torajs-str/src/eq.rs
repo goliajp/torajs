@@ -118,7 +118,7 @@ pub unsafe extern "C" fn __torajs_str_eq_cstr(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::alloc::StrBlock;
+    use crate::block::StrBlock;
     use std::sync::Mutex;
 
     static TEST_LOCK: Mutex<()> = Mutex::new(());

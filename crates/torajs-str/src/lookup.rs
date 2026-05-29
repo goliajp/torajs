@@ -413,7 +413,7 @@ mod tests {
     // FFI wrapper tests — exercise the layout-aware path.
     // ============================================================
 
-    use crate::alloc::StrBlock;
+    use crate::block::StrBlock;
     use std::sync::Mutex;
 
     static TEST_LOCK: Mutex<()> = Mutex::new(());

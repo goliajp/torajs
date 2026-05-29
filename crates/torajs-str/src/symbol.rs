@@ -18,8 +18,9 @@
 //!   +8..15 : desc str ptr (`*mut Str` or NULL for `Symbol()`)
 //! ```
 
+use alloc::vec::Vec;
 use core::ffi::c_void;
-use std::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
 use torajs_mutex::Mutex;
 
 use crate::layout::{STR_HDR_SIZE, STR_LEN_OFF};
@@ -78,7 +79,7 @@ unsafe fn symbol_flags(p: *const c_void) -> u16 {
 /// (rc=1).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_symbol_alloc(desc: *mut c_void) -> *mut c_void {
-    let p = unsafe { std::alloc::alloc(symbol_layout()) };
+    let p = unsafe { alloc::alloc::alloc(symbol_layout()) };
     if p.is_null() {
         return core::ptr::null_mut();
     }
@@ -93,13 +94,13 @@ pub unsafe extern "C" fn __torajs_symbol_alloc(desc: *mut c_void) -> *mut c_void
     p as *mut c_void
 }
 
-fn symbol_layout() -> std::alloc::Layout {
+fn symbol_layout() -> core::alloc::Layout {
     // SAFETY: SYMBOL_SIZE = 16 and align = 8 are compile-time constants
     // satisfying Layout's invariants (align is a non-zero power of two;
     // size is rounded up to a multiple of align). Using the unchecked
     // ctor avoids pulling Rust's Layout::Err formatting path into the
     // user binary (polish A3).
-    unsafe { std::alloc::Layout::from_size_align_unchecked(SYMBOL_SIZE, 8) }
+    unsafe { core::alloc::Layout::from_size_align_unchecked(SYMBOL_SIZE, 8) }
 }
 
 /// # Safety
@@ -120,7 +121,7 @@ pub unsafe extern "C" fn __torajs_symbol_drop(p: *mut c_void) {
     if !desc.is_null() {
         unsafe { __torajs_str_drop(desc) };
     }
-    unsafe { std::alloc::dealloc(p as *mut u8, symbol_layout()) };
+    unsafe { alloc::alloc::dealloc(p as *mut u8, symbol_layout()) };
 }
 
 /// `Symbol.prototype.toString()` → `"Symbol(<desc>)"` /

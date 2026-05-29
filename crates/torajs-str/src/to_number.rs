@@ -27,7 +27,7 @@
 //! stack buffer + UTF-8 conversion is allocation-free for ≤63
 //! payload bytes (the same fast path C used).
 
-use std::ffi::c_void;
+use core::ffi::c_void;
 
 use crate::layout::{STR_DATA_OFF, STR_LEN_OFF};
 
@@ -140,7 +140,7 @@ pub unsafe extern "C" fn __torajs_str_to_number(p: *const c_void) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::alloc::StrBlock;
+    use crate::block::StrBlock;
     use std::sync::Mutex;
 
     static TEST_LOCK: Mutex<()> = Mutex::new(());

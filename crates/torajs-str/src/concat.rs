@@ -9,7 +9,7 @@
 //! blocks; the IR-side caller always reads STR_LEN before the call
 //! site so a NULL-Str input would have already crashed earlier.
 
-use crate::alloc::StrBlock;
+use crate::block::StrBlock;
 use crate::layout::{STR_DATA_OFF, STR_LEN_OFF};
 
 // ============================================================
@@ -62,7 +62,8 @@ pub unsafe extern "C" fn __torajs_str_concat(a: *const u8, b: *const u8) -> *mut
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::alloc::__torajs_str_free;
+    use crate::block::__torajs_str_free;
+    use alloc::vec::Vec;
 
     fn make_str(payload: &[u8]) -> *mut u8 {
         let mut b = StrBlock::alloc(payload.len() as u64);

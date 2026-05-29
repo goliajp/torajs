@@ -29,8 +29,8 @@
 //! IR or C-side helpers, ownership tracking moves into the
 //! per-language ABI (refcount on the heap header).
 
+use core::ffi::c_void;
 use core::ptr::NonNull;
-use std::ffi::c_void;
 
 use torajs_rc::{FLAG_STATIC_LITERAL, HeapHeader};
 

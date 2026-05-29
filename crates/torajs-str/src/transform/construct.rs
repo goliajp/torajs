@@ -33,9 +33,9 @@
 //! `__torajs_str_repeat` · `_char_at` · `_at` · `_from_char_code`
 //! · `_substring` · `_substr`.
 
-use std::ffi::c_void;
+use core::ffi::c_void;
 
-use crate::alloc::StrBlock;
+use crate::block::StrBlock;
 use crate::layout::{STR_DATA_OFF, STR_LEN_OFF};
 use crate::substr::__torajs_substr_create;
 
@@ -251,6 +251,7 @@ pub unsafe extern "C" fn __torajs_str_substr(s: *const u8, start: i64, length: i
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::vec::Vec;
 
     #[test]
     fn repeat_out_len_basic() {
@@ -294,7 +295,7 @@ mod tests {
     // FFI round-trip tests
     // ============================================================
 
-    use crate::alloc::__torajs_str_free;
+    use crate::block::__torajs_str_free;
 
     fn make_str(payload: &[u8]) -> *mut u8 {
         let mut b = StrBlock::alloc(payload.len() as u64);

@@ -22,7 +22,7 @@
 //! - `__torajs_str_pad_start(s, target_len: i64, pad) -> Str`
 //! - `__torajs_str_pad_end(s, target_len: i64, pad) -> Str`
 
-use crate::alloc::StrBlock;
+use crate::block::StrBlock;
 use crate::layout::{STR_DATA_OFF, STR_LEN_OFF};
 
 // ============================================================
@@ -149,6 +149,7 @@ pub unsafe extern "C" fn __torajs_str_pad_end(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::vec::Vec;
 
     #[test]
     fn fill_empty_pad_falls_back_to_space() {
@@ -196,7 +197,7 @@ mod tests {
     // FFI round-trip tests
     // ============================================================
 
-    use crate::alloc::__torajs_str_free;
+    use crate::block::__torajs_str_free;
 
     fn make_str(payload: &[u8]) -> *mut u8 {
         let mut b = StrBlock::alloc(payload.len() as u64);

@@ -11,7 +11,7 @@
 //! | P3.1-e.5  | (replace)    | `s.replace(needle, repl)` / `replaceAll(...)`           |
 //!
 //! Each sub-module is independently shippable. Heap allocations all
-//! flow through [`crate::alloc::StrBlock`]; non-ASCII bytes pass
+//! flow through [`crate::block::StrBlock`]; non-ASCII bytes pass
 //! through unchanged on case-fold paths (matches the C-side subset
 //! contract documented at the original `runtime_str.c` impl).
 //!

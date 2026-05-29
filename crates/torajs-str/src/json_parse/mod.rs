@@ -30,7 +30,10 @@ pub use parse_float::__torajs_json_parse_float;
 pub use parse_int::__torajs_json_parse_int;
 pub use parse_string::__torajs_json_parse_string;
 
-use crate::alloc::StrBlock;
+use alloc::format;
+use alloc::string::String;
+
+use crate::block::StrBlock;
 use crate::layout::{STR_DATA_OFF, STR_LEN_OFF};
 
 const ANY_HEAP: i64 = 4;

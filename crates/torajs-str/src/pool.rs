@@ -26,7 +26,7 @@
 //! fall through to `false` so the caller can `libc::free` instead.
 
 use core::ptr::{self, NonNull};
-use std::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
 
 use crate::layout::STR_POOL_SLOTS;
 

@@ -15,7 +15,7 @@
 //! Both clamp positive inputs to `[0, len]` and produce a fresh
 //! allocation holding `s[start..end]`.
 
-use crate::alloc::StrBlock;
+use crate::block::StrBlock;
 use crate::layout::{STR_DATA_OFF, STR_LEN_OFF};
 
 // ============================================================
@@ -89,7 +89,8 @@ pub unsafe extern "C" fn __torajs_str_slice(s: *const u8, start: i64, end: i64) 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::alloc::__torajs_str_free;
+    use crate::block::__torajs_str_free;
+    use alloc::vec::Vec;
 
     fn make_str(payload: &[u8]) -> *mut u8 {
         let mut b = StrBlock::alloc(payload.len() as u64);
