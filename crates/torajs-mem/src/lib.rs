@@ -1,4 +1,4 @@
-//! torajs-mem — 0-libc memcpy/memmove/memcmp/memset/strlen
+//! torajs-mem — 0-libc memcpy/memmove/memcmp/memset/bzero/strlen
 //! linker-symbol shims for tr-built user binaries.
 //!
 //! Replaces the libc / `compiler_builtins` fallback path for the
@@ -11,7 +11,7 @@
 //! pulling libc into the user binary's import table.
 //!
 //! By providing `#[no_mangle] pub extern "C" fn memcpy / memmove
-//! / memcmp / memset / strlen` in this crate's staticlib, the
+//! / memcmp / memset / bzero / strlen` in this crate's staticlib, the
 //! linker resolves the undefined ref against our symbol first
 //! (staticlib order before dyld libSystem). Net effect: tr-built
 //! user binaries drop the libSystem dyld stub entries for these
@@ -42,12 +42,14 @@
 // Step 16-c (workspace-wide no_std rollout) flips this crate
 // to no_std + an explicit panic_handler.
 
+mod bzero;
 mod memcmp;
 mod memcpy;
 mod memmove;
 mod memset;
 mod strlen;
 
+pub use bzero::bzero;
 pub use memcmp::memcmp;
 pub use memcpy::memcpy;
 pub use memmove::memmove;
