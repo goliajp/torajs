@@ -53,4 +53,6 @@ pub use arch_aarch64_macos::{syscall0, syscall1, syscall3, syscall6};
 pub mod extern_api;
 
 pub mod safe;
-pub use safe::{Errno, exit, getentropy, getpid, gettimeofday, mmap_anon_rw, munmap, read, write};
+pub use safe::{
+    Errno, close, exit, getentropy, getpid, gettimeofday, mmap_anon_rw, munmap, open, read, write,
+};

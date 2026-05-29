@@ -54,6 +54,24 @@ pub unsafe fn read(fd: i32, buf: &mut [u8]) -> Result<usize, Errno> {
     decode(n).map(|x| x as usize)
 }
 
+/// `open(path, flags) -> Ok(fd) | Err(errno)`. The third `mode`
+/// syscall arg is passed 0 — only meaningful with `O_CREAT`, which the
+/// read-only metal-time-zone use never sets.
+///
+/// # Safety
+///
+/// `path` must point to a NUL-terminated C string.
+pub unsafe fn open(path: *const u8, flags: i32) -> Result<i32, Errno> {
+    let raw = unsafe { syscall3(SYS_OPEN, path as i64, flags as i64, 0) };
+    decode(raw).map(|fd| fd as i32)
+}
+
+/// `close(fd) -> Ok(()) | Err(errno)`.
+pub fn close(fd: i32) -> Result<(), Errno> {
+    let raw = unsafe { syscall1(SYS_CLOSE, fd as i64) };
+    decode(raw).map(|_| ())
+}
+
 /// `exit(code) -> !`. Process terminates; never returns.
 pub fn exit(code: i32) -> ! {
     unsafe { syscall1(SYS_EXIT, code as i64) };
@@ -215,6 +233,30 @@ mod tests {
         // (collision over 128 bits is astronomically unlikely)
         assert_ne!(a, [0u8; 16], "buffer left all-zero");
         assert_ne!(a, b, "two entropy draws were identical");
+    }
+
+    #[test]
+    fn open_read_close_localtime() {
+        // /etc/localtime is a TZif symlink on every macOS install; this
+        // exercises open + read + close end-to-end against a real file.
+        let path = b"/etc/localtime\0";
+        let fd = unsafe { open(path.as_ptr(), O_RDONLY) }.expect("open /etc/localtime");
+        assert!(fd >= 0, "fd = {fd}");
+        let mut magic = [0u8; 5];
+        let n = unsafe { read(fd, &mut magic) }.expect("read magic");
+        assert_eq!(n, 5, "short read");
+        // version byte (magic[4]) varies by tzdata vintage (2 / 3); the
+        // 4-byte "TZif" identifier is the stable invariant.
+        assert_eq!(&magic[..4], b"TZif", "not a TZif file: {magic:?}");
+        close(fd).expect("close");
+    }
+
+    #[test]
+    fn open_nonexistent_returns_errno() {
+        let path = b"/nonexistent/torajs/tz/file\0";
+        let err = unsafe { open(path.as_ptr(), O_RDONLY) }.expect_err("expected ENOENT");
+        // ENOENT on macOS = 2
+        assert_eq!(err.0, 2, "got errno {}", err.0);
     }
 
     #[test]
