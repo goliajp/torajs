@@ -32,6 +32,8 @@ pub mod test_find;
 
 use core::ffi::c_void;
 
+use alloc::vec::Vec;
+
 use crate::program::Program;
 
 /// Universal heap header (offset 0 of every refcounted heap object).
@@ -152,12 +154,16 @@ pub unsafe fn str_from_bytes(data: &[u8]) -> *mut u8 {
 /// `incompatible` (subset boundary) — preserves tr-accepted parity
 /// by keeping these cases out of the bug bucket.
 pub fn abort_unsupported(re: &RegExp) {
-    eprint!("not yet supported: regex feature not yet implemented in v0.2 #1.c — pattern: /");
+    crate::write_stderr(
+        "not yet supported: regex feature not yet implemented in v0.2 #1.c — pattern: /".as_bytes(),
+    );
     if !re.src_bytes.is_empty() {
-        eprint!("{}", String::from_utf8_lossy(&re.src_bytes));
+        // stderr is a byte stream — write the raw source bytes directly,
+        // no utf8 re-encode (drops the String::from_utf8_lossy alloc).
+        crate::write_stderr(&re.src_bytes);
     }
-    eprintln!("/");
-    std::process::exit(1);
+    crate::write_stderr(b"/\n");
+    torajs_syscall::exit(1);
 }
 
 /// Lift a `*const c_void` RegExp pointer to a `&RegExp`. Safety:

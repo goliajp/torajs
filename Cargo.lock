@@ -2099,6 +2099,7 @@ name = "torajs-regex"
 version = "0.1.0"
 dependencies = [
  "criterion",
+ "torajs-syscall",
 ]
 
 [[package]]

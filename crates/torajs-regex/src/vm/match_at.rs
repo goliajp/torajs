@@ -191,8 +191,8 @@ pub fn vm_match_at(
             }
         }
         // Swap cur <-> nxt + their visited tables.
-        std::mem::swap(&mut ws.cur, &mut ws.nxt);
-        std::mem::swap(&mut ws.vc, &mut ws.vn);
+        core::mem::swap(&mut ws.cur, &mut ws.nxt);
+        core::mem::swap(&mut ws.vc, &mut ws.vn);
         if ws.cur.is_empty() {
             break;
         }

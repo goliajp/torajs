@@ -1,6 +1,7 @@
 //! RegExp lifecycle externs — drop / get_source / lastIndex
 //! get-set. Port of `runtime_regex.c` L1519-1552, L2130-2140.
 
+use alloc::boxed::Box;
 use core::ffi::c_void;
 
 use super::{

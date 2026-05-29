@@ -29,6 +29,7 @@ pub mod match_at;
 use crate::node::REGEX_SAVE_SLOTS;
 use crate::parser::RE_FLAG_I;
 use crate::program::Program;
+use alloc::{vec, vec::Vec};
 
 /// Per-thread state in the Pike NFA. Each step the matcher iterates
 /// every Thread in `cur` and advances PCs to `nxt` (or, for backref

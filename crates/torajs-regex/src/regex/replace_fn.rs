@@ -8,6 +8,7 @@
 //! and the spec-full `(env, m, g1..gN, offset_i64, input_str)` cb
 //! arities (ES §22.1.3.18).
 
+use alloc::vec::Vec;
 use core::ffi::c_void;
 
 use super::replace_fn_dispatch::invoke_replace_cb;

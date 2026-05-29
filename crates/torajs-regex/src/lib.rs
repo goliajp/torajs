@@ -1,15 +1,20 @@
 //! Regex substrate for the torajs AOT TypeScript runtime.
 //!
-//! Layer-3 substrate, P6.2 — replaces `runtime_regex.c` (3059 LOC).
-//! The port ships in substeps:
+//! Layer-3 substrate, P6.2 — replaced `runtime_regex.c` (3059 LOC),
+//! deleted in `e481e99`. The port shipped P6.2-a kernel through the
+//! P6.2-e/closer extern-API cutover (parser, Thompson-NFA compiler,
+//! Pike-VM matcher, replace/split/matchAll).
 //!
-//! - **P6.2-a (this commit)** — kernel modules: [`utf8`], [`ucd`],
-//!   [`charclass`], [`node`]. No extern "C" surface yet.
-//! - **P6.2-b** — parser (recursive-descent over pattern bytes).
-//! - **P6.2-c** — compiler + flags + resolve_backrefs (Thompson NFA).
-//! - **P6.2-d** — cutover `compile / get_source / drop` extern API.
-//! - **P6.2-e** — VM + `regex_test / find / str_match_regex`.
-//! - **P6.2-f** — replace + split + exec + matchAll + nuke C file.
+//! ## no_std (v0.7-A5, Step 16-e)
+//!
+//! The crate is `#![no_std]` + `extern crate alloc`. Its allocations
+//! route through the active user binary's `#[global_allocator]`
+//! (torajs-mmalloc, 16-d), and panics / alloc-errors land on
+//! torajs-panic-runtime's active-mode handlers — so a `tr build`
+//! binary exercising `.match()` / `.replace()` carries no libc
+//! dependency (`nm -u` clean). Error paths write stderr + exit via
+//! torajs-syscall (no libc `eprintln!` / `std::process`). cargo unit
+//! tests pull `extern crate std` (libtest harness + std allocator).
 //!
 //! ## Module split (each ≤ 500 LOC HARD RULE)
 //!
@@ -23,6 +28,30 @@
 //! - [`node`] — regex AST node kinds + struct + ctor. Memory ownership
 //!   is `Vec<Box<Node>> + Option<Box<Node>>` — Rust's Drop recursively
 //!   frees the tree (replaces C's manual `node_free`).
+
+#![no_std]
+
+extern crate alloc;
+
+// cargo unit tests need a panic_handler + global allocator + the
+// libtest harness; in `tr build` user binaries those come from
+// torajs-panic-runtime (active mode) + torajs-mmalloc at link time.
+#[cfg(test)]
+extern crate std;
+
+/// Write `bytes` to stderr (fd 2) via a raw syscall — the no_std
+/// replacement for `eprint!` on the regex error paths. Best-effort:
+/// a short write or `EINTR` is ignored (these paths exit/abort next).
+pub(crate) fn write_stderr(bytes: &[u8]) {
+    unsafe {
+        torajs_syscall::syscall3(
+            torajs_syscall::sysno::SYS_WRITE,
+            2,
+            bytes.as_ptr() as i64,
+            bytes.len() as i64,
+        );
+    }
+}
 
 pub mod charclass;
 pub mod compiler;

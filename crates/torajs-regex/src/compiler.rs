@@ -8,6 +8,7 @@
 
 use crate::node::{Node, NodeKind};
 use crate::program::{Inst, Op, Program};
+use alloc::{boxed::Box, vec::Vec};
 
 /// Compile `node` into `prog`. The emitted bytecode is appended; the
 /// caller is responsible for the outer `OP_MATCH` once the root of the
@@ -199,6 +200,7 @@ fn compile_lookaround(prog: &mut Program, node: &Node) {
 mod tests {
     use super::*;
     use crate::parser::Parser;
+    use alloc::vec;
 
     fn compile_pattern(pat: &str) -> Program {
         let mut p = Parser::new(pat.as_bytes(), 0);

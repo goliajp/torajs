@@ -10,6 +10,7 @@
 use super::{Parser, RE_FLAG_U, apply_property_name, char_node, class_node, hex_value};
 use crate::node::{Node, NodeKind};
 use crate::utf8::utf8_encode_cp;
+use alloc::boxed::Box;
 
 impl<'p> Parser<'p> {
     pub(super) fn parse_escape(&mut self) -> Option<Box<Node>> {

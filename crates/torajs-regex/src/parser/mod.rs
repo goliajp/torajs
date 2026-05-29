@@ -36,6 +36,7 @@ mod escape;
 
 use crate::charclass::CharClass;
 use crate::node::{Node, NodeKind, REGEX_MAX_CAPTURES};
+use alloc::{boxed::Box, vec::Vec};
 
 // Flag bitset — mirrors `RE_FLAG_*` in runtime_regex.c L79-87. Only
 // the u flag is observed during parse (gates `\u{HHHH..}` / `\p{}`
@@ -367,6 +368,7 @@ pub(super) fn apply_property_name(n: &mut Node, name: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::vec;
 
     fn parse_ok(pattern: &str, flags: u8) -> Box<Node> {
         let mut p = Parser::new(pattern.as_bytes(), flags);

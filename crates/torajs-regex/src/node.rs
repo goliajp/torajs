@@ -6,6 +6,7 @@
 //! frees the entire tree (the C port had a manual `node_free`).
 
 use crate::charclass::CharClass;
+use alloc::{boxed::Box, vec::Vec};
 
 /// Maximum number of capture groups in one regex. Indices 1..=N are
 /// user groups; index 0 is reserved for the whole-match span. The

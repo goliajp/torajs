@@ -18,6 +18,7 @@
 //! positional case is an L3b follow-up).
 
 use crate::node::{Node, NodeKind};
+use alloc::vec::Vec;
 
 /// Walk `node` recursively, validating + resolving every Backref.
 /// `names` is indexed by capture_idx 1..=n_captures (slot 0 unused);
@@ -58,6 +59,7 @@ fn resolve_one(node: &mut Node, names: &[Vec<u8>], n_captures: usize) -> bool {
 mod tests {
     use super::*;
     use crate::parser::Parser;
+    use alloc::boxed::Box;
 
     fn parse(pat: &str) -> (Box<Node>, Vec<Vec<u8>>, usize) {
         let mut p = Parser::new(pat.as_bytes(), 0);

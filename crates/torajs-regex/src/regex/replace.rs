@@ -6,6 +6,7 @@
 //! index is a valid group), `$$` (literal `$`), other `$X` left
 //! literal.
 
+use alloc::vec::Vec;
 use core::ffi::c_void;
 
 use super::{RegExp, abort_unsupported, as_regex, str_from_bytes, str_slice};

@@ -280,6 +280,7 @@ unsafe fn invoke_off(
 }
 
 fn cb_arity_panic(n: i64) -> ! {
-    eprintln!("__torajs_str_replace_regex_fn: n_caps={n} out of range [0,9]");
-    std::process::abort();
+    let msg = alloc::format!("__torajs_str_replace_regex_fn: n_caps={n} out of range [0,9]\n");
+    crate::write_stderr(msg.as_bytes());
+    torajs_syscall::extern_api::__torajs_syscall_abort();
 }

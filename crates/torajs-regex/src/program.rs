@@ -24,6 +24,7 @@
 //! re-consume (`BACKREF`).
 
 use crate::charclass::CharClass;
+use alloc::{boxed::Box, vec::Vec};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]

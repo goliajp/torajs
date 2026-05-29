@@ -7,6 +7,7 @@
 
 use super::Parser;
 use crate::node::{Node, NodeKind, REGEX_MAX_CAPTURES};
+use alloc::{boxed::Box, vec::Vec};
 
 impl<'p> Parser<'p> {
     pub(super) fn parse_atom(&mut self) -> Option<Box<Node>> {

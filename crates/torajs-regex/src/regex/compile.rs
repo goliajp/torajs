@@ -18,6 +18,7 @@
 //! tag dispatch on `header.type_tag = TAG_REGEX` routes drops back
 //! to [`super::lifecycle::__torajs_regex_drop`].
 
+use alloc::{boxed::Box, vec::Vec};
 use core::ffi::c_void;
 
 use super::{HeapHeader, RegExp, TAG_REGEX, str_slice};

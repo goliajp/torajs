@@ -11,6 +11,7 @@
 
 use super::{Parser, RE_FLAG_U, apply_property_name};
 use crate::node::{Node, NodeKind};
+use alloc::boxed::Box;
 
 impl<'p> Parser<'p> {
     pub(super) fn parse_class(&mut self) -> Option<Box<Node>> {

@@ -22,10 +22,14 @@ workspace = true
 crate-type = ["rlib", "staticlib"]
 
 [dependencies]
-# 0 runtime deps. Cross-tier calls (rc_dec, str_alloc_pooled,
-# arr_alloc/push, dynobj_alloc/set, throw_type_error) will resolve at
-# `tr build` link time via `extern "C"` symbols — same pattern
-# torajs-promise / torajs-cycle / torajs-weak / torajs-collections use.
+# Only workspace-crate deps (0 external deps preserved). torajs-syscall
+# is the metal syscall substrate — used by the no_std error paths
+# (stderr write + exit/abort) so the crate carries no libc dependency.
+# Cross-tier calls (rc_dec, str_alloc_pooled, arr_alloc/push,
+# dynobj_alloc/set, throw_type_error) still resolve at `tr build` link
+# time via `extern "C"` symbols — same pattern torajs-promise /
+# torajs-cycle / torajs-weak / torajs-collections use.
+torajs-syscall = { path = "../torajs-syscall" }
 
 [dev-dependencies]
 criterion = { workspace = true }
