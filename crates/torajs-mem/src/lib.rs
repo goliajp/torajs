@@ -1,5 +1,5 @@
-//! torajs-mem — 0-libc memcpy/memmove/memcmp linker-symbol
-//! shims for tr-built user binaries.
+//! torajs-mem — 0-libc memcpy/memmove/memcmp/memset/strlen
+//! linker-symbol shims for tr-built user binaries.
 //!
 //! Replaces the libc / `compiler_builtins` fallback path for the
 //! LLVM-emitted memory intrinsics. Each Rust crate that calls
@@ -11,14 +11,15 @@
 //! pulling libc into the user binary's import table.
 //!
 //! By providing `#[no_mangle] pub extern "C" fn memcpy / memmove
-//! / memcmp` in this crate's staticlib, the linker resolves the
-//! undefined ref against our symbol first (staticlib order
-//! before dyld libSystem). Net effect: tr-built user binaries
-//! drop the libSystem dyld stub entries for these three symbols.
+//! / memcmp / memset / strlen` in this crate's staticlib, the
+//! linker resolves the undefined ref against our symbol first
+//! (staticlib order before dyld libSystem). Net effect: tr-built
+//! user binaries drop the libSystem dyld stub entries for these
+//! symbols.
 //!
 //! ## Why a separate crate
 //!
-//! - **Symbol-resolution clarity**: the three `#[no_mangle]`
+//! - **Symbol-resolution clarity**: the `#[no_mangle]`
 //!   fns must be in a staticlib that the user binary links AS
 //!   ONE archive — splitting them across runtime / mmalloc /
 //!   etc. confuses the linker order and risks duplicate-symbol
@@ -35,7 +36,7 @@
 //!   builds).
 
 // Not yet `#![no_std]` — Step 16-a leaves std on so the test
-// binary has a panic_handler. The 3 fns below are
+// binary has a panic_handler. The fns below are
 // `#[no_mangle] pub extern "C"` so the staticlib still exposes
 // them as plain C ABI symbols regardless of std/no_std mode.
 // Step 16-c (workspace-wide no_std rollout) flips this crate
@@ -44,9 +45,11 @@
 mod memcmp;
 mod memcpy;
 mod memmove;
+mod memset;
 mod strlen;
 
 pub use memcmp::memcmp;
 pub use memcpy::memcpy;
 pub use memmove::memmove;
+pub use memset::memset;
 pub use strlen::strlen;
