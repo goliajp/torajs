@@ -27,7 +27,6 @@
 //! O(log n) — already orders better than the size_class fallback
 //! O(n) scan path and adequate for Phase 2a/2b workloads.
 
-use core::cell::UnsafeCell;
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use crate::central::CentralQueue;
@@ -222,28 +221,27 @@ impl SpanRegistry {
 static CORE_LOCK: AtomicBool = AtomicBool::new(false);
 static mut CORE_ALLOC: Allocator = Allocator::new();
 static mut CORE_REGISTRY: SpanRegistry = SpanRegistry::new();
-// Phase 2c upgrade (post-bench finding 2026-05-26, takagi ceiling-
-// first rule 2026-05-26): TLAB lives in raw `#[thread_local]` storage
-// — TPIDR_EL0 register direct load (~1-2 cyc on aarch64) instead of
-// std::thread_local! .with() ABI (~10 cyc).
+// Step 16-c-2 (2026-05-29): downgraded from `#[thread_local]` to a
+// plain `static mut` to drop the last `__tlv_bootstrap` undefined
+// symbol from user binaries (A5 zero-libc-undef goal). On macOS
+// aarch64 `#[thread_local]` forces a `$tlv$init` / `__tlv_bootstrap`
+// dyld dependency — see docs/v0.7-A5-finding.md. The single-threaded
+// runtime has no concurrent observer, so a process-wide TLAB is sound.
 //
-// Same architectural pattern mimalloc / tcmalloc / Go runtime mcache
-// use in C: raw __thread storage class. Rust `#[thread_local]` is
-// the nightly intrinsic that lowers to the same LLVM TLS model.
-// stable std::thread_local! sacrifices ~5-8 cyc per access for the
-// closure-based safety wrapper — not acceptable on the metal-tier
-// fast path.
+// Access via `&raw mut` like CORE_ALLOC / CORE_REGISTRY above (clears
+// the edition-2024 `static_mut_refs` lint). `TlabCache::new()` is
+// const — the static initializes at compile time, no ctor.
 //
-// UnsafeCell provides interior mutability without unsafe-static
-// requirement; per-thread isolation guarantees no concurrent
-// observer, so the UnsafeCell is sound.
+// MULTI-THREAD RE-DERIVATION (v0.8 backlog): a process-wide TLAB
+// defeats the per-thread isolation a threaded runtime needs. When the
+// first threaded path lands (Promise/async/worker), re-derive per-
+// thread TLABs via a syscall-thread-id-indexed manual array (NOT
+// `#[thread_local]` — Darwin local-exec TLS still routes via tlv).
 //
-// `#[unsafe(no_mangle)] pub` (Phase 2e item 13): exposes the stable
-// symbol name `__torajs_core_tlab` to ssa_inkwell IR-emit for inline
-// TLAB.pop / push sequence at user-binary alloc/free sites.
+// `#[unsafe(no_mangle)] pub` (Phase 2e item 13): stable symbol name
+// for ssa_inkwell IR-emit inline TLAB.pop/push at alloc/free sites.
 #[unsafe(no_mangle)]
-#[thread_local]
-pub static __torajs_core_tlab: UnsafeCell<TlabCache> = UnsafeCell::new(TlabCache::new());
+pub static mut __torajs_core_tlab: TlabCache = TlabCache::new();
 
 /// Process-wide central queue (Phase 2c item 10). Lock-free MPMC
 /// stack per size class; acts as the TLAB overflow buffer + cross-
@@ -317,9 +315,9 @@ pub fn alloc_sized(size: usize) -> *mut u8 {
         Some(i) => i,
         None => return core::ptr::null_mut(),
     };
-    // TLAB fast path — raw #[thread_local], ~1-2 cyc TLS register
-    // load + ~3 cyc pop. Common case under hot loops.
-    let tlab = __torajs_core_tlab.get();
+    // TLAB fast path — plain global, single direct load + ~3 cyc pop.
+    // Common case under hot loops.
+    let tlab = &raw mut __torajs_core_tlab;
     if let Some(p) = unsafe { (*tlab).pop(class_idx) } {
         return p;
     }
@@ -390,9 +388,8 @@ pub unsafe fn free_sized(ptr: *mut u8, size: usize) {
         Some(i) => i,
         None => return,
     };
-    // TLAB fast path — raw #[thread_local], ~1-2 cyc TLS load +
-    // ~3 cyc push.
-    let tlab = __torajs_core_tlab.get();
+    // TLAB fast path — plain global, single direct load + ~3 cyc push.
+    let tlab = &raw mut __torajs_core_tlab;
     if unsafe { (*tlab).push(class_idx, ptr) } {
         return;
     }

@@ -16,9 +16,7 @@
 
 use inkwell::AddressSpace;
 use inkwell::IntPredicate;
-use inkwell::ThreadLocalMode;
 use inkwell::context::Context;
-use inkwell::intrinsics::Intrinsic;
 use inkwell::module::{Linkage, Module as LlvmModule};
 use inkwell::values::FunctionValue;
 
@@ -53,14 +51,16 @@ pub(super) fn define_obj_alloc<'ctx>(
     // nano allocator's thread-cache pop).
     super::attrs::mark_alwaysinline(ctx, f);
 
-    // Declare or reuse extern thread_local @__torajs_core_tlab.
-    // Body lives in libtorajs_mmalloc.a (TPIDR_EL0 register backed).
+    // Declare or reuse extern plain-static @__torajs_core_tlab.
+    // Storage lives in libtorajs_mmalloc.a (`static mut` in .bss);
+    // single shared TLAB, no per-thread isolation (multi-thread
+    // re-derivation deferred to v0.8 backlog — Step 16-c-2 dropped
+    // `#[thread_local]` to eliminate the `__tlv_bootstrap` libc dep).
     let tlab_arr_t = i8_t.array_type(TLAB_TOTAL_SIZE as u32);
     let tlab_global = match m.get_global("__torajs_core_tlab") {
         Some(g) => g,
         None => {
             let g = m.add_global(tlab_arr_t, None, "__torajs_core_tlab");
-            g.set_thread_local_mode(Some(ThreadLocalMode::GeneralDynamicTLSModel));
             g.set_linkage(Linkage::External);
             g
         }
@@ -119,31 +119,16 @@ pub(super) fn define_obj_alloc<'ctx>(
         .build_int_z_extend(class_idx, i64_t, "class_idx_64")
         .unwrap();
 
-    // tlab_ptr = thread_local addr of @__torajs_core_tlab via the
-    // `llvm.threadlocal.address` intrinsic. Critical: bare
-    // `tlab_global.as_pointer_value()` lets LLVM fold `GEP (i8, @tlab, k)`
-    // into a constexpr at instcombine, after which TLS semantics are
-    // **lost** — the address resolves to the static section base, not
-    // the per-thread instance, and `blr x21` is skipped or mis-emitted
-    // depending on ASLR. Symptom: intermittent SIGBUS (~10-30% rate)
-    // under hyperfine 30-run stress on macOS aarch64 (Phase 2e item 13b
-    // first attempt, reverted at 9170c47). The intrinsic forces a runtime
-    // TLV thunk call before every dependent GEP, defeating constexpr
-    // fold and pinning the dependence to per-thread storage.
-    let threadlocal_addr_intrin = Intrinsic::find("llvm.threadlocal.address")
-        .expect("LLVM intrinsic `llvm.threadlocal.address` missing — LLVM 18+ required")
-        .get_declaration(m, &[ptr_t.into()])
-        .expect("declare llvm.threadlocal.address for ptr addrspace(0)");
-    let tlab_ptr = builder
-        .build_call(
-            threadlocal_addr_intrin,
-            &[tlab_global.as_pointer_value().into()],
-            "tlab_ptr",
-        )
-        .unwrap()
-        .try_as_basic_value()
-        .unwrap_basic()
-        .into_pointer_value();
+    // tlab_ptr = address of plain-static @__torajs_core_tlab. With a
+    // plain (non-thread_local) global the static section base IS the
+    // single shared TLAB instance, so the constexpr `GEP (i8, @tlab, k)`
+    // fold LLVM applies at instcombine is the **correct** lowering —
+    // there is no per-thread thunk to defeat. (The 9170c47 SIGBUS was a
+    // `#[thread_local]`-only hazard: constexpr fold there bypassed the
+    // TLV thunk and resolved to the wrong storage. Dropping
+    // `#[thread_local]` in Step 16-c-2 removes both the hazard and the
+    // `__tlv_bootstrap` libc dependency.)
+    let tlab_ptr = tlab_global.as_pointer_value();
     // depth_ptr = tlab_ptr + TLAB_DEPTH_OFFSET + class_idx
     let depth_off = builder
         .build_int_add(
@@ -269,14 +254,13 @@ pub(super) fn define_obj_drop_sized<'ctx>(
     let f = m.add_function("__torajs_obj_drop_sized", fn_t, None);
     super::attrs::mark_alwaysinline(ctx, f);
 
-    // Reuse extern thread_local @__torajs_core_tlab. If define_obj_alloc
+    // Reuse extern plain-static @__torajs_core_tlab. If define_obj_alloc
     // ran first the global is already declared; otherwise add it here.
     let tlab_arr_t = i8_t.array_type(TLAB_TOTAL_SIZE as u32);
     let tlab_global = match m.get_global("__torajs_core_tlab") {
         Some(g) => g,
         None => {
             let g = m.add_global(tlab_arr_t, None, "__torajs_core_tlab");
-            g.set_thread_local_mode(Some(ThreadLocalMode::GeneralDynamicTLSModel));
             g.set_linkage(Linkage::External);
             g
         }
@@ -332,23 +316,11 @@ pub(super) fn define_obj_drop_sized<'ctx>(
         .build_int_z_extend(class_idx, i64_t, "class_idx_64")
         .unwrap();
 
-    // tlab_ptr via llvm.threadlocal.address — defeats TLS constexpr
-    // fold (see the long comment in define_obj_alloc for the SIGBUS
-    // history; same hazard, same remedy).
-    let threadlocal_addr_intrin = Intrinsic::find("llvm.threadlocal.address")
-        .expect("LLVM intrinsic `llvm.threadlocal.address` missing — LLVM 18+ required")
-        .get_declaration(m, &[ptr_t.into()])
-        .expect("declare llvm.threadlocal.address for ptr addrspace(0)");
-    let tlab_ptr = builder
-        .build_call(
-            threadlocal_addr_intrin,
-            &[tlab_global.as_pointer_value().into()],
-            "tlab_ptr",
-        )
-        .unwrap()
-        .try_as_basic_value()
-        .unwrap_basic()
-        .into_pointer_value();
+    // tlab_ptr = address of plain-static @__torajs_core_tlab (see the
+    // long comment in define_obj_alloc: with a plain global the
+    // constexpr GEP fold is the correct lowering, not the 9170c47 TLS
+    // hazard).
+    let tlab_ptr = tlab_global.as_pointer_value();
     let depth_off = builder
         .build_int_add(
             i64_t.const_int(TLAB_DEPTH_OFFSET as u64, false),
