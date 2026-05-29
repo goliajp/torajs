@@ -49,6 +49,16 @@ pub const SYS_KILL: u32 = 37;
 /// `clock_gettime` / `__error` / `strerror_r` into the user binary).
 pub const SYS_GETENTROPY: u32 = 500;
 
+/// `gettimeofday(struct timeval *tp, struct timezone *tzp,
+/// uint64_t *mach_absolute_time) -> int` — wall-clock time since the
+/// UNIX epoch. Cross-referenced against the SDK
+/// `<sys/syscall.h>` (`SYS_gettimeofday == 116`). Used as the metal
+/// time source for `Date.now()` / `new Date()`, replacing
+/// `SystemTime::now()` — macOS has no `clock_gettime` syscall, so std
+/// routes it through the libc commpage wrapper, dragging
+/// `clock_gettime` / `__error` / `strerror_r` into the user binary.
+pub const SYS_GETTIMEOFDAY: u32 = 116;
+
 /// Signal numbers (`<sys/signal.h>`, stable BSD/macOS values).
 /// `SIGABRT` is delivered by `__torajs_syscall_abort` for orthodox
 /// `abort(3)` semantics; `SIGKILL` is the uncatchable escalation if a

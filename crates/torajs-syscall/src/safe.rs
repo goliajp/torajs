@@ -125,6 +125,47 @@ pub unsafe fn getentropy(buf: &mut [u8]) -> Result<(), Errno> {
     decode(raw).map(|_| ())
 }
 
+/// macOS 64-bit userland `struct timeval`. `tv_sec` is
+/// `__darwin_time_t` (`long`, 64-bit); `tv_usec` is
+/// `__darwin_suseconds_t` (`__int32_t`, 32-bit) — verified against the
+/// SDK `<sys/_types/_timeval.h>`. Under `#[repr(C)]` this lays out as
+/// 8 bytes `tv_sec` + 4 bytes `tv_usec` + 4 bytes tail padding = 16
+/// bytes, matching XNU's `user64_timeval` `copyout` layout exactly.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+struct Timeval {
+    tv_sec: i64,
+    tv_usec: i32,
+}
+
+/// `gettimeofday() -> Ok((tv_sec, tv_usec)) | Err(errno)` — wall-clock
+/// time since the UNIX epoch (`tv_sec` seconds, `tv_usec` the
+/// sub-second microseconds remainder).
+///
+/// This is the metal-level time source for `Date.now()` / `new Date()`.
+/// It replaces `std::time::SystemTime::now()`, which drags libc
+/// `clock_gettime` / `__error` / `strerror_r` into the user binary:
+/// macOS has no `clock_gettime` syscall, so std routes it through the
+/// libc commpage wrapper. A single `svc` to `SYS_gettimeofday` has the
+/// kernel `copyout` the result into our `timeval`, and `decode` never
+/// touches libc `errno` — which is exactly why the syscall path stays
+/// free of `__error` / `strerror_r`.
+///
+/// Safe (no caller-supplied pointers): the `timeval` is stack-local and
+/// the `tzp` / `mach_absolute_time` out-pointers are passed NULL.
+pub fn gettimeofday() -> Result<(i64, i32), Errno> {
+    let mut tv = Timeval {
+        tv_sec: 0,
+        tv_usec: 0,
+    };
+    let raw = unsafe { syscall3(SYS_GETTIMEOFDAY, &mut tv as *mut Timeval as i64, 0, 0) };
+    // On success XNU returns 0 (or echoes tv_sec via x0 on some
+    // kernels) — both non-negative, so `decode` yields `Ok` and we read
+    // the authoritative value from the `copyout`'d struct. On failure
+    // x0 carries a negative errno, which `decode` surfaces as `Err`.
+    decode(raw).map(|_| (tv.tv_sec, tv.tv_usec))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -174,6 +215,29 @@ mod tests {
         // (collision over 128 bits is astronomically unlikely)
         assert_ne!(a, [0u8; 16], "buffer left all-zero");
         assert_ne!(a, b, "two entropy draws were identical");
+    }
+
+    #[test]
+    fn gettimeofday_returns_plausible_epoch() {
+        let (sec, usec) = gettimeofday().expect("gettimeofday");
+        // any real wall clock is well past 2023-11-14 (1_700_000_000);
+        // a zero/garbage result would mean the kernel copyout layout is
+        // wrong and the struct never got filled.
+        assert!(sec > 1_700_000_000, "tv_sec = {sec} not a plausible epoch");
+        assert!(
+            (0..1_000_000).contains(&usec),
+            "tv_usec = {usec} out of [0, 1_000_000) range"
+        );
+    }
+
+    #[test]
+    fn gettimeofday_monotone_nondecreasing() {
+        let (s1, u1) = gettimeofday().expect("first");
+        let (s2, u2) = gettimeofday().expect("second");
+        // wall clock must not run backwards across two back-to-back reads
+        let t1 = s1 as i128 * 1_000_000 + u1 as i128;
+        let t2 = s2 as i128 * 1_000_000 + u2 as i128;
+        assert!(t2 >= t1, "clock went backwards: {t1} -> {t2}");
     }
 
     #[test]

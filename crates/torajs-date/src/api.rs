@@ -3,7 +3,6 @@
 //! (excluding civil + tm + parse helpers extracted to siblings).
 
 use core::ffi::c_void;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::civil::civil_from_days;
 use crate::getters::decompose;
@@ -16,13 +15,15 @@ use crate::{
 
 // ---- Time source ----
 
-/// Wall-clock ms since UNIX epoch via std SystemTime. Returns 0
-/// on the (extremely rare) clock-skew-pre-epoch case.
+/// Wall-clock ms since UNIX epoch via a direct `gettimeofday`
+/// syscall (`torajs_syscall::gettimeofday`) — metal-level time source
+/// that keeps the AOT user binary free of libc `clock_gettime` /
+/// `__error` / `strerror_r`. Returns 0 on the (rare) syscall failure.
 fn now_ms() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
+    match torajs_syscall::gettimeofday() {
+        Ok((sec, usec)) => sec * 1000 + (usec as i64) / 1000,
+        Err(_) => 0,
+    }
 }
 
 // ---- Constructors ----

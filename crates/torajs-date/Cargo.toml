@@ -22,11 +22,15 @@ workspace = true
 crate-type = ["rlib", "staticlib"]
 
 [dependencies]
-# 0 Cargo deps. libc localtime_r / mktime are OS-level system fns
-# (declared inline via `extern "C"`). std::time::SystemTime drives
-# the wall-clock side. Cross-tier (rc_dec, str_alloc_pooled)
-# resolves at `tr build` link time against libtorajs_rc.a + str
-# runtime — same pattern as torajs-promise / torajs-fetch.
+# 0 external Cargo deps. libc localtime_r / mktime are OS-level system
+# fns (declared inline via `extern "C"`). The wall-clock source is a
+# direct `gettimeofday` syscall via the workspace `torajs-syscall`
+# crate (replaced std::time::SystemTime, which dragged libc
+# clock_gettime / __error / strerror_r into the AOT user binary).
+# Cross-tier (rc_dec, str_alloc_pooled) resolves at `tr build` link
+# time against libtorajs_rc.a + str runtime — same pattern as
+# torajs-promise / torajs-fetch.
+torajs-syscall = { path = "../torajs-syscall" }
 
 [dev-dependencies]
 criterion = { workspace = true }
