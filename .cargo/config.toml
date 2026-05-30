@@ -1,19 +1,8 @@
-# torajs uses a project-private target dir on the INTERNAL disk.
-#
-# Rationale: cargo's small-file random IO is 2-3x slower on the
-# external INTEL2T volume (see ~/.claude-shared/global/cargo-target-dir.md),
-# and torajs is the flagship project with extreme build/perf
-# requirements. A project-private target also removes shared-cache
-# contention with other workspaces' parallel builds and isolates
-# `cargo clean`.
-#
-# This project config overrides the home ~/.cargo/config.toml's
-# INTEL2T target-dir (project config wins over home config). The
-# ~/.local/bin/cargo wrapper additionally honors the sibling
-# `.cargo-target-local` marker and leaves CARGO_TARGET_DIR unset so
-# this value takes effect (an env var would otherwise override it).
-[build]
-target-dir = "/Users/doracawl/workspace/goliajp/torajs/target"
+# target-dir intentionally unset — cargo defaults to ./target on the internal
+# disk, which is exactly what we want. the old global shared INTEL2T target +
+# ~/.local/bin/cargo wrapper were retired 2026-05-30 (every project now builds
+# to its own local target; see ~/.claude-shared/global/cargo-target-dir.md).
+# only host-specific rustflags remain below.
 
 # B1b (2026-05-24) — silence `linker_messages` lint on macOS hosts.
 # nightly's rustc surfaces ld's "building for macOS-11.0 but linking
