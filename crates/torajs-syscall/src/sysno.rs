@@ -34,6 +34,27 @@ pub const SYS_MUNMAP: u32 = 73;
 /// `fstat(int fd, struct stat *buf) -> int` (64-bit stat on aarch64).
 pub const SYS_FSTAT: u32 = 339;
 
+/// `unlink(const char *path) -> int` — remove a file. SDK
+/// `<sys/syscall.h>` SYS_unlink == 10.
+pub const SYS_UNLINK: u32 = 10;
+
+/// `mkdir(const char *path, mode_t mode) -> int`. SYS_mkdir == 136.
+pub const SYS_MKDIR: u32 = 136;
+
+/// `rmdir(const char *path) -> int` — remove an empty directory.
+/// SYS_rmdir == 137. Companion to `mkdir`; also backs `rmdirSync`.
+pub const SYS_RMDIR: u32 = 137;
+
+/// `stat64(const char *path, struct stat *buf) -> int` — path-based
+/// stat in the 64-bit-inode layout matching `SYS_FSTAT` (fstat64).
+/// SYS_stat64 == 338.
+pub const SYS_STAT64: u32 = 338;
+
+/// `getdirentries64(int fd, void *buf, size_t bufsize, off_t *basep)
+/// -> ssize_t` — read directory entries in the 64-bit-inode
+/// `struct dirent` layout. SYS_getdirentries64 == 344.
+pub const SYS_GETDIRENTRIES64: u32 = 344;
+
 /// `mmap(void *addr, size_t len, int prot, int flags, int fd, off_t off) -> void*`.
 pub const SYS_MMAP: u32 = 197;
 
@@ -124,3 +145,29 @@ pub const O_APPEND: i32 = 0x0008;
 pub const SEEK_SET: i32 = 0;
 pub const SEEK_CUR: i32 = 1;
 pub const SEEK_END: i32 = 2;
+
+/// `mkdir` default mode — 0o777 pre-umask, matching
+/// `std::fs::create_dir`. The kernel masks it by the process umask
+/// (typically 0o022, yielding 0o755 on disk).
+pub const MKDIR_DEFAULT_MODE: i32 = 0o777;
+
+/// `struct stat` (64-bit-inode, aarch64 macOS) byte layout — verified
+/// via `offsetof` against the SDK `<sys/stat.h>`: `sizeof == 144`,
+/// `offsetof(st_size) == 96` (`off_t`, i64). We read only `st_size`,
+/// so a fixed byte buffer + named offset is cleaner than mirroring all
+/// 17 fields (cf. the small `Timeval` struct, which is worth mapping).
+pub const STAT_BUF_SIZE: usize = 144;
+pub const STAT_ST_SIZE_OFFSET: usize = 96;
+
+/// `struct dirent` (64-bit-inode) byte layout — verified via `offsetof`
+/// against the SDK `<dirent.h>`: d_ino@0 (u64), d_seekoff@8 (u64),
+/// d_reclen@16 (u16), d_namlen@18 (u16), d_type@20 (u8), d_name@21
+/// (char[]). `getdirentries64` packs variable-length records
+/// back-to-back; step by `d_reclen`.
+pub const DIRENT_D_RECLEN_OFFSET: usize = 16;
+pub const DIRENT_D_NAMLEN_OFFSET: usize = 18;
+pub const DIRENT_D_TYPE_OFFSET: usize = 20;
+pub const DIRENT_D_NAME_OFFSET: usize = 21;
+
+/// `struct dirent` `d_type` value for a subdirectory entry.
+pub const DT_DIR: u8 = 4;

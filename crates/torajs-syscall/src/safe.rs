@@ -184,6 +184,103 @@ pub fn gettimeofday() -> Result<(i64, i32), Errno> {
     decode(raw).map(|_| (tv.tv_sec, tv.tv_usec))
 }
 
+/// `open(path, flags, mode) -> Ok(fd) | Err(errno)`. Unlike [`open`],
+/// this passes the third `mode` syscall arg — required when `flags`
+/// includes `O_CREAT` (e.g. `writeFileSync` creating a new file).
+///
+/// # Safety
+///
+/// `path` must point to a NUL-terminated C string.
+pub unsafe fn open_mode(path: *const u8, flags: i32, mode: i32) -> Result<i32, Errno> {
+    let raw = unsafe { syscall3(SYS_OPEN, path as i64, flags as i64, mode as i64) };
+    decode(raw).map(|fd| fd as i32)
+}
+
+/// `unlink(path) -> Ok(()) | Err(errno)` — remove a file.
+///
+/// # Safety
+///
+/// `path` must point to a NUL-terminated C string.
+pub unsafe fn unlink(path: *const u8) -> Result<(), Errno> {
+    let raw = unsafe { syscall1(SYS_UNLINK, path as i64) };
+    decode(raw).map(|_| ())
+}
+
+/// `mkdir(path, mode) -> Ok(()) | Err(errno)` — create a directory.
+/// Pass [`MKDIR_DEFAULT_MODE`] for `std::fs::create_dir` parity.
+///
+/// # Safety
+///
+/// `path` must point to a NUL-terminated C string.
+pub unsafe fn mkdir(path: *const u8, mode: i32) -> Result<(), Errno> {
+    // mkdir takes 2 args; the trampoline's third slot is passed 0.
+    let raw = unsafe { syscall3(SYS_MKDIR, path as i64, mode as i64, 0) };
+    decode(raw).map(|_| ())
+}
+
+/// `rmdir(path) -> Ok(()) | Err(errno)` — remove an empty directory.
+///
+/// # Safety
+///
+/// `path` must point to a NUL-terminated C string.
+pub unsafe fn rmdir(path: *const u8) -> Result<(), Errno> {
+    let raw = unsafe { syscall1(SYS_RMDIR, path as i64) };
+    decode(raw).map(|_| ())
+}
+
+/// `fstat(fd).st_size -> Ok(size_bytes) | Err(errno)` — size of an open
+/// descriptor via `fstat64`. Reads only `st_size` out of the
+/// 64-bit-inode `struct stat` (offset [`STAT_ST_SIZE_OFFSET`] in the
+/// [`STAT_BUF_SIZE`]-byte buffer the kernel `copyout`s into).
+pub fn fstat_size(fd: i32) -> Result<i64, Errno> {
+    let mut buf = [0u8; STAT_BUF_SIZE];
+    let raw = unsafe { syscall3(SYS_FSTAT, fd as i64, buf.as_mut_ptr() as i64, 0) };
+    decode(raw)?;
+    let off = STAT_ST_SIZE_OFFSET;
+    Ok(i64::from_ne_bytes(buf[off..off + 8].try_into().unwrap()))
+}
+
+/// `stat(path).st_size -> Ok(size_bytes) | Err(errno)` — size by path
+/// via `stat64`. Same `st_size` extraction as [`fstat_size`]. Backs
+/// `statSync(path).size`, and via the `Err` arm `existsSync`.
+///
+/// # Safety
+///
+/// `path` must point to a NUL-terminated C string.
+pub unsafe fn stat_size(path: *const u8) -> Result<i64, Errno> {
+    let mut buf = [0u8; STAT_BUF_SIZE];
+    let raw = unsafe { syscall3(SYS_STAT64, path as i64, buf.as_mut_ptr() as i64, 0) };
+    decode(raw)?;
+    let off = STAT_ST_SIZE_OFFSET;
+    Ok(i64::from_ne_bytes(buf[off..off + 8].try_into().unwrap()))
+}
+
+/// `getdirentries64(fd, buf, &mut basep) -> Ok(bytes_written) | Err`.
+/// Fills `buf` with packed variable-length `struct dirent` records;
+/// returns 0 at end of directory. `basep` carries the opaque directory
+/// seek position — pass the same `i64` back across calls to page
+/// through a large directory. Caller decodes records using the
+/// `DIRENT_*` offset constants. Backs `readdirSync`.
+///
+/// # Safety
+///
+/// `fd` must be an open directory descriptor; `buf` must be writable
+/// for `buf.len()` bytes.
+pub unsafe fn getdirentries64(fd: i32, buf: &mut [u8], basep: &mut i64) -> Result<usize, Errno> {
+    let n = unsafe {
+        syscall6(
+            SYS_GETDIRENTRIES64,
+            fd as i64,
+            buf.as_mut_ptr() as i64,
+            buf.len() as i64,
+            basep as *mut i64 as i64,
+            0,
+            0,
+        )
+    };
+    decode(n).map(|x| x as usize)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -291,5 +388,93 @@ mod tests {
         let mut too_big = [0u8; 257];
         let err = unsafe { getentropy(&mut too_big) }.expect_err("expected error for >256");
         assert_ne!(err.0, 0, "errno should be non-zero on failure");
+    }
+
+    #[test]
+    fn fs_file_create_write_stat_unlink() {
+        // open(O_CREAT) -> write -> close -> stat_size (path) ==
+        // fstat_size (fd) == bytes written -> unlink -> stat ENOENT.
+        let path = format!("/tmp/__torajs_syscall_fs_{}.tmp\0", getpid());
+        let p = path.as_bytes().as_ptr();
+        let fd = unsafe { open_mode(p, O_WRONLY | O_CREAT | O_TRUNC, 0o644) }.expect("create");
+        let data = b"hello fs";
+        let n = unsafe { write(fd, data) }.expect("write");
+        assert_eq!(n, data.len());
+        close(fd).expect("close");
+
+        let sz = unsafe { stat_size(p) }.expect("stat_size");
+        assert_eq!(sz, data.len() as i64, "stat_size mismatch");
+
+        let rfd = unsafe { open(p, O_RDONLY) }.expect("reopen");
+        let fsz = fstat_size(rfd).expect("fstat_size");
+        assert_eq!(fsz, data.len() as i64, "fstat_size mismatch");
+        close(rfd).expect("close rfd");
+
+        unsafe { unlink(p) }.expect("unlink");
+        let err = unsafe { stat_size(p) }.expect_err("expected ENOENT after unlink");
+        assert_eq!(err.0, 2, "got errno {}", err.0);
+    }
+
+    #[test]
+    fn fs_mkdir_rmdir_roundtrip() {
+        let path = format!("/tmp/__torajs_syscall_dir_{}\0", getpid());
+        let p = path.as_bytes().as_ptr();
+        let _ = unsafe { rmdir(p) }; // best-effort cleanup from a crashed run
+        unsafe { mkdir(p, MKDIR_DEFAULT_MODE) }.expect("mkdir");
+        let sz = unsafe { stat_size(p) }.expect("stat_size dir");
+        assert!(sz >= 0, "dir st_size {sz}");
+        unsafe { rmdir(p) }.expect("rmdir");
+        let err = unsafe { stat_size(p) }.expect_err("expected ENOENT after rmdir");
+        assert_eq!(err.0, 2, "got errno {}", err.0);
+    }
+
+    #[test]
+    fn fs_getdirentries_decodes_known_entry() {
+        // mkdir + create one marker file, then list via getdirentries64
+        // and decode records using the DIRENT_* offsets — this is the
+        // direct guard against a wrong struct-dirent layout.
+        let dir = format!("/tmp/__torajs_syscall_ls_{}\0", getpid());
+        let db = dir.as_bytes().as_ptr();
+        let _ = unsafe { rmdir(db) };
+        unsafe { mkdir(db, MKDIR_DEFAULT_MODE) }.expect("mkdir ls");
+        let file = format!("/tmp/__torajs_syscall_ls_{}/marker.txt\0", getpid());
+        let fb = file.as_bytes().as_ptr();
+        let fd = unsafe { open_mode(fb, O_WRONLY | O_CREAT | O_TRUNC, 0o644) }.expect("marker");
+        close(fd).expect("close marker");
+
+        let dfd = unsafe { open(db, O_RDONLY) }.expect("open dir");
+        let mut buf = [0u8; 4096];
+        let mut basep: i64 = 0;
+        let nbytes =
+            unsafe { getdirentries64(dfd, &mut buf, &mut basep) }.expect("getdirentries64");
+        assert!(nbytes > 0, "empty directory read");
+        close(dfd).expect("close dir");
+
+        let mut found = false;
+        let mut off = 0usize;
+        while off < nbytes {
+            let reclen = u16::from_ne_bytes(
+                buf[off + DIRENT_D_RECLEN_OFFSET..off + DIRENT_D_RECLEN_OFFSET + 2]
+                    .try_into()
+                    .unwrap(),
+            ) as usize;
+            let namlen = u16::from_ne_bytes(
+                buf[off + DIRENT_D_NAMLEN_OFFSET..off + DIRENT_D_NAMLEN_OFFSET + 2]
+                    .try_into()
+                    .unwrap(),
+            ) as usize;
+            let name = &buf[off + DIRENT_D_NAME_OFFSET..off + DIRENT_D_NAME_OFFSET + namlen];
+            if name == b"marker.txt" {
+                found = true;
+            }
+            if reclen == 0 {
+                break;
+            }
+            off += reclen;
+        }
+        assert!(found, "marker.txt not decoded from directory listing");
+
+        unsafe { unlink(fb) }.expect("unlink marker");
+        unsafe { rmdir(db) }.expect("rmdir ls");
     }
 }
