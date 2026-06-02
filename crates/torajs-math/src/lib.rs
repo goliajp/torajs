@@ -40,6 +40,7 @@
 
 mod exp;
 mod fmod;
+mod hyperbolic;
 mod inverse_trig;
 mod log;
 mod pow;
@@ -47,6 +48,7 @@ mod trig;
 
 pub use exp::exp;
 pub use fmod::fmod;
+pub use hyperbolic::{acosh, asinh, atanh, cosh, sinh, tanh};
 pub use inverse_trig::{acos, asin, atan, atan2};
 pub use log::log;
 pub use pow::pow;

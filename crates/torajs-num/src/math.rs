@@ -139,27 +139,27 @@ pub unsafe extern "C" fn __torajs_math_atan(x: f64) -> f64 {
 }
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_math_sinh(x: f64) -> f64 {
-    x.sinh()
+    torajs_math::sinh(x)
 }
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_math_cosh(x: f64) -> f64 {
-    x.cosh()
+    torajs_math::cosh(x)
 }
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_math_tanh(x: f64) -> f64 {
-    x.tanh()
+    torajs_math::tanh(x)
 }
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_math_asinh(x: f64) -> f64 {
-    x.asinh()
+    torajs_math::asinh(x)
 }
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_math_acosh(x: f64) -> f64 {
-    x.acosh()
+    torajs_math::acosh(x)
 }
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_math_atanh(x: f64) -> f64 {
-    x.atanh()
+    torajs_math::atanh(x)
 }
 
 // ============================================================
