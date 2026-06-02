@@ -11,7 +11,10 @@
 //!   +0..7   : universal heap header (refcount u32 + type_tag u16 + flags u16)
 //!   +8      : state u8 (PENDING=0, FULFILLED=1, REJECTED=2)
 //!   +9      : value_is_heap u8 — set on heap-typed Promise<Heap T>
-//!   +10..15 : _pad[6] (alignment)
+//!   +10     : has_handler u8 — set by attach_then / get_value (P10.5-A3-a);
+//!             read by HPRT-check microtask to decide unhandled-rejection
+//!             reporting per spec §27.2.1.9 HostPromiseRejectionTracker
+//!   +11..15 : _pad[5] (alignment)
 //!   +16..23 : i64 value (primitive bits or heap-ptr cast)
 //!   +24..31 : *mut callback list (NULL when no .then attached)
 //! ```
@@ -92,7 +95,15 @@ pub struct Promise {
     pub header: HeapHeader,
     pub state: u8,
     pub value_is_heap: u8,
-    pub _pad: [u8; 6],
+    /// `[[PromiseIsHandled]]` per spec §25.4.1.3. Set to 1 by
+    /// `attach_then` (any .then/.catch/.finally) and `get_value`
+    /// (await observation); read by `unhandled::hprt_check_dispatch`
+    /// to decide whether the per-rejected-promise check fires the
+    /// default reporter. Initial 0 means "no rejection handler attached
+    /// yet" — a rejected promise reaching the HPRT microtask in that
+    /// state IS the spec-defined unhandled-rejection event source.
+    pub has_handler: u8,
+    pub _pad: [u8; 5],
     pub value: i64,
     pub callbacks: *mut PromiseCb,
 }
@@ -134,7 +145,8 @@ mod tests {
         assert_eq!(core::mem::offset_of!(Promise, header), 0);
         assert_eq!(core::mem::offset_of!(Promise, state), 8);
         assert_eq!(core::mem::offset_of!(Promise, value_is_heap), 9);
-        assert_eq!(core::mem::offset_of!(Promise, _pad), 10);
+        assert_eq!(core::mem::offset_of!(Promise, has_handler), 10);
+        assert_eq!(core::mem::offset_of!(Promise, _pad), 11);
         assert_eq!(core::mem::offset_of!(Promise, value), 16);
         assert_eq!(core::mem::offset_of!(Promise, callbacks), 24);
     }

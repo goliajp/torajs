@@ -89,8 +89,12 @@ unsafe fn promise_alloc_(state: u8, value: i64, is_heap: u8) -> *mut Promise {
         };
         (*p).state = state;
         (*p).value_is_heap = is_heap;
+        // P10.5-A3-a — fresh Promise starts with no handler attached.
+        // attach_then / get_value set this to 1 as cb is hooked up;
+        // unhandled::hprt_check_dispatch reads it.
+        (*p).has_handler = 0;
         // Zero `_pad` so memcmp on the whole struct is well-defined.
-        (*p)._pad = [0; 6];
+        (*p)._pad = [0; 5];
         (*p).value = value;
         (*p).callbacks = ptr::null_mut();
     }

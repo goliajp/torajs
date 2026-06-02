@@ -98,12 +98,18 @@ pub unsafe extern "C" fn __torajs_promise_reject(p: *mut c_void, reason: i64) {
 ///     and propagates.
 ///   - PENDING   → return 0 (sync-resolve model; the silent 0 guards
 ///     against crashes pre-event-loop).
+///
+/// P10.5-A3-a — `await` is `.then(resolveBinding, rejectBinding)`
+/// per spec §14.5.4.1; the rejectBinding attaches a rejection handler.
+/// Set `has_handler = 1` so the HPRT-check microtask sees the promise
+/// as observed and skips the default reporter.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_promise_get_value(p: *const c_void) -> i64 {
     if p.is_null() {
         return 0;
     }
-    let pp = p as *const Promise;
+    let pp = p as *mut Promise;
+    unsafe { (*pp).has_handler = 1 };
     let state = unsafe { (*pp).state };
     if state == STATE_REJECTED {
         let tag = if unsafe { (*pp).value_is_heap } != 0 {
@@ -134,6 +140,15 @@ pub unsafe extern "C" fn __torajs_promise_get_state(p: *const c_void) -> u8 {
 ///   1. source already settled → enqueue immediately.
 ///   2. source pending → head-push onto callbacks list; resolve /
 ///      reject drains the list lazily.
+///
+/// P10.5-A3-a — any `attach_then` (including `.then(onOk)` without
+/// onRejected) marks the source as observed per spec §27.2.1.3
+/// PerformPromiseThen step 12 (`SetPromiseIsHandled`). `.then(onOk)`
+/// without onRejected still counts because the rejection is forwarded
+/// into the result Promise via the dispatcher's REJECTED branch — the
+/// chain has taken ownership of the source's rejection; if the result
+/// itself is then unhandled, the result's own HPRT microtask reports
+/// it.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_promise_attach_then(
     source_p: *mut c_void,
@@ -145,6 +160,7 @@ pub unsafe extern "C" fn __torajs_promise_attach_then(
     }
     let Some(invoke) = invoke else { return };
     let pp = as_promise(source_p);
+    unsafe { (*pp).has_handler = 1 };
     let state = unsafe { (*pp).state };
     if state != STATE_PENDING {
         // Already settled — enqueue immediately.
