@@ -127,15 +127,15 @@ pub unsafe extern "C" fn __torajs_math_tan(x: f64) -> f64 {
 }
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_math_asin(x: f64) -> f64 {
-    x.asin()
+    torajs_math::asin(x)
 }
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_math_acos(x: f64) -> f64 {
-    x.acos()
+    torajs_math::acos(x)
 }
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_math_atan(x: f64) -> f64 {
-    x.atan()
+    torajs_math::atan(x)
 }
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_math_sinh(x: f64) -> f64 {
@@ -197,7 +197,7 @@ pub unsafe extern "C" fn __torajs_math_max(x: f64, y: f64) -> f64 {
 /// Matches `f64::atan2(self=y, other=x)` Rust convention.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_math_atan2(y: f64, x: f64) -> f64 {
-    y.atan2(x)
+    torajs_math::atan2(y, x)
 }
 
 /// `Math.sign(x)` — JS spec: `+1` / `-1` / preserve-zero. libc has

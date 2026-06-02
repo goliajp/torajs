@@ -40,12 +40,14 @@
 
 mod exp;
 mod fmod;
+mod inverse_trig;
 mod log;
 mod pow;
 mod trig;
 
 pub use exp::exp;
 pub use fmod::fmod;
+pub use inverse_trig::{acos, asin, atan, atan2};
 pub use log::log;
 pub use pow::pow;
 pub use trig::{cos, sin, tan};
