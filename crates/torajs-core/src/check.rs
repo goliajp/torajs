@@ -9,6 +9,8 @@ use std::collections::HashMap;
 use crate::ast::{Ast, BinOp, Expr, ExprId, Param, Stmt, Visibility};
 use crate::lexer::Span;
 
+mod promise_static;
+
 /// T-04 (v0.3.0) — typechecker diagnostic with source span + severity.
 /// Replaces the previous `Vec<String>` error bucket. `span = (0, 0)`
 /// is the sentinel for "no source location attached" — the LSP and
@@ -5296,70 +5298,12 @@ impl Checker {
                     }
                     return Ok(Type::Number);
                 }
-                if let Expr::Member {
-                    obj: ns_id,
-                    name: m_name,
-                } = ast.get_expr(*callee)
-                    && (m_name == "resolve" || m_name == "reject")
-                    && let Expr::Ident(ns) = ast.get_expr(*ns_id)
-                    && ns == "Promise"
-                {
-                    // P10.2-A1 — 0-arg form: `Promise.resolve()` ≡
-                    // `Promise.resolve(undefined)` per ES spec
-                    // §27.2.4.6 (Promise.reject() symmetrically
-                    // rejects with undefined). Inner T = Undefined.
-                    if args.is_empty() {
-                        return Ok(Type::Promise(Box::new(Type::Undefined)));
-                    }
-                    if args.len() > 1 {
-                        return Err(format!(
-                            "Promise.{m_name} expects 0 or 1 arg, got {}",
-                            args.len()
-                        ));
-                    }
-                    let arg_ty = self.type_of(ast, args[0])?;
-                    let inner = match &arg_ty {
-                        Type::Number | Type::String | Type::Boolean => arg_ty.clone(),
-                        // T-19.b (v0.5.0) — extended to accept heap-typed
-                        // T: Array, Struct (Object literal), Date, RegExp.
-                        // Runtime owns one rc on the inner value; drop
-                        // dispatches via __torajs_value_drop_heap.
-                        Type::Array(_) | Type::Struct(_) | Type::Date | Type::RegExp => {
-                            arg_ty.clone()
-                        }
-                        // T-19.d (v0.5.0) — Nullable<T> + bare null. The
-                        // resolver returns the underlying T at SSA shape
-                        // (null is the in-band 0 sentinel), so the runtime
-                        // path is the same. We surface the inner type as
-                        // Promise<T | null> so caller sites stay
-                        // explicitly-nullable-aware.
-                        Type::Nullable(_) => arg_ty.clone(),
-                        // Bare `null` literal — promote to Type::Nullable
-                        // of an inferred T. For MVP just use Nullable<String>
-                        // which round-trips at the i64-ptr ABI; user code
-                        // typically uses `let p: Promise<T | null> = ...`
-                        // to make the intent explicit, in which case the
-                        // arg_ty above is already Nullable.
-                        Type::Null => Type::Nullable(Box::new(Type::String)),
-                        // T-19.f (v0.5.0) — thenable absorption.
-                        // `Promise.resolve(Promise<T>)` returns the
-                        // inner Promise<T> per spec (the resolved
-                        // value of the outer Promise IS the inner
-                        // Promise's resolved value). Type system
-                        // collapses Promise<Promise<T>> → Promise<T>
-                        // so caller sites see a flat shape; the
-                        // runtime side detects the nested-Promise
-                        // arg via type_tag and unwraps state +
-                        // value (rc-aware) instead of treating the
-                        // inner ptr as an i64 value.
-                        Type::Promise(boxed_inner) => (**boxed_inner).clone(),
-                        other => {
-                            return Err(format!(
-                                "Promise.{m_name}: T must be number / string / boolean / array / struct / Date / RegExp / nullable / Promise<T> in v0.5 MVP (got {other:?})"
-                            ));
-                        }
-                    };
-                    return Ok(Type::Promise(Box::new(inner)));
+                // T-15.g.5 / T-19.b/d/f — `Promise.resolve(v)` /
+                // `Promise.reject(v)` with arg-type-driven return
+                // inference. Extracted to `check/promise_static.rs`
+                // (2026-06-03, P10.5-A2 prereq).
+                if let Some(r) = self.check_promise_resolve_reject_static(ast, *callee, args) {
+                    return r;
                 }
                 /* T-17.a (v0.5.0) — Promise.all<T>(promises: Promise<T>[])
                  * → Promise<Array<T>>. Sync fast-path MVP — caller's
