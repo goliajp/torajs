@@ -2,6 +2,9 @@
 
 use std::collections::HashMap;
 
+mod desugar_classes_emit;
+use desugar_classes_emit::{emit_class_instance_methods, emit_class_static_methods};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ExprId(pub u32);
 
@@ -3636,75 +3639,17 @@ pub fn desugar_classes(ast: &mut Ast) {
         });
 
         // Methods → __cm_C__m(__this: C, params...): R { body }
-        for m in &methods {
-            // M-OO.6 — abstract method: the user wrote no body. We
-            // still need a `__cm_<C>__<m>` symbol because ssa_lower's
-            // `__dispatch_<m>` interception emits the base owner as
-            // the fall-through default branch. Concrete subclasses
-            // override the dispatch via tag-switch, so the stub is
-            // unreachable on a well-typed program — emit a `throw`
-            // body as a defensive trap. The thrown value is a small
-            // integer so we don't need a string allocation on a
-            // never-taken path.
-            if m.is_abstract {
-                let mut params: Vec<Param> = Vec::with_capacity(m.params.len() + 1);
-                params.push(Param {
-                    name: "__this".into(),
-                    type_ann: Some(this_ann.clone()),
-                    default: None,
-                    is_rest: false,
-                });
-                params.extend(m.params.iter().cloned());
-                let trap_eid = ast.add_expr(Expr::Number(7777.0));
-                let trap_body = vec![Stmt::Throw(trap_eid)];
-                appended.push(Stmt::FnDecl {
-                    name: format!("__cm_{cname}__{}", m.name),
-                    type_params: type_params.clone(),
-                    params,
-                    return_type: rewrite_this_in_ann(&m.return_type, &this_ann),
-                    body: trap_body,
-                    is_generator: false,
-                });
-                continue;
-            }
-            let mut params: Vec<Param> = Vec::with_capacity(m.params.len() + 1);
-            params.push(Param {
-                name: "__this".into(),
-                type_ann: Some(this_ann.clone()),
-                default: None,
-                is_rest: false,
-            });
-            params.extend(m.params.iter().cloned());
-            // P8.2 — accessor methods get a `_get` / `_set` suffix on
-            // their synthesised FnDecl so a get/set pair on the same
-            // property name doesn't collide with each other or with a
-            // same-named regular method. The dispatch maps below let
-            // check.rs / ssa_lower recover the synthesised name from
-            // the user-written `c.prop` / `c.prop = v`.
-            let suffix = match m.accessor_kind {
-                Some(AccessorKind::Getter) => "_get",
-                Some(AccessorKind::Setter) => "_set",
-                None => "",
-            };
-            let fn_name = format!("__cm_{cname}__{}{suffix}", m.name);
-            match m.accessor_kind {
-                Some(AccessorKind::Getter) => {
-                    accessor_getter_records.push((cname.clone(), m.name.clone(), fn_name.clone()));
-                }
-                Some(AccessorKind::Setter) => {
-                    accessor_setter_records.push((cname.clone(), m.name.clone(), fn_name.clone()));
-                }
-                None => {}
-            }
-            appended.push(Stmt::FnDecl {
-                name: fn_name,
-                type_params: type_params.clone(),
-                params,
-                return_type: rewrite_this_in_ann(&m.return_type, &this_ann),
-                body: m.body.clone(),
-                is_generator: false,
-            });
-        }
+        // See `ast/desugar_classes_emit.rs`.
+        emit_class_instance_methods(
+            ast,
+            &methods,
+            &cname,
+            &type_params,
+            &this_ann,
+            &mut accessor_getter_records,
+            &mut accessor_setter_records,
+            &mut appended,
+        );
 
         // Factory: __new_C(ctor_params...): C {
         //   let __this: C = { f0: <init>, f1: <init>, ... };
@@ -3804,19 +3749,8 @@ pub fn desugar_classes(ast: &mut Ast) {
         }
 
         // M-OO.4 — emit `function __sm_<C>__<name>(...): R { body }`
-        // for each static method. No `__this` param (statics don't
-        // bind a receiver). type_params propagate from the class so
-        // generic statics on a generic class work.
-        for sm in &static_methods {
-            appended.push(Stmt::FnDecl {
-                name: format!("__sm_{cname}__{}", sm.name),
-                type_params: type_params.clone(),
-                params: sm.params.clone(),
-                return_type: sm.return_type.clone(),
-                body: sm.body.clone(),
-                is_generator: false,
-            });
-        }
+        // for each static method. See `ast/desugar_classes_emit.rs`.
+        emit_class_static_methods(&static_methods, &cname, &type_params, &mut appended);
     }
 
     ast.stmts.extend(appended);
