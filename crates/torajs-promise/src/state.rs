@@ -88,6 +88,12 @@ pub unsafe extern "C" fn __torajs_promise_reject(p: *mut c_void, reason: i64) {
         (*pp).state = STATE_REJECTED;
         (*pp).value = reason;
         drain_callbacks(pp);
+        // P10.5-A3-b — every PENDING → REJECTED transition enqueues
+        // an HPRT-check microtask. Synchronous .catch / .then(_,
+        // onErr) / await attaches made same-tick set has_handler
+        // first; the microtask defers the unhandled decision to the
+        // natural drain order so those attaches are observed.
+        crate::unhandled::enqueue_hprt_check(p);
     }
 }
 

@@ -135,7 +135,14 @@ pub unsafe extern "C" fn __torajs_promise_alloc_fulfilled(value: i64) -> *mut c_
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_promise_alloc_rejected(reason: i64) -> *mut c_void {
-    unsafe { promise_alloc_(STATE_REJECTED, reason, 0) as *mut c_void }
+    let p = unsafe { promise_alloc_(STATE_REJECTED, reason, 0) as *mut c_void };
+    // P10.5-A3-b — REJECTED at construction enqueues an HPRT-check
+    // microtask. See `unhandled::enqueue_hprt_check` for the
+    // detection invariant; defers the unhandled decision until the
+    // microtask drain so synchronous `.catch` attaches can mark
+    // the promise as observed first.
+    unsafe { crate::unhandled::enqueue_hprt_check(p) };
+    p
 }
 
 /// Heap-value variant — caller transfers ONE refcount on `value` to
@@ -148,7 +155,13 @@ pub unsafe extern "C" fn __torajs_promise_alloc_fulfilled_heap(value: i64) -> *m
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_promise_alloc_rejected_heap(reason: i64) -> *mut c_void {
-    unsafe { promise_alloc_(STATE_REJECTED, reason, 1) as *mut c_void }
+    let p = unsafe { promise_alloc_(STATE_REJECTED, reason, 1) as *mut c_void };
+    // P10.5-A3-b — symmetric with `alloc_rejected`. The heap-typed
+    // reason (Str / Obj / Any-box / etc.) is reachable through
+    // `(*pp).value` so `unhandled::fire_unhandled_reporter` can
+    // dispatch on its type_tag.
+    unsafe { crate::unhandled::enqueue_hprt_check(p) };
+    p
 }
 
 /// `Promise.resolve(p)` thenable absorption. When `p` is itself a

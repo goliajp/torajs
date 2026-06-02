@@ -3511,6 +3511,7 @@ fn lower_inner(
         &[],
         Type::Void,
     );
+    crate::ssa_lower_main_exit::declare(&mut module, &mut fn_table);
     /* P10.1-A1 — queueMicrotask(cb) closure-path enqueue. cb is a
      * Type::Closure whose env+8 holds the lifted body's fn_addr
      * (same layout as promise_finally_closure: 0-user-arg, void
@@ -6284,9 +6285,7 @@ fn synthesize_main(
                 ctx.cur_block,
                 InstKind::Call(ctx.intrinsics.cycle_at_exit_drain, vec![]),
             );
-            let cb = ctx.cur_block;
-            ctx.f
-                .set_term(cb, Terminator::Ret(Some(Operand::ConstI32(0))));
+            crate::ssa_lower_main_exit::emit_ret(&mut ctx);
         }
     }
     (f, new_strings)
@@ -7240,7 +7239,7 @@ pub(crate) struct PreReserveState {
 pub(crate) struct LowerCtx<'a> {
     pub(crate) f: &'a mut ssa::Function,
     pub(crate) ast: &'a Ast,
-    fn_table: &'a HashMap<String, FuncId>,
+    pub(crate) fn_table: &'a HashMap<String, FuncId>,
     /// FuncId → return type, populated in pass 1 of `lower`. Lets call-site
     /// lowering pick the right SSA result type even when the callee hasn't
     /// been body-lowered yet (forward refs, mutual recursion, bool returns).

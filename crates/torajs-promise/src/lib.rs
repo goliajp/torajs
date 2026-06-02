@@ -38,6 +38,7 @@ pub mod micro;
 pub mod pool;
 pub mod state;
 pub mod then;
+pub mod unhandled;
 
 pub use combinator::{
     __torajs_promise_all_sync, __torajs_promise_allsettled_sync, __torajs_promise_any_sync,
@@ -57,6 +58,7 @@ pub use then::{
     __torajs_promise_catch_closure, __torajs_promise_catch_simple, __torajs_promise_finally,
     __torajs_promise_finally_closure, __torajs_promise_then_closure, __torajs_promise_then_simple,
 };
+pub use unhandled::__torajs_main_exit_code;
 
 // Cross-tier extern stubs for cargo unit tests — real symbols
 // live in libs (torajs-rc, torajs-throw, libtorajs_microtask) +
@@ -113,4 +115,16 @@ pub unsafe extern "C" fn __torajs_arr_push(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_alloc_pooled(_len: u64) -> *mut u8 {
     panic!("torajs-promise test stub: str_alloc_pooled should not be called from cargo test");
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_syscall_write(_fd: i32, _buf: *const u8, _n: usize) -> isize {
+    panic!("torajs-promise test stub: syscall_write should not be called from cargo test");
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_print_err(_s: *const u8) {
+    panic!("torajs-promise test stub: str_print_err should not be called from cargo test");
 }
