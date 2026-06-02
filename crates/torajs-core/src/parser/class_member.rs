@@ -17,7 +17,7 @@
 //!     conflicts (`static abstract`, abstract in non-abstract class).
 
 use super::Parser;
-use crate::ast::{AccessorKind, Visibility};
+use crate::ast::{AccessorKind, ClassMethod, Param, Stmt, Visibility};
 use crate::lexer::Token;
 
 /// One class member's modifier prefix. `accessor_kind` may still be
@@ -29,6 +29,11 @@ pub(super) struct ClassMemberModifierPrefix {
     pub is_abstract_method: bool,
     pub is_static: bool,
     pub accessor_kind: Option<AccessorKind>,
+    /// P10.3-A3a — `async` method modifier (`[static] async name(...) {}`).
+    /// When true `finalize_class_method` registers the mangled
+    /// `__cm_<C>__<M>` / `__sm_<C>__<M>` fn name into `ast.async_fns`
+    /// so `desugar_async` picks it up.
+    pub is_async: bool,
 }
 
 /// Tokens that may legally start a class member name. Used by the
@@ -179,6 +184,29 @@ impl<'a> Parser<'a> {
             ));
         }
 
+        // P10.3-A3a — `[static] async name(...) {}`. Distinguished
+        // from `async` as a regular method name by `Ident + LParen`
+        // lookahead after the keyword. `abstract async` is a TS
+        // error ("'async' modifier cannot be used with 'abstract'");
+        // call site rejects the same combo for consistency.
+        let is_async = if matches!(self.peek(), Token::Async)
+            && let Some(t1) = self.tokens.get(self.pos + 1)
+            && matches!(t1.token, Token::Ident(_))
+            && let Some(t2) = self.tokens.get(self.pos + 2)
+            && matches!(t2.token, Token::LParen)
+        {
+            self.pos += 1;
+            true
+        } else {
+            false
+        };
+        if is_async && is_abstract_method {
+            return Err(format!(
+                "`async` modifier cannot be used with `abstract` modifier in class `{class_name}` at {}",
+                self.at()
+            ));
+        }
+
         // P8.2 — accessor descriptor: `get X(): T { ... }` / `set X(v: T)
         // { ... }`. The lexer emits `get` / `set` as `Token::Ident("get"
         // | "set")` (contextual keywords per ES §13.4); recognise here
@@ -212,6 +240,69 @@ impl<'a> Parser<'a> {
             is_abstract_method,
             is_static,
             accessor_kind,
+            is_async,
         })
+    }
+
+    /// Finalize a non-ctor class method after its params / return-type
+    /// / body have been parsed. Applies the readonly cross-modifier
+    /// check, resolves visibility (default `Public`), registers
+    /// `member_visibility` for non-default values, registers async
+    /// method mangled names into `ast.async_fns` (P10.3-A3a), and
+    /// pushes the `ClassMethod` onto the appropriate methods or
+    /// static_methods vector. Centralised so the god-fn doesn't grow
+    /// when new modifier-driven side-effects (async / generator /
+    /// override / ...) are added later.
+    pub(super) fn finalize_class_method(
+        &mut self,
+        class_name: &str,
+        member_name: String,
+        params: Vec<Param>,
+        return_type: Option<String>,
+        body: Vec<Stmt>,
+        explicit_visibility: Option<Visibility>,
+        accessor_kind: Option<AccessorKind>,
+        is_readonly: bool,
+        is_abstract_method: bool,
+        is_static: bool,
+        is_async: bool,
+        methods: &mut Vec<ClassMethod>,
+        static_methods: &mut Vec<ClassMethod>,
+    ) -> Result<(), String> {
+        if is_readonly {
+            return Err(format!(
+                "`readonly` modifier is only valid on fields, not on method `{member_name}` in class `{class_name}` at {}",
+                self.at()
+            ));
+        }
+        let visibility = explicit_visibility.unwrap_or(Visibility::Public);
+        if visibility != Visibility::Public {
+            self.ast
+                .member_visibility
+                .insert((class_name.to_string(), member_name.clone()), visibility);
+        }
+        if is_async {
+            let mangled = if is_static {
+                format!("__sm_{class_name}__{member_name}")
+            } else {
+                format!("__cm_{class_name}__{member_name}")
+            };
+            self.ast.async_fns.insert(mangled);
+        }
+        let m = ClassMethod {
+            name: member_name,
+            params,
+            return_type,
+            body,
+            is_abstract: is_abstract_method,
+            visibility,
+            accessor_kind,
+        };
+        if is_static {
+            static_methods.push(m);
+        } else {
+            methods.push(m);
+        }
+        Ok(())
     }
 }

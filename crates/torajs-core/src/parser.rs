@@ -5688,6 +5688,7 @@ impl Parser<'_> {
                 is_abstract_method,
                 is_static,
                 accessor_kind,
+                is_async,
             } = self.parse_class_member_modifier_prefix(&name, is_abstract)?;
             // P5.2 — computed-key class member `[Symbol.iterator]() {
             // ... }`. Mirrors the object-literal computed-key handling
@@ -5924,32 +5925,21 @@ impl Parser<'_> {
                         }
                         ctor = Some(ClassCtor { params, body });
                     } else {
-                        if is_readonly {
-                            return Err(format!(
-                                "`readonly` modifier is only valid on fields, not on method `{member_name}` in class `{name}` at {}",
-                                self.at()
-                            ));
-                        }
-                        let visibility = explicit_visibility.unwrap_or(ast::Visibility::Public);
-                        if visibility != ast::Visibility::Public {
-                            self.ast
-                                .member_visibility
-                                .insert((name.clone(), member_name.clone()), visibility);
-                        }
-                        let m = ClassMethod {
-                            name: member_name,
+                        self.finalize_class_method(
+                            &name,
+                            member_name,
                             params,
                             return_type,
                             body,
-                            is_abstract: is_abstract_method,
-                            visibility,
+                            explicit_visibility,
                             accessor_kind,
-                        };
-                        if is_static {
-                            static_methods.push(m);
-                        } else {
-                            methods.push(m);
-                        }
+                            is_readonly,
+                            is_abstract_method,
+                            is_static,
+                            is_async,
+                            &mut methods,
+                            &mut static_methods,
+                        )?;
                     }
                 }
                 Some(Token::Colon) => {
