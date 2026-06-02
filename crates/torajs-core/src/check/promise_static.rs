@@ -92,6 +92,28 @@ impl Checker {
             // value (rc-aware) instead of treating the
             // inner ptr as an i64 value.
             Type::Promise(boxed_inner) => (**boxed_inner).clone(),
+            // P10.5-A2 — `Promise.reject` accepts Type::Any so the
+            // async-fn body try/catch wrapper (desugar_async, P10.5-A1)
+            // can shadow `__async_err` as spec-correct `any` per ES
+            // §27.7.3.6 AsyncFunctionBody. Return type contextually
+            // unifies with the enclosing fn's expected `Promise<T>`
+            // (caller sees a Promise of the declared T; reject's
+            // reason has no static type since it's the rejection
+            // pathway). Standalone `Promise.reject(<any>)` outside a
+            // typed context surfaces as `Promise<Any>`.
+            //
+            // Runtime path is the existing heap variant
+            // (`__torajs_promise_alloc_rejected_heap`), since Any
+            // lowers to an opaque pointer at SSA (24-byte boxed-any
+            // heap struct via `__torajs_any_box`). Drop dispatches
+            // universally via `__torajs_value_drop_heap` reading the
+            // box's heap header. `Promise.resolve(any)` is
+            // intentionally still rejected — unblock target is the
+            // catch-side flow only.
+            Type::Any if m_name == "reject" => match &self.expected_return {
+                Some(Type::Promise(t)) => (**t).clone(),
+                _ => Type::Any,
+            },
             other => {
                 return Some(Err(format!(
                     "Promise.{m_name}: T must be number / string / boolean / array / struct / Date / RegExp / nullable / Promise<T> in v0.5 MVP (got {other:?})"

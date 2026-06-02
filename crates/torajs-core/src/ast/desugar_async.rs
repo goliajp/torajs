@@ -111,7 +111,7 @@ pub fn desugar_async(ast: &mut Ast) {
         }
 
         // P10.5-A1 — wrap the rewritten body in `try { ... } catch
-        // (__async_err: <inner_ty>) { return Promise.reject(__async_err); }`
+        // (__async_err: any) { return Promise.reject(__async_err); }`
         // per ES spec §27.7.3.6 AsyncFunctionBody. Without this an
         // uncaught throw inside an async fn would propagate
         // synchronously to the caller instead of becoming a rejected
@@ -119,18 +119,14 @@ pub fn desugar_async(ast: &mut Ast) {
         // skipping unhandled-rejection handling entirely (the wider
         // P10.5 handler hook builds on this).
         //
-        // Narrow MVP limit: `catch_type` is set to `inner_ty` (the
-        // fn's declared return inner T) rather than the spec-correct
-        // `any`, because `Promise.reject` at check.rs:5358 only
-        // accepts T ∈ {number, string, boolean, array, struct, Date,
-        // RegExp, nullable, Promise<T>} in v0.5 MVP — `any` is
-        // rejected with a typed err. Until P10.5-A2 relaxes
-        // `Promise.reject` to accept `any` (which requires a runtime
-        // boxed-any reject path), we shadow `__async_err` as
-        // `inner_ty` so the reject call typechecks. Net effect:
-        // user code that `throw e` inside an async fn where `e` is
-        // not of `inner_ty` will fail typecheck at the reject site
-        // — a stricter shape than spec but tracked.
+        // P10.5-A2 — `catch_type` is `any` (spec-correct), upgraded
+        // from the A1-era narrow MVP that pinned it to the fn's
+        // declared inner T. The shadow type now matches what the
+        // user actually wrote in `throw <expr>` (which may differ
+        // from inner T — e.g. `async fn f(): Promise<number> { throw
+        // "err"; }`); `Promise.reject` accepts `any` at
+        // `check/promise_static.rs`, dispatching to the existing
+        // heap reject path at SSA (boxed-any pointer is i64-sized).
         let err_ident_for_arg = ast.add_expr(Expr::Ident("__async_err".into()));
         let promise_ident_rj = ast.add_expr(Expr::Ident("Promise".into()));
         let reject_member = ast.add_expr(Expr::Member {
@@ -146,7 +142,7 @@ pub fn desugar_async(ast: &mut Ast) {
             body: new_body,
             had_catch: true,
             catch_param: Some("__async_err".into()),
-            catch_type: Some(inner_ty.clone()),
+            catch_type: Some("any".into()),
             catch_body,
             finally_body: None,
         }];
