@@ -2093,7 +2093,6 @@ version = "0.1.0"
 dependencies = [
  "criterion",
  "torajs-mmalloc",
- "torajs-syscall",
 ]
 
 [[package]]

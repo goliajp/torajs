@@ -24,8 +24,6 @@ crate-type = ["rlib", "staticlib"]
 [dependencies]
 # v0.7-A2 step 6b — force-link mmalloc for `__torajs_libc_*` + memcpy.
 torajs-mmalloc = { path = "../torajs-mmalloc" }
-# P10.5-A3 — unhandled rejection → exit(1) via raw SYS_EXIT syscall.
-torajs-syscall = { path = "../torajs-syscall" }
 
 [dev-dependencies]
 criterion = { workspace = true }
