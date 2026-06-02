@@ -32,6 +32,12 @@ torajs-fmt = { path = "../torajs-fmt" }
 # (replaces SystemTime::now() which pulled clock_gettime / __error /
 # strerror_r / memset libc syms into every Math.random user binary).
 torajs-syscall = { path = "../torajs-syscall" }
+# v0.7-A5 Step ⑦b — 0-libc IEEE-754 libm (fmod / pow / exp / log).
+# Math.pow / .exp / .log thin wrappers now route through self-hosted
+# polynomial implementations instead of f64::powf / .exp / .ln (which
+# linked against libSystem libm). torajs-math is also wired into
+# torajs-core's STATICLIBS for the user-binary `_fmod` shim.
+torajs-math = { path = "../torajs-math" }
 # Future ToNumber port (P3.2-c) will pull torajs-anyvalue (for AnyBox
 # tag dispatch on any.toNumber) + torajs-throw (for RangeError on
 # invalid numeric conversion edge cases).

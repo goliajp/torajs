@@ -91,7 +91,7 @@ pub unsafe extern "C" fn __torajs_math_cbrt(x: f64) -> f64 {
 }
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_math_exp(x: f64) -> f64 {
-    x.exp()
+    torajs_math::exp(x)
 }
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_math_expm1(x: f64) -> f64 {
@@ -99,7 +99,7 @@ pub unsafe extern "C" fn __torajs_math_expm1(x: f64) -> f64 {
 }
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_math_log(x: f64) -> f64 {
-    x.ln()
+    torajs_math::log(x)
 }
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_math_log2(x: f64) -> f64 {
@@ -168,7 +168,7 @@ pub unsafe extern "C" fn __torajs_math_atanh(x: f64) -> f64 {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_math_pow(x: f64, y: f64) -> f64 {
-    x.powf(y)
+    torajs_math::pow(x, y)
 }
 
 #[unsafe(no_mangle)]

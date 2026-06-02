@@ -38,6 +38,12 @@
 // plain-C regardless. Workspace-wide no_std rollout flips this crate
 // when the other Layer-0 siblings do.
 
+mod exp;
 mod fmod;
+mod log;
+mod pow;
 
+pub use exp::exp;
 pub use fmod::fmod;
+pub use log::log;
+pub use pow::pow;
