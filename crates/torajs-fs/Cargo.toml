@@ -22,11 +22,17 @@ workspace = true
 crate-type = ["rlib", "staticlib"]
 
 [dependencies]
-# 0 Cargo deps — std::fs covers every entrypoint (cross-platform,
-# already in the dep tree via `std`). Cross-tier extern calls
-# (str_alloc_pooled, arr_alloc, arr_push, panic) resolve at
-# `tr build` link time against libtorajs_str.a + libtorajs_arr.a +
-# runtime_str.c — same pattern as the other Layer-3 sub-crates.
+# torajs-syscall (0 Cargo deps; direct svc, no libc) supplies the
+# open/read/write/close + open_mode/fstat_size wrappers the fs
+# entrypoints route through instead of std::fs — this drops libc
+# (open/read/write/close/fstat) + std::io::Error (___error/strerror_r)
+# + backtrace machinery from the user binary (16-e fs port). The
+# remaining std::fs callers (unlink/mkdir/stat/readdir) migrate in
+# step 3. Cross-tier extern calls (str_alloc_pooled, arr_alloc,
+# arr_push, panic) resolve at `tr build` link time against
+# libtorajs_str.a + libtorajs_arr.a + runtime_str.c — same pattern as
+# the other Layer-3 sub-crates.
+torajs-syscall = { path = "../torajs-syscall" }
 
 [dev-dependencies]
 criterion = { workspace = true }

@@ -44,6 +44,9 @@
 
 use core::ffi::c_void;
 
+use torajs_syscall::sysno::{O_APPEND, O_CREAT, O_RDONLY, O_TRUNC, O_WRONLY};
+use torajs_syscall::{Errno, close, fstat_size, open, open_mode, read, write};
+
 /// Max path length the runtime accepts, including the NUL we append
 /// to make a C-string. One less than this is the longest tora path
 /// that can survive the copy without truncation. Mirrors the
@@ -151,6 +154,28 @@ unsafe fn str_alloc_with(data: &[u8]) -> *mut u8 {
     s
 }
 
+/// Index of the NUL terminator in a path copy buffer (= path byte
+/// length). Lets error-detail strings slice the path bytes back out
+/// without going through `std::path`.
+#[inline]
+fn cbuf_len(buf: &[u8; PATH_MAX_LEN]) -> usize {
+    buf.iter().position(|&b| b == 0).unwrap_or(buf.len())
+}
+
+/// Write the whole buffer, looping over partial `write(2)` returns.
+/// A 0-byte write with bytes still pending is treated as `EIO`.
+fn write_all(fd: i32, mut data: &[u8]) -> Result<(), Errno> {
+    while !data.is_empty() {
+        // SAFETY: `data` is a live slice valid for its full length.
+        let n = unsafe { write(fd, data) }?;
+        if n == 0 {
+            return Err(Errno(5)); // EIO — kernel accepted nothing
+        }
+        data = &data[n..];
+    }
+    Ok(())
+}
+
 // ============================================================
 // fs.readFileSync / writeFileSync / appendFileSync
 // ============================================================
@@ -166,14 +191,31 @@ unsafe fn str_alloc_with(data: &[u8]) -> *mut u8 {
 pub unsafe extern "C" fn __torajs_fs_read_file_sync(path_str: *const c_void) -> *mut c_void {
     let mut buf = [0u8; PATH_MAX_LEN];
     unsafe { path_copy_to_buf(path_str as *const u8, buf.as_mut_ptr(), PATH_MAX_LEN) };
-    let path = unsafe { buf_as_path(&buf) };
-    match std::fs::read(path) {
-        Ok(bytes) => unsafe { str_alloc_with(&bytes) as *mut c_void },
+    let fd = match unsafe { open(buf.as_ptr(), O_RDONLY) } {
+        Ok(fd) => fd,
         Err(_) => {
-            let detail = path.to_string_lossy();
+            let detail = String::from_utf8_lossy(&buf[..cbuf_len(&buf)]);
             unsafe { panic_with("not yet supported: fs.readFileSync open failed: ", &detail) };
         }
+    };
+    // fstat size as a capacity hint — regular files fill exactly,
+    // pipes / char devices grow via the loop; -1 (non-regular) → 0.
+    let cap = fstat_size(fd).unwrap_or(0).max(0) as usize;
+    let mut data: Vec<u8> = Vec::with_capacity(cap);
+    let mut chunk = [0u8; 65536];
+    loop {
+        match unsafe { read(fd, &mut chunk) } {
+            Ok(0) => break,
+            Ok(n) => data.extend_from_slice(&chunk[..n]),
+            Err(_) => {
+                let _ = close(fd);
+                let detail = String::from_utf8_lossy(&buf[..cbuf_len(&buf)]);
+                unsafe { panic_with("not yet supported: fs.readFileSync read failed: ", &detail) };
+            }
+        }
     }
+    let _ = close(fd);
+    unsafe { str_alloc_with(&data) as *mut c_void }
 }
 
 /// `fs.writeFileSync(path, data)` — overwrite-mode write. Aborts
@@ -188,13 +230,28 @@ pub unsafe extern "C" fn __torajs_fs_write_file_sync(
 ) {
     let mut buf = [0u8; PATH_MAX_LEN];
     unsafe { path_copy_to_buf(path_str as *const u8, buf.as_mut_ptr(), PATH_MAX_LEN) };
-    let path = unsafe { buf_as_path(&buf) };
     let data_ptr = data_str as *const u8;
     let dlen = unsafe { (data_ptr.add(STR_LEN_OFF) as *const u64).read() } as usize;
     let data = unsafe { core::slice::from_raw_parts(data_ptr.add(STR_HDR_SIZE), dlen) };
-    if let Err(_) = std::fs::write(path, data) {
-        let detail = path.to_string_lossy();
-        unsafe { panic_with("not yet supported: fs.writeFileSync open failed: ", &detail) };
+    // O_WRONLY|O_CREAT|O_TRUNC, mode 0o666 pre-umask = std::fs::write /
+    // Node fs.writeFileSync default (umask trims to 0o644 on disk).
+    let fd = match unsafe { open_mode(buf.as_ptr(), O_WRONLY | O_CREAT | O_TRUNC, 0o666) } {
+        Ok(fd) => fd,
+        Err(_) => {
+            let detail = String::from_utf8_lossy(&buf[..cbuf_len(&buf)]);
+            unsafe { panic_with("not yet supported: fs.writeFileSync open failed: ", &detail) };
+        }
+    };
+    let res = write_all(fd, data);
+    let _ = close(fd);
+    if res.is_err() {
+        let detail = String::from_utf8_lossy(&buf[..cbuf_len(&buf)]);
+        unsafe {
+            panic_with(
+                "not yet supported: fs.writeFileSync write failed: ",
+                &detail,
+            )
+        };
     }
 }
 
@@ -208,19 +265,15 @@ pub unsafe extern "C" fn __torajs_fs_append_file_sync(
 ) {
     let mut buf = [0u8; PATH_MAX_LEN];
     unsafe { path_copy_to_buf(path_str as *const u8, buf.as_mut_ptr(), PATH_MAX_LEN) };
-    let path = unsafe { buf_as_path(&buf) };
     let data_ptr = data_str as *const u8;
     let dlen = unsafe { (data_ptr.add(STR_LEN_OFF) as *const u64).read() } as usize;
     let data = unsafe { core::slice::from_raw_parts(data_ptr.add(STR_HDR_SIZE), dlen) };
-    use std::io::Write;
-    let mut f = match std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)
-    {
-        Ok(f) => f,
+    // O_APPEND: each write seeks to EOF first (matches OpenOptions
+    // .append(true)); O_CREAT makes it if absent. No O_TRUNC.
+    let fd = match unsafe { open_mode(buf.as_ptr(), O_WRONLY | O_CREAT | O_APPEND, 0o666) } {
+        Ok(fd) => fd,
         Err(_) => {
-            let detail = path.to_string_lossy();
+            let detail = String::from_utf8_lossy(&buf[..cbuf_len(&buf)]);
             unsafe {
                 panic_with(
                     "not yet supported: fs.appendFileSync open failed: ",
@@ -229,7 +282,9 @@ pub unsafe extern "C" fn __torajs_fs_append_file_sync(
             }
         }
     };
-    if f.write_all(data).is_err() {
+    let res = write_all(fd, data);
+    let _ = close(fd);
+    if res.is_err() {
         unsafe {
             panic_with("not yet supported: fs.appendFileSync short write", "");
         }
@@ -249,11 +304,16 @@ pub unsafe extern "C" fn __torajs_fs_append_file_sync(
 pub unsafe extern "C" fn __torajs_fs_exists_sync(path_str: *const c_void) -> bool {
     let mut buf = [0u8; PATH_MAX_LEN];
     unsafe { path_copy_to_buf(path_str as *const u8, buf.as_mut_ptr(), PATH_MAX_LEN) };
-    let path = unsafe { buf_as_path(&buf) };
-    // Match C `fopen(p, "rb")`: open-for-read success = exists. We
-    // can't use `Path::exists()` because it returns true for unreadable
-    // dirs / dangling symlinks where fopen would fail.
-    std::fs::File::open(path).is_ok()
+    // Match C `fopen(p, "rb")`: open-for-read success = exists. Keep
+    // `open` (not stat) so unreadable dirs / dangling symlinks read as
+    // false, exactly as the pre-port fopen path did.
+    match unsafe { open(buf.as_ptr(), O_RDONLY) } {
+        Ok(fd) => {
+            let _ = close(fd);
+            true
+        }
+        Err(_) => false,
+    }
 }
 
 /// `fs.unlinkSync(path)` — delete a regular file or symlink.
