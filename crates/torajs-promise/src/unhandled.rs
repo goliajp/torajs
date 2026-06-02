@@ -1,54 +1,50 @@
 //! Host PromiseRejectionTracker per spec §27.2.1.9.
 //!
-//! P10.5-A3-b — every rejected Promise enqueues an HPRT-check
-//! microtask at the point of rejection. The microtask runs after
-//! `attach_then` / `get_value` have had a chance to mark the
-//! promise as observed (`has_handler = 1`); a rejected promise
-//! whose `has_handler` is still 0 at HPRT-check time IS the
-//! unhandled-rejection event.
+//! P10.5-A3-b — every rejected Promise is appended to a process-
+//! global "pending unhandled" list at the point of rejection.
+//! `attach_then` / `get_value` mark the promise as observed by
+//! flipping its `has_handler` byte. At the synthesized `main`'s
+//! exit, after the microtask drain + cycle drain, ssa_lower's
+//! `main_exit_code` reads through this module, which first
+//! sweeps the list (firing the default reporter on every entry
+//! whose `has_handler` is still 0) and then returns the
+//! process-global flag so `main` returns 1 iff at least one
+//! report fired.
+//!
+//! ## Why a separate list, not the microtask queue
+//!
+//! `await p` lowers to a synchronous `microtask_run_until_idle`
+//! immediately followed by `promise_get_value(p)`
+//! (ssa_lower:23814). If the HPRT-check microtask were enqueued
+//! at reject time, the `await`'s drain would pop it BEFORE
+//! `get_value` had a chance to set `has_handler = 1`, surfacing
+//! a spurious unhandled-rejection on every awaited rejection
+//! (and every catch-wrapped throw inside an async fn body —
+//! P10.5-A1's wrap re-rejects with __async_err). Keeping HPRT
+//! off the microtask queue and deferring the sweep until
+//! `main`'s exit lets every same-tick observation register first
+//! — matching the V8 / SpiderMonkey HPRT timing.
 //!
 //! ## Wire-up
 //!
-//! - [`enqueue_hprt_check`] — called from `state::__torajs_promise_reject`
-//!   (PENDING → REJECTED transition) and from
-//!   `pool::__torajs_promise_alloc_rejected{,_heap}` (rejected at
-//!   construction). Bumps refcount + pushes [`hprt_check_dispatch`]
-//!   onto the microtask queue with the promise pointer in the i64
-//!   arg slot.
-//! - [`hprt_check_dispatch`] — popped during the microtask drain at
-//!   `main` exit (after all user `.then` / `.catch` / `await`
-//!   handlers have wired up). Reads `has_handler`; if 0 fires the
-//!   default reporter; always drops the rc the enqueue inc'd.
-//! - [`fire_unhandled_reporter`] — writes `error: <reason>\n` to
-//!   stderr via `__torajs_syscall_write(2, …)` and sets the
-//!   process-global flag read by [`__torajs_main_exit_code`].
-//! - [`__torajs_main_exit_code`] — `0` if no unhandled rejection
-//!   ever fired the reporter, `1` otherwise. ssa_lower's `main`
-//!   emit calls this for its return value (replacing the prior
-//!   hard-coded `ret 0`).
-//!
-//! ## Why microtask (not direct call at reject time)
-//!
-//! Spec semantics — a rejected promise can still be observed by
-//! a `.catch` / `.then(_, onErr)` / `await` attached *synchronously*
-//! after the reject. The microtask defers the unhandled decision to
-//! the natural draining order, when every same-tick attach has
-//! already set `has_handler`. This is the V8/SpiderMonkey pattern.
-//!
-//! ## ABI
-//!
-//! Reuses `__torajs_microtask_enqueue` from
-//! libtorajs_microtask.a + `__torajs_rc_inc` / `__torajs_promise_drop`
-//! from torajs-rc / `pool` for ref-counting + `__torajs_syscall_write`
-//! from libtorajs_syscall.a for the stderr write.
+//! - [`enqueue_hprt_check`] — called from
+//!   `state::__torajs_promise_reject` (PENDING → REJECTED) and
+//!   `pool::__torajs_promise_alloc_rejected{,_heap}` (rejected
+//!   at construction). Bumps refcount + pushes the promise
+//!   pointer onto [`UNHANDLED_LIST`].
+//! - [`__torajs_main_exit_code`] — read by ssa_lower's
+//!   synthesized `main` just before `ret`. Sweeps
+//!   [`UNHANDLED_LIST`], fires [`fire_unhandled_reporter`] on
+//!   every entry still un-observed, drops the rc bumped at
+//!   enqueue time, then returns `UNHANDLED_REJECTION_OCCURRED`.
 
 use core::ffi::c_void;
-use core::sync::atomic::{AtomicI32, Ordering};
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicI32, Ordering};
 
-use crate::layout::{HeapHeader, MicrotaskFn, Promise, STATE_REJECTED, as_promise};
+use crate::layout::{HeapHeader, Promise, STATE_REJECTED, as_promise};
 
 unsafe extern "C" {
-    fn __torajs_microtask_enqueue(fn_: MicrotaskFn, arg: i64);
     fn __torajs_rc_inc(p: *mut c_void);
     fn __torajs_syscall_write(fd: i32, buf: *const u8, n: usize) -> isize;
     /// `__torajs_str_print_err(s)` — write a Str's payload bytes
@@ -72,12 +68,9 @@ const TAG_STR: u16 = 0;
 /// `__torajs_promise_alloc_rejected_heap`, but the i64 slot in that
 /// path receives a NaN-box `u64` *immediate* (not a real heap
 /// pointer): top 16 bits carry the NaN tag, so dereferencing the
-/// implied `HeapHeader.type_tag` walks into kernel-mapped address
-/// space and SIGSEGVs. `__torajs_value_drop_heap` already skips on
-/// the same gate; the reporter must too.
-///
-/// Real heap pointers have top 16 bits zero and the
-/// `TAG_BIT_TYPE_OTHER` low bit clear.
+/// implied `HeapHeader.type_tag` would walk into kernel-mapped
+/// address space and SIGSEGV. `__torajs_value_drop_heap` already
+/// skips on the same gate; the reporter must too.
 #[inline]
 fn reason_is_cell_like(v: i64) -> bool {
     const TOP_16_MASK: u64 = 0xFFFF_0000_0000_0000;
@@ -86,41 +79,53 @@ fn reason_is_cell_like(v: i64) -> bool {
     u != 0 && (u & TOP_16_MASK) == 0 && (u & TAG_BIT_TYPE_OTHER) == 0
 }
 
+/// Pending-unhandled list. Every rejected Promise pushes its raw
+/// pointer here at reject time; the sweep at `main` exit reads it.
+/// Single-threaded runtime today; `Mutex` keeps the API sound for
+/// the future multi-threaded story (matches the AtomicPtr / Mutex
+/// pattern already used across torajs-promise / torajs-mutex).
+static UNHANDLED_LIST: Mutex<Vec<i64>> = Mutex::new(Vec::new());
+
 /// Process-global "has the reporter fired at least once?" flag.
-/// Read by [`__torajs_main_exit_code`] to decide the `main` return
-/// value (0 = clean exit, 1 = at least one unhandled rejection
-/// fired). Single-threaded runtime → `Relaxed` ordering is enough.
+/// Set by [`fire_unhandled_reporter`]; read by
+/// [`__torajs_main_exit_code`] to choose `main`'s return value.
 static UNHANDLED_REJECTION_OCCURRED: AtomicI32 = AtomicI32::new(0);
 
-/// Enqueue an HPRT-check microtask for `p`. Caller must have
+/// Append `p` to the pending-unhandled list. Caller must have
 /// already transitioned `p` to STATE_REJECTED. Refcount on `p` is
-/// inc'd here so the microtask sees a live block even if the caller
-/// drops their ref; `hprt_check_dispatch` pairs that with a `drop`.
+/// inc'd here so the sweep sees a live block even if every caller
+/// has dropped their ref; [`sweep_unhandled_list`] pairs that with
+/// a `promise_drop` after the check.
 #[inline]
 pub(crate) unsafe fn enqueue_hprt_check(p: *mut c_void) {
     if p.is_null() {
         return;
     }
-    unsafe {
-        __torajs_rc_inc(p);
-        __torajs_microtask_enqueue(hprt_check_dispatch, p as i64);
-    }
+    unsafe { __torajs_rc_inc(p) };
+    UNHANDLED_LIST
+        .lock()
+        .expect("UNHANDLED_LIST poisoned")
+        .push(p as i64);
 }
 
-/// Microtask body — reads `has_handler` and fires the reporter when
-/// the promise is still un-observed. Always releases the rc the
-/// enqueue side inc'd.
-unsafe extern "C" fn hprt_check_dispatch(arg: i64) {
-    let p = arg as *mut c_void;
-    let pp = as_promise(p);
-    unsafe {
-        // `state` should still be REJECTED — there's no transition
-        // out of REJECTED in the current substrate. Guard anyway so
-        // a future state-machine change doesn't silently mis-report.
-        if (*pp).state == STATE_REJECTED && (*pp).has_handler == 0 {
-            fire_unhandled_reporter(pp);
+/// Walk the pending-unhandled list once. For every entry whose
+/// `has_handler` is still 0 (state confirmed REJECTED defensively
+/// for forward-compat), fire the default reporter; drop the rc
+/// inc'd at enqueue time regardless. Drains the list to empty.
+unsafe fn sweep_unhandled_list() {
+    let pending: Vec<i64> = {
+        let mut guard = UNHANDLED_LIST.lock().expect("UNHANDLED_LIST poisoned");
+        core::mem::take(&mut *guard)
+    };
+    for ptr in pending {
+        let p = ptr as *mut c_void;
+        let pp = as_promise(p);
+        unsafe {
+            if (*pp).state == STATE_REJECTED && (*pp).has_handler == 0 {
+                fire_unhandled_reporter(pp);
+            }
+            crate::pool::__torajs_promise_drop(p);
         }
-        crate::pool::__torajs_promise_drop(p);
     }
 }
 
@@ -141,9 +146,6 @@ unsafe extern "C" fn hprt_check_dispatch(arg: i64) {
 /// 'unhandledRejection', cb)` which gets the raw reason in
 /// NaN-box form and lets user code stringify with full
 /// anyvalue dispatch.
-///
-/// Stays in the no-std + no-libc envelope by writing through
-/// `__torajs_syscall_write(2, …)`.
 unsafe fn fire_unhandled_reporter(pp: *mut Promise) {
     const PREFIX: &[u8] = b"error: ";
     const OBJ_PLACEHOLDER: &[u8] = b"error: <object>\n";
@@ -232,12 +234,15 @@ unsafe fn write_i64_decimal_stderr(n: i64) {
     }
 }
 
-/// `main`'s exit code — `0` if no unhandled rejection ever fired
-/// the reporter during this process's microtask drains, `1`
-/// otherwise. ssa_lower emits a call to this just before `ret`
-/// in the synthesized `main` body so the process exit status
-/// matches Bun's `error: <reason>` + exit-1 behaviour.
+/// `main`'s exit code — first sweeps any pending unhandled
+/// rejections (firing the default reporter on each), then returns
+/// `0` if no reporter ever fired during this process's lifetime
+/// or `1` otherwise. ssa_lower emits a call to this just before
+/// `ret` in the synthesized `main` body, after the microtask drain
+/// + cycle drain, so the process exit status matches Bun's
+/// `error: <reason>` + exit-1 behaviour.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_main_exit_code() -> i32 {
+    unsafe { sweep_unhandled_list() };
     UNHANDLED_REJECTION_OCCURRED.load(Ordering::Relaxed)
 }
