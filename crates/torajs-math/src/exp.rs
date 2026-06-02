@@ -61,30 +61,36 @@ pub extern "C" fn exp(x: f64) -> f64 {
         return 1.0 + x;
     }
 
-    // Range reduction. `k = round(x / ln2)` so |r| ≤ ln2/2.
+    // Range reduction. `k = round(x / ln2)` so |r| ≤ ln2/2. The
+    // two-piece ln2 subtract keeps `r` ULP-accurate when k·ln2
+    // cancels most of x.
     let k = (x * INV_LN2).round();
     let hi = x - k * LN2_HI;
-    let r = hi - k * LN2_LO;
+    let lo = k * LN2_LO;
+    let r = hi - lo;
     let z = r * r;
 
-    // Sun fdlibm polynomial R(z) for the rational e^r approximation.
-    let r_poly = z * (P1 + z * (P2 + z * (P3 + z * (P4 + z * P5))));
-    // e^r ≈ 1 + r + (r·c)/(2 − c)  where c = r − R·r²/2 (... derivation
-    // in fdlibm comments). The compact form below produces the same
-    // value Sun's `__ieee754_exp` returns.
-    let c = r - z * r_poly;
-    let exp_r = 1.0 + (r * c) / (2.0 - c);
+    // Sun fdlibm polynomial — the `c = r − z·(P1 + z·P2 + …)` form
+    // produces a value that's `r − O(r³)`, and then
+    // `e^r ≈ 1 + r + r·c/(2 − c)` is the Pade-style rearrangement
+    // Sun derived (see comments in fdlibm e_exp.c).
+    let p = z * (P1 + z * (P2 + z * (P3 + z * (P4 + z * P5))));
+    let c = r - p;
 
     // Apply 2^k via exponent-bit repack (`scalbn` fast path).
     // Bias is 1023; new exponent field = bias + k.
     let k_i = k as i32;
+    // Sun fdlibm's cancellation-free reconstruction:
+    //   y = 1 − ((lo − r·c/(2 − c)) − hi)
+    //     = 1 + hi − lo + r·c/(2 − c)
+    //     = 1 + r + r·c/(2 − c)
+    // The hi/lo split matters: `r` already absorbed the cancellation,
+    // but for very large k the explicit hi − lo form keeps the last
+    // few bits.
+    let y = 1.0 - ((lo - r * c / (2.0 - c)) - hi);
     if k_i >= -1022 && k_i <= 1023 {
         let factor = f64::from_bits(((1023 + k_i) as u64) << 52);
-        factor * (1.0 + r + exp_r - 1.0)
-        // Note: the subtract/add of 1.0 keeps round-to-nearest behavior
-        // identical to Sun's `(1+r) + (1+r)*(P/(2-P))` form. Equivalent
-        // by associativity; we prefer the explicit `1 + r + (1 + r)·…`
-        // expansion below to make the precision chain readable.
+        factor * y
     } else if k_i > 1023 {
         f64::INFINITY
     } else {
@@ -92,7 +98,7 @@ pub extern "C" fn exp(x: f64) -> f64 {
         // underflow before the multiply.
         let factor1 = f64::from_bits(((1023 + k_i / 2) as u64) << 52);
         let factor2 = f64::from_bits(((1023 + (k_i - k_i / 2)) as u64) << 52);
-        factor1 * factor2 * (1.0 + r + (r * c) / (2.0 - c))
+        factor1 * factor2 * y
     }
 }
 
