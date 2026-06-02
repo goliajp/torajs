@@ -115,15 +115,15 @@ pub unsafe extern "C" fn __torajs_math_log1p(x: f64) -> f64 {
 }
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_math_sin(x: f64) -> f64 {
-    x.sin()
+    torajs_math::sin(x)
 }
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_math_cos(x: f64) -> f64 {
-    x.cos()
+    torajs_math::cos(x)
 }
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_math_tan(x: f64) -> f64 {
-    x.tan()
+    torajs_math::tan(x)
 }
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_math_asin(x: f64) -> f64 {

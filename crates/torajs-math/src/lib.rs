@@ -42,8 +42,10 @@ mod exp;
 mod fmod;
 mod log;
 mod pow;
+mod trig;
 
 pub use exp::exp;
 pub use fmod::fmod;
 pub use log::log;
 pub use pow::pow;
+pub use trig::{cos, sin, tan};
