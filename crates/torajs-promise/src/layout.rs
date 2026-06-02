@@ -87,12 +87,18 @@ pub struct HeapHeader {
 /// `runtime_promise.c::Promise`. Field layout test in this module
 /// asserts the offsets match (catches accidental field-reorder bugs
 /// that would silently corrupt ssa_lower-emitted dispatchers).
+///
+/// `has_handler` (P10.5-A3): set by `__torajs_promise_attach_then`,
+/// consulted by reject-time / attach-time bookkeeping of the
+/// unhandled-rejection counter. Steals one byte from `_pad` —
+/// `value` / `callbacks` offsets unchanged (struct size still 32B).
 #[repr(C)]
 pub struct Promise {
     pub header: HeapHeader,
     pub state: u8,
     pub value_is_heap: u8,
-    pub _pad: [u8; 6],
+    pub has_handler: u8,
+    pub _pad: [u8; 5],
     pub value: i64,
     pub callbacks: *mut PromiseCb,
 }
@@ -134,7 +140,8 @@ mod tests {
         assert_eq!(core::mem::offset_of!(Promise, header), 0);
         assert_eq!(core::mem::offset_of!(Promise, state), 8);
         assert_eq!(core::mem::offset_of!(Promise, value_is_heap), 9);
-        assert_eq!(core::mem::offset_of!(Promise, _pad), 10);
+        assert_eq!(core::mem::offset_of!(Promise, has_handler), 10);
+        assert_eq!(core::mem::offset_of!(Promise, _pad), 11);
         assert_eq!(core::mem::offset_of!(Promise, value), 16);
         assert_eq!(core::mem::offset_of!(Promise, callbacks), 24);
     }

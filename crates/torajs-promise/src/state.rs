@@ -18,6 +18,7 @@
 
 use core::ffi::c_void;
 use core::ptr;
+use core::sync::atomic::{AtomicU64, Ordering};
 
 use crate::layout::{
     MicrotaskFn, Promise, PromiseCb, STATE_FULFILLED, STATE_PENDING, STATE_REJECTED,
@@ -41,6 +42,58 @@ unsafe extern "C" {
     /// throw slot so the next emit_throw_check after `get_value`'s
     /// rejected path propagates the throw to the active try/catch.
     fn __torajs_throw_set(tag: i64, value: i64);
+}
+
+/// P10.5-A3 — pending unhandled-rejection count. Incremented in
+/// `__torajs_promise_reject` whenever a Promise transitions to
+/// REJECTED with no handler attached; decremented in
+/// `__torajs_promise_attach_then` when the attach lands on a
+/// not-yet-counted-as-handled rejected Promise. Read by the
+/// scheduled `unhandled_check` microtask cb on microtask drain;
+/// if nonzero, the cb calls `torajs_syscall::exit(1)` directly
+/// (bun-parity exit code for at least one unhandled rejection).
+static UNHANDLED_REJECT_COUNT: AtomicU64 = AtomicU64::new(0);
+
+/// P10.5-A3 — microtask cb scheduled by every rejection path
+/// (`__torajs_promise_reject` transition + `alloc_rejected` /
+/// `alloc_rejected_heap` direct alloc). By the time this cb fires
+/// (microtask drain at program exit), any subsequent `.catch` /
+/// `.then(_, onReject)` attach has already decremented the global
+/// counter; if the counter is still positive there is at least
+/// one truly-unhandled rejection — exit with code 1 per ES +
+/// Node + bun convention.
+///
+/// Doesn't deref the `arg` pointer (would race with normal Promise
+/// rc drop in the gap between reject and microtask drain). The
+/// per-reject `arg` is reserved for the future stderr-reason
+/// report (P10.5 followup); narrow MVP only signals via exit
+/// code.
+unsafe extern "C" fn __torajs_unhandled_rejection_check(_arg: i64) {
+    if UNHANDLED_REJECT_COUNT.load(Ordering::Relaxed) > 0 {
+        torajs_syscall::safe::exit(1);
+    }
+}
+
+/// P10.5-A3 — invoked from every code path that produces a
+/// REJECTED Promise (state transition via `__torajs_promise_reject`
+/// + direct alloc via `alloc_rejected{,_heap}`). Increments the
+/// pending counter and schedules a `unhandled_rejection_check`
+/// microtask cb for end-of-tick verification.
+///
+/// # Safety
+/// `pp` must point to a valid `Promise` whose `state` is
+/// already `STATE_REJECTED`. Reads `has_handler`; does not
+/// write it.
+pub(crate) unsafe fn mark_rejected_for_unhandled_check(pp: *mut Promise) {
+    unsafe {
+        if (*pp).has_handler != 0 {
+            return;
+        }
+    }
+    UNHANDLED_REJECT_COUNT.fetch_add(1, Ordering::Relaxed);
+    unsafe {
+        __torajs_microtask_enqueue(__torajs_unhandled_rejection_check, pp as i64);
+    }
 }
 
 /// Walk + free a Promise's cb chain, enqueuing each into the
@@ -88,6 +141,11 @@ pub unsafe extern "C" fn __torajs_promise_reject(p: *mut c_void, reason: i64) {
         (*pp).state = STATE_REJECTED;
         (*pp).value = reason;
         drain_callbacks(pp);
+        // P10.5-A3 — Promises with a pending callback chain at
+        // reject time were `.then(...)`-attached pre-reject; those
+        // are by-definition handled (drain_callbacks just enqueued
+        // their cbs). Only mark when no handler was ever attached.
+        mark_rejected_for_unhandled_check(pp);
     }
 }
 
@@ -146,6 +204,21 @@ pub unsafe extern "C" fn __torajs_promise_attach_then(
     let Some(invoke) = invoke else { return };
     let pp = as_promise(source_p);
     let state = unsafe { (*pp).state };
+    unsafe {
+        // P10.5-A3 — `.catch` / `.then(_, onReject)` lands a handler.
+        // If this Promise was already counted as an unhandled
+        // rejection at reject-time, decrement the global counter so
+        // the scheduled `unhandled_check` microtask sees a 0 count
+        // and skips the exit-1. Always set `has_handler` so the
+        // reject-time predicate skips future-rejected-same-Promise
+        // (impossible — reject is once-only — but cheap to be
+        // consistent with the flag's "this Promise has at some
+        // point had a handler attached" reading).
+        if state == STATE_REJECTED && (*pp).has_handler == 0 {
+            UNHANDLED_REJECT_COUNT.fetch_sub(1, Ordering::Relaxed);
+        }
+        (*pp).has_handler = 1;
+    }
     if state != STATE_PENDING {
         // Already settled — enqueue immediately.
         unsafe { __torajs_microtask_enqueue(invoke, arg) };

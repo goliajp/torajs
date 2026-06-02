@@ -89,8 +89,10 @@ unsafe fn promise_alloc_(state: u8, value: i64, is_heap: u8) -> *mut Promise {
         };
         (*p).state = state;
         (*p).value_is_heap = is_heap;
+        // P10.5-A3 — initialize has_handler to 0; attach_then sets to 1.
+        (*p).has_handler = 0;
         // Zero `_pad` so memcmp on the whole struct is well-defined.
-        (*p)._pad = [0; 6];
+        (*p)._pad = [0; 5];
         (*p).value = value;
         (*p).callbacks = ptr::null_mut();
     }
@@ -131,7 +133,9 @@ pub unsafe extern "C" fn __torajs_promise_alloc_fulfilled(value: i64) -> *mut c_
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_promise_alloc_rejected(reason: i64) -> *mut c_void {
-    unsafe { promise_alloc_(STATE_REJECTED, reason, 0) as *mut c_void }
+    let p = unsafe { promise_alloc_(STATE_REJECTED, reason, 0) };
+    unsafe { crate::state::mark_rejected_for_unhandled_check(p) };
+    p as *mut c_void
 }
 
 /// Heap-value variant — caller transfers ONE refcount on `value` to
@@ -144,7 +148,9 @@ pub unsafe extern "C" fn __torajs_promise_alloc_fulfilled_heap(value: i64) -> *m
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_promise_alloc_rejected_heap(reason: i64) -> *mut c_void {
-    unsafe { promise_alloc_(STATE_REJECTED, reason, 1) as *mut c_void }
+    let p = unsafe { promise_alloc_(STATE_REJECTED, reason, 1) };
+    unsafe { crate::state::mark_rejected_for_unhandled_check(p) };
+    p as *mut c_void
 }
 
 /// `Promise.resolve(p)` thenable absorption. When `p` is itself a
