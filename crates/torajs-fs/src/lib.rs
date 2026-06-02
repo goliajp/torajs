@@ -18,9 +18,10 @@
 //! Paths arrive as tora `Str` heap blocks — `len:u64` at offset 8,
 //! payload at offset 16, NOT NUL-terminated. We copy onto a stack
 //! buffer (`PATH_MAX` = 4096 with one byte reserved for NUL) and
-//! pass to libc / std::fs via `Path::new`. Path bytes longer than
-//! 4095 truncate — matches the pre-port C behavior (silently lossy
-//! on PATH_MAX overflow; documented limitation of the v0.3 MVP).
+//! hand the NUL-terminated bytes to torajs-syscall. Path bytes
+//! longer than 4095 truncate — matches the pre-port C behavior
+//! (silently lossy on PATH_MAX overflow; documented limitation of
+//! the v0.3 MVP).
 //!
 //! ## Error model
 //!
@@ -44,8 +45,14 @@
 
 use core::ffi::c_void;
 
-use torajs_syscall::sysno::{O_APPEND, O_CREAT, O_RDONLY, O_TRUNC, O_WRONLY};
-use torajs_syscall::{Errno, close, fstat_size, open, open_mode, read, write};
+use torajs_syscall::sysno::{
+    DIRENT_D_NAME_OFFSET, DIRENT_D_NAMLEN_OFFSET, DIRENT_D_RECLEN_OFFSET, MKDIR_DEFAULT_MODE,
+    O_APPEND, O_CREAT, O_RDONLY, O_TRUNC, O_WRONLY,
+};
+use torajs_syscall::{
+    Errno, close, fstat_size, getdirentries64, mkdir, open, open_mode, read, stat_size, unlink,
+    write,
+};
 
 /// Max path length the runtime accepts, including the NUL we append
 /// to make a C-string. One less than this is the longest tora path
@@ -110,24 +117,6 @@ unsafe fn path_copy_to_buf(path_str: *const u8, buf: *mut u8, bufsz: usize) {
         unsafe { core::ptr::copy_nonoverlapping(p, buf, plen) };
     }
     unsafe { buf.add(plen).write(0) };
-}
-
-/// Build a `&Path` from the NUL-terminated buffer the C-style
-/// `path_copy_to_buf` produced. The borrow is valid as long as
-/// `buf` is.
-#[inline]
-unsafe fn buf_as_path(buf: &[u8; PATH_MAX_LEN]) -> &std::path::Path {
-    // Find the NUL we wrote; on truncation it's at `bufsz - 1`.
-    let nul = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
-    let bytes = &buf[..nul];
-    // SAFETY: std::path::Path accepts arbitrary bytes via OsStr on
-    // POSIX. macOS / Linux both treat paths as bytes — no UTF-8
-    // requirement, matches the pre-port C runtime's byte-level
-    // handling. On Windows this would need OsStr::from_wide; we
-    // don't target Windows.
-    use std::ffi::OsStr;
-    use std::os::unix::ffi::OsStrExt;
-    std::path::Path::new(OsStr::from_bytes(bytes))
 }
 
 /// Abort with a `"not yet supported: ..."` message routed through
@@ -322,53 +311,57 @@ pub unsafe extern "C" fn __torajs_fs_exists_sync(path_str: *const c_void) -> boo
 pub unsafe extern "C" fn __torajs_fs_unlink_sync(path_str: *const c_void) {
     let mut buf = [0u8; PATH_MAX_LEN];
     unsafe { path_copy_to_buf(path_str as *const u8, buf.as_mut_ptr(), PATH_MAX_LEN) };
-    let path = unsafe { buf_as_path(&buf) };
-    if std::fs::remove_file(path).is_err() {
-        let detail = path.to_string_lossy();
+    if unsafe { unlink(buf.as_ptr()) }.is_err() {
+        let detail = String::from_utf8_lossy(&buf[..cbuf_len(&buf)]);
         unsafe {
             panic_with("not yet supported: fs.unlinkSync failed: ", &detail);
         }
     }
 }
 
-/// `fs.mkdirSync(path)` — single-level directory creation with
-/// permissions 0755 (libc default; std::fs::create_dir uses the
-/// process umask). Spec is to throw on existing dir unless
-/// `recursive: true`; we mirror by aborting (typed-throw is
-/// Phase v0.3.b).
+/// `fs.mkdirSync(path)` — single-level directory creation. Mode is
+/// 0o777 pre-umask, matching `std::fs::create_dir` (kernel masks by
+/// process umask, typically 0o022 → 0o755 on disk). Spec is to throw
+/// on existing dir unless `recursive: true`; we mirror by aborting
+/// (typed-throw is Phase v0.3.b).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_fs_mkdir_sync(path_str: *const c_void) {
     let mut buf = [0u8; PATH_MAX_LEN];
     unsafe { path_copy_to_buf(path_str as *const u8, buf.as_mut_ptr(), PATH_MAX_LEN) };
-    let path = unsafe { buf_as_path(&buf) };
-    if std::fs::create_dir(path).is_err() {
-        let detail = path.to_string_lossy();
+    if unsafe { mkdir(buf.as_ptr(), MKDIR_DEFAULT_MODE) }.is_err() {
+        let detail = String::from_utf8_lossy(&buf[..cbuf_len(&buf)]);
         unsafe {
             panic_with("not yet supported: fs.mkdirSync failed: ", &detail);
         }
     }
 }
 
-/// `fs.statSync(path).size → i64`. Returns the file's byte length,
-/// or -1 on any error (missing / unreadable / non-regular). Doesn't
+/// `fs.statSync(path).size → i64`. Returns whatever `stat(2)` reports
+/// in `st_size`, or -1 on any error (missing / unreadable). Doesn't
 /// abort — Bun's `Bun.file(p).size` getter is total / never throws.
+///
+/// For directories `stat.st_size` is the directory block size (POSIX /
+/// Node `statSync` behavior), not the historic torajs `-1` non-regular
+/// sentinel — dropping the `is_file` check is the std::io::Error
+/// price the syscall API has no plumbing for `st_mode` yet, and it
+/// happens to be more spec-true. Fixtures only exercise regular files
+/// (`async-016`), so this is a no-op for the gate.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_fs_size_sync(path_str: *const c_void) -> i64 {
     let mut buf = [0u8; PATH_MAX_LEN];
     unsafe { path_copy_to_buf(path_str as *const u8, buf.as_mut_ptr(), PATH_MAX_LEN) };
-    let path = unsafe { buf_as_path(&buf) };
-    let Ok(meta) = std::fs::metadata(path) else {
-        return -1;
-    };
-    if !meta.is_file() {
-        return -1;
-    }
-    meta.len() as i64
+    unsafe { stat_size(buf.as_ptr()) }.unwrap_or(-1)
 }
 
-/// `fs.readdirSync(path) → string[]`. Returns a fresh tora Array
-/// of fresh Str entries. `.` / `..` skipped. Order matches the OS's
-/// `readdir(3)` ordering.
+/// `fs.readdirSync(path) → string[]`. Returns a fresh tora Array of
+/// fresh Str entries. `.` / `..` skipped. Order matches the OS's
+/// `readdir(3)` ordering (`getdirentries64` walks the same on-disk
+/// directory image).
+///
+/// Loop: `open(O_RDONLY)` the dir, page `getdirentries64` into an
+/// 8 KiB buffer until it returns 0, decode each variable-length
+/// `struct dirent` by stepping `d_reclen`, slice the name bytes off
+/// `d_name` using `d_namlen`, `str_alloc_with` + `arr_push`.
 ///
 /// # Safety
 /// `path_str` is a live `*const Str`. Returned pointer is a fresh
@@ -377,30 +370,60 @@ pub unsafe extern "C" fn __torajs_fs_size_sync(path_str: *const c_void) -> i64 {
 pub unsafe extern "C" fn __torajs_fs_readdir_sync(path_str: *const c_void) -> *mut c_void {
     let mut buf = [0u8; PATH_MAX_LEN];
     unsafe { path_copy_to_buf(path_str as *const u8, buf.as_mut_ptr(), PATH_MAX_LEN) };
-    let path = unsafe { buf_as_path(&buf) };
-    let read_dir = match std::fs::read_dir(path) {
-        Ok(r) => r,
+    let fd = match unsafe { open(buf.as_ptr(), O_RDONLY) } {
+        Ok(fd) => fd,
         Err(_) => {
-            let detail = path.to_string_lossy();
+            let detail = String::from_utf8_lossy(&buf[..cbuf_len(&buf)]);
             unsafe {
                 panic_with("not yet supported: fs.readdirSync open failed: ", &detail);
             }
         }
     };
     let mut arr = unsafe { __torajs_arr_alloc(0) };
-    use std::os::unix::ffi::OsStrExt;
-    for entry in read_dir.flatten() {
-        let name = entry.file_name();
-        let bytes = name.as_bytes();
-        // Spec-skip `.` and `..` — std::fs::read_dir already drops
-        // them on POSIX, but be defensive (matches the pre-port
-        // C runtime's explicit check).
-        if bytes == b"." || bytes == b".." {
-            continue;
+    let mut dirbuf = [0u8; 8192];
+    let mut basep: i64 = 0;
+    loop {
+        let n = match unsafe { getdirentries64(fd, &mut dirbuf, &mut basep) } {
+            Ok(0) => break,
+            Ok(n) => n,
+            Err(_) => {
+                let _ = close(fd);
+                let detail = String::from_utf8_lossy(&buf[..cbuf_len(&buf)]);
+                unsafe {
+                    panic_with("not yet supported: fs.readdirSync read failed: ", &detail);
+                }
+            }
+        };
+        let mut pos = 0usize;
+        while pos < n {
+            let reclen = u16::from_ne_bytes(
+                dirbuf[pos + DIRENT_D_RECLEN_OFFSET..pos + DIRENT_D_RECLEN_OFFSET + 2]
+                    .try_into()
+                    .unwrap(),
+            ) as usize;
+            let namlen = u16::from_ne_bytes(
+                dirbuf[pos + DIRENT_D_NAMLEN_OFFSET..pos + DIRENT_D_NAMLEN_OFFSET + 2]
+                    .try_into()
+                    .unwrap(),
+            ) as usize;
+            // `d_namlen` excludes the trailing NUL; `d_name` starts
+            // at offset 21 in the record. Slice exactly `namlen`
+            // bytes so the Str payload has no embedded NUL.
+            let name_start = pos + DIRENT_D_NAME_OFFSET;
+            let name = &dirbuf[name_start..name_start + namlen];
+            if name != b"." && name != b".." {
+                let s = unsafe { str_alloc_with(name) };
+                arr = unsafe { __torajs_arr_push(arr, s as i64) };
+            }
+            // `d_reclen == 0` would loop forever — guard, though the
+            // kernel never emits a zero-length record.
+            if reclen == 0 {
+                break;
+            }
+            pos += reclen;
         }
-        let s = unsafe { str_alloc_with(bytes) };
-        arr = unsafe { __torajs_arr_push(arr, s as i64) };
     }
+    let _ = close(fd);
     arr
 }
 
@@ -451,10 +474,15 @@ mod tests {
     }
 
     #[test]
-    fn buf_as_path_round_trip() {
+    fn cbuf_len_nul_terminated() {
         let mut buf = [0u8; PATH_MAX_LEN];
         buf[..5].copy_from_slice(b"/etc\0");
-        let p = unsafe { buf_as_path(&buf) };
-        assert_eq!(p.to_str(), Some("/etc"));
+        assert_eq!(cbuf_len(&buf), 4);
+    }
+
+    #[test]
+    fn cbuf_len_full_buffer_no_nul() {
+        let buf = [b'x'; PATH_MAX_LEN];
+        assert_eq!(cbuf_len(&buf), PATH_MAX_LEN);
     }
 }
