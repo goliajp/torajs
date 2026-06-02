@@ -33,6 +33,9 @@
 use crate::ast::{self, Ast, BinOp, ClassCtor, ClassMethod, Expr, ExprId, Param, StaticInit, Stmt};
 use crate::lexer::{self, Spanned, Token};
 
+mod class_member;
+use class_member::ClassMemberModifierPrefix;
+
 pub fn parse(tokens: &[Spanned]) -> Result<Ast, String> {
     let mut ast = Ast::default();
     parse_into(tokens, &mut ast)?;
@@ -5678,211 +5681,14 @@ impl Parser<'_> {
                 continue;
             }
 
-            // M-OO.5 — visibility / readonly modifiers (contextual
-            // keywords). Order in TS: `[public|private|protected]
-            // [static] [readonly] [abstract] memberName`. We accept
-            // them in any order before the abstract / static keywords
-            // already handled below — TS's tsc actually requires a
-            // specific order, but matching the strict ordering matters
-            // less than recognizing the modifiers.
-            let mut explicit_visibility: Option<ast::Visibility> = None;
-            let mut is_readonly = false;
-            loop {
-                let Token::Ident(s) = self.peek() else {
-                    break;
-                };
-                let candidate = match s.as_str() {
-                    "public" => Some(ast::Visibility::Public),
-                    "private" => Some(ast::Visibility::Private),
-                    "protected" => Some(ast::Visibility::Protected),
-                    _ => None,
-                };
-                if let Some(vis) = candidate {
-                    if explicit_visibility.is_some() {
-                        return Err(format!(
-                            "duplicate visibility modifier in class `{name}` at {}",
-                            self.at()
-                        ));
-                    }
-                    // Lookahead must be a member-name shape — otherwise
-                    // the ident is being used as a regular member
-                    // (e.g. `private` as a field name in lax JS).
-                    let next = self.tokens.get(self.pos + 1).map(|t| &t.token);
-                    if !matches!(
-                        next,
-                        Some(Token::Ident(_))
-                            | Some(Token::Catch)
-                            | Some(Token::Finally)
-                            | Some(Token::Return)
-                            | Some(Token::Throw)
-                            | Some(Token::If)
-                            | Some(Token::Else)
-                            | Some(Token::For)
-                            | Some(Token::While)
-                            | Some(Token::Do)
-                            | Some(Token::Break)
-                            | Some(Token::Continue)
-                            | Some(Token::Switch)
-                            | Some(Token::Case)
-                            | Some(Token::Default)
-                            | Some(Token::Class)
-                            | Some(Token::New)
-                            | Some(Token::This)
-                            | Some(Token::Function)
-                            | Some(Token::TypeOf)
-                            | Some(Token::InstanceOf)
-                            | Some(Token::Try)
-                            | Some(Token::Yield)
-                    ) {
-                        break;
-                    }
-                    self.pos += 1;
-                    explicit_visibility = Some(vis);
-                    continue;
-                }
-                if s == "readonly" {
-                    let next = self.tokens.get(self.pos + 1).map(|t| &t.token);
-                    if !matches!(next, Some(Token::Ident(_))) {
-                        break;
-                    }
-                    self.pos += 1;
-                    is_readonly = true;
-                    continue;
-                }
-                break;
-            }
-
-            // M-OO.6 — `abstract methodName(...);` (no body). The
-            // `abstract` modifier is a contextual keyword (Ident with
-            // text "abstract"); skip over it so the rest of the
-            // member-name dispatch reads the actual method name. Static
-            // and abstract are mutually exclusive (`static abstract` is
-            // not a thing in TS). Only valid on methods; static fields
-            // and instance fields don't accept the modifier.
-            let mut is_abstract_method = false;
-            if let Token::Ident(s) = self.peek()
-                && s == "abstract"
-            {
-                let next = self.tokens.get(self.pos + 1).map(|t| &t.token);
-                if matches!(
-                    next,
-                    Some(Token::Ident(_))
-                        | Some(Token::Catch)
-                        | Some(Token::Finally)
-                        | Some(Token::Return)
-                        | Some(Token::Throw)
-                        | Some(Token::If)
-                        | Some(Token::Else)
-                        | Some(Token::For)
-                        | Some(Token::While)
-                        | Some(Token::Do)
-                        | Some(Token::Break)
-                        | Some(Token::Continue)
-                        | Some(Token::Switch)
-                        | Some(Token::Case)
-                        | Some(Token::Default)
-                        | Some(Token::Class)
-                        | Some(Token::New)
-                        | Some(Token::This)
-                        | Some(Token::Function)
-                        | Some(Token::TypeOf)
-                        | Some(Token::InstanceOf)
-                        | Some(Token::Try)
-                        | Some(Token::Yield)
-                ) {
-                    self.pos += 1;
-                    is_abstract_method = true;
-                }
-            }
-            let is_static = if let Token::Ident(s) = self.peek()
-                && s == "static"
-            {
-                let next = self.tokens.get(self.pos + 1).map(|t| &t.token);
-                if matches!(
-                    next,
-                    Some(Token::Ident(_))
-                        // P8.1 — `static #x` shapes are recognized here so
-                        // the field-decl dispatch below can reject them
-                        // with a targeted "static private fields not yet
-                        // supported" error rather than leaving `static` to
-                        // be treated as a regular field name.
-                        | Some(Token::PrivateIdent(_))
-                        | Some(Token::Catch)
-                        | Some(Token::Finally)
-                        | Some(Token::Return)
-                        | Some(Token::Throw)
-                        | Some(Token::If)
-                        | Some(Token::Else)
-                        | Some(Token::For)
-                        | Some(Token::While)
-                        | Some(Token::Do)
-                        | Some(Token::Break)
-                        | Some(Token::Continue)
-                        | Some(Token::Switch)
-                        | Some(Token::Case)
-                        | Some(Token::Default)
-                        | Some(Token::Class)
-                        | Some(Token::New)
-                        | Some(Token::This)
-                        | Some(Token::Function)
-                        | Some(Token::TypeOf)
-                        | Some(Token::InstanceOf)
-                        | Some(Token::Try)
-                        | Some(Token::Yield)
-                ) {
-                    self.pos += 1;
-                    true
-                } else {
-                    false
-                }
-            } else {
-                false
-            };
-            if is_abstract_method && is_static {
-                return Err(format!(
-                    "`static abstract` is not allowed in class `{name}` at {}",
-                    self.at()
-                ));
-            }
-            if is_abstract_method && !is_abstract {
-                return Err(format!(
-                    "abstract method only allowed in `abstract class` (class `{name}`) at {}",
-                    self.at()
-                ));
-            }
-            // P8.2 — accessor descriptor: `get X(): T { ... }` /
-            // `set X(v: T) { ... }`. The lexer emits `get` / `set` as
-            // `Token::Ident("get" | "set")` (they are contextual
-            // keywords per ES §13.4); recognise the form here so the
-            // property name + body falls through to the existing
-            // method-parsing path, with the accessor kind tagged on
-            // the resulting `ClassMethod`. Lookahead requires the
-            // property-name slot to be a regular identifier (or
-            // PrivateIdent for `get #x`, deferred — current narrow
-            // surface accepts only public accessor names) AND the
-            // slot after that to be `(` so we never mistakenly
-            // consume `get` when it is being used as a member name
-            // (`class C { get(): T { ... } }` — `get` as a method
-            // name is still legal). Static accessors (`static get X`)
-            // are recognised through the existing is_static lookahead
-            // since `static` already accepts a following Ident.
-            let mut accessor_kind: Option<ast::AccessorKind> = None;
-            if let Token::Ident(s) = self.peek()
-                && (s == "get" || s == "set")
-            {
-                let kw = s.clone();
-                let name_tok = self.tokens.get(self.pos + 1).map(|t| &t.token);
-                let after_name = self.tokens.get(self.pos + 2).map(|t| &t.token);
-                if matches!(name_tok, Some(Token::Ident(_)))
-                    && matches!(after_name, Some(Token::LParen))
-                {
-                    accessor_kind = Some(match kw.as_str() {
-                        "get" => ast::AccessorKind::Getter,
-                        _ => ast::AccessorKind::Setter,
-                    });
-                    self.pos += 1; // consume `get` / `set`
-                }
-            }
+            // Modifier prefix — see `parser/class_member.rs`.
+            let ClassMemberModifierPrefix {
+                mut explicit_visibility,
+                is_readonly,
+                is_abstract_method,
+                is_static,
+                accessor_kind,
+            } = self.parse_class_member_modifier_prefix(&name, is_abstract)?;
             // P5.2 — computed-key class member `[Symbol.iterator]() {
             // ... }`. Mirrors the object-literal computed-key handling
             // (parse_object_field) so the same `__sym_Symbol_iterator__`
