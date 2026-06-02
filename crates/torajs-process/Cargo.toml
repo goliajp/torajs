@@ -26,10 +26,20 @@ torajs-io = { path = "../torajs-io" }
 # replaces std::sync::Mutex for ARGV_STATE to drop pthread_mutex_*
 # from the user binary's libSystem import table.
 torajs-mutex = { path = "../torajs-mutex" }
-# libc exit / getcwd / getenv / write are OS-level system symbols
-# (not Cargo deps). Cross-tier extern calls (str_alloc_pooled,
-# arr_alloc, arr_push, panic) resolve at `tr build` link time
-# against the matching sibling staticlibs + runtime_str.c.
+# v0.7-A5 Step ④ A5-close — fcntl(F_GETPATH) syscall wrapper backing
+# process.cwd() without the libc `getcwd` dep. Same Layer-0 crate
+# the fs port walks through. envp-based process.env scan needs no
+# additional dep — `main`'s 3rd LLVM IR param is forwarded by the
+# codegen entry directly to `__torajs_argv_init`.
+torajs-syscall = { path = "../torajs-syscall" }
+# libc exit / write remain OS-level system symbols (process.exit
+# uses libc exit; process.stderr.write uses libc write(2)). Their
+# _exit / _write libSystem stubs are already in the cross-holdout
+# baseline (panic_runtime backtrace machinery pulls them in too),
+# so leaving them here doesn't widen the user binary's import set.
+# Cross-tier extern calls (str_alloc_pooled, arr_alloc, arr_push,
+# panic) resolve at `tr build` link time against the matching
+# sibling staticlibs + runtime_str.c.
 
 [dev-dependencies]
 criterion = { workspace = true }

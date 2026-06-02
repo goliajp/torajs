@@ -74,22 +74,34 @@ impl<'a, 'ctx> FnLower<'a, 'ctx> {
             let bb = self.block_map[&b.id.0];
             self.builder.position_at_end(bb);
             /* v0.3 #3.c — at the start of `main`'s entry block, emit
-             * an init call to capture argc/argv into runtime globals
-             * for `process.argv` / `Bun.argv` access. The LLVM main
-             * is widened to `(i32 argc, ptr argv)` by declare_ssa_fn;
-             * here we forward those params to __torajs_argv_init.
+             * an init call to capture argc/argv/envp into runtime
+             * globals for `process.argv` / `Bun.argv` / `process.env`
+             * access. The LLVM main is widened to
+             * `(i32 argc, ptr argv, ptr envp)` by declare_ssa_fn on
+             * native; here we forward those params to
+             * __torajs_argv_init. WASI's `__main_argc_argv` is
+             * 2-param and gets a null envp instead.
              * Done before the user's main body runs. */
             if b_idx == 0 && self.ssa_fn.name == "main" {
-                if let (Some(argc), Some(argv)) =
-                    (self.llvm_fn.get_nth_param(0), self.llvm_fn.get_nth_param(1))
-                {
+                let argc = self.llvm_fn.get_nth_param(0);
+                let argv = self.llvm_fn.get_nth_param(1);
+                let envp = self
+                    .llvm_fn
+                    .get_nth_param(2)
+                    .map(Into::into)
+                    .unwrap_or_else(|| {
+                        // WASI path: no envp param — pass null.
+                        let ptr_t = self.ctx.ptr_type(AddressSpace::default());
+                        ptr_t.const_null().into()
+                    });
+                if let (Some(argc), Some(argv)) = (argc, argv) {
                     /* fn_map indexes by the SSA module's func order;
                      * find __torajs_argv_init by name in the SSA fns. */
                     for (i, sf) in self.ssa_module.funcs.iter().enumerate() {
                         if sf.name == "__torajs_argv_init" {
                             let init_fn = self.fn_map[i];
                             self.builder
-                                .build_call(init_fn, &[argc.into(), argv.into()], "")
+                                .build_call(init_fn, &[argc.into(), argv.into(), envp], "")
                                 .unwrap();
                             break;
                         }

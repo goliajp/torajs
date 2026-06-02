@@ -61,6 +61,13 @@ pub const SYS_MMAP: u32 = 197;
 /// `lseek(int fd, off_t offset, int whence) -> off_t`.
 pub const SYS_LSEEK: u32 = 199;
 
+/// `fcntl(int fd, int cmd, ...) -> int` — file-descriptor control.
+/// SYS_fcntl == 92. macOS `getcwd(3)` libc impl is
+/// `open(".", O_RDONLY) + fcntl(fd, F_GETPATH, buf) + close(fd)` —
+/// XNU has no dedicated `getcwd` syscall, so the fcntl route is the
+/// orthodox way to get the cwd without a libc dependency.
+pub const SYS_FCNTL: u32 = 92;
+
 /// `kill(pid_t pid, int sig) -> int` — used for abort() routing.
 pub const SYS_KILL: u32 = 37;
 
@@ -145,6 +152,13 @@ pub const O_APPEND: i32 = 0x0008;
 pub const SEEK_SET: i32 = 0;
 pub const SEEK_CUR: i32 = 1;
 pub const SEEK_END: i32 = 2;
+
+/// `fcntl` cmd: return the absolute path of the fd's underlying
+/// vnode (NUL-terminated, fills caller's buffer). Cross-referenced
+/// against the SDK `<sys/fcntl.h>` — `F_GETPATH == 50`. Caller buffer
+/// must be at least `PATH_MAX` (1024 on darwin; we pass 4096 to
+/// match the runtime path buffer everywhere else).
+pub const F_GETPATH: i32 = 50;
 
 /// `mkdir` default mode — 0o777 pre-umask, matching
 /// `std::fs::create_dir`. The kernel masks it by the process umask

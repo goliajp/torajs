@@ -33,25 +33,38 @@ pub(super) fn declare_ssa_fn<'ctx>(
     f: &s::Function,
     target: CompileTarget,
 ) -> FunctionValue<'ctx> {
-    /* The synthesized `main` entry takes argc/argv at the LLVM ABI
-     * level so the C runtime can capture them for `process.argv`.
-     * SSA-side `main` has no params; the LLVM signature is widened
-     * here, and the entry block emits a call to
-     * `__torajs_argv_init(argc, argv)` before running user code
-     * (see lower_user_fn for the init-call emission). */
+    /* The synthesized `main` entry takes argc/argv/envp at the
+     * LLVM ABI level so the C runtime can capture them for
+     * `process.argv` and `process.env`. SSA-side `main` has no
+     * params; the LLVM signature is widened here, and the entry
+     * block emits a call to `__torajs_argv_init(argc, argv, envp)`
+     * before running user code (see lower_user_fn for the init-call
+     * emission). macOS / Linux exec ABI passes
+     * `(argc, argv, envp [, apple])` on the stack — declaring three
+     * params lets us read envp without pulling in `_NSGetEnviron`
+     * (dyld stub) or libc `environ`.
+     *
+     * WASI is capability-based and has no envp on `_start`; the
+     * `__main_argc_argv` alias is 2-param by spec. We keep the
+     * cfg-gated 2-param signature there. */
     if f.name == "main" {
         let i32_t = ctx.i32_type();
         let ptr_t = ctx.ptr_type(AddressSpace::default());
-        let fn_t = i32_t.fn_type(&[i32_t.into(), ptr_t.into()], false);
         // T-20.b — wasi-libc's `__main_void` looks up the user's
         // entry point under the internal name `__main_argc_argv`
         // (clang aliases `main` to this on the wasi32 ABI; we
         // emit IR directly so we have to mint the alias explicitly
         // by naming our symbol that way). Native keeps the
         // standard `main` so the OS / cc entry resolves cleanly.
-        let real_name = match target {
-            CompileTarget::Native => "main",
-            CompileTarget::Wasm32Wasi => "__main_argc_argv",
+        let (real_name, fn_t) = match target {
+            CompileTarget::Native => (
+                "main",
+                i32_t.fn_type(&[i32_t.into(), ptr_t.into(), ptr_t.into()], false),
+            ),
+            CompileTarget::Wasm32Wasi => (
+                "__main_argc_argv",
+                i32_t.fn_type(&[i32_t.into(), ptr_t.into()], false),
+            ),
         };
         return m.add_function(real_name, fn_t, None);
     }

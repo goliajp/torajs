@@ -255,6 +255,29 @@ pub unsafe fn stat_size(path: *const u8) -> Result<i64, Errno> {
     Ok(i64::from_ne_bytes(buf[off..off + 8].try_into().unwrap()))
 }
 
+/// `fcntl(fd, F_GETPATH, buf) -> Ok(()) | Err(errno)` — fill `buf`
+/// with the NUL-terminated absolute path of an open fd's underlying
+/// vnode. macOS has no dedicated `getcwd(2)` syscall; the libc
+/// `getcwd(3)` impl is `open(".") + fcntl(F_GETPATH) + close`,
+/// which is exactly what `process.cwd()` walks via this wrapper.
+///
+/// # Safety
+///
+/// `fd` must be an open file descriptor; `buf` must be at least
+/// `PATH_MAX` (1024) bytes — pass `[0u8; 4096]` to match the
+/// runtime path-buffer convention.
+pub unsafe fn fcntl_getpath(fd: i32, buf: &mut [u8]) -> Result<(), Errno> {
+    let raw = unsafe {
+        syscall3(
+            SYS_FCNTL,
+            fd as i64,
+            F_GETPATH as i64,
+            buf.as_mut_ptr() as i64,
+        )
+    };
+    decode(raw).map(|_| ())
+}
+
 /// `getdirentries64(fd, buf, &mut basep) -> Ok(bytes_written) | Err`.
 /// Fills `buf` with packed variable-length `struct dirent` records;
 /// returns 0 at end of directory. `basep` carries the opaque directory

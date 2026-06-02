@@ -4,8 +4,12 @@
 //! `process_*` family in `runtime_str.c`. Covers:
 //!
 //! - `process.exit(code)` — `libc::exit` (no return)
-//! - `process.cwd() → string` — `libc::getcwd`
-//! - `process.env.NAME → string | undefined` — `libc::getenv`
+//! - `process.cwd() → string` — `fcntl(open("."), F_GETPATH, buf)`
+//!   via torajs-syscall (XNU has no `getcwd` syscall — the orthodox
+//!   libc impl is exactly this open/fcntl/close trio)
+//! - `process.env.NAME → string | undefined` — manual scan of the
+//!   `envp` pointer the LLVM-emitted `main` receives as its 3rd
+//!   param (avoids the `_NSGetEnviron` / `getenv` libc dep)
 //! - `process.argv → string[]` — populated by `__torajs_argv_init`
 //!   at LLVM-emitted `main` entry
 //! - `process.platform → string` — static `"darwin"` / `"linux"` / etc.
@@ -28,15 +32,16 @@
 
 use core::ffi::{c_char, c_void};
 use torajs_mutex::Mutex;
+use torajs_syscall::sysno::O_RDONLY;
+use torajs_syscall::{close, fcntl_getpath, open};
 
 const STR_HDR_SIZE: usize = 16;
 const STR_LEN_OFF: usize = 8;
 const STDERR_FILENO: i32 = 2;
+const PATH_MAX_LEN: usize = 4096;
 
 unsafe extern "C" {
     fn exit(code: i32) -> !;
-    fn getcwd(buf: *mut c_char, size: usize) -> *mut c_char;
-    fn getenv(name: *const c_char) -> *const c_char;
     fn strlen(s: *const c_char) -> usize;
     fn write(fd: i32, buf: *const c_void, n: usize) -> isize;
     // v0.7-A3 Step 14-b — 0-libc buffered stdout writer. Replaces
@@ -113,32 +118,75 @@ pub unsafe extern "C" fn __torajs_process_exit(code: i64) -> ! {
     unsafe { exit(code as i32) }
 }
 
-/// `process.cwd()` → fresh Str. Empty Str on getcwd failure.
+/// `process.cwd()` → fresh Str. Empty Str on failure. Walks the
+/// orthodox `open(".") + fcntl(F_GETPATH) + close` recipe, identical
+/// to the libc `getcwd(3)` impl on darwin — XNU has no `getcwd`
+/// syscall, so this is the path libc itself walks.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_process_cwd() -> *mut u8 {
-    let mut buf = [0i8; 4096];
-    let r = unsafe { getcwd(buf.as_mut_ptr(), buf.len()) };
-    if r.is_null() {
+    let mut buf = [0u8; PATH_MAX_LEN];
+    let fd = match unsafe { open(b".\0".as_ptr(), O_RDONLY) } {
+        Ok(fd) => fd,
+        Err(_) => return unsafe { __torajs_str_alloc_pooled(0) },
+    };
+    if unsafe { fcntl_getpath(fd, &mut buf) }.is_err() {
+        let _ = close(fd);
         return unsafe { __torajs_str_alloc_pooled(0) };
     }
-    unsafe { alloc_str_from_cstr(buf.as_ptr()) }
+    let _ = close(fd);
+    let nul = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
+    unsafe { alloc_str(&buf[..nul]) }
 }
 
-/// `process.env.NAME` — owned Str or NULL.
+/// `process.env.NAME` — owned Str or NULL. Scans the `envp` block the
+/// kernel passes to `main` (captured in `ENVP_STATE` by
+/// `__torajs_argv_init`), avoiding the libc `getenv` / `_NSGetEnviron`
+/// dyld dep. Each `envp[i]` is a NUL-terminated `"NAME=VALUE"`; we
+/// match by exact `NAME` length + byte compare, then alloc the value
+/// tail as a fresh Str.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_process_getenv(name_str: *const u8) -> *mut u8 {
-    let nlen_full = unsafe { str_len(name_str) } as usize;
-    let nlen = nlen_full.min(255);
-    let mut buf = [0i8; 256];
-    unsafe {
-        core::ptr::copy_nonoverlapping(str_data(name_str), buf.as_mut_ptr() as *mut u8, nlen);
-        buf[nlen] = 0;
-    }
-    let v: *const c_char = unsafe { getenv(buf.as_ptr()) };
-    if v.is_null() {
+    let nlen = unsafe { str_len(name_str) } as usize;
+    if nlen == 0 {
         return core::ptr::null_mut();
     }
-    unsafe { alloc_str_from_cstr(v) }
+    let name = unsafe { core::slice::from_raw_parts(str_data(name_str), nlen) };
+    let envp_addr = ENVP_STATE.lock();
+    if *envp_addr == 0 {
+        return core::ptr::null_mut();
+    }
+    let envp = *envp_addr as *const *const u8;
+    drop(envp_addr);
+    let mut i: usize = 0;
+    loop {
+        let entry: *const u8 = unsafe { *envp.add(i) };
+        if entry.is_null() {
+            return core::ptr::null_mut();
+        }
+        // Find '=' within the entry; entry is guaranteed NUL-term.
+        let mut eq = 0usize;
+        loop {
+            let b = unsafe { *entry.add(eq) };
+            if b == b'=' || b == 0 {
+                break;
+            }
+            eq += 1;
+        }
+        if eq == nlen
+            && unsafe { *entry.add(eq) } == b'='
+            && unsafe { core::slice::from_raw_parts(entry, nlen) } == name
+        {
+            // value starts after the '='
+            let val_start = unsafe { entry.add(nlen + 1) };
+            let mut vlen = 0usize;
+            while unsafe { *val_start.add(vlen) } != 0 {
+                vlen += 1;
+            }
+            let bytes = unsafe { core::slice::from_raw_parts(val_start, vlen) };
+            return unsafe { alloc_str(bytes) };
+        }
+        i += 1;
+    }
 }
 
 /// `process.platform` → static-cfg string.
@@ -158,14 +206,35 @@ pub unsafe extern "C" fn __torajs_process_platform() -> *mut u8 {
 /// Stored `(argc, argv)` captured at LLVM-emitted `main` entry.
 static ARGV_STATE: Mutex<(i32, usize)> = Mutex::new((0, 0));
 
-/// `__torajs_argv_init(argc, argv)` — main-entry plumbing.
+/// Stored `envp` pointer captured at LLVM-emitted `main` entry, used
+/// by `__torajs_process_getenv` to walk environment without pulling
+/// `_NSGetEnviron` / libc `getenv` into the user binary.
+static ENVP_STATE: Mutex<usize> = Mutex::new(0);
+
+/// `__torajs_argv_init(argc, argv, envp)` — main-entry plumbing.
+/// Native exec ABI passes `(argc, argv, envp [, apple])` on the
+/// stack; WASI passes `(argc, argv)` only and forwards a null `envp`
+/// from the codegen entry. Both are stored as raw addresses (the
+/// kernel-supplied stack frame outlives the process, so no copy or
+/// lifetime gymnastics are needed).
 ///
 /// # Safety
-/// `argv` must outlive the process (kernel-supplied stack frame).
+/// `argv` / `envp` must outlive the process. `envp` may be null
+/// (WASI) — `__torajs_process_getenv` handles that case.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_argv_init(argc: i32, argv: *mut *mut c_char) {
-    let mut state = ARGV_STATE.lock();
-    *state = (argc, argv as usize);
+pub unsafe extern "C" fn __torajs_argv_init(
+    argc: i32,
+    argv: *mut *mut c_char,
+    envp: *mut *mut c_char,
+) {
+    {
+        let mut state = ARGV_STATE.lock();
+        *state = (argc, argv as usize);
+    }
+    {
+        let mut e = ENVP_STATE.lock();
+        *e = envp as usize;
+    }
 }
 
 /// `process.argv` → fresh Array<Str>.

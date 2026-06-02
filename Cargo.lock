@@ -2079,6 +2079,7 @@ dependencies = [
  "criterion",
  "torajs-io",
  "torajs-mutex",
+ "torajs-syscall",
 ]
 
 [[package]]

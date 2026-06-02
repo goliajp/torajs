@@ -2532,17 +2532,20 @@ fn lower_inner(
         &[Type::Str],
         Type::Str,
     );
-    /* v0.3 #3.c — argv plumbing.
-     * - __torajs_argv_init(i32 argc, ptr argv): called once at the
-     *   start of main with the LLVM-widened argc/argv params; stores
-     *   them into runtime globals.
+    /* v0.3 #3.c — argv/envp plumbing.
+     * - __torajs_argv_init(i32 argc, ptr argv, ptr envp): called once
+     *   at the start of main with the LLVM-widened
+     *   argc/argv/envp params; stores them into runtime globals.
+     *   envp is null on WASI (`__main_argc_argv` is 2-param); the
+     *   ssa_inkwell entry-block lowering forwards a const-null ptr
+     *   in that case so the call site stays uniform.
      * - __torajs_process_argv(): returns Array<Str> built from the
      *   captured globals. Called by `process.argv` / `Bun.argv`. */
     let argv_init_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
         "__torajs_argv_init",
-        &[Type::I32, Type::Ptr],
+        &[Type::I32, Type::Ptr, Type::Ptr],
         Type::Void,
     );
     let process_argv_id = declare_intrinsic(
