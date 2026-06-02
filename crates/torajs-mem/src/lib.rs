@@ -47,6 +47,7 @@ mod memcmp;
 mod memcpy;
 mod memmove;
 mod memset;
+mod memset_pattern16;
 mod strlen;
 
 pub use bzero::bzero;
@@ -54,4 +55,5 @@ pub use memcmp::memcmp;
 pub use memcpy::memcpy;
 pub use memmove::memmove;
 pub use memset::memset;
+pub use memset_pattern16::memset_pattern16;
 pub use strlen::strlen;
