@@ -110,12 +110,53 @@ pub fn desugar_async(ast: &mut Ast) {
             new_body.push(Stmt::Return(Some(call)));
         }
 
+        // P10.5-A1 — wrap the rewritten body in `try { ... } catch
+        // (__async_err: <inner_ty>) { return Promise.reject(__async_err); }`
+        // per ES spec §27.7.3.6 AsyncFunctionBody. Without this an
+        // uncaught throw inside an async fn would propagate
+        // synchronously to the caller instead of becoming a rejected
+        // Promise, short-circuiting the sync continuation and
+        // skipping unhandled-rejection handling entirely (the wider
+        // P10.5 handler hook builds on this).
+        //
+        // Narrow MVP limit: `catch_type` is set to `inner_ty` (the
+        // fn's declared return inner T) rather than the spec-correct
+        // `any`, because `Promise.reject` at check.rs:5358 only
+        // accepts T ∈ {number, string, boolean, array, struct, Date,
+        // RegExp, nullable, Promise<T>} in v0.5 MVP — `any` is
+        // rejected with a typed err. Until P10.5-A2 relaxes
+        // `Promise.reject` to accept `any` (which requires a runtime
+        // boxed-any reject path), we shadow `__async_err` as
+        // `inner_ty` so the reject call typechecks. Net effect:
+        // user code that `throw e` inside an async fn where `e` is
+        // not of `inner_ty` will fail typecheck at the reject site
+        // — a stricter shape than spec but tracked.
+        let err_ident_for_arg = ast.add_expr(Expr::Ident("__async_err".into()));
+        let promise_ident_rj = ast.add_expr(Expr::Ident("Promise".into()));
+        let reject_member = ast.add_expr(Expr::Member {
+            obj: promise_ident_rj,
+            name: "reject".into(),
+        });
+        let reject_call = ast.add_expr(Expr::Call {
+            callee: reject_member,
+            args: vec![err_ident_for_arg],
+        });
+        let catch_body = vec![Stmt::Return(Some(reject_call))];
+        let wrapped_body = vec![Stmt::Try {
+            body: new_body,
+            had_catch: true,
+            catch_param: Some("__async_err".into()),
+            catch_type: Some(inner_ty.clone()),
+            catch_body,
+            finally_body: None,
+        }];
+
         ast.stmts[idx] = Stmt::FnDecl {
             name,
             type_params,
             params,
             return_type: Some(promise_ty),
-            body: new_body,
+            body: wrapped_body,
             is_generator: false,
         };
     }
