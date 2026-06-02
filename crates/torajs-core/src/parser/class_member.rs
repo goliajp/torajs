@@ -75,6 +75,13 @@ fn token_starts_class_member_name(t: Option<&Token>, allow_private: bool) -> boo
             | Token::InstanceOf
             | Token::Try
             | Token::Yield
+            // P10.3-A3a — `static async name(...) {}` / `async name(...) {}`
+            // — `Token::Async` is a modifier keyword that legally
+            // follows `static`, so the `static` lookahead must accept
+            // it here too. The downstream async-modifier check
+            // distinguishes the modifier form from `async` as a
+            // member name via the trailing `Ident + LParen` lookahead.
+            | Token::Async
     )
 }
 

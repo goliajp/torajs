@@ -3750,7 +3750,7 @@ pub fn desugar_classes(ast: &mut Ast) {
 
         // M-OO.4 — emit `function __sm_<C>__<name>(...): R { body }`
         // for each static method. See `ast/desugar_classes_emit.rs`.
-        emit_class_static_methods(&static_methods, &cname, &type_params, &mut appended);
+        emit_class_static_methods(ast, &static_methods, &cname, &type_params, &mut appended);
     }
 
     ast.stmts.extend(appended);
