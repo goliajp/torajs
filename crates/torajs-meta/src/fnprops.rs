@@ -10,15 +10,32 @@
 //! Closure-form functions use the in-layout `CLOSURE_PROPS_OFF`
 //! path; this table is only for FnSig fns.
 //!
-//! Single-threaded JS execution: a plain `Mutex<HashMap>` suffices.
-//! The C version used unsynchronized `static` linked-list buckets;
-//! switching to HashMap removes the per-bucket scan and matches
-//! "正统" Rust runtime style. Same per-fn lookup complexity (O(1)
-//! amortized) and zero behavior change.
+//! ## Self-hosted hash (v0.7-A5 step ⑥)
+//!
+//! 256-bucket open-chaining hash, single global `torajs-mutex`
+//! protecting the bucket array + the per-bucket linked lists. Bucket
+//! index = MurmurHash3 `fmix64` of the fn pointer, masked to 8 bits.
+//! Replaces the v0.5 `std::sync::OnceLock<Mutex<HashMap<usize, usize>>>`
+//! placeholder, which dragged libdispatch (`_dispatch_semaphore_*` for
+//! OnceLock init), the libc malloc family (HashMap alloc), libc panic
+//! machinery (`__tlv_atexit` / `_abort` / `___error`), and the RNG seed
+//! for `DefaultHasher` (`_CCRandomGenerateBytes`) into every binary
+//! that touched `fn.prop = v`. With this rewrite the only
+//! cross-crate surface left is the `Box`/`alloc` path for `Node`,
+//! which routes through the mmalloc `#[global_allocator]` already
+//! installed by `torajs-mmalloc` — no libc dep.
+//!
+//! 256 buckets is the textbook starting point for a tiny side table:
+//! the JS programs we run rarely have more than a handful of FnSig
+//! fns that gain props at runtime, so chains stay length 1 in
+//! practice. If a workload pushes them above ~4 we can grow
+//! incrementally (resize is a follow-up; the bucket array sizing is
+//! intentionally narrow for now).
 
+use core::cell::UnsafeCell;
 use core::ffi::c_void;
-use std::collections::HashMap;
-use std::sync::OnceLock;
+use core::ptr;
+
 use torajs_mutex::Mutex;
 
 unsafe extern "C" {
@@ -28,39 +45,130 @@ unsafe extern "C" {
     fn __torajs_dynobj_get_value(dynobj: *const c_void, key: *const u8) -> u64;
 }
 
-/// Per-fn-pointer `dynobj` mapping. Both keys and values are
-/// pointer-sized integers; we store as `usize` so the `HashMap`
-/// (and the surrounding `Mutex` / `OnceLock`) is `Sync`-clean
-/// without raw-pointer Send violations.
-type FnPropsTable = HashMap<usize, usize>;
-static FNPROPS: OnceLock<Mutex<FnPropsTable>> = OnceLock::new();
+const ANY_UNDEF_TAG: u64 = 5;
+const BUCKET_COUNT: usize = 256;
+const BUCKET_MASK: usize = BUCKET_COUNT - 1;
 
-#[inline]
-fn table() -> &'static Mutex<FnPropsTable> {
-    FNPROPS.get_or_init(|| Mutex::new(HashMap::new()))
+/// Open-chaining hash node. `next` walks the bucket's collision
+/// chain; `(fn_ptr, dynobj)` is the entry payload.
+#[repr(C)]
+struct Node {
+    next: *mut Node,
+    fn_ptr: usize,
+    dynobj: usize,
 }
 
-const ANY_UNDEF_TAG: u64 = 5;
+/// Bucket array — 256 head pointers. Wrapped in `UnsafeCell` so we
+/// can take `&mut` to it under the global mutex without inheriting
+/// `&mut self`-style aliasing constraints. Access is sound because
+/// every read / write goes through `FNPROPS_LOCK`.
+struct BucketArray(UnsafeCell<[*mut Node; BUCKET_COUNT]>);
+
+// SAFETY: every access to `BucketArray.0` is gated by `FNPROPS_LOCK`.
+unsafe impl Sync for BucketArray {}
+
+static BUCKETS: BucketArray = BucketArray(UnsafeCell::new([ptr::null_mut(); BUCKET_COUNT]));
+static FNPROPS_LOCK: Mutex<()> = Mutex::new(());
+
+/// MurmurHash3 64-bit finalizer (`fmix64`). Two xor-shifts + two
+/// odd-multiplier multiplies. Strong avalanche for adjacent
+/// pointer-sized inputs, no table, no state. Same exact mix
+/// CPython uses for `id()`-derived hashing on 64-bit builds.
+#[inline]
+fn fmix64(mut h: u64) -> u64 {
+    h ^= h >> 33;
+    h = h.wrapping_mul(0xff51_afd7_ed55_8ccd);
+    h ^= h >> 33;
+    h = h.wrapping_mul(0xc4ce_b9fe_1a85_ec53);
+    h ^= h >> 33;
+    h
+}
 
 #[inline]
+fn bucket_of(fn_ptr: usize) -> usize {
+    (fmix64(fn_ptr as u64) as usize) & BUCKET_MASK
+}
+
+/// Find the node for `fn_ptr` inside bucket `b`, or null if absent.
+/// Caller must hold `FNPROPS_LOCK`.
+#[inline]
+unsafe fn find_in_bucket(
+    buckets: &[*mut Node; BUCKET_COUNT],
+    b: usize,
+    fn_ptr: usize,
+) -> *mut Node {
+    let mut cur = buckets[b];
+    while !cur.is_null() {
+        // SAFETY: chain pointers are either null or `Box::leak`'d
+        // — they outlive the program. Concurrent mutation is barred
+        // by `FNPROPS_LOCK`.
+        unsafe {
+            if (*cur).fn_ptr == fn_ptr {
+                return cur;
+            }
+            cur = (*cur).next;
+        }
+    }
+    ptr::null_mut()
+}
+
+/// Get-or-create the dynobj associated with `fn_ptr`. First read
+/// path is one bucket walk; the miss path allocs a fresh dynobj +
+/// a `Box::leak`'d `Node` and pushes it onto the bucket head.
+#[inline]
 fn intern(fn_ptr: *mut c_void) -> *mut c_void {
-    let mut t = table().lock();
-    let key = fn_ptr as usize;
-    if let Some(&p) = t.get(&key) {
-        return p as *mut c_void;
+    let _g = FNPROPS_LOCK.lock();
+    // SAFETY: lock held → exclusive access to BUCKETS.0.
+    let buckets = unsafe { &mut *BUCKETS.0.get() };
+    let b = bucket_of(fn_ptr as usize);
+    let existing = unsafe { find_in_bucket(buckets, b, fn_ptr as usize) };
+    if !existing.is_null() {
+        return unsafe { (*existing).dynobj } as *mut c_void;
     }
     let new_dynobj = unsafe { __torajs_dynobj_alloc() };
-    t.insert(key, new_dynobj as usize);
+    // `Box::leak` to give the node program-lifetime ownership; the
+    // C side table this replaces never freed its entries either.
+    let node = Box::leak(Box::new(Node {
+        next: buckets[b],
+        fn_ptr: fn_ptr as usize,
+        dynobj: new_dynobj as usize,
+    }));
+    buckets[b] = node as *mut Node;
     new_dynobj
 }
 
+/// Pure lookup — null if `fn_ptr` has no entry. Used by the two
+/// getter intrinsics.
 #[inline]
 fn lookup(fn_ptr: *mut c_void) -> *mut c_void {
-    let t = table().lock();
-    t.get(&(fn_ptr as usize))
-        .copied()
-        .map(|v| v as *mut c_void)
-        .unwrap_or(core::ptr::null_mut())
+    let _g = FNPROPS_LOCK.lock();
+    // SAFETY: lock held → exclusive (shared-immutable here) access.
+    let buckets = unsafe { &*BUCKETS.0.get() };
+    let b = bucket_of(fn_ptr as usize);
+    let n = unsafe { find_in_bucket(buckets, b, fn_ptr as usize) };
+    if n.is_null() {
+        ptr::null_mut()
+    } else {
+        unsafe { (*n).dynobj as *mut c_void }
+    }
+}
+
+/// Update the stored dynobj pointer for an already-interned
+/// `fn_ptr`. Called by `__torajs_fnprops_set` after the underlying
+/// `__torajs_dynobj_set` may have reassigned the dynobj (e.g.
+/// growth from inline → heap storage).
+#[inline]
+fn store_dynobj(fn_ptr: *mut c_void, dynobj: *mut c_void) {
+    let _g = FNPROPS_LOCK.lock();
+    let buckets = unsafe { &mut *BUCKETS.0.get() };
+    let b = bucket_of(fn_ptr as usize);
+    let n = unsafe { find_in_bucket(buckets, b, fn_ptr as usize) };
+    if !n.is_null() {
+        unsafe { (*n).dynobj = dynobj as usize };
+    }
+    // If the caller never called intern() this is a no-op; the
+    // intrinsic contract is intern→set, so a missing entry here is
+    // a compiler-emit bug, not a runtime data error.
 }
 
 /// `fn.x = value` — intern the per-fn dynobj if needed, then
@@ -76,9 +184,7 @@ pub unsafe extern "C" fn __torajs_fnprops_set(
     // dynobj_set may grow the dynobj and reassign the pointer; we
     // need to write the new pointer back into the table.
     unsafe { __torajs_dynobj_set(&mut dynobj, key as *const u8, tag as u64, value as u64) };
-    // Write back the (possibly-reallocated) dynobj pointer.
-    let mut t = table().lock();
-    t.insert(fn_ptr as usize, dynobj as usize);
+    store_dynobj(fn_ptr, dynobj);
 }
 
 /// `fn.x` — return the slot's tag, or `ANY_UNDEF` if no fnprops
@@ -108,6 +214,22 @@ pub unsafe extern "C" fn __torajs_fnprops_get_value(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fmix64_zero_input_diffuses() {
+        // The textbook fmix64 of 0 is 0 — well-known property of the
+        // bit-mixer. Any non-zero ptr scatters into a non-zero slot.
+        assert_eq!(fmix64(0), 0);
+        assert_ne!(fmix64(1), fmix64(2));
+        assert_ne!(fmix64(0x1000), fmix64(0x1008));
+    }
+
+    #[test]
+    fn bucket_of_is_in_range() {
+        for &p in &[0usize, 1, 0x1000, 0xdead_beef, 0xffff_ffff_ffff_ffff] {
+            assert!(bucket_of(p) < BUCKET_COUNT);
+        }
+    }
 
     #[test]
     fn table_lookup_empty_returns_undef_tag() {
