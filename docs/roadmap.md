@@ -1135,8 +1135,32 @@ generator full state machine. v5 merges v4's P9 (Promise) + P14
       allSettled T extension became A3. Recorded so future
       audits trace the sub-step naming progression cleanly.
 
-- [ ] **P10.3** Async iterator + for-await-of (depends on P5)
-- [ ] **P10.4** await on non-Promise: wrap via Promise.resolve
+- [x] **P10.3** Async iterator + for-await-of narrow MVP (depends on P5)
+  - **A1** `for-await-of` narrow MVP on `Array<Promise<T>>` (`3348c9b`).
+  - **A2** `async fn` accepts idiomatic `Promise<T>` return annotation
+    (`0062f0e`).
+  - **A3a** class async method substrate — `[static] async name(...)
+    {}` with `this.field` access, `Promise<T>` return, caller `await`
+    / `.then` consumption (`f6f55bf`, 2026-06-03; full sequence
+    `3d98ba4` → `e8b3b86` → `ddfb33a` → `f6f55bf` = 2 god-fn decomp
+    prereqs + parser substrate + ast substrate). Fixture
+    `async-023-class-async-method.ts`.
+  - **A3b** object literal async method real substrate — `{ async
+    name() {} }` Ident-key form (`bb995fb`, 2026-06-03). Synth-fn
+    route: parser mints `__obj_async_method_<id>` `Stmt::FnDecl`,
+    registers it in `ast.async_fns`, property value =
+    `Expr::Ident(synth_name)`. Computed-key `async [Symbol.X]()`
+    stays on stub-drop (gated on P3/P7 Symbol.X dispatch).
+  - **Deferred to P10.7 / later**: user-defined async iterator
+    (`async function* gen()` / `[Symbol.asyncIterator]()` implementing
+    user class) — deeper feature outside P10.3 narrow MVP.
+- [x] **P10.4** await on non-Promise — value-flavor `await` per ES
+  spec wraps non-Promise via `Promise.resolve`.
+  - Primitive (Number / String / Boolean) (`d6dab10`).
+  - Rejected Promise throws the rejection reason — was silent `return
+    0` (`1b48a77`).
+  - Identity extends to non-Promise heap T (Array, BigInt)
+    (`081b25f`).
 - [ ] **P10.5** unhandledrejection handler hook
 - [ ] **P10.6** Generator full state machine — `yield*` delegation +
       `Generator.prototype.return` / `.throw`
