@@ -102,8 +102,9 @@ const STATICLIBS: &[&str] = &[
     "torajs_throw", // Layer-1: native-error registry + throw helpers
     "torajs_str", // Layer-2: Str layout + small-Str pool + alloc/free
     "torajs_num", // Layer-2: Number primitives + Math namespace intrinsics
+    "torajs_math", // Layer-0: 0-libc IEEE-754 libm (fmod / pow / sin / cos / ...) — drops libSystem libm import (v0.7-A5 Step ⑦)
     "torajs_bigint", // Layer-2: BigInt arbitrary-precision integer (P3.3)
-    "torajs_arr", // Layer-3: Array<T> + Array<Any> substrate (P4.1)
+    "torajs_arr",  // Layer-3: Array<T> + Array<Any> substrate (P4.1)
     "torajs_dynobj", // Layer-3: dynamic-property object hashmap (P4.2)
     "torajs_collections", // Layer-3: Map<K,V> + Set + MapIter (P4.3)
     "torajs_weak", // Layer-3: WeakRef + WeakMap + WeakSet substrate (P4.3')

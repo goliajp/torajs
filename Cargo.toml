@@ -14,6 +14,7 @@ members = [
     "crates/torajs-throw",
     "crates/torajs-str",
     "crates/torajs-num",
+    "crates/torajs-math",
     "crates/torajs-bigint",
     "crates/torajs-arr",
     "crates/torajs-dynobj",

@@ -1,0 +1,27 @@
+[package]
+name = "torajs-math"
+description = "Self-hosted libm for the torajs AOT TypeScript runtime — IEEE-754 fmod / pow / exp / log / sin / cos / ... textbook-port polynomials. 0 Cargo deps, no_std. Backs Math.* intrinsics and the LLVM-emitted f64 `frem` (fmod) call so user binaries link without libSystem libm."
+keywords = ["torajs", "libm", "math", "no-std", "no-libc"]
+categories = ["no-std", "mathematics"]
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+# Dual emit: `lib` for cargo workspace unit tests; `staticlib` emits
+# libtorajs_math.a so the AOT user binary picks the in-house `fmod`
+# symbol over libSystem at link time. Same pattern as torajs-mem.
+[lib]
+crate-type = ["lib", "staticlib"]
+
+[dependencies]
+# 0 runtime deps — pure-core / hardware-f64 implementations.
+# Algorithms are textbook (musl libm = FreeBSD = Sun fdlibm
+# lineage); coefficients live as `const` arrays in each fn module.
+
+[dev-dependencies]

@@ -1994,6 +1994,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "torajs-math"
+version = "0.1.0"
+
+[[package]]
 name = "torajs-mem"
 version = "0.1.0"
 
