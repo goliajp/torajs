@@ -3532,8 +3532,17 @@ impl Checker {
                      * Heap T (Array / Struct / Date) deferred to
                      * T-15.g.5+ alongside the closure-cb substrate. */
                     (Type::Promise(inner), "then")
-                        if matches!(**inner, Type::Number | Type::String | Type::Boolean) =>
+                        if matches!(
+                            **inner,
+                            Type::Number | Type::String | Type::Boolean | Type::Any
+                        ) =>
                     {
+                        // P10.7 — `Promise<Any>` participates same as
+                        // the i64-roundtrippable primitives: cb is
+                        // `(v: Any) => Any`; the existing
+                        // `__torajs_promise_then_simple` helper takes
+                        // / returns i64 (NaN-box AnyValue at the SSA
+                        // layer is i64-sized).
                         Ok(Type::Function(
                             vec![Type::Function(
                                 vec![(**inner).clone()],
@@ -3552,8 +3561,15 @@ impl Checker {
                      * helper. spec-strict heterogeneous T → U lands
                      * with TypeVar substitution post-T-15.g.4. */
                     (Type::Promise(inner), "catch")
-                        if matches!(**inner, Type::Number | Type::String | Type::Boolean) =>
+                        if matches!(
+                            **inner,
+                            Type::Number | Type::String | Type::Boolean | Type::Any
+                        ) =>
                     {
+                        // P10.7 — symmetric with the `.then` widening
+                        // above. `Promise<Any>.catch(cb)` runs through
+                        // `__torajs_promise_catch_simple` / `_closure`
+                        // unchanged at the SSA layer.
                         Ok(Type::Function(
                             vec![Type::Function(
                                 vec![(**inner).clone()],
@@ -5004,6 +5020,23 @@ impl Checker {
                     && args.len() == 1
                 {
                     let src_ty = self.type_of(ast, *src_id)?;
+                    // P10.7 — `Promise<Any>.then(cb)` accepts any
+                    // callable taking Any and returning ANY type
+                    // (including Void — e.g. `.then(v =>
+                    // console.log(v))`). Result is `Promise<R>` where
+                    // R is the cb's actual return type, mirroring the
+                    // spec: `Promise<any>.then((v) => U): Promise<U>`.
+                    if let Type::Promise(inner) = &src_ty
+                        && matches!(**inner, Type::Any)
+                    {
+                        let cb_ty = self.type_of(ast, args[0])?;
+                        if let Type::Function(params, ret) = &cb_ty
+                            && params.len() == 1
+                            && matches!(params[0], Type::Any)
+                        {
+                            return Ok(Type::Promise(ret.clone()));
+                        }
+                    }
                     if let Type::Promise(inner) = &src_ty
                         && matches!(**inner, Type::Number | Type::String | Type::Boolean)
                     {

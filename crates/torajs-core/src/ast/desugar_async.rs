@@ -56,12 +56,15 @@ pub fn desugar_async(ast: &mut Ast) {
             ),
             _ => unreachable!(),
         };
-        let declared_ty = return_type.unwrap_or_else(|| {
-            panic!(
-                "async function {name} requires an explicit return type \
-                 annotation `: T` or `: Promise<T>` (Phase L MVP)"
-            )
-        });
+        // P10.7 — Default-Any async fn. When the user omits the
+        // return-type annotation (`async function foo() {...}`),
+        // infer `Promise<any>` so the body's `return e` rewrites
+        // produce `Promise.resolve(e as any)` (the `As`-wrap
+        // happens inside `rewrite_returns_for_async` when
+        // inner_ty == "any"). `Promise.resolve` accepts Any at
+        // `check/promise_static.rs`; `.then` / `.catch` accept
+        // `Promise<Any>` at `check.rs:5008` / `:5054`.
+        let declared_ty = return_type.unwrap_or_else(|| "any".into());
         // P10.3-A2 — accept both annotation forms:
         //   `async function f(): number { ... }`        → inner_ty = "number"
         //   `async function f(): Promise<number> { ... }` → inner_ty = "number"
@@ -183,12 +186,26 @@ pub(super) fn body_ends_in_return(body: &[Stmt]) -> bool {
 pub(super) fn rewrite_returns_for_async(ast: &mut Ast, s: &mut Stmt, inner_ty: &str) {
     match s {
         Stmt::Return(maybe) => {
-            let value = match maybe {
+            let raw_value = match maybe {
                 Some(eid) => *eid,
                 None => {
                     let default = default_init_for_type(inner_ty);
                     ast.add_expr(default)
                 }
+            };
+            // P10.7 — Default-Any async fn: wrap the return value in
+            // `Expr::As { …, ty_ann: "any" }` so `Promise.resolve(...)`
+            // typechecks as `Promise<Any>` (matching the declared fn
+            // return) instead of inferring `Promise<concrete>` from
+            // the raw value's static type. Explicit-T async fns
+            // (`inner_ty != "any"`) keep the direct call.
+            let value = if inner_ty == "any" {
+                ast.add_expr(Expr::As {
+                    expr: raw_value,
+                    ty_ann: "any".into(),
+                })
+            } else {
+                raw_value
             };
             // Build `Promise.resolve(value)` AST.
             let promise_ident = ast.add_expr(Expr::Ident("Promise".into()));

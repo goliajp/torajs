@@ -114,6 +114,18 @@ impl Checker {
                 Some(Type::Promise(t)) => (**t).clone(),
                 _ => Type::Any,
             },
+            // P10.7 — `Promise.resolve(<any>)` lands a `Promise<any>`
+            // wrapping the original value. Default-Any async fns
+            // (`async function foo() { return e }`) desugar to
+            // `return Promise.resolve(e as any)`; without this the
+            // resolve call still trips the v0.5 MVP whitelist and
+            // surfaces as a typecheck error before the `.then` /
+            // outer-`await` chain can route through Type::Any. The
+            // runtime path is the existing
+            // `__torajs_promise_alloc_fulfilled_heap` (Type::Any
+            // lowers to an opaque pointer at SSA — NaN-box AnyValue
+            // is i64-sized).
+            Type::Any if m_name == "resolve" => Type::Any,
             other => {
                 return Some(Err(format!(
                     "Promise.{m_name}: T must be number / string / boolean / array / struct / Date / RegExp / nullable / Promise<T> in v0.5 MVP (got {other:?})"
