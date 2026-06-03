@@ -1,13 +1,13 @@
 {
-  "generatedAt": "2026-06-02T21:34:10.753Z",
+  "generatedAt": "2026-06-03T02:58:15.907Z",
   "hardevVersion": "0.1.14",
   "conformance": {
-    "pass": 688,
+    "pass": 694,
     "fail": 0,
-    "skip": 2,
-    "raw": "688/0/2",
-    "source": "/tmp/torajs-conformance-2ed5aa1.log",
-    "sourceMtime": "2026-06-02T17:40:42.713Z"
+    "skip": 4,
+    "raw": "694/0/4",
+    "source": "/tmp/torajs-conformance-c44aa39.log",
+    "sourceMtime": "2026-06-03T02:46:51.627Z"
   },
   "test262": {
     "ranAt": "2026-05-23T23:17:45Z",
@@ -28,17 +28,17 @@
     "passRateTrAccepted": 71.17
   },
   "torajs": {
-    "commit": "2ed5aa1",
-    "commitSubject": "Revert \"feat(async): unhandled rejection → exit(1) — bun-parity exit code (P10.5-A3 narrow MVP)\"",
+    "commit": "c44aa39",
+    "commitSubject": "feat(async): Default-Any async fn + Promise<Any>.then/.catch (P10.7 async-side)",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
-      "pass": 688,
+      "pass": 694,
       "fail": 0,
-      "skip": 2,
-      "raw": "688/0/2",
-      "source": "/tmp/torajs-conformance-2ed5aa1.log",
-      "sourceMtime": "2026-06-02T17:40:42.713Z"
+      "skip": 4,
+      "raw": "694/0/4",
+      "source": "/tmp/torajs-conformance-c44aa39.log",
+      "sourceMtime": "2026-06-03T02:46:51.627Z"
     }
   },
   "roadmap": [
@@ -563,55 +563,55 @@
   },
   "commits": [
     {
-      "hash": "2ed5aa1",
-      "subject": "Revert \"feat(async): unhandled rejection → exit(1) — bun-parity exit code (P10.5-A3 narrow MVP)\""
+      "hash": "c44aa39",
+      "subject": "feat(async): Default-Any async fn + Promise<Any>.then/.catch (P10.7 async-side)"
     },
     {
-      "hash": "b484990",
-      "subject": "feat(async): unhandled rejection → exit(1) — bun-parity exit code (P10.5-A3 narrow MVP)"
+      "hash": "6d161a6",
+      "subject": "fix(ssa_lower): As-widen to Any only on primitive sources (P10.7-gen followup)"
     },
     {
-      "hash": "fac7bbe",
-      "subject": "feat(async): wrap async fn body in try/catch — throw → Promise.reject (P10.5-A1)"
+      "hash": "157c828",
+      "subject": "feat(generator): Default-Any generator (P10.7 generator-side)"
     },
     {
-      "hash": "684a270",
-      "subject": "refactor(ast): extract desugar_async to sidekick (P10.5-A1 prereq step ㊀)"
+      "hash": "d58a96c",
+      "subject": "fix(generator): multi-generator dispatch + throw propagation (P10.6-A3)"
     },
     {
-      "hash": "113d6fb",
-      "subject": "docs(roadmap): close P10.3 (async iterator narrow MVP) + P10.4 (await on non-Promise)"
+      "hash": "2a11667",
+      "subject": "feat(generator): Generator.prototype.throw(err) per ES §27.5.1.4 (P10.6-A2)"
     },
     {
-      "hash": "bb995fb",
-      "subject": "feat(async): object literal async method real substrate — drop the silent stub (P10.3-A3b)"
+      "hash": "cccc5a1",
+      "subject": "feat(generator): Generator.prototype.return(value) per ES §27.5.1.7 (P10.6-A1)"
     },
     {
-      "hash": "f6f55bf",
-      "subject": "feat(async): class async method body desugar + acceptance fixture (P10.3-A3a step ②/③)"
+      "hash": "79f9d6d",
+      "subject": "feat(promise): process.on('unhandledRejection', cb) — listener suppresses default reporter (P10.5-A4)"
     },
     {
-      "hash": "ddfb33a",
-      "subject": "feat(parser): accept async modifier on class methods (P10.3-A3a step ①)"
+      "hash": "34b4e88",
+      "subject": "fix(promise): HPRT off the microtask queue → pending-list swept at main exit (P10.5-A3-b followup)"
     },
     {
-      "hash": "e8b3b86",
-      "subject": "refactor(ast): extract class method emit to sidekick (P10.3-A3a prereq step ⓪b)"
+      "hash": "9d2ae5d",
+      "subject": "feat(promise): unhandled-rejection HPRT microtask + default reporter + main exit code (P10.5-A3-b)"
     },
     {
-      "hash": "3d98ba4",
-      "subject": "refactor(parser): extract class member modifier prefix to sidekick (P10.3-A3a prereq step ⓪a)"
+      "hash": "b6f80c1",
+      "subject": "feat(promise): Promise.has_handler u8 + attach/get_value set (P10.5-A3-a)"
     },
     {
-      "hash": "1a42a3b",
-      "subject": "fix(math): exp Sun fdlibm coefficient form — drop extra z factor"
+      "hash": "6059899",
+      "subject": "feat(check): Promise.reject accepts Type::Any + async-fn catch_type=any (P10.5-A2)"
     },
     {
-      "hash": "248ae87",
-      "subject": "feat(math): self-hosted cbrt / expm1 / log1p / log2 / log10 — A5 close (16-e step ⑦f)"
+      "hash": "a9d1d5f",
+      "subject": "refactor(check): extract Promise.{resolve,reject} typecheck to sidekick (P10.5-A2 prereq)"
     }
   ],
-  "headSha": "2ed5aa1",
+  "headSha": "c44aa39",
   "autorun": {
     "total": 51,
     "baselineTarget": 10,
