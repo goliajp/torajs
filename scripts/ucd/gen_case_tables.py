@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """Generate torajs-str's case-mapping tables from UCD UnicodeData.txt +
-SpecialCasing.txt.
+SpecialCasing.txt + DerivedCoreProperties.txt.
 
 Usage:
     python3 gen_case_tables.py <ucd-dir> > crates/torajs-str/src/case_table.rs
 
 `<ucd-dir>` is a directory containing UnicodeData.txt + SpecialCasing.txt
-(download from https://www.unicode.org/Public/<ver>/ucd/). The UCD
-version itself is captured in a header comment so we know which release
-the tables track.
++ DerivedCoreProperties.txt (download from
+https://www.unicode.org/Public/<ver>/ucd/). The UCD version itself is
+captured in a header comment so we know which release the tables track.
 
 This is a host-side codegen step: the output `case_table.rs` is checked
 in. To upgrade UCD, re-run the script with the new data and commit the
@@ -33,9 +33,9 @@ Caller is responsible for:
 - Re-encoding into a fresh StrBlock.
 
 Final_Sigma context-dependent mapping (`Σ -> ς` when preceded by Cased,
-not followed by Cased) is NOT exported by this script — it requires a
-Cased property table + per-position context check. That lands as
-P11.5-A3 (separate substrate sub-step).
+not followed by Cased) is supported via the `CASED_RANGES` table +
+`is_cased` lookup. The runtime fold loop checks adjacent source code
+points; Case_Ignorable skipping (full spec rule) is a follow-up.
 """
 
 import sys
@@ -110,7 +110,41 @@ def parse_cp_seq(s):
     return [int(tok, 16) for tok in s.split() if tok]
 
 
-def emit_rust(simple_upper, simple_lower, full_upper, full_lower, ucd_version):
+def parse_derived_property(path, prop_name):
+    """Parse DerivedCoreProperties.txt. Returns a list of (start_cp,
+    end_cp) ranges (inclusive) for rows whose property == `prop_name`,
+    sorted + merged with adjacent ranges fused."""
+    ranges = []
+    with open(path) as f:
+        for line in f:
+            line = line.rstrip()
+            if not line or line.startswith('#'):
+                continue
+            comment_idx = line.find('#')
+            payload = line[:comment_idx] if comment_idx >= 0 else line
+            fields = [tok.strip() for tok in payload.split(';')]
+            if len(fields) < 2:
+                continue
+            if fields[1] != prop_name:
+                continue
+            cp_field = fields[0]
+            if '..' in cp_field:
+                start, end = cp_field.split('..')
+                ranges.append((int(start, 16), int(end, 16)))
+            else:
+                cp = int(cp_field, 16)
+                ranges.append((cp, cp))
+    ranges.sort()
+    merged = []
+    for start, end in ranges:
+        if merged and start <= merged[-1][1] + 1:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append([start, end])
+    return [tuple(r) for r in merged]
+
+
+def emit_rust(simple_upper, simple_lower, full_upper, full_lower, cased_ranges, ucd_version):
     """Emit the case_table.rs source as a single string."""
     out = []
     out.append('// CODEGEN: scripts/ucd/gen_case_tables.py — file-size audit carve-out (file-size.md #1).')
@@ -148,6 +182,10 @@ def emit_rust(simple_upper, simple_lower, full_upper, full_lower, ucd_version):
     out.append(emit_full_table('FULL_LOWER', full_lower))
     out.append('')
 
+    # Cased property ranges for Final_Sigma context check.
+    out.append(emit_range_table('CASED_RANGES', cased_ranges))
+    out.append('')
+
     out.append('/// Look up `cp` in a sorted `(u32, u32)` simple-mapping table.')
     out.append('/// Returns `Some(mapped)` if found, else `None`. Binary search')
     out.append('/// — O(log N) per lookup, N ~1500 per direction.')
@@ -169,6 +207,23 @@ def emit_rust(simple_upper, simple_lower, full_upper, full_lower, ucd_version):
     out.append('        .binary_search_by_key(&cp, |&(k, _)| k)')
     out.append('        .ok()')
     out.append('        .map(|i| table[i].1)')
+    out.append('}')
+    out.append('')
+    out.append('/// Test whether `cp` carries the UCD `Cased` derived property.')
+    out.append('/// Binary search over inclusive `[start, end]` ranges.')
+    out.append('#[inline]')
+    out.append('pub(crate) fn is_cased(cp: u32) -> bool {')
+    out.append('    CASED_RANGES')
+    out.append('        .binary_search_by(|&(start, end)| {')
+    out.append('            if cp < start {')
+    out.append('                core::cmp::Ordering::Greater')
+    out.append('            } else if cp > end {')
+    out.append('                core::cmp::Ordering::Less')
+    out.append('            } else {')
+    out.append('                core::cmp::Ordering::Equal')
+    out.append('            }')
+    out.append('        })')
+    out.append('        .is_ok()')
     out.append('}')
 
     return '\n'.join(out) + '\n'
@@ -197,6 +252,16 @@ def emit_full_table(name, mapping):
     return '\n'.join(lines)
 
 
+def emit_range_table(name, ranges):
+    lines = []
+    lines.append(f'/// {len(ranges)} inclusive ranges (sorted, merged).')
+    lines.append(f'pub(crate) static {name}: &[(u32, u32)] = &[')
+    for start, end in ranges:
+        lines.append(f'    (0x{start:04X}, 0x{end:04X}),')
+    lines.append('];')
+    return '\n'.join(lines)
+
+
 def main():
     if len(sys.argv) != 2:
         print(f'usage: {sys.argv[0]} <ucd-dir>', file=sys.stderr)
@@ -204,9 +269,11 @@ def main():
     ucd_dir = sys.argv[1]
     udp = os.path.join(ucd_dir, 'UnicodeData.txt')
     scp = os.path.join(ucd_dir, 'SpecialCasing.txt')
-    if not os.path.isfile(udp) or not os.path.isfile(scp):
-        print(f'error: missing UnicodeData.txt or SpecialCasing.txt under {ucd_dir}', file=sys.stderr)
-        sys.exit(1)
+    dcp = os.path.join(ucd_dir, 'DerivedCoreProperties.txt')
+    for required in (udp, scp, dcp):
+        if not os.path.isfile(required):
+            print(f'error: missing {os.path.basename(required)} under {ucd_dir}', file=sys.stderr)
+            sys.exit(1)
 
     # Detect UCD version from SpecialCasing.txt header (e.g. "# SpecialCasing-16.0.0.txt").
     ucd_version = 'unknown'
@@ -218,8 +285,9 @@ def main():
 
     simple_upper, simple_lower = parse_unicode_data(udp)
     full_upper, full_lower = parse_special_casing(scp)
+    cased_ranges = parse_derived_property(dcp, 'Cased')
 
-    print(emit_rust(simple_upper, simple_lower, full_upper, full_lower, ucd_version), end='')
+    print(emit_rust(simple_upper, simple_lower, full_upper, full_lower, cased_ranges, ucd_version), end='')
 
 
 if __name__ == '__main__':

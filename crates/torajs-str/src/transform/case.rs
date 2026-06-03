@@ -14,9 +14,16 @@
 //! - Surrogate-pair-aware: supplementary plane cps read via
 //!   `__torajs_str_code_point_at` semantics
 //!
-//! NOT covered (P11.5-A3 / Locale follow-up):
-//! - Final_Sigma (`Σ -> ς` word-final; needs Cased property table
-//!   + context check)
+//! P11.5-A3 — Final_Sigma context-dependent mapping per UAX #21:
+//! when `Σ (U+03A3)` appears in a lowercase fold with a preceding
+//! Cased letter and no following Cased letter, it maps to `ς
+//! (U+03C2)` instead of the default `σ (U+03C3)`. We check immediate
+//! adjacent source code points; the full spec rule allows
+//! Case_Ignorable skipping (e.g. `"A.Σ"` should still see `A` as
+//! preceding), which lands as a P11.5-A4 follow-up alongside the
+//! Case_Ignorable property table.
+//!
+//! NOT covered (Locale follow-up):
 //! - Locale-tailored mappings (Turkish dotless ı, Lithuanian, etc.)
 //!
 //! IR-side surface (declared in `ssa_lower::lower` and consumed by
@@ -29,7 +36,7 @@ use alloc::vec::Vec;
 
 use crate::block::StrBlock;
 use crate::case_table::{
-    FULL_LOWER, FULL_UPPER, SIMPLE_LOWER, SIMPLE_UPPER, full_lookup, simple_lookup,
+    FULL_LOWER, FULL_UPPER, SIMPLE_LOWER, SIMPLE_UPPER, full_lookup, is_cased, simple_lookup,
 };
 use crate::layout::{STR_DATA_OFF, STR_FLAG_IS_LATIN1, STR_LEN_OFF};
 use torajs_rc::HeapHeader;
@@ -170,23 +177,61 @@ fn encode_cp_utf16_le(cp: u32, out: &mut Vec<u8>) {
     }
 }
 
+/// Code point for GREEK CAPITAL LETTER SIGMA.
+const SIGMA_UPPER: u32 = 0x03A3;
+/// Code point for GREEK SMALL LETTER FINAL SIGMA (word-final form).
+const SIGMA_FINAL: u32 = 0x03C2;
+
+/// True iff `cps[idx]` is a Σ that satisfies the Final_Sigma context
+/// rule (preceded by a Cased letter, not followed by a Cased letter).
+/// Simplified check: looks at immediate adjacent source cps; full UAX
+/// #21 rule allows skipping Case_Ignorable on both sides. P11.5-A4
+/// follow-up covers the Case_Ignorable extension.
+#[inline]
+fn is_final_sigma(cps: &[u32], idx: usize) -> bool {
+    if cps[idx] != SIGMA_UPPER {
+        return false;
+    }
+    let prev_cased = idx > 0 && is_cased(cps[idx - 1]);
+    if !prev_cased {
+        return false;
+    }
+    let next_cased = idx + 1 < cps.len() && is_cased(cps[idx + 1]);
+    !next_cased
+}
+
 /// Walk `(payload, total_cu, is_latin1)` decoding each code point,
-/// mapping it via [`map_cp`], and collecting the mapped cps + their
-/// max value (for output-encoding decision) + their total cu count.
+/// mapping it via [`map_cp`] (or the Final_Sigma override on Σ in
+/// lowercase mode), and collecting the mapped cps + their max value
+/// (for output-encoding decision) + their total cu count.
 fn collect_mapped(
     payload: &[u8],
     total_cu: usize,
     is_latin1: bool,
     upper: bool,
 ) -> (Vec<u32>, u32, u32) {
-    let mut out_cps: Vec<u32> = Vec::with_capacity(total_cu);
-    let mut max_cp: u32 = 0;
-    let mut out_cu: u32 = 0;
+    // Pass 1 — decode source code points into a contiguous Vec so
+    // the Final_Sigma check can look at adjacent source positions
+    // (NOT post-mapping positions: the spec rule is over input).
+    let mut src_cps: Vec<u32> = Vec::with_capacity(total_cu);
     let mut i = 0;
     while i < total_cu {
         let (cp, adv) = decode_cp_at(payload, i, total_cu, is_latin1);
+        src_cps.push(cp);
+        i += adv;
+    }
+
+    let mut out_cps: Vec<u32> = Vec::with_capacity(src_cps.len());
+    let mut max_cp: u32 = 0;
+    let mut out_cu: u32 = 0;
+    for (idx, &cp) in src_cps.iter().enumerate() {
         let mut holder: [u32; 1] = [0];
-        let mapped = map_cp(cp, upper, &mut holder);
+        let mapped: &[u32] = if !upper && is_final_sigma(&src_cps, idx) {
+            holder[0] = SIGMA_FINAL;
+            &holder[..]
+        } else {
+            map_cp(cp, upper, &mut holder)
+        };
         for &mc in mapped {
             out_cps.push(mc);
             if mc > max_cp {
@@ -194,7 +239,6 @@ fn collect_mapped(
             }
             out_cu += cp_cu_len(mc);
         }
-        i += adv;
     }
     (out_cps, max_cp, out_cu)
 }
