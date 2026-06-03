@@ -58,7 +58,10 @@ pub use then::{
     __torajs_promise_catch_closure, __torajs_promise_catch_simple, __torajs_promise_finally,
     __torajs_promise_finally_closure, __torajs_promise_then_closure, __torajs_promise_then_simple,
 };
-pub use unhandled::__torajs_main_exit_code;
+pub use unhandled::{
+    __torajs_main_exit_code, __torajs_process_on_unhandled_rejection_register_closure,
+    __torajs_process_on_unhandled_rejection_register_simple,
+};
 
 // Cross-tier extern stubs for cargo unit tests — real symbols
 // live in libs (torajs-rc, torajs-throw, libtorajs_microtask) +

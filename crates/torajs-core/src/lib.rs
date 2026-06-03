@@ -179,6 +179,7 @@ pub mod ssa_lower_closure_captures;
 pub mod ssa_lower_deque_escape;
 pub mod ssa_lower_main_exit;
 pub mod ssa_lower_obj_escape;
+pub mod ssa_lower_process_on;
 pub mod ssa_lower_push_loop_detect;
 pub mod ssa_lower_substr_trim_into;
 pub mod ssa_lower_while_push_fast;

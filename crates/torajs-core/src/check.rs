@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use crate::ast::{Ast, BinOp, Expr, ExprId, Param, Stmt, Visibility};
 use crate::lexer::Span;
 
+mod process_on;
 mod promise_static;
 
 /// T-04 (v0.3.0) — typechecker diagnostic with source span + severity.
@@ -5303,6 +5304,11 @@ impl Checker {
                 // inference. Extracted to `check/promise_static.rs`
                 // (2026-06-03, P10.5-A2 prereq).
                 if let Some(r) = self.check_promise_resolve_reject_static(ast, *callee, args) {
+                    return r;
+                }
+                // P10.5-A4 — `process.on('unhandledRejection', cb)`.
+                // Extracted to `check/process_on.rs`.
+                if let Some(r) = self.check_process_on(ast, *callee, args) {
                     return r;
                 }
                 /* T-17.a (v0.5.0) — Promise.all<T>(promises: Promise<T>[])

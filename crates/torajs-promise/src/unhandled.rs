@@ -40,18 +40,28 @@
 
 use core::ffi::c_void;
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::atomic::{AtomicI32, AtomicPtr, AtomicU8, Ordering};
 
 use crate::layout::{HeapHeader, Promise, STATE_REJECTED, as_promise};
 
 unsafe extern "C" {
     fn __torajs_rc_inc(p: *mut c_void);
+    fn __torajs_value_drop_heap(p: *mut c_void);
     fn __torajs_syscall_write(fd: i32, buf: *const u8, n: usize) -> isize;
     /// `__torajs_str_print_err(s)` — write a Str's payload bytes
     /// plus a trailing newline to stderr. Defined in torajs-str
     /// (`crates/torajs-str/src/print.rs`).
     fn __torajs_str_print_err(s: *const u8);
 }
+
+/// Simple-fn `(reason: AnyValue) -> void` cb shape registered
+/// through `__torajs_process_on_unhandled_rejection_register_simple`.
+type SimpleCb = unsafe extern "C" fn(reason: i64);
+
+/// Closure cb shape — env+8 carries the user fn pointer
+/// `extern "C" fn(env: *mut c_void, reason: i64)` (same env layout
+/// as `promise_then_closure` / `microtask_enqueue_closure`).
+type ClosureCb = unsafe extern "C" fn(env: *mut c_void, reason: i64);
 
 /// Universal heap-header `type_tag` for Str (0). Mirrors
 /// `torajs_rc::Tag::Str`. Re-declared as a `u16` constant to keep
@@ -89,7 +99,94 @@ static UNHANDLED_LIST: Mutex<Vec<i64>> = Mutex::new(Vec::new());
 /// Process-global "has the reporter fired at least once?" flag.
 /// Set by [`fire_unhandled_reporter`]; read by
 /// [`__torajs_main_exit_code`] to choose `main`'s return value.
+/// A user-side `process.on('unhandledRejection', cb)` handler
+/// suppresses the default reporter AND the flag — bun's behaviour
+/// when a listener is registered.
 static UNHANDLED_REJECTION_OCCURRED: AtomicI32 = AtomicI32::new(0);
+
+/// `process.on('unhandledRejection', cb)` listener slot. `KIND`
+/// 0 → no listener (default reporter runs);
+/// 1 → simple fn (`PTR` holds the raw `fn(reason: i64)` pointer);
+/// 2 → closure (`PTR` holds the env block; env+8 carries the user
+///     `fn(env, reason)` ptr, refcount inc'd at register time so
+///     captures live across the sweep).
+///
+/// Single-threaded runtime → Relaxed ordering is sufficient; the
+/// AtomicPtr/AtomicU8 pair pre-pays the future multi-threaded
+/// story per the project-wide static-mut → atomic policy
+/// (`torajs_microtask::MT_QUEUE`, `torajs_arr::pool`, ...).
+const CB_KIND_NONE: u8 = 0;
+const CB_KIND_SIMPLE: u8 = 1;
+const CB_KIND_CLOSURE: u8 = 2;
+static UNHANDLED_CB_PTR: AtomicPtr<c_void> = AtomicPtr::new(core::ptr::null_mut());
+static UNHANDLED_CB_KIND: AtomicU8 = AtomicU8::new(CB_KIND_NONE);
+
+/// Replace the active listener. Releases the prior closure env's
+/// refcount (if any) before overwriting; simple-fn slot has no rc
+/// bookkeeping (function pointers live in the binary's .text).
+unsafe fn install_listener(kind: u8, ptr: *mut c_void) {
+    let prior_kind = UNHANDLED_CB_KIND.swap(kind, Ordering::Relaxed);
+    let prior_ptr = UNHANDLED_CB_PTR.swap(ptr, Ordering::Relaxed);
+    if prior_kind == CB_KIND_CLOSURE && !prior_ptr.is_null() {
+        unsafe { __torajs_value_drop_heap(prior_ptr) };
+    }
+}
+
+/// `process.on('unhandledRejection', simpleFn)` — register a named
+/// fn (no captures). `fn_ptr` lives in `.text`, no refcount.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_process_on_unhandled_rejection_register_simple(
+    fn_ptr: *mut c_void,
+) {
+    unsafe { install_listener(CB_KIND_SIMPLE, fn_ptr) };
+}
+
+/// `process.on('unhandledRejection', closure)` — register a
+/// capturing lambda. Inc the env's rc so captures survive across
+/// the deferred sweep at `main` exit; `install_listener` releases
+/// the prior closure's env (if any).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_process_on_unhandled_rejection_register_closure(
+    env: *mut c_void,
+) {
+    if !env.is_null() {
+        unsafe { __torajs_rc_inc(env) };
+    }
+    unsafe { install_listener(CB_KIND_CLOSURE, env) };
+}
+
+/// NaN-box int32 tag — top 16 bits identify a tagged integer payload
+/// in the low 32 bits. Mirrors `torajs_anyvalue::nanbox::
+/// TAG_TYPE_NUMBER` + `box_int32`; re-declared as a `u64` constant
+/// to keep this crate free of a torajs-anyvalue dep (same
+/// independent-knowledge pattern as `TAG_STR` / `reason_is_cell_like`
+/// above).
+const NAN_TAG_TYPE_NUMBER: u64 = 0xFFFE_0000_0000_0000;
+
+/// Mirrors `torajs_anyvalue::nanbox::VALUE_NULL` (`TAG_BIT_TYPE_OTHER`).
+const NAN_VALUE_NULL: i64 = 0x02;
+
+/// Lift the rejected promise's `value` slot into the AnyValue
+/// NaN-box wire form expected by user-registered handlers. The
+/// reasoning mirrors `ssa_lower:17590` which routes `Type::Any`
+/// reasons through the `_heap` alloc variant as opaque NaN-box
+/// immediates: a `value_is_heap=1` reason is already a valid
+/// AnyValue (cell-tagged real heap pointer OR a NaN-box
+/// immediate); `value_is_heap=0` reasons are raw primitive bits
+/// — narrow MVP boxes them as Int32 when non-zero and as
+/// `VALUE_NULL` when zero (the default `Promise.reject()` /
+/// `Promise.all([pending])` sentinel).
+fn box_reason_as_anyvalue(reason: i64, is_heap: u8) -> i64 {
+    if is_heap != 0 {
+        return if reason == 0 { NAN_VALUE_NULL } else { reason };
+    }
+    if reason == 0 {
+        return NAN_VALUE_NULL;
+    }
+    // Truncating cast to i32 — narrow MVP; reasons outside i32 range
+    // surface as their low-32 bits (caller-visible documented limit).
+    (NAN_TAG_TYPE_NUMBER | ((reason as u32) as u64)) as i64
+}
 
 /// Append `p` to the pending-unhandled list. Caller must have
 /// already transitioned `p` to STATE_REJECTED. Refcount on `p` is
@@ -110,8 +207,10 @@ pub(crate) unsafe fn enqueue_hprt_check(p: *mut c_void) {
 
 /// Walk the pending-unhandled list once. For every entry whose
 /// `has_handler` is still 0 (state confirmed REJECTED defensively
-/// for forward-compat), fire the default reporter; drop the rc
-/// inc'd at enqueue time regardless. Drains the list to empty.
+/// for forward-compat), dispatch to a user-registered
+/// `'unhandledRejection'` listener if one was installed; otherwise
+/// fire the default reporter. Always drops the rc inc'd at
+/// enqueue time. Drains the list to empty.
 unsafe fn sweep_unhandled_list() {
     let pending: Vec<i64> = {
         let mut guard = UNHANDLED_LIST.lock().expect("UNHANDLED_LIST poisoned");
@@ -122,7 +221,28 @@ unsafe fn sweep_unhandled_list() {
         let pp = as_promise(p);
         unsafe {
             if (*pp).state == STATE_REJECTED && (*pp).has_handler == 0 {
-                fire_unhandled_reporter(pp);
+                let kind = UNHANDLED_CB_KIND.load(Ordering::Relaxed);
+                if kind == CB_KIND_NONE {
+                    fire_unhandled_reporter(pp);
+                } else {
+                    let reason = box_reason_as_anyvalue((*pp).value, (*pp).value_is_heap);
+                    let cb_ptr = UNHANDLED_CB_PTR.load(Ordering::Relaxed);
+                    if kind == CB_KIND_SIMPLE && !cb_ptr.is_null() {
+                        let cb: SimpleCb = core::mem::transmute(cb_ptr);
+                        cb(reason);
+                    } else if kind == CB_KIND_CLOSURE && !cb_ptr.is_null() {
+                        // env+8 — same env layout as
+                        // `promise_then_closure` / `microtask_enqueue_closure`.
+                        let fn_addr = *((cb_ptr as *mut u8).add(8) as *const *mut c_void);
+                        if !fn_addr.is_null() {
+                            let cb: ClosureCb = core::mem::transmute(fn_addr);
+                            cb(cb_ptr, reason);
+                        }
+                    }
+                    // A user listener suppresses the default exit-code
+                    // signal — bun returns 0 when a handler is registered
+                    // even if the listener doesn't itself re-throw.
+                }
             }
             crate::pool::__torajs_promise_drop(p);
         }

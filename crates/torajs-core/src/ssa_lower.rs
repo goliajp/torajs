@@ -3512,6 +3512,7 @@ fn lower_inner(
         Type::Void,
     );
     crate::ssa_lower_main_exit::declare(&mut module, &mut fn_table);
+    crate::ssa_lower_process_on::declare(&mut module, &mut fn_table);
     /* P10.1-A1 — queueMicrotask(cb) closure-path enqueue. cb is a
      * Type::Closure whose env+8 holds the lifted body's fn_addr
      * (same layout as promise_finally_closure: 0-user-arg, void
@@ -14749,6 +14750,9 @@ impl<'a> LowerCtx<'a> {
                 }
             }
             Expr::Call { callee, args } => {
+                if let Some(v) = crate::ssa_lower_process_on::try_lower(self, *callee, args) {
+                    return v;
+                }
                 // T-45 — synthetic `__torajs_in_op(key, obj)` from the
                 // parser's binary `in` rewrite. Dispatch on obj's
                 // static SSA type:
@@ -26131,7 +26135,7 @@ impl<'a> LowerCtx<'a> {
     /// Type of the value produced by an operand. For SSA-Value operands this
     /// is the function's value-table lookup; for constants it's implied by
     /// the constant flavor.
-    fn operand_ty(&self, op: &Operand) -> Type {
+    pub(crate) fn operand_ty(&self, op: &Operand) -> Type {
         match op {
             Operand::Value(v) => self.f.value_type(*v),
             Operand::ConstI64(_) => Type::I64,
