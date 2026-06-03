@@ -1378,6 +1378,16 @@ exactly, incl. the long-tail rounding cases.
   ImportDecl + the wrapper struct; downstream typecheck + ssa-lower
   reuse the P13-S2 namespace path)
 
+**P13 phase close ≠ v1.0**. Per the three-axes definition above, v1.0
+requires all three axes closed:
+- 轴 A (spec) — P13 close ✓ (this phase)
+- 轴 B (perf, bench-tr 0 regression) — held across the chain ✓
+  (3-run compare @ `79865f4` shows 32/32 byte-identical artifacts)
+- 轴 C (implementation purity / metal) — **still hot** under the v0.7
+  Metal series (A1-A5 closed; A6+ + STONES_AUDIT planned units 3-15
+  open, dominated by self-research codegen + obj-writer + linker to
+  retire inkwell + llvm-sys)
+
 **L3b deferred** (not blocking phase close): dynamic-import's non-await
 shape (`.then()` chain) — would require Promise<struct-with-fn-fields>
 typecheck/lowering polish; non-literal source for dynamic import (`tr
