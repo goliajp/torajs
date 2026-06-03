@@ -11,7 +11,11 @@
 //!   - `import { a, b as c } from "./y"`     — supported (K.2 baseline)
 //!   - `import x from "./y"`                  — supported (P13-S1; pairs with
 //!                                              `export default <expr>`)
-//!   - `import * as ns from "./y"`            — rejected (P13-S2)
+//!   - `import * as ns from "./y"`            — supported (P13-S2; lib's
+//!                                              every value export injects
+//!                                              under its original name and a
+//!                                              synthetic `let ns = { … }`
+//!                                              object literal lands after)
 //!   - `import "./y"`                         — supported (P13-S3; lib's
 //!                                              top-level stmts inject in
 //!                                              source order, no symbols
@@ -40,7 +44,7 @@
 //!     itself looks up `foo`, which is no longer in scope. This is a
 //!     known K.2 corner; revisit if it bites a real use case.
 
-use crate::ast::{Ast, Stmt};
+use crate::ast::{Ast, Expr, Stmt};
 use crate::lexer;
 use crate::parser;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -57,8 +61,18 @@ type NamedImport = (String, Option<String>);
 /// `export default <expr>` resolves to a synthetic `let x = <expr>`),
 /// plus a `side_effect_only` flag (`true` when the importer wrote
 /// bare `import "./y"`; the lib's full top-level statement list is
-/// injected in source order regardless of `export` wrapping).
-type WorkItem = (PathBuf, Vec<NamedImport>, Option<String>, bool);
+/// injected in source order regardless of `export` wrapping), plus
+/// the namespace alias (`Some(M)` when the importer wrote
+/// `import * as M from "./y"`; the lib's full export list materializes
+/// as a synthetic `let M = { name1: name1, name2: name2, ... }`
+/// after the named decls inject).
+type WorkItem = (
+    PathBuf,
+    Vec<NamedImport>,
+    Option<String>,
+    bool,
+    Option<String>,
+);
 
 /// Resolve every `import` in `ast` by reading + parsing the target file
 /// and injecting its requested named exports as top-level declarations
@@ -92,13 +106,21 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
             check_k2_form(source, default, namespace, named)?;
             let path = resolve_path(base_dir, source)?;
             let side_effect_only = named.is_empty() && default.is_none() && namespace.is_none();
-            work.push_back((path, named.clone(), default.clone(), side_effect_only));
+            work.push_back((
+                path,
+                named.clone(),
+                default.clone(),
+                side_effect_only,
+                namespace.clone(),
+            ));
         }
     }
 
     let mut injections: Vec<Stmt> = Vec::new();
 
-    while let Some((target_path, named, default_alias, side_effect_only)) = work.pop_front() {
+    while let Some((target_path, named, default_alias, side_effect_only, namespace_alias)) =
+        work.pop_front()
+    {
         if !visited.insert(target_path.clone()) {
             continue;
         }
@@ -121,6 +143,11 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
             .iter()
             .filter_map(|(orig, alias)| alias.as_deref().map(|a| (orig.as_str(), a)))
             .collect();
+        // For P13-S2 namespace import: accumulates the names of every
+        // value-export injected (FnDecl / LetDecl / ClassDecl). After
+        // the walk the namespace alias materializes as a synthetic
+        // `let <alias> = { name1: name1, name2: name2, ... }`.
+        let mut namespace_fields: Vec<String> = Vec::new();
 
         for s in lib_section {
             // Side-effect-only import: lib's ImportDecls still need to walk
@@ -142,7 +169,7 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
                     check_k2_form(&source, &default, &namespace, &named)?;
                     let path = resolve_path(&target_dir, &source)?;
                     let nested_se = named.is_empty() && default.is_none() && namespace.is_none();
-                    work.push_back((path, named, default, nested_se));
+                    work.push_back((path, named, default, nested_se, namespace));
                     continue;
                 }
                 if let Stmt::ExportDecl {
@@ -176,7 +203,7 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
                     check_k2_form(&source, &default, &namespace, &named)?;
                     let path = resolve_path(&target_dir, &source)?;
                     let nested_se = named.is_empty() && default.is_none() && namespace.is_none();
-                    work.push_back((path, named, default, nested_se));
+                    work.push_back((path, named, default, nested_se, namespace));
                 }
                 Stmt::ExportDecl {
                     inner: None,
@@ -212,6 +239,18 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
                         injections.push(inner);
                         continue;
                     }
+                    // P13-S2 namespace import path: inject every value
+                    // decl with its original name (no `want` filter, no
+                    // alias rename) so the synthetic namespace object
+                    // can reference them. The struct literal builds
+                    // below after the walk finishes.
+                    if namespace_alias.is_some()
+                        && let Some(name) = decl_name(&inner)
+                    {
+                        namespace_fields.push(name);
+                        injections.push(inner);
+                        continue;
+                    }
                     if let Some(name) = decl_name(&inner)
                         && want.contains(name.as_str())
                     {
@@ -232,6 +271,28 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
                 }
             }
         }
+
+        // P13-S2 — materialize the namespace alias as a synthetic
+        // `let <alias> = { name1: name1, name2: name2, ... }`. Each
+        // field's value is an `Ident(name)` referencing the just-
+        // injected lib decl, so member access (`<alias>.<name>`)
+        // resolves through the struct's field type.
+        if let Some(ns_name) = namespace_alias {
+            let mut fields: Vec<(String, crate::ast::ExprId)> =
+                Vec::with_capacity(namespace_fields.len());
+            for name in &namespace_fields {
+                let id = ast.add_expr(Expr::Ident(name.clone()));
+                fields.push((name.clone(), id));
+            }
+            let obj_id = ast.add_expr(Expr::ObjectLit { fields });
+            injections.push(Stmt::LetDecl {
+                mutable: false,
+                name: ns_name,
+                type_ann: None,
+                init: obj_id,
+                is_var: false,
+            });
+        }
     }
 
     if !injections.is_empty() {
@@ -243,16 +304,15 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
 }
 
 fn check_k2_form(
-    source: &str,
+    _source: &str,
     _default: &Option<String>,
-    namespace: &Option<String>,
+    _namespace: &Option<String>,
     _named: &[(String, Option<String>)],
 ) -> Result<(), String> {
-    if namespace.is_some() {
-        return Err(format!(
-            "namespace import (`import * as ns from \"{source}\"`) not supported in K.2"
-        ));
-    }
+    // All four import forms (named / default / namespace / side-effect)
+    // are now lifted through P13-S1/S2/S3. Bare named exports `export { a }
+    // from "./b"` (re-export, no inner) remain rejected at the lib walk
+    // (the P13-S4 surface); other rejects live at parse sites.
     Ok(())
 }
 
