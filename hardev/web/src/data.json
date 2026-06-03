@@ -1,13 +1,13 @@
 {
-  "generatedAt": "2026-06-03T15:48:51.828Z",
+  "generatedAt": "2026-06-03T16:14:02.652Z",
   "hardevVersion": "0.1.14",
   "conformance": {
-    "pass": 708,
+    "pass": 709,
     "fail": 0,
     "skip": 4,
-    "raw": "708/0/4",
-    "source": "/tmp/torajs-conformance-655808b.log",
-    "sourceMtime": "2026-06-03T15:48:04.517Z"
+    "raw": "709/0/4",
+    "source": "/tmp/torajs-conformance-3a1a71a.log",
+    "sourceMtime": "2026-06-03T16:12:44.182Z"
   },
   "test262": {
     "ranAt": "2026-05-23T23:17:45Z",
@@ -28,17 +28,17 @@
     "passRateTrAccepted": 71.17
   },
   "torajs": {
-    "commit": "8af13bf",
-    "commitSubject": "docs(roadmap): mark P12.1 closed — self-ported Ryū wired",
+    "commit": "12ded8a",
+    "commitSubject": "docs(roadmap): mark P12.3 closed — toFixed/toPrecision spec fixes",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
-      "pass": 708,
+      "pass": 709,
       "fail": 0,
       "skip": 4,
-      "raw": "708/0/4",
-      "source": "/tmp/torajs-conformance-655808b.log",
-      "sourceMtime": "2026-06-03T15:48:04.517Z"
+      "raw": "709/0/4",
+      "source": "/tmp/torajs-conformance-3a1a71a.log",
+      "sourceMtime": "2026-06-03T16:12:44.182Z"
     }
   },
   "roadmap": [
@@ -611,6 +611,30 @@
   },
   "commits": [
     {
+      "hash": "12ded8a",
+      "subject": "docs(roadmap): mark P12.3 closed — toFixed/toPrecision spec fixes"
+    },
+    {
+      "hash": "6e18f51",
+      "subject": "test(num): toFixed/toPrecision spec edges lock-in (P12.3)"
+    },
+    {
+      "hash": "3a1a71a",
+      "subject": "fix(num): toFixed >=1e21 + toPrecision keep trailing zeros (P12.3)"
+    },
+    {
+      "hash": "0488f24",
+      "subject": "docs(roadmap): mark P12.2 closed — parseFloat/parseInt audit + fixture"
+    },
+    {
+      "hash": "be8ca95",
+      "subject": "test(num): parseInt / parseFloat edge cases lock-in (P12.2)"
+    },
+    {
+      "hash": "70f18f4",
+      "subject": "data(hardev): dashboard snapshot @ 8af13bf (P12.1 close)"
+    },
+    {
       "hash": "8af13bf",
       "subject": "docs(roadmap): mark P12.1 closed — self-ported Ryū wired"
     },
@@ -633,33 +657,9 @@
     {
       "hash": "b5a6b39",
       "subject": "docs(roadmap): mark P11.6 + P11 phase close"
-    },
-    {
-      "hash": "ae7a799",
-      "subject": "test(str): normalize NFC/NFD/NFKC/NFKD + form arg fixtures (P11.6-S5)"
-    },
-    {
-      "hash": "3262e32",
-      "subject": "feat(str): wire String.prototype.normalize via SSA dispatch (P11.6-S4)"
-    },
-    {
-      "hash": "35c7001",
-      "subject": "feat(str): canonical compose + normalize driver (P11.6-S3)"
-    },
-    {
-      "hash": "e3c12d0",
-      "subject": "feat(str): decompose + canonical_order (P11.6-S2)"
-    },
-    {
-      "hash": "fec7cb4",
-      "subject": "feat(str): UCD normalize tables + Hangul algorithmic (P11.6-S1)"
-    },
-    {
-      "hash": "d8b6915",
-      "subject": "docs(roadmap): mark P11.1-P11.5 closed, add commit refs"
     }
   ],
-  "headSha": "8af13bf",
+  "headSha": "12ded8a",
   "autorun": {
     "total": 54,
     "baselineTarget": 10,
