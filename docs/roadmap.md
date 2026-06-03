@@ -1298,7 +1298,18 @@ exactly, incl. the long-tail rounding cases.
       rejection). Existing parse.rs (parse_int + parse_float) is feature-
       complete; ship is fixture-only to lock parity against future
       refactor regressions.
-- [ ] **P12.3** IEEE rounding modes for `toFixed` / `toPrecision`
+- [x] **P12.3** IEEE rounding modes for `toFixed` / `toPrecision`
+      (`3a1a71a` substrate fix + `6e18f51` fixture lock-in). Two spec-
+      conformance bugs fixed in `crates/torajs-num/src/format.rs`:
+      (1) toFixed didn't honor ES §22.1.3.32 "|n| >= 10^21 → ToString(n)"
+      so `(1e21).toFixed(2)` emitted `"999999999999999868928.00"` instead
+      of `"1e+21"`; (2) toPrecision ran a C-subset `strip_trailing_zeros_
+      in_frac` post-process that destroyed JS spec §22.1.3.36 precision-
+      indicating zeros — `(1.5).toPrecision(3)` → `"1.50"` (was `"1.5"`),
+      `(0).toPrecision(3)` → `"0.00"` (was `"0"`),
+      `(1e-7).toPrecision(2)` → `"1.0e-7"` (was `"1e-7"`),
+      `(100).toPrecision(2)` → `"1.0e+2"` (was `"1e+2"`). 18-case fixture
+      added; conformance gate 709/0/4 (was 708, +1 P12.2 +1 P12.3).
 - [ ] **P12.4** BigInt full operator coverage incl. `**`, mixed-shift,
       spec-conformant overflow
 
