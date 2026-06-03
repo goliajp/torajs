@@ -452,23 +452,28 @@ pub(crate) fn try_lower_method_call(
         };
         return Some(Operand::Value(v));
     }
-    /* v0.2 #6 — s.normalize() ASCII identity stub.
-     * Returns a clone of the receiver via str_repeat
-     * with N=1 (already-existing intrinsic). For ASCII
-     * strings (the dominant test262 case) all four
-     * NFC/NFD/NFKC/NFKD forms are byte-identical with
-     * the input. Multi-byte UTF-8 normalization is
-     * deferred to v1.0 with the rest of Unicode work. */
+    // P11.6-S4 — `s.normalize(form?)` per ES §22.1.3.13. Routes to
+    // `__torajs_str_normalize(s, form)`. Default `form` is the
+    // interned `"NFC"` literal (per ES step 2: form coerces to
+    // "NFC" when undefined). The runtime intrinsic parses the form
+    // string, raises `RangeError` via the cross-TU throw stub on
+    // invalid forms, and otherwise returns a freshly-allocated Str
+    // holding the normalized result. The per-call `emit_throw_check`
+    // propagates the throw to the user's `try/catch` before the
+    // result flows downstream.
     if recv_ty == Type::Str && method == "normalize" {
+        let form_op = if args.is_empty() {
+            Operand::Value(ctx.intern_string_literal("NFC"))
+        } else {
+            ctx.lower_expr(args[0])
+        };
         let v = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::Call(
-                ctx.intrinsics.str_repeat,
-                vec![recv_op, Operand::ConstI64(1)],
-            ),
+            InstKind::Call(ctx.intrinsics.str_normalize, vec![recv_op, form_op]),
             Type::Str,
             None,
         );
+        ctx.emit_throw_check(None);
         return Some(Operand::Value(v));
     }
     // String methods.

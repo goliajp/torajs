@@ -4,16 +4,28 @@
 //! - S1: generator + embed tables in `norm_table.rs` + smoke tests.
 //! - S2: `decompose` (recursive canonical / compat + Hangul
 //!   algorithmic) + `canonical_order` (CCC stable reorder).
-//! - S3 (current): `compose` (canonical primary composite + Hangul
-//!   L+V / LV+T) + `normalize` driver that fuses decompose + compose
-//!   per UAX #15 §3 D117.
-//! - S4: SSA dispatch for `String.prototype.normalize(form?)`.
+//! - S3: `compose` (canonical primary composite + Hangul L+V /
+//!   LV+T) + `normalize` driver that fuses decompose + compose per
+//!   UAX #15 §3 D117.
+//! - S4 (current): `__torajs_str_normalize` FFI + form parse +
+//!   `__torajs_throw_range_error` on invalid form. Driven by SSA
+//!   dispatch in `ssa_lower_str::String.prototype.normalize`.
 //! - S5: fixture pack + integration ship.
 
 #![allow(dead_code)]
 
+use crate::block::StrBlock;
 use crate::norm_table::{lookup_ccc, lookup_composite, lookup_decomp};
+use crate::transform::case::{cp_cu_len, decode_cp_at, encode_cp_utf16_le, str_view};
 use alloc::vec::Vec;
+
+unsafe extern "C" {
+    /// `torajs-throw`'s cross-TU `RangeError` raise (see
+    /// `transform::construct` for the same extern). Used by
+    /// `__torajs_str_normalize` for `form` values outside the
+    /// `{NFC, NFD, NFKC, NFKD}` set per ES §22.1.3.13.
+    fn __torajs_throw_range_error(msg: *const u8);
+}
 
 /// Hangul algorithmic constants per UAX #15 D118-D119.
 pub(crate) const SBASE: u32 = 0xAC00;
@@ -196,6 +208,167 @@ pub(crate) fn normalize(cps: &[u32], compat: bool, compose_phase: bool, out: &mu
     if compose_phase {
         compose(out);
     }
+}
+
+/// Form tag for [`__torajs_str_normalize`] / `parse_form`. Order
+/// matters only for the (compat, compose) tuple mapping; SSA
+/// dispatch does not depend on these values.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum NormForm {
+    Nfc,
+    Nfd,
+    Nfkc,
+    Nfkd,
+}
+
+impl NormForm {
+    /// `(compat, compose)` per UAX #15 §3 D40-D43:
+    /// - NFD  = canonical decompose only
+    /// - NFC  = canonical decompose + canonical compose
+    /// - NFKD = compat decompose only
+    /// - NFKC = compat decompose + canonical compose
+    #[inline]
+    pub(crate) fn flags(self) -> (bool, bool) {
+        match self {
+            NormForm::Nfd => (false, false),
+            NormForm::Nfc => (false, true),
+            NormForm::Nfkd => (true, false),
+            NormForm::Nfkc => (true, true),
+        }
+    }
+}
+
+/// Match the bytes of a form Str against the four ASCII literals.
+/// `form_payload` is the raw payload of the form Str (Latin-1 or
+/// UTF-16 LE per `is_latin1`). Returns `None` for anything else.
+pub(crate) fn parse_form(
+    form_payload: &[u8],
+    form_length: u32,
+    is_latin1: bool,
+) -> Option<NormForm> {
+    // All four valid forms are ASCII-only, so under Latin-1 storage
+    // they are a straight byte slice; under UTF-16 LE storage their
+    // bytes look like `N\0F\0C\0`. We match both shapes without
+    // allocating an intermediate buffer.
+    if is_latin1 {
+        let bytes = &form_payload[..form_length as usize];
+        match bytes {
+            b"NFC" => Some(NormForm::Nfc),
+            b"NFD" => Some(NormForm::Nfd),
+            b"NFKC" => Some(NormForm::Nfkc),
+            b"NFKD" => Some(NormForm::Nfkd),
+            _ => None,
+        }
+    } else {
+        // UTF-16 LE: each cu is 2 bytes, high byte must be 0 for
+        // every ASCII cp; bail otherwise.
+        let cu = form_length as usize;
+        let bytes = &form_payload[..cu * 2];
+        let mut ascii = [0u8; 4];
+        if cu > 4 {
+            return None;
+        }
+        for i in 0..cu {
+            if bytes[i * 2 + 1] != 0 {
+                return None;
+            }
+            ascii[i] = bytes[i * 2];
+        }
+        match &ascii[..cu] {
+            b"NFC" => Some(NormForm::Nfc),
+            b"NFD" => Some(NormForm::Nfd),
+            b"NFKC" => Some(NormForm::Nfkc),
+            b"NFKD" => Some(NormForm::Nfkd),
+            _ => None,
+        }
+    }
+}
+
+/// Encode `out_cps` into a fresh refcount=1 Str block, picking
+/// Latin-1 when every cp fits in `u8`, UTF-16 LE otherwise. Used by
+/// [`__torajs_str_normalize`]; mirrors `transform::case::build_block`
+/// but lives here so `normalize` does not reach into a sibling
+/// module's private API.
+fn build_normalized_block(out_cps: &[u32]) -> *mut u8 {
+    let mut max_cp: u32 = 0;
+    let mut out_cu: u32 = 0;
+    for &cp in out_cps {
+        if cp > max_cp {
+            max_cp = cp;
+        }
+        out_cu += cp_cu_len(cp);
+    }
+    let out_latin1 = max_cp <= 0xFF;
+    let mut block = StrBlock::alloc_with_encoding(out_cu, out_latin1);
+    if out_cu == 0 {
+        return block.into_raw();
+    }
+    let byte_cnt = if out_latin1 { out_cu } else { out_cu * 2 };
+    let dst = unsafe { block.as_bytes_mut(byte_cnt) };
+    if out_latin1 {
+        for (i, &cp) in out_cps.iter().enumerate() {
+            dst[i] = cp as u8;
+        }
+    } else {
+        let mut buf: Vec<u8> = Vec::with_capacity(byte_cnt as usize);
+        for &cp in out_cps {
+            encode_cp_utf16_le(cp, &mut buf);
+        }
+        debug_assert_eq!(buf.len(), byte_cnt as usize);
+        dst.copy_from_slice(&buf);
+    }
+    block.into_raw()
+}
+
+/// Decode a Str payload into a `Vec<u32>` of code points. Handles
+/// surrogate pair combining for UTF-16 storage so that the cp stream
+/// matches the JS `for-of` shape used by the rest of the module.
+fn decode_payload_to_cps(payload: &[u8], total_cu: usize, is_latin1: bool) -> Vec<u32> {
+    let mut cps: Vec<u32> = Vec::with_capacity(total_cu);
+    let mut i = 0;
+    while i < total_cu {
+        let (cp, adv) = decode_cp_at(payload, i, total_cu, is_latin1);
+        cps.push(cp);
+        i += adv;
+    }
+    cps
+}
+
+/// `s.normalize(form)` per ES §22.1.3.13. Allocs a fresh
+/// refcount=1 Str block holding the normalized form, or — when
+/// `form` parses to none of NFC/NFD/NFKC/NFKD — records a pending
+/// `RangeError` via `__torajs_throw_range_error` and returns the
+/// receiver `s` unchanged (the SSA-emitted `emit_throw_check` at
+/// the call site propagates to user `try/catch` before the result
+/// is consumed).
+///
+/// # Safety
+///
+/// `s` and `form` must each be valid Str heap blocks (or `null` is
+/// not accepted — SSA always passes a literal `"NFC"` default when
+/// no user arg).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_normalize(s: *const u8, form: *const u8) -> *mut u8 {
+    let (form_payload, form_length, form_is_latin1) = unsafe { str_view(form) };
+    let parsed = parse_form(form_payload, form_length, form_is_latin1);
+    let Some(nf) = parsed else {
+        // Invalid form → RangeError. Return a cheap stand-in so
+        // the call site (which always uses the result via the
+        // throw-check guard) has a non-null pointer. Reusing the
+        // receiver matches the spec's "never observe a successful
+        // value when throwing" — emit_throw_check kills the path
+        // before the value flows downstream.
+        unsafe {
+            __torajs_throw_range_error(b"Invalid normalization form\0".as_ptr());
+        }
+        return s as *mut u8;
+    };
+    let (compat, compose_phase) = nf.flags();
+    let (payload, length, is_latin1) = unsafe { str_view(s) };
+    let cps = decode_payload_to_cps(payload, length as usize, is_latin1);
+    let mut out = Vec::new();
+    normalize(&cps, compat, compose_phase, &mut out);
+    build_normalized_block(&out)
 }
 
 /// Hangul algorithmic composition. Returns `Some(LV)` for L+V or

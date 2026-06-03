@@ -160,6 +160,7 @@ pub use lookup::{
     __torajs_str_index_of_from, __torajs_str_last_index_of, __torajs_str_last_index_of_from,
     __torajs_str_locale_compare, __torajs_str_starts_with, __torajs_str_starts_with_from,
 };
+pub use normalize::__torajs_str_normalize;
 pub use print::{__torajs_str_print, __torajs_str_print_err, __torajs_substr_print};
 pub use slice::__torajs_str_slice;
 pub use split::ops::{

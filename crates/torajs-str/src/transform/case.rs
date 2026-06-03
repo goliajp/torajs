@@ -46,7 +46,7 @@ use torajs_rc::HeapHeader;
 // ============================================================
 
 #[inline]
-unsafe fn str_view<'a>(p: *const u8) -> (&'a [u8], u32, bool) {
+pub(crate) unsafe fn str_view<'a>(p: *const u8) -> (&'a [u8], u32, bool) {
     let length = unsafe { (p.add(STR_LEN_OFF) as *const u32).read() };
     let header = unsafe { &*(p as *const HeapHeader) };
     let is_latin1 = (header.flags & STR_FLAG_IS_LATIN1) != 0;
@@ -105,7 +105,12 @@ pub fn to_lower_into(src: &[u8], dst: &mut [u8]) {
 /// `combine_or_lone` shape in `crate::code_point` but operates on
 /// raw payload bytes so we don't depend on Str-block layout here.
 #[inline]
-fn decode_cp_at(payload: &[u8], cu_idx: usize, total_cu: usize, is_latin1: bool) -> (u32, usize) {
+pub(crate) fn decode_cp_at(
+    payload: &[u8],
+    cu_idx: usize,
+    total_cu: usize,
+    is_latin1: bool,
+) -> (u32, usize) {
     if is_latin1 {
         (payload[cu_idx] as u32, 1)
     } else {
@@ -130,7 +135,7 @@ fn decode_cp_at(payload: &[u8], cu_idx: usize, total_cu: usize, is_latin1: bool)
 /// How many UTF-16 code units does `cp` occupy? 2 for supplementary
 /// plane, 1 otherwise.
 #[inline]
-fn cp_cu_len(cp: u32) -> u32 {
+pub(crate) fn cp_cu_len(cp: u32) -> u32 {
     if cp > 0xFFFF { 2 } else { 1 }
 }
 
@@ -161,7 +166,7 @@ fn map_cp<'a>(cp: u32, upper: bool, holder: &'a mut [u32; 1]) -> &'a [u32] {
 /// Encode `cp` as UTF-16 LE bytes onto `out` (2 or 4 bytes
 /// depending on plane).
 #[inline]
-fn encode_cp_utf16_le(cp: u32, out: &mut Vec<u8>) {
+pub(crate) fn encode_cp_utf16_le(cp: u32, out: &mut Vec<u8>) {
     if cp <= 0xFFFF {
         let unit = cp as u16;
         out.push((unit & 0xFF) as u8);

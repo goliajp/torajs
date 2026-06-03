@@ -1838,6 +1838,13 @@ fn lower_inner(
         &[Type::I64],
         Type::Str,
     );
+    let str_normalize_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_str_normalize",
+        &[Type::Str, Type::Str],
+        Type::Str,
+    );
     let str_at_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -4912,6 +4919,7 @@ fn lower_inner(
         str_pad_end: str_pad_end_id,
         str_from_char_code: str_from_char_code_id,
         str_from_code_point: str_from_code_point_id,
+        str_normalize: str_normalize_id,
         str_at: str_at_id,
         str_replace: str_replace_id,
         str_replace_all: str_replace_all_id,
@@ -5761,6 +5769,7 @@ pub(crate) struct Intrinsics {
     pub(crate) str_pad_end: FuncId,
     pub(crate) str_from_char_code: FuncId,
     pub(crate) str_from_code_point: FuncId,
+    pub(crate) str_normalize: FuncId,
     pub(crate) str_at: FuncId,
     pub(crate) str_replace: FuncId,
     pub(crate) str_replace_all: FuncId,
@@ -26082,7 +26091,7 @@ impl<'a> LowerCtx<'a> {
     /// active in this fn — emit drops + ret a sentinel so the caller's
     /// own throw_check picks it up. Skips entirely for runtime intrinsics
     /// (they never throw).
-    fn emit_throw_check(&mut self, target: Option<FuncId>) {
+    pub(crate) fn emit_throw_check(&mut self, target: Option<FuncId>) {
         if let Some(fid) = target {
             if self.is_intrinsic(fid) {
                 return;
