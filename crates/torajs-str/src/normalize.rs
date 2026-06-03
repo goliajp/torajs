@@ -2,15 +2,17 @@
 //!
 //! Sub-step status:
 //! - S1: generator + embed tables in `norm_table.rs` + smoke tests.
-//! - S2 (current): `decompose` (recursive canonical / compat +
-//!   Hangul algorithmic) + `canonical_order` (CCC stable reorder).
-//! - S3: `compose` (canonical + Hangul).
+//! - S2: `decompose` (recursive canonical / compat + Hangul
+//!   algorithmic) + `canonical_order` (CCC stable reorder).
+//! - S3 (current): `compose` (canonical primary composite + Hangul
+//!   L+V / LV+T) + `normalize` driver that fuses decompose + compose
+//!   per UAX #15 §3 D117.
 //! - S4: SSA dispatch for `String.prototype.normalize(form?)`.
 //! - S5: fixture pack + integration ship.
 
 #![allow(dead_code)]
 
-use crate::norm_table::{lookup_ccc, lookup_decomp};
+use crate::norm_table::{lookup_ccc, lookup_composite, lookup_decomp};
 use alloc::vec::Vec;
 
 /// Hangul algorithmic constants per UAX #15 D118-D119.
@@ -119,6 +121,80 @@ fn stable_ccc_sort(run: &mut [u32]) {
         if !swapped {
             break;
         }
+    }
+}
+
+/// `(a, b) -> composite` primary composite mapping, Hangul-aware.
+/// Wraps the table lookup with the algorithmic Hangul L+V / LV+T
+/// shortcut. Used by `compose` and exposed for the unit-test surface.
+#[inline]
+pub(crate) fn primary_composite(a: u32, b: u32) -> Option<u32> {
+    if let Some(h) = hangul_compose(a, b) {
+        return Some(h);
+    }
+    lookup_composite(a, b)
+}
+
+/// UAX #15 §3 D117 canonical composition. Operates in place on a
+/// previously-decomposed + canonical-ordered sequence: pair each
+/// combining mark with the last starter when the (starter, mark)
+/// primary composite exists AND the mark is not blocked by an
+/// intervening same-or-higher-CCC mark.
+///
+/// `last_starter_out` is the write index of the most recent emitted
+/// starter; `max_ccc_since_starter` is the largest CCC observed in
+/// the marks between that starter and the read cursor (0 when no
+/// marks have been emitted since). A mark `cur` with CCC `c` is
+/// blocked iff `c <= max_ccc_since_starter` — in that case it cannot
+/// reach the starter, so it must just be re-emitted as-is.
+pub(crate) fn compose(cps: &mut Vec<u32>) {
+    let n = cps.len();
+    if n < 2 {
+        return;
+    }
+    let mut w = 1usize; // write cursor; cps[0] is always kept
+    let mut last_starter_w: Option<usize> = if lookup_ccc(cps[0]) == 0 {
+        Some(0)
+    } else {
+        None
+    };
+    let mut max_ccc_since_starter: u8 = 0;
+    for read in 1..n {
+        let cur = cps[read];
+        let cur_ccc = lookup_ccc(cur);
+        let mut combined = false;
+        if let Some(starter_w) = last_starter_w {
+            let blocked = cur_ccc != 0 && max_ccc_since_starter >= cur_ccc;
+            if !blocked {
+                if let Some(composite) = primary_composite(cps[starter_w], cur) {
+                    cps[starter_w] = composite;
+                    combined = true;
+                }
+            }
+        }
+        if !combined {
+            cps[w] = cur;
+            if cur_ccc == 0 {
+                last_starter_w = Some(w);
+                max_ccc_since_starter = 0;
+            } else if cur_ccc > max_ccc_since_starter {
+                max_ccc_since_starter = cur_ccc;
+            }
+            w += 1;
+        }
+    }
+    cps.truncate(w);
+}
+
+/// Convenience NFD / NFC / NFKD / NFKC driver: decompose into `out`
+/// (canonical or compat per `compat`), then optionally compose
+/// (canonical primary composite + Hangul). `compose_phase = false`
+/// stops after canonical order = NFD/NFKD; `true` continues to
+/// NFC/NFKC.
+pub(crate) fn normalize(cps: &[u32], compat: bool, compose_phase: bool, out: &mut Vec<u32>) {
+    decompose(cps, compat, out);
+    if compose_phase {
+        compose(out);
     }
 }
 
@@ -428,5 +504,139 @@ mod tests {
         // All starters, no marks — nothing to reorder.
         let src = vec![b'h' as u32, b'i' as u32, 0x4E2D, 0x6587];
         assert_eq!(dec(&src, false), src);
+    }
+
+    // ---------------- S3: compose + normalize driver ----------------
+
+    fn comp(cps: &[u32]) -> Vec<u32> {
+        let mut v = cps.to_vec();
+        compose(&mut v);
+        v
+    }
+
+    fn nfc(cps: &[u32]) -> Vec<u32> {
+        let mut out = Vec::new();
+        normalize(cps, false, true, &mut out);
+        out
+    }
+
+    fn nfkc(cps: &[u32]) -> Vec<u32> {
+        let mut out = Vec::new();
+        normalize(cps, true, true, &mut out);
+        out
+    }
+
+    #[test]
+    fn primary_composite_canonical_pair() {
+        assert_eq!(primary_composite(0x0065, 0x0301), Some(0x00E9));
+        assert_eq!(primary_composite(0x0041, 0x0301), Some(0x00C1));
+    }
+
+    #[test]
+    fn primary_composite_hangul_l_v() {
+        // ᄀ + ᅡ -> 가
+        assert_eq!(primary_composite(0x1100, 0x1161), Some(0xAC00));
+    }
+
+    #[test]
+    fn primary_composite_hangul_lv_t() {
+        // 가 + ᆨ -> 각
+        assert_eq!(primary_composite(0xAC00, 0x11A8), Some(0xAC01));
+    }
+
+    #[test]
+    fn compose_canonical_e_acute_in_place() {
+        assert_eq!(comp(&[0x0065, 0x0301]), vec![0x00E9]);
+    }
+
+    #[test]
+    fn compose_no_starter_passthrough() {
+        // Starts with a combining mark — no preceding starter to bind
+        // to; mark must pass through unchanged.
+        assert_eq!(comp(&[0x0301]), vec![0x0301]);
+        // Two combining marks alone.
+        assert_eq!(comp(&[0x0301, 0x0327]), vec![0x0301, 0x0327]);
+    }
+
+    #[test]
+    fn compose_blocked_by_higher_ccc() {
+        // e + ring(230) + acute(230): ring is not blocked, but (e,
+        // ring) has no composite in the table (this pair does not
+        // form a precomposed cp). Acute is blocked: max_ccc since
+        // starter = 230 (ring) and acute's CCC is 230 (not strictly
+        // greater), so it cannot reach e.
+        assert_eq!(
+            comp(&[0x0065, 0x030A, 0x0301]),
+            vec![0x0065, 0x030A, 0x0301]
+        );
+    }
+
+    #[test]
+    fn compose_hangul_round_trips() {
+        // L + V -> LV
+        assert_eq!(comp(&[0x1100, 0x1161]), vec![0xAC00]);
+        // L + V + T -> LVT (first L+V composes to LV, then LV+T)
+        assert_eq!(comp(&[0x1100, 0x1161, 0x11A8]), vec![0xAC01]);
+    }
+
+    #[test]
+    fn compose_starter_resets_run() {
+        // a + acute(230) (composes to á) + b + acute(230) (composes
+        // to b + acute = b́; b + acute has no composite, so it stays).
+        // Verifies a starter resets max_ccc tracking.
+        let out = comp(&[b'a' as u32, 0x0301, b'b' as u32, 0x0301]);
+        assert_eq!(out, vec![0x00E1, b'b' as u32, 0x0301]);
+    }
+
+    #[test]
+    fn nfc_idempotent_on_precomposed() {
+        // NFC of already-NFC input should round-trip.
+        assert_eq!(nfc(&[0x00E9]), vec![0x00E9]); // é
+        assert_eq!(
+            nfc(&[b'h' as u32, b'i' as u32]),
+            vec![b'h' as u32, b'i' as u32]
+        );
+    }
+
+    #[test]
+    fn nfc_recomposes_decomposed_input() {
+        // NFC of decomposed input -> composed.
+        assert_eq!(nfc(&[0x0065, 0x0301]), vec![0x00E9]);
+        // Hangul jamo -> syllable.
+        assert_eq!(nfc(&[0x1100, 0x1161]), vec![0xAC00]);
+        assert_eq!(nfc(&[0x1100, 0x1161, 0x11A8]), vec![0xAC01]);
+    }
+
+    #[test]
+    fn nfc_ignores_compat_mapping() {
+        // ﬁ (U+FB01) only has a `<compat>` decomposition. NFC must
+        // not expand it; result stays as ﬁ.
+        assert_eq!(nfc(&[0xFB01]), vec![0xFB01]);
+    }
+
+    #[test]
+    fn nfkc_expands_and_composes() {
+        // ﬁ -> NFKD -> f + i. There is no f+i composite, so NFKC
+        // result is f + i.
+        assert_eq!(nfkc(&[0xFB01]), vec![0x0066, 0x0069]);
+        // µ (U+00B5 MICRO SIGN) -> NFKD -> μ (U+03BC GREEK SMALL
+        // LETTER MU). No further composition.
+        assert_eq!(nfkc(&[0x00B5]), vec![0x03BC]);
+    }
+
+    #[test]
+    fn compose_canonical_reorder_then_compose() {
+        // Source (decomposed-with-out-of-order marks):
+        //   a + acute(230) + cedilla(202)
+        // Canonical order swaps to: a + cedilla(202) + acute(230)
+        // Compose: a + cedilla -> no composite (a-cedilla is not a
+        // precomposed cp in Latin-1), so cedilla stays. Then acute
+        // is blocked by cedilla? No — cedilla CCC=202 < acute CCC=230,
+        // so acute is NOT blocked. But (a, acute) has composite á...
+        // Wait: cedilla is BETWEEN a and acute in the post-reorder
+        // string, so max_ccc_since_starter = 202 when we get to
+        // acute. acute_ccc(230) > 202 => not blocked. So acute can
+        // still compose with a -> á + cedilla.
+        assert_eq!(nfc(&[b'a' as u32, 0x0301, 0x0327]), vec![0x00E1, 0x0327]);
     }
 }
