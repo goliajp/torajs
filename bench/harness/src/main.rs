@@ -3,6 +3,7 @@ mod case;
 mod compare;
 mod report;
 mod runner;
+mod score;
 mod version_check;
 
 use anyhow::{Context, Result};
@@ -65,6 +66,14 @@ fn print_usage() {
         "        --allow-artifact-delta c:r  justify intended per-case artifact_bytes change(s)"
     );
     println!();
+    println!(
+        "    score <result.json>           per-category weighted geomean of torajs / comparator"
+    );
+    println!(
+        "                                  run_ms, sourced from bench/categories.toml (catches"
+    );
+    println!("                                  category-coverage drift; flags unmapped cases)");
+    println!();
     println!("    --help, -h                    print this help");
 }
 
@@ -100,6 +109,11 @@ fn main() -> ExitCode {
             Err(e) => fatal(e),
         },
         Some("compare") => match compare::compare(&args[1..]) {
+            Ok(true) => ExitCode::SUCCESS,
+            Ok(false) => ExitCode::from(1),
+            Err(e) => fatal(e),
+        },
+        Some("score") => match score::score(&args[1..]) {
             Ok(true) => ExitCode::SUCCESS,
             Ok(false) => ExitCode::from(1),
             Err(e) => fatal(e),

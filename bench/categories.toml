@@ -1,0 +1,126 @@
+# bench/categories.toml — taxonomy + weight for `bench-harness score`.
+#
+# Each case must appear in exactly one category. Cases not listed here
+# are tallied under category "uncategorized" with weight 0 (excluded
+# from the weighted geomean — show up as a warning in the score
+# output so unmapped cases stay visible).
+#
+# Weights are project-judgement integers chosen to reflect approximate
+# real-world hot-path frequency (NOT theoretical importance) — JSON +
+# object access + string ops dominate real workloads; pure-compute
+# microbenchmarks are diagnostic, not foundational. They sum to 100
+# for legibility; absolute scale doesn't matter (only ratios).
+#
+# Reasoning for the current numbers (2026-06-03 baseline; revise
+# whenever new categories are added or a category's case-count shifts
+# substantially):
+#
+# - oop / json / string : real-world #1-3 hot paths (every web app
+#   touches all three on the request critical path).
+# - array / promise : modern JS heavy.
+# - startup : critical UX metric — small artifact + fast startup is
+#   what torajs differentiates on.
+# - compute / closure : narrower; loop-bound microbenches are
+#   diagnostic of codegen quality but don't drive real workloads.
+# - multibyte-string : growing importance (i18n) — separated from
+#   the ASCII `string` bucket so the P11.1 hybrid-encoding investment
+#   shows up explicitly.
+# - generator / container / throw : niche.
+#
+# Substrate gaps documented separately (no cases yet — bench
+# coverage backlog): regex, map_set, math_transcendental, typed_array,
+# inheritance, real_app.
+
+[categories.compute]
+weight = 5
+cases = [
+  "ackermann",
+  "collatz",
+  "fib40",
+  "gcd1m",
+  "mandelbrot",
+  "popcount",
+  "prime_count",
+  "generic-id-1m",
+  "generic-pair-1m",
+]
+
+[categories.array]
+weight = 12
+cases = [
+  "array-map-1m",
+  "array-sum-1m",
+  "stack-pop-1m",
+  "array-sort-100k",
+]
+
+[categories.string]
+weight = 14
+cases = [
+  "csv-rebuild-100k",
+  "csv-trim-100k",
+  "split-only-100k",
+  "rpn-eval-100k",
+  "str-replace-100k",
+]
+
+[categories.multibyte_string]
+weight = 6
+cases = ["multibyte-concat-100k"]
+
+[categories.json]
+weight = 14
+cases = ["json-stringify-100k"]
+
+[categories.oop]
+weight = 14
+cases = ["class-method-100k"]
+
+[categories.promise]
+weight = 10
+cases = [
+  "async-fn-call-100k",
+  "promise-all-1k",
+  "promise-await-100k",
+  "promise-chain-1k",
+  "promise-then-100k",
+]
+
+[categories.closure]
+weight = 4
+cases = ["closure-counter", "closure-pipeline-1m"]
+
+[categories.generator]
+weight = 4
+cases = ["generator-yield-100k"]
+
+[categories.container]
+weight = 4
+cases = ["fifo-queue-100k"]
+
+[categories.throw]
+weight = 3
+cases = ["throw-catch-100k"]
+
+[categories.startup]
+weight = 10
+cases = ["startup"]
+
+# Substrate gaps — categories with no cases yet (bench coverage
+# backlog; substrate work required before these can ship):
+#
+#   regex                 — Regex.test/exec substrate gap
+#                           (str.replace(/regex/) works; pure Regex
+#                           prototype methods don't yet).
+#   map_set               — Map.get / Set ops return Nullable(Any);
+#                           `as number` unbox returns garbage. Needs
+#                           the Any-unbox substrate fix.
+#   math_transcendental   — `let s: number = 0; s = s + Math.sin(x)`
+#                           reinterprets f64 bits as i64 in accumulate.
+#   typed_array           — Uint8Array / Float64Array not yet wired.
+#   inheritance           — virtual dispatch across base / derived
+#                           untested; bench would need a multi-class
+#                           hierarchy fixture.
+#   real_app              — small tokenizer / parser / state-machine
+#                           workload, the kind Octane / JetStream
+#                           cover; currently 0 cases.
