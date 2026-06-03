@@ -24,31 +24,98 @@
 //! `ssa_inkwell::is_alloc_intrinsic`.
 
 use crate::block::StrBlock;
-use crate::layout::{STR_DATA_OFF, STR_LEN_OFF};
+use crate::layout::{STR_DATA_OFF, STR_FLAG_IS_LATIN1, STR_LEN_OFF};
+use alloc::vec::Vec;
+use torajs_rc::HeapHeader;
 
 // ============================================================
 // Layout-aware FFI helpers (sub-module-local)
 // ============================================================
 
+// `str_len` / `str_bytes` were used by the pre-S2.5 byte-stream
+// helpers; post-S2.5 every wrapper above goes through `str_view`.
+// Removed to keep the module dead-code-clean.
+
+/// Read a Str's `(payload_bytes, code_unit_count, is_latin1)` view.
+/// `payload` length = `length × (1 for Latin-1 | 2 for UTF-16)`.
 #[inline]
-unsafe fn str_len(p: *const u8) -> u32 {
-    unsafe { (p.add(STR_LEN_OFF) as *const u32).read() }
+unsafe fn str_view<'a>(p: *const u8) -> (&'a [u8], u32, bool) {
+    let length = unsafe { (p.add(STR_LEN_OFF) as *const u32).read() };
+    let header = unsafe { &*(p as *const HeapHeader) };
+    let is_latin1 = (header.flags & STR_FLAG_IS_LATIN1) != 0;
+    let byte_cnt = if is_latin1 {
+        length as usize
+    } else {
+        (length as usize) * 2
+    };
+    let payload = unsafe { core::slice::from_raw_parts(p.add(STR_DATA_OFF), byte_cnt) };
+    (payload, length, is_latin1)
+}
+
+/// Widen a Latin-1 byte payload to a UTF-16 LE byte buffer.
+fn widen_latin1_to_utf16(src: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(src.len() * 2);
+    for &b in src {
+        out.push(b);
+        out.push(0);
+    }
+    out
+}
+
+/// Cow-shaped owned-or-borrowed byte view used by replace's
+/// per-operand encoding coercion.
+enum PayloadBuf<'a> {
+    Borrowed(&'a [u8]),
+    Owned(Vec<u8>),
+}
+
+impl<'a> AsRef<[u8]> for PayloadBuf<'a> {
+    fn as_ref(&self) -> &[u8] {
+        match self {
+            Self::Borrowed(s) => s,
+            Self::Owned(v) => v.as_slice(),
+        }
+    }
 }
 
 #[inline]
-unsafe fn str_bytes<'a>(p: *const u8, len: u32) -> &'a [u8] {
-    unsafe { core::slice::from_raw_parts(p.add(STR_DATA_OFF), len as usize) }
+fn coerce_payload<'a>(src: &'a [u8], src_is_latin1: bool, out_is_latin1: bool) -> PayloadBuf<'a> {
+    if src_is_latin1 == out_is_latin1 {
+        PayloadBuf::Borrowed(src)
+    } else {
+        // Only Latin-1 → UTF-16 widening is meaningful here; the
+        // out encoding is `s_latin1 && needle_latin1 && repl_latin1`
+        // so any Latin-1 input always agrees with an out=Latin-1
+        // result. UTF-16 → Latin-1 narrowing isn't reachable.
+        PayloadBuf::Owned(widen_latin1_to_utf16(src))
+    }
 }
 
-#[inline]
-fn alloc_str(payload: &[u8]) -> *mut u8 {
-    let out_len = payload.len() as u32;
-    let mut block = StrBlock::alloc(out_len);
-    if !payload.is_empty() {
-        let dst = unsafe { block.as_bytes_mut(out_len) };
-        dst.copy_from_slice(payload);
+/// Build a fresh Str carrying the requested code-unit length and
+/// encoding, then write `byte_count` bytes (≤ payload capacity)
+/// via the provided closure.
+fn build_result_with<F>(length: u32, byte_count: u32, is_latin1: bool, write: F) -> *mut u8
+where
+    F: FnOnce(&mut [u8]),
+{
+    let mut block = StrBlock::alloc_with_encoding(length, is_latin1);
+    if byte_count > 0 {
+        let dst = unsafe { block.as_bytes_mut(byte_count) };
+        write(dst);
     }
     block.into_raw()
+}
+
+/// Fresh copy of `s_payload` under the source's own encoding.
+/// Mirrors `__torajs_str_alloc`'s shape for callers that already
+/// have an encoded payload in-hand.
+fn alloc_str_copy(s_payload: &[u8], s_latin1: bool) -> *mut u8 {
+    let stride: u32 = if s_latin1 { 1 } else { 2 };
+    let byte_cnt = s_payload.len() as u32;
+    let length = byte_cnt / stride;
+    build_result_with(length, byte_cnt, s_latin1, |dst| {
+        dst.copy_from_slice(s_payload)
+    })
 }
 
 // ============================================================
@@ -58,8 +125,21 @@ fn alloc_str(payload: &[u8]) -> *mut u8 {
 /// First non-overlapping occurrence of `needle` in `s`. Empty
 /// needle returns `Some(0)` (matches JS `replace` insert-at-0
 /// semantics). Returns `None` if `needle` exceeds `s` or no match.
+///
+/// Step 1 (default). Use [`find_first_with_stride`] for the
+/// encoding-aware version that keeps candidate positions aligned
+/// to the haystack's code-unit grid.
 #[inline]
 pub fn find_first(s: &[u8], needle: &[u8]) -> Option<usize> {
+    find_first_with_stride(s, needle, 1)
+}
+
+/// First non-overlapping occurrence of `needle` in `s` with the
+/// candidate position stepping by `stride` (1 for Latin-1, 2 for
+/// UTF-16 LE so byte offsets stay u16-aligned). Empty needle hits
+/// at 0.
+#[inline]
+pub fn find_first_with_stride(s: &[u8], needle: &[u8], stride: usize) -> Option<usize> {
     if needle.is_empty() {
         return Some(0);
     }
@@ -72,7 +152,7 @@ pub fn find_first(s: &[u8], needle: &[u8]) -> Option<usize> {
         if &s[i..i + needle.len()] == needle {
             return Some(i);
         }
-        i += 1;
+        i += stride;
     }
     None
 }
@@ -80,8 +160,19 @@ pub fn find_first(s: &[u8], needle: &[u8]) -> Option<usize> {
 /// Count of non-overlapping `needle` matches in `s`. After each
 /// match, scan resumes at `match_idx + needle.len()`. Empty
 /// needle returns 0 (caller short-circuits to a copy of `s`).
+///
+/// Latin-1 default; see [`count_non_overlapping_with_stride`] for
+/// the encoding-aware path.
 #[inline]
 pub fn count_non_overlapping(s: &[u8], needle: &[u8]) -> usize {
+    count_non_overlapping_with_stride(s, needle, 1)
+}
+
+/// Stride-aware non-overlapping match count. Same semantics as
+/// [`count_non_overlapping`], with the between-candidate step
+/// equal to `stride` so UTF-16 LE scans stay u16-aligned.
+#[inline]
+pub fn count_non_overlapping_with_stride(s: &[u8], needle: &[u8], stride: usize) -> usize {
     if needle.is_empty() || needle.len() > s.len() {
         return 0;
     }
@@ -93,7 +184,7 @@ pub fn count_non_overlapping(s: &[u8], needle: &[u8]) -> usize {
             hits += 1;
             i += needle.len();
         } else {
-            i += 1;
+            i += stride;
         }
     }
     hits
@@ -123,11 +214,28 @@ pub fn splice_into(dst: &mut [u8], pre: &[u8], repl: &[u8], post: &[u8]) {
 
 /// Multi-substitution copy pass. Walks `s` with non-overlapping
 /// `needle` matches, writing `repl` for each match and the
-/// surrounding bytes verbatim. `dst.len()` must equal
-/// [`replace_all_out_len`]'s result for the same `(s, needle,
+/// surrounding bytes verbatim. `dst.len()` must equal the
+/// post-replace total byte count for the same `(s, needle,
 /// repl)` triple.
+///
+/// Latin-1 default. Use [`replace_all_into_with_stride`] for the
+/// encoding-aware version that respects code-unit boundaries.
 #[inline]
 pub fn replace_all_into(s: &[u8], needle: &[u8], repl: &[u8], dst: &mut [u8]) {
+    replace_all_into_with_stride(s, needle, repl, dst, 1);
+}
+
+/// Stride-aware variant of [`replace_all_into`]. UTF-16 LE inputs
+/// pass `stride = 2` so candidate match positions and the verbatim
+/// copy of non-match code units stay u16-aligned.
+#[inline]
+pub fn replace_all_into_with_stride(
+    s: &[u8],
+    needle: &[u8],
+    repl: &[u8],
+    dst: &mut [u8],
+    stride: usize,
+) {
     let mut src_i = 0;
     let mut dst_i = 0;
     let n_len = needle.len();
@@ -139,9 +247,9 @@ pub fn replace_all_into(s: &[u8], needle: &[u8], repl: &[u8], dst: &mut [u8]) {
                 dst_i += repl.len();
                 src_i += n_len;
             } else {
-                dst[dst_i] = s[src_i];
-                dst_i += 1;
-                src_i += 1;
+                dst[dst_i..dst_i + stride].copy_from_slice(&s[src_i..src_i + stride]);
+                dst_i += stride;
+                src_i += stride;
             }
         }
     }
@@ -166,27 +274,44 @@ pub unsafe extern "C" fn __torajs_str_replace(
     needle: *const u8,
     repl: *const u8,
 ) -> *mut u8 {
-    let s_len = unsafe { str_len(s) };
-    let n_len = unsafe { str_len(needle) };
-    let r_len = unsafe { str_len(repl) };
-    let s_bytes = unsafe { str_bytes(s, s_len) };
-    let n_bytes = unsafe { str_bytes(needle, n_len) };
-    let r_bytes = unsafe { str_bytes(repl, r_len) };
+    let (s_payload, _, s_latin1) = unsafe { str_view(s) };
+    let (n_payload, n_len_cu, n_latin1) = unsafe { str_view(needle) };
+    let (r_payload, _, r_latin1) = unsafe { str_view(repl) };
 
-    let Some(found) = find_first(s_bytes, n_bytes) else {
-        return alloc_str(s_bytes);
+    // Canonical short-circuit: a UTF-16 needle cannot occur inside
+    // a Latin-1 haystack (the needle's codepoint > 0xFF can't
+    // appear). Return a fresh copy of `s` under its own encoding,
+    // *except* the empty-needle insert-at-0 case which still has
+    // to splice `repl` at the front under the widest of the two
+    // input encodings.
+    if s_latin1 && !n_latin1 && n_len_cu != 0 {
+        return alloc_str_copy(s_payload, s_latin1);
+    }
+
+    // Result encoding = widest of the three operands.
+    let out_latin1 = s_latin1 && n_latin1 && r_latin1;
+    let stride: u32 = if out_latin1 { 1 } else { 2 };
+    let s_buf = coerce_payload(s_payload, s_latin1, out_latin1);
+    let n_buf = coerce_payload(n_payload, n_latin1, out_latin1);
+    let r_buf = coerce_payload(r_payload, r_latin1, out_latin1);
+    let s_bytes = s_buf.as_ref();
+    let n_bytes = n_buf.as_ref();
+    let r_bytes = r_buf.as_ref();
+
+    let Some(found) = find_first_with_stride(s_bytes, n_bytes, stride as usize) else {
+        return alloc_str_copy(s_payload, s_latin1);
     };
 
-    let out_len = s_len - n_len + r_len;
-    let mut block = StrBlock::alloc(out_len);
-    let dst = unsafe { block.as_bytes_mut(out_len) };
-    splice_into(
-        dst,
-        &s_bytes[..found],
-        r_bytes,
-        &s_bytes[found + n_bytes.len()..],
-    );
-    block.into_raw()
+    let total_byte_cnt = s_bytes.len() + r_bytes.len() - n_bytes.len();
+    let length = (total_byte_cnt as u32) / stride;
+    build_result_with(length, total_byte_cnt as u32, out_latin1, |dst| {
+        splice_into(
+            dst,
+            &s_bytes[..found],
+            r_bytes,
+            &s_bytes[found + n_bytes.len()..],
+        );
+    })
 }
 
 /// `s.replaceAll(needle, repl)` — replace every non-overlapping
@@ -202,25 +327,39 @@ pub unsafe extern "C" fn __torajs_str_replace_all(
     needle: *const u8,
     repl: *const u8,
 ) -> *mut u8 {
-    let s_len = unsafe { str_len(s) };
-    let n_len = unsafe { str_len(needle) };
-    let r_len = unsafe { str_len(repl) };
-    let s_bytes = unsafe { str_bytes(s, s_len) };
-    let n_bytes = unsafe { str_bytes(needle, n_len) };
-    let r_bytes = unsafe { str_bytes(repl, r_len) };
+    let (s_payload, _, s_latin1) = unsafe { str_view(s) };
+    let (n_payload, n_len_cu, n_latin1) = unsafe { str_view(needle) };
+    let (r_payload, _, r_latin1) = unsafe { str_view(repl) };
 
-    if n_len == 0 {
-        return alloc_str(s_bytes);
+    if n_len_cu == 0 {
+        return alloc_str_copy(s_payload, s_latin1);
     }
-    let hits = count_non_overlapping(s_bytes, n_bytes) as u32;
+
+    // Latin-1 haystack + UTF-16 needle ⇒ no match; canonical short
+    // circuit returns a fresh copy of `s`.
+    if s_latin1 && !n_latin1 {
+        return alloc_str_copy(s_payload, s_latin1);
+    }
+
+    let out_latin1 = s_latin1 && n_latin1 && r_latin1;
+    let stride: u32 = if out_latin1 { 1 } else { 2 };
+    let s_buf = coerce_payload(s_payload, s_latin1, out_latin1);
+    let n_buf = coerce_payload(n_payload, n_latin1, out_latin1);
+    let r_buf = coerce_payload(r_payload, r_latin1, out_latin1);
+    let s_bytes = s_buf.as_ref();
+    let n_bytes = n_buf.as_ref();
+    let r_bytes = r_buf.as_ref();
+
+    let hits = count_non_overlapping_with_stride(s_bytes, n_bytes, stride as usize);
     if hits == 0 {
-        return alloc_str(s_bytes);
+        return alloc_str_copy(s_payload, s_latin1);
     }
-    let out_len = replace_all_out_len(s_len, hits, n_len, r_len);
-    let mut block = StrBlock::alloc(out_len);
-    let dst = unsafe { block.as_bytes_mut(out_len) };
-    replace_all_into(s_bytes, n_bytes, r_bytes, dst);
-    block.into_raw()
+
+    let total_byte_cnt = s_bytes.len() + (hits * r_bytes.len()) - (hits * n_bytes.len());
+    let length = (total_byte_cnt as u32) / stride;
+    build_result_with(length, total_byte_cnt as u32, out_latin1, |dst| {
+        replace_all_into_with_stride(s_bytes, n_bytes, r_bytes, dst, stride as usize);
+    })
 }
 
 #[cfg(test)]
@@ -292,8 +431,8 @@ mod tests {
     }
 
     fn read_str(p: *const u8) -> Vec<u8> {
-        let len = unsafe { str_len(p) };
-        unsafe { str_bytes(p, len) }.to_vec()
+        let (payload, _, _) = unsafe { str_view(p) };
+        payload.to_vec()
     }
 
     #[test]

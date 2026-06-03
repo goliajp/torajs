@@ -440,14 +440,14 @@ mod tests {
 
     #[test]
     fn out_count_paths() {
-        assert_eq!(out_count(b"abc", b""), 3); // per-char
-        assert_eq!(out_count(b"", b""), 0);
-        assert_eq!(out_count(b"abc", b"abcd"), 1); // sep longer than s
-        assert_eq!(out_count(b"abc", b"z"), 1); // no match
-        assert_eq!(out_count(b"a,b,c", b","), 3);
-        assert_eq!(out_count(b"a,,b", b","), 3); // empty token middle
-        assert_eq!(out_count(b",abc,", b","), 3); // empty front+back
-        assert_eq!(out_count(b"aaaa", b"aa"), 3); // non-overlapping
+        assert_eq!(out_count(b"abc", b"", 1), 3); // per-char
+        assert_eq!(out_count(b"", b"", 1), 0);
+        assert_eq!(out_count(b"abc", b"abcd", 1), 1); // sep longer than s
+        assert_eq!(out_count(b"abc", b"z", 1), 1); // no match
+        assert_eq!(out_count(b"a,b,c", b",", 1), 3);
+        assert_eq!(out_count(b"a,,b", b",", 1), 3); // empty token middle
+        assert_eq!(out_count(b",abc,", b",", 1), 3); // empty front+back
+        assert_eq!(out_count(b"aaaa", b"aa", 1), 3); // non-overlapping
     }
 
     #[test]
