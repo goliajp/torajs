@@ -11175,7 +11175,19 @@ impl<'a> LowerCtx<'a> {
                             // for non-literal case values or long.
                             if let Expr::String(s) = self.ast.get_expr(c.value).clone() {
                                 let bytes = s.into_bytes();
-                                if bytes.len() <= 16 {
+                                // P11.1-S2.3 — only ASCII-only
+                                // case literals are eligible for
+                                // the inline byte-cmp path; any
+                                // byte > 0x7F means the runtime
+                                // Str's encoding diverges from
+                                // the literal's UTF-8 byte tape,
+                                // and the inline length / payload
+                                // check no longer lines up. Fall
+                                // back to the encoding-aware
+                                // runtime helper in that case.
+                                let inline_eligible =
+                                    bytes.len() <= 16 && bytes.iter().all(|&b| b <= 0x7F);
+                                if inline_eligible {
                                     let r = self.emit_inline_str_eq_bytes(scrut_val, &bytes);
                                     if let Operand::Value(vid) = r {
                                         vid
@@ -24400,6 +24412,23 @@ impl<'a> LowerCtx<'a> {
             _ => return None,
         };
         if lit_bytes.len() > 16 {
+            return None;
+        }
+        // P11.1-S2.3 — the inline `str === <literal>` path
+        // compares the runtime Str's `length` field against
+        // `lit_bytes.len()` (the literal's UTF-8 byte count) and
+        // then walks the runtime Str's payload byte-by-byte
+        // against the literal. Post-S2 the runtime Str's
+        // `length` is a code unit count, not a byte count: for
+        // an ASCII-only Latin-1 payload code unit == byte so
+        // both numbers + bytes coincide, but for any non-ASCII
+        // codepoint they diverge (UTF-16 Str length is half its
+        // byte count; the literal's UTF-8 byte length doesn't
+        // match the Latin-1 byte length either). Bail out of
+        // the inline arm whenever the literal carries any byte
+        // > 0x7F so the runtime `__torajs_str_eq` does the
+        // encoding-aware compare instead.
+        if lit_bytes.iter().any(|&b| b > 0x7F) {
             return None;
         }
         let other = self.lower_expr(other_eid);

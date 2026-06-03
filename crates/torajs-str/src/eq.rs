@@ -14,8 +14,30 @@
 //!
 //! Both delegate to a single Rust-idiomatic [`bytes_eq`] core so
 //! the comparison logic has one source of truth.
+//!
+//! ## P11.1-S2.3 — canonical-encoding short-circuit
+//!
+//! Every Str allocation routes through either
+//! [`StringLiteral::encode_from_str`] at build time or
+//! [`__torajs_str_alloc`] at run time, both of which pick the
+//! narrowest encoding that can represent the codepoints (Latin-1
+//! when max codepoint ≤ 0xFF, else UTF-16 LE). That makes the
+//! encoding a canonical form: two Strs whose content is value-
+//! equal MUST share the same encoding flag — different
+//! encodings ⇒ different content. `__torajs_str_eq` exploits
+//! this to short-circuit on the encoding flag before walking
+//! payloads. `__torajs_str_eq_cstr` already short-circuits via
+//! the length-mismatch arm (cstr_len counts bytes, the Str's
+//! `length` counts code units — a UTF-16 Str compared against
+//! its UTF-8 cstr literal will mismatch on the length check
+//! since UTF-16 payload = `length × 2` bytes vs cstr's UTF-8
+//! byte count). All current `str_eq_cstr` call sites pass ASCII
+//! identifier strings (typeof results, dynobj field names), so
+//! the Str side is Latin-1 with `length == cstr_len` and bytes
+//! are bit-identical.
 
-use crate::layout::{STR_DATA_OFF, STR_LEN_OFF};
+use crate::layout::{STR_DATA_OFF, STR_FLAG_IS_LATIN1, STR_LEN_OFF};
+use torajs_rc::HeapHeader;
 
 /// Bytewise equality on two slices. Same as `a == b` for `&[u8]`
 /// but written as an `#[inline]` free fn so both extern "C"
@@ -36,6 +58,36 @@ pub fn bytes_eq(a: &[u8], b: &[u8]) -> bool {
 #[inline]
 unsafe fn str_len(p: *const u8) -> u32 {
     unsafe { (p.add(STR_LEN_OFF) as *const u32).read() }
+}
+
+/// Read the `IS_LATIN1` bit out of a Str header's flags field
+/// (universal heap header layout: `refcount u32 @0`, `type_tag
+/// u16 @4`, `flags u16 @6`). Powers the encoding short-circuit
+/// in [`__torajs_str_eq`] — under the canonical-encoding
+/// invariant a mismatch on this bit means the two operands
+/// cannot have equal content.
+///
+/// # Safety
+///
+/// `p` must point at a valid Str block.
+#[inline]
+unsafe fn str_is_latin1(p: *const u8) -> bool {
+    let header = unsafe { &*(p as *const HeapHeader) };
+    (header.flags & STR_FLAG_IS_LATIN1) != 0
+}
+
+/// Byte count occupied by a Str's payload, given its `length`
+/// (code unit count) and `is_latin1` flag. Latin-1: 1 byte per
+/// code unit; UTF-16 LE: 2 bytes per code unit. Used by
+/// [`__torajs_str_eq`] to derive the memcmp range when the
+/// encoding short-circuit didn't fire.
+#[inline]
+fn payload_byte_count(length: u32, is_latin1: bool) -> usize {
+    if is_latin1 {
+        length as usize
+    } else {
+        (length as usize) * 2
+    }
 }
 
 /// Borrow a Str block's payload as a `&[u8]`. The lifetime is
@@ -74,14 +126,32 @@ pub unsafe extern "C" fn __torajs_str_eq(a: *const u8, b: *const u8) -> i64 {
         return 0;
     }
     if a_len == 0 {
+        // Both empty regardless of encoding flag — by the canonical-
+        // encoding invariant zero-length Strs are always Latin-1
+        // (max codepoint vacuously 0 ≤ 0xFF), but a defensive
+        // empty-vs-empty short circuit covers the case where a
+        // legacy caller stamped the wrong flag.
         return 1;
     }
+    let a_latin1 = unsafe { str_is_latin1(a) };
+    let b_latin1 = unsafe { str_is_latin1(b) };
+    if a_latin1 != b_latin1 {
+        // P11.1-S2.3 canonical short-circuit: distinct encodings
+        // ⇒ distinct content under the canonical-encoding
+        // invariant maintained by `StringLiteral::encode_from_str`
+        // (build-time) and `__torajs_str_alloc` (runtime). No
+        // need to walk payload bytes.
+        return 0;
+    }
+    let byte_cnt = payload_byte_count(a_len, a_latin1);
     // SAFETY: lengths are equal and non-zero; payload offsets are
     // STR_DATA_OFF past the header. Lifetimes are immediate (the
     // borrow doesn't escape this fn) so the heap blocks don't
-    // need to outlive Rust's stack frame.
-    let aa = unsafe { str_bytes(a, a_len) };
-    let bb = unsafe { str_bytes(b, b_len) };
+    // need to outlive Rust's stack frame. The byte count derived
+    // from `(length, is_latin1)` matches the layout of both
+    // operands (encoding flag already proven equal above).
+    let aa = unsafe { core::slice::from_raw_parts(a.add(STR_DATA_OFF), byte_cnt) };
+    let bb = unsafe { core::slice::from_raw_parts(b.add(STR_DATA_OFF), byte_cnt) };
     if bytes_eq(aa, bb) { 1 } else { 0 }
 }
 
@@ -153,6 +223,30 @@ mod tests {
         let b = make_str(b"hello");
         let eq = unsafe { __torajs_str_eq(a.0.as_ptr(), b.0.as_ptr()) };
         assert_eq!(eq, 1);
+        a.free_pool_aware();
+        b.free_pool_aware();
+    }
+
+    #[test]
+    fn cross_encoding_short_circuits_to_false() {
+        let _g = TEST_LOCK.lock().unwrap();
+        crate::pool::clear_for_test();
+        // Construct two Strs with identical length / payload but
+        // opposite IS_LATIN1 flags — under the canonical-encoding
+        // invariant this case "shouldn't happen" for real
+        // content, but the short-circuit must still return false
+        // because the invariant guarantees identical content
+        // would have picked the same encoding.
+        let a = make_str(b"abc"); // Latin-1 via StrBlock::alloc
+        let b = StrBlock::alloc_with_encoding(3, false);
+        unsafe {
+            b.0.as_ptr()
+                .add(crate::layout::STR_DATA_OFF)
+                .copy_from_nonoverlapping([0x61u8, 0x00, 0x62, 0x00, 0x63, 0x00].as_ptr(), 6)
+        };
+        let eq = unsafe { __torajs_str_eq(a.0.as_ptr(), b.0.as_ptr()) };
+        // Lengths match (both 3) but encodings differ — short-circuit false.
+        assert_eq!(eq, 0);
         a.free_pool_aware();
         b.free_pool_aware();
     }
