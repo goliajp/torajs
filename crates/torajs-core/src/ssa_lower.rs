@@ -1831,6 +1831,13 @@ fn lower_inner(
         &[Type::I64],
         Type::Str,
     );
+    let str_from_code_point_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_str_from_code_point",
+        &[Type::I64],
+        Type::Str,
+    );
     let str_at_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -4890,6 +4897,7 @@ fn lower_inner(
         str_pad_start: str_pad_start_id,
         str_pad_end: str_pad_end_id,
         str_from_char_code: str_from_char_code_id,
+        str_from_code_point: str_from_code_point_id,
         str_at: str_at_id,
         str_replace: str_replace_id,
         str_replace_all: str_replace_all_id,
@@ -5736,6 +5744,7 @@ pub(crate) struct Intrinsics {
     pub(crate) str_pad_start: FuncId,
     pub(crate) str_pad_end: FuncId,
     pub(crate) str_from_char_code: FuncId,
+    pub(crate) str_from_code_point: FuncId,
     pub(crate) str_at: FuncId,
     pub(crate) str_replace: FuncId,
     pub(crate) str_replace_all: FuncId,
@@ -15662,11 +15671,22 @@ impl<'a> LowerCtx<'a> {
                     let arg_ty = self.operand_ty(&arg_op);
                     return self.lower_json_stringify(arg_op, arg_ty);
                 }
-                // `String.fromCharCode(...codes)` — variadic. Each code is
-                // converted to a one-char string via the runtime helper, then
-                // pairwise str_concat builds the final string. Single-arg is
-                // the hot path; multi-arg builds an O(n) chain. Empty arg
-                // list yields the literal "".
+                // `String.fromCharCode(...codes)` / `String.fromCodePoint(...codes)`
+                // — variadic. Each code is converted to a one-char string via
+                // the appropriate runtime helper, then pairwise str_concat
+                // builds the final string. Single-arg is the hot path;
+                // multi-arg builds an O(n) chain. Empty arg list yields "".
+                //
+                // P11.1-S6 split: `fromCharCode` uses
+                // `__torajs_str_from_char_code` (truncates `n & 0xFFFF`,
+                // never throws). `fromCodePoint` uses
+                // `__torajs_str_from_code_point` per spec §22.1.2.2 —
+                // accepts full codepoint `[0, 0x10FFFF]` (surrogate-pair
+                // encodes supplementary plane), raises catchable
+                // `RangeError` on out-of-range. The per-arg
+                // `emit_throw_check(None)` after each call propagates the
+                // throw before the concat consumes the (possibly invalid)
+                // result.
                 if let Expr::Member {
                     obj: ns_id,
                     name: m_name,
@@ -15678,15 +15698,24 @@ impl<'a> LowerCtx<'a> {
                     if args.is_empty() {
                         return Operand::Value(self.intern_string_literal(""));
                     }
+                    let is_from_code_point = m_name == "fromCodePoint";
+                    let intrinsic = if is_from_code_point {
+                        self.intrinsics.str_from_code_point
+                    } else {
+                        self.intrinsics.str_from_char_code
+                    };
                     let mut acc: Option<Operand> = None;
                     for &aid in args.iter() {
                         let n = self.lower_expr(aid);
                         let one = self.f.append_inst(
                             self.cur_block,
-                            InstKind::Call(self.intrinsics.str_from_char_code, vec![n]),
+                            InstKind::Call(intrinsic, vec![n]),
                             Type::Str,
                             None,
                         );
+                        if is_from_code_point {
+                            self.emit_throw_check(None);
+                        }
                         let one_op = Operand::Value(one);
                         acc = Some(match acc {
                             None => one_op,

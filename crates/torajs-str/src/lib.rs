@@ -186,3 +186,15 @@ pub use transform::trim::{__torajs_str_trim, __torajs_str_trim_end, __torajs_str
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_weakref_target_dying(_target: *mut core::ffi::c_void) {}
+
+// P11.1-S6 — `__torajs_throw_range_error` lives in `torajs-throw` at
+// `tr build` link time. For `cargo test` (which doesn't link the
+// throw staticlib) we stub it: any throw path in `cargo test` paths
+// indicates a test invariant violation and should panic loudly.
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_throw_range_error(_msg: *const u8) {
+    panic!(
+        "torajs-str unit-test stub: __torajs_throw_range_error should not be called from cargo test paths"
+    );
+}

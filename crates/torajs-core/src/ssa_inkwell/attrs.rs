@@ -234,6 +234,7 @@ pub(super) fn is_alloc_intrinsic(name: &str) -> bool {
         | "__torajs_str_pad_end"
         | "__torajs_str_at"
         | "__torajs_str_from_char_code"
+        | "__torajs_str_from_code_point"
         | "__torajs_str_replace"
         | "__torajs_str_replace_all"
         | "__torajs_substr_to_owned"

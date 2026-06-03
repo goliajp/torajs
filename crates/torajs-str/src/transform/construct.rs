@@ -1,6 +1,6 @@
 //! Str builders — `s.repeat(n)` · `s.charAt(i)` · `s.at(i)` ·
-//! `String.fromCharCode(n)` · `s.substring(start, end)` ·
-//! `s.substr(start, length)`.
+//! `String.fromCharCode(n)` · `String.fromCodePoint(n)` ·
+//! `s.substring(start, end)` · `s.substr(start, length)`.
 //!
 //! Six per-op fns; all produce a fresh string-like heap value.
 //! Two distinct heap return shapes:
@@ -24,14 +24,20 @@
 //!   (size + start, 0)`; `length` clamps to remaining.
 //! - **`at` / `charAt`** OOB returns an empty 0-len value (not
 //!   undefined — would require `Nullable<string>`).
-//! - **`fromCharCode`** truncates `n` to 1 byte (`n & 0xff`).
-//!   Non-ASCII code points need UTF-8 encoding which v0 doesn't
-//!   model.
+//! - **`fromCharCode`** truncates `n` to 1 code unit
+//!   (`n & 0xFFFF`) per spec §22.1.2.1; picks Latin-1 / UTF-16 LE
+//!   encoding canonically.
+//! - **`fromCodePoint`** accepts a full codepoint in
+//!   `[0, 0x10FFFF]` per spec §22.1.2.2; values above 0xFFFF
+//!   surrogate-pair encode to 2 UTF-16 LE code units. Out-of-range
+//!   inputs raise a catchable `RangeError` via
+//!   `__torajs_throw_range_error` — the SSA-side `emit_throw_check`
+//!   after the call propagates.
 //!
 //! IR-side surface (declared in `ssa_lower::lower`, intrinsic
 //! noalias-whitelisted in `ssa_inkwell::is_alloc_intrinsic`):
 //! `__torajs_str_repeat` · `_char_at` · `_at` · `_from_char_code`
-//! · `_substring` · `_substr`.
+//! · `_from_code_point` · `_substring` · `_substr`.
 
 use core::ffi::c_void;
 
@@ -39,6 +45,15 @@ use crate::block::StrBlock;
 use crate::layout::{STR_DATA_OFF, STR_FLAG_IS_LATIN1, STR_LEN_OFF};
 use crate::substr::__torajs_substr_create;
 use torajs_rc::HeapHeader;
+
+unsafe extern "C" {
+    /// `torajs-throw`'s cross-TU `RangeError` raise — records a
+    /// pending throw via TLS and returns normally; the SSA-emitted
+    /// `emit_throw_check` at the call site propagates to user
+    /// `try/catch`. Used by `__torajs_str_from_code_point` for
+    /// invalid codepoints (ES §22.1.2.2).
+    fn __torajs_throw_range_error(msg: *const u8);
+}
 
 // ============================================================
 // Layout-aware FFI helpers (sub-module-local)
@@ -248,6 +263,57 @@ pub unsafe extern "C" fn __torajs_str_from_char_code(n: i64) -> *mut u8 {
     }
 }
 
+/// `String.fromCodePoint(n)` per ES spec §22.1.2.2. Accepts integer
+/// codepoints in `[0, 0x10FFFF]`; anything outside that range (or
+/// non-integer — caller path is typed `i64`, so fractional inputs
+/// can't reach us, but negative values can) raises a catchable
+/// `RangeError` via the cross-TU `__torajs_throw_range_error`
+/// helper. The SSA-side `emit_throw_check` after our call propagates.
+///
+/// Encoding picks:
+/// - BMP, `n ≤ 0xFF` → Latin-1 1 code unit
+/// - BMP, `0x100 ≤ n ≤ 0xFFFF` → UTF-16 LE 1 code unit (includes
+///   isolated surrogate halves — spec allows them since `fromCodePoint`
+///   does not enforce well-formed UTF-16 distinction here)
+/// - Supplementary, `0x10000 ≤ n ≤ 0x10FFFF` → UTF-16 LE 2 code
+///   units (surrogate pair):
+///   - `high = 0xD800 + ((n - 0x10000) >> 10)`
+///   - `low  = 0xDC00 + ((n - 0x10000) & 0x3FF)`
+///
+/// On invalid input, returns an empty string sentinel — caller's
+/// `emit_throw_check` makes the value unreachable in well-formed
+/// programs, so the actual payload doesn't matter, only that the
+/// return is type-correct (`*mut u8`).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_from_code_point(n: i64) -> *mut u8 {
+    if !(0..=0x10FFFF).contains(&n) {
+        unsafe {
+            __torajs_throw_range_error(b"Invalid code point\0".as_ptr());
+        }
+        return alloc_empty_str();
+    }
+    if n <= 0xFF {
+        let mut block = StrBlock::alloc_with_encoding(1, true);
+        unsafe { block.as_bytes_mut(1) }.copy_from_slice(&[n as u8]);
+        block.into_raw()
+    } else if n <= 0xFFFF {
+        let mut block = StrBlock::alloc_with_encoding(1, false);
+        unsafe { block.as_bytes_mut(2) }.copy_from_slice(&(n as u16).to_le_bytes());
+        block.into_raw()
+    } else {
+        // Supplementary plane — encode as surrogate pair, 2 UTF-16 LE
+        // code units. SpiderMonkey / V8 / JSC textbook formula.
+        let offset = (n - 0x10000) as u32;
+        let high: u16 = 0xD800 + ((offset >> 10) as u16);
+        let low: u16 = 0xDC00 + ((offset & 0x3FF) as u16);
+        let mut block = StrBlock::alloc_with_encoding(2, false);
+        let dst = unsafe { block.as_bytes_mut(4) };
+        dst[0..2].copy_from_slice(&high.to_le_bytes());
+        dst[2..4].copy_from_slice(&low.to_le_bytes());
+        block.into_raw()
+    }
+}
+
 /// `s.substring(start, end)` — slice's pre-ES5 sibling. Negative
 /// inputs clamp to 0 (not wrap), and `start > end` is silently
 /// swapped before slicing.
@@ -379,6 +445,41 @@ mod tests {
         assert_eq!(read_str(r2), [0x41, 0x01]);
         unsafe { __torajs_str_free(r) };
         unsafe { __torajs_str_free(r2) };
+    }
+
+    #[test]
+    fn ffi_from_code_point_bmp_latin1() {
+        // BMP ≤ 0xFF → Latin-1 1 code unit (byte-identical to ASCII for `A`).
+        let r = unsafe { __torajs_str_from_code_point(65) };
+        assert_eq!(read_str(r), b"A");
+        unsafe { __torajs_str_free(r) };
+    }
+
+    #[test]
+    fn ffi_from_code_point_bmp_utf16() {
+        // BMP 0x100-0xFFFF → UTF-16 LE 1 code unit. U+4E2D ("中") LE = [0x2D, 0x4E].
+        let r = unsafe { __torajs_str_from_code_point(0x4E2D) };
+        assert_eq!(read_str(r), [0x2D, 0x4E]);
+        unsafe { __torajs_str_free(r) };
+    }
+
+    #[test]
+    fn ffi_from_code_point_supplementary_surrogate_pair() {
+        // U+1F600 (😀). offset = 0xF600. high = 0xD800 + 0x3D = 0xD83D.
+        // low = 0xDC00 + 0x200 = 0xDE00. UTF-16 LE bytes = [3D D8 00 DE].
+        let r = unsafe { __torajs_str_from_code_point(0x1F600) };
+        assert_eq!(read_str(r), [0x3D, 0xD8, 0x00, 0xDE]);
+        unsafe { __torajs_str_free(r) };
+    }
+
+    #[test]
+    fn ffi_from_code_point_max_supplementary() {
+        // U+10FFFF — boundary. offset = 0xFFFFF.
+        // high = 0xD800 + (0xFFFFF >> 10) = 0xD800 + 0x3FF = 0xDBFF
+        // low  = 0xDC00 + (0xFFFFF & 0x3FF) = 0xDFFF
+        let r = unsafe { __torajs_str_from_code_point(0x10FFFF) };
+        assert_eq!(read_str(r), [0xFF, 0xDB, 0xFF, 0xDF]);
+        unsafe { __torajs_str_free(r) };
     }
 
     #[test]
