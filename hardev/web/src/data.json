@@ -1,13 +1,13 @@
 {
-  "generatedAt": "2026-06-03T12:06:56.662Z",
+  "generatedAt": "2026-06-03T14:31:29.280Z",
   "hardevVersion": "0.1.14",
   "conformance": {
-    "pass": 703,
+    "pass": 708,
     "fail": 0,
     "skip": 4,
-    "raw": "703/0/4",
-    "source": "/tmp/torajs-conformance-bfa6944.log",
-    "sourceMtime": "2026-06-03T12:06:25.843Z"
+    "raw": "708/0/4",
+    "source": "/tmp/torajs-conformance-p11.6-S5.log",
+    "sourceMtime": "2026-06-03T14:30:16.691Z"
   },
   "test262": {
     "ranAt": "2026-05-23T23:17:45Z",
@@ -28,17 +28,17 @@
     "passRateTrAccepted": 71.17
   },
   "torajs": {
-    "commit": "bfa6944",
-    "commitSubject": "feat(str): Final_Sigma Case_Ignorable skip (P11.5-A4)",
+    "commit": "b5a6b39",
+    "commitSubject": "docs(roadmap): mark P11.6 + P11 phase close",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
-      "pass": 703,
+      "pass": 708,
       "fail": 0,
       "skip": 4,
-      "raw": "703/0/4",
-      "source": "/tmp/torajs-conformance-bfa6944.log",
-      "sourceMtime": "2026-06-03T12:06:25.843Z"
+      "raw": "708/0/4",
+      "source": "/tmp/torajs-conformance-p11.6-S5.log",
+      "sourceMtime": "2026-06-03T14:30:16.691Z"
     }
   },
   "roadmap": [
@@ -611,6 +611,38 @@
   },
   "commits": [
     {
+      "hash": "b5a6b39",
+      "subject": "docs(roadmap): mark P11.6 + P11 phase close"
+    },
+    {
+      "hash": "ae7a799",
+      "subject": "test(str): normalize NFC/NFD/NFKC/NFKD + form arg fixtures (P11.6-S5)"
+    },
+    {
+      "hash": "3262e32",
+      "subject": "feat(str): wire String.prototype.normalize via SSA dispatch (P11.6-S4)"
+    },
+    {
+      "hash": "35c7001",
+      "subject": "feat(str): canonical compose + normalize driver (P11.6-S3)"
+    },
+    {
+      "hash": "e3c12d0",
+      "subject": "feat(str): decompose + canonical_order (P11.6-S2)"
+    },
+    {
+      "hash": "fec7cb4",
+      "subject": "feat(str): UCD normalize tables + Hangul algorithmic (P11.6-S1)"
+    },
+    {
+      "hash": "d8b6915",
+      "subject": "docs(roadmap): mark P11.1-P11.5 closed, add commit refs"
+    },
+    {
+      "hash": "b31761d",
+      "subject": "data(hardev): dashboard snapshot @ bfa6944 (P11.5 close)"
+    },
+    {
       "hash": "bfa6944",
       "subject": "feat(str): Final_Sigma Case_Ignorable skip (P11.5-A4)"
     },
@@ -625,59 +657,38 @@
     {
       "hash": "fb78e94",
       "subject": "feat(str): for-of yields code-point Substr (P11.4)"
-    },
-    {
-      "hash": "e5d2930",
-      "subject": "fix(ssa): surface assign type-mismatch (P11.2-A1 Phase 1)"
-    },
-    {
-      "hash": "10c695d",
-      "subject": "feat(str): codePointAt surrogate-pair combine (P11.3-A1)"
-    },
-    {
-      "hash": "bc5eb37",
-      "subject": "test(str): String.length UTF-16 code unit pack (P11.2)"
-    },
-    {
-      "hash": "aba4c78",
-      "subject": "feat(str): fromCodePoint surrogate-pair encode (P11.1-S6)"
-    },
-    {
-      "hash": "f79b739",
-      "subject": "data(bench): full 8-runtime scoreboard at HEAD 4f3659b"
-    },
-    {
-      "hash": "4f3659b",
-      "subject": "feat(bench): coverage v2 + per-category weighted scoreboard"
-    },
-    {
-      "hash": "3b8f6d6",
-      "subject": "fix(bench): append -rN suffix to repeat-SHA result files"
-    },
-    {
-      "hash": "eaf47ae",
-      "subject": "feat(str): Substr layout flip to JS code-unit semantics (P11.1-S5)"
     }
   ],
-  "headSha": "bfa6944",
+  "headSha": "b5a6b39",
   "autorun": {
-    "total": 52,
+    "total": 53,
     "baselineTarget": 10,
-    "bySelf": 51,
+    "bySelf": 52,
     "byManual": 1,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1780455561-5921",
-      "at": "2026-06-03T02:59:21Z",
-      "ts": 1780455561,
+      "rotationId": "r-1780488447-63f5",
+      "at": "2026-06-03T12:07:27Z",
+      "ts": 1780488447,
       "trigger": "self",
-      "prevHead": "2c3dd77",
-      "handoffSha": "sha256:cef2f0686d4857bd8df3c3a4aa0bea5df8d2313a967c9d915e5257d363e333b3",
-      "handoffAgeSec": 368211,
+      "prevHead": "b31761d",
+      "handoffSha": "sha256:6ec1761ef5d247b1f7e8dfc8d6a257a2f009f8a3c3862f9dbadd593f74c670b0",
+      "handoffAgeSec": 10305,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1780488447-63f5",
+        "at": "2026-06-03T12:07:27Z",
+        "ts": 1780488447,
+        "trigger": "self",
+        "prevHead": "b31761d",
+        "handoffSha": "sha256:6ec1761ef5d247b1f7e8dfc8d6a257a2f009f8a3c3862f9dbadd593f74c670b0",
+        "handoffAgeSec": 10305,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1780455561-5921",
         "at": "2026-06-03T02:59:21Z",
@@ -774,17 +785,6 @@
         "prevHead": "92c2fb3",
         "handoffSha": "sha256:01af8888d1c0840ac256f3c347663ec0002366c9a0beb5afc68509f2e7a32e18",
         "handoffAgeSec": 23,
-        "conformanceBefore": "687/0/1",
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1779906717-5eb6",
-        "at": "2026-05-27T18:31:57Z",
-        "ts": 1779906717,
-        "trigger": "self",
-        "prevHead": "9a8cfb1",
-        "handoffSha": "sha256:debf51e02ea5cd56a3055a3de69f09a873e0ce95a9842baed2b6010213eca066",
-        "handoffAgeSec": 15,
         "conformanceBefore": "687/0/1",
         "commitsInSession": null
       }
