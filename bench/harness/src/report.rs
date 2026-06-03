@@ -92,8 +92,20 @@ impl Report {
             .as_deref()
             .map(|s| &s[..s.len().min(7)])
             .unwrap_or("nogit");
-        let filename = format!("{date}-{host_short}-{sha_short}.json");
-        let path = results_dir.join(&filename);
+        let base = format!("{date}-{host_short}-{sha_short}");
+        // First run gets `<base>.json`; re-runs at the same SHA append
+        // `-r2`, `-r3`, ... so 3-run median workflows keep all results
+        // instead of clobbering the prior file.
+        let mut path = results_dir.join(format!("{base}.json"));
+        if path.exists() {
+            for n in 2..=999 {
+                let cand = results_dir.join(format!("{base}-r{n}.json"));
+                if !cand.exists() {
+                    path = cand;
+                    break;
+                }
+            }
+        }
         let json = serde_json::to_string_pretty(self)?;
         std::fs::write(&path, json).with_context(|| format!("writing {}", path.display()))?;
         Ok(path)
