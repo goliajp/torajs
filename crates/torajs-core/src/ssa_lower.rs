@@ -13804,6 +13804,27 @@ impl<'a> LowerCtx<'a> {
                             }
                             let v = self.lower_expr(*value);
                             let v_ty = self.operand_ty(&v);
+                            // P11.2-A1 — Reject silent f64-into-i64 (and
+                            // other unsupported coercions) at the global
+                            // assign path, mirroring the local path's
+                            // type-check at line 13868+. Without this,
+                            // `let a: number = 0; a = a + 1.5` at toplevel
+                            // silently stores the f64 bit pattern into
+                            // the i64 slot (slot decayed I64 from the
+                            // `number = I64` default), and the next read
+                            // surfaces 4609434218613702656 instead of 1.5.
+                            // The local path already rejected this; the
+                            // global path missed the audit.
+                            if v_ty != slot_ty
+                                && !(slot_ty == Type::F64 && v_ty == Type::I64)
+                                && !(slot_ty == Type::I64 && v_ty == Type::I32)
+                                && !(slot_ty == Type::I32 && v_ty == Type::I64)
+                                && !(slot_ty == Type::Ptr || v_ty == Type::Ptr)
+                            {
+                                panic!(
+                                    "ssa-lower: assignment to global `{name}` mismatch — slot is {slot_ty:?} but value is {v_ty:?}; use `>>` for integer divide or annotate the slot as the appropriate numeric width",
+                                );
+                            }
                             let v = if slot_ty == Type::F64 && v_ty == Type::I64 {
                                 self.coerce_to_f64(v)
                             } else {

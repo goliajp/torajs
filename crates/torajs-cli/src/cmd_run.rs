@@ -135,26 +135,15 @@ pub(crate) fn run_jit(file_arg: Option<&String>) -> ExitCode {
         }
     };
 
-    let prev_hook = std::panic::take_hook();
-    std::panic::set_hook(Box::new(|_| {}));
-    let lower_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        ssa_lower::lower_with_arity(&ast, &generic_call_sites, &expr_types, &arity_pad_count)
-    }));
-    std::panic::set_hook(prev_hook);
-    let ssa_module = match lower_result {
-        Ok(m) => m,
-        Err(payload) => {
-            let msg = if let Some(s) = payload.downcast_ref::<&str>() {
-                s.to_string()
-            } else if let Some(s) = payload.downcast_ref::<String>() {
-                s.clone()
-            } else {
-                "ssa_lower panicked".to_string()
-            };
-            eprintln!("not yet supported: {msg}");
-            return ExitCode::from(3);
-        }
-    };
+    // P11.2-A1 cleanup — release profile is `panic = "abort"`, so
+    // `catch_unwind` here is dead code (the panic aborts before unwind
+    // reaches us, and silencing the hook only suppresses the message
+    // user would otherwise see). Call lower_with_arity directly and
+    // let the main.rs panic hook print `not yet supported: {msg}`
+    // before the abort. Without this, the user sees a silent SIGABRT
+    // (exit 134, empty stderr).
+    let ssa_module =
+        ssa_lower::lower_with_arity(&ast, &generic_call_sites, &expr_types, &arity_pad_count);
 
     // Compile target: cache slot if we have one, else a tmp file.
     // (No inline prune here — measured to add ~10 ms per cache miss
