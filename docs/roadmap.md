@@ -1161,10 +1161,71 @@ generator full state machine. v5 merges v4's P9 (Promise) + P14
     0` (`1b48a77`).
   - Identity extends to non-Promise heap T (Array, BigInt)
     (`081b25f`).
-- [ ] **P10.5** unhandledrejection handler hook
-- [ ] **P10.6** Generator full state machine — `yield*` delegation +
+- [x] **P10.5** unhandledrejection handler hook
+  - **A1** `fac7bbe` — async fn body throw → `Promise.reject` per spec
+    §27.7.3.6 (synthetic try/catch wrap; catch returns
+    `Promise.reject(__async_err)`); `desugar_async` extracted to
+    `ast/desugar_async.rs` sidekick by prereq `684a270`. Fixture
+    `async-024-async-throw-non-propagating.ts`.
+  - **A2** `6059899` — `Promise.reject` accepts `Type::Any` with
+    contextual unify against enclosing `Promise<T>`; `desugar_async`
+    `catch_type` lifted to `"any"` (spec-correct, drops A1's narrow
+    MVP). `check/promise_static.rs` sidekick extracted by prereq
+    `a9d1d5f`. Fixture `async-028-async-throw-typed-mismatch.ts`.
+  - **A3** default unhandled-rejection reporter — split into A3-a +
+    A3-b after RFC `.claude/rfcs/20260603-p10-5-a3-unhandled-rejection/`
+    (initial attempt `b484990` with process-global counter + sync
+    syscall_exit reverted via `2ed5aa1` after 2-fixture regression).
+    - **A3-a** `b6f80c1` — `Promise.has_handler u8` (`_pad[6]` →
+      `has_handler u8 + _pad[5]`; ABI 32 B unchanged). `attach_then` /
+      `get_value` entries set `has_handler = 1`; 0 substrate behavior
+      change (detector not yet wired).
+    - **A3-b** `9d2ae5d` (+ followup `34b4e88`) — HostPromiseRejectionTracker
+      microtask per spec §27.2.1.9 (`promise::unhandled`
+      sidekick); `UNHANDLED_REJECTION_OCCURRED` flag + new
+      `__torajs_main_exit_code() -> i32` intrinsic; `synthesize_main`
+      tail emits `call + ret i32` via new sidekick
+      `ssa_lower_main_exit.rs` (net `ssa_lower.rs` -6 LOC, known-debt
+      reduction). Followup moves HPRT off the microtask queue onto a
+      dedicated `UNHANDLED_LIST: Mutex<Vec<i64>>` swept once at main
+      exit — fixes `await`'s mid-sync `microtask_run_until_idle`
+      popping HPRT-check before `get_value` had a chance to mark the
+      promise observed. Fixture
+      `async-029-unhandled-rejection-default.ts` byte-equal stdout +
+      stderr `error: <reason>` + exit 1.
+  - **A4** `79f9d6d` — `process.on('unhandledRejection', cb)`
+    listener (Node/Bun extension on `process`). New sidekicks
+    `check/process_on.rs` (82 LOC, typecheck `'unhandledRejection'`
+    literal + `Type::Function` cb) and `ssa_lower_process_on.rs`
+    (101 LOC, dispatch FnSig vs Closure to two register intrinsics).
+    `promise::unhandled` UNHANDLED_CB slot (AtomicPtr + AtomicU8 kind
+    discriminator; rc_inc on closure env; prior listener env released
+    on overwrite). Sweep calls user cb with reason lifted into
+    NaN-box AnyValue wire form; reporter suppressed + flag not set →
+    exit 0. Fixture `async-030-process-on-unhandled.ts`.
+- [x] **P10.6** Generator full state machine — `yield*` delegation +
       `Generator.prototype.return` / `.throw`
-- [ ] **P10.7** Default-Any Generator/Async fn (T-33 substrate)
+  - **yield\*** `00165e5` — generator delegation (pre-existing,
+    landed before P10.6 sub-step naming).
+  - **A1** `cccc5a1` — `Generator.prototype.return(value)` per
+    ES §27.5.1.7.
+  - **A2** `2a11667` — `Generator.prototype.throw(err)` per
+    ES §27.5.1.4.
+  - **A3** `d58a96c` — multi-generator same-method dispatch fix
+    (`__gen_nominal_<name>: number` field unique per class →
+    sibling-class static dispatch routing correct) + `may_throw`
+    post-call `emit_throw_check` guard for `.throw` cross-fn
+    propagation. Fixture `gen-003-multi.ts`.
+- [x] **P10.7** Default-Any Generator/Async fn (T-33 substrate)
+  - **generator-side** `157c828` — Default-Any generator; followup
+    fix `6d161a6` (`As`-widen to Any only on primitive sources).
+  - **async-side** `c44aa39` — Default-Any async fn +
+    `Promise<Any>.then/.catch` (also lifts a prior cold L3b: dynobj
+    method-call now type-erases through `Any` cleanly).
+  - Fixture `async-031-default-any.ts` byte-equal vs bun.
+
+**P10 phase close** (dashboard snapshot `2c3dd77`, 2026-06-03):
+A1–A7 all sub-steps shipped. Trigger → unblock P11.
 
 ---
 
