@@ -1338,11 +1338,51 @@ exactly, incl. the long-tail rounding cases.
 
 **Substrate checklist** (strict order):
 
-- [ ] **P13.1** Static import / export resolution at compile time
-- [ ] **P13.2** Dynamic `import()` returning Promise (links to P10
-      microtask queue)
-- [ ] **P13.3** Module-level top-level await
-- [ ] **P13.4** Module namespace object (`import * as X`)
+- [x] **P13.1** Static import / export resolution at compile time
+      (audit at P13 start showed K.2 cross-file resolver already
+      shipped — named import/export including alias path bun-byte-
+      equal; expanded in 4 sub-step ship chain below)
+- [x] **P13.2** Dynamic `import()` returning Promise (P13-S5 —
+      string-literal source only; parser synthesizes
+      `import * as __dyn_ns_<n> from "<source>"` + wraps the
+      expression as `{ value: __dyn_ns_<n> }` so the canonical
+      `await import(...)` pattern reads through the wrapper's
+      `value` field per tora's `await` desugar)
+- [x] **P13.3** Module-level top-level await (audit at P13 start showed
+      `async fn + await` at script top-level already bun-byte-equal —
+      no substrate gap; tora's main-as-async-fn wrap handles it)
+- [x] **P13.4** Module namespace object (`import * as X`) — P13-S2;
+      every value-export injects under its original name and a
+      synthetic `let X = { name1: name1, name2: name2, ... }` ObjectLit
+      lands after, dispatching member access through struct-field-method
+      lookup
+
+**P13 ship chain** (all gates 0 fail, 723 pass / 4 skip at close):
+- P13 audit: 9-feature probe surfaced K.1+K.2 + TLA already worked; 4
+  K.2 subset boundaries and 1 parser gap remained
+- `5fdda8e`-class P13-S1 default import + `export default <expr>`
+  (modules.rs check_k2_form lifts default reject; WorkItem carries the
+  importer's default alias; lib walk converts the default_expr into a
+  synthetic LetDecl)
+- P13-S3 side-effect `import "./y"` (modules.rs walks the full lib
+  top-stmt list under the `side_effect_only` flag)
+- P13-S2 namespace `import * as M from "./y"` (synth ObjectLit lands
+  after the named-decl injection; dispatch via struct field type)
+- P13-S4 re-export `export { a } from "./b"` (ast.rs ExportDecl gains
+  `source`, parser/formatter wired; modules.rs's bare-named-export arm
+  splits on source: Some → nested BFS load with transitive alias chain.
+  Resolver's visited-set replaced with per-path injected-name tracking
+  so the re-export's nested load can revisit a lib for a different
+  name)
+- P13-S5 dynamic `import()` (parser parse_primary emits the synth
+  ImportDecl + the wrapper struct; downstream typecheck + ssa-lower
+  reuse the P13-S2 namespace path)
+
+**L3b deferred** (not blocking phase close): dynamic-import's non-await
+shape (`.then()` chain) — would require Promise<struct-with-fn-fields>
+typecheck/lowering polish; non-literal source for dynamic import (`tr
+build` is AOT so the only viable extension is a build-time URL
+whitelist).
 
 ### v1.0 release gate
 
