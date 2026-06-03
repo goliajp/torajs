@@ -122,6 +122,8 @@ pub mod json_parse;
 pub mod layout;
 pub mod literals;
 pub mod lookup;
+pub mod norm_table;
+pub mod normalize;
 pub mod pool;
 pub mod print;
 pub mod slice;
