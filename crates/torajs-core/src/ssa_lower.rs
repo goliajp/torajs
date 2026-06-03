@@ -10903,6 +10903,16 @@ impl<'a> LowerCtx<'a> {
                         sid.0
                     );
                 }
+                // P11.4 — `for (const c of <str>)` yields code-point
+                // strings per ES §22.1.5: BMP code units are 1-cu Substr
+                // views, supplementary-plane code points combine the
+                // high+low surrogate pair into a single 2-cu Substr
+                // view. The runtime loop reads `__torajs_str_code_point_at`
+                // to decide the per-iter advance (1 or 2 code units).
+                if src_ty == Type::Str {
+                    self.lower_for_of_str(src_ptr_op, i_ident, var_name, body);
+                    return;
+                }
                 if !matches!(src_ty, Type::Arr(_)) {
                     panic!(
                         "ssa-lower: for-of source type {src_ty:?} not yet supported (P5.3 subset — Array<T> + user-class iterable only)"
@@ -26169,6 +26179,269 @@ impl<'a> LowerCtx<'a> {
 
     fn f_ret_type_hint(&self, fid: FuncId) -> Type {
         self.signatures.get(&fid).copied().unwrap_or(Type::I64)
+    }
+
+    /// P11.4 — `for (const c of <str>)` per ES §22.1.5 (String
+    /// iterator). Yields one Substr per code point: BMP code units are
+    /// 1-cu views, supplementary plane code points combine the
+    /// high+low surrogate pair into a single 2-cu view. Loop layout:
+    ///
+    ///   i = 0; len = s.length
+    ///   while i < len:
+    ///     cp = __torajs_str_code_point_at(s, i)
+    ///     adv = (cp > 0xFFFF) ? 2 : 1
+    ///     c = __torajs_substr_create(s, i, adv)
+    ///     <body>
+    ///     i += adv     (recomputed in step block — no phi for adv)
+    ///
+    /// The internal `i_ident` shadows-and-restores per the parent
+    /// for-of scope discipline. `var_name` binds the per-iter Substr;
+    /// it's marked owned (rc=1 from substr_create) so the per-iter
+    /// drop fires on `c` only, not on the parent string.
+    fn lower_for_of_str(&mut self, src_op: Operand, i_ident: &str, var_name: &str, body: &Stmt) {
+        // Outer scope for the index var, mirrors Stmt::ForOf Arr arm.
+        self.scope_stack.push(Vec::new());
+        self.shadow_stack.push(Vec::new());
+        let i_slot = self.alloca(Type::I64, Some(i_ident));
+        self.f.append_void(
+            self.cur_block,
+            InstKind::Store(Operand::ConstI64(0), Operand::Value(i_slot), 0),
+        );
+        {
+            let cur_depth = self.scope_stack.len() - 1;
+            if let Some(prev) = self.locals.get(i_ident).copied()
+                && prev.scope_depth < cur_depth
+            {
+                self.shadow_stack
+                    .last_mut()
+                    .expect("shadow frame")
+                    .push((i_ident.to_string(), prev));
+            }
+            self.locals.insert(
+                i_ident.to_string(),
+                LocalInfo {
+                    slot: i_slot,
+                    ty: Type::I64,
+                    moved: false,
+                    scope_depth: cur_depth,
+                },
+            );
+            self.scope_stack
+                .last_mut()
+                .expect("scope frame")
+                .push(i_ident.to_string());
+        }
+
+        // Hoist length read (Str.length is u32 at offset 8, widened to
+        // i64 via ssa_lower_str's centralized helper).
+        let length_op =
+            crate::ssa_lower_str::load_str_or_substr_length(self, src_op.clone(), Type::Str);
+        let length_slot = self.alloca(Type::I64, Some("__forof_str_len"));
+        self.f.append_void(
+            self.cur_block,
+            InstKind::Store(length_op, Operand::Value(length_slot), 0),
+        );
+
+        let header = self.f.add_block();
+        let body_blk = self.f.add_block();
+        let step_blk = self.f.add_block();
+        let after = self.f.add_block();
+        self.f.set_term(self.cur_block, Terminator::Br(header));
+
+        // header: i < length?
+        self.cur_block = header;
+        let i_now = self.f.append_inst(
+            self.cur_block,
+            InstKind::Load(Type::I64, Operand::Value(i_slot), 0),
+            Type::I64,
+            None,
+        );
+        let len_now = self.f.append_inst(
+            self.cur_block,
+            InstKind::Load(Type::I64, Operand::Value(length_slot), 0),
+            Type::I64,
+            None,
+        );
+        let cond_val = self.f.append_inst(
+            self.cur_block,
+            InstKind::ICmp(IPred::Slt, Operand::Value(i_now), Operand::Value(len_now)),
+            Type::Bool,
+            None,
+        );
+        self.f.set_term(
+            self.cur_block,
+            Terminator::CondBr {
+                cond: Operand::Value(cond_val),
+                then_blk: body_blk,
+                else_blk: after,
+            },
+        );
+
+        // body: cp = code_point_at(src, i); adv = (cp > 0xFFFF) + 1;
+        //       c = substr_create(src, i, adv); bind c; lower body.
+        self.cur_block = body_blk;
+        self.scope_stack.push(Vec::new());
+        self.shadow_stack.push(Vec::new());
+        let i_body = self.f.append_inst(
+            self.cur_block,
+            InstKind::Load(Type::I64, Operand::Value(i_slot), 0),
+            Type::I64,
+            None,
+        );
+        let (c_val, _adv_body) = self.emit_for_of_str_step(src_op.clone(), Operand::Value(i_body));
+        let v_slot = self.alloca(Type::Substr, Some(var_name));
+        self.f.append_void(
+            self.cur_block,
+            InstKind::Store(Operand::Value(c_val), Operand::Value(v_slot), 0),
+        );
+        {
+            let cur_depth = self.scope_stack.len() - 1;
+            if let Some(prev) = self.locals.get(var_name).copied()
+                && prev.scope_depth < cur_depth
+            {
+                self.shadow_stack
+                    .last_mut()
+                    .expect("shadow frame")
+                    .push((var_name.to_string(), prev));
+            }
+            self.locals.insert(
+                var_name.to_string(),
+                LocalInfo {
+                    slot: v_slot,
+                    ty: Type::Substr,
+                    // substr_create returns fresh rc=1; the per-iter
+                    // drop walk below dec's it on body close.
+                    moved: false,
+                    scope_depth: cur_depth,
+                },
+            );
+            self.scope_stack
+                .last_mut()
+                .expect("scope frame")
+                .push(var_name.to_string());
+        }
+
+        self.loop_stack.push((step_blk, after));
+        self.lower_stmt(body);
+        let body_open_at_end = self.cur_open();
+        self.loop_stack.pop();
+
+        // Close body scope — per-iter drops over THIS scope only.
+        let body_frame = self.scope_stack.pop().expect("for-of str body scope");
+        let body_shadows = self.shadow_stack.pop().expect("shadow frame");
+        if body_open_at_end {
+            for name in &body_frame {
+                let info = match self.locals.get(name) {
+                    Some(i) => *i,
+                    None => continue,
+                };
+                if info.moved || info.ty.is_copy() || self.stack_alloced_locals.contains(name) {
+                    continue;
+                }
+                let val = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Load(info.ty, Operand::Value(info.slot), 0),
+                    info.ty,
+                    None,
+                );
+                self.emit_drop_value(Operand::Value(val), info.ty);
+            }
+            self.f.set_term(self.cur_block, Terminator::Br(step_blk));
+        }
+        for n in &body_frame {
+            self.locals.remove(n);
+        }
+        for (n, prev) in body_shadows {
+            self.locals.insert(n, prev);
+        }
+
+        // step: recompute adv from current i (no phi for the body's
+        // adv value), then i += adv. `continue` jumps here, so the
+        // recompute is unavoidable without phi nodes. Cost is one
+        // extra code_point_at + cmp per iter — acceptable for a
+        // language-construct loop.
+        self.cur_block = step_blk;
+        let i_step = self.f.append_inst(
+            self.cur_block,
+            InstKind::Load(Type::I64, Operand::Value(i_slot), 0),
+            Type::I64,
+            None,
+        );
+        let adv_step = self.emit_for_of_str_advance(src_op.clone(), Operand::Value(i_step));
+        let i_next = self.f.append_inst(
+            self.cur_block,
+            InstKind::BinOp(
+                SsaBinOp::Add,
+                Operand::Value(i_step),
+                Operand::Value(adv_step),
+            ),
+            Type::I64,
+            None,
+        );
+        self.f.append_void(
+            self.cur_block,
+            InstKind::Store(Operand::Value(i_next), Operand::Value(i_slot), 0),
+        );
+        self.f.set_term(self.cur_block, Terminator::Br(header));
+
+        // after: close i scope, fall through.
+        self.cur_block = after;
+        let i_frame = self.scope_stack.pop().expect("for-of str i scope");
+        let i_shadows = self.shadow_stack.pop().expect("shadow frame");
+        for n in &i_frame {
+            self.locals.remove(n);
+        }
+        for (n, prev) in i_shadows {
+            self.locals.insert(n, prev);
+        }
+    }
+
+    /// P11.4 helper — compute `adv = (code_point_at(src, i) > 0xFFFF) ? 2 : 1`
+    /// in the current block. `i_val` must be the already-loaded i64
+    /// index value (NOT an i_slot pointer — that was an earlier bug
+    /// that surfaced as `load i64, <i64-value>` and tripped inkwell's
+    /// PointerValue verifier). Returns the i64 SSA value for `adv`.
+    fn emit_for_of_str_advance(&mut self, src_op: Operand, i_val: Operand) -> ValueId {
+        let cp = self.f.append_inst(
+            self.cur_block,
+            InstKind::Call(self.intrinsics.str_code_point_at, vec![src_op, i_val]),
+            Type::I64,
+            None,
+        );
+        let is_supp = self.f.append_inst(
+            self.cur_block,
+            InstKind::ICmp(IPred::Sgt, Operand::Value(cp), Operand::ConstI64(0xFFFF)),
+            Type::Bool,
+            None,
+        );
+        let supp_i = self.f.append_inst(
+            self.cur_block,
+            InstKind::ZExtBoolToI64(Operand::Value(is_supp)),
+            Type::I64,
+            None,
+        );
+        self.f.append_inst(
+            self.cur_block,
+            InstKind::BinOp(SsaBinOp::Add, Operand::ConstI64(1), Operand::Value(supp_i)),
+            Type::I64,
+            None,
+        )
+    }
+
+    /// P11.4 helper — body-side: compute adv, alloc Substr. `i_val` is
+    /// the already-loaded current index. Returns (c_val, adv_val).
+    fn emit_for_of_str_step(&mut self, src_op: Operand, i_val: Operand) -> (ValueId, ValueId) {
+        let adv = self.emit_for_of_str_advance(src_op.clone(), i_val.clone());
+        let c = self.f.append_inst(
+            self.cur_block,
+            InstKind::Call(
+                self.intrinsics.substr_create,
+                vec![src_op, i_val, Operand::Value(adv)],
+            ),
+            Type::Substr,
+            None,
+        );
+        (c, adv)
     }
 
     /// P5.3 Phase B — emit the iterator-protocol `for (let v of obj)`
