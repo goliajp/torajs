@@ -188,46 +188,20 @@ pub(crate) fn try_lower_method_call(
     // anything that needs string-shaped output goes
     // through to_owned + Str path (Phase D would add
     // direct-on-Substr variants for slice/substring).
-    // `s.charCodeAt(LITERAL)` — inline a 4-byte LoadDyn
-    // + mask to 0xff + zext, skipping the bounds check
-    // and the runtime fn-call dispatch. Hot in tight
-    // tokenize loops (RPN evaluator etc). Same shape as
-    // emit_inline_str_eq_bytes — uses emit_str_data_base
-    // to handle Str (base_off = 16) and Substr (base_off
-    // = 16 + parent_offset, parent loaded once) uniformly.
-    if matches!(recv_ty, Type::Str | Type::Substr)
-        && matches!(method.as_str(), "charCodeAt" | "codePointAt")
-        && args.len() == 1
-        && let Expr::Number(n) = ctx.ast.get_expr(args[0])
-        && *n >= 0.0
-        && n.fract() == 0.0
-        && (*n as i64) < 1024
-    {
-        let lit_idx = *n as i64;
-        let (base, base_off) = ctx.emit_str_data_base(recv_op, recv_ty);
-        let off_v = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::BinOp(SsaBinOp::Add, base_off, Operand::ConstI64(lit_idx)),
-            Type::I64,
-            None,
-        );
-        // Load 8 bytes (I64); little-endian byte at idx
-        // is the low byte of the load → mask with 0xff
-        // promotes to a clean I64 char code.
-        let raw = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::LoadDyn(Type::I64, base, Operand::Value(off_v)),
-            Type::I64,
-            None,
-        );
-        let v = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::BinOp(SsaBinOp::And, Operand::Value(raw), Operand::ConstI64(0xff)),
-            Type::I64,
-            None,
-        );
-        return Some(Operand::Value(v));
-    }
+    // P11.1-S2.4 — the pre-S2 `s.charCodeAt(LITERAL)` inline
+    // (LoadDyn byte + mask 0xff + zext) assumed a Latin-1 byte-
+    // stream payload. Post-S2 a UTF-16 Str's code unit is a
+    // little-endian u16 at byte offset `idx × 2`, so the inline
+    // would only return the low byte (e.g. 0x2D for `"中"`
+    // instead of 0x4E2D). Re-introducing it as an
+    // encoding-aware inline would need either a build-time
+    // narrowing (Type::Str doesn't tell us the underlying
+    // encoding) or a runtime header-flag read + branch — at
+    // which point it's no cheaper than calling
+    // `__torajs_str_char_code_at` directly. So the inline arm
+    // is dropped and every charCodeAt / codePointAt routes
+    // through the runtime intrinsic, which already does the
+    // encoding-aware load.
     if recv_ty == Type::Substr && method == "charAt" && args.len() == 1 {
         // charAt on Substr: substr_slice(v, i, i+1).
         let idx_val = ctx.lower_expr(args[0]);

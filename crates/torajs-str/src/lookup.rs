@@ -28,7 +28,8 @@
 
 use core::cmp::Ordering;
 
-use crate::layout::{STR_DATA_OFF, STR_LEN_OFF};
+use crate::layout::{STR_DATA_OFF, STR_FLAG_IS_LATIN1, STR_LEN_OFF};
+use torajs_rc::HeapHeader;
 
 // ============================================================
 // Layout-aware FFI helpers
@@ -39,9 +40,176 @@ unsafe fn str_len(p: *const u8) -> u32 {
     unsafe { (p.add(STR_LEN_OFF) as *const u32).read() }
 }
 
+/// Read a Str's `(payload_bytes, length, is_latin1)` view. Length
+/// is the ES code unit count; payload byte count = `length × (1
+/// for Latin-1 | 2 for UTF-16)`. Used by every search FFI to
+/// derive both the encoding short-circuit and the stride for
+/// byte-aligned scanning.
+///
+/// # Safety
+///
+/// `p` must point at a valid Str block whose universal heap
+/// header is intact.
 #[inline]
-unsafe fn str_bytes<'a>(p: *const u8, len: u32) -> &'a [u8] {
-    unsafe { core::slice::from_raw_parts(p.add(STR_DATA_OFF), len as usize) }
+unsafe fn str_view<'a>(p: *const u8) -> (&'a [u8], u32, bool) {
+    let length = unsafe { (p.add(STR_LEN_OFF) as *const u32).read() };
+    let header = unsafe { &*(p as *const HeapHeader) };
+    let is_latin1 = (header.flags & STR_FLAG_IS_LATIN1) != 0;
+    let byte_cnt = if is_latin1 {
+        length as usize
+    } else {
+        (length as usize) * 2
+    };
+    let payload = unsafe { core::slice::from_raw_parts(p.add(STR_DATA_OFF), byte_cnt) };
+    (payload, length, is_latin1)
+}
+
+/// Clamp a JS-side `from` code-unit index into the `[0, length]`
+/// range and convert it to a byte offset using the encoding's
+/// per-code-unit stride (1 for Latin-1, 2 for UTF-16).
+#[inline]
+fn clamp_from_to_byte_off(from: i64, length: u32, stride: usize) -> usize {
+    let clamped = from.max(0).min(length as i64) as usize;
+    clamped * stride
+}
+
+/// Encoding-aware forward substring search. Returns the byte
+/// offset of the first occurrence of `needle` in `haystack[start..]`
+/// stepping by `stride` (1 for Latin-1, 2 for UTF-16 LE so all
+/// candidate positions are u16-aligned). Empty needle hits at
+/// `start`.
+fn index_of_with_stride(
+    haystack: &[u8],
+    needle: &[u8],
+    start_byte: usize,
+    stride: usize,
+) -> Option<usize> {
+    if needle.is_empty() {
+        return Some(start_byte);
+    }
+    if needle.len() > haystack.len() {
+        return None;
+    }
+    let end = haystack.len() - needle.len();
+    let mut i = start_byte;
+    while i <= end {
+        if &haystack[i..i + needle.len()] == needle {
+            return Some(i);
+        }
+        i += stride;
+    }
+    None
+}
+
+/// Encoding-aware reverse substring search. Returns the byte
+/// offset of the last occurrence of `needle` in
+/// `haystack[..=cap_byte]` (i.e. matches whose start ≤ `cap_byte`),
+/// stepping the candidate position down by `stride`. Empty
+/// needle hits at `min(cap_byte, haystack.len())`.
+fn last_index_of_with_stride(
+    haystack: &[u8],
+    needle: &[u8],
+    cap_byte: usize,
+    stride: usize,
+) -> Option<usize> {
+    if needle.is_empty() {
+        return Some(cap_byte.min(haystack.len()));
+    }
+    if needle.len() > haystack.len() {
+        return None;
+    }
+    let max_start = haystack.len() - needle.len();
+    let mut i = cap_byte.min(max_start);
+    // Snap i back to the closest stride-aligned position ≤ i. For
+    // stride=1 this is a no-op; for stride=2 (UTF-16) odd `cap_byte`
+    // already shouldn't happen (caller derived it from a code-unit
+    // index × 2), but the AND keeps the loop tight against bad
+    // inputs.
+    i &= !(stride - 1);
+    loop {
+        if &haystack[i..i + needle.len()] == needle {
+            return Some(i);
+        }
+        if i < stride {
+            return None;
+        }
+        i -= stride;
+    }
+}
+
+/// Widen a Latin-1 byte payload to a UTF-16 LE byte buffer (each
+/// input byte becomes a `(byte, 0)` u16 pair). Used by the search
+/// FFI wrappers when haystack is UTF-16 and needle is Latin-1:
+/// every Latin-1 codepoint is also a valid BMP UTF-16 code unit
+/// with zero high byte, so the search reduces to a byte-aligned
+/// scan over the widened needle.
+fn widen_latin1_to_utf16(src: &[u8]) -> alloc::vec::Vec<u8> {
+    let mut out = alloc::vec::Vec::with_capacity(src.len() * 2);
+    for &b in src {
+        out.push(b);
+        out.push(0);
+    }
+    out
+}
+
+/// Cow-style wrapper that lets the encoding-aware search helpers
+/// return either a borrowed payload (same-encoding fast path) or
+/// an owned widened buffer (Latin-1 needle widened to UTF-16) under
+/// a single byte-slice API.
+enum PayloadBuf<'a> {
+    Borrowed(&'a [u8]),
+    Owned(alloc::vec::Vec<u8>),
+}
+
+impl<'a> AsRef<[u8]> for PayloadBuf<'a> {
+    fn as_ref(&self) -> &[u8] {
+        match self {
+            Self::Borrowed(s) => s,
+            Self::Owned(v) => v.as_slice(),
+        }
+    }
+}
+
+impl<'a> PayloadBuf<'a> {
+    #[inline]
+    fn len(&self) -> usize {
+        self.as_ref().len()
+    }
+}
+
+/// Bring haystack + needle to a common encoding for byte-aligned
+/// scanning, or report "impossible match" when canonical invariants
+/// rule it out.
+///
+/// Returns `Some((haystack_bytes, needle_buf, stride))` when a
+/// byte-aligned scan is feasible, where `stride` is 1 for Latin-1
+/// and 2 for UTF-16. Returns `None` only in the asymmetric case
+/// **haystack=Latin-1, needle=UTF-16**: a UTF-16 needle implies a
+/// codepoint > 0xFF that cannot occur in a Latin-1 haystack under
+/// the canonical-encoding invariant — substring search is
+/// definitely a miss.
+///
+/// The opposite asymmetry — Latin-1 needle inside a UTF-16
+/// haystack — widens the needle to UTF-16 LE so its byte stream
+/// aligns with the haystack's, exploiting the fact that every
+/// Latin-1 codepoint is a valid BMP code unit with zero high
+/// byte.
+fn align_haystack_needle<'h, 'n>(
+    haystack: &'h [u8],
+    haystack_latin1: bool,
+    needle: &'n [u8],
+    needle_latin1: bool,
+) -> Option<(&'h [u8], PayloadBuf<'n>, usize)> {
+    match (haystack_latin1, needle_latin1) {
+        (true, true) => Some((haystack, PayloadBuf::Borrowed(needle), 1)),
+        (false, false) => Some((haystack, PayloadBuf::Borrowed(needle), 2)),
+        (true, false) => None,
+        (false, true) => Some((
+            haystack,
+            PayloadBuf::Owned(widen_latin1_to_utf16(needle)),
+            2,
+        )),
+    }
 }
 
 // ============================================================
@@ -176,10 +344,19 @@ pub fn last_index_of(s: &[u8], needle: &[u8]) -> Option<usize> {
 
 /// `s.localeCompare(other)` — returns -1, 0, or 1. Mirrors C
 /// `__torajs_str_locale_compare`.
+///
+/// P11.1-S2.4 — only a bytewise comparison; encoding awareness
+/// here would require codepoint-level ordering (Unicode collation)
+/// which is out of v0 scope. Latin-1 vs UTF-16 operands compare
+/// by their raw payload bytes, which intentionally puts every
+/// Latin-1 string ordered-before every UTF-16 string (Latin-1
+/// payloads are shorter / different first-byte distribution).
+/// A spec-correct collation lands when the case-folding /
+/// normalisation tables come online in P11.5 / P11.6.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_locale_compare(a: *const u8, b: *const u8) -> i64 {
-    let aa = unsafe { str_bytes(a, str_len(a)) };
-    let bb = unsafe { str_bytes(b, str_len(b)) };
+    let (aa, _, _) = unsafe { str_view(a) };
+    let (bb, _, _) = unsafe { str_view(b) };
     match locale_compare(aa, bb) {
         Ordering::Less => -1,
         Ordering::Equal => 0,
@@ -188,40 +365,83 @@ pub unsafe extern "C" fn __torajs_str_locale_compare(a: *const u8, b: *const u8)
 }
 
 /// `s.startsWith(needle, pos)` — 1 if matches, 0 otherwise.
+///
+/// P11.1-S2.4 — encoding-aware: empty needle always matches;
+/// mismatched encoding flag short-circuits to false under the
+/// canonical-encoding invariant; same encoding does a stride-
+/// aligned byte compare at `pos × stride`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_starts_with_from(
     s: *const u8,
     sub: *const u8,
     pos: i64,
 ) -> i64 {
-    let ss = unsafe { str_bytes(s, str_len(s)) };
-    let nn = unsafe { str_bytes(sub, str_len(sub)) };
-    if starts_with_from(ss, nn, pos) { 1 } else { 0 }
+    let (ss, s_len, s_latin1) = unsafe { str_view(s) };
+    let (nn, n_len, n_latin1) = unsafe { str_view(sub) };
+    if n_len == 0 {
+        return 1;
+    }
+    let Some((haystack, needle, stride)) = align_haystack_needle(ss, s_latin1, nn, n_latin1) else {
+        return 0;
+    };
+    let start = clamp_from_to_byte_off(pos, s_len, stride);
+    if start + needle.len() > haystack.len() {
+        return 0;
+    }
+    if &haystack[start..start + needle.len()] == needle.as_ref() {
+        1
+    } else {
+        0
+    }
 }
 
-/// `s.endsWith(needle, end)` — 1 if matches, 0 otherwise.
+/// `s.endsWith(needle, end)` — 1 if matches, 0 otherwise. `end`
+/// is the JS code-unit anchor (clamped to `[0, s.length]`); the
+/// match window is `s[end - needle.length .. end]`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_ends_with_from(
     s: *const u8,
     sub: *const u8,
     end: i64,
 ) -> i64 {
-    let ss = unsafe { str_bytes(s, str_len(s)) };
-    let nn = unsafe { str_bytes(sub, str_len(sub)) };
-    if ends_with_from(ss, nn, end) { 1 } else { 0 }
+    let (ss, s_len, s_latin1) = unsafe { str_view(s) };
+    let (nn, n_len, n_latin1) = unsafe { str_view(sub) };
+    if n_len == 0 {
+        return 1;
+    }
+    let Some((haystack, needle, stride)) = align_haystack_needle(ss, s_latin1, nn, n_latin1) else {
+        return 0;
+    };
+    let e_byte = clamp_from_to_byte_off(end, s_len, stride);
+    if e_byte < needle.len() {
+        return 0;
+    }
+    let off = e_byte - needle.len();
+    if &haystack[off..e_byte] == needle.as_ref() {
+        1
+    } else {
+        0
+    }
 }
 
-/// `s.indexOf(needle, fromIdx)` — found index or `-1`.
+/// `s.indexOf(needle, fromIdx)` — found code-unit index or `-1`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_index_of_from(
     s: *const u8,
     sub: *const u8,
     from: i64,
 ) -> i64 {
-    let ss = unsafe { str_bytes(s, str_len(s)) };
-    let nn = unsafe { str_bytes(sub, str_len(sub)) };
-    match index_of_from(ss, nn, from) {
-        Some(i) => i as i64,
+    let (ss, s_len, s_latin1) = unsafe { str_view(s) };
+    let (nn, _, n_latin1) = unsafe { str_view(sub) };
+    if nn.is_empty() {
+        return from.max(0).min(s_len as i64);
+    }
+    let Some((haystack, needle, stride)) = align_haystack_needle(ss, s_latin1, nn, n_latin1) else {
+        return -1;
+    };
+    let start = clamp_from_to_byte_off(from, s_len, stride);
+    match index_of_with_stride(haystack, needle.as_ref(), start, stride) {
+        Some(byte_off) => (byte_off / stride) as i64,
         None => -1,
     }
 }
@@ -233,33 +453,58 @@ pub unsafe extern "C" fn __torajs_str_includes_from(
     sub: *const u8,
     from: i64,
 ) -> i64 {
-    let ss = unsafe { str_bytes(s, str_len(s)) };
-    let nn = unsafe { str_bytes(sub, str_len(sub)) };
-    if includes_from(ss, nn, from) { 1 } else { 0 }
+    let (ss, s_len, s_latin1) = unsafe { str_view(s) };
+    let (nn, _, n_latin1) = unsafe { str_view(sub) };
+    if nn.is_empty() {
+        return 1;
+    }
+    let Some((haystack, needle, stride)) = align_haystack_needle(ss, s_latin1, nn, n_latin1) else {
+        return 0;
+    };
+    let start = clamp_from_to_byte_off(from, s_len, stride);
+    if index_of_with_stride(haystack, needle.as_ref(), start, stride).is_some() {
+        1
+    } else {
+        0
+    }
 }
 
-/// `s.lastIndexOf(needle, fromIdx)` — found index or `-1`.
+/// `s.lastIndexOf(needle, fromIdx)` — found code-unit index or `-1`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_last_index_of_from(
     s: *const u8,
     sub: *const u8,
     from: i64,
 ) -> i64 {
-    let ss = unsafe { str_bytes(s, str_len(s)) };
-    let nn = unsafe { str_bytes(sub, str_len(sub)) };
-    match last_index_of_from(ss, nn, from) {
-        Some(i) => i as i64,
+    let (ss, s_len, s_latin1) = unsafe { str_view(s) };
+    let (nn, _, n_latin1) = unsafe { str_view(sub) };
+    if nn.is_empty() {
+        return from.max(0).min(s_len as i64);
+    }
+    let Some((haystack, needle, stride)) = align_haystack_needle(ss, s_latin1, nn, n_latin1) else {
+        return -1;
+    };
+    let cap = clamp_from_to_byte_off(from, s_len, stride);
+    match last_index_of_with_stride(haystack, needle.as_ref(), cap, stride) {
+        Some(byte_off) => (byte_off / stride) as i64,
         None => -1,
     }
 }
 
-/// `s.lastIndexOf(needle)` — found index or `-1`.
+/// `s.lastIndexOf(needle)` — found code-unit index or `-1`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_last_index_of(s: *const u8, needle: *const u8) -> i64 {
-    let ss = unsafe { str_bytes(s, str_len(s)) };
-    let nn = unsafe { str_bytes(needle, str_len(needle)) };
-    match last_index_of(ss, nn) {
-        Some(i) => i as i64,
+    let (ss, s_len, s_latin1) = unsafe { str_view(s) };
+    let (nn, _, n_latin1) = unsafe { str_view(needle) };
+    if nn.is_empty() {
+        return s_len as i64;
+    }
+    let Some((haystack, needle, stride)) = align_haystack_needle(ss, s_latin1, nn, n_latin1) else {
+        return -1;
+    };
+    let cap = haystack.len().saturating_sub(needle.len());
+    match last_index_of_with_stride(haystack, needle.as_ref(), cap, stride) {
+        Some(byte_off) => (byte_off / stride) as i64,
         None => -1,
     }
 }
@@ -301,22 +546,36 @@ pub unsafe extern "C" fn __torajs_str_includes(s: *const u8, n: *const u8) -> i6
     unsafe { __torajs_str_includes_from(s, n, 0) }
 }
 
-/// `s.charCodeAt(i)` — byte at index `i` zero-extended to i64.
-/// OOB (i < 0 or i >= len) returns 0 (M6.1 stub: TS spec is NaN
-/// but the v0 SSA layer can't return NaN-as-i64). Port of
-/// `ssa_inkwell::define_str_char_code_at` (P3.1-g.4, 2026-05-23).
+/// `s.charCodeAt(i)` — UTF-16 code unit at index `i` zero-
+/// extended to i64. OOB (i < 0 or i >= s.length) returns 0
+/// (M6.1 stub: TS spec is NaN but the v0 SSA layer can't return
+/// NaN-as-i64). Port of `ssa_inkwell::define_str_char_code_at`
+/// (P3.1-g.4, 2026-05-23).
+///
+/// P11.1-S2.4 — encoding-aware: Latin-1 returns the byte value
+/// (0..=255 maps 1:1 to a code unit), UTF-16 returns the little-
+/// endian u16 at byte offset `i × 2`. Lone surrogates are
+/// returned as-is per ES spec. `codePointAt` (which combines
+/// surrogate pairs) lands as a sibling intrinsic in the next
+/// sub-step alongside the check.rs / ssa_lower split.
 ///
 /// # Safety
 ///
 /// `s` must be a valid Str heap block.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_char_code_at(s: *const u8, i: i64) -> i64 {
-    let len = unsafe { str_len(s) } as i64;
-    if i < 0 || i >= len {
+    let (payload, length, is_latin1) = unsafe { str_view(s) };
+    if i < 0 || i >= length as i64 {
         return 0;
     }
-    let bytes = unsafe { str_bytes(s, len as u32) };
-    bytes[i as usize] as i64
+    if is_latin1 {
+        payload[i as usize] as i64
+    } else {
+        let off = (i as usize) * 2;
+        let lo = payload[off] as u16;
+        let hi = payload[off + 1] as u16;
+        ((hi << 8) | lo) as i64
+    }
 }
 
 #[cfg(test)]
