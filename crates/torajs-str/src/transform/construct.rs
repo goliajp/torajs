@@ -36,30 +36,41 @@
 use core::ffi::c_void;
 
 use crate::block::StrBlock;
-use crate::layout::{STR_DATA_OFF, STR_LEN_OFF};
+use crate::layout::{STR_DATA_OFF, STR_FLAG_IS_LATIN1, STR_LEN_OFF};
 use crate::substr::__torajs_substr_create;
+use torajs_rc::HeapHeader;
 
 // ============================================================
 // Layout-aware FFI helpers (sub-module-local)
 // ============================================================
 
 #[inline]
-unsafe fn str_len(p: *const u8) -> u32 {
-    unsafe { (p.add(STR_LEN_OFF) as *const u32).read() }
+unsafe fn str_view<'a>(p: *const u8) -> (&'a [u8], u32, bool) {
+    let length = unsafe { (p.add(STR_LEN_OFF) as *const u32).read() };
+    let header = unsafe { &*(p as *const HeapHeader) };
+    let is_latin1 = (header.flags & STR_FLAG_IS_LATIN1) != 0;
+    let byte_cnt = if is_latin1 {
+        length as usize
+    } else {
+        (length as usize) * 2
+    };
+    let payload = unsafe { core::slice::from_raw_parts(p.add(STR_DATA_OFF), byte_cnt) };
+    (payload, length, is_latin1)
 }
 
+/// Allocate a fresh Str with the same encoding as the source view
+/// and copy the requested code-unit range. `byte_lo` and
+/// `byte_hi` are byte offsets into the source's payload (already
+/// translated via code_unit × stride at the call site).
 #[inline]
-unsafe fn str_bytes<'a>(p: *const u8, len: u32) -> &'a [u8] {
-    unsafe { core::slice::from_raw_parts(p.add(STR_DATA_OFF), len as usize) }
-}
-
-#[inline]
-fn alloc_str(payload: &[u8]) -> *mut u8 {
-    let out_len = payload.len() as u32;
-    let mut block = StrBlock::alloc(out_len);
-    if !payload.is_empty() {
-        let dst = unsafe { block.as_bytes_mut(out_len) };
-        dst.copy_from_slice(payload);
+fn alloc_str_slice(payload: &[u8], byte_lo: usize, byte_hi: usize, is_latin1: bool) -> *mut u8 {
+    let new_byte_cnt = (byte_hi - byte_lo) as u32;
+    let stride: u32 = if is_latin1 { 1 } else { 2 };
+    let new_length = new_byte_cnt / stride;
+    let mut block = StrBlock::alloc_with_encoding(new_length, is_latin1);
+    if new_byte_cnt > 0 {
+        let dst = unsafe { block.as_bytes_mut(new_byte_cnt) };
+        dst.copy_from_slice(&payload[byte_lo..byte_hi]);
     }
     block.into_raw()
 }
@@ -156,18 +167,22 @@ pub fn at_resolve(i: i64, len: u32) -> Option<u32> {
 /// `s` must be a valid Str heap block.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_repeat(s: *const u8, n: i64) -> *mut u8 {
-    let s_len = unsafe { str_len(s) };
-    let out_len = repeat_out_len(s_len, n);
-    let mut block = StrBlock::alloc(out_len);
-    if out_len == 0 || s_len == 0 {
+    let (s_payload, s_length, is_latin1) = unsafe { str_view(s) };
+    let out_length = repeat_out_len(s_length, n);
+    let mut block = StrBlock::alloc_with_encoding(out_length, is_latin1);
+    if out_length == 0 || s_length == 0 {
         return block.into_raw();
     }
-    let s_payload = unsafe { str_bytes(s, s_len) };
-    let dst = unsafe { block.as_bytes_mut(out_len) };
-    let s_used = s_len as usize;
-    let times = (out_len / s_len) as usize;
+    let s_byte_cnt = s_payload.len();
+    let out_byte_cnt = if is_latin1 {
+        out_length as usize
+    } else {
+        (out_length as usize) * 2
+    };
+    let dst = unsafe { block.as_bytes_mut(out_byte_cnt as u32) };
+    let times = (out_length / s_length) as usize;
     for k in 0..times {
-        dst[k * s_used..(k + 1) * s_used].copy_from_slice(s_payload);
+        dst[k * s_byte_cnt..(k + 1) * s_byte_cnt].copy_from_slice(s_payload);
     }
     block.into_raw()
 }
@@ -187,11 +202,17 @@ pub unsafe extern "C" fn __torajs_str_char_at(s: *mut u8, i: i64) -> *mut u8 {
     if s.is_null() {
         return unsafe { __torajs_substr_create(parent, 0, 0) } as *mut u8;
     }
-    let len = unsafe { str_len(s) };
-    if i < 0 || (i as u64) >= len as u64 {
+    let (_, length, is_latin1) = unsafe { str_view(s) };
+    if i < 0 || (i as u64) >= length as u64 {
         return unsafe { __torajs_substr_create(parent, 0, 0) } as *mut u8;
     }
-    unsafe { __torajs_substr_create(parent, i as u64, 1) as *mut u8 }
+    // Substr layout still stores byte offset / byte count (its
+    // code-unit flip lives in the S5 follow-up). Convert the
+    // code-unit index `i` to the parent's byte offset using the
+    // parent's stride, and span exactly one code unit.
+    let stride = if is_latin1 { 1u64 } else { 2u64 };
+    let byte_off = (i as u64) * stride;
+    unsafe { __torajs_substr_create(parent, byte_off, stride) as *mut u8 }
 }
 
 /// `s.at(i)` — ES2022 single-char Str. Negative `i` wraps;
@@ -202,21 +223,33 @@ pub unsafe extern "C" fn __torajs_str_char_at(s: *mut u8, i: i64) -> *mut u8 {
 /// `s` must be a valid Str heap block.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_at(s: *const u8, i: i64) -> *mut u8 {
-    let len = unsafe { str_len(s) };
-    match at_resolve(i, len) {
+    let (payload, length, is_latin1) = unsafe { str_view(s) };
+    match at_resolve(i, length) {
         None => alloc_empty_str(),
         Some(idx) => {
-            let byte = unsafe { str_bytes(s, len) }[idx as usize];
-            alloc_str(&[byte])
+            let stride = if is_latin1 { 1usize } else { 2usize };
+            let byte_off = (idx as usize) * stride;
+            alloc_str_slice(payload, byte_off, byte_off + stride, is_latin1)
         }
     }
 }
 
-/// `String.fromCharCode(n)` — 1-byte Str holding `n & 0xff`.
+/// `String.fromCharCode(n)` — 1-code-unit Str holding `n & 0xFFFF`
+/// per ES spec §22.1.2.1 (truncate to 16-bit unsigned). Codepoints
+/// ≤ 0xFF pick the Latin-1 encoding; everything else (including
+/// surrogate halves) becomes a UTF-16 LE Str.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_from_char_code(n: i64) -> *mut u8 {
-    let byte = (n & 0xff) as u8;
-    alloc_str(&[byte])
+    let cu = (n & 0xFFFF) as u16;
+    if cu <= 0xFF {
+        let mut block = StrBlock::alloc_with_encoding(1, true);
+        unsafe { block.as_bytes_mut(1) }.copy_from_slice(&[cu as u8]);
+        block.into_raw()
+    } else {
+        let mut block = StrBlock::alloc_with_encoding(1, false);
+        unsafe { block.as_bytes_mut(2) }.copy_from_slice(&cu.to_le_bytes());
+        block.into_raw()
+    }
 }
 
 /// `s.substring(start, end)` — slice's pre-ES5 sibling. Negative
@@ -228,10 +261,15 @@ pub unsafe extern "C" fn __torajs_str_from_char_code(n: i64) -> *mut u8 {
 /// `s` must be a valid Str heap block.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_substring(s: *const u8, start: i64, end: i64) -> *mut u8 {
-    let len = unsafe { str_len(s) };
-    let (lo, hi) = substring_range(start, end, len);
-    let payload = unsafe { str_bytes(s, len) };
-    alloc_str(&payload[lo as usize..hi as usize])
+    let (payload, length, is_latin1) = unsafe { str_view(s) };
+    let (lo, hi) = substring_range(start, end, length);
+    let stride = if is_latin1 { 1usize } else { 2usize };
+    alloc_str_slice(
+        payload,
+        (lo as usize) * stride,
+        (hi as usize) * stride,
+        is_latin1,
+    )
 }
 
 /// `s.substr(start, length)` — AnnexB legacy. Negative `start`
@@ -242,10 +280,12 @@ pub unsafe extern "C" fn __torajs_str_substring(s: *const u8, start: i64, end: i
 /// `s` must be a valid Str heap block.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_substr(s: *const u8, start: i64, length: i64) -> *mut u8 {
-    let size = unsafe { str_len(s) };
+    let (payload, size, is_latin1) = unsafe { str_view(s) };
     let (lo, out_len) = substr_range(start, length, size);
-    let payload = unsafe { str_bytes(s, size) };
-    alloc_str(&payload[lo as usize..(lo + out_len) as usize])
+    let stride = if is_latin1 { 1usize } else { 2usize };
+    let byte_lo = (lo as usize) * stride;
+    let byte_hi = ((lo + out_len) as usize) * stride;
+    alloc_str_slice(payload, byte_lo, byte_hi, is_latin1)
 }
 
 #[cfg(test)]
@@ -305,8 +345,8 @@ mod tests {
     }
 
     fn read_str(p: *const u8) -> Vec<u8> {
-        let len = unsafe { str_len(p) };
-        unsafe { str_bytes(p, len) }.to_vec()
+        let (payload, _, _) = unsafe { str_view(p) };
+        payload.to_vec()
     }
 
     #[test]
@@ -331,11 +371,16 @@ mod tests {
     }
 
     #[test]
-    fn ffi_from_char_code_truncates_to_byte() {
+    fn ffi_from_char_code_truncates_to_codeunit() {
+        // P11.1-S2.5 — `fromCharCode` now follows spec §22.1.2.1
+        // (`n & 0xFFFF`) and the result encoding is picked
+        // canonically: codepoints ≤ 0xFF → Latin-1; otherwise
+        // UTF-16 LE single code unit.
         let r = unsafe { __torajs_str_from_char_code(65) };
-        let r2 = unsafe { __torajs_str_from_char_code(0x141) }; // truncates to 0x41 = 'A'
+        let r2 = unsafe { __torajs_str_from_char_code(0x141) }; // U+0141 (Ł)
         assert_eq!(read_str(r), b"A");
-        assert_eq!(read_str(r2), b"A");
+        // U+0141 little-endian → [0x41, 0x01].
+        assert_eq!(read_str(r2), [0x41, 0x01]);
         unsafe { __torajs_str_free(r) };
         unsafe { __torajs_str_free(r2) };
     }

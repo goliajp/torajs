@@ -20,20 +20,25 @@
 //! and `__torajs_str_to_lower(s)`, both `Str -> Str`.
 
 use crate::block::StrBlock;
-use crate::layout::{STR_DATA_OFF, STR_LEN_OFF};
+use crate::layout::{STR_DATA_OFF, STR_FLAG_IS_LATIN1, STR_LEN_OFF};
+use torajs_rc::HeapHeader;
 
 // ============================================================
 // Layout-aware FFI helpers (sub-module-local; see mod.rs for why)
 // ============================================================
 
 #[inline]
-unsafe fn str_len(p: *const u8) -> u32 {
-    unsafe { (p.add(STR_LEN_OFF) as *const u32).read() }
-}
-
-#[inline]
-unsafe fn str_bytes<'a>(p: *const u8, len: u32) -> &'a [u8] {
-    unsafe { core::slice::from_raw_parts(p.add(STR_DATA_OFF), len as usize) }
+unsafe fn str_view<'a>(p: *const u8) -> (&'a [u8], u32, bool) {
+    let length = unsafe { (p.add(STR_LEN_OFF) as *const u32).read() };
+    let header = unsafe { &*(p as *const HeapHeader) };
+    let is_latin1 = (header.flags & STR_FLAG_IS_LATIN1) != 0;
+    let byte_cnt = if is_latin1 {
+        length as usize
+    } else {
+        (length as usize) * 2
+    };
+    let payload = unsafe { core::slice::from_raw_parts(p.add(STR_DATA_OFF), byte_cnt) };
+    (payload, length, is_latin1)
 }
 
 // ============================================================
@@ -76,13 +81,49 @@ pub fn to_lower_into(src: &[u8], dst: &mut [u8]) {
 /// `0..STR_DATA_OFF`, then `len` payload bytes). The returned
 /// pointer is a fresh refcount=1 Str block; ownership transfers
 /// to the caller.
+/// Encoding-aware ASCII upper-fold: walks the payload at the
+/// encoding's stride and only folds when the code unit is an
+/// ASCII lowercase letter (Latin-1: byte 'a'..='z'; UTF-16 LE:
+/// low byte 'a'..='z' AND high byte 0). Non-ASCII codepoints
+/// pass through unchanged — Unicode case folding lands in P11.5
+/// alongside the Unicode data tables.
+#[inline]
+fn fold_case(src: &[u8], dst: &mut [u8], is_latin1: bool, upper: bool) {
+    debug_assert_eq!(src.len(), dst.len());
+    dst.copy_from_slice(src);
+    if is_latin1 {
+        for b in dst.iter_mut() {
+            if upper && b.is_ascii_lowercase() {
+                *b -= 32;
+            } else if !upper && b.is_ascii_uppercase() {
+                *b += 32;
+            }
+        }
+    } else {
+        let mut i = 0;
+        while i + 1 < dst.len() {
+            if dst[i + 1] == 0 {
+                let b = dst[i];
+                if upper && b.is_ascii_lowercase() {
+                    dst[i] = b - 32;
+                } else if !upper && b.is_ascii_uppercase() {
+                    dst[i] = b + 32;
+                }
+            }
+            i += 2;
+        }
+    }
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_to_upper(s: *const u8) -> *mut u8 {
-    let len = unsafe { str_len(s) };
-    let src = unsafe { str_bytes(s, len) };
-    let mut block = StrBlock::alloc(len);
-    let dst = unsafe { block.as_bytes_mut(len) };
-    to_upper_into(src, dst);
+    let (payload, length, is_latin1) = unsafe { str_view(s) };
+    let mut block = StrBlock::alloc_with_encoding(length, is_latin1);
+    let byte_cnt = payload.len() as u32;
+    if byte_cnt > 0 {
+        let dst = unsafe { block.as_bytes_mut(byte_cnt) };
+        fold_case(payload, dst, is_latin1, true);
+    }
     block.into_raw()
 }
 
@@ -93,11 +134,13 @@ pub unsafe extern "C" fn __torajs_str_to_upper(s: *const u8) -> *mut u8 {
 /// See [`__torajs_str_to_upper`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_to_lower(s: *const u8) -> *mut u8 {
-    let len = unsafe { str_len(s) };
-    let src = unsafe { str_bytes(s, len) };
-    let mut block = StrBlock::alloc(len);
-    let dst = unsafe { block.as_bytes_mut(len) };
-    to_lower_into(src, dst);
+    let (payload, length, is_latin1) = unsafe { str_view(s) };
+    let mut block = StrBlock::alloc_with_encoding(length, is_latin1);
+    let byte_cnt = payload.len() as u32;
+    if byte_cnt > 0 {
+        let dst = unsafe { block.as_bytes_mut(byte_cnt) };
+        fold_case(payload, dst, is_latin1, false);
+    }
     block.into_raw()
 }
 
@@ -181,16 +224,16 @@ mod tests {
         b.into_raw()
     }
 
-    fn read_str(p: *const u8) -> Vec<u8> {
-        let len = unsafe { str_len(p) };
-        unsafe { str_bytes(p, len) }.to_vec()
+    fn read_payload(p: *const u8) -> Vec<u8> {
+        let (payload, _, _) = unsafe { str_view(p) };
+        payload.to_vec()
     }
 
     #[test]
     fn ffi_to_upper_roundtrips() {
         let s = make_str(b"hello, world!");
         let r = unsafe { __torajs_str_to_upper(s) };
-        assert_eq!(read_str(r), b"HELLO, WORLD!");
+        assert_eq!(read_payload(r), b"HELLO, WORLD!");
         unsafe { __torajs_str_free(s) };
         unsafe { __torajs_str_free(r) };
     }
@@ -199,7 +242,7 @@ mod tests {
     fn ffi_to_lower_roundtrips() {
         let s = make_str(b"HELLO, WORLD!");
         let r = unsafe { __torajs_str_to_lower(s) };
-        assert_eq!(read_str(r), b"hello, world!");
+        assert_eq!(read_payload(r), b"hello, world!");
         unsafe { __torajs_str_free(s) };
         unsafe { __torajs_str_free(r) };
     }

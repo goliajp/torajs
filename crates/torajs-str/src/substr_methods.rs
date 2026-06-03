@@ -17,9 +17,10 @@
 
 use core::ffi::c_void;
 
-use torajs_rc::__torajs_rc_inc;
+use torajs_rc::{HeapHeader, __torajs_rc_inc};
 
-use crate::layout::{STR_HDR_SIZE, STR_LEN_OFF};
+use crate::block::StrBlock;
+use crate::layout::{STR_FLAG_IS_LATIN1, STR_HDR_SIZE, STR_LEN_OFF};
 use crate::substr::{
     __torajs_substr_create, FLAG_SUBSTR_INLINE, SUBSTR_LEN_OFF, SUBSTR_OFFSET_OFF,
     SUBSTR_PARENT_OFF,
@@ -33,6 +34,16 @@ unsafe extern "C" {
 #[cfg(test)]
 unsafe extern "C" {
     fn __torajs_str_alloc_pooled(len: u64) -> *mut u8;
+}
+
+/// Read a Substr's parent encoding flag. The parent Str carries
+/// the canonical encoding (Latin-1 if `IS_LATIN1` bit set on
+/// `flags u16 @6`, else UTF-16 LE); the Substr never changes
+/// encoding independently.
+#[inline]
+unsafe fn substr_parent_is_latin1(v: *const u8) -> bool {
+    let parent = unsafe { substr_parent(v) } as *const HeapHeader;
+    unsafe { (*parent).flags & STR_FLAG_IS_LATIN1 != 0 }
 }
 
 #[inline]
@@ -69,15 +80,34 @@ unsafe fn str_data(s: *const u8) -> *const u8 {
 
 /// `s.charCodeAt(i)` on a Substr receiver. OOB / negative returns 0.
 ///
+/// P11.1-S2.5 — encoding-aware: Latin-1 returns the byte value
+/// (0..=255), UTF-16 returns the little-endian u16 at code-unit
+/// index `i`. `i` is the JS code-unit index per spec; the byte
+/// offset is computed via the parent encoding's stride. The
+/// Substr's `len@8` field is a byte count over the parent's
+/// payload (S5 follow-up converts it to code units); the bounds
+/// check converts to code units via the stride.
+///
 /// # Safety
 /// `v` is a live `*const Substr` (rc > 0).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_substr_char_code_at(v: *const u8, i: i64) -> i64 {
-    let len = unsafe { substr_len(v) };
-    if i < 0 || (i as u64) >= len {
+    let byte_len = unsafe { substr_len(v) };
+    let is_latin1 = unsafe { substr_parent_is_latin1(v) };
+    let stride = if is_latin1 { 1u64 } else { 2u64 };
+    let cu_len = byte_len / stride;
+    if i < 0 || (i as u64) >= cu_len {
         return 0;
     }
-    unsafe { *substr_data(v).add(i as usize) as i64 }
+    let off = (i as u64) * stride;
+    let p = unsafe { substr_data(v).add(off as usize) };
+    if is_latin1 {
+        unsafe { *p as i64 }
+    } else {
+        let lo = unsafe { *p } as u16;
+        let hi = unsafe { *p.add(1) } as u16;
+        ((hi << 8) | lo) as i64
+    }
 }
 
 /// Bytewise compare a Substr against an OWNED Str. Returns 1 iff
@@ -105,19 +135,30 @@ pub unsafe extern "C" fn __torajs_substr_eq_str(v: *const u8, s: *const u8) -> i
 /// Materialize a Substr into a fresh OWNED Str (for crossing fn-call
 /// boundaries that expect `Type::Str` — Phase Substr.B).
 ///
+/// P11.1-S2.5 — encoding-aware: the result Str carries the parent's
+/// encoding flag, so downstream `str_print` / `concat` / etc see a
+/// canonical-encoded Str. `length` is derived from the Substr's
+/// byte count via the parent encoding stride (1 for Latin-1, 2
+/// for UTF-16). Pre-S2 the result was always Latin-1 byte-stream,
+/// which caused `console.log(s.charAt(1))` to print garbage when
+/// `s` was UTF-16.
+///
 /// # Safety
 /// `v` is a live `*const Substr`. Returned pointer is a pooled Str
 /// (rc=1).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_substr_to_owned(v: *const u8) -> *mut c_void {
-    let len = unsafe { substr_len(v) };
-    let p = unsafe { __torajs_str_alloc_pooled(len) };
-    if len > 0 {
-        unsafe {
-            core::ptr::copy_nonoverlapping(substr_data(v), p.add(STR_HDR_SIZE), len as usize);
-        }
+    let byte_len = unsafe { substr_len(v) } as u32;
+    let is_latin1 = unsafe { substr_parent_is_latin1(v) };
+    let stride: u32 = if is_latin1 { 1 } else { 2 };
+    let length = byte_len / stride;
+    let mut block = StrBlock::alloc_with_encoding(length, is_latin1);
+    if byte_len > 0 {
+        let dst = unsafe { block.as_bytes_mut(byte_len) };
+        let src = unsafe { core::slice::from_raw_parts(substr_data(v), byte_len as usize) };
+        dst.copy_from_slice(src);
     }
-    p as *mut c_void
+    block.into_raw() as *mut c_void
 }
 
 /// `(substr + str)` — single-alloc view-aware concat.
