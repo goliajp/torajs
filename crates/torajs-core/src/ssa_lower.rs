@@ -5698,416 +5698,416 @@ pub(crate) struct Intrinsics {
     /// `(...) => R` from a non-capturing return path. The wrapper
     /// env has just `fn_addr@0 + drop_fn@8` and no captures; the
     /// drop body just frees the env block.
-    env_drop_trivial: (FuncId, ssa::SigId),
-    print_i64: FuncId,
-    print_f64: FuncId,
-    print_bool: FuncId,
-    str_alloc: FuncId,
-    str_print: FuncId,
-    str_drop: FuncId,
-    str_concat: FuncId,
+    pub(crate) env_drop_trivial: (FuncId, ssa::SigId),
+    pub(crate) print_i64: FuncId,
+    pub(crate) print_f64: FuncId,
+    pub(crate) print_bool: FuncId,
+    pub(crate) str_alloc: FuncId,
+    pub(crate) str_print: FuncId,
+    pub(crate) str_drop: FuncId,
+    pub(crate) str_concat: FuncId,
     /// Phase B refcount — `__torajs_rc_inc(ptr)` increments the heap
     /// header's refcount (NULL passes through). Emitted at every
     /// slot-copy / shared-ownership site for non-Copy heap values.
-    rc_inc: FuncId,
-    obj_alloc: FuncId,
-    capture_box_alloc: FuncId,
-    capture_box_inc: FuncId,
-    capture_box_drop: FuncId,
-    obj_drop_sized: FuncId,
-    value_drop_heap: FuncId,
-    cycle_unbuffer: FuncId,
-    arr_alloc: FuncId,
-    arr_push: FuncId,
-    arr_push_non_deque: FuncId,
-    arr_shift: FuncId,
-    arr_unshift: FuncId,
-    arr_drop: FuncId,
+    pub(crate) rc_inc: FuncId,
+    pub(crate) obj_alloc: FuncId,
+    pub(crate) capture_box_alloc: FuncId,
+    pub(crate) capture_box_inc: FuncId,
+    pub(crate) capture_box_drop: FuncId,
+    pub(crate) obj_drop_sized: FuncId,
+    pub(crate) value_drop_heap: FuncId,
+    pub(crate) cycle_unbuffer: FuncId,
+    pub(crate) arr_alloc: FuncId,
+    pub(crate) arr_push: FuncId,
+    pub(crate) arr_push_non_deque: FuncId,
+    pub(crate) arr_shift: FuncId,
+    pub(crate) arr_unshift: FuncId,
+    pub(crate) arr_drop: FuncId,
     pub(crate) arr_reserve: FuncId,
-    arr_push_unchecked: FuncId,
-    arr_extend_unchecked: FuncId,
-    arr_slice: FuncId,
-    str_repeat: FuncId,
-    str_to_upper: FuncId,
-    str_to_lower: FuncId,
-    str_trim: FuncId,
-    str_trim_start: FuncId,
-    str_trim_end: FuncId,
-    str_pad_start: FuncId,
-    str_pad_end: FuncId,
-    str_from_char_code: FuncId,
-    str_at: FuncId,
-    str_replace: FuncId,
-    str_replace_all: FuncId,
-    num_to_fixed_f: FuncId,
-    num_to_fixed_i: FuncId,
-    num_to_string_radix_i: FuncId,
-    num_to_string_radix_f: FuncId,
-    num_to_exp_f: FuncId,
-    num_to_exp_i: FuncId,
-    num_to_precision_f: FuncId,
-    num_to_precision_i: FuncId,
-    num_parse_int: FuncId,
-    num_parse_float: FuncId,
-    num_is_integer_f: FuncId,
-    num_is_integer_i: FuncId,
-    num_is_nan_f: FuncId,
-    num_is_nan_i: FuncId,
-    num_is_finite_f: FuncId,
-    num_is_finite_i: FuncId,
-    num_is_safe_integer_f: FuncId,
-    num_is_safe_integer_i: FuncId,
-    str_slice: FuncId,
-    str_char_code_at: FuncId,
-    str_starts_with: FuncId,
-    str_ends_with: FuncId,
-    str_index_of: FuncId,
-    str_last_index_of: FuncId,
-    str_locale_compare: FuncId,
-    str_includes: FuncId,
-    str_eq: FuncId,
-    str_split: FuncId,
+    pub(crate) arr_push_unchecked: FuncId,
+    pub(crate) arr_extend_unchecked: FuncId,
+    pub(crate) arr_slice: FuncId,
+    pub(crate) str_repeat: FuncId,
+    pub(crate) str_to_upper: FuncId,
+    pub(crate) str_to_lower: FuncId,
+    pub(crate) str_trim: FuncId,
+    pub(crate) str_trim_start: FuncId,
+    pub(crate) str_trim_end: FuncId,
+    pub(crate) str_pad_start: FuncId,
+    pub(crate) str_pad_end: FuncId,
+    pub(crate) str_from_char_code: FuncId,
+    pub(crate) str_at: FuncId,
+    pub(crate) str_replace: FuncId,
+    pub(crate) str_replace_all: FuncId,
+    pub(crate) num_to_fixed_f: FuncId,
+    pub(crate) num_to_fixed_i: FuncId,
+    pub(crate) num_to_string_radix_i: FuncId,
+    pub(crate) num_to_string_radix_f: FuncId,
+    pub(crate) num_to_exp_f: FuncId,
+    pub(crate) num_to_exp_i: FuncId,
+    pub(crate) num_to_precision_f: FuncId,
+    pub(crate) num_to_precision_i: FuncId,
+    pub(crate) num_parse_int: FuncId,
+    pub(crate) num_parse_float: FuncId,
+    pub(crate) num_is_integer_f: FuncId,
+    pub(crate) num_is_integer_i: FuncId,
+    pub(crate) num_is_nan_f: FuncId,
+    pub(crate) num_is_nan_i: FuncId,
+    pub(crate) num_is_finite_f: FuncId,
+    pub(crate) num_is_finite_i: FuncId,
+    pub(crate) num_is_safe_integer_f: FuncId,
+    pub(crate) num_is_safe_integer_i: FuncId,
+    pub(crate) str_slice: FuncId,
+    pub(crate) str_char_code_at: FuncId,
+    pub(crate) str_starts_with: FuncId,
+    pub(crate) str_ends_with: FuncId,
+    pub(crate) str_index_of: FuncId,
+    pub(crate) str_last_index_of: FuncId,
+    pub(crate) str_locale_compare: FuncId,
+    pub(crate) str_includes: FuncId,
+    pub(crate) str_eq: FuncId,
+    pub(crate) str_split: FuncId,
     /// Phase Substr.A — substring view runtime helpers.
-    substr_create: FuncId,
-    substr_drop: FuncId,
-    substr_char_code_at: FuncId,
-    substr_eq_str: FuncId,
-    substr_to_owned: FuncId,
-    substr_starts_with: FuncId,
-    substr_ends_with: FuncId,
-    substr_includes: FuncId,
-    substr_index_of: FuncId,
-    substr_slice: FuncId,
-    substr_substring: FuncId,
-    substr_trim: FuncId,
+    pub(crate) substr_create: FuncId,
+    pub(crate) substr_drop: FuncId,
+    pub(crate) substr_char_code_at: FuncId,
+    pub(crate) substr_eq_str: FuncId,
+    pub(crate) substr_to_owned: FuncId,
+    pub(crate) substr_starts_with: FuncId,
+    pub(crate) substr_ends_with: FuncId,
+    pub(crate) substr_includes: FuncId,
+    pub(crate) substr_index_of: FuncId,
+    pub(crate) substr_slice: FuncId,
+    pub(crate) substr_substring: FuncId,
+    pub(crate) substr_trim: FuncId,
     pub(crate) substr_trim_into: FuncId,
-    substr_trim_start: FuncId,
-    substr_trim_end: FuncId,
-    substr_concat_substr_str: FuncId,
-    substr_concat_str_substr: FuncId,
-    substr_concat_substr_substr: FuncId,
+    pub(crate) substr_trim_start: FuncId,
+    pub(crate) substr_trim_end: FuncId,
+    pub(crate) substr_concat_substr_str: FuncId,
+    pub(crate) substr_concat_str_substr: FuncId,
+    pub(crate) substr_concat_substr_substr: FuncId,
     /// v0.2 #1 — regex matching engine. `regex_compile` parses the
     /// pattern + flag string at runtime into an NFA + flag bitset
     /// (Thompson construction); `regex_test` runs the backtracking
     /// matcher against a string and returns 1/0. Subsequent surface
     /// methods (`s.match`, `s.replace`, `re.exec`, ...) land in
     /// follow-up sub-phases as more `__torajs_regex_*` helpers.
-    regex_compile: FuncId,
-    regex_test: FuncId,
-    regex_get_source: FuncId,
-    regex_drop: FuncId,
-    regex_match: FuncId,
-    regex_replace: FuncId,
-    regex_replace_all: FuncId,
+    pub(crate) regex_compile: FuncId,
+    pub(crate) regex_test: FuncId,
+    pub(crate) regex_get_source: FuncId,
+    pub(crate) regex_drop: FuncId,
+    pub(crate) regex_match: FuncId,
+    pub(crate) regex_replace: FuncId,
+    pub(crate) regex_replace_all: FuncId,
     /// P9.5-A1 — fn-callback variants of `s.replace(re, fn)` /
     /// `s.replaceAll(re, fn)`. 3rd arg is the closure env block (env+8
     /// = lifted body's fn_addr). Runtime invokes (env, match_str) ->
     /// ret_str per match.
-    regex_replace_fn: FuncId,
-    regex_replace_all_fn: FuncId,
-    regex_split: FuncId,
-    regex_exec: FuncId,
-    regex_match_all: FuncId,
+    pub(crate) regex_replace_fn: FuncId,
+    pub(crate) regex_replace_all_fn: FuncId,
+    pub(crate) regex_split: FuncId,
+    pub(crate) regex_exec: FuncId,
+    pub(crate) regex_match_all: FuncId,
     /// P9.4 — `RegExp.prototype.lastIndex` accessors. Get returns the
     /// raw int64 field on the RegExp heap object; set stores it
     /// without coercion (typed-tier passes integer literals or
     /// arithmetic results that already lower to I64).
-    regex_get_last_index: FuncId,
-    regex_set_last_index: FuncId,
-    date_now: FuncId,
-    date_from_ms: FuncId,
-    date_drop: FuncId,
-    date_now_static: FuncId,
-    date_get_time: FuncId,
-    date_to_iso_string: FuncId,
-    date_set_time: FuncId,
-    date_get_year: FuncId,
-    date_set_year: FuncId,
-    date_to_gmt_string: FuncId,
-    date_get_full_year: FuncId,
-    date_get_month: FuncId,
-    date_get_date: FuncId,
-    date_get_hours: FuncId,
-    date_get_minutes: FuncId,
-    date_get_seconds: FuncId,
-    date_get_milliseconds: FuncId,
-    date_get_day: FuncId,
-    date_get_utc_full_year: FuncId,
-    date_get_utc_month: FuncId,
-    date_get_utc_date: FuncId,
-    date_get_utc_hours: FuncId,
-    date_get_utc_minutes: FuncId,
-    date_get_utc_seconds: FuncId,
-    date_get_utc_milliseconds: FuncId,
-    date_get_utc_day: FuncId,
-    date_from_components: FuncId,
-    date_utc_components: FuncId,
-    date_from_iso: FuncId,
-    date_parse_iso: FuncId,
-    fs_read_file_sync: FuncId,
-    fs_write_file_sync: FuncId,
-    fs_exists_sync: FuncId,
-    fs_append_file_sync: FuncId,
-    fs_unlink_sync: FuncId,
-    fs_mkdir_sync: FuncId,
-    fs_readdir_sync: FuncId,
-    fs_size_sync: FuncId,
-    process_exit: FuncId,
-    process_cwd: FuncId,
-    process_platform: FuncId,
-    process_getenv: FuncId,
-    argv_init: FuncId,
-    process_argv: FuncId,
-    process_stdout_write: FuncId,
-    process_stderr_write: FuncId,
-    arr_alloc_any: FuncId,
-    arr_push_any: FuncId,
-    arr_extend_any: FuncId,
-    arr_set_any: FuncId,
-    arr_get_any_tag: FuncId,
-    arr_get_any_value: FuncId,
-    dynobj_alloc: FuncId,
-    fnprops_set: FuncId,
-    fnprops_get_tag: FuncId,
-    fnprops_get_value: FuncId,
-    arrprops_set: FuncId,
-    arrprops_get_tag: FuncId,
-    arrprops_get_value: FuncId,
-    dynobj_get_tag: FuncId,
-    dynobj_get_value: FuncId,
-    dynobj_set: FuncId,
-    dynobj_define: FuncId,
-    get_property_descriptor: FuncId,
-    dynobj_has: FuncId,
-    dynobj_delete: FuncId,
-    arr_drop_any: FuncId,
-    any_box: FuncId,
-    any_payload_rc_inc: FuncId,
-    proto_register: FuncId,
-    register_native_error: FuncId,
-    proto_get: FuncId,
-    class_register: FuncId,
-    class_get: FuncId,
-    get_proto_of_any: FuncId,
-    any_typeof: FuncId,
-    any_to_bool: FuncId,
-    any_to_number: FuncId,
-    any_add: FuncId,
-    any_arith: FuncId,
-    any_compare: FuncId,
-    any_strict_eq: FuncId,
-    any_any_strict_eq: FuncId,
-    any_unbox_tag: FuncId,
-    any_unbox_value: FuncId,
-    any_box_drop: FuncId,
-    print_any: FuncId,
-    any_to_str: FuncId,
-    obj_freeze: FuncId,
-    obj_is_frozen: FuncId,
-    obj_check_not_frozen: FuncId,
+    pub(crate) regex_get_last_index: FuncId,
+    pub(crate) regex_set_last_index: FuncId,
+    pub(crate) date_now: FuncId,
+    pub(crate) date_from_ms: FuncId,
+    pub(crate) date_drop: FuncId,
+    pub(crate) date_now_static: FuncId,
+    pub(crate) date_get_time: FuncId,
+    pub(crate) date_to_iso_string: FuncId,
+    pub(crate) date_set_time: FuncId,
+    pub(crate) date_get_year: FuncId,
+    pub(crate) date_set_year: FuncId,
+    pub(crate) date_to_gmt_string: FuncId,
+    pub(crate) date_get_full_year: FuncId,
+    pub(crate) date_get_month: FuncId,
+    pub(crate) date_get_date: FuncId,
+    pub(crate) date_get_hours: FuncId,
+    pub(crate) date_get_minutes: FuncId,
+    pub(crate) date_get_seconds: FuncId,
+    pub(crate) date_get_milliseconds: FuncId,
+    pub(crate) date_get_day: FuncId,
+    pub(crate) date_get_utc_full_year: FuncId,
+    pub(crate) date_get_utc_month: FuncId,
+    pub(crate) date_get_utc_date: FuncId,
+    pub(crate) date_get_utc_hours: FuncId,
+    pub(crate) date_get_utc_minutes: FuncId,
+    pub(crate) date_get_utc_seconds: FuncId,
+    pub(crate) date_get_utc_milliseconds: FuncId,
+    pub(crate) date_get_utc_day: FuncId,
+    pub(crate) date_from_components: FuncId,
+    pub(crate) date_utc_components: FuncId,
+    pub(crate) date_from_iso: FuncId,
+    pub(crate) date_parse_iso: FuncId,
+    pub(crate) fs_read_file_sync: FuncId,
+    pub(crate) fs_write_file_sync: FuncId,
+    pub(crate) fs_exists_sync: FuncId,
+    pub(crate) fs_append_file_sync: FuncId,
+    pub(crate) fs_unlink_sync: FuncId,
+    pub(crate) fs_mkdir_sync: FuncId,
+    pub(crate) fs_readdir_sync: FuncId,
+    pub(crate) fs_size_sync: FuncId,
+    pub(crate) process_exit: FuncId,
+    pub(crate) process_cwd: FuncId,
+    pub(crate) process_platform: FuncId,
+    pub(crate) process_getenv: FuncId,
+    pub(crate) argv_init: FuncId,
+    pub(crate) process_argv: FuncId,
+    pub(crate) process_stdout_write: FuncId,
+    pub(crate) process_stderr_write: FuncId,
+    pub(crate) arr_alloc_any: FuncId,
+    pub(crate) arr_push_any: FuncId,
+    pub(crate) arr_extend_any: FuncId,
+    pub(crate) arr_set_any: FuncId,
+    pub(crate) arr_get_any_tag: FuncId,
+    pub(crate) arr_get_any_value: FuncId,
+    pub(crate) dynobj_alloc: FuncId,
+    pub(crate) fnprops_set: FuncId,
+    pub(crate) fnprops_get_tag: FuncId,
+    pub(crate) fnprops_get_value: FuncId,
+    pub(crate) arrprops_set: FuncId,
+    pub(crate) arrprops_get_tag: FuncId,
+    pub(crate) arrprops_get_value: FuncId,
+    pub(crate) dynobj_get_tag: FuncId,
+    pub(crate) dynobj_get_value: FuncId,
+    pub(crate) dynobj_set: FuncId,
+    pub(crate) dynobj_define: FuncId,
+    pub(crate) get_property_descriptor: FuncId,
+    pub(crate) dynobj_has: FuncId,
+    pub(crate) dynobj_delete: FuncId,
+    pub(crate) arr_drop_any: FuncId,
+    pub(crate) any_box: FuncId,
+    pub(crate) any_payload_rc_inc: FuncId,
+    pub(crate) proto_register: FuncId,
+    pub(crate) register_native_error: FuncId,
+    pub(crate) proto_get: FuncId,
+    pub(crate) class_register: FuncId,
+    pub(crate) class_get: FuncId,
+    pub(crate) get_proto_of_any: FuncId,
+    pub(crate) any_typeof: FuncId,
+    pub(crate) any_to_bool: FuncId,
+    pub(crate) any_to_number: FuncId,
+    pub(crate) any_add: FuncId,
+    pub(crate) any_arith: FuncId,
+    pub(crate) any_compare: FuncId,
+    pub(crate) any_strict_eq: FuncId,
+    pub(crate) any_any_strict_eq: FuncId,
+    pub(crate) any_unbox_tag: FuncId,
+    pub(crate) any_unbox_value: FuncId,
+    pub(crate) any_box_drop: FuncId,
+    pub(crate) print_any: FuncId,
+    pub(crate) any_to_str: FuncId,
+    pub(crate) obj_freeze: FuncId,
+    pub(crate) obj_is_frozen: FuncId,
+    pub(crate) obj_check_not_frozen: FuncId,
     /// v0.5 T-15.e — drains the microtask queue. Auto-called at
     /// main exit so chained Promise callbacks run before the
     /// process returns.
-    microtask_drain: FuncId,
+    pub(crate) microtask_drain: FuncId,
     /// P10.1-A1 — queueMicrotask(cb) closure-path enqueue. Takes
     /// the closure env pointer; runtime rc-inc's + dispatches at
     /// the next drain. cb's ABI is `(env*) -> void` (mirrors
     /// finally_closure).
-    microtask_enqueue_closure: FuncId,
+    pub(crate) microtask_enqueue_closure: FuncId,
     /// P10.1-A1.1 — queueMicrotask(cb) simple-fn (no-env) enqueue.
     /// Takes a raw fn pointer; runtime dispatcher casts back to
     /// `void ()` and invokes. No rc (fn pointers are not heap
     /// objects). Selection happens at the queueMicrotask call
     /// site based on cb's static type (Type::Closure → _closure,
     /// Type::FnSig → this one), mirroring promise_then dispatch.
-    microtask_enqueue_simple: FuncId,
+    pub(crate) microtask_enqueue_simple: FuncId,
     /// v0.5 T-15.g — Promise.resolve / Promise.reject runtime
     /// constructors + drop. The arg value is i64-packed (heap-ptr
     /// cast, bool widened, f64 bitcast).
-    promise_alloc_fulfilled: FuncId,
-    promise_resolve_thenable: FuncId,
-    promise_alloc_rejected: FuncId,
-    promise_alloc_fulfilled_heap: FuncId,
-    promise_alloc_rejected_heap: FuncId,
-    promise_drop: FuncId,
-    promise_get_value: FuncId,
-    promise_then_simple: FuncId,
-    promise_then_closure: FuncId,
-    promise_catch_simple: FuncId,
-    promise_finally: FuncId,
-    promise_catch_closure: FuncId,
-    promise_finally_closure: FuncId,
-    fetch_sync: FuncId,
-    promise_all_sync: FuncId,
-    promise_race_sync: FuncId,
-    promise_any_sync: FuncId,
-    promise_allsettled_sync: FuncId,
-    bigint_from_decimal: FuncId,
-    bigint_from_hex: FuncId,
-    bigint_add: FuncId,
-    bigint_sub: FuncId,
-    bigint_mul: FuncId,
-    bigint_div: FuncId,
-    bigint_mod: FuncId,
-    bigint_pow: FuncId,
-    bigint_and: FuncId,
-    bigint_or: FuncId,
-    bigint_xor: FuncId,
-    bigint_not: FuncId,
-    bigint_shl: FuncId,
-    bigint_shr: FuncId,
-    bigint_from_str: FuncId,
-    bigint_from_number: FuncId,
-    bigint_clone: FuncId,
-    bigint_neg: FuncId,
-    bigint_cmp: FuncId,
-    bigint_to_string: FuncId,
-    bigint_drop_rc: FuncId,
-    weakref_create: FuncId,
-    weakref_deref: FuncId,
-    weakref_drop: FuncId,
-    weakref_target_dying: FuncId,
-    weakmap_create: FuncId,
-    weakmap_set: FuncId,
-    weakmap_get: FuncId,
-    weakmap_has: FuncId,
-    weakmap_delete: FuncId,
-    weakmap_drop: FuncId,
+    pub(crate) promise_alloc_fulfilled: FuncId,
+    pub(crate) promise_resolve_thenable: FuncId,
+    pub(crate) promise_alloc_rejected: FuncId,
+    pub(crate) promise_alloc_fulfilled_heap: FuncId,
+    pub(crate) promise_alloc_rejected_heap: FuncId,
+    pub(crate) promise_drop: FuncId,
+    pub(crate) promise_get_value: FuncId,
+    pub(crate) promise_then_simple: FuncId,
+    pub(crate) promise_then_closure: FuncId,
+    pub(crate) promise_catch_simple: FuncId,
+    pub(crate) promise_finally: FuncId,
+    pub(crate) promise_catch_closure: FuncId,
+    pub(crate) promise_finally_closure: FuncId,
+    pub(crate) fetch_sync: FuncId,
+    pub(crate) promise_all_sync: FuncId,
+    pub(crate) promise_race_sync: FuncId,
+    pub(crate) promise_any_sync: FuncId,
+    pub(crate) promise_allsettled_sync: FuncId,
+    pub(crate) bigint_from_decimal: FuncId,
+    pub(crate) bigint_from_hex: FuncId,
+    pub(crate) bigint_add: FuncId,
+    pub(crate) bigint_sub: FuncId,
+    pub(crate) bigint_mul: FuncId,
+    pub(crate) bigint_div: FuncId,
+    pub(crate) bigint_mod: FuncId,
+    pub(crate) bigint_pow: FuncId,
+    pub(crate) bigint_and: FuncId,
+    pub(crate) bigint_or: FuncId,
+    pub(crate) bigint_xor: FuncId,
+    pub(crate) bigint_not: FuncId,
+    pub(crate) bigint_shl: FuncId,
+    pub(crate) bigint_shr: FuncId,
+    pub(crate) bigint_from_str: FuncId,
+    pub(crate) bigint_from_number: FuncId,
+    pub(crate) bigint_clone: FuncId,
+    pub(crate) bigint_neg: FuncId,
+    pub(crate) bigint_cmp: FuncId,
+    pub(crate) bigint_to_string: FuncId,
+    pub(crate) bigint_drop_rc: FuncId,
+    pub(crate) weakref_create: FuncId,
+    pub(crate) weakref_deref: FuncId,
+    pub(crate) weakref_drop: FuncId,
+    pub(crate) weakref_target_dying: FuncId,
+    pub(crate) weakmap_create: FuncId,
+    pub(crate) weakmap_set: FuncId,
+    pub(crate) weakmap_get: FuncId,
+    pub(crate) weakmap_has: FuncId,
+    pub(crate) weakmap_delete: FuncId,
+    pub(crate) weakmap_drop: FuncId,
     /* P6.1 — strong-ref Map<K,V> intrinsics. */
-    map_create: FuncId,
-    map_set: FuncId,
-    map_get: FuncId,
-    map_has: FuncId,
-    map_delete: FuncId,
-    map_clear: FuncId,
-    map_size: FuncId,
-    map_drop: FuncId,
-    map_iter_next: FuncId,
-    map_iter_create_keys: FuncId,
-    map_iter_create_values: FuncId,
-    map_iter_create_entries: FuncId,
-    map_iter_create_set_entries: FuncId,
-    map_iter_step: FuncId,
-    map_iter_drop: FuncId,
-    arr_iter_create_keys: FuncId,
-    arr_iter_create_values: FuncId,
-    arr_iter_create_entries: FuncId,
-    arr_iter_step: FuncId,
-    arr_iter_drop: FuncId,
-    weakset_create: FuncId,
-    weakset_add: FuncId,
-    weakset_has: FuncId,
-    weakset_delete: FuncId,
-    weakset_drop: FuncId,
-    cycle_buffer: FuncId,
-    cycle_at_exit_drain: FuncId,
-    cycle_collect: FuncId,
-    symbol_alloc: FuncId,
-    symbol_drop: FuncId,
-    symbol_print: FuncId,
-    symbol_for: FuncId,
-    symbol_key_for: FuncId,
-    symbol_iterator: FuncId,
-    symbol_async_iterator: FuncId,
-    symbol_to_primitive: FuncId,
-    object_is_f64: FuncId,
-    split_iter_init: FuncId,
-    split_iter_next: FuncId,
-    split_iter_drop: FuncId,
-    arr_from_string: FuncId,
-    str_substring: FuncId,
-    str_substr: FuncId,
-    arr_set_length_validate: FuncId,
-    arr_to_reversed: FuncId,
-    arr_with: FuncId,
-    arr_join: FuncId,
-    arr_join_substr: FuncId,
-    i64_to_str: FuncId,
-    bool_to_str: FuncId,
-    null_to_str: FuncId,
-    str_to_number: FuncId,
-    arr_print_i64: FuncId,
-    arr_print_f64: FuncId,
-    arr_print_bool: FuncId,
-    arr_print_str: FuncId,
-    arr_print_substr: FuncId,
-    substr_print: FuncId,
-    str_char_at: FuncId,
-    arr_join_i64: FuncId,
-    arr_join_f64: FuncId,
-    arr_join_bool: FuncId,
-    symbol_to_str: FuncId,
-    str_index_of_from: FuncId,
-    str_last_index_of_from: FuncId,
-    str_starts_with_from: FuncId,
-    str_ends_with_from: FuncId,
-    str_includes_from: FuncId,
-    symbol_description: FuncId,
-    f64_to_str: FuncId,
-    math_sqrt: FuncId,
-    math_abs: FuncId,
-    math_floor: FuncId,
-    math_ceil: FuncId,
-    math_log: FuncId,
-    math_exp: FuncId,
-    math_sign: FuncId,
-    math_round: FuncId,
-    math_trunc: FuncId,
-    math_pow: FuncId,
-    math_min: FuncId,
-    math_max: FuncId,
-    math_sin: FuncId,
-    math_cos: FuncId,
-    math_tan: FuncId,
-    math_asin: FuncId,
-    math_acos: FuncId,
-    math_atan: FuncId,
-    math_atan2: FuncId,
-    math_log2: FuncId,
-    math_log10: FuncId,
-    math_cbrt: FuncId,
-    math_sinh: FuncId,
-    math_cosh: FuncId,
-    math_tanh: FuncId,
-    math_asinh: FuncId,
-    math_acosh: FuncId,
-    math_atanh: FuncId,
-    math_expm1: FuncId,
-    math_log1p: FuncId,
-    math_imul: FuncId,
-    math_clz32: FuncId,
-    math_fround: FuncId,
-    math_random: FuncId,
-    json_quote_str: FuncId,
+    pub(crate) map_create: FuncId,
+    pub(crate) map_set: FuncId,
+    pub(crate) map_get: FuncId,
+    pub(crate) map_has: FuncId,
+    pub(crate) map_delete: FuncId,
+    pub(crate) map_clear: FuncId,
+    pub(crate) map_size: FuncId,
+    pub(crate) map_drop: FuncId,
+    pub(crate) map_iter_next: FuncId,
+    pub(crate) map_iter_create_keys: FuncId,
+    pub(crate) map_iter_create_values: FuncId,
+    pub(crate) map_iter_create_entries: FuncId,
+    pub(crate) map_iter_create_set_entries: FuncId,
+    pub(crate) map_iter_step: FuncId,
+    pub(crate) map_iter_drop: FuncId,
+    pub(crate) arr_iter_create_keys: FuncId,
+    pub(crate) arr_iter_create_values: FuncId,
+    pub(crate) arr_iter_create_entries: FuncId,
+    pub(crate) arr_iter_step: FuncId,
+    pub(crate) arr_iter_drop: FuncId,
+    pub(crate) weakset_create: FuncId,
+    pub(crate) weakset_add: FuncId,
+    pub(crate) weakset_has: FuncId,
+    pub(crate) weakset_delete: FuncId,
+    pub(crate) weakset_drop: FuncId,
+    pub(crate) cycle_buffer: FuncId,
+    pub(crate) cycle_at_exit_drain: FuncId,
+    pub(crate) cycle_collect: FuncId,
+    pub(crate) symbol_alloc: FuncId,
+    pub(crate) symbol_drop: FuncId,
+    pub(crate) symbol_print: FuncId,
+    pub(crate) symbol_for: FuncId,
+    pub(crate) symbol_key_for: FuncId,
+    pub(crate) symbol_iterator: FuncId,
+    pub(crate) symbol_async_iterator: FuncId,
+    pub(crate) symbol_to_primitive: FuncId,
+    pub(crate) object_is_f64: FuncId,
+    pub(crate) split_iter_init: FuncId,
+    pub(crate) split_iter_next: FuncId,
+    pub(crate) split_iter_drop: FuncId,
+    pub(crate) arr_from_string: FuncId,
+    pub(crate) str_substring: FuncId,
+    pub(crate) str_substr: FuncId,
+    pub(crate) arr_set_length_validate: FuncId,
+    pub(crate) arr_to_reversed: FuncId,
+    pub(crate) arr_with: FuncId,
+    pub(crate) arr_join: FuncId,
+    pub(crate) arr_join_substr: FuncId,
+    pub(crate) i64_to_str: FuncId,
+    pub(crate) bool_to_str: FuncId,
+    pub(crate) null_to_str: FuncId,
+    pub(crate) str_to_number: FuncId,
+    pub(crate) arr_print_i64: FuncId,
+    pub(crate) arr_print_f64: FuncId,
+    pub(crate) arr_print_bool: FuncId,
+    pub(crate) arr_print_str: FuncId,
+    pub(crate) arr_print_substr: FuncId,
+    pub(crate) substr_print: FuncId,
+    pub(crate) str_char_at: FuncId,
+    pub(crate) arr_join_i64: FuncId,
+    pub(crate) arr_join_f64: FuncId,
+    pub(crate) arr_join_bool: FuncId,
+    pub(crate) symbol_to_str: FuncId,
+    pub(crate) str_index_of_from: FuncId,
+    pub(crate) str_last_index_of_from: FuncId,
+    pub(crate) str_starts_with_from: FuncId,
+    pub(crate) str_ends_with_from: FuncId,
+    pub(crate) str_includes_from: FuncId,
+    pub(crate) symbol_description: FuncId,
+    pub(crate) f64_to_str: FuncId,
+    pub(crate) math_sqrt: FuncId,
+    pub(crate) math_abs: FuncId,
+    pub(crate) math_floor: FuncId,
+    pub(crate) math_ceil: FuncId,
+    pub(crate) math_log: FuncId,
+    pub(crate) math_exp: FuncId,
+    pub(crate) math_sign: FuncId,
+    pub(crate) math_round: FuncId,
+    pub(crate) math_trunc: FuncId,
+    pub(crate) math_pow: FuncId,
+    pub(crate) math_min: FuncId,
+    pub(crate) math_max: FuncId,
+    pub(crate) math_sin: FuncId,
+    pub(crate) math_cos: FuncId,
+    pub(crate) math_tan: FuncId,
+    pub(crate) math_asin: FuncId,
+    pub(crate) math_acos: FuncId,
+    pub(crate) math_atan: FuncId,
+    pub(crate) math_atan2: FuncId,
+    pub(crate) math_log2: FuncId,
+    pub(crate) math_log10: FuncId,
+    pub(crate) math_cbrt: FuncId,
+    pub(crate) math_sinh: FuncId,
+    pub(crate) math_cosh: FuncId,
+    pub(crate) math_tanh: FuncId,
+    pub(crate) math_asinh: FuncId,
+    pub(crate) math_acosh: FuncId,
+    pub(crate) math_atanh: FuncId,
+    pub(crate) math_expm1: FuncId,
+    pub(crate) math_log1p: FuncId,
+    pub(crate) math_imul: FuncId,
+    pub(crate) math_clz32: FuncId,
+    pub(crate) math_fround: FuncId,
+    pub(crate) math_random: FuncId,
+    pub(crate) json_quote_str: FuncId,
     /// M6.3 — JSON.parse runtime helpers. See `runtime_str.c` for the
     /// per-helper contract. Cursor is `int64_t *`, threaded by the
     /// caller via an alloca slot; helpers advance it past the
     /// consumed token. Throws via `__torajs_throw_set` on mismatch.
-    json_eat_char: FuncId,
-    json_parse_int: FuncId,
-    json_parse_float: FuncId,
-    json_parse_bool: FuncId,
-    json_parse_string: FuncId,
-    json_arr_step: FuncId,
-    json_arr_first: FuncId,
-    str_eq_cstr: FuncId,
-    print_i64_err: FuncId,
-    print_f64_err: FuncId,
-    print_bool_err: FuncId,
-    str_print_err: FuncId,
-    arr_flat: FuncId,
-    arr_concat: FuncId,
-    arr_reverse: FuncId,
-    arr_fill: FuncId,
-    arr_copy_within: FuncId,
+    pub(crate) json_eat_char: FuncId,
+    pub(crate) json_parse_int: FuncId,
+    pub(crate) json_parse_float: FuncId,
+    pub(crate) json_parse_bool: FuncId,
+    pub(crate) json_parse_string: FuncId,
+    pub(crate) json_arr_step: FuncId,
+    pub(crate) json_arr_first: FuncId,
+    pub(crate) str_eq_cstr: FuncId,
+    pub(crate) print_i64_err: FuncId,
+    pub(crate) print_f64_err: FuncId,
+    pub(crate) print_bool_err: FuncId,
+    pub(crate) str_print_err: FuncId,
+    pub(crate) arr_flat: FuncId,
+    pub(crate) arr_concat: FuncId,
+    pub(crate) arr_reverse: FuncId,
+    pub(crate) arr_fill: FuncId,
+    pub(crate) arr_copy_within: FuncId,
     /// M4 — exception state. `throw_set(value)` writes to module-level
     /// throw_active=1 + throw_value; `throw_check()` returns active flag;
     /// `throw_take()` reads value + clears flag. The backend defines the
     /// underlying globals.
-    throw_set: FuncId,
-    throw_check: FuncId,
-    throw_take: FuncId,
-    throw_take_tag: FuncId,
+    pub(crate) throw_set: FuncId,
+    pub(crate) throw_check: FuncId,
+    pub(crate) throw_take: FuncId,
+    pub(crate) throw_take_tag: FuncId,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -6861,7 +6861,7 @@ fn decode_env_ann(ann: &str) -> Option<Vec<String>> {
     Some(inner.split('|').map(|s| s.to_string()).collect())
 }
 
-fn intern_arr_layout(arr_layouts: &mut Vec<Type>, elem: Type) -> ssa::ArrId {
+pub(crate) fn intern_arr_layout(arr_layouts: &mut Vec<Type>, elem: Type) -> ssa::ArrId {
     for (i, ex) in arr_layouts.iter().enumerate() {
         if *ex == elem {
             return ssa::ArrId(i as u32);
@@ -7276,7 +7276,7 @@ pub(crate) struct LowerCtx<'a> {
     /// Let-decl annotations encountered during body lowering may
     /// introduce new `T[]` instantiations; they intern lazily here.
     /// Written into `module.arr_layouts` at the end of `lower()`.
-    arr_layouts: &'a mut Vec<Type>,
+    pub(crate) arr_layouts: &'a mut Vec<Type>,
     /// Mutable view of the lowering-phase fn-pointer signature interner.
     /// `__fn(P1|P2)->R` annotations intern lazily; written into
     /// `module.signatures` at the end of `lower()`. M2 Phase B Stage 2.
@@ -8745,7 +8745,7 @@ impl<'a> LowerCtx<'a> {
     /// in the break-block (which doesn't dominate the finally-tail
     /// fall-through path) and LLVM rejects with "Instruction does not
     /// dominate all uses".
-    fn alloca_in_entry(&mut self, ty: Type, name: Option<&str>) -> ValueId {
+    pub(crate) fn alloca_in_entry(&mut self, ty: Type, name: Option<&str>) -> ValueId {
         self.f
             .append_inst(BlockId(0), InstKind::Alloca(ty), Type::Ptr, name)
     }
@@ -8948,7 +8948,7 @@ impl<'a> LowerCtx<'a> {
     /// branches. Used by Array helpers that take user-provided indices
     /// (start / end / target) and need to match the C runtime's clamp
     /// semantics for the in-place case.
-    fn clamp_i64_to_range(&mut self, v: Operand, lo: Operand, hi: Operand) -> Operand {
+    pub(crate) fn clamp_i64_to_range(&mut self, v: Operand, lo: Operand, hi: Operand) -> Operand {
         // step 1: max(v, lo)
         let too_low = self.f.append_inst(
             self.cur_block,
@@ -9027,7 +9027,7 @@ impl<'a> LowerCtx<'a> {
     /// Emits the `n < 0 ? n + len : n` select via condbr+slot+load
     /// (no SSA Select instruction), then chains through
     /// clamp_i64_to_range for the [0, len] clamp.
-    fn relative_to_len(&mut self, v: Operand, len: Operand) -> Operand {
+    pub(crate) fn relative_to_len(&mut self, v: Operand, len: Operand) -> Operand {
         let is_neg = self.f.append_inst(
             self.cur_block,
             InstKind::ICmp(IPred::Slt, v.clone(), Operand::ConstI64(0)),
@@ -9114,7 +9114,7 @@ impl<'a> LowerCtx<'a> {
     /// 11-A1: `is_non_deque = true` ⇒ skip head load + lshr + shl +
     /// extra add chain (5 → 2 arith ops). Caller proves safety via
     /// `arr_expr_is_non_deque` against `LowerCtx::deque_arrs`.
-    fn emit_arr_slot_byte_offset(
+    pub(crate) fn emit_arr_slot_byte_offset(
         &mut self,
         arr: Operand,
         idx: Operand,
@@ -9194,7 +9194,7 @@ impl<'a> LowerCtx<'a> {
     /// Walk slots [start, end) and call `emit_drop_value` on each
     /// element. Used by `arr.fill` / `arr.copyWithin` non-Copy paths
     /// to release the values that the operation is about to overwrite.
-    fn emit_arr_rc_drop_range(
+    pub(crate) fn emit_arr_rc_drop_range(
         &mut self,
         arr: Operand,
         elem_ty: Type,
@@ -9291,7 +9291,7 @@ impl<'a> LowerCtx<'a> {
     /// offsets). Generates an SSA `for (i = start; i < end; i++)` loop;
     /// LLVM mem2reg + loop opts collapse it to whatever the target ISA
     /// likes best.
-    fn emit_arr_rc_inc_range(&mut self, arr: Operand, start: Operand, end: Operand) {
+    pub(crate) fn emit_arr_rc_inc_range(&mut self, arr: Operand, start: Operand, end: Operand) {
         let i_slot = self.alloca_in_entry(Type::I64, Some("__inc_i"));
         self.f.append_void(
             self.cur_block,
@@ -9491,7 +9491,7 @@ impl<'a> LowerCtx<'a> {
         Operand::Value(dst)
     }
 
-    fn emit_drop_value(&mut self, val: Operand, ty: Type) {
+    pub(crate) fn emit_drop_value(&mut self, val: Operand, ty: Type) {
         match ty {
             Type::Str => {
                 let drop_fid = self.intrinsics.str_drop;
@@ -12592,7 +12592,7 @@ impl<'a> LowerCtx<'a> {
     /// one alloc — caller is responsible for emitting Drop at scope end
     /// (P2.2.b.2 wires that up; this sub-step intentionally leaks one
     /// alloc per literal use, which is fine for one-shot bench programs).
-    fn intern_string_literal(&mut self, s: &str) -> ValueId {
+    pub(crate) fn intern_string_literal(&mut self, s: &str) -> ValueId {
         // Phase P-rpn — every string-literal expression now resolves to
         // a Str-shaped global (`StaticStrRef`) instead of a per-call
         // `str_alloc + memcpy + str_drop` pair. The global is marked
@@ -19960,2189 +19960,14 @@ impl<'a> LowerCtx<'a> {
                         }
                     }
                 }
-                // M6.1 — `s.method(args)` for the String stdlib slice.
-                // Receiver must be Type::Str; methods route to the
-                // matching __torajs_str_* runtime intrinsic. Args are
-                // borrow-shaped (no consume — see the Call arm in
-                // check.rs).
-                if let Expr::Member { obj, name } = self.ast.get_expr(*callee)
-                    && matches!(
-                        name.as_str(),
-                        "slice"
-                            | "substring"
-                            | "substr"
-                            | "charCodeAt"
-                            | "codePointAt"
-                            | "charAt"
-                            | "startsWith"
-                            | "endsWith"
-                            | "includes"
-                            | "indexOf"
-                            | "split"
-                            | "join"
-                            | "repeat"
-                            | "toUpperCase"
-                            | "toLowerCase"
-                            | "trim"
-                            | "trimStart"
-                            | "trimEnd"
-                            | "trimLeft"
-                            | "trimRight"
-                            | "padStart"
-                            | "padEnd"
-                            | "replace"
-                            | "replaceAll"
-                            | "reverse"
-                            | "toReversed"
-                            | "with"
-                            | "fill"
-                            | "at"
-                            | "concat"
-                            | "sort"
-                            | "toSorted"
-                            | "flat"
-                            | "lastIndexOf"
-                            | "localeCompare"
-                            | "copyWithin"
-                            | "normalize"
-                            | "search"
-                            | "toString"
-                            | "toLocaleString"
-                    )
-                {
-                    let recv_op = self.lower_expr(*obj);
-                    let recv_ty = self.operand_ty(&recv_op);
-                    let method = name.clone();
-                    // Phase Substr.B: dispatch view-aware methods on
-                    // Type::Substr receivers without materializing.
-                    // Currently MVP routes only the cheap byte-only ops;
-                    // anything that needs string-shaped output goes
-                    // through to_owned + Str path (Phase D would add
-                    // direct-on-Substr variants for slice/substring).
-                    // `s.charCodeAt(LITERAL)` — inline a 4-byte LoadDyn
-                    // + mask to 0xff + zext, skipping the bounds check
-                    // and the runtime fn-call dispatch. Hot in tight
-                    // tokenize loops (RPN evaluator etc). Same shape as
-                    // emit_inline_str_eq_bytes — uses emit_str_data_base
-                    // to handle Str (base_off = 16) and Substr (base_off
-                    // = 16 + parent_offset, parent loaded once) uniformly.
-                    if matches!(recv_ty, Type::Str | Type::Substr)
-                        && matches!(method.as_str(), "charCodeAt" | "codePointAt")
-                        && args.len() == 1
-                        && let Expr::Number(n) = self.ast.get_expr(args[0])
-                        && *n >= 0.0
-                        && n.fract() == 0.0
-                        && (*n as i64) < 1024
-                    {
-                        let lit_idx = *n as i64;
-                        let (base, base_off) = self.emit_str_data_base(recv_op, recv_ty);
-                        let off_v = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::BinOp(SsaBinOp::Add, base_off, Operand::ConstI64(lit_idx)),
-                            Type::I64,
-                            None,
-                        );
-                        // Load 8 bytes (I64); little-endian byte at idx
-                        // is the low byte of the load → mask with 0xff
-                        // promotes to a clean I64 char code.
-                        let raw = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::LoadDyn(Type::I64, base, Operand::Value(off_v)),
-                            Type::I64,
-                            None,
-                        );
-                        let v = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::BinOp(
-                                SsaBinOp::And,
-                                Operand::Value(raw),
-                                Operand::ConstI64(0xff),
-                            ),
-                            Type::I64,
-                            None,
-                        );
-                        return Operand::Value(v);
-                    }
-                    if recv_ty == Type::Substr && method == "charAt" && args.len() == 1 {
-                        // charAt on Substr: substr_slice(v, i, i+1).
-                        let idx_val = self.lower_expr(args[0]);
-                        let end = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::BinOp(SsaBinOp::Add, idx_val, Operand::ConstI64(1)),
-                            Type::I64,
-                            None,
-                        );
-                        let v = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Call(
-                                self.intrinsics.substr_slice,
-                                vec![recv_op, idx_val, Operand::Value(end)],
-                            ),
-                            Type::Substr,
-                            None,
-                        );
-                        return Operand::Value(v);
-                    }
-                    // V3-18 wedge — Substr.charAt() 0-arg variant —
-                    // hoisted above the generic Substr dispatch
-                    // because Substr.charAt has no view-aware
-                    // fast path and would otherwise hit the
-                    // 'unsupported Substr method' panic.
-                    if recv_ty == Type::Substr && method == "charAt" && args.is_empty() {
-                        let v = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Call(
-                                self.intrinsics.substr_slice,
-                                vec![recv_op, Operand::ConstI64(0), Operand::ConstI64(1)],
-                            ),
-                            Type::Substr,
-                            None,
-                        );
-                        return Operand::Value(v);
-                    }
-                    if recv_ty == Type::Substr {
-                        // Step 13-a: stack-write trim fast-path (sibling).
-                        if let Some(v) = crate::ssa_lower_substr_trim_into::try_emit(
-                            self,
-                            &method,
-                            args.len(),
-                            recv_op,
-                            recv_ty,
-                        ) {
-                            return v;
-                        }
-                        // View-aware fast paths — read bytes from
-                        // parent + offset directly, no per-call malloc.
-                        let view_aware = match method.as_str() {
-                            "charCodeAt" | "codePointAt" => {
-                                Some((self.intrinsics.substr_char_code_at, Type::I64))
-                            }
-                            "startsWith" => Some((self.intrinsics.substr_starts_with, Type::Bool)),
-                            "endsWith" => Some((self.intrinsics.substr_ends_with, Type::Bool)),
-                            "includes" => Some((self.intrinsics.substr_includes, Type::Bool)),
-                            "indexOf" => Some((self.intrinsics.substr_index_of, Type::I64)),
-                            "slice" => Some((self.intrinsics.substr_slice, Type::Substr)),
-                            "substring" => Some((self.intrinsics.substr_substring, Type::Substr)),
-                            "trim" => Some((self.intrinsics.substr_trim, Type::Substr)),
-                            "trimStart" | "trimLeft" => {
-                                Some((self.intrinsics.substr_trim_start, Type::Substr))
-                            }
-                            "trimEnd" | "trimRight" => {
-                                Some((self.intrinsics.substr_trim_end, Type::Substr))
-                            }
-                            _ => None,
-                        };
-                        if let Some((target, ret_ty)) = view_aware {
-                            let mut argv = Vec::with_capacity(args.len() + 1);
-                            argv.push(recv_op);
-                            for a in args {
-                                argv.push(self.lower_expr(*a));
-                            }
-                            // V3-18 m1.h.36 — Substr.slice / substring
-                            // also accept 0/1 args; fill defaults the
-                            // same way as the Str path. Substr len is
-                            // at offset 8 of the Substr layout.
-                            if matches!(method.as_str(), "slice" | "substring") && args.len() < 2 {
-                                if args.is_empty() {
-                                    argv.push(Operand::ConstI64(0));
-                                }
-                                let len = self.f.append_inst(
-                                    self.cur_block,
-                                    InstKind::Load(Type::I64, recv_op, 8),
-                                    Type::I64,
-                                    None,
-                                );
-                                argv.push(Operand::Value(len));
-                            }
-                            // V3-18 wedge — Substr.charCodeAt /
-                            // codePointAt 0-arg defaults pos to 0.
-                            if matches!(method.as_str(), "charCodeAt" | "codePointAt")
-                                && args.is_empty()
-                            {
-                                argv.push(Operand::ConstI64(0));
-                            }
-                            let v = self.f.append_inst(
-                                self.cur_block,
-                                InstKind::Call(target, argv),
-                                ret_ty,
-                                None,
-                            );
-                            return Operand::Value(v);
-                        }
-                        match method.as_str() {
-                            // Unreachable now — view_aware above covers
-                            // these — but keep the explicit no-op match
-                            // arm in case the dispatch table later splits.
-                            "charCodeAt" | "codePointAt" => unreachable!(),
-                            // Methods producing new strings — materialize
-                            // first then route through the OWNED Str path.
-                            _ => {
-                                let owned = self.f.append_inst(
-                                    self.cur_block,
-                                    InstKind::Call(self.intrinsics.substr_to_owned, vec![recv_op]),
-                                    Type::Str,
-                                    None,
-                                );
-                                let mut argv = Vec::with_capacity(args.len() + 1);
-                                argv.push(Operand::Value(owned));
-                                for a in args {
-                                    argv.push(self.lower_expr(*a));
-                                }
-                                let (target, ret_ty) = match method.as_str() {
-                                    "slice" => (self.intrinsics.str_slice, Type::Str),
-                                    "substring" => (self.intrinsics.str_substring, Type::Str),
-                                    "toUpperCase" => (self.intrinsics.str_to_upper, Type::Str),
-                                    "toLowerCase" => (self.intrinsics.str_to_lower, Type::Str),
-                                    "trim" => (self.intrinsics.str_trim, Type::Str),
-                                    "trimStart" | "trimLeft" => {
-                                        (self.intrinsics.str_trim_start, Type::Str)
-                                    }
-                                    "trimEnd" | "trimRight" => {
-                                        (self.intrinsics.str_trim_end, Type::Str)
-                                    }
-                                    "padStart" => (self.intrinsics.str_pad_start, Type::Str),
-                                    "padEnd" => (self.intrinsics.str_pad_end, Type::Str),
-                                    "startsWith" => (self.intrinsics.str_starts_with, Type::Bool),
-                                    "endsWith" => (self.intrinsics.str_ends_with, Type::Bool),
-                                    "includes" => (self.intrinsics.str_includes, Type::Bool),
-                                    "indexOf" => (self.intrinsics.str_index_of, Type::I64),
-                                    "lastIndexOf" => (self.intrinsics.str_last_index_of, Type::I64),
-                                    "localeCompare" => {
-                                        (self.intrinsics.str_locale_compare, Type::I64)
-                                    }
-                                    // V3-18 wedge — Substr.search routes
-                                    // through str_index_of after
-                                    // materializing (same as Str.search):
-                                    // first match position or -1.
-                                    "search" => (self.intrinsics.str_index_of, Type::I64),
-                                    "at" => (self.intrinsics.str_at, Type::Str),
-                                    "repeat" => (self.intrinsics.str_repeat, Type::Str),
-                                    "replace" => (self.intrinsics.str_replace, Type::Str),
-                                    "replaceAll" => (self.intrinsics.str_replace_all, Type::Str),
-                                    other => {
-                                        panic!("ssa-lower: unsupported Substr method `{other}`")
-                                    }
-                                };
-                                let v = self.f.append_inst(
-                                    self.cur_block,
-                                    InstKind::Call(target, argv),
-                                    ret_ty,
-                                    None,
-                                );
-                                // owned is consumed by the call (our Str
-                                // intrinsics are read-only on Str args, so
-                                // owned still needs scope-end drop — but
-                                // it's not bound to a local. Insert an
-                                // explicit drop so it doesn't leak).
-                                self.f.append_void(
-                                    self.cur_block,
-                                    InstKind::Call(
-                                        self.intrinsics.str_drop,
-                                        vec![Operand::Value(owned)],
-                                    ),
-                                );
-                                return Operand::Value(v);
-                            }
-                        }
-                    }
-                    // V3-18 wedge — charAt / charCodeAt /
-                    // codePointAt 0-arg form per JS spec
-                    // §22.1.3.4 / §22.1.3.5 / §22.1.3.6: missing
-                    // pos defaults to 0. Synthesize a ConstI64(0)
-                    // index and route through the existing 1-arg
-                    // paths below.
-                    if matches!(recv_ty, Type::Str | Type::Substr)
-                        && matches!(method.as_str(), "charAt" | "charCodeAt" | "codePointAt")
-                        && args.is_empty()
-                    {
-                        let idx_val = Operand::ConstI64(0);
-                        if method == "charAt" {
-                            let v = if recv_ty == Type::Str {
-                                self.f.append_inst(
-                                    self.cur_block,
-                                    InstKind::Call(
-                                        self.intrinsics.str_char_at,
-                                        vec![recv_op, idx_val],
-                                    ),
-                                    Type::Substr,
-                                    None,
-                                )
-                            } else {
-                                self.f.append_inst(
-                                    self.cur_block,
-                                    InstKind::Call(
-                                        self.intrinsics.substr_slice,
-                                        vec![recv_op, idx_val, Operand::ConstI64(1)],
-                                    ),
-                                    Type::Substr,
-                                    None,
-                                )
-                            };
-                            return Operand::Value(v);
-                        }
-                        // charCodeAt / codePointAt — same intrinsic
-                        // (codePointAt collapses to charCodeAt in
-                        // tora's ASCII-only Str path).
-                        let v = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Call(
-                                self.intrinsics.str_char_code_at,
-                                vec![recv_op, idx_val],
-                            ),
-                            Type::I64,
-                            None,
-                        );
-                        return Operand::Value(v);
-                    }
-                    // `s.charAt(i)` — same-shape alias for `s[i]`.
-                    // Lowers to a length-1 substr view instead of going
-                    // through a separate runtime helper.
-                    if matches!(recv_ty, Type::Str | Type::Substr)
-                        && method == "charAt"
-                        && args.len() == 1
-                    {
-                        let idx_raw = self.lower_expr(args[0]);
-                        let idx_val = self.coerce_to_i64(idx_raw);
-                        let v = if recv_ty == Type::Str {
-                            // V3-18 m1.h.37 — bounds-checked str charAt.
-                            // Pre-fix called substr_create directly; OOB
-                            // indices stored garbage offsets and printed
-                            // bytes from past the parent's data.
-                            self.f.append_inst(
-                                self.cur_block,
-                                InstKind::Call(self.intrinsics.str_char_at, vec![recv_op, idx_val]),
-                                Type::Substr,
-                                None,
-                            )
-                        } else {
-                            let end = self.f.append_inst(
-                                self.cur_block,
-                                InstKind::BinOp(SsaBinOp::Add, idx_val, Operand::ConstI64(1)),
-                                Type::I64,
-                                None,
-                            );
-                            self.f.append_inst(
-                                self.cur_block,
-                                InstKind::Call(
-                                    self.intrinsics.substr_slice,
-                                    vec![recv_op, idx_val, Operand::Value(end)],
-                                ),
-                                Type::Substr,
-                                None,
-                            )
-                        };
-                        return Operand::Value(v);
-                    }
-                    /* v0.2 #6 — s.normalize() ASCII identity stub.
-                     * Returns a clone of the receiver via str_repeat
-                     * with N=1 (already-existing intrinsic). For ASCII
-                     * strings (the dominant test262 case) all four
-                     * NFC/NFD/NFKC/NFKD forms are byte-identical with
-                     * the input. Multi-byte UTF-8 normalization is
-                     * deferred to v1.0 with the rest of Unicode work. */
-                    if recv_ty == Type::Str && method == "normalize" {
-                        let v = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Call(
-                                self.intrinsics.str_repeat,
-                                vec![recv_op, Operand::ConstI64(1)],
-                            ),
-                            Type::Str,
-                            None,
-                        );
-                        return Operand::Value(v);
-                    }
-                    // String methods.
-                    if recv_ty == Type::Str
-                        && matches!(
-                            method.as_str(),
-                            "slice"
-                                | "substring"
-                                | "substr"
-                                | "charCodeAt"
-                                | "codePointAt"
-                                | "startsWith"
-                                | "endsWith"
-                                | "includes"
-                                | "indexOf"
-                                | "split"
-                                | "repeat"
-                                | "toUpperCase"
-                                | "toLowerCase"
-                                | "trim"
-                                | "trimStart"
-                                | "trimEnd"
-                                | "trimLeft"
-                                | "trimRight"
-                                | "padStart"
-                                | "padEnd"
-                                | "replace"
-                                | "replaceAll"
-                                | "at"
-                                | "lastIndexOf"
-                                | "localeCompare"
-                                | "search"
-                        )
-                    {
-                        let mut argv = Vec::with_capacity(args.len() + 1);
-                        argv.push(recv_op);
-                        for a in args {
-                            argv.push(self.lower_expr(*a));
-                        }
-                        // V3-18 m1.h.36 — String.slice / substring with
-                        // 0 or 1 args: fill in the missing positions
-                        // with start=0, end=str.length (per JS spec).
-                        if matches!(method.as_str(), "slice" | "substring") && args.len() < 2 {
-                            if args.is_empty() {
-                                argv.push(Operand::ConstI64(0));
-                            }
-                            // Read the receiver's length from the str
-                            // header (offset 8) — same shape as
-                            // s.length elsewhere.
-                            let len = self.f.append_inst(
-                                self.cur_block,
-                                InstKind::Load(Type::I64, recv_op, 8),
-                                Type::I64,
-                                None,
-                            );
-                            argv.push(Operand::Value(len));
-                        }
-                        // T-49 — String.substr 0/1-arg defaults. substr's
-                        // 2nd arg is a *length* not an end index; missing
-                        // length means "remaining", which we encode as
-                        // i64::MAX so the runtime helper's
-                        // `length > avail ? avail` clamp picks it up.
-                        if method.as_str() == "substr" && args.len() < 2 {
-                            if args.is_empty() {
-                                argv.push(Operand::ConstI64(0));
-                            }
-                            argv.push(Operand::ConstI64(i64::MAX));
-                        }
-                        // V3-18 m1.h.45 — String.padStart / padEnd with 1
-                        // arg: default fill string is " " per JS spec
-                        // §21.1.3.16.
-                        if matches!(method.as_str(), "padStart" | "padEnd") && args.len() == 1 {
-                            let space = self.intern_string_literal(" ");
-                            argv.push(Operand::Value(space));
-                        }
-                        // V3-18 m1.h.50 — String.indexOf / lastIndexOf
-                        // with the 2-arg (needle, fromIndex) shape route
-                        // to the dedicated _from runtime helpers.
-                        if matches!(method.as_str(), "indexOf" | "lastIndexOf") && args.len() == 2 {
-                            let target = if method == "indexOf" {
-                                self.intrinsics.str_index_of_from
-                            } else {
-                                self.intrinsics.str_last_index_of_from
-                            };
-                            let v = self.f.append_inst(
-                                self.cur_block,
-                                InstKind::Call(target, argv),
-                                Type::I64,
-                                None,
-                            );
-                            return Operand::Value(v);
-                        }
-                        // V3-18 m1.h.51 — startsWith / endsWith / includes
-                        // 2-arg (needle, position) shape: route to
-                        // dedicated _from helpers.
-                        if matches!(method.as_str(), "startsWith" | "endsWith" | "includes")
-                            && args.len() == 2
-                        {
-                            let target = match method.as_str() {
-                                "startsWith" => self.intrinsics.str_starts_with_from,
-                                "endsWith" => self.intrinsics.str_ends_with_from,
-                                _ => self.intrinsics.str_includes_from,
-                            };
-                            let v = self.f.append_inst(
-                                self.cur_block,
-                                InstKind::Call(target, argv),
-                                Type::Bool,
-                                None,
-                            );
-                            return Operand::Value(v);
-                        }
-                        let (target, ret_ty) = match method.as_str() {
-                            "slice" => (self.intrinsics.str_slice, Type::Str),
-                            "substring" => (self.intrinsics.str_substring, Type::Str),
-                            "substr" => (self.intrinsics.str_substr, Type::Str),
-                            "repeat" => (self.intrinsics.str_repeat, Type::Str),
-                            "toUpperCase" => (self.intrinsics.str_to_upper, Type::Str),
-                            "toLowerCase" => (self.intrinsics.str_to_lower, Type::Str),
-                            "trim" => (self.intrinsics.str_trim, Type::Str),
-                            "trimStart" | "trimLeft" => (self.intrinsics.str_trim_start, Type::Str),
-                            "trimEnd" | "trimRight" => (self.intrinsics.str_trim_end, Type::Str),
-                            "padStart" => (self.intrinsics.str_pad_start, Type::Str),
-                            "padEnd" => (self.intrinsics.str_pad_end, Type::Str),
-                            "replace" => (self.intrinsics.str_replace, Type::Str),
-                            "replaceAll" => (self.intrinsics.str_replace_all, Type::Str),
-                            "at" => (self.intrinsics.str_at, Type::Str),
-                            // `codePointAt` collapses to charCodeAt in tr's
-                            // byte-Str layout — both return the byte at
-                            // the index, indistinguishable inside the
-                            // ASCII / Latin-1 range tests stick to.
-                            "charCodeAt" | "codePointAt" => {
-                                (self.intrinsics.str_char_code_at, Type::I64)
-                            }
-                            "startsWith" => (self.intrinsics.str_starts_with, Type::Bool),
-                            "endsWith" => (self.intrinsics.str_ends_with, Type::Bool),
-                            "includes" => (self.intrinsics.str_includes, Type::Bool),
-                            "indexOf" => (self.intrinsics.str_index_of, Type::I64),
-                            // V3-18 wedge — String.prototype.search per
-                            // JS spec §22.1.3.16 with a string arg
-                            // (the RegExp arg form is a follow-up
-                            // substrate item alongside Symbol.search
-                            // dispatch). For a plain string the result
-                            // is exactly indexOf — first match position
-                            // or -1 — so route through the same helper.
-                            "search" => (self.intrinsics.str_index_of, Type::I64),
-                            "lastIndexOf" => (self.intrinsics.str_last_index_of, Type::I64),
-                            "localeCompare" => (self.intrinsics.str_locale_compare, Type::I64),
-                            "split" => {
-                                // Phase Substr.B — split returns
-                                // Array<Substr>: each output element
-                                // is a 32-byte view referencing the
-                                // source's bytes. Zero memcpy per
-                                // substring; hot loops over `expr.split(sep)`
-                                // pay only N small mallocs (no per-byte
-                                // copy). Downstream method dispatch on
-                                // Substr routes to view-aware intrinsics.
-                                // V3-18 wedge — `s.split(sep, limit)`:
-                                // call str_split, then arr_slice the
-                                // result to [0, min(limit, len)). Two
-                                // small mallocs (the split + the slice
-                                // header) but element views still alias
-                                // the source bytes, no per-substring
-                                // copy.
-                                let arr_id = intern_arr_layout(self.arr_layouts, Type::Substr);
-                                if args.len() == 2 {
-                                    let split_v = self.f.append_inst(
-                                        self.cur_block,
-                                        InstKind::Call(
-                                            self.intrinsics.str_split,
-                                            argv[..2].to_vec(),
-                                        ),
-                                        Type::Arr(arr_id),
-                                        None,
-                                    );
-                                    let len = self.f.append_inst(
-                                        self.cur_block,
-                                        InstKind::Load(
-                                            Type::I64,
-                                            Operand::Value(split_v),
-                                            ARR_LEN_OFF,
-                                        ),
-                                        Type::I64,
-                                        None,
-                                    );
-                                    let limit_op = argv[2].clone();
-                                    let take_slot = self.alloca(Type::I64, Some("__split_take"));
-                                    let lt = self.f.append_inst(
-                                        self.cur_block,
-                                        InstKind::ICmp(
-                                            IPred::Slt,
-                                            limit_op.clone(),
-                                            Operand::Value(len),
-                                        ),
-                                        Type::Bool,
-                                        None,
-                                    );
-                                    let then_blk = self.f.add_block();
-                                    let else_blk = self.f.add_block();
-                                    let after_blk = self.f.add_block();
-                                    self.f.set_term(
-                                        self.cur_block,
-                                        Terminator::CondBr {
-                                            cond: Operand::Value(lt),
-                                            then_blk,
-                                            else_blk,
-                                        },
-                                    );
-                                    self.cur_block = then_blk;
-                                    self.f.append_void(
-                                        self.cur_block,
-                                        InstKind::Store(limit_op, Operand::Value(take_slot), 0),
-                                    );
-                                    self.f.set_term(self.cur_block, Terminator::Br(after_blk));
-                                    self.cur_block = else_blk;
-                                    self.f.append_void(
-                                        self.cur_block,
-                                        InstKind::Store(
-                                            Operand::Value(len),
-                                            Operand::Value(take_slot),
-                                            0,
-                                        ),
-                                    );
-                                    self.f.set_term(self.cur_block, Terminator::Br(after_blk));
-                                    self.cur_block = after_blk;
-                                    let take = self.f.append_inst(
-                                        self.cur_block,
-                                        InstKind::Load(Type::I64, Operand::Value(take_slot), 0),
-                                        Type::I64,
-                                        None,
-                                    );
-                                    let v = self.f.append_inst(
-                                        self.cur_block,
-                                        InstKind::Call(
-                                            self.intrinsics.arr_slice,
-                                            vec![
-                                                Operand::Value(split_v),
-                                                Operand::ConstI64(0),
-                                                Operand::Value(take),
-                                            ],
-                                        ),
-                                        Type::Arr(arr_id),
-                                        None,
-                                    );
-                                    return Operand::Value(v);
-                                }
-                                (self.intrinsics.str_split, Type::Arr(arr_id))
-                            }
-                            _ => unreachable!(),
-                        };
-                        let v = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Call(target, argv),
-                            ret_ty,
-                            None,
-                        );
-                        return Operand::Value(v);
-                    }
-                    // Array<string>.join(sep) — receiver is Type::Arr,
-                    // method == "join". The check.rs guard ensures
-                    // element type is String, so we don't re-validate
-                    // here.
-                    // V3-18 wedge — Array.toString routes to the same
-                    // join intrinsic with sep="," per JS spec
-                    // §22.1.3.30. Same element-type constraint as
-                    // join itself.
-                    if let Type::Arr(elem_arr_id) = recv_ty
-                        && (method == "join" || method == "toString" || method == "toLocaleString")
-                    {
-                        let elem_ty = self.arr_layouts[elem_arr_id.0 as usize];
-                        // V3-18 m1.h.43 — element-type dispatch for
-                        // join. Number / Bool elements use dedicated
-                        // runtime helpers that ToString each element
-                        // inline; Str / Substr take the existing
-                        // pointer-walking helpers.
-                        let join_fid = match elem_ty {
-                            Type::Substr => self.intrinsics.arr_join_substr,
-                            Type::I64 => self.intrinsics.arr_join_i64,
-                            Type::F64 => self.intrinsics.arr_join_f64,
-                            Type::Bool => self.intrinsics.arr_join_bool,
-                            _ => self.intrinsics.arr_join,
-                        };
-                        let mut argv = Vec::with_capacity(2);
-                        argv.push(recv_op);
-                        // V3-18 m1.h.42 — default separator ","
-                        // when join() is called with no arg.
-                        let sep = if args.is_empty() {
-                            let s = self.intern_string_literal(",");
-                            Operand::Value(s)
-                        } else {
-                            self.lower_expr(args[0])
-                        };
-                        argv.push(sep);
-                        let v = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Call(join_fid, argv),
-                            Type::Str,
-                            None,
-                        );
-                        return Operand::Value(v);
-                    }
-                    // `arr.flat()` / `arr.flat(N)` — N-level deep flatten.
-                    // Default depth = 1. Literal depth N is statically
-                    // unrolled into N calls to the depth-1 runtime
-                    // helper, peeling one Array<> layer per iter and
-                    // stopping early if a layer is non-Array. depth=0 is
-                    // a shallow clone via arr_slice.
-                    if let Type::Arr(_) = recv_ty
-                        && method == "flat"
-                        && args.len() <= 1
-                    {
-                        let depth: i64 = if args.is_empty() {
-                            1
-                        } else if let Expr::Number(d) = self.ast.get_expr(args[0]) {
-                            *d as i64
-                        } else {
-                            panic!("ssa-lower: flat depth must be a number literal");
-                        };
-                        if depth == 0 {
-                            // Shallow clone: arr_slice(recv, 0, len) +
-                            // per-element rc_inc on refcounted layouts.
-                            let len = self.f.append_inst(
-                                self.cur_block,
-                                InstKind::Load(Type::I64, recv_op, ARR_LEN_OFF),
-                                Type::I64,
-                                None,
-                            );
-                            let v = self.f.append_inst(
-                                self.cur_block,
-                                InstKind::Call(
-                                    self.intrinsics.arr_slice,
-                                    vec![recv_op, Operand::ConstI64(0), Operand::Value(len)],
-                                ),
-                                recv_ty,
-                                None,
-                            );
-                            if let Type::Arr(arr_id) = recv_ty {
-                                let elem_ty = self.arr_layouts[arr_id.0 as usize];
-                                if elem_ty.is_refcounted() {
-                                    let len2 = self.f.append_inst(
-                                        self.cur_block,
-                                        InstKind::Load(Type::I64, Operand::Value(v), ARR_LEN_OFF),
-                                        Type::I64,
-                                        None,
-                                    );
-                                    self.emit_arr_rc_inc_range(
-                                        Operand::Value(v),
-                                        Operand::ConstI64(0),
-                                        Operand::Value(len2),
-                                    );
-                                }
-                            }
-                            return Operand::Value(v);
-                        }
-                        let mut cur = recv_op;
-                        let mut cur_ty = recv_ty;
-                        for _ in 0..depth {
-                            let Type::Arr(outer_id) = cur_ty else {
-                                break;
-                            };
-                            let outer_elem = self.arr_layouts[outer_id.0 as usize];
-                            let Type::Arr(_) = outer_elem else {
-                                break;
-                            };
-                            let v = self.f.append_inst(
-                                self.cur_block,
-                                InstKind::Call(self.intrinsics.arr_flat, vec![cur]),
-                                outer_elem,
-                                None,
-                            );
-                            cur = Operand::Value(v);
-                            cur_ty = outer_elem;
-                        }
-                        return cur;
-                    }
-                    // `arr.sort(cmp)` — in-place insertion sort calling
-                    // `cmp` for each compare. Returns the same array. The
-                    // comparator's return is treated as an i64 (or
-                    // implicitly-promoted-to-i64); ssa-lower picks ICmp/
-                    // FCmp(>0) based on its actual SSA type. Insertion
-                    // sort is O(n²) but works for moderate array sizes
-                    // and avoids needing closure-aware C runtime.
-                    if let Type::Arr(arr_id) = recv_ty
-                        && (method == "sort" || method == "toSorted")
-                        && args.len() <= 1
-                    {
-                        let elem_ty = self.arr_layouts[arr_id.0 as usize];
-                        // toSorted clones the receiver via arr_slice
-                        // before sorting so the source stays intact.
-                        // arr_slice does the alloc + memcpy in one
-                        // runtime call; the rest of the body operates on
-                        // the clone.
-                        let recv_op = if method == "toSorted" {
-                            let len = self.f.append_inst(
-                                self.cur_block,
-                                InstKind::Load(Type::I64, recv_op, ARR_LEN_OFF),
-                                Type::I64,
-                                None,
-                            );
-                            let v = self.f.append_inst(
-                                self.cur_block,
-                                InstKind::Call(
-                                    self.intrinsics.arr_slice,
-                                    vec![recv_op, Operand::ConstI64(0), Operand::Value(len)],
-                                ),
-                                Type::Arr(arr_id),
-                                None,
-                            );
-                            Operand::Value(v)
-                        } else {
-                            recv_op
-                        };
-                        let arr_ptr = match recv_op {
-                            Operand::Value(v) => v,
-                            _ => unreachable!(),
-                        };
-                        // V3-18 wedge — sort/toSorted with no comparator
-                        // emits inline element-type-aware `prev > cur`
-                        // instead of calling a user fn. cmp_val + cmp_ty
-                        // stay None for the no-arg path so the
-                        // pred-computation block can branch later.
-                        let (cmp_val, cmp_ty) = if let Some(arg0) = args.first() {
-                            let v = self.lower_expr(*arg0);
-                            let t = self.operand_ty(&v);
-                            (Some(v), Some(t))
-                        } else {
-                            (None, None)
-                        };
-                        let len = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Load(Type::I64, recv_op, ARR_LEN_OFF),
-                            Type::I64,
-                            None,
-                        );
-                        let i_slot = self.alloca(Type::I64, Some("__sort_i"));
-                        // i = 1
-                        self.f.append_void(
-                            self.cur_block,
-                            InstKind::Store(Operand::ConstI64(1), Operand::Value(i_slot), 0),
-                        );
-                        let outer_hdr = self.f.add_block();
-                        let outer_body = self.f.add_block();
-                        let outer_after = self.f.add_block();
-                        self.f.set_term(self.cur_block, Terminator::Br(outer_hdr));
-                        // outer header: i < len?
-                        self.cur_block = outer_hdr;
-                        let i_now = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Load(Type::I64, Operand::Value(i_slot), 0),
-                            Type::I64,
-                            None,
-                        );
-                        let in_outer = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::ICmp(IPred::Slt, Operand::Value(i_now), Operand::Value(len)),
-                            Type::Bool,
-                            None,
-                        );
-                        self.f.set_term(
-                            self.cur_block,
-                            Terminator::CondBr {
-                                cond: Operand::Value(in_outer),
-                                then_blk: outer_body,
-                                else_blk: outer_after,
-                            },
-                        );
-                        // outer body: load cur = xs[i], j = i, then inner loop
-                        self.cur_block = outer_body;
-                        let i_now2 = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Load(Type::I64, Operand::Value(i_slot), 0),
-                            Type::I64,
-                            None,
-                        );
-                        // T-13.5: head-aware byte offset for arr.sort() reads.
-                        let off_i = self.emit_arr_slot_byte_offset(
-                            Operand::Value(arr_ptr),
-                            Operand::Value(i_now2),
-                            3,
-                            false,
-                        );
-                        let cur = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::LoadDyn(elem_ty, Operand::Value(arr_ptr), off_i),
-                            elem_ty,
-                            None,
-                        );
-                        let j_slot = self.alloca(Type::I64, Some("__sort_j"));
-                        self.f.append_void(
-                            self.cur_block,
-                            InstKind::Store(Operand::Value(i_now2), Operand::Value(j_slot), 0),
-                        );
-                        // inner loop: while j > 0 && cmp(xs[j-1], cur) > 0: shift
-                        let inner_hdr = self.f.add_block();
-                        let inner_check = self.f.add_block();
-                        let inner_body = self.f.add_block();
-                        let inner_after = self.f.add_block();
-                        self.f.set_term(self.cur_block, Terminator::Br(inner_hdr));
-                        // inner header: j > 0?
-                        self.cur_block = inner_hdr;
-                        let j_now = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Load(Type::I64, Operand::Value(j_slot), 0),
-                            Type::I64,
-                            None,
-                        );
-                        let j_pos = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::ICmp(IPred::Sgt, Operand::Value(j_now), Operand::ConstI64(0)),
-                            Type::Bool,
-                            None,
-                        );
-                        self.f.set_term(
-                            self.cur_block,
-                            Terminator::CondBr {
-                                cond: Operand::Value(j_pos),
-                                then_blk: inner_check,
-                                else_blk: inner_after,
-                            },
-                        );
-                        // inner check: load xs[j-1], call cmp, test > 0
-                        self.cur_block = inner_check;
-                        let j_minus_1 = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::BinOp(
-                                SsaBinOp::Sub,
-                                Operand::Value(j_now),
-                                Operand::ConstI64(1),
-                            ),
-                            Type::I64,
-                            None,
-                        );
-                        let off_jm1 = self.emit_arr_slot_byte_offset(
-                            Operand::Value(arr_ptr),
-                            Operand::Value(j_minus_1),
-                            3,
-                            false,
-                        );
-                        let prev = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::LoadDyn(elem_ty, Operand::Value(arr_ptr), off_jm1.clone()),
-                            elem_ty,
-                            None,
-                        );
-                        // V3-18 wedge — branch on cmp_val presence.
-                        // With a user comparator: call it, test ret > 0.
-                        // Without: directly compare prev > cur using the
-                        // element-type-aware predicate (Sgt for I64,
-                        // Ogt for F64, str_locale_compare for Str).
-                        let pred_v = match (&cmp_val, &cmp_ty) {
-                            (Some(cv), Some(ct)) => {
-                                let cmp_ret = self.call_fn_value(
-                                    cv.clone(),
-                                    *ct,
-                                    vec![Operand::Value(prev), Operand::Value(cur)],
-                                );
-                                let cmp_ret_ty = self.f.value_type(cmp_ret);
-                                match cmp_ret_ty {
-                                    Type::F64 => self.f.append_inst(
-                                        self.cur_block,
-                                        InstKind::FCmp(
-                                            FPred::Ogt,
-                                            Operand::Value(cmp_ret),
-                                            Operand::ConstF64(0.0),
-                                        ),
-                                        Type::Bool,
-                                        None,
-                                    ),
-                                    _ => self.f.append_inst(
-                                        self.cur_block,
-                                        InstKind::ICmp(
-                                            IPred::Sgt,
-                                            Operand::Value(cmp_ret),
-                                            Operand::ConstI64(0),
-                                        ),
-                                        Type::Bool,
-                                        None,
-                                    ),
-                                }
-                            }
-                            _ => match elem_ty {
-                                Type::F64 => self.f.append_inst(
-                                    self.cur_block,
-                                    InstKind::FCmp(
-                                        FPred::Ogt,
-                                        Operand::Value(prev),
-                                        Operand::Value(cur),
-                                    ),
-                                    Type::Bool,
-                                    None,
-                                ),
-                                Type::Str | Type::Substr => {
-                                    let r = self.f.append_inst(
-                                        self.cur_block,
-                                        InstKind::Call(
-                                            self.intrinsics.str_locale_compare,
-                                            vec![Operand::Value(prev), Operand::Value(cur)],
-                                        ),
-                                        Type::I64,
-                                        None,
-                                    );
-                                    self.f.append_inst(
-                                        self.cur_block,
-                                        InstKind::ICmp(
-                                            IPred::Sgt,
-                                            Operand::Value(r),
-                                            Operand::ConstI64(0),
-                                        ),
-                                        Type::Bool,
-                                        None,
-                                    )
-                                }
-                                _ => self.f.append_inst(
-                                    self.cur_block,
-                                    InstKind::ICmp(
-                                        IPred::Sgt,
-                                        Operand::Value(prev),
-                                        Operand::Value(cur),
-                                    ),
-                                    Type::Bool,
-                                    None,
-                                ),
-                            },
-                        };
-                        self.f.set_term(
-                            self.cur_block,
-                            Terminator::CondBr {
-                                cond: Operand::Value(pred_v),
-                                then_blk: inner_body,
-                                else_blk: inner_after,
-                            },
-                        );
-                        // inner body: xs[j] = xs[j-1]; j--
-                        self.cur_block = inner_body;
-                        let off_j = self.emit_arr_slot_byte_offset(
-                            Operand::Value(arr_ptr),
-                            Operand::Value(j_now),
-                            3,
-                            false,
-                        );
-                        // off_jm1 was computed in inner_check; recompute
-                        // here since this is a different block.
-                        let off_jm1_b = self.emit_arr_slot_byte_offset(
-                            Operand::Value(arr_ptr),
-                            Operand::Value(j_minus_1),
-                            3,
-                            false,
-                        );
-                        let prev2 = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::LoadDyn(elem_ty, Operand::Value(arr_ptr), off_jm1_b),
-                            elem_ty,
-                            None,
-                        );
-                        self.f.append_void(
-                            self.cur_block,
-                            InstKind::StoreDyn(
-                                Operand::Value(prev2),
-                                Operand::Value(arr_ptr),
-                                off_j,
-                            ),
-                        );
-                        self.f.append_void(
-                            self.cur_block,
-                            InstKind::Store(Operand::Value(j_minus_1), Operand::Value(j_slot), 0),
-                        );
-                        self.f.set_term(self.cur_block, Terminator::Br(inner_hdr));
-                        // inner after: xs[j] = cur
-                        self.cur_block = inner_after;
-                        let j_final = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Load(Type::I64, Operand::Value(j_slot), 0),
-                            Type::I64,
-                            None,
-                        );
-                        let off_jf = self.emit_arr_slot_byte_offset(
-                            Operand::Value(arr_ptr),
-                            Operand::Value(j_final),
-                            3,
-                            false,
-                        );
-                        self.f.append_void(
-                            self.cur_block,
-                            InstKind::StoreDyn(
-                                Operand::Value(cur),
-                                Operand::Value(arr_ptr),
-                                off_jf,
-                            ),
-                        );
-                        // i++
-                        let i_next = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::BinOp(
-                                SsaBinOp::Add,
-                                Operand::Value(i_now2),
-                                Operand::ConstI64(1),
-                            ),
-                            Type::I64,
-                            None,
-                        );
-                        self.f.append_void(
-                            self.cur_block,
-                            InstKind::Store(Operand::Value(i_next), Operand::Value(i_slot), 0),
-                        );
-                        self.f.set_term(self.cur_block, Terminator::Br(outer_hdr));
-                        self.cur_block = outer_after;
-                        return Operand::Value(arr_ptr);
-                    }
-                    // `s.concat(...others)` — variadic string concat,
-                    // lowered as a left-fold over str_concat. Empty arg
-                    // list returns the receiver unchanged. The single-arg
-                    // case still flows through the typecheck Function-arm
-                    // dispatch but we intercept here uniformly to avoid
-                    // duplicate emit paths.
-                    if recv_ty == Type::Str && method == "concat" {
-                        if args.is_empty() {
-                            return recv_op;
-                        }
-                        let mut acc = recv_op;
-                        for a in args {
-                            let other = self.lower_expr(*a);
-                            let v = self.f.append_inst(
-                                self.cur_block,
-                                InstKind::Call(self.intrinsics.str_concat, vec![acc, other]),
-                                Type::Str,
-                                None,
-                            );
-                            acc = Operand::Value(v);
-                        }
-                        return acc;
-                    }
-                    // `arr.concat(other)` — fresh array, single malloc +
-                    // two memcpys via the C runtime. Element type carried.
-                    // Phase B refcount: derived array's slots alias both
-                    // sources; inc each slot for non-Copy elements.
-                    //
-                    // V3-18 wedge — multi-arg form `xs.concat(a, b, ..., z)`
-                    // per JS spec §22.1.3.2 is supported by folding the
-                    // single-arg intrinsic left-to-right: each step's
-                    // result becomes the next step's receiver. Refcount
-                    // inc runs once at the end over the final array's
-                    // full length. Each intermediate also leaks otherwise;
-                    // those temporaries are drop-balanced by the rc-inc
-                    // window on the final result (intermediates aren't
-                    // bound to a name so the surrounding scope-end drop
-                    // doesn't see them).
-                    if let Type::Arr(arr_id) = recv_ty
-                        && method == "concat"
-                    {
-                        // 0-arg form ≡ shallow copy. Lower as
-                        // `arr_slice(recv, 0, len)` — the refcount-inc
-                        // walk below handles non-Copy elements the
-                        // same way as for slice / concat results.
-                        let mut acc = if args.is_empty() {
-                            let len = self.f.append_inst(
-                                self.cur_block,
-                                InstKind::Load(Type::I64, recv_op, ARR_LEN_OFF),
-                                Type::I64,
-                                None,
-                            );
-                            let v = self.f.append_inst(
-                                self.cur_block,
-                                InstKind::Call(
-                                    self.intrinsics.arr_slice,
-                                    vec![recv_op, Operand::ConstI64(0), Operand::Value(len)],
-                                ),
-                                Type::Arr(arr_id),
-                                None,
-                            );
-                            Operand::Value(v)
-                        } else {
-                            recv_op
-                        };
-                        for a in args {
-                            let other = self.lower_expr(*a);
-                            let v = self.f.append_inst(
-                                self.cur_block,
-                                InstKind::Call(self.intrinsics.arr_concat, vec![acc, other]),
-                                Type::Arr(arr_id),
-                                None,
-                            );
-                            acc = Operand::Value(v);
-                        }
-                        let elem_ty = self.arr_layouts[arr_id.0 as usize];
-                        if elem_ty.is_refcounted() {
-                            let len = self.f.append_inst(
-                                self.cur_block,
-                                InstKind::Load(Type::I64, acc, ARR_LEN_OFF),
-                                Type::I64,
-                                None,
-                            );
-                            self.emit_arr_rc_inc_range(
-                                acc,
-                                Operand::ConstI64(0),
-                                Operand::Value(len),
-                            );
-                        }
-                        return acc;
-                    }
-                    // `arr.at(i)` — element at i with negative-index wrap.
-                    // Inline SSA: idx = i < 0 ? len + i : i; load at idx.
-                    // Out-of-bounds is UB (matches the unchecked indexing
-                    // convention).
-                    if let Type::Arr(arr_id) = recv_ty
-                        && method == "at"
-                        && args.len() == 1
-                    {
-                        let elem_ty = self.arr_layouts[arr_id.0 as usize];
-                        let i_val = self.lower_expr(args[0]);
-                        let len = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Load(Type::I64, recv_op, ARR_LEN_OFF),
-                            Type::I64,
-                            None,
-                        );
-                        let is_neg = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::ICmp(IPred::Slt, i_val, Operand::ConstI64(0)),
-                            Type::Bool,
-                            None,
-                        );
-                        let i_plus_len = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::BinOp(SsaBinOp::Add, i_val, Operand::Value(len)),
-                            Type::I64,
-                            None,
-                        );
-                        // adj = is_neg ? i + len : i (via select-shape:
-                        // alloca + cond_br).
-                        let adj_slot = self.alloca_in_entry(Type::I64, Some("__at_idx"));
-                        let neg_blk = self.f.add_block();
-                        let pos_blk = self.f.add_block();
-                        let after_blk = self.f.add_block();
-                        let cb = self.cur_block;
-                        self.f.set_term(
-                            cb,
-                            Terminator::CondBr {
-                                cond: Operand::Value(is_neg),
-                                then_blk: neg_blk,
-                                else_blk: pos_blk,
-                            },
-                        );
-                        self.f.append_void(
-                            neg_blk,
-                            InstKind::Store(
-                                Operand::Value(i_plus_len),
-                                Operand::Value(adj_slot),
-                                0,
-                            ),
-                        );
-                        self.f.set_term(neg_blk, Terminator::Br(after_blk));
-                        self.f.append_void(
-                            pos_blk,
-                            InstKind::Store(i_val, Operand::Value(adj_slot), 0),
-                        );
-                        self.f.set_term(pos_blk, Terminator::Br(after_blk));
-                        self.cur_block = after_blk;
-                        let adj = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Load(Type::I64, Operand::Value(adj_slot), 0),
-                            Type::I64,
-                            None,
-                        );
-                        // T-13.5 deque: head-aware offset for arr.at(i).
-                        let off = self.emit_arr_slot_byte_offset(
-                            recv_op.clone(),
-                            Operand::Value(adj),
-                            3,
-                            false,
-                        );
-                        let v = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::LoadDyn(elem_ty, recv_op, off),
-                            elem_ty,
-                            None,
-                        );
-                        return Operand::Value(v);
-                    }
-                    // `arr.copyWithin(target, start, end)` — in-place
-                    // memmove via runtime helper.
-                    //
-                    // V3-18 wedge — start / end are optional per JS
-                    // spec §22.1.3.3:
-                    //   xs.copyWithin(t)        = (t, 0, len)
-                    //   xs.copyWithin(t, s)     = (t, s, len)
-                    //   xs.copyWithin(t, s, e)  = (t, s, e)
-                    // Pre-fix the 3-arg branch was strict so check.rs's
-                    // fixed-arity rejected the shorter calls. Defaults
-                    // resolved here so the rc-aware path below sees
-                    // the canonical 3-arg form.
-                    //
-                    // Phase B refcount: for non-Copy elements the dst
-                    // range gets aliased ptrs from the src range. The
-                    // sequence MUST be inc-src-first then drop-dst,
-                    // otherwise an overlapping element could be freed
-                    // before its inc (use-after-free). Then arr_copy_within
-                    // does the bytewise memmove; refcounts now reflect
-                    // the post-copy slot ownership so the array's
-                    // eventual element-walk drop is balanced.
-                    if let Type::Arr(arr_id) = recv_ty
-                        && method == "copyWithin"
-                        && (1..=3).contains(&args.len())
-                    {
-                        // V3-18 wedge — copyWithin per JS spec
-                        // §22.1.3.3 normalises target / start / end
-                        // through ToIntegerOrInfinity, then for each
-                        // index n: if n < 0, n = max(len + n, 0); if
-                        // n >= len, n = len. Pre-fix tora used a
-                        // plain clamp_i64_to_range(0, len) which
-                        // mapped any negative input to 0, dropping
-                        // the canonical TS pattern of using
-                        // negatives to count from the end (e.g.
-                        // copyWithin(-2) shifts the tail to the
-                        // front).
-                        let len_for_norm = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Load(Type::I64, recv_op, ARR_LEN_OFF),
-                            Type::I64,
-                            None,
-                        );
-                        let raw_target = self.lower_expr(args[0]);
-                        let target = self.relative_to_len(raw_target, Operand::Value(len_for_norm));
-                        let start = if args.len() >= 2 {
-                            let raw = self.lower_expr(args[1]);
-                            self.relative_to_len(raw, Operand::Value(len_for_norm))
-                        } else {
-                            Operand::ConstI64(0)
-                        };
-                        let end = if args.len() >= 3 {
-                            let raw = self.lower_expr(args[2]);
-                            self.relative_to_len(raw, Operand::Value(len_for_norm))
-                        } else {
-                            // end = recv.length
-                            Operand::Value(len_for_norm)
-                        };
-                        let elem_ty = self.arr_layouts[arr_id.0 as usize];
-                        if elem_ty.is_refcounted() {
-                            // Replicate arr_copy_within's clamp: lo = clamp(start),
-                            // hi = clamp(end), to = clamp(target), count = min(hi-lo,
-                            // len-to). Then inc src [lo, lo+count) and drop dst
-                            // [to, to+count) before the memmove.
-                            let len_v = self.f.append_inst(
-                                self.cur_block,
-                                InstKind::Load(Type::I64, recv_op, ARR_LEN_OFF),
-                                Type::I64,
-                                None,
-                            );
-                            let len_op = Operand::Value(len_v);
-                            let lo = self.clamp_i64_to_range(start, Operand::ConstI64(0), len_op);
-                            let hi = self.clamp_i64_to_range(end, Operand::ConstI64(0), len_op);
-                            let to = self.clamp_i64_to_range(target, Operand::ConstI64(0), len_op);
-                            // raw_count = max(0, hi - lo)
-                            let diff = self.f.append_inst(
-                                self.cur_block,
-                                InstKind::BinOp(SsaBinOp::Sub, hi, lo),
-                                Type::I64,
-                                None,
-                            );
-                            let raw_count = self.clamp_i64_to_range(
-                                Operand::Value(diff),
-                                Operand::ConstI64(0),
-                                len_op,
-                            );
-                            // capacity left at dst = len - to
-                            let cap_left = self.f.append_inst(
-                                self.cur_block,
-                                InstKind::BinOp(SsaBinOp::Sub, len_op, to),
-                                Type::I64,
-                                None,
-                            );
-                            // count = min(raw_count, cap_left), clamped >= 0
-                            let count = self.clamp_i64_to_range(
-                                raw_count,
-                                Operand::ConstI64(0),
-                                Operand::Value(cap_left),
-                            );
-                            // src_end = lo + count, dst_end = to + count
-                            let src_end = self.f.append_inst(
-                                self.cur_block,
-                                InstKind::BinOp(SsaBinOp::Add, lo, count),
-                                Type::I64,
-                                None,
-                            );
-                            let dst_end = self.f.append_inst(
-                                self.cur_block,
-                                InstKind::BinOp(SsaBinOp::Add, to, count),
-                                Type::I64,
-                                None,
-                            );
-                            self.emit_arr_rc_inc_range(recv_op, lo, Operand::Value(src_end));
-                            self.emit_arr_rc_drop_range(
-                                recv_op,
-                                elem_ty,
-                                to,
-                                Operand::Value(dst_end),
-                            );
-                        }
-                        let v = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Call(
-                                self.intrinsics.arr_copy_within,
-                                vec![recv_op, target, start, end],
-                            ),
-                            Type::Arr(arr_id),
-                            None,
-                        );
-                        return Operand::Value(v);
-                    }
-                    // `arr.reverse()` — in-place over the receiver,
-                    // returns the same array pointer for chaining.
-                    if let Type::Arr(arr_id) = recv_ty
-                        && method == "reverse"
-                        && args.is_empty()
-                    {
-                        let v = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Call(self.intrinsics.arr_reverse, vec![recv_op]),
-                            Type::Arr(arr_id),
-                            None,
-                        );
-                        return Operand::Value(v);
-                    }
-                    // `arr.toReversed()` — non-mutating reverse. Fresh
-                    // alloc + reverse-direction slot copy via the C
-                    // runtime; original untouched. Phase B refcount:
-                    // for non-Copy elements, inc each derived slot to
-                    // share ownership with the source (see arr.slice
-                    // for rationale).
-                    if let Type::Arr(arr_id) = recv_ty
-                        && method == "toReversed"
-                        && args.is_empty()
-                    {
-                        let v = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Call(self.intrinsics.arr_to_reversed, vec![recv_op]),
-                            Type::Arr(arr_id),
-                            None,
-                        );
-                        let elem_ty = self.arr_layouts[arr_id.0 as usize];
-                        if elem_ty.is_refcounted() {
-                            let len = self.f.append_inst(
-                                self.cur_block,
-                                InstKind::Load(Type::I64, Operand::Value(v), ARR_LEN_OFF),
-                                Type::I64,
-                                None,
-                            );
-                            self.emit_arr_rc_inc_range(
-                                Operand::Value(v),
-                                Operand::ConstI64(0),
-                                Operand::Value(len),
-                            );
-                        }
-                        return Operand::Value(v);
-                    }
-                    // `arr.with(i, v)` — non-mutating index update. The
-                    // C helper memcpy's the source array, then writes
-                    // `v` into the (negative-wrapped) `i` slot. Out-of-
-                    // bounds `i` is UB. Element value passed as i64 (the
-                    // 8-byte slot width); f64 elements would need a
-                    // bitcast not yet in the IR (matches `fill`).
-                    //
-                    // Phase B refcount: for non-Copy elements, the
-                    // derived array shares ownership of all non-`i`
-                    // slots with the source AND of slot `i` with the
-                    // caller's `v`. inc every slot uniformly — caller's
-                    // drop on `v` and source's per-slot drops balance
-                    // against the derived array's own per-slot drops.
-                    if let Type::Arr(arr_id) = recv_ty
-                        && method == "with"
-                        && args.len() == 2
-                    {
-                        let i_val = self.lower_expr(args[0]);
-                        let v_val = self.lower_expr(args[1]);
-                        let v_ty = self.operand_ty(&v_val);
-                        if v_ty == Type::F64 {
-                            panic!(
-                                "ssa-lower: Array.with on f64 elements not yet supported (need IR bitcast)"
-                            );
-                        }
-                        let v = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Call(self.intrinsics.arr_with, vec![recv_op, i_val, v_val]),
-                            Type::Arr(arr_id),
-                            None,
-                        );
-                        let elem_ty = self.arr_layouts[arr_id.0 as usize];
-                        if elem_ty.is_refcounted() {
-                            let len = self.f.append_inst(
-                                self.cur_block,
-                                InstKind::Load(Type::I64, Operand::Value(v), ARR_LEN_OFF),
-                                Type::I64,
-                                None,
-                            );
-                            self.emit_arr_rc_inc_range(
-                                Operand::Value(v),
-                                Operand::ConstI64(0),
-                                Operand::Value(len),
-                            );
-                        }
-                        return Operand::Value(v);
-                    }
-                    // `arr.fill(v, start, end)` — uniform fill of the
-                    // [start, end) range. Element value is passed as
-                    // i64 (8-byte slot — works for i64 / Bool / Str /
-                    // Obj / Arr; f64 elements would need a bitcast not
-                    // yet in the IR). The intrinsic returns the same
-                    // pointer.
-                    //
-                    // Phase B refcount: for non-Copy elements, the
-                    // overwrite would leak the old value AND leave new-
-                    // value refcount imbalanced. Emit a per-slot SSA
-                    // loop that drops old + stores new + inc's new,
-                    // bypassing the C runtime for this case.
-                    if let Type::Arr(arr_id) = recv_ty
-                        && method == "fill"
-                        && (args.len() >= 1 && args.len() <= 3)
-                    {
-                        let value = self.lower_expr(args[0]);
-                        let value_ty = self.operand_ty(&value);
-                        if value_ty == Type::F64 {
-                            panic!(
-                                "ssa-lower: Array.fill on f64 elements not yet supported (need IR bitcast)"
-                            );
-                        }
-                        // V3-18 m1.h.53 — start defaults to 0, end
-                        // defaults to arr.length per JS spec §22.1.3.6.
-                        // V3-18 wedge — negatives count from the
-                        // end via relative_to_len (max(len + n, 0)
-                        // for n < 0, len for n >= len). The arr_fill
-                        // C runtime only does plain min/max clamp,
-                        // so the normalisation happens here so both
-                        // Copy and non-Copy paths see canonical
-                        // [0, len] indices.
-                        let len_for_norm = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Load(Type::I64, recv_op, ARR_LEN_OFF),
-                            Type::I64,
-                            None,
-                        );
-                        let start = if args.len() >= 2 {
-                            let raw = self.lower_expr(args[1]);
-                            self.relative_to_len(raw, Operand::Value(len_for_norm))
-                        } else {
-                            Operand::ConstI64(0)
-                        };
-                        let end = if args.len() == 3 {
-                            let raw = self.lower_expr(args[2]);
-                            self.relative_to_len(raw, Operand::Value(len_for_norm))
-                        } else {
-                            Operand::Value(len_for_norm)
-                        };
-                        let elem_ty = self.arr_layouts[arr_id.0 as usize];
-                        if elem_ty.is_copy() {
-                            let v = self.f.append_inst(
-                                self.cur_block,
-                                InstKind::Call(
-                                    self.intrinsics.arr_fill,
-                                    vec![recv_op, value, start, end],
-                                ),
-                                Type::Arr(arr_id),
-                                None,
-                            );
-                            return Operand::Value(v);
-                        }
-                        // Non-Copy fill: per-slot drop-old + store-new + inc-new.
-                        // Clamp [start, end) to [0, len] inline (matches arr_fill C semantics).
-                        let len_v = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Load(Type::I64, recv_op, ARR_LEN_OFF),
-                            Type::I64,
-                            None,
-                        );
-                        let lo = self.clamp_i64_to_range(
-                            start,
-                            Operand::ConstI64(0),
-                            Operand::Value(len_v),
-                        );
-                        let hi = self.clamp_i64_to_range(
-                            end,
-                            Operand::ConstI64(0),
-                            Operand::Value(len_v),
-                        );
-                        let i_slot = self.alloca_in_entry(Type::I64, Some("__fill_i"));
-                        self.f.append_void(
-                            self.cur_block,
-                            InstKind::Store(lo, Operand::Value(i_slot), 0),
-                        );
-                        let header = self.f.add_block();
-                        let body = self.f.add_block();
-                        let after = self.f.add_block();
-                        self.f.set_term(self.cur_block, Terminator::Br(header));
-                        self.cur_block = header;
-                        let i_now = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Load(Type::I64, Operand::Value(i_slot), 0),
-                            Type::I64,
-                            None,
-                        );
-                        let cond = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::ICmp(IPred::Slt, Operand::Value(i_now), hi),
-                            Type::Bool,
-                            None,
-                        );
-                        self.f.set_term(
-                            self.cur_block,
-                            Terminator::CondBr {
-                                cond: Operand::Value(cond),
-                                then_blk: body,
-                                else_blk: after,
-                            },
-                        );
-                        self.cur_block = body;
-                        // T-13.5: head-aware offset for arr.fill loop.
-                        let off = self.emit_arr_slot_byte_offset(
-                            recv_op.clone(),
-                            Operand::Value(i_now),
-                            3,
-                            false,
-                        );
-                        let old = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::LoadDyn(elem_ty, recv_op.clone(), off.clone()),
-                            elem_ty,
-                            None,
-                        );
-                        self.emit_drop_value(Operand::Value(old), elem_ty);
-                        self.f
-                            .append_void(self.cur_block, InstKind::StoreDyn(value, recv_op, off));
-                        self.f.append_void(
-                            self.cur_block,
-                            InstKind::Call(self.intrinsics.rc_inc, vec![value]),
-                        );
-                        let i_next = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::BinOp(
-                                SsaBinOp::Add,
-                                Operand::Value(i_now),
-                                Operand::ConstI64(1),
-                            ),
-                            Type::I64,
-                            None,
-                        );
-                        self.f.append_void(
-                            self.cur_block,
-                            InstKind::Store(Operand::Value(i_next), Operand::Value(i_slot), 0),
-                        );
-                        self.f.set_term(self.cur_block, Terminator::Br(header));
-                        self.cur_block = after;
-                        return recv_op;
-                    }
-                    // `arr.slice(start, end)` — fresh array of the
-                    // [start, end) range, single memcpy via
-                    // __torajs_arr_slice. Element type carried over
-                    // from the receiver. Phase B refcount: when the
-                    // element type is non-Copy (Str etc.), the derived
-                    // array's slots alias the source's; inc each slot's
-                    // refcount so the source and derived can both safely
-                    // walk-drop their elements.
-                    if let Type::Arr(arr_id) = recv_ty
-                        && method == "slice"
-                        && args.len() <= 2
-                    {
-                        // V3-18 m1.h.35 — JS spec §22.1.3.25 defaults:
-                        //   arr.slice()      = arr.slice(0, len)
-                        //   arr.slice(start) = arr.slice(start, len)
-                        // Read len once when needed; use it as the
-                        // default for the missing 2nd arg.
-                        let mut argv = Vec::with_capacity(3);
-                        argv.push(recv_op);
-                        let start = if args.is_empty() {
-                            Operand::ConstI64(0)
-                        } else {
-                            self.lower_expr(args[0])
-                        };
-                        argv.push(start);
-                        let end = if args.len() == 2 {
-                            self.lower_expr(args[1])
-                        } else {
-                            // Load receiver's len from offset 8.
-                            let len = self.f.append_inst(
-                                self.cur_block,
-                                InstKind::Load(Type::I64, recv_op, ARR_LEN_OFF),
-                                Type::I64,
-                                None,
-                            );
-                            Operand::Value(len)
-                        };
-                        argv.push(end);
-                        let v = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Call(self.intrinsics.arr_slice, argv),
-                            Type::Arr(arr_id),
-                            None,
-                        );
-                        let elem_ty = self.arr_layouts[arr_id.0 as usize];
-                        if elem_ty.is_refcounted() {
-                            let len = self.f.append_inst(
-                                self.cur_block,
-                                InstKind::Load(Type::I64, Operand::Value(v), ARR_LEN_OFF),
-                                Type::I64,
-                                None,
-                            );
-                            self.emit_arr_rc_inc_range(
-                                Operand::Value(v),
-                                Operand::ConstI64(0),
-                                Operand::Value(len),
-                            );
-                        }
-                        return Operand::Value(v);
-                    }
-                    // `arr.indexOf(needle)` / `arr.lastIndexOf(needle)` /
-                    // `arr.includes(needle)` — inline SSA loop. indexOf
-                    // returns the first match index (-1 on miss);
-                    // lastIndexOf scans from the end (-1 on miss);
-                    // includes returns a boolean. All three share the
-                    // per-element compare dispatch (ICmp / FCmp / str_eq).
-                    if let Type::Arr(arr_id) = recv_ty
-                        && (method == "indexOf" || method == "lastIndexOf" || method == "includes")
-                        && (args.len() == 1 || args.len() == 2)
-                    {
-                        let want_bool = method == "includes";
-                        let want_last = method == "lastIndexOf";
-                        let elem_ty = self.arr_layouts[arr_id.0 as usize];
-                        let needle_raw = self.lower_expr(args[0]);
-                        let needle_ty = self.operand_ty(&needle_raw);
-                        // V3-18 wedge — needle ↔ elem type coerce.
-                        // Pre-fix tora passed the raw needle straight
-                        // into the ICmp / FCmp dispatch, so an i64
-                        // array with an f64 needle (e.g. NaN, -0.0,
-                        // fractional) hit an LLVM verify error
-                        // ("Found FloatValue but expected IntValue").
-                        // JS spec §7.2.13 StrictEqualityComparison
-                        // treats both as Number, so the bridging
-                        // logic mirrors what the rest of tora does
-                        // for mixed-numeric BinOp.
-                        let needle = match (elem_ty, needle_ty) {
-                            (a, b) if a == b => needle_raw,
-                            (Type::I64, Type::F64) => {
-                                // Const f64 that's an integer in i64
-                                // range converts cleanly. Anything
-                                // else (NaN / Infinity / fractional)
-                                // can't equal any i64 element, so
-                                // short-circuit to -1 / false.
-                                if let Operand::ConstF64(n) = needle_raw
-                                    && n.is_finite()
-                                    && n.fract() == 0.0
-                                    && n >= i64::MIN as f64
-                                    && n <= i64::MAX as f64
-                                {
-                                    Operand::ConstI64(n as i64)
-                                } else if let Operand::ConstF64(_) = needle_raw {
-                                    if want_bool {
-                                        return Operand::ConstBool(false);
-                                    }
-                                    return Operand::ConstI64(-1);
-                                } else {
-                                    self.coerce_to_i64(needle_raw)
-                                }
-                            }
-                            (Type::F64, Type::I64) => self.coerce_to_f64(needle_raw),
-                            _ => needle_raw,
-                        };
-                        let result_slot = self.alloca_in_entry(Type::I64, Some("__idx"));
-                        self.f.append_void(
-                            self.cur_block,
-                            InstKind::Store(Operand::ConstI64(-1), Operand::Value(result_slot), 0),
-                        );
-                        let len_v = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Load(Type::I64, recv_op, ARR_LEN_OFF),
-                            Type::I64,
-                            None,
-                        );
-                        // V3-18 m1.h.49 + lastIndexOf-from wedge.
-                        // Per JS spec §22.1.3.13 / §22.1.3.16:
-                        //   indexOf(needle, from?)     forward,  start = from
-                        //   includes(needle, from?)    forward,  start = from
-                        //   lastIndexOf(needle, from?) reverse,  start = from
-                        //
-                        // Both directions are folded onto a single
-                        // forward-scan loop over [start_slot, end_slot)
-                        // that records the *last* match (for lastIndexOf)
-                        // or breaks on the first match (indexOf/includes):
-                        //   indexOf/includes : start=normalized(from?), end=len
-                        //   lastIndexOf      : start=0, end=normalized(from?)+1
-                        // For lastIndexOf, scanning forward over [0, from+1)
-                        // and keeping the last match is equivalent to the
-                        // spec's reverse walk from `from` down to 0.
-                        let i_slot = self.alloca_in_entry(Type::I64, Some("__i"));
-                        let end_slot = self.alloca_in_entry(Type::I64, Some("__end"));
-                        // default end = len
-                        self.f.append_void(
-                            self.cur_block,
-                            InstKind::Store(Operand::Value(len_v), Operand::Value(end_slot), 0),
-                        );
-                        if args.len() == 2 {
-                            let raw = self.lower_expr(args[1]);
-                            let raw_i = self.coerce_to_i64(raw);
-                            let neg = self.f.append_inst(
-                                self.cur_block,
-                                InstKind::ICmp(IPred::Slt, raw_i, Operand::ConstI64(0)),
-                                Type::Bool,
-                                None,
-                            );
-                            let neg_blk = self.f.add_block();
-                            let pos_blk = self.f.add_block();
-                            let join_blk = self.f.add_block();
-                            self.f.set_term(
-                                self.cur_block,
-                                Terminator::CondBr {
-                                    cond: Operand::Value(neg),
-                                    then_blk: neg_blk,
-                                    else_blk: pos_blk,
-                                },
-                            );
-                            // neg path: effective = raw + len
-                            self.cur_block = neg_blk;
-                            let plus_len = self.f.append_inst(
-                                self.cur_block,
-                                InstKind::BinOp(SsaBinOp::Add, raw_i, Operand::Value(len_v)),
-                                Type::I64,
-                                None,
-                            );
-                            let pl_neg = self.f.append_inst(
-                                self.cur_block,
-                                InstKind::ICmp(
-                                    IPred::Slt,
-                                    Operand::Value(plus_len),
-                                    Operand::ConstI64(0),
-                                ),
-                                Type::Bool,
-                                None,
-                            );
-                            // For indexOf/includes: clamp negative effective to 0 (start).
-                            // For lastIndexOf:     clamp negative effective to -1 (so end=0).
-                            let neg_floor = if want_last { -1 } else { 0 };
-                            let zero_blk = self.f.add_block();
-                            let plus_blk = self.f.add_block();
-                            self.f.set_term(
-                                self.cur_block,
-                                Terminator::CondBr {
-                                    cond: Operand::Value(pl_neg),
-                                    then_blk: zero_blk,
-                                    else_blk: plus_blk,
-                                },
-                            );
-                            let eff_slot = self.alloca_in_entry(Type::I64, Some("__eff"));
-                            self.f.append_void(
-                                zero_blk,
-                                InstKind::Store(
-                                    Operand::ConstI64(neg_floor),
-                                    Operand::Value(eff_slot),
-                                    0,
-                                ),
-                            );
-                            self.f.set_term(zero_blk, Terminator::Br(join_blk));
-                            self.f.append_void(
-                                plus_blk,
-                                InstKind::Store(
-                                    Operand::Value(plus_len),
-                                    Operand::Value(eff_slot),
-                                    0,
-                                ),
-                            );
-                            self.f.set_term(plus_blk, Terminator::Br(join_blk));
-                            // pos path: effective = raw_i
-                            self.f.append_void(
-                                pos_blk,
-                                InstKind::Store(raw_i, Operand::Value(eff_slot), 0),
-                            );
-                            self.f.set_term(pos_blk, Terminator::Br(join_blk));
-                            self.cur_block = join_blk;
-                            let eff = self.f.append_inst(
-                                self.cur_block,
-                                InstKind::Load(Type::I64, Operand::Value(eff_slot), 0),
-                                Type::I64,
-                                None,
-                            );
-                            if want_last {
-                                // end_slot = clamp(eff + 1, 0, len)
-                                self.f.append_void(
-                                    self.cur_block,
-                                    InstKind::Store(
-                                        Operand::ConstI64(0),
-                                        Operand::Value(i_slot),
-                                        0,
-                                    ),
-                                );
-                                let end_raw = self.f.append_inst(
-                                    self.cur_block,
-                                    InstKind::BinOp(
-                                        SsaBinOp::Add,
-                                        Operand::Value(eff),
-                                        Operand::ConstI64(1),
-                                    ),
-                                    Type::I64,
-                                    None,
-                                );
-                                // upper-clamp to len
-                                let over = self.f.append_inst(
-                                    self.cur_block,
-                                    InstKind::ICmp(
-                                        IPred::Sgt,
-                                        Operand::Value(end_raw),
-                                        Operand::Value(len_v),
-                                    ),
-                                    Type::Bool,
-                                    None,
-                                );
-                                let over_blk = self.f.add_block();
-                                let ok_blk = self.f.add_block();
-                                let join2 = self.f.add_block();
-                                self.f.set_term(
-                                    self.cur_block,
-                                    Terminator::CondBr {
-                                        cond: Operand::Value(over),
-                                        then_blk: over_blk,
-                                        else_blk: ok_blk,
-                                    },
-                                );
-                                self.f.append_void(
-                                    over_blk,
-                                    InstKind::Store(
-                                        Operand::Value(len_v),
-                                        Operand::Value(end_slot),
-                                        0,
-                                    ),
-                                );
-                                self.f.set_term(over_blk, Terminator::Br(join2));
-                                self.f.append_void(
-                                    ok_blk,
-                                    InstKind::Store(
-                                        Operand::Value(end_raw),
-                                        Operand::Value(end_slot),
-                                        0,
-                                    ),
-                                );
-                                self.f.set_term(ok_blk, Terminator::Br(join2));
-                                self.cur_block = join2;
-                            } else {
-                                // indexOf/includes: start = eff (already ≥ 0)
-                                self.f.append_void(
-                                    self.cur_block,
-                                    InstKind::Store(Operand::Value(eff), Operand::Value(i_slot), 0),
-                                );
-                            }
-                        } else {
-                            self.f.append_void(
-                                self.cur_block,
-                                InstKind::Store(Operand::ConstI64(0), Operand::Value(i_slot), 0),
-                            );
-                        }
-                        let header = self.f.add_block();
-                        let body = self.f.add_block();
-                        let after = self.f.add_block();
-                        let cb = self.cur_block;
-                        self.f.set_term(cb, Terminator::Br(header));
-                        self.cur_block = header;
-                        let i_cur = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Load(Type::I64, Operand::Value(i_slot), 0),
-                            Type::I64,
-                            None,
-                        );
-                        let end_cur = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Load(Type::I64, Operand::Value(end_slot), 0),
-                            Type::I64,
-                            None,
-                        );
-                        let in_bounds = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::ICmp(
-                                IPred::Slt,
-                                Operand::Value(i_cur),
-                                Operand::Value(end_cur),
-                            ),
-                            Type::Bool,
-                            None,
-                        );
-                        let cb = self.cur_block;
-                        self.f.set_term(
-                            cb,
-                            Terminator::CondBr {
-                                cond: Operand::Value(in_bounds),
-                                then_blk: body,
-                                else_blk: after,
-                            },
-                        );
-                        self.cur_block = body;
-                        // T-13.5: head-aware offset for indexOf-style scan.
-                        // T-48 — Array<Any> slots are 16-byte tagged
-                        // (tag,value) pairs. The 8-byte-stride LoadDyn
-                        // path below only matches I64/F64/Str arrays; for
-                        // Any we go through the same arr_get_any_tag /
-                        // _value / any_box dance the regular `xs[i]` read
-                        // uses (P1.4). This per-iteration alloc is the
-                        // same trade-off Index read accepts — performance
-                        // can come later via a fused includes helper if
-                        // it shows up in profiles.
-                        let elem = if elem_ty == Type::Any {
-                            let tag = self.f.append_inst(
-                                self.cur_block,
-                                InstKind::Call(
-                                    self.intrinsics.arr_get_any_tag,
-                                    vec![recv_op.clone(), Operand::Value(i_cur)],
-                                ),
-                                Type::I64,
-                                None,
-                            );
-                            let value = self.f.append_inst(
-                                self.cur_block,
-                                InstKind::Call(
-                                    self.intrinsics.arr_get_any_value,
-                                    vec![recv_op.clone(), Operand::Value(i_cur)],
-                                ),
-                                Type::I64,
-                                None,
-                            );
-                            self.f.append_inst(
-                                self.cur_block,
-                                InstKind::Call(
-                                    self.intrinsics.any_box,
-                                    vec![Operand::Value(tag), Operand::Value(value)],
-                                ),
-                                Type::Any,
-                                None,
-                            )
-                        } else {
-                            let off = self.emit_arr_slot_byte_offset(
-                                recv_op.clone(),
-                                Operand::Value(i_cur),
-                                3,
-                                false,
-                            );
-                            self.f.append_inst(
-                                self.cur_block,
-                                InstKind::LoadDyn(elem_ty, recv_op, off),
-                                elem_ty,
-                                None,
-                            )
-                        };
-                        let eq = match elem_ty {
-                            Type::F64 => self.f.append_inst(
-                                self.cur_block,
-                                InstKind::FCmp(FPred::Oeq, Operand::Value(elem), needle),
-                                Type::Bool,
-                                None,
-                            ),
-                            Type::Str => self.f.append_inst(
-                                self.cur_block,
-                                InstKind::Call(
-                                    self.intrinsics.str_eq,
-                                    vec![Operand::Value(elem), needle],
-                                ),
-                                Type::Bool,
-                                None,
-                            ),
-                            // T-48 — Array<Any> per-element compare must go
-                            // through the boxed-any strict-eq helpers, not
-                            // raw ICmp. The elem is always a heap-Box ptr
-                            // (Type::Any); the needle may be either Any
-                            // (another box ptr) or a concrete primitive.
-                            // Pre-fix this arm fell through to ICmp(Ptr, I64)
-                            // when needle was a primitive, producing
-                            // "LLVM verify: Both operands to ICmp instruction
-                            // are not of the same type!" 3 cases under
-                            // test/built-ins/Array/prototype/{includes,
-                            // indexOf, lastIndexOf}/*.
-                            Type::Any => {
-                                if matches!(needle_ty, Type::Any) {
-                                    self.f.append_inst(
-                                        self.cur_block,
-                                        InstKind::Call(
-                                            self.intrinsics.any_any_strict_eq,
-                                            vec![Operand::Value(elem), needle],
-                                        ),
-                                        Type::Bool,
-                                        None,
-                                    )
-                                } else {
-                                    // Pack needle as (tag, value-as-i64) — same
-                                    // shape as the BinOp Any === concrete arm.
-                                    let (tag, value): (i64, Operand) = match needle_ty {
-                                        Type::I64 | Type::I32 => (2, needle.clone()),
-                                        Type::F64 => {
-                                            let bits = self.f.append_inst(
-                                                self.cur_block,
-                                                InstKind::BitCastF64ToI64(needle.clone()),
-                                                Type::I64,
-                                                None,
-                                            );
-                                            (3, Operand::Value(bits))
-                                        }
-                                        Type::Bool => {
-                                            let zext = self.f.append_inst(
-                                                self.cur_block,
-                                                InstKind::ZExtBoolToI64(needle.clone()),
-                                                Type::I64,
-                                                None,
-                                            );
-                                            (1, Operand::Value(zext))
-                                        }
-                                        Type::Ptr if matches!(needle, Operand::ConstPtrNull) => {
-                                            (0, Operand::ConstI64(0))
-                                        }
-                                        t if t.is_refcounted() => (4, needle.clone()),
-                                        _ => (0, Operand::ConstI64(0)),
-                                    };
-                                    self.f.append_inst(
-                                        self.cur_block,
-                                        InstKind::Call(
-                                            self.intrinsics.any_strict_eq,
-                                            vec![
-                                                Operand::Value(elem),
-                                                Operand::ConstI64(tag),
-                                                value,
-                                            ],
-                                        ),
-                                        Type::Bool,
-                                        None,
-                                    )
-                                }
-                            }
-                            _ => self.f.append_inst(
-                                self.cur_block,
-                                InstKind::ICmp(IPred::Eq, Operand::Value(elem), needle),
-                                Type::Bool,
-                                None,
-                            ),
-                        };
-                        let found = self.f.add_block();
-                        let next = self.f.add_block();
-                        let cb = self.cur_block;
-                        self.f.set_term(
-                            cb,
-                            Terminator::CondBr {
-                                cond: Operand::Value(eq),
-                                then_blk: found,
-                                else_blk: next,
-                            },
-                        );
-                        self.cur_block = found;
-                        self.f.append_void(
-                            self.cur_block,
-                            InstKind::Store(Operand::Value(i_cur), Operand::Value(result_slot), 0),
-                        );
-                        let cb = self.cur_block;
-                        // indexOf / includes break on first match;
-                        // lastIndexOf keeps going so the result_slot
-                        // ends up holding the highest matching index.
-                        if want_last {
-                            self.f.set_term(cb, Terminator::Br(next));
-                        } else {
-                            self.f.set_term(cb, Terminator::Br(after));
-                        }
-                        self.cur_block = next;
-                        let next_i = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::BinOp(
-                                SsaBinOp::Add,
-                                Operand::Value(i_cur),
-                                Operand::ConstI64(1),
-                            ),
-                            Type::I64,
-                            None,
-                        );
-                        self.f.append_void(
-                            self.cur_block,
-                            InstKind::Store(Operand::Value(next_i), Operand::Value(i_slot), 0),
-                        );
-                        let cb = self.cur_block;
-                        self.f.set_term(cb, Terminator::Br(header));
-                        self.cur_block = after;
-                        let _ = arr_id;
-                        let r = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Load(Type::I64, Operand::Value(result_slot), 0),
-                            Type::I64,
-                            None,
-                        );
-                        if want_bool {
-                            // `includes` — return (result_slot != -1) as Bool.
-                            let b = self.f.append_inst(
-                                self.cur_block,
-                                InstKind::ICmp(IPred::Ne, Operand::Value(r), Operand::ConstI64(-1)),
-                                Type::Bool,
-                                None,
-                            );
-                            return Operand::Value(b);
-                        }
-                        return Operand::Value(r);
-                    }
+                // M6.1 — `<recv>.<method>(args)` for the String /
+                // Substr / Array stdlib slice. Body lives in the
+                // `ssa_lower_str` sidekick (P11.1-S0 god-file
+                // refactor); helper returns Some(operand) on a
+                // matched dispatch or None to fall through to the
+                // next arm.
+                if let Some(v) = crate::ssa_lower_str::try_lower_method_call(self, *callee, args) {
+                    return v;
                 }
                 // `xs.findIndex(p)` / `xs.findLastIndex(p)` / `xs.some(p)`
                 // / `xs.every(p)` — short-circuit predicate iteration.
@@ -26228,7 +24053,7 @@ impl<'a> LowerCtx<'a> {
     /// expects an integer parameter (Math.imul, Math.clz32) but the
     /// caller may have passed a float literal or a Math.* result.
     /// Constants fold in place; value operands emit `InstKind::FpToSi`.
-    fn coerce_to_i64(&mut self, op: Operand) -> Operand {
+    pub(crate) fn coerce_to_i64(&mut self, op: Operand) -> Operand {
         match self.operand_ty(&op) {
             Type::I64 => op,
             Type::Bool => self.coerce_bool_to_i64(op),
@@ -26297,7 +24122,7 @@ impl<'a> LowerCtx<'a> {
     /// Promote an i64 operand to f64. Constants are rewritten in place
     /// (cheaper than emitting a sitofp instruction LLVM would constant-fold
     /// anyway). Value operands emit an explicit InstKind::SiToFp.
-    fn coerce_to_f64(&mut self, op: Operand) -> Operand {
+    pub(crate) fn coerce_to_f64(&mut self, op: Operand) -> Operand {
         match self.operand_ty(&op) {
             Type::F64 => op,
             Type::I64 => match op {
@@ -26363,7 +24188,7 @@ impl<'a> LowerCtx<'a> {
     /// For Substr: `(parent_ptr, STR_HDR(16) + offset)` — the parent's
     ///   bytes start at parent+16, view starts at parent+16+offset.
     /// Returns `(base_ptr, base_offset_value_or_const)`.
-    fn emit_str_data_base(&mut self, op: Operand, ty: Type) -> (Operand, Operand) {
+    pub(crate) fn emit_str_data_base(&mut self, op: Operand, ty: Type) -> (Operand, Operand) {
         match ty {
             Type::Str => (op, Operand::ConstI64(16)),
             Type::Substr => {
@@ -27911,7 +25736,12 @@ impl<'a> LowerCtx<'a> {
         (out, drops)
     }
 
-    fn call_fn_value(&mut self, fn_val: Operand, fn_ty: Type, args: Vec<Operand>) -> ValueId {
+    pub(crate) fn call_fn_value(
+        &mut self,
+        fn_val: Operand,
+        fn_ty: Type,
+        args: Vec<Operand>,
+    ) -> ValueId {
         let (args, drops) = self.materialize_call_args(fn_ty, args);
         let ret = self.call_fn_value_raw(fn_val, fn_ty, args);
         for d in drops {
