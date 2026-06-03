@@ -1188,7 +1188,24 @@ pub fn desugar_generators(ast: &mut Ast) {
         // `this.<name>`. The fields are auto-prepended to the class
         // declaration; the ctor's prelude (above) adds an assignment
         // for each param.
+        // P10.6-A3 — nominal-marker field whose name is unique per
+        // generator class. Generator desugar lifts every yield-fn
+        // into a class with structurally identical primitives
+        // (`__state: number` + `__sent: <yield_ty>` + params /
+        // lifted locals); two `function* a()` + `function* b()`
+        // sharing the same yield_ty + parameter shape used to
+        // collapse to the same struct sid, and ssa_lower:18693's
+        // sibling-class static dispatch picked the first-matching
+        // alias from a HashMap iter — non-deterministically
+        // routing `a().next()` to `__cm_<other>__next`. The
+        // marker breaks structural equivalence per generator (V8
+        // / SpiderMonkey side-step the same problem with nominal
+        // class identity; tora's structural type system isn't
+        // changing in this phase, so a per-class field-name
+        // marker is the narrow fix that keeps the dispatch
+        // correct without an SSA-level type-system overhaul).
         let mut class_fields: Vec<(String, String)> = vec![
+            (format!("__gen_nominal_{gen_name}"), "number".into()),
             ("__state".into(), "number".into()),
             ("__sent".into(), yield_ty.clone()),
         ];

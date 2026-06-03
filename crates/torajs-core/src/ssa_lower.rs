@@ -18715,6 +18715,22 @@ impl<'a> LowerCtx<'a> {
                                     ret_ty,
                                     None,
                                 );
+                                // P10.6-A3 — sibling-class static
+                                // dispatch must run the same throw-
+                                // propagation gate as the regular Call
+                                // path: a may-throw method (e.g.
+                                // `Generator.prototype.throw`'s
+                                // `Stmt::Throw(__err)` body) sets
+                                // throw_active inside the callee, and
+                                // without the post-call check the
+                                // throw silently fails to reach the
+                                // caller's try/catch (no jump emitted
+                                // to the handler; the rest of the
+                                // calling stmt continues as if no
+                                // throw happened).
+                                if self.may_throw_fns.contains(&fn_name) {
+                                    self.emit_throw_check(None);
+                                }
                                 return Operand::Value(v);
                             }
                         }
