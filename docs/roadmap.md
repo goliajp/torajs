@@ -1310,8 +1310,25 @@ exactly, incl. the long-tail rounding cases.
       `(1e-7).toPrecision(2)` → `"1.0e-7"` (was `"1e-7"`),
       `(100).toPrecision(2)` → `"1.0e+2"` (was `"1e+2"`). 18-case fixture
       added; conformance gate 709/0/4 (was 708, +1 P12.2 +1 P12.3).
-- [ ] **P12.4** BigInt full operator coverage incl. `**`, mixed-shift,
+- [x] **P12.4** BigInt full operator coverage incl. `**`, mixed-shift,
       spec-conformant overflow
+      - Audit at P12.4 start (HEAD `a0e61db`) showed `**` exp / mixed-shift /
+        `RangeError` on /0 / `Object("BigInt")` instance methods already
+        bun-byte-equal across 27 edge cases.
+      - **P12.4-A** toString(radix) per ES §6.1.6.2.13 (`78efe91` substrate
+        + `05c2baa` fixture) — refactor tostring.rs to support all radix in
+        [2, 36] via `to_string_radix(a, radix)` + new
+        `__torajs_bigint_to_string_radix` extern; SSA dispatch arm branches
+        on arg count; check.rs sig becomes `(radix?: Any) → String`.
+      - **P12.4-B/C** asIntN/asUintN per ES §21.2.2.1/§21.2.2.2 (`3b73546`
+        substrate + `d4ee825` fixture) — new `asintn.rs` runtime fns + SSA
+        static dispatch + typecheck arm. Fast path covers bits ∈ [0, 64]
+        via u64 mask + two's-complement reduction.
+      - **L3b deferred** (not blocking close): bits > 64 path for
+        asIntN/asUintN (currently throws RangeError; spec wants wider
+        masking — no real-world bench/app needs it); mixed-type ops
+        (`1n + 1`) static compile-time TypeError vs spec runtime TypeError
+        (architectural choice — typechecker strictness vs catchability).
 
 ---
 
