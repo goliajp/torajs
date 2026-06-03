@@ -26119,20 +26119,38 @@ impl<'a> LowerCtx<'a> {
             // slot's expected type and any required Any-box / unbox
             // happens at the assignment site, not here.
             //
-            // P10.7 — explicit widening to `any` runs the box-to-Any
-            // machinery inline. The variant doc-comment promised
-            // this; ObjectLit field writes (e.g. the Default-Any
-            // generator's `{value: <yielded>, done: false}` step)
-            // and other non-let assignment sites don't run the
-            // let-decl Any-widening path, so without this the
-            // declared `value: any` field gets a concrete primitive
-            // bit pattern instead of a NaN-box AnyValue and reads
-            // back as garbage.
+            // P10.7 — primitive widening to `any` runs the box-to-Any
+            // machinery inline. ObjectLit field writes (e.g. the
+            // Default-Any generator's `{value: <yielded>, done:
+            // false}` step) and other non-let-decl assignment sites
+            // don't run the let-decl Any-widening path, so without
+            // this the declared `value: any` field gets a concrete
+            // primitive bit pattern instead of a NaN-box AnyValue
+            // and reads back as garbage.
+            //
+            // Heap-source widening stays identity. Two reasons:
+            //   1. Cell pointers ARE valid NaN-box cells per
+            //      `nanbox::is_cell` (top 16 bits clear), so a
+            //      downstream consumer expecting `AnyValue` still
+            //      sees a well-formed cell-encoded box without an
+            //      explicit conversion.
+            //   2. `regex-014-groups-dict` / similar fixtures use
+            //      `(m as any).groups` to reach Array<unknown-prop>
+            //      side-table state that the boxed-Any path can't
+            //      walk; eager box would silently turn every such
+            //      lookup into `undefined`.
+            // Future widening: when arrprops gets a NaN-box-aware
+            // accessor, this carve-out can shrink.
             Expr::As { expr, ty_ann } => {
                 let inner = *expr;
                 let inner_op = self.lower_expr(inner);
-                if ty_ann == "any" && self.operand_ty(&inner_op) != Type::Any {
-                    return self.box_to_any_from_expr(inner, inner_op);
+                if ty_ann == "any" {
+                    let inner_ty = self.operand_ty(&inner_op);
+                    let is_primitive =
+                        matches!(inner_ty, Type::I64 | Type::I32 | Type::F64 | Type::Bool);
+                    if is_primitive {
+                        return self.box_to_any_from_expr(inner, inner_op);
+                    }
                 }
                 inner_op
             }
