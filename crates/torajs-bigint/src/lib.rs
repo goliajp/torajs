@@ -46,6 +46,7 @@
 extern crate torajs_mmalloc as _;
 
 pub mod arith;
+pub mod asintn;
 pub mod bitwise;
 pub mod compare;
 pub mod construct;
@@ -59,6 +60,7 @@ pub mod str_bridge;
 pub mod tostring;
 
 pub use arith::{__torajs_bigint_add, __torajs_bigint_sub};
+pub use asintn::{__torajs_bigint_as_int_n, __torajs_bigint_as_uint_n};
 pub use bitwise::{
     __torajs_bigint_and, __torajs_bigint_not, __torajs_bigint_or, __torajs_bigint_xor,
 };
@@ -102,6 +104,20 @@ pub unsafe extern "C" fn __torajs_rc_dec(_p: *mut core::ffi::c_void) -> i32 {
     // return value is unobservable; we still pick the "free" branch
     // for predictability if future tests do reach it.
     1
+}
+
+// `__torajs_throw_range_error` is provided by `libtorajs_throw.a` at
+// `tr build` link time. For cargo unit tests of torajs-bigint (which
+// don't link torajs-throw's staticlib), provide a `#[cfg(test)]` stub:
+// tests of asintn / construct / divmod / shift never invoke throw
+// paths in their inputs (in-range only) so this is unreachable; the
+// linker resolves the symbol unconditionally so we need it to satisfy.
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_throw_range_error(_msg: *const u8) {
+    panic!(
+        "torajs-bigint unit-test stub: __torajs_throw_range_error should not be called from cargo test paths"
+    );
 }
 
 #[cfg(test)]

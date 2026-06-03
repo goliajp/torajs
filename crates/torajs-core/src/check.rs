@@ -3373,6 +3373,17 @@ impl Checker {
                     {
                         Ok(Type::Function(vec![Type::Number], Box::new(Type::Boolean)))
                     }
+                    // P12.4-B/C — `BigInt.asIntN(bits, value)` /
+                    // `BigInt.asUintN(bits, value)` per ES §21.2.2.1 /
+                    // §21.2.2.2. `bits` is a `Number` (Index per spec;
+                    // tora's `Number` covers integer-shaped values
+                    // already); `value` is `BigInt`; returns BigInt.
+                    (Type::Object("BigInt"), "asIntN") | (Type::Object("BigInt"), "asUintN") => {
+                        Ok(Type::Function(
+                            vec![Type::Number, Type::BigInt],
+                            Box::new(Type::BigInt),
+                        ))
+                    }
                     // V3-18 m2.b — Object.prototype methods on
                     // constructor-namespace objects (Number / String /
                     // Boolean / Array / etc). Same subset semantics as

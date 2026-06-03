@@ -3126,6 +3126,20 @@ fn lower_inner(
         &[Type::BigInt, Type::I64],
         Type::Str,
     );
+    let bigint_as_int_n_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_bigint_as_int_n",
+        &[Type::I64, Type::BigInt],
+        Type::BigInt,
+    );
+    let bigint_as_uint_n_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_bigint_as_uint_n",
+        &[Type::I64, Type::BigInt],
+        Type::BigInt,
+    );
     let bigint_drop_rc_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -5125,6 +5139,8 @@ fn lower_inner(
         bigint_cmp: bigint_cmp_id,
         bigint_to_string: bigint_to_string_id,
         bigint_to_string_radix: bigint_to_string_radix_id,
+        bigint_as_int_n: bigint_as_int_n_id,
+        bigint_as_uint_n: bigint_as_uint_n_id,
         bigint_drop_rc: bigint_drop_rc_id,
         weakref_create: weakref_create_id,
         weakref_deref: weakref_deref_id,
@@ -6007,6 +6023,8 @@ pub(crate) struct Intrinsics {
     pub(crate) bigint_cmp: FuncId,
     pub(crate) bigint_to_string: FuncId,
     pub(crate) bigint_to_string_radix: FuncId,
+    pub(crate) bigint_as_int_n: FuncId,
+    pub(crate) bigint_as_uint_n: FuncId,
     pub(crate) bigint_drop_rc: FuncId,
     pub(crate) weakref_create: FuncId,
     pub(crate) weakref_deref: FuncId,
@@ -16316,6 +16334,50 @@ impl<'a> LowerCtx<'a> {
                         }
                         other => panic!("ssa-lower: unknown Number method `{other}`"),
                     }
+                }
+                // P12.4-B/C — `BigInt.asIntN(bits, value)` and
+                // `BigInt.asUintN(bits, value)` per ES §21.2.2.1/§21.2.2.2.
+                // The runtime path supports `bits in [0, 64]`; larger bits
+                // route through `__torajs_throw_range_error` inside the
+                // intrinsic and the `emit_throw_check` post-call propagates
+                // the pending throw to user-visible try/catch.
+                if let Expr::Member {
+                    obj: ns_id,
+                    name: m_name,
+                } = self.ast.get_expr(*callee)
+                    && let Expr::Ident(ns) = self.ast.get_expr(*ns_id)
+                    && ns == "BigInt"
+                    && (m_name == "asIntN" || m_name == "asUintN")
+                    && args.len() == 2
+                {
+                    let bits_op = self.lower_expr(args[0]);
+                    self.consume_if_ident(args[0]);
+                    let bits_ty = self.operand_ty(&bits_op);
+                    let bits_i64 = match bits_ty {
+                        Type::I64 => bits_op,
+                        Type::F64 => Operand::Value(self.f.append_inst(
+                            self.cur_block,
+                            InstKind::FpToSi(bits_op),
+                            Type::I64,
+                            None,
+                        )),
+                        _ => bits_op,
+                    };
+                    let val_op = self.lower_expr(args[1]);
+                    self.consume_if_ident(args[1]);
+                    let target = if m_name == "asIntN" {
+                        self.intrinsics.bigint_as_int_n
+                    } else {
+                        self.intrinsics.bigint_as_uint_n
+                    };
+                    let v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Call(target, vec![bits_i64, val_op]),
+                        Type::BigInt,
+                        None,
+                    );
+                    self.emit_throw_check(None);
+                    return Operand::Value(v);
                 }
                 // `Array.of(...vals)` — emits the same SSA shape as a
                 // no-spread array literal: arr_alloc(n) + len-store +
