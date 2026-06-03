@@ -107,7 +107,7 @@ unsafe fn str_view<'a>(s: *const u8) -> (&'a [u8], u32, bool) {
 /// `payload` covers `cu_len × parent_stride` bytes starting at the
 /// view's first byte.
 #[inline]
-unsafe fn substr_view<'a>(v: *const u8) -> (&'a [u8], usize, bool) {
+pub(crate) unsafe fn substr_view<'a>(v: *const u8) -> (&'a [u8], usize, bool) {
     let cu_len = unsafe { substr_len(v) } as usize;
     let is_latin1 = unsafe { substr_parent_is_latin1(v) };
     let stride = if is_latin1 { 1 } else { 2 };

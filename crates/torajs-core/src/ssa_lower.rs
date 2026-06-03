@@ -2004,6 +2004,13 @@ fn lower_inner(
         &[Type::Str, Type::I64],
         Type::I64,
     );
+    let str_code_point_at_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_str_code_point_at",
+        &[Type::Str, Type::I64],
+        Type::I64,
+    );
     let str_starts_with_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -3788,6 +3795,13 @@ fn lower_inner(
         &[Type::Substr, Type::I64],
         Type::I64,
     );
+    let substr_code_point_at_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_substr_code_point_at",
+        &[Type::Substr, Type::I64],
+        Type::I64,
+    );
     let substr_eq_str_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -4921,6 +4935,7 @@ fn lower_inner(
         num_is_safe_integer_i: num_is_safe_integer_i_id,
         str_slice: str_slice_id,
         str_char_code_at: str_char_code_at_id,
+        str_code_point_at: str_code_point_at_id,
         str_starts_with: str_starts_with_id,
         str_ends_with: str_ends_with_id,
         str_index_of: str_index_of_id,
@@ -4932,6 +4947,7 @@ fn lower_inner(
         substr_create: substr_create_id,
         substr_drop: substr_drop_id,
         substr_char_code_at: substr_char_code_at_id,
+        substr_code_point_at: substr_code_point_at_id,
         substr_eq_str: substr_eq_str_id,
         substr_to_owned: substr_to_owned_id,
         substr_starts_with: substr_starts_with_id,
@@ -5768,6 +5784,7 @@ pub(crate) struct Intrinsics {
     pub(crate) num_is_safe_integer_i: FuncId,
     pub(crate) str_slice: FuncId,
     pub(crate) str_char_code_at: FuncId,
+    pub(crate) str_code_point_at: FuncId,
     pub(crate) str_starts_with: FuncId,
     pub(crate) str_ends_with: FuncId,
     pub(crate) str_index_of: FuncId,
@@ -5780,6 +5797,7 @@ pub(crate) struct Intrinsics {
     pub(crate) substr_create: FuncId,
     pub(crate) substr_drop: FuncId,
     pub(crate) substr_char_code_at: FuncId,
+    pub(crate) substr_code_point_at: FuncId,
     pub(crate) substr_eq_str: FuncId,
     pub(crate) substr_to_owned: FuncId,
     pub(crate) substr_starts_with: FuncId,
@@ -25928,6 +25946,7 @@ impl<'a> LowerCtx<'a> {
             || fid == i.arr_push_unchecked
             || fid == i.str_slice
             || fid == i.str_char_code_at
+            || fid == i.str_code_point_at
             || fid == i.str_starts_with
             || fid == i.str_ends_with
             || fid == i.str_index_of
@@ -25939,6 +25958,7 @@ impl<'a> LowerCtx<'a> {
             || fid == i.substr_create
             || fid == i.substr_drop
             || fid == i.substr_char_code_at
+            || fid == i.substr_code_point_at
             || fid == i.substr_eq_str
             || fid == i.substr_to_owned
             || fid == i.substr_starts_with

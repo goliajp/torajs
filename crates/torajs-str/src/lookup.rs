@@ -51,7 +51,7 @@ unsafe fn str_len(p: *const u8) -> u32 {
 /// `p` must point at a valid Str block whose universal heap
 /// header is intact.
 #[inline]
-unsafe fn str_view<'a>(p: *const u8) -> (&'a [u8], u32, bool) {
+pub(crate) unsafe fn str_view<'a>(p: *const u8) -> (&'a [u8], u32, bool) {
     let length = unsafe { (p.add(STR_LEN_OFF) as *const u32).read() };
     let header = unsafe { &*(p as *const HeapHeader) };
     let is_latin1 = (header.flags & STR_FLAG_IS_LATIN1) != 0;

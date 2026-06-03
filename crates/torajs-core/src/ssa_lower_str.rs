@@ -252,7 +252,8 @@ pub(crate) fn try_lower_method_call(
         // View-aware fast paths — read bytes from
         // parent + offset directly, no per-call malloc.
         let view_aware = match method.as_str() {
-            "charCodeAt" | "codePointAt" => Some((ctx.intrinsics.substr_char_code_at, Type::I64)),
+            "charCodeAt" => Some((ctx.intrinsics.substr_char_code_at, Type::I64)),
+            "codePointAt" => Some((ctx.intrinsics.substr_code_point_at, Type::I64)),
             "startsWith" => Some((ctx.intrinsics.substr_starts_with, Type::Bool)),
             "endsWith" => Some((ctx.intrinsics.substr_ends_with, Type::Bool)),
             "includes" => Some((ctx.intrinsics.substr_includes, Type::Bool)),
@@ -392,12 +393,24 @@ pub(crate) fn try_lower_method_call(
             };
             return Some(Operand::Value(v));
         }
-        // charCodeAt / codePointAt — same intrinsic
-        // (codePointAt collapses to charCodeAt in
-        // tora's ASCII-only Str path).
+        // P11.3-A1 — split charCodeAt vs codePointAt (the latter
+        // combines surrogate pairs per ES §22.1.3.3). 0-arg form
+        // still applies: `'😀'.codePointAt()` should default pos
+        // to 0 and return 0x1F600, not 0xD83D.
+        let target = if method == "codePointAt" {
+            if recv_ty == Type::Str {
+                ctx.intrinsics.str_code_point_at
+            } else {
+                ctx.intrinsics.substr_code_point_at
+            }
+        } else if recv_ty == Type::Str {
+            ctx.intrinsics.str_char_code_at
+        } else {
+            ctx.intrinsics.substr_char_code_at
+        };
         let v = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.str_char_code_at, vec![recv_op, idx_val]),
+            InstKind::Call(target, vec![recv_op, idx_val]),
             Type::I64,
             None,
         );
@@ -577,11 +590,13 @@ pub(crate) fn try_lower_method_call(
             "replace" => (ctx.intrinsics.str_replace, Type::Str),
             "replaceAll" => (ctx.intrinsics.str_replace_all, Type::Str),
             "at" => (ctx.intrinsics.str_at, Type::Str),
-            // `codePointAt` collapses to charCodeAt in tr's
-            // byte-Str layout — both return the byte at
-            // the index, indistinguishable inside the
-            // ASCII / Latin-1 range tests stick to.
-            "charCodeAt" | "codePointAt" => (ctx.intrinsics.str_char_code_at, Type::I64),
+            // P11.3-A1 — `codePointAt` combines surrogate pairs
+            // per ES §22.1.3.3; `charCodeAt` returns the lone
+            // UTF-16 code unit per §22.1.3.2. Two distinct
+            // intrinsics now that P11.1-S1/S5 gave us proper
+            // hybrid Latin-1 / UTF-16 storage.
+            "charCodeAt" => (ctx.intrinsics.str_char_code_at, Type::I64),
+            "codePointAt" => (ctx.intrinsics.str_code_point_at, Type::I64),
             "startsWith" => (ctx.intrinsics.str_starts_with, Type::Bool),
             "endsWith" => (ctx.intrinsics.str_ends_with, Type::Bool),
             "includes" => (ctx.intrinsics.str_includes, Type::Bool),

@@ -113,6 +113,7 @@ pub(crate) fn write_stderr(bytes: &[u8]) {
 }
 
 pub mod block;
+pub mod code_point;
 pub mod concat;
 pub mod eq;
 pub mod json;
