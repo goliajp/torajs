@@ -38,11 +38,7 @@
 pub mod atod;
 pub mod dtoa;
 pub mod itoa;
-// P12.1-S1: Ryū multiplication tables (Adams 2018 §4.2). Consumed by
-// P12.1-S2 `ryu` kernel (not yet wired). `#[allow(dead_code)]` is the
-// minimal carve-out per design-principles 规范节 — S1 ships tables
-// atomically so the S2 algorithm bug surface is isolable via bisect.
-#[allow(dead_code)]
+pub mod ryu;
 mod ryu_tables;
 
 pub use atod::__torajs_fmt_atod;

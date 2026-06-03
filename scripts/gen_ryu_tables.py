@@ -60,8 +60,12 @@ def compute_pow5(i: int) -> int:
     """
     pow5 = 5 ** i
     bits = pow5.bit_length()  # = floor(log2(5^i)) + 1
-    # We want bits == DOUBLE_POW5_BITCOUNT + 1 = 126 after shifting.
-    shift = bits - (DOUBLE_POW5_BITCOUNT + 1)
+    # We want the table value scaled so that `mul_shift_64(mv, val, j)` with
+    # j = q - (pow5_bits(i) - DOUBLE_POW5_BITCOUNT) reconstructs
+    # mv * 5^q / 2^(|e2| - q) exactly. Algebraically that requires
+    #   shift = DOUBLE_POW5_BITCOUNT - pow5_bits(i)  (zero-indexed; the table
+    # value's bit-length is bits + shift = DOUBLE_POW5_BITCOUNT for any i).
+    shift = bits - DOUBLE_POW5_BITCOUNT
     if shift > 0:
         val = pow5 >> shift
     elif shift < 0:
@@ -105,16 +109,17 @@ def split128(v: int) -> tuple[int, int]:
 
 
 def spot_check():
-    # POW5[0] = 2^125
+    # POW5[i] = 5^i << (DOUBLE_POW5_BITCOUNT - pow5_bits(i)) when shift > 0
+    # POW5[0] = 1 << 124 (since pow5_bits(0) = 1, shift = 125 - 1 = 124)
     p0 = compute_pow5(0)
-    assert p0 == (1 << 125), f"POW5[0]={p0:x} != 2^125"
-    # POW5[1] = 5 << 123 = 0x2800_..._0000
+    assert p0 == (1 << 124), f"POW5[0]={p0:x} != 1<<124"
+    # POW5[1] = 5 << 122 (pow5_bits(1) = 3, shift = 125 - 3 = 122)
     p1 = compute_pow5(1)
-    assert p1 == (5 << 123), f"POW5[1]={p1:x} != 5<<123"
-    # POW5[10] = 5^10 << (125 - 22) = 9765625 << 103
-    p10 = compute_pow5(10)
-    pow5_10 = 9765625
-    assert p10 == (pow5_10 << (125 - (pow5_10.bit_length() - 1))), f"POW5[10] mismatch"
+    assert p1 == (5 << 122), f"POW5[1]={p1:x} != 5<<122"
+    # POW5[18] = 5^18 << 83 (pow5_bits(18) = 42, shift = 125 - 42 = 83)
+    # — the value driving the d=1.0 → mantissa=1 unit test
+    p18 = compute_pow5(18)
+    assert p18 == ((5 ** 18) << 83), f"POW5[18]={p18:x} != 5^18 << 83"
     # POW5_INV[0] = ceil(2^125 / 1) = 2^125
     pi0 = compute_pow5_inv(0)
     assert pi0 == (1 << 125), f"POW5_INV[0]={pi0:x} != 2^125"
@@ -125,7 +130,8 @@ def spot_check():
     # Verify split correctness round-trip
     lo, hi = split128(pi1)
     assert (hi << 64) | lo == pi1
-    print(f"  POW5_INV[1] = (lo=0x{lo:016x}, hi=0x{hi:016x})", file=sys.stderr)
+    print(f"  POW5[0]     = 2^124         (lo=0x{split128(p0)[0]:016x}, hi=0x{split128(p0)[1]:016x})", file=sys.stderr)
+    print(f"  POW5_INV[1] = ceil(2^127/5) (lo=0x{lo:016x}, hi=0x{hi:016x})", file=sys.stderr)
 
 
 # ----------------------------------------------------------------------
