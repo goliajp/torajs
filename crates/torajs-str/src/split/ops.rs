@@ -17,7 +17,7 @@ use core::ptr::NonNull;
 
 use torajs_rc::{__torajs_rc_inc, FLAG_SPLIT_BLOCK, HeapHeader, Tag};
 
-use crate::layout::{STR_DATA_OFF, STR_LEN_OFF};
+use crate::layout::{STR_DATA_OFF, STR_FLAG_IS_LATIN1, STR_LEN_OFF};
 use crate::split::pool::{self, ARR_HDR_SIZE};
 use crate::substr::{
     FLAG_SUBSTR_INLINE, SUBSTR_LEN_OFF, SUBSTR_OFFSET_OFF, SUBSTR_PARENT_OFF, SUBSTR_SIZE,
@@ -32,9 +32,32 @@ unsafe fn str_len(p: *const u8) -> u32 {
     unsafe { (p.add(STR_LEN_OFF) as *const u32).read() }
 }
 
+/// Read a Str's `(payload_bytes, code_unit_count, is_latin1)` view.
+/// Used by the split entry to size scans + decide stride.
 #[inline]
-unsafe fn str_bytes<'a>(p: *const u8, len: u32) -> &'a [u8] {
-    unsafe { core::slice::from_raw_parts(p.add(STR_DATA_OFF), len as usize) }
+unsafe fn str_view<'a>(p: *const u8) -> (&'a [u8], u32, bool) {
+    let length = unsafe { (p.add(STR_LEN_OFF) as *const u32).read() };
+    let header = unsafe { &*(p as *const HeapHeader) };
+    let is_latin1 = (header.flags & STR_FLAG_IS_LATIN1) != 0;
+    let byte_cnt = if is_latin1 {
+        length as usize
+    } else {
+        (length as usize) * 2
+    };
+    let payload = unsafe { core::slice::from_raw_parts(p.add(STR_DATA_OFF), byte_cnt) };
+    (payload, length, is_latin1)
+}
+
+/// Widen a Latin-1 byte payload to UTF-16 LE — each input byte
+/// becomes a `(byte, 0)` u16 pair. Used when the haystack is
+/// UTF-16 but the separator is Latin-1.
+fn widen_latin1_to_utf16(src: &[u8]) -> alloc::vec::Vec<u8> {
+    let mut out = alloc::vec::Vec::with_capacity(src.len() * 2);
+    for &b in src {
+        out.push(b);
+        out.push(0);
+    }
+    out
 }
 
 // ============================================================
@@ -44,16 +67,20 @@ unsafe fn str_bytes<'a>(p: *const u8, len: u32) -> &'a [u8] {
 /// Count non-overlapping matches of `sep` in `s`. Used to size
 /// the split block. Empty `sep` and `sep.len() > s.len()` are
 /// handled by the caller — this fn assumes `1 <= sep.len() <= s.len()`.
+///
+/// `stride` is 1 for Latin-1 / 2 for UTF-16 so candidate positions
+/// stay aligned with the haystack's code-unit grid.
 #[inline]
-fn count_matches(s: &[u8], sep: &[u8]) -> u64 {
-    if sep.len() == 1 {
-        // Hot path: byte scan (most splits are ' ', ',', '\n').
-        let b = sep[0];
+fn count_matches(s: &[u8], sep: &[u8], stride: usize) -> u64 {
+    if sep.len() == stride {
+        // Hot path: single code-unit needle.
         let mut hits = 0u64;
-        for &c in s {
-            if c == b {
+        let mut i = 0;
+        while i + sep.len() <= s.len() {
+            if &s[i..i + sep.len()] == sep {
                 hits += 1;
             }
+            i += stride;
         }
         return hits;
     }
@@ -65,7 +92,7 @@ fn count_matches(s: &[u8], sep: &[u8]) -> u64 {
             hits += 1;
             i += sep.len();
         } else {
-            i += 1;
+            i += stride;
         }
     }
     hits
@@ -73,17 +100,17 @@ fn count_matches(s: &[u8], sep: &[u8]) -> u64 {
 
 /// Compute the output token count for `s.split(sep)`.
 /// Special cases:
-/// - `sep.len() == 0` → `s.len()` (per-char split)
+/// - `sep.len() == 0` → code-unit count of `s` (per-char split)
 /// - `sep.len() > s.len()` → `1` (no match, whole-s singleton)
-/// - otherwise → `count_matches(s, sep) + 1`
+/// - otherwise → `count_matches(s, sep, stride) + 1`
 #[inline]
-pub fn out_count(s: &[u8], sep: &[u8]) -> u64 {
+pub fn out_count(s: &[u8], sep: &[u8], stride: usize) -> u64 {
     if sep.is_empty() {
-        s.len() as u64
+        (s.len() / stride) as u64
     } else if sep.len() > s.len() {
         1
     } else {
-        count_matches(s, sep) + 1
+        count_matches(s, sep, stride) + 1
     }
 }
 
@@ -174,12 +201,43 @@ unsafe fn write_arr_header(block: NonNull<u8>, out_count: u64) {
 /// Both `s` and `sep` must be valid Str heap blocks.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_split(s: *const u8, sep: *const u8) -> *mut u8 {
-    let s_len = unsafe { str_len(s) };
-    let sep_len = unsafe { str_len(sep) };
-    let s_bytes = unsafe { str_bytes(s, s_len) };
-    let sep_bytes = unsafe { str_bytes(sep, sep_len) };
+    let (s_payload, s_len_cu, s_latin1) = unsafe { str_view(s) };
+    let (sep_payload, sep_len_cu, sep_latin1) = unsafe { str_view(sep) };
+    let stride: usize = if s_latin1 { 1 } else { 2 };
 
-    let oc = out_count(s_bytes, sep_bytes);
+    // Canonical-encoding short-circuit + needle widening, mirroring
+    // `lookup.rs::align_haystack_needle`:
+    // - Latin-1 haystack + UTF-16 needle → no match possible (the
+    //   needle's codepoint > 0xFF can't occur in a Latin-1
+    //   payload). Result is a single-token array containing all of
+    //   `s`.
+    // - UTF-16 haystack + Latin-1 needle → widen the needle to
+    //   UTF-16 LE so byte-aligned scanning matches the haystack's
+    //   u16 grid.
+    let widened_owned;
+    let sep_bytes: &[u8] = match (s_latin1, sep_latin1) {
+        (true, false) => {
+            // Impossible match — emit a single trailing token
+            // covering the whole haystack and return.
+            let block = pool::alloc(1);
+            unsafe { write_arr_header(block, 1) };
+            let slots_size = 8usize;
+            let substrs_base = unsafe { block.as_ptr().add(ARR_HDR_SIZE + slots_size) };
+            let slots_base = unsafe { block.as_ptr().add(ARR_HDR_SIZE) as *mut *mut u8 };
+            unsafe {
+                split_init_inline(substrs_base, slots_base, s, 0, s_payload.len() as u64);
+            }
+            return block.as_ptr();
+        }
+        (false, true) => {
+            widened_owned = widen_latin1_to_utf16(sep_payload);
+            widened_owned.as_slice()
+        }
+        _ => sep_payload,
+    };
+    let sep_byte_len = sep_bytes.len();
+
+    let oc = out_count(s_payload, sep_bytes, stride);
     let block = pool::alloc(oc);
     unsafe { write_arr_header(block, oc) };
 
@@ -187,17 +245,16 @@ pub unsafe extern "C" fn __torajs_str_split(s: *const u8, sep: *const u8) -> *mu
     let substrs_base = unsafe { block.as_ptr().add(ARR_HDR_SIZE + slots_size) };
     let slots_base = unsafe { block.as_ptr().add(ARR_HDR_SIZE) as *mut *mut u8 };
 
-    if sep_len == 0 {
-        // Per-char split.
-        for k in 0..s_len {
-            let ku = k as usize;
+    if sep_len_cu == 0 {
+        // Per-char split — emit one Substr per code unit of `s`.
+        for k in 0..(s_len_cu as usize) {
             unsafe {
                 split_init_inline(
-                    substrs_base.add(ku * SUBSTR_SIZE),
-                    slots_base.add(ku),
+                    substrs_base.add(k * SUBSTR_SIZE),
+                    slots_base.add(k),
                     s,
-                    k as u64,
-                    1,
+                    (k * stride) as u64,
+                    stride as u64,
                 );
             }
         }
@@ -205,46 +262,29 @@ pub unsafe extern "C" fn __torajs_str_split(s: *const u8, sep: *const u8) -> *mu
     }
 
     // Generic path: walk s, emit a substr at every sep boundary,
-    // then a trailing substr for [start..s_len].
+    // then a trailing substr for [start..s_byte_len].
+    let s_byte_len = s_payload.len();
     let mut ix: usize = 0;
-    let mut start: u64 = 0;
-    if sep_len == 1 {
-        // Hot path: byte scan.
-        let b = sep_bytes[0];
-        for (k, &c) in s_bytes.iter().enumerate() {
-            if c == b {
-                unsafe {
-                    split_init_inline(
-                        substrs_base.add(ix * SUBSTR_SIZE),
-                        slots_base.add(ix),
-                        s,
-                        start,
-                        k as u64 - start,
-                    );
-                }
-                ix += 1;
-                start = k as u64 + 1;
-            }
-        }
-    } else if sep_len <= s_len {
-        let limit = (s_len - sep_len) as usize;
+    let mut start_byte: usize = 0;
+    if sep_byte_len <= s_byte_len {
+        let limit = s_byte_len - sep_byte_len;
         let mut i: usize = 0;
         while i <= limit {
-            if &s_bytes[i..i + sep_len as usize] == sep_bytes {
+            if &s_payload[i..i + sep_byte_len] == sep_bytes {
                 unsafe {
                     split_init_inline(
                         substrs_base.add(ix * SUBSTR_SIZE),
                         slots_base.add(ix),
                         s,
-                        start,
-                        i as u64 - start,
+                        start_byte as u64,
+                        (i - start_byte) as u64,
                     );
                 }
                 ix += 1;
-                i += sep_len as usize;
-                start = i as u64;
+                i += sep_byte_len;
+                start_byte = i;
             } else {
-                i += 1;
+                i += stride;
             }
         }
     }
@@ -254,8 +294,8 @@ pub unsafe extern "C" fn __torajs_str_split(s: *const u8, sep: *const u8) -> *mu
             substrs_base.add(ix * SUBSTR_SIZE),
             slots_base.add(ix),
             s,
-            start,
-            s_len as u64 - start,
+            start_byte as u64,
+            (s_byte_len - start_byte) as u64,
         );
     }
     block.as_ptr()
