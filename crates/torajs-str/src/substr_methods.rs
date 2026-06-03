@@ -17,7 +17,7 @@
 
 use core::ffi::c_void;
 
-use torajs_rc::{HeapHeader, __torajs_rc_inc};
+use torajs_rc::{__torajs_rc_inc, HeapHeader};
 
 use crate::block::StrBlock;
 use crate::layout::{STR_FLAG_IS_LATIN1, STR_HDR_SIZE, STR_LEN_OFF};

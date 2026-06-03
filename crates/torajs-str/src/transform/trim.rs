@@ -91,10 +91,7 @@ fn trim_start_idx_utf16(payload: &[u8]) -> usize {
 #[inline]
 fn trim_end_idx_utf16(payload: &[u8], min: usize) -> usize {
     let mut hi = payload.len();
-    while hi >= min + 2
-        && payload[hi - 1] == 0
-        && is_trim_ws(payload[hi - 2])
-    {
+    while hi >= min + 2 && payload[hi - 1] == 0 && is_trim_ws(payload[hi - 2]) {
         hi -= 2;
     }
     hi

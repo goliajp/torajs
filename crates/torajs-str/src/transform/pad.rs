@@ -136,12 +136,7 @@ pub fn pad_output_len(target_len: i64, s_len: u32) -> Option<u32> {
 /// Common entry: build the result Str for either pad variant. The
 /// caller picks whether `s` goes before (`pad_end=false` → padStart)
 /// or after (`pad_end=true` → padEnd) the pad fill.
-unsafe fn pad_impl(
-    s: *const u8,
-    target_len: i64,
-    pad: *const u8,
-    pad_end: bool,
-) -> *mut u8 {
+unsafe fn pad_impl(s: *const u8, target_len: i64, pad: *const u8, pad_end: bool) -> *mut u8 {
     let (s_payload, s_length, s_latin1) = unsafe { str_view(s) };
     let Some(out_length) = pad_output_len(target_len, s_length) else {
         // Pass-through path — fresh alloc with `s`'s encoding.
@@ -155,7 +150,11 @@ unsafe fn pad_impl(
     let (pad_payload, _, pad_latin1) = unsafe { str_view(pad) };
     let out_latin1 = s_latin1 && pad_latin1;
     let stride = if out_latin1 { 1usize } else { 2usize };
-    let space_unit: [u8; 2] = if out_latin1 { [0x20, 0x00] } else { [0x20, 0x00] };
+    let space_unit: [u8; 2] = if out_latin1 {
+        [0x20, 0x00]
+    } else {
+        [0x20, 0x00]
+    };
     // (Same bytes for both encodings — the loop only reads the
     // first `stride` of them. Keeping a single buffer simplifies
     // the call below.)
@@ -167,7 +166,12 @@ unsafe fn pad_impl(
     let dst = unsafe { block.as_bytes_mut(out_byte_cnt as u32) };
     if pad_end {
         dst[..s_byte_cnt].copy_from_slice(s_buf.as_ref());
-        fill_with_pad(&mut dst[s_byte_cnt..], pad_buf.as_ref(), stride, &space_unit);
+        fill_with_pad(
+            &mut dst[s_byte_cnt..],
+            pad_buf.as_ref(),
+            stride,
+            &space_unit,
+        );
     } else {
         let fill_byte_cnt = out_byte_cnt - s_byte_cnt;
         fill_with_pad(
