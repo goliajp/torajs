@@ -1236,15 +1236,29 @@ Unicode case folding.
 
 **Substrate checklist** (strict order):
 
-- [ ] **P11.1** Convert byte-Str runtime to UTF-16 internal (or hybrid
-      Latin-1 / UTF-16 like V8)
-- [ ] **P11.2** `String.length` = UTF-16 code unit count
-- [ ] **P11.3** `charCodeAt` vs `codePointAt` distinction (surrogate
-      pairs)
-- [ ] **P11.4** for-of on string yields codepoints (with surrogate
-      combining)
-- [ ] **P11.5** Full Unicode case folding (lowercase / uppercase per
-      CaseFolding.txt)
+- [x] **P11.1** Convert byte-Str runtime to hybrid Latin-1 / UTF-16
+      (SpiderMonkey-style instance flag bit) — RFC
+      `20260603-p11-1-str-unicode-internal/` + S0/S1/S2.1/S2.3/S2.4/
+      S2.5(R1+R2+R3)/S5/S6 ship chain (`d6af28e` / `1d8d5b3` /
+      `41049d9` / `6e242a2` / `3ab696f` / `9983398` / `804e69c` /
+      `751812c` / `c7225fe` / `eaf47ae` / `aba4c78`). conformance gate
+      697/0/4.
+- [x] **P11.2** `String.length` = UTF-16 code unit count
+      (`bc5eb37` fixture pack + `e5d2930` P11.2-A1 Phase 1 honesty
+      cleanup: surface assign type-mismatch). Substrate already
+      delivered by P11.1-S1 + S5; this step is the audit + multibyte
+      fixture pack proving spec-parity.
+- [x] **P11.3** `charCodeAt` vs `codePointAt` distinction
+      (`10c695d` codePointAt surrogate-pair combine). P11.3-A2 BMP-only
+      branch elimination deferred — needs Number type-inference work
+      tracked under P12 phase D.
+- [x] **P11.4** for-of on string yields codepoints with surrogate
+      combining (`fb78e94` for-of on Str yields code-point Substr).
+- [x] **P11.5** Full Unicode default case folding per UAX #21 / ES
+      Default Case Conversion (`d8354fc` A1+A2 default fold +
+      `17770c1` A3 Final_Sigma context-dependent + `bfa6944` A4
+      Case_Ignorable skip). Locale tailoring (Turkish / Lithuanian)
+      out of scope — separate Intl-flavored surface.
 - [ ] **P11.6** `String.normalize` NFC / NFD / NFKC / NFKD (embedded
       data tables — no libicu unless 自研 audit passes)
 
