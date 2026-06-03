@@ -3,68 +3,26 @@
 //!
 //! ## Implementation strategy
 //!
-//! Step 15-b ships a **pragmatic** dtoa that delegates the
-//! core shortest-roundtrip computation to Rust's `core::fmt`
-//! (Grisu3-based, no_libc), then post-processes the byte output
-//! to match JS spec edge cases:
+//! Self-ported Ryū algorithm (Adams 2018) — see [`crate::ryu`]
+//! for the kernel `d2d(bits) -> Decimal64`. The kernel produces
+//! `(sign, mantissa, exponent)` such that `mantissa · 10^exponent`
+//! round-trips through `str::parse::<f64>` to the input bits.
 //!
-//! - `NaN` / `±Infinity` / `±0` → literal strings per §6.1.6.1.13
-//!   steps 1-3.
-//! - `1e21` / `1e-7` exponent boundary handling: Rust's `{}`
-//!   emits `1e21` but JS spec wants `1e+21` (explicit sign on
-//!   positive exponents).
-//! - `-0.0` → `"0"` (JS treats negative-zero output as plain
-//!   "0" for Display per §6.1.6.1.13 step 3).
+//! This module owns the wrapper:
 //!
-//! Step 15-b' (post-15-d follow-up) will replace the
-//! `core::fmt` delegate with a hand-ported Ryū core for the
-//! perf win on print-heavy fixtures. The public extern API
-//! stays stable across the swap.
-//!
-//! ## Why core::fmt is acceptable
-//!
-//! Rust's `core::fmt::Display for f64` uses Grisu3 internally
-//! (see `core::num::flt2dec`). This is no_std, no_libc — same
-//! algorithm class as Ryū with a different output shape. For
-//! Step 15-b's correctness baseline this is sufficient; the
-//! perf upside of full Ryū is a follow-up optimization, not a
-//! load-bearing A4 gate.
+//! - NaN / ±Infinity / ±0 fast-path → literal strings per §6.1.6.1.13
+//!   steps 1-3 (Ryū kernel never sees these inputs).
+//! - JS spec exponent boundary selection: `1e21` / `1e-7` mode flip
+//!   (exponent form when `|d| < 1e-6` or `|d| >= 1e21`, fixed-point
+//!   otherwise).
+//! - JS spec digit shape: `1e+21` (explicit + on positive exponent),
+//!   plain `100000000000000000000` for fixed-point integer, `.dddd`
+//!   for fractional-only.
+//! - `-0.0` → `"-0"` in this layer; `__torajs_f64_to_str` strips the
+//!   sign for the `String(-0)` coercion path. `console.log(-0)` keeps
+//!   the sign.
 
-use core::fmt::Write;
-
-/// Writer that captures `core::fmt::Write` output into a
-/// caller-provided byte slice. Truncates silently if `buf`
-/// fills — the caller's 32-byte cap is verified by the wrapper
-/// to be enough for any valid f64 shortest-roundtrip output
-/// (max 24 bytes per Ryū's analysis).
-struct ByteWriter<'a> {
-    buf: &'a mut [u8],
-    pos: usize,
-}
-
-impl<'a> ByteWriter<'a> {
-    fn new(buf: &'a mut [u8]) -> Self {
-        Self { buf, pos: 0 }
-    }
-}
-
-impl<'a> Write for ByteWriter<'a> {
-    fn write_str(&mut self, s: &str) -> core::fmt::Result {
-        let bytes = s.as_bytes();
-        let n = bytes.len();
-        let remaining = self.buf.len().saturating_sub(self.pos);
-        let copy_len = n.min(remaining);
-        if copy_len > 0 {
-            self.buf[self.pos..self.pos + copy_len].copy_from_slice(&bytes[..copy_len]);
-            self.pos += copy_len;
-        }
-        if copy_len < n {
-            // Buffer full; signal truncation.
-            return Err(core::fmt::Error);
-        }
-        Ok(())
-    }
-}
+use crate::ryu::{Decimal64, d2d, decimal_length};
 
 /// `__torajs_fmt_dtoa(d, out_buf, out_cap) -> bytes_written | -1`.
 ///
@@ -88,8 +46,8 @@ pub unsafe extern "C" fn __torajs_fmt_dtoa(d: f64, out_buf: *mut u8, out_cap: us
     written as i32
 }
 
-/// Pure-Rust implementation (no unsafe, no extern). Test-
-/// exposed via cfg(test) for the round-trip test suite.
+/// Pure-Rust implementation (no unsafe, no extern). Exercised by
+/// the unit test suite via direct call.
 fn format_f64_into(d: f64, buf: &mut [u8]) -> usize {
     // Step 1: NaN per ES §6.1.6.1.13 step 1.
     if d.is_nan() {
@@ -116,22 +74,139 @@ fn format_f64_into(d: f64, buf: &mut [u8]) -> usize {
     }
     // Normal finite non-zero number. JS spec §6.1.6.1.13 step
     // 5-9 picks fixed-point vs exponential based on the
-    // magnitude. Empirically (matching v8 / bun): use
-    // exponential when |d| < 1e-6 OR |d| >= 1e21.
+    // magnitude (matching v8 / bun): exponential when
+    // `|d| < 1e-6` OR `|d| >= 1e21`.
     let abs_d = if d < 0.0 { -d } else { d };
     let use_exp = abs_d < 1e-6 || abs_d >= 1e21;
-    let mut writer = ByteWriter::new(buf);
-    let _ = if use_exp {
-        write!(writer, "{:e}", d)
+    let dec = d2d(d.to_bits());
+    format_decimal(buf, dec, use_exp)
+}
+
+/// Format a `Decimal64` into `buf` using JS spec digit shape.
+///
+/// - `use_exp = true`  → `d[.ddd...]e+NN` form (explicit sign on
+///   the exponent).
+/// - `use_exp = false` → plain decimal — integer with trailing
+///   zeros (for positive `dec.exponent`), or `[d...].[d...]` with
+///   leading-zero fill for fractional values.
+///
+/// The sign byte (if any) is written first; the digit count is at
+/// most 17 + 1 (decimal point) + 5 (`e+NNN`) + 1 (sign) = 24 bytes
+/// for any valid f64. The caller's 32-byte buffer cap is sufficient.
+fn format_decimal(buf: &mut [u8], dec: Decimal64, use_exp: bool) -> usize {
+    let mut pos = 0;
+    if dec.sign {
+        buf[pos] = b'-';
+        pos += 1;
+    }
+
+    let mantissa = dec.mantissa;
+    let exponent = dec.exponent;
+    let n_digits = decimal_length(mantissa) as i32;
+    // True decimal exponent (position of MSB), i.e., the value such
+    // that `mantissa` written with one digit before the decimal point
+    // means `d.ddd…e^{abs_exp}`. abs_exp = exponent + n_digits - 1.
+    let abs_exp = exponent + n_digits - 1;
+
+    if use_exp {
+        // Exponential form: `d[.ddd...]e±NN`.
+        //
+        // Emit digits at buf[digit_start..digit_end], then if more
+        // than one digit, shift digits[1..] right by 1 and insert '.'.
+        let digit_start = pos;
+        pos = write_digits(buf, pos, mantissa, n_digits as usize);
+        if n_digits > 1 {
+            // Shift digits after digit_start by 1 to make room for '.'.
+            for i in (digit_start + 2..=pos).rev() {
+                buf[i] = buf[i - 1];
+            }
+            buf[digit_start + 1] = b'.';
+            pos += 1;
+        }
+        // 'e' + explicit sign + exponent digits.
+        buf[pos] = b'e';
+        pos += 1;
+        if abs_exp >= 0 {
+            buf[pos] = b'+';
+            pos += 1;
+        } else {
+            buf[pos] = b'-';
+            pos += 1;
+        }
+        let abs_e_abs = abs_exp.unsigned_abs();
+        pos = write_u32(buf, pos, abs_e_abs);
+        pos
+    } else if exponent >= 0 {
+        // Integer with trailing zeros (e.g., 12340000…).
+        // Plain decimal form, mantissa followed by `exponent` zeros.
+        pos = write_digits(buf, pos, mantissa, n_digits as usize);
+        for _ in 0..exponent {
+            buf[pos] = b'0';
+            pos += 1;
+        }
+        pos
     } else {
-        write!(writer, "{}", d)
-    };
-    let raw_len = writer.pos;
-    // Post-process to match JS spec exponent shape: Rust emits
-    // "1e21" — JS spec ToString wants "1e+21". Walk the output
-    // looking for an 'e' followed by a digit (positive exponent
-    // without explicit sign) and insert '+'.
-    fix_exponent_sign(buf, raw_len)
+        // Fractional value. `dot_pos` is the number of digits before
+        // the decimal point (0 if the first digit is fractional).
+        let dot_pos = n_digits + exponent;
+        if dot_pos <= 0 {
+            // `0.` followed by `(-dot_pos)` leading zeros, then all
+            // mantissa digits.
+            buf[pos] = b'0';
+            buf[pos + 1] = b'.';
+            pos += 2;
+            for _ in 0..(-dot_pos) {
+                buf[pos] = b'0';
+                pos += 1;
+            }
+            pos = write_digits(buf, pos, mantissa, n_digits as usize);
+            pos
+        } else {
+            // `digits[..dot_pos]` `.` `digits[dot_pos..]`.
+            // Emit all digits, then shift digits[dot_pos..] right by
+            // 1 and insert '.' at dot_pos.
+            let digit_start = pos;
+            pos = write_digits(buf, pos, mantissa, n_digits as usize);
+            let dot_pos_u = dot_pos as usize;
+            for i in (digit_start + dot_pos_u + 1..=pos).rev() {
+                buf[i] = buf[i - 1];
+            }
+            buf[digit_start + dot_pos_u] = b'.';
+            pos += 1;
+            pos
+        }
+    }
+}
+
+/// Write `v` as `n_digits` ASCII characters into `buf[pos..]`,
+/// most-significant first. Returns `pos + n_digits`.
+fn write_digits(buf: &mut [u8], pos: usize, mut v: u64, n_digits: usize) -> usize {
+    for i in (0..n_digits).rev() {
+        buf[pos + i] = b'0' + (v % 10) as u8;
+        v /= 10;
+    }
+    pos + n_digits
+}
+
+/// Write `v` as a decimal ASCII string into `buf[pos..]`,
+/// most-significant first, no leading zeros. Returns new pos.
+fn write_u32(buf: &mut [u8], pos: usize, v: u32) -> usize {
+    if v == 0 {
+        buf[pos] = b'0';
+        return pos + 1;
+    }
+    let mut n = 0usize;
+    let mut tmp = v;
+    while tmp > 0 {
+        n += 1;
+        tmp /= 10;
+    }
+    let mut v = v;
+    for i in (0..n).rev() {
+        buf[pos + i] = b'0' + (v % 10) as u8;
+        v /= 10;
+    }
+    pos + n
 }
 
 #[inline]
@@ -142,38 +217,6 @@ fn write_literal(buf: &mut [u8], lit: &[u8]) -> usize {
     }
     buf[..n].copy_from_slice(lit);
     n
-}
-
-/// Walks `buf[..len]` looking for an `e` followed immediately
-/// by a digit (no explicit sign). If found, shifts the tail
-/// right by one byte and inserts `+` after the `e`. Returns
-/// the new length.
-///
-/// Only one `e` can appear in a valid f64 Display output, so a
-/// single pass suffices.
-fn fix_exponent_sign(buf: &mut [u8], len: usize) -> usize {
-    let mut i = 0;
-    while i < len {
-        if buf[i] == b'e' {
-            // Already has explicit sign?
-            if i + 1 < len && (buf[i + 1] == b'+' || buf[i + 1] == b'-') {
-                return len;
-            }
-            // Insert '+' after the 'e' — shift tail by 1.
-            if len + 1 > buf.len() {
-                return len;
-            }
-            let mut j = len;
-            while j > i + 1 {
-                buf[j] = buf[j - 1];
-                j -= 1;
-            }
-            buf[i + 1] = b'+';
-            return len + 1;
-        }
-        i += 1;
-    }
-    len
 }
 
 #[cfg(test)]
@@ -242,33 +285,39 @@ mod tests {
         check(3.14, "3.14");
     }
 
-    /// Exponent-sign normalization: Rust `{}` emits `1e21` for
-    /// 1e21; JS spec wants `1e+21` (positive exponent gets
-    /// explicit `+`).
+    /// JS spec exponent form for positive exponents uses `e+`.
     #[test]
     fn exponent_positive_sign() {
-        // Pick a value that Rust's Display reliably emits in
-        // exponential form. 1e21 is a typical case.
-        let s = call(1e21);
-        // Output should contain 'e+' not bare 'e<digit>'.
-        assert!(
-            s.contains("e+") || !s.contains('e'),
-            "expected 'e+' or no exponent in {s:?}"
-        );
-        assert!(
-            !s.contains("e2") && !s.contains("e3"),
-            "expected explicit + sign, not bare e<digit> in {s:?}"
-        );
+        check(1e21, "1e+21");
     }
 
     /// Negative exponent keeps its '-' (no double sign).
     #[test]
-    fn exponent_negative_kept() {
-        let s = call(1e-10);
-        // Rust may emit "0.0000000001" (no exponent) for 1e-10 —
-        // either form is valid as long as it round-trips.
-        let parsed: f64 = s.parse().unwrap();
-        assert_eq!(parsed, 1e-10, "round-trip failed for 1e-10: got {s:?}");
+    fn exponent_negative_sign() {
+        check(1e-7, "1e-7");
+    }
+
+    /// `1e-6` boundary — JS spec uses fixed-point at the boundary.
+    #[test]
+    fn boundary_1e_minus_6() {
+        check(1e-6, "0.000001");
+    }
+
+    /// `1e20` boundary — JS spec uses fixed-point at the boundary.
+    #[test]
+    fn boundary_1e20() {
+        check(1e20, "100000000000000000000");
+    }
+
+    /// 0.1 + 0.2 round-trip (the classic IEEE 754 demonstration).
+    #[test]
+    fn zero_one_plus_zero_two() {
+        check(0.1 + 0.2, "0.30000000000000004");
+    }
+
+    #[test]
+    fn pi() {
+        check(core::f64::consts::PI, "3.141592653589793");
     }
 
     /// Round-trip property: every f64 in our sample set must
