@@ -1,0 +1,182 @@
+#!/usr/bin/env python3
+"""Generate torajs-fmt's Ryū dtoa multiplication tables.
+
+Usage:
+    python3 scripts/gen_ryu_tables.py > crates/torajs-fmt/src/ryu_tables.rs
+
+Output two const arrays + two const bitcounts per Adams 2018 paper
+(https://dl.acm.org/doi/10.1145/3192366.3192369) Algorithm 1:
+
+- POW5_INV_SPLIT: [(u64, u64); 292]  — ceil(2^(125 + floor(log2(5^i))) / 5^i)
+  for i ∈ [0, 291], stored as (lo64, hi64). Indexed by negative decimal
+  exponent during Ryū double → decimal.
+
+- POW5_SPLIT: [(u64, u64); 326]  — 5^i << (125 - floor(log2(5^i)))
+  for i ∈ [0, 325], stored as (lo64, hi64). Indexed by positive decimal
+  exponent during Ryū.
+
+- DOUBLE_POW5_INV_BITCOUNT: i32 = 125
+- DOUBLE_POW5_BITCOUNT: i32 = 125
+
+The tables are checked in. Re-run this script and commit the diff only when
+the algorithm constants change (they shouldn't — they're locked to the IEEE
+754 double layout).
+
+Spot-check (manual recompute, vs paper §4.2 Algorithm 1):
+
+  POW5[0] = 1 << 125 = 0x2000_0000_0000_0000_0000_0000_0000_0000
+    → (hi=0x2000000000000000, lo=0x0000000000000000)
+  POW5[1] = 5 << 123 = 0x2800_0000_0000_0000_0000_0000_0000_0000
+    → (hi=0x2800000000000000, lo=0x0000000000000000)
+  POW5_INV[0] = ceil(2^125 / 1) = 2^125
+    → (hi=0x2000000000000000, lo=0x0000000000000000)
+  POW5_INV[1] = ceil(2^127 / 5) = 0x1999...999A (128-bit)
+    → (hi=0x1999999999999999, lo=0x999999999999999A)
+"""
+
+import sys
+
+POW5_INV_TABLE_SIZE = 292
+POW5_TABLE_SIZE = 326
+DOUBLE_POW5_INV_BITCOUNT = 125
+DOUBLE_POW5_BITCOUNT = 125
+
+# ----------------------------------------------------------------------
+# Algorithm 1 from Adams 2018 (§4.2)
+# ----------------------------------------------------------------------
+
+
+def compute_pow5(i: int) -> int:
+    """Return the 128-bit POW5_SPLIT entry for i:
+
+    POW5[i] = round_down(5^i / 2^(ceil(log2(5^i)) - 125))
+
+    i.e., 5^i shifted so that the result has exactly 126 bits (top bit set,
+    the table consumer accounts for the implicit normalization shift).
+
+    For i where 5^i has fewer than 125 bits, we shift up; otherwise shift
+    down. Truncation (round-toward-zero) per Ryū paper §4.2 — the bias is
+    handled by the kernel's halfway-bound logic.
+    """
+    pow5 = 5 ** i
+    bits = pow5.bit_length()  # = floor(log2(5^i)) + 1
+    # We want bits == DOUBLE_POW5_BITCOUNT + 1 = 126 after shifting.
+    shift = bits - (DOUBLE_POW5_BITCOUNT + 1)
+    if shift > 0:
+        val = pow5 >> shift
+    elif shift < 0:
+        val = pow5 << (-shift)
+    else:
+        val = pow5
+    # 126-bit result; verify it fits in 128.
+    assert val.bit_length() <= 128, f"POW5[{i}] overflow: {val.bit_length()} bits"
+    return val
+
+
+def compute_pow5_inv(i: int) -> int:
+    """Return the 128-bit POW5_INV_SPLIT entry for i:
+
+    POW5_INV[i] = ceil(2^(DOUBLE_POW5_INV_BITCOUNT + floor(log2(5^i))) / 5^i)
+
+    This is the upper-rounded reciprocal of 5^i scaled to 126 bits, used by
+    Ryū to convert division-by-5^i into a 128-bit multiply.
+    """
+    pow5 = 5 ** i
+    # j = DOUBLE_POW5_INV_BITCOUNT + floor(log2(5^i))
+    # We multiply by 2^j then ceil-divide by 5^i.
+    j = DOUBLE_POW5_INV_BITCOUNT + (pow5.bit_length() - 1)
+    numerator = 1 << j
+    # ceil(numerator / pow5):
+    inv = (numerator + pow5 - 1) // pow5
+    assert inv.bit_length() <= 128, f"POW5_INV[{i}] overflow: {inv.bit_length()} bits"
+    return inv
+
+
+def split128(v: int) -> tuple[int, int]:
+    """Split a 128-bit int into (lo64, hi64)."""
+    mask = (1 << 64) - 1
+    return (v & mask, (v >> 64) & mask)
+
+
+# ----------------------------------------------------------------------
+# Spot checks (must pass before emitting; catches the most likely bug
+# class — off-by-one in `j` or wrong shift direction)
+# ----------------------------------------------------------------------
+
+
+def spot_check():
+    # POW5[0] = 2^125
+    p0 = compute_pow5(0)
+    assert p0 == (1 << 125), f"POW5[0]={p0:x} != 2^125"
+    # POW5[1] = 5 << 123 = 0x2800_..._0000
+    p1 = compute_pow5(1)
+    assert p1 == (5 << 123), f"POW5[1]={p1:x} != 5<<123"
+    # POW5[10] = 5^10 << (125 - 22) = 9765625 << 103
+    p10 = compute_pow5(10)
+    pow5_10 = 9765625
+    assert p10 == (pow5_10 << (125 - (pow5_10.bit_length() - 1))), f"POW5[10] mismatch"
+    # POW5_INV[0] = ceil(2^125 / 1) = 2^125
+    pi0 = compute_pow5_inv(0)
+    assert pi0 == (1 << 125), f"POW5_INV[0]={pi0:x} != 2^125"
+    # POW5_INV[1] = ceil(2^127 / 5) = 0x199...9A
+    pi1 = compute_pow5_inv(1)
+    expected = ((1 << 127) + 4) // 5  # = ceil(2^127 / 5)
+    assert pi1 == expected, f"POW5_INV[1]={pi1:x} != {expected:x}"
+    # Verify split correctness round-trip
+    lo, hi = split128(pi1)
+    assert (hi << 64) | lo == pi1
+    print(f"  POW5_INV[1] = (lo=0x{lo:016x}, hi=0x{hi:016x})", file=sys.stderr)
+
+
+# ----------------------------------------------------------------------
+# Emit Rust source
+# ----------------------------------------------------------------------
+
+
+def emit():
+    out = []
+    out.append("// AUTO-GENERATED by scripts/gen_ryu_tables.py — do not edit.")
+    out.append("// CODEGEN: scripts/gen_ryu_tables.py")
+    out.append("// Adams 2018 (https://dl.acm.org/doi/10.1145/3192366.3192369) §4.2.")
+    out.append("//")
+    out.append("// POW5_INV_SPLIT[i] = ceil(2^(125 + floor(log2(5^i))) / 5^i)")
+    out.append("// POW5_SPLIT[i] = round_down(5^i / 2^(ceil(log2(5^i)) - 125))")
+    out.append("// Each entry split as (lo64, hi64) — concat low-first per Ryū kernel")
+    out.append("// `mul_shift_64` convention.")
+    out.append("")
+    out.append(f"pub const DOUBLE_POW5_INV_BITCOUNT: i32 = {DOUBLE_POW5_INV_BITCOUNT};")
+    out.append(f"pub const DOUBLE_POW5_BITCOUNT: i32 = {DOUBLE_POW5_BITCOUNT};")
+    out.append("")
+
+    # POW5_INV_SPLIT
+    out.append(
+        f"pub const POW5_INV_SPLIT: [(u64, u64); {POW5_INV_TABLE_SIZE}] = ["
+    )
+    for i in range(POW5_INV_TABLE_SIZE):
+        v = compute_pow5_inv(i)
+        lo, hi = split128(v)
+        out.append(f"    (0x{lo:016x}, 0x{hi:016x}),")
+    out.append("];")
+    out.append("")
+
+    # POW5_SPLIT
+    out.append(f"pub const POW5_SPLIT: [(u64, u64); {POW5_TABLE_SIZE}] = [")
+    for i in range(POW5_TABLE_SIZE):
+        v = compute_pow5(i)
+        lo, hi = split128(v)
+        out.append(f"    (0x{lo:016x}, 0x{hi:016x}),")
+    out.append("];")
+    out.append("")
+
+    return "\n".join(out)
+
+
+def main():
+    print("Spot-checking algorithm constants…", file=sys.stderr)
+    spot_check()
+    print("Spot-check passed.", file=sys.stderr)
+    sys.stdout.write(emit())
+
+
+if __name__ == "__main__":
+    main()
