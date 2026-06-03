@@ -144,7 +144,15 @@ def parse_derived_property(path, prop_name):
     return [tuple(r) for r in merged]
 
 
-def emit_rust(simple_upper, simple_lower, full_upper, full_lower, cased_ranges, ucd_version):
+def emit_rust(
+    simple_upper,
+    simple_lower,
+    full_upper,
+    full_lower,
+    cased_ranges,
+    case_ignorable_ranges,
+    ucd_version,
+):
     """Emit the case_table.rs source as a single string."""
     out = []
     out.append('// CODEGEN: scripts/ucd/gen_case_tables.py — file-size audit carve-out (file-size.md #1).')
@@ -186,6 +194,10 @@ def emit_rust(simple_upper, simple_lower, full_upper, full_lower, cased_ranges, 
     out.append(emit_range_table('CASED_RANGES', cased_ranges))
     out.append('')
 
+    # Case_Ignorable ranges for Final_Sigma skip rule (UAX #21).
+    out.append(emit_range_table('CASE_IGNORABLE_RANGES', case_ignorable_ranges))
+    out.append('')
+
     out.append('/// Look up `cp` in a sorted `(u32, u32)` simple-mapping table.')
     out.append('/// Returns `Some(mapped)` if found, else `None`. Binary search')
     out.append('/// — O(log N) per lookup, N ~1500 per direction.')
@@ -213,7 +225,21 @@ def emit_rust(simple_upper, simple_lower, full_upper, full_lower, cased_ranges, 
     out.append('/// Binary search over inclusive `[start, end]` ranges.')
     out.append('#[inline]')
     out.append('pub(crate) fn is_cased(cp: u32) -> bool {')
-    out.append('    CASED_RANGES')
+    out.append('    range_contains(CASED_RANGES, cp)')
+    out.append('}')
+    out.append('')
+    out.append('/// Test whether `cp` carries the UCD `Case_Ignorable` derived')
+    out.append('/// property — used by the Final_Sigma context check to skip over')
+    out.append('/// non-significant code points between Σ and the surrounding Cased letters.')
+    out.append('#[inline]')
+    out.append('pub(crate) fn is_case_ignorable(cp: u32) -> bool {')
+    out.append('    range_contains(CASE_IGNORABLE_RANGES, cp)')
+    out.append('}')
+    out.append('')
+    out.append('/// Shared binary search over a sorted inclusive-range table.')
+    out.append('#[inline]')
+    out.append('fn range_contains(table: &[(u32, u32)], cp: u32) -> bool {')
+    out.append('    table')
     out.append('        .binary_search_by(|&(start, end)| {')
     out.append('            if cp < start {')
     out.append('                core::cmp::Ordering::Greater')
@@ -286,8 +312,20 @@ def main():
     simple_upper, simple_lower = parse_unicode_data(udp)
     full_upper, full_lower = parse_special_casing(scp)
     cased_ranges = parse_derived_property(dcp, 'Cased')
+    case_ignorable_ranges = parse_derived_property(dcp, 'Case_Ignorable')
 
-    print(emit_rust(simple_upper, simple_lower, full_upper, full_lower, cased_ranges, ucd_version), end='')
+    print(
+        emit_rust(
+            simple_upper,
+            simple_lower,
+            full_upper,
+            full_lower,
+            cased_ranges,
+            case_ignorable_ranges,
+            ucd_version,
+        ),
+        end='',
+    )
 
 
 if __name__ == '__main__':

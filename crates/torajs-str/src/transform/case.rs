@@ -14,14 +14,13 @@
 //! - Surrogate-pair-aware: supplementary plane cps read via
 //!   `__torajs_str_code_point_at` semantics
 //!
-//! P11.5-A3 — Final_Sigma context-dependent mapping per UAX #21:
+//! P11.5-A3+A4 — Final_Sigma context-dependent mapping per UAX #21:
 //! when `Σ (U+03A3)` appears in a lowercase fold with a preceding
-//! Cased letter and no following Cased letter, it maps to `ς
-//! (U+03C2)` instead of the default `σ (U+03C3)`. We check immediate
-//! adjacent source code points; the full spec rule allows
-//! Case_Ignorable skipping (e.g. `"A.Σ"` should still see `A` as
-//! preceding), which lands as a P11.5-A4 follow-up alongside the
-//! Case_Ignorable property table.
+//! Cased letter and no following Cased letter (Case_Ignorable code
+//! points skipped on both sides per UAX #21), it maps to `ς
+//! (U+03C2)` instead of the default `σ (U+03C3)`. Skip rule covers
+//! `"A.Σ"` -> `"a.ς"` (period is Case_Ignorable), `"ÁΣ"` -> `"áς"`
+//! (combining acute is Case_Ignorable), etc.
 //!
 //! NOT covered (Locale follow-up):
 //! - Locale-tailored mappings (Turkish dotless ı, Lithuanian, etc.)
@@ -36,7 +35,8 @@ use alloc::vec::Vec;
 
 use crate::block::StrBlock;
 use crate::case_table::{
-    FULL_LOWER, FULL_UPPER, SIMPLE_LOWER, SIMPLE_UPPER, full_lookup, is_cased, simple_lookup,
+    FULL_LOWER, FULL_UPPER, SIMPLE_LOWER, SIMPLE_UPPER, full_lookup, is_case_ignorable, is_cased,
+    simple_lookup,
 };
 use crate::layout::{STR_DATA_OFF, STR_FLAG_IS_LATIN1, STR_LEN_OFF};
 use torajs_rc::HeapHeader;
@@ -183,21 +183,53 @@ const SIGMA_UPPER: u32 = 0x03A3;
 const SIGMA_FINAL: u32 = 0x03C2;
 
 /// True iff `cps[idx]` is a Σ that satisfies the Final_Sigma context
-/// rule (preceded by a Cased letter, not followed by a Cased letter).
-/// Simplified check: looks at immediate adjacent source cps; full UAX
-/// #21 rule allows skipping Case_Ignorable on both sides. P11.5-A4
-/// follow-up covers the Case_Ignorable extension.
+/// rule per UAX #21: preceded by a Cased letter (skipping
+/// Case_Ignorable) and NOT followed by a Cased letter (skipping
+/// Case_Ignorable). Examples:
+///   - `"A.Σ"` (Σ at idx 2): prev=`.` (CI), skip back -> `A` (Cased) -> preceded ✓;
+///     no chars after -> not followed -> Final ✓
+///   - `"A Σ"` (Σ at idx 2): prev=` ` (Zs, NOT CI, NOT Cased) -> not preceded ✗
+///   - `"A.Σ.A"`: preceded via `.`->A; followed via `.`->A; both -> NOT Final
 #[inline]
 fn is_final_sigma(cps: &[u32], idx: usize) -> bool {
     if cps[idx] != SIGMA_UPPER {
         return false;
     }
-    let prev_cased = idx > 0 && is_cased(cps[idx - 1]);
-    if !prev_cased {
+    if !preceded_by_cased(cps, idx) {
         return false;
     }
-    let next_cased = idx + 1 < cps.len() && is_cased(cps[idx + 1]);
-    !next_cased
+    !followed_by_cased(cps, idx)
+}
+
+/// Walk `cps[..idx]` from the position just before `idx` backward,
+/// skipping Case_Ignorable code points. Returns true if the first
+/// non-Case_Ignorable code point encountered is Cased.
+#[inline]
+fn preceded_by_cased(cps: &[u32], idx: usize) -> bool {
+    let mut i = idx;
+    while i > 0 {
+        i -= 1;
+        let cp = cps[i];
+        if is_case_ignorable(cp) {
+            continue;
+        }
+        return is_cased(cp);
+    }
+    false
+}
+
+/// Walk `cps[idx + 1..]` forward, skipping Case_Ignorable code
+/// points. Returns true if the first non-Case_Ignorable code point
+/// encountered is Cased.
+#[inline]
+fn followed_by_cased(cps: &[u32], idx: usize) -> bool {
+    for &cp in &cps[idx + 1..] {
+        if is_case_ignorable(cp) {
+            continue;
+        }
+        return is_cased(cp);
+    }
+    false
 }
 
 /// Walk `(payload, total_cu, is_latin1)` decoding each code point,
