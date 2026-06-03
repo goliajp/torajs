@@ -1283,8 +1283,14 @@ exactly, incl. the long-tail rounding cases.
 
 **Substrate checklist** (strict order):
 
-- [ ] **P12.1** `Number::toString` full §6.1.6.1.13 algorithm
-      (Steele-White / Ryu — replace `%g` precision-loop)
+- [x] **P12.1** `Number::toString` self-ported Ryū (Adams 2018) replaces
+      core::fmt::Display Grisu3 delegate (`f4cb3b2` S1 tables + generator /
+      `e3ad4db` S2 d2d kernel + intrinsics + 46/46 unit test /
+      `655808b` S3 wire into dtoa + drop std::fmt detour). 0 std::fmt
+      detour, 0 external dep. Full bun-byte-equal across 24 JS-spec edge
+      cases (NaN / Infinity / -0 / Min/Max/MIN_VALUE/MAX_VALUE / 1e-6 /
+      1e-7 / 1e20 / 1e21 boundaries / 1/3 / Math.PI / 0.1+0.2 / etc.).
+      gate 708/0/4 preserved; perf flat (json-stringify-100k +0.4% noise).
 - [ ] **P12.2** parseFloat / parseInt edge cases
 - [ ] **P12.3** IEEE rounding modes for `toFixed` / `toPrecision`
 - [ ] **P12.4** BigInt full operator coverage incl. `**`, mixed-shift,
