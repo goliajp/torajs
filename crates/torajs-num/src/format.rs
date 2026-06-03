@@ -18,12 +18,12 @@
 //!   sides agree on stripping leading zeros (`e+05 → e+5`).
 //! - `to_precision_*`: manual `%g` — pick `%f` vs `%e` form by
 //!   the actual exponent (computed from a `{:e}` pre-format to
-//!   sidestep `log10` precision wobble), then strip trailing
-//!   zeros from the fractional part. This preserves the C subset
-//!   bit-for-bit; it diverges from JS spec which keeps the zeros
-//!   to indicate precision (e.g. `(1.5).toPrecision(3) → "1.50"`
-//!   per spec, but `"1.5"` here). Spec-correctness follow-up is
-//!   on the backlog.
+//!   sidestep `log10` precision wobble). Per ES §22.1.3.36, emit
+//!   exactly `precision` significant digits including trailing
+//!   zeros — so `(1.5).toPrecision(3) → "1.50"`,
+//!   `(0).toPrecision(3) → "0.00"`, `(1e-7).toPrecision(2) →
+//!   "1.0e-7"`. (Pre-P12.3 a `strip_trailing_zeros_in_frac` post-
+//!   process broke that — removed in P12.3.)
 //!
 //! Special values (NaN / ±Infinity) match `snprintf` output of
 //! the original C subset: `"nan"`, `"inf"`, `"-inf"`. JS spec
@@ -74,31 +74,6 @@ fn normalize_exp(src: &[u8]) -> Vec<u8> {
     out
 }
 
-/// Strip trailing zeros from the fractional part of an
-/// `INT[.FRAC][e...]` string. If the fractional part collapses
-/// to empty, also strip the `'.'`.
-///
-/// Examples:
-///   `"1234.500"`  → `"1234.5"`
-///   `"1234.000"`  → `"1234"`
-///   `"1.230e3"`   → `"1.23e3"`
-///   `"1.000e3"`   → `"1e3"`
-fn strip_trailing_zeros_in_frac(src: &[u8]) -> Vec<u8> {
-    let Some(dot_pos) = src.iter().position(|&b| b == b'.') else {
-        return src.to_vec();
-    };
-    let exp_pos = src.iter().position(|&b| b == b'e').unwrap_or(src.len());
-    let mut last = exp_pos;
-    while last > dot_pos + 1 && src[last - 1] == b'0' {
-        last -= 1;
-    }
-    let keep_end = if last == dot_pos + 1 { dot_pos } else { last };
-    let mut out = Vec::with_capacity(src.len());
-    out.extend_from_slice(&src[..keep_end]);
-    out.extend_from_slice(&src[exp_pos..]);
-    out
-}
-
 /// Bit-for-bit C-subset special-value formatter shared by all
 /// three families. Returns `Some(bytes)` for NaN / ±Infinity,
 /// `None` for finite values.
@@ -121,9 +96,21 @@ fn special_value(n: f64) -> Option<Vec<u8>> {
 // ============================================================
 
 /// `n.toFixed(digits)` core. `digits` clamped to `[0, 20]`.
+///
+/// Per ES §22.1.3.32: when `|n| >= 10^21`, return `ToString(n)` —
+/// i.e., the same Ryū-based shortest-roundtrip output used by
+/// `Number.prototype.toString` / `String(n)` (which for these
+/// magnitudes is the JS-spec exponent form like `"1e+21"`).
 pub fn to_fixed_f(n: f64, digits: i64) -> Vec<u8> {
     if let Some(s) = special_value(n) {
         return s;
+    }
+    if n.abs() >= 1e21 {
+        // Spec ToString(n) form = Ryū exp shape (e.g. "1e+21").
+        // `format!("{:e}", n)` is shortest-roundtrip via Rust core::fmt;
+        // normalize_exp brings the exponent shape into JS spec form
+        // (insert '+' on positive exponents, strip leading zeros).
+        return normalize_exp(format!("{:e}", n).as_bytes());
     }
     let digits = digits.clamp(0, 20);
     let value = if digits < 16 {
@@ -181,8 +168,13 @@ pub fn to_precision_f(n: f64, digits: i64) -> Vec<u8> {
     } else {
         e_form.into_bytes()
     };
-    let stripped = strip_trailing_zeros_in_frac(&formatted);
-    normalize_exp(&stripped)
+    // Per ES §22.1.3.36 — toPrecision MUST emit exactly `precision`
+    // significant digits, including trailing zeros. Do NOT strip
+    // trailing zeros (that would turn `(1e-7).toPrecision(2)` from
+    // the spec-correct "1.0e-7" into "1e-7"; `(0).toPrecision(3)`
+    // from "0.00" into "0"; `(100).toPrecision(2)` from "1.0e+2"
+    // into "1e+2").
+    normalize_exp(&formatted)
 }
 
 /// `n.toPrecision(digits)` core for integer receivers.
@@ -267,39 +259,6 @@ mod tests {
         // but `js_normalize_exp_`'s leading-zero strip can.
         assert_eq!(normalize_exp(b"1e+00"), b"1e+0".to_vec());
         assert_eq!(normalize_exp(b"1e-00"), b"1e-0".to_vec());
-    }
-
-    // ---- strip_trailing_zeros_in_frac ----
-
-    #[test]
-    fn strip_zeros_keeps_significant() {
-        assert_eq!(
-            strip_trailing_zeros_in_frac(b"1234.500"),
-            b"1234.5".to_vec()
-        );
-        assert_eq!(strip_trailing_zeros_in_frac(b"1234.5"), b"1234.5".to_vec());
-    }
-
-    #[test]
-    fn strip_zeros_removes_dot_when_frac_empty() {
-        assert_eq!(strip_trailing_zeros_in_frac(b"1234.000"), b"1234".to_vec());
-        assert_eq!(strip_trailing_zeros_in_frac(b"0.00000"), b"0".to_vec());
-    }
-
-    #[test]
-    fn strip_zeros_with_exponent() {
-        assert_eq!(strip_trailing_zeros_in_frac(b"1.230e3"), b"1.23e3".to_vec());
-        assert_eq!(strip_trailing_zeros_in_frac(b"1.000e3"), b"1e3".to_vec());
-        assert_eq!(
-            strip_trailing_zeros_in_frac(b"1.234e3"),
-            b"1.234e3".to_vec()
-        );
-    }
-
-    #[test]
-    fn strip_zeros_no_dot_passthrough() {
-        assert_eq!(strip_trailing_zeros_in_frac(b"1234"), b"1234".to_vec());
-        assert_eq!(strip_trailing_zeros_in_frac(b"1234e5"), b"1234e5".to_vec());
     }
 
     // ---- to_fixed ----
@@ -395,9 +354,11 @@ mod tests {
         // X = 2 (since 123.456 = 1.23456e2), precision = 6,
         // 2 in [-4, 6) → %f form, 3 digits after decimal.
         assert_eq!(to_precision_f(123.456, 6), b"123.456".to_vec());
-        // X = 0, precision = 3 → %f, 2 digits.
-        assert_eq!(to_precision_f(1.5, 3), b"1.5".to_vec());
-        // Integer-shaped: trailing zero strip drops dot too.
+        // X = 0, precision = 3 → %f, 2 digits. Per JS spec keep
+        // trailing zero (`(1.5).toPrecision(3) == "1.50"`).
+        assert_eq!(to_precision_f(1.5, 3), b"1.50".to_vec());
+        // Integer at fixed form: precision exhausted by integer
+        // digits, no decimal portion needed.
         assert_eq!(to_precision_f(100.0, 3), b"100".to_vec());
     }
 
@@ -406,19 +367,24 @@ mod tests {
         // X = 6, precision = 3, 6 NOT in [-4, 3) → %e form.
         assert_eq!(to_precision_f(1234567.0, 3), b"1.23e+6".to_vec());
         // X = -5, precision = 6, -5 NOT in [-4, 6) → %e form.
-        assert_eq!(to_precision_f(0.00001234, 6), b"1.234e-5".to_vec());
+        // 0.00001234 = 1.234e-5 → mantissa 6 digits = "1.23400".
+        assert_eq!(to_precision_f(0.00001234, 6), b"1.23400e-5".to_vec());
     }
 
     #[test]
     fn to_precision_default_when_zero() {
-        // digits <= 0 → default precision 6 (matches C %g).
+        // digits <= 0 → default precision 6 (matches JS spec default
+        // and C %g).
         assert_eq!(to_precision_f(123.456, 0), b"123.456".to_vec());
-        assert_eq!(to_precision_f(1.5, -3), b"1.5".to_vec());
+        // precision 6 with X=0 → 5 frac digits → "1.50000".
+        assert_eq!(to_precision_f(1.5, -3), b"1.50000".to_vec());
     }
 
     #[test]
     fn to_precision_zero_value() {
-        assert_eq!(to_precision_f(0.0, 6), b"0".to_vec());
+        // Per JS spec §22.1.3.36 — 0 with precision p emits "0" + "."
+        // + (p-1) zeros for p > 1; just "0" for p=1.
+        assert_eq!(to_precision_f(0.0, 6), b"0.00000".to_vec());
         assert_eq!(to_precision_f(0.0, 1), b"0".to_vec());
     }
 
@@ -437,10 +403,12 @@ mod tests {
 
     #[test]
     fn to_precision_clamps() {
-        // digits > 100 → 100
+        // digits > 100 → clamped to 100.
         let r = to_precision_f(1.0, 200);
-        // 1.0 at precision 100: %f form, 99 digits after decimal
-        // → "1." + 99 zeros, strip → "1".
-        assert_eq!(r, b"1".to_vec());
+        // 1.0 at precision 100: %f form, 99 digits after decimal —
+        // "1." + 99 zeros (JS spec emits the full precision).
+        let mut expected = b"1.".to_vec();
+        expected.extend(core::iter::repeat(b'0').take(99));
+        assert_eq!(r, expected);
     }
 }
