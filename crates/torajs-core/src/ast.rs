@@ -976,12 +976,14 @@ pub fn desugar_generators(ast: &mut Ast) {
     let mut appended: Vec<Stmt> = Vec::new();
 
     for (idx, gen_name, gen_params, gen_ret, gen_body) in gen_indices {
-        let yield_ty = gen_ret.unwrap_or_else(|| {
-            panic!(
-                "function* {gen_name} requires an explicit yield value type \
-                 annotation `: T` (Phase J MVP)"
-            )
-        });
+        // P10.7 — Default-Any generator. When the user omits the
+        // return-type annotation (`function* foo() {...}`), infer
+        // `Generator<any>` so the body's `yield` values flow through
+        // the existing Any-tier (NaN-box AnyValue) via the
+        // `Expr::As { …, ty_ann: "any" }` wrap inside
+        // `GenSm::emit_yield_return`. `Generator<T>` /
+        // `IterableIterator<T>` annotations keep their explicit T.
+        let yield_ty = gen_ret.unwrap_or_else(|| "any".into());
 
         // J.2.a/b — lift every `let x: T = init` ANYWHERE in the body
         // (including for-init, if/else branches, while/for bodies) to a
@@ -1059,7 +1061,7 @@ pub fn desugar_generators(ast: &mut Ast) {
         // arm with `return {value:e, done:false}`; control-flow gotos
         // close with `state = N; continue;` and the `while(true)` loop
         // re-enters the if-chain at the new state.
-        let mut sm = GenSm::new(ast);
+        let mut sm = GenSm::new(ast, yield_ty.clone());
         sm.lower_seq(gen_body);
         // After the last body stmt, the natural exit is "done forever".
         let zero = default_init_for_type(&yield_ty);
@@ -1508,16 +1510,25 @@ struct GenSm<'a> {
     /// their normal Stmt::Break / Stmt::Continue meaning, never enter
     /// this stack.
     loop_stack: Vec<(usize, usize)>,
+    /// P10.7 — the generator's yield type ann. When `"any"`,
+    /// `emit_yield_return` wraps the yielded value in `Expr::As { ...,
+    /// ty_ann: "any" }` so the step's `value` field write goes through
+    /// the existing box-to-Any machinery (lowered as NaN-box AnyValue).
+    /// Without the wrap the field write hits a layout mismatch (step
+    /// declares `value: any` but the ObjectLit's field_tys carries the
+    /// concrete primitive type) and SIGSEGVs.
+    yield_ty: String,
 }
 
 impl<'a> GenSm<'a> {
-    fn new(ast: &'a mut Ast) -> Self {
+    fn new(ast: &'a mut Ast, yield_ty: String) -> Self {
         Self {
             ast,
             arms: vec![Vec::new()],
             cur_state: 0,
             cur_buf: Vec::new(),
             loop_stack: Vec::new(),
+            yield_ty,
         }
     }
 
@@ -1554,9 +1565,23 @@ impl<'a> GenSm<'a> {
 
     fn emit_yield_return(&mut self, val: ExprId, next: usize) -> Vec<Stmt> {
         let set = self.emit_set_state(next);
+        // P10.7 — Default-Any yield: route through `Expr::As { …,
+        // ty_ann: "any" }` so the step's `value: any` field write
+        // picks up the existing box-to-Any path (NaN-box AnyValue).
+        // Explicit-T generators (`yield_ty != "any"`) keep their
+        // direct write — both branches still produce the same
+        // step shape from the user's perspective.
+        let val_for_step = if self.yield_ty == "any" {
+            self.ast.add_expr(Expr::As {
+                expr: val,
+                ty_ann: "any".into(),
+            })
+        } else {
+            val
+        };
         let done = self.ast.add_expr(Expr::Bool(false));
         let obj = self.ast.add_expr(Expr::ObjectLit {
-            fields: vec![("value".into(), val), ("done".into(), done)],
+            fields: vec![("value".into(), val_for_step), ("done".into(), done)],
         });
         vec![set, Stmt::Return(Some(obj))]
     }

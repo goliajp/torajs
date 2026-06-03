@@ -1265,12 +1265,13 @@ impl Parser<'_> {
         // require it here too — without it the for-of body's `let v`
         // can't be typed.
         if is_generator {
-            let raw_ann = return_type.clone().unwrap_or_else(|| {
-                panic!(
-                    "function* {name} requires an explicit yield value type \
-                     annotation `: T` (Phase J MVP)"
-                )
-            });
+            // P10.7 — Default-Any generator. When the user omits the
+            // return-type annotation (`function* foo() {...}`), record
+            // the yield type as `"any"` so for-of's body let-binding and
+            // yield* delegation's intermediate vars flow through the
+            // Any-tier. `ast::desugar_generators` mirrors the same
+            // fallback (panic-on-None there now defaults to `"any"`).
+            let raw_ann = return_type.clone().unwrap_or_else(|| "any".into());
             // V3-18 wedge — unwrap the standard wrapper-form return
             // type annotations users write for generators per TS spec
             // §3.6.4 (IterableIterator / Generator / Iterator). The

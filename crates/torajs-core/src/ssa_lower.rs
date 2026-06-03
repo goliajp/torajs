@@ -26114,14 +26114,27 @@ impl<'a> LowerCtx<'a> {
                     other => panic!("ssa-lower: post-incr target shape not supported: {other:?}"),
                 }
             }
-            // V3-07 — `expr as T`. At SSA, the cast is identity:
+            // V3-07 — `expr as T`. At SSA, most casts are identity:
             // typecheck has already widened/narrowed the surrounding
             // slot's expected type and any required Any-box / unbox
-            // happens at the assignment site, not here. Forward the
-            // inner operand unchanged.
-            Expr::As { expr, .. } => {
+            // happens at the assignment site, not here.
+            //
+            // P10.7 — explicit widening to `any` runs the box-to-Any
+            // machinery inline. The variant doc-comment promised
+            // this; ObjectLit field writes (e.g. the Default-Any
+            // generator's `{value: <yielded>, done: false}` step)
+            // and other non-let assignment sites don't run the
+            // let-decl Any-widening path, so without this the
+            // declared `value: any` field gets a concrete primitive
+            // bit pattern instead of a NaN-box AnyValue and reads
+            // back as garbage.
+            Expr::As { expr, ty_ann } => {
                 let inner = *expr;
-                self.lower_expr(inner)
+                let inner_op = self.lower_expr(inner);
+                if ty_ann == "any" && self.operand_ty(&inner_op) != Type::Any {
+                    return self.box_to_any_from_expr(inner, inner_op);
+                }
+                inner_op
             }
             // V3-18 m1.h.6 — comma operator: lower left for side
             // effects, drop the result if non-Copy heap, then return
