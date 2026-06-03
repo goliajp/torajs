@@ -20,7 +20,15 @@
 //!                                              top-level stmts inject in
 //!                                              source order, no symbols
 //!                                              bound on the importer side)
-//!   - `export { a, b }` (re-export, no inner) — rejected (P13-S4)
+//!   - `export { a, b } from "./y"`           — supported (P13-S4; lib b's
+//!                                              re-export pushes a nested BFS
+//!                                              load of y with the request
+//!                                              translated through the lib's
+//!                                              optional alias clause)
+//!   - `export { a, b }` (inline, no source)  — rejected (no module
+//!                                              relationship; a plain re-bind
+//!                                              of in-scope names; out of K.2
+//!                                              scope)
 //!
 //! Behaviour notes:
 //!   - For named-import / default-import forms, lib-level non-`export`
@@ -85,7 +93,15 @@ type WorkItem = (
 /// the cache slot for the main file.
 pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, Vec<u8>)>, String> {
     let mut closure_files: Vec<(PathBuf, Vec<u8>)> = Vec::new();
-    let mut visited: HashSet<PathBuf> = HashSet::new();
+    // Per-path "already injected" tracking. The set holds importer-
+    // visible names (= alias if Some, else orig) plus the sentinels
+    // `__default` / `__namespace` / `__se` for the non-named import
+    // forms. A path may be re-visited via a different request shape
+    // (e.g., a transitive re-export's nested load asking for a name
+    // not in the first visit's named list); the per-name filter
+    // de-duplicates injections without forcing first-encounter wins.
+    let mut injected_names: HashMap<PathBuf, HashSet<String>> = HashMap::new();
+    let mut closure_paths: HashSet<PathBuf> = HashSet::new();
     let mut work: VecDeque<WorkItem> = VecDeque::new();
 
     for s in &ast.stmts {
@@ -121,16 +137,56 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
     while let Some((target_path, named, default_alias, side_effect_only, namespace_alias)) =
         work.pop_front()
     {
-        if !visited.insert(target_path.clone()) {
+        // Filter the request against per-path injected state. The same
+        // path may legitimately appear multiple times in the queue
+        // (e.g., transitive re-export bringing a new name from a lib
+        // we already loaded for a different name).
+        let entry = injected_names.entry(target_path.clone()).or_default();
+        let mut effective_named: Vec<NamedImport> = Vec::new();
+        for (orig, alias) in &named {
+            let visible = alias.as_deref().unwrap_or(orig);
+            if !entry.contains(visible) {
+                effective_named.push((orig.clone(), alias.clone()));
+            }
+        }
+        let want_default = default_alias.is_some() && !entry.contains("__default");
+        let want_namespace = namespace_alias.is_some() && !entry.contains("__namespace");
+        let want_se = side_effect_only && !entry.contains("__se");
+        if effective_named.is_empty() && !want_default && !want_namespace && !want_se {
             continue;
         }
+        // Reserve the names we're about to inject so a sibling queue
+        // entry for the same path skips them.
+        for (orig, alias) in &effective_named {
+            entry.insert(alias.as_deref().unwrap_or(orig).to_string());
+        }
+        if want_default {
+            entry.insert("__default".into());
+        }
+        if want_namespace {
+            entry.insert("__namespace".into());
+        }
+        if want_se {
+            entry.insert("__se".into());
+        }
+        let named = effective_named;
+        let default_alias = if want_default { default_alias } else { None };
+        let namespace_alias = if want_namespace {
+            namespace_alias
+        } else {
+            None
+        };
+        let side_effect_only = want_se;
+
         let src_text = std::fs::read_to_string(&target_path)
             .map_err(|e| format!("import {}: {e}", target_path.display()))?;
         let tokens = lexer::tokenize(&src_text)
             .map_err(|e| format!("import {} lex: {e}", target_path.display()))?;
         let lib_offset = parser::parse_into(&tokens, ast)
             .map_err(|e| format!("import {} parse: {e}", target_path.display()))?;
-        closure_files.push((target_path.clone(), src_text.into_bytes()));
+        if closure_paths.insert(target_path.clone()) {
+            closure_files.push((target_path.clone(), src_text.into_bytes()));
+        }
         let target_dir = target_path
             .parent()
             .map(Path::to_path_buf)
@@ -258,6 +314,53 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
                             rename_decl(&mut inner, (*alias).to_string());
                         }
                         injections.push(inner);
+                    }
+                }
+                Stmt::ExportDecl {
+                    inner: None,
+                    named: lib_named,
+                    source: Some(lib_source),
+                    ..
+                } => {
+                    // P13-S4 — `export { a, b as c } from "./other"`
+                    // re-export. Translate into a transitive BFS load of
+                    // `./other` with the lib's selected names, BUT swap
+                    // each name's importer-visible alias so the caller
+                    // (one level up) sees the same names it requested.
+                    if is_builtin_module_source(&lib_source) {
+                        continue;
+                    }
+                    let path = resolve_path(&target_dir, &lib_source)?;
+                    // For each (orig, alias) in the lib's re-export
+                    // clause, the lib exposes `alias` (or `orig` if no
+                    // alias). We only need to actually load the names
+                    // the caller asked for via `want`.
+                    let mut nested_named: Vec<NamedImport> = Vec::new();
+                    for (orig, alias) in &lib_named {
+                        let lib_visible = alias.as_deref().unwrap_or(orig);
+                        if want.contains(lib_visible) {
+                            // Final caller-visible name: the importer's
+                            // own alias (`import { x as y }`) if any,
+                            // otherwise the lib-visible name.
+                            let final_name = rename
+                                .get(lib_visible)
+                                .map(|s| (*s).to_string())
+                                .unwrap_or_else(|| lib_visible.to_string());
+                            // Re-export's nested load fetches `orig` from
+                            // the source file. The transitive rename
+                            // alias is `Some(final_name)` when the final
+                            // name differs from the source-side `orig`;
+                            // the lib walk's rename map will pick it up.
+                            let nested_alias = if final_name == *orig {
+                                None
+                            } else {
+                                Some(final_name)
+                            };
+                            nested_named.push((orig.clone(), nested_alias));
+                        }
+                    }
+                    if !nested_named.is_empty() {
+                        work.push_back((path, nested_named, None, false, None));
                     }
                 }
                 Stmt::ExportDecl { inner: None, .. } => {

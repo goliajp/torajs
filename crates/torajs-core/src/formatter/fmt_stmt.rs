@@ -351,7 +351,8 @@ impl<'a> Formatter<'a> {
                 inner,
                 named,
                 default_expr,
-            } => self.fmt_export_decl(inner.as_deref(), named, *default_expr),
+                source,
+            } => self.fmt_export_decl(inner.as_deref(), named, *default_expr, source.as_deref()),
         }
     }
 

@@ -511,6 +511,8 @@ pub enum Stmt {
     ///   - `export class C {}`         → `inner: Some(<the ClassDecl>)`
     ///   - `export type T = ...`       → `inner: Some(<the TypeDecl>)`
     ///   - `export { a, b }`           → `named: [(a, None), (b, Some(c))]`
+    ///   - `export { a } from "./b"`   → `named: [(a, None)], source: Some("./b")`
+    ///                                    (P13-S4 re-export)
     ///   - `export default <expr>`     → `default_expr: Some(...)`
     ExportDecl {
         inner: Option<Box<Stmt>>,
@@ -519,6 +521,11 @@ pub enum Stmt {
         named: Vec<(String, Option<String>)>,
         #[allow(dead_code)]
         default_expr: Option<ExprId>,
+        /// P13-S4 — `from "./b"` clause on a bare named export, making
+        /// it a re-export. `None` for inline `export { a }` (subset-
+        /// rejected) and for `export <decl>` modifier form.
+        #[allow(dead_code)]
+        source: Option<String>,
     },
 }
 

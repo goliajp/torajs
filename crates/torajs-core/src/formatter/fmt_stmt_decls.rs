@@ -215,6 +215,7 @@ impl<'a> Formatter<'a> {
         inner: Option<&Stmt>,
         named: &[(String, Option<String>)],
         default_expr: Option<ExprId>,
+        source: Option<&str>,
     ) {
         self.write_indent();
         self.write("export ");
@@ -236,6 +237,11 @@ impl<'a> Formatter<'a> {
                 }
             }
             self.write(" }");
+            if let Some(src) = source {
+                self.write(" from \"");
+                self.write(src);
+                self.write("\"");
+            }
             return;
         }
         if let Some(s) = inner {

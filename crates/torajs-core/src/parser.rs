@@ -5160,6 +5160,7 @@ impl Parser<'_> {
                 inner: None,
                 named: Vec::new(),
                 default_expr: Some(e),
+                source: None,
             });
         }
         // `export { a, b as c };`
@@ -5199,11 +5200,31 @@ impl Parser<'_> {
                 }
             }
             self.pos += 1; // consume `}`
+            // P13-S4 — optional `from "./b"` for re-export form.
+            let source = if matches!(self.peek(), Token::Ident(n) if n == "from") {
+                self.pos += 1;
+                match self.peek() {
+                    Token::String(s) => {
+                        let s = s.clone();
+                        self.pos += 1;
+                        Some(s)
+                    }
+                    t => {
+                        return Err(format!(
+                            "expected module source string after `from`, got {t:?} at {}",
+                            self.at()
+                        ));
+                    }
+                }
+            } else {
+                None
+            };
             self.skip_optional_semi();
             return Ok(Stmt::ExportDecl {
                 inner: None,
                 named,
                 default_expr: None,
+                source,
             });
         }
         // `export <decl>` — modifier on a function / class / type / let
@@ -5214,6 +5235,7 @@ impl Parser<'_> {
             inner: Some(Box::new(inner)),
             named: Vec::new(),
             default_expr: None,
+            source: None,
         })
     }
 
