@@ -26,8 +26,10 @@
 //!   [`SubstrBlock::create`], decremented at
 //!   [`SubstrBlock::drop_pool_aware`]). Parents stay alive as long as
 //!   any view into them exists.
-//! - `offset` is the byte index into `parent.bytes` where the view
-//!   starts. Combined with `len`, this is a slice into the parent.
+//! - `len` / `offset` are JS code-unit values (post-P11.1-S5; pre-S5
+//!   they were byte counts/offsets). Byte arithmetic recovers via
+//!   the parent encoding stride — same shape as V8 SlicedString /
+//!   SpiderMonkey JSDependentString.
 //!
 //! ## INLINE flag
 //!
@@ -107,9 +109,11 @@ pub const FLAG_SUBSTR_INLINE: u16 = 1 << 0;
 pub struct SubstrBlock(pub NonNull<u8>);
 
 impl SubstrBlock {
-    /// Allocate (or pool-pop) a Substr view of `len` bytes starting at
-    /// `offset` into `parent`. Bumps `parent`'s refcount so its bytes
-    /// stay alive while the view exists.
+    /// Allocate (or pool-pop) a Substr view of `len` JS code units
+    /// starting at code-unit index `offset` into `parent` (both
+    /// fields are code units post-P11.1-S5; pre-S5 they were byte
+    /// counts/offsets). Bumps `parent`'s refcount so its bytes stay
+    /// alive while the view exists.
     ///
     /// # Safety
     ///
@@ -348,9 +352,10 @@ pub fn pool_clear_for_test() {
 // extern "C" wrappers
 // ============================================================
 
-/// Allocate a Substr view. Mirrors the pre-rewrite C
-/// `__torajs_substr_create(void *parent, uint64_t offset, uint64_t len) -> void *`.
-/// Bumps `parent`'s refcount internally.
+/// Allocate a Substr view. ABI mirrors the pre-rewrite C
+/// `__torajs_substr_create(void *parent, uint64_t offset, uint64_t len) -> void *`;
+/// post-P11.1-S5 `offset` / `len` are JS code units. Bumps
+/// `parent`'s refcount internally.
 ///
 /// # Safety
 ///

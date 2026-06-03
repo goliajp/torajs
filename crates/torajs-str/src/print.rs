@@ -271,13 +271,18 @@ pub unsafe extern "C" fn __torajs_substr_print(v: *const u8) {
         }
         return;
     }
-    let len_bytes = unsafe { (v.add(SUBSTR_LEN_OFF) as *const u64).read() } as usize;
+    let cu_len = unsafe { (v.add(SUBSTR_LEN_OFF) as *const u64).read() } as usize;
     let parent = unsafe { (v.add(SUBSTR_PARENT_OFF) as *const *const u8).read() };
-    let offset = unsafe { (v.add(SUBSTR_OFFSET_OFF) as *const u64).read() } as usize;
-    if len_bytes > 0 {
+    let cu_offset = unsafe { (v.add(SUBSTR_OFFSET_OFF) as *const u64).read() } as usize;
+    if cu_len > 0 {
         let is_latin1 = unsafe { header_is_latin1(parent) };
-        let payload =
-            unsafe { core::slice::from_raw_parts(parent.add(STR_DATA_OFF + offset), len_bytes) };
+        let stride = if is_latin1 { 1 } else { 2 };
+        let payload = unsafe {
+            core::slice::from_raw_parts(
+                parent.add(STR_DATA_OFF + cu_offset * stride),
+                cu_len * stride,
+            )
+        };
         if is_latin1 {
             for &b in payload {
                 write_utf8_for_latin1_byte(b, putc);

@@ -202,17 +202,13 @@ pub unsafe extern "C" fn __torajs_str_char_at(s: *mut u8, i: i64) -> *mut u8 {
     if s.is_null() {
         return unsafe { __torajs_substr_create(parent, 0, 0) } as *mut u8;
     }
-    let (_, length, is_latin1) = unsafe { str_view(s) };
+    let (_, length, _is_latin1) = unsafe { str_view(s) };
     if i < 0 || (i as u64) >= length as u64 {
         return unsafe { __torajs_substr_create(parent, 0, 0) } as *mut u8;
     }
-    // Substr layout still stores byte offset / byte count (its
-    // code-unit flip lives in the S5 follow-up). Convert the
-    // code-unit index `i` to the parent's byte offset using the
-    // parent's stride, and span exactly one code unit.
-    let stride = if is_latin1 { 1u64 } else { 2u64 };
-    let byte_off = (i as u64) * stride;
-    unsafe { __torajs_substr_create(parent, byte_off, stride) as *mut u8 }
+    // Substr `(offset, len)` are JS code units post-P11.1-S5; the
+    // view spans exactly one code unit at code-unit index `i`.
+    unsafe { __torajs_substr_create(parent, i as u64, 1) as *mut u8 }
 }
 
 /// `s.at(i)` — ES2022 single-char Str. Negative `i` wraps;

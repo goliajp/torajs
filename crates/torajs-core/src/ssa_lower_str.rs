@@ -59,15 +59,18 @@ use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx, intern_arr_layout};
 /// `i64` so the resulting [`Operand`] can flow into the i64-shaped
 /// `Type::Number` lane that downstream SSA code expects.
 ///
-/// P11.1-S1 split the Str length field from `u64 @8` into
-/// `u32 @8 + reserved u32 @12`; Substr keeps the pre-S1 `u64 @8`
-/// layout until S5 lifts it. This helper hides that fork at the
-/// three call sites that still read length directly (Str / Substr
-/// `.length` property access, inline `str === <literal>` byte
-/// equality, `coerce_to_bool` of a non-null string). Centralizing
-/// the dispatch here lets P11.1-S5's Substr flip happen in this
-/// sidekick instead of patching the same width-aware branch in
-/// three places.
+/// Both branches now return a JS code-unit count:
+/// - Str (post-P11.1-S1): `u32 @8`, zero-extended to i64.
+/// - Substr (post-P11.1-S5): `u64 @8` loaded directly. The pre-S5
+///   layout stored a byte count here; S5 flipped it to a code-unit
+///   count so `.length` matches `bun` / spec on multi-byte source
+///   strings (e.g. `"中文abc".charAt(1).length === 1` vs the pre-S5
+///   `2`-byte-count answer).
+///
+/// Centralizing the load via this helper kept the S5 substrate
+/// change a runtime-side flip rather than three matching IR-edit
+/// sites (`.length` property access, inline `str === <literal>`,
+/// `coerce_to_bool` of a non-null string).
 ///
 /// Helper added 2026-06-03 as part of P11.1-S1 (acknowledged
 /// extension of the sidekick's carve-out — see module doc).
@@ -87,7 +90,7 @@ pub(crate) fn load_str_or_substr_length(ctx: &mut LowerCtx, op: Operand, ty: Typ
         );
         Operand::Value(widened)
     } else {
-        // Substr (pre-S5) — load the u64 length directly.
+        // Substr (post-S5) — load the u64 code-unit count directly.
         let v = ctx.f.append_inst(
             ctx.cur_block,
             InstKind::Load(Type::I64, op, 8),

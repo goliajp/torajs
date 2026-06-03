@@ -46,11 +46,13 @@ unsafe fn substr_parent_is_latin1(v: *const u8) -> bool {
     unsafe { (*parent).flags & STR_FLAG_IS_LATIN1 != 0 }
 }
 
+/// JS code-unit count of the view (post-P11.1-S5).
 #[inline]
 unsafe fn substr_len(v: *const u8) -> u64 {
     unsafe { *(v.add(SUBSTR_LEN_OFF) as *const u64) }
 }
 
+/// JS code-unit offset into the parent's payload (post-P11.1-S5).
 #[inline]
 unsafe fn substr_offset(v: *const u8) -> u64 {
     unsafe { *(v.add(SUBSTR_OFFSET_OFF) as *const u64) }
@@ -61,11 +63,18 @@ unsafe fn substr_parent(v: *const u8) -> *mut u8 {
     unsafe { *(v.add(SUBSTR_PARENT_OFF) as *const *mut u8) }
 }
 
-/// `(parent.bytes + offset)` — pointer to the first byte of the
-/// view.
+/// `(parent.bytes + cu_offset × parent_stride)` — pointer to the
+/// first byte of the view. The byte address depends on the parent
+/// encoding's stride (1 for Latin-1, 2 for UTF-16 LE).
 #[inline]
 unsafe fn substr_data(v: *const u8) -> *const u8 {
-    unsafe { substr_parent(v).add(STR_HDR_SIZE + substr_offset(v) as usize) }
+    let cu_off = unsafe { substr_offset(v) } as usize;
+    let stride = if unsafe { substr_parent_is_latin1(v) } {
+        1
+    } else {
+        2
+    };
+    unsafe { substr_parent(v).add(STR_HDR_SIZE + cu_off * stride) }
 }
 
 // `str_data` (single-line `s.add(STR_HDR_SIZE)`) was used by the
@@ -93,16 +102,18 @@ unsafe fn str_view<'a>(s: *const u8) -> (&'a [u8], u32, bool) {
     (payload, length, is_latin1)
 }
 
-/// Read a Substr's `(payload, byte_len, parent_is_latin1)` view.
-/// Substr's `len@8` is a byte count over the parent's payload
-/// (S5 will flip it to a code-unit count); divide by stride to
-/// recover the JS code-unit count.
+/// Read a Substr's `(payload, cu_len, parent_is_latin1)` view.
+/// `cu_len` is the JS code-unit count (post-P11.1-S5);
+/// `payload` covers `cu_len × parent_stride` bytes starting at the
+/// view's first byte.
 #[inline]
 unsafe fn substr_view<'a>(v: *const u8) -> (&'a [u8], usize, bool) {
-    let byte_len = unsafe { substr_len(v) } as usize;
+    let cu_len = unsafe { substr_len(v) } as usize;
     let is_latin1 = unsafe { substr_parent_is_latin1(v) };
+    let stride = if is_latin1 { 1 } else { 2 };
+    let byte_len = cu_len * stride;
     let payload = unsafe { core::slice::from_raw_parts(substr_data(v), byte_len) };
-    (payload, byte_len, is_latin1)
+    (payload, cu_len, is_latin1)
 }
 
 /// Widen a Latin-1 byte payload to a UTF-16 LE byte buffer (each
@@ -169,10 +180,9 @@ fn align_substr_needle<'h, 'n>(
 /// `v` is a live `*const Substr` (rc > 0).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_substr_char_code_at(v: *const u8, i: i64) -> i64 {
-    let byte_len = unsafe { substr_len(v) };
+    let cu_len = unsafe { substr_len(v) };
     let is_latin1 = unsafe { substr_parent_is_latin1(v) };
     let stride = if is_latin1 { 1u64 } else { 2u64 };
-    let cu_len = byte_len / stride;
     if i < 0 || (i as u64) >= cu_len {
         return 0;
     }
@@ -202,15 +212,15 @@ pub unsafe extern "C" fn __torajs_substr_char_code_at(v: *const u8, i: i64) -> i
 /// `v` is a live `*const Substr`, `s` is a live `*const Str`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_substr_eq_str(v: *const u8, s: *const u8) -> i64 {
-    let (v_payload, v_byte_len, v_latin1) = unsafe { substr_view(v) };
+    let (v_payload, _v_cu_len, v_latin1) = unsafe { substr_view(v) };
     let (s_payload, _, s_latin1) = unsafe { str_view(s) };
     if v_latin1 != s_latin1 {
         return 0;
     }
-    if v_byte_len != s_payload.len() {
+    if v_payload.len() != s_payload.len() {
         return 0;
     }
-    if v_byte_len == 0 {
+    if v_payload.is_empty() {
         return 1;
     }
     if v_payload == s_payload { 1 } else { 0 }
@@ -232,10 +242,10 @@ pub unsafe extern "C" fn __torajs_substr_eq_str(v: *const u8, s: *const u8) -> i
 /// (rc=1).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_substr_to_owned(v: *const u8) -> *mut c_void {
-    let byte_len = unsafe { substr_len(v) } as u32;
+    let length = unsafe { substr_len(v) } as u32;
     let is_latin1 = unsafe { substr_parent_is_latin1(v) };
     let stride: u32 = if is_latin1 { 1 } else { 2 };
-    let length = byte_len / stride;
+    let byte_len = length * stride;
     let mut block = StrBlock::alloc_with_encoding(length, is_latin1);
     if byte_len > 0 {
         let dst = unsafe { block.as_bytes_mut(byte_len) };
@@ -464,20 +474,16 @@ pub unsafe extern "C" fn __torajs_substr_index_of(v: *const u8, n: *const u8) ->
 /// `substr.slice(start, end)` — view-of-view. Negative indices wrap;
 /// `start > end` clamps to empty.
 ///
-/// P11.1-S2.5 Round 2 — `start` / `end` are JS code-unit indices.
-/// The new Substr's `(offset, len)` are bytes (Substr layout
-/// pre-S5), so the code-unit range is multiplied by the parent's
-/// stride before forwarding to `__torajs_substr_create`.
+/// `start` / `end` are JS code-unit indices. Post-P11.1-S5 both the
+/// view's `(offset, len)` and `__torajs_substr_create`'s args are
+/// code units, so no byte/stride conversion is needed here.
 ///
 /// # Safety
 /// `v` is a live `*const Substr`. Returned pointer is a fresh
 /// Substr (rc=1) referencing the SAME root parent.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_substr_slice(v: *const u8, start: i64, end: i64) -> *mut c_void {
-    let v_byte_len = unsafe { substr_len(v) } as i64;
-    let is_latin1 = unsafe { substr_parent_is_latin1(v) };
-    let stride: i64 = if is_latin1 { 1 } else { 2 };
-    let cu_len = v_byte_len / stride;
+    let cu_len = unsafe { substr_len(v) } as i64;
     let mut s = if start < 0 { cu_len + start } else { start };
     let mut e = if end < 0 { cu_len + end } else { end };
     if s < 0 {
@@ -497,9 +503,7 @@ pub unsafe extern "C" fn __torajs_substr_slice(v: *const u8, start: i64, end: i6
     }
     let parent = unsafe { substr_parent(v) };
     let v_off = unsafe { substr_offset(v) };
-    let s_byte = (s * stride) as u64;
-    let len_byte = ((e - s) * stride) as u64;
-    unsafe { __torajs_substr_create(parent as *mut c_void, v_off + s_byte, len_byte) }
+    unsafe { __torajs_substr_create(parent as *mut c_void, v_off + s as u64, (e - s) as u64) }
 }
 
 /// `substr.substring(start, end)` — clamps + swaps (no wrap on
@@ -516,10 +520,7 @@ pub unsafe extern "C" fn __torajs_substr_substring(
     start: i64,
     end: i64,
 ) -> *mut c_void {
-    let v_byte_len = unsafe { substr_len(v) } as i64;
-    let is_latin1 = unsafe { substr_parent_is_latin1(v) };
-    let stride: i64 = if is_latin1 { 1 } else { 2 };
-    let cu_len = v_byte_len / stride;
+    let cu_len = unsafe { substr_len(v) } as i64;
     let mut start = start.max(0);
     let mut end = end.max(0);
     if start > cu_len {
@@ -533,9 +534,13 @@ pub unsafe extern "C" fn __torajs_substr_substring(
     }
     let parent = unsafe { substr_parent(v) };
     let v_off = unsafe { substr_offset(v) };
-    let s_byte = (start * stride) as u64;
-    let len_byte = ((end - start) * stride) as u64;
-    unsafe { __torajs_substr_create(parent as *mut c_void, v_off + s_byte, len_byte) }
+    unsafe {
+        __torajs_substr_create(
+            parent as *mut c_void,
+            v_off + start as u64,
+            (end - start) as u64,
+        )
+    }
 }
 
 #[inline]
@@ -543,130 +548,117 @@ fn substr_is_ws(b: u8) -> bool {
     matches!(b, b' ' | b'\t' | b'\n' | b'\r' | 0x0B | 0x0C)
 }
 
-/// `substr.trim()` — narrow leading + trailing ASCII whitespace.
+/// Compute trim bounds for Substr `v` and return the
+/// `(parent, code_unit_offset, code_unit_len)` triple that the
+/// `_trim_*` family hands to [`__torajs_substr_create`] / writes
+/// into the `_trim_into` stack buffer. `do_start` / `do_end` toggle
+/// which sides scan (`_trim_start` skips end, `_trim_end` skips
+/// start, `_trim` does both).
 ///
-/// P11.1-S2.5 Round 2 — encoding-aware. Latin-1 path steps by 1
-/// byte; UTF-16 path steps by 2 and only drops u16 code units
-/// whose low byte is in the ASCII whitespace set AND high byte is
-/// zero (matches the standalone `trim.rs` behavior).
-///
-/// # Safety
-/// `v` is a live `*const Substr`. Returned pointer is a fresh
-/// Substr (rc=1) referencing the SAME root parent.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_substr_trim(v: *const u8) -> *mut c_void {
-    let (payload, byte_len, is_latin1) = unsafe { substr_view(v) };
+/// Encoding-aware (P11.1-S5): Latin-1 = byte-stride scan; UTF-16 LE
+/// = u16-stride scan with high-byte-zero + low-byte-in-WS predicate.
+/// Byte indices from the scan are divided by the parent's stride to
+/// yield code-unit `(lo, hi)`.
+#[inline]
+unsafe fn trim_cu_bounds(v: *const u8, do_start: bool, do_end: bool) -> (*mut c_void, u64, u64) {
+    let (payload, _cu_len, is_latin1) = unsafe { substr_view(v) };
     let v_off = unsafe { substr_offset(v) };
-    let parent = unsafe { substr_parent(v) };
-    let (lo, hi) = if is_latin1 {
+    let parent = unsafe { substr_parent(v) } as *mut c_void;
+    let byte_len = payload.len();
+    let (lo_byte, hi_byte) = if is_latin1 {
         let mut lo = 0usize;
-        while lo < byte_len && substr_is_ws(payload[lo]) {
-            lo += 1;
+        if do_start {
+            while lo < byte_len && substr_is_ws(payload[lo]) {
+                lo += 1;
+            }
         }
         let mut hi = byte_len;
-        while hi > lo && substr_is_ws(payload[hi - 1]) {
-            hi -= 1;
+        if do_end {
+            while hi > lo && substr_is_ws(payload[hi - 1]) {
+                hi -= 1;
+            }
         }
         (lo, hi)
     } else {
         let mut lo = 0usize;
-        while lo + 1 < byte_len && payload[lo + 1] == 0 && substr_is_ws(payload[lo]) {
-            lo += 2;
+        if do_start {
+            while lo + 1 < byte_len && payload[lo + 1] == 0 && substr_is_ws(payload[lo]) {
+                lo += 2;
+            }
         }
         let mut hi = byte_len;
-        while hi >= lo + 2 && payload[hi - 1] == 0 && substr_is_ws(payload[hi - 2]) {
-            hi -= 2;
+        if do_end {
+            while hi >= lo + 2 && payload[hi - 1] == 0 && substr_is_ws(payload[hi - 2]) {
+                hi -= 2;
+            }
         }
         (lo, hi)
     };
-    unsafe { __torajs_substr_create(parent as *mut c_void, v_off + lo as u64, (hi - lo) as u64) }
+    let stride = if is_latin1 { 1 } else { 2 };
+    let cu_lo = (lo_byte / stride) as u64;
+    let cu_hi = (hi_byte / stride) as u64;
+    (parent, v_off + cu_lo, cu_hi - cu_lo)
 }
 
-/// Stack-write variant of [`__torajs_substr_trim`] — writes the
-/// trimmed view into a caller-provided 32-byte buffer instead of
-/// heap-allocating a fresh `SubstrBlock`.
-///
-/// The written buffer carries [`FLAG_SUBSTR_INLINE`] so that a
-/// subsequent `__torajs_substr_drop(out_buf)` follows the INLINE
-/// branch (dec parent rc only, no pool push, no free). Parent rc
-/// is bumped here to balance that dec — full drop-in semantic
-/// replacement of the heap path while skipping the
-/// `pool_pop`/`pool_push` roundtrip.
+/// `substr.trim()` — narrow leading + trailing ASCII whitespace.
+/// Encoding-aware via [`trim_cu_bounds`]; the returned Substr
+/// references the SAME root parent.
 ///
 /// # Safety
-///
-/// `v` must be a live `*const Substr` (32-byte aligned, valid
-/// header + parent + offset + len). `out_buf` must be a writable
-/// 32-byte aligned region (typically a caller `alloca [32 x i8]`).
-/// Caller MUST eventually invoke `__torajs_substr_drop(out_buf)`
-/// — the INLINE branch will dec parent rc symmetrically with the
-/// `rc_inc` performed here.
+/// `v` is a live `*const Substr`. Returned pointer is a fresh
+/// Substr (rc=1).
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_substr_trim_into(v: *const u8, out_buf: *mut u8) {
-    let v_len = unsafe { substr_len(v) };
-    let v_off = unsafe { substr_offset(v) };
-    let parent = unsafe { substr_parent(v) };
-    let base = unsafe { (parent as *const u8).add(STR_HDR_SIZE + v_off as usize) };
-    let slice = unsafe { core::slice::from_raw_parts(base, v_len as usize) };
-    let mut lo = 0u64;
-    while lo < v_len && substr_is_ws(slice[lo as usize]) {
-        lo += 1;
-    }
-    let mut hi = v_len;
-    while hi > lo && substr_is_ws(slice[(hi - 1) as usize]) {
-        hi -= 1;
-    }
-    // Header u64: refcount=0 @0..4, type_tag=Tag::Str=0 @4..6,
-    // flags=FLAG_SUBSTR_INLINE @6..8. Pack as u64 little-endian:
-    // (FLAG_SUBSTR_INLINE as u64) << 48 places the u16 flags field
-    // at the high 16 bits of the u64 header word — matches
-    // `HeapHeader { refcount: u32, type_tag: u16, flags: u16 }`
-    // layout on a little-endian target.
-    let header_u64 = (FLAG_SUBSTR_INLINE as u64) << 48;
-    unsafe {
-        (out_buf as *mut u64).write(header_u64);
-        (out_buf.add(SUBSTR_LEN_OFF) as *mut u64).write(hi - lo);
-        (out_buf.add(SUBSTR_PARENT_OFF) as *mut *mut c_void).write(parent as *mut c_void);
-        (out_buf.add(SUBSTR_OFFSET_OFF) as *mut u64).write(v_off + lo);
-    }
-    // INLINE-flagged views still own one parent ref — symmetric
-    // with `drop_pool_aware`'s INLINE branch which calls
-    // `drop_parent` (= `__torajs_rc_dec(parent)`).
-    unsafe { __torajs_rc_inc(parent as *mut c_void) };
+pub unsafe extern "C" fn __torajs_substr_trim(v: *const u8) -> *mut c_void {
+    let (parent, off, len) = unsafe { trim_cu_bounds(v, true, true) };
+    unsafe { __torajs_substr_create(parent, off, len) }
 }
 
-/// `substr.trimStart()`.
+/// `substr.trimStart()` — encoding-aware via [`trim_cu_bounds`].
 ///
 /// # Safety
 /// See [`__torajs_substr_trim`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_substr_trim_start(v: *const u8) -> *mut c_void {
-    let v_len = unsafe { substr_len(v) };
-    let v_off = unsafe { substr_offset(v) };
-    let parent = unsafe { substr_parent(v) };
-    let base = unsafe { (parent as *const u8).add(STR_HDR_SIZE + v_off as usize) };
-    let slice = unsafe { core::slice::from_raw_parts(base, v_len as usize) };
-    let mut lo = 0u64;
-    while lo < v_len && substr_is_ws(slice[lo as usize]) {
-        lo += 1;
-    }
-    unsafe { __torajs_substr_create(parent as *mut c_void, v_off + lo, v_len - lo) }
+    let (parent, off, len) = unsafe { trim_cu_bounds(v, true, false) };
+    unsafe { __torajs_substr_create(parent, off, len) }
 }
 
-/// `substr.trimEnd()`.
+/// `substr.trimEnd()` — encoding-aware via [`trim_cu_bounds`].
 ///
 /// # Safety
 /// See [`__torajs_substr_trim`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_substr_trim_end(v: *const u8) -> *mut c_void {
-    let v_len = unsafe { substr_len(v) };
-    let v_off = unsafe { substr_offset(v) };
-    let parent = unsafe { substr_parent(v) };
-    let base = unsafe { (parent as *const u8).add(STR_HDR_SIZE + v_off as usize) };
-    let slice = unsafe { core::slice::from_raw_parts(base, v_len as usize) };
-    let mut hi = v_len;
-    while hi > 0 && substr_is_ws(slice[(hi - 1) as usize]) {
-        hi -= 1;
+    let (parent, off, len) = unsafe { trim_cu_bounds(v, false, true) };
+    unsafe { __torajs_substr_create(parent, off, len) }
+}
+
+/// Stack-write variant of [`__torajs_substr_trim`] — writes the
+/// trimmed view into a caller-provided 32-byte buffer instead of
+/// heap-allocating a fresh `SubstrBlock`. The buffer carries
+/// [`FLAG_SUBSTR_INLINE`] so a subsequent `__torajs_substr_drop`
+/// follows the INLINE branch (dec parent rc only, no pool push,
+/// no free); the symmetric `rc_inc` is performed here.
+///
+/// P11.1-S5 — `len@8` / `offset@24` are written in JS code units
+/// via [`trim_cu_bounds`].
+///
+/// # Safety
+///
+/// `v` must be a live `*const Substr`. `out_buf` must be a writable
+/// 32-byte aligned region (typically a caller `alloca [32 x i8]`).
+/// Caller MUST eventually invoke `__torajs_substr_drop(out_buf)`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_substr_trim_into(v: *const u8, out_buf: *mut u8) {
+    let (parent, off, len) = unsafe { trim_cu_bounds(v, true, true) };
+    // Header u64: refcount=0 @0..4, type_tag=Tag::Str=0 @4..6,
+    // flags=FLAG_SUBSTR_INLINE @6..8 packed little-endian.
+    let header_u64 = (FLAG_SUBSTR_INLINE as u64) << 48;
+    unsafe {
+        (out_buf as *mut u64).write(header_u64);
+        (out_buf.add(SUBSTR_LEN_OFF) as *mut u64).write(len);
+        (out_buf.add(SUBSTR_PARENT_OFF) as *mut *mut c_void).write(parent);
+        (out_buf.add(SUBSTR_OFFSET_OFF) as *mut u64).write(off);
     }
-    unsafe { __torajs_substr_create(parent as *mut c_void, v_off, hi) }
+    unsafe { __torajs_rc_inc(parent) };
 }

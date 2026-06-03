@@ -337,14 +337,18 @@ pub unsafe extern "C" fn __torajs_arr_print_substr(arr: *const c_void) {
                 put_bytes(b"\"\"");
                 continue;
             }
-            let slen = *(v.add(SUBSTR_LEN_OFF) as *const u64) as usize;
+            let cu_len = *(v.add(SUBSTR_LEN_OFF) as *const u64) as usize;
             let parent = *(v.add(SUBSTR_PARENT_OFF) as *const *const u8);
-            let offset = *(v.add(SUBSTR_OFFSET_OFF) as *const u64) as usize;
+            let cu_offset = *(v.add(SUBSTR_OFFSET_OFF) as *const u64) as usize;
             put_byte(b'"');
-            if slen > 0 {
+            if cu_len > 0 {
                 let flags = *(parent.add(HDR_FLAGS_OFF) as *const u16);
                 let is_latin1 = (flags & STR_FLAG_IS_LATIN1) != 0;
-                let bytes = core::slice::from_raw_parts(parent.add(STR_DATA_OFF + offset), slen);
+                let stride = if is_latin1 { 1 } else { 2 };
+                let bytes = core::slice::from_raw_parts(
+                    parent.add(STR_DATA_OFF + cu_offset * stride),
+                    cu_len * stride,
+                );
                 put_str_payload(bytes, is_latin1);
             }
             put_byte(b'"');
