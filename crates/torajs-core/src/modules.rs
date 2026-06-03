@@ -7,12 +7,13 @@
 //! resolved breadth-first; the visited set keys on the canonicalized
 //! absolute path so cyclic imports terminate naturally.
 //!
-//! Subset boundary (will lift in later phases):
-//!   - `import { a, b as c } from "./y"`     — supported
-//!   - `import x from "./y"`                  — rejected (default)
-//!   - `import * as ns from "./y"`            — rejected (namespace)
-//!   - `import "./y"`                         — rejected (side-effect)
-//!   - `export { a, b }` (re-export, no inner) — rejected
+//! Subset boundary (P13 sub-step ship chain progressively lifts these):
+//!   - `import { a, b as c } from "./y"`     — supported (K.2 baseline)
+//!   - `import x from "./y"`                  — supported (P13-S1; pairs with
+//!                                              `export default <expr>`)
+//!   - `import * as ns from "./y"`            — rejected (P13-S2)
+//!   - `import "./y"`                         — rejected (P13-S3)
+//!   - `export { a, b }` (re-export, no inner) — rejected (P13-S4)
 //!
 //! Behaviour notes:
 //!   - Lib-level non-`export` top-level statements are silently dropped.
@@ -43,8 +44,10 @@ type NamedImport = (String, Option<String>);
 
 /// Worklist entry for the BFS resolver — the canonicalized absolute
 /// path of a module to load, plus the named-imports list that drove
-/// the request.
-type WorkItem = (PathBuf, Vec<NamedImport>);
+/// the request, plus the default-binding alias (`Some(x)` when the
+/// importer wrote `import x from "./y"`; the lib's
+/// `export default <expr>` resolves to a synthetic `let x = <expr>`).
+type WorkItem = (PathBuf, Vec<NamedImport>, Option<String>);
 
 /// Resolve every `import` in `ast` by reading + parsing the target file
 /// and injecting its requested named exports as top-level declarations
@@ -77,13 +80,13 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
             }
             check_k2_form(source, default, namespace, named)?;
             let path = resolve_path(base_dir, source)?;
-            work.push_back((path, named.clone()));
+            work.push_back((path, named.clone(), default.clone()));
         }
     }
 
     let mut injections: Vec<Stmt> = Vec::new();
 
-    while let Some((target_path, named)) = work.pop_front() {
+    while let Some((target_path, named, default_alias)) = work.pop_front() {
         if !visited.insert(target_path.clone()) {
             continue;
         }
@@ -120,7 +123,28 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
                     }
                     check_k2_form(&source, &default, &namespace, &named)?;
                     let path = resolve_path(&target_dir, &source)?;
-                    work.push_back((path, named));
+                    work.push_back((path, named, default));
+                }
+                Stmt::ExportDecl {
+                    inner: None,
+                    default_expr: Some(eid),
+                    ..
+                } => {
+                    // `export default <expr>` form. Inject as a synthetic
+                    // `let <importer-alias> = <expr>` if the importer used
+                    // the default-binding form (`import x from ...`).
+                    if let Some(alias) = &default_alias {
+                        injections.push(Stmt::LetDecl {
+                            mutable: false,
+                            name: alias.clone(),
+                            type_ann: None,
+                            init: eid,
+                            is_var: false,
+                        });
+                    }
+                    // If no default alias was requested the export is
+                    // silently dropped — matches "named exports not in
+                    // the importer's list" behavior for parity.
                 }
                 Stmt::ExportDecl {
                     inner: Some(boxed), ..
@@ -171,17 +195,12 @@ fn check_k2_form(
     namespace: &Option<String>,
     named: &[(String, Option<String>)],
 ) -> Result<(), String> {
-    if default.is_some() {
-        return Err(format!(
-            "default import (`import x from \"{source}\"`) not supported in K.2"
-        ));
-    }
     if namespace.is_some() {
         return Err(format!(
             "namespace import (`import * as ns from \"{source}\"`) not supported in K.2"
         ));
     }
-    if named.is_empty() {
+    if named.is_empty() && default.is_none() {
         return Err(format!(
             "side-effect-only import (`import \"{source}\"`) not supported in K.2"
         ));
