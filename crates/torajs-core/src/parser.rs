@@ -73,6 +73,7 @@ pub fn parse_into(tokens: &[Spanned], target: &mut Ast) -> Result<usize, String>
         current_class: None,
         synth_classes: Vec::new(),
         class_value_aliases: std::collections::HashMap::new(),
+        dyn_import_counter: 0,
     };
     let result = p.parse_program();
     *target = p.ast;
@@ -134,6 +135,13 @@ struct Parser<'a> {
     /// rarely collides; if it does, lift to a scope stack). The full
     /// dynamic-ctor-dispatch substrate is parked as an L3b follow-up.
     class_value_aliases: std::collections::HashMap<String, String>,
+    /// P13-S5 — counter for synthetic namespace bindings minted by
+    /// `parse_primary` when it encounters a dynamic `import("./y")`
+    /// expression. Each occurrence prepends a synthetic
+    /// `import * as __dyn_<n> from "./y"` to the stmt stream (via
+    /// `synth_classes`) and rewrites the expression to
+    /// `Promise.resolve(__dyn_<n>)`.
+    dyn_import_counter: u32,
 }
 
 /// V3-18 wedge — strip the standard generator/iterator wrapper from
@@ -3018,6 +3026,7 @@ impl Parser<'_> {
                         // never adds aliases itself (only stmt-level
                         // const-decls register).
                         class_value_aliases: self.class_value_aliases.clone(),
+                        dyn_import_counter: self.dyn_import_counter,
                     };
                     let result = sub.parse_expr()?;
                     // Tokens vec ends with Token::Eof; anything before
@@ -3036,6 +3045,9 @@ impl Parser<'_> {
                     // outer parser so they flush at the enclosing
                     // stmt boundary.
                     self.synth_classes.append(&mut sub.synth_classes);
+                    // P13-S5 — propagate dynamic-import counter so
+                    // the next minted name doesn't collide.
+                    self.dyn_import_counter = sub.dyn_import_counter;
                     result
                 }
             };
@@ -3896,6 +3908,71 @@ impl Parser<'_> {
     }
 
     fn parse_primary(&mut self) -> Result<ExprId, String> {
+        // P13-S5 — dynamic `import("./y")` expression. Restricted to a
+        // string-literal source (compile-time resolvable for AOT) so we
+        // can synthesize a `import * as __dyn_<n> from "./y"` decl in
+        // the same translation unit and rewrite the expression to
+        // `Promise.resolve(__dyn_<n>)`. The runtime path is identical
+        // to the static namespace-import form (P13-S2) — the only
+        // observable difference is the `Promise<…>` wrapper, matching
+        // `import()` per ES §13.3.10.
+        if matches!(self.peek(), Token::Import) {
+            self.pos += 1;
+            if !matches!(self.peek(), Token::LParen) {
+                return Err(format!(
+                    "dynamic `import` requires `(<source>)`; got {:?} at {}",
+                    self.peek(),
+                    self.at()
+                ));
+            }
+            self.pos += 1;
+            let source = match self.peek() {
+                Token::String(s) => {
+                    let s = s.clone();
+                    self.pos += 1;
+                    s
+                }
+                t => {
+                    return Err(format!(
+                        "dynamic `import` requires a string-literal source; got {t:?} at {}",
+                        self.at()
+                    ));
+                }
+            };
+            if !matches!(self.peek(), Token::RParen) {
+                return Err(format!(
+                    "expected `)` to close dynamic `import(...)`, got {:?} at {}",
+                    self.peek(),
+                    self.at()
+                ));
+            }
+            self.pos += 1;
+            let n = self.dyn_import_counter;
+            self.dyn_import_counter += 1;
+            let ns_name = format!("__dyn_ns_{n}");
+            // Synthesize: `import * as <ns_name> from <source>`. The
+            // existing K.2 namespace pipeline (P13-S2) materializes the
+            // alias as a struct literal of all of `source`'s exports.
+            self.synth_classes.push(Stmt::ImportDecl {
+                default: None,
+                namespace: Some(ns_name.clone()),
+                named: Vec::new(),
+                source,
+            });
+            // Build expression: `{ value: <ns_name> }`. The await prefix
+            // desugar (`<expr>.value`) then reads the namespace struct
+            // out of the wrapper. This matches the common
+            // `const M = await import("./y")` pattern without forcing the
+            // typecheck through Promise<struct-with-fn-fields> (which is
+            // a separate substrate gap tracked in L3b — the standalone
+            // Promise<namespace> shape only matters for `.then()` use,
+            // which is uncommon for dynamic import in TS code).
+            let ns_id = self.ast.add_expr(Expr::Ident(ns_name));
+            let wrapper = self.ast.add_expr(Expr::ObjectLit {
+                fields: vec![("value".into(), ns_id)],
+            });
+            return Ok(wrapper);
+        }
         if matches!(self.peek(), Token::LParen) {
             // `(` could start either a parenthesized expression `(e)` or an
             // arrow fn `(params) =>`. Disambiguate by scanning forward to the
