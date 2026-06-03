@@ -42,10 +42,10 @@ pub unsafe extern "C" fn __torajs_regex_compile(
     let pat = unsafe { str_slice(pattern_str) };
     let fl = unsafe { str_slice(flags_str) };
 
-    let flag_bits = parse_flags(fl);
-    let src_bytes = pat.to_vec();
+    let flag_bits = parse_flags(&fl);
+    let src_bytes = pat.clone();
 
-    let mut parser = Parser::new(pat, flag_bits);
+    let mut parser = Parser::new(&pat, flag_bits);
     let parse_result = parser.parse();
     let n_captures = parser.n_captures;
 

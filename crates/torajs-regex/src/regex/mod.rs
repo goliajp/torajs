@@ -105,6 +105,11 @@ pub struct RegExp {
 unsafe extern "C" {
     pub fn __torajs_rc_dec(p: *mut c_void) -> i32;
     pub fn __torajs_str_alloc_pooled(len: u64) -> *mut u8;
+    /// P11.1-S2.1 canonical-encoding alloc — scans the input UTF-8
+    /// byte stream and picks Latin-1 / UTF-16 LE storage so the
+    /// resulting Str round-trips correctly through downstream
+    /// print / concat / search.
+    pub fn __torajs_str_alloc(src: *const u8, len: i64) -> *mut u8;
     pub fn __torajs_str_drop(s: *mut c_void);
     pub fn __torajs_arr_alloc(initial_cap: u64) -> *mut c_void;
     pub fn __torajs_arr_push(arr: *mut c_void, val: i64) -> *mut c_void;
@@ -124,10 +129,76 @@ unsafe extern "C" {
 ///
 /// Caller guarantees that `p` is non-null, well-aligned, and
 /// references a tora-Str-layout block whose bytes outlive `'a`.
-pub unsafe fn str_slice<'a>(p: *const c_void) -> &'a [u8] {
-    let len = unsafe { *((p as *const u8).add(8) as *const u64) };
-    let data_ptr = unsafe { (p as *const u8).add(STR_HDR_SIZE) };
-    unsafe { core::slice::from_raw_parts(data_ptr, len as usize) }
+pub unsafe fn str_slice(p: *const c_void) -> Vec<u8> {
+    // P11.1-S2.1 — Str payload is encoded (Latin-1 or UTF-16 LE)
+    // rather than raw UTF-8 bytes. The regex engine operates on
+    // UTF-8 byte streams, so haystacks / patterns transcode here
+    // before reaching the matching code. Returns an owned Vec so
+    // call sites uniformly hold the buffer for the duration of
+    // the match; ASCII-only Latin-1 payloads still allocate +
+    // `to_vec` once each match, but the regex hot loops dominate
+    // that cost so the simplicity wins. (A `Cow` variant was
+    // explored but every downstream consumer ends up owning the
+    // buffer anyway via VM iteration / replace builders.)
+    let s = p as *const u8;
+    let length = unsafe { *(s.add(8) as *const u32) };
+    let flags = unsafe { *(s.add(6) as *const u16) };
+    let is_latin1 = (flags & 0x0002) != 0;
+    let byte_cnt = if is_latin1 {
+        length as usize
+    } else {
+        (length as usize) * 2
+    };
+    let payload = unsafe { core::slice::from_raw_parts(s.add(STR_HDR_SIZE), byte_cnt) };
+    if is_latin1 && payload.iter().all(|&b| b <= 0x7F) {
+        return payload.to_vec();
+    }
+    if is_latin1 {
+        let mut out = Vec::with_capacity(payload.len() * 2);
+        for &b in payload {
+            if b <= 0x7F {
+                out.push(b);
+            } else {
+                out.push(0xC0 | (b >> 6));
+                out.push(0x80 | (b & 0x3F));
+            }
+        }
+        return out;
+    }
+    let mut out = Vec::with_capacity((length as usize) * 3);
+    let mut i = 0usize;
+    while i + 1 < payload.len() {
+        let cu = u16::from_le_bytes([payload[i], payload[i + 1]]) as u32;
+        let cp = if (0xD800..=0xDBFF).contains(&cu) && i + 3 < payload.len() {
+            let lo = u16::from_le_bytes([payload[i + 2], payload[i + 3]]) as u32;
+            if (0xDC00..=0xDFFF).contains(&lo) {
+                i += 4;
+                0x10000 + ((cu - 0xD800) << 10) + (lo - 0xDC00)
+            } else {
+                i += 2;
+                cu
+            }
+        } else {
+            i += 2;
+            cu
+        };
+        if cp <= 0x7F {
+            out.push(cp as u8);
+        } else if cp <= 0x7FF {
+            out.push((0xC0 | (cp >> 6)) as u8);
+            out.push((0x80 | (cp & 0x3F)) as u8);
+        } else if cp <= 0xFFFF {
+            out.push((0xE0 | (cp >> 12)) as u8);
+            out.push((0x80 | ((cp >> 6) & 0x3F)) as u8);
+            out.push((0x80 | (cp & 0x3F)) as u8);
+        } else {
+            out.push((0xF0 | (cp >> 18)) as u8);
+            out.push((0x80 | ((cp >> 12) & 0x3F)) as u8);
+            out.push((0x80 | ((cp >> 6) & 0x3F)) as u8);
+            out.push((0x80 | (cp & 0x3F)) as u8);
+        }
+    }
+    out
 }
 
 /// Allocate a fresh refcounted `Str` of `data.len()` bytes via the
@@ -140,13 +211,14 @@ pub unsafe fn str_slice<'a>(p: *const c_void) -> &'a [u8] {
 /// time). The returned pointer must be released via
 /// `__torajs_str_drop`.
 pub unsafe fn str_from_bytes(data: &[u8]) -> *mut u8 {
-    let p = unsafe { __torajs_str_alloc_pooled(data.len() as u64) };
-    if !data.is_empty() {
-        unsafe {
-            core::ptr::copy_nonoverlapping(data.as_ptr(), p.add(STR_HDR_SIZE), data.len());
-        }
-    }
-    p
+    // P11.1-S2.1 — route through the canonical-encoding alloc so
+    // returned match-fragment Strs carry the correct encoding flag
+    // and downstream print / concat see them with consistent
+    // semantics. Input `data` is a UTF-8 byte slice (either the
+    // already-transcoded haystack returned by `str_slice`, or a
+    // replacement-builder buffer that the regex engine assembled
+    // codepoint-by-codepoint).
+    unsafe { __torajs_str_alloc(data.as_ptr(), data.len() as i64) }
 }
 
 /// Abort with "not yet supported:" for a rejected regex. The

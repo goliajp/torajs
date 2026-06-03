@@ -62,6 +62,101 @@ pub const PATH_MAX_LEN: usize = 4096;
 
 const STR_HDR_SIZE: usize = 16;
 const STR_LEN_OFF: usize = 8;
+/// Mirror of `torajs_str::layout::STR_FLAG_IS_LATIN1` — the flag
+/// bit on `flags u16 @6` that discriminates Latin-1 payload (set)
+/// from UTF-16 little-endian payload (clear).
+const STR_FLAG_IS_LATIN1: u16 = 0x0002;
+/// Universal heap header `flags u16 @6` offset for direct read.
+const HDR_FLAGS_OFF: usize = 6;
+
+/// Read a Str's `(payload_bytes, length, is_latin1)` triple without
+/// allocating. Payload bytes are the raw encoded payload (Latin-1:
+/// length bytes; UTF-16: length × 2 bytes).
+///
+/// # Safety
+/// `s` must point at a valid Str heap block.
+#[inline]
+unsafe fn str_view<'a>(s: *const u8) -> (&'a [u8], u32, bool) {
+    let length = unsafe { (s.add(STR_LEN_OFF) as *const u32).read() };
+    let flags = unsafe { (s.add(HDR_FLAGS_OFF) as *const u16).read() };
+    let is_latin1 = (flags & STR_FLAG_IS_LATIN1) != 0;
+    let byte_cnt = if is_latin1 {
+        length as usize
+    } else {
+        (length as usize) * 2
+    };
+    let payload = unsafe { core::slice::from_raw_parts(s.add(STR_HDR_SIZE), byte_cnt) };
+    (payload, length, is_latin1)
+}
+
+/// Transcode a Str's payload to a UTF-8 byte buffer. ASCII-only
+/// Latin-1 payloads pass through verbatim (same byte stream); Latin-
+/// 1 supplement codepoints (0x80..=0xFF) expand to a 2-byte UTF-8
+/// sequence each; UTF-16 LE payloads decode (with surrogate pair
+/// combination for supplementary planes) and re-encode as UTF-8.
+///
+/// Used by every fs write path so files on disk are valid UTF-8
+/// regardless of the in-memory Str encoding.
+///
+/// # Safety
+/// `s` must point at a valid Str heap block.
+unsafe fn str_to_utf8_bytes(s: *const u8) -> Vec<u8> {
+    let (payload, length, is_latin1) = unsafe { str_view(s) };
+    if is_latin1 {
+        // Fast path — payload is ASCII (every byte ≤ 0x7F). Return
+        // verbatim; matches the pre-S2 `slice::from_raw_parts` write
+        // shape for the dominant case.
+        if payload.iter().all(|&b| b <= 0x7F) {
+            return payload.to_vec();
+        }
+        // Latin-1 supplement — re-encode codepoint-by-codepoint.
+        let mut out = Vec::with_capacity(payload.len() * 2);
+        for &b in payload {
+            if b <= 0x7F {
+                out.push(b);
+            } else {
+                out.push(0xC0 | (b >> 6));
+                out.push(0x80 | (b & 0x3F));
+            }
+        }
+        return out;
+    }
+    // UTF-16 LE decode + UTF-8 encode.
+    let mut out = Vec::with_capacity((length as usize) * 3);
+    let mut i = 0usize;
+    while i + 1 < payload.len() {
+        let cu = u16::from_le_bytes([payload[i], payload[i + 1]]) as u32;
+        let cp = if (0xD800..=0xDBFF).contains(&cu) && i + 3 < payload.len() {
+            let lo = u16::from_le_bytes([payload[i + 2], payload[i + 3]]) as u32;
+            if (0xDC00..=0xDFFF).contains(&lo) {
+                i += 4;
+                0x10000 + ((cu - 0xD800) << 10) + (lo - 0xDC00)
+            } else {
+                i += 2;
+                cu
+            }
+        } else {
+            i += 2;
+            cu
+        };
+        if cp <= 0x7F {
+            out.push(cp as u8);
+        } else if cp <= 0x7FF {
+            out.push((0xC0 | (cp >> 6)) as u8);
+            out.push((0x80 | (cp & 0x3F)) as u8);
+        } else if cp <= 0xFFFF {
+            out.push((0xE0 | (cp >> 12)) as u8);
+            out.push((0x80 | ((cp >> 6) & 0x3F)) as u8);
+            out.push((0x80 | (cp & 0x3F)) as u8);
+        } else {
+            out.push((0xF0 | (cp >> 18)) as u8);
+            out.push((0x80 | ((cp >> 12) & 0x3F)) as u8);
+            out.push((0x80 | ((cp >> 6) & 0x3F)) as u8);
+            out.push((0x80 | (cp & 0x3F)) as u8);
+        }
+    }
+    out
+}
 
 // ============================================================
 // Cross-tier extern stubs
@@ -108,13 +203,17 @@ unsafe extern "C" fn __torajs_panic(_msg: *const u8) -> ! {
 /// must point at a writable region of at least `bufsz` bytes.
 #[inline]
 unsafe fn path_copy_to_buf(path_str: *const u8, buf: *mut u8, bufsz: usize) {
-    let p = unsafe { path_str.add(STR_HDR_SIZE) };
-    let mut plen = unsafe { (path_str.add(STR_LEN_OFF) as *const u64).read() } as usize;
+    // Paths are written to disk as UTF-8 byte streams (filesystem
+    // convention on macOS / Linux). Transcode the Str to UTF-8
+    // bytes regardless of in-memory encoding so paths with non-
+    // ASCII codepoints round-trip correctly.
+    let utf8 = unsafe { str_to_utf8_bytes(path_str) };
+    let mut plen = utf8.len();
     if plen >= bufsz {
         plen = bufsz - 1;
     }
     if plen > 0 {
-        unsafe { core::ptr::copy_nonoverlapping(p, buf, plen) };
+        unsafe { core::ptr::copy_nonoverlapping(utf8.as_ptr(), buf, plen) };
     }
     unsafe { buf.add(plen).write(0) };
 }
@@ -220,8 +319,10 @@ pub unsafe extern "C" fn __torajs_fs_write_file_sync(
     let mut buf = [0u8; PATH_MAX_LEN];
     unsafe { path_copy_to_buf(path_str as *const u8, buf.as_mut_ptr(), PATH_MAX_LEN) };
     let data_ptr = data_str as *const u8;
-    let dlen = unsafe { (data_ptr.add(STR_LEN_OFF) as *const u64).read() } as usize;
-    let data = unsafe { core::slice::from_raw_parts(data_ptr.add(STR_HDR_SIZE), dlen) };
+    // Transcode the data Str to a UTF-8 byte stream before writing
+    // so the on-disk bytes match the source string regardless of
+    // the in-memory encoding (Latin-1 supplement / UTF-16).
+    let data = unsafe { str_to_utf8_bytes(data_ptr) };
     // O_WRONLY|O_CREAT|O_TRUNC, mode 0o666 pre-umask = std::fs::write /
     // Node fs.writeFileSync default (umask trims to 0o644 on disk).
     let fd = match unsafe { open_mode(buf.as_ptr(), O_WRONLY | O_CREAT | O_TRUNC, 0o666) } {
@@ -231,7 +332,7 @@ pub unsafe extern "C" fn __torajs_fs_write_file_sync(
             unsafe { panic_with("not yet supported: fs.writeFileSync open failed: ", &detail) };
         }
     };
-    let res = write_all(fd, data);
+    let res = write_all(fd, &data);
     let _ = close(fd);
     if res.is_err() {
         let detail = String::from_utf8_lossy(&buf[..cbuf_len(&buf)]);
@@ -255,8 +356,8 @@ pub unsafe extern "C" fn __torajs_fs_append_file_sync(
     let mut buf = [0u8; PATH_MAX_LEN];
     unsafe { path_copy_to_buf(path_str as *const u8, buf.as_mut_ptr(), PATH_MAX_LEN) };
     let data_ptr = data_str as *const u8;
-    let dlen = unsafe { (data_ptr.add(STR_LEN_OFF) as *const u64).read() } as usize;
-    let data = unsafe { core::slice::from_raw_parts(data_ptr.add(STR_HDR_SIZE), dlen) };
+    // Transcode to UTF-8 byte stream — see __torajs_fs_write_file_sync.
+    let data = unsafe { str_to_utf8_bytes(data_ptr) };
     // O_APPEND: each write seeks to EOF first (matches OpenOptions
     // .append(true)); O_CREAT makes it if absent. No O_TRUNC.
     let fd = match unsafe { open_mode(buf.as_ptr(), O_WRONLY | O_CREAT | O_APPEND, 0o666) } {
@@ -271,7 +372,7 @@ pub unsafe extern "C" fn __torajs_fs_append_file_sync(
             }
         }
     };
-    let res = write_all(fd, data);
+    let res = write_all(fd, &data);
     let _ = close(fd);
     if res.is_err() {
         unsafe {
@@ -433,12 +534,16 @@ mod tests {
 
     fn make_str(payload: &[u8]) -> Vec<u8> {
         // Build a tora Str layout in a Vec for path_copy_to_buf
-        // round-trip tests. Header bytes are uninitialized — only
-        // `len` at offset 8 + payload at offset 16 matter for the
-        // path-copy code path.
+        // round-trip tests. Post-S1 layout: `length u32 @8` + flags
+        // at `HDR_FLAGS_OFF` with `IS_LATIN1` bit set so the
+        // `str_view` helper treats the payload as one byte per
+        // code unit (paths are ASCII / Latin-1 in practice).
         let mut v = vec![0u8; STR_HDR_SIZE + payload.len()];
-        let len = payload.len() as u64;
-        v[STR_LEN_OFF..STR_LEN_OFF + 8].copy_from_slice(&len.to_ne_bytes());
+        let length = payload.len() as u32;
+        v[STR_LEN_OFF..STR_LEN_OFF + 4].copy_from_slice(&length.to_ne_bytes());
+        // Set the IS_LATIN1 flag at flags u16 @6 so the encoding
+        // dispatch picks the byte-per-code-unit fast path.
+        v[HDR_FLAGS_OFF..HDR_FLAGS_OFF + 2].copy_from_slice(&STR_FLAG_IS_LATIN1.to_ne_bytes());
         v[STR_HDR_SIZE..].copy_from_slice(payload);
         v
     }

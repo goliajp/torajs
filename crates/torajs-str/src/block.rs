@@ -108,8 +108,27 @@ impl StrBlock {
     #[inline]
     #[must_use = "StrBlock owns a heap allocation; ignore the value and the block leaks"]
     pub fn alloc(length: u32) -> Self {
-        // S1 phase: Latin-1 only. byte_capacity = length.
-        let is_latin1 = true;
+        // Default-Latin-1 alloc — the pre-S2 hot path. Callers that
+        // need UTF-16 payload routing use
+        // [`Self::alloc_with_encoding`] below.
+        Self::alloc_with_encoding(length, true)
+    }
+
+    /// Allocate a fresh Str heap block with `refcount=1`,
+    /// `type_tag=Tag::Str`, the requested `is_latin1` flag bit set
+    /// (or cleared) on `flags`, and `length=length` code units.
+    /// Bytes are uninitialized — caller must write `byte_capacity =
+    /// length × (if is_latin1 { 1 } else { 2 })` bytes via
+    /// [`Self::as_bytes_mut`] before exposing the block.
+    ///
+    /// P11.1-S2.1 — introduced when concat / coerce / etc grew
+    /// encoding-aware. The pool fast-path applies whenever the
+    /// requested `byte_capacity` (not the code unit count) fits in
+    /// `STR_POOL_PAYLOAD`; UTF-16 short strings still pool, just
+    /// at half the code-unit count compared to Latin-1.
+    #[inline]
+    #[must_use = "StrBlock owns a heap allocation; ignore the value and the block leaks"]
+    pub fn alloc_with_encoding(length: u32, is_latin1: bool) -> Self {
         let cap = byte_capacity(length, is_latin1);
         if cap <= STR_POOL_PAYLOAD {
             if let Some(p) = pool::pop() {
@@ -303,31 +322,114 @@ pub unsafe extern "C" fn __torajs_str_alloc_pooled(len: u64) -> *mut u8 {
     StrBlock::alloc(len as u32).into_raw()
 }
 
-/// Str alloc + payload copy in one call. Equivalent to:
-/// `__torajs_str_alloc_pooled(len)` followed by `memcpy(data, src, len)`.
+/// Str alloc + UTF-8 → canonical encoding payload write in one call.
 ///
-/// Used by every literal materialization (`"hello"` lowers to
-/// `__torajs_str_alloc(literal_ptr, 5)`) and by call sites that
-/// build a Str from an already-laid-out byte buffer. The pool fast-
-/// path applies via `StrBlock::alloc`. Ported from
-/// `ssa_inkwell::define_str_alloc` (P3.1-g.2, 2026-05-23) — the
-/// IR version emitted a 2-call sequence (`str_alloc_pooled` then
-/// `memcpy`); the Rust path collapses both into one extern fn
-/// while preserving the alloc-noalias whitelist entry.
+/// Pre-S2 this was a plain `alloc + memcpy` (input bytes copied
+/// verbatim). P11.1-S2.1 promoted the contract: `src[0..len]` is a
+/// well-formed UTF-8 byte stream; the helper scans it once to
+/// decide the canonical encoding (Latin-1 if every codepoint
+/// ≤ 0xFF, else UTF-16 LE with surrogate pair encoding for
+/// supplementary planes), allocates the matching layout via
+/// [`StrBlock::alloc_with_encoding`], and writes the re-encoded
+/// payload. This canonicalises the runtime side of build-time
+/// `StringLiteral::encode_from_str` — every Str block ever
+/// observed by the print / concat / eq / search ops is encoded
+/// consistently, and same-content / same-encoding Strs compare
+/// equal byte-for-byte without an explicit normalisation pass.
+///
+/// Used by the materialise paths in `torajs-anyvalue`
+/// (`materialize_short_str` packs UTF-8 bytes from the NaN-box
+/// payload into a Heap+Str so the `(tag, value)` pair-API
+/// downstream sees a Tag::Str pointer) and any other helper that
+/// builds a Str from a UTF-8 byte buffer at runtime. Sites that
+/// already hold an encoded payload (concat / case-fold / etc) go
+/// directly through [`StrBlock::alloc_with_encoding`] instead.
 ///
 /// # Safety
 ///
 /// `src` must point at a readable region of at least `len` bytes
-/// (or be NULL when `len == 0`). Returned pointer is a fresh
-/// refcount=1 Str block owned by the caller.
+/// (or be NULL when `len == 0`). The bytes must form a well-
+/// formed UTF-8 sequence — non-UTF-8 inputs silently get the
+/// fallback Latin-1 path (every byte ≤ 0x7F is ASCII so it stays
+/// safe; bytes 0x80-0xFF would be misclassified as Latin-1
+/// codepoints if mixed with stray UTF-8 continuation bytes, but
+/// no current caller hands such garbage). Returned pointer is a
+/// fresh refcount=1 Str block owned by the caller.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_alloc(src: *const u8, len: i64) -> *mut u8 {
-    let len_u = len as u32;
-    let mut block = StrBlock::alloc(len_u);
-    if len_u > 0 {
-        let dst = unsafe { block.as_bytes_mut(len_u) };
-        let src_slice = unsafe { core::slice::from_raw_parts(src, len_u as usize) };
+    let len_u = len as usize;
+    if len_u == 0 {
+        let block = StrBlock::alloc_with_encoding(0, true);
+        return block.into_raw();
+    }
+    // SAFETY: caller guarantees `src..src+len` is readable and
+    // well-formed UTF-8.
+    let src_slice = unsafe { core::slice::from_raw_parts(src, len_u) };
+    let utf8 = unsafe { core::str::from_utf8_unchecked(src_slice) };
+    // Single-pass classification: max codepoint decides Latin-1 vs
+    // UTF-16. Bytes ≤ 0x7F stay one-byte-per-char on the Latin-1
+    // fast path (matches the pre-S2 memcpy footprint for ASCII).
+    let mut max_cp: u32 = 0;
+    for c in utf8.chars() {
+        let cp = c as u32;
+        if cp > max_cp {
+            max_cp = cp;
+        }
+    }
+    let is_latin1 = max_cp <= 0xFF;
+    if is_latin1 && max_cp <= 0x7F {
+        // ASCII fast path — every byte already matches its Latin-1
+        // codepoint, so we can sidestep the per-char re-encode and
+        // copy the source buffer verbatim. Same shape as the
+        // pre-S2 `alloc + memcpy`.
+        let length = len_u as u32;
+        let mut block = StrBlock::alloc_with_encoding(length, true);
+        let dst = unsafe { block.as_bytes_mut(length) };
         dst.copy_from_slice(src_slice);
+        return block.into_raw();
+    }
+    if is_latin1 {
+        // Latin-1 supplement (0x80..=0xFF). Re-encode codepoint-
+        // by-codepoint into one byte each.
+        let length = utf8.chars().count() as u32;
+        let mut block = StrBlock::alloc_with_encoding(length, true);
+        let dst = unsafe { block.as_bytes_mut(length) };
+        for (i, c) in utf8.chars().enumerate() {
+            dst[i] = c as u8;
+        }
+        return block.into_raw();
+    }
+    // UTF-16 LE — BMP codepoints get a single u16; supplementary
+    // plane gets a surrogate pair. Walk twice: first to count code
+    // units for the length field, then to fill the payload.
+    let mut length: u32 = 0;
+    for c in utf8.chars() {
+        length += if (c as u32) > 0xFFFF { 2 } else { 1 };
+    }
+    let byte_cap = (length as usize) * 2;
+    let mut block = StrBlock::alloc_with_encoding(length, false);
+    let dst = unsafe { block.as_bytes_mut(byte_cap as u32) };
+    let mut i = 0usize;
+    for c in utf8.chars() {
+        let cp = c as u32;
+        if cp <= 0xFFFF {
+            let u = cp as u16;
+            let le = u.to_le_bytes();
+            dst[i] = le[0];
+            dst[i + 1] = le[1];
+            i += 2;
+        } else {
+            let cp_off = cp - 0x10000;
+            let hi = (0xD800 | (cp_off >> 10)) as u16;
+            let lo = (0xDC00 | (cp_off & 0x3FF)) as u16;
+            let hi_le = hi.to_le_bytes();
+            let lo_le = lo.to_le_bytes();
+            dst[i] = hi_le[0];
+            dst[i + 1] = hi_le[1];
+            dst[i + 2] = lo_le[0];
+            dst[i + 3] = lo_le[1];
+            i += 4;
+        }
     }
     block.into_raw()
 }

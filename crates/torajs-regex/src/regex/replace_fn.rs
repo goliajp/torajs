@@ -54,7 +54,7 @@ unsafe fn replace_fn_inner(
 ) -> *mut c_void {
     if re_ptr.is_null() || closure_env.is_null() {
         let s = unsafe { str_slice(str_ptr) };
-        return unsafe { str_from_bytes(s) as *mut c_void };
+        return unsafe { str_from_bytes(&s) as *mut c_void };
     }
     let re = unsafe { as_regex(re_ptr) };
     if re.rejected != 0 {
@@ -72,15 +72,15 @@ unsafe fn replace_fn_inner(
     let sticky = re.flags & RE_FLAG_Y != 0;
     while pos <= slen {
         let m = if sticky {
-            match_anchor(&re.prog, s, pos, re.flags)
+            match_anchor(&re.prog, &s, pos, re.flags)
         } else {
-            search_from_with_ws(&re.prog, s, pos, re.flags, &mut ws)
+            search_from_with_ws(&re.prog, &s, pos, re.flags, &mut ws)
         };
         let Some(m) = m else { break };
         out.extend_from_slice(&s[pos as usize..m.start as usize]);
         let match_str = unsafe { str_from_bytes(&s[m.start as usize..m.end as usize]) };
         let mut caps: [*mut c_void; 9] = [core::ptr::null_mut(); 9];
-        unsafe { build_capture_strs(n_caps, &m.saves, s, &mut caps) };
+        unsafe { build_capture_strs(n_caps, &m.saves, &s, &mut caps) };
         let ret_str = unsafe {
             invoke_replace_cb(
                 n_caps,
@@ -99,7 +99,7 @@ unsafe fn replace_fn_inner(
         }
         if !ret_str.is_null() {
             let ret_bytes = unsafe { str_slice(ret_str) };
-            out.extend_from_slice(ret_bytes);
+            out.extend_from_slice(&ret_bytes);
             unsafe { __torajs_str_drop(ret_str) };
         }
         if m.end == m.start {

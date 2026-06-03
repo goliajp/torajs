@@ -110,12 +110,12 @@ pub unsafe extern "C" fn __torajs_str_match_regex(
             let h = if start > slen {
                 None
             } else {
-                match_anchor(&re.prog, s, start, re.flags)
+                match_anchor(&re.prog, &s, start, re.flags)
             };
             re.last_index = h.as_ref().map(|m| m.end).unwrap_or(0);
             h
         } else {
-            search_from_with_ws(&re.prog, s, pos, re.flags, &mut ws)
+            search_from_with_ws(&re.prog, &s, pos, re.flags, &mut ws)
         };
         let Some(m) = hit else { break };
         let seg = unsafe { str_from_bytes(&s[m.start as usize..m.end as usize]) };
@@ -134,7 +134,7 @@ pub unsafe extern "C" fn __torajs_str_match_regex(
                 }
             }
             // Named captures → .groups dict.
-            unsafe { attach_groups(out, re, s, &m.saves) };
+            unsafe { attach_groups(out, re, &s, &m.saves) };
             break;
         }
         // Empty match — bump pos by 1.
@@ -175,9 +175,9 @@ pub unsafe extern "C" fn __torajs_regex_exec(
     let m = if track && start > slen {
         None
     } else if sticky {
-        match_anchor(&re.prog, s, start, re.flags)
+        match_anchor(&re.prog, &s, start, re.flags)
     } else {
-        search_from(&re.prog, s, start, re.flags)
+        search_from(&re.prog, &s, start, re.flags)
     };
     let Some(m) = m else {
         if track {
@@ -202,6 +202,6 @@ pub unsafe extern "C" fn __torajs_regex_exec(
             out = unsafe { __torajs_arr_push(out, grp as i64) };
         }
     }
-    unsafe { attach_groups(out, re, s, &m.saves) };
+    unsafe { attach_groups(out, re, &s, &m.saves) };
     out
 }

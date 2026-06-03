@@ -87,9 +87,9 @@ fn replace_inner(re: &RegExp, s: &[u8], repl: &[u8], global: bool) -> Vec<u8> {
     let sticky = re.flags & RE_FLAG_Y != 0;
     while pos <= slen {
         let m = if sticky {
-            match_anchor(&re.prog, s, pos, re.flags)
+            match_anchor(&re.prog, &s, pos, re.flags)
         } else {
-            search_from_with_ws(&re.prog, s, pos, re.flags, &mut ws)
+            search_from_with_ws(&re.prog, &s, pos, re.flags, &mut ws)
         };
         let Some(m) = m else { break };
         out.extend_from_slice(&s[pos as usize..m.start as usize]);
@@ -127,7 +127,7 @@ pub unsafe extern "C" fn __torajs_str_replace_regex(
 ) -> *mut c_void {
     if re_ptr.is_null() {
         let s = unsafe { str_slice(str_ptr) };
-        return unsafe { str_from_bytes(s) as *mut c_void };
+        return unsafe { str_from_bytes(&s) as *mut c_void };
     }
     let re = unsafe { as_regex(re_ptr) };
     if re.rejected != 0 {
@@ -136,7 +136,7 @@ pub unsafe extern "C" fn __torajs_str_replace_regex(
     let s = unsafe { str_slice(str_ptr) };
     let repl = unsafe { str_slice(repl_ptr) };
     let global = re.flags & RE_FLAG_G != 0;
-    let out = replace_inner(re, s, repl, global);
+    let out = replace_inner(re, &s, &repl, global);
     unsafe { str_from_bytes(&out) as *mut c_void }
 }
 
@@ -152,7 +152,7 @@ pub unsafe extern "C" fn __torajs_str_replace_all_regex(
 ) -> *mut c_void {
     if re_ptr.is_null() {
         let s = unsafe { str_slice(str_ptr) };
-        return unsafe { str_from_bytes(s) as *mut c_void };
+        return unsafe { str_from_bytes(&s) as *mut c_void };
     }
     let re = unsafe { as_regex(re_ptr) };
     if re.rejected != 0 {
@@ -163,6 +163,6 @@ pub unsafe extern "C" fn __torajs_str_replace_all_regex(
     // replace_all == replace with implicit `g` (ignore the regex's
     // own g flag — JS spec actually throws TypeError if no g, but
     // tr deferred that to v0.2 #1.c per the C port comment).
-    let out = replace_inner(re, s, repl, /* global */ true);
+    let out = replace_inner(re, &s, &repl, /* global */ true);
     unsafe { str_from_bytes(&out) as *mut c_void }
 }

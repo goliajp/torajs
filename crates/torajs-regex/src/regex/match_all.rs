@@ -51,12 +51,12 @@ pub unsafe extern "C" fn __torajs_str_match_all_regex(
     let mut pos: i64 = 0;
     while pos <= slen {
         let hit = if sticky {
-            match_anchor(&re.prog, s, pos, re.flags)
+            match_anchor(&re.prog, &s, pos, re.flags)
         } else {
-            search_from_with_ws(&re.prog, s, pos, re.flags, &mut ws)
+            search_from_with_ws(&re.prog, &s, pos, re.flags, &mut ws)
         };
         let Some(m) = hit else { break };
-        outer = unsafe { append_inner(outer, re, s, &m.saves, m.start, m.end) };
+        outer = unsafe { append_inner(outer, re, &s, &m.saves, m.start, m.end) };
         pos = if m.end == m.start { m.end + 1 } else { m.end };
     }
     outer

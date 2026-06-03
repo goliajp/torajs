@@ -6187,10 +6187,10 @@ fn synthesize_main(
     globals: &HashMap<String, Type>,
     expr_types: &HashMap<ExprId, crate::check::Type>,
     arity_pad_count: &HashMap<ExprId, usize>,
-) -> (ssa::Function, Vec<Vec<u8>>) {
+) -> (ssa::Function, Vec<ssa::StringLiteral>) {
     let mut f = ssa::Function::new("main", Type::I32);
     let entry = f.add_block();
-    let mut new_strings: Vec<Vec<u8>> = Vec::new();
+    let mut new_strings: Vec<ssa::StringLiteral> = Vec::new();
     {
         let mut ctx = LowerCtx {
             f: &mut f,
@@ -6872,6 +6872,10 @@ pub(crate) fn intern_arr_layout(arr_layouts: &mut Vec<Type>, elem: Type) -> ssa:
     id
 }
 
+// P11.1-S2-a build-time encoding lives on `ssa::StringLiteral` as
+// `StringLiteral::encode_from_str` — see crates/torajs-core/src/
+// ssa/module_methods.rs.
+
 fn intern_fn_sig(fn_sigs: &mut Vec<(Vec<Type>, Type)>, params: Vec<Type>, ret: Type) -> ssa::SigId {
     for (i, ex) in fn_sigs.iter().enumerate() {
         if ex.0 == params && ex.1 == ret {
@@ -6907,7 +6911,7 @@ fn lower_fn(
     globals: &HashMap<String, Type>,
     expr_types: &HashMap<ExprId, crate::check::Type>,
     arity_pad_count: &HashMap<ExprId, usize>,
-) -> (ssa::Function, Vec<Vec<u8>>) {
+) -> (ssa::Function, Vec<ssa::StringLiteral>) {
     let ret_ty = effective_ret_ty(
         parse_type(
             return_type,
@@ -6946,7 +6950,7 @@ fn lower_fn(
     // routes through intern_string_literal). The base offset has the
     // current global string count — caller appends new_strings to
     // module.strings after this returns, so StringIds stay unique.
-    let mut new_strings: Vec<Vec<u8>> = Vec::new();
+    let mut new_strings: Vec<ssa::StringLiteral> = Vec::new();
     let mut ctx = LowerCtx {
         f: &mut f,
         ast,
@@ -7381,7 +7385,7 @@ pub(crate) struct LowerCtx<'a> {
     /// New string literals encountered during this lowering pass (currently
     /// only main collects them). Caller appends these to the module's
     /// strings table; StringId offsets are pre-assigned via string_id_base.
-    new_strings: &'a mut Vec<Vec<u8>>,
+    new_strings: &'a mut Vec<ssa::StringLiteral>,
     string_id_base: usize,
     /// M2 — capture-types side channel shared across all fn lowerings.
     /// Construction site (`Expr::Closure`) populates the entry for the
@@ -8638,7 +8642,8 @@ impl<'a> LowerCtx<'a> {
                     let want_len = bytes.len() as i64;
                     let want_sid =
                         ssa::StringId((self.string_id_base + self.new_strings.len()) as u32);
-                    self.new_strings.push(bytes);
+                    self.new_strings
+                        .push(ssa::StringLiteral::from_latin1_bytes(bytes));
                     let want_ptr = self.f.append_inst(
                         self.cur_block,
                         InstKind::StringRef(want_sid),
@@ -12593,21 +12598,13 @@ impl<'a> LowerCtx<'a> {
     /// (P2.2.b.2 wires that up; this sub-step intentionally leaks one
     /// alloc per literal use, which is fine for one-shot bench programs).
     pub(crate) fn intern_string_literal(&mut self, s: &str) -> ValueId {
-        // Phase P-rpn — every string-literal expression now resolves to
-        // a Str-shaped global (`StaticStrRef`) instead of a per-call
-        // `str_alloc + memcpy + str_drop` pair. The global is marked
-        // STATIC_LITERAL in its universal heap header, so rc_inc /
-        // rc_dec / str_free / arr_free all no-op via runtime flag check.
-        // Hot loops over the same literal turn into a single ptr load
-        // per call.
-        //
-        // Caveat for downstream code: the returned Type::Str ptr is
-        // shared across all callers of the same literal. Anything that
-        // intends to mutate the bytes in place (none today, but a
-        // future builder might) must clone first.
-        let bytes = s.as_bytes().to_vec();
+        // Phase P-rpn — every string-literal expression resolves to a
+        // Str-shaped `StaticStrRef` global (rc_inc / rc_dec / free
+        // all no-op via the STATIC_LITERAL flag). Encoding decision
+        // happens in `StringLiteral::encode_from_str` (P11.1-S2-a).
+        let lit = ssa::StringLiteral::encode_from_str(s);
         let sid = ssa::StringId((self.string_id_base + self.new_strings.len()) as u32);
-        self.new_strings.push(bytes);
+        self.new_strings.push(lit);
         self.f
             .append_inst(self.cur_block, InstKind::StaticStrRef(sid), Type::Str, None)
     }
