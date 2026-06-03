@@ -31,27 +31,17 @@ pub(super) const STATIC_LITERAL_FLAG: u16 = 4;
 pub(super) const STR_IS_LATIN1_FLAG: u16 = 2;
 
 /// Emit one `[N x i8]` private constant per interned string. Just the raw
-/// encoded bytes — no NUL terminator. The string runtime carries length
-/// explicitly in the heap StrRepr's first 8 bytes.
-///
-/// P11.1-S2-a — payload is the post-encode byte buffer
-/// (`lit.bytes`): one byte per Latin-1 code unit, or two little-
-/// endian bytes per UTF-16 code unit. Consumers (e.g.
-/// `__torajs_str_eq_cstr` for obj field-name matching) compare
-/// byte-for-byte against the matching Str payload, which is also
-/// encoded by the same scheme — so the pre-S2 byte-buffer ABI
-/// stays meaningful as long as both ends pick the same encoding
-/// (which they do via `module.strings` carrying the
-/// `is_latin1` flag).
+/// bytes — no NUL terminator. The string runtime carries length explicitly
+/// in the heap StrRepr's first 8 bytes.
 pub(super) fn emit_string_global<'ctx>(
     ctx: &'ctx Context,
     m: &LlvmModule<'ctx>,
     idx: usize,
-    lit: &s::StringLiteral,
+    bytes: &[u8],
 ) -> inkwell::values::GlobalValue<'ctx> {
     let i8_t = ctx.i8_type();
-    let arr_t = i8_t.array_type(lit.bytes.len() as u32);
-    let arr = ctx.const_string(&lit.bytes, false);
+    let arr_t = i8_t.array_type(bytes.len() as u32);
+    let arr = ctx.const_string(bytes, false);
     let g = m.add_global(arr_t, None, &format!(".str{idx}"));
     g.set_initializer(&arr);
     g.set_constant(true);
@@ -85,34 +75,28 @@ pub(super) fn emit_static_str_global<'ctx>(
     ctx: &'ctx Context,
     m: &LlvmModule<'ctx>,
     idx: usize,
-    lit: &s::StringLiteral,
+    bytes: &[u8],
 ) -> inkwell::values::GlobalValue<'ctx> {
     let i8_t = ctx.i8_type();
     let i32_t = ctx.i32_type();
     let i64_t = ctx.i64_type();
-    // `lit.length` is the ES `String.length` code unit count. `lit.bytes`
-    // is the encoded payload (Latin-1: bytes.len() = length;
-    // UTF-16: bytes.len() = length × 2).
-    let payload_bytes = lit.bytes.len() as u32;
+    let length = bytes.len() as u32;
 
     // Universal heap header packed into a single u64:
     //   refcount (u32) @ [0..32]   = 1 (irrelevant — rc_inc/dec no-op)
     //   type_tag (u16) @ [32..48]  = TAG_STR (= 0)
-    //   flags    (u16) @ [48..64]  = STATIC_LITERAL | (IS_LATIN1 if Latin-1)
-    let mut flags_u16: u16 = STATIC_LITERAL_FLAG;
-    if lit.is_latin1 {
-        flags_u16 |= STR_IS_LATIN1_FLAG;
-    }
+    //   flags    (u16) @ [48..64]  = STATIC_LITERAL | IS_LATIN1
+    let flags_u16: u16 = STATIC_LITERAL_FLAG | STR_IS_LATIN1_FLAG;
     let header_u64: u64 = 1u64 | ((flags_u16 as u64) << 48);
     let hdr = i64_t.const_int(header_u64, false);
-    let length_v = i32_t.const_int(lit.length as u64, false);
+    let length_v = i32_t.const_int(length as u64, false);
     let pad_v = i32_t.const_int(0, false);
-    let bytes_arr = ctx.const_string(&lit.bytes, false);
+    let bytes_arr = ctx.const_string(bytes, false);
 
     // Anonymous struct so the layout exactly matches
     // `[u64 header, u32 length, u32 _pad, [N x i8]]` — the runtime
-    // reads the header at offset 0, the length (code unit count)
-    // at offset 8, and the encoded payload bytes at offset 16.
+    // reads the header at offset 0, the length at offset 8, and
+    // the payload bytes at offset 16.
     let body = ctx.const_struct(
         &[hdr.into(), length_v.into(), pad_v.into(), bytes_arr.into()],
         true, // packed — prevent LLVM from inserting padding between fields
@@ -122,7 +106,7 @@ pub(super) fn emit_static_str_global<'ctx>(
             i64_t.into(),
             i32_t.into(),
             i32_t.into(),
-            i8_t.array_type(payload_bytes).into(),
+            i8_t.array_type(length).into(),
         ],
         true,
     );
