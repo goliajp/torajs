@@ -41,11 +41,7 @@ fn emit_close_state(ast: &mut Ast) -> Stmt {
 /// "abrupt completion runs through any open finally" branch
 /// has nothing to walk. P10.6-A2 lifts that restriction
 /// together with `.throw` and will revisit the cleanup path.
-pub(super) fn build_return_method(
-    ast: &mut Ast,
-    yield_ty: &str,
-    step_ann: &str,
-) -> ClassMethod {
+pub(super) fn build_return_method(ast: &mut Ast, yield_ty: &str, step_ann: &str) -> ClassMethod {
     let val_param = Param {
         name: RET_VAL_PARAM.into(),
         type_ann: Some(yield_ty.into()),
@@ -84,10 +80,7 @@ pub(super) fn build_return_method(
 /// (with the J.2.b lift) revisits this to inject the error at
 /// the suspended yield position so an in-body `catch` can
 /// observe it.
-pub(super) fn build_throw_method(
-    ast: &mut Ast,
-    step_ann: &str,
-) -> ClassMethod {
+pub(super) fn build_throw_method(ast: &mut Ast, step_ann: &str) -> ClassMethod {
     let err_param = Param {
         name: THROW_ERR_PARAM.into(),
         type_ann: Some("any".into()),
