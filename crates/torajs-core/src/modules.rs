@@ -12,15 +12,23 @@
 //!   - `import x from "./y"`                  — supported (P13-S1; pairs with
 //!                                              `export default <expr>`)
 //!   - `import * as ns from "./y"`            — rejected (P13-S2)
-//!   - `import "./y"`                         — rejected (P13-S3)
+//!   - `import "./y"`                         — supported (P13-S3; lib's
+//!                                              top-level stmts inject in
+//!                                              source order, no symbols
+//!                                              bound on the importer side)
 //!   - `export { a, b }` (re-export, no inner) — rejected (P13-S4)
 //!
 //! Behaviour notes:
-//!   - Lib-level non-`export` top-level statements are silently dropped.
-//!     A lib is treated as a pure declaration source — its `console.log`
-//!     etc. at top-level do NOT run at import time. This is a documented
-//!     subset deviation from bun's runtime-evaluation semantics; bench
-//!     and conformance avoid relying on it.
+//!   - For named-import / default-import forms, lib-level non-`export`
+//!     top-level statements are silently dropped — a lib is treated as
+//!     a pure declaration source. This is a documented subset deviation
+//!     from bun's runtime-evaluation semantics; bench and conformance
+//!     avoid relying on it.
+//!   - For side-effect imports (`import "./y"`), the lib's full top-
+//!     level statement list IS injected in source order (P13-S3). This
+//!     matches bun's "module body executes once" semantics for the
+//!     side-effect-only invocation. When the same lib is visited via
+//!     both forms, the first BFS encounter wins.
 //!   - Lib's `export type T = ...` declarations are always injected,
 //!     irrespective of whether the importer listed `T` in its named
 //!     list — TS itself doesn't require type names to appear in the
@@ -46,8 +54,11 @@ type NamedImport = (String, Option<String>);
 /// path of a module to load, plus the named-imports list that drove
 /// the request, plus the default-binding alias (`Some(x)` when the
 /// importer wrote `import x from "./y"`; the lib's
-/// `export default <expr>` resolves to a synthetic `let x = <expr>`).
-type WorkItem = (PathBuf, Vec<NamedImport>, Option<String>);
+/// `export default <expr>` resolves to a synthetic `let x = <expr>`),
+/// plus a `side_effect_only` flag (`true` when the importer wrote
+/// bare `import "./y"`; the lib's full top-level statement list is
+/// injected in source order regardless of `export` wrapping).
+type WorkItem = (PathBuf, Vec<NamedImport>, Option<String>, bool);
 
 /// Resolve every `import` in `ast` by reading + parsing the target file
 /// and injecting its requested named exports as top-level declarations
@@ -80,13 +91,14 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
             }
             check_k2_form(source, default, namespace, named)?;
             let path = resolve_path(base_dir, source)?;
-            work.push_back((path, named.clone(), default.clone()));
+            let side_effect_only = named.is_empty() && default.is_none() && namespace.is_none();
+            work.push_back((path, named.clone(), default.clone(), side_effect_only));
         }
     }
 
     let mut injections: Vec<Stmt> = Vec::new();
 
-    while let Some((target_path, named, default_alias)) = work.pop_front() {
+    while let Some((target_path, named, default_alias, side_effect_only)) = work.pop_front() {
         if !visited.insert(target_path.clone()) {
             continue;
         }
@@ -111,6 +123,46 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
             .collect();
 
         for s in lib_section {
+            // Side-effect-only import: lib's ImportDecls still need to walk
+            // so transitive lib loads happen, but every other top-level
+            // statement (including bare expressions, console.log, top-level
+            // `let`s, classes, and `export`-wrapped decls) injects in
+            // source order.
+            if side_effect_only {
+                if let Stmt::ImportDecl {
+                    source,
+                    named,
+                    default,
+                    namespace,
+                } = s
+                {
+                    if is_builtin_module_source(&source) {
+                        continue;
+                    }
+                    check_k2_form(&source, &default, &namespace, &named)?;
+                    let path = resolve_path(&target_dir, &source)?;
+                    let nested_se = named.is_empty() && default.is_none() && namespace.is_none();
+                    work.push_back((path, named, default, nested_se));
+                    continue;
+                }
+                if let Stmt::ExportDecl {
+                    inner: Some(boxed), ..
+                } = s
+                {
+                    injections.push(*boxed);
+                } else if let Stmt::ExportDecl { inner: None, .. } = s {
+                    // Bare named export (`export { a }`) is the P13-S4
+                    // re-export surface — still rejected at side-effect
+                    // boundary here.
+                    return Err(format!(
+                        "bare named export not supported in K.2 ({})",
+                        target_path.display()
+                    ));
+                } else {
+                    injections.push(s);
+                }
+                continue;
+            }
             match s {
                 Stmt::ImportDecl {
                     source,
@@ -123,7 +175,8 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
                     }
                     check_k2_form(&source, &default, &namespace, &named)?;
                     let path = resolve_path(&target_dir, &source)?;
-                    work.push_back((path, named, default));
+                    let nested_se = named.is_empty() && default.is_none() && namespace.is_none();
+                    work.push_back((path, named, default, nested_se));
                 }
                 Stmt::ExportDecl {
                     inner: None,
@@ -191,18 +244,13 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
 
 fn check_k2_form(
     source: &str,
-    default: &Option<String>,
+    _default: &Option<String>,
     namespace: &Option<String>,
-    named: &[(String, Option<String>)],
+    _named: &[(String, Option<String>)],
 ) -> Result<(), String> {
     if namespace.is_some() {
         return Err(format!(
             "namespace import (`import * as ns from \"{source}\"`) not supported in K.2"
-        ));
-    }
-    if named.is_empty() && default.is_none() {
-        return Err(format!(
-            "side-effect-only import (`import \"{source}\"`) not supported in K.2"
         ));
     }
     Ok(())
