@@ -4,6 +4,7 @@ use std::collections::HashMap;
 
 mod desugar_async;
 mod desugar_classes_emit;
+mod desugar_generators_methods;
 pub use desugar_async::desugar_async;
 use desugar_async::{body_ends_in_return, rewrite_returns_for_async};
 use desugar_classes_emit::{emit_class_instance_methods, emit_class_static_methods};
@@ -1178,6 +1179,8 @@ pub fn desugar_generators(ast: &mut Ast) {
             visibility: Visibility::Public,
             accessor_kind: None,
         };
+        let return_method =
+            crate::ast::desugar_generators_methods::build_return_method(ast, &yield_ty, &step_ann);
         // For Phase J MVP, generator parameters are stored as fields on
         // the iterator object so the body can reference them through
         // `this.<name>`. The fields are auto-prepended to the class
@@ -1225,7 +1228,7 @@ pub fn desugar_generators(ast: &mut Ast) {
             fields: class_fields,
             static_init: Vec::new(),
             ctor: Some(ctor_with_params),
-            methods: vec![next_method],
+            methods: vec![next_method, return_method],
             static_methods: Vec::new(),
         });
 
