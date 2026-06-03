@@ -3119,6 +3119,13 @@ fn lower_inner(
         &[Type::BigInt],
         Type::Str,
     );
+    let bigint_to_string_radix_id = declare_intrinsic(
+        &mut module,
+        &mut fn_table,
+        "__torajs_bigint_to_string_radix",
+        &[Type::BigInt, Type::I64],
+        Type::Str,
+    );
     let bigint_drop_rc_id = declare_intrinsic(
         &mut module,
         &mut fn_table,
@@ -5117,6 +5124,7 @@ fn lower_inner(
         bigint_neg: bigint_neg_id,
         bigint_cmp: bigint_cmp_id,
         bigint_to_string: bigint_to_string_id,
+        bigint_to_string_radix: bigint_to_string_radix_id,
         bigint_drop_rc: bigint_drop_rc_id,
         weakref_create: weakref_create_id,
         weakref_deref: weakref_deref_id,
@@ -5998,6 +6006,7 @@ pub(crate) struct Intrinsics {
     pub(crate) bigint_neg: FuncId,
     pub(crate) bigint_cmp: FuncId,
     pub(crate) bigint_to_string: FuncId,
+    pub(crate) bigint_to_string_radix: FuncId,
     pub(crate) bigint_drop_rc: FuncId,
     pub(crate) weakref_create: FuncId,
     pub(crate) weakref_deref: FuncId,
@@ -15517,14 +15526,48 @@ impl<'a> LowerCtx<'a> {
                     // V3-18 m1.h.27 — BigInt receiver: toString() →
                     // decimal string (no `n` suffix) via the existing
                     // bigint_to_string intrinsic.
+                    //
+                    // P12.4 — `toString(radix)` per ES §6.1.6.2.13. When
+                    // a single argument is supplied, dispatch to the
+                    // radix-aware intrinsic; the caller is responsible
+                    // for clamping `radix` into `[2, 36]` (current scope
+                    // assumes typechecked Number input — out-of-range
+                    // RangeError throw is a follow-up, tracked in L3b).
                     if recv_ty == Type::BigInt && m_name == "toString" {
-                        let v = self.f.append_inst(
-                            self.cur_block,
-                            InstKind::Call(self.intrinsics.bigint_to_string, vec![recv_op]),
-                            Type::Str,
-                            None,
-                        );
-                        return Operand::Value(v);
+                        if args.is_empty() {
+                            let v = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(self.intrinsics.bigint_to_string, vec![recv_op]),
+                                Type::Str,
+                                None,
+                            );
+                            return Operand::Value(v);
+                        }
+                        if args.len() == 1 {
+                            let radix_op = self.lower_expr(args[0]);
+                            self.consume_if_ident(args[0]);
+                            let radix_ty = self.operand_ty(&radix_op);
+                            let radix_i64 = match radix_ty {
+                                Type::I64 => radix_op,
+                                Type::F64 => Operand::Value(self.f.append_inst(
+                                    self.cur_block,
+                                    InstKind::FpToSi(radix_op),
+                                    Type::I64,
+                                    None,
+                                )),
+                                _ => radix_op,
+                            };
+                            let v = self.f.append_inst(
+                                self.cur_block,
+                                InstKind::Call(
+                                    self.intrinsics.bigint_to_string_radix,
+                                    vec![recv_op, radix_i64],
+                                ),
+                                Type::Str,
+                                None,
+                            );
+                            return Operand::Value(v);
+                        }
                     }
                     // V3-18 m1.h.47 — Symbol.prototype.toString().
                     if recv_ty == Type::Symbol

@@ -3827,7 +3827,20 @@ impl Checker {
                     // §21.2.3.5 / §21.2.3.6. The runtime path
                     // already exists (used by string concat coerce);
                     // this just wires up the typecheck.
-                    (Type::BigInt, "toString") | (Type::BigInt, "toLocaleString") => {
+                    //
+                    // P12.4 — accept optional radix argument per ES
+                    // §6.1.6.2.13 (`BigInt.prototype.toString(radix)`).
+                    // Signature is `(radix?: Any) → String`; the Any
+                    // slot is padded to `undefined` for the 0-arg
+                    // common path and accepts a Number radix when
+                    // supplied (ssa-lower routes to bigint_to_string
+                    // vs bigint_to_string_radix per arg count).
+                    // toLocaleString remains 0-arg per ES §22.2.3.2.
+                    (Type::BigInt, "toString") => Ok(Type::Function(
+                        vec![Type::Any],
+                        Box::new(Type::String),
+                    )),
+                    (Type::BigInt, "toLocaleString") => {
                         Ok(Type::Function(Vec::new(), Box::new(Type::String)))
                     }
                     // V3-18 m1.h.47 — Symbol.prototype.toString() →
