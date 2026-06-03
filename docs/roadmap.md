@@ -1259,8 +1259,20 @@ Unicode case folding.
       `17770c1` A3 Final_Sigma context-dependent + `bfa6944` A4
       Case_Ignorable skip). Locale tailoring (Turkish / Lithuanian)
       out of scope — separate Intl-flavored surface.
-- [ ] **P11.6** `String.normalize` NFC / NFD / NFKC / NFKD (embedded
-      data tables — no libicu unless 自研 audit passes)
+- [x] **P11.6** `String.normalize` NFC / NFD / NFKC / NFKD via UCD
+      16.0.0 embedded tables (no libicu / no external crate). RFC
+      `.claude/rfcs/20260603-p11-6-string-normalize/`. Ship chain
+      `fec7cb4` S1 generator + DECOMP / CCC / COMPOSE / QC bitmaps +
+      Hangul algorithmic helpers / `e3c12d0` S2 decompose +
+      canonical_order / `35c7001` S3 compose + normalize driver /
+      `3262e32` S4 SSA dispatch + FFI seam + RangeError on invalid
+      form / `ae7a799` S5 5-fixture pack (NFC/NFD/NFKC/NFKD +
+      form-arg). conformance gate 708/0/4 (703 baseline + 5).
+
+**P11 phase close** (`ae7a799`, 2026-06-03): all six sub-steps
+shipped (P11.1 hybrid encoding -> P11.6 normalize). L4 trigger
+"6 sub-step ship + Unicode fixture pack bun-parity" met -> next
+phase = P12 Number IEEE 754.
 
 ---
 
