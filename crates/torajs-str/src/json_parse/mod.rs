@@ -61,9 +61,9 @@ pub(super) fn json_throw(msg: &str, pos: i64) {
     if buf.len() > 95 {
         buf.truncate(95);
     }
-    let mut block = StrBlock::alloc(buf.len() as u64);
+    let mut block = StrBlock::alloc(buf.len() as u32);
     // SAFETY: block has payload capacity matching buf.len().
-    let dst = unsafe { block.as_bytes_mut(buf.len() as u64) };
+    let dst = unsafe { block.as_bytes_mut(buf.len() as u32) };
     dst.copy_from_slice(buf.as_bytes());
     let err = block.into_raw();
     unsafe { __torajs_throw_set(ANY_HEAP, err as i64) };

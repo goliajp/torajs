@@ -31,18 +31,18 @@ use crate::layout::{STR_DATA_OFF, STR_LEN_OFF};
 // ============================================================
 
 #[inline]
-unsafe fn str_len(p: *const u8) -> u64 {
-    unsafe { (p.add(STR_LEN_OFF) as *const u64).read() }
+unsafe fn str_len(p: *const u8) -> u32 {
+    unsafe { (p.add(STR_LEN_OFF) as *const u32).read() }
 }
 
 #[inline]
-unsafe fn str_bytes<'a>(p: *const u8, len: u64) -> &'a [u8] {
+unsafe fn str_bytes<'a>(p: *const u8, len: u32) -> &'a [u8] {
     unsafe { core::slice::from_raw_parts(p.add(STR_DATA_OFF), len as usize) }
 }
 
 #[inline]
 fn alloc_str(payload: &[u8]) -> *mut u8 {
-    let out_len = payload.len() as u64;
+    let out_len = payload.len() as u32;
     let mut block = StrBlock::alloc(out_len);
     if !payload.is_empty() {
         let dst = unsafe { block.as_bytes_mut(out_len) };
@@ -102,7 +102,7 @@ pub fn count_non_overlapping(s: &[u8], needle: &[u8]) -> usize {
 /// Output length for `replace_all`. Computed without underflow
 /// (`hits * needle.len() <= s.len()` by construction).
 #[inline]
-pub fn replace_all_out_len(s_len: u64, hits: u64, n_len: u64, r_len: u64) -> u64 {
+pub fn replace_all_out_len(s_len: u32, hits: u32, n_len: u32, r_len: u32) -> u32 {
     s_len - hits * n_len + hits * r_len
 }
 
@@ -212,7 +212,7 @@ pub unsafe extern "C" fn __torajs_str_replace_all(
     if n_len == 0 {
         return alloc_str(s_bytes);
     }
-    let hits = count_non_overlapping(s_bytes, n_bytes) as u64;
+    let hits = count_non_overlapping(s_bytes, n_bytes) as u32;
     if hits == 0 {
         return alloc_str(s_bytes);
     }
@@ -285,8 +285,8 @@ mod tests {
     use crate::block::__torajs_str_free;
 
     fn make_str(payload: &[u8]) -> *mut u8 {
-        let mut b = StrBlock::alloc(payload.len() as u64);
-        let dst = unsafe { b.as_bytes_mut(payload.len() as u64) };
+        let mut b = StrBlock::alloc(payload.len() as u32);
+        let dst = unsafe { b.as_bytes_mut(payload.len() as u32) };
         dst.copy_from_slice(payload);
         b.into_raw()
     }

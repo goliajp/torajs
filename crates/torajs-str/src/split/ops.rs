@@ -28,12 +28,12 @@ use crate::substr::{
 // ============================================================
 
 #[inline]
-unsafe fn str_len(p: *const u8) -> u64 {
-    unsafe { (p.add(STR_LEN_OFF) as *const u64).read() }
+unsafe fn str_len(p: *const u8) -> u32 {
+    unsafe { (p.add(STR_LEN_OFF) as *const u32).read() }
 }
 
 #[inline]
-unsafe fn str_bytes<'a>(p: *const u8, len: u64) -> &'a [u8] {
+unsafe fn str_bytes<'a>(p: *const u8, len: u32) -> &'a [u8] {
     unsafe { core::slice::from_raw_parts(p.add(STR_DATA_OFF), len as usize) }
 }
 
@@ -196,7 +196,7 @@ pub unsafe extern "C" fn __torajs_str_split(s: *const u8, sep: *const u8) -> *mu
                     substrs_base.add(ku * SUBSTR_SIZE),
                     slots_base.add(ku),
                     s,
-                    k,
+                    k as u64,
                     1,
                 );
             }
@@ -255,7 +255,7 @@ pub unsafe extern "C" fn __torajs_str_split(s: *const u8, sep: *const u8) -> *mu
             slots_base.add(ix),
             s,
             start,
-            s_len - start,
+            s_len as u64 - start,
         );
     }
     block.as_ptr()
@@ -306,9 +306,9 @@ pub unsafe extern "C" fn __torajs_split_iter_init(
         let sep_len = str_len(sep);
         iter.write(SplitIter {
             parent,
-            parent_len,
+            parent_len: parent_len as u64,
             sep_data,
-            sep_len,
+            sep_len: sep_len as u64,
             pos: 0,
             exhausted: 0,
             _pad: [0; 7],
@@ -351,8 +351,8 @@ mod tests {
     const ARR_DATA_OFF: usize = ARR_HDR_SIZE;
 
     fn make_str(payload: &[u8]) -> *mut u8 {
-        let mut b = StrBlock::alloc(payload.len() as u64);
-        let dst = unsafe { b.as_bytes_mut(payload.len() as u64) };
+        let mut b = StrBlock::alloc(payload.len() as u32);
+        let dst = unsafe { b.as_bytes_mut(payload.len() as u32) };
         dst.copy_from_slice(payload);
         b.into_raw()
     }

@@ -28,19 +28,33 @@
 //! intentionally absent — once a block is exposed to ssa_inkwell
 //! IR or C-side helpers, ownership tracking moves into the
 //! per-language ABI (refcount on the heap header).
+//!
+//! ## P11.1-S1 layout (vs pre-S1 byte-Str)
+//!
+//! Block prefix is still 16 bytes, but the `len u64 @8` field
+//! split into `length u32 @8 + _pad u32 @12`; `flags u16 @6`
+//! now carries an `IS_LATIN1` bit (see [`crate::layout`]).
+//! Public methods that used to talk in `u64 len` now talk in
+//! `u32 length` (the spec's UTF-16 code unit count). S1 phase
+//! forces `is_latin1 = true` at every alloc site so the payload
+//! semantics — byte count, byte iteration, byte indexing — match
+//! the pre-S1 byte-Str exactly. S3 lifts the force.
 
 use core::ffi::c_void;
 use core::ptr::NonNull;
 
 use torajs_rc::{FLAG_STATIC_LITERAL, HeapHeader};
 
-use crate::layout::{STR_DATA_OFF, STR_LEN_OFF, STR_POOL_PAYLOAD, block_size, packed_header_init};
+use crate::layout::{
+    STR_DATA_OFF, STR_FLAG_IS_LATIN1, STR_LEN_OFF, STR_PAD_OFF, STR_POOL_PAYLOAD, block_size,
+    byte_capacity, packed_header_init,
+};
 use crate::pool;
 
 unsafe extern "C" {
     /// torajs-mmalloc Layer 1 alloc — Step 4 (v0.7-A2 Phase 2e sweep).
     /// Returns raw chunk pointer (no SHIM offset). Caller passes size
-    /// on free too — derived from `block_size(len)`.
+    /// on free too — derived from `block_size(length, is_latin1)`.
     #[link_name = "__torajs_malloc"]
     fn malloc(size: usize) -> *mut c_void;
     #[link_name = "__torajs_free"]
@@ -51,8 +65,8 @@ unsafe extern "C" {
 // StrBlock — owned Str heap block
 // ============================================================
 
-/// Owned Str heap block: `[header:8][len:8][bytes:N]`, prefix
-/// `STR_HDR_SIZE = 16`. Constructed via [`StrBlock::alloc`];
+/// Owned Str heap block: `[header:8][length:4][_pad:4][bytes:N]`,
+/// prefix `STR_HDR_SIZE = 16`. Constructed via [`StrBlock::alloc`];
 /// destructured (and ownership released back to libc / the pool)
 /// via [`StrBlock::free_pool_aware`] or handed across the FFI
 /// boundary via [`StrBlock::into_raw`].
@@ -76,22 +90,30 @@ unsafe extern "C" {
 pub struct StrBlock(pub NonNull<u8>);
 
 impl StrBlock {
-    /// Allocate a fresh Str heap block with `refcount=1`,
-    /// `type_tag=Tag::Str`, `flags=0`, and `len=len`. Bytes are
-    /// uninitialized — caller must write them via
+    /// Allocate a fresh Latin-1 Str heap block with `refcount=1`,
+    /// `type_tag=Tag::Str`, `flags=IS_LATIN1`, and `length=length`.
+    /// Bytes are uninitialized — caller must write them via
     /// [`Self::as_bytes_mut`] / [`Self::write_payload`] before
     /// exposing the block.
     ///
-    /// Pool fast-path: when `len ≤ STR_POOL_PAYLOAD` and the pool
-    /// has a free slot, the freshly-popped block's header + len
-    /// fields are rewritten and the block returned. Otherwise
-    /// falls through to a `malloc` sized via [`block_size`].
+    /// Pool fast-path: when `byte_capacity ≤ STR_POOL_PAYLOAD` and
+    /// the pool has a free slot, the freshly-popped block's header
+    /// + length fields are rewritten and the block returned.
+    /// Otherwise falls through to a `malloc` sized via
+    /// [`block_size`].
+    ///
+    /// P11.1-S1: encoding is hard-coded to Latin-1 at every alloc
+    /// site. UTF-16 alloc + a free-form `is_latin1` arg land in
+    /// the S3 runtime path.
     #[inline]
     #[must_use = "StrBlock owns a heap allocation; ignore the value and the block leaks"]
-    pub fn alloc(len: u64) -> Self {
-        if len <= STR_POOL_PAYLOAD {
+    pub fn alloc(length: u32) -> Self {
+        // S1 phase: Latin-1 only. byte_capacity = length.
+        let is_latin1 = true;
+        let cap = byte_capacity(length, is_latin1);
+        if cap <= STR_POOL_PAYLOAD {
             if let Some(p) = pool::pop() {
-                Self::init_header_and_len(p, len);
+                Self::init_header_and_length(p, length, is_latin1);
                 return Self(p);
             }
         }
@@ -100,70 +122,104 @@ impl StrBlock {
         // which is a hard runtime failure here (caught by
         // `.expect`). Block size is computed by `block_size`
         // matching the C `str_block_size_` exactly.
-        let raw = unsafe { malloc(block_size(len)) } as *mut u8;
+        let raw = unsafe { malloc(block_size(length, is_latin1)) } as *mut u8;
         let nn = NonNull::new(raw).unwrap_or_else(|| torajs_abort::abort_with(b"OOM in Str alloc"));
-        Self::init_header_and_len(nn, len);
+        Self::init_header_and_length(nn, length, is_latin1);
         Self(nn)
     }
 
     /// Free a Str block via the pool when eligible, otherwise via
-    /// `libc::free`. Pool eligibility: `len ≤ STR_POOL_PAYLOAD`
-    /// AND the pool has a free slot AND the block does not carry
-    /// `FLAG_STATIC_LITERAL` (`.rodata` blocks must never be
-    /// freed).
+    /// `libc::free`. Pool eligibility: `byte_capacity ≤
+    /// STR_POOL_PAYLOAD` AND the pool has a free slot AND the
+    /// block does not carry `FLAG_STATIC_LITERAL` (`.rodata`
+    /// blocks must never be freed).
     ///
     /// Defense-in-depth: rc_dec already short-circuits
     /// STATIC_LITERAL blocks, but a stray direct caller would
     /// otherwise try to `free` `.rodata` bytes and crash. The
     /// check is kept here to keep the contract local.
+    ///
+    /// `byte_capacity` is recomputed from `(length, is_latin1)` on
+    /// every drop — mirrors V8 SeqString sizing. Latin-1 path is a
+    /// no-op multiply; UTF-16 path is a single shift.
     #[inline]
     pub fn free_pool_aware(mut self) {
         // SAFETY: caller's contract is that `self.0` points at a
         // valid Str block; the header u64 at offset 0 was written
-        // by `init_header_and_len` at alloc time and may have
+        // by `init_header_and_length` at alloc time and may have
         // been mutated by rc_inc / rc_dec / static-literal setup.
         let header_ref = unsafe { self.header() };
         if header_ref.flags & FLAG_STATIC_LITERAL != 0 {
             return;
         }
-        // SAFETY: len u64 was written at alloc time; offset
+        let is_latin1 = (header_ref.flags & STR_FLAG_IS_LATIN1) != 0;
+        // SAFETY: length u32 was written at alloc time; offset
         // STR_LEN_OFF mirrors runtime_str.c __TORAJS_STR_LEN.
-        let len = unsafe { self.len() };
-        if len <= STR_POOL_PAYLOAD && pool::push(self.0) {
+        let length = unsafe { self.length() };
+        let cap = byte_capacity(length, is_latin1);
+        if cap <= STR_POOL_PAYLOAD && pool::push(self.0) {
             return;
         }
-        // SAFETY: block was `malloc(block_size(len))`-allocated by
-        // `Self::alloc` (or a future caller follows the same shape).
-        // Layer 1 `free` takes the same size we alloc'd with —
-        // derived deterministically from `len`.
-        unsafe { free(self.0.as_ptr() as *mut c_void, block_size(len)) };
+        // SAFETY: block was `malloc(block_size(length, is_latin1))`-
+        // allocated by `Self::alloc` (or a future caller follows the
+        // same shape). Layer 1 `free` takes the same size we alloc'd
+        // with — derived deterministically from `(length, is_latin1)`.
+        unsafe {
+            free(
+                self.0.as_ptr() as *mut c_void,
+                block_size(length, is_latin1),
+            )
+        };
     }
 
-    /// Length of the Str payload in bytes. Reads the u64 at
-    /// `STR_LEN_OFF`.
+    /// Length of the Str payload in **code units** (per ES spec
+    /// `String.length`). Reads the u32 at `STR_LEN_OFF`.
+    ///
+    /// For Latin-1 strings code unit == byte; for UTF-16 strings
+    /// code unit == u16 (so total payload bytes = `length × 2`).
     ///
     /// # Safety
     ///
     /// Caller guarantees `self.0` points at a valid Str block
     /// whose layout matches [`crate::layout`].
     #[inline]
-    pub unsafe fn len(&self) -> u64 {
-        unsafe { (self.0.as_ptr().add(STR_LEN_OFF) as *const u64).read() }
+    pub unsafe fn length(&self) -> u32 {
+        unsafe { (self.0.as_ptr().add(STR_LEN_OFF) as *const u32).read() }
+    }
+
+    /// True when the block carries the `IS_LATIN1` flag bit
+    /// (payload is 1 byte per code unit). False when payload is
+    /// UTF-16 (2 bytes per code unit).
+    ///
+    /// # Safety
+    ///
+    /// Caller guarantees `self.0` points at a valid Str block.
+    #[inline]
+    pub unsafe fn is_latin1(&self) -> bool {
+        let header = unsafe { &*(self.0.as_ptr() as *const HeapHeader) };
+        (header.flags & STR_FLAG_IS_LATIN1) != 0
     }
 
     /// Mutable byte slice over the payload region. Caller writes
     /// into this after [`Self::alloc`] to fill the freshly-
     /// allocated block.
     ///
+    /// The `byte_len` argument is the **byte** count of the
+    /// region (= `byte_capacity(length, is_latin1)`), not the
+    /// code unit count. For Latin-1 these are equal; for UTF-16
+    /// caller must pass `length * 2`.
+    ///
     /// # Safety
     ///
     /// Caller guarantees `self.0` points at a valid Str block
-    /// with `len` matching the slice length. Calling on a block
-    /// the caller does not own (refcount > 1, or shared via the
-    /// extern "C" boundary) is UB.
+    /// whose payload region is at least `byte_len` bytes. Calling
+    /// on a block the caller does not own (refcount > 1, or
+    /// shared via the extern "C" boundary) is UB.
     #[inline]
-    pub unsafe fn as_bytes_mut(&mut self, len: u64) -> &mut [u8] {
-        unsafe { core::slice::from_raw_parts_mut(self.0.as_ptr().add(STR_DATA_OFF), len as usize) }
+    pub unsafe fn as_bytes_mut(&mut self, byte_len: u32) -> &mut [u8] {
+        unsafe {
+            core::slice::from_raw_parts_mut(self.0.as_ptr().add(STR_DATA_OFF), byte_len as usize)
+        }
     }
 
     /// Reborrow the heap header as a mutable reference. Used by
@@ -204,17 +260,18 @@ impl StrBlock {
         Self(unsafe { NonNull::new_unchecked(p) })
     }
 
-    /// Write the packed header + len at the start of a freshly-
-    /// allocated (or pool-popped) block. Internal helper; not
-    /// exposed.
+    /// Write the packed header + length + zero the reserved
+    /// padding at the start of a freshly-allocated (or pool-
+    /// popped) block. Internal helper; not exposed.
     #[inline]
-    fn init_header_and_len(p: NonNull<u8>, len: u64) {
+    fn init_header_and_length(p: NonNull<u8>, length: u32, is_latin1: bool) {
         // SAFETY: caller has just produced `p` via `malloc` or
         // `pool::pop`; the first 16 bytes are exclusively owned
         // until we return.
         unsafe {
-            (p.as_ptr() as *mut u64).write(packed_header_init());
-            (p.as_ptr().add(STR_LEN_OFF) as *mut u64).write(len);
+            (p.as_ptr() as *mut u64).write(packed_header_init(is_latin1));
+            (p.as_ptr().add(STR_LEN_OFF) as *mut u32).write(length);
+            (p.as_ptr().add(STR_PAD_OFF) as *mut u32).write(0);
         }
     }
 }
@@ -234,9 +291,16 @@ impl StrBlock {
 /// panics — matching the pre-rewrite "abort on OOM" behavior
 /// (`malloc` returning null leads to `expect` here; rc_inc /
 /// rc_dec semantics aren't reached).
+///
+/// P11.1-S1: FFI ABI keeps `len: u64` for compatibility with the
+/// IR-emitted call sites; internally truncated to `u32` since
+/// post-S1 `length` lives in a u32 field. Encoding hard-coded to
+/// Latin-1 — every existing caller built on byte-Str semantics
+/// (`len` = byte count) maps trivially to Latin-1 (`length` =
+/// code unit = byte for Latin-1 payloads).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_alloc_pooled(len: u64) -> *mut u8 {
-    StrBlock::alloc(len).into_raw()
+    StrBlock::alloc(len as u32).into_raw()
 }
 
 /// Str alloc + payload copy in one call. Equivalent to:
@@ -258,7 +322,7 @@ pub unsafe extern "C" fn __torajs_str_alloc_pooled(len: u64) -> *mut u8 {
 /// refcount=1 Str block owned by the caller.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_alloc(src: *const u8, len: i64) -> *mut u8 {
-    let len_u = len as u64;
+    let len_u = len as u32;
     let mut block = StrBlock::alloc(len_u);
     if len_u > 0 {
         let dst = unsafe { block.as_bytes_mut(len_u) };
@@ -351,7 +415,7 @@ mod tests {
     static TEST_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
-    fn alloc_short_writes_header_and_len() {
+    fn alloc_short_writes_header_and_length() {
         let _g = TEST_LOCK.lock().unwrap();
         pool::clear_for_test();
 
@@ -361,9 +425,10 @@ mod tests {
             let header = block.header();
             assert_eq!(header.refcount, 1);
             assert_eq!(header.type_tag, 0); // Tag::Str
-            assert_eq!(header.flags, 0);
+            assert_eq!(header.flags, STR_FLAG_IS_LATIN1, "S1 alloc forces Latin-1");
         }
-        assert_eq!(unsafe { block.len() }, 8);
+        assert_eq!(unsafe { block.length() }, 8);
+        assert!(unsafe { block.is_latin1() });
 
         // payload region is `STR_HDR_SIZE` bytes past the start
         unsafe { block.as_bytes_mut(8).fill(0x41) };
@@ -379,7 +444,7 @@ mod tests {
 
         // STR_POOL_PAYLOAD = 16; ask for 128.
         let block = StrBlock::alloc(128);
-        assert_eq!(unsafe { block.len() }, 128);
+        assert_eq!(unsafe { block.length() }, 128);
 
         block.free_pool_aware();
         // Long block freed straight to libc, pool stays empty.
@@ -417,14 +482,17 @@ mod tests {
 
         let p = unsafe { __torajs_str_alloc_pooled(12) };
         assert!(!p.is_null());
-        // refcount=1, tag=Str, flags=0 at offset 0
+        // refcount=1, tag=Str, flags=IS_LATIN1 at offset 0
         let header = unsafe { &*(p as *const HeapHeader) };
         assert_eq!(header.refcount, 1);
         assert_eq!(header.type_tag, 0);
-        assert_eq!(header.flags, 0);
-        // len at offset STR_LEN_OFF
-        let len = unsafe { (p.add(STR_LEN_OFF) as *const u64).read() };
-        assert_eq!(len, 12);
+        assert_eq!(header.flags, STR_FLAG_IS_LATIN1);
+        // length at offset STR_LEN_OFF (u32 now)
+        let length = unsafe { (p.add(STR_LEN_OFF) as *const u32).read() };
+        assert_eq!(length, 12);
+        // reserved padding zero
+        let pad = unsafe { (p.add(STR_PAD_OFF) as *const u32).read() };
+        assert_eq!(pad, 0);
         unsafe { __torajs_str_free(p) };
     }
 
@@ -450,8 +518,9 @@ mod tests {
         assert_eq!(pool::occupancy(), 0, "static-literal must not enter pool");
 
         // Drain the (still-alive) block manually since
-        // free_pool_aware deliberately skipped real free.
-        unsafe { free(ptr.as_ptr() as *mut c_void, block_size(4)) };
+        // free_pool_aware deliberately skipped real free. Use
+        // the alloc-time params (length=4, is_latin1=true).
+        unsafe { free(ptr.as_ptr() as *mut c_void, block_size(4, true)) };
     }
 
     #[test]

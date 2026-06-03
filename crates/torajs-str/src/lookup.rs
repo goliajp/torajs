@@ -35,12 +35,12 @@ use crate::layout::{STR_DATA_OFF, STR_LEN_OFF};
 // ============================================================
 
 #[inline]
-unsafe fn str_len(p: *const u8) -> u64 {
-    unsafe { (p.add(STR_LEN_OFF) as *const u64).read() }
+unsafe fn str_len(p: *const u8) -> u32 {
+    unsafe { (p.add(STR_LEN_OFF) as *const u32).read() }
 }
 
 #[inline]
-unsafe fn str_bytes<'a>(p: *const u8, len: u64) -> &'a [u8] {
+unsafe fn str_bytes<'a>(p: *const u8, len: u32) -> &'a [u8] {
     unsafe { core::slice::from_raw_parts(p.add(STR_DATA_OFF), len as usize) }
 }
 
@@ -315,7 +315,7 @@ pub unsafe extern "C" fn __torajs_str_char_code_at(s: *const u8, i: i64) -> i64 
     if i < 0 || i >= len {
         return 0;
     }
-    let bytes = unsafe { str_bytes(s, len as u64) };
+    let bytes = unsafe { str_bytes(s, len as u32) };
     bytes[i as usize] as i64
 }
 
@@ -419,10 +419,10 @@ mod tests {
     static TEST_LOCK: Mutex<()> = Mutex::new(());
 
     fn make_str(bytes: &[u8]) -> StrBlock {
-        let mut block = StrBlock::alloc(bytes.len() as u64);
+        let mut block = StrBlock::alloc(bytes.len() as u32);
         unsafe {
             block
-                .as_bytes_mut(bytes.len() as u64)
+                .as_bytes_mut(bytes.len() as u32)
                 .copy_from_slice(bytes)
         };
         block

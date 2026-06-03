@@ -26,10 +26,10 @@ pub unsafe extern "C" fn __torajs_undefined_to_str() -> *mut u8 {
 
 #[inline]
 fn alloc_literal_str(data: &[u8]) -> *mut u8 {
-    let mut block = StrBlock::alloc(data.len() as u64);
+    let mut block = StrBlock::alloc(data.len() as u32);
     // SAFETY: block was just allocated with payload capacity matching
     // the literal's byte length.
-    let dst = unsafe { block.as_bytes_mut(data.len() as u64) };
+    let dst = unsafe { block.as_bytes_mut(data.len() as u32) };
     dst.copy_from_slice(data);
     block.into_raw()
 }

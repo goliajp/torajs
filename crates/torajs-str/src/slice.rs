@@ -23,12 +23,12 @@ use crate::layout::{STR_DATA_OFF, STR_LEN_OFF};
 // ============================================================
 
 #[inline]
-unsafe fn str_len(p: *const u8) -> u64 {
-    unsafe { (p.add(STR_LEN_OFF) as *const u64).read() }
+unsafe fn str_len(p: *const u8) -> u32 {
+    unsafe { (p.add(STR_LEN_OFF) as *const u32).read() }
 }
 
 #[inline]
-unsafe fn str_bytes<'a>(p: *const u8, len: u64) -> &'a [u8] {
+unsafe fn str_bytes<'a>(p: *const u8, len: u32) -> &'a [u8] {
     unsafe { core::slice::from_raw_parts(p.add(STR_DATA_OFF), len as usize) }
 }
 
@@ -45,7 +45,7 @@ unsafe fn str_bytes<'a>(p: *const u8, len: u64) -> &'a [u8] {
 /// - same for `end`
 /// - if `end < start` after the above, the range is empty (`hi = lo`)
 #[inline]
-pub fn slice_range(start: i64, end: i64, len: u64) -> (u64, u64) {
+pub fn slice_range(start: i64, end: i64, len: u32) -> (u32, u32) {
     let ilen = len as i64;
     let lo = if start < 0 {
         (ilen + start).max(0)
@@ -58,7 +58,7 @@ pub fn slice_range(start: i64, end: i64, len: u64) -> (u64, u64) {
         end.min(ilen)
     };
     let hi = hi_raw.max(lo);
-    (lo as u64, hi as u64)
+    (lo as u32, hi as u32)
 }
 
 // ============================================================
@@ -93,8 +93,8 @@ mod tests {
     use alloc::vec::Vec;
 
     fn make_str(payload: &[u8]) -> *mut u8 {
-        let mut b = StrBlock::alloc(payload.len() as u64);
-        let dst = unsafe { b.as_bytes_mut(payload.len() as u64) };
+        let mut b = StrBlock::alloc(payload.len() as u32);
+        let dst = unsafe { b.as_bytes_mut(payload.len() as u32) };
         dst.copy_from_slice(payload);
         b.into_raw()
     }

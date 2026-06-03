@@ -35,7 +35,7 @@ pub unsafe extern "C" fn __torajs_json_parse_string(str_ptr: *const u8, pos: *mu
     *p += 1;
 
     // Pass 1: find the closing quote and count decoded length.
-    let mut out_len: u64 = 0;
+    let mut out_len: u32 = 0;
     let mut scan = *p as usize;
     while scan < data.len() {
         let c = data[scan];

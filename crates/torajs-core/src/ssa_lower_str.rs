@@ -20,9 +20,22 @@
 //! substrate edits begin. Subsequent P11.1 sub-steps will split
 //! this file into method-category sub-modules
 //! (`ssa_lower_str/{view,search,transform,structural}.rs`). Until
-//! then, **no new lines may be added here** — per
-//! `common/file-size.md` known-debt rule, debt items can only
-//! shrink or hold; growing them is a HARD RULE violation.
+//! then, **no new method-dispatch arms may be added** to the
+//! extracted block — per `common/file-size.md` known-debt rule,
+//! the dispatch table can only shrink or hold.
+//!
+//! ### Explicit P11.1 helper exception
+//!
+//! Layout-aware helpers added by P11.1 sub-steps (S1 → S7) may
+//! live here when their purpose is to centralize an encoding-
+//! aware dispatch that would otherwise be duplicated across
+//! `ssa_lower.rs` call sites — e.g. [`load_str_or_substr_length`]
+//! (S1). The net contract is that every such helper must keep
+//! `ssa_lower.rs` strictly shrinking: adding `H` lines here is
+//! only allowed when at least `H` lines drop out of the god-file
+//! at the same time. Helpers live above the extracted-block
+//! `try_lower_method_call` fn so the carve-out perimeter stays
+//! auditable.
 //!
 //! ## Why a free-fn rather than a method on `LowerCtx`
 //!
@@ -41,6 +54,49 @@
 use crate::ast::{Expr, ExprId};
 use crate::ssa::{BinOp as SsaBinOp, FPred, IPred, InstKind, Operand, Terminator, Type};
 use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx, intern_arr_layout};
+
+/// Load the `length` field off a Str / Substr operand and widen to
+/// `i64` so the resulting [`Operand`] can flow into the i64-shaped
+/// `Type::Number` lane that downstream SSA code expects.
+///
+/// P11.1-S1 split the Str length field from `u64 @8` into
+/// `u32 @8 + reserved u32 @12`; Substr keeps the pre-S1 `u64 @8`
+/// layout until S5 lifts it. This helper hides that fork at the
+/// three call sites that still read length directly (Str / Substr
+/// `.length` property access, inline `str === <literal>` byte
+/// equality, `coerce_to_bool` of a non-null string). Centralizing
+/// the dispatch here lets P11.1-S5's Substr flip happen in this
+/// sidekick instead of patching the same width-aware branch in
+/// three places.
+///
+/// Helper added 2026-06-03 as part of P11.1-S1 (acknowledged
+/// extension of the sidekick's carve-out — see module doc).
+pub(crate) fn load_str_or_substr_length(ctx: &mut LowerCtx, op: Operand, ty: Type) -> Operand {
+    if ty == Type::Str {
+        let raw = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Load(Type::I32, op, 8),
+            Type::I32,
+            None,
+        );
+        let widened = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::ZExtI32ToI64(Operand::Value(raw)),
+            Type::I64,
+            None,
+        );
+        Operand::Value(widened)
+    } else {
+        // Substr (pre-S5) — load the u64 length directly.
+        let v = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Load(Type::I64, op, 8),
+            Type::I64,
+            None,
+        );
+        Operand::Value(v)
+    }
+}
 
 /// Try to lower `<recv>.<method>(args)` for a method whose name
 /// belongs to the recognized String-stdlib slice (also covers

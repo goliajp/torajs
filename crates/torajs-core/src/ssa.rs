@@ -337,6 +337,15 @@ pub enum InstKind {
     /// `Object` fields with bool type, etc.) and when passing them to
     /// runtime intrinsics whose signature is i64-shaped.
     ZExtBoolToI64(Operand),
+    /// `%v = zext <i32-operand>` — zero-extend an i32 to i64. Introduced
+    /// in P11.1-S1 alongside the Str layout flip: `length` moves from
+    /// `u64 @8` to `u32 @8 + reserved u32 @12`, so the SSA `.length`
+    /// property-access arm now reads u32 and widens to the i64-shaped
+    /// `Type::Number` value that flows downstream. Distinct from
+    /// `ZExtBoolToI64` because the LLVM source type differs (i32 vs
+    /// i1) — emitter dispatch picks the right `build_int_z_extend`
+    /// source width based on the variant.
+    ZExtI32ToI64(Operand),
     /// `%v = bitcast <f64-operand>` — pun an f64's IEEE 754 bit pattern
     /// into an i64 without value conversion. Used by T-10.d's tagged-slot
     /// Array<Any>: ANY_F64 slots stash the f64 bits in their value field

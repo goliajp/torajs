@@ -27,12 +27,12 @@ use crate::layout::{STR_DATA_OFF, STR_LEN_OFF};
 // ============================================================
 
 #[inline]
-unsafe fn str_len(p: *const u8) -> u64 {
-    unsafe { (p.add(STR_LEN_OFF) as *const u64).read() }
+unsafe fn str_len(p: *const u8) -> u32 {
+    unsafe { (p.add(STR_LEN_OFF) as *const u32).read() }
 }
 
 #[inline]
-unsafe fn str_bytes<'a>(p: *const u8, len: u64) -> &'a [u8] {
+unsafe fn str_bytes<'a>(p: *const u8, len: u32) -> &'a [u8] {
     unsafe { core::slice::from_raw_parts(p.add(STR_DATA_OFF), len as usize) }
 }
 
@@ -175,8 +175,8 @@ mod tests {
     use crate::block::__torajs_str_free;
 
     fn make_str(payload: &[u8]) -> *mut u8 {
-        let mut b = StrBlock::alloc(payload.len() as u64);
-        let dst = unsafe { b.as_bytes_mut(payload.len() as u64) };
+        let mut b = StrBlock::alloc(payload.len() as u32);
+        let dst = unsafe { b.as_bytes_mut(payload.len() as u32) };
         dst.copy_from_slice(payload);
         b.into_raw()
     }

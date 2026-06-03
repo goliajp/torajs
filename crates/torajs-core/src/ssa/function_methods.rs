@@ -229,6 +229,10 @@ impl Function {
                 write!(w, "zext_bool ")?;
                 self.write_operand(w, op)?;
             }
+            InstKind::ZExtI32ToI64(op) => {
+                write!(w, "zext_i32 ")?;
+                self.write_operand(w, op)?;
+            }
             InstKind::BitCastF64ToI64(op) => {
                 write!(w, "bitcast_f64_to_i64 ")?;
                 self.write_operand(w, op)?;

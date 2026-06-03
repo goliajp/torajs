@@ -395,7 +395,7 @@ mod tests {
     // lives in `lib.rs` (shared across all submodules).
     static TEST_LOCK: Mutex<()> = Mutex::new(());
 
-    fn fresh_parent(len: u64) -> StrBlock {
+    fn fresh_parent(len: u32) -> StrBlock {
         let mut block = StrBlock::alloc(len);
         // Fill payload with deterministic bytes so future tests can
         // verify view byte access without UB. (Substr layout doesn't

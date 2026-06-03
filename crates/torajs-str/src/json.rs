@@ -32,8 +32,8 @@ use crate::layout::{STR_DATA_OFF, STR_LEN_OFF};
 const HEX: &[u8; 16] = b"0123456789abcdef";
 
 #[inline]
-fn escaped_len(s: &[u8]) -> u64 {
-    let mut out: u64 = 2; // surrounding quotes
+fn escaped_len(s: &[u8]) -> u32 {
+    let mut out: u32 = 2; // surrounding quotes
     for &c in s {
         out += match c {
             b'"' | b'\\' | b'\n' | b'\r' | b'\t' | 0x08 | 0x0c => 2,
@@ -112,7 +112,7 @@ fn write_escaped(s: &[u8], dst: &mut [u8]) {
 /// [`crate::layout`]).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_json_quote_str(s: *const u8) -> *mut u8 {
-    let len = unsafe { (s.add(STR_LEN_OFF) as *const u64).read() };
+    let len = unsafe { (s.add(STR_LEN_OFF) as *const u32).read() };
     let bytes = unsafe { core::slice::from_raw_parts(s.add(STR_DATA_OFF), len as usize) };
     let out_len = escaped_len(bytes);
     let mut block = StrBlock::alloc(out_len);

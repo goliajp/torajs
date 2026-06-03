@@ -30,18 +30,18 @@ use crate::layout::{STR_DATA_OFF, STR_LEN_OFF};
 // ============================================================
 
 #[inline]
-unsafe fn str_len(p: *const u8) -> u64 {
-    unsafe { (p.add(STR_LEN_OFF) as *const u64).read() }
+unsafe fn str_len(p: *const u8) -> u32 {
+    unsafe { (p.add(STR_LEN_OFF) as *const u32).read() }
 }
 
 #[inline]
-unsafe fn str_bytes<'a>(p: *const u8, len: u64) -> &'a [u8] {
+unsafe fn str_bytes<'a>(p: *const u8, len: u32) -> &'a [u8] {
     unsafe { core::slice::from_raw_parts(p.add(STR_DATA_OFF), len as usize) }
 }
 
 #[inline]
 unsafe fn alloc_slice(src: &[u8]) -> *mut u8 {
-    let out_len = src.len() as u64;
+    let out_len = src.len() as u32;
     let mut block = StrBlock::alloc(out_len);
     if !src.is_empty() {
         let dst = unsafe { block.as_bytes_mut(out_len) };
@@ -79,11 +79,11 @@ pub fn fill_with_pad(dst: &mut [u8], pad: &[u8]) {
 /// original `s` should be returned unchanged (negative or
 /// already-meets-target).
 #[inline]
-pub fn pad_output_len(target_len: i64, s_len: u64) -> Option<u64> {
-    if target_len < 0 || (target_len as u64) <= s_len {
+pub fn pad_output_len(target_len: i64, s_len: u32) -> Option<u32> {
+    if target_len < 0 || (target_len as u64) <= s_len as u64 {
         None
     } else {
-        Some(target_len as u64)
+        Some(target_len as u32)
     }
 }
 
@@ -200,8 +200,8 @@ mod tests {
     use crate::block::__torajs_str_free;
 
     fn make_str(payload: &[u8]) -> *mut u8 {
-        let mut b = StrBlock::alloc(payload.len() as u64);
-        let dst = unsafe { b.as_bytes_mut(payload.len() as u64) };
+        let mut b = StrBlock::alloc(payload.len() as u32);
+        let dst = unsafe { b.as_bytes_mut(payload.len() as u32) };
         dst.copy_from_slice(payload);
         b.into_raw()
     }

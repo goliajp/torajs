@@ -23,6 +23,13 @@ use crate::ssa::{self as s, Type};
 /// without a runtime lookup.
 pub(super) const STATIC_LITERAL_FLAG: u16 = 4;
 
+/// Mirror of `crate::layout::STR_FLAG_IS_LATIN1` from torajs-str
+/// (P11.1-S1). Static string literals are always Latin-1 at the S1
+/// phase — every existing fixture's payload is ≤ 0xFF (ASCII subset)
+/// so the bit-identical byte content satisfies Latin-1 semantics.
+/// Build-time encoding decisions for non-ASCII literals land in S2.
+pub(super) const STR_IS_LATIN1_FLAG: u16 = 2;
+
 /// Emit one `[N x i8]` private constant per interned string. Just the raw
 /// bytes — no NUL terminator. The string runtime carries length explicitly
 /// in the heap StrRepr's first 8 bytes.
@@ -43,15 +50,27 @@ pub(super) fn emit_string_global<'ctx>(
     g
 }
 
-/// `[hdr:8 (rc=1, tag=STR, flags=STATIC_LITERAL)] [len:8] [bytes:N]` —
-/// drop-in Str object that lives in `.rodata`. rc_inc / rc_dec /
-/// str_free / arr_free all short-circuit via the STATIC flag in the
-/// header so the global is never written to (safe to mark constant).
+/// `[hdr:8 (rc=1, tag=STR, flags=STATIC_LITERAL|IS_LATIN1)] [length:4]
+/// [_pad:4] [bytes:N]` — drop-in Str object that lives in `.rodata`.
+/// rc_inc / rc_dec / str_free / arr_free all short-circuit via the
+/// STATIC flag in the header so the global is never written to
+/// (safe to mark constant).
 ///
 /// Serves `intern_string_literal` callsites — every literal in a hot
 /// loop now resolves to the same global ptr instead of paying a
 /// per-iter str_alloc + memcpy + str_drop. Memory cost: one extra
 /// 16-byte header per unique literal, paid once at link time.
+///
+/// ## P11.1-S1 layout (vs pre-S1 `[u64 header, u64 length, [N x i8]]`)
+///
+/// `length` moves from `u64 @8` to `u32 @8 + _pad u32 @12`, and the
+/// `IS_LATIN1` flag bit is set in `flags` (S1 hard-codes Latin-1 —
+/// all existing literals are ASCII subset of Latin-1, payload bytes
+/// identical). LLVM struct shape:
+/// `[u64 header, u32 length, u32 _pad, [N x i8] bytes]` — packed so
+/// runtime `Load(I32, p, 8)` reads the length field exactly. The
+/// `_pad u32` slot is zero-initialized; S2 / future P11.x phases
+/// may repurpose it (hash slot, inline-cache hint).
 pub(super) fn emit_static_str_global<'ctx>(
     ctx: &'ctx Context,
     m: &LlvmModule<'ctx>,
@@ -59,29 +78,35 @@ pub(super) fn emit_static_str_global<'ctx>(
     bytes: &[u8],
 ) -> inkwell::values::GlobalValue<'ctx> {
     let i8_t = ctx.i8_type();
+    let i32_t = ctx.i32_type();
     let i64_t = ctx.i64_type();
-    let len = bytes.len() as u64;
+    let length = bytes.len() as u32;
 
     // Universal heap header packed into a single u64:
     //   refcount (u32) @ [0..32]   = 1 (irrelevant — rc_inc/dec no-op)
     //   type_tag (u16) @ [32..48]  = TAG_STR (= 0)
-    //   flags    (u16) @ [48..64]  = STATIC_LITERAL (= 4)
-    let header_u64: u64 = 1u64 | ((STATIC_LITERAL_FLAG as u64) << 48);
+    //   flags    (u16) @ [48..64]  = STATIC_LITERAL | IS_LATIN1
+    let flags_u16: u16 = STATIC_LITERAL_FLAG | STR_IS_LATIN1_FLAG;
+    let header_u64: u64 = 1u64 | ((flags_u16 as u64) << 48);
     let hdr = i64_t.const_int(header_u64, false);
-    let len_v = i64_t.const_int(len, false);
+    let length_v = i32_t.const_int(length as u64, false);
+    let pad_v = i32_t.const_int(0, false);
     let bytes_arr = ctx.const_string(bytes, false);
 
-    // Anonymous struct so the layout exactly matches `[u64, u64, [N x i8]]`
-    // — the runtime reads the header at offset 0 and the bytes at offset 16.
+    // Anonymous struct so the layout exactly matches
+    // `[u64 header, u32 length, u32 _pad, [N x i8]]` — the runtime
+    // reads the header at offset 0, the length at offset 8, and
+    // the payload bytes at offset 16.
     let body = ctx.const_struct(
-        &[hdr.into(), len_v.into(), bytes_arr.into()],
+        &[hdr.into(), length_v.into(), pad_v.into(), bytes_arr.into()],
         true, // packed — prevent LLVM from inserting padding between fields
     );
     let body_t = ctx.struct_type(
         &[
             i64_t.into(),
-            i64_t.into(),
-            i8_t.array_type(len as u32).into(),
+            i32_t.into(),
+            i32_t.into(),
+            i8_t.array_type(length).into(),
         ],
         true,
     );

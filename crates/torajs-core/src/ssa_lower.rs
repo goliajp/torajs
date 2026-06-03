@@ -22102,13 +22102,7 @@ impl<'a> LowerCtx<'a> {
                     return Operand::Value(v);
                 }
                 if (obj_ty == Type::Str || obj_ty == Type::Substr) && name == "length" {
-                    let v = self.f.append_inst(
-                        self.cur_block,
-                        InstKind::Load(Type::I64, obj_val, 8),
-                        Type::I64,
-                        None,
-                    );
-                    return Operand::Value(v);
+                    return crate::ssa_lower_str::load_str_or_substr_length(self, obj_val, obj_ty);
                 }
                 // Phase 2A: `xs.length` on Type::Arr — read u64 len at
                 // offset ARR_LEN_OFF of the array header.
@@ -24228,13 +24222,13 @@ impl<'a> LowerCtx<'a> {
             InstKind::Store(Operand::ConstBool(false), Operand::Value(result_slot), 0),
         );
         let done_blk = self.f.add_block();
-        // step 1: len-eq (offset 8 for both Str and Substr)
-        let other_len = self.f.append_inst(
-            self.cur_block,
-            InstKind::Load(Type::I64, other, 8),
-            Type::I64,
-            None,
-        );
+        // step 1: len-eq. Str/Substr layout fork lives in the
+        // ssa_lower_str sidekick — see load_str_or_substr_length.
+        let other_len = match crate::ssa_lower_str::load_str_or_substr_length(self, other, other_ty)
+        {
+            Operand::Value(v) => v,
+            _ => unreachable!("length helper always yields a Value"),
+        };
         let len_eq = self.f.append_inst(
             self.cur_block,
             InstKind::ICmp(
@@ -25445,15 +25439,11 @@ impl<'a> LowerCtx<'a> {
                     InstKind::Store(Operand::ConstBool(false), Operand::Value(result_slot), 0),
                 );
                 self.f.set_term(null_blk, Terminator::Br(merge));
-                // non-null branch: load len, compare > 0.
+                // non-null branch: load len via the encoding-aware
+                // helper, compare > 0.
                 self.cur_block = nn_blk;
-                let len = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::Load(Type::I64, op, 8),
-                    Type::I64,
-                    None,
-                );
-                let nz = self.cmp(IPred::Sgt, Operand::Value(len), Operand::ConstI64(0));
+                let len_op = crate::ssa_lower_str::load_str_or_substr_length(self, op, ty);
+                let nz = self.cmp(IPred::Sgt, len_op, Operand::ConstI64(0));
                 self.f.append_void(
                     self.cur_block,
                     InstKind::Store(nz, Operand::Value(result_slot), 0),

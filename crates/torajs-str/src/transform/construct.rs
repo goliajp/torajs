@@ -44,18 +44,18 @@ use crate::substr::__torajs_substr_create;
 // ============================================================
 
 #[inline]
-unsafe fn str_len(p: *const u8) -> u64 {
-    unsafe { (p.add(STR_LEN_OFF) as *const u64).read() }
+unsafe fn str_len(p: *const u8) -> u32 {
+    unsafe { (p.add(STR_LEN_OFF) as *const u32).read() }
 }
 
 #[inline]
-unsafe fn str_bytes<'a>(p: *const u8, len: u64) -> &'a [u8] {
+unsafe fn str_bytes<'a>(p: *const u8, len: u32) -> &'a [u8] {
     unsafe { core::slice::from_raw_parts(p.add(STR_DATA_OFF), len as usize) }
 }
 
 #[inline]
 fn alloc_str(payload: &[u8]) -> *mut u8 {
-    let out_len = payload.len() as u64;
+    let out_len = payload.len() as u32;
     let mut block = StrBlock::alloc(out_len);
     if !payload.is_empty() {
         let dst = unsafe { block.as_bytes_mut(out_len) };
@@ -77,11 +77,11 @@ fn alloc_empty_str() -> *mut u8 {
 /// `wrapping_mul` to match the C subset's silent-overflow contract
 /// (the v0 caller is expected to pass sane `n`).
 #[inline]
-pub fn repeat_out_len(s_len: u64, n: i64) -> u64 {
+pub fn repeat_out_len(s_len: u32, n: i64) -> u32 {
     if n <= 0 {
         0
     } else {
-        s_len.wrapping_mul(n as u64)
+        s_len.wrapping_mul(n as u32)
     }
 }
 
@@ -89,14 +89,14 @@ pub fn repeat_out_len(s_len: u64, n: i64) -> u64 {
 /// `[0, len]`, swaps if `start > end`. Returns `(lo, hi)` such
 /// that `lo <= hi <= len`.
 #[inline]
-pub fn substring_range(start: i64, end: i64, len: u64) -> (u64, u64) {
+pub fn substring_range(start: i64, end: i64, len: u32) -> (u32, u32) {
     let ilen = len as i64;
     let mut s = clamp_to_range(start, ilen);
     let mut e = clamp_to_range(end, ilen);
     if s > e {
         core::mem::swap(&mut s, &mut e);
     }
-    (s as u64, e as u64)
+    (s as u32, e as u32)
 }
 
 #[inline]
@@ -114,7 +114,7 @@ fn clamp_to_range(v: i64, max: i64) -> i64 {
 /// `start`, clamps `length` to remaining. Returns `(lo, len)`
 /// where `lo + len <= size`.
 #[inline]
-pub fn substr_range(start: i64, length: i64, size: u64) -> (u64, u64) {
+pub fn substr_range(start: i64, length: i64, size: u32) -> (u32, u32) {
     let isize = size as i64;
     let mut s = if start < 0 { isize + start } else { start };
     if s < 0 {
@@ -128,19 +128,19 @@ pub fn substr_range(start: i64, length: i64, size: u64) -> (u64, u64) {
     if len < 0 {
         len = 0;
     }
-    (s as u64, len as u64)
+    (s as u32, len as u32)
 }
 
 /// `s.at(i)` index resolution. Negative `i` wraps to `len + i`;
 /// returns `None` if out of bounds.
 #[inline]
-pub fn at_resolve(i: i64, len: u64) -> Option<u64> {
+pub fn at_resolve(i: i64, len: u32) -> Option<u32> {
     let ilen = len as i64;
     let adj = if i < 0 { ilen + i } else { i };
     if adj < 0 || adj >= ilen {
         None
     } else {
-        Some(adj as u64)
+        Some(adj as u32)
     }
 }
 
@@ -188,7 +188,7 @@ pub unsafe extern "C" fn __torajs_str_char_at(s: *mut u8, i: i64) -> *mut u8 {
         return unsafe { __torajs_substr_create(parent, 0, 0) } as *mut u8;
     }
     let len = unsafe { str_len(s) };
-    if i < 0 || (i as u64) >= len {
+    if i < 0 || (i as u64) >= len as u64 {
         return unsafe { __torajs_substr_create(parent, 0, 0) } as *mut u8;
     }
     unsafe { __torajs_substr_create(parent, i as u64, 1) as *mut u8 }
@@ -298,8 +298,8 @@ mod tests {
     use crate::block::__torajs_str_free;
 
     fn make_str(payload: &[u8]) -> *mut u8 {
-        let mut b = StrBlock::alloc(payload.len() as u64);
-        let dst = unsafe { b.as_bytes_mut(payload.len() as u64) };
+        let mut b = StrBlock::alloc(payload.len() as u32);
+        let dst = unsafe { b.as_bytes_mut(payload.len() as u32) };
         dst.copy_from_slice(payload);
         b.into_raw()
     }

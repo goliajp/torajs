@@ -75,7 +75,7 @@ pub unsafe extern "C" fn __torajs_str_print(s: *const u8) {
         }
         return;
     }
-    let len = unsafe { (s.add(STR_LEN_OFF) as *const u64).read() } as usize;
+    let len = unsafe { (s.add(STR_LEN_OFF) as *const u32).read() } as usize;
     if len > 0 {
         let bytes = unsafe { core::slice::from_raw_parts(s.add(STR_DATA_OFF), len) };
         for &b in bytes {
@@ -129,7 +129,7 @@ pub unsafe extern "C" fn __torajs_str_print_err(s: *const u8) {
     let payload = if s.is_null() {
         None
     } else {
-        let len = unsafe { (s.add(STR_LEN_OFF) as *const u64).read() } as usize;
+        let len = unsafe { (s.add(STR_LEN_OFF) as *const u32).read() } as usize;
         Some(unsafe { core::slice::from_raw_parts(s.add(STR_DATA_OFF), len) })
     };
     crate::write_stderr(&format_print_err(payload));

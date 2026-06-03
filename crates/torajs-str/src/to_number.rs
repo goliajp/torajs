@@ -146,10 +146,10 @@ mod tests {
     static TEST_LOCK: Mutex<()> = Mutex::new(());
 
     fn make_str(bytes: &[u8]) -> StrBlock {
-        let mut block = StrBlock::alloc(bytes.len() as u64);
+        let mut block = StrBlock::alloc(bytes.len() as u32);
         unsafe {
             block
-                .as_bytes_mut(bytes.len() as u64)
+                .as_bytes_mut(bytes.len() as u32)
                 .copy_from_slice(bytes)
         };
         block

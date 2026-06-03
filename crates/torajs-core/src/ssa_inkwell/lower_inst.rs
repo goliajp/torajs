@@ -191,6 +191,17 @@ impl<'a, 'ctx> FnLower<'a, 'ctx> {
                 let r = self.builder.build_int_z_extend(v, i64_ty, "").unwrap();
                 Some(BasicValueEnum::IntValue(r))
             }
+            InstKind::ZExtI32ToI64(op) => {
+                // P11.1-S1 — i32 → i64 zero-extend for the post-layout-flip
+                // `.length` arm (Str length is now `u32 @8`; downstream
+                // SSA expects i64). LLVM build_int_z_extend dispatches on
+                // source type (i32 here), so emitter logic mirrors the
+                // BoolToI64 arm verbatim.
+                let v = self.operand_int(op);
+                let i64_ty = self.ctx.i64_type();
+                let r = self.builder.build_int_z_extend(v, i64_ty, "").unwrap();
+                Some(BasicValueEnum::IntValue(r))
+            }
             InstKind::BitCastF64ToI64(op) => {
                 // T-10.d.ii — pun the f64's IEEE 754 bit pattern as i64
                 // for the ANY_F64 tagged-slot stash. LLVM `bitcast`
