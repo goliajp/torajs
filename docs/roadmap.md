@@ -1291,7 +1291,13 @@ exactly, incl. the long-tail rounding cases.
       cases (NaN / Infinity / -0 / Min/Max/MIN_VALUE/MAX_VALUE / 1e-6 /
       1e-7 / 1e20 / 1e21 boundaries / 1/3 / Math.PI / 0.1+0.2 / etc.).
       gate 708/0/4 preserved; perf flat (json-stringify-100k +0.4% noise).
-- [ ] **P12.2** parseFloat / parseInt edge cases
+- [x] **P12.2** parseFloat / parseInt edge cases (`be8ca95` fixture lock-in).
+      Audit at P12.2 start showed tora already byte-equals bun across 23
+      advanced cases (radix sentinel 0 + bounds [2,36], JS-spec exponent
+      shape, longest-prefix match, denorm rounding, whitespace + hex
+      rejection). Existing parse.rs (parse_int + parse_float) is feature-
+      complete; ship is fixture-only to lock parity against future
+      refactor regressions.
 - [ ] **P12.3** IEEE rounding modes for `toFixed` / `toPrecision`
 - [ ] **P12.4** BigInt full operator coverage incl. `**`, mixed-shift,
       spec-conformant overflow
