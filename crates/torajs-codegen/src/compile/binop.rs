@@ -1,0 +1,241 @@
+//! BinOp dispatcher — full integer + f64 surface.
+
+use torajs_core::ssa::{BinOp, Inst, Operand};
+
+use super::operand::{materialize_operand_fpr, materialize_operand_gpr};
+use super::write_u32;
+use super::{FP_SCRATCH_LHS, FP_SCRATCH_RHS, OP_SCRATCH_LHS, OP_SCRATCH_RHS, OP_SCRATCH_TMP};
+use crate::enc::{
+    add_reg, and_reg, asrv_reg, eor_reg, fadd_d, fdiv_d, fmul_d, fsub_d, lslv_reg, lsrv_reg,
+    msub_reg, mul_reg, orr_reg, sdiv_reg, sub_reg,
+};
+use crate::regalloc::Assignment;
+
+pub fn emit_binop(
+    bytes: &mut Vec<u8>,
+    inst: &Inst,
+    op: &BinOp,
+    lhs: &Operand,
+    rhs: &Operand,
+    alloc: &Assignment,
+) {
+    match op {
+        // --- integer ops (GPR) ---
+        BinOp::Add
+        | BinOp::Sub
+        | BinOp::Mul
+        | BinOp::SDiv
+        | BinOp::SRem
+        | BinOp::And
+        | BinOp::Or
+        | BinOp::Xor
+        | BinOp::Shl
+        | BinOp::AShr
+        | BinOp::LShr => {
+            let dst = inst
+                .result
+                .map(|v| alloc.of(v).as_gpr())
+                .expect("int BinOp must have a result ValueId");
+            let rn = materialize_operand_gpr(bytes, lhs, OP_SCRATCH_LHS, alloc);
+            let rm = materialize_operand_gpr(bytes, rhs, OP_SCRATCH_RHS, alloc);
+            match op {
+                BinOp::Add => write_u32(bytes, add_reg(dst, rn, rm)),
+                BinOp::Sub => write_u32(bytes, sub_reg(dst, rn, rm)),
+                BinOp::Mul => write_u32(bytes, mul_reg(dst, rn, rm)),
+                BinOp::SDiv => write_u32(bytes, sdiv_reg(dst, rn, rm)),
+                BinOp::SRem => {
+                    write_u32(bytes, sdiv_reg(OP_SCRATCH_TMP, rn, rm));
+                    write_u32(bytes, msub_reg(dst, OP_SCRATCH_TMP, rm, rn));
+                }
+                BinOp::And => write_u32(bytes, and_reg(dst, rn, rm)),
+                BinOp::Or => write_u32(bytes, orr_reg(dst, rn, rm)),
+                BinOp::Xor => write_u32(bytes, eor_reg(dst, rn, rm)),
+                BinOp::Shl => write_u32(bytes, lslv_reg(dst, rn, rm)),
+                BinOp::AShr => write_u32(bytes, asrv_reg(dst, rn, rm)),
+                BinOp::LShr => write_u32(bytes, lsrv_reg(dst, rn, rm)),
+                _ => unreachable!(),
+            }
+        }
+        // --- f64 ops (FPR) ---
+        BinOp::FAdd | BinOp::FSub | BinOp::FMul | BinOp::FDiv => {
+            let dst = inst
+                .result
+                .map(|v| alloc.of(v).as_fpr())
+                .expect("fp BinOp must have a result ValueId");
+            let rn = materialize_operand_fpr(bytes, lhs, FP_SCRATCH_LHS, OP_SCRATCH_LHS, alloc);
+            let rm = materialize_operand_fpr(bytes, rhs, FP_SCRATCH_RHS, OP_SCRATCH_RHS, alloc);
+            match op {
+                BinOp::FAdd => write_u32(bytes, fadd_d(dst, rn, rm)),
+                BinOp::FSub => write_u32(bytes, fsub_d(dst, rn, rm)),
+                BinOp::FMul => write_u32(bytes, fmul_d(dst, rn, rm)),
+                BinOp::FDiv => write_u32(bytes, fdiv_d(dst, rn, rm)),
+                _ => unreachable!(),
+            }
+        }
+        BinOp::FRem => todo!("S2-D: BinOp::FRem lowers to a libm `fmod` call"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::compile_function;
+    use super::super::test_fixtures::{build_binop_const, build_fp_binop_const, words_to_le_bytes};
+    use crate::enc;
+    use crate::reg::{Fpr, Gpr};
+    use torajs_core::ssa::BinOp;
+
+    /// MOVZ x9,#lhs / MOVZ x10,#rhs / <op> x0,x9,x10 / RET — assert
+    /// the 4-word reference matches.
+    fn assert_binop_4word(name: &str, op: BinOp, lhs: i64, rhs: i64, op_word: u32) {
+        let func = build_binop_const(name, op, lhs, rhs);
+        let compiled = compile_function(&func);
+        let expected = words_to_le_bytes(&[
+            enc::movz_imm(Gpr::X9, lhs as u16, 0),
+            enc::movz_imm(Gpr::X10, rhs as u16, 0),
+            op_word,
+            enc::ret(Gpr::X30),
+        ]);
+        assert_eq!(
+            compiled.bytes, expected,
+            "{name}: mismatch — expected {expected:02X?}, got {:02X?}",
+            compiled.bytes
+        );
+    }
+
+    #[test]
+    fn five_minus_three() {
+        assert_binop_4word(
+            "sub",
+            BinOp::Sub,
+            5,
+            3,
+            enc::sub_reg(Gpr::X0, Gpr::X9, Gpr::X10),
+        );
+    }
+
+    #[test]
+    fn two_times_three() {
+        assert_binop_4word(
+            "mul",
+            BinOp::Mul,
+            2,
+            3,
+            enc::mul_reg(Gpr::X0, Gpr::X9, Gpr::X10),
+        );
+    }
+
+    #[test]
+    fn ten_div_three() {
+        assert_binop_4word(
+            "sdiv",
+            BinOp::SDiv,
+            10,
+            3,
+            enc::sdiv_reg(Gpr::X0, Gpr::X9, Gpr::X10),
+        );
+    }
+
+    #[test]
+    fn ff_and_f0() {
+        assert_binop_4word(
+            "and",
+            BinOp::And,
+            0xFF,
+            0xF0,
+            enc::and_reg(Gpr::X0, Gpr::X9, Gpr::X10),
+        );
+    }
+
+    #[test]
+    fn zero_f_or_f0() {
+        assert_binop_4word(
+            "or",
+            BinOp::Or,
+            0x0F,
+            0xF0,
+            enc::orr_reg(Gpr::X0, Gpr::X9, Gpr::X10),
+        );
+    }
+
+    #[test]
+    fn aa_xor_55() {
+        assert_binop_4word(
+            "xor",
+            BinOp::Xor,
+            0xAA,
+            0x55,
+            enc::eor_reg(Gpr::X0, Gpr::X9, Gpr::X10),
+        );
+    }
+
+    #[test]
+    fn one_shl_three() {
+        assert_binop_4word(
+            "shl",
+            BinOp::Shl,
+            1,
+            3,
+            enc::lslv_reg(Gpr::X0, Gpr::X9, Gpr::X10),
+        );
+    }
+
+    #[test]
+    fn sixteen_ashr_two() {
+        assert_binop_4word(
+            "ashr",
+            BinOp::AShr,
+            16,
+            2,
+            enc::asrv_reg(Gpr::X0, Gpr::X9, Gpr::X10),
+        );
+    }
+
+    #[test]
+    fn sixteen_lshr_two() {
+        assert_binop_4word(
+            "lshr",
+            BinOp::LShr,
+            16,
+            2,
+            enc::lsrv_reg(Gpr::X0, Gpr::X9, Gpr::X10),
+        );
+    }
+
+    /// SRem lowers to SDIV scratch + MSUB Rd — emits *5* words.
+    #[test]
+    fn ten_rem_three_compound() {
+        let func = build_binop_const("ten_rem_three", BinOp::SRem, 10, 3);
+        let compiled = compile_function(&func);
+        let expected = words_to_le_bytes(&[
+            enc::movz_imm(Gpr::X9, 10, 0),
+            enc::movz_imm(Gpr::X10, 3, 0),
+            enc::sdiv_reg(Gpr::X11, Gpr::X9, Gpr::X10),
+            enc::msub_reg(Gpr::X0, Gpr::X11, Gpr::X10, Gpr::X9),
+            enc::ret(Gpr::X30),
+        ]);
+        assert_eq!(compiled.bytes, expected);
+        assert_eq!(compiled.bytes.len(), 20);
+    }
+
+    /// FMul-shape fixture with F64 return type — verifies the ret
+    /// value lands in V0/D0 (AAPCS64 §5.1.2) end-to-end.
+    #[test]
+    fn fp_mul_two_point_five_times_two_returns_d0() {
+        let func = build_fp_binop_const("fp_mul_25_times_2", BinOp::FMul, 2.5, 2.0);
+        let compiled = compile_function(&func);
+
+        // 2.5_f64.to_bits() = 0x4004_0000_0000_0000 (q3 = 0x4004)
+        // 2.0_f64.to_bits() = 0x4000_0000_0000_0000 (q3 = 0x4000)
+        let expected = words_to_le_bytes(&[
+            enc::movz_imm(Gpr::X9, 0, 0),
+            enc::movk_imm(Gpr::X9, 0x4004, 3),
+            enc::fmov_d_from_x(Fpr::V16, Gpr::X9),
+            enc::movz_imm(Gpr::X10, 0, 0),
+            enc::movk_imm(Gpr::X10, 0x4000, 3),
+            enc::fmov_d_from_x(Fpr::V17, Gpr::X10),
+            enc::fmul_d(Fpr::V0, Fpr::V16, Fpr::V17),
+            enc::ret(Gpr::X30),
+        ]);
+        assert_eq!(compiled.bytes, expected);
+    }
+}

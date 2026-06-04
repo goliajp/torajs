@@ -1,0 +1,161 @@
+//! Function-level compile driver.
+//!
+//! Walks `torajs_core::ssa::Function` once, dispatches each `InstKind`
+//! to the matching aarch64 instruction sequence via `enc::*`, and
+//! emits the little-endian byte stream + any `Reloc` descriptors.
+//!
+//! Split into sub-modules per InstKind family to keep each file (and
+//! its inline test block) under the 500-LOC hard limit:
+//!
+//!   - [`operand`]: `materialize_operand_{gpr,fpr}` +
+//!     `materialize_const_i64` (MOVZ+MOVK quadrant chain). All
+//!     constant-to-register lowering lives here.
+//!   - [`binop`]: `emit_binop` for the full integer + float BinOp
+//!     surface (`BinOp::Add..LShr` + `FAdd..FDiv`).
+//!   - [`cmp`]: `emit_icmp` / `emit_fcmp` lowering ICmp/FCmp to
+//!     CMP/FCMP + CSET with `ipred_to_cond` / `fpred_to_cond` mapping
+//!     tables.
+//!   - [`cast`]: `emit_bitcast_{f64_to_i64,i64_to_f64}` — single FMOV
+//!     between Xn and Dn, no bit conversion.
+//!
+//! S1 baseline test (`fn one_plus_two() -> i64 { 1 + 2 }`) lives here
+//! in `mod tests` because it's a driver-level acceptance test, not
+//! tied to any one InstKind family.
+//!
+//! Phase-level coverage notes (history, kept for reference):
+//!
+//! S1 — Add only. S2-A — full integer BinOp + 64-bit ConstI64 via
+//! MOVZ+MOVK. S2-B1 — FP encoders + Fpr enum. S2-B2 — FP binop wire-
+//! up + BitCast + Operand::ConstF64 via FMOV-d-from-x. S2-C — ICmp +
+//! FCmp via CMP/FCMP + CSET. S2-D pending: FRem (libm `fmod` call)
+//! and FPred::One (CCMP fold or NE+VC+AND).
+
+mod binop;
+mod cast;
+mod cmp;
+mod operand;
+
+#[cfg(test)]
+pub(crate) mod test_fixtures;
+
+use torajs_core::ssa::{Function, InstKind, Terminator};
+
+use crate::enc::ret;
+use crate::frame::FrameLayout;
+use crate::reg::{Fpr, Gpr};
+use crate::regalloc::{Assignment, allocate_trivial};
+use crate::reloc::Reloc;
+
+pub use binop::emit_binop;
+pub use cast::{emit_bitcast_f64_to_i64, emit_bitcast_i64_to_f64};
+pub use cmp::{emit_fcmp, emit_icmp};
+pub use operand::{materialize_const_i64, materialize_operand_fpr, materialize_operand_gpr};
+
+/// Operand scratch GPRs — sub-modules use these to materialize int
+/// constants (`materialize_const_i64`) and arrange operands.
+pub(crate) const OP_SCRATCH_LHS: Gpr = Gpr::X9;
+pub(crate) const OP_SCRATCH_RHS: Gpr = Gpr::X10;
+/// Tertiary GPR scratch for compound ops (e.g. SREM = SDIV+MSUB).
+pub(crate) const OP_SCRATCH_TMP: Gpr = Gpr::X11;
+/// FPR scratches for FP-side operand materialization.
+pub(crate) const FP_SCRATCH_LHS: Fpr = Fpr::V16;
+pub(crate) const FP_SCRATCH_RHS: Fpr = Fpr::V17;
+
+/// Output of `compile_function` — raw aarch64 bytes + per-function
+/// reloc table, ready to hand off to torajs-obj (#7).
+#[derive(Debug, Clone)]
+pub struct CompiledFunction {
+    pub name: String,
+    pub bytes: Vec<u8>,
+    pub relocs: Vec<Reloc>,
+    pub frame: FrameLayout,
+}
+
+/// Compile one SSA Function to aarch64 bytes.
+pub fn compile_function(func: &Function) -> CompiledFunction {
+    let alloc = allocate_trivial(func);
+    let frame = FrameLayout::leaf_no_spill();
+    let mut bytes: Vec<u8> = Vec::new();
+    let relocs: Vec<Reloc> = Vec::new();
+
+    if !frame.is_trivial() {
+        todo!("S3+: emit AAPCS64 prologue");
+    }
+
+    for block in &func.blocks {
+        for inst in &block.insts {
+            emit_inst(&mut bytes, inst, &alloc);
+        }
+        emit_terminator(&mut bytes, &block.term);
+    }
+
+    CompiledFunction {
+        name: func.name.clone(),
+        bytes,
+        relocs,
+        frame,
+    }
+}
+
+fn emit_inst(bytes: &mut Vec<u8>, inst: &torajs_core::ssa::Inst, alloc: &Assignment) {
+    match &inst.kind {
+        InstKind::BinOp(op, lhs, rhs) => emit_binop(bytes, inst, op, lhs, rhs, alloc),
+        InstKind::ICmp(pred, lhs, rhs) => emit_icmp(bytes, inst, *pred, lhs, rhs, alloc),
+        InstKind::FCmp(pred, lhs, rhs) => emit_fcmp(bytes, inst, *pred, lhs, rhs, alloc),
+        InstKind::BitCastF64ToI64(src) => emit_bitcast_f64_to_i64(bytes, inst, src, alloc),
+        InstKind::BitCastI64ToF64(src) => emit_bitcast_i64_to_f64(bytes, inst, src, alloc),
+        other => todo!("S2+: InstKind::{:?}", other),
+    }
+}
+
+fn emit_terminator(bytes: &mut Vec<u8>, term: &Terminator) {
+    match term {
+        Terminator::Ret(_) => write_u32(bytes, ret(Gpr::X30)),
+        other => todo!("S5: Terminator::{:?}", other),
+    }
+}
+
+pub(crate) fn write_u32(bytes: &mut Vec<u8>, word: u32) {
+    bytes.extend_from_slice(&word.to_le_bytes());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use test_fixtures::{build_one_plus_two, words_to_le_bytes};
+
+    /// S1 acceptance — `fn one_plus_two() -> i64 { 1 + 2 }` shape
+    /// compiles end-to-end to the hand-encoded 16-byte reference:
+    ///
+    /// ```text
+    ///   MOVZ x9, #1       0xD2800029
+    ///   MOVZ x10, #2      0xD280004A
+    ///   ADD x0, x9, x10   0x8B0A0120
+    ///   RET               0xD65F03C0
+    /// ```
+    #[test]
+    fn one_plus_two_byte_equal_reference() {
+        let func = build_one_plus_two();
+        let compiled = compile_function(&func);
+
+        let expected = words_to_le_bytes(&[0xD280_0029, 0xD280_004A, 0x8B0A_0120, 0xD65F_03C0]);
+        assert_eq!(
+            compiled.bytes, expected,
+            "byte stream mismatch — expected {expected:02X?}, got {:02X?}",
+            compiled.bytes
+        );
+        assert_eq!(compiled.name, "one_plus_two");
+        assert!(compiled.relocs.is_empty(), "S1 has no relocs");
+        assert!(
+            compiled.frame.is_trivial(),
+            "leaf fn must have trivial frame"
+        );
+    }
+
+    #[test]
+    fn one_plus_two_emits_exactly_16_bytes() {
+        let func = build_one_plus_two();
+        let compiled = compile_function(&func);
+        assert_eq!(compiled.bytes.len(), 16, "4 instructions × 4 bytes");
+    }
+}

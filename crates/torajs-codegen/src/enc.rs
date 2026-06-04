@@ -27,8 +27,40 @@
 //! Dn (FP move-general). FRem has no aarch64 instruction — it lowers
 //! to a `fmod` libm call which S2-B2 routes via Call + the existing
 //! `bl_imm26` reloc machinery.
+//!
+//! S2-C coverage: SUBS (CMP alias with Rd=XZR) for integer compare,
+//! FCMP Dn,Dm for f64 compare, CSET Wd/Xd,<cond> (alias for CSINC
+//! Wd,WZR,WZR,~<cond>) for converting NZCV → 0/1 boolean. The four-
+//! bit aarch64 condition codes are exposed as constants so the
+//! IPred/FPred → cond mapping in compile.rs reads as a direct table.
 
 use crate::reg::{Fpr, Gpr};
+
+/// AArch64 4-bit condition codes (ARM ARM C1.2.4).
+///
+/// Used by CSET, B.cond, CSINC, CCMP, and friends. Naming follows the
+/// ARM ARM mnemonics; signed/unsigned variant pairs share suffixes
+/// (e.g. `HS`=`CS`, `LO`=`CC`). For FCMP-driven CSET, see
+/// `compile::fpred_to_cond` for the spec-conformant FP cond mapping.
+#[allow(dead_code)]
+pub mod cond {
+    pub const EQ: u8 = 0b0000;
+    pub const NE: u8 = 0b0001;
+    pub const HS: u8 = 0b0010; // also "CS"
+    pub const LO: u8 = 0b0011; // also "CC"
+    pub const MI: u8 = 0b0100;
+    pub const PL: u8 = 0b0101;
+    pub const VS: u8 = 0b0110;
+    pub const VC: u8 = 0b0111;
+    pub const HI: u8 = 0b1000;
+    pub const LS: u8 = 0b1001;
+    pub const GE: u8 = 0b1010;
+    pub const LT: u8 = 0b1011;
+    pub const GT: u8 = 0b1100;
+    pub const LE: u8 = 0b1101;
+    pub const AL: u8 = 0b1110;
+    pub const NV: u8 = 0b1111;
+}
 
 /// MOVZ Xd, #imm16, LSL #(hw*16) — move 16-bit immediate into Rd
 /// with zeroes elsewhere, optionally shifted to a hw-quadrant.
@@ -231,6 +263,45 @@ pub fn fmov_d_from_x(rd: Fpr, rn: Gpr) -> u32 {
 /// (sf=1, type=01 D, rmode=00, opcode=110).
 pub fn fmov_x_from_d(rd: Gpr, rn: Fpr) -> u32 {
     0x9E66_0000 | (rn.idx() << 5) | rd.idx()
+}
+
+// --- S2-C: compare + condition-set ---
+
+/// CMP Xn, Xm — alias for SUBS XZR, Xn, Xm. Sets NZCV based on
+/// `Xn - Xm`; result discarded.
+///
+/// ARM ARM C6.2.49 (CMP alias) / C6.2.377 (SUBS shifted register):
+/// `1 1 1 01011 00 0 Rm imm6 Rn Rd` (Rd=XZR=31, sf=1, op=1, S=1).
+pub fn cmp_reg(rn: Gpr, rm: Gpr) -> u32 {
+    0xEB00_0000 | (rm.idx() << 16) | (rn.idx() << 5) | 31
+}
+
+/// FCMP Dn, Dm — set NZCV from the f64 comparison `Dn vs Dm`. Result
+/// discarded. NaN handling: if either operand is NaN, the
+/// "unordered" pattern N=0,Z=0,C=1,V=1 is set — useful for separating
+/// One (ordered ≠) from Une (unordered or ≠).
+///
+/// ARM ARM C6.2.98: `0 0 0 11110 type 1 Rm 00 1000 Rn opcode2`
+/// type=01 (D), opcode2=00000.
+pub fn fcmp_d(rn: Fpr, rm: Fpr) -> u32 {
+    0x1E60_2000 | (rm.idx() << 16) | (rn.idx() << 5)
+}
+
+/// CSET Xd, <cond> — set Xd to 1 if `<cond>` holds in NZCV, else 0.
+/// Alias for `CSINC Xd, XZR, XZR, invert(<cond>)`.
+///
+/// ARM ARM C6.2.60 (CSET alias) / C6.2.62 (CSINC):
+/// CSINC: `1 0 0 11010100 Rm cond 0 1 Rn Rd`
+/// With Rm=XZR(31), Rn=XZR(31), cond_field = cond XOR 1 (low bit
+/// toggled — CSET inverts the cond it's given to satisfy the CSINC
+/// "increment-on-not-cond" semantics).
+///
+/// `cond` argument: the *uninverted* condition you want CSET to test
+/// — e.g. pass `cond::EQ` to materialize 1 when equal.
+pub fn cset_cond(rd: Gpr, cond: u8) -> u32 {
+    debug_assert!(cond < 16, "cond must fit in 4 bits");
+    let inverted = (cond ^ 1) as u32;
+    0x9A9F_07E0 | (inverted << 12) | rd.idx()
 }
 
 /// B label — unconditional branch with 26-bit signed PC-relative
@@ -494,5 +565,41 @@ mod tests {
         //   Rn=9 (bits 9-5), Rd=0
         //   = 0x9E66_0120
         assert_eq!(fmov_x_from_d(Gpr::X0, Fpr::V9), 0x9E66_0120);
+    }
+
+    // --- S2-C encoder tests ---
+
+    #[test]
+    fn cmp_x9_x10_matches_arm_arm() {
+        // CMP x9, x10 = SUBS XZR, x9, x10
+        //   base 0xEB00_0000 | (Rm=10 << 16) | (Rn=9 << 5) | 31
+        //   = 0xEB0A_013F
+        assert_eq!(cmp_reg(Gpr::X9, Gpr::X10), 0xEB0A_013F);
+    }
+
+    #[test]
+    fn fcmp_d16_d17_matches_arm_arm() {
+        // FCMP d16, d17: base 0x1E60_2000
+        //   Rm=17 (bits 20-16), Rn=16 (bits 9-5)
+        //   = 0x1E60_2000 | (17<<16) | (16<<5)
+        //   = 0x1E71_2200
+        assert_eq!(fcmp_d(Fpr::V16, Fpr::V17), 0x1E71_2200);
+    }
+
+    #[test]
+    fn cset_eq_matches_arm_arm() {
+        // CSET x0, EQ = CSINC x0, XZR, XZR, NE
+        //   base 0x9A9F_07E0 with inverted cond NE=1 at bits 15-12
+        //   = 0x9A9F_07E0 | (1 << 12) | 0
+        //   = 0x9A9F_17E0
+        assert_eq!(cset_cond(Gpr::X0, cond::EQ), 0x9A9F_17E0);
+    }
+
+    #[test]
+    fn cset_lt_to_x9() {
+        // CSET x9, LT = CSINC x9, XZR, XZR, GE
+        //   GE = 10 = 0b1010 → at bits 15-12 → 0xA000
+        //   base 0x9A9F_07E0 | (10<<12) | 9 = 0x9A9F_A7E9
+        assert_eq!(cset_cond(Gpr::X9, cond::LT), 0x9A9F_A7E9);
     }
 }
