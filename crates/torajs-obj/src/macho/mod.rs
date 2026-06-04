@@ -19,5 +19,6 @@
 //! lands in S5.
 
 pub mod header;
+pub mod reloc;
 pub mod segment;
 pub mod symtab;
