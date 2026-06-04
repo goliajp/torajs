@@ -31,6 +31,7 @@
 //! and FPred::One (CCMP fold or NE+VC+AND).
 
 mod binop;
+mod call;
 mod cast;
 mod cmp;
 mod mem;
@@ -48,6 +49,7 @@ use crate::regalloc::{Assignment, allocate_trivial};
 use crate::reloc::Reloc;
 
 pub use binop::emit_binop;
+pub use call::emit_call;
 pub use cast::{
     emit_bitcast_f64_to_i64, emit_bitcast_i64_to_f64, emit_fp_to_si, emit_int_to_ptr,
     emit_ptr_to_int, emit_si_to_fp, emit_trunc_i64_to_bool, emit_zext_bool_to_i64,
@@ -80,15 +82,15 @@ pub struct CompiledFunction {
 /// Compile one SSA Function to aarch64 bytes.
 pub fn compile_function(func: &Function) -> CompiledFunction {
     let alloc = allocate_trivial(func);
-    let frame = FrameLayout::from_alloca_bytes(alloc.raw_alloca_bytes, /*uses_calls=*/ false);
+    let frame = FrameLayout::from_alloca_bytes(alloc.raw_alloca_bytes, alloc.has_calls);
     let mut bytes: Vec<u8> = Vec::new();
-    let relocs: Vec<Reloc> = Vec::new();
+    let mut relocs: Vec<Reloc> = Vec::new();
 
     frame.emit_prologue(&mut bytes);
 
     for block in &func.blocks {
         for inst in &block.insts {
-            emit_inst(&mut bytes, inst, &alloc);
+            emit_inst(&mut bytes, &mut relocs, inst, &alloc);
         }
         emit_terminator(&mut bytes, &block.term, &frame);
     }
@@ -101,7 +103,12 @@ pub fn compile_function(func: &Function) -> CompiledFunction {
     }
 }
 
-fn emit_inst(bytes: &mut Vec<u8>, inst: &torajs_core::ssa::Inst, alloc: &Assignment) {
+fn emit_inst(
+    bytes: &mut Vec<u8>,
+    relocs: &mut Vec<Reloc>,
+    inst: &torajs_core::ssa::Inst,
+    alloc: &Assignment,
+) {
     match &inst.kind {
         InstKind::BinOp(op, lhs, rhs) => emit_binop(bytes, inst, op, lhs, rhs, alloc),
         InstKind::ICmp(pred, lhs, rhs) => emit_icmp(bytes, inst, *pred, lhs, rhs, alloc),
@@ -124,7 +131,8 @@ fn emit_inst(bytes: &mut Vec<u8>, inst: &torajs_core::ssa::Inst, alloc: &Assignm
         InstKind::StoreDyn(val, base, dyn_offset) => {
             emit_store_dyn(bytes, val, base, dyn_offset, alloc)
         }
-        other => todo!("S2+: InstKind::{:?}", other),
+        InstKind::Call(func_id, args) => emit_call(bytes, relocs, inst, *func_id, args, alloc),
+        other => todo!("S4+: InstKind::{:?}", other),
     }
 }
 

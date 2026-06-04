@@ -34,6 +34,9 @@ pub struct Assignment {
     /// Total raw alloca bytes (sum of per-slot sizes). The frame
     /// layout aligns this up to 16 in `FrameLayout::from_alloca_bytes`.
     pub raw_alloca_bytes: u32,
+    /// `true` if any `Call` / `CallIndirect` inst is present —
+    /// triggers FP/LR save in the prologue (`FrameLayout.uses_calls`).
+    pub has_calls: bool,
 }
 
 impl Assignment {
@@ -83,6 +86,7 @@ pub fn allocate_trivial(func: &Function) -> Assignment {
     let mut gpr_idx = 0usize;
     let mut fpr_idx = 0usize;
     let mut next_alloca_offset: u32 = 0;
+    let mut has_calls = false;
 
     for block in &func.blocks {
         for inst in &block.insts {
@@ -94,6 +98,13 @@ pub fn allocate_trivial(func: &Function) -> Assignment {
                 let result = inst.result.expect("Alloca must have result");
                 alloca_offsets.insert(result.0, next_alloca_offset);
                 next_alloca_offset += slot_size;
+            }
+
+            if matches!(
+                inst.kind,
+                InstKind::Call(_, _) | InstKind::CallIndirect(_, _, _)
+            ) {
+                has_calls = true;
             }
 
             let Some(result) = inst.result else {
@@ -131,6 +142,7 @@ pub fn allocate_trivial(func: &Function) -> Assignment {
         by_value,
         alloca_offsets,
         raw_alloca_bytes: next_alloca_offset,
+        has_calls,
     }
 }
 
