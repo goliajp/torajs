@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-04T06:12:54.307Z",
+  "generatedAt": "2026-06-04T07:06:15.052Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 723,
@@ -28,8 +28,8 @@
     "passRateTrAccepted": 92.56
   },
   "torajs": {
-    "commit": "f504b64",
-    "commitSubject": "feat(obj): relocation_info + ARM64_RELOC_{BRANCH26,PAGE21,PAGEOFF12,UNSIGNED} — #7 S4",
+    "commit": "c6e6b93",
+    "commitSubject": "test(obj): otool sanity check on emitted multi-fn .o — #7 S5-c",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -611,6 +611,22 @@
   },
   "commits": [
     {
+      "hash": "c6e6b93",
+      "subject": "test(obj): otool sanity check on emitted multi-fn .o — #7 S5-c"
+    },
+    {
+      "hash": "d17e5d1",
+      "subject": "feat(obj): multi-fn + RelocKind→RelocationInfo translation — #7 S5-b"
+    },
+    {
+      "hash": "f7d65f9",
+      "subject": "feat(obj): write_object scaffold + acceptance for single-fn no-reloc .o — #7 S5-a"
+    },
+    {
+      "hash": "b3cbaa3",
+      "subject": "docs(hardev): dashboard snapshot @ f504b64 — #7 S4 ship"
+    },
+    {
       "hash": "f504b64",
       "subject": "feat(obj): relocation_info + ARM64_RELOC_{BRANCH26,PAGE21,PAGEOFF12,UNSIGNED} — #7 S4"
     },
@@ -641,43 +657,38 @@
     {
       "hash": "f5f63d3",
       "subject": "feat(codegen): compile_function cut over from trivial to Linear Scan — #6 S5 LS sub-step 4"
-    },
-    {
-      "hash": "2e805ca",
-      "subject": "feat(codegen): Linear Scan stack spill — emit STR/LDR through frame's spill region — #6 S5 LS sub-step 3d-g"
-    },
-    {
-      "hash": "a13d253",
-      "subject": "feat(codegen): LS-3 spill scaffolding (Reg::Spill, Assignment::def_*, FP LDR/STR enc) — #6 S5 LS sub-step 3a-c"
-    },
-    {
-      "hash": "c57c9c4",
-      "subject": "feat(codegen): Linear Scan allocator (no spill) — #6 S5 LS sub-step 2"
-    },
-    {
-      "hash": "16ead7b",
-      "subject": "feat(codegen): SSA liveness intervals — #6 S5 LS sub-step 1"
     }
   ],
-  "headSha": "f504b64",
+  "headSha": "c6e6b93",
   "autorun": {
-    "total": 55,
+    "total": 56,
     "baselineTarget": 10,
-    "bySelf": 54,
+    "bySelf": 55,
     "byManual": 1,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1780538936-6561",
-      "at": "2026-06-04T02:08:56Z",
-      "ts": 1780538936,
+      "rotationId": "r-1780553597-3214",
+      "at": "2026-06-04T06:13:17Z",
+      "ts": 1780553597,
       "trigger": "self",
-      "prevHead": "f635981",
-      "handoffSha": "sha256:6c2f3900d7c46e2a6aea7c933d863bdd2127a94598fde7a74c92d45d9652ada3",
-      "handoffAgeSec": 50223,
+      "prevHead": "b3cbaa3",
+      "handoffSha": "sha256:18e07fd1597cd94e1b9ca359b3d28f265be66fdbdde3b0ed80fcf5e5388073a1",
+      "handoffAgeSec": 14597,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1780553597-3214",
+        "at": "2026-06-04T06:13:17Z",
+        "ts": 1780553597,
+        "trigger": "self",
+        "prevHead": "b3cbaa3",
+        "handoffSha": "sha256:18e07fd1597cd94e1b9ca359b3d28f265be66fdbdde3b0ed80fcf5e5388073a1",
+        "handoffAgeSec": 14597,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1780538936-6561",
         "at": "2026-06-04T02:08:56Z",
@@ -774,17 +785,6 @@
         "prevHead": "ddff4be",
         "handoffSha": "sha256:934be9ab8ae30c2a5431611c0d7b06a5e5453dd23c2ff3569a626e4946be2f2f",
         "handoffAgeSec": 5,
-        "conformanceBefore": "687/0/1",
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1779934002-2f02",
-        "at": "2026-05-28T02:06:42Z",
-        "ts": 1779934002,
-        "trigger": "self",
-        "prevHead": "e33b6b2",
-        "handoffSha": "sha256:2acacf39471a224c80ab4b96ae1b6e0c275e745c1ce7bce2d440b61f4ab8b9da",
-        "handoffAgeSec": 8,
         "conformanceBefore": "687/0/1",
         "commitsInSession": null
       }
