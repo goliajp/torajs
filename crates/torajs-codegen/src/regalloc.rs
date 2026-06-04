@@ -104,6 +104,30 @@ pub fn allocate_trivial(func: &Function) -> Assignment {
     let mut next_alloca_offset: u32 = 0;
     let mut has_calls = false;
 
+    // AAPCS64 §5.4.2 — int and fp params travel in *separate* lanes:
+    // first 8 int/ptr params land in X0..X7, first 8 fp params land
+    // in V0..V7. The two indices count independently.
+    let mut gpr_arg_idx = 0usize;
+    let mut fpr_arg_idx = 0usize;
+    for &param in &func.params {
+        let ty = func
+            .values
+            .get(param.0 as usize)
+            .map(|vi| &vi.ty)
+            .expect("ValueId(param) out of bounds");
+        let is_fp = matches!(ty, Type::F64);
+        let reg = if is_fp {
+            let v = aapcs64::FP_ARG_RET[fpr_arg_idx];
+            fpr_arg_idx += 1;
+            Reg::Fpr(v)
+        } else {
+            let x = aapcs64::ARG_RET[gpr_arg_idx];
+            gpr_arg_idx += 1;
+            Reg::Gpr(x)
+        };
+        by_value.insert(param.0, reg);
+    }
+
     for block in &func.blocks {
         for inst in &block.insts {
             // Record alloca slot offset before register assignment
@@ -257,6 +281,77 @@ mod tests {
         let v0 = ValueId(0);
         assert_eq!(alloc.of(v0), Reg::Gpr(Gpr::X0));
         assert!(alloc.contains(v0));
+    }
+
+    /// `fn identity(x: i64) -> i64 { x }` — param ValueId must land
+    /// in X0 (AAPCS64 int arg lane 0). Prior to this fix the trivial
+    /// allocator only walked inst.result so the param's ValueId was
+    /// unmapped → `allocate_trivial -> Assignment.of()` panicked.
+    #[test]
+    fn single_i64_param_lands_in_x0() {
+        let x = ValueId(0);
+        let func = Function {
+            name: "identity".into(),
+            params: vec![x],
+            ret: Type::I64,
+            values: vec![ValueInfo {
+                ty: Type::I64,
+                name: Some("x".into()),
+            }],
+            blocks: vec![Block {
+                id: BlockId(0),
+                insts: Vec::new(),
+                term: Terminator::Ret(Some(Operand::Value(x))),
+            }],
+            current_origin: None,
+        };
+        let alloc = allocate_trivial(&func);
+        assert_eq!(alloc.of(x), Reg::Gpr(Gpr::X0));
+    }
+
+    /// `fn mix(a: i64, b: f64, c: i64, d: f64) -> i64 { a }` —
+    /// AAPCS64 §5.4.2 routes int/fp params through *independent*
+    /// X/V lanes, so a/c land in X0/X1 and b/d land in V0/V1.
+    #[test]
+    fn mixed_int_fp_params_split_into_separate_lanes() {
+        let a = ValueId(0);
+        let b = ValueId(1);
+        let c = ValueId(2);
+        let d = ValueId(3);
+        let func = Function {
+            name: "mix".into(),
+            params: vec![a, b, c, d],
+            ret: Type::I64,
+            values: vec![
+                ValueInfo {
+                    ty: Type::I64,
+                    name: Some("a".into()),
+                },
+                ValueInfo {
+                    ty: Type::F64,
+                    name: Some("b".into()),
+                },
+                ValueInfo {
+                    ty: Type::I64,
+                    name: Some("c".into()),
+                },
+                ValueInfo {
+                    ty: Type::F64,
+                    name: Some("d".into()),
+                },
+            ],
+            blocks: vec![Block {
+                id: BlockId(0),
+                insts: Vec::new(),
+                term: Terminator::Ret(Some(Operand::Value(a))),
+            }],
+            current_origin: None,
+        };
+        let alloc = allocate_trivial(&func);
+        assert_eq!(alloc.of(a), Reg::Gpr(Gpr::X0));
+        assert_eq!(alloc.of(b), Reg::Fpr(Fpr::V0));
+        assert_eq!(alloc.of(c), Reg::Gpr(Gpr::X1));
+        assert_eq!(alloc.of(d), Reg::Fpr(Fpr::V1));
     }
 
     #[test]
