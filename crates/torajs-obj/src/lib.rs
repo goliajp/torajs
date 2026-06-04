@@ -40,7 +40,10 @@
 #![deny(unsafe_code)]
 
 pub mod macho;
+mod object;
 mod write;
+
+pub use object::write_object;
 
 pub use macho::header::{
     CPU_SUBTYPE_ARM64_ALL, CPU_TYPE_ARM64, MH_MAGIC_64, MH_OBJECT, MachHeader64,

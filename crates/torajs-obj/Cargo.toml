@@ -15,3 +15,10 @@ workspace = true
 
 [dependencies]
 torajs-codegen = { path = "../torajs-codegen" }
+
+[dev-dependencies]
+# Only used by the S5 acceptance test to hand-build a single SSA
+# `Function` and run it through `compile_function`. Production code
+# path lives entirely on `torajs-codegen::CompiledFunction` and never
+# touches the SSA types directly — the dep stays dev-only.
+torajs-core = { path = "../torajs-core" }
