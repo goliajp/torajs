@@ -57,11 +57,13 @@ use torajs_obj::{
 };
 
 use crate::lc::{
-    APPLE_SILICON_PAGE_SIZE, BUILD_VERSION_CMDSIZE, DYSYMTAB_CMDSIZE, LOAD_DYLINKER_CMDSIZE,
-    MAIN_CMDSIZE, MH_DYLDLINK, MH_EXECUTE, MH_NOUNDEFS, MH_PIE, MH_TWOLEVEL, PAGEZERO_VMSIZE,
-    TEXT_VMADDR_BASE, write_build_version, write_dysymtab, write_lc_main, write_load_dylinker,
+    APPLE_SILICON_PAGE_SIZE, BUILD_VERSION_CMDSIZE, DYSYMTAB_CMDSIZE, LINKEDIT_DATA_CMDSIZE,
+    LOAD_DYLINKER_CMDSIZE, MAIN_CMDSIZE, MH_DYLDLINK, MH_EXECUTE, MH_NOUNDEFS, MH_PIE, MH_TWOLEVEL,
+    PAGEZERO_VMSIZE, TEXT_VMADDR_BASE, write_build_version, write_code_signature, write_dysymtab,
+    write_lc_main, write_load_dylinker,
 };
 use crate::resolve::{SymTable, apply_relocs};
+use crate::sign::{adhoc_codesign_blob_size, build_adhoc_codesign_blob};
 
 // ---- Public API ----
 
@@ -78,6 +80,10 @@ pub struct LinkConfig {
     /// External symbol resolution map for the linker's resolve
     /// pass. Empty for self-contained binaries.
     pub sym_table: SymTable,
+    /// Ad-hoc code signature identifier — the string macOS shows
+    /// as `Identifier=…` under `codesign -d -v`. Defaults to
+    /// `"tora"` if the caller doesn't override.
+    pub codesign_ident: String,
 }
 
 /// Layout decisions made by the link driver before any bytes are
@@ -122,6 +128,11 @@ pub struct ExecLayout {
     /// + fn_offset_in_text`. Same indexing as
     /// `LinkConfig.funcs`.
     pub fn_vaddrs: Vec<u64>,
+    /// File offset of the embedded codesign SuperBlob —
+    /// `LC_CODE_SIGNATURE.dataoff` points here.
+    pub codesign_dataoff: u32,
+    /// Codesign blob byte length (= `LC_CODE_SIGNATURE.datasize`).
+    pub codesign_datasize: u32,
 }
 
 /// Round `value` up to the nearest multiple of `align` (which
@@ -145,7 +156,8 @@ pub fn compute_layout(cfg: &LinkConfig) -> ExecLayout {
         + BUILD_VERSION_CMDSIZE
         + MAIN_CMDSIZE
         + SYMTAB_COMMAND_SIZE
-        + DYSYMTAB_CMDSIZE;
+        + DYSYMTAB_CMDSIZE
+        + LINKEDIT_DATA_CMDSIZE; // LC_CODE_SIGNATURE
     let header_plus_lc = (MachHeader64::SIZE as u32) + sizeofcmds;
 
     // `__text` lands on the first page boundary so the kernel can
@@ -188,7 +200,13 @@ pub fn compute_layout(cfg: &LinkConfig) -> ExecLayout {
     for f in &cfg.funcs {
         strsize += f.name.len() as u32 + 1;
     }
-    let linkedit_data_size = nlist_size + strsize;
+    // Codesign blob sits after symtab + strtab inside __LINKEDIT.
+    // `code_limit` covers every byte up to (but not including) the
+    // signature blob itself — that's the offset we hash.
+    let codesign_dataoff = stroff + strsize;
+    let codesign_datasize = adhoc_codesign_blob_size(codesign_dataoff, &cfg.codesign_ident);
+
+    let linkedit_data_size = nlist_size + strsize + codesign_datasize;
     let linkedit_vmsize = round_up_to(u64::from(linkedit_data_size), APPLE_SILICON_PAGE_SIZE);
     let total_size = linkedit_file_offset + linkedit_data_size;
 
@@ -225,10 +243,13 @@ pub fn compute_layout(cfg: &LinkConfig) -> ExecLayout {
         strsize,
         entry_file_offset,
         fn_vaddrs,
+        codesign_dataoff,
+        codesign_datasize,
     }
 }
 
-/// Link a `LinkConfig` into a Mach-O `MH_EXECUTE` byte stream.
+/// Link a `LinkConfig` into a Mach-O `MH_EXECUTE` byte stream
+/// signed with an in-house ad-hoc code signature.
 ///
 /// Caller responsibility:
 ///   * `cfg.entry` must match one of `cfg.funcs[i].name`.
@@ -237,11 +258,11 @@ pub fn compute_layout(cfg: &LinkConfig) -> ExecLayout {
 ///     functions must be supplied in `cfg.sym_table` with their
 ///     final virtual addresses.
 ///
-/// S3 emits 8 load commands (see module docstring). The output
-/// parses cleanly through `otool -hlv` but is *not* runnable yet
-/// because the dyld plumbing (`LC_DYLD_CHAINED_FIXUPS` +
-/// `LC_DYLD_EXPORTS_TRIE` + `LC_LOAD_DYLIB libSystem` +
-/// `LC_CODE_SIGNATURE`) lands in S4-S5.
+/// Output: a complete runnable Mach-O `MH_EXECUTE` image. 9 load
+/// commands (3 LC_SEGMENT_64 + LC_LOAD_DYLINKER + LC_BUILD_VERSION
+/// + LC_MAIN + LC_SYMTAB + LC_DYSYMTAB + LC_CODE_SIGNATURE).
+/// macOS 14+ kernel + dyld accept the binary directly — no
+/// external `codesign` tool needed.
 pub fn link_to_exec(cfg: &LinkConfig) -> Vec<u8> {
     let layout = compute_layout(cfg);
 
@@ -256,14 +277,15 @@ pub fn link_to_exec(cfg: &LinkConfig) -> Vec<u8> {
         cputype: CPU_TYPE_ARM64,
         cpusubtype: CPU_SUBTYPE_ARM64_ALL,
         filetype: MH_EXECUTE,
-        ncmds: 8,
+        ncmds: 9,
         sizeofcmds: SEGMENT_COMMAND_64_SIZE * 3
             + SECTION_64_SIZE
             + LOAD_DYLINKER_CMDSIZE
             + BUILD_VERSION_CMDSIZE
             + MAIN_CMDSIZE
             + SYMTAB_COMMAND_SIZE
-            + DYSYMTAB_CMDSIZE,
+            + DYSYMTAB_CMDSIZE
+            + LINKEDIT_DATA_CMDSIZE,
         flags: MH_NOUNDEFS | MH_DYLDLINK | MH_TWOLEVEL | MH_PIE,
         reserved: 0,
     };
@@ -306,8 +328,9 @@ pub fn link_to_exec(cfg: &LinkConfig) -> Vec<u8> {
         sections: vec![text_section],
     };
 
-    let linkedit_data_size =
-        u64::from(layout.nsyms) * u64::from(NLIST_64_SIZE) + u64::from(layout.strsize);
+    let linkedit_data_size = u64::from(layout.nsyms) * u64::from(NLIST_64_SIZE)
+        + u64::from(layout.strsize)
+        + u64::from(layout.codesign_datasize);
     let linkedit_segment = SegmentCommand64 {
         segname: "__LINKEDIT".into(),
         vmaddr: layout.linkedit_vmaddr,
@@ -340,6 +363,7 @@ pub fn link_to_exec(cfg: &LinkConfig) -> Vec<u8> {
     write_lc_main(&mut buf, u64::from(layout.entry_file_offset));
     symtab_cmd.write_to(&mut buf);
     write_dysymtab(&mut buf, layout.nsyms);
+    write_code_signature(&mut buf, layout.codesign_dataoff, layout.codesign_datasize);
 
     debug_assert_eq!(
         (buf.len() as u32) - (MachHeader64::SIZE as u32),
@@ -372,6 +396,14 @@ pub fn link_to_exec(cfg: &LinkConfig) -> Vec<u8> {
         nlist.write_to(&mut buf);
     }
     buf.extend_from_slice(strtab.as_bytes());
+
+    // At this point `buf` covers every byte of the binary up to —
+    // but not including — the codesign blob. That's exactly the
+    // `code_limit` region the SHA-256 page hashes cover.
+    debug_assert_eq!(buf.len() as u32, layout.codesign_dataoff);
+    let blob = build_adhoc_codesign_blob(&buf, &cfg.codesign_ident);
+    debug_assert_eq!(blob.len() as u32, layout.codesign_datasize);
+    buf.extend_from_slice(&blob);
 
     debug_assert_eq!(
         buf.len() as u32,
@@ -431,12 +463,13 @@ mod tests {
             funcs: vec![main],
             entry: "_main".into(),
             sym_table: SymTable::new(),
+            codesign_ident: "tora".into(),
         };
         let layout = compute_layout(&cfg);
 
         // header (32) + 3 LC_SEGMENT_64 (72*3 = 216) + 1 section (80) +
         // LC_LOAD_DYLINKER (32) + LC_BUILD_VERSION (24) + LC_MAIN (24) +
-        // LC_SYMTAB (24) + LC_DYSYMTAB (80) = 512.
+        // LC_SYMTAB (24) + LC_DYSYMTAB (80) + LC_CODE_SIGNATURE (16) = 528.
         // Rounded up to 0x4000 page = 16384.
         assert_eq!(layout.text_file_offset, 0x4000);
 
@@ -462,9 +495,14 @@ mod tests {
         assert_eq!(layout.fn_vaddrs[0], TEXT_VMADDR_BASE + 0x4000);
         assert_eq!(layout.entry_file_offset, 0x4000);
 
-        // Total file size = linkedit_file_offset + linkedit data
-        //                 = 0x8000 + 16 + 7 = 32791.
-        assert_eq!(layout.total_size, 0x8000 + 16 + 7);
+        // Total file size = linkedit_file_offset + nlist + strtab +
+        // codesign blob. Codesign blob = SB(12) + index(8) + CD
+        // header(48) + ident "tora\0"(5) + ceil(code_limit/4096)
+        // *32. code_limit = stroff + strsize = 0x8010 + 7 = 0x8017
+        // = 32791 → 9 code slots → blob 73 + 288 = 361.
+        assert_eq!(layout.codesign_dataoff, 0x8000 + 16 + 7);
+        assert_eq!(layout.codesign_datasize, 361);
+        assert_eq!(layout.total_size, 0x8000 + 16 + 7 + 361);
     }
 
     #[test]
@@ -474,6 +512,7 @@ mod tests {
             funcs: vec![main],
             entry: "_main".into(),
             sym_table: SymTable::new(),
+            codesign_ident: "tora".into(),
         };
         let bytes = link_to_exec(&cfg);
         let layout = compute_layout(&cfg);
@@ -487,15 +526,16 @@ mod tests {
             funcs: vec![main],
             entry: "_main".into(),
             sym_table: SymTable::new(),
+            codesign_ident: "tora".into(),
         };
         let bytes = link_to_exec(&cfg);
         // mach_header_64.filetype @ offset 12..16
         let filetype = u32::from_le_bytes(bytes[12..16].try_into().unwrap());
         assert_eq!(filetype, MH_EXECUTE);
 
-        // ncmds @ 16..20 = 8
+        // ncmds @ 16..20 = 9 (8 + LC_CODE_SIGNATURE)
         let ncmds = u32::from_le_bytes(bytes[16..20].try_into().unwrap());
-        assert_eq!(ncmds, 8);
+        assert_eq!(ncmds, 9);
 
         // flags @ 24..28 = MH_NOUNDEFS | MH_DYLDLINK | MH_TWOLEVEL | MH_PIE
         let flags = u32::from_le_bytes(bytes[24..28].try_into().unwrap());
@@ -509,6 +549,7 @@ mod tests {
             funcs: vec![main.clone()],
             entry: "_main".into(),
             sym_table: SymTable::new(),
+            codesign_ident: "tora".into(),
         };
         let bytes = link_to_exec(&cfg);
         // The first 16 bytes after the page boundary should match
@@ -529,6 +570,7 @@ mod tests {
             funcs: vec![main],
             entry: "_main".into(),
             sym_table: SymTable::new(),
+            codesign_ident: "tora".into(),
         };
         let bytes = link_to_exec(&cfg);
 
@@ -614,27 +656,30 @@ mod tests {
     }
 
     /// S6 end-to-end acceptance — emit the binary for
-    /// `fn _main() -> i64 { 42 }`, chmod +x, ad-hoc codesign it
-    /// via the host `codesign -s -`, exec it, and verify the
-    /// process exits with status 42.
+    /// `fn _main() -> i64 { 42 }` *with the in-house ad-hoc
+    /// codesignature already embedded by `link_to_exec`*, chmod
+    /// +x, exec it, and verify the process exits with status 42.
     ///
     /// macOS 14+ refuses to load unsigned arm64 binaries: an
     /// unsigned image is killed by SIGKILL before `main` even
-    /// runs (`exit code 137`). Once `codesign -s -` writes the
-    /// ad-hoc CMS blob into LC_CODE_SIGNATURE (which `codesign`
-    /// adds as a new load command in place), the same byte stream
-    /// loads and runs cleanly — confirming that the 8 load
-    /// commands `link_to_exec` emits are *sufficient* on their
-    /// own (no LC_DYLD_CHAINED_FIXUPS, no LC_LOAD_DYLIB libSystem
-    /// needed) for a binary that uses neither libc nor dyld
-    /// fixups. S5 self-research replaces the host `codesign` call
-    /// with an in-house SHA256 ad-hoc signer; this test pins the
-    /// rest of the link path independently of that work.
+    /// runs (exit code 137). This test catches both flavors of
+    /// failure — wrong layout (kernel/dyld refuses the load
+    /// command set or vmaddr layout) and wrong signature (kernel
+    /// kills before main runs because the page hashes don't
+    /// match). The fact that the test passes means torajs-link's
+    /// in-house SHA-256 + CodeDirectory blob writer produces a
+    /// signature byte-compatible with macOS's kernel codesign
+    /// verifier.
+    ///
+    /// No external `codesign` invocation — the entire ad-hoc CMS
+    /// signature blob is computed by `sign::build_adhoc_codesign_blob`
+    /// at link time. The torajs build pipeline now has zero
+    /// external toolchain dependencies.
     ///
     /// Gated to macOS arm64; non-Apple-Silicon hosts skip.
     #[test]
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-    fn end_to_end_run_returns_42_after_adhoc_codesign() {
+    fn end_to_end_run_returns_42_with_self_research_codesign() {
         use std::os::unix::fs::PermissionsExt;
         use std::process::Command;
 
@@ -643,6 +688,7 @@ mod tests {
             funcs: vec![main],
             entry: "_main".into(),
             sym_table: SymTable::new(),
+            codesign_ident: "tora".into(),
         };
         let bytes = link_to_exec(&cfg);
 
@@ -651,29 +697,6 @@ mod tests {
         let mut perms = std::fs::metadata(&path).expect("stat").permissions();
         perms.set_mode(0o755);
         std::fs::set_permissions(&path, perms).expect("chmod +x");
-
-        // Ad-hoc codesign via the host toolchain — S5 will replace
-        // this with an in-house SHA256 signer.
-        let cs = match Command::new("/usr/bin/codesign")
-            .args(["-s", "-", "-f", &path])
-            .output()
-        {
-            Ok(o) => o,
-            Err(e) => {
-                eprintln!("skip: codesign not invokable: {e}");
-                let _ = std::fs::remove_file(&path);
-                return;
-            }
-        };
-        if !cs.status.success() {
-            let _ = std::fs::remove_file(&path);
-            panic!(
-                "codesign failed (exit {:?}):\n--- stderr ---\n{}\n--- stdout ---\n{}",
-                cs.status.code(),
-                String::from_utf8_lossy(&cs.stderr),
-                String::from_utf8_lossy(&cs.stdout),
-            );
-        }
 
         let run = Command::new(&path).output().expect("exec emitted binary");
         let exit = run.status.code();

@@ -63,6 +63,14 @@ pub const MAIN_CMDSIZE: u32 = 24;
 /// `LC_DYSYMTAB` = 80 bytes fixed.
 pub const DYSYMTAB_CMDSIZE: u32 = 80;
 
+/// `LC_CODE_SIGNATURE` — `linkedit_data_command` pointing into
+/// `__LINKEDIT` at the embedded codesign blob.
+pub const LC_CODE_SIGNATURE: u32 = 0x1D;
+
+/// `linkedit_data_command` total size = 16 bytes (cmd + cmdsize +
+/// dataoff + datasize).
+pub const LINKEDIT_DATA_CMDSIZE: u32 = 16;
+
 // ---- Writers ----
 
 /// Append `LC_LOAD_DYLINKER` carrying `/usr/lib/dyld`. cmdsize is
@@ -105,6 +113,19 @@ pub fn write_lc_main(buf: &mut Vec<u8>, entry_off: u64) {
     buf.extend_from_slice(&entry_off.to_le_bytes());
     buf.extend_from_slice(&0u64.to_le_bytes());
     debug_assert_eq!(buf.len() - start, MAIN_CMDSIZE as usize);
+}
+
+/// Append `LC_CODE_SIGNATURE` pointing at the codesign blob in
+/// `__LINKEDIT`. The blob payload is written separately at
+/// `dataoff` by the link driver; this load command just records
+/// the location and size so dyld can find it.
+pub fn write_code_signature(buf: &mut Vec<u8>, dataoff: u32, datasize: u32) {
+    let start = buf.len();
+    buf.extend_from_slice(&LC_CODE_SIGNATURE.to_le_bytes());
+    buf.extend_from_slice(&LINKEDIT_DATA_CMDSIZE.to_le_bytes());
+    buf.extend_from_slice(&dataoff.to_le_bytes());
+    buf.extend_from_slice(&datasize.to_le_bytes());
+    debug_assert_eq!(buf.len() - start, LINKEDIT_DATA_CMDSIZE as usize);
 }
 
 /// Append `LC_DYSYMTAB`. We emit only the extdef partition (every
