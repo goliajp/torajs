@@ -1,0 +1,17 @@
+[package]
+name = "torajs-obj"
+description = "In-house Mach-O / ELF object writer for the torajs AOT TypeScript runtime. Takes `Vec<torajs_codegen::CompiledFunction>` + globals + symtab and emits a single object-file byte stream — no llvm-mc / no object crate / no llvm-sys. v0.7 Metal stone #7, paired with torajs-codegen (#6) and torajs-link (#8) to retire the LLVM → llc → ld pipeline in #9. Mach-O 64 (aarch64-darwin) lands first; ELF (Linux aarch64 / cross) is v0.8+ scope."
+keywords = ["mach-o", "object-file", "torajs", "aot", "aarch64"]
+categories = ["compilers", "no-std"]
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+torajs-codegen = { path = "../torajs-codegen" }

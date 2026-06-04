@@ -37,6 +37,7 @@ members = [
     "crates/torajs-codec-hex",
     "crates/torajs-bench",
     "crates/torajs-codegen",
+    "crates/torajs-obj",
     "crates/torajs-runtime",
     "crates/torajs-core",
     "crates/torajs-cli",

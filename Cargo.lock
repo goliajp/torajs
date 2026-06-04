@@ -1880,6 +1880,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "torajs-obj"
+version = "0.1.0"
+dependencies = [
+ "torajs-codegen",
+]
+
+[[package]]
 name = "torajs-panic"
 version = "0.1.0"
 
