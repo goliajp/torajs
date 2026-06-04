@@ -165,11 +165,18 @@ pub mod aapcs64 {
         Gpr::X7,
     ];
 
-    /// Caller-saved scratch (besides ARG_RET). 14 slots.
-    pub const CALLER_SAVED_SCRATCH: [Gpr; 14] = [
-        Gpr::X9,
-        Gpr::X10,
-        Gpr::X11,
+    /// Reserved for operand-materialization scratch in `compile.rs`
+    /// (see `OP_SCRATCH_{LHS,RHS,TMP}`). NOT in `CALLER_SAVED_SCRATCH`
+    /// so the allocator can't hand them out to SSA values that would
+    /// then collide with a subsequent const materialization (e.g.
+    /// `Store(ConstI64, Value(v0), 0)` where v0 lives in a register
+    /// — `materialize_const_i64` must write into a scratch that does
+    /// NOT alias v0's register).
+    pub const RESERVED_OP_SCRATCH: [Gpr; 3] = [Gpr::X9, Gpr::X10, Gpr::X11];
+
+    /// Caller-saved scratch (besides ARG_RET + RESERVED_OP_SCRATCH).
+    /// 11 slots — the trivial allocator hands these out to SSA values.
+    pub const CALLER_SAVED_SCRATCH: [Gpr; 11] = [
         Gpr::X12,
         Gpr::X13,
         Gpr::X14,
@@ -253,6 +260,23 @@ mod tests {
         // Apple platforms reserve x18. The scratch pool must not
         // include it.
         assert!(!aapcs64::CALLER_SAVED_SCRATCH.contains(&Gpr::X18));
+    }
+
+    #[test]
+    fn aapcs64_scratch_excludes_reserved_op_scratch() {
+        // X9-X11 are reserved for operand-materialization (compile.rs
+        // OP_SCRATCH_*); allocator must NOT hand them out.
+        for r in aapcs64::RESERVED_OP_SCRATCH {
+            assert!(
+                !aapcs64::CALLER_SAVED_SCRATCH.contains(&r),
+                "{r:?} should be reserved, not in allocator pool"
+            );
+        }
+    }
+
+    #[test]
+    fn aapcs64_scratch_pool_starts_at_x12() {
+        assert_eq!(aapcs64::CALLER_SAVED_SCRATCH[0], Gpr::X12);
     }
 
     #[test]
