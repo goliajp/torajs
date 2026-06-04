@@ -21,8 +21,14 @@
 //! (for SREM = a - (a/b)*b), AND/ORR/EOR (logical shifted register),
 //! LSLV/ASRV/LSRV (variable shifts). Each new encoder has an inline
 //! unit test vs ARM ARM bit patterns.
+//!
+//! S2-B1 coverage: f64 FADD/FSUB/FMUL/FDIV (FP data-processing
+//! 2-source, type=01 D-form) + FMOV both directions between Xn and
+//! Dn (FP move-general). FRem has no aarch64 instruction — it lowers
+//! to a `fmod` libm call which S2-B2 routes via Call + the existing
+//! `bl_imm26` reloc machinery.
 
-use crate::reg::Gpr;
+use crate::reg::{Fpr, Gpr};
 
 /// MOVZ Xd, #imm16, LSL #(hw*16) — move 16-bit immediate into Rd
 /// with zeroes elsewhere, optionally shifted to a hw-quadrant.
@@ -174,6 +180,57 @@ pub fn asrv_reg(rd: Gpr, rn: Gpr, rm: Gpr) -> u32 {
 /// ARM ARM C6.2.161: opcode2=001001.
 pub fn lsrv_reg(rd: Gpr, rn: Gpr, rm: Gpr) -> u32 {
     0x9AC0_2400 | (rm.idx() << 16) | (rn.idx() << 5) | rd.idx()
+}
+
+// --- S2-B1: f64 arithmetic (FP data-processing 2-source, type=01) ---
+
+/// FADD Dd, Dn, Dm — f64 add.
+///
+/// ARM ARM C6.2.96: `0 0 0 11110 type 1 Rm opcode 10 Rn Rd`
+/// type=01 (D), opcode=0010 (FADD).
+pub fn fadd_d(rd: Fpr, rn: Fpr, rm: Fpr) -> u32 {
+    0x1E60_2800 | (rm.idx() << 16) | (rn.idx() << 5) | rd.idx()
+}
+
+/// FSUB Dd, Dn, Dm — f64 subtract.
+///
+/// ARM ARM C6.2.144: opcode=0011.
+pub fn fsub_d(rd: Fpr, rn: Fpr, rm: Fpr) -> u32 {
+    0x1E60_3800 | (rm.idx() << 16) | (rn.idx() << 5) | rd.idx()
+}
+
+/// FMUL Dd, Dn, Dm — f64 multiply.
+///
+/// ARM ARM C6.2.131: opcode=0000.
+pub fn fmul_d(rd: Fpr, rn: Fpr, rm: Fpr) -> u32 {
+    0x1E60_0800 | (rm.idx() << 16) | (rn.idx() << 5) | rd.idx()
+}
+
+/// FDIV Dd, Dn, Dm — f64 divide.
+///
+/// ARM ARM C6.2.103: opcode=0001.
+pub fn fdiv_d(rd: Fpr, rn: Fpr, rm: Fpr) -> u32 {
+    0x1E60_1800 | (rm.idx() << 16) | (rn.idx() << 5) | rd.idx()
+}
+
+// --- S2-B1: GPR ↔ FPR moves (FP move, general) ---
+
+/// FMOV Dd, Xn — move the 64-bit value in Xn to Dd (interpret the
+/// bits as an f64; no conversion).
+///
+/// ARM ARM C6.2.116: `1 0 0 11110 01 1 00 111 000000 Rn Rd`
+/// (sf=1, type=01 D, rmode=00, opcode=111).
+pub fn fmov_d_from_x(rd: Fpr, rn: Gpr) -> u32 {
+    0x9E67_0000 | (rn.idx() << 5) | rd.idx()
+}
+
+/// FMOV Xd, Dn — move the 64-bit value in Dn to Xd (interpret the
+/// bits as a u64; no conversion).
+///
+/// ARM ARM C6.2.115: `1 0 0 11110 01 1 00 110 000000 Rn Rd`
+/// (sf=1, type=01 D, rmode=00, opcode=110).
+pub fn fmov_x_from_d(rd: Gpr, rn: Fpr) -> u32 {
+    0x9E66_0000 | (rn.idx() << 5) | rd.idx()
 }
 
 /// B label — unconditional branch with 26-bit signed PC-relative
@@ -390,5 +447,52 @@ mod tests {
         // LSRV x0, x1, x2: base 0x9AC0_2400
         //   = 0x9AC2_2420
         assert_eq!(lsrv_reg(Gpr::X0, Gpr::X1, Gpr::X2), 0x9AC2_2420);
+    }
+
+    // --- S2-B1 encoder tests ---
+
+    #[test]
+    fn fadd_d0_d1_d2_matches_arm_arm() {
+        // FADD d0, d1, d2: base 0x1E60_2800
+        //   Rm=2 (bits 20-16), Rn=1 (bits 9-5), Rd=0
+        //   = 0x1E62_2820
+        assert_eq!(fadd_d(Fpr::V0, Fpr::V1, Fpr::V2), 0x1E62_2820);
+    }
+
+    #[test]
+    fn fsub_d0_d1_d2_matches_arm_arm() {
+        // FSUB d0, d1, d2: base 0x1E60_3800
+        //   = 0x1E62_3820
+        assert_eq!(fsub_d(Fpr::V0, Fpr::V1, Fpr::V2), 0x1E62_3820);
+    }
+
+    #[test]
+    fn fmul_d0_d1_d2_matches_arm_arm() {
+        // FMUL d0, d1, d2: base 0x1E60_0800
+        //   = 0x1E62_0820
+        assert_eq!(fmul_d(Fpr::V0, Fpr::V1, Fpr::V2), 0x1E62_0820);
+    }
+
+    #[test]
+    fn fdiv_d0_d1_d2_matches_arm_arm() {
+        // FDIV d0, d1, d2: base 0x1E60_1800
+        //   = 0x1E62_1820
+        assert_eq!(fdiv_d(Fpr::V0, Fpr::V1, Fpr::V2), 0x1E62_1820);
+    }
+
+    #[test]
+    fn fmov_d0_from_x9_matches_arm_arm() {
+        // FMOV d0, x9: base 0x9E67_0000
+        //   Rn=9 (bits 9-5), Rd=0
+        //   = 0x9E67_0120
+        assert_eq!(fmov_d_from_x(Fpr::V0, Gpr::X9), 0x9E67_0120);
+    }
+
+    #[test]
+    fn fmov_x0_from_d9_matches_arm_arm() {
+        // FMOV x0, d9: base 0x9E66_0000
+        //   Rn=9 (bits 9-5), Rd=0
+        //   = 0x9E66_0120
+        assert_eq!(fmov_x_from_d(Gpr::X0, Fpr::V9), 0x9E66_0120);
     }
 }

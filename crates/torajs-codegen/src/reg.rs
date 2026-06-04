@@ -68,6 +68,54 @@ impl Gpr {
     }
 }
 
+/// SIMD/FP 128-bit registers `v0..v31`. The same register slot is
+/// addressable as `B/H/S/D/Q` (8/16/32/64/128-bit views); torajs uses
+/// the 64-bit `D` view for `f64` arithmetic. The encoding index 0..31
+/// is shared across views.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+#[allow(dead_code)]
+pub enum Fpr {
+    V0 = 0,
+    V1 = 1,
+    V2 = 2,
+    V3 = 3,
+    V4 = 4,
+    V5 = 5,
+    V6 = 6,
+    V7 = 7,
+    V8 = 8,
+    V9 = 9,
+    V10 = 10,
+    V11 = 11,
+    V12 = 12,
+    V13 = 13,
+    V14 = 14,
+    V15 = 15,
+    V16 = 16,
+    V17 = 17,
+    V18 = 18,
+    V19 = 19,
+    V20 = 20,
+    V21 = 21,
+    V22 = 22,
+    V23 = 23,
+    V24 = 24,
+    V25 = 25,
+    V26 = 26,
+    V27 = 27,
+    V28 = 28,
+    V29 = 29,
+    V30 = 30,
+    V31 = 31,
+}
+
+impl Fpr {
+    pub const fn idx(self) -> u32 {
+        self as u32
+    }
+}
+
 /// AAPCS64 register class for trivial allocation.
 ///
 /// Used by `regalloc` to pick scratch registers from the caller-saved
@@ -107,6 +155,45 @@ pub mod aapcs64 {
         Gpr::X22,
         Gpr::X23,
     ];
+
+    use super::Fpr;
+
+    /// FP argument + return slots (also caller-saved). `v0` (`d0`)
+    /// holds the f64 return value.
+    pub const FP_ARG_RET: [Fpr; 8] = [
+        Fpr::V0,
+        Fpr::V1,
+        Fpr::V2,
+        Fpr::V3,
+        Fpr::V4,
+        Fpr::V5,
+        Fpr::V6,
+        Fpr::V7,
+    ];
+
+    /// FP caller-saved scratch (besides `FP_ARG_RET`).
+    /// `v8..v15` are callee-saved (low 64 bits only — AAPCS64 §5.1.2);
+    /// `v16..v31` are caller-saved scratch. We restrict the scratch
+    /// pool to the caller-saved 16-slot subset so codegen does not
+    /// need to emit FP-save prologues yet.
+    pub const FP_CALLER_SAVED_SCRATCH: [Fpr; 16] = [
+        Fpr::V16,
+        Fpr::V17,
+        Fpr::V18,
+        Fpr::V19,
+        Fpr::V20,
+        Fpr::V21,
+        Fpr::V22,
+        Fpr::V23,
+        Fpr::V24,
+        Fpr::V25,
+        Fpr::V26,
+        Fpr::V27,
+        Fpr::V28,
+        Fpr::V29,
+        Fpr::V30,
+        Fpr::V31,
+    ];
 }
 
 #[cfg(test)]
@@ -138,5 +225,40 @@ mod tests {
         // Apple platforms reserve x18. The scratch pool must not
         // include it.
         assert!(!aapcs64::CALLER_SAVED_SCRATCH.contains(&Gpr::X18));
+    }
+
+    #[test]
+    fn fpr_idx_matches_repr() {
+        assert_eq!(Fpr::V0.idx(), 0);
+        assert_eq!(Fpr::V8.idx(), 8);
+        assert_eq!(Fpr::V31.idx(), 31);
+    }
+
+    #[test]
+    fn aapcs64_fp_arg_ret_covers_v0_v7() {
+        assert_eq!(aapcs64::FP_ARG_RET[0], Fpr::V0);
+        assert_eq!(aapcs64::FP_ARG_RET[7], Fpr::V7);
+    }
+
+    #[test]
+    fn aapcs64_fp_scratch_skips_callee_saved() {
+        // v8..v15 are callee-saved (low 64 bits) per AAPCS64 §5.1.2.
+        // Our scratch pool must not include them — we'd need a save/
+        // restore in prologue/epilogue otherwise.
+        for v in [
+            Fpr::V8,
+            Fpr::V9,
+            Fpr::V10,
+            Fpr::V11,
+            Fpr::V12,
+            Fpr::V13,
+            Fpr::V14,
+            Fpr::V15,
+        ] {
+            assert!(
+                !aapcs64::FP_CALLER_SAVED_SCRATCH.contains(&v),
+                "{v:?} should not be in caller-saved scratch"
+            );
+        }
     }
 }
