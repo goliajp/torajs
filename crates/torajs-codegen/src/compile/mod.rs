@@ -50,7 +50,7 @@ use crate::regalloc::{Assignment, allocate_trivial};
 use crate::reloc::Reloc;
 
 pub use binop::emit_binop;
-pub use call::emit_call;
+pub use call::{emit_call, emit_call_indirect};
 pub use cast::{
     emit_bitcast_f64_to_i64, emit_bitcast_i64_to_f64, emit_fp_to_si, emit_int_to_ptr,
     emit_ptr_to_int, emit_si_to_fp, emit_trunc_i64_to_bool, emit_zext_bool_to_i64,
@@ -134,13 +134,15 @@ fn emit_inst(
             emit_store_dyn(bytes, val, base, dyn_offset, alloc)
         }
         InstKind::Call(func_id, args) => emit_call(bytes, relocs, inst, *func_id, args, alloc),
+        InstKind::CallIndirect(sig_id, fn_ptr, args) => {
+            emit_call_indirect(bytes, inst, *sig_id, fn_ptr, args, alloc)
+        }
         InstKind::GlobalRef(name) => emit_global_ref(bytes, relocs, inst, name, alloc),
         InstKind::StringRef(string_id) => emit_string_ref(bytes, relocs, inst, *string_id, alloc),
         InstKind::StaticStrRef(string_id) => {
             emit_static_str_ref(bytes, relocs, inst, *string_id, alloc)
         }
         InstKind::FnAddr(func_id) => emit_fn_addr(bytes, relocs, inst, *func_id, alloc),
-        other => todo!("S4+: InstKind::{:?}", other),
     }
 }
 

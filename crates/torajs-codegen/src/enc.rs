@@ -486,6 +486,13 @@ pub fn bl_imm26(byte_offset: i32) -> u32 {
     0x9400_0000 | imm26
 }
 
+/// BLR Xn — branch-with-link through `Xn` (indirect call). Stores
+/// PC+4 into X30 before branching. ARM ARM C6.2.39:
+/// `1101 0110 0011 1111 0000 00 Rn 00000`. Base = 0xD63F_0000.
+pub fn blr_reg(rn: Gpr) -> u32 {
+    0xD63F_0000 | (rn.idx() << 5)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -599,6 +606,13 @@ mod tests {
     fn bl_zero_offset_matches_arm_arm() {
         // BL . = 0x94000000
         assert_eq!(bl_imm26(0), 0x9400_0000);
+    }
+
+    #[test]
+    fn blr_x12_matches_arm_arm() {
+        // BLR x12: base 0xD63F_0000, Rn=12 → bits 9-5 = 01100 → 0x180
+        //   = 0xD63F_0180
+        assert_eq!(blr_reg(Gpr::X12), 0xD63F_0180);
     }
 
     // --- S2-A encoder tests ---
