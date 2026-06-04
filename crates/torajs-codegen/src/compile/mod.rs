@@ -36,6 +36,7 @@ mod cast;
 mod cmp;
 mod mem;
 mod operand;
+mod refs;
 
 #[cfg(test)]
 pub(crate) mod test_fixtures;
@@ -58,6 +59,7 @@ pub use cast::{
 pub use cmp::{emit_fcmp, emit_icmp};
 pub use mem::{emit_alloca, emit_load, emit_load_dyn, emit_store, emit_store_dyn};
 pub use operand::{materialize_const_i64, materialize_operand_fpr, materialize_operand_gpr};
+pub use refs::{emit_fn_addr, emit_global_ref, emit_static_str_ref, emit_string_ref};
 
 /// Operand scratch GPRs — sub-modules use these to materialize int
 /// constants (`materialize_const_i64`) and arrange operands.
@@ -132,6 +134,12 @@ fn emit_inst(
             emit_store_dyn(bytes, val, base, dyn_offset, alloc)
         }
         InstKind::Call(func_id, args) => emit_call(bytes, relocs, inst, *func_id, args, alloc),
+        InstKind::GlobalRef(name) => emit_global_ref(bytes, relocs, inst, name, alloc),
+        InstKind::StringRef(string_id) => emit_string_ref(bytes, relocs, inst, *string_id, alloc),
+        InstKind::StaticStrRef(string_id) => {
+            emit_static_str_ref(bytes, relocs, inst, *string_id, alloc)
+        }
+        InstKind::FnAddr(func_id) => emit_fn_addr(bytes, relocs, inst, *func_id, alloc),
         other => todo!("S4+: InstKind::{:?}", other),
     }
 }

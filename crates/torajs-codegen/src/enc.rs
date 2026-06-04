@@ -51,6 +51,12 @@
 //! Bool low-bit extraction (ZExt bool / Trunc-to-bool), and MOV
 //! reg-reg in both W (sf=0, auto-clears top 32 bits of Xd) and X
 //! (sf=1, full 64-bit move) forms for ZExt i32 / Ptr↔Int.
+//!
+//! S4-B coverage: ADRP for the address-of-symbol pair (`ADRP Xd,
+//! page(symbol); ADD Xd, Xd, #pageoff(symbol)`). The 21-bit
+//! immediate is split: 2 low bits at bits 30-29, 19 high bits at
+//! bits 23-5. Callers emit with immediate=0 and record a Page21
+//! reloc — torajs-link patches the field at symbol-resolve time.
 
 use crate::reg::{Fpr, Gpr};
 
@@ -433,6 +439,26 @@ pub fn mov_w_reg(rd: Gpr, rm: Gpr) -> u32 {
 /// ARM ARM C6.2.231 sf=1 form. Base = 0xAA00_03E0.
 pub fn mov_x_reg(rd: Gpr, rm: Gpr) -> u32 {
     0xAA00_03E0 | (rm.idx() << 16) | rd.idx()
+}
+
+// --- S4-B: PC-relative page address ---
+
+/// ADRP Xd, label — PC-relative 4 KiB-aligned page address.
+///
+/// ARM ARM C6.2.10: `1 immlo 10000 immhi Rd` where the 21-bit signed
+/// `immediate` field is split into `immlo` (bits 30-29, low 2 bits)
+/// and `immhi` (bits 23-5, high 19 bits). The effective address is
+/// `(PC[63:12] + sign_extend(immediate:0x000)) & ~0xFFF` — i.e. the
+/// page containing the target symbol.
+///
+/// Callers pass `immediate = 0` and pair the emission with a
+/// `Reloc::Page21` so torajs-link patches the field at symbol-
+/// resolve time.
+pub fn adrp(rd: Gpr, immediate: i32) -> u32 {
+    let imm21 = (immediate & 0x1F_FFFF) as u32;
+    let immlo = imm21 & 0x3;
+    let immhi = (imm21 >> 2) & 0x7_FFFF;
+    0x9000_0000 | (immlo << 29) | (immhi << 5) | rd.idx()
 }
 
 /// B label — unconditional branch with 26-bit signed PC-relative
@@ -829,5 +855,34 @@ mod tests {
         // MOV x0, x9 = ORR x0, xzr, x9
         //   base 0xAA00_03E0 | (9<<16) | 0 = 0xAA09_03E0
         assert_eq!(mov_x_reg(Gpr::X0, Gpr::X9), 0xAA09_03E0);
+    }
+
+    // --- S4-B encoder tests ---
+
+    #[test]
+    fn adrp_x0_immediate_zero() {
+        // ADRP x0, page#0 — immediate=0, Rd=0
+        //   = 0x9000_0000 (no other bits set)
+        assert_eq!(adrp(Gpr::X0, 0), 0x9000_0000);
+    }
+
+    #[test]
+    fn adrp_x12_immediate_zero() {
+        // ADRP x12 — Rd=12 (bits 4-0)
+        //   = 0x9000_000C
+        assert_eq!(adrp(Gpr::X12, 0), 0x9000_000C);
+    }
+
+    #[test]
+    fn adrp_immediate_split_low_high() {
+        // ADRP x0, #1 — immediate=1 → immlo=01 (bit 29 set)
+        //   bit 29 = 0x2000_0000
+        //   = 0x9000_0000 | 0x2000_0000 = 0xB000_0000
+        assert_eq!(adrp(Gpr::X0, 1), 0xB000_0000);
+
+        // ADRP x0, #4 — immediate=4 → immlo=00, immhi=1 (bit 5 set)
+        //   bit 5 = 0x20
+        //   = 0x9000_0000 | 0x20 = 0x9000_0020
+        assert_eq!(adrp(Gpr::X0, 4), 0x9000_0020);
     }
 }

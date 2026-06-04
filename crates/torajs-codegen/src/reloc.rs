@@ -7,8 +7,17 @@
 //! R_ARM64_* / ELF R_AARCH64_* relocation entries; `torajs-link` (#8)
 //! ultimately resolves them.
 //!
-//! S1 has no relocs (`1 + 2` is leaf + no globals). The types exist
-//! so S2-S5 can append without reshuffling the API.
+//! Kinds mirror the Mach-O / ELF aarch64 reloc taxonomy 1:1:
+//!
+//!   - `CallSite`   → ARM64_RELOC_BRANCH26 / R_AARCH64_CALL26
+//!   - `Page21`     → ARM64_RELOC_PAGE21   / R_AARCH64_ADR_PREL_PG_HI21
+//!   - `PageOff12`  → ARM64_RELOC_PAGEOFF12 / R_AARCH64_ADD_ABS_LO12_NC
+//!   - `AbsPtr64`   → ARM64_RELOC_UNSIGNED  / R_AARCH64_ABS64
+//!
+//! S4-A populates `CallSite`. S4-B (this commit) populates
+//! `Page21` + `PageOff12` for GlobalRef / StringRef / StaticStrRef /
+//! FnAddr. `AbsPtr64` lives for the data section (vtable slots etc),
+//! emitted by `torajs-obj` rather than `torajs-codegen` body lowering.
 
 use torajs_core::ssa::FuncId;
 
@@ -23,20 +32,24 @@ pub struct Reloc {
 
 #[derive(Debug, Clone)]
 pub enum RelocKind {
-    /// 26-bit signed PC-relative branch displacement. Used by `BL`
-    /// (call site). torajs-link writes `(target_addr - site_addr) / 4`
-    /// into the low 26 bits, sign-extended.
+    /// 26-bit signed PC-relative branch displacement (BL site).
+    /// torajs-link writes `(target_addr - site_addr) / 4` into the
+    /// low 26 bits, sign-extended.
     CallSite { target_func: FuncId },
 
-    /// ADRP + ADD pair, page-aligned address of a data symbol.
-    /// The pair always occupies two consecutive instructions; the
-    /// `byte_offset` here points to the ADRP. ADD imm12 is patched
-    /// from the same target.
-    DataAdr { target_sym: String },
+    /// ARM64 PAGE21 — fills the 21-bit `imm21` field of an ADRP
+    /// instruction with the page (4 KiB-aligned) address of
+    /// `target_sym` relative to the ADRP's PC.
+    Page21 { target_sym: String },
 
-    /// 64-bit absolute address. Used when storing a fn pointer or
-    /// global to memory (e.g. vtable slot). The 8 bytes at
-    /// `byte_offset` are overwritten with the resolved address.
+    /// ARM64 PAGEOFF12 — fills the 12-bit `imm12` field of an ADD
+    /// (immediate) with the low 12 bits of `target_sym`'s page
+    /// offset. Always paired with a `Page21` at PC-4.
+    PageOff12 { target_sym: String },
+
+    /// 64-bit absolute address — fills 8 bytes with the resolved
+    /// address of `target_sym`. Used in data sections (vtable
+    /// slots, static fn ptrs).
     AbsPtr64 { target_sym: String },
 }
 
@@ -53,9 +66,15 @@ mod tests {
             },
         };
         let _ = Reloc {
+            byte_offset: 0,
+            kind: RelocKind::Page21 {
+                target_sym: "__torajs_str_lit_0".into(),
+            },
+        };
+        let _ = Reloc {
             byte_offset: 4,
-            kind: RelocKind::DataAdr {
-                target_sym: "__torajs_str_literal_0".into(),
+            kind: RelocKind::PageOff12 {
+                target_sym: "__torajs_str_lit_0".into(),
             },
         };
         let _ = Reloc {
