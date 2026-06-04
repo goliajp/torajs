@@ -50,7 +50,7 @@ use crate::reloc::Reloc;
 pub use binop::emit_binop;
 pub use cast::{emit_bitcast_f64_to_i64, emit_bitcast_i64_to_f64};
 pub use cmp::{emit_fcmp, emit_icmp};
-pub use mem::{emit_alloca, emit_load, emit_store};
+pub use mem::{emit_alloca, emit_load, emit_load_dyn, emit_store, emit_store_dyn};
 pub use operand::{materialize_const_i64, materialize_operand_fpr, materialize_operand_gpr};
 
 /// Operand scratch GPRs — sub-modules use these to materialize int
@@ -107,6 +107,12 @@ fn emit_inst(bytes: &mut Vec<u8>, inst: &torajs_core::ssa::Inst, alloc: &Assignm
         InstKind::Alloca(_) | InstKind::AllocaBytes(_) => emit_alloca(bytes, inst, alloc),
         InstKind::Load(ty, ptr, offset) => emit_load(bytes, inst, ty, ptr, *offset, alloc),
         InstKind::Store(val, ptr, offset) => emit_store(bytes, val, ptr, *offset, alloc),
+        InstKind::LoadDyn(ty, base, dyn_offset) => {
+            emit_load_dyn(bytes, inst, ty, base, dyn_offset, alloc)
+        }
+        InstKind::StoreDyn(val, base, dyn_offset) => {
+            emit_store_dyn(bytes, val, base, dyn_offset, alloc)
+        }
         other => todo!("S2+: InstKind::{:?}", other),
     }
 }

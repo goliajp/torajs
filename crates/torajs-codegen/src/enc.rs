@@ -39,6 +39,12 @@
 //! epilogue protocol. The Load/Store imm12 field is *scaled by 8*
 //! for 64-bit accesses; encoders divide internally so the caller
 //! passes a raw byte offset that matches the SSA `offset` field.
+//!
+//! S3-A3 coverage: LDR/STR (register, 64-bit X) for register-indexed
+//! addressing — `LDR Xt, [Xn, Xm, LSL #0]` / `STR Xt, [Xn, Xm, LSL
+//! #0]`. The "LSL #0" form treats Xm as a raw byte index (no
+//! scale), matching SSA's `LoadDyn` / `StoreDyn` semantics where
+//! `dyn_offset` is already a byte count.
 
 use crate::reg::{Fpr, Gpr};
 
@@ -356,6 +362,23 @@ pub fn ldp_post_index(rt: Gpr, rt2: Gpr, rn: Gpr, byte_offset: i32) -> u32 {
     debug_assert!(byte_offset % 8 == 0, "byte offset must be 8-byte aligned");
     let imm7 = ((byte_offset / 8) as i32 & 0x7F) as u32;
     0xA8C0_0000 | (imm7 << 15) | (rt2.idx() << 10) | (rn.idx() << 5) | rt.idx()
+}
+
+/// LDR Xt, [Xn, Xm, LSL #0] — load 64-bit, register-indexed, no
+/// scale (Xm is a raw byte index).
+///
+/// ARM ARM C6.2.137: `1 1 1 11000 01 1 Rm option S 10 Rn Rt`
+/// with option=011 (LSL), S=0 (no scale). Base = 0xF860_6800.
+pub fn ldr_x_reg(rt: Gpr, rn: Gpr, rm: Gpr) -> u32 {
+    0xF860_6800 | (rm.idx() << 16) | (rn.idx() << 5) | rt.idx()
+}
+
+/// STR Xt, [Xn, Xm, LSL #0] — store 64-bit, register-indexed.
+///
+/// ARM ARM C6.2.397. Same encoding as LDR but bit 22 = 0 (store)
+/// instead of 1 (load). Base = 0xF820_6800.
+pub fn str_x_reg(rt: Gpr, rn: Gpr, rm: Gpr) -> u32 {
+    0xF820_6800 | (rm.idx() << 16) | (rn.idx() << 5) | rt.idx()
 }
 
 /// B label — unconditional branch with 26-bit signed PC-relative
@@ -695,5 +718,24 @@ mod tests {
         // Canonical leaf-fn epilogue: `LDP x29, x30, [SP], #16`
         //   = 0xA8C1_7BFD
         assert_eq!(ldp_post_index(Gpr::X29, Gpr::X30, Gpr::SP, 16), 0xA8C1_7BFD);
+    }
+
+    // --- S3-A3 encoder tests ---
+
+    #[test]
+    fn ldr_x_reg_x0_x12_x10_matches_arm_arm() {
+        // LDR x0, [x12, x10, LSL #0]
+        //   base 0xF860_6800, Rm=10, Rn=12, Rt=0
+        //   = 0xF860_6800 | (10<<16) | (12<<5) | 0
+        //   = 0xF86A_6980
+        assert_eq!(ldr_x_reg(Gpr::X0, Gpr::X12, Gpr::X10), 0xF86A_6980);
+    }
+
+    #[test]
+    fn str_x_reg_x9_x12_x11_matches_arm_arm() {
+        // STR x9, [x12, x11, LSL #0]
+        //   base 0xF820_6800, Rm=11, Rn=12, Rt=9
+        //   = 0xF82B_6989
+        assert_eq!(str_x_reg(Gpr::X9, Gpr::X12, Gpr::X11), 0xF82B_6989);
     }
 }
