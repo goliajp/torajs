@@ -1830,6 +1830,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "torajs-link"
+version = "0.1.0"
+dependencies = [
+ "torajs-codegen",
+ "torajs-core",
+ "torajs-obj",
+]
+
+[[package]]
 name = "torajs-math"
 version = "0.1.0"
 

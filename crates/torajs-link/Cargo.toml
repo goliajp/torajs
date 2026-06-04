@@ -1,0 +1,24 @@
+[package]
+name = "torajs-link"
+description = "In-house aarch64-darwin Mach-O linker for the torajs AOT TypeScript runtime. Takes the per-function output of `torajs-codegen` plus a defined-symbol map, resolves ARM64 relocations in place (BRANCH26 / PAGE21 / PAGEOFF12 / UNSIGNED), and emits a final Mach-O `MH_EXECUTE` byte stream with the load commands modern macOS dyld requires (LC_SEGMENT_64 × N + LC_DYLD_CHAINED_FIXUPS + LC_MAIN + LC_LOAD_DYLINKER + LC_LOAD_DYLIB + LC_SYMTAB + LC_DYSYMTAB + LC_BUILD_VERSION + LC_CODE_SIGNATURE). No llvm-mc / no object crate / no system `ld64`. v0.7 Metal stone #8, paired with torajs-codegen (#6) and torajs-obj (#7) to retire the LLVM → llc → ld pipeline in #9. ELF (Linux aarch64 / cross) v0.8+."
+keywords = ["mach-o", "linker", "torajs", "aot", "aarch64"]
+categories = ["compilers", "no-std"]
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+torajs-codegen = { path = "../torajs-codegen" }
+torajs-obj = { path = "../torajs-obj" }
+
+[dev-dependencies]
+# Test fixtures hand-build SSA `Function`s to exercise reloc patching
+# paths end-to-end. The production link API consumes
+# `&[CompiledFunction]`, never touching the SSA types directly.
+torajs-core = { path = "../torajs-core" }
