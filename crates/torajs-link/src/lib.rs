@@ -47,5 +47,7 @@
 #![deny(unsafe_code)]
 
 pub mod patch;
+pub mod resolve;
 
 pub use patch::{patch_branch26, patch_page21, patch_pageoff12, write_unsigned64};
+pub use resolve::{ResolvedFunction, SymTable, apply_relocs};
