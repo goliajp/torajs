@@ -36,6 +36,7 @@ members = [
     "crates/torajs-abort",
     "crates/torajs-codec-hex",
     "crates/torajs-bench",
+    "crates/torajs-codegen",
     "crates/torajs-runtime",
     "crates/torajs-core",
     "crates/torajs-cli",

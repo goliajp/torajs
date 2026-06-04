@@ -1722,6 +1722,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "torajs-codegen"
+version = "0.1.0"
+dependencies = [
+ "torajs-core",
+]
+
+[[package]]
 name = "torajs-collections"
 version = "0.1.0"
 dependencies = [

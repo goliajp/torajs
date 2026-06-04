@@ -1,0 +1,17 @@
+[package]
+name = "torajs-codegen"
+description = "In-house SSA → aarch64 machine-code emitter for the torajs AOT TypeScript runtime. Walks `torajs_core::ssa::Function` directly; emits raw little-endian aarch64 instruction bytes + Reloc descriptors; hands off to torajs-obj (#7) for Mach-O / ELF container wrapping. No mid-level IR, no Cranelift, no LLVM — single-pass-over-SSA + Linear Scan reg alloc + AAPCS64 frame. v0.7 Metal stone #6, replacing the `inkwell = 0.9` workspace dep + the `ssa_inkwell/` 5500-LOC subtree."
+keywords = ["aarch64", "codegen", "torajs", "ssa", "aot"]
+categories = ["compilers", "no-std"]
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+torajs-core = { path = "../torajs-core" }
