@@ -1,15 +1,24 @@
 //! Operand materialization — int / fp constants → register, or
-//! Value(ValueId) → looked-up assigned register.
+//! Value(ValueId) → looked-up assigned register / LDR-from-spill.
 
 use torajs_core::ssa::Operand;
 
 use super::write_u32;
-use crate::enc::{fmov_d_from_x, movk_imm, movz_imm};
-use crate::reg::{Fpr, Gpr};
+use crate::enc::{fmov_d_from_x, ldr_d_imm12, ldr_x_imm12, movk_imm, movz_imm};
+use crate::reg::{Fpr, Gpr, Reg};
 use crate::regalloc::Assignment;
 
-/// Place `op`'s value into `scratch` (if it's an int constant) or
-/// return the assigned register (if it's a Value already in a GPR).
+/// Place `op`'s value into `scratch` (if it's an int constant or a
+/// spilled SSA value) or return the assigned register (if it's a
+/// Value already in a real GPR).
+///
+/// LS-3 spill path: when `Operand::Value(v)` resolves to
+/// `Reg::SpillGpr(off)`, emits `LDR scratch, [SP, #off]` and returns
+/// `scratch`. The caller's previously-materialized scratches are
+/// expected to be disjoint (e.g. binop calls
+/// `materialize_operand_gpr(lhs, OP_SCRATCH_LHS, ...)` then
+/// `materialize_operand_gpr(rhs, OP_SCRATCH_RHS, ...)` so an LDR
+/// into one doesn't clobber the other).
 pub fn materialize_operand_gpr(
     bytes: &mut Vec<u8>,
     op: &Operand,
@@ -17,7 +26,17 @@ pub fn materialize_operand_gpr(
     alloc: &Assignment,
 ) -> Gpr {
     match op {
-        Operand::Value(v) => alloc.of(*v).as_gpr(),
+        Operand::Value(v) => match alloc.of(*v) {
+            Reg::Gpr(g) => g,
+            Reg::SpillGpr(off) => {
+                write_u32(bytes, ldr_x_imm12(scratch, Gpr::SP, off));
+                scratch
+            }
+            other => panic!(
+                "materialize_operand_gpr called on ValueId({}) holding {other:?}",
+                v.0
+            ),
+        },
         Operand::ConstI64(c) => {
             materialize_const_i64(bytes, scratch, *c);
             scratch
@@ -41,7 +60,8 @@ pub fn materialize_operand_gpr(
 }
 
 /// Place `op`'s f64 value into an FPR. Constants land via the GPR
-/// path (MOVZ+MOVK the bit pattern then FMOV-d-from-x).
+/// path (MOVZ+MOVK the bit pattern then FMOV-d-from-x). Spilled
+/// values land via `LDR Dscratch, [SP, #off]`.
 pub fn materialize_operand_fpr(
     bytes: &mut Vec<u8>,
     op: &Operand,
@@ -50,7 +70,17 @@ pub fn materialize_operand_fpr(
     alloc: &Assignment,
 ) -> Fpr {
     match op {
-        Operand::Value(v) => alloc.of(*v).as_fpr(),
+        Operand::Value(v) => match alloc.of(*v) {
+            Reg::Fpr(f) => f,
+            Reg::SpillFpr(off) => {
+                write_u32(bytes, ldr_d_imm12(fpr_scratch, Gpr::SP, off));
+                fpr_scratch
+            }
+            other => panic!(
+                "materialize_operand_fpr called on ValueId({}) holding {other:?}",
+                v.0
+            ),
+        },
         Operand::ConstF64(c) => {
             // `f64::to_bits()` gives the IEEE 754 binary64 word; the
             // FMOV-d-from-x reinterprets those bits as an f64. No NaN

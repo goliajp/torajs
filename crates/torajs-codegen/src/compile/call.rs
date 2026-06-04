@@ -18,11 +18,10 @@
 
 use torajs_core::ssa::{FuncId, Inst, Operand, SigId};
 
-use super::OP_SCRATCH_LHS;
 use super::operand::materialize_operand_gpr;
-use super::write_u32;
-use crate::enc::{bl_imm26, blr_reg, mov_x_reg};
-use crate::reg::{Gpr, aapcs64};
+use super::{OP_SCRATCH_LHS, write_u32};
+use crate::enc::{bl_imm26, blr_reg, mov_x_reg, str_x_imm12};
+use crate::reg::{Gpr, Reg, aapcs64};
 use crate::regalloc::Assignment;
 use crate::reloc::{CallTarget, Reloc, RelocKind};
 
@@ -69,10 +68,7 @@ pub fn emit_call(
     // the Call's result elsewhere (e.g. trivial alloc gave it a scratch
     // because the Call isn't itself the function's ret), MOV it across.
     if let Some(result_vid) = inst.result {
-        let dst = alloc.of(result_vid).as_gpr();
-        if dst != Gpr::X0 {
-            write_u32(bytes, mov_x_reg(dst, Gpr::X0));
-        }
+        route_call_ret(bytes, alloc, result_vid);
     }
 }
 
@@ -113,10 +109,24 @@ pub fn emit_call_indirect(
     write_u32(bytes, blr_reg(fn_ptr_reg));
 
     if let Some(result_vid) = inst.result {
-        let dst = alloc.of(result_vid).as_gpr();
-        if dst != Gpr::X0 {
-            write_u32(bytes, mov_x_reg(dst, Gpr::X0));
-        }
+        route_call_ret(bytes, alloc, result_vid);
+    }
+}
+
+/// Route the post-call int return value (already in X0 per AAPCS64
+/// §6.4.1) to wherever the allocator placed the SSA result:
+///   - `Reg::Gpr(X0)`: no-op (already there).
+///   - `Reg::Gpr(other)`: MOV other, X0.
+///   - `Reg::SpillGpr(off)`: STR X0, [SP, #off] — X0 is the live ret
+///     value, no scratch detour needed.
+/// FP-typed call results land in S4-D alongside FP-arg passing; the
+/// `as_gpr()` panic on Fpr/SpillFpr keeps that future case obvious.
+fn route_call_ret(bytes: &mut Vec<u8>, alloc: &Assignment, result_vid: torajs_core::ssa::ValueId) {
+    match alloc.of(result_vid) {
+        Reg::Gpr(Gpr::X0) => {}
+        Reg::Gpr(dst) => write_u32(bytes, mov_x_reg(dst, Gpr::X0)),
+        Reg::SpillGpr(off) => write_u32(bytes, str_x_imm12(Gpr::X0, Gpr::SP, off)),
+        other => panic!("Call result in {other:?} (FP ret lands in S4-D)"),
     }
 }
 

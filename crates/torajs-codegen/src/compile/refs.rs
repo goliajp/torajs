@@ -19,7 +19,7 @@
 
 use torajs_core::ssa::{FuncId, Inst, StringId};
 
-use super::write_u32;
+use super::{OP_SCRATCH_RESULT_GPR, write_def_spill_gpr, write_u32};
 use crate::enc::{add_imm, adrp};
 use crate::reg::Gpr;
 use crate::regalloc::Assignment;
@@ -52,11 +52,10 @@ pub fn emit_global_ref(
     name: &str,
     alloc: &Assignment,
 ) {
-    let dst = inst
-        .result
-        .map(|v| alloc.of(v).as_gpr())
-        .expect("GlobalRef must have result");
+    let result_vid = inst.result.expect("GlobalRef must have result");
+    let (dst, spill_off) = alloc.def_gpr(result_vid, OP_SCRATCH_RESULT_GPR);
     emit_adrp_add_pair(bytes, relocs, dst, name.to_string());
+    write_def_spill_gpr(bytes, spill_off, dst);
 }
 
 pub fn emit_string_ref(
@@ -66,16 +65,15 @@ pub fn emit_string_ref(
     string_id: StringId,
     alloc: &Assignment,
 ) {
-    let dst = inst
-        .result
-        .map(|v| alloc.of(v).as_gpr())
-        .expect("StringRef must have result");
+    let result_vid = inst.result.expect("StringRef must have result");
+    let (dst, spill_off) = alloc.def_gpr(result_vid, OP_SCRATCH_RESULT_GPR);
     emit_adrp_add_pair(
         bytes,
         relocs,
         dst,
         format!("__torajs_str_dyn_{}", string_id.0),
     );
+    write_def_spill_gpr(bytes, spill_off, dst);
 }
 
 pub fn emit_static_str_ref(
@@ -85,16 +83,15 @@ pub fn emit_static_str_ref(
     string_id: StringId,
     alloc: &Assignment,
 ) {
-    let dst = inst
-        .result
-        .map(|v| alloc.of(v).as_gpr())
-        .expect("StaticStrRef must have result");
+    let result_vid = inst.result.expect("StaticStrRef must have result");
+    let (dst, spill_off) = alloc.def_gpr(result_vid, OP_SCRATCH_RESULT_GPR);
     emit_adrp_add_pair(
         bytes,
         relocs,
         dst,
         format!("__torajs_str_lit_{}", string_id.0),
     );
+    write_def_spill_gpr(bytes, spill_off, dst);
 }
 
 pub fn emit_fn_addr(
@@ -104,11 +101,10 @@ pub fn emit_fn_addr(
     func_id: FuncId,
     alloc: &Assignment,
 ) {
-    let dst = inst
-        .result
-        .map(|v| alloc.of(v).as_gpr())
-        .expect("FnAddr must have result");
+    let result_vid = inst.result.expect("FnAddr must have result");
+    let (dst, spill_off) = alloc.def_gpr(result_vid, OP_SCRATCH_RESULT_GPR);
     emit_adrp_add_pair(bytes, relocs, dst, format!("__torajs_fn_{}", func_id.0));
+    write_def_spill_gpr(bytes, spill_off, dst);
 }
 
 #[cfg(test)]

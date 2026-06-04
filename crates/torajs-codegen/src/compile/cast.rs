@@ -8,8 +8,10 @@
 use torajs_core::ssa::{Inst, Operand};
 
 use super::operand::{materialize_operand_fpr, materialize_operand_gpr};
-use super::write_u32;
-use super::{FP_SCRATCH_LHS, OP_SCRATCH_LHS};
+use super::{
+    FP_SCRATCH_LHS, FP_SCRATCH_RESULT, OP_SCRATCH_LHS, OP_SCRATCH_RESULT_GPR, write_def_spill_fpr,
+    write_def_spill_gpr, write_u32,
+};
 use crate::enc::{
     and_imm_one, fcvtzs_x_d, fmov_d_from_x, fmov_x_from_d, mov_w_reg, mov_x_reg, scvtf_d_x,
 };
@@ -21,12 +23,11 @@ pub fn emit_bitcast_f64_to_i64(
     src: &Operand,
     alloc: &Assignment,
 ) {
-    let dst = inst
-        .result
-        .map(|v| alloc.of(v).as_gpr())
-        .expect("BitCastF64ToI64 must have a result");
+    let result_vid = inst.result.expect("BitCastF64ToI64 must have a result");
+    let (dst, spill_off) = alloc.def_gpr(result_vid, OP_SCRATCH_RESULT_GPR);
     let src_fpr = materialize_operand_fpr(bytes, src, FP_SCRATCH_LHS, OP_SCRATCH_LHS, alloc);
     write_u32(bytes, fmov_x_from_d(dst, src_fpr));
+    write_def_spill_gpr(bytes, spill_off, dst);
 }
 
 pub fn emit_bitcast_i64_to_f64(
@@ -35,86 +36,78 @@ pub fn emit_bitcast_i64_to_f64(
     src: &Operand,
     alloc: &Assignment,
 ) {
-    let dst = inst
-        .result
-        .map(|v| alloc.of(v).as_fpr())
-        .expect("BitCastI64ToF64 must have a result");
+    let result_vid = inst.result.expect("BitCastI64ToF64 must have a result");
+    let (dst, spill_off) = alloc.def_fpr(result_vid, FP_SCRATCH_RESULT);
     let src_gpr = materialize_operand_gpr(bytes, src, OP_SCRATCH_LHS, alloc);
     write_u32(bytes, fmov_d_from_x(dst, src_gpr));
+    write_def_spill_fpr(bytes, spill_off, dst);
 }
 
 /// SiToFp Operand → Fpr: SCVTF Dd, Xn (signed int64 → f64).
 pub fn emit_si_to_fp(bytes: &mut Vec<u8>, inst: &Inst, src: &Operand, alloc: &Assignment) {
-    let dst = inst
-        .result
-        .map(|v| alloc.of(v).as_fpr())
-        .expect("SiToFp must have a result");
+    let result_vid = inst.result.expect("SiToFp must have a result");
+    let (dst, spill_off) = alloc.def_fpr(result_vid, FP_SCRATCH_RESULT);
     let src_gpr = materialize_operand_gpr(bytes, src, OP_SCRATCH_LHS, alloc);
     write_u32(bytes, scvtf_d_x(dst, src_gpr));
+    write_def_spill_fpr(bytes, spill_off, dst);
 }
 
 /// FpToSi Operand → Gpr: FCVTZS Xd, Dn (f64 → int64, round toward 0).
 pub fn emit_fp_to_si(bytes: &mut Vec<u8>, inst: &Inst, src: &Operand, alloc: &Assignment) {
-    let dst = inst
-        .result
-        .map(|v| alloc.of(v).as_gpr())
-        .expect("FpToSi must have a result");
+    let result_vid = inst.result.expect("FpToSi must have a result");
+    let (dst, spill_off) = alloc.def_gpr(result_vid, OP_SCRATCH_RESULT_GPR);
     let src_fpr = materialize_operand_fpr(bytes, src, FP_SCRATCH_LHS, OP_SCRATCH_LHS, alloc);
     write_u32(bytes, fcvtzs_x_d(dst, src_fpr));
+    write_def_spill_gpr(bytes, spill_off, dst);
 }
 
 /// ZExtBoolToI64: AND Xd, Xn, #1 — keep the low bit, zero the rest.
 pub fn emit_zext_bool_to_i64(bytes: &mut Vec<u8>, inst: &Inst, src: &Operand, alloc: &Assignment) {
-    let dst = inst
-        .result
-        .map(|v| alloc.of(v).as_gpr())
-        .expect("ZExtBoolToI64 must have a result");
+    let result_vid = inst.result.expect("ZExtBoolToI64 must have a result");
+    let (dst, spill_off) = alloc.def_gpr(result_vid, OP_SCRATCH_RESULT_GPR);
     let src_gpr = materialize_operand_gpr(bytes, src, OP_SCRATCH_LHS, alloc);
     write_u32(bytes, and_imm_one(dst, src_gpr));
+    write_def_spill_gpr(bytes, spill_off, dst);
 }
 
 /// ZExtI32ToI64: MOV Wd, Wn — W-form write auto-clears top 32 bits
 /// of Xd. Textbook ZExt encoding (no explicit AND #0xFFFF_FFFF mask).
 pub fn emit_zext_i32_to_i64(bytes: &mut Vec<u8>, inst: &Inst, src: &Operand, alloc: &Assignment) {
-    let dst = inst
-        .result
-        .map(|v| alloc.of(v).as_gpr())
-        .expect("ZExtI32ToI64 must have a result");
+    let result_vid = inst.result.expect("ZExtI32ToI64 must have a result");
+    let (dst, spill_off) = alloc.def_gpr(result_vid, OP_SCRATCH_RESULT_GPR);
     let src_gpr = materialize_operand_gpr(bytes, src, OP_SCRATCH_LHS, alloc);
     write_u32(bytes, mov_w_reg(dst, src_gpr));
+    write_def_spill_gpr(bytes, spill_off, dst);
 }
 
 /// TruncI64ToBool: AND Xd, Xn, #1 — LLVM-style trunc takes the low
 /// bit, matching the existing SSA semantics.
 pub fn emit_trunc_i64_to_bool(bytes: &mut Vec<u8>, inst: &Inst, src: &Operand, alloc: &Assignment) {
-    let dst = inst
-        .result
-        .map(|v| alloc.of(v).as_gpr())
-        .expect("TruncI64ToBool must have a result");
+    let result_vid = inst.result.expect("TruncI64ToBool must have a result");
+    let (dst, spill_off) = alloc.def_gpr(result_vid, OP_SCRATCH_RESULT_GPR);
     let src_gpr = materialize_operand_gpr(bytes, src, OP_SCRATCH_LHS, alloc);
     write_u32(bytes, and_imm_one(dst, src_gpr));
+    write_def_spill_gpr(bytes, spill_off, dst);
 }
 
 /// PtrToInt: MOV Xd, Xn — machine-level no-op (Ptr and I64 share the
 /// 64-bit GPR representation) but a copy is needed when the trivial
 /// allocator places src and dst in different physical registers.
 pub fn emit_ptr_to_int(bytes: &mut Vec<u8>, inst: &Inst, src: &Operand, alloc: &Assignment) {
-    let dst = inst
-        .result
-        .map(|v| alloc.of(v).as_gpr())
-        .expect("PtrToInt must have a result");
+    let result_vid = inst.result.expect("PtrToInt must have a result");
+    let (dst, spill_off) = alloc.def_gpr(result_vid, OP_SCRATCH_RESULT_GPR);
     let src_gpr = materialize_operand_gpr(bytes, src, OP_SCRATCH_LHS, alloc);
     write_u32(bytes, mov_x_reg(dst, src_gpr));
+    write_def_spill_gpr(bytes, spill_off, dst);
 }
 
 /// IntToPtr: MOV Xd, Xn — symmetric inverse of PtrToInt.
 pub fn emit_int_to_ptr(bytes: &mut Vec<u8>, inst: &Inst, src: &Operand, alloc: &Assignment) {
-    let dst = inst
-        .result
-        .map(|v| alloc.of(v).as_gpr())
-        .expect("IntToPtr must have a result");
+    let result_vid = inst.result.expect("IntToPtr must have a result");
+    let (dst, spill_off) = alloc.def_gpr(result_vid, OP_SCRATCH_RESULT_GPR);
     let src_gpr = materialize_operand_gpr(bytes, src, OP_SCRATCH_LHS, alloc);
     write_u32(bytes, mov_x_reg(dst, src_gpr));
+    write_def_spill_gpr(bytes, spill_off, dst);
 }
 
 #[cfg(test)]

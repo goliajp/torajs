@@ -10,8 +10,10 @@
 use torajs_core::ssa::{Inst, Operand, Type};
 
 use super::operand::materialize_operand_gpr;
-use super::write_u32;
-use super::{OP_SCRATCH_LHS, OP_SCRATCH_RHS, OP_SCRATCH_TMP};
+use super::{
+    OP_SCRATCH_LHS, OP_SCRATCH_RESULT_GPR, OP_SCRATCH_RHS, OP_SCRATCH_TMP, write_def_spill_gpr,
+    write_u32,
+};
 use crate::enc::{add_imm, ldr_x_imm12, ldr_x_reg, str_x_imm12, str_x_reg};
 use crate::reg::Gpr;
 use crate::regalloc::Assignment;
@@ -20,13 +22,14 @@ use crate::regalloc::Assignment;
 /// slot address into the GPR the allocator assigned to the result.
 pub fn emit_alloca(bytes: &mut Vec<u8>, inst: &Inst, alloc: &Assignment) {
     let result_vid = inst.result.expect("Alloca must have result");
-    let dst = alloc.of(result_vid).as_gpr();
+    let (dst, spill_off) = alloc.def_gpr(result_vid, OP_SCRATCH_RESULT_GPR);
     let slot_offset = alloc.alloca_offset_of(result_vid);
     assert!(
         slot_offset < 4096,
         "S3-A2 slot offset {slot_offset} must fit ADD imm12 (larger frames land in S3-B with shifted-imm or scratch path)",
     );
     write_u32(bytes, add_imm(dst, Gpr::SP, slot_offset as u16));
+    write_def_spill_gpr(bytes, spill_off, dst);
 }
 
 /// Emit `LDR Xd, [Xn, #offset]` — load a 64-bit value from the
@@ -44,13 +47,14 @@ pub fn emit_load(
     alloc: &Assignment,
 ) {
     let result_vid = inst.result.expect("Load must have result");
-    let dst = alloc.of(result_vid).as_gpr();
+    let (dst, spill_off) = alloc.def_gpr(result_vid, OP_SCRATCH_RESULT_GPR);
     let rn = materialize_operand_gpr(bytes, ptr, OP_SCRATCH_LHS, alloc);
     assert!(
         offset < 32760,
         "S3-A2 Load offset {offset} must fit imm12*8 (= 32760 max); larger offsets land in S3-B with scratch path"
     );
     write_u32(bytes, ldr_x_imm12(dst, rn, offset as u32));
+    write_def_spill_gpr(bytes, spill_off, dst);
 }
 
 /// Emit `STR Xs, [Xn, #offset]` — store a 64-bit value to the
@@ -84,10 +88,11 @@ pub fn emit_load_dyn(
     alloc: &Assignment,
 ) {
     let result_vid = inst.result.expect("LoadDyn must have result");
-    let dst = alloc.of(result_vid).as_gpr();
+    let (dst, spill_off) = alloc.def_gpr(result_vid, OP_SCRATCH_RESULT_GPR);
     let rn = materialize_operand_gpr(bytes, base, OP_SCRATCH_LHS, alloc);
     let rm = materialize_operand_gpr(bytes, dyn_offset, OP_SCRATCH_RHS, alloc);
     write_u32(bytes, ldr_x_reg(dst, rn, rm));
+    write_def_spill_gpr(bytes, spill_off, dst);
 }
 
 /// Emit `STR Xs, [Xn, Xm, LSL #0]` — store 64-bit, register-indexed.

@@ -3,8 +3,10 @@
 use torajs_core::ssa::{BinOp, Inst, Operand};
 
 use super::operand::{materialize_operand_fpr, materialize_operand_gpr};
-use super::write_u32;
-use super::{FP_SCRATCH_LHS, FP_SCRATCH_RHS, OP_SCRATCH_LHS, OP_SCRATCH_RHS, OP_SCRATCH_TMP};
+use super::{
+    FP_SCRATCH_LHS, FP_SCRATCH_RESULT, FP_SCRATCH_RHS, OP_SCRATCH_LHS, OP_SCRATCH_RESULT_GPR,
+    OP_SCRATCH_RHS, OP_SCRATCH_TMP, write_def_spill_fpr, write_def_spill_gpr, write_u32,
+};
 use crate::enc::{
     add_reg, and_reg, asrv_reg, bl_imm26, eor_reg, fadd_d, fdiv_d, fmov_d_to_d, fmul_d, fsub_d,
     lslv_reg, lsrv_reg, msub_reg, mul_reg, orr_reg, sdiv_reg, sub_reg,
@@ -35,10 +37,8 @@ pub fn emit_binop(
         | BinOp::Shl
         | BinOp::AShr
         | BinOp::LShr => {
-            let dst = inst
-                .result
-                .map(|v| alloc.of(v).as_gpr())
-                .expect("int BinOp must have a result ValueId");
+            let result_vid = inst.result.expect("int BinOp must have a result ValueId");
+            let (dst, spill_off) = alloc.def_gpr(result_vid, OP_SCRATCH_RESULT_GPR);
             let rn = materialize_operand_gpr(bytes, lhs, OP_SCRATCH_LHS, alloc);
             let rm = materialize_operand_gpr(bytes, rhs, OP_SCRATCH_RHS, alloc);
             match op {
@@ -58,13 +58,12 @@ pub fn emit_binop(
                 BinOp::LShr => write_u32(bytes, lsrv_reg(dst, rn, rm)),
                 _ => unreachable!(),
             }
+            write_def_spill_gpr(bytes, spill_off, dst);
         }
         // --- f64 ops (FPR) ---
         BinOp::FAdd | BinOp::FSub | BinOp::FMul | BinOp::FDiv => {
-            let dst = inst
-                .result
-                .map(|v| alloc.of(v).as_fpr())
-                .expect("fp BinOp must have a result ValueId");
+            let result_vid = inst.result.expect("fp BinOp must have a result ValueId");
+            let (dst, spill_off) = alloc.def_fpr(result_vid, FP_SCRATCH_RESULT);
             let rn = materialize_operand_fpr(bytes, lhs, FP_SCRATCH_LHS, OP_SCRATCH_LHS, alloc);
             let rm = materialize_operand_fpr(bytes, rhs, FP_SCRATCH_RHS, OP_SCRATCH_RHS, alloc);
             match op {
@@ -74,6 +73,7 @@ pub fn emit_binop(
                 BinOp::FDiv => write_u32(bytes, fdiv_d(dst, rn, rm)),
                 _ => unreachable!(),
             }
+            write_def_spill_fpr(bytes, spill_off, dst);
         }
         BinOp::FRem => {
             // aarch64 has no FREM instruction. Lower to a `BL _fmod`
@@ -93,10 +93,8 @@ pub fn emit_binop(
             // Direct BL + extern reloc (the textbook clang/LLVM form) —
             // not ADRP+BLR through a stub slot — so the BL's 26-bit
             // displacement targets the lazy-binding stub directly.
-            let dst = inst
-                .result
-                .map(|v| alloc.of(v).as_fpr())
-                .expect("FRem must have a result ValueId");
+            let result_vid = inst.result.expect("FRem must have a result ValueId");
+            let (dst, spill_off) = alloc.def_fpr(result_vid, FP_SCRATCH_RESULT);
 
             let lhs_reg =
                 materialize_operand_fpr(bytes, lhs, FP_SCRATCH_LHS, OP_SCRATCH_LHS, alloc);
@@ -124,6 +122,7 @@ pub fn emit_binop(
             if dst != d0 {
                 write_u32(bytes, fmov_d_to_d(dst, d0));
             }
+            write_def_spill_fpr(bytes, spill_off, dst);
         }
     }
 }
