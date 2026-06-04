@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-04T02:07:34.739Z",
+  "generatedAt": "2026-06-04T06:12:54.307Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 723,
@@ -28,8 +28,8 @@
     "passRateTrAccepted": 92.56
   },
   "torajs": {
-    "commit": "3eb82c5",
-    "commitSubject": "refactor(codegen): split enc.rs into enc/{int,fp,mem,ctrl}.rs — file-size hard rule",
+    "commit": "f504b64",
+    "commitSubject": "feat(obj): relocation_info + ARM64_RELOC_{BRANCH26,PAGE21,PAGEOFF12,UNSIGNED} — #7 S4",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -611,73 +611,84 @@
   },
   "commits": [
     {
-      "hash": "3eb82c5",
-      "subject": "refactor(codegen): split enc.rs into enc/{int,fp,mem,ctrl}.rs — file-size hard rule"
+      "hash": "f504b64",
+      "subject": "feat(obj): relocation_info + ARM64_RELOC_{BRANCH26,PAGE21,PAGEOFF12,UNSIGNED} — #7 S4"
     },
     {
-      "hash": "9e3bca7",
-      "subject": "feat(codegen): Br + CondBr + Unreachable + multi-block layout — #6 S5"
+      "hash": "a591158",
+      "subject": "feat(obj): LC_SYMTAB + nlist_64 + StringTable — #7 S3"
     },
     {
-      "hash": "ddfcaeb",
-      "subject": "feat(codegen): CallIndirect via BLR Xn — #6 S4-C"
+      "hash": "e7b9ea1",
+      "subject": "feat(obj): LC_SEGMENT_64 + section_64 with __TEXT,__text skeleton — #7 S2"
     },
     {
-      "hash": "48d2a6b",
-      "subject": "feat(codegen): GlobalRef + StringRef + StaticStrRef + FnAddr — #6 S4-B"
+      "hash": "9654f18",
+      "subject": "feat(obj): torajs-obj scaffold + Mach-O 64 header — #7 S1"
     },
     {
-      "hash": "fbf5eed",
-      "subject": "feat(codegen): Call lowering — BL + CallSite reloc + uses_calls frame — #6 S4-A"
+      "hash": "41e2307",
+      "subject": "feat(codegen): FP-call arg passing + ret routing — V0..V7 lane + D-form FMOV/STR — #6 S4-D"
     },
     {
-      "hash": "72afb67",
-      "subject": "feat(codegen): 7 cast InstKind arms (int↔fp, ZExt, Trunc, Ptr↔Int) — #6 S3-A4"
+      "hash": "a3f4fab",
+      "subject": "feat(codegen): FP-typed Load/Store path — Type::F64 routes to LDR/STR D-form — #6 S5-gap-3"
     },
     {
-      "hash": "f4b1f76",
-      "subject": "feat(codegen): LoadDyn + StoreDyn via register-indexed LDR/STR — #6 S3-A3"
+      "hash": "6375e2a",
+      "subject": "chore(codegen): corpus_check classifier — pre-codegen panics to upstream bucket — #6 S5-gap-4"
     },
     {
-      "hash": "5acbff2",
-      "subject": "feat(codegen): Alloca + Load + Store end-to-end + AAPCS64 frame — #6 S3-A2"
+      "hash": "f5f63d3",
+      "subject": "feat(codegen): compile_function cut over from trivial to Linear Scan — #6 S5 LS sub-step 4"
     },
     {
-      "hash": "f4d1129",
-      "subject": "feat(codegen): LDR/STR + STP/LDP encoders + reserve X9-X11 — #6 S3-A1"
+      "hash": "2e805ca",
+      "subject": "feat(codegen): Linear Scan stack spill — emit STR/LDR through frame's spill region — #6 S5 LS sub-step 3d-g"
     },
     {
-      "hash": "1796fe5",
-      "subject": "feat(codegen): ICmp + FCmp via CMP/FCMP + CSET, split compile dir — #6 S2-C"
+      "hash": "a13d253",
+      "subject": "feat(codegen): LS-3 spill scaffolding (Reg::Spill, Assignment::def_*, FP LDR/STR enc) — #6 S5 LS sub-step 3a-c"
     },
     {
-      "hash": "7261674",
-      "subject": "feat(codegen): wire f64 BinOp + BitCast end-to-end — #6 S2-B2"
+      "hash": "c57c9c4",
+      "subject": "feat(codegen): Linear Scan allocator (no spill) — #6 S5 LS sub-step 2"
     },
     {
-      "hash": "387ec7b",
-      "subject": "feat(codegen): f64 FADD/FSUB/FMUL/FDIV + FMOV GPR↔FPR — #6 S2-B1"
+      "hash": "16ead7b",
+      "subject": "feat(codegen): SSA liveness intervals — #6 S5 LS sub-step 1"
     }
   ],
-  "headSha": "3eb82c5",
+  "headSha": "f504b64",
   "autorun": {
-    "total": 54,
+    "total": 55,
     "baselineTarget": 10,
-    "bySelf": 53,
+    "bySelf": 54,
     "byManual": 1,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1780497216-762e",
-      "at": "2026-06-03T14:33:36Z",
-      "ts": 1780497216,
+      "rotationId": "r-1780538936-6561",
+      "at": "2026-06-04T02:08:56Z",
+      "ts": 1780538936,
       "trigger": "self",
-      "prevHead": "dde6274",
+      "prevHead": "f635981",
       "handoffSha": "sha256:6c2f3900d7c46e2a6aea7c933d863bdd2127a94598fde7a74c92d45d9652ada3",
-      "handoffAgeSec": 8503,
+      "handoffAgeSec": 50223,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1780538936-6561",
+        "at": "2026-06-04T02:08:56Z",
+        "ts": 1780538936,
+        "trigger": "self",
+        "prevHead": "f635981",
+        "handoffSha": "sha256:6c2f3900d7c46e2a6aea7c933d863bdd2127a94598fde7a74c92d45d9652ada3",
+        "handoffAgeSec": 50223,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1780497216-762e",
         "at": "2026-06-03T14:33:36Z",
@@ -774,17 +785,6 @@
         "prevHead": "e33b6b2",
         "handoffSha": "sha256:2acacf39471a224c80ab4b96ae1b6e0c275e745c1ce7bce2d440b61f4ab8b9da",
         "handoffAgeSec": 8,
-        "conformanceBefore": "687/0/1",
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1779926585-5e9e",
-        "at": "2026-05-28T00:03:05Z",
-        "ts": 1779926585,
-        "trigger": "self",
-        "prevHead": "9d58935",
-        "handoffSha": "sha256:9aa7399a1f4e2af3a40950bafc06551aadf11bb8bbd3b0f8928ba7b0b4475161",
-        "handoffAgeSec": 30,
         "conformanceBefore": "687/0/1",
         "commitsInSession": null
       }
