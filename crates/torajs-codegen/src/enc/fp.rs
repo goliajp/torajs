@@ -35,6 +35,12 @@ pub fn fmov_x_from_d(rd: Gpr, rn: Fpr) -> u32 {
     0x9E66_0000 | (rn.idx() << 5) | rd.idx()
 }
 
+/// FMOV Dd, Dn — register-to-register f64 move (same FPR class).
+/// ARM ARM C6.2.118 (FMOV register, scalar). Base = 0x1E60_4000.
+pub fn fmov_d_to_d(rd: Fpr, rn: Fpr) -> u32 {
+    0x1E60_4000 | (rn.idx() << 5) | rd.idx()
+}
+
 /// FCMP Dn, Dm — set NZCV from `Dn vs Dm`. NaN sets the "unordered"
 /// pattern (N=0,Z=0,C=1,V=1). ARM ARM C6.2.98. Base = 0x1E60_2000.
 pub fn fcmp_d(rn: Fpr, rm: Fpr) -> u32 {
@@ -84,6 +90,19 @@ mod tests {
     #[test]
     fn fmov_x0_from_d9_matches_arm_arm() {
         assert_eq!(fmov_x_from_d(Gpr::X0, Fpr::V9), 0x9E66_0120);
+    }
+
+    #[test]
+    fn fmov_d0_to_d0_is_base_word() {
+        // Self-move = base encoding; same bit pattern as clang -O0
+        // emits for `double f(double a){return a;}` when not elided.
+        assert_eq!(fmov_d_to_d(Fpr::V0, Fpr::V0), 0x1E60_4000);
+    }
+
+    #[test]
+    fn fmov_d1_from_d2_matches_arm_arm() {
+        // rn=2 → 2<<5=0x40, rd=1 → 1. Base | 0x40 | 1.
+        assert_eq!(fmov_d_to_d(Fpr::V1, Fpr::V2), 0x1E60_4041);
     }
 
     #[test]

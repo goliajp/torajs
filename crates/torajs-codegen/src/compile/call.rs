@@ -24,7 +24,7 @@ use super::write_u32;
 use crate::enc::{bl_imm26, blr_reg, mov_x_reg};
 use crate::reg::{Gpr, aapcs64};
 use crate::regalloc::Assignment;
-use crate::reloc::{Reloc, RelocKind};
+use crate::reloc::{CallTarget, Reloc, RelocKind};
 
 /// Emit a direct call: arg setup + `BL #0` + post-call ret-register
 /// move (if the allocator placed the result somewhere other than x0).
@@ -59,7 +59,9 @@ pub fn emit_call(
     let bl_byte_offset = bytes.len() as u32;
     relocs.push(Reloc {
         byte_offset: bl_byte_offset,
-        kind: RelocKind::CallSite { target_func },
+        kind: RelocKind::CallSite {
+            target: CallTarget::Func(target_func),
+        },
     });
     write_u32(bytes, bl_imm26(0));
 
@@ -124,7 +126,7 @@ mod tests {
     use super::super::test_fixtures::words_to_le_bytes;
     use crate::enc;
     use crate::reg::Gpr;
-    use crate::reloc::RelocKind;
+    use crate::reloc::{CallTarget, RelocKind};
     use torajs_core::ssa::{
         Block, BlockId, FuncId, Function, Inst, InstKind, Operand, Terminator, Type, ValueId,
         ValueInfo,
@@ -199,11 +201,13 @@ mod tests {
         assert_eq!(compiled.relocs.len(), 1, "exactly one CallSite reloc");
         let reloc = &compiled.relocs[0];
         assert_eq!(reloc.byte_offset, 8);
-        match reloc.kind {
-            RelocKind::CallSite { target_func } => {
-                assert_eq!(target_func, foo_id);
+        match &reloc.kind {
+            RelocKind::CallSite {
+                target: CallTarget::Func(target_func),
+            } => {
+                assert_eq!(*target_func, foo_id);
             }
-            ref other => panic!("expected CallSite, got {other:?}"),
+            other => panic!("expected CallSite/Func, got {other:?}"),
         }
 
         // Frame: uses_calls=true, alloca_bytes=0 → not trivial.

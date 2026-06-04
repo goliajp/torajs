@@ -30,12 +30,28 @@ pub struct Reloc {
     pub kind: RelocKind,
 }
 
+/// What a BL site is calling. Both shapes produce the same
+/// `ARM64_RELOC_BRANCH26` / `R_AARCH64_CALL26` relocation entry —
+/// only the symbol-resolution path differs (SSA-local FuncId vs.
+/// extern by name).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CallTarget {
+    /// SSA-local function — torajs-link resolves the FuncId to a
+    /// concrete symbol address after function layout.
+    Func(FuncId),
+
+    /// Extern symbol resolved by name (libm `_fmod`, runtime
+    /// `__torajs_*`, etc.). torajs-link emits a lazy-binding stub
+    /// when the target lives in another image.
+    Extern(String),
+}
+
 #[derive(Debug, Clone)]
 pub enum RelocKind {
     /// 26-bit signed PC-relative branch displacement (BL site).
     /// torajs-link writes `(target_addr - site_addr) / 4` into the
     /// low 26 bits, sign-extended.
-    CallSite { target_func: FuncId },
+    CallSite { target: CallTarget },
 
     /// ARM64 PAGE21 — fills the 21-bit `imm21` field of an ADRP
     /// instruction with the page (4 KiB-aligned) address of
@@ -62,7 +78,13 @@ mod tests {
         let _ = Reloc {
             byte_offset: 0,
             kind: RelocKind::CallSite {
-                target_func: FuncId(0),
+                target: CallTarget::Func(FuncId(0)),
+            },
+        };
+        let _ = Reloc {
+            byte_offset: 0,
+            kind: RelocKind::CallSite {
+                target: CallTarget::Extern("_fmod".into()),
             },
         };
         let _ = Reloc {
@@ -83,5 +105,15 @@ mod tests {
                 target_sym: "vtable_Foo".into(),
             },
         };
+    }
+
+    #[test]
+    fn call_target_equality_func_vs_extern() {
+        assert_eq!(CallTarget::Func(FuncId(7)), CallTarget::Func(FuncId(7)));
+        assert_ne!(CallTarget::Func(FuncId(0)), CallTarget::Func(FuncId(1)));
+        assert_ne!(
+            CallTarget::Func(FuncId(0)),
+            CallTarget::Extern("_fmod".into())
+        );
     }
 }

@@ -17,7 +17,7 @@
 //! replaced by real LS in S3 once Load/Store/Alloca need spill support.
 
 use std::collections::{HashMap, HashSet};
-use torajs_core::ssa::{Function, InstKind, Terminator, Type, ValueId};
+use torajs_core::ssa::{BinOp, Function, InstKind, Terminator, Type, ValueId};
 
 use crate::reg::{Fpr, Gpr, Reg, aapcs64};
 
@@ -79,6 +79,22 @@ impl Assignment {
 /// or `FP_CALLER_SAVED_SCRATCH.len()` FPR ValueIds need scratch — S3
 /// lands Linear Scan with spill support before that limit becomes
 /// load-bearing.
+/// `true` iff the instruction lowers to a `BL` site at codegen time.
+/// This is what determines whether the prologue must save FP/LR
+/// (the AAPCS64 link register) — every BL clobbers x30.
+///
+/// Currently the BL sites are:
+///   - `Call(FuncId, _)` / `CallIndirect(_, _, _)` (direct and
+///     indirect SSA call surface, S4-A/C),
+///   - `BinOp(FRem, _, _)` — lowered to a libm `_fmod` BL by
+///     `compile::binop` (S2-D).
+fn inst_emits_bl(kind: &InstKind) -> bool {
+    matches!(
+        kind,
+        InstKind::Call(_, _) | InstKind::CallIndirect(_, _, _) | InstKind::BinOp(BinOp::FRem, _, _)
+    )
+}
+
 pub fn allocate_trivial(func: &Function) -> Assignment {
     let ret_vids = collect_ret_value_ids(func);
     let mut by_value: HashMap<u32, Reg> = HashMap::new();
@@ -100,10 +116,7 @@ pub fn allocate_trivial(func: &Function) -> Assignment {
                 next_alloca_offset += slot_size;
             }
 
-            if matches!(
-                inst.kind,
-                InstKind::Call(_, _) | InstKind::CallIndirect(_, _, _)
-            ) {
+            if inst_emits_bl(&inst.kind) {
                 has_calls = true;
             }
 

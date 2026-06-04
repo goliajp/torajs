@@ -34,7 +34,8 @@ pub use ctrl::{
     adrp, b_cond_imm19, b_imm26, bl_imm26, blr_reg, brk_imm16, cbnz_x, cbz_x, cond, cset_cond, ret,
 };
 pub use fp::{
-    fadd_d, fcmp_d, fcvtzs_x_d, fdiv_d, fmov_d_from_x, fmov_x_from_d, fmul_d, fsub_d, scvtf_d_x,
+    fadd_d, fcmp_d, fcvtzs_x_d, fdiv_d, fmov_d_from_x, fmov_d_to_d, fmov_x_from_d, fmul_d, fsub_d,
+    scvtf_d_x,
 };
 pub use int::{
     add_imm, add_reg, and_imm_one, and_reg, asrv_reg, cmp_reg, eor_reg, lslv_reg, lsrv_reg,
