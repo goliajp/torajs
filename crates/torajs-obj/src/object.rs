@@ -932,4 +932,82 @@ mod tests {
         assert_eq!(nsyms, 0);
         assert_eq!(strsize, 1);
     }
+
+    /// S5-c host-toolchain sanity check — write the multi-fn .o to
+    /// a temp file and run Apple's `otool -hlrtv` against it. The
+    /// .o is real only if a stock Apple toolchain accepts it; this
+    /// test catches layout regressions our hand-encoded asserts
+    /// might miss (e.g. an `MH_OBJECT` flag the Apple parser
+    /// enforces strictly but our internal struct tolerates).
+    ///
+    /// Gated to `target_os = "macos" + target_arch = "aarch64"` —
+    /// the only host where `otool` ships by default and where the
+    /// ARM64 architecture matches our emitted CPU type. Non-macOS
+    /// CI / cross-build hosts skip silently (no fail).
+    ///
+    /// If `otool` is missing or non-executable on a macOS host (rare:
+    /// developer hasn't installed Xcode CLT), we `eprintln` and skip
+    /// rather than fail — the offline byte-equal tests above already
+    /// pin the layout; this test is a "smell check against the real
+    /// parser", not the primary acceptance gate.
+    #[test]
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    fn otool_accepts_emitted_multi_fn_object() {
+        use std::process::Command;
+
+        let foo = compile_function(&build_foo_returns_7());
+        let caller = compile_function(&build_caller_calls_foo(FuncId(0)));
+        let obj = write_object(&[foo, caller]);
+
+        // /tmp on macOS is a symlink to /private/tmp — write to the
+        // real path so paths in test output are unambiguous.
+        let path = format!("/private/tmp/torajs_obj_s5c_{}.o", std::process::id());
+        std::fs::write(&path, &obj).expect("write .o");
+
+        let output = match Command::new("/usr/bin/otool")
+            .args(["-hlrtv", &path])
+            .output()
+        {
+            Ok(o) => o,
+            Err(e) => {
+                eprintln!("skip: otool not invokable: {e}");
+                let _ = std::fs::remove_file(&path);
+                return;
+            }
+        };
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let _ = std::fs::remove_file(&path);
+            panic!(
+                "otool failed (exit {:?}):\n--- stderr ---\n{stderr}\n--- stdout ---\n{stdout}",
+                output.status.code()
+            );
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+        let _ = std::fs::remove_file(&path);
+
+        // Required header / section / symtab / reloc / disasm
+        // markers — Apple's MH_OBJECT decoded form. `BR26` is the
+        // short name otool prints for `ARM64_RELOC_BRANCH26`; the
+        // disasm includes `bl` resolving to `_foo` via the reloc.
+        for needle in [
+            "MH_MAGIC_64", // mach_header_64.magic
+            "ARM64",       // cputype
+            "OBJECT",      // filetype = MH_OBJECT
+            "__TEXT",      // segment name
+            "__text",      // section name
+            "_foo",        // sym[0]
+            "_caller",     // sym[1]
+            "BR26",        // ARM64_RELOC_BRANCH26 short name
+            "bl",          // disasm: the BL instruction at the reloc site
+        ] {
+            assert!(
+                stdout.contains(needle),
+                "otool output missing {needle:?}; full output:\n{stdout}"
+            );
+        }
+    }
 }
