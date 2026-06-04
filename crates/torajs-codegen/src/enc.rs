@@ -16,6 +16,11 @@
 //! SUB (shifted register + immediate), RET, B (unconditional branch),
 //! BL (branch-with-link). That's enough for `1 + 2` end-to-end plus
 //! room for the S2 arithmetic surface to drop in without reshuffling.
+//!
+//! S2-A coverage: MUL (3-op MADD with Ra=XZR), SDIV, UDIV, MSUB
+//! (for SREM = a - (a/b)*b), AND/ORR/EOR (logical shifted register),
+//! LSLV/ASRV/LSRV (variable shifts). Each new encoder has an inline
+//! unit test vs ARM ARM bit patterns.
 
 use crate::reg::Gpr;
 
@@ -85,6 +90,90 @@ pub fn sub_imm(rd: Gpr, rn: Gpr, imm12: u16) -> u32 {
 /// ARM ARM C6.2.265: `1101 0110 0101 1111 0000 00 Rn 00000`.
 pub fn ret(rn: Gpr) -> u32 {
     0xD65F_0000 | (rn.idx() << 5)
+}
+
+// --- S2-A: integer multiply / divide / remainder ---
+
+/// MUL Xd, Xn, Xm — alias for MADD Xd, Xn, Xm, XZR.
+///
+/// ARM ARM C6.2.222 (MUL alias) / C6.2.176 (MADD):
+/// `1 00 11011 000 Rm 0 Ra Rn Rd` with Ra=11111 (XZR).
+pub fn mul_reg(rd: Gpr, rn: Gpr, rm: Gpr) -> u32 {
+    0x9B00_7C00 | (rm.idx() << 16) | (rn.idx() << 5) | rd.idx()
+}
+
+/// SDIV Xd, Xn, Xm — signed integer divide.
+///
+/// ARM ARM C6.2.371: `1 0 0 11010 110 Rm 000011 Rn Rd`.
+/// Trapless: dividing INT64_MIN by -1 returns INT64_MIN; divide-by-0
+/// returns 0 (aarch64 does NOT raise; higher layers must guard).
+pub fn sdiv_reg(rd: Gpr, rn: Gpr, rm: Gpr) -> u32 {
+    0x9AC0_0C00 | (rm.idx() << 16) | (rn.idx() << 5) | rd.idx()
+}
+
+/// UDIV Xd, Xn, Xm — unsigned integer divide.
+///
+/// ARM ARM C6.2.432: `1 0 0 11010 110 Rm 000010 Rn Rd`.
+pub fn udiv_reg(rd: Gpr, rn: Gpr, rm: Gpr) -> u32 {
+    0x9AC0_0800 | (rm.idx() << 16) | (rn.idx() << 5) | rd.idx()
+}
+
+/// MSUB Xd, Xn, Xm, Ra — Ra - (Xn * Xm). Used to compute SREM:
+/// `rem = a - (a / b) * b` (via SDIV then MSUB).
+///
+/// ARM ARM C6.2.220: `1 00 11011 000 Rm 1 Ra Rn Rd`.
+pub fn msub_reg(rd: Gpr, rn: Gpr, rm: Gpr, ra: Gpr) -> u32 {
+    0x9B00_8000 | (rm.idx() << 16) | (ra.idx() << 10) | (rn.idx() << 5) | rd.idx()
+}
+
+// --- S2-A: bitwise logic (shifted register form, no shift) ---
+
+/// AND Xd, Xn, Xm — logical AND, shifted-register form, LSL #0.
+///
+/// ARM ARM C6.2.13: `1 00 01010 shift N Rm imm6 Rn Rd`
+/// (sf=1, opc=00=AND, shift=00=LSL, N=0).
+pub fn and_reg(rd: Gpr, rn: Gpr, rm: Gpr) -> u32 {
+    0x8A00_0000 | (rm.idx() << 16) | (rn.idx() << 5) | rd.idx()
+}
+
+/// ORR Xd, Xn, Xm — logical OR.
+///
+/// ARM ARM C6.2.232: opc=01=ORR.
+pub fn orr_reg(rd: Gpr, rn: Gpr, rm: Gpr) -> u32 {
+    0xAA00_0000 | (rm.idx() << 16) | (rn.idx() << 5) | rd.idx()
+}
+
+/// EOR Xd, Xn, Xm — logical XOR.
+///
+/// ARM ARM C6.2.91: opc=10=EOR.
+pub fn eor_reg(rd: Gpr, rn: Gpr, rm: Gpr) -> u32 {
+    0xCA00_0000 | (rm.idx() << 16) | (rn.idx() << 5) | rd.idx()
+}
+
+// --- S2-A: variable shift (shift count in a register) ---
+
+/// LSLV Xd, Xn, Xm — logical shift left by `Xm` (mod 64).
+///
+/// ARM ARM C6.2.157: `1 0 0 11010 110 Rm 001000 Rn Rd`. The shift
+/// count is read as `Xm & 0x3F` (low 6 bits) — matches LLVM's
+/// `shl i64` semantics for in-bound shifts; out-of-range UB upstream
+/// is the lowerer's responsibility.
+pub fn lslv_reg(rd: Gpr, rn: Gpr, rm: Gpr) -> u32 {
+    0x9AC0_2000 | (rm.idx() << 16) | (rn.idx() << 5) | rd.idx()
+}
+
+/// ASRV Xd, Xn, Xm — arithmetic (sign-extending) shift right by Xm.
+///
+/// ARM ARM C6.2.20: opcode2=001010.
+pub fn asrv_reg(rd: Gpr, rn: Gpr, rm: Gpr) -> u32 {
+    0x9AC0_2800 | (rm.idx() << 16) | (rn.idx() << 5) | rd.idx()
+}
+
+/// LSRV Xd, Xn, Xm — logical (zero-fill) shift right by Xm.
+///
+/// ARM ARM C6.2.161: opcode2=001001.
+pub fn lsrv_reg(rd: Gpr, rn: Gpr, rm: Gpr) -> u32 {
+    0x9AC0_2400 | (rm.idx() << 16) | (rn.idx() << 5) | rd.idx()
 }
 
 /// B label — unconditional branch with 26-bit signed PC-relative
@@ -225,5 +314,81 @@ mod tests {
     fn bl_zero_offset_matches_arm_arm() {
         // BL . = 0x94000000
         assert_eq!(bl_imm26(0), 0x9400_0000);
+    }
+
+    // --- S2-A encoder tests ---
+
+    #[test]
+    fn mul_x0_x1_x2_matches_arm_arm() {
+        // MUL x0, x1, x2 = MADD x0, x1, x2, XZR
+        //   base = 0x9B00_7C00 (Ra=XZR=31 baked in via 0x7C00 = 11111 at bits 14-10)
+        //   Rm=2 (bits 20-16), Rn=1 (bits 9-5), Rd=0
+        //   = 0x9B02_7C20
+        assert_eq!(mul_reg(Gpr::X0, Gpr::X1, Gpr::X2), 0x9B02_7C20);
+    }
+
+    #[test]
+    fn sdiv_x0_x1_x2_matches_arm_arm() {
+        // SDIV x0, x1, x2: base 0x9AC0_0C00, Rm=2, Rn=1, Rd=0
+        //   = 0x9AC2_0C20
+        assert_eq!(sdiv_reg(Gpr::X0, Gpr::X1, Gpr::X2), 0x9AC2_0C20);
+    }
+
+    #[test]
+    fn udiv_x0_x1_x2_matches_arm_arm() {
+        // UDIV x0, x1, x2: base 0x9AC0_0800
+        //   = 0x9AC2_0820
+        assert_eq!(udiv_reg(Gpr::X0, Gpr::X1, Gpr::X2), 0x9AC2_0820);
+    }
+
+    #[test]
+    fn msub_x0_x9_x10_x1_matches_arm_arm() {
+        // MSUB x0, x9, x10, x1: base 0x9B00_8000
+        //   Rm=10 (bits 20-16), Ra=1 (bits 14-10), Rn=9 (bits 9-5), Rd=0
+        //   = 0x9B00_8000 | (10<<16) | (1<<10) | (9<<5) | 0
+        //   = 0x9B0A_8520
+        assert_eq!(msub_reg(Gpr::X0, Gpr::X9, Gpr::X10, Gpr::X1), 0x9B0A_8520);
+    }
+
+    #[test]
+    fn and_x0_x1_x2_matches_arm_arm() {
+        // AND x0, x1, x2: base 0x8A00_0000, Rm=2, Rn=1, Rd=0
+        //   = 0x8A02_0020
+        assert_eq!(and_reg(Gpr::X0, Gpr::X1, Gpr::X2), 0x8A02_0020);
+    }
+
+    #[test]
+    fn orr_x0_x1_x2_matches_arm_arm() {
+        // ORR x0, x1, x2: base 0xAA00_0000
+        //   = 0xAA02_0020
+        assert_eq!(orr_reg(Gpr::X0, Gpr::X1, Gpr::X2), 0xAA02_0020);
+    }
+
+    #[test]
+    fn eor_x0_x1_x2_matches_arm_arm() {
+        // EOR x0, x1, x2: base 0xCA00_0000
+        //   = 0xCA02_0020
+        assert_eq!(eor_reg(Gpr::X0, Gpr::X1, Gpr::X2), 0xCA02_0020);
+    }
+
+    #[test]
+    fn lslv_x0_x1_x2_matches_arm_arm() {
+        // LSLV x0, x1, x2: base 0x9AC0_2000
+        //   = 0x9AC2_2020
+        assert_eq!(lslv_reg(Gpr::X0, Gpr::X1, Gpr::X2), 0x9AC2_2020);
+    }
+
+    #[test]
+    fn asrv_x0_x1_x2_matches_arm_arm() {
+        // ASRV x0, x1, x2: base 0x9AC0_2800
+        //   = 0x9AC2_2820
+        assert_eq!(asrv_reg(Gpr::X0, Gpr::X1, Gpr::X2), 0x9AC2_2820);
+    }
+
+    #[test]
+    fn lsrv_x0_x1_x2_matches_arm_arm() {
+        // LSRV x0, x1, x2: base 0x9AC0_2400
+        //   = 0x9AC2_2420
+        assert_eq!(lsrv_reg(Gpr::X0, Gpr::X1, Gpr::X2), 0x9AC2_2420);
     }
 }
