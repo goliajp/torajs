@@ -35,7 +35,7 @@
 //! observable difference for those functions is the order in which
 //! the caller-saved scratch pool is consumed — and even that
 //! collapses when the trivial walk and the LS scan happen to give
-//! the same answer (both consume from `X12, X13, ...` in inst-def
+//! the same answer (both consume from `X13, X14, ...` in inst-def
 //! order).
 //!
 //! ## Caller — none yet
@@ -131,12 +131,19 @@ pub fn allocate_linear_scan(func: &Function) -> Assignment {
         while i < active.len() {
             if active[i].1.end < cur_start {
                 // LIFO — most-recently-freed reg is reused first.
-                // Keeps register pressure tight (the same X12 is
+                // Keeps register pressure tight (the same X13 is
                 // recycled across non-overlapping intervals rather
-                // than spreading writes across X12..X22).
+                // than spreading writes across X13..X23).
                 match active[i].2 {
                     Reg::Gpr(g) => free_gpr.push_front(g),
                     Reg::Fpr(f) => free_fpr.push_front(f),
+                    // LS-3 spill: spilled slots don't consume a reg-
+                    // pool slot — their stack offset is owned for the
+                    // entire function lifetime (spill cursor only
+                    // grows; we never reuse spill offsets across
+                    // intervals). So expiring a spilled value
+                    // releases nothing back to the free pool.
+                    Reg::SpillGpr(_) | Reg::SpillFpr(_) => {}
                 }
                 active.swap_remove(i);
             } else {
@@ -185,7 +192,16 @@ pub fn allocate_linear_scan(func: &Function) -> Assignment {
         }
     }
 
-    Assignment::from_parts(by_value, alloca_offsets, next_alloca_offset, has_calls)
+    // LS-2: no spill yet — sub-step 3 grows next_spill_offset and
+    // surfaces it here.
+    let total_spill_bytes = 0;
+    Assignment::from_parts(
+        by_value,
+        alloca_offsets,
+        next_alloca_offset,
+        total_spill_bytes,
+        has_calls,
+    )
 }
 
 #[cfg(test)]
@@ -299,7 +315,8 @@ mod tests {
     /// }`
     ///
     /// Each v_i's interval is [i, i] — disjoint. LS should give all
-    /// three the same scratch (X12, first in CALLER_SAVED_SCRATCH).
+    /// three the same scratch (X13, first in CALLER_SAVED_SCRATCH
+    /// after LS-3 reserved X12 for OP_SCRATCH_RESULT_GPR).
     #[test]
     fn ls_reuses_register_after_expiry() {
         let v0 = ValueId(0);
@@ -348,11 +365,11 @@ mod tests {
             current_origin: None,
         };
         let alloc = allocate_linear_scan(&func);
-        // All three should land in X12 (first scratch) because each
-        // expires before the next claim.
-        assert_eq!(alloc.of(v0), Reg::Gpr(Gpr::X12));
-        assert_eq!(alloc.of(v1), Reg::Gpr(Gpr::X12));
-        assert_eq!(alloc.of(v2), Reg::Gpr(Gpr::X12));
+        // All three should land in X13 (first scratch after LS-3
+        // reserved X12) because each expires before the next claim.
+        assert_eq!(alloc.of(v0), Reg::Gpr(Gpr::X13));
+        assert_eq!(alloc.of(v1), Reg::Gpr(Gpr::X13));
+        assert_eq!(alloc.of(v2), Reg::Gpr(Gpr::X13));
     }
 
     /// Overlapping intervals must claim distinct registers:
@@ -364,8 +381,8 @@ mod tests {
     ///    ret v2
     /// }`
     ///
-    /// LS should give v0=X12, v1=X13 (both alive at slot 2 when v2
-    /// is defined), v2=X0 (ret lane).
+    /// LS should give v0=X13, v1=X14 (both alive at slot 2 when v2
+    /// is defined), v2=X0 (ret lane). After LS-3 reserved X12.
     #[test]
     fn ls_separate_regs_when_intervals_overlap() {
         let v0 = ValueId(0);
@@ -414,13 +431,14 @@ mod tests {
             current_origin: None,
         };
         let alloc = allocate_linear_scan(&func);
-        assert_eq!(alloc.of(v0), Reg::Gpr(Gpr::X12));
-        assert_eq!(alloc.of(v1), Reg::Gpr(Gpr::X13));
+        assert_eq!(alloc.of(v0), Reg::Gpr(Gpr::X13));
+        assert_eq!(alloc.of(v1), Reg::Gpr(Gpr::X14));
         assert_eq!(alloc.of(v2), Reg::Gpr(Gpr::X0));
     }
 
-    /// FPR + GPR separate pools — fp value gets V16 (first FP
-    /// scratch), int value gets X12 (first GPR scratch).
+    /// FPR + GPR separate pools — fp value gets V19 (first FP
+    /// scratch after LS-3 reserved V18), int value gets X13 (first
+    /// GPR scratch after LS-3 reserved X12).
     #[test]
     fn ls_separate_pools_for_int_and_fp() {
         let v0 = ValueId(0); // int, non-ret
@@ -473,8 +491,8 @@ mod tests {
             current_origin: None,
         };
         let alloc = allocate_linear_scan(&func);
-        assert_eq!(alloc.of(v0), Reg::Gpr(Gpr::X12));
-        assert_eq!(alloc.of(v1), Reg::Fpr(Fpr::V16));
+        assert_eq!(alloc.of(v0), Reg::Gpr(Gpr::X13));
+        assert_eq!(alloc.of(v1), Reg::Fpr(Fpr::V19));
         assert_eq!(alloc.of(v2), Reg::Gpr(Gpr::X0));
     }
 

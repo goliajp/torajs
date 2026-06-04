@@ -58,6 +58,26 @@ pub fn fcvtzs_x_d(rd: Gpr, rn: Fpr) -> u32 {
     0x9E78_0000 | (rn.idx() << 5) | rd.idx()
 }
 
+/// LDR Dt, [Xn, #imm12] — load 64-bit FP, unsigned offset, scaled
+/// by 8. ARM ARM C7.2.181 (LDR SIMD&FP imm, unsigned offset, 64-bit
+/// form). Base = 0xFD40_0000 (size=11, V=1, opc=01).
+pub fn ldr_d_imm12(rt: Fpr, rn: Gpr, byte_offset: u32) -> u32 {
+    debug_assert!(byte_offset % 8 == 0, "byte offset must be 8-byte aligned");
+    let imm12 = byte_offset / 8;
+    debug_assert!(imm12 < 4096, "scaled offset must fit in 12 bits");
+    0xFD40_0000 | (imm12 << 10) | (rn.idx() << 5) | rt.idx()
+}
+
+/// STR Dt, [Xn, #imm12] — store 64-bit FP, unsigned offset, scaled
+/// by 8. ARM ARM C7.2.391 (STR SIMD&FP imm, unsigned offset, 64-bit
+/// form). Base = 0xFD00_0000 (size=11, V=1, opc=00).
+pub fn str_d_imm12(rt: Fpr, rn: Gpr, byte_offset: u32) -> u32 {
+    debug_assert!(byte_offset % 8 == 0, "byte offset must be 8-byte aligned");
+    let imm12 = byte_offset / 8;
+    debug_assert!(imm12 < 4096, "scaled offset must fit in 12 bits");
+    0xFD00_0000 | (imm12 << 10) | (rn.idx() << 5) | rt.idx()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -118,5 +138,31 @@ mod tests {
     #[test]
     fn fcvtzs_x0_from_d16_matches_arm_arm() {
         assert_eq!(fcvtzs_x_d(Gpr::X0, Fpr::V16), 0x9E78_0200);
+    }
+
+    #[test]
+    fn ldr_d0_sp_offset_zero_matches_arm_arm() {
+        // LDR d0, [sp]   →   imm12 = 0, rn = sp (31), rt = 0
+        // Base 0xFD400000 | (31 << 5) = 0xFD4003E0
+        assert_eq!(ldr_d_imm12(Fpr::V0, Gpr::SP, 0), 0xFD40_03E0);
+    }
+
+    #[test]
+    fn ldr_d18_sp_offset_16_matches_arm_arm() {
+        // LDR d18, [sp, #16]   →   imm12 = 2 (16 / 8), rn = 31, rt = 18
+        // Base | (2 << 10) | (31 << 5) | 18 = 0xFD400000 | 0x800 | 0x3E0 | 0x12
+        assert_eq!(ldr_d_imm12(Fpr::V18, Gpr::SP, 16), 0xFD40_0BF2);
+    }
+
+    #[test]
+    fn str_d0_sp_offset_zero_matches_arm_arm() {
+        // STR d0, [sp]   →   base 0xFD000000 | (31 << 5) = 0xFD0003E0
+        assert_eq!(str_d_imm12(Fpr::V0, Gpr::SP, 0), 0xFD00_03E0);
+    }
+
+    #[test]
+    fn str_d18_sp_offset_24_matches_arm_arm() {
+        // STR d18, [sp, #24]   →   imm12 = 3, rn = 31, rt = 18
+        assert_eq!(str_d_imm12(Fpr::V18, Gpr::SP, 24), 0xFD00_0FF2);
     }
 }

@@ -197,7 +197,9 @@ mod tests {
         let compiled = compile_function(&func);
 
         // 1.5: 0x3FF8_0000_0000_0000   2.5: 0x4004_0000_0000_0000
-        // v0 → V16 (first scratch FPR), v1 → X0 (ret).
+        // v0 (FAdd result) → V19 (first scratch FPR after LS-3
+        // reserved V18 for FP_SCRATCH_RESULT), v1 → X0 (ret).
+        // FP_SCRATCH_LHS/RHS (V16/V17) materialize the ConstF64 args.
         let expected = words_to_le_bytes(&[
             enc::movz_imm(Gpr::X9, 0, 0),
             enc::movk_imm(Gpr::X9, 0x3FF8, 3),
@@ -205,8 +207,8 @@ mod tests {
             enc::movz_imm(Gpr::X10, 0, 0),
             enc::movk_imm(Gpr::X10, 0x4004, 3),
             enc::fmov_d_from_x(Fpr::V17, Gpr::X10),
-            enc::fadd_d(Fpr::V16, Fpr::V16, Fpr::V17),
-            enc::fmov_x_from_d(Gpr::X0, Fpr::V16),
+            enc::fadd_d(Fpr::V19, Fpr::V16, Fpr::V17),
+            enc::fmov_x_from_d(Gpr::X0, Fpr::V19),
             enc::ret(Gpr::X30),
         ]);
         assert_eq!(compiled.bytes, expected);

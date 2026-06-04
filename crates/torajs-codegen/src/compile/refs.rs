@@ -126,7 +126,7 @@ mod tests {
     ///
     /// ```text
     /// fn ref_global() -> i64 {
-    ///     let p = global "global_x";    // v0 (Ptr) → X12 scratch
+    ///     let p = global "global_x";    // v0 (Ptr) → X13 scratch
     ///     ret (p as i64)                // v1 (I64) → X0 ret
     /// }
     /// ```
@@ -134,14 +134,14 @@ mod tests {
     /// Expected 4-instruction sequence (leaf, trivial frame):
     ///
     /// ```text
-    ///   ADRP x12, page(global_x)    (with Page21 reloc at 0)
-    ///   ADD  x12, x12, #pageoff(.)  (with PageOff12 reloc at 4)
-    ///   MOV  x0, x12                (PtrToInt)
+    ///   ADRP x13, page(global_x)    (with Page21 reloc at 0)
+    ///   ADD  x13, x13, #pageoff(.)  (with PageOff12 reloc at 4)
+    ///   MOV  x0, x13                (PtrToInt)
     ///   RET
     /// ```
     #[test]
     fn global_ref_byte_equal_and_records_reloc_pair() {
-        let v0 = ValueId(0); // GlobalRef result (Ptr) → X12
+        let v0 = ValueId(0); // GlobalRef result (Ptr) → X13
         let v1 = ValueId(1); // PtrToInt result (I64) → X0 (ret)
         let func = Function {
             name: "ref_global".into(),
@@ -178,9 +178,9 @@ mod tests {
         let compiled = compile_function(&func);
 
         let expected = words_to_le_bytes(&[
-            enc::adrp(Gpr::X12, 0),
-            enc::add_imm(Gpr::X12, Gpr::X12, 0),
-            enc::mov_x_reg(Gpr::X0, Gpr::X12),
+            enc::adrp(Gpr::X13, 0),
+            enc::add_imm(Gpr::X13, Gpr::X13, 0),
+            enc::mov_x_reg(Gpr::X0, Gpr::X13),
             enc::ret(Gpr::X30),
         ]);
         assert_eq!(

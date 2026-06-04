@@ -86,7 +86,11 @@ pub struct CompiledFunction {
 /// Compile one SSA Function to aarch64 bytes.
 pub fn compile_function(func: &Function) -> CompiledFunction {
     let alloc = allocate_trivial(func);
-    let frame = FrameLayout::from_alloca_bytes(alloc.raw_alloca_bytes, alloc.has_calls);
+    // LS-3: frame carves alloca + spill in one sp adjustment. With
+    // the trivial allocator total_spill_bytes is 0 so this matches
+    // the pre-LS-3 layout byte-for-byte; once compile_function cuts
+    // over to linear_scan (LS-4) the spill region appears here.
+    let frame = FrameLayout::from_alloca_bytes(alloc.total_frame_bytes(), alloc.has_calls);
     let mut bytes: Vec<u8> = Vec::new();
     let mut relocs: Vec<Reloc> = Vec::new();
     let mut fixups: Vec<BranchFixup> = Vec::new();

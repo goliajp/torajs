@@ -117,7 +117,7 @@ mod tests {
     ///
     /// ```text
     /// fn alloca_store_load_42() -> i64 {
-    ///     let p = alloca 8;      // v0 (Ptr), allocated x12 (first scratch)
+    ///     let p = alloca 8;      // v0 (Ptr), allocated x13 (first scratch)
     ///     *p = 42;
     ///     ret *p                 // v1 (I64), allocated x0 (ret slot)
     /// }
@@ -131,10 +131,10 @@ mod tests {
     ///     MOV x29, sp                   0x910003FD
     ///     SUB sp, sp, #16               0xD10043FF
     ///   body:
-    ///     ADD x12, sp, #0               (alloca v0 → x12 = sp+0)
+    ///     ADD x13, sp, #0               (alloca v0 → x13 = sp+0)
     ///     MOVZ x9, #42                  (materialize ConstI64(42))
-    ///     STR x9, [x12, #0]             (Store)
-    ///     LDR x0, [x12, #0]             (Load v1 → x0)
+    ///     STR x9, [x13, #0]             (Store)
+    ///     LDR x0, [x13, #0]             (Load v1 → x0)
     ///   epilogue:
     ///     ADD sp, sp, #16               0x910043FF
     ///     LDP x29, x30, [SP], #16       0xA8C17BFD
@@ -149,10 +149,10 @@ mod tests {
             enc::stp_pre_index(Gpr::X29, Gpr::X30, Gpr::SP, -16),
             enc::add_imm(Gpr::X29, Gpr::SP, 0),
             enc::sub_imm(Gpr::SP, Gpr::SP, 16),
-            enc::add_imm(Gpr::X12, Gpr::SP, 0),
+            enc::add_imm(Gpr::X13, Gpr::SP, 0),
             enc::movz_imm(Gpr::X9, 42, 0),
-            enc::str_x_imm12(Gpr::X9, Gpr::X12, 0),
-            enc::ldr_x_imm12(Gpr::X0, Gpr::X12, 0),
+            enc::str_x_imm12(Gpr::X9, Gpr::X13, 0),
+            enc::ldr_x_imm12(Gpr::X0, Gpr::X13, 0),
             enc::add_imm(Gpr::SP, Gpr::SP, 16),
             enc::ldp_post_index(Gpr::X29, Gpr::X30, Gpr::SP, 16),
             enc::ret(Gpr::X30),
@@ -174,12 +174,12 @@ mod tests {
     ///
     /// ```text
     ///   prologue (3 inst)
-    ///   ADD x12, sp, #0           (alloca v0 → x12)
+    ///   ADD x13, sp, #0           (alloca v0 → x13)
     ///   MOVZ x9, #42              (materialize val)
     ///   MOVZ x11, #8              (materialize dyn_offset for store)
-    ///   STR x9, [x12, x11]        (store via reg-index)
+    ///   STR x9, [x13, x11]        (store via reg-index)
     ///   MOVZ x10, #8              (materialize dyn_offset for load)
-    ///   LDR x0, [x12, x10]        (load via reg-index → x0 ret)
+    ///   LDR x0, [x13, x10]        (load via reg-index → x0 ret)
     ///   epilogue + RET (3 inst)
     /// ```
     ///
@@ -195,14 +195,14 @@ mod tests {
             enc::add_imm(Gpr::X29, Gpr::SP, 0),
             enc::sub_imm(Gpr::SP, Gpr::SP, 16),
             // alloca v0
-            enc::add_imm(Gpr::X12, Gpr::SP, 0),
-            // StoreDyn: val → x9, ptr = x12 (alloc.of v0), dyn_offset → x11
+            enc::add_imm(Gpr::X13, Gpr::SP, 0),
+            // StoreDyn: val → x9, ptr = x13 (alloc.of v0), dyn_offset → x11
             enc::movz_imm(Gpr::X9, 42, 0),
             enc::movz_imm(Gpr::X11, 8, 0),
-            enc::str_x_reg(Gpr::X9, Gpr::X12, Gpr::X11),
-            // LoadDyn: ptr = x12, dyn_offset → x10, dst = x0
+            enc::str_x_reg(Gpr::X9, Gpr::X13, Gpr::X11),
+            // LoadDyn: ptr = x13, dyn_offset → x10, dst = x0
             enc::movz_imm(Gpr::X10, 8, 0),
-            enc::ldr_x_reg(Gpr::X0, Gpr::X12, Gpr::X10),
+            enc::ldr_x_reg(Gpr::X0, Gpr::X13, Gpr::X10),
             // epilogue
             enc::add_imm(Gpr::SP, Gpr::SP, 16),
             enc::ldp_post_index(Gpr::X29, Gpr::X30, Gpr::SP, 16),

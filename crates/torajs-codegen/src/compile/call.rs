@@ -217,7 +217,7 @@ mod tests {
     }
 
     /// S4-C acceptance — `fn caller() -> i64 { (*foo_ptr)() }` via
-    /// CallIndirect. Allocator gives v0 (GlobalRef result, Ptr) → X12
+    /// CallIndirect. Allocator gives v0 (GlobalRef result, Ptr) → X13
     /// scratch; v1 (CallIndirect result, I64 ret) → X0.
     ///
     /// Expected sequence:
@@ -225,9 +225,9 @@ mod tests {
     /// ```text
     ///   STP x29, x30, [SP, #-16]!
     ///   MOV x29, sp
-    ///   ADRP x12, page(foo_ptr)     (Page21 reloc at 8)
-    ///   ADD  x12, x12, #pageoff(.)  (PageOff12 reloc at 12)
-    ///   BLR  x12                    (indirect call)
+    ///   ADRP x13, page(foo_ptr)     (Page21 reloc at 8)
+    ///   ADD  x13, x13, #pageoff(.)  (PageOff12 reloc at 12)
+    ///   BLR  x13                    (indirect call)
     ///   LDP x29, x30, [SP], #16
     ///   RET
     /// ```
@@ -235,7 +235,7 @@ mod tests {
     fn caller_calls_indirect_via_globalref_byte_equal() {
         use torajs_core::ssa::SigId;
 
-        let v0 = ValueId(0); // GlobalRef("foo_ptr") result → X12
+        let v0 = ValueId(0); // GlobalRef("foo_ptr") result → X13
         let v1 = ValueId(1); // CallIndirect result, ret → X0
         let func = Function {
             name: "caller_indirect".into(),
@@ -274,9 +274,9 @@ mod tests {
         let expected = words_to_le_bytes(&[
             enc::stp_pre_index(Gpr::X29, Gpr::X30, Gpr::SP, -16),
             enc::add_imm(Gpr::X29, Gpr::SP, 0),
-            enc::adrp(Gpr::X12, 0),
-            enc::add_imm(Gpr::X12, Gpr::X12, 0),
-            enc::blr_reg(Gpr::X12),
+            enc::adrp(Gpr::X13, 0),
+            enc::add_imm(Gpr::X13, Gpr::X13, 0),
+            enc::blr_reg(Gpr::X13),
             enc::ldp_post_index(Gpr::X29, Gpr::X30, Gpr::SP, 16),
             enc::ret(Gpr::X30),
         ]);

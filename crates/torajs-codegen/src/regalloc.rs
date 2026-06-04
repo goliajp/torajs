@@ -25,15 +25,27 @@ use crate::reg::{Fpr, Gpr, Reg, aapcs64};
 #[derive(Debug, Clone)]
 pub struct Assignment {
     /// Map from SSA `ValueId` (debug-stable u32) to the register class
-    /// + slot it lives in for its entire lifetime under trivial alloc.
+    /// + slot it lives in for its entire lifetime. Spilled values
+    /// carry a `Reg::SpillGpr(off)` / `Reg::SpillFpr(off)` whose
+    /// `off` is sp-relative (already includes the alloca region
+    /// offset; see `linear_scan::allocate_linear_scan`).
     by_value: HashMap<u32, Reg>,
     /// Map from each `Alloca`/`AllocaBytes` result `ValueId` to its
     /// byte offset within the frame's alloca region. Slot 0 lives at
     /// `sp+0`, slot 1 at `sp+slot0_size`, etc.
     alloca_offsets: HashMap<u32, u32>,
-    /// Total raw alloca bytes (sum of per-slot sizes). The frame
-    /// layout aligns this up to 16 in `FrameLayout::from_alloca_bytes`.
+    /// Total raw alloca bytes (sum of per-slot sizes).
     pub raw_alloca_bytes: u32,
+    /// Total bytes carved for register spill slots (LS-3). 0 when no
+    /// allocator-emitted spill happened.
+    ///
+    /// `FrameLayout::from_alloca_bytes` is built with
+    /// `raw_alloca_bytes + total_spill_bytes` so a single sp
+    /// adjustment in the prologue covers both regions; the alloca
+    /// slots sit at the bottom (offsets `[0, raw_alloca_bytes)`) and
+    /// the spill slots above them (offsets
+    /// `[raw_alloca_bytes, raw_alloca_bytes + total_spill_bytes)`).
+    pub total_spill_bytes: u32,
     /// `true` if any `Call` / `CallIndirect` inst is present —
     /// triggers FP/LR save in the prologue (`FrameLayout.uses_calls`).
     pub has_calls: bool,
@@ -48,14 +60,23 @@ impl Assignment {
         by_value: HashMap<u32, Reg>,
         alloca_offsets: HashMap<u32, u32>,
         raw_alloca_bytes: u32,
+        total_spill_bytes: u32,
         has_calls: bool,
     ) -> Self {
         Assignment {
             by_value,
             alloca_offsets,
             raw_alloca_bytes,
+            total_spill_bytes,
             has_calls,
         }
+    }
+
+    /// Total sp adjustment the prologue must carve = alloca + spill,
+    /// pre-alignment. `FrameLayout::from_alloca_bytes` rounds the
+    /// final value up to 16. Used by `compile::compile_function`.
+    pub fn total_frame_bytes(&self) -> u32 {
+        self.raw_alloca_bytes + self.total_spill_bytes
     }
 
     /// Lookup the register for a `ValueId`. Panics if unallocated.
@@ -78,6 +99,41 @@ impl Assignment {
             .alloca_offsets
             .get(&vid.0)
             .unwrap_or_else(|| panic!("ValueId({}) is not an Alloca result", vid.0))
+    }
+
+    /// Resolve a GPR-shaped def site. Returns `(reg, spill_off)`:
+    ///
+    ///   - `(g, None)` when the value lives in a real GPR; emitters
+    ///     should write the result into `g` directly.
+    ///   - `(scratch, Some(off))` when the value is spilled —
+    ///     emitters should write into `scratch` and then immediately
+    ///     `STR scratch, [SP, #off]` (see `compile::write_def_spill_gpr`).
+    ///
+    /// Panics if `vid` is not allocated, holds an FPR / FPR spill, or
+    /// is otherwise inapplicable to a GPR-class def.
+    pub fn def_gpr(&self, vid: ValueId, scratch: Gpr) -> (Gpr, Option<u32>) {
+        match self.of(vid) {
+            Reg::Gpr(g) => (g, None),
+            Reg::SpillGpr(off) => (scratch, Some(off)),
+            Reg::Fpr(f) => panic!("def_gpr called for ValueId({}) in Fpr({f:?})", vid.0),
+            Reg::SpillFpr(off) => panic!(
+                "def_gpr called for ValueId({}) in SpillFpr(sp+{off})",
+                vid.0
+            ),
+        }
+    }
+
+    /// Same as `def_gpr` for FPR defs.
+    pub fn def_fpr(&self, vid: ValueId, scratch: Fpr) -> (Fpr, Option<u32>) {
+        match self.of(vid) {
+            Reg::Fpr(f) => (f, None),
+            Reg::SpillFpr(off) => (scratch, Some(off)),
+            Reg::Gpr(g) => panic!("def_fpr called for ValueId({}) in Gpr({g:?})", vid.0),
+            Reg::SpillGpr(off) => panic!(
+                "def_fpr called for ValueId({}) in SpillGpr(sp+{off})",
+                vid.0
+            ),
+        }
     }
 }
 
@@ -197,6 +253,9 @@ pub fn allocate_trivial(func: &Function) -> Assignment {
         by_value,
         alloca_offsets,
         raw_alloca_bytes: next_alloca_offset,
+        // Trivial allocator never spills — it panics on pool
+        // exhaustion. LS-2/LS-3 produce real spill_bytes.
+        total_spill_bytes: 0,
         has_calls,
     }
 }

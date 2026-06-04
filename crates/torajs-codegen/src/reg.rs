@@ -117,29 +117,64 @@ impl Fpr {
 }
 
 /// Unified register handle. Allocator decides per-value whether the
-/// value lives in a GPR or FPR based on SSA `Type` (int / ptr-shaped
-/// → Gpr; F64 → Fpr).
+/// value lives in a GPR, an FPR, or — when the live-value pressure
+/// exceeds the scratch pool — a stack spill slot. Spill offsets are
+/// sp-relative byte offsets carved by `linear_scan::allocate_linear_scan`
+/// out of the spill region of the frame.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Reg {
     Gpr(Gpr),
     Fpr(Fpr),
+    /// 64-bit int / pointer value lives at `sp + offset` (frame is
+    /// stable for the function lifetime; `offset` is absolute).
+    SpillGpr(u32),
+    /// 64-bit f64 value lives at `sp + offset`.
+    SpillFpr(u32),
 }
 
 impl Reg {
-    /// Extract the GPR view. Panics if the slot holds an FPR — caller
-    /// should know from instruction context which class is expected.
+    /// Extract the GPR view. Panics on FPR or any spilled slot — call
+    /// sites that may receive a spilled value should use the
+    /// `Assignment::def_gpr` / `materialize_operand_gpr` paths instead
+    /// of `as_gpr()` so the LDR/STR is emitted at the right spot.
     pub fn as_gpr(self) -> Gpr {
         match self {
             Reg::Gpr(g) => g,
             Reg::Fpr(f) => panic!("expected Gpr, got Fpr({f:?})"),
+            Reg::SpillGpr(off) => {
+                panic!("expected Gpr, got SpillGpr(sp+{off}) — use def_gpr / materialize path")
+            }
+            Reg::SpillFpr(off) => panic!("expected Gpr, got SpillFpr(sp+{off})"),
         }
     }
 
-    /// Extract the FPR view. Panics if the slot holds a GPR.
+    /// Extract the FPR view. Panics on GPR or any spilled slot.
     pub fn as_fpr(self) -> Fpr {
         match self {
             Reg::Fpr(f) => f,
             Reg::Gpr(g) => panic!("expected Fpr, got Gpr({g:?})"),
+            Reg::SpillFpr(off) => {
+                panic!("expected Fpr, got SpillFpr(sp+{off}) — use def_fpr / materialize path")
+            }
+            Reg::SpillGpr(off) => panic!("expected Fpr, got SpillGpr(sp+{off})"),
+        }
+    }
+
+    /// Returns the sp-relative byte offset if this is a GPR-class
+    /// spill slot, else `None`.
+    pub fn spill_gpr_offset(self) -> Option<u32> {
+        match self {
+            Reg::SpillGpr(off) => Some(off),
+            _ => None,
+        }
+    }
+
+    /// Returns the sp-relative byte offset if this is an FPR-class
+    /// spill slot, else `None`.
+    pub fn spill_fpr_offset(self) -> Option<u32> {
+        match self {
+            Reg::SpillFpr(off) => Some(off),
+            _ => None,
         }
     }
 }
@@ -166,18 +201,27 @@ pub mod aapcs64 {
     ];
 
     /// Reserved for operand-materialization scratch in `compile.rs`
-    /// (see `OP_SCRATCH_{LHS,RHS,TMP}`). NOT in `CALLER_SAVED_SCRATCH`
-    /// so the allocator can't hand them out to SSA values that would
-    /// then collide with a subsequent const materialization (e.g.
-    /// `Store(ConstI64, Value(v0), 0)` where v0 lives in a register
-    /// — `materialize_const_i64` must write into a scratch that does
-    /// NOT alias v0's register).
-    pub const RESERVED_OP_SCRATCH: [Gpr; 3] = [Gpr::X9, Gpr::X10, Gpr::X11];
+    /// (see `OP_SCRATCH_{LHS,RHS,TMP,RESULT}`). NOT in
+    /// `CALLER_SAVED_SCRATCH` so the allocator can't hand them out to
+    /// SSA values that would then collide with a subsequent const
+    /// materialization (e.g. `Store(ConstI64, Value(v0), 0)` where v0
+    /// lives in a register — `materialize_const_i64` must write into
+    /// a scratch that does NOT alias v0's register).
+    ///
+    /// LS-3 (stack spill) bumped this from 3 → 4 by reserving X12 as
+    /// `OP_SCRATCH_RESULT_GPR`: when a def's allocator slot is a
+    /// `Reg::SpillGpr(off)`, the emitter writes the result into X12
+    /// then STR X12, [SP, #off]. X12 must NOT be in the allocator
+    /// pool — otherwise it could be aliased by a live SSA value at
+    /// the moment the STR-spill executes.
+    pub const RESERVED_OP_SCRATCH: [Gpr; 4] = [Gpr::X9, Gpr::X10, Gpr::X11, Gpr::X12];
 
     /// Caller-saved scratch (besides ARG_RET + RESERVED_OP_SCRATCH).
-    /// 11 slots — the trivial allocator hands these out to SSA values.
-    pub const CALLER_SAVED_SCRATCH: [Gpr; 11] = [
-        Gpr::X12,
+    /// 10 slots after LS-3 carved X12 out for spill-result use.
+    /// The trivial / linear-scan allocators hand these out to SSA
+    /// values; once the pool exhausts, LS spills the next claim to a
+    /// stack slot (see `linear_scan::allocate_linear_scan`).
+    pub const CALLER_SAVED_SCRATCH: [Gpr; 10] = [
         Gpr::X13,
         Gpr::X14,
         Gpr::X15,
@@ -206,15 +250,23 @@ pub mod aapcs64 {
         Fpr::V7,
     ];
 
-    /// FP caller-saved scratch (besides `FP_ARG_RET`).
-    /// `v8..v15` are callee-saved (low 64 bits only — AAPCS64 §5.1.2);
-    /// `v16..v31` are caller-saved scratch. We restrict the scratch
-    /// pool to the caller-saved 16-slot subset so codegen does not
-    /// need to emit FP-save prologues yet.
-    pub const FP_CALLER_SAVED_SCRATCH: [Fpr; 16] = [
-        Fpr::V16,
-        Fpr::V17,
-        Fpr::V18,
+    /// FP-side reserved scratch (mirrors `RESERVED_OP_SCRATCH`):
+    ///   - `V16` = `FP_SCRATCH_LHS`,
+    ///   - `V17` = `FP_SCRATCH_RHS`,
+    ///   - `V18` = `FP_SCRATCH_RESULT` (LS-3 stack spill — when a
+    ///     def's allocator slot is `Reg::SpillFpr(off)`, the emitter
+    ///     writes into V18 then `STR d18, [SP, #off]`).
+    ///
+    /// These three are NOT in `FP_CALLER_SAVED_SCRATCH` so the
+    /// allocator can never alias them with a live SSA value.
+    pub const FP_RESERVED_OP_SCRATCH: [Fpr; 3] = [Fpr::V16, Fpr::V17, Fpr::V18];
+
+    /// FP caller-saved scratch (besides `FP_ARG_RET` +
+    /// `FP_RESERVED_OP_SCRATCH`). `v8..v15` are callee-saved (low 64
+    /// bits only — AAPCS64 §5.1.2); `v19..v31` are caller-saved and
+    /// available to the allocator. 13 slots after LS-3 carved V18
+    /// out for spill-result use.
+    pub const FP_CALLER_SAVED_SCRATCH: [Fpr; 13] = [
         Fpr::V19,
         Fpr::V20,
         Fpr::V21,
@@ -264,8 +316,9 @@ mod tests {
 
     #[test]
     fn aapcs64_scratch_excludes_reserved_op_scratch() {
-        // X9-X11 are reserved for operand-materialization (compile.rs
-        // OP_SCRATCH_*); allocator must NOT hand them out.
+        // X9-X12 are reserved for operand-materialization (compile.rs
+        // OP_SCRATCH_*); allocator must NOT hand them out — else a
+        // spilled-def's STR scratch could alias a live SSA value.
         for r in aapcs64::RESERVED_OP_SCRATCH {
             assert!(
                 !aapcs64::CALLER_SAVED_SCRATCH.contains(&r),
@@ -275,8 +328,10 @@ mod tests {
     }
 
     #[test]
-    fn aapcs64_scratch_pool_starts_at_x12() {
-        assert_eq!(aapcs64::CALLER_SAVED_SCRATCH[0], Gpr::X12);
+    fn aapcs64_scratch_pool_starts_at_x13_after_ls3() {
+        // LS-3 carved X12 out of the pool for OP_SCRATCH_RESULT_GPR.
+        assert_eq!(aapcs64::CALLER_SAVED_SCRATCH[0], Gpr::X13);
+        assert_eq!(aapcs64::CALLER_SAVED_SCRATCH.len(), 10);
     }
 
     #[test]
@@ -290,6 +345,41 @@ mod tests {
     fn aapcs64_fp_arg_ret_covers_v0_v7() {
         assert_eq!(aapcs64::FP_ARG_RET[0], Fpr::V0);
         assert_eq!(aapcs64::FP_ARG_RET[7], Fpr::V7);
+    }
+
+    #[test]
+    fn aapcs64_fp_scratch_excludes_fp_reserved_op_scratch() {
+        // V16-V18 are reserved (FP LHS / RHS / RESULT scratches).
+        for v in aapcs64::FP_RESERVED_OP_SCRATCH {
+            assert!(
+                !aapcs64::FP_CALLER_SAVED_SCRATCH.contains(&v),
+                "{v:?} should be reserved, not in FP allocator pool"
+            );
+        }
+    }
+
+    #[test]
+    fn aapcs64_fp_scratch_pool_starts_at_v19_after_ls3() {
+        // LS-3 carved V18 out for FP_SCRATCH_RESULT.
+        assert_eq!(aapcs64::FP_CALLER_SAVED_SCRATCH[0], Fpr::V19);
+        assert_eq!(aapcs64::FP_CALLER_SAVED_SCRATCH.len(), 13);
+    }
+
+    #[test]
+    fn reg_spill_variants_carry_offset() {
+        assert_eq!(Reg::SpillGpr(48).spill_gpr_offset(), Some(48));
+        assert_eq!(Reg::SpillFpr(32).spill_fpr_offset(), Some(32));
+        assert_eq!(Reg::Gpr(Gpr::X0).spill_gpr_offset(), None);
+        assert_eq!(Reg::Fpr(Fpr::V0).spill_fpr_offset(), None);
+    }
+
+    #[test]
+    #[should_panic(expected = "got SpillGpr")]
+    fn spill_gpr_panics_on_as_gpr() {
+        // Catching this panic catches the bug where an emitter forgot
+        // to take the LS-3 spill path and tried to read a SpillGpr as
+        // if it were a real Gpr.
+        let _ = Reg::SpillGpr(8).as_gpr();
     }
 
     #[test]
