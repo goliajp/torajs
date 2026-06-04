@@ -45,6 +45,12 @@
 //! #0]`. The "LSL #0" form treats Xm as a raw byte index (no
 //! scale), matching SSA's `LoadDyn` / `StoreDyn` semantics where
 //! `dyn_offset` is already a byte count.
+//!
+//! S3-A4 coverage: the cast surface — SCVTF (signed int → f64),
+//! FCVTZS (f64 → signed int, round toward zero), AND-imm-#1 for
+//! Bool low-bit extraction (ZExt bool / Trunc-to-bool), and MOV
+//! reg-reg in both W (sf=0, auto-clears top 32 bits of Xd) and X
+//! (sf=1, full 64-bit move) forms for ZExt i32 / Ptr↔Int.
 
 use crate::reg::{Fpr, Gpr};
 
@@ -379,6 +385,54 @@ pub fn ldr_x_reg(rt: Gpr, rn: Gpr, rm: Gpr) -> u32 {
 /// instead of 1 (load). Base = 0xF820_6800.
 pub fn str_x_reg(rt: Gpr, rn: Gpr, rm: Gpr) -> u32 {
     0xF820_6800 | (rm.idx() << 16) | (rn.idx() << 5) | rt.idx()
+}
+
+// --- S3-A4: int ↔ fp conversion + bool low-bit + MOV reg-reg ---
+
+/// SCVTF Dd, Xn — signed int64 → f64. ARM ARM C6.2.353.
+///
+/// Encoding: sf=1, type=01, rmode=00, opcode=010. Base = 0x9E62_0000.
+pub fn scvtf_d_x(rd: Fpr, rn: Gpr) -> u32 {
+    0x9E62_0000 | (rn.idx() << 5) | rd.idx()
+}
+
+/// FCVTZS Xd, Dn — f64 → signed int64, round toward zero.
+///
+/// ARM ARM C6.2.114. rmode=11 (toward zero), opcode=000.
+/// Base = 0x9E78_0000.
+pub fn fcvtzs_x_d(rd: Gpr, rn: Fpr) -> u32 {
+    0x9E78_0000 | (rn.idx() << 5) | rd.idx()
+}
+
+/// AND Xd, Xn, #1 — extract the low bit. Used for both
+/// `ZExtBoolToI64` (Bool is already 0/1, mask to be sure) and
+/// `TruncI64ToBool` (LLVM trunc takes the low bit).
+///
+/// ARM ARM C6.2.12 AND (immediate) with the bitmask `#1` encoded
+/// as N=1, immr=0, imms=0. Base = 0x9240_0000.
+pub fn and_imm_one(rd: Gpr, rn: Gpr) -> u32 {
+    0x9240_0000 | (rn.idx() << 5) | rd.idx()
+}
+
+/// MOV Wd, Wn — 32-bit move via `ORR Wd, WZR, Wn` (sf=0). The W-form
+/// write auto-clears the top 32 bits of Xd, which is the textbook
+/// implementation of ZExtI32ToI64.
+///
+/// ARM ARM C6.2.231 (MOV alias) / C6.2.232 (ORR shifted register).
+/// sf=0, opc=01, shift=00, N=0, Rn=WZR=31. Base = 0x2A00_03E0.
+pub fn mov_w_reg(rd: Gpr, rm: Gpr) -> u32 {
+    0x2A00_03E0 | (rm.idx() << 16) | rd.idx()
+}
+
+/// MOV Xd, Xn — 64-bit move via `ORR Xd, XZR, Xn` (sf=1).
+///
+/// Used for `PtrToInt` / `IntToPtr` lowering — pure machine-level
+/// no-op semantically but the trivial allocator gives source and dest
+/// different physical registers so a copy is needed.
+///
+/// ARM ARM C6.2.231 sf=1 form. Base = 0xAA00_03E0.
+pub fn mov_x_reg(rd: Gpr, rm: Gpr) -> u32 {
+    0xAA00_03E0 | (rm.idx() << 16) | rd.idx()
 }
 
 /// B label — unconditional branch with 26-bit signed PC-relative
@@ -737,5 +791,43 @@ mod tests {
         //   base 0xF820_6800, Rm=11, Rn=12, Rt=9
         //   = 0xF82B_6989
         assert_eq!(str_x_reg(Gpr::X9, Gpr::X12, Gpr::X11), 0xF82B_6989);
+    }
+
+    // --- S3-A4 encoder tests ---
+
+    #[test]
+    fn scvtf_d0_from_x9_matches_arm_arm() {
+        // SCVTF d0, x9: base 0x9E62_0000, Rn=9, Rd=0
+        //   = 0x9E62_0000 | (9 << 5) | 0 = 0x9E62_0120
+        assert_eq!(scvtf_d_x(Fpr::V0, Gpr::X9), 0x9E62_0120);
+    }
+
+    #[test]
+    fn fcvtzs_x0_from_d16_matches_arm_arm() {
+        // FCVTZS x0, d16: base 0x9E78_0000, Rn=16, Rd=0
+        //   = 0x9E78_0000 | (16<<5) | 0 = 0x9E78_0200
+        assert_eq!(fcvtzs_x_d(Gpr::X0, Fpr::V16), 0x9E78_0200);
+    }
+
+    #[test]
+    fn and_imm_one_x0_x9_matches_clang() {
+        // AND x0, x9, #1: 0x9240_0000 | (9<<5) | 0 = 0x9240_0120
+        // This is what clang emits for `x0 = x9 & 1`.
+        assert_eq!(and_imm_one(Gpr::X0, Gpr::X9), 0x9240_0120);
+    }
+
+    #[test]
+    fn mov_w_reg_w0_from_w9_matches_arm_arm() {
+        // MOV w0, w9 = ORR w0, wzr, w9
+        //   base 0x2A00_03E0, Rm=9 (at bits 20-16), Rd=0
+        //   = 0x2A00_03E0 | (9<<16) | 0 = 0x2A09_03E0
+        assert_eq!(mov_w_reg(Gpr::X0, Gpr::X9), 0x2A09_03E0);
+    }
+
+    #[test]
+    fn mov_x_reg_x0_from_x9_matches_arm_arm() {
+        // MOV x0, x9 = ORR x0, xzr, x9
+        //   base 0xAA00_03E0 | (9<<16) | 0 = 0xAA09_03E0
+        assert_eq!(mov_x_reg(Gpr::X0, Gpr::X9), 0xAA09_03E0);
     }
 }

@@ -48,7 +48,11 @@ use crate::regalloc::{Assignment, allocate_trivial};
 use crate::reloc::Reloc;
 
 pub use binop::emit_binop;
-pub use cast::{emit_bitcast_f64_to_i64, emit_bitcast_i64_to_f64};
+pub use cast::{
+    emit_bitcast_f64_to_i64, emit_bitcast_i64_to_f64, emit_fp_to_si, emit_int_to_ptr,
+    emit_ptr_to_int, emit_si_to_fp, emit_trunc_i64_to_bool, emit_zext_bool_to_i64,
+    emit_zext_i32_to_i64,
+};
 pub use cmp::{emit_fcmp, emit_icmp};
 pub use mem::{emit_alloca, emit_load, emit_load_dyn, emit_store, emit_store_dyn};
 pub use operand::{materialize_const_i64, materialize_operand_fpr, materialize_operand_gpr};
@@ -104,6 +108,13 @@ fn emit_inst(bytes: &mut Vec<u8>, inst: &torajs_core::ssa::Inst, alloc: &Assignm
         InstKind::FCmp(pred, lhs, rhs) => emit_fcmp(bytes, inst, *pred, lhs, rhs, alloc),
         InstKind::BitCastF64ToI64(src) => emit_bitcast_f64_to_i64(bytes, inst, src, alloc),
         InstKind::BitCastI64ToF64(src) => emit_bitcast_i64_to_f64(bytes, inst, src, alloc),
+        InstKind::SiToFp(src) => emit_si_to_fp(bytes, inst, src, alloc),
+        InstKind::FpToSi(src) => emit_fp_to_si(bytes, inst, src, alloc),
+        InstKind::ZExtBoolToI64(src) => emit_zext_bool_to_i64(bytes, inst, src, alloc),
+        InstKind::ZExtI32ToI64(src) => emit_zext_i32_to_i64(bytes, inst, src, alloc),
+        InstKind::TruncI64ToBool(src) => emit_trunc_i64_to_bool(bytes, inst, src, alloc),
+        InstKind::PtrToInt(src) => emit_ptr_to_int(bytes, inst, src, alloc),
+        InstKind::IntToPtr(src) => emit_int_to_ptr(bytes, inst, src, alloc),
         InstKind::Alloca(_) | InstKind::AllocaBytes(_) => emit_alloca(bytes, inst, alloc),
         InstKind::Load(ty, ptr, offset) => emit_load(bytes, inst, ty, ptr, *offset, alloc),
         InstKind::Store(val, ptr, offset) => emit_store(bytes, val, ptr, *offset, alloc),
