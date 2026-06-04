@@ -27,6 +27,7 @@
 pub mod compile;
 pub mod enc;
 pub mod frame;
+pub mod liveness;
 pub mod reg;
 pub mod regalloc;
 pub mod reloc;
