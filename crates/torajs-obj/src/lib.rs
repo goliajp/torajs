@@ -50,3 +50,7 @@ pub use macho::segment::{
     SEGMENT_COMMAND_64_SIZE, Section64, SegmentCommand64, VM_PROT_EXECUTE, VM_PROT_READ,
     VM_PROT_RWX, VM_PROT_WRITE,
 };
+pub use macho::symtab::{
+    LC_SYMTAB, N_EXT, N_SECT, N_TYPE, N_UNDF, NLIST_64_SIZE, NO_SECT, Nlist64, SYMTAB_COMMAND_SIZE,
+    StringTable, SymtabCommand,
+};
