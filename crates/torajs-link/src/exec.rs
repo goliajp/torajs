@@ -1,0 +1,690 @@
+//! Mach-O `MH_EXECUTE` emit — the high-level link driver that
+//! takes `CompiledFunction`s, lays them out in a runnable binary
+//! image, applies all relocations against the final virtual
+//! addresses, and emits the byte stream.
+//!
+//! S3 (this commit) lands the static structure:
+//!
+//! ```text
+//!   file layout                       vmaddr layout
+//!   ─────────────────                 ─────────────────────────
+//!   mach_header_64 (32)               (header is part of __TEXT)
+//!   load commands                     0x000000000..0x100000000  __PAGEZERO
+//!   padding to page boundary          0x100000000..__TEXT.vmend __TEXT
+//!   __text payload (patched bytes)    __TEXT.vmend..end          __LINKEDIT
+//!   padding to page boundary
+//!   __LINKEDIT data
+//!     nlist_64 table
+//!     string table
+//! ```
+//!
+//! Load commands emitted:
+//!   - `LC_SEGMENT_64 __PAGEZERO`     — 4 GiB null-guard
+//!   - `LC_SEGMENT_64 __TEXT`         — RX, holds mach_header +
+//!                                       load commands + __text
+//!   - `LC_SEGMENT_64 __LINKEDIT`     — R, holds dyld metadata
+//!   - `LC_LOAD_DYLINKER`             — `/usr/lib/dyld`
+//!   - `LC_BUILD_VERSION`             — macOS 14.0 / SDK 14.0
+//!   - `LC_MAIN`                      — entry_off = `_main` file off
+//!   - `LC_SYMTAB`                    — defined functions
+//!   - `LC_DYSYMTAB`                  — extdef partition info
+//!
+//! Deferred to S4-S5:
+//!   - `LC_DYLD_CHAINED_FIXUPS`       — modern dyld bind format
+//!                                       (empty chain for binaries
+//!                                       with no dylib imports —
+//!                                       still required for load)
+//!   - `LC_DYLD_EXPORTS_TRIE`         — export trie
+//!   - `LC_LOAD_DYLIB libSystem`      — even when unused
+//!   - `LC_CODE_SIGNATURE`            — ad-hoc, mandatory on
+//!                                       macOS 14+
+//!
+//! Without those load commands the binary still parses cleanly
+//! through `otool -hlv` but `dyld` refuses to load it. S4 adds
+//! the minimum-viable dyld plumbing; S5 adds ad-hoc codesigning;
+//! S6 verifies end-to-end exec exit code.
+//!
+//! Page size on Apple Silicon (arm64-darwin) is 16 KiB
+//! (`0x4000`), not the historical 4 KiB. `__PAGEZERO` covers the
+//! low 4 GiB so any null-dereference traps cleanly.
+
+use torajs_codegen::CompiledFunction;
+use torajs_obj::{
+    CPU_SUBTYPE_ARM64_ALL, CPU_TYPE_ARM64, MH_MAGIC_64, MachHeader64, NLIST_64_SIZE, Nlist64,
+    S_ATTR_PURE_INSTRUCTIONS, S_ATTR_SOME_INSTRUCTIONS, SECTION_64_SIZE, SEGMENT_COMMAND_64_SIZE,
+    SYMTAB_COMMAND_SIZE, Section64, SegmentCommand64, StringTable, SymtabCommand, VM_PROT_EXECUTE,
+    VM_PROT_READ,
+};
+
+use crate::lc::{
+    APPLE_SILICON_PAGE_SIZE, BUILD_VERSION_CMDSIZE, DYSYMTAB_CMDSIZE, LOAD_DYLINKER_CMDSIZE,
+    MAIN_CMDSIZE, MH_DYLDLINK, MH_EXECUTE, MH_NOUNDEFS, MH_PIE, MH_TWOLEVEL, PAGEZERO_VMSIZE,
+    TEXT_VMADDR_BASE, write_build_version, write_dysymtab, write_lc_main, write_load_dylinker,
+};
+use crate::resolve::{SymTable, apply_relocs};
+
+// ---- Public API ----
+
+/// Configuration for `link_to_exec` — caller supplies the per-fn
+/// codegen output, the entry-point symbol name (e.g. `"_main"`),
+/// and a symbol table for any externs the relocs reference.
+#[derive(Debug, Clone)]
+pub struct LinkConfig {
+    /// Compiled functions in `FuncId` order — `funcs[i]`
+    /// corresponds to `FuncId(i)`.
+    pub funcs: Vec<CompiledFunction>,
+    /// Entry-point symbol name. Must match one of `funcs[i].name`.
+    pub entry: String,
+    /// External symbol resolution map for the linker's resolve
+    /// pass. Empty for self-contained binaries.
+    pub sym_table: SymTable,
+}
+
+/// Layout decisions made by the link driver before any bytes are
+/// emitted. Public so callers (and tests) can inspect the
+/// resulting structure; internal to the link path otherwise.
+#[derive(Debug, Clone)]
+pub struct ExecLayout {
+    /// File offset where the `__text` payload begins. Lands on
+    /// the first page boundary (`APPLE_SILICON_PAGE_SIZE`) after
+    /// the header + load commands.
+    pub text_file_offset: u32,
+    /// `__text` payload size in bytes (sum of all
+    /// `ResolvedFunction.bytes.len()`).
+    pub text_size: u32,
+    /// `__TEXT` segment vmaddr (`0x1_0000_0000`).
+    pub text_vmaddr: u64,
+    /// `__TEXT` segment vmsize — page-aligned, covers header +
+    /// load commands + `__text` payload.
+    pub text_vmsize: u64,
+    /// File offset where `__LINKEDIT` data begins (start of the
+    /// nlist table).
+    pub linkedit_file_offset: u32,
+    /// `__LINKEDIT` vmaddr — `text_vmaddr + text_vmsize`.
+    pub linkedit_vmaddr: u64,
+    /// `__LINKEDIT` vmsize — page-aligned, covers symtab + strtab.
+    pub linkedit_vmsize: u64,
+    /// File offset of the nlist table.
+    pub symoff: u32,
+    /// File offset of the string table.
+    pub stroff: u32,
+    /// Total file size = `linkedit_file_offset + linkedit_data_size`.
+    pub total_size: u32,
+    /// Number of defined-extern symbols (one per `funcs[i]`).
+    pub nsyms: u32,
+    /// String table byte length.
+    pub strsize: u32,
+    /// Virtual address of the entry function (`_main`) in the
+    /// final image — used to fill `LC_MAIN.entry_off`.
+    pub entry_file_offset: u32,
+    /// Final virtual address of each function — `fn_vaddrs[i]` =
+    /// `text_vmaddr + (text section file offset relative to __TEXT)
+    /// + fn_offset_in_text`. Same indexing as
+    /// `LinkConfig.funcs`.
+    pub fn_vaddrs: Vec<u64>,
+}
+
+/// Round `value` up to the nearest multiple of `align` (which
+/// must be a power of two).
+fn round_up_to(value: u64, align: u64) -> u64 {
+    debug_assert!(align.is_power_of_two());
+    (value + align - 1) & !(align - 1)
+}
+
+/// Compute the file + virtual layout for a `LinkConfig` ahead of
+/// any bytes being emitted. Pure function; trivial to unit-test
+/// against expected layout values.
+pub fn compute_layout(cfg: &LinkConfig) -> ExecLayout {
+    let n_funcs = cfg.funcs.len() as u32;
+
+    // Sum the load-commands block size up front so we know where
+    // the page-aligned `__text` payload starts.
+    let sizeofcmds = (SEGMENT_COMMAND_64_SIZE * 3) // PAGEZERO + TEXT (with 1 section) + LINKEDIT
+        + SECTION_64_SIZE                          // __text section under __TEXT
+        + LOAD_DYLINKER_CMDSIZE
+        + BUILD_VERSION_CMDSIZE
+        + MAIN_CMDSIZE
+        + SYMTAB_COMMAND_SIZE
+        + DYSYMTAB_CMDSIZE;
+    let header_plus_lc = (MachHeader64::SIZE as u32) + sizeofcmds;
+
+    // `__text` lands on the first page boundary so the kernel can
+    // map __TEXT as RX without the header bleeding into other
+    // protection settings.
+    let text_file_offset = round_up_to(u64::from(header_plus_lc), APPLE_SILICON_PAGE_SIZE) as u32;
+
+    // Concatenate function bytes; remember each fn's section-
+    // relative offset for the vaddr table.
+    let mut text_size: u32 = 0;
+    let mut fn_offsets_in_text: Vec<u32> = Vec::with_capacity(cfg.funcs.len());
+    for f in &cfg.funcs {
+        debug_assert_eq!(
+            f.bytes.len() % 4,
+            0,
+            "CompiledFunction bytes must be 4-aligned (aarch64 instruction width)"
+        );
+        fn_offsets_in_text.push(text_size);
+        text_size += f.bytes.len() as u32;
+    }
+
+    // `__TEXT` segment vmsize is page-aligned and covers
+    // mach_header + load commands + __text payload + slack to
+    // the next page boundary.
+    let text_segment_filesize_unrounded = u64::from(text_file_offset) + u64::from(text_size);
+    let text_vmsize = round_up_to(text_segment_filesize_unrounded, APPLE_SILICON_PAGE_SIZE);
+
+    // `__LINKEDIT` follows directly after `__TEXT` in vmaddr and
+    // file order. symtab + strtab live inside.
+    let linkedit_file_offset = text_vmsize as u32;
+    let linkedit_vmaddr = TEXT_VMADDR_BASE + text_vmsize;
+
+    let symoff = linkedit_file_offset;
+    let nlist_size = n_funcs * NLIST_64_SIZE;
+    let stroff = symoff + nlist_size;
+
+    // String table: "\0" sentinel + every defined-function name
+    // NUL-terminated.
+    let mut strsize: u32 = 1;
+    for f in &cfg.funcs {
+        strsize += f.name.len() as u32 + 1;
+    }
+    let linkedit_data_size = nlist_size + strsize;
+    let linkedit_vmsize = round_up_to(u64::from(linkedit_data_size), APPLE_SILICON_PAGE_SIZE);
+    let total_size = linkedit_file_offset + linkedit_data_size;
+
+    // Each function's final vaddr = text_vmaddr + section start
+    // within __TEXT (file offset relative to segment start, which
+    // is also the in-segment vmaddr offset because fileoff and
+    // vmaddr both originate at 0 for __TEXT).
+    let text_vmaddr = TEXT_VMADDR_BASE;
+    let fn_vaddrs: Vec<u64> = fn_offsets_in_text
+        .iter()
+        .map(|off| text_vmaddr + u64::from(text_file_offset) + u64::from(*off))
+        .collect();
+
+    // Entry point file offset — find the entry symbol in funcs.
+    let entry_idx = cfg
+        .funcs
+        .iter()
+        .position(|f| f.name == cfg.entry)
+        .unwrap_or_else(|| panic!("entry symbol {:?} not in LinkConfig.funcs", cfg.entry));
+    let entry_file_offset = text_file_offset + fn_offsets_in_text[entry_idx];
+
+    ExecLayout {
+        text_file_offset,
+        text_size,
+        text_vmaddr,
+        text_vmsize,
+        linkedit_file_offset,
+        linkedit_vmaddr,
+        linkedit_vmsize,
+        symoff,
+        stroff,
+        total_size,
+        nsyms: n_funcs,
+        strsize,
+        entry_file_offset,
+        fn_vaddrs,
+    }
+}
+
+/// Link a `LinkConfig` into a Mach-O `MH_EXECUTE` byte stream.
+///
+/// Caller responsibility:
+///   * `cfg.entry` must match one of `cfg.funcs[i].name`.
+///   * Function names that the codegen will reference via
+///     `CallTarget::Extern` / `Page21` / etc. that aren't defined
+///     functions must be supplied in `cfg.sym_table` with their
+///     final virtual addresses.
+///
+/// S3 emits 8 load commands (see module docstring). The output
+/// parses cleanly through `otool -hlv` but is *not* runnable yet
+/// because the dyld plumbing (`LC_DYLD_CHAINED_FIXUPS` +
+/// `LC_DYLD_EXPORTS_TRIE` + `LC_LOAD_DYLIB libSystem` +
+/// `LC_CODE_SIGNATURE`) lands in S4-S5.
+pub fn link_to_exec(cfg: &LinkConfig) -> Vec<u8> {
+    let layout = compute_layout(cfg);
+
+    // Resolve relocations now that we know every function's final
+    // virtual address. `apply_relocs` clones the input bytes and
+    // patches them in place against `fn_vaddrs`.
+    let resolved = apply_relocs(&cfg.funcs, &layout.fn_vaddrs, &cfg.sym_table);
+
+    // Build the load commands.
+    let header = MachHeader64 {
+        magic: MH_MAGIC_64,
+        cputype: CPU_TYPE_ARM64,
+        cpusubtype: CPU_SUBTYPE_ARM64_ALL,
+        filetype: MH_EXECUTE,
+        ncmds: 8,
+        sizeofcmds: SEGMENT_COMMAND_64_SIZE * 3
+            + SECTION_64_SIZE
+            + LOAD_DYLINKER_CMDSIZE
+            + BUILD_VERSION_CMDSIZE
+            + MAIN_CMDSIZE
+            + SYMTAB_COMMAND_SIZE
+            + DYSYMTAB_CMDSIZE,
+        flags: MH_NOUNDEFS | MH_DYLDLINK | MH_TWOLEVEL | MH_PIE,
+        reserved: 0,
+    };
+
+    let pagezero = SegmentCommand64 {
+        segname: "__PAGEZERO".into(),
+        vmaddr: 0,
+        vmsize: PAGEZERO_VMSIZE,
+        fileoff: 0,
+        filesize: 0,
+        maxprot: 0,
+        initprot: 0,
+        flags: 0,
+        sections: Vec::new(),
+    };
+
+    let text_section = Section64 {
+        sectname: "__text".into(),
+        segname: "__TEXT".into(),
+        addr: layout.text_vmaddr + u64::from(layout.text_file_offset),
+        size: u64::from(layout.text_size),
+        offset: layout.text_file_offset,
+        align_log2: 2,
+        reloff: 0,
+        nreloc: 0,
+        flags: S_ATTR_PURE_INSTRUCTIONS | S_ATTR_SOME_INSTRUCTIONS,
+        reserved1: 0,
+        reserved2: 0,
+        reserved3: 0,
+    };
+    let text_segment = SegmentCommand64 {
+        segname: "__TEXT".into(),
+        vmaddr: layout.text_vmaddr,
+        vmsize: layout.text_vmsize,
+        fileoff: 0,
+        filesize: layout.text_vmsize,
+        maxprot: VM_PROT_READ | VM_PROT_EXECUTE,
+        initprot: VM_PROT_READ | VM_PROT_EXECUTE,
+        flags: 0,
+        sections: vec![text_section],
+    };
+
+    let linkedit_data_size =
+        u64::from(layout.nsyms) * u64::from(NLIST_64_SIZE) + u64::from(layout.strsize);
+    let linkedit_segment = SegmentCommand64 {
+        segname: "__LINKEDIT".into(),
+        vmaddr: layout.linkedit_vmaddr,
+        vmsize: layout.linkedit_vmsize,
+        fileoff: u64::from(layout.linkedit_file_offset),
+        filesize: linkedit_data_size,
+        maxprot: VM_PROT_READ,
+        initprot: VM_PROT_READ,
+        flags: 0,
+        sections: Vec::new(),
+    };
+
+    let symtab_cmd = SymtabCommand {
+        symoff: layout.symoff,
+        nsyms: layout.nsyms,
+        stroff: layout.stroff,
+        strsize: layout.strsize,
+    };
+
+    // Allocate the output buffer and emit each region in order.
+    let mut buf: Vec<u8> = Vec::with_capacity(layout.total_size as usize);
+
+    header.write_to(&mut buf);
+
+    pagezero.write_to(&mut buf);
+    text_segment.write_to(&mut buf);
+    linkedit_segment.write_to(&mut buf);
+    write_load_dylinker(&mut buf);
+    write_build_version(&mut buf);
+    write_lc_main(&mut buf, u64::from(layout.entry_file_offset));
+    symtab_cmd.write_to(&mut buf);
+    write_dysymtab(&mut buf, layout.nsyms);
+
+    debug_assert_eq!(
+        (buf.len() as u32) - (MachHeader64::SIZE as u32),
+        header.sizeofcmds,
+        "emitted load commands must match sizeofcmds"
+    );
+
+    // Pad to first page boundary.
+    pad_to(&mut buf, layout.text_file_offset as usize);
+
+    // `__text` payload — concat the resolved (patched) bytes.
+    for r in &resolved {
+        buf.extend_from_slice(&r.bytes);
+    }
+
+    // Pad to __LINKEDIT page boundary.
+    pad_to(&mut buf, layout.linkedit_file_offset as usize);
+
+    // nlist + strtab. `n_value` carries the final virtual
+    // address of the defined symbol so dyld + `nm` can both
+    // resolve symbol → address without walking the section
+    // table.
+    let mut strtab = StringTable::new();
+    let mut strx_per_fn: Vec<u32> = Vec::with_capacity(cfg.funcs.len());
+    for f in &cfg.funcs {
+        strx_per_fn.push(strtab.add(&f.name));
+    }
+    for (i, _f) in cfg.funcs.iter().enumerate() {
+        let nlist = Nlist64::defined_extern(strx_per_fn[i], 1, layout.fn_vaddrs[i]);
+        nlist.write_to(&mut buf);
+    }
+    buf.extend_from_slice(strtab.as_bytes());
+
+    debug_assert_eq!(
+        buf.len() as u32,
+        layout.total_size,
+        "emitted file size must match computed layout total"
+    );
+
+    buf
+}
+
+fn pad_to(buf: &mut Vec<u8>, target_len: usize) {
+    if buf.len() < target_len {
+        buf.resize(target_len, 0);
+    }
+    debug_assert_eq!(buf.len(), target_len, "buf grew past target_len");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use torajs_codegen::compile_function;
+    use torajs_core::ssa::{
+        BinOp, Block, BlockId, Function, Inst, InstKind, Operand, Terminator, Type, ValueId,
+        ValueInfo,
+    };
+
+    /// `fn _main() -> i64 { 42 + 0 }` — the canonical S6
+    /// acceptance fixture, used here as a layout / emit driver.
+    /// Compiles to a 4-instruction sequence = 16 bytes.
+    fn build_main_returns_42() -> Function {
+        let v0 = ValueId(0);
+        Function {
+            name: "_main".into(),
+            params: Vec::new(),
+            ret: Type::I64,
+            values: vec![ValueInfo {
+                ty: Type::I64,
+                name: Some("v0".into()),
+            }],
+            blocks: vec![Block {
+                id: BlockId(0),
+                insts: vec![Inst {
+                    result: Some(v0),
+                    kind: InstKind::BinOp(BinOp::Add, Operand::ConstI64(42), Operand::ConstI64(0)),
+                    origin: None,
+                }],
+                term: Terminator::Ret(Some(Operand::Value(v0))),
+            }],
+            current_origin: None,
+        }
+    }
+
+    #[test]
+    fn compute_layout_pin_known_offsets() {
+        let main = compile_function(&build_main_returns_42());
+        let cfg = LinkConfig {
+            funcs: vec![main],
+            entry: "_main".into(),
+            sym_table: SymTable::new(),
+        };
+        let layout = compute_layout(&cfg);
+
+        // header (32) + 3 LC_SEGMENT_64 (72*3 = 216) + 1 section (80) +
+        // LC_LOAD_DYLINKER (32) + LC_BUILD_VERSION (24) + LC_MAIN (24) +
+        // LC_SYMTAB (24) + LC_DYSYMTAB (80) = 512.
+        // Rounded up to 0x4000 page = 16384.
+        assert_eq!(layout.text_file_offset, 0x4000);
+
+        // __text payload = 16 bytes.
+        assert_eq!(layout.text_size, 16);
+
+        // __TEXT vmsize = round_up(0x4000 + 16, 0x4000) = 0x8000.
+        assert_eq!(layout.text_vmsize, 0x8000);
+
+        // __LINKEDIT lands at the second page boundary.
+        assert_eq!(layout.linkedit_file_offset, 0x8000);
+        assert_eq!(layout.linkedit_vmaddr, TEXT_VMADDR_BASE + 0x8000);
+
+        // 1 sym × 16 byte + strtab ("\0" + "_main\0" = 7 byte) = 23 byte
+        // → __LINKEDIT vmsize page-rounded = 0x4000.
+        assert_eq!(layout.nsyms, 1);
+        assert_eq!(layout.strsize, 7);
+        assert_eq!(layout.linkedit_vmsize, 0x4000);
+
+        // _main vaddr = TEXT_VMADDR_BASE + 0x4000 (text starts on
+        // the second page).
+        assert_eq!(layout.fn_vaddrs.len(), 1);
+        assert_eq!(layout.fn_vaddrs[0], TEXT_VMADDR_BASE + 0x4000);
+        assert_eq!(layout.entry_file_offset, 0x4000);
+
+        // Total file size = linkedit_file_offset + linkedit data
+        //                 = 0x8000 + 16 + 7 = 32791.
+        assert_eq!(layout.total_size, 0x8000 + 16 + 7);
+    }
+
+    #[test]
+    fn link_to_exec_produces_expected_total_size() {
+        let main = compile_function(&build_main_returns_42());
+        let cfg = LinkConfig {
+            funcs: vec![main],
+            entry: "_main".into(),
+            sym_table: SymTable::new(),
+        };
+        let bytes = link_to_exec(&cfg);
+        let layout = compute_layout(&cfg);
+        assert_eq!(bytes.len() as u32, layout.total_size);
+    }
+
+    #[test]
+    fn link_to_exec_header_filetype_is_execute() {
+        let main = compile_function(&build_main_returns_42());
+        let cfg = LinkConfig {
+            funcs: vec![main],
+            entry: "_main".into(),
+            sym_table: SymTable::new(),
+        };
+        let bytes = link_to_exec(&cfg);
+        // mach_header_64.filetype @ offset 12..16
+        let filetype = u32::from_le_bytes(bytes[12..16].try_into().unwrap());
+        assert_eq!(filetype, MH_EXECUTE);
+
+        // ncmds @ 16..20 = 8
+        let ncmds = u32::from_le_bytes(bytes[16..20].try_into().unwrap());
+        assert_eq!(ncmds, 8);
+
+        // flags @ 24..28 = MH_NOUNDEFS | MH_DYLDLINK | MH_TWOLEVEL | MH_PIE
+        let flags = u32::from_le_bytes(bytes[24..28].try_into().unwrap());
+        assert_eq!(flags, MH_NOUNDEFS | MH_DYLDLINK | MH_TWOLEVEL | MH_PIE);
+    }
+
+    #[test]
+    fn link_to_exec_text_payload_lands_at_page_boundary() {
+        let main = compile_function(&build_main_returns_42());
+        let cfg = LinkConfig {
+            funcs: vec![main.clone()],
+            entry: "_main".into(),
+            sym_table: SymTable::new(),
+        };
+        let bytes = link_to_exec(&cfg);
+        // The first 16 bytes after the page boundary should match
+        // the compiled `_main` body.
+        assert_eq!(&bytes[0x4000..0x4000 + 16], &main.bytes[..]);
+    }
+
+    /// Host `otool -hlv` must accept the emitted binary and
+    /// report the layout we computed. Gated to macOS arm64 hosts
+    /// since `otool` is Xcode-bundled.
+    #[test]
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    fn otool_accepts_emitted_minimal_executable() {
+        use std::process::Command;
+
+        let main = compile_function(&build_main_returns_42());
+        let cfg = LinkConfig {
+            funcs: vec![main],
+            entry: "_main".into(),
+            sym_table: SymTable::new(),
+        };
+        let bytes = link_to_exec(&cfg);
+
+        let path = format!("/private/tmp/torajs_link_s3_{}", std::process::id());
+        std::fs::write(&path, &bytes).expect("write exec");
+
+        let output = match Command::new("/usr/bin/otool")
+            .args(["-hlv", &path])
+            .output()
+        {
+            Ok(o) => o,
+            Err(e) => {
+                eprintln!("skip: otool not invokable: {e}");
+                let _ = std::fs::remove_file(&path);
+                return;
+            }
+        };
+        let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+        let _ = std::fs::remove_file(&path);
+
+        assert!(
+            output.status.success(),
+            "otool failed (exit {:?})\n--- stderr ---\n{stderr}\n--- stdout ---\n{stdout}",
+            output.status.code()
+        );
+
+        // `otool -hlv` prints header + load command structure but
+        // not the contents of LC_SYMTAB. Verify the structural
+        // markers here; symbol-table contents go through `nm`
+        // below.
+        for needle in [
+            "MH_MAGIC_64",
+            "ARM64",
+            "EXECUTE",
+            "__PAGEZERO",
+            "__TEXT",
+            "__text",
+            "__LINKEDIT",
+            "LC_LOAD_DYLINKER",
+            "/usr/lib/dyld",
+            "LC_BUILD_VERSION",
+            "LC_MAIN",
+            "LC_SYMTAB",
+            "LC_DYSYMTAB",
+            "minos 14.0",
+        ] {
+            assert!(
+                stdout.contains(needle),
+                "otool output missing {needle:?}; full output:\n{stdout}"
+            );
+        }
+
+        // Re-write the file (the previous `remove_file` ran) so
+        // `nm` can read it.
+        std::fs::write(&path, &bytes).expect("rewrite exec");
+        let nm_out = match Command::new("/usr/bin/nm").arg(&path).output() {
+            Ok(o) => o,
+            Err(e) => {
+                eprintln!("skip: nm not invokable: {e}");
+                let _ = std::fs::remove_file(&path);
+                return;
+            }
+        };
+        let nm_stdout = String::from_utf8_lossy(&nm_out.stdout).into_owned();
+        let _ = std::fs::remove_file(&path);
+
+        assert!(
+            nm_out.status.success(),
+            "nm failed: {}",
+            String::from_utf8_lossy(&nm_out.stderr)
+        );
+        // `_main` is a defined external symbol — `nm` prints it
+        // with type `T` (text segment, external).
+        assert!(
+            nm_stdout.contains("_main"),
+            "nm did not list _main; output:\n{nm_stdout}"
+        );
+        assert!(
+            nm_stdout.contains(" T "),
+            "_main expected type T (text/external); nm output:\n{nm_stdout}"
+        );
+    }
+
+    /// S6 end-to-end acceptance — emit the binary for
+    /// `fn _main() -> i64 { 42 }`, chmod +x, ad-hoc codesign it
+    /// via the host `codesign -s -`, exec it, and verify the
+    /// process exits with status 42.
+    ///
+    /// macOS 14+ refuses to load unsigned arm64 binaries: an
+    /// unsigned image is killed by SIGKILL before `main` even
+    /// runs (`exit code 137`). Once `codesign -s -` writes the
+    /// ad-hoc CMS blob into LC_CODE_SIGNATURE (which `codesign`
+    /// adds as a new load command in place), the same byte stream
+    /// loads and runs cleanly — confirming that the 8 load
+    /// commands `link_to_exec` emits are *sufficient* on their
+    /// own (no LC_DYLD_CHAINED_FIXUPS, no LC_LOAD_DYLIB libSystem
+    /// needed) for a binary that uses neither libc nor dyld
+    /// fixups. S5 self-research replaces the host `codesign` call
+    /// with an in-house SHA256 ad-hoc signer; this test pins the
+    /// rest of the link path independently of that work.
+    ///
+    /// Gated to macOS arm64; non-Apple-Silicon hosts skip.
+    #[test]
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    fn end_to_end_run_returns_42_after_adhoc_codesign() {
+        use std::os::unix::fs::PermissionsExt;
+        use std::process::Command;
+
+        let main = compile_function(&build_main_returns_42());
+        let cfg = LinkConfig {
+            funcs: vec![main],
+            entry: "_main".into(),
+            sym_table: SymTable::new(),
+        };
+        let bytes = link_to_exec(&cfg);
+
+        let path = format!("/private/tmp/torajs_link_e2e_{}", std::process::id());
+        std::fs::write(&path, &bytes).expect("write binary");
+        let mut perms = std::fs::metadata(&path).expect("stat").permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&path, perms).expect("chmod +x");
+
+        // Ad-hoc codesign via the host toolchain — S5 will replace
+        // this with an in-house SHA256 signer.
+        let cs = match Command::new("/usr/bin/codesign")
+            .args(["-s", "-", "-f", &path])
+            .output()
+        {
+            Ok(o) => o,
+            Err(e) => {
+                eprintln!("skip: codesign not invokable: {e}");
+                let _ = std::fs::remove_file(&path);
+                return;
+            }
+        };
+        if !cs.status.success() {
+            let _ = std::fs::remove_file(&path);
+            panic!(
+                "codesign failed (exit {:?}):\n--- stderr ---\n{}\n--- stdout ---\n{}",
+                cs.status.code(),
+                String::from_utf8_lossy(&cs.stderr),
+                String::from_utf8_lossy(&cs.stdout),
+            );
+        }
+
+        let run = Command::new(&path).output().expect("exec emitted binary");
+        let exit = run.status.code();
+        let _ = std::fs::remove_file(&path);
+
+        assert_eq!(
+            exit,
+            Some(42),
+            "binary did not exit 42 — stdout={:?} stderr={:?}",
+            String::from_utf8_lossy(&run.stdout),
+            String::from_utf8_lossy(&run.stderr)
+        );
+    }
+}
