@@ -47,6 +47,7 @@
 #![deny(unsafe_code)]
 
 pub mod archive;
+pub mod archive_link;
 pub mod archives_merge;
 pub mod exec;
 pub mod lc;
@@ -55,6 +56,10 @@ pub mod resolve;
 pub mod sha256;
 pub mod sign;
 
+pub use archive_link::{
+    ArchiveLayout, ArchiveLayoutError, MemberLayout, MemberTextError, compute_archive_layout,
+    parse_member_text_section,
+};
 pub use archives_merge::{
     ArchiveLinkError, ArchiveMergeError, MergedArchives, MergedSymbol, RequiredMembers,
     compute_required_members, merge_archive_indexes, parse_member_undef_externs,
