@@ -50,6 +50,7 @@ pub mod exec;
 pub mod lc;
 pub mod patch;
 pub mod resolve;
+pub mod sha256;
 
 pub use exec::{ExecLayout, LinkConfig, compute_layout, link_to_exec};
 pub use patch::{patch_branch26, patch_page21, patch_pageoff12, write_unsigned64};
