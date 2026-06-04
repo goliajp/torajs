@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-04T07:45:46.152Z",
+  "generatedAt": "2026-06-04T07:58:45.589Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 723,
@@ -28,8 +28,8 @@
     "passRateTrAccepted": 92.56
   },
   "torajs": {
-    "commit": "c44e714",
-    "commitSubject": "feat(link): MH_EXECUTE emit + end-to-end exit 42 — #8 S3 + S6",
+    "commit": "d9bf9fc",
+    "commitSubject": "feat(link): self-research ad-hoc codesign + exit 42 zero-external-tool — #8 S5-B+S5-C",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -611,6 +611,18 @@
   },
   "commits": [
     {
+      "hash": "d9bf9fc",
+      "subject": "feat(link): self-research ad-hoc codesign + exit 42 zero-external-tool — #8 S5-B+S5-C"
+    },
+    {
+      "hash": "d70be03",
+      "subject": "feat(link): self-research SHA-256 implementation — #8 S5-A"
+    },
+    {
+      "hash": "e58ba47",
+      "subject": "docs(hardev): dashboard snapshot @ c44e714 — #8 link e2e exit 42 capstone"
+    },
+    {
       "hash": "c44e714",
       "subject": "feat(link): MH_EXECUTE emit + end-to-end exit 42 — #8 S3 + S6"
     },
@@ -645,21 +657,9 @@
     {
       "hash": "f504b64",
       "subject": "feat(obj): relocation_info + ARM64_RELOC_{BRANCH26,PAGE21,PAGEOFF12,UNSIGNED} — #7 S4"
-    },
-    {
-      "hash": "a591158",
-      "subject": "feat(obj): LC_SYMTAB + nlist_64 + StringTable — #7 S3"
-    },
-    {
-      "hash": "e7b9ea1",
-      "subject": "feat(obj): LC_SEGMENT_64 + section_64 with __TEXT,__text skeleton — #7 S2"
-    },
-    {
-      "hash": "9654f18",
-      "subject": "feat(obj): torajs-obj scaffold + Mach-O 64 header — #7 S1"
     }
   ],
-  "headSha": "c44e714",
+  "headSha": "d9bf9fc",
   "autorun": {
     "total": 56,
     "baselineTarget": 10,
