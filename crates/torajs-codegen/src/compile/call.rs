@@ -18,10 +18,10 @@
 
 use torajs_core::ssa::{FuncId, Inst, Operand, SigId};
 
-use super::operand::materialize_operand_gpr;
-use super::{OP_SCRATCH_LHS, write_u32};
-use crate::enc::{bl_imm26, blr_reg, mov_x_reg, str_x_imm12};
-use crate::reg::{Gpr, Reg, aapcs64};
+use super::operand::{materialize_operand_fpr, materialize_operand_gpr, operand_is_f64};
+use super::{FP_SCRATCH_LHS, OP_SCRATCH_LHS, write_u32};
+use crate::enc::{bl_imm26, blr_reg, fmov_d_to_d, mov_x_reg, str_d_imm12, str_x_imm12};
+use crate::reg::{Fpr, Gpr, Reg, aapcs64};
 use crate::regalloc::Assignment;
 use crate::reloc::{CallTarget, Reloc, RelocKind};
 
@@ -38,21 +38,7 @@ pub fn emit_call(
     args: &[Operand],
     alloc: &Assignment,
 ) {
-    // S4-A: arg passing — each int arg goes into x0..x7. FP args /
-    // stack args lift to S4-B.
-    assert!(
-        args.len() <= aapcs64::ARG_RET.len(),
-        "S4-A supports up to {} int args; got {} (stack-pass lands in S4-B)",
-        aapcs64::ARG_RET.len(),
-        args.len()
-    );
-    for (idx, arg) in args.iter().enumerate() {
-        let arg_reg = aapcs64::ARG_RET[idx];
-        let src = materialize_operand_gpr(bytes, arg, OP_SCRATCH_LHS, alloc);
-        if src != arg_reg {
-            write_u32(bytes, mov_x_reg(arg_reg, src));
-        }
-    }
+    pass_args(bytes, args, alloc);
 
     // Record reloc for the BL site, then emit BL with displacement=0.
     let bl_byte_offset = bytes.len() as u32;
@@ -64,9 +50,9 @@ pub fn emit_call(
     });
     write_u32(bytes, bl_imm26(0));
 
-    // After BL, the AAPCS64 ret value is in x0. If the allocator placed
-    // the Call's result elsewhere (e.g. trivial alloc gave it a scratch
-    // because the Call isn't itself the function's ret), MOV it across.
+    // After BL, the AAPCS64 ret value is in X0 (int / ptr) or V0 (f64).
+    // If the allocator placed the Call's result elsewhere, MOV/FMOV
+    // it across — see `route_call_ret`.
     if let Some(result_vid) = inst.result {
         route_call_ret(bytes, alloc, result_vid);
     }
@@ -87,23 +73,10 @@ pub fn emit_call_indirect(
     args: &[Operand],
     alloc: &Assignment,
 ) {
-    assert!(
-        args.len() <= aapcs64::ARG_RET.len(),
-        "S4-C supports up to {} int args; got {} (stack-pass lands in S4+)",
-        aapcs64::ARG_RET.len(),
-        args.len()
-    );
-
     // Arg setup first so the fn_ptr scratch isn't overwritten by an
     // arg materialization. The fn_ptr is materialized last and
     // therefore lives in OP_SCRATCH_LHS or its assigned register.
-    for (idx, arg) in args.iter().enumerate() {
-        let arg_reg = aapcs64::ARG_RET[idx];
-        let src = materialize_operand_gpr(bytes, arg, OP_SCRATCH_LHS, alloc);
-        if src != arg_reg {
-            write_u32(bytes, mov_x_reg(arg_reg, src));
-        }
-    }
+    pass_args(bytes, args, alloc);
 
     let fn_ptr_reg = materialize_operand_gpr(bytes, fn_ptr, OP_SCRATCH_LHS, alloc);
     write_u32(bytes, blr_reg(fn_ptr_reg));
@@ -113,20 +86,68 @@ pub fn emit_call_indirect(
     }
 }
 
-/// Route the post-call int return value (already in X0 per AAPCS64
-/// §6.4.1) to wherever the allocator placed the SSA result:
-///   - `Reg::Gpr(X0)`: no-op (already there).
+/// AAPCS64 §5.4.2 arg passing — int / ptr args fill X0..X7 in their
+/// own lane while f64 args fill V0..V7 (D0..D7) in a parallel lane.
+/// The two counters advance independently, matching how clang lowers
+/// `void foo(int, double, int, double)` to (X0, D0, X1, D1).
+///
+/// `_sig_id` for `emit_call_indirect` isn't threaded here yet because
+/// SigId-driven coercion (e.g. promote `i32` arg to `i64`) is not
+/// part of this sub-step; the per-arg `operand_is_f64` classification
+/// suffices for the FP-arg surface that's blocking corpus_check.
+fn pass_args(bytes: &mut Vec<u8>, args: &[Operand], alloc: &Assignment) {
+    let mut int_idx = 0;
+    let mut fp_idx = 0;
+    for arg in args.iter() {
+        if operand_is_f64(arg, alloc) {
+            assert!(
+                fp_idx < aapcs64::FP_ARG_RET.len(),
+                "S4-D supports up to {} fp args; got more (stack-pass lands later)",
+                aapcs64::FP_ARG_RET.len()
+            );
+            let arg_reg = aapcs64::FP_ARG_RET[fp_idx];
+            let src = materialize_operand_fpr(bytes, arg, FP_SCRATCH_LHS, OP_SCRATCH_LHS, alloc);
+            if src != arg_reg {
+                write_u32(bytes, fmov_d_to_d(arg_reg, src));
+            }
+            fp_idx += 1;
+        } else {
+            assert!(
+                int_idx < aapcs64::ARG_RET.len(),
+                "S4-D supports up to {} int args; got more (stack-pass lands later)",
+                aapcs64::ARG_RET.len()
+            );
+            let arg_reg = aapcs64::ARG_RET[int_idx];
+            let src = materialize_operand_gpr(bytes, arg, OP_SCRATCH_LHS, alloc);
+            if src != arg_reg {
+                write_u32(bytes, mov_x_reg(arg_reg, src));
+            }
+            int_idx += 1;
+        }
+    }
+}
+
+/// Route the post-call return value to wherever the allocator placed
+/// the SSA result. Per AAPCS64 §6.4.1 int / ptr returns live in X0,
+/// f64 returns in V0 (D0):
+///
+///   - `Reg::Gpr(X0)`: no-op.
 ///   - `Reg::Gpr(other)`: MOV other, X0.
-///   - `Reg::SpillGpr(off)`: STR X0, [SP, #off] — X0 is the live ret
-///     value, no scratch detour needed.
-/// FP-typed call results land in S4-D alongside FP-arg passing; the
-/// `as_gpr()` panic on Fpr/SpillFpr keeps that future case obvious.
+///   - `Reg::SpillGpr(off)`: STR X0, [SP, #off].
+///   - `Reg::Fpr(V0)`: no-op.
+///   - `Reg::Fpr(other)`: FMOV other, V0 (D-form).
+///   - `Reg::SpillFpr(off)`: STR D0, [SP, #off].
+///
+/// X0 / V0 are the AAPCS64 caller-saved ret slots so a direct
+/// STR from them needs no scratch detour.
 fn route_call_ret(bytes: &mut Vec<u8>, alloc: &Assignment, result_vid: torajs_core::ssa::ValueId) {
     match alloc.of(result_vid) {
         Reg::Gpr(Gpr::X0) => {}
         Reg::Gpr(dst) => write_u32(bytes, mov_x_reg(dst, Gpr::X0)),
         Reg::SpillGpr(off) => write_u32(bytes, str_x_imm12(Gpr::X0, Gpr::SP, off)),
-        other => panic!("Call result in {other:?} (FP ret lands in S4-D)"),
+        Reg::Fpr(Fpr::V0) => {}
+        Reg::Fpr(dst) => write_u32(bytes, fmov_d_to_d(dst, Fpr::V0)),
+        Reg::SpillFpr(off) => write_u32(bytes, str_d_imm12(Fpr::V0, Gpr::SP, off)),
     }
 }
 

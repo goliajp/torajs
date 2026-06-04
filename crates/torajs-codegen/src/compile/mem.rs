@@ -9,7 +9,7 @@
 
 use torajs_core::ssa::{Inst, Operand, Type};
 
-use super::operand::{materialize_operand_fpr, materialize_operand_gpr};
+use super::operand::{materialize_operand_fpr, materialize_operand_gpr, operand_is_f64};
 use super::{
     FP_SCRATCH_LHS, FP_SCRATCH_RESULT, OP_SCRATCH_LHS, OP_SCRATCH_RESULT_GPR, OP_SCRATCH_RHS,
     OP_SCRATCH_TMP, write_def_spill_fpr, write_def_spill_gpr, write_u32,
@@ -18,24 +18,8 @@ use crate::enc::{
     add_imm, ldr_d_imm12, ldr_d_reg, ldr_x_imm12, ldr_x_reg, str_d_imm12, str_d_reg, str_x_imm12,
     str_x_reg,
 };
-use crate::reg::{Gpr, Reg};
+use crate::reg::Gpr;
 use crate::regalloc::Assignment;
-
-/// Operand classification for FP vs GPR mem dispatch.
-///
-/// Store / StoreDyn don't carry a `Type` in `InstKind` — the type
-/// comes from the value operand. `ConstF64` is trivially f64; for
-/// `Operand::Value(v)` we ask the allocator which register class
-/// holds the SSA value (`Fpr` / `SpillFpr` = f64, anything else is
-/// 64-bit GPR-shaped). Constants other than `ConstF64` are int /
-/// bool / null and stay on the GPR path.
-fn operand_is_f64(op: &Operand, alloc: &Assignment) -> bool {
-    match op {
-        Operand::ConstF64(_) => true,
-        Operand::Value(v) => matches!(alloc.of(*v), Reg::Fpr(_) | Reg::SpillFpr(_)),
-        _ => false,
-    }
-}
 
 /// Emit `ADD Xrd, SP, #slot_offset` — materialize the alloca's stack
 /// slot address into the GPR the allocator assigned to the result.

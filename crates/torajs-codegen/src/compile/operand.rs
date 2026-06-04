@@ -8,6 +8,21 @@ use crate::enc::{fmov_d_from_x, ldr_d_imm12, ldr_x_imm12, movk_imm, movz_imm};
 use crate::reg::{Fpr, Gpr, Reg};
 use crate::regalloc::Assignment;
 
+/// Classify an Operand as f64 vs 64-bit GPR-shaped.
+///
+/// Store / call-arg passing don't carry a `Type` in `InstKind` — the
+/// type comes from the value operand. `ConstF64` is trivially f64;
+/// for `Operand::Value(v)` we ask the allocator which register class
+/// holds the SSA value (`Fpr` / `SpillFpr` = f64). Other constants
+/// (int / bool / ptr-null) stay on the GPR path.
+pub(super) fn operand_is_f64(op: &Operand, alloc: &Assignment) -> bool {
+    match op {
+        Operand::ConstF64(_) => true,
+        Operand::Value(v) => matches!(alloc.of(*v), Reg::Fpr(_) | Reg::SpillFpr(_)),
+        _ => false,
+    }
+}
+
 /// Place `op`'s value into `scratch` (if it's an int constant or a
 /// spilled SSA value) or return the assigned register (if it's a
 /// Value already in a real GPR).
