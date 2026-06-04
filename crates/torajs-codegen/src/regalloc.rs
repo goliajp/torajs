@@ -16,7 +16,7 @@
 //! That's plenty for S1, fine for the S2 arithmetic surface, and gets
 //! replaced by real LS in S3 once Load/Store/Alloca need spill support.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use torajs_core::ssa::{Function, InstKind, Terminator, Type, ValueId};
 
 use crate::reg::{Fpr, Gpr, Reg, aapcs64};
@@ -80,7 +80,7 @@ impl Assignment {
 /// lands Linear Scan with spill support before that limit becomes
 /// load-bearing.
 pub fn allocate_trivial(func: &Function) -> Assignment {
-    let ret_vid = detect_ret_value(func);
+    let ret_vids = collect_ret_value_ids(func);
     let mut by_value: HashMap<u32, Reg> = HashMap::new();
     let mut alloca_offsets: HashMap<u32, u32> = HashMap::new();
     let mut gpr_idx = 0usize;
@@ -117,7 +117,7 @@ pub fn allocate_trivial(func: &Function) -> Assignment {
                 .map(|vi| &vi.ty)
                 .expect("ValueId out of bounds");
             let is_fp = matches!(ty, Type::F64);
-            let is_ret = ret_vid == Some(result);
+            let is_ret = ret_vids.contains(&result.0);
 
             let reg = if is_ret {
                 if is_fp {
@@ -173,18 +173,24 @@ fn type_size_bytes(ty: &Type) -> u32 {
     }
 }
 
-/// Find the ValueId returned by the function, if any. Assumes a
-/// single-block function with a `Ret(Some(Value(_)))` terminator
-/// (S1 surface — branches land in S5).
-fn detect_ret_value(func: &Function) -> Option<ValueId> {
+/// Collect every `ValueId` referenced as a ret target across all
+/// blocks (multi-block functions can have multiple `Ret(Some(...))`
+/// sites — each branch path produces its own ret value).
+///
+/// All such values share the AAPCS64 ret register slot because they
+/// are mutually exclusive at runtime: only one Ret fires per
+/// function invocation. The trivial allocator places every one of
+/// them into the same physical register (x0 for int/ptr, v0 for
+/// F64). Within-block aliasing is not a concern under SSA
+/// single-assignment semantics + per-block control-flow boundary.
+fn collect_ret_value_ids(func: &Function) -> HashSet<u32> {
+    let mut out = HashSet::new();
     for block in &func.blocks {
-        if let Terminator::Ret(Some(op)) = &block.term
-            && let torajs_core::ssa::Operand::Value(v) = op
-        {
-            return Some(*v);
+        if let Terminator::Ret(Some(torajs_core::ssa::Operand::Value(v))) = &block.term {
+            out.insert(v.0);
         }
     }
-    None
+    out
 }
 
 /// Backwards-compat helper for callers that know the value is in a

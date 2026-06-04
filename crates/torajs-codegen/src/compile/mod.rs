@@ -41,9 +41,11 @@ mod refs;
 #[cfg(test)]
 pub(crate) mod test_fixtures;
 
-use torajs_core::ssa::{Function, InstKind, Terminator};
+use std::collections::HashMap;
 
-use crate::enc::ret;
+use torajs_core::ssa::{BlockId, Function, InstKind, Terminator};
+
+use crate::enc::{b_imm26, brk_imm16, cbnz_x, ret};
 use crate::frame::FrameLayout;
 use crate::reg::{Fpr, Gpr};
 use crate::regalloc::{Assignment, allocate_trivial};
@@ -87,14 +89,35 @@ pub fn compile_function(func: &Function) -> CompiledFunction {
     let frame = FrameLayout::from_alloca_bytes(alloc.raw_alloca_bytes, alloc.has_calls);
     let mut bytes: Vec<u8> = Vec::new();
     let mut relocs: Vec<Reloc> = Vec::new();
+    let mut fixups: Vec<BranchFixup> = Vec::new();
+
+    // Track each block's start byte offset so the branch-fixup pass
+    // can compute PC-relative displacements after all blocks emit.
+    let mut block_byte_starts: HashMap<u32, u32> = HashMap::with_capacity(func.blocks.len());
 
     frame.emit_prologue(&mut bytes);
 
     for block in &func.blocks {
+        block_byte_starts.insert(block.id.0, bytes.len() as u32);
         for inst in &block.insts {
             emit_inst(&mut bytes, &mut relocs, inst, &alloc);
         }
-        emit_terminator(&mut bytes, &block.term, &frame);
+        emit_terminator(&mut bytes, &mut fixups, &block.term, &frame, &alloc);
+    }
+
+    // Patch every branch fixup with its real displacement.
+    for fixup in &fixups {
+        let target_byte_offset =
+            *block_byte_starts
+                .get(&fixup.target_block.0)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "Branch target BlockId({}) not in function",
+                        fixup.target_block.0
+                    )
+                });
+        let displacement = target_byte_offset as i32 - fixup.site_byte_offset as i32;
+        patch_branch(&mut bytes, fixup, displacement);
     }
 
     CompiledFunction {
@@ -103,6 +126,47 @@ pub fn compile_function(func: &Function) -> CompiledFunction {
         relocs,
         frame,
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum BranchKind {
+    /// B / BL — 26-bit signed displacement at bits 25-0.
+    Imm26,
+    /// CBZ / CBNZ / B.cond — 19-bit signed displacement at bits 23-5.
+    Imm19,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct BranchFixup {
+    site_byte_offset: u32,
+    target_block: BlockId,
+    kind: BranchKind,
+}
+
+fn patch_branch(bytes: &mut [u8], fixup: &BranchFixup, displacement: i32) {
+    debug_assert!(
+        displacement % 4 == 0,
+        "displacement {displacement} must be 4-byte aligned"
+    );
+    let inst_offset = displacement / 4;
+    let offset = fixup.site_byte_offset as usize;
+    let original = u32::from_le_bytes([
+        bytes[offset],
+        bytes[offset + 1],
+        bytes[offset + 2],
+        bytes[offset + 3],
+    ]);
+    let patched = match fixup.kind {
+        BranchKind::Imm26 => {
+            let imm26 = (inst_offset as u32) & 0x03FF_FFFF;
+            (original & !0x03FF_FFFF) | imm26
+        }
+        BranchKind::Imm19 => {
+            let imm19 = (inst_offset as u32) & 0x7_FFFF;
+            (original & !(0x7_FFFF << 5)) | (imm19 << 5)
+        }
+    };
+    bytes[offset..offset + 4].copy_from_slice(&patched.to_le_bytes());
 }
 
 fn emit_inst(
@@ -146,13 +210,58 @@ fn emit_inst(
     }
 }
 
-fn emit_terminator(bytes: &mut Vec<u8>, term: &Terminator, frame: &FrameLayout) {
+fn emit_terminator(
+    bytes: &mut Vec<u8>,
+    fixups: &mut Vec<BranchFixup>,
+    term: &Terminator,
+    frame: &FrameLayout,
+    alloc: &Assignment,
+) {
     match term {
         Terminator::Ret(_) => {
             frame.emit_epilogue(bytes);
             write_u32(bytes, ret(Gpr::X30));
         }
-        other => todo!("S5: Terminator::{:?}", other),
+        Terminator::Br(target_block) => {
+            let site = bytes.len() as u32;
+            fixups.push(BranchFixup {
+                site_byte_offset: site,
+                target_block: *target_block,
+                kind: BranchKind::Imm26,
+            });
+            // Emit B with placeholder displacement; patched later.
+            write_u32(bytes, b_imm26(0));
+        }
+        Terminator::CondBr {
+            cond,
+            then_blk,
+            else_blk,
+        } => {
+            // Materialize the Bool cond into a GPR scratch. If the
+            // cond is a Value, the allocator already placed it in a
+            // register and materialize_operand_gpr is a fast lookup.
+            let cond_reg = operand::materialize_operand_gpr(bytes, cond, OP_SCRATCH_LHS, alloc);
+            // CBNZ cond, then_blk — branch when cond != 0 (i.e. true).
+            let cbnz_site = bytes.len() as u32;
+            fixups.push(BranchFixup {
+                site_byte_offset: cbnz_site,
+                target_block: *then_blk,
+                kind: BranchKind::Imm19,
+            });
+            write_u32(bytes, cbnz_x(cond_reg, 0));
+            // Fall-through to else_blk via unconditional B.
+            let b_site = bytes.len() as u32;
+            fixups.push(BranchFixup {
+                site_byte_offset: b_site,
+                target_block: *else_blk,
+                kind: BranchKind::Imm26,
+            });
+            write_u32(bytes, b_imm26(0));
+        }
+        Terminator::Unreachable => {
+            // Clang/LLVM convention for `unreachable`.
+            write_u32(bytes, brk_imm16(0xFD));
+        }
     }
 }
 
@@ -198,5 +307,168 @@ mod tests {
         let func = build_one_plus_two();
         let compiled = compile_function(&func);
         assert_eq!(compiled.bytes.len(), 16, "4 instructions × 4 bytes");
+    }
+
+    // --- S5: terminator + multi-block branch layout ---
+
+    /// `fn unreachable_fn() { unreachable }` — single block, single
+    /// BRK #0xFD instruction. Trivial frame.
+    #[test]
+    fn unreachable_terminator_emits_brk() {
+        use torajs_core::ssa::{Block, BlockId, Function, Type};
+        let func = Function {
+            name: "unreachable_fn".into(),
+            params: Vec::new(),
+            ret: Type::I64,
+            values: Vec::new(),
+            blocks: vec![Block {
+                id: BlockId(0),
+                insts: Vec::new(),
+                term: Terminator::Unreachable,
+            }],
+            current_origin: None,
+        };
+        let compiled = compile_function(&func);
+        let expected = words_to_le_bytes(&[crate::enc::brk_imm16(0xFD)]);
+        assert_eq!(compiled.bytes, expected);
+    }
+
+    /// `fn br_to_block1() -> i64 { block0: B block1; block1: ret 1 }` —
+    /// two blocks, B in block 0 forward-branches to block 1.
+    #[test]
+    fn br_forward_to_next_block_byte_equal() {
+        use torajs_core::ssa::{
+            Block, BlockId, Function, Inst, InstKind, Operand, Type, ValueId, ValueInfo,
+        };
+
+        let v0 = ValueId(0);
+        let func = Function {
+            name: "br_to_block1".into(),
+            params: Vec::new(),
+            ret: Type::I64,
+            values: vec![ValueInfo {
+                ty: Type::I64,
+                name: Some("v0".into()),
+            }],
+            blocks: vec![
+                Block {
+                    id: BlockId(0),
+                    insts: Vec::new(),
+                    term: Terminator::Br(BlockId(1)),
+                },
+                Block {
+                    id: BlockId(1),
+                    insts: vec![Inst {
+                        result: Some(v0),
+                        kind: InstKind::ZExtBoolToI64(Operand::ConstBool(true)),
+                        origin: None,
+                    }],
+                    term: Terminator::Ret(Some(Operand::Value(v0))),
+                },
+            ],
+            current_origin: None,
+        };
+        let compiled = compile_function(&func);
+
+        // block 0 @ 0:  B  +4  (target = block 1 @ 4)
+        // block 1 @ 4:  MOVZ x9, #1
+        //               AND  x0, x9, #1
+        //               RET
+        let expected = words_to_le_bytes(&[
+            crate::enc::b_imm26(4),
+            crate::enc::movz_imm(Gpr::X9, 1, 0),
+            crate::enc::and_imm_one(Gpr::X0, Gpr::X9),
+            crate::enc::ret(Gpr::X30),
+        ]);
+        assert_eq!(
+            compiled.bytes, expected,
+            "br_to_block1: expected {expected:02X?}, got {:02X?}",
+            compiled.bytes
+        );
+    }
+
+    /// `fn cond_branch() -> i64 { CondBr(true, then=block1, else=block2) ... }` —
+    /// 3-block fixture verifying CondBr's CBNZ+B emit pair and the
+    /// 2-fixup patching pass.
+    #[test]
+    fn cond_branch_three_block_byte_equal() {
+        use torajs_core::ssa::{
+            Block, BlockId, Function, Inst, InstKind, Operand, Type, ValueId, ValueInfo,
+        };
+
+        let v1 = ValueId(0);
+        let v2 = ValueId(1);
+        let func = Function {
+            name: "cond_branch".into(),
+            params: Vec::new(),
+            ret: Type::I64,
+            values: vec![
+                ValueInfo {
+                    ty: Type::I64,
+                    name: Some("v1".into()),
+                },
+                ValueInfo {
+                    ty: Type::I64,
+                    name: Some("v2".into()),
+                },
+            ],
+            blocks: vec![
+                Block {
+                    id: BlockId(0),
+                    insts: Vec::new(),
+                    term: Terminator::CondBr {
+                        cond: Operand::ConstBool(true),
+                        then_blk: BlockId(1),
+                        else_blk: BlockId(2),
+                    },
+                },
+                Block {
+                    id: BlockId(1),
+                    insts: vec![Inst {
+                        result: Some(v1),
+                        kind: InstKind::ZExtBoolToI64(Operand::ConstBool(true)),
+                        origin: None,
+                    }],
+                    term: Terminator::Ret(Some(Operand::Value(v1))),
+                },
+                Block {
+                    id: BlockId(2),
+                    insts: vec![Inst {
+                        result: Some(v2),
+                        kind: InstKind::ZExtBoolToI64(Operand::ConstBool(false)),
+                        origin: None,
+                    }],
+                    term: Terminator::Ret(Some(Operand::Value(v2))),
+                },
+            ],
+            current_origin: None,
+        };
+        let compiled = compile_function(&func);
+
+        // block 0 @ 0:  MOVZ x9, #1            (materialize cond=true)
+        //               CBNZ x9, +8            (then=block1 @ 12)
+        //               B    +16               (else=block2 @ 24)
+        // block 1 @ 12: MOVZ x9, #1
+        //               AND  x0, x9, #1
+        //               RET
+        // block 2 @ 24: MOVZ x9, #0
+        //               AND  x0, x9, #1
+        //               RET
+        let expected = words_to_le_bytes(&[
+            crate::enc::movz_imm(Gpr::X9, 1, 0),
+            crate::enc::cbnz_x(Gpr::X9, 8),
+            crate::enc::b_imm26(16),
+            crate::enc::movz_imm(Gpr::X9, 1, 0),
+            crate::enc::and_imm_one(Gpr::X0, Gpr::X9),
+            crate::enc::ret(Gpr::X30),
+            crate::enc::movz_imm(Gpr::X9, 0, 0),
+            crate::enc::and_imm_one(Gpr::X0, Gpr::X9),
+            crate::enc::ret(Gpr::X30),
+        ]);
+        assert_eq!(
+            compiled.bytes, expected,
+            "cond_branch: expected {expected:02X?}, got {:02X?}",
+            compiled.bytes
+        );
     }
 }

@@ -493,6 +493,48 @@ pub fn blr_reg(rn: Gpr) -> u32 {
     0xD63F_0000 | (rn.idx() << 5)
 }
 
+// --- S5: conditional branches + breakpoint ---
+
+/// B.cond label — conditional branch with 19-bit signed PC-relative
+/// immediate (scaled by 4). ARM ARM C6.2.32:
+/// `0101 0100 imm19 0 cond`. Base = 0x5400_0000.
+///
+/// `cond` is the 4-bit condition code (see `cond::*`). `byte_offset`
+/// is the displacement from the B.cond site to the target, must be
+/// 4-byte aligned.
+pub fn b_cond_imm19(cond: u8, byte_offset: i32) -> u32 {
+    debug_assert!(cond < 16, "cond must fit in 4 bits");
+    debug_assert!(byte_offset % 4 == 0, "branch offset must be 4-byte aligned");
+    let imm19 = ((byte_offset / 4) as u32) & 0x7_FFFF;
+    0x5400_0000 | (imm19 << 5) | (cond as u32 & 0xF)
+}
+
+/// CBZ Xt, label — Compare-and-Branch on Zero (64-bit). Branches if
+/// `Xt == 0`. ARM ARM C6.2.46: `1 011010 0 imm19 Rt`.
+/// Base = 0xB400_0000.
+pub fn cbz_x(rt: Gpr, byte_offset: i32) -> u32 {
+    debug_assert!(byte_offset % 4 == 0, "branch offset must be 4-byte aligned");
+    let imm19 = ((byte_offset / 4) as u32) & 0x7_FFFF;
+    0xB400_0000 | (imm19 << 5) | rt.idx()
+}
+
+/// CBNZ Xt, label — Compare-and-Branch on Non-Zero (64-bit). Branches
+/// if `Xt != 0`. ARM ARM C6.2.47: `1 011010 1 imm19 Rt`.
+/// Base = 0xB500_0000.
+pub fn cbnz_x(rt: Gpr, byte_offset: i32) -> u32 {
+    debug_assert!(byte_offset % 4 == 0, "branch offset must be 4-byte aligned");
+    let imm19 = ((byte_offset / 4) as u32) & 0x7_FFFF;
+    0xB500_0000 | (imm19 << 5) | rt.idx()
+}
+
+/// BRK #imm16 — breakpoint exception. Used for `Terminator::Unreachable`
+/// (matches clang/LLVM convention `brk #0xfd`).
+///
+/// ARM ARM C6.2.42: `1101 0100 001 imm16 00000`. Base = 0xD420_0000.
+pub fn brk_imm16(imm: u16) -> u32 {
+    0xD420_0000 | ((imm as u32) << 5)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -613,6 +655,44 @@ mod tests {
         // BLR x12: base 0xD63F_0000, Rn=12 → bits 9-5 = 01100 → 0x180
         //   = 0xD63F_0180
         assert_eq!(blr_reg(Gpr::X12), 0xD63F_0180);
+    }
+
+    // --- S5 encoder tests ---
+
+    #[test]
+    fn b_cond_eq_zero_offset_matches_arm_arm() {
+        // B.EQ . (cond=0, offset=0)
+        //   = 0x5400_0000
+        assert_eq!(b_cond_imm19(cond::EQ, 0), 0x5400_0000);
+    }
+
+    #[test]
+    fn b_cond_ne_plus_8() {
+        // B.NE +8 — imm19 = 8/4 = 2 → bit 6 set
+        //   = 0x5400_0000 | (2<<5) | 1 = 0x5400_0041
+        assert_eq!(b_cond_imm19(cond::NE, 8), 0x5400_0041);
+    }
+
+    #[test]
+    fn cbz_x9_zero_offset_matches_arm_arm() {
+        // CBZ x9, . : base 0xB400_0000, Rt=9
+        //   = 0xB400_0009
+        assert_eq!(cbz_x(Gpr::X9, 0), 0xB400_0009);
+    }
+
+    #[test]
+    fn cbnz_x9_plus_8() {
+        // CBNZ x9, +8 — imm19 = 2 → bit 6 set
+        //   = 0xB500_0000 | (2<<5) | 9 = 0xB500_0049
+        assert_eq!(cbnz_x(Gpr::X9, 8), 0xB500_0049);
+    }
+
+    #[test]
+    fn brk_fd_matches_llvm_convention() {
+        // BRK #0xFD — clang/LLVM emits this for `unreachable`.
+        //   imm=0xFD at bits 20-5 → 0xFD<<5 = 0x1FA0
+        //   = 0xD420_0000 | 0x1FA0 = 0xD420_1FA0
+        assert_eq!(brk_imm16(0xFD), 0xD420_1FA0);
     }
 
     // --- S2-A encoder tests ---
