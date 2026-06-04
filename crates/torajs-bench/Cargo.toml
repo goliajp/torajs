@@ -1,0 +1,16 @@
+[package]
+name = "torajs-bench"
+description = "In-house micro-benchmark harness for the torajs workspace. Narrow drop-in replacement for criterion's `Criterion` + `criterion_group!` + `criterion_main!` + `bench_function` + `black_box` surface — covers the exact API every `crates/torajs-*/benches/*.rs` actually uses. Probe-iter → ≈50 ms per sample → 30 samples / 3 s budget → report min / median / mean / stddev. 0 runtime deps, std-only."
+keywords = ["benchmark", "torajs", "harness", "micro-bench"]
+categories = ["development-tools::profiling"]
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
