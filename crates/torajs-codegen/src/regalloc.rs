@@ -40,6 +40,24 @@ pub struct Assignment {
 }
 
 impl Assignment {
+    /// Build an `Assignment` from already-decided pieces. Used by
+    /// alternate allocators (`linear_scan::allocate_linear_scan`)
+    /// so they can produce the same opaque struct without exposing
+    /// the private maps.
+    pub(crate) fn from_parts(
+        by_value: HashMap<u32, Reg>,
+        alloca_offsets: HashMap<u32, u32>,
+        raw_alloca_bytes: u32,
+        has_calls: bool,
+    ) -> Self {
+        Assignment {
+            by_value,
+            alloca_offsets,
+            raw_alloca_bytes,
+            has_calls,
+        }
+    }
+
     /// Lookup the register for a `ValueId`. Panics if unallocated.
     pub fn of(&self, vid: ValueId) -> Reg {
         *self
@@ -88,7 +106,7 @@ impl Assignment {
 ///     indirect SSA call surface, S4-A/C),
 ///   - `BinOp(FRem, _, _)` — lowered to a libm `_fmod` BL by
 ///     `compile::binop` (S2-D).
-fn inst_emits_bl(kind: &InstKind) -> bool {
+pub(crate) fn inst_emits_bl(kind: &InstKind) -> bool {
     matches!(
         kind,
         InstKind::Call(_, _) | InstKind::CallIndirect(_, _, _) | InstKind::BinOp(BinOp::FRem, _, _)
@@ -185,7 +203,7 @@ pub fn allocate_trivial(func: &Function) -> Assignment {
 
 /// Slot byte size for an Alloca-shaped inst. Returns `None` for any
 /// other InstKind. Sizes round up to 8 to keep all slots 8-aligned.
-fn alloca_slot_size(kind: &InstKind) -> Option<u32> {
+pub(crate) fn alloca_slot_size(kind: &InstKind) -> Option<u32> {
     match kind {
         InstKind::Alloca(ty) => Some(align_up_8(type_size_bytes(ty))),
         InstKind::AllocaBytes(n) => Some(align_up_8(*n as u32)),
@@ -220,7 +238,7 @@ fn type_size_bytes(ty: &Type) -> u32 {
 /// them into the same physical register (x0 for int/ptr, v0 for
 /// F64). Within-block aliasing is not a concern under SSA
 /// single-assignment semantics + per-block control-flow boundary.
-fn collect_ret_value_ids(func: &Function) -> HashSet<u32> {
+pub(crate) fn collect_ret_value_ids(func: &Function) -> HashSet<u32> {
     let mut out = HashSet::new();
     for block in &func.blocks {
         if let Terminator::Ret(Some(torajs_core::ssa::Operand::Value(v))) = &block.term {
