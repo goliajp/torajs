@@ -35,7 +35,7 @@ pub use ctrl::{
 };
 pub use fp::{
     fadd_d, fcmp_d, fcvtzs_x_d, fdiv_d, fmov_d_from_x, fmov_d_to_d, fmov_x_from_d, fmul_d, fsub_d,
-    ldr_d_imm12, scvtf_d_x, str_d_imm12,
+    ldr_d_imm12, ldr_d_reg, scvtf_d_x, str_d_imm12, str_d_reg,
 };
 pub use int::{
     add_imm, add_reg, and_imm_one, and_reg, asrv_reg, cmp_reg, eor_reg, lslv_reg, lsrv_reg,

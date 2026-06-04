@@ -78,6 +78,22 @@ pub fn str_d_imm12(rt: Fpr, rn: Gpr, byte_offset: u32) -> u32 {
     0xFD00_0000 | (imm12 << 10) | (rn.idx() << 5) | rt.idx()
 }
 
+/// LDR Dt, [Xn, Xm, LSL #0] — load 64-bit FP, register-indexed, no
+/// scale (Xm is a raw byte index). ARM ARM C7.2.183 (LDR SIMD&FP,
+/// register, 64-bit form: size=11, V=1, opc=01, option=011 UXTX, S=0).
+/// Base = 0xFC60_6800 — mirrors `ldr_x_reg` with V=1.
+pub fn ldr_d_reg(rt: Fpr, rn: Gpr, rm: Gpr) -> u32 {
+    0xFC60_6800 | (rm.idx() << 16) | (rn.idx() << 5) | rt.idx()
+}
+
+/// STR Dt, [Xn, Xm, LSL #0] — store 64-bit FP, register-indexed.
+/// ARM ARM C7.2.393 (STR SIMD&FP, register, 64-bit form: size=11,
+/// V=1, opc=00, option=011 UXTX, S=0). Base = 0xFC20_6800 — mirrors
+/// `str_x_reg` with V=1.
+pub fn str_d_reg(rt: Fpr, rn: Gpr, rm: Gpr) -> u32 {
+    0xFC20_6800 | (rm.idx() << 16) | (rn.idx() << 5) | rt.idx()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -164,5 +180,21 @@ mod tests {
     fn str_d18_sp_offset_24_matches_arm_arm() {
         // STR d18, [sp, #24]   →   imm12 = 3, rn = 31, rt = 18
         assert_eq!(str_d_imm12(Fpr::V18, Gpr::SP, 24), 0xFD00_0FF2);
+    }
+
+    #[test]
+    fn ldr_d_reg_d0_x12_x10_matches_arm_arm() {
+        // LDR d0, [x12, x10]   →   GPR variant 0xF86A_6980 with V=1
+        // Base 0xFC60_6800 | (10 << 16) | (12 << 5) | 0
+        // = 0xFC60_6800 | 0x000A_0000 | 0x0000_0180
+        // = 0xFC6A_6980
+        assert_eq!(ldr_d_reg(Fpr::V0, Gpr::X12, Gpr::X10), 0xFC6A_6980);
+    }
+
+    #[test]
+    fn str_d_reg_d9_x12_x11_matches_arm_arm() {
+        // STR d9, [x12, x11]   →   GPR variant 0xF82B_6989 with V=1
+        // Base 0xFC20_6800 | (11 << 16) | (12 << 5) | 9 = 0xFC2B_6989
+        assert_eq!(str_d_reg(Fpr::V9, Gpr::X12, Gpr::X11), 0xFC2B_6989);
     }
 }
