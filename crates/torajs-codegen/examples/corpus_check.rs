@@ -151,17 +151,10 @@ fn run_sweep() {
             }
         } else {
             let msg = extract_panic_message(&stderr);
-            let is_upstream = msg.starts_with("PIPELINE ");
             let key = classify(&msg);
-            if is_upstream {
+            if let Some(stage) = upstream_kind(&msg) {
                 pipeline_failed += 1;
-                let stage = key
-                    .strip_prefix("PIPELINE ")
-                    .and_then(|s| s.split(':').next())
-                    .unwrap_or("?")
-                    .trim()
-                    .to_string();
-                *pipeline_stage_counts.entry(stage).or_insert(0) += 1;
+                *pipeline_stage_counts.entry(stage.to_string()).or_insert(0) += 1;
             } else {
                 codegen_panicked += 1;
                 *gap_counts.entry(key.clone()).or_insert(0) += 1;
@@ -246,6 +239,44 @@ fn extract_panic_message(stderr: &str) -> String {
         .find(|l| !l.is_empty())
         .unwrap_or("<empty stderr>")
         .to_string()
+}
+
+/// Bucket a panic message into an upstream pipeline stage if its shape
+/// matches a known pre-codegen failure. Returns `None` for genuine
+/// torajs-codegen panics (unhandled InstKind, FP/GPR materialization,
+/// regalloc, etc.) so they stay in the codegen-gap tally.
+///
+/// Recognized upstream shapes:
+/// - `PIPELINE <stage>: ...` — produced by `run_single` for read / lex /
+///   parse / check.
+/// - `internal: ...` — `check.rs` desugar-didn't-run guards (ClassDecl,
+///   bare `this`, `new <Class>`, `super(...)`).
+/// - `ssa-lower: ...` — explicit `ssa_lower` panics (malformed type
+///   annotations, unsupported expr / type shapes).
+/// - `statement shape not yet implemented` and its two friendlier
+///   siblings emitted from the same `ssa_lower` catch-all (`nested
+///   function declaration` / `nested class declaration`).
+fn upstream_kind(msg: &str) -> Option<&'static str> {
+    if let Some(rest) = msg.strip_prefix("PIPELINE ") {
+        return Some(match rest.split(':').next().unwrap_or("?").trim() {
+            "read" => "read",
+            "lex" => "lex",
+            "parse" => "parse",
+            "check" => "check",
+            _ => "pipeline",
+        });
+    }
+    if msg.starts_with("internal: ") {
+        return Some("check");
+    }
+    if msg.starts_with("ssa-lower: ")
+        || msg.starts_with("statement shape not yet implemented")
+        || msg.starts_with("nested function declaration")
+        || msg.starts_with("nested class declaration")
+    {
+        return Some("ssa-lower");
+    }
+    None
 }
 
 /// Collapse a panic message to a stable category.
