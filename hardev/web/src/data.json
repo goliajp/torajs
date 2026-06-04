@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-04T08:09:06.049Z",
+  "generatedAt": "2026-06-04T09:18:25.695Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 723,
@@ -28,8 +28,8 @@
     "passRateTrAccepted": 92.56
   },
   "torajs": {
-    "commit": "b0023d8",
-    "commitSubject": "feat(link): archive index — defined-extern symbols per .o member — #8 S7-B",
+    "commit": "b6ef9e7",
+    "commitSubject": "feat(link): link_to_exec_with_archives + e2e exit 7 — #8 S7-C4",
     "phase": "P10",
     "phaseTitle": "Promise + async-await + Generator",
     "conformance": {
@@ -611,6 +611,26 @@
   },
   "commits": [
     {
+      "hash": "b6ef9e7",
+      "subject": "feat(link): link_to_exec_with_archives + e2e exit 7 — #8 S7-C4"
+    },
+    {
+      "hash": "d54add7",
+      "subject": "feat(link): compute_archive_layout + ArchiveLayout — #8 S7-C3"
+    },
+    {
+      "hash": "1e86057",
+      "subject": "feat(link): compute_required_members worklist closure — #8 S7-C2"
+    },
+    {
+      "hash": "67f2702",
+      "subject": "feat(link): merge_archive_indexes + LinkConfig.archives — #8 S7-C1"
+    },
+    {
+      "hash": "d668bb2",
+      "subject": "docs(hardev): dashboard snapshot @ b0023d8 — #8 S7-A/S7-B archive parser"
+    },
+    {
       "hash": "b0023d8",
       "subject": "feat(link): archive index — defined-extern symbols per .o member — #8 S7-B"
     },
@@ -637,29 +657,9 @@
     {
       "hash": "c44e714",
       "subject": "feat(link): MH_EXECUTE emit + end-to-end exit 42 — #8 S3 + S6"
-    },
-    {
-      "hash": "8307cea",
-      "subject": "feat(link): apply_relocs — sym resolver + in-place reloc patching — #8 S1-B+S2"
-    },
-    {
-      "hash": "a6d080d",
-      "subject": "feat(link): torajs-link scaffold + ARM64 reloc patcher primitives — #8 S1-A"
-    },
-    {
-      "hash": "669941c",
-      "subject": "docs(hardev): dashboard snapshot @ c6e6b93 — #7 phase close"
-    },
-    {
-      "hash": "c6e6b93",
-      "subject": "test(obj): otool sanity check on emitted multi-fn .o — #7 S5-c"
-    },
-    {
-      "hash": "d17e5d1",
-      "subject": "feat(obj): multi-fn + RelocKind→RelocationInfo translation — #7 S5-b"
     }
   ],
-  "headSha": "b0023d8",
+  "headSha": "b6ef9e7",
   "autorun": {
     "total": 56,
     "baselineTarget": 10,
