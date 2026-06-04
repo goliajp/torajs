@@ -47,6 +47,7 @@
 #![deny(unsafe_code)]
 
 pub mod archive;
+pub mod archives_merge;
 pub mod exec;
 pub mod lc;
 pub mod patch;
@@ -54,6 +55,7 @@ pub mod resolve;
 pub mod sha256;
 pub mod sign;
 
+pub use archives_merge::{ArchiveMergeError, MergedArchives, MergedSymbol, merge_archive_indexes};
 pub use exec::{ExecLayout, LinkConfig, compute_layout, link_to_exec};
 pub use patch::{patch_branch26, patch_page21, patch_pageoff12, write_unsigned64};
 pub use resolve::{ResolvedFunction, SymTable, apply_relocs};

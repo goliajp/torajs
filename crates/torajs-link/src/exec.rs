@@ -84,6 +84,12 @@ pub struct LinkConfig {
     /// as `Identifier=…` under `codesign -d -v`. Defaults to
     /// `"tora"` if the caller doesn't override.
     pub codesign_ident: String,
+    /// Static-library `.a` archives in Apple `ld64` search order
+    /// (`archives[0]` is searched before `archives[1]`). S7-C1
+    /// only carries the bytes — symbol resolution + member
+    /// integration land in S7-C2..S7-C5. Empty for self-contained
+    /// binaries; existing callers don't need to change.
+    pub archives: Vec<Vec<u8>>,
 }
 
 /// Layout decisions made by the link driver before any bytes are
@@ -464,6 +470,7 @@ mod tests {
             entry: "_main".into(),
             sym_table: SymTable::new(),
             codesign_ident: "tora".into(),
+            archives: Vec::new(),
         };
         let layout = compute_layout(&cfg);
 
@@ -513,6 +520,7 @@ mod tests {
             entry: "_main".into(),
             sym_table: SymTable::new(),
             codesign_ident: "tora".into(),
+            archives: Vec::new(),
         };
         let bytes = link_to_exec(&cfg);
         let layout = compute_layout(&cfg);
@@ -527,6 +535,7 @@ mod tests {
             entry: "_main".into(),
             sym_table: SymTable::new(),
             codesign_ident: "tora".into(),
+            archives: Vec::new(),
         };
         let bytes = link_to_exec(&cfg);
         // mach_header_64.filetype @ offset 12..16
@@ -550,6 +559,7 @@ mod tests {
             entry: "_main".into(),
             sym_table: SymTable::new(),
             codesign_ident: "tora".into(),
+            archives: Vec::new(),
         };
         let bytes = link_to_exec(&cfg);
         // The first 16 bytes after the page boundary should match
@@ -571,6 +581,7 @@ mod tests {
             entry: "_main".into(),
             sym_table: SymTable::new(),
             codesign_ident: "tora".into(),
+            archives: Vec::new(),
         };
         let bytes = link_to_exec(&cfg);
 
@@ -689,6 +700,7 @@ mod tests {
             entry: "_main".into(),
             sym_table: SymTable::new(),
             codesign_ident: "tora".into(),
+            archives: Vec::new(),
         };
         let bytes = link_to_exec(&cfg);
 
