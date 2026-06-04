@@ -17,22 +17,21 @@
 //! replaced by real LS in S3 once Load/Store/Alloca need spill support.
 
 use std::collections::HashMap;
-use torajs_core::ssa::{Function, InstKind, Terminator, ValueId};
+use torajs_core::ssa::{Function, Terminator, Type, ValueId};
 
-use crate::reg::{Gpr, aapcs64};
+use crate::reg::{Fpr, Gpr, Reg, aapcs64};
 
 /// Per-function register assignment.
 #[derive(Debug, Clone)]
 pub struct Assignment {
-    /// Map from SSA `ValueId` (debug-stable u32) to the GPR it lives
-    /// in for its entire lifetime under trivial alloc.
-    by_value: HashMap<u32, Gpr>,
+    /// Map from SSA `ValueId` (debug-stable u32) to the register class
+    /// + slot it lives in for its entire lifetime under trivial alloc.
+    by_value: HashMap<u32, Reg>,
 }
 
 impl Assignment {
-    /// Lookup register for a `ValueId`. Panics if unallocated — caller
-    /// should `allocate()` first.
-    pub fn of(&self, vid: ValueId) -> Gpr {
+    /// Lookup the register for a `ValueId`. Panics if unallocated.
+    pub fn of(&self, vid: ValueId) -> Reg {
         *self
             .by_value
             .get(&vid.0)
@@ -45,17 +44,20 @@ impl Assignment {
     }
 }
 
-/// Trivial allocator: assign x0 to the return value, scratch regs
-/// (x9+) to everything else, in definition order. Sufficient for S1.
+/// Trivial allocator: F64 values go to FPR slots, everything else to
+/// GPR slots. The function's return value (if any) is placed in the
+/// AAPCS64 return slot (x0 for int/ptr, v0/d0 for f64); the rest get
+/// caller-saved scratch in definition order.
 ///
-/// Returns the allocation. Will panic if more than
-/// `aapcs64::CALLER_SAVED_SCRATCH.len()` ValueIds need scratch —
-/// S2/S3 land Linear Scan with spill support before that limit
-/// becomes load-bearing.
+/// Will panic if more than `CALLER_SAVED_SCRATCH.len()` GPR ValueIds
+/// or `FP_CALLER_SAVED_SCRATCH.len()` FPR ValueIds need scratch — S3
+/// lands Linear Scan with spill support before that limit becomes
+/// load-bearing.
 pub fn allocate_trivial(func: &Function) -> Assignment {
     let ret_vid = detect_ret_value(func);
-    let mut by_value: HashMap<u32, Gpr> = HashMap::new();
-    let mut scratch_idx = 0usize;
+    let mut by_value: HashMap<u32, Reg> = HashMap::new();
+    let mut gpr_idx = 0usize;
+    let mut fpr_idx = 0usize;
 
     for block in &func.blocks {
         for inst in &block.insts {
@@ -63,28 +65,39 @@ pub fn allocate_trivial(func: &Function) -> Assignment {
                 continue; // void inst (e.g. Store)
             };
 
-            let needs_x0 = ret_vid == Some(result);
-            // Skip allocating a separate slot for the ret value if we
-            // can place it directly in x0 via the def site. (Trivial
-            // alloc doesn't do coalescing — every value gets its own
-            // reg — but the ret-x0 placement is a textbook simple win
-            // and matches what the byte-equal acceptance test expects.)
-            let gpr = if needs_x0 && !matches_zero_arg_kind(&inst.kind) {
-                Gpr::X0
+            let ty = func
+                .values
+                .get(result.0 as usize)
+                .map(|vi| &vi.ty)
+                .expect("ValueId out of bounds");
+            let is_fp = matches!(ty, Type::F64);
+            let is_ret = ret_vid == Some(result);
+
+            let reg = if is_ret {
+                if is_fp {
+                    Reg::Fpr(aapcs64::FP_ARG_RET[0])
+                } else {
+                    Reg::Gpr(aapcs64::ARG_RET[0])
+                }
+            } else if is_fp {
+                let f = aapcs64::FP_CALLER_SAVED_SCRATCH[fpr_idx];
+                fpr_idx += 1;
+                Reg::Fpr(f)
             } else {
-                let scratch = aapcs64::CALLER_SAVED_SCRATCH[scratch_idx];
-                scratch_idx += 1;
-                scratch
+                let g = aapcs64::CALLER_SAVED_SCRATCH[gpr_idx];
+                gpr_idx += 1;
+                Reg::Gpr(g)
             };
-            by_value.insert(result.0, gpr);
+            by_value.insert(result.0, reg);
         }
     }
 
     Assignment { by_value }
 }
 
-/// Find the ValueId returned by the function, if any. S1 assumes a
-/// single-block function with a `Ret(Some(Value(_)))` terminator.
+/// Find the ValueId returned by the function, if any. Assumes a
+/// single-block function with a `Ret(Some(Value(_)))` terminator
+/// (S1 surface — branches land in S5).
 fn detect_ret_value(func: &Function) -> Option<ValueId> {
     for block in &func.blocks {
         if let Terminator::Ret(Some(op)) = &block.term
@@ -96,11 +109,17 @@ fn detect_ret_value(func: &Function) -> Option<ValueId> {
     None
 }
 
-/// True if this InstKind takes no operands (currently nothing in our
-/// supported surface; placeholder for InstKind variants that S2+ add
-/// where def-to-x0 placement is invalid).
-fn matches_zero_arg_kind(_kind: &InstKind) -> bool {
-    false
+/// Backwards-compat helper for callers that know the value is in a
+/// GPR slot. Cleaner than `.as_gpr()` callsites all over emit_inst.
+#[allow(dead_code)]
+pub(crate) fn require_gpr(reg: Reg) -> Gpr {
+    reg.as_gpr()
+}
+
+/// Same for FPR.
+#[allow(dead_code)]
+pub(crate) fn require_fpr(reg: Reg) -> Fpr {
+    reg.as_fpr()
 }
 
 #[cfg(test)]
@@ -139,7 +158,37 @@ mod tests {
         let func = build_one_plus_two();
         let alloc = allocate_trivial(&func);
         let v0 = ValueId(0);
-        assert_eq!(alloc.of(v0), Gpr::X0);
+        assert_eq!(alloc.of(v0), Reg::Gpr(Gpr::X0));
         assert!(alloc.contains(v0));
+    }
+
+    #[test]
+    fn f64_ret_value_goes_to_v0() {
+        let v0 = ValueId(0);
+        let func = Function {
+            name: "one_point_five_plus_two_point_five".into(),
+            params: Vec::new(),
+            ret: Type::F64,
+            values: vec![ValueInfo {
+                ty: Type::F64,
+                name: Some("v0".into()),
+            }],
+            blocks: vec![Block {
+                id: BlockId(0),
+                insts: vec![Inst {
+                    result: Some(v0),
+                    kind: InstKind::BinOp(
+                        BinOp::FAdd,
+                        Operand::ConstF64(1.5),
+                        Operand::ConstF64(2.5),
+                    ),
+                    origin: None,
+                }],
+                term: Terminator::Ret(Some(Operand::Value(v0))),
+            }],
+            current_origin: None,
+        };
+        let alloc = allocate_trivial(&func);
+        assert_eq!(alloc.of(v0), Reg::Fpr(Fpr::V0));
     }
 }

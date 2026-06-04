@@ -14,15 +14,25 @@
 //! And/Or/Xor + Shl/AShr/LShr) plus 64-bit `ConstI64` materialization
 //! via MOVZ + up-to-3 MOVK quadrant chain (handles negative i64 as
 //! `as u64` bit pattern). SREM emits as `SDIV` + `MSUB` pair.
+//!
+//! S2-B2 coverage: float `BinOp::F{Add,Sub,Mul,Div}` via D-form
+//! aarch64 FP ops. `Operand::ConstF64` materializes by writing the
+//! `to_bits()` u64 to a GPR scratch via MOVZ+MOVK chain, then FMOV-d-
+//! from-x into an FPR scratch. F64-typed return values go to V0/D0
+//! per AAPCS64 §5.1.2. `InstKind::BitCastF64ToI64` and the inverse
+//! both lower to a single FMOV between Xn and Dn — no bit conversion
+//! happens, just a reinterpret. FRem still routes to `todo!("S2-D")`
+//! pending the Call-surface work that the libm `fmod` lowering needs.
 
 use torajs_core::ssa::{BinOp, Function, InstKind, Operand, Terminator};
 
 use crate::enc::{
-    add_reg, and_reg, asrv_reg, eor_reg, lslv_reg, lsrv_reg, movk_imm, movz_imm, msub_reg, mul_reg,
-    orr_reg, ret, sdiv_reg, sub_reg,
+    add_reg, and_reg, asrv_reg, eor_reg, fadd_d, fdiv_d, fmov_d_from_x, fmov_x_from_d, fmul_d,
+    fsub_d, lslv_reg, lsrv_reg, movk_imm, movz_imm, msub_reg, mul_reg, orr_reg, ret, sdiv_reg,
+    sub_reg,
 };
 use crate::frame::FrameLayout;
-use crate::reg::Gpr;
+use crate::reg::{Fpr, Gpr};
 use crate::regalloc::{Assignment, allocate_trivial};
 use crate::reloc::Reloc;
 
@@ -53,6 +63,12 @@ const OP_SCRATCH_RHS: Gpr = Gpr::X10;
 /// a temp for the quotient).
 const OP_SCRATCH_TMP: Gpr = Gpr::X11;
 
+/// FPR scratches for materializing `Operand::ConstF64` and feeding
+/// FP binops. Same convention as the GPR scratches: LHS / RHS for
+/// the two operands of a 2-source op.
+const FP_SCRATCH_LHS: Fpr = Fpr::V16;
+const FP_SCRATCH_RHS: Fpr = Fpr::V17;
+
 /// Compile one SSA Function to aarch64 bytes.
 pub fn compile_function(func: &Function) -> CompiledFunction {
     let alloc = allocate_trivial(func);
@@ -82,22 +98,61 @@ pub fn compile_function(func: &Function) -> CompiledFunction {
 
 fn emit_inst(bytes: &mut Vec<u8>, inst: &torajs_core::ssa::Inst, alloc: &Assignment) {
     match &inst.kind {
-        InstKind::BinOp(op, lhs, rhs) => {
+        InstKind::BinOp(op, lhs, rhs) => emit_binop(bytes, inst, op, lhs, rhs, alloc),
+        InstKind::BitCastF64ToI64(src) => {
             let dst = inst
                 .result
-                .map(|v| alloc.of(v))
-                .expect("BinOp must have a result ValueId");
-            let rn = materialize_operand(bytes, lhs, OP_SCRATCH_LHS, alloc);
-            let rm = materialize_operand(bytes, rhs, OP_SCRATCH_RHS, alloc);
+                .map(|v| alloc.of(v).as_gpr())
+                .expect("BitCastF64ToI64 must have a result");
+            let src_fpr =
+                materialize_operand_fpr(bytes, src, FP_SCRATCH_LHS, OP_SCRATCH_LHS, alloc);
+            write_u32(bytes, fmov_x_from_d(dst, src_fpr));
+        }
+        InstKind::BitCastI64ToF64(src) => {
+            let dst = inst
+                .result
+                .map(|v| alloc.of(v).as_fpr())
+                .expect("BitCastI64ToF64 must have a result");
+            let src_gpr = materialize_operand_gpr(bytes, src, OP_SCRATCH_LHS, alloc);
+            write_u32(bytes, fmov_d_from_x(dst, src_gpr));
+        }
+        other => todo!("S2+: InstKind::{:?}", other),
+    }
+}
+
+fn emit_binop(
+    bytes: &mut Vec<u8>,
+    inst: &torajs_core::ssa::Inst,
+    op: &BinOp,
+    lhs: &Operand,
+    rhs: &Operand,
+    alloc: &Assignment,
+) {
+    match op {
+        // --- integer ops (GPR) ---
+        BinOp::Add
+        | BinOp::Sub
+        | BinOp::Mul
+        | BinOp::SDiv
+        | BinOp::SRem
+        | BinOp::And
+        | BinOp::Or
+        | BinOp::Xor
+        | BinOp::Shl
+        | BinOp::AShr
+        | BinOp::LShr => {
+            let dst = inst
+                .result
+                .map(|v| alloc.of(v).as_gpr())
+                .expect("int BinOp must have a result ValueId");
+            let rn = materialize_operand_gpr(bytes, lhs, OP_SCRATCH_LHS, alloc);
+            let rm = materialize_operand_gpr(bytes, rhs, OP_SCRATCH_RHS, alloc);
             match op {
                 BinOp::Add => write_u32(bytes, add_reg(dst, rn, rm)),
                 BinOp::Sub => write_u32(bytes, sub_reg(dst, rn, rm)),
                 BinOp::Mul => write_u32(bytes, mul_reg(dst, rn, rm)),
                 BinOp::SDiv => write_u32(bytes, sdiv_reg(dst, rn, rm)),
                 BinOp::SRem => {
-                    // rem = a - (a / b) * b
-                    //   SDIV  tmp, rn, rm
-                    //   MSUB  dst, tmp, rm, rn
                     write_u32(bytes, sdiv_reg(OP_SCRATCH_TMP, rn, rm));
                     write_u32(bytes, msub_reg(dst, OP_SCRATCH_TMP, rm, rn));
                 }
@@ -107,26 +162,83 @@ fn emit_inst(bytes: &mut Vec<u8>, inst: &torajs_core::ssa::Inst, alloc: &Assignm
                 BinOp::Shl => write_u32(bytes, lslv_reg(dst, rn, rm)),
                 BinOp::AShr => write_u32(bytes, asrv_reg(dst, rn, rm)),
                 BinOp::LShr => write_u32(bytes, lsrv_reg(dst, rn, rm)),
-                BinOp::FAdd | BinOp::FSub | BinOp::FMul | BinOp::FDiv | BinOp::FRem => {
-                    todo!("S2-B: float BinOp::{:?}", op)
-                }
+                _ => unreachable!(),
             }
         }
-        other => todo!("S2+: InstKind::{:?}", other),
+        // --- f64 ops (FPR) ---
+        BinOp::FAdd | BinOp::FSub | BinOp::FMul | BinOp::FDiv => {
+            let dst = inst
+                .result
+                .map(|v| alloc.of(v).as_fpr())
+                .expect("fp BinOp must have a result ValueId");
+            let rn = materialize_operand_fpr(bytes, lhs, FP_SCRATCH_LHS, OP_SCRATCH_LHS, alloc);
+            let rm = materialize_operand_fpr(bytes, rhs, FP_SCRATCH_RHS, OP_SCRATCH_RHS, alloc);
+            match op {
+                BinOp::FAdd => write_u32(bytes, fadd_d(dst, rn, rm)),
+                BinOp::FSub => write_u32(bytes, fsub_d(dst, rn, rm)),
+                BinOp::FMul => write_u32(bytes, fmul_d(dst, rn, rm)),
+                BinOp::FDiv => write_u32(bytes, fdiv_d(dst, rn, rm)),
+                _ => unreachable!(),
+            }
+        }
+        BinOp::FRem => todo!("S2-D: BinOp::FRem lowers to a libm `fmod` call"),
     }
 }
 
-/// Place `op`'s value into `scratch` (if it's a constant) or return
-/// the assigned register (if it's a Value). Returns the GPR holding
-/// the operand on entry to the consuming instruction.
-fn materialize_operand(bytes: &mut Vec<u8>, op: &Operand, scratch: Gpr, alloc: &Assignment) -> Gpr {
+/// Place `op`'s value into `scratch` (if it's an int constant) or
+/// return the assigned register (if it's a Value already in a GPR).
+fn materialize_operand_gpr(
+    bytes: &mut Vec<u8>,
+    op: &Operand,
+    scratch: Gpr,
+    alloc: &Assignment,
+) -> Gpr {
     match op {
-        Operand::Value(v) => alloc.of(*v),
+        Operand::Value(v) => alloc.of(*v).as_gpr(),
         Operand::ConstI64(c) => {
             materialize_const_i64(bytes, scratch, *c);
             scratch
         }
-        other => todo!("S2+: Operand::{:?}", other),
+        Operand::ConstI32(c) => {
+            materialize_const_i64(bytes, scratch, *c as i64);
+            scratch
+        }
+        Operand::ConstBool(b) => {
+            materialize_const_i64(bytes, scratch, *b as i64);
+            scratch
+        }
+        Operand::ConstPtrNull => {
+            materialize_const_i64(bytes, scratch, 0);
+            scratch
+        }
+        Operand::ConstF64(_) => panic!(
+            "GPR materialization can't hold an f64 — use BitCastF64ToI64 in SSA or call materialize_operand_fpr"
+        ),
+    }
+}
+
+/// Place `op`'s f64 value into an FPR. Constants land via the GPR
+/// path (MOVZ+MOVK the bit pattern then FMOV-d-from-x).
+fn materialize_operand_fpr(
+    bytes: &mut Vec<u8>,
+    op: &Operand,
+    fpr_scratch: Fpr,
+    gpr_scratch: Gpr,
+    alloc: &Assignment,
+) -> Fpr {
+    match op {
+        Operand::Value(v) => alloc.of(*v).as_fpr(),
+        Operand::ConstF64(c) => {
+            // `f64::to_bits()` gives the IEEE 754 binary64 word; the
+            // FMOV-d-from-x reinterprets those bits as an f64. No NaN
+            // canonicalization happens — the bit pattern survives
+            // intact, matching what the LLVM backend currently does.
+            let bits = c.to_bits();
+            materialize_const_i64(bytes, gpr_scratch, bits as i64);
+            write_u32(bytes, fmov_d_from_x(fpr_scratch, gpr_scratch));
+            fpr_scratch
+        }
+        other => panic!("FPR materialization can't hold {other:?}"),
     }
 }
 
@@ -456,5 +568,128 @@ mod tests {
         let w1 = u32::from_le_bytes(bytes[4..8].try_into().unwrap());
         assert_eq!(w0, crate::enc::movz_imm(Gpr::X9, 0xDEF0, 0));
         assert_eq!(w1, crate::enc::movk_imm(Gpr::X9, 0x5678, 2));
+    }
+
+    // --- S2-B2: f64 BinOp end-to-end ---
+
+    /// FMul-shape fixture with F64 return type — verifies the ret
+    /// value lands in V0/D0 (AAPCS64 §5.1.2) and the operand chain
+    /// MOVZ+MOVK → FMOV-d-from-x → FMUL works end-to-end.
+    #[test]
+    fn fp_mul_two_point_five_times_two_returns_d0() {
+        let v0 = ValueId(0);
+        let func = Function {
+            name: "fp_mul_25_times_2".into(),
+            params: Vec::new(),
+            ret: Type::F64,
+            values: vec![ValueInfo {
+                ty: Type::F64,
+                name: None,
+            }],
+            blocks: vec![Block {
+                id: BlockId(0),
+                insts: vec![Inst {
+                    result: Some(v0),
+                    kind: InstKind::BinOp(
+                        BinOp::FMul,
+                        Operand::ConstF64(2.5),
+                        Operand::ConstF64(2.0),
+                    ),
+                    origin: None,
+                }],
+                term: Terminator::Ret(Some(Operand::Value(v0))),
+            }],
+            current_origin: None,
+        };
+        let compiled = compile_function(&func);
+
+        // 2.5_f64.to_bits() = 0x4004_0000_0000_0000 (only q3 non-zero)
+        // 2.0_f64.to_bits() = 0x4000_0000_0000_0000 (only q3 non-zero)
+        let expected = words_to_le_bytes(&[
+            crate::enc::movz_imm(Gpr::X9, 0, 0),
+            crate::enc::movk_imm(Gpr::X9, 0x4004, 3),
+            crate::enc::fmov_d_from_x(Fpr::V16, Gpr::X9),
+            crate::enc::movz_imm(Gpr::X10, 0, 0),
+            crate::enc::movk_imm(Gpr::X10, 0x4000, 3),
+            crate::enc::fmov_d_from_x(Fpr::V17, Gpr::X10),
+            crate::enc::fmul_d(Fpr::V0, Fpr::V16, Fpr::V17),
+            crate::enc::ret(Gpr::X30),
+        ]);
+        assert_eq!(
+            compiled.bytes, expected,
+            "fp_mul: expected {expected:02X?}, got {:02X?}",
+            compiled.bytes
+        );
+    }
+
+    /// Mixed-type fixture exercising BitCastF64ToI64 — FAdd produces
+    /// an f64, then BitCast moves the bit pattern verbatim to an i64
+    /// ret slot via FMOV-x-from-d. Catches the FPR → GPR alloc path.
+    #[test]
+    fn fp_add_then_bitcast_to_i64() {
+        let v0 = ValueId(0); // F64 — FAdd result
+        let v1 = ValueId(1); // I64 — BitCast result, ret
+        let func = Function {
+            name: "fp_add_15_plus_25_bitcast".into(),
+            params: Vec::new(),
+            ret: Type::I64,
+            values: vec![
+                ValueInfo {
+                    ty: Type::F64,
+                    name: Some("v0".into()),
+                },
+                ValueInfo {
+                    ty: Type::I64,
+                    name: Some("v1".into()),
+                },
+            ],
+            blocks: vec![Block {
+                id: BlockId(0),
+                insts: vec![
+                    Inst {
+                        result: Some(v0),
+                        kind: InstKind::BinOp(
+                            BinOp::FAdd,
+                            Operand::ConstF64(1.5),
+                            Operand::ConstF64(2.5),
+                        ),
+                        origin: None,
+                    },
+                    Inst {
+                        result: Some(v1),
+                        kind: InstKind::BitCastF64ToI64(Operand::Value(v0)),
+                        origin: None,
+                    },
+                ],
+                term: Terminator::Ret(Some(Operand::Value(v1))),
+            }],
+            current_origin: None,
+        };
+        let compiled = compile_function(&func);
+
+        // 1.5: 0x3FF8_0000_0000_0000   2.5: 0x4004_0000_0000_0000
+        // v0 → V16 (scratch FPR, first non-ret F64),
+        // v1 → X0 (ret slot for I64).
+        let expected = words_to_le_bytes(&[
+            // FAdd lhs
+            crate::enc::movz_imm(Gpr::X9, 0, 0),
+            crate::enc::movk_imm(Gpr::X9, 0x3FF8, 3),
+            crate::enc::fmov_d_from_x(Fpr::V16, Gpr::X9),
+            // FAdd rhs
+            crate::enc::movz_imm(Gpr::X10, 0, 0),
+            crate::enc::movk_imm(Gpr::X10, 0x4004, 3),
+            crate::enc::fmov_d_from_x(Fpr::V17, Gpr::X10),
+            // FAdd dst (= V16 = scratch lhs slot — RAW handled by aarch64 within-inst aliasing)
+            crate::enc::fadd_d(Fpr::V16, Fpr::V16, Fpr::V17),
+            // BitCastF64ToI64 — FMOV x0, d16
+            crate::enc::fmov_x_from_d(Gpr::X0, Fpr::V16),
+            crate::enc::ret(Gpr::X30),
+        ]);
+        assert_eq!(
+            compiled.bytes, expected,
+            "fp_add+bitcast: expected {expected:02X?}, got {:02X?}",
+            compiled.bytes
+        );
+        assert_eq!(compiled.bytes.len(), 36, "9 inst × 4 bytes");
     }
 }

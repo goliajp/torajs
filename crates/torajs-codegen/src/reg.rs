@@ -116,6 +116,34 @@ impl Fpr {
     }
 }
 
+/// Unified register handle. Allocator decides per-value whether the
+/// value lives in a GPR or FPR based on SSA `Type` (int / ptr-shaped
+/// → Gpr; F64 → Fpr).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Reg {
+    Gpr(Gpr),
+    Fpr(Fpr),
+}
+
+impl Reg {
+    /// Extract the GPR view. Panics if the slot holds an FPR — caller
+    /// should know from instruction context which class is expected.
+    pub fn as_gpr(self) -> Gpr {
+        match self {
+            Reg::Gpr(g) => g,
+            Reg::Fpr(f) => panic!("expected Gpr, got Fpr({f:?})"),
+        }
+    }
+
+    /// Extract the FPR view. Panics if the slot holds a GPR.
+    pub fn as_fpr(self) -> Fpr {
+        match self {
+            Reg::Fpr(f) => f,
+            Reg::Gpr(g) => panic!("expected Fpr, got Gpr({g:?})"),
+        }
+    }
+}
+
 /// AAPCS64 register class for trivial allocation.
 ///
 /// Used by `regalloc` to pick scratch registers from the caller-saved
