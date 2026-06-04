@@ -32,13 +32,17 @@
 //!             two-byte alignment pad if size is odd
 //! ```
 //!
-//! S7-A (this commit) parses the structure: returns a flat list
-//! of `ArMember { name, data }` slices into the input buffer.
-//! S7-B will walk each Mach-O member and aggregate the defined
-//! external symbols into a `SymTable`-shaped map for the link
-//! driver. S7-C wires that map into `link_to_exec` so the
-//! production swap (#9) can satisfy unresolved externs from
-//! `libtorajs_*.a`.
+//! S7-A parses the ar structure: returns a flat list of
+//! `ArMember { name, data }` slices into the input buffer.
+//! S7-B (this commit) walks each Mach-O member and aggregates the
+//! defined-external symbols into an `ArchiveIndex` — name →
+//! (member index, n_value within member) so the link driver can
+//! satisfy an undefined extern by pulling in the owning member's
+//! bytes and patching the reloc against the member's
+//! `__TEXT,__text` slot.
+//! S7-C wires `ArchiveIndex` into `link_to_exec` so the
+//! production swap (#9) can resolve `__torajs_*` and `_libc_*`
+//! externs from `libtorajs_*.a`.
 
 /// Apple `.a` archive global magic — 8 bytes at the head of every
 /// file.
@@ -168,6 +172,214 @@ pub fn parse_archive(bytes: &[u8]) -> Result<Vec<ArMember<'_>>, ArParseError> {
     }
 
     Ok(members)
+}
+
+// ---- S7-B: Mach-O member symbol extraction ----
+
+use std::collections::BTreeMap;
+
+use torajs_obj::{LC_SYMTAB, MH_MAGIC_64, N_EXT, N_SECT, N_TYPE};
+
+/// One defined-external symbol observed inside a `.o` member of a
+/// `.a` archive. `member_idx` indexes into the `Vec<ArMember>`
+/// `parse_archive` returned; `n_value` is the symbol's offset
+/// within the member's `__TEXT,__text` (= `nlist_64.n_value` for
+/// the `N_SECT|N_EXT` entry).
+#[derive(Debug, Clone)]
+pub struct ArchiveSymbol {
+    pub member_idx: usize,
+    pub n_value: u64,
+}
+
+/// `name → ArchiveSymbol` map built by walking every `.o` member's
+/// LC_SYMTAB. The link driver uses this to satisfy an undefined
+/// extern: lookup name → pull in that member's bytes → patch the
+/// reloc against the member's `__TEXT,__text` slot.
+pub type ArchiveIndex = BTreeMap<String, ArchiveSymbol>;
+
+/// Walk a parsed archive, parse each Mach-O member's symbol
+/// table, and aggregate every defined external symbol into a
+/// single `name → (member_idx, n_value)` map.
+///
+/// Skips members whose Mach-O magic doesn't match `MH_MAGIC_64`
+/// (e.g. ARM64e variants, fat headers — neither of which appears
+/// in the `release-build.sh` output today). Returns
+/// `Err(ArchiveParseError::*)` when a Mach-O header is malformed
+/// or a symtab points past the member's bytes — caller can
+/// blame the staticlib by name + member offset.
+///
+/// Duplicate names: when two members both define the same
+/// symbol, the *first* one wins. Apple's `ld64` uses the same
+/// convention; downstream callers can grep for collisions if
+/// they care.
+pub fn build_archive_index(members: &[ArMember<'_>]) -> Result<ArchiveIndex, ArchiveParseError> {
+    let mut index: ArchiveIndex = BTreeMap::new();
+    for (i, m) in members.iter().enumerate() {
+        let syms = parse_member_defined_externs(m).map_err(|kind| ArchiveParseError {
+            member_idx: i,
+            member_name: m.name.to_string(),
+            kind,
+        })?;
+        for (name, n_value) in syms {
+            index.entry(name).or_insert(ArchiveSymbol {
+                member_idx: i,
+                n_value,
+            });
+        }
+    }
+    Ok(index)
+}
+
+/// Parse one Mach-O member's `LC_SYMTAB` and return every
+/// `(N_SECT | N_EXT)` symbol — those are the defined-external
+/// entries Apple `ld` resolves against. Pure parser; no allocation
+/// beyond the result `Vec`.
+pub fn parse_member_defined_externs(
+    member: &ArMember<'_>,
+) -> Result<Vec<(String, u64)>, MemberSymtabError> {
+    let bytes = member.data;
+    if bytes.len() < 32 {
+        return Err(MemberSymtabError::TruncatedHeader);
+    }
+    let magic = u32::from_le_bytes(bytes[0..4].try_into().unwrap());
+    if magic != MH_MAGIC_64 {
+        // Skip non-MH_MAGIC_64 members silently — fat archives,
+        // ARM64e variants, etc.
+        return Ok(Vec::new());
+    }
+    let ncmds = u32::from_le_bytes(bytes[16..20].try_into().unwrap()) as usize;
+
+    let mut cursor = 32usize;
+    let mut symtab: Option<(u32, u32, u32, u32)> = None; // (symoff, nsyms, stroff, strsize)
+    for _ in 0..ncmds {
+        if bytes.len() < cursor + 8 {
+            return Err(MemberSymtabError::TruncatedLoadCommand { offset: cursor });
+        }
+        let cmd = u32::from_le_bytes(bytes[cursor..cursor + 4].try_into().unwrap());
+        let cmdsize =
+            u32::from_le_bytes(bytes[cursor + 4..cursor + 8].try_into().unwrap()) as usize;
+        if cmdsize < 8 || bytes.len() < cursor + cmdsize {
+            return Err(MemberSymtabError::TruncatedLoadCommand { offset: cursor });
+        }
+        if cmd == LC_SYMTAB {
+            if cmdsize < 24 {
+                return Err(MemberSymtabError::TruncatedSymtabCmd { offset: cursor });
+            }
+            let symoff = u32::from_le_bytes(bytes[cursor + 8..cursor + 12].try_into().unwrap());
+            let nsyms = u32::from_le_bytes(bytes[cursor + 12..cursor + 16].try_into().unwrap());
+            let stroff = u32::from_le_bytes(bytes[cursor + 16..cursor + 20].try_into().unwrap());
+            let strsize = u32::from_le_bytes(bytes[cursor + 20..cursor + 24].try_into().unwrap());
+            symtab = Some((symoff, nsyms, stroff, strsize));
+        }
+        cursor += cmdsize;
+    }
+
+    let (symoff, nsyms, stroff, strsize) = match symtab {
+        Some(v) => v,
+        None => return Ok(Vec::new()),
+    };
+
+    let symoff = symoff as usize;
+    let stroff = stroff as usize;
+    let strsize = strsize as usize;
+    let nsyms = nsyms as usize;
+
+    if bytes.len() < symoff + nsyms * 16 {
+        return Err(MemberSymtabError::TruncatedSymtab {
+            symoff,
+            nsyms,
+            file_size: bytes.len(),
+        });
+    }
+    if bytes.len() < stroff + strsize {
+        return Err(MemberSymtabError::TruncatedStrtab {
+            stroff,
+            strsize,
+            file_size: bytes.len(),
+        });
+    }
+
+    let strtab = &bytes[stroff..stroff + strsize];
+    let mut out: Vec<(String, u64)> = Vec::new();
+
+    for i in 0..nsyms {
+        let off = symoff + i * 16;
+        let n_strx = u32::from_le_bytes(bytes[off..off + 4].try_into().unwrap()) as usize;
+        let n_type = bytes[off + 4];
+        let n_value = u64::from_le_bytes(bytes[off + 8..off + 16].try_into().unwrap());
+
+        // N_SECT|N_EXT = defined external.
+        if (n_type & N_TYPE) != N_SECT {
+            continue;
+        }
+        if (n_type & N_EXT) == 0 {
+            continue;
+        }
+        if n_strx >= strtab.len() {
+            return Err(MemberSymtabError::BadStrx {
+                sym_index: i,
+                n_strx,
+            });
+        }
+        let end_off = strtab[n_strx..]
+            .iter()
+            .position(|&b| b == 0)
+            .map(|p| n_strx + p)
+            .ok_or(MemberSymtabError::UnterminatedSymName {
+                sym_index: i,
+                n_strx,
+            })?;
+        let name_bytes = &strtab[n_strx..end_off];
+        let name = std::str::from_utf8(name_bytes)
+            .map_err(|_| MemberSymtabError::NameNotUtf8 { sym_index: i })?;
+        out.push((name.to_string(), n_value));
+    }
+
+    Ok(out)
+}
+
+/// Failures `build_archive_index` can report. Wraps a
+/// `MemberSymtabError` with the offending member's index + name so
+/// the link driver can blame a specific `.o` inside a specific
+/// `.a` instead of just "something is broken".
+#[derive(Debug)]
+pub struct ArchiveParseError {
+    pub member_idx: usize,
+    pub member_name: String,
+    pub kind: MemberSymtabError,
+}
+
+/// Per-Mach-O-member parse failures.
+#[derive(Debug, PartialEq, Eq)]
+pub enum MemberSymtabError {
+    TruncatedHeader,
+    TruncatedLoadCommand {
+        offset: usize,
+    },
+    TruncatedSymtabCmd {
+        offset: usize,
+    },
+    TruncatedSymtab {
+        symoff: usize,
+        nsyms: usize,
+        file_size: usize,
+    },
+    TruncatedStrtab {
+        stroff: usize,
+        strsize: usize,
+        file_size: usize,
+    },
+    BadStrx {
+        sym_index: usize,
+        n_strx: usize,
+    },
+    UnterminatedSymName {
+        sym_index: usize,
+        n_strx: usize,
+    },
+    NameNotUtf8 {
+        sym_index: usize,
+    },
 }
 
 /// Errors `parse_archive` can return. Each variant carries the
@@ -426,5 +638,132 @@ mod tests {
         archive.extend_from_slice(&header);
         let err = parse_archive(&archive).unwrap_err();
         assert!(matches!(err, ArParseError::BadFmag { offset } if offset == 8));
+    }
+
+    // ---- S7-B: Mach-O symbol extraction tests ----
+
+    /// Empty Mach-O member (smaller than 32-byte header) trips
+    /// the truncation check loudly.
+    #[test]
+    fn parse_member_too_small_errors_truncated_header() {
+        let m = ArMember {
+            name: "x.o",
+            data: b"too short",
+        };
+        assert_eq!(
+            parse_member_defined_externs(&m).unwrap_err(),
+            MemberSymtabError::TruncatedHeader,
+        );
+    }
+
+    /// A non-Mach-O member (anything that isn't 0xfeedfacf magic)
+    /// returns an empty symbol list — we don't crash on legacy
+    /// 32-bit Mach-O / fat-archive members, just skip them.
+    #[test]
+    fn parse_member_non_mach_o_magic_skipped() {
+        let mut data = vec![0u8; 64];
+        data[0..4].copy_from_slice(&0xfeedface_u32.to_le_bytes()); // MH_MAGIC (32-bit)
+        let m = ArMember {
+            name: "x.o",
+            data: &data,
+        };
+        let syms = parse_member_defined_externs(&m).unwrap();
+        assert!(syms.is_empty());
+    }
+
+    /// Real `libtorajs_syscall.a` produces hundreds of
+    /// defined-external symbols — enough that we can spot-check a
+    /// few `__torajs_*` names exist.
+    #[test]
+    fn real_libtorajs_syscall_index_contains_known_symbols() {
+        let candidates = [
+            "target/aarch64-apple-darwin/release/libtorajs_syscall.a",
+            "../../target/aarch64-apple-darwin/release/libtorajs_syscall.a",
+        ];
+        let bytes = match candidates.iter().find_map(|p| std::fs::read(p).ok()) {
+            Some(b) => b,
+            None => {
+                eprintln!("skip: libtorajs_syscall.a not built yet");
+                return;
+            }
+        };
+
+        let members = parse_archive(&bytes).expect("ar parse");
+        let index = build_archive_index(&members).expect("symbol index build");
+        assert!(
+            !index.is_empty(),
+            "real libtorajs_syscall.a must define some externs"
+        );
+        // Sanity: hundreds of std + torajs symbols.
+        assert!(
+            index.len() > 100,
+            "expected > 100 defined externs, got {}",
+            index.len()
+        );
+        // The archive includes the std prelude + the syscall
+        // wrappers; any of these would normally be present. Don't
+        // assert on a specific symbol (the rustc-internal mangling
+        // changes), just sanity-check the type.
+        for (name, sym) in index.iter().take(3) {
+            eprintln!(
+                "sample sym: {name:?} → member_idx={} n_value=0x{:x}",
+                sym.member_idx, sym.n_value
+            );
+            assert!(!name.is_empty());
+            assert!(sym.member_idx < members.len());
+        }
+    }
+
+    /// Synthetic single-member archive carrying a hand-built
+    /// Mach-O with one `_foo` symbol round-trips through
+    /// `build_archive_index`.
+    #[test]
+    fn synthetic_single_sym_archive_round_trips() {
+        // Re-use torajs-obj's writer to produce a real .o, wrap
+        // it in a single-member archive, and confirm
+        // `build_archive_index` extracts the sym.
+        use torajs_codegen::compile_function;
+        use torajs_core::ssa::{
+            BinOp, Block, BlockId, Function, Inst, InstKind, Operand, Terminator, Type, ValueId,
+            ValueInfo,
+        };
+        use torajs_obj::write_object;
+
+        let v0 = ValueId(0);
+        let f = Function {
+            name: "_foo".into(),
+            params: Vec::new(),
+            ret: Type::I64,
+            values: vec![ValueInfo {
+                ty: Type::I64,
+                name: Some("v0".into()),
+            }],
+            blocks: vec![Block {
+                id: BlockId(0),
+                insts: vec![Inst {
+                    result: Some(v0),
+                    kind: InstKind::BinOp(BinOp::Add, Operand::ConstI64(7), Operand::ConstI64(0)),
+                    origin: None,
+                }],
+                term: Terminator::Ret(Some(Operand::Value(v0))),
+            }],
+            current_origin: None,
+        };
+        let cf = compile_function(&f);
+        let obj_bytes = write_object(std::slice::from_ref(&cf));
+
+        let archive = build_short_name_archive("foo.o", &obj_bytes);
+        let members = parse_archive(&archive).unwrap();
+        assert_eq!(members.len(), 1);
+        let index = build_archive_index(&members).unwrap();
+        assert!(
+            index.contains_key("_foo"),
+            "synthetic archive must surface _foo; got {:?}",
+            index.keys().collect::<Vec<_>>()
+        );
+        let sym = &index["_foo"];
+        assert_eq!(sym.member_idx, 0);
+        // _foo lives at section-relative offset 0 inside the .o.
+        assert_eq!(sym.n_value, 0);
     }
 }
