@@ -4,8 +4,8 @@ use torajs_core::ssa::{FPred, IPred, Inst, Operand};
 
 use super::operand::{materialize_operand_fpr, materialize_operand_gpr};
 use super::write_u32;
-use super::{FP_SCRATCH_LHS, FP_SCRATCH_RHS, OP_SCRATCH_LHS, OP_SCRATCH_RHS};
-use crate::enc::{cmp_reg, cond, cset_cond, fcmp_d};
+use super::{FP_SCRATCH_LHS, FP_SCRATCH_RHS, OP_SCRATCH_LHS, OP_SCRATCH_RHS, OP_SCRATCH_TMP};
+use crate::enc::{cmp_reg, cond, cset_cond, fcmp_d, orr_reg};
 use crate::regalloc::Assignment;
 
 pub fn emit_icmp(
@@ -41,7 +41,29 @@ pub fn emit_fcmp(
     let rn = materialize_operand_fpr(bytes, lhs, FP_SCRATCH_LHS, OP_SCRATCH_LHS, alloc);
     let rm = materialize_operand_fpr(bytes, rhs, FP_SCRATCH_RHS, OP_SCRATCH_RHS, alloc);
     write_u32(bytes, fcmp_d(rn, rm));
-    write_u32(bytes, cset_cond(dst, fpred_to_cond(pred)));
+    match pred {
+        FPred::One => {
+            // Ordered ≠ = `MI ∨ GT` (lt or gt), NaN → false.
+            //
+            // FCMP sets NZCV per ARM ARM "Floating-point conditions":
+            //   ordered lt → N=1, Z=0, V=0
+            //   ordered gt → N=0, Z=0, C=1, V=0  (then N==V via N=0,V=0)
+            //   ordered eq → Z=1, V=0
+            //   unordered  → N=0, Z=0, C=1, V=1
+            //
+            // CSET MI checks N=1 → only ordered lt.
+            // CSET GT checks Z=0 ∧ N==V → ordered gt (rejects unordered
+            // because there N=0 ≠ V=1) and rejects eq (Z=1).
+            // ORR yields 1 iff ordered ne, 0 otherwise — same 3-inst
+            // form clang -O2 emits for `fcmp one`.
+            write_u32(bytes, cset_cond(OP_SCRATCH_TMP, cond::MI));
+            write_u32(bytes, cset_cond(dst, cond::GT));
+            write_u32(bytes, orr_reg(dst, dst, OP_SCRATCH_TMP));
+        }
+        _ => {
+            write_u32(bytes, cset_cond(dst, fpred_to_cond(pred)));
+        }
+    }
 }
 
 /// Map an SSA integer predicate to the aarch64 condition code that
@@ -71,9 +93,9 @@ pub fn ipred_to_cond(p: IPred) -> u8 {
 ///   Oge → GE  (N=V; unordered N=0,V=1 → false)
 ///   Une → NE  (Z=0; ordered-equal Z=1 → false)
 ///
-/// `FPred::One` (ordered ≠) needs `Z=0 ∧ V=0` which is not a single
-/// cond — typically lowered as CSET-NE + CSET-VC + AND or via CCMP.
-/// Routed to `todo!("S2-D")` for now.
+/// `FPred::One` (ordered ≠) is not a single-cond predicate — it
+/// expands to CSET MI + CSET GT + ORR inline inside `emit_fcmp` and
+/// never reaches this single-cond mapping table.
 pub fn fpred_to_cond(p: FPred) -> u8 {
     match p {
         FPred::Oeq => cond::EQ,
@@ -82,7 +104,9 @@ pub fn fpred_to_cond(p: FPred) -> u8 {
         FPred::Ole => cond::LS,
         FPred::Oge => cond::GE,
         FPred::Une => cond::NE,
-        FPred::One => todo!("S2-D: FPred::One (ordered ≠) needs CCMP fold or NE+VC+AND"),
+        FPred::One => {
+            unreachable!("FPred::One has its own 3-inst sequence in emit_fcmp")
+        }
     }
 }
 
@@ -233,6 +257,56 @@ mod tests {
         assert_eq!(fpred_to_cond(FPred::Ole), cond::LS);
         assert_eq!(fpred_to_cond(FPred::Oge), cond::GE);
         assert_eq!(fpred_to_cond(FPred::Une), cond::NE);
-        // FPred::One is `todo!("S2-D")` and not exercised here.
+        // FPred::One is dispatched inline by `emit_fcmp` and is not in
+        // the single-cond table — calling `fpred_to_cond(One)` panics.
+    }
+
+    #[test]
+    #[should_panic(expected = "FPred::One has its own 3-inst sequence")]
+    fn fpred_to_cond_panics_on_one() {
+        let _ = fpred_to_cond(FPred::One);
+    }
+
+    /// `fcmp_one_two_ne_three`: lhs=2.0, rhs=3.0 → ordered ≠ → true (1).
+    ///
+    /// Expected 10-instruction body (consts use MOVZ-quadrant-3
+    /// MOVK chain → FMOV-d-from-x, same shape as the other FCmp tests
+    /// in this file):
+    ///
+    /// ```text
+    ///   MOVZ x9, #0          (lhs lo quadrant)
+    ///   MOVK x9, #0x4000, lsl #48
+    ///   FMOV d16, x9
+    ///   MOVZ x10, #0         (rhs lo quadrant)
+    ///   MOVK x10, #0x4008, lsl #48
+    ///   FMOV d17, x10
+    ///   FCMP d16, d17
+    ///   CSET x11, MI         (lt → 1 only on ordered-lt)
+    ///   CSET x0,  GT         (gt → 1 only on ordered-gt)
+    ///   ORR  x0, x0, x11     (final: 1 iff ordered ne)
+    ///   RET
+    /// ```
+    #[test]
+    fn fcmp_one_two_ne_three_byte_equal() {
+        let func = build_fcmp_const("fcmp_one_2_3", FPred::One, 2.0, 3.0);
+        let compiled = compile_function(&func);
+        let expected = words_to_le_bytes(&[
+            enc::movz_imm(Gpr::X9, 0, 0),
+            enc::movk_imm(Gpr::X9, 0x4000, 3),
+            enc::fmov_d_from_x(Fpr::V16, Gpr::X9),
+            enc::movz_imm(Gpr::X10, 0, 0),
+            enc::movk_imm(Gpr::X10, 0x4008, 3),
+            enc::fmov_d_from_x(Fpr::V17, Gpr::X10),
+            enc::fcmp_d(Fpr::V16, Fpr::V17),
+            enc::cset_cond(Gpr::X11, cond::MI),
+            enc::cset_cond(Gpr::X0, cond::GT),
+            enc::orr_reg(Gpr::X0, Gpr::X0, Gpr::X11),
+            enc::ret(Gpr::X30),
+        ]);
+        assert_eq!(
+            compiled.bytes, expected,
+            "fcmp_one_2_3: expected {expected:02X?}, got {:02X?}",
+            compiled.bytes
+        );
     }
 }
